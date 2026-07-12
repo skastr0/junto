@@ -1,5 +1,5 @@
 import type { CanvasDoc, CanvasNode } from "./canvas";
-import { glyphKey, signalKey } from "./refs";
+import { glyphKey, sessionKey, signalKey } from "./refs";
 
 // Glyph-level drill-down: explode a project's glyph board onto a canvas —
 // one group node per orbit, one bound text node per glyph inside it. A pure
@@ -273,6 +273,109 @@ export const explodeSignalsInto = (
 
     cursorX += width + SIGNAL_GROUP_GAP_X;
   }
+
+  return { nodes: [...doc.nodes, ...added], edges: doc.edges };
+};
+
+// Session-level drill-down: same shape as explodeSignalsInto above, against
+// a project's quasar session history instead of its tower signal feed. One
+// difference in layout: quasar sessions carry no orbit dimension, so this is
+// a single group per project ("<project> · sessions") rather than one group
+// per orbit. Same idempotency guarantee: once that group node exists, a
+// re-run leaves it (and its session nodes) untouched rather than risk a
+// duplicate/colliding id.
+
+export interface ExplodeSession {
+  readonly sessionId: string;
+  readonly provider: string;
+  readonly title?: string;
+  readonly messageCount: number;
+}
+
+const SESSION_W = 220;
+const SESSION_H = 46;
+const SESSION_GAP_X = 16;
+const SESSION_GAP_Y = 12;
+const SESSION_COLS = 3;
+const SESSION_GROUP_PAD_X = 24;
+const SESSION_GROUP_PAD_TOP = 50; // room for the group label
+const SESSION_GROUP_PAD_BOTTOM = 24;
+const SESSION_TEXT_MAX = 36;
+
+const truncateSessionText = (text: string): string =>
+  text.length > SESSION_TEXT_MAX ? `${text.slice(0, SESSION_TEXT_MAX - 3)}...` : text;
+
+const sessionGroupNodeId = (project: string): string => `ses-grp-${slug(project)}`;
+
+const sessionNodeId = (sessionId: string): string => `ses-${slug(sessionId)}`;
+
+const sessionGroupNode = (
+  project: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): CanvasNode => ({
+  id: sessionGroupNodeId(project),
+  type: "group",
+  label: `${project} · sessions`,
+  x,
+  y,
+  width,
+  height,
+});
+
+const sessionTextNode = (session: ExplodeSession, x: number, y: number): CanvasNode => ({
+  id: sessionNodeId(session.sessionId),
+  type: "text",
+  x,
+  y,
+  width: SESSION_W,
+  height: SESSION_H,
+  text: truncateSessionText(`${session.provider} · ${session.title || `${session.messageCount} msgs`}`),
+  ether: {
+    entity: { kind: "session" },
+    bindings: [{ source: "quasar", ref: { type: "session", key: sessionKey(session.sessionId) } }],
+  },
+});
+
+export const explodeSessionsInto = (
+  doc: CanvasDoc,
+  project: string,
+  sessions: ReadonlyArray<ExplodeSession>,
+): CanvasDoc => {
+  const existingIds = new Set(doc.nodes.map((node) => node.id));
+
+  const groupId = sessionGroupNodeId(project);
+  // Already exploded for this project — leave the existing group and its
+  // session nodes untouched rather than risk a duplicate/colliding id.
+  if (existingIds.has(groupId)) return doc;
+
+  const newSessions = sessions.filter((session) => !existingIds.has(sessionNodeId(session.sessionId)));
+  if (newSessions.length === 0) return doc;
+
+  const maxY = doc.nodes.reduce((m, node) => Math.max(m, node.y + node.height), 0);
+  const originY = doc.nodes.length > 0 ? maxY + 120 : 0;
+
+  const cols = Math.min(SESSION_COLS, newSessions.length);
+  const rows = Math.ceil(newSessions.length / SESSION_COLS);
+  const width = SESSION_GROUP_PAD_X * 2 + cols * SESSION_W + (cols - 1) * SESSION_GAP_X;
+  const height =
+    SESSION_GROUP_PAD_TOP + SESSION_GROUP_PAD_BOTTOM + rows * SESSION_H + (rows - 1) * SESSION_GAP_Y;
+
+  const added: CanvasNode[] = [sessionGroupNode(project, 0, originY, width, height)];
+
+  newSessions.forEach((session, index) => {
+    const col = index % SESSION_COLS;
+    const row = Math.floor(index / SESSION_COLS);
+    added.push(
+      sessionTextNode(
+        session,
+        SESSION_GROUP_PAD_X + col * (SESSION_W + SESSION_GAP_X),
+        originY + SESSION_GROUP_PAD_TOP + row * (SESSION_H + SESSION_GAP_Y),
+      ),
+    );
+  });
 
   return { nodes: [...doc.nodes, ...added], edges: doc.edges };
 };

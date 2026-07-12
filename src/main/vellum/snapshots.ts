@@ -2,10 +2,10 @@ import { Context, Effect, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import type { SnapshotBundle, SnapshotState } from "@shared/entities";
 import type { BindingHint } from "@shared/ipc";
-import { parseGlyphKey, parseSignalKey } from "@shared/refs";
+import { parseGlyphKey, parseSessionKey, parseSignalKey } from "@shared/refs";
 import { fetchBoothBundle } from "./adapters/booth";
 import { fetchHermesBundle } from "./adapters/hermes";
-import { fetchQuasarBundle } from "./adapters/quasar";
+import { fetchQuasarBundle, resolveQuasarSessionHints } from "./adapters/quasar";
 import { fetchTowerBundle, resolveTowerGlyphHints, resolveTowerSignalHints } from "./adapters/tower";
 
 // The read-only data plane. Adapters shell out to reference CLIs and
@@ -92,6 +92,26 @@ const withSignalHints = async (
   }
 };
 
+// Session-level hydration: mirrors withGlyphHints/withSignalHints exactly,
+// against the QUASAR bundle instead of tower and resolveQuasarSessionHints
+// instead of the tower REST resolvers. Fully isolated — a CLI hiccup or a bug
+// here must never take down the project-level quasar bundle that already
+// succeeded.
+const withSessionHints = async (
+  quasar: SnapshotBundle,
+  hintKeys: ReadonlyArray<string>,
+): Promise<SnapshotBundle> => {
+  const sessionKeys = hintKeys.filter((key) => parseSessionKey(key) !== undefined);
+  if (sessionKeys.length === 0) return quasar;
+  try {
+    const sessionEntities = await resolveQuasarSessionHints(sessionKeys);
+    if (sessionEntities.length === 0) return quasar;
+    return { ...quasar, entities: [...quasar.entities, ...sessionEntities] };
+  } catch {
+    return quasar;
+  }
+};
+
 export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
   let state: SnapshotState = emptyState;
   let lastHints: ReadonlyArray<BindingHint> | undefined;
@@ -100,16 +120,23 @@ export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
 
   const refresh = async (hints?: ReadonlyArray<BindingHint>): Promise<SnapshotState> => {
     lastHints = hints;
+    const quasarHints = hintsFor(hints, "quasar");
+    // Session-shaped hints ("session:<id>") are a different concern than the
+    // project-key hints fetchQuasarBundle's own enrichment expects — keep
+    // them out of its list; withSessionHints below picks them up instead.
+    const quasarProjectHints = quasarHints.filter((key) => parseSessionKey(key) === undefined);
+
     const [tower, quasar, booth, hermes] = await Promise.all([
       guarded("tower", () => fetchTowerBundle()),
-      guarded("quasar", () => fetchQuasarBundle(hintsFor(hints, "quasar"))),
+      guarded("quasar", () => fetchQuasarBundle(quasarProjectHints)),
       guarded("booth", () => fetchBoothBundle(hintsFor(hints, "booth"))),
       guarded("hermes", () => fetchHermesBundle()),
     ]);
     const towerWithGlyphs = await withGlyphHints(tower, hintsFor(hints, "tower"));
     const towerWithSignals = await withSignalHints(towerWithGlyphs, hintsFor(hints, "tower"));
+    const quasarWithSessions = await withSessionHints(quasar, quasarHints);
 
-    state = { bundles: [towerWithSignals, quasar, booth, hermes] };
+    state = { bundles: [towerWithSignals, quasarWithSessions, booth, hermes] };
     for (const listener of listeners) listener(state);
     return state;
   };

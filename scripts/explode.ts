@@ -4,10 +4,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Either } from "effect";
 import { applyMirrorLaw, decodeCanvasDoc, serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
-import { explodeProjectInto, explodeSignalsInto } from "../src/shared/explode";
+import { explodeProjectInto, explodeSessionsInto, explodeSignalsInto } from "../src/shared/explode";
 import { fetchProjectGlyphs, fetchProjectSignals } from "../src/main/vellum/adapters/tower-rest";
+import { fetchProjectSessions, resolveQuasarKey } from "../src/main/vellum/adapters/quasar";
 
-// Headless explode: `bun run explode <project> [canvas] [--all-states] [--signals]`
+// Headless explode: `bun run explode <project> [canvas] [--all-states] [--signals] [--sessions]`
 // fetches the project's live glyph board (forge/beacon/scribe/survey/oracle)
 // over the tower REST API and lays one group per orbit, one bound text node
 // per glyph, onto ~/.vellum/canvases/<canvas|portfolio>.canvas. Existing
@@ -18,6 +19,13 @@ import { fetchProjectGlyphs, fetchProjectSignals } from "../src/main/vellum/adap
 // --signals additionally explodes the project's signal feed alongside the
 // glyph board (one group per orbit, one bound text node per signal),
 // hydrated live via resolveTowerSignalHints on refresh.
+//
+// --sessions additionally explodes the project's recent quasar session
+// history (one group, one bound text node per session, capped to the 20 most
+// recently updated). `project` is a tower project name; quasar keys sessions
+// by its own projectKey, so this first resolves that key via
+// resolveQuasarKey. A project with no matching quasar project is not an
+// error — it just adds no session nodes.
 
 const canvasesDir = () => join(homedir(), ".vellum", "canvases");
 const canvasPath = (name: string) => join(canvasesDir(), `${name}.canvas`);
@@ -40,16 +48,19 @@ const orbitSummaryOf = <T extends { orbit: string }>(items: ReadonlyArray<T>): s
   return [...byOrbit.entries()].map(([orbit, count]) => `${orbit}:${count}`).join(" ");
 };
 
+const SESSIONS_CAP = 20;
+
 const main = async () => {
   const args = process.argv.slice(2);
   const allStates = args.includes("--all-states");
   const withSignals = args.includes("--signals");
+  const withSessions = args.includes("--sessions");
   const positional = args.filter((arg) => !arg.startsWith("--"));
   const project = positional[0];
   const canvasName = positional[1] ?? "portfolio";
 
   if (!project) {
-    console.error("usage: bun run explode <project> [canvas] [--all-states] [--signals]");
+    console.error("usage: bun run explode <project> [canvas] [--all-states] [--signals] [--sessions]");
     process.exit(1);
   }
 
@@ -65,16 +76,56 @@ const main = async () => {
     process.exit(1);
   }
 
-  if (glyphResult.glyphs.length === 0 && (signalResult?.signals.length ?? 0) === 0) {
-    console.error(
-      `explode: project "${project}" has no ${allStates ? "" : "active "}glyphs${withSignals ? " or signals" : ""} on the board`,
-    );
+  // Quasar keys sessions by its own projectKey (e.g.
+  // "git:github.com/skastr0/prism"), not the tower project name — resolve it
+  // first. No match is not a failure: it just means this project has no
+  // session history to explode.
+  let quasarKey: string | undefined;
+  let sessionResult: Awaited<ReturnType<typeof fetchProjectSessions>> | undefined;
+  if (withSessions) {
+    quasarKey = await resolveQuasarKey(project);
+    if (!quasarKey) {
+      console.error(`explode: no quasar project for "${project}"`);
+    } else {
+      sessionResult = await fetchProjectSessions(quasarKey, SESSIONS_CAP);
+      if (!sessionResult.ok) {
+        console.error(
+          `explode: failed to fetch sessions for "${project}" (${quasarKey}): ${sessionResult.error ?? "unknown error"}`,
+        );
+        process.exit(1);
+      }
+    }
+  }
+
+  if (
+    glyphResult.glyphs.length === 0 &&
+    (signalResult?.signals.length ?? 0) === 0 &&
+    (sessionResult?.sessions.length ?? 0) === 0
+  ) {
+    const missing = [
+      `${allStates ? "" : "active "}glyphs`,
+      withSignals ? "signals" : undefined,
+      withSessions ? "sessions" : undefined,
+    ].filter((part): part is string => part !== undefined);
+    console.error(`explode: project "${project}" has no ${missing.join(" or ")} to add`);
     process.exit(1);
   }
 
   const existing = await readExisting(canvasName);
   let exploded = explodeProjectInto(existing, project, glyphResult.glyphs);
   if (signalResult) exploded = explodeSignalsInto(exploded, project, signalResult.signals);
+  if (sessionResult) {
+    exploded = explodeSessionsInto(
+      exploded,
+      project,
+      sessionResult.sessions.map((session) => ({
+        sessionId: session.sessionId,
+        provider: session.provider,
+        title: session.title,
+        messageCount: session.messageCount,
+      })),
+    );
+  }
   const added = exploded.nodes.length - existing.nodes.length;
 
   const validated = decodeCanvasDoc(exploded);
@@ -93,6 +144,13 @@ const main = async () => {
     `${glyphResult.glyphs.length} ${allStates ? "" : "active "}glyph(s) fetched (${orbitSummaryOf(glyphResult.glyphs)})`,
   ];
   if (signalResult) parts.push(`${signalResult.signals.length} signal(s) fetched (${orbitSummaryOf(signalResult.signals)})`);
+  if (withSessions) {
+    parts.push(
+      sessionResult
+        ? `${sessionResult.sessions.length} session(s) fetched from ${quasarKey}`
+        : `0 sessions (no quasar project for "${project}")`,
+    );
+  }
 
   console.error(
     `explode: ${project} → ${parts.join(", ")}, added ${added} new node(s) to ${canvasName}.canvas (${exploded.nodes.length} total). Reload the app.`,
