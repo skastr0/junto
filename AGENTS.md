@@ -11,7 +11,8 @@ Canvases live at `~/.vellum/canvases/*.canvas`. Read or write them directly (the
 | command | what it does |
 |---|---|
 | `bun run populate [name] [--all]` | merge the live corpus (tower/quasar/hermes) onto a canvas as bound, hydrated nodes. Default = owned/registered projects; `--all` = every indexed repo. Idempotent, preserves existing nodes. |
-| `bun run explode <project> [name] [--all-states]` | drill a project into its glyphs — one bound node per glyph, grouped by orbit. Idempotent. |
+| `bun run explode <project> [name] [--signals] [--all-states]` | drill a project into its glyphs (and, with `--signals`, its signal queue) — one bound node per glyph/signal, grouped by orbit. Idempotent. |
+| `bun run connect [name]` | derive provenance edges: drilled glyph/signal nodes → their project, and each signal → the fleet agent that emitted it. Opt-in, idempotent. |
 | `bun run render [name]` | write `<name>.svg` — a deep-field image of the board, for multimodal reading. |
 | `bun run digest [name]` | print (and write `<name>.digest.txt`) a deterministic text projection of the board + live source data. |
 | `bun run canvas:ls [--json]` | list canvases with node/edge counts. |
