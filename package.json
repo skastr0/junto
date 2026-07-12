@@ -18,7 +18,8 @@
     "digest": "bun scripts/digest.ts",
     "canvas:ls": "bun scripts/canvas-ls.ts",
     "populate": "bun scripts/populate.ts",
-    "explode": "bun scripts/explode.ts"
+    "explode": "bun scripts/explode.ts",
+    "render": "bun scripts/render.ts"
   },
   "dependencies": {
     "@effect/platform": "^0.96.0",
