@@ -1,4 +1,8 @@
-# chassis architecture
+# vellum architecture
+
+vellum is built on the chassis station recipe as-built (Electron shell). STATION-ARCHITECTURE prefers Tauri by default; this station inherits Electron deliberately — the chassis Electron implementation is the working, verified template today, and the POC optimizes for a playable station over shell migration. Revisit at production hardening.
+
+The inherited chassis architecture follows. vellum-specific planes: `src/shared/canvas.ts` (JSON Canvas + ether document), `src/main/vellum/` (document + snapshot services and IPC), `src/renderer/` (the canvas surface).
 
 Chassis is the canonical local desktop app architecture for AI-first stations. The baseline stack is Electron, Effect, Codex App Server, Prism, Vite, React, Tailwind, Motion, and Legend State.
 

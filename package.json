@@ -4,6 +4,7 @@
   "description": "Desktop station for the portfolio canvas: JSON Canvas + ether extension over tower, quasar, and booth.",
   "type": "module",
   "private": true,
+  "trustedDependencies": ["electron"],
   "main": "./out/main/index.js",
   "packageManager": "bun@1.3.13",
   "scripts": {
