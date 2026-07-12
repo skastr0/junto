@@ -10,6 +10,9 @@ export const orbitKey = (project: string, orbit: string): string => `orbit:${pro
 export const glyphKey = (project: string, orbit: string, glyphId: string): string =>
   `glyph:${project}/${orbit}/${glyphId}`;
 
+export const signalKey = (project: string, orbit: string, signalId: string): string =>
+  `signal:${project}/${orbit}/${signalId}`;
+
 export const sessionKey = (sessionId: string): string => `session:${sessionId}`;
 
 export interface GlyphRef {
@@ -23,6 +26,19 @@ export const parseGlyphKey = (key: string): GlyphRef | undefined => {
   const [project, orbit, glyphId] = key.slice("glyph:".length).split("/");
   if (!project || !orbit || !glyphId) return undefined;
   return { project, orbit, glyphId };
+};
+
+export interface SignalRef {
+  readonly project: string;
+  readonly orbit: string;
+  readonly signalId: string;
+}
+
+export const parseSignalKey = (key: string): SignalRef | undefined => {
+  if (!key.startsWith("signal:")) return undefined;
+  const [project, orbit, signalId] = key.slice("signal:".length).split("/");
+  if (!project || !orbit || !signalId) return undefined;
+  return { project, orbit, signalId };
 };
 
 export interface OrbitRef {

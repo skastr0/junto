@@ -26,7 +26,7 @@ export type EtherFlag = typeof EtherFlag.Type;
 export const TowerBinding = Schema.Struct({
   source: Schema.Literal("tower"),
   ref: Schema.Struct({
-    type: Schema.Literal("project", "orbit", "glyph"),
+    type: Schema.Literal("project", "orbit", "glyph", "signal"),
     key: Schema.String,
   }),
 });
