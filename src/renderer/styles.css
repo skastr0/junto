@@ -327,7 +327,8 @@ body {
 .field-empty__copy { margin-top: 10px; color: #68604a; font-size: 10px; letter-spacing: .06em; line-height: 1.7; }
 .field-empty__clear { margin: 14px auto 0; border: 1px solid rgba(57,198,214,.3); border-radius: 5px; color: #39c6d6; padding: 6px 9px; font-size: 8px; letter-spacing: .14em; text-transform: uppercase; transition: background .18s ease, border-color .18s ease; }
 .field-empty__clear:hover { border-color: rgba(57,198,214,.68); background: rgba(57,198,214,.08); }
-.vellum-group__label { display: inline-flex; align-items: center; gap: 6px; color: rgba(237,230,218,.78) !important; background: rgba(12,11,10,.78) !important; border-color: rgba(232,163,61,.25) !important; box-shadow: 0 5px 14px rgba(0,0,0,.18); }
+.vellum-group__label { display: inline-flex; align-items: center; gap: 6px; color: rgba(237,230,218,.6) !important; background: transparent !important; border-color: transparent !important; }
+.vellum-group__label:hover { color: rgba(237,230,218,.85) !important; }
 .vellum-group__label-prefix { color: #68604a; }
 .vellum-resize-handle { width: 10px !important; height: 10px !important; border: 1px solid #e8a33d !important; border-radius: 2px !important; background: #131110 !important; box-shadow: 0 0 0 3px rgba(232,163,61,.08); }
 .vellum-resize-line { border-color: rgba(232,163,61,.5) !important; }
@@ -412,8 +413,8 @@ button {
    surface only on node hover or while a connection is being dragged — never a
    permanent overlay. */
 .vellum-handle {
-  width: 11px;
-  height: 11px;
+  width: 9px;
+  height: 9px;
   border-radius: 999px;
   background: #0c0b0a;
   border: 1px solid rgba(232, 163, 61, 0.5);
@@ -436,15 +437,19 @@ button {
 .vellum-handle--source.react-flow__handle-left { transform: translate(-50%, -50%) translateX(-2px); }
 .vellum-handle--target.react-flow__handle-left { transform: translate(-50%, -50%) translateX(3px); }
 
-.vellum-node:hover .vellum-handle {
+/* Node hover reveals the source dots only; target handles stay hidden (they
+   still accept drops), so a card never wears more than four quiet dots.
+   React Flow stamps `connectionindicator` on every connectable handle at
+   rest — it must never force visibility. */
+.vellum-node:hover .vellum-handle--source {
   opacity: 1;
 }
 
-.vellum-handle.connectionindicator,
 .vellum-handle.clickconnecting,
-.vellum-handle.connectingfrom {
+.vellum-handle.connectingfrom,
+.vellum-handle.connectingto {
   opacity: 1;
-  box-shadow: 0 0 0 4px rgba(232, 163, 61, 0.12), 0 0 14px rgba(232, 163, 61, 0.28);
+  box-shadow: 0 0 8px rgba(232, 163, 61, 0.25);
 }
 
 .vellum-handle.connectingto.valid {

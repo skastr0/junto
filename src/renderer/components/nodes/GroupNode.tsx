@@ -20,7 +20,7 @@ function RegionToolbar({ nodeId, selected, onEdit }: { readonly nodeId: string; 
 
 function RegionLabel({ label, editing, draft, inputRef, onDraft, onCommit, onCancel, onEdit }: { readonly label: string; readonly editing: boolean; readonly draft: string; readonly inputRef: React.RefObject<HTMLInputElement | null>; readonly onDraft: (value: string) => void; readonly onCommit: () => void; readonly onCancel: () => void; readonly onEdit: () => void }) {
   if (editing) return <input ref={inputRef} autoFocus aria-label="Edit region label" className="nodrag rounded-sm bg-[#131110] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] outline-none" style={{ color: INK, border: `1px solid ${withAlpha(HUE.amber, 0.4)}` }} value={draft} onChange={(event) => onDraft(event.target.value)} onBlur={onCommit} onKeyDown={(event) => { if (event.key === "Enter") onCommit(); if (event.key === "Escape") onCancel(); }} />;
-  return <span className="vellum-group__label cursor-text rounded-sm px-2 py-1 text-[10px] uppercase tracking-[0.18em]" style={{ color: withAlpha(INK, 0.72), background: "rgba(12,11,10,0.72)", border: `1px solid ${withAlpha(INK, 0.1)}` }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); onEdit(); }}><span className="vellum-group__label-prefix">region /</span>{label || "unnamed"}</span>;
+  return <span className="vellum-group__label cursor-text rounded-sm px-2 py-1 text-[10px] uppercase tracking-[0.18em]" onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); onEdit(); }}>{label || "unnamed region"}</span>;
 }
 
 export function GroupNode({ data, selected }: NodeProps<FlowNode>) {

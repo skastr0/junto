@@ -4,7 +4,6 @@ import { Ban, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { borderColor, HUE, withAlpha } from "../../lib/theme";
 import { deleteNode, toggleFlag } from "../../lib/mutations";
-import { EntityBadges } from "../EntityBadges";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
 const FLAG_HUES: Record<EtherFlag, string> = {
@@ -53,8 +52,7 @@ export function NodeShell({ node, selected, blocked, onEdit, onOpen, children }:
     <ConnectionHandles /><NodeActions node={node} selected={selected} onEdit={onEdit} />
     {flags.length > 0 ? <div className="vellum-node__flag-rail">{flags.map((flag) => <span key={flag} className="vellum-node__flag" style={{ color: FLAG_HUES[flag], borderColor: withAlpha(FLAG_HUES[flag], 0.36), background: withAlpha(FLAG_HUES[flag], 0.09) }}>{flag}</span>)}</div> : null}
     <div className="vellum-node__body min-h-0 flex-1 overflow-hidden">
-      {node.ether?.entity ? <EntityBadges entity={node.ether.entity} bindings={node.ether.bindings} /> : null}
-      <div className="min-h-0 overflow-hidden">{children}</div>
+      <div className="h-full min-h-0 overflow-hidden">{children}</div>
     </div>
   </div>;
 }

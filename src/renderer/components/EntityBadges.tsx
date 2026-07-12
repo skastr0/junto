@@ -1,5 +1,5 @@
 import { use$ } from "@legendapp/state/react";
-import type { EtherBinding, EtherEntity } from "@shared/canvas";
+import type { EtherBinding } from "@shared/canvas";
 import { findEntity } from "@shared/entities";
 import type { Entity, EntitySource, SnapshotState } from "@shared/entities";
 import { SOURCE_HUE, withAlpha } from "../lib/theme";
@@ -70,22 +70,14 @@ function StatBadge({ source, label, value }: { readonly source: EntitySource; re
 }
 
 export function EntityBadges({
-  entity,
   bindings,
 }: {
-  readonly entity: EtherEntity;
   readonly bindings: ReadonlyArray<EtherBinding> | undefined;
 }) {
   const snapshots = use$(state$.snapshots);
 
   return (
     <div className="mb-1.5 flex flex-wrap items-center gap-1">
-      <span
-        className="rounded-sm px-1.5 py-0.5 text-[9px] uppercase tracking-[0.16em]"
-        style={{ color: "#EDE6DA", background: "rgba(237,230,218,0.07)", border: "1px solid rgba(237,230,218,0.14)" }}
-      >
-        {entity.kind}
-      </span>
       {(bindings ?? []).map((binding, i) => {
         const source = binding.source;
         const entityRow = findEntity(snapshots, source, binding.ref.key);

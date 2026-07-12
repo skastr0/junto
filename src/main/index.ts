@@ -3,6 +3,12 @@ import { app, BrowserWindow, shell } from "electron";
 import { AppRuntime } from "./runtime";
 import { registerIpcHandlers } from "./ipc";
 
+// Dev-only: expose the Chrome DevTools Protocol so agents can drive the app
+// end to end (screenshot, click, evaluate) over CDP. Never in packaged builds.
+if (!app.isPackaged) {
+  app.commandLine.appendSwitch("remote-debugging-port", "9223");
+}
+
 const createWindow = () => {
   const mainWindow = new BrowserWindow({
     width: 1320,

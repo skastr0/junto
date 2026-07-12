@@ -233,6 +233,7 @@ function AddNodePanel() {
           ? makeLinkNode(position.x, position.y)
           : makeGroupNode(position.x, position.y);
     addNode(node);
+    state$.focusNodeId.set(node.id);
     dismiss();
   };
 
@@ -246,12 +247,16 @@ function AddNodePanel() {
 
   const addProject = (display: string, bindings: ReadonlyArray<EtherBinding>) => {
     const position = nextPosition({ width: 240, height: 96 });
-    addNode(makeProjectNode(position.x, position.y, display, bindings));
+    const node = makeProjectNode(position.x, position.y, display, bindings);
+    addNode(node);
+    state$.focusNodeId.set(node.id);
     dismiss();
   };
   const addAgent = (label: string, key: string) => {
     const position = nextPosition({ width: 240, height: 96 });
-    addNode(makeAgentNode(position.x, position.y, label, key));
+    const node = makeAgentNode(position.x, position.y, label, key);
+    addNode(node);
+    state$.focusNodeId.set(node.id);
     dismiss();
   };
 

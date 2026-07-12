@@ -8,9 +8,8 @@ import { HUE } from "../lib/theme";
 function CanvasReadout({ name, countLabel, edges, regions }: { readonly name: string; readonly countLabel: string; readonly edges: number; readonly regions: number }) {
   return (
     <div className="field-readout pointer-events-none absolute left-5 top-5 z-20 hidden w-[230px] md:block">
-      <div className="field-readout__eyebrow"><span className="field-readout__signal" />live surface / 01</div>
+      <div className="field-readout__eyebrow"><span className="field-readout__signal" />canvas</div>
       <div className="field-readout__title">{name || "portfolio"}</div>
-      <div className="field-readout__meta">{name || "portfolio"} canvas · spatial document</div>
       <div className="field-readout__rule" />
       <div className="field-readout__stats">
         <span><strong>{countLabel}</strong> nodes</span>
@@ -52,7 +51,7 @@ function CanvasHint({ counts }: { readonly counts: Readonly<Record<EtherFlag, nu
   const flagFilter = use$(state$.flagFilter);
   return (
     <div className="field-hint pointer-events-auto absolute bottom-5 right-5 z-20 hidden items-center gap-2 md:flex">
-      <MousePointer2 size={12} /><span>double-click add · drag to move · connect in inspector</span><Link2 size={12} /><span className="field-hint__secondary">select edge · delete</span>
+      <MousePointer2 size={12} /><span>double-click add · drag to move</span><Link2 size={12} /><span className="field-hint__secondary">drag an edge dot to connect</span>
       <div className="field-hint__filters">{FLAG_ITEMS.map(({ flag, label, hue }) => counts[flag] > 0 ? <button key={flag} type="button" className={`field-hint__flag${flagFilter === flag ? " is-active" : ""}`} aria-label={`Show ${label} nodes`} aria-pressed={flagFilter === flag} style={{ color: hue }} onClick={() => toggleFlagFilter(flag)}>{counts[flag]} {label}</button> : null)}{flagFilter ? <button type="button" className="field-hint__clear" aria-label="Show all flags" onClick={() => { state$.flagFilter.set(""); state$.selectedNodeId.set(""); state$.selectedEdgeId.set(""); }}>all</button> : null}</div>
     </div>
   );
