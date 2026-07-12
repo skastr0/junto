@@ -1,114 +1,185 @@
-import { use$ } from "@legendapp/state/react";
-import { FileDown, Plus, RefreshCw } from "lucide-react";
+import { use$, useObservable } from "@legendapp/state/react";
+import { useEffect, useRef, useState } from "react";
+import { Activity, CircleHelp, FileDown, LayoutGrid, List, Orbit, Plus, Redo2, RefreshCw, ScanLine, Search, Undo2, X } from "lucide-react";
 import type { EntitySource } from "@shared/entities";
-import { state$ } from "../lib/state";
+import type { CanvasSummary } from "@shared/ipc";
+import { state$, toggleSourceFilter } from "../lib/state";
+import { retrySave } from "../lib/mutations";
 import { HUE, INK, SOURCE_HUE } from "../lib/theme";
 
-const SOURCES: ReadonlyArray<EntitySource> = ["tower", "quasar", "booth"];
+const SOURCES: ReadonlyArray<EntitySource> = ["tower", "quasar", "booth", "hermes"];
 
-function SourceDot({ source }: { readonly source: EntitySource }) {
+function SourceDot({ source, active, onClick }: { readonly source: EntitySource; readonly active: boolean; readonly onClick: () => void }) {
   const snapshots = use$(state$.snapshots);
   const bundle = snapshots.bundles.find((b) => b.source === source);
   const ok = bundle?.ok ?? false;
   const hue = ok ? SOURCE_HUE[source] : HUE.crimson;
   const when = bundle ? new Date(bundle.fetchedAt).toLocaleTimeString() : "never";
+  return <button type="button" className={`station-source-button${active ? " is-active" : ""}`} aria-label={`${source} source ${ok ? "healthy" : "unavailable"}`} aria-haspopup="dialog" aria-expanded={active} style={{ color: ok ? SOURCE_HUE[source] : "#8a8378" }} title={`${source} · ${ok ? "ok" : "down"} · ${when}`} onClick={onClick}><span className="size-2 rounded-full" style={{ background: hue, opacity: ok ? 0.9 : 0.5 }} />{source}</button>;
+}
+
+function SourceHealthPopover({ sourceFilter, onToggleSource, onClose }: { readonly sourceFilter: EntitySource | ""; readonly onToggleSource: (source: EntitySource) => void; readonly onClose: () => void }) {
+  const snapshots = use$(state$.snapshots);
+  return <aside className="station-health-popover" role="dialog" aria-label="Adapter health">
+    <div className="station-health-popover__header"><div><div className="station-health-popover__eyebrow">adapter plane</div><strong>signal integrity</strong></div><button type="button" aria-label="Close adapter health" onClick={onClose}>×</button></div>
+    <div className="station-health-popover__list">{SOURCES.map((source) => {
+      const bundle = snapshots.bundles.find((item) => item.source === source);
+      const ok = bundle?.ok ?? false;
+      const fetched = bundle ? new Date(bundle.fetchedAt).toLocaleTimeString() : "never";
+      return <button type="button" className={`station-health-popover__row${sourceFilter === source ? " is-active" : ""}`} aria-label={`Show ${source} signals`} aria-pressed={sourceFilter === source} onClick={() => onToggleSource(source)}><span className="station-health-popover__name"><i style={{ background: ok ? SOURCE_HUE[source] : HUE.crimson }} />{source}</span><span className={ok ? "station-health-popover__ok" : "station-health-popover__error"}>{ok ? `ok · ${fetched}` : bundle?.error ?? "unavailable"}</span></button>;
+    })}</div>
+  </aside>;
+}
+
+function HelpPopover({ onClose }: { readonly onClose: () => void }) {
+  const shortcuts = [
+    ["/ · ⌘K", "focus search"],
+    ["double-click", "add a note"],
+    ["drag handle", "move signals"],
+    ["edge handles / inspector", "connect signals"],
+    ["click edge", "inspect relation"],
+    ["⌘Z · ⇧⌘Z", "undo / redo"],
+    ["Escape", "close overlays / clear selection"],
+  ] as const;
+  return <aside className="station-help-popover" role="dialog" aria-label="Interaction help">
+    <div className="station-help-popover__header"><div><div className="station-help-popover__eyebrow">field protocol</div><strong>interaction map</strong></div><button type="button" aria-label="Close interaction help" onClick={onClose}>×</button></div>
+    <div className="station-help-popover__list">{shortcuts.map(([key, action]) => <div className="station-help-popover__row" key={key}><kbd>{key}</kbd><span>{action}</span></div>)}<div className="station-help-popover__row"><kbd>fit all</kbd><span>frame the full graph</span></div></div>
+  </aside>;
+}
+
+function CanvasPicker({ canvases, canvasName, busy, onOpen, onCreate }: { readonly canvases: ReadonlyArray<CanvasSummary>; readonly canvasName: string; readonly busy: boolean; readonly onOpen: (name: string) => void; readonly onCreate: (name: string) => void }) {
+  const createName$ = useObservable("");
+  const createOpen$ = useObservable(false);
+  const createName = use$(createName$);
+  const createOpen = use$(createOpen$);
+
+  const closeCreate = () => {
+    createOpen$.set(false);
+    createName$.set("");
+  };
+  const submitCreate = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = createName.trim();
+    if (!name) return;
+    onCreate(name);
+    closeCreate();
+  };
+
   return (
-    <span
-      className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.14em]"
-      style={{ color: ok ? SOURCE_HUE[source] : "#8a8378" }}
-      title={`${source} · ${ok ? "ok" : "down"} · ${when}`}
-    >
-      <span className="size-2 rounded-full" style={{ background: hue, opacity: ok ? 0.9 : 0.5 }} />
-      {source}
-    </span>
+    <>
+      <div className="station-context"><ScanLine size={14} /><span className="station-context__label">active canvas</span><span className="station-context__value">{canvasName || "portfolio"}</span>{busy ? <span className="station-context__loading" role="status" aria-live="polite">opening</span> : null}</div>
+      <select className="station-select" disabled={busy} aria-busy={busy} style={{ borderColor: "rgba(237,230,218,0.16)", color: INK }} value={canvasName} onChange={(e) => onOpen(e.target.value)}>
+        {canvases.length === 0 ? <option value="">no canvases</option> : null}
+        {canvases.map((canvas) => <option key={canvas.name} value={canvas.name} style={{ background: "#131110" }}>{canvas.name}</option>)}
+      </select>
+      <button className="station-icon-button" disabled={busy} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="new canvas" aria-label="New canvas" onClick={() => createOpen$.set(true)}><Plus size={15} /></button>
+      {createOpen ? (
+        <div className="canvas-dialog-backdrop" role="presentation" onMouseDown={closeCreate}>
+          <form className="canvas-dialog" role="dialog" aria-modal="true" aria-labelledby="canvas-dialog-title" onSubmit={submitCreate} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") closeCreate(); }}>
+            <div className="canvas-dialog__eyebrow">station / new surface</div>
+            <h2 id="canvas-dialog-title">Create canvas</h2>
+            <p>Give this field a name. You can switch between canvases from the station bar.</p>
+            <label className="canvas-dialog__field">
+              <span>canvas name</span>
+              <input autoFocus aria-label="Canvas name" value={createName} onChange={(event) => createName$.set(event.target.value)} placeholder="e.g. research" />
+            </label>
+            <div className="canvas-dialog__actions">
+              <button type="button" className="canvas-dialog__cancel" onClick={closeCreate}>cancel</button>
+              <button type="submit" className="canvas-dialog__submit" disabled={!createName.trim()}>create canvas</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+    </>
   );
 }
 
-export function TopBar({
-  onOpen,
-  onCreate,
-  onExport,
-  onRefresh,
-}: {
-  readonly onOpen: (name: string) => void;
-  readonly onCreate: (name: string) => void;
-  readonly onExport: () => void;
-  readonly onRefresh: () => void;
-}) {
+function SearchField({ canvasName }: { readonly canvasName: string }) {
+  const value = use$(state$.searchQuery);
+  const label = `Search ${canvasName || "portfolio"}`;
+  const setSearch = (next: string) => {
+    state$.searchQuery.set(next);
+    state$.selectedNodeId.set("");
+    state$.selectedEdgeId.set("");
+  };
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable='true']")) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        inputRef.current?.focus();
+      }
+      if (!event.metaKey && !event.ctrlKey && event.key === "/") {
+        event.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+  return <label className="station-search" title="Search signals · / or ⌘K"><Search size={14} /><input ref={inputRef} aria-label={label} value={value} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setSearch(""); inputRef.current?.blur(); } }} placeholder="search field" />{value ? <button type="button" className="station-search__clear" aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button> : null}</label>;
+}
+
+function ViewToggle() {
+  const mode = use$(state$.viewMode);
+  return <button className="station-view-toggle" title={mode === "field" ? "open manifest view" : "return to field view"} aria-label={mode === "field" ? "Open manifest view" : "Return to field view"} onClick={() => state$.viewMode.set(mode === "field" ? "manifest" : "field")}>{mode === "field" ? <List size={14} /> : <LayoutGrid size={14} />}<span>{mode === "field" ? "manifest" : "field"}</span></button>;
+}
+
+function GenerateButton({ canvasName, onGenerate }: { readonly canvasName: string; readonly onGenerate: () => void }) {
+  const generating = use$(state$.generating);
+  const label = canvasName || "portfolio";
+  return <button className="station-generate-button" disabled={generating} title={`hydrate ${label} from live sources`} aria-label={generating ? `Hydrating ${label}` : `Hydrate ${label}`} onClick={onGenerate}><Orbit size={14} className={generating ? "station-spin" : ""} /><span>{generating ? "syncing" : "hydrate"}</span></button>;
+}
+
+function HistoryButtons({ onUndo, onRedo }: { readonly onUndo: () => void; readonly onRedo: () => void }) {
+  const canUndo = use$(state$.canUndo);
+  const canRedo = use$(state$.canRedo);
+  return <div className="station-history"><button disabled={!canUndo} aria-label="Undo last change" title="undo" onClick={onUndo}><Undo2 size={13} /></button><button disabled={!canRedo} aria-label="Redo last change" title="redo" onClick={onRedo}><Redo2 size={13} /></button></div>;
+}
+
+function SaveStatus() {
+  const saveState = use$(state$.saveState);
+  const label = saveState === "saving" ? "saving" : saveState === "error" ? "save error" : "saved";
+  if (saveState === "error") return <button className="station-save station-save--error" title="Retry writing the latest canvas change" aria-label="Retry save" onClick={retrySave}><span className="station-save__dot" /><span>retry save</span></button>;
+  return <div role="status" aria-live="polite" className={`station-save station-save--${saveState}`} title={`Canvas ${label}`}><span className="station-save__dot" /><span>{label}</span></div>;
+}
+
+export function TopBar({ onOpen, onCreate, onGenerate, onUndo, onRedo, onExport, onRefresh }: { readonly onOpen: (name: string) => void; readonly onCreate: (name: string) => void; readonly onGenerate: () => void; readonly onUndo: () => void; readonly onRedo: () => void; readonly onExport: () => void; readonly onRefresh: () => void }) {
   const canvases = use$(state$.canvases);
   const canvasName = use$(state$.canvasName);
-
+  const canvasLoading = use$(state$.canvasLoading);
+  const refreshing = use$(state$.refreshing);
+  const exporting = use$(state$.exporting);
+  const sourceFilter = use$(state$.sourceFilter);
+  const [healthOpen, setHealthOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  useEffect(() => {
+    if (!healthOpen && !helpOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") { setHealthOpen(false); setHelpOpen(false); } };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && !target.closest(".station-actions")) { setHealthOpen(false); setHelpOpen(false); }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [healthOpen, helpOpen]);
   return (
-    <header
-      className="flex items-center gap-3 border-b px-4 py-2.5"
-      style={{ borderColor: "rgba(237,230,218,0.1)", background: "rgba(12,11,10,0.85)" }}
-    >
-      <div className="flex items-center gap-2">
-        <span
-          className="text-[11px] font-semibold uppercase tracking-[0.28em]"
-          style={{ color: HUE.amber }}
-        >
-          vellum
-        </span>
-        <span className="text-[9px] uppercase tracking-[0.18em]" style={{ color: "#8a8378" }}>
-          station
-        </span>
-      </div>
-
-      <div className="mx-2 h-5 w-px" style={{ background: "rgba(237,230,218,0.1)" }} />
-
-      <select
-        className="h-8 rounded-md border bg-transparent px-2 text-[12px] outline-none"
-        style={{ borderColor: "rgba(237,230,218,0.16)", color: INK }}
-        value={canvasName}
-        onChange={(e) => onOpen(e.target.value)}
-      >
-        {canvases.length === 0 ? <option value="">no canvases</option> : null}
-        {canvases.map((c) => (
-          <option key={c.name} value={c.name} style={{ background: "#131110" }}>
-            {c.name}
-          </option>
-        ))}
-      </select>
-
-      <button
-        className="grid size-8 place-items-center rounded-md border transition hover:bg-white/5"
-        style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }}
-        title="new canvas"
-        onClick={() => {
-          const name = window.prompt("New canvas name")?.trim();
-          if (name) onCreate(name);
-        }}
-      >
-        <Plus size={15} />
-      </button>
-
-      <div className="ml-auto flex items-center gap-4">
-        <div className="flex items-center gap-3">
-          {SOURCES.map((s) => (
-            <SourceDot key={s} source={s} />
-          ))}
-        </div>
-
-        <button
-          className="grid size-8 place-items-center rounded-md border transition hover:bg-white/5"
-          style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.cyan }}
-          title="refresh snapshots"
-          onClick={onRefresh}
-        >
-          <RefreshCw size={15} />
-        </button>
-
-        <button
-          className="inline-flex h-8 items-center gap-2 rounded-md border px-3 text-[11px] uppercase tracking-[0.14em] transition hover:bg-white/5"
-          style={{ borderColor: "rgba(232,163,61,0.35)", color: HUE.amber }}
-          title="export digest"
-          onClick={onExport}
-        >
-          <FileDown size={14} />
-          digest
-        </button>
-      </div>
+    <header className="station-bar">
+      <div className="station-brand"><div className="station-brand__mark" aria-hidden><span /><span /><span /></div><div><div className="station-brand__name">vellum</div><div className="station-brand__sub">station / portfolio field</div></div></div>
+      <div className="station-bar__divider" />
+      <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} />
+      <SearchField canvasName={canvasName} />
+      <ViewToggle />
+      <GenerateButton canvasName={canvasName} onGenerate={onGenerate} />
+      <HistoryButtons onUndo={onUndo} onRedo={onRedo} />
+      <SaveStatus />
+      <div className="station-actions relative ml-auto flex items-center gap-3"><div className="station-sources">{SOURCES.map((source) => <SourceDot key={source} source={source} active={healthOpen} onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }} />)}</div><button type="button" className="station-health-trigger" aria-label="Open adapter health" aria-expanded={healthOpen} aria-haspopup="dialog" onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }}><Activity size={14} /></button><button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => { setHealthOpen(false); setHelpOpen((open) => !open); }}><CircleHelp size={14} /></button>{healthOpen ? <SourceHealthPopover sourceFilter={sourceFilter} onToggleSource={toggleSourceFilter} onClose={() => setHealthOpen(false)} /> : null}{helpOpen ? <HelpPopover onClose={() => setHelpOpen(false)} /> : null}<button className="station-icon-button" disabled={refreshing} aria-label={refreshing ? "Refreshing snapshots" : "Refresh snapshots"} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.cyan }} title={refreshing ? "refreshing snapshots" : "refresh snapshots"} onClick={onRefresh}><RefreshCw size={15} className={refreshing ? "station-spin" : ""} /></button><button className="station-digest-button inline-flex items-center gap-2" disabled={exporting} aria-label={exporting ? "Exporting digest" : "Export digest"} style={{ borderColor: "rgba(232,163,61,.35)", color: HUE.amber }} title={exporting ? "exporting digest" : "export digest"} onClick={onExport}><FileDown size={14} className={exporting ? "station-spin" : ""} /><span>{exporting ? "syncing" : "digest"}</span></button></div>
     </header>
   );
 }

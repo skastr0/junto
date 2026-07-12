@@ -33,13 +33,17 @@ const PRESET: Record<string, string> = {
   "6": HUE.violet, // purple
 };
 
+export const accentColor = (color?: string): string => {
+  if (!color) return HUE.amber;
+  if (color.startsWith("#")) return color;
+  return PRESET[color] ?? HUE.amber;
+};
+
 // Resolve a JSON Canvas color (preset digit or hex) to a border tint. Absent
 // color falls back to the house amber, kept translucent so it stays quiet.
 export const borderColor = (color?: string, emphasized = false): string => {
-  if (!color) return emphasized ? withAlpha(HUE.amber, 0.5) : withAlpha(HUE.amber, 0.32);
-  if (color.startsWith("#")) return color;
-  const preset = PRESET[color];
-  return preset ?? withAlpha(HUE.amber, 0.32);
+  if (color?.startsWith("#")) return color;
+  return withAlpha(accentColor(color), emphasized ? 0.5 : 0.32);
 };
 
 export const EDGE_COLOR: Record<EtherEdgeKind, string> = {
@@ -61,4 +65,5 @@ export const SOURCE_HUE: Record<string, string> = {
   tower: HUE.amber,
   quasar: HUE.cyan,
   booth: HUE.violet,
+  hermes: HUE.orange,
 };

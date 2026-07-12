@@ -1,12 +1,8 @@
-import { ulid } from "ulid";
 import type {
   CanvasDoc,
-  CanvasEdge,
   CanvasNode,
-  EtherEdgeKind,
   EtherFlag,
   NodeSide,
-  TextNode,
 } from "@shared/canvas";
 import type { BindingHint } from "@shared/ipc";
 import { state$ } from "./state";
@@ -15,7 +11,18 @@ import { state$ } from "./state";
 // The main-process watcher reports external edits. We stamp our own writes so
 // the change push can be ignored for a beat and we don't reload our own save.
 let lastWriteAt = 0;
-export const getLastWriteAt = () => lastWriteAt;
+export const getLastWriteAt = (): number => lastWriteAt;
+
+const past: CanvasDoc[] = [];
+const future: CanvasDoc[] = [];
+
+const syncHistoryState = (): void => {
+  state$.canUndo.set(past.length > 0);
+  state$.canRedo.set(future.length > 0);
+};
+
+const confirmDestructive = (message: string): boolean =>
+  typeof window === "undefined" || typeof window.confirm !== "function" || window.confirm(message);
 
 // --- save pipeline --------------------------------------------------------
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -28,9 +35,26 @@ const roundNode = (n: CanvasNode): CanvasNode => ({
   height: Math.round(n.height),
 });
 
+const without = <T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> => {
+  const { [key]: _removed, ...rest } = value;
+  return rest;
+};
+
+const stripUndefined = <T>(value: T): T => {
+  if (Array.isArray(value)) return value.map(stripUndefined) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, entry]) => entry !== undefined)
+        .map(([entryKey, entry]) => [entryKey, stripUndefined(entry)]),
+    ) as T;
+  }
+  return value;
+};
+
 // Positions to integers; the main plane handles mirror law + canonical
 // serialize + atomic write.
-export const roundDoc = (doc: CanvasDoc): CanvasDoc => ({
+export const roundDoc = (doc: CanvasDoc): CanvasDoc => stripUndefined({
   nodes: doc.nodes.map(roundNode),
   edges: doc.edges,
 });
@@ -38,26 +62,48 @@ export const roundDoc = (doc: CanvasDoc): CanvasDoc => ({
 const flushSave = async () => {
   const name = state$.canvasName.peek();
   if (!name || !window.vellum) return;
+  state$.saveState.set("saving");
   const doc = roundDoc(state$.doc.peek());
-  lastWriteAt = Date.now();
   try {
     await window.vellum.writeCanvas(name, doc);
+    // Stamp after IPC returns: the watcher can report the atomic rename after
+    // the main-process write completes, so the suppression window must begin
+    // at the boundary where the renderer knows the write is durable.
+    lastWriteAt = Date.now();
+    state$.saveState.set("saved");
+    state$.error.set("");
   } catch (error) {
+    state$.saveState.set("error");
     state$.error.set(error instanceof Error ? error.message : String(error));
   }
 };
 
-export const scheduleSave = () => {
+export const retrySave = (): void => {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  state$.error.set("");
+  void flushSave().catch(() => undefined);
+};
+
+export const scheduleSave = (): void => {
   if (saveTimer) clearTimeout(saveTimer);
+  state$.saveState.set("saving");
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    void flushSave();
+    void flushSave().catch(() => undefined);
   }, 500);
 };
 
 // Commit a new document. `structural` bumps docVersion so React Flow rebuilds;
 // pass false for pure position writes RF already reflects (drag stop).
-export const commitDoc = (next: CanvasDoc, structural = true) => {
+export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = structural): void => {
+  if (recordHistory) {
+    past.push(state$.doc.peek());
+    future.length = 0;
+    syncHistoryState();
+  }
   state$.doc.set(next);
   if (structural) state$.docVersion.set(state$.docVersion.peek() + 1);
   scheduleSave();
@@ -65,7 +111,15 @@ export const commitDoc = (next: CanvasDoc, structural = true) => {
 
 // Replace the document from an authoritative source (open / external reload).
 // Always structural; never triggers a save (it mirrors what's already on disk).
-export const loadDoc = (doc: CanvasDoc) => {
+export const loadDoc = (doc: CanvasDoc): void => {
+  past.length = 0;
+  future.length = 0;
+  state$.editNodeId.set("");
+  state$.selectedNodeId.set("");
+  state$.selectedEdgeId.set("");
+  state$.focusNodeId.set("");
+  syncHistoryState();
+  state$.saveState.set("saved");
   state$.doc.set(doc);
   state$.docVersion.set(state$.docVersion.peek() + 1);
 };
@@ -95,30 +149,67 @@ export const parseSide = (handle?: string | null): NodeSide | undefined => {
 };
 
 // --- mutations ------------------------------------------------------------
-export const makeTextNode = (x: number, y: number): TextNode => ({
-  id: `node-${ulid()}`,
-  type: "text",
-  text: "new note",
-  x: Math.round(x),
-  y: Math.round(y),
-  width: 240,
-  height: 100,
-});
-
-export const addNode = (node: CanvasNode) => {
+export const addNode = (node: CanvasNode): void => {
+  state$.searchQuery.set("");
+  state$.edgeFilter.set("");
+  state$.sourceFilter.set("");
+  state$.flagFilter.set("");
+  state$.viewMode.set("field");
+  state$.selectedNodeId.set(node.id);
+  state$.selectedEdgeId.set("");
   const doc = state$.doc.peek();
   commitDoc({ ...doc, nodes: [...doc.nodes, node] });
+  window.setTimeout(() => {
+    state$.focusNodeId.set(node.id);
+    state$.editNodeId.set(node.id);
+  }, 0);
 };
 
-export const deleteNode = (id: string) => {
+export const undo = (): void => {
+  const previous = past.pop();
+  if (!previous) return;
+  future.push(state$.doc.peek());
+  state$.editNodeId.set("");
+  state$.doc.set(previous);
+  state$.docVersion.set(state$.docVersion.peek() + 1);
+  syncHistoryState();
+  scheduleSave();
+};
+
+export const redo = (): void => {
+  const next = future.pop();
+  if (!next) return;
+  past.push(state$.doc.peek());
+  state$.editNodeId.set("");
+  state$.doc.set(next);
+  state$.docVersion.set(state$.docVersion.peek() + 1);
+  syncHistoryState();
+  scheduleSave();
+};
+
+export const deleteNode = (id: string): void => {
+  deleteNodes([id]);
+};
+
+export const deleteNodes = (ids: ReadonlyArray<string>): void => {
+  const removed = new Set(ids);
+  if (removed.size === 0) return;
   const doc = state$.doc.peek();
+  const existingNodes = doc.nodes.filter((node) => removed.has(node.id));
+  if (existingNodes.length === 0) return;
+  const connectedEdges = doc.edges.filter((edge) => removed.has(edge.fromNode) || removed.has(edge.toNode)).length;
+  const nodeLabel = existingNodes.length === 1 ? "this signal" : `${existingNodes.length} signals`;
+  const relationLabel = connectedEdges === 0 ? "" : ` Connected relations (${connectedEdges}) will also be removed.`;
+  if (!confirmDestructive(`Delete ${nodeLabel}?${relationLabel}`)) return;
+  if (removed.has(state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
+  if (removed.has(state$.selectedEdgeId.peek())) state$.selectedEdgeId.set("");
   commitDoc({
-    nodes: doc.nodes.filter((n) => n.id !== id),
-    edges: doc.edges.filter((e) => e.fromNode !== id && e.toNode !== id),
+    nodes: doc.nodes.filter((n) => !removed.has(n.id)),
+    edges: doc.edges.filter((e) => !removed.has(e.fromNode) && !removed.has(e.toNode)),
   });
 };
 
-export const editText = (id: string, text: string) => {
+export const editText = (id: string, text: string): void => {
   const doc = state$.doc.peek();
   commitDoc({
     ...doc,
@@ -126,17 +217,72 @@ export const editText = (id: string, text: string) => {
   });
 };
 
-export const renameGroup = (id: string, label: string) => {
+export const editFile = (id: string, file: string): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => (n.id === id && n.type === "file" ? { ...n, file } : n)),
+  });
+};
+
+export const editFileDetails = (id: string, file: string, subpath: string): void => {
+  const doc = state$.doc.peek();
+  const nextFile = file.trim();
+  if (!nextFile) return;
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => n.id === id && n.type === "file"
+      ? subpath.trim()
+        ? { ...n, file: nextFile, subpath: subpath.trim() }
+        : { ...without(n, "subpath"), file: nextFile }
+      : n),
+  });
+};
+
+export const editLink = (id: string, url: string): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => (n.id === id && n.type === "link" ? { ...n, url } : n)),
+  });
+};
+
+export const renameGroup = (id: string, label: string): void => {
   const doc = state$.doc.peek();
   commitDoc({
     ...doc,
     nodes: doc.nodes.map((n) =>
-      n.id === id && n.type === "group" ? { ...n, label: label || undefined } : n,
+      n.id === id && n.type === "group"
+        ? label.trim() ? { ...n, label: label.trim() } : without(n, "label")
+        : n,
     ),
   });
 };
 
-export const toggleFlag = (id: string, flag: EtherFlag) => {
+export const editGroupBackground = (id: string, background: string, backgroundStyle: "cover" | "ratio" | "repeat"): void => {
+  const doc = state$.doc.peek();
+  const source = background.trim();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => n.id === id && n.type === "group"
+      ? source
+        ? { ...n, background: source, backgroundStyle }
+        : without(without(n, "background"), "backgroundStyle")
+      : n),
+  });
+};
+
+export const setNodeColor = (id: string, color?: string): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => n.id === id
+      ? (color ? { ...n, color } : without(n, "color")) as CanvasNode
+      : n),
+  });
+};
+
+export const toggleFlag = (id: string, flag: EtherFlag): void => {
   const doc = state$.doc.peek();
   commitDoc({
     ...doc,
@@ -145,66 +291,12 @@ export const toggleFlag = (id: string, flag: EtherFlag) => {
       const flags = n.ether?.flags ?? [];
       const has = flags.includes(flag);
       const nextFlags = has ? flags.filter((f) => f !== flag) : [...flags, flag];
-      return {
-        ...n,
-        ether: {
-          ...(n.ether ?? {}),
-          flags: nextFlags.length ? nextFlags : undefined,
-        },
-      };
+      if (nextFlags.length) {
+        return { ...n, ether: { ...(n.ether ?? {}), flags: nextFlags } };
+      }
+      if (!n.ether) return n;
+      const nextEther = without(n.ether, "flags");
+      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
     }),
   });
-};
-
-const KIND_CYCLE: Record<EtherEdgeKind, EtherEdgeKind> = {
-  blocks: "depends",
-  depends: "relates",
-  relates: "blocks",
-};
-
-export const cycleEdgeKind = (id: string) => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    edges: doc.edges.map((e) => {
-      if (e.id !== id) return e;
-      const current = e.ether?.kind ?? "relates";
-      return { ...e, ether: { ...e.ether, kind: KIND_CYCLE[current] } };
-    }),
-  });
-};
-
-export const addEdge = (params: {
-  source: string;
-  target: string;
-  sourceHandle?: string | null;
-  targetHandle?: string | null;
-}) => {
-  if (params.source === params.target) return;
-  const doc = state$.doc.peek();
-  const edge: CanvasEdge = {
-    id: `edge-${ulid()}`,
-    fromNode: params.source,
-    toNode: params.target,
-    fromSide: parseSide(params.sourceHandle),
-    toSide: parseSide(params.targetHandle),
-    ether: { kind: "relates" },
-  };
-  commitDoc({ ...doc, edges: [...doc.edges, edge] });
-};
-
-// Sync live positions from React Flow after a drag. Non-structural: RF already
-// shows them, so no rebuild — just persist.
-export const syncPositions = (positions: ReadonlyMap<string, { x: number; y: number }>) => {
-  const doc = state$.doc.peek();
-  commitDoc(
-    {
-      ...doc,
-      nodes: doc.nodes.map((n) => {
-        const pos = positions.get(n.id);
-        return pos ? { ...n, x: pos.x, y: pos.y } : n;
-      }),
-    },
-    false,
-  );
 };

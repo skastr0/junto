@@ -3,3 +3,4 @@ out/
 release/
 dist/
 .DS_Store
+.atlas/
