@@ -12,7 +12,7 @@ import { blockedClosure, groupMembers, isGroup } from "./graph";
 // order instead.
 
 // Fixed rendering order for the sources section, independent of fetch order.
-const SOURCE_ORDER: ReadonlyArray<EntitySource> = ["tower", "quasar", "booth"];
+const SOURCE_ORDER: ReadonlyArray<EntitySource> = ["tower", "quasar", "booth", "hermes"];
 
 const titleOf = (node: CanvasNode): string => {
   switch (node.type) {

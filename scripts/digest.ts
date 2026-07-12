@@ -8,6 +8,7 @@ import { digestCanvas } from "../src/shared/digest";
 import type { SnapshotBundle, SnapshotState } from "../src/shared/entities";
 import type { BindingHint } from "../src/shared/ipc";
 import { fetchBoothBundle } from "../src/main/vellum/adapters/booth";
+import { fetchHermesBundle } from "../src/main/vellum/adapters/hermes";
 import { fetchQuasarBundle } from "../src/main/vellum/adapters/quasar";
 import { fetchTowerBundle } from "../src/main/vellum/adapters/tower";
 
@@ -99,12 +100,13 @@ const main = async () => {
   const doc = await readCanvas(name, path);
   const hints = bindingHints(doc);
 
-  const [tower, quasar, booth] = await Promise.all([
+  const [tower, quasar, booth, hermes] = await Promise.all([
     guarded("tower", () => fetchTowerBundle()),
     guarded("quasar", () => fetchQuasarBundle(hintsFor(hints, "quasar"))),
     guarded("booth", () => fetchBoothBundle(hintsFor(hints, "booth"))),
+    guarded("hermes", () => fetchHermesBundle()),
   ]);
-  const snapshots: SnapshotState = { bundles: [tower, quasar, booth] };
+  const snapshots: SnapshotState = { bundles: [tower, quasar, booth, hermes] };
 
   const digest = digestCanvas(name, doc, snapshots);
   process.stdout.write(digest);
