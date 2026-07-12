@@ -6,8 +6,10 @@ import { FolderService } from "./services/folder";
 import { PrismService } from "./services/prism";
 import { StoreService } from "./services/store";
 import { AppRuntime, buildDoctorReport } from "./runtime";
+import { registerVellumIpc } from "./vellum/ipc";
 
 export const registerIpcHandlers = () => {
+  registerVellumIpc();
   ipcMain.handle(IPC_CHANNELS.doctor, () => AppRuntime.runPromise(buildDoctorReport));
 
   ipcMain.handle(IPC_CHANNELS.selectFolder, async () => {

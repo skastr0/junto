@@ -9,8 +9,8 @@ const createWindow = () => {
     height: 900,
     minWidth: 960,
     minHeight: 680,
-    title: "Chassis",
-    backgroundColor: "#090b0f",
+    title: "Vellum",
+    backgroundColor: "#0c0b0a",
     titleBarStyle: "hiddenInset",
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
