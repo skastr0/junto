@@ -2,10 +2,11 @@ import { Context, Effect, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import type { SnapshotBundle, SnapshotState } from "@shared/entities";
 import type { BindingHint } from "@shared/ipc";
+import { parseGlyphKey } from "@shared/refs";
 import { fetchBoothBundle } from "./adapters/booth";
 import { fetchHermesBundle } from "./adapters/hermes";
 import { fetchQuasarBundle } from "./adapters/quasar";
-import { fetchTowerBundle } from "./adapters/tower";
+import { fetchTowerBundle, resolveTowerGlyphHints } from "./adapters/tower";
 
 // The read-only data plane. Adapters shell out to reference CLIs and
 // normalize into SnapshotBundles. refresh never fails: a broken adapter
@@ -52,6 +53,26 @@ const guarded = async (
   }
 };
 
+// Glyph-level hydration: any hinted key that parses as a glyph key (e.g. a
+// canvas node exploded via `explodeProjectInto`) gets resolved via the tower
+// REST adapter and merged onto the tower bundle so findEntity can hydrate
+// it. Fully isolated — a REST outage or a bug here must never take down the
+// project-level tower bundle that already succeeded.
+const withGlyphHints = async (
+  tower: SnapshotBundle,
+  hintKeys: ReadonlyArray<string>,
+): Promise<SnapshotBundle> => {
+  const glyphKeys = hintKeys.filter((key) => parseGlyphKey(key) !== undefined);
+  if (glyphKeys.length === 0) return tower;
+  try {
+    const glyphEntities = await resolveTowerGlyphHints(glyphKeys);
+    if (glyphEntities.length === 0) return tower;
+    return { ...tower, entities: [...tower.entities, ...glyphEntities] };
+  } catch {
+    return tower;
+  }
+};
+
 export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
   let state: SnapshotState = emptyState;
   let lastHints: ReadonlyArray<BindingHint> | undefined;
@@ -66,8 +87,9 @@ export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
       guarded("booth", () => fetchBoothBundle(hintsFor(hints, "booth"))),
       guarded("hermes", () => fetchHermesBundle()),
     ]);
+    const towerWithGlyphs = await withGlyphHints(tower, hintsFor(hints, "tower"));
 
-    state = { bundles: [tower, quasar, booth, hermes] };
+    state = { bundles: [towerWithGlyphs, quasar, booth, hermes] };
     for (const listener of listeners) listener(state);
     return state;
   };

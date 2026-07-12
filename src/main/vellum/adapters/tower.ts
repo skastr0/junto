@@ -1,5 +1,7 @@
 import type { Entity, SnapshotBundle } from "@shared/entities";
+import { glyphKey, parseGlyphKey } from "@shared/refs";
 import { parseJson, runCli } from "./exec";
+import { fetchProjectGlyphs } from "./tower-rest";
 
 // Shape of `tower status --all --json`, trimmed to the fields we read.
 interface TowerStageCounts {
@@ -108,4 +110,54 @@ export const fetchTowerBundle = async (): Promise<SnapshotBundle> => {
     .filter((entity): entity is Entity => entity !== undefined);
 
   return { source: "tower", fetchedAt, ok: true, entities };
+};
+
+// Same fanout cap the sibling hint-driven adapters use (booth.ts, quasar.ts
+// MAX_HINTS): bounds the REST fanout to a small constant regardless of how
+// many distinct projects the open canvas happens to bind glyphs against.
+const MAX_HINT_PROJECTS = 8;
+
+// Glyph-level drill-down: `tower status --all` only carries per-orbit
+// stageCounts, not individual glyphs, so a canvas node bound to a specific
+// glyph key needs a separate resolve pass over the REST API. Batches by
+// project (one REST round-trip per project, not per glyph) and fetches every
+// state (not just active) so a hint stays resolvable even after the glyph
+// ships. Keys that don't parse as a glyph key are skipped; a project whose
+// REST fetch fails contributes no entities for its keys, never throws.
+export const resolveTowerGlyphHints = async (keys: ReadonlyArray<string>): Promise<Entity[]> => {
+  const refByKey = new Map<string, { project: string; orbit: string; glyphId: string }>();
+  for (const key of keys) {
+    const ref = parseGlyphKey(key);
+    if (ref) refByKey.set(key, ref);
+  }
+  if (refByKey.size === 0) return [];
+
+  const projects = [...new Set([...refByKey.values()].map((ref) => ref.project))].slice(
+    0,
+    MAX_HINT_PROJECTS,
+  );
+  const glyphsByProject = new Map<string, Awaited<ReturnType<typeof fetchProjectGlyphs>>>();
+  await Promise.all(
+    projects.map(async (project) => {
+      glyphsByProject.set(project, await fetchProjectGlyphs(project, { activeOnly: false }));
+    }),
+  );
+
+  const fetchedAt = new Date().toISOString();
+  const entities: Entity[] = [];
+  for (const ref of refByKey.values()) {
+    const bundle = glyphsByProject.get(ref.project);
+    if (!bundle?.ok) continue;
+    const glyph = bundle.glyphs.find((g) => g.orbit === ref.orbit && g.glyphId === ref.glyphId);
+    if (!glyph) continue;
+    entities.push({
+      source: "tower",
+      key: glyphKey(ref.project, ref.orbit, ref.glyphId),
+      kind: "glyph",
+      title: glyph.title,
+      stats: { state: glyph.state, orbit: glyph.orbit, project: glyph.project },
+      updatedAt: fetchedAt,
+    });
+  }
+  return entities;
 };
