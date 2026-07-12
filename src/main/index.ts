@@ -25,6 +25,22 @@ const createWindow = () => {
     return { action: "deny" };
   });
 
+  // Dev observability: forward the renderer console + crash/hang signals to the
+  // main process stdout so failures are visible in the terminal log. Open
+  // devtools with Cmd+Opt+I as usual; this only makes headless failures loud.
+  if (!app.isPackaged) {
+    mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+      if (level >= 2) console.log(`[renderer:${level === 3 ? "error" : "warn"}] ${message} (${sourceId}:${line})`);
+    });
+    mainWindow.webContents.on("render-process-gone", (_event, details) => {
+      console.log(`[renderer:gone] ${details.reason} (exitCode ${details.exitCode})`);
+    });
+    mainWindow.webContents.on("unresponsive", () => console.log("[renderer:unresponsive]"));
+    mainWindow.webContents.on("preload-error", (_event, path, error) => {
+      console.log(`[preload:error] ${path}: ${error.message}`);
+    });
+  }
+
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
