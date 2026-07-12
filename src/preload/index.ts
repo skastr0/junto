@@ -24,6 +24,8 @@ const vellumApi: VellumApi = {
   writeCanvas: (name, doc) => ipcRenderer.invoke(IPC_CHANNELS.writeCanvas, name, doc),
   createCanvas: (name) => ipcRenderer.invoke(IPC_CHANNELS.createCanvas, name),
   exportDigest: (name) => ipcRenderer.invoke(IPC_CHANNELS.exportDigest, name),
+  generatePortfolio: (name, options) =>
+    ipcRenderer.invoke(IPC_CHANNELS.generatePortfolio, name, options),
   getSnapshots: () => ipcRenderer.invoke(IPC_CHANNELS.getSnapshots),
   refreshSnapshots: (hints) => ipcRenderer.invoke(IPC_CHANNELS.refreshSnapshots, hints),
   onCanvasChanged: (listener) => subscribe<string>(IPC_CHANNELS.canvasChanged, listener),

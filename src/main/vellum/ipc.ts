@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { IPC_CHANNELS, type BindingHint } from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
 import { digestCanvas } from "@shared/digest";
+import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime } from "../runtime";
 import { CanvasesService } from "./canvases";
 import { SnapshotsService } from "./snapshots";
@@ -42,6 +43,23 @@ export const registerVellumIpc = () => {
         return { digest, path };
       }),
     ),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.generatePortfolio,
+    (_event, name: string, options?: { all?: boolean }) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const canvases = yield* CanvasesService;
+          const snapshots = yield* SnapshotsService;
+          // Fresh full-corpus pull (no hints = base project lists from each source).
+          const state = yield* snapshots.refresh([]);
+          const existing = yield* canvases.read(name);
+          const merged = mergePortfolioInto(existing.doc, state, { all: options?.all ?? false });
+          yield* canvases.write(name, merged);
+          return yield* canvases.read(name);
+        }),
+      ),
   );
 
   ipcMain.handle(IPC_CHANNELS.getSnapshots, () =>

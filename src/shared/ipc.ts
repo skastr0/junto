@@ -13,6 +13,7 @@ export const IPC_CHANNELS = {
   writeCanvas: "vellum:write-canvas",
   createCanvas: "vellum:create-canvas",
   exportDigest: "vellum:export-digest",
+  generatePortfolio: "vellum:generate-portfolio",
   getSnapshots: "vellum:get-snapshots",
   refreshSnapshots: "vellum:refresh-snapshots",
   // main -> renderer pushes
@@ -58,6 +59,13 @@ export interface VellumApi {
   readonly writeCanvas: (name: string, doc: CanvasDoc) => Promise<void>;
   readonly createCanvas: (name: string) => Promise<CanvasReadResult>;
   readonly exportDigest: (name: string) => Promise<DigestResult>;
+  // Merge the live corpus (tower/quasar/booth projects) onto the named canvas
+  // as bound, hydrated nodes. Preserves existing nodes; appends new ones.
+  // { all: true } includes every indexed repo, not just owned/registered.
+  readonly generatePortfolio: (
+    name: string,
+    options?: { all?: boolean },
+  ) => Promise<CanvasReadResult>;
   readonly getSnapshots: () => Promise<SnapshotState>;
   readonly refreshSnapshots: (hints?: ReadonlyArray<BindingHint>) => Promise<SnapshotState>;
   readonly onCanvasChanged: (listener: (name: string) => void) => () => void;

@@ -5,7 +5,10 @@ import { execFile } from "node:child_process";
 // are consistent, and so a failing CLI degrades to a result object instead
 // of throwing — adapters decide how to fold that into a SnapshotBundle.
 
-const TIMEOUT_MS = 10_000;
+// Bulk queries over the tailnet (e.g. `tower status --all --json` across ~70
+// projects) routinely exceed 10s, so the default is generous. Callers with a
+// tighter budget can override per call.
+const TIMEOUT_MS = 30_000;
 const MAX_BUFFER = 16 * 1024 * 1024;
 
 export interface CliResult {
@@ -16,12 +19,16 @@ export interface CliResult {
 
 // PATH comes from process.env: the app is dev-run from a terminal so the
 // tower/quasar/booth shims on PATH resolve without extra configuration.
-export const runCli = (command: string, args: ReadonlyArray<string>): Promise<CliResult> =>
+export const runCli = (
+  command: string,
+  args: ReadonlyArray<string>,
+  timeoutMs: number = TIMEOUT_MS,
+): Promise<CliResult> =>
   new Promise((resolve) => {
     execFile(
       command,
       args as string[],
-      { timeout: TIMEOUT_MS, env: process.env, maxBuffer: MAX_BUFFER },
+      { timeout: timeoutMs, env: process.env, maxBuffer: MAX_BUFFER },
       (error, stdout, stderr) => {
         if (error) {
           const message = stderr?.toString().trim() || error.message;
