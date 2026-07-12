@@ -19,6 +19,7 @@
     "canvas:ls": "bun scripts/canvas-ls.ts",
     "populate": "bun scripts/populate.ts",
     "explode": "bun scripts/explode.ts",
+    "connect": "bun scripts/connect.ts",
     "render": "bun scripts/render.ts"
   },
   "dependencies": {
