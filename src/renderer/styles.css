@@ -40,6 +40,8 @@ body {
   background: radial-gradient(circle at 50% 20%, rgba(232, 163, 61, 0.025), transparent 45%);
 }
 
+/* hiddenInset macOS window: leave room for the traffic lights, and let the
+   bar itself drag the window — interactive children opt back out below. */
 .station-bar {
   position: relative;
   z-index: 30;
@@ -49,8 +51,17 @@ body {
   gap: 14px;
   border-bottom: 1px solid rgba(237, 230, 218, 0.12);
   background: rgba(12, 11, 10, 0.88);
-  padding: 0 18px;
+  padding: 0 18px 0 84px;
   backdrop-filter: blur(16px);
+  -webkit-app-region: drag;
+}
+
+.station-bar button,
+.station-bar input,
+.station-bar select,
+.station-bar label,
+.station-bar aside {
+  -webkit-app-region: no-drag;
 }
 
 .station-brand { display: flex; align-items: center; gap: 10px; min-width: 180px; }
@@ -151,7 +162,7 @@ body {
 .station-digest-button:hover { background: rgba(232,163,61,.13); transform: translateY(-1px); }
 
 @media (max-width: 1360px) {
-  .station-bar { gap: 8px; padding: 0 10px; }
+  .station-bar { gap: 8px; padding: 0 10px 0 84px; }
   .station-brand { min-width: 142px; }
   .station-context { display: none; }
   .station-sources { display: none; }
@@ -332,9 +343,19 @@ body {
 .vellum-group__label-prefix { color: #68604a; }
 .vellum-resize-handle { width: 10px !important; height: 10px !important; border: 1px solid #e8a33d !important; border-radius: 2px !important; background: #131110 !important; box-shadow: 0 0 0 3px rgba(232,163,61,.08); }
 .vellum-resize-line { border-color: rgba(232,163,61,.5) !important; }
-.vellum-drag-handle { position: absolute; top: 4px; left: 50%; z-index: 8; width: 34px; height: 4px; transform: translateX(-50%); border: 1px solid rgba(237,230,218,.24); border-radius: 999px; background: rgba(143,163,176,.22); cursor: grab; opacity: .72; transition: background .18s ease, border-color .18s ease, opacity .18s ease; }
-.vellum-drag-handle:hover { border-color: rgba(57,198,214,.65); background: rgba(57,198,214,.38); opacity: 1; }
-.vellum-drag-handle:active { cursor: grabbing; }
+/* Cards drag from anywhere; keep motion quiet and physical. */
+.vellum-node { transition: border-color .18s ease, box-shadow .18s ease, transform .16s ease; }
+.react-flow__node:hover .vellum-node { transform: translateY(-1px); }
+.react-flow__node.dragging .vellum-node { transform: none; }
+
+@keyframes vellum-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.vellum-dot--pulse { animation: vellum-dot-pulse 1.1s ease-in-out infinite; }
+
+/* Every card advertises its dots while a connection drag is live. */
+.react-flow.is-connecting .vellum-handle--source { opacity: 1; }
 
 .manifest-shell { height: 100%; overflow: auto; padding: 36px clamp(20px, 5vw, 72px) 72px; background: radial-gradient(circle at 78% 15%, rgba(57,198,214,.035), transparent 33%); }
 .manifest-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; max-width: 1320px; margin: 0 auto 28px; padding-bottom: 20px; border-bottom: 1px solid rgba(237,230,218,.12); }
@@ -422,6 +443,15 @@ button {
   pointer-events: all;
   cursor: crosshair;
   transition: opacity 0.15s ease;
+}
+
+/* The visible dot is 9px; the grab target is ~26px. A connect gesture should
+   not demand pixel-perfect aim. */
+.vellum-handle::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+  border-radius: 999px;
 }
 
 .vellum-handle--source { border-color: rgba(232, 163, 61, 0.72); }

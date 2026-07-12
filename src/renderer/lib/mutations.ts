@@ -149,7 +149,9 @@ export const parseSide = (handle?: string | null): NodeSide | undefined => {
 };
 
 // --- mutations ------------------------------------------------------------
-export const addNode = (node: CanvasNode): void => {
+// `edit` opens the inline editor right away — right for blank notes, wrong for
+// entity nodes that arrive already named and bound.
+export const addNode = (node: CanvasNode, options?: { readonly edit?: boolean }): void => {
   state$.searchQuery.set("");
   state$.edgeFilter.set("");
   state$.flagFilter.set("");
@@ -159,7 +161,7 @@ export const addNode = (node: CanvasNode): void => {
   commitDoc({ ...doc, nodes: [...doc.nodes, node] });
   window.setTimeout(() => {
     state$.focusNodeId.set(node.id);
-    state$.editNodeId.set(node.id);
+    if (options?.edit !== false) state$.editNodeId.set(node.id);
   }, 0);
 };
 

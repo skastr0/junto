@@ -2,16 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
+  ConnectionMode,
   ControlButton,
   Controls,
   MiniMap,
   Panel,
   ReactFlow,
+  useConnection,
   useEdgesState,
   useNodesState,
   useReactFlow,
 } from "@xyflow/react";
-import type { Connection, Node } from "@xyflow/react";
+import type { Connection, FinalConnectionState, Node } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { EtherBinding, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { mergeProjects } from "@shared/portfolio";
@@ -23,7 +25,7 @@ import { addNode, deleteNodes } from "../lib/mutations";
 import { addEdge, deleteEdges } from "../lib/edge-mutations";
 import { findOpenPosition, syncPositions } from "../lib/geometry";
 import { makeAgentNode, makeFileNode, makeGroupNode, makeLinkNode, makeProjectNode, makeTextNode } from "../lib/node-factories";
-import { GROUND, HUE } from "../lib/theme";
+import { accentColor, GROUND, HUE } from "../lib/theme";
 import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 
@@ -34,6 +36,7 @@ const miniMapNodeColor = (node: Node): string => {
   if (flags.includes("attention")) return HUE.amber;
   if (flags.includes("parked")) return HUE.violet;
   if (data?.node.type === "group") return "rgba(143,163,176,0.25)";
+  if (data?.node.color) return accentColor(data.node.color);
   return "rgba(232,163,61,0.5)";
 };
 
@@ -57,13 +60,17 @@ const fitReadableField = (rf: CanvasFlow, duration = 320): void => {
 };
 
 function useCanvasDocument(docVersion: number, searchQuery: string, edgeFilter: EtherEdgeKind | "", flagFilter: EtherFlag | "", selectedNodeId: string, selectedEdgeId: string, setNodes: ReturnType<typeof useNodesState<FlowNode>>[1], setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1]) {
+  // Structural rebuild — document/filter/search changes only. Selection is
+  // stamped from a peek so a click never rebuilds the whole graph.
   useEffect(() => {
     const built = toFlow(state$.doc.peek());
+    const nodeId = state$.selectedNodeId.peek();
+    const edgeId = state$.selectedEdgeId.peek();
     const visibleNodes = flagFilter ? built.nodes.filter((node) => node.type === "group" || node.data?.node.ether?.flags?.includes(flagFilter)) : built.nodes;
     const visibleIds = new Set(visibleNodes.map((node) => node.id));
     const filteredEdges = built.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target) && (!edgeFilter || (edge.data?.edge.ether?.kind ?? "relates") === edgeFilter));
-    const selectedNodes = visibleNodes.map((node) => node.id === selectedNodeId ? { ...node, selected: true } : node);
-    const selectedEdges = filteredEdges.map((edge) => edge.id === selectedEdgeId ? { ...edge, selected: true } : edge);
+    const selectedNodes = visibleNodes.map((node) => node.id === nodeId ? { ...node, selected: true } : node);
+    const selectedEdges = filteredEdges.map((edge) => edge.id === edgeId ? { ...edge, selected: true } : edge);
     const query = searchQuery.trim().toLowerCase();
     if (!query) {
       setNodes(selectedNodes);
@@ -74,7 +81,13 @@ function useCanvasDocument(docVersion: number, searchQuery: string, edgeFilter: 
     const queryVisibleIds = new Set(matches.map((flowNode) => flowNode.id));
     setNodes(matches);
     setEdges(selectedEdges.filter((edge) => queryVisibleIds.has(edge.source) && queryVisibleIds.has(edge.target)));
-  }, [docVersion, edgeFilter, flagFilter, searchQuery, selectedNodeId, selectedEdgeId, setNodes, setEdges]);
+  }, [docVersion, edgeFilter, flagFilter, searchQuery, setNodes, setEdges]);
+
+  // Selection sync — a light map over the existing graph, not a rebuild.
+  useEffect(() => {
+    setNodes((nodes) => nodes.map((node) => node.selected === (node.id === selectedNodeId) ? node : { ...node, selected: node.id === selectedNodeId }));
+    setEdges((edges) => edges.map((edge) => edge.selected === (edge.id === selectedEdgeId) ? edge : { ...edge, selected: edge.id === selectedEdgeId }));
+  }, [selectedNodeId, selectedEdgeId, setNodes, setEdges]);
 }
 
 function useCanvasSearchViewport(searchQuery: string, nodeCount: number, rf: CanvasFlow, viewKey: string) {
@@ -147,6 +160,22 @@ function useCanvasViewport(canvasName: string, nodeCount: number, rf: CanvasFlow
 
 function useCanvasInteractions(rf: CanvasFlow) {
   const onConnect = useCallback((connection: Connection) => addEdge(connection), []);
+  // Dropping a connection on a card body (not a handle) still creates the
+  // edge — the whole node is a legitimate target, the dots are just anchors.
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
+    if (connectionState.isValid) return;
+    const from = connectionState.fromNode?.id;
+    if (!from) return;
+    const point = "changedTouches" in event ? event.changedTouches[0] : event;
+    if (!point) return;
+    const element = document.elementFromPoint(point.clientX, point.clientY);
+    const nodeEl = element?.closest?.(".react-flow__node");
+    const targetId = nodeEl?.getAttribute("data-id");
+    if (!targetId || targetId === from) return;
+    const targetNode = state$.doc.peek().nodes.find((node) => node.id === targetId);
+    if (!targetNode || targetNode.type === "group") return;
+    addEdge({ source: from, target: targetId, sourceHandle: connectionState.fromHandle?.id, kind: "relates" });
+  }, []);
   const onNodeDragStop = useCallback(() => {
     const positions = new Map<string, { x: number; y: number }>();
     for (const node of rf.getNodes()) positions.set(node.id, node.position);
@@ -172,7 +201,7 @@ function useCanvasInteractions(rf: CanvasFlow) {
     const pos = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     addNode(makeTextNode(pos.x - 120, pos.y - 50));
   }, [rf]);
-  return { onConnect, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick };
+  return { onConnect, onConnectEnd, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick };
 }
 
 function AddNodePanel() {
@@ -248,14 +277,14 @@ function AddNodePanel() {
   const addProject = (display: string, bindings: ReadonlyArray<EtherBinding>) => {
     const position = nextPosition({ width: 240, height: 96 });
     const node = makeProjectNode(position.x, position.y, display, bindings);
-    addNode(node);
+    addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
   };
   const addAgent = (label: string, key: string) => {
     const position = nextPosition({ width: 240, height: 96 });
     const node = makeAgentNode(position.x, position.y, label, key);
-    addNode(node);
+    addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
   };
@@ -299,7 +328,7 @@ function FitAllPanel() {
 
 function FieldControls() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
-  return <Controls showFitView={false} showInteractive={false} aria-label="Field controls"><ControlButton aria-label="Fit readable field" title="fit readable field" onClick={() => fitReadableField(rf)}><ScanLine size={14} /></ControlButton></Controls>;
+  return <Controls showFitView={false} showInteractive={false} aria-label="Canvas controls" style={{ marginBottom: 64 }}><ControlButton aria-label="Fit readable view" title="fit readable view" onClick={() => fitReadableField(rf)}><ScanLine size={14} /></ControlButton></Controls>;
 }
 
 function useCanvasGraph() {
@@ -323,7 +352,10 @@ function useCanvasGraph() {
 
 function CanvasGraph() {
   const { nodes, edges, onNodesChange, onEdgesChange, interactions } = useCanvasGraph();
-  return <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} connectOnClick connectionRadius={24} zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.15} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
+  // While a connection drag is live, every card shows its dots so targets are
+  // discoverable mid-gesture.
+  const connecting = useConnection((connection) => connection.inProgress);
+  return <ReactFlow className={connecting ? "is-connecting" : undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} connectionMode={ConnectionMode.Loose} connectionRadius={42} panOnScroll zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.15} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
     <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
     <AddNodePanel />
     <FitAllPanel />

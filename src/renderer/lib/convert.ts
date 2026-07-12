@@ -32,7 +32,6 @@ export const toFlow = (doc: CanvasDoc): { nodes: FlowNode[]; edges: FlowEdge[] }
       id: node.id,
       type: node.type,
       position: { x: node.x, y: node.y },
-      dragHandle: ".vellum-drag-handle",
       data: { node, blocked: closure.has(node.id) },
       style: { width: node.width, height: node.height },
       zIndex: isGroup ? 0 : 1,

@@ -1,6 +1,6 @@
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useRef, useState } from "react";
-import { Activity, CircleHelp, FileDown, Orbit, Plus, Redo2, RefreshCw, ScanLine, Search, Undo2, X } from "lucide-react";
+import { Activity, CircleHelp, FileDown, Plus, Redo2, RefreshCw, ScanLine, Search, Undo2, X } from "lucide-react";
 import type { EntitySource } from "@shared/entities";
 import type { CanvasSummary } from "@shared/ipc";
 import { state$ } from "../lib/state";
@@ -37,8 +37,9 @@ function HelpPopover({ onClose }: { readonly onClose: () => void }) {
   const shortcuts = [
     ["/ · ⌘K", "focus search"],
     ["double-click", "add a note"],
-    ["drag handle", "move nodes"],
-    ["edge handles / inspector", "connect nodes"],
+    ["drag card", "move a node"],
+    ["drag edge dot", "connect nodes (drop anywhere on a card)"],
+    ["select + corners", "resize a node"],
     ["click edge", "inspect edge"],
     ["⌘Z · ⇧⌘Z", "undo / redo"],
     ["Escape", "close overlays / clear selection"],
@@ -124,12 +125,6 @@ function SearchField({ canvasName }: { readonly canvasName: string }) {
   return <label className="station-search" title="Search nodes · / or ⌘K"><Search size={14} /><input ref={inputRef} aria-label={label} value={value} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setSearch(""); inputRef.current?.blur(); } }} placeholder="search nodes" />{value ? <button type="button" className="station-search__clear" aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button> : null}</label>;
 }
 
-function GenerateButton({ canvasName, onGenerate }: { readonly canvasName: string; readonly onGenerate: () => void }) {
-  const generating = use$(state$.generating);
-  const label = canvasName || "portfolio";
-  return <button className="station-generate-button" disabled={generating} title={`populate ${label} from live sources`} aria-label={generating ? `Populating ${label}` : `Populate ${label}`} onClick={onGenerate}><Orbit size={14} className={generating ? "station-spin" : ""} /><span>{generating ? "syncing" : "populate"}</span></button>;
-}
-
 function HistoryButtons({ onUndo, onRedo }: { readonly onUndo: () => void; readonly onRedo: () => void }) {
   const canUndo = use$(state$.canUndo);
   const canRedo = use$(state$.canRedo);
@@ -143,7 +138,7 @@ function SaveStatus() {
   return <div role="status" aria-live="polite" className={`station-save station-save--${saveState}`} title={`Canvas ${label}`}><span className="station-save__dot" /><span>{label}</span></div>;
 }
 
-export function TopBar({ onOpen, onCreate, onGenerate, onUndo, onRedo, onExport, onRefresh }: { readonly onOpen: (name: string) => void; readonly onCreate: (name: string) => void; readonly onGenerate: () => void; readonly onUndo: () => void; readonly onRedo: () => void; readonly onExport: () => void; readonly onRefresh: () => void }) {
+export function TopBar({ onOpen, onCreate, onUndo, onRedo, onExport, onRefresh }: { readonly onOpen: (name: string) => void; readonly onCreate: (name: string) => void; readonly onUndo: () => void; readonly onRedo: () => void; readonly onExport: () => void; readonly onRefresh: () => void }) {
   const canvases = use$(state$.canvases);
   const canvasName = use$(state$.canvasName);
   const canvasLoading = use$(state$.canvasLoading);
@@ -171,7 +166,6 @@ export function TopBar({ onOpen, onCreate, onGenerate, onUndo, onRedo, onExport,
       <div className="station-bar__divider" />
       <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} />
       <SearchField canvasName={canvasName} />
-      <GenerateButton canvasName={canvasName} onGenerate={onGenerate} />
       <HistoryButtons onUndo={onUndo} onRedo={onRedo} />
       <SaveStatus />
       <div className="station-actions relative ml-auto flex items-center gap-3"><div className="station-sources">{SOURCES.map((source) => <SourceDot key={source} source={source} active={healthOpen} onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }} />)}</div><button type="button" className="station-health-trigger" aria-label="Open connectors" aria-expanded={healthOpen} aria-haspopup="dialog" onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }}><Activity size={14} /></button><button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => { setHealthOpen(false); setHelpOpen((open) => !open); }}><CircleHelp size={14} /></button>{healthOpen ? <ConnectorsPopover onClose={() => setHealthOpen(false)} /> : null}{helpOpen ? <HelpPopover onClose={() => setHelpOpen(false)} /> : null}<button className="station-icon-button" disabled={refreshing} aria-label={refreshing ? "Refreshing snapshots" : "Refresh snapshots"} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.cyan }} title={refreshing ? "refreshing snapshots" : "refresh snapshots"} onClick={onRefresh}><RefreshCw size={15} className={refreshing ? "station-spin" : ""} /></button><button className="station-digest-button inline-flex items-center gap-2" disabled={exporting} aria-label={exporting ? "Exporting digest" : "Export digest"} style={{ borderColor: "rgba(232,163,61,.35)", color: HUE.amber }} title={exporting ? "exporting digest" : "export digest"} onClick={onExport}><FileDown size={14} className={exporting ? "station-spin" : ""} /><span>{exporting ? "syncing" : "digest"}</span></button></div>

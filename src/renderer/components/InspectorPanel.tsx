@@ -5,9 +5,9 @@ import type { CanvasNode } from "@shared/canvas";
 import { deleteNode, setNodeColor } from "../lib/mutations";
 import { cycleEdgeKind, deleteEdges, editEdgeLabel, setEdgeColor, toggleEdgeArrow } from "../lib/edge-mutations";
 import { state$ } from "../lib/state";
-import { HUE, SOURCE_HUE, withAlpha } from "../lib/theme";
+import { DIM, HUE, SOURCE_HUE, withAlpha } from "../lib/theme";
+import { entityReadout } from "../lib/entity-readout";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
-import { EntityBadges } from "./EntityBadges";
 import { ConnectEditor, NodeFieldEditors, NodeFlagControls } from "./InspectorFields";
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
   { value: "1", label: "red", hue: HUE.crimson },
@@ -26,18 +26,41 @@ function AccentControls({ value, onChange }: { readonly value?: string; readonly
   return <div className="inspector-section"><div className="inspector-section__label"><span className="inspector-color-dot" style={{ background: value ? undefined : HUE.amber }} /> accent</div><div className="inspector-colors"><button type="button" className="inspector-color-toggle inspector-color-toggle--default" aria-label="Use default accent" aria-pressed={!value} title="default accent" onClick={() => onChange()}><span /></button>{COLOR_OPTIONS.map(({ value: optionValue, label, hue }) => <button key={optionValue} type="button" className="inspector-color-toggle" aria-label={`Set ${label} accent`} aria-pressed={value === optionValue} title={`${label} accent`} style={{ color: hue, borderColor: value === optionValue ? withAlpha(hue, 0.65) : withAlpha(hue, 0.22), background: withAlpha(hue, value === optionValue ? 0.18 : 0.07) }} onClick={() => onChange(optionValue)}><span style={{ background: hue }} /></button>)}</div></div>;
 }
 
+// The entity readout, inspector-sized: one plain stat line plus a freshness
+// row per connector — the same truth the card wears, with room to breathe.
+function LiveReadout({ node }: { readonly node: CanvasNode }) {
+  const snapshots = use$(state$.snapshots);
+  const { segments, dots } = entityReadout(node.ether?.bindings, snapshots);
+  const bindings = node.ether?.bindings ?? [];
+  return <div className="inspector-section">
+    <div className="inspector-section__label">live readout</div>
+    <div className="text-[13px] tabular-nums" style={{ color: "#EDE6DA" }}>{segments.join(" · ") || <span style={{ color: DIM }}>no live data</span>}</div>
+    <div className="inspector-bindings mt-2">{bindings.map((binding, i) => {
+      const ok = dots[i]?.ok ?? false;
+      return <div className="inspector-binding" key={`${binding.source}:${binding.ref.key}`}>
+        <span className="inspector-binding__source" style={{ color: SOURCE_HUE[binding.source] }}>
+          <i className="mr-1.5 inline-block size-[5px] rounded-full align-middle" style={{ background: SOURCE_HUE[binding.source], opacity: ok ? 1 : 0.3 }} />
+          {binding.source}
+        </span>
+        <span>{binding.ref.key}</span>
+        <span style={{ color: ok ? SOURCE_HUE[binding.source] : DIM }}>{ok ? "fresh" : "stale"}</span>
+      </div>;
+    })}</div>
+  </div>;
+}
+
 function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
   const bindings = node.ether?.bindings ?? [];
   const doc = use$(state$.doc);
   const [connectOpen, setConnectOpen] = useState(false);
+  const isEntity = Boolean(node.ether?.entity);
   return <aside className="inspector-panel">
     <InspectorHeader eyebrow={nodeTypeLabel(node)} title={nodeTitle(node)} onClose={onClose} />
     <div className="inspector-body">
-      <div className="inspector-detail">{nodeDetail(node) || "No description recorded."}</div>
-      {node.ether?.entity ? <div className="inspector-section"><div className="inspector-section__label">live readout</div><EntityBadges bindings={node.ether.bindings} /></div> : null}
-      <div className="inspector-grid"><span>type<strong>{nodeTypeLabel(node)}</strong></span><span>geometry<strong>{node.width} × {node.height}</strong></span><span>position<strong>{node.x}, {node.y}</strong></span></div>
+      {!isEntity ? <div className="inspector-detail">{nodeDetail(node) || "No description recorded."}</div> : null}
+      {isEntity ? <LiveReadout node={node} /> : null}
       <NodeFieldEditors node={node} />
-      {bindings.length > 0 ? <div className="inspector-section"><div className="inspector-section__label"><Link2 size={11} /> connectors</div><div className="inspector-bindings">{bindings.map((binding) => <div className="inspector-binding" key={`${binding.source}:${binding.ref.key}`}><span className="inspector-binding__source" style={{ color: SOURCE_HUE[binding.source] }}>{binding.source}</span><span>{binding.ref.key}</span></div>)}</div></div> : null}
+      {!isEntity && bindings.length > 0 ? <div className="inspector-section"><div className="inspector-section__label"><Link2 size={11} /> connectors</div><div className="inspector-bindings">{bindings.map((binding) => <div className="inspector-binding" key={`${binding.source}:${binding.ref.key}`}><span className="inspector-binding__source" style={{ color: SOURCE_HUE[binding.source] }}>{binding.source}</span><span>{binding.ref.key}</span></div>)}</div></div> : null}
       <AccentControls value={node.color} onChange={(color) => setNodeColor(node.id, color)} />
       <NodeFlagControls node={node} />
       <div className="inspector-actions"><button onClick={() => { state$.searchQuery.set(""); state$.edgeFilter.set(""); state$.flagFilter.set(""); state$.focusNodeId.set(node.id); }}><Crosshair size={13} />focus node</button>{node.type === "link" ? <button onClick={() => window.open(node.url, "_blank")}><ExternalLink size={13} />open link</button> : null}<button onClick={() => setConnectOpen((open) => !open)}><ArrowRight size={13} />connect to…</button><button className="inspector-action--danger" onClick={() => deleteNode(node.id)}><Trash2 size={13} />delete</button></div>

@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
-import { Handle, NodeToolbar, Position } from "@xyflow/react";
+import { Handle, NodeResizer, NodeToolbar, Position } from "@xyflow/react";
 import { Ban, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
-import { borderColor, HUE, withAlpha } from "../../lib/theme";
+import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
+import { resizeNode } from "../../lib/geometry";
 import { deleteNode, toggleFlag } from "../../lib/mutations";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
@@ -30,6 +31,7 @@ export function NodeShell({ node, selected, blocked, onEdit, onOpen, children }:
   const isBlocker = flags.includes("blocker");
   const primaryFlag: EtherFlag | undefined = isBlocker ? "blocker" : flags.includes("attention") ? "attention" : flags.includes("parked") ? "parked" : undefined;
   const primaryHue = primaryFlag ? FLAG_HUES[primaryFlag] : undefined;
+  const accent = accentColor(node.color);
   const border = isBlocker ? HUE.crimson : primaryHue ? withAlpha(primaryHue, 0.52) : borderColor(node.color, selected);
   const background = blocked
     ? `linear-gradient(135deg, ${withAlpha(HUE.crimson, 0.12)}, rgba(18,15,13,0.92))`
@@ -39,14 +41,14 @@ export function NodeShell({ node, selected, blocked, onEdit, onOpen, children }:
         ? `linear-gradient(135deg, ${withAlpha(HUE.violet, 0.09)}, rgba(14,13,12,0.96))`
         : "linear-gradient(135deg, rgba(30,25,20,0.94), rgba(14,13,12,0.96))";
   const shadow = selected
-    ? `0 0 0 1px ${withAlpha(HUE.amber, 0.25)}, 0 12px 30px rgba(0,0,0,0.22)`
+    ? `0 0 0 1px ${withAlpha(accent, 0.25)}, 0 12px 30px rgba(0,0,0,0.22)`
     : primaryFlag === "attention"
       ? `0 0 0 1px ${withAlpha(HUE.amber, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
       : primaryFlag === "parked"
         ? `0 0 0 1px ${withAlpha(HUE.violet, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
         : "0 10px 28px rgba(0,0,0,0.18)";
-  return <div className={`vellum-node group relative flex h-full w-full flex-col overflow-visible rounded-[10px] px-3.5 py-3 ${isBlocker ? "vellum-blocker" : ""}`} style={{ border: `1px solid ${selected ? withAlpha(HUE.amber, 0.7) : border}`, background, boxShadow: shadow, backdropFilter: "blur(10px)" }}>
-    <div className="vellum-drag-handle" aria-label="Move node" title="drag to move node" />
+  return <div className={`vellum-node group relative flex h-full w-full flex-col overflow-visible rounded-[10px] px-3.5 py-3 ${isBlocker ? "vellum-blocker" : ""}`} style={{ border: `1px solid ${selected ? withAlpha(isBlocker ? HUE.crimson : accent, 0.75) : border}`, background, boxShadow: shadow }}>
+    <NodeResizer isVisible={selected} minWidth={170} minHeight={72} color={accent} handleClassName="vellum-resize-handle" lineClassName="vellum-resize-line" onResizeEnd={(_event, params) => resizeNode(node.id, params)} />
     {onEdit ? <button className="vellum-node__edit nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-slate-400 transition hover:bg-white/10 hover:text-[#EDE6DA]" aria-label="Edit item" title="edit item" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onEdit(); }}><Pencil size={12} /></button> : null}
     {onOpen ? <button className="vellum-node__open nodrag nopan absolute right-10 top-2 z-10 grid size-6 place-items-center rounded text-cyan-300/70 transition hover:bg-white/10 hover:text-cyan-200" aria-label="Open external link" title="open external link" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onOpen(); }}><ExternalLink size={12} /></button> : null}
     <ConnectionHandles /><NodeActions node={node} selected={selected} onEdit={onEdit} />

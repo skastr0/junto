@@ -102,32 +102,6 @@ const exportDigest = async () => {
   }
 };
 
-const generatePortfolio = async () => {
-  const name = state$.canvasName.peek();
-  if (!window.vellum || !name) return;
-  state$.generating.set(true);
-  state$.error.set("");
-  try {
-    const result = await Promise.race([
-      window.vellum.generatePortfolio(name, { all: true }),
-      new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 12000)),
-    ]);
-    if (!result) {
-      state$.error.set("populate timed out; current canvas kept");
-      return;
-    }
-    state$.canvasName.set(result.name);
-    resetCanvasView();
-    loadDoc(result.doc);
-    state$.error.set("");
-    await refreshSnapshotsSoft(result.doc);
-  } catch (error) {
-    setError(error);
-  } finally {
-    state$.generating.set(false);
-  }
-};
-
 const refreshSnapshots = async () => {
   if (!window.vellum) return;
   state$.refreshing.set(true);
@@ -149,7 +123,6 @@ const refreshSnapshots = async () => {
 const retryActionForError = (message: string): { readonly label: string; readonly run: () => Promise<void> } | undefined => {
   if (message.includes("write-canvas") || message.includes("cannot write")) return { label: "retry save", run: async () => retrySave() };
   if (message.includes("snapshot refresh timed out")) return { label: "retry refresh", run: refreshSnapshots };
-  if (message.includes("populate timed out")) return { label: "retry populate", run: generatePortfolio };
   if (message.includes("digest export timed out")) return { label: "retry digest", run: exportDigest };
   return undefined;
 };
@@ -251,7 +224,6 @@ export function App() {
       <TopBar
         onOpen={(name) => void openCanvas(name)}
         onCreate={(name) => void createCanvas(name)}
-        onGenerate={() => void generatePortfolio()}
         onUndo={undo}
         onRedo={redo}
         onExport={() => void exportDigest()}

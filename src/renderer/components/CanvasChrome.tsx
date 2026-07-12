@@ -50,7 +50,7 @@ const FLAG_ITEMS: ReadonlyArray<{ readonly flag: EtherFlag; readonly label: stri
 function CanvasHint({ counts }: { readonly counts: Readonly<Record<EtherFlag, number>> }) {
   const flagFilter = use$(state$.flagFilter);
   return (
-    <div className="field-hint pointer-events-auto absolute bottom-5 right-5 z-20 hidden items-center gap-2 md:flex">
+    <div className="field-hint pointer-events-auto absolute bottom-5 left-1/2 z-20 hidden -translate-x-1/2 items-center gap-2 md:flex">
       <MousePointer2 size={12} /><span>double-click add · drag to move</span><Link2 size={12} /><span className="field-hint__secondary">drag an edge dot to connect</span>
       <div className="field-hint__filters">{FLAG_ITEMS.map(({ flag, label, hue }) => counts[flag] > 0 ? <button key={flag} type="button" className={`field-hint__flag${flagFilter === flag ? " is-active" : ""}`} aria-label={`Show ${label} nodes`} aria-pressed={flagFilter === flag} style={{ color: hue }} onClick={() => toggleFlagFilter(flag)}>{counts[flag]} {label}</button> : null)}{flagFilter ? <button type="button" className="field-hint__clear" aria-label="Show all flags" onClick={() => { state$.flagFilter.set(""); state$.selectedNodeId.set(""); state$.selectedEdgeId.set(""); }}>all</button> : null}</div>
     </div>

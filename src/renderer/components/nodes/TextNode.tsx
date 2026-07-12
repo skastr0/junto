@@ -6,7 +6,7 @@ import type { FlowNode } from "../../lib/convert";
 import { entityReadout } from "../../lib/entity-readout";
 import { editText } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
-import { INK, DIM, SOURCE_HUE, withAlpha } from "../../lib/theme";
+import { accentColor, INK, DIM, SOURCE_HUE, withAlpha } from "../../lib/theme";
 import { NodeShell } from "./NodeShell";
 
 // An entity card (project / agent) is ONE node: its name, one line of live
@@ -14,9 +14,11 @@ import { NodeShell } from "./NodeShell";
 // wall of chips, never exploded into child nodes.
 function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: string }) {
   const snapshots = use$(state$.snapshots);
+  const refreshing = use$(state$.refreshing);
   const name = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const { segments, dots } = entityReadout(node.ether?.bindings, snapshots);
   const line = segments.join(" · ");
+  const nameHue = node.color ? accentColor(node.color) : INK;
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
       <div>
@@ -27,7 +29,7 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
               <span
                 key={`${source}-${i}`}
                 title={`${source} · ${ok ? "fresh" : "stale"}`}
-                className="size-[5px] rounded-full"
+                className={`size-[5px] rounded-full${refreshing ? " vellum-dot--pulse" : ""}`}
                 style={{
                   background: SOURCE_HUE[source] ?? DIM,
                   opacity: ok ? 1 : 0.3,
@@ -37,7 +39,7 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
             ))}
           </span>
         </div>
-        <div className="mt-1 truncate text-[14px] font-semibold leading-snug" style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }} title={name}>
+        <div className="mt-1 truncate text-[14px] font-semibold leading-snug" style={{ color: nameHue, fontFamily: "ui-monospace, SFMono-Regular, monospace" }} title={name}>
           {name}
         </div>
       </div>
