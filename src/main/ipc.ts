@@ -1,0 +1,62 @@
+import { dialog, ipcMain } from "electron";
+import { Effect } from "effect";
+import { IPC_CHANNELS } from "@shared/ipc";
+import { CodexService } from "./services/codex";
+import { FolderService } from "./services/folder";
+import { PrismService } from "./services/prism";
+import { StoreService } from "./services/store";
+import { AppRuntime, buildDoctorReport } from "./runtime";
+
+export const registerIpcHandlers = () => {
+  ipcMain.handle(IPC_CHANNELS.doctor, () => AppRuntime.runPromise(buildDoctorReport));
+
+  ipcMain.handle(IPC_CHANNELS.selectFolder, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ["openDirectory"],
+      title: "Open a local folder",
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+
+    const root = result.filePaths[0]!;
+    const entries = await AppRuntime.runPromise(
+      Effect.gen(function* () {
+        const folder = yield* FolderService;
+        const store = yield* StoreService;
+        yield* store.set("lastFolder", root);
+        return yield* folder.readDirectory(root);
+      }),
+    );
+
+    return { root, entries };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.readDirectory, (_event, path: string) =>
+    AppRuntime.runPromise(
+      Effect.gen(function* () {
+        const folder = yield* FolderService;
+        return yield* folder.readDirectory(path);
+      }),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.probeCodex, () =>
+    AppRuntime.runPromise(
+      Effect.gen(function* () {
+        const codex = yield* CodexService;
+        return yield* codex.probeAppServer;
+      }),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.prismDryRun, () =>
+    AppRuntime.runPromise(
+      Effect.gen(function* () {
+        const prism = yield* PrismService;
+        return yield* prism.dryRunCodexCompile;
+      }),
+    ),
+  );
+};
