@@ -13,6 +13,7 @@ import type { BindingHint } from "../src/shared/ipc";
 import type { SnapshotBundle, SnapshotState } from "../src/shared/entities";
 import { mergePortfolioInto, mergeProjects } from "../src/shared/portfolio";
 import { fetchBoothBundle } from "../src/main/vellum/adapters/booth";
+import { fetchHermesBundle } from "../src/main/vellum/adapters/hermes";
 import { fetchQuasarBundle } from "../src/main/vellum/adapters/quasar";
 import { fetchTowerBundle } from "../src/main/vellum/adapters/tower";
 
@@ -62,12 +63,13 @@ const main = async () => {
 
   // Full corpus: no hints needed — we want every project, not per-key detail.
   const hints: ReadonlyArray<BindingHint> = [];
-  const [tower, quasar, booth] = await Promise.all([
+  const [tower, quasar, booth, hermes] = await Promise.all([
     guarded("tower", () => fetchTowerBundle()),
     guarded("quasar", () => fetchQuasarBundle(hints.map((h) => h.key))),
     guarded("booth", () => fetchBoothBundle(hints.map((h) => h.key))),
+    guarded("hermes", () => fetchHermesBundle()),
   ]);
-  const state: SnapshotState = { bundles: [tower, quasar, booth] };
+  const state: SnapshotState = { bundles: [tower, quasar, booth, hermes] };
 
   for (const bundle of state.bundles) {
     console.error(

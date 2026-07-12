@@ -137,6 +137,35 @@ const projectNode = (project: MergedProject, index: number, originX: number, ori
   };
 };
 
+// Hermes fleet agents, one node per agent, keyed by the hermes entity key
+// (host:profile). Placed in their own band so the fleet reads as a cluster.
+const agentNodes = (state: SnapshotState, alreadyBound: Set<string>, originY: number): CanvasNode[] => {
+  const agents = state.bundles
+    .filter((bundle) => bundle.ok && bundle.source === "hermes")
+    .flatMap((bundle) => bundle.entities)
+    .filter((entity) => entity.kind === "agent" && !alreadyBound.has(`hermes:${entity.key}`));
+
+  return agents.map((agent, index) => {
+    const col = index % COLUMNS;
+    const row = Math.floor(index / COLUMNS);
+    const host = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
+    const label = host ? `${agent.title ?? agent.key} · ${host}` : (agent.title ?? agent.key);
+    return {
+      id: `agent-${slug(agent.key)}`,
+      type: "text",
+      x: col * (NODE_W + GAP_X),
+      y: originY + row * (NODE_H + GAP_Y),
+      width: NODE_W,
+      height: NODE_H,
+      text: label,
+      ether: {
+        entity: { kind: "agent" },
+        bindings: [{ source: "hermes", ref: { type: "agent", key: agent.key } }],
+      },
+    } as CanvasNode;
+  });
+};
+
 // Merge live projects onto an existing document: keep every existing node and
 // edge, append a bound node for each project not already bound. New nodes are
 // laid below existing content so they never cover the user's arrangement.
@@ -161,6 +190,15 @@ export const mergePortfolioInto = (
     existingIds.add(node.id);
     added.push(node);
   });
+
+  // Fleet band: below the projects just added.
+  const projectRows = Math.ceil(added.length / COLUMNS);
+  const agentOriginY = originY + projectRows * (NODE_H + GAP_Y) + 120;
+  for (const node of agentNodes(state, already, agentOriginY)) {
+    if (existingIds.has(node.id)) continue;
+    existingIds.add(node.id);
+    added.push(node);
+  }
 
   return { nodes: [...doc.nodes, ...added], edges: doc.edges };
 };

@@ -31,8 +31,12 @@ export const BoothBinding = Schema.Struct({
   source: Schema.Literal("booth"),
   ref: Schema.Struct({ type: Schema.Literal("project"), key: Schema.String }),
 });
+export const HermesBinding = Schema.Struct({
+  source: Schema.Literal("hermes"),
+  ref: Schema.Struct({ type: Schema.Literal("agent"), key: Schema.String }),
+});
 
-export const EtherBinding = Schema.Union(TowerBinding, QuasarBinding, BoothBinding);
+export const EtherBinding = Schema.Union(TowerBinding, QuasarBinding, BoothBinding, HermesBinding);
 export type EtherBinding = typeof EtherBinding.Type;
 
 // entity.kind is an open vocabulary; well-known kinds get richer rendering.

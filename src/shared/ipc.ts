@@ -49,7 +49,7 @@ export interface DigestResult {
 // Renderer passes the open document's bindings so adapters only pay for
 // per-project detail (e.g. quasar session counts) where a node actually binds.
 export interface BindingHint {
-  readonly source: "tower" | "quasar" | "booth";
+  readonly source: "tower" | "quasar" | "booth" | "hermes";
   readonly key: string;
 }
 

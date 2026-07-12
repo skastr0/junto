@@ -3,6 +3,7 @@ import type { ServiceCheck } from "@shared/contracts";
 import type { SnapshotBundle, SnapshotState } from "@shared/entities";
 import type { BindingHint } from "@shared/ipc";
 import { fetchBoothBundle } from "./adapters/booth";
+import { fetchHermesBundle } from "./adapters/hermes";
 import { fetchQuasarBundle } from "./adapters/quasar";
 import { fetchTowerBundle } from "./adapters/tower";
 
@@ -59,13 +60,14 @@ export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
 
   const refresh = async (hints?: ReadonlyArray<BindingHint>): Promise<SnapshotState> => {
     lastHints = hints;
-    const [tower, quasar, booth] = await Promise.all([
+    const [tower, quasar, booth, hermes] = await Promise.all([
       guarded("tower", () => fetchTowerBundle()),
       guarded("quasar", () => fetchQuasarBundle(hintsFor(hints, "quasar"))),
       guarded("booth", () => fetchBoothBundle(hintsFor(hints, "booth"))),
+      guarded("hermes", () => fetchHermesBundle()),
     ]);
 
-    state = { bundles: [tower, quasar, booth] };
+    state = { bundles: [tower, quasar, booth, hermes] };
     for (const listener of listeners) listener(state);
     return state;
   };

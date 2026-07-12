@@ -4,7 +4,7 @@ import { Schema } from "effect";
 // canvas document are pointers into these; the document never stores server
 // data, so a down server degrades to a stale badge and nothing else.
 
-export const EntitySource = Schema.Literal("tower", "quasar", "booth");
+export const EntitySource = Schema.Literal("tower", "quasar", "booth", "hermes");
 export type EntitySource = typeof EntitySource.Type;
 
 export const Entity = Schema.Struct({
