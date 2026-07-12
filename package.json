@@ -14,7 +14,9 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "verify": "bun run typecheck && bun run test && electron-vite build"
+    "verify": "bun run typecheck && bun run test && electron-vite build",
+    "digest": "bun scripts/digest.ts",
+    "canvas:ls": "bun scripts/canvas-ls.ts"
   },
   "dependencies": {
     "@effect/platform": "^0.96.0",

@@ -6,7 +6,7 @@ import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import { applyMirrorLaw, decodeCanvasDoc, serializeCanvas, type CanvasDoc } from "@shared/canvas";
 import type { CanvasReadResult, CanvasSummary } from "@shared/ipc";
-import { seedCanvasDoc, SEED_CANVAS_NAME } from "@shared/seed";
+import { SEED_CANVAS_NAME } from "@shared/seed";
 
 export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
   message: Schema.String,
@@ -183,7 +183,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     });
 
     if (files.length === 0) {
-      yield* write(SEED_CANVAS_NAME, seedCanvasDoc());
+      yield* write(SEED_CANVAS_NAME, { nodes: [], edges: [] });
     }
   });
 

@@ -12,9 +12,16 @@ interface QuasarProjectsResponse {
   readonly data?: { readonly rows: ReadonlyArray<QuasarProjectRow> };
 }
 
+// `updatedAt` is present on every row but frequently null (some providers,
+// e.g. claude-code, never populate it); only fold it into stats when at
+// least one row has a real value.
+interface QuasarSessionRow {
+  readonly updatedAt?: string | null;
+}
+
 interface QuasarSessionsResponse {
   readonly ok: boolean;
-  readonly data?: { readonly rows: ReadonlyArray<unknown> };
+  readonly data?: { readonly rows: ReadonlyArray<QuasarSessionRow> };
 }
 
 const SESSIONS_LIMIT = 500;
@@ -43,13 +50,24 @@ const enrichSessions = async (
   if (!Array.isArray(rows)) return;
 
   const sessions: string | number = rows.length === SESSIONS_LIMIT ? "500+" : rows.length;
+
+  let lastSession: string | undefined;
+  for (const row of rows) {
+    if (!row.updatedAt) continue;
+    if (!lastSession || row.updatedAt > lastSession) lastSession = row.updatedAt;
+  }
+
   const existing = entities.get(key);
   entities.set(key, {
     source: "quasar",
     key,
     kind: "project",
     title: existing?.title ?? key,
-    stats: { ...existing?.stats, sessions },
+    stats: {
+      ...existing?.stats,
+      sessions,
+      ...(lastSession ? { last_session: lastSession } : {}),
+    },
     updatedAt: existing?.updatedAt ?? fetchedAt,
   });
 };

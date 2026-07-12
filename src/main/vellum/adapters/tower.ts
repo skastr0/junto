@@ -17,11 +17,20 @@ interface TowerOrbit {
   readonly stageCounts: TowerStageCounts;
 }
 
+// `signals` and `chatter` are sibling counters alongside `orbits`, each
+// shaped { name, present, fileCount, latest? }. Only fileCount is read here.
+interface TowerFileCounter {
+  readonly present: boolean;
+  readonly fileCount: number;
+}
+
 interface TowerProjectEntry {
   readonly ok: boolean;
   readonly status?: {
     readonly project: { readonly key: string; readonly name: string; readonly updatedAt: number };
     readonly orbits: Record<string, TowerOrbit>;
+    readonly signals?: TowerFileCounter;
+    readonly chatter?: TowerFileCounter;
   };
 }
 
@@ -37,21 +46,33 @@ const toEntity = (entry: TowerProjectEntry): Entity | undefined => {
   let active = 0;
   let done = 0;
   let orbits = 0;
-  for (const orbit of Object.values(status.orbits)) {
+  const perOrbit: Record<string, number> = {};
+  for (const [name, orbit] of Object.entries(status.orbits)) {
     if (!orbit.present) continue;
     orbits += 1;
     const counts = orbit.stageCounts;
     done += counts.done;
-    active +=
+    const orbitActive =
       counts.backlog + counts.exploring + counts.committed + counts.building + counts.reviewing;
+    active += orbitActive;
+    if (orbitActive > 0) perOrbit[`orbit_${name}`] = orbitActive;
   }
+
+  const stats: Record<string, string | number> = {
+    glyphs_active: active,
+    glyphs_done: done,
+    orbits,
+    ...perOrbit,
+  };
+  if (status.signals && status.signals.fileCount > 0) stats.signals = status.signals.fileCount;
+  if (status.chatter && status.chatter.fileCount > 0) stats.chatter = status.chatter.fileCount;
 
   return {
     source: "tower",
     key: status.project.key,
     kind: "project",
     title: status.project.name,
-    stats: { glyphs_active: active, glyphs_done: done, orbits },
+    stats,
     updatedAt: new Date(status.project.updatedAt).toISOString(),
   };
 };
