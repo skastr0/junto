@@ -84,7 +84,7 @@ export const addEdge = (params: {
   kind?: EtherEdgeKind;
 }): void => {
   if (params.source === params.target) {
-    state$.error.set("A signal cannot connect to itself.");
+    state$.error.set("A node cannot connect to itself.");
     return;
   }
   const doc = state$.doc.peek();

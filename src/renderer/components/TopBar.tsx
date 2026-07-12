@@ -1,9 +1,9 @@
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useRef, useState } from "react";
-import { Activity, CircleHelp, FileDown, LayoutGrid, List, Orbit, Plus, Redo2, RefreshCw, ScanLine, Search, Undo2, X } from "lucide-react";
+import { Activity, CircleHelp, FileDown, Orbit, Plus, Redo2, RefreshCw, ScanLine, Search, Undo2, X } from "lucide-react";
 import type { EntitySource } from "@shared/entities";
 import type { CanvasSummary } from "@shared/ipc";
-import { state$, toggleSourceFilter } from "../lib/state";
+import { state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { HUE, INK, SOURCE_HUE } from "../lib/theme";
 
@@ -15,18 +15,20 @@ function SourceDot({ source, active, onClick }: { readonly source: EntitySource;
   const ok = bundle?.ok ?? false;
   const hue = ok ? SOURCE_HUE[source] : HUE.crimson;
   const when = bundle ? new Date(bundle.fetchedAt).toLocaleTimeString() : "never";
-  return <button type="button" className={`station-source-button${active ? " is-active" : ""}`} aria-label={`${source} source ${ok ? "healthy" : "unavailable"}`} aria-haspopup="dialog" aria-expanded={active} style={{ color: ok ? SOURCE_HUE[source] : "#8a8378" }} title={`${source} · ${ok ? "ok" : "down"} · ${when}`} onClick={onClick}><span className="size-2 rounded-full" style={{ background: hue, opacity: ok ? 0.9 : 0.5 }} />{source}</button>;
+  return <button type="button" className={`station-source-button${active ? " is-active" : ""}`} aria-label={`${source} connector ${ok ? "fresh" : "stale"}`} aria-haspopup="dialog" aria-expanded={active} style={{ color: ok ? SOURCE_HUE[source] : "#8a8378" }} title={`${source} · ${ok ? "fresh" : "stale"} · ${when}`} onClick={onClick}><span className="size-2 rounded-full" style={{ background: hue, opacity: ok ? 0.9 : 0.5 }} />{source}</button>;
 }
 
-function SourceHealthPopover({ sourceFilter, onToggleSource, onClose }: { readonly sourceFilter: EntitySource | ""; readonly onToggleSource: (source: EntitySource) => void; readonly onClose: () => void }) {
+// Honest connector health: per-source dot + name + last-fetch detail. Lit when
+// fresh, dim when stale/down. It never filters the canvas.
+function ConnectorsPopover({ onClose }: { readonly onClose: () => void }) {
   const snapshots = use$(state$.snapshots);
-  return <aside className="station-health-popover" role="dialog" aria-label="Adapter health">
-    <div className="station-health-popover__header"><div><div className="station-health-popover__eyebrow">adapter plane</div><strong>signal integrity</strong></div><button type="button" aria-label="Close adapter health" onClick={onClose}>×</button></div>
+  return <aside className="station-health-popover" role="dialog" aria-label="Connectors">
+    <div className="station-health-popover__header"><div><div className="station-health-popover__eyebrow">adapter plane</div><strong>connectors</strong></div><button type="button" aria-label="Close connectors" onClick={onClose}>×</button></div>
     <div className="station-health-popover__list">{SOURCES.map((source) => {
       const bundle = snapshots.bundles.find((item) => item.source === source);
       const ok = bundle?.ok ?? false;
       const fetched = bundle ? new Date(bundle.fetchedAt).toLocaleTimeString() : "never";
-      return <button type="button" className={`station-health-popover__row${sourceFilter === source ? " is-active" : ""}`} aria-label={`Show ${source} signals`} aria-pressed={sourceFilter === source} onClick={() => onToggleSource(source)}><span className="station-health-popover__name"><i style={{ background: ok ? SOURCE_HUE[source] : HUE.crimson }} />{source}</span><span className={ok ? "station-health-popover__ok" : "station-health-popover__error"}>{ok ? `ok · ${fetched}` : bundle?.error ?? "unavailable"}</span></button>;
+      return <div key={source} className="station-health-popover__row"><span className="station-health-popover__name"><i style={{ background: ok ? SOURCE_HUE[source] : HUE.crimson }} />{source}</span><span className={ok ? "station-health-popover__ok" : "station-health-popover__error"}>{ok ? `fresh · ${fetched}` : bundle?.error ?? "stale"}</span></div>;
     })}</div>
   </aside>;
 }
@@ -35,14 +37,14 @@ function HelpPopover({ onClose }: { readonly onClose: () => void }) {
   const shortcuts = [
     ["/ · ⌘K", "focus search"],
     ["double-click", "add a note"],
-    ["drag handle", "move signals"],
-    ["edge handles / inspector", "connect signals"],
-    ["click edge", "inspect relation"],
+    ["drag handle", "move nodes"],
+    ["edge handles / inspector", "connect nodes"],
+    ["click edge", "inspect edge"],
     ["⌘Z · ⇧⌘Z", "undo / redo"],
     ["Escape", "close overlays / clear selection"],
   ] as const;
   return <aside className="station-help-popover" role="dialog" aria-label="Interaction help">
-    <div className="station-help-popover__header"><div><div className="station-help-popover__eyebrow">field protocol</div><strong>interaction map</strong></div><button type="button" aria-label="Close interaction help" onClick={onClose}>×</button></div>
+    <div className="station-help-popover__header"><div><div className="station-help-popover__eyebrow">canvas protocol</div><strong>interaction map</strong></div><button type="button" aria-label="Close interaction help" onClick={onClose}>×</button></div>
     <div className="station-help-popover__list">{shortcuts.map(([key, action]) => <div className="station-help-popover__row" key={key}><kbd>{key}</kbd><span>{action}</span></div>)}<div className="station-help-popover__row"><kbd>fit all</kbd><span>frame the full graph</span></div></div>
   </aside>;
 }
@@ -119,18 +121,13 @@ function SearchField({ canvasName }: { readonly canvasName: string }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
-  return <label className="station-search" title="Search signals · / or ⌘K"><Search size={14} /><input ref={inputRef} aria-label={label} value={value} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setSearch(""); inputRef.current?.blur(); } }} placeholder="search field" />{value ? <button type="button" className="station-search__clear" aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button> : null}</label>;
-}
-
-function ViewToggle() {
-  const mode = use$(state$.viewMode);
-  return <button className="station-view-toggle" title={mode === "field" ? "open manifest view" : "return to field view"} aria-label={mode === "field" ? "Open manifest view" : "Return to field view"} onClick={() => state$.viewMode.set(mode === "field" ? "manifest" : "field")}>{mode === "field" ? <List size={14} /> : <LayoutGrid size={14} />}<span>{mode === "field" ? "manifest" : "field"}</span></button>;
+  return <label className="station-search" title="Search nodes · / or ⌘K"><Search size={14} /><input ref={inputRef} aria-label={label} value={value} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setSearch(""); inputRef.current?.blur(); } }} placeholder="search nodes" />{value ? <button type="button" className="station-search__clear" aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button> : null}</label>;
 }
 
 function GenerateButton({ canvasName, onGenerate }: { readonly canvasName: string; readonly onGenerate: () => void }) {
   const generating = use$(state$.generating);
   const label = canvasName || "portfolio";
-  return <button className="station-generate-button" disabled={generating} title={`hydrate ${label} from live sources`} aria-label={generating ? `Hydrating ${label}` : `Hydrate ${label}`} onClick={onGenerate}><Orbit size={14} className={generating ? "station-spin" : ""} /><span>{generating ? "syncing" : "hydrate"}</span></button>;
+  return <button className="station-generate-button" disabled={generating} title={`populate ${label} from live sources`} aria-label={generating ? `Populating ${label}` : `Populate ${label}`} onClick={onGenerate}><Orbit size={14} className={generating ? "station-spin" : ""} /><span>{generating ? "syncing" : "populate"}</span></button>;
 }
 
 function HistoryButtons({ onUndo, onRedo }: { readonly onUndo: () => void; readonly onRedo: () => void }) {
@@ -152,7 +149,6 @@ export function TopBar({ onOpen, onCreate, onGenerate, onUndo, onRedo, onExport,
   const canvasLoading = use$(state$.canvasLoading);
   const refreshing = use$(state$.refreshing);
   const exporting = use$(state$.exporting);
-  const sourceFilter = use$(state$.sourceFilter);
   const [healthOpen, setHealthOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   useEffect(() => {
@@ -171,15 +167,14 @@ export function TopBar({ onOpen, onCreate, onGenerate, onUndo, onRedo, onExport,
   }, [healthOpen, helpOpen]);
   return (
     <header className="station-bar">
-      <div className="station-brand"><div className="station-brand__mark" aria-hidden><span /><span /><span /></div><div><div className="station-brand__name">vellum</div><div className="station-brand__sub">station / portfolio field</div></div></div>
+      <div className="station-brand"><div className="station-brand__mark" aria-hidden><span /><span /><span /></div><div><div className="station-brand__name">vellum</div><div className="station-brand__sub">station / portfolio canvas</div></div></div>
       <div className="station-bar__divider" />
       <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} />
       <SearchField canvasName={canvasName} />
-      <ViewToggle />
       <GenerateButton canvasName={canvasName} onGenerate={onGenerate} />
       <HistoryButtons onUndo={onUndo} onRedo={onRedo} />
       <SaveStatus />
-      <div className="station-actions relative ml-auto flex items-center gap-3"><div className="station-sources">{SOURCES.map((source) => <SourceDot key={source} source={source} active={healthOpen} onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }} />)}</div><button type="button" className="station-health-trigger" aria-label="Open adapter health" aria-expanded={healthOpen} aria-haspopup="dialog" onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }}><Activity size={14} /></button><button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => { setHealthOpen(false); setHelpOpen((open) => !open); }}><CircleHelp size={14} /></button>{healthOpen ? <SourceHealthPopover sourceFilter={sourceFilter} onToggleSource={toggleSourceFilter} onClose={() => setHealthOpen(false)} /> : null}{helpOpen ? <HelpPopover onClose={() => setHelpOpen(false)} /> : null}<button className="station-icon-button" disabled={refreshing} aria-label={refreshing ? "Refreshing snapshots" : "Refresh snapshots"} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.cyan }} title={refreshing ? "refreshing snapshots" : "refresh snapshots"} onClick={onRefresh}><RefreshCw size={15} className={refreshing ? "station-spin" : ""} /></button><button className="station-digest-button inline-flex items-center gap-2" disabled={exporting} aria-label={exporting ? "Exporting digest" : "Export digest"} style={{ borderColor: "rgba(232,163,61,.35)", color: HUE.amber }} title={exporting ? "exporting digest" : "export digest"} onClick={onExport}><FileDown size={14} className={exporting ? "station-spin" : ""} /><span>{exporting ? "syncing" : "digest"}</span></button></div>
+      <div className="station-actions relative ml-auto flex items-center gap-3"><div className="station-sources">{SOURCES.map((source) => <SourceDot key={source} source={source} active={healthOpen} onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }} />)}</div><button type="button" className="station-health-trigger" aria-label="Open connectors" aria-expanded={healthOpen} aria-haspopup="dialog" onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }}><Activity size={14} /></button><button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => { setHealthOpen(false); setHelpOpen((open) => !open); }}><CircleHelp size={14} /></button>{healthOpen ? <ConnectorsPopover onClose={() => setHealthOpen(false)} /> : null}{helpOpen ? <HelpPopover onClose={() => setHelpOpen(false)} /> : null}<button className="station-icon-button" disabled={refreshing} aria-label={refreshing ? "Refreshing snapshots" : "Refresh snapshots"} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.cyan }} title={refreshing ? "refreshing snapshots" : "refresh snapshots"} onClick={onRefresh}><RefreshCw size={15} className={refreshing ? "station-spin" : ""} /></button><button className="station-digest-button inline-flex items-center gap-2" disabled={exporting} aria-label={exporting ? "Exporting digest" : "Export digest"} style={{ borderColor: "rgba(232,163,61,.35)", color: HUE.amber }} title={exporting ? "exporting digest" : "export digest"} onClick={onExport}><FileDown size={14} className={exporting ? "station-spin" : ""} /><span>{exporting ? "syncing" : "digest"}</span></button></div>
     </header>
   );
 }

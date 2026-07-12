@@ -19,21 +19,20 @@ export type EtherEdgeKind = typeof EtherEdgeKind.Type;
 export const EtherFlag = Schema.Literal("blocker", "parked", "attention");
 export type EtherFlag = typeof EtherFlag.Type;
 
-// ref.key is always the canonical join key against Entity.key. `type` widens
-// the granularity a binding can point at; deeper types encode structure in the
-// key (e.g. glyph -> "glyph:<project>/<orbit>/<glyphId>"). Backward compatible:
-// existing project bindings are unchanged.
+// ref.key is always the canonical join key against Entity.key. `type` is the
+// granularity a binding can point at: project (a whole project entity) or
+// orbit (a per-orbit stat slice within a project).
 export const TowerBinding = Schema.Struct({
   source: Schema.Literal("tower"),
   ref: Schema.Struct({
-    type: Schema.Literal("project", "orbit", "glyph", "signal"),
+    type: Schema.Literal("project", "orbit"),
     key: Schema.String,
   }),
 });
 export const QuasarBinding = Schema.Struct({
   source: Schema.Literal("quasar"),
   ref: Schema.Struct({
-    type: Schema.Literal("project", "session"),
+    type: Schema.Literal("project"),
     key: Schema.String,
   }),
 });

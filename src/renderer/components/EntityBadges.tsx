@@ -3,7 +3,7 @@ import type { EtherBinding, EtherEntity } from "@shared/canvas";
 import { findEntity } from "@shared/entities";
 import type { Entity, EntitySource, SnapshotState } from "@shared/entities";
 import { SOURCE_HUE, withAlpha } from "../lib/theme";
-import { state$, toggleSourceFilter } from "../lib/state";
+import { state$ } from "../lib/state";
 
 // Preferred headline stat per source; falls back to the first stats entries.
 const PREFERRED: Record<string, ReadonlyArray<string>> = {
@@ -39,73 +39,44 @@ const formatValue = (label: string, value: string | number): string | number => 
 const bundleOk = (state: SnapshotState, source: string): boolean =>
   state.bundles.find((b) => b.source === source)?.ok ?? false;
 
-function StaleDot({ source, active, interactive, onFilter }: { readonly source: EntitySource; readonly active: boolean; readonly interactive: boolean; readonly onFilter: (source: EntitySource) => void }) {
-  const className = "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em]";
-  const style = { color: SOURCE_HUE[source], background: withAlpha(SOURCE_HUE[source] ?? "#8a8378", 0.08), border: `1px solid ${withAlpha(SOURCE_HUE[source] ?? "#8a8378", active ? 0.45 : 0.16)}` };
-  if (!interactive) return <span className={className} style={style} title={`${source} — stale` }><span className="size-1.5 rounded-full bg-current opacity-60" />{source}</span>;
+// Dim connector dot — the source is down or has no fresh row for this node.
+function StaleDot({ source }: { readonly source: EntitySource }) {
+  const hue = SOURCE_HUE[source] ?? "#8a8378";
   return (
-    <button
-      type="button"
-      className={`nodrag nopan ${className} transition hover:brightness-125`}
-      aria-label={`Filter ${source} signals`}
-      aria-pressed={active}
-      style={{ color: SOURCE_HUE[source], background: withAlpha(SOURCE_HUE[source] ?? "#8a8378", 0.08), border: `1px solid ${withAlpha(SOURCE_HUE[source] ?? "#8a8378", active ? 0.45 : 0.16)}` }}
-      title={`${source} — stale · filter source`}
-      onClick={(event) => { event.stopPropagation(); onFilter(source); }}
+    <span
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em]"
+      style={{ color: hue, background: withAlpha(hue, 0.08), border: `1px solid ${withAlpha(hue, 0.16)}` }}
+      title={`${source} — stale`}
     >
       <span className="size-1.5 rounded-full bg-current opacity-60" />
       {source}
-    </button>
+    </span>
   );
 }
 
-function StatBadge({
-  source,
-  label,
-  value,
-  active,
-  interactive,
-  onFilter,
-}: {
-  readonly source: EntitySource;
-  readonly label: string;
-  readonly value: string | number;
-  readonly active: boolean;
-  readonly interactive: boolean;
-  readonly onFilter: (source: EntitySource) => void;
-}) {
+// Lit connector stat — a fresh hydrated value from the source.
+function StatBadge({ source, label, value }: { readonly source: EntitySource; readonly label: string; readonly value: string | number }) {
   const hue = SOURCE_HUE[source] ?? "#8a8378";
-  const className = "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-medium tracking-wide";
-  const style = { color: hue, background: withAlpha(hue, active ? 0.17 : 0.1), border: `1px solid ${withAlpha(hue, active ? 0.55 : 0.22)}` };
-  if (!interactive) return <span className={className} style={style} title={`${source} · ${label}`}><span className="tabular-nums">{value}</span><span className="opacity-60 uppercase tracking-[0.12em]">{label}</span></span>;
   return (
-    <button
-      type="button"
-      className={`nodrag nopan ${className} transition hover:brightness-125`}
-      aria-label={`Filter ${source} signals`}
-      aria-pressed={active}
-      style={{ color: hue, background: withAlpha(hue, active ? 0.17 : 0.1), border: `1px solid ${withAlpha(hue, active ? 0.55 : 0.22)}` }}
-      title={`${source} · ${label} · filter source`}
-      onClick={(event) => { event.stopPropagation(); onFilter(source); }}
+    <span
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-medium tracking-wide"
+      style={{ color: hue, background: withAlpha(hue, 0.1), border: `1px solid ${withAlpha(hue, 0.22)}` }}
+      title={`${source} · ${label}`}
     >
       <span className="tabular-nums">{value}</span>
       <span className="opacity-60 uppercase tracking-[0.12em]">{label}</span>
-    </button>
+    </span>
   );
 }
 
 export function EntityBadges({
   entity,
   bindings,
-  interactive = true,
 }: {
   readonly entity: EtherEntity;
   readonly bindings: ReadonlyArray<EtherBinding> | undefined;
-  readonly interactive?: boolean;
 }) {
   const snapshots = use$(state$.snapshots);
-  const sourceFilter = use$(state$.sourceFilter);
-  const onFilter = (source: EntitySource) => toggleSourceFilter(source);
 
   return (
     <div className="mb-1.5 flex flex-wrap items-center gap-1">
@@ -119,11 +90,11 @@ export function EntityBadges({
         const source = binding.source;
         const entityRow = findEntity(snapshots, source, binding.ref.key);
         const ok = bundleOk(snapshots, source);
-        if (!ok || !entityRow) return <StaleDot key={`${source}-${i}`} source={source} active={sourceFilter === source} interactive={interactive} onFilter={onFilter} />;
+        if (!ok || !entityRow) return <StaleDot key={`${source}-${i}`} source={source} />;
         const stats = pickStats(entityRow, source);
-        if (stats.length === 0) return <StaleDot key={`${source}-${i}`} source={source} active={sourceFilter === source} interactive={interactive} onFilter={onFilter} />;
+        if (stats.length === 0) return <StaleDot key={`${source}-${i}`} source={source} />;
         return stats.map(([label, value]) => (
-          <StatBadge key={`${source}-${label}`} source={source} label={label} value={formatValue(label, value)} active={sourceFilter === source} interactive={interactive} onFilter={onFilter} />
+          <StatBadge key={`${source}-${label}`} source={source} label={label} value={formatValue(label, value)} />
         ));
       })}
     </div>

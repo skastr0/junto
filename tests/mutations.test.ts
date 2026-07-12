@@ -4,7 +4,7 @@ import { decodeCanvasDoc, type CanvasDoc } from "../src/shared/canvas";
 import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, renameGroup, setNodeColor, toggleFlag } from "../src/renderer/lib/mutations";
 import { addEdge, deleteEdges, editEdgeLabel, setEdgeColor, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
-import { clearGraphFilters, state$, toggleFlagFilter, toggleSourceFilter } from "../src/renderer/lib/state";
+import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
 
 const runtimeWindow = {
   vellum: { writeCanvas: async () => undefined },
@@ -53,19 +53,16 @@ describe("renderer graph mutations", () => {
     expect(state$.error.peek()).toBe("That relation already exists.");
   });
 
-  it("toggles and clears source and flag filters without touching the document", () => {
+  it("toggles and clears the flag filter without touching the document", () => {
     loadDoc(doc);
     const before = state$.doc.peek();
 
-    toggleSourceFilter("tower");
     toggleFlagFilter("attention");
 
-    expect(state$.sourceFilter.peek()).toBe("tower");
     expect(state$.flagFilter.peek()).toBe("attention");
     expect(state$.doc.peek()).toBe(before);
 
     clearGraphFilters();
-    expect(state$.sourceFilter.peek()).toBe("");
     expect(state$.flagFilter.peek()).toBe("");
     expect(state$.selectedNodeId.peek()).toBe("");
     expect(state$.selectedEdgeId.peek()).toBe("");
@@ -78,7 +75,7 @@ describe("renderer graph mutations", () => {
     addEdge({ source: "source", target: "source" });
 
     expect(state$.doc.peek().edges).toHaveLength(0);
-    expect(state$.error.peek()).toBe("A signal cannot connect to itself.");
+    expect(state$.error.peek()).toBe("A node cannot connect to itself.");
   });
 
   it("requires confirmation before deleting signals and connected relations", () => {

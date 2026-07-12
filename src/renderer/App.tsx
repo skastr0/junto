@@ -6,8 +6,7 @@ import { bindingHints, getLastWriteAt, loadDoc, redo, retrySave, undo } from "./
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { DigestPanel } from "./components/DigestPanel";
-import { FieldChrome } from "./components/FieldChrome";
-import { ManifestPanel } from "./components/ManifestPanel";
+import { CanvasChrome } from "./components/CanvasChrome";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 
@@ -35,9 +34,7 @@ const refreshSnapshotsSoft = async (doc: Parameters<typeof bindingHints>[0]) => 
 const resetCanvasView = (): void => {
   state$.searchQuery.set("");
   state$.edgeFilter.set("");
-  state$.sourceFilter.set("");
   state$.flagFilter.set("");
-  state$.viewMode.set("field");
   state$.digestOpen.set(false);
   state$.selectedNodeId.set("");
   state$.selectedEdgeId.set("");
@@ -116,7 +113,7 @@ const generatePortfolio = async () => {
       new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 12000)),
     ]);
     if (!result) {
-      state$.error.set("hydrate timed out; current field kept");
+      state$.error.set("populate timed out; current canvas kept");
       return;
     }
     state$.canvasName.set(result.name);
@@ -152,7 +149,7 @@ const refreshSnapshots = async () => {
 const retryActionForError = (message: string): { readonly label: string; readonly run: () => Promise<void> } | undefined => {
   if (message.includes("write-canvas") || message.includes("cannot write")) return { label: "retry save", run: async () => retrySave() };
   if (message.includes("snapshot refresh timed out")) return { label: "retry refresh", run: refreshSnapshots };
-  if (message.includes("hydrate timed out")) return { label: "retry hydrate", run: generatePortfolio };
+  if (message.includes("populate timed out")) return { label: "retry populate", run: generatePortfolio };
   if (message.includes("digest export timed out")) return { label: "retry digest", run: exportDigest };
   return undefined;
 };
@@ -166,7 +163,6 @@ export function App() {
   const error = use$(state$.error);
   const booting = use$(state$.booting);
   const canvasName = use$(state$.canvasName);
-  const viewMode = use$(state$.viewMode);
   const errorAction = retryActionForError(error);
 
   useEffect(() => {
@@ -283,17 +279,11 @@ export function App() {
           </div>
         ) : null}
 
-        {viewMode === "field" ? (
-          <>
-            <ReactFlowProvider>
-              <Canvas />
-            </ReactFlowProvider>
-            <FieldChrome />
-            <InspectorPanel />
-          </>
-        ) : (
-          <ManifestPanel />
-        )}
+        <ReactFlowProvider>
+          <Canvas />
+        </ReactFlowProvider>
+        <CanvasChrome />
+        <InspectorPanel />
 
         <DigestPanel />
       </div>

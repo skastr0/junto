@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { nodeDetail, nodeTitle, searchText } from "../src/renderer/lib/presentation";
+import { nodeDetail, nodeTitle, nodeTypeLabel, searchText } from "../src/renderer/lib/presentation";
 import type { CanvasNode } from "../src/shared/canvas";
 
 const base = { id: "node", x: 0, y: 0, width: 200, height: 80 } as const;
 
 describe("canvas presentation", () => {
-  it("uses bindings when a signal has no body detail", () => {
+  it("uses bindings when a project node has no body detail", () => {
     const node: CanvasNode = {
       ...base,
       type: "text",
@@ -21,6 +21,15 @@ describe("canvas presentation", () => {
 
     expect(nodeTitle(node)).toBe("PRISM");
     expect(nodeDetail(node)).toBe("tower / prism · quasar / git:github.com/skastr0/prism");
+    expect(nodeTypeLabel(node)).toBe("project");
+  });
+
+  it("labels nodes by their true type — never 'signal'", () => {
+    expect(nodeTypeLabel({ ...base, type: "text", text: "a note" })).toBe("note");
+    expect(nodeTypeLabel({ ...base, type: "file", file: "docs/x.md" })).toBe("file");
+    expect(nodeTypeLabel({ ...base, type: "link", url: "https://x.com" })).toBe("link");
+    expect(nodeTypeLabel({ ...base, type: "group", label: "Ops" })).toBe("region");
+    expect(nodeTypeLabel({ ...base, type: "text", text: "Vega", ether: { entity: { kind: "agent" } } })).toBe("agent");
   });
 
   it("keeps type-specific details for files, links, and regions", () => {
@@ -37,8 +46,8 @@ describe("canvas presentation", () => {
     expect(nodeDetail(group)).toBe("Spatial region");
   });
 
-  it("indexes Ether flags for field search", () => {
-    const node: CanvasNode = { ...base, type: "text", text: "Signal", ether: { flags: ["attention", "parked"] } };
+  it("indexes Ether flags for canvas search", () => {
+    const node: CanvasNode = { ...base, type: "text", text: "Note", ether: { flags: ["attention", "parked"] } };
 
     expect(searchText(node)).toContain("attention");
     expect(searchText(node)).toContain("parked");

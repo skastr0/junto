@@ -11,8 +11,6 @@ Canvases live at `~/.vellum/canvases/*.canvas`. Read or write them directly (the
 | command | what it does |
 |---|---|
 | `bun run populate [name] [--all]` | merge the live corpus (tower/quasar/hermes) onto a canvas as bound, hydrated nodes. Default = owned/registered projects; `--all` = every indexed repo. Idempotent, preserves existing nodes. |
-| `bun run explode <project> [name] [--signals] [--all-states]` | drill a project into its glyphs (and, with `--signals`, its signal queue) — one bound node per glyph/signal, grouped by orbit. Idempotent. |
-| `bun run connect [name]` | derive provenance edges: drilled glyph/signal nodes → their project, and each signal → the fleet agent that emitted it. Opt-in, idempotent. |
 | `bun run render [name]` | write `<name>.svg` — a deep-field image of the board, for multimodal reading. |
 | `bun run digest [name]` | print (and write `<name>.digest.txt`) a deterministic text projection of the board + live source data. |
 | `bun run canvas:ls [--json]` | list canvases with node/edge counts. |
@@ -26,7 +24,7 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
 ```jsonc
 { "id": "n1", "type": "text", "x": 0, "y": 0, "width": 220, "height": 84, "text": "prism",
   "ether": {
-    "entity": { "kind": "project" },          // open vocab: project|orbit|plugin|agent|station|skill|glyph|...
+    "entity": { "kind": "project" },          // open vocab: project|orbit|plugin|agent|station|skill|...
     "bindings": [                              // pointers into live sources; [] = a free node
       { "source": "tower",  "ref": { "type": "project", "key": "prism" } },
       { "source": "quasar", "ref": { "type": "project", "key": "git:github.com/skastr0/prism" } }
@@ -46,12 +44,10 @@ Derived state (blocked closure, group membership, binding health) is **never sto
 ## Binding refs and canonical keys
 
 `ref.key` is always the join key against a live `Entity.key`. Granularity by `ref.type`:
-- tower: `project` (`key`), `orbit` (`orbit:<project>/<orbit>`), `glyph` (`glyph:<project>/<orbit>/<glyphId>`)
-- quasar: `project` (`git:...`), `session` (`session:<sessionId>`)
+- tower: `project` (`key`), `orbit` (`orbit:<project>/<orbit>`)
+- quasar: `project` (`git:...`)
 - booth: `project`
 - hermes: `agent` (`<host>:<profile>`)
-
-Never hand-format these strings — use the builders/parsers in `src/shared/refs.ts`.
 
 ## Sources (read-only adapters)
 
@@ -59,7 +55,7 @@ Never hand-format these strings — use the builders/parsers in `src/shared/refs
 
 ## Structure
 
-- `src/shared/` — **frozen contracts**: `canvas.ts` (document schema), `entities.ts` (snapshots), `graph.ts` (derived), `refs.ts` (keys), `digest.ts`, `portfolio.ts`, `explode.ts`, `svg.ts`. Change deliberately; much depends on them.
+- `src/shared/` — **frozen contracts**: `canvas.ts` (document schema), `entities.ts` (snapshots), `graph.ts` (derived), `digest.ts`, `portfolio.ts`, `svg.ts`. Change deliberately; much depends on them.
 - `src/main/vellum/` — document plane (`canvases.ts`), data plane (`snapshots.ts` + `adapters/`), IPC (`ipc.ts`).
 - `src/renderer/` — the canvas surface. **A dedicated UI agent owns this directory exclusively; backend sessions do not commit renderer files.**
 - `scripts/` — the headless CLIs above.

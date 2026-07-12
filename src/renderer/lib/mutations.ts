@@ -152,9 +152,7 @@ export const parseSide = (handle?: string | null): NodeSide | undefined => {
 export const addNode = (node: CanvasNode): void => {
   state$.searchQuery.set("");
   state$.edgeFilter.set("");
-  state$.sourceFilter.set("");
   state$.flagFilter.set("");
-  state$.viewMode.set("field");
   state$.selectedNodeId.set(node.id);
   state$.selectedEdgeId.set("");
   const doc = state$.doc.peek();
@@ -198,8 +196,8 @@ export const deleteNodes = (ids: ReadonlyArray<string>): void => {
   const existingNodes = doc.nodes.filter((node) => removed.has(node.id));
   if (existingNodes.length === 0) return;
   const connectedEdges = doc.edges.filter((edge) => removed.has(edge.fromNode) || removed.has(edge.toNode)).length;
-  const nodeLabel = existingNodes.length === 1 ? "this signal" : `${existingNodes.length} signals`;
-  const relationLabel = connectedEdges === 0 ? "" : ` Connected relations (${connectedEdges}) will also be removed.`;
+  const nodeLabel = existingNodes.length === 1 ? "this node" : `${existingNodes.length} nodes`;
+  const relationLabel = connectedEdges === 0 ? "" : ` Connected edges (${connectedEdges}) will also be removed.`;
   if (!confirmDestructive(`Delete ${nodeLabel}?${relationLabel}`)) return;
   if (removed.has(state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
   if (removed.has(state$.selectedEdgeId.peek())) state$.selectedEdgeId.set("");

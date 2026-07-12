@@ -6,10 +6,9 @@ import { deleteNode, setNodeColor } from "../lib/mutations";
 import { cycleEdgeKind, deleteEdges, editEdgeLabel, setEdgeColor, toggleEdgeArrow } from "../lib/edge-mutations";
 import { state$ } from "../lib/state";
 import { HUE, SOURCE_HUE, withAlpha } from "../lib/theme";
-import { nodeDetail, nodeTitle } from "../lib/presentation";
-import { ConnectSignalEditor, NodeFieldEditors, NodeFlagControls } from "./InspectorFields";
-
-const kindOf = (node: CanvasNode): string => node.ether?.entity?.kind ?? node.type;
+import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
+import { EntityBadges } from "./EntityBadges";
+import { ConnectEditor, NodeFieldEditors, NodeFlagControls } from "./InspectorFields";
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
   { value: "1", label: "red", hue: HUE.crimson },
   { value: "2", label: "orange", hue: HUE.orange },
@@ -32,16 +31,17 @@ function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly 
   const doc = use$(state$.doc);
   const [connectOpen, setConnectOpen] = useState(false);
   return <aside className="inspector-panel">
-    <InspectorHeader eyebrow={`signal / ${kindOf(node)}`} title={nodeTitle(node)} onClose={onClose} />
+    <InspectorHeader eyebrow={nodeTypeLabel(node)} title={nodeTitle(node)} onClose={onClose} />
     <div className="inspector-body">
       <div className="inspector-detail">{nodeDetail(node) || "No description recorded."}</div>
-      <div className="inspector-grid"><span>type<strong>{node.type}</strong></span><span>geometry<strong>{node.width} × {node.height}</strong></span><span>position<strong>{node.x}, {node.y}</strong></span></div>
+      {node.ether?.entity ? <div className="inspector-section"><div className="inspector-section__label">live readout</div><EntityBadges entity={node.ether.entity} bindings={node.ether.bindings} /></div> : null}
+      <div className="inspector-grid"><span>type<strong>{nodeTypeLabel(node)}</strong></span><span>geometry<strong>{node.width} × {node.height}</strong></span><span>position<strong>{node.x}, {node.y}</strong></span></div>
       <NodeFieldEditors node={node} />
-      {bindings.length > 0 ? <div className="inspector-section"><div className="inspector-section__label"><Link2 size={11} /> bindings</div><div className="inspector-bindings">{bindings.map((binding) => <div className="inspector-binding" key={`${binding.source}:${binding.ref.key}`}><span className="inspector-binding__source" style={{ color: SOURCE_HUE[binding.source] }}>{binding.source}</span><span>{binding.ref.key}</span></div>)}</div></div> : null}
+      {bindings.length > 0 ? <div className="inspector-section"><div className="inspector-section__label"><Link2 size={11} /> connectors</div><div className="inspector-bindings">{bindings.map((binding) => <div className="inspector-binding" key={`${binding.source}:${binding.ref.key}`}><span className="inspector-binding__source" style={{ color: SOURCE_HUE[binding.source] }}>{binding.source}</span><span>{binding.ref.key}</span></div>)}</div></div> : null}
       <AccentControls value={node.color} onChange={(color) => setNodeColor(node.id, color)} />
       <NodeFlagControls node={node} />
-      <div className="inspector-actions"><button onClick={() => { state$.searchQuery.set(""); state$.edgeFilter.set(""); state$.sourceFilter.set(""); state$.flagFilter.set(""); state$.viewMode.set("field"); state$.focusNodeId.set(node.id); }}><Crosshair size={13} />focus signal</button>{node.type === "link" ? <button onClick={() => window.open(node.url, "_blank")}><ExternalLink size={13} />open link</button> : null}<button onClick={() => setConnectOpen((open) => !open)}><ArrowRight size={13} />connect signal</button><button className="inspector-action--danger" onClick={() => deleteNode(node.id)}><Trash2 size={13} />delete</button></div>
-      <ConnectSignalEditor node={node} doc={doc} open={connectOpen} onOpenChange={setConnectOpen} />
+      <div className="inspector-actions"><button onClick={() => { state$.searchQuery.set(""); state$.edgeFilter.set(""); state$.flagFilter.set(""); state$.focusNodeId.set(node.id); }}><Crosshair size={13} />focus node</button>{node.type === "link" ? <button onClick={() => window.open(node.url, "_blank")}><ExternalLink size={13} />open link</button> : null}<button onClick={() => setConnectOpen((open) => !open)}><ArrowRight size={13} />connect to…</button><button className="inspector-action--danger" onClick={() => deleteNode(node.id)}><Trash2 size={13} />delete</button></div>
+      <ConnectEditor node={node} doc={doc} open={connectOpen} onOpenChange={setConnectOpen} />
     </div>
   </aside>;
 }

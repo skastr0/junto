@@ -12,6 +12,15 @@ export const searchText = (node: CanvasNode): string => [
   ...(node.ether?.bindings ?? []).flatMap((binding) => [binding.source, binding.ref.key]),
 ].join(" ").toLowerCase();
 
+// The honest user-facing noun for a node: note / file / link / region, or the
+// entity kind (project / agent / …) when one is present. Never "signal".
+export const nodeTypeLabel = (node: CanvasNode): string => {
+  if (node.ether?.entity?.kind) return node.ether.entity.kind;
+  if (node.type === "text") return "note";
+  if (node.type === "group") return "region";
+  return node.type;
+};
+
 export const nodeTitle = (node: CanvasNode): string => {
   if (node.type === "text") return node.text.split("\n")[0]?.replace(/^#+\s*/, "") || "untitled";
   if (node.type === "file") return node.file.split("/").filter(Boolean).pop() ?? node.file;

@@ -47,7 +47,7 @@ export function NodeShell({ node, selected, blocked, onEdit, onOpen, children }:
         ? `0 0 0 1px ${withAlpha(HUE.violet, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
         : "0 10px 28px rgba(0,0,0,0.18)";
   return <div className={`vellum-node group relative flex h-full w-full flex-col overflow-visible rounded-[10px] px-3.5 py-3 ${isBlocker ? "vellum-blocker" : ""}`} style={{ border: `1px solid ${selected ? withAlpha(HUE.amber, 0.7) : border}`, background, boxShadow: shadow, backdropFilter: "blur(10px)" }}>
-    <div className="vellum-drag-handle" aria-label="Move signal" title="drag to move signal" />
+    <div className="vellum-drag-handle" aria-label="Move node" title="drag to move node" />
     {onEdit ? <button className="vellum-node__edit nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-slate-400 transition hover:bg-white/10 hover:text-[#EDE6DA]" aria-label="Edit item" title="edit item" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onEdit(); }}><Pencil size={12} /></button> : null}
     {onOpen ? <button className="vellum-node__open nodrag nopan absolute right-10 top-2 z-10 grid size-6 place-items-center rounded text-cyan-300/70 transition hover:bg-white/10 hover:text-cyan-200" aria-label="Open external link" title="open external link" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onOpen(); }}><ExternalLink size={12} /></button> : null}
     <ConnectionHandles /><NodeActions node={node} selected={selected} onEdit={onEdit} />

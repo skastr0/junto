@@ -1,6 +1,6 @@
 import { observable } from "@legendapp/state";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
-import type { EntitySource, SnapshotState } from "@shared/entities";
+import type { SnapshotState } from "@shared/entities";
 import type { CanvasSummary, DigestResult } from "@shared/ipc";
 
 export const EMPTY_DOC: CanvasDoc = { nodes: [], edges: [] };
@@ -15,9 +15,7 @@ export const state$ = observable({
   canvasLoading: false,
   searchQuery: "",
   edgeFilter: "" as EtherEdgeKind | "",
-  sourceFilter: "" as EntitySource | "",
   flagFilter: "" as EtherFlag | "",
-  viewMode: "field" as "field" | "manifest",
   editNodeId: "",
   selectedNodeId: "",
   selectedEdgeId: "",
@@ -39,23 +37,15 @@ export const state$ = observable({
   error: "",
 });
 
-const toggleFilterValue = <T extends string>(current: T | "", value: T, set: (next: T | "") => void): void => {
-  set(current === value ? "" : value);
+export const toggleFlagFilter = (flag: EtherFlag): void => {
+  const current = state$.flagFilter.peek();
+  state$.flagFilter.set(current === flag ? "" : flag);
   state$.selectedNodeId.set("");
   state$.selectedEdgeId.set("");
 };
 
-export const toggleSourceFilter = (source: EntitySource): void => {
-  toggleFilterValue(state$.sourceFilter.peek(), source, (next) => state$.sourceFilter.set(next));
-};
-
-export const toggleFlagFilter = (flag: EtherFlag): void => {
-  toggleFilterValue(state$.flagFilter.peek(), flag, (next) => state$.flagFilter.set(next));
-};
-
 export const clearGraphFilters = (): void => {
   state$.edgeFilter.set("");
-  state$.sourceFilter.set("");
   state$.flagFilter.set("");
   state$.selectedNodeId.set("");
   state$.selectedEdgeId.set("");
