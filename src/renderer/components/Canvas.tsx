@@ -8,6 +8,7 @@ import {
   MiniMap,
   Panel,
   ReactFlow,
+  SelectionMode,
   useConnection,
   useEdgesState,
   useNodesState,
@@ -83,9 +84,13 @@ function useCanvasDocument(docVersion: number, searchQuery: string, edgeFilter: 
     setEdges(selectedEdges.filter((edge) => queryVisibleIds.has(edge.source) && queryVisibleIds.has(edge.target)));
   }, [docVersion, edgeFilter, flagFilter, searchQuery, setNodes, setEdges]);
 
-  // Selection sync — a light map over the existing graph, not a rebuild.
+  // Selection sync — a light map over the existing graph, not a rebuild. A
+  // live rubber-band multi-selection (no single subject) is left untouched.
   useEffect(() => {
-    setNodes((nodes) => nodes.map((node) => node.selected === (node.id === selectedNodeId) ? node : { ...node, selected: node.id === selectedNodeId }));
+    setNodes((nodes) => {
+      if (!selectedNodeId && nodes.filter((node) => node.selected).length > 1) return nodes;
+      return nodes.map((node) => node.selected === (node.id === selectedNodeId) ? node : { ...node, selected: node.id === selectedNodeId });
+    });
     setEdges((edges) => edges.map((edge) => edge.selected === (edge.id === selectedEdgeId) ? edge : { ...edge, selected: edge.id === selectedEdgeId }));
   }, [selectedNodeId, selectedEdgeId, setNodes, setEdges]);
 }
@@ -188,6 +193,13 @@ function useCanvasInteractions(rf: CanvasFlow) {
     // click is the explicit deselection gesture; do not erase an inspector
     // selection from an internal remount event.
     if (selectedNodes.length === 0 && selectedEdges.length === 0) return;
+    // A rubber-band multi-selection has no single inspector subject; keep the
+    // inspector closed and let React Flow own the selection set.
+    if (selectedNodes.length > 1) {
+      state$.selectedNodeId.set("");
+      state$.selectedEdgeId.set("");
+      return;
+    }
     state$.selectedNodeId.set(selectedNodes[0]?.id ?? "");
     state$.selectedEdgeId.set(selectedNodes.length === 0 ? selectedEdges[0]?.id ?? "" : "");
   }, []);
@@ -204,25 +216,67 @@ function useCanvasInteractions(rf: CanvasFlow) {
   return { onConnect, onConnectEnd, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick };
 }
 
-function AddNodePanel() {
-  const rf = useReactFlow<FlowNode, FlowEdge>();
-  const snapshots = use$(state$.snapshots);
-  const [open, setOpen] = useState(false);
-  const [picker, setPicker] = useState<"project" | "agent" | null>(null);
+type AddPicker = "project" | "agent" | null;
 
+interface AddActions {
+  readonly create: (kind: "text" | "file" | "link" | "group") => void;
+  readonly addProject: (display: string, bindings: ReadonlyArray<EtherBinding>) => void;
+  readonly addAgent: (label: string, key: string) => void;
+}
+
+// Node creation against a caller-supplied placement strategy — the toolbar
+// places near the viewport center, the context menu at the click point.
+const makeAddActions = (
+  positionFor: (size: { width: number; height: number }) => { x: number; y: number },
+  dismiss: () => void,
+): AddActions => ({
+  create: (kind) => {
+    const size = kind === "text"
+      ? { width: 240, height: 100 }
+      : kind === "group"
+        ? { width: 560, height: 320 }
+        : { width: 260, height: 110 };
+    const position = positionFor(size);
+    const node = kind === "text"
+      ? makeTextNode(position.x, position.y)
+      : kind === "file"
+        ? makeFileNode(position.x, position.y)
+        : kind === "link"
+          ? makeLinkNode(position.x, position.y)
+          : makeGroupNode(position.x, position.y);
+    addNode(node);
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
+  addProject: (display, bindings) => {
+    const position = positionFor({ width: 240, height: 96 });
+    const node = makeProjectNode(position.x, position.y, display, bindings);
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
+  addAgent: (label, key) => {
+    const position = positionFor({ width: 240, height: 96 });
+    const node = makeAgentNode(position.x, position.y, label, key);
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
+});
+
+// Escape / outside-pointerdown dismissal shared by both menu hosts.
+const useMenuDismiss = (active: boolean, dismiss: () => void) => {
   useEffect(() => {
-    if (!open) return;
+    if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      setPicker(null);
-      setOpen(false);
+      dismiss();
     };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (target instanceof Element && target.closest(".node-palette")) return;
-      setPicker(null);
-      setOpen(false);
+      dismiss();
     };
     window.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
@@ -230,7 +284,54 @@ function AddNodePanel() {
       window.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown);
     };
-  }, [open]);
+  }, [active, dismiss]);
+};
+
+function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; readonly setPicker: (picker: AddPicker) => void; readonly actions: AddActions }) {
+  const snapshots = use$(state$.snapshots);
+  // Merged live projects (tower/quasar/booth, collapsed by title into one entry
+  // bound to every source that knows it).
+  const projects = mergeProjects(snapshots, { all: true });
+  const agents = snapshots.bundles
+    .filter((bundle) => bundle.ok && bundle.source === "hermes")
+    .flatMap((bundle) => bundle.entities)
+    .filter((entity) => entity.kind === "agent");
+
+  if (!picker) {
+    return <div className="node-palette__menu">
+      <button aria-label="Add note" onClick={() => actions.create("text")}><FileText size={14} /><span><strong>note</strong><small>freeform text</small></span></button>
+      <button aria-label="Add file" onClick={() => actions.create("file")}><FileText size={14} /><span><strong>file</strong><small>workspace path</small></span></button>
+      <button aria-label="Add link" onClick={() => actions.create("link")}><Link2 size={14} /><span><strong>link</strong><small>web reference</small></span></button>
+      <button aria-label="Add region" onClick={() => actions.create("group")}><SquareDashed size={14} /><span><strong>region</strong><small>spatial container</small></span></button>
+      <button aria-label="Add project" onClick={() => setPicker("project")}><Boxes size={14} /><span><strong>project</strong><small>bound live readout</small></span></button>
+      <button aria-label="Add agent" onClick={() => setPicker("agent")}><Bot size={14} /><span><strong>agent</strong><small>hermes profile</small></span></button>
+    </div>;
+  }
+  if (picker === "project") {
+    return <div className="node-palette__menu node-palette__menu--picker" role="listbox" aria-label="Choose a project">
+      <div className="node-palette__picker-head"><button type="button" aria-label="Back to add menu" onClick={() => setPicker(null)}>‹ project</button></div>
+      {projects.length === 0 ? <div className="node-palette__picker-empty">No projects in the live snapshots.</div>
+        : projects.map((project) => <button key={project.display} role="option" aria-label={`Add project ${project.display}`} onClick={() => actions.addProject(project.display, project.bindings)}><Boxes size={13} /><span><strong>{project.display}</strong><small>{[...project.sources].join(" · ")}</small></span></button>)}
+    </div>;
+  }
+  return <div className="node-palette__menu node-palette__menu--picker" role="listbox" aria-label="Choose an agent">
+    <div className="node-palette__picker-head"><button type="button" aria-label="Back to add menu" onClick={() => setPicker(null)}>‹ agent</button></div>
+    {agents.length === 0 ? <div className="node-palette__picker-empty">No agents in the live snapshots.</div>
+      : agents.map((agent) => {
+        const host = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
+        const title = agent.title ?? agent.key;
+        const label = host ? `${title} · ${host}` : title;
+        return <button key={agent.key} role="option" aria-label={`Add agent ${title}`} onClick={() => actions.addAgent(label, agent.key)}><Bot size={13} /><span><strong>{title}</strong><small>{host ?? "hermes"}</small></span></button>;
+      })}
+  </div>;
+}
+
+function AddNodePanel() {
+  const rf = useReactFlow<FlowNode, FlowEdge>();
+  const [open, setOpen] = useState(false);
+  const [picker, setPicker] = useState<AddPicker>(null);
+  const dismiss = useCallback(() => { setPicker(null); setOpen(false); }, []);
+  useMenuDismiss(open, dismiss);
 
   // A non-overlapping slot near the viewport center for a node of the given size.
   const nextPosition = (size: { width: number; height: number }) => {
@@ -245,79 +346,33 @@ function AddNodePanel() {
     return gridPlacement ? gridPlacement : findOpenPosition(docNodes, center, size);
   };
 
-  const dismiss = () => { setPicker(null); setOpen(false); };
-
-  const create = (kind: "text" | "file" | "link" | "group") => {
-    const size = kind === "text"
-      ? { width: 240, height: 100 }
-      : kind === "group"
-        ? { width: 560, height: 320 }
-        : { width: 260, height: 110 };
-    const position = nextPosition(size);
-    const node = kind === "text"
-      ? makeTextNode(position.x, position.y)
-      : kind === "file"
-        ? makeFileNode(position.x, position.y)
-        : kind === "link"
-          ? makeLinkNode(position.x, position.y)
-          : makeGroupNode(position.x, position.y);
-    addNode(node);
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  };
-
-  // Merged live projects (tower/quasar/booth, collapsed by title into one entry
-  // bound to every source that knows it).
-  const projects = mergeProjects(snapshots, { all: true });
-  const agents = snapshots.bundles
-    .filter((bundle) => bundle.ok && bundle.source === "hermes")
-    .flatMap((bundle) => bundle.entities)
-    .filter((entity) => entity.kind === "agent");
-
-  const addProject = (display: string, bindings: ReadonlyArray<EtherBinding>) => {
-    const position = nextPosition({ width: 240, height: 96 });
-    const node = makeProjectNode(position.x, position.y, display, bindings);
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  };
-  const addAgent = (label: string, key: string) => {
-    const position = nextPosition({ width: 240, height: 96 });
-    const node = makeAgentNode(position.x, position.y, label, key);
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  };
+  const actions = makeAddActions(nextPosition, dismiss);
 
   return (
     <Panel position="top-left" className="node-palette-panel">
       <div className="node-palette">
         <button className="node-palette__trigger" aria-label="Add canvas item" aria-expanded={open} onClick={() => { setPicker(null); setOpen((value) => !value); }}><Plus size={14} /><span>add item</span></button>
-        {open && !picker ? <div className="node-palette__menu">
-          <button aria-label="Add note" onClick={() => create("text")}><FileText size={14} /><span><strong>note</strong><small>freeform text</small></span></button>
-          <button aria-label="Add file" onClick={() => create("file")}><FileText size={14} /><span><strong>file</strong><small>workspace path</small></span></button>
-          <button aria-label="Add link" onClick={() => create("link")}><Link2 size={14} /><span><strong>link</strong><small>web reference</small></span></button>
-          <button aria-label="Add region" onClick={() => create("group")}><SquareDashed size={14} /><span><strong>region</strong><small>spatial container</small></span></button>
-          <button aria-label="Add project" onClick={() => setPicker("project")}><Boxes size={14} /><span><strong>project</strong><small>bound live readout</small></span></button>
-          <button aria-label="Add agent" onClick={() => setPicker("agent")}><Bot size={14} /><span><strong>agent</strong><small>hermes profile</small></span></button>
-        </div> : null}
-        {open && picker === "project" ? <div className="node-palette__menu node-palette__menu--picker" role="listbox" aria-label="Choose a project">
-          <div className="node-palette__picker-head"><button type="button" aria-label="Back to add menu" onClick={() => setPicker(null)}>‹ project</button></div>
-          {projects.length === 0 ? <div className="node-palette__picker-empty">No projects in the live snapshots.</div>
-            : projects.map((project) => <button key={project.display} role="option" aria-label={`Add project ${project.display}`} onClick={() => addProject(project.display, project.bindings)}><Boxes size={13} /><span><strong>{project.display}</strong><small>{[...project.sources].join(" · ")}</small></span></button>)}
-        </div> : null}
-        {open && picker === "agent" ? <div className="node-palette__menu node-palette__menu--picker" role="listbox" aria-label="Choose an agent">
-          <div className="node-palette__picker-head"><button type="button" aria-label="Back to add menu" onClick={() => setPicker(null)}>‹ agent</button></div>
-          {agents.length === 0 ? <div className="node-palette__picker-empty">No agents in the live snapshots.</div>
-            : agents.map((agent) => {
-              const host = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
-              const title = agent.title ?? agent.key;
-              const label = host ? `${title} · ${host}` : title;
-              return <button key={agent.key} role="option" aria-label={`Add agent ${title}`} onClick={() => addAgent(label, agent.key)}><Bot size={13} /><span><strong>{title}</strong><small>{host ?? "hermes"}</small></span></button>;
-            })}
-        </div> : null}
+        {open ? <AddMenu picker={picker} setPicker={setPicker} actions={actions} /> : null}
       </div>
     </Panel>
+  );
+}
+
+// Right-click on empty canvas: the same add menu, anchored at the cursor,
+// creating the node exactly where you clicked.
+function ContextAddMenu({ at, onClose }: { readonly at: { x: number; y: number }; readonly onClose: () => void }) {
+  const rf = useReactFlow<FlowNode, FlowEdge>();
+  const [picker, setPicker] = useState<AddPicker>(null);
+  useMenuDismiss(true, onClose);
+  const positionFor = (size: { width: number; height: number }) => {
+    const point = rf.screenToFlowPosition({ x: at.x, y: at.y });
+    return { x: Math.round(point.x - size.width / 2), y: Math.round(point.y - size.height / 2) };
+  };
+  const actions = makeAddActions(positionFor, onClose);
+  return (
+    <div className="node-palette node-palette--context" style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 340), zIndex: 40 }}>
+      <AddMenu picker={picker} setPicker={setPicker} actions={actions} />
+    </div>
   );
 }
 
@@ -355,13 +410,32 @@ function CanvasGraph() {
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.
   const connecting = useConnection((connection) => connection.inProgress);
-  return <ReactFlow className={connecting ? "is-connecting" : undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} connectionMode={ConnectionMode.Loose} connectionRadius={42} panOnScroll zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.15} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
-    <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
-    <AddNodePanel />
-    <FitAllPanel />
-    <MiniMap pannable zoomable nodeColor={miniMapNodeColor} maskColor="rgba(12,11,10,0.72)" style={{ background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }} />
-    <FieldControls />
-  </ReactFlow>;
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const onPaneContextMenu = useCallback((event: React.MouseEvent | MouseEvent) => {
+    event.preventDefault();
+    setCtxMenu({ x: event.clientX, y: event.clientY });
+  }, []);
+  // A region visually reads as empty space — right-clicking inside one offers
+  // the same picker, creating the node at that spot (inside the region).
+  const onNodeContextMenu = useCallback((event: React.MouseEvent, node: FlowNode) => {
+    if (node.data?.node.type !== "group") return;
+    event.preventDefault();
+    setCtxMenu({ x: event.clientX, y: event.clientY });
+  }, []);
+  const onPaneClick = useCallback((event: React.MouseEvent) => {
+    setCtxMenu(null);
+    interactions.onPaneClick(event);
+  }, [interactions.onPaneClick]);
+  return <>
+    <ReactFlow className={connecting ? "is-connecting" : undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} onPaneClick={onPaneClick} onPaneContextMenu={onPaneContextMenu} onNodeContextMenu={onNodeContextMenu} onMoveStart={() => setCtxMenu(null)} connectionMode={ConnectionMode.Loose} connectionRadius={42} panOnScroll panOnScrollSpeed={1.2} panOnDrag={[1]} selectionOnDrag selectionMode={SelectionMode.Partial} zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.15} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
+      <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
+      <AddNodePanel />
+      <FitAllPanel />
+      <MiniMap pannable zoomable nodeColor={miniMapNodeColor} maskColor="rgba(12,11,10,0.72)" style={{ background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }} />
+      <FieldControls />
+    </ReactFlow>
+    {ctxMenu ? <ContextAddMenu at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
+  </>;
 }
 
 export function Canvas() {
