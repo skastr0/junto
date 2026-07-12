@@ -1,7 +1,7 @@
 import type { Entity, SnapshotBundle } from "@shared/entities";
-import { glyphKey, parseGlyphKey } from "@shared/refs";
+import { glyphKey, parseGlyphKey, parseSignalKey, signalKey } from "@shared/refs";
 import { parseJson, runCli } from "./exec";
-import { fetchProjectGlyphs } from "./tower-rest";
+import { fetchProjectGlyphs, fetchProjectSignals } from "./tower-rest";
 
 // Shape of `tower status --all --json`, trimmed to the fields we read.
 interface TowerStageCounts {
@@ -156,6 +156,60 @@ export const resolveTowerGlyphHints = async (keys: ReadonlyArray<string>): Promi
       kind: "glyph",
       title: glyph.title,
       stats: { state: glyph.state, orbit: glyph.orbit, project: glyph.project },
+      updatedAt: fetchedAt,
+    });
+  }
+  return entities;
+};
+
+const SIGNAL_TITLE_MAX = 50;
+
+const truncateSignalTitle = (title: string): string =>
+  title.length > SIGNAL_TITLE_MAX ? `${title.slice(0, SIGNAL_TITLE_MAX - 3)}...` : title;
+
+// Signal-level drill-down: mirrors resolveTowerGlyphHints exactly, against
+// fetchProjectSignals instead of fetchProjectGlyphs. Batches by project (one
+// REST round-trip per project, not per signal). Keys that don't parse as a
+// signal key are skipped; a project whose REST fetch fails contributes no
+// entities for its keys, never throws.
+export const resolveTowerSignalHints = async (keys: ReadonlyArray<string>): Promise<Entity[]> => {
+  const refByKey = new Map<string, { project: string; orbit: string; signalId: string }>();
+  for (const key of keys) {
+    const ref = parseSignalKey(key);
+    if (ref) refByKey.set(key, ref);
+  }
+  if (refByKey.size === 0) return [];
+
+  const projects = [...new Set([...refByKey.values()].map((ref) => ref.project))].slice(
+    0,
+    MAX_HINT_PROJECTS,
+  );
+  const signalsByProject = new Map<string, Awaited<ReturnType<typeof fetchProjectSignals>>>();
+  await Promise.all(
+    projects.map(async (project) => {
+      signalsByProject.set(project, await fetchProjectSignals(project));
+    }),
+  );
+
+  const fetchedAt = new Date().toISOString();
+  const entities: Entity[] = [];
+  for (const ref of refByKey.values()) {
+    const bundle = signalsByProject.get(ref.project);
+    if (!bundle?.ok) continue;
+    const signal = bundle.signals.find((s) => s.orbit === ref.orbit && s.signalId === ref.signalId);
+    if (!signal) continue;
+    entities.push({
+      source: "tower",
+      key: signalKey(ref.project, ref.orbit, ref.signalId),
+      kind: "signal",
+      title: truncateSignalTitle(signal.summary || signal.kind),
+      stats: {
+        status: signal.status,
+        kind: signal.kind,
+        orbit: signal.orbit,
+        project: signal.project,
+        ...(signal.sourceAgent ? { agent: signal.sourceAgent } : {}),
+      },
       updatedAt: fetchedAt,
     });
   }

@@ -1,5 +1,5 @@
 import type { CanvasDoc, CanvasNode } from "./canvas";
-import { glyphKey } from "./refs";
+import { glyphKey, signalKey } from "./refs";
 
 // Glyph-level drill-down: explode a project's glyph board onto a canvas —
 // one group node per orbit, one bound text node per glyph inside it. A pure
@@ -132,6 +132,146 @@ export const explodeProjectInto = (
     });
 
     cursorX += width + GROUP_GAP_X;
+  }
+
+  return { nodes: [...doc.nodes, ...added], edges: doc.edges };
+};
+
+// Signal-level drill-down: same shape as explodeProjectInto above, against
+// a project's signal feed instead of its glyph board. One group node per
+// orbit ("<project> · <orbit> signals"), one bound text node per signal.
+// Same idempotency guarantee: an orbit whose group node already exists is
+// left alone.
+
+export interface ExplodeSignal {
+  readonly project: string;
+  readonly orbit: string;
+  readonly signalId: string;
+  readonly status: string;
+  readonly kind: string;
+  readonly summary: string;
+  readonly sourceAgent?: string;
+}
+
+const SIGNAL_W = 220;
+const SIGNAL_H = 46;
+const SIGNAL_GAP_X = 16;
+const SIGNAL_GAP_Y = 12;
+const SIGNAL_COLS = 3;
+const SIGNAL_GROUP_PAD_X = 24;
+const SIGNAL_GROUP_PAD_TOP = 50; // room for the group label
+const SIGNAL_GROUP_PAD_BOTTOM = 24;
+const SIGNAL_GROUP_GAP_X = 80;
+const SIGNAL_SUMMARY_MAX = 36;
+
+const truncateSummary = (summary: string): string =>
+  summary.length > SIGNAL_SUMMARY_MAX ? `${summary.slice(0, SIGNAL_SUMMARY_MAX - 3)}...` : summary;
+
+// "prism.workflow_runtime.architecture_requested" -> "architecture_requested";
+// "exploration" (no namespace) -> "exploration" unchanged.
+const kindShort = (kind: string): string =>
+  kind.includes(".") ? kind.slice(kind.lastIndexOf(".") + 1) : kind;
+
+const signalGroupNodeId = (project: string, orbit: string): string =>
+  `sig-grp-${slug(project)}-${slug(orbit)}`;
+
+const signalNodeId = (project: string, orbit: string, signalId: string): string =>
+  `sig-${slug(project)}-${slug(orbit)}-${slug(signalId)}`;
+
+const signalGroupNode = (
+  project: string,
+  orbit: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): CanvasNode => ({
+  id: signalGroupNodeId(project, orbit),
+  type: "group",
+  label: `${project} · ${orbit} signals`,
+  x,
+  y,
+  width,
+  height,
+});
+
+const signalTextNode = (signal: ExplodeSignal, x: number, y: number): CanvasNode => ({
+  id: signalNodeId(signal.project, signal.orbit, signal.signalId),
+  type: "text",
+  x,
+  y,
+  width: SIGNAL_W,
+  height: SIGNAL_H,
+  text: `${kindShort(signal.kind)} · ${truncateSummary(signal.summary)}`,
+  ether: {
+    entity: { kind: "signal" },
+    bindings: [
+      {
+        source: "tower",
+        ref: { type: "signal", key: signalKey(signal.project, signal.orbit, signal.signalId) },
+      },
+    ],
+  },
+});
+
+export const explodeSignalsInto = (
+  doc: CanvasDoc,
+  project: string,
+  signals: ReadonlyArray<ExplodeSignal>,
+): CanvasDoc => {
+  const existingIds = new Set(doc.nodes.map((node) => node.id));
+
+  const byOrbit = new Map<string, ExplodeSignal[]>();
+  for (const signal of signals) {
+    if (signal.project !== project) continue;
+    const list = byOrbit.get(signal.orbit) ?? [];
+    list.push(signal);
+    byOrbit.set(signal.orbit, list);
+  }
+  const orbits = [...byOrbit.keys()].sort();
+
+  const maxY = doc.nodes.reduce((m, node) => Math.max(m, node.y + node.height), 0);
+  const originY = doc.nodes.length > 0 ? maxY + 120 : 0;
+
+  const added: CanvasNode[] = [];
+  let cursorX = 0;
+
+  for (const orbit of orbits) {
+    const groupId = signalGroupNodeId(project, orbit);
+    // Already exploded for this project/orbit — leave the existing group and
+    // its signal nodes untouched rather than risk a duplicate/colliding id.
+    if (existingIds.has(groupId)) continue;
+
+    const newSignals = (byOrbit.get(orbit) ?? []).filter(
+      (signal) => !existingIds.has(signalNodeId(signal.project, signal.orbit, signal.signalId)),
+    );
+    if (newSignals.length === 0) continue;
+
+    const cols = Math.min(SIGNAL_COLS, newSignals.length);
+    const rows = Math.ceil(newSignals.length / SIGNAL_COLS);
+    const width = SIGNAL_GROUP_PAD_X * 2 + cols * SIGNAL_W + (cols - 1) * SIGNAL_GAP_X;
+    const height =
+      SIGNAL_GROUP_PAD_TOP + SIGNAL_GROUP_PAD_BOTTOM + rows * SIGNAL_H + (rows - 1) * SIGNAL_GAP_Y;
+
+    const groupX = cursorX;
+    const groupY = originY;
+
+    existingIds.add(groupId);
+    added.push(signalGroupNode(project, orbit, groupX, groupY, width, height));
+
+    newSignals.forEach((signal, index) => {
+      const col = index % SIGNAL_COLS;
+      const row = Math.floor(index / SIGNAL_COLS);
+      const node = signalTextNode(
+        signal,
+        groupX + SIGNAL_GROUP_PAD_X + col * (SIGNAL_W + SIGNAL_GAP_X),
+        groupY + SIGNAL_GROUP_PAD_TOP + row * (SIGNAL_H + SIGNAL_GAP_Y),
+      );
+      existingIds.add(node.id);
+      added.push(node);
+    });
+
+    cursorX += width + SIGNAL_GROUP_GAP_X;
   }
 
   return { nodes: [...doc.nodes, ...added], edges: doc.edges };

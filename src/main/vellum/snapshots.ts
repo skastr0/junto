@@ -2,11 +2,11 @@ import { Context, Effect, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import type { SnapshotBundle, SnapshotState } from "@shared/entities";
 import type { BindingHint } from "@shared/ipc";
-import { parseGlyphKey } from "@shared/refs";
+import { parseGlyphKey, parseSignalKey } from "@shared/refs";
 import { fetchBoothBundle } from "./adapters/booth";
 import { fetchHermesBundle } from "./adapters/hermes";
 import { fetchQuasarBundle } from "./adapters/quasar";
-import { fetchTowerBundle, resolveTowerGlyphHints } from "./adapters/tower";
+import { fetchTowerBundle, resolveTowerGlyphHints, resolveTowerSignalHints } from "./adapters/tower";
 
 // The read-only data plane. Adapters shell out to reference CLIs and
 // normalize into SnapshotBundles. refresh never fails: a broken adapter
@@ -73,6 +73,25 @@ const withGlyphHints = async (
   }
 };
 
+// Signal-level hydration: mirrors withGlyphHints exactly, against
+// resolveTowerSignalHints instead of resolveTowerGlyphHints. Fully isolated —
+// a REST outage or a bug here must never take down the project/glyph-level
+// tower bundle that already succeeded.
+const withSignalHints = async (
+  tower: SnapshotBundle,
+  hintKeys: ReadonlyArray<string>,
+): Promise<SnapshotBundle> => {
+  const signalKeys = hintKeys.filter((key) => parseSignalKey(key) !== undefined);
+  if (signalKeys.length === 0) return tower;
+  try {
+    const signalEntities = await resolveTowerSignalHints(signalKeys);
+    if (signalEntities.length === 0) return tower;
+    return { ...tower, entities: [...tower.entities, ...signalEntities] };
+  } catch {
+    return tower;
+  }
+};
+
 export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
   let state: SnapshotState = emptyState;
   let lastHints: ReadonlyArray<BindingHint> | undefined;
@@ -88,8 +107,9 @@ export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
       guarded("hermes", () => fetchHermesBundle()),
     ]);
     const towerWithGlyphs = await withGlyphHints(tower, hintsFor(hints, "tower"));
+    const towerWithSignals = await withSignalHints(towerWithGlyphs, hintsFor(hints, "tower"));
 
-    state = { bundles: [towerWithGlyphs, quasar, booth, hermes] };
+    state = { bundles: [towerWithSignals, quasar, booth, hermes] };
     for (const listener of listeners) listener(state);
     return state;
   };

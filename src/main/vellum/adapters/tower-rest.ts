@@ -150,3 +150,131 @@ export const fetchProjectGlyphs = async (
 
   return { ok: true, glyphs };
 };
+
+export interface TowerSignal {
+  readonly project: string;
+  readonly orbit: string;
+  readonly signalId: string;
+  readonly status: string;
+  readonly kind: string;
+  readonly summary: string;
+  readonly sourceAgent?: string;
+}
+
+export interface FetchProjectSignalsResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly signals: ReadonlyArray<TowerSignal>;
+}
+
+export interface FetchProjectSignalsOptions {
+  readonly orbits?: ReadonlyArray<string>;
+}
+
+// GET /api/signals?projectKey=<key>&orbit=<orbit> -> { orbit, signals: [...] }.
+// Sampled directly against the live prism/vouch boards before wiring this in;
+// fields beyond these are present (payload, audit, contract_schema_id, ...)
+// but unused here.
+interface SignalsApiItem {
+  readonly signalId?: string;
+  readonly orbit?: string;
+  readonly status?: string;
+  readonly kind?: string;
+  readonly summary?: string;
+  readonly source?: { readonly type?: string; readonly name?: string };
+}
+
+interface SignalsApiResponse {
+  readonly orbit?: string;
+  readonly signals?: ReadonlyArray<SignalsApiItem>;
+}
+
+// Fetch one orbit's signals. Returns undefined on any failure (network, HTTP
+// error, malformed body) — the caller treats that as "this orbit is silent",
+// not a total failure of the project fetch.
+const fetchOrbitSignals = async (
+  config: TowerRestConfig,
+  project: string,
+  orbit: string,
+): Promise<ReadonlyArray<TowerSignal> | undefined> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const url = `${config.url}/api/signals?projectKey=${encodeURIComponent(project)}&orbit=${encodeURIComponent(orbit)}`;
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${config.token}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) return undefined;
+
+    const parsed = (await response.json()) as SignalsApiResponse;
+    if (!Array.isArray(parsed.signals)) return undefined;
+
+    const signals: TowerSignal[] = [];
+    for (const item of parsed.signals) {
+      if (
+        typeof item.signalId !== "string" ||
+        typeof item.status !== "string" ||
+        typeof item.kind !== "string" ||
+        typeof item.summary !== "string"
+      ) {
+        continue;
+      }
+      signals.push({
+        project,
+        orbit: typeof item.orbit === "string" ? item.orbit : orbit,
+        signalId: item.signalId,
+        status: item.status,
+        kind: item.kind,
+        summary: item.summary,
+        ...(item.source?.type === "agent" && typeof item.source.name === "string"
+          ? { sourceAgent: item.source.name }
+          : {}),
+      });
+    }
+    return signals;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+// Fetches one project's signals across orbits, concurrently, tolerant of
+// per-orbit failure (a silent orbit just contributes nothing). Only fails
+// (ok:false) when every orbit request failed or the config itself is
+// missing/malformed.
+export const fetchProjectSignals = async (
+  project: string,
+  opts: FetchProjectSignalsOptions = {},
+): Promise<FetchProjectSignalsResult> => {
+  const config = await loadConfig();
+  if (!config) {
+    return { ok: false, error: `missing or invalid tower-control config at ${CONFIG_PATH}`, signals: [] };
+  }
+
+  const orbits = opts.orbits ?? DEFAULT_ORBITS;
+
+  const perOrbit = await Promise.all(orbits.map((orbit) => fetchOrbitSignals(config, project, orbit)));
+
+  const failedOrbits: string[] = [];
+  const signals: TowerSignal[] = [];
+  orbits.forEach((orbit, index) => {
+    const result = perOrbit[index];
+    if (result === undefined) {
+      failedOrbits.push(orbit);
+      return;
+    }
+    signals.push(...result);
+  });
+
+  if (failedOrbits.length === orbits.length) {
+    return {
+      ok: false,
+      error: `all orbit requests failed for project "${project}" (${failedOrbits.join(", ")})`,
+      signals: [],
+    };
+  }
+
+  return { ok: true, signals };
+};
