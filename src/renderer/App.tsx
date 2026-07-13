@@ -6,6 +6,7 @@ import { bindingHints, getLastWriteAt, loadDoc, redo, retrySave, undo } from "./
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { DigestPanel } from "./components/DigestPanel";
+import { PulseTray } from "./components/PulseTray";
 import { CanvasChrome } from "./components/CanvasChrome";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { SEED_CANVAS_NAME } from "@shared/seed";
@@ -258,6 +259,7 @@ export function App() {
         <InspectorPanel />
 
         <DigestPanel />
+        <PulseTray />
       </div>
     </div>
   );

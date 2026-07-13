@@ -15,6 +15,7 @@ import {
   fetchTowerSignalRead,
 } from "./adapters/tower-browse";
 import { CanvasesService } from "./canvases";
+import { registerChatIpc } from "./chat/ipc";
 import { SnapshotsService } from "./snapshots";
 
 const broadcast = (channel: string, payload: unknown) => {
@@ -124,6 +125,9 @@ export const registerVellumIpc = () => {
   ipcMain.handle(IPC_CHANNELS.agentMessage, (_event, key: string, text: string) =>
     fetchAgentMessage(key, text),
   );
+
+  // The attached-chat plane (hermes ACP sessions per agent node).
+  registerChatIpc(ipcMain, () => BrowserWindow.getAllWindows().map((window) => window.webContents));
 
   // Wire pushes and background loops once at startup.
   void AppRuntime.runPromise(

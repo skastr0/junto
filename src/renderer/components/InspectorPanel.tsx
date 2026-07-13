@@ -13,6 +13,8 @@ import { getAgentAvatar, getAgentIdentity } from "../lib/agent";
 import { getVellumApi } from "../lib/vellum-api";
 import { ConnectEditor, NodeFieldEditors, NodeFlagControls } from "./InspectorFields";
 import { ProjectBrowseSection } from "./InspectorBrowse";
+import { ChatView, InspectorTabs } from "./chat";
+import { chatState$ } from "../lib/chat-state";
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
   { value: "1", label: "red", hue: HUE.crimson },
   { value: "2", label: "orange", hue: HUE.orange },
@@ -139,24 +141,48 @@ function AgentSections({ node }: { readonly node: CanvasNode }) {
   </>;
 }
 
+// Agent nodes read chat-first: CHAT is the default tab, DETAILS holds the
+// identity/readout/label/flag surfaces. The unread count from the chat store
+// badges the tab while you're looking elsewhere.
+function AgentTabBar({ agentKey, active, onSelect }: { readonly agentKey: string; readonly active: string; readonly onSelect: (id: string) => void }) {
+  const chat = use$(chatState$[agentKey]);
+  const unread = chat?.unread ?? 0;
+  return <InspectorTabs
+    tabs={[{ id: "chat", label: "chat", badge: active !== "chat" && unread > 0 ? unread : undefined }, { id: "details", label: "details" }]}
+    active={active}
+    onSelect={onSelect}
+  />;
+}
+
 function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
   const bindings = node.ether?.bindings ?? [];
   const doc = use$(state$.doc);
   const [connectOpen, setConnectOpen] = useState(false);
+  const [agentTab, setAgentTab] = useState("chat");
   const isEntity = Boolean(node.ether?.entity);
+  const isAgent = isEntity && node.ether?.entity?.kind === "agent";
+  const hermesKey = isAgent ? bindings.find((binding) => binding.source === "hermes")?.ref.key : undefined;
+  const chatTab = Boolean(hermesKey) && agentTab === "chat";
   return <aside className="inspector-panel">
     <InspectorHeader eyebrow={nodeTypeLabel(node)} title={nodeTitle(node)} onClose={onClose} />
     <div className="inspector-body">
-      {!isEntity ? <div className="inspector-detail">{nodeDetail(node) || "No description recorded."}</div> : null}
-      {isEntity ? <LiveReadout node={node} /> : null}
-      {isEntity && node.ether?.entity?.kind === "project" ? <ProjectBrowseSection key={node.id} node={node} /> : null}
-      {isEntity && node.ether?.entity?.kind === "agent" ? <AgentSections key={node.id} node={node} /> : null}
-      <NodeFieldEditors node={node} />
-      {!isEntity && bindings.length > 0 ? <div className="inspector-section"><div className="inspector-section__label"><Link2 size={11} /> connectors</div><div className="inspector-bindings">{bindings.map((binding) => <div className="inspector-binding" key={`${binding.source}:${binding.ref.key}`}><span className="inspector-binding__source" style={{ color: SOURCE_HUE[binding.source] }}>{binding.source}</span><span>{binding.ref.key}</span></div>)}</div></div> : null}
-      <AccentControls value={node.color} onChange={(color) => setNodeColor(node.id, color)} />
-      <NodeFlagControls node={node} />
-      <div className="inspector-actions"><button onClick={() => { state$.searchQuery.set(""); state$.edgeFilter.set(""); state$.flagFilter.set(""); state$.focusNodeId.set(node.id); }}><Crosshair size={13} />focus node</button>{node.type === "link" ? <button onClick={() => window.open(node.url, "_blank")}><ExternalLink size={13} />open link</button> : null}<button onClick={() => setConnectOpen((open) => !open)}><ArrowRight size={13} />connect to…</button><button className="inspector-action--danger" onClick={() => deleteNode(node.id)}><Trash2 size={13} />delete</button></div>
-      <ConnectEditor node={node} doc={doc} open={connectOpen} onOpenChange={setConnectOpen} />
+      {hermesKey ? <AgentTabBar agentKey={hermesKey} active={agentTab} onSelect={setAgentTab} /> : null}
+      {chatTab && hermesKey ? (
+        <div className="mt-2 flex min-h-[340px] flex-col" style={{ height: "56vh" }}>
+          <ChatView key={hermesKey} agentKey={hermesKey} />
+        </div>
+      ) : <>
+        {!isEntity ? <div className="inspector-detail">{nodeDetail(node) || "No description recorded."}</div> : null}
+        {isEntity ? <LiveReadout node={node} /> : null}
+        {isEntity && node.ether?.entity?.kind === "project" ? <ProjectBrowseSection key={node.id} node={node} /> : null}
+        {isAgent ? <AgentSections key={node.id} node={node} /> : null}
+        <NodeFieldEditors node={node} />
+        {!isEntity && bindings.length > 0 ? <div className="inspector-section"><div className="inspector-section__label"><Link2 size={11} /> connectors</div><div className="inspector-bindings">{bindings.map((binding) => <div className="inspector-binding" key={`${binding.source}:${binding.ref.key}`}><span className="inspector-binding__source" style={{ color: SOURCE_HUE[binding.source] }}>{binding.source}</span><span>{binding.ref.key}</span></div>)}</div></div> : null}
+        <AccentControls value={node.color} onChange={(color) => setNodeColor(node.id, color)} />
+        <NodeFlagControls node={node} />
+        <div className="inspector-actions"><button onClick={() => { state$.searchQuery.set(""); state$.edgeFilter.set(""); state$.flagFilter.set(""); state$.focusNodeId.set(node.id); }}><Crosshair size={13} />focus node</button>{node.type === "link" ? <button onClick={() => window.open(node.url, "_blank")}><ExternalLink size={13} />open link</button> : null}<button onClick={() => setConnectOpen((open) => !open)}><ArrowRight size={13} />connect to…</button><button className="inspector-action--danger" onClick={() => deleteNode(node.id)}><Trash2 size={13} />delete</button></div>
+        <ConnectEditor node={node} doc={doc} open={connectOpen} onOpenChange={setConnectOpen} />
+      </>}
     </div>
   </aside>;
 }

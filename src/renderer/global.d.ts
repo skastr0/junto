@@ -1,9 +1,9 @@
-import type { ChassisApi, VellumApi } from "@shared/ipc";
+import type { ChassisApi, VellumApi, VellumChatApi } from "@shared/ipc";
 
 declare global {
   interface Window {
     readonly chassis?: ChassisApi;
-    readonly vellum?: VellumApi;
+    readonly vellum?: VellumApi & VellumChatApi;
   }
 }
 

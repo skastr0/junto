@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import { IPC_CHANNELS, type ChassisApi, type VellumApi } from "@shared/ipc";
+import { IPC_CHANNELS, type ChassisApi, type ChatEvent, type VellumApi, type VellumChatApi } from "@shared/ipc";
 import type { SnapshotState } from "@shared/entities";
 
 // Every real handler answers in well under this; only a dead/wedged main
@@ -11,6 +11,10 @@ const IPC_TIMEOUT_MS = 45_000;
 // agentMessage fires a real (up to 180s) hermes turn; give it headroom above
 // that instead of sharing the default 45s ceiling every other channel uses.
 const AGENT_MESSAGE_TIMEOUT_MS = 200_000;
+
+// A chat turn can run tools for many minutes; streaming events keep the UI
+// alive meanwhile, so the invoke ceiling only guards a truly dead backend.
+const CHAT_TURN_TIMEOUT_MS = 900_000;
 
 const invoke = <T>(channel: string, timeoutMs: number, ...args: unknown[]): Promise<T> =>
   new Promise((resolve, reject) => {
@@ -77,5 +81,18 @@ const vellumApi: VellumApi = {
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
 };
 
+const chatApi: VellumChatApi = {
+  chatOpen: (agentKey, resumeSessionId) =>
+    invoke(IPC_CHANNELS.chatOpen, IPC_TIMEOUT_MS, agentKey, resumeSessionId),
+  chatPrompt: (agentKey, text, contextBlocks) =>
+    invoke(IPC_CHANNELS.chatPrompt, CHAT_TURN_TIMEOUT_MS, agentKey, text, contextBlocks),
+  chatPermission: (agentKey, requestId, optionId) =>
+    invoke(IPC_CHANNELS.chatPermission, IPC_TIMEOUT_MS, agentKey, requestId, optionId),
+  chatSetModel: (agentKey, modelId) =>
+    invoke(IPC_CHANNELS.chatSetModel, IPC_TIMEOUT_MS, agentKey, modelId),
+  chatClose: (agentKey) => invoke(IPC_CHANNELS.chatClose, IPC_TIMEOUT_MS, agentKey),
+  onChatEvent: (listener) => subscribe<ChatEvent>(IPC_CHANNELS.chatEvent, listener),
+};
+
 contextBridge.exposeInMainWorld("chassis", chassisApi);
-contextBridge.exposeInMainWorld("vellum", vellumApi);
+contextBridge.exposeInMainWorld("vellum", { ...vellumApi, ...chatApi });
