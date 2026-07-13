@@ -392,9 +392,15 @@ body {
 .manifest-empty strong { color: #ede6da; font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 24px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; }
 .manifest-empty span { font-size: 10px; }
 
-button {
-  font: inherit;
-  cursor: pointer;
+/* Element resets live in the base layer so Tailwind utilities (utilities
+   layer, later in the cascade) can always override them. An UNLAYERED element
+   selector here would silently defeat every text-*/flex utility on every
+   button in the app — that was the "gigantic labels" bug. */
+@layer base {
+  button {
+    font: inherit;
+    cursor: pointer;
+  }
 }
 
 /* --- React Flow surface, restyled for the deep field ------------------- */
@@ -633,15 +639,19 @@ path.vellum-edge-ripple {
 .vellum-picker-select:focus { border-color: rgba(232, 163, 61, 0.55); box-shadow: 0 0 0 3px rgba(232, 163, 61, 0.08); }
 .vellum-picker-select option { background: #16130f; color: #ede6da; }
 
-/* A row (glyph/signal/session/dispatch) that opens the detail modal. Resets
-   button UA chrome so it reads exactly like the plain div it replaces. */
+/* A row (glyph/signal/session/dispatch) that opens the detail modal. The
+   class owns the full row layout — an unlayered class beats layered Tailwind
+   utilities, so it must agree with them, never fight them. */
 .vellum-row-button {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   width: 100%;
   border: 0;
   border-radius: 4px;
   background: transparent;
-  padding: 0 3px;
+  padding: 2px 3px;
+  font-size: 10px;
   text-align: left;
   transition: background 0.15s ease;
 }
