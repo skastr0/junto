@@ -2,13 +2,17 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Crosshair, ExternalLink, Link2, RotateCw, Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
+import type { AgentIdentity } from "@shared/ipc";
 import { deleteNode, setNodeColor } from "../lib/mutations";
 import { cycleEdgeKind, deleteEdges, editEdgeLabel, setEdgeColor, toggleEdgeArrow } from "../lib/edge-mutations";
 import { state$ } from "../lib/state";
-import { DIM, HUE, SOURCE_HUE, withAlpha } from "../lib/theme";
+import { DIM, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
 import { entityReadout } from "../lib/entity-readout";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
+import { getAgentAvatar, getAgentIdentity } from "../lib/agent";
+import { getVellumApi } from "../lib/vellum-api";
 import { ConnectEditor, NodeFieldEditors, NodeFlagControls } from "./InspectorFields";
+import { ProjectBrowseSection } from "./InspectorBrowse";
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
   { value: "1", label: "red", hue: HUE.crimson },
   { value: "2", label: "orange", hue: HUE.orange },
@@ -49,6 +53,92 @@ function LiveReadout({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
+// Identity (avatar + displayName + matrixUserId + homeRoomName) plus v1
+// fire-and-response messaging for one hermes agent. No session history —
+// the last reply just stays on screen until the next send replaces it.
+function AgentSections({ node }: { readonly node: CanvasNode }) {
+  const hermesKey = (node.ether?.bindings ?? []).find((binding) => binding.source === "hermes")?.ref.key;
+  const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [identity, setIdentity] = useState<AgentIdentity | null>(null);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [reply, setReply] = useState<{ readonly text: string; readonly at: number } | undefined>(undefined);
+  const [sendError, setSendError] = useState("");
+
+  useEffect(() => {
+    if (!hermesKey) return;
+    let cancelled = false;
+    // getAgentAvatar/getAgentIdentity never reject (lib/agent.ts resolves a
+    // miss to null) — the .catch is a floor against a future change to that.
+    void getAgentAvatar(hermesKey).then((value) => { if (!cancelled) setAvatar(value); }).catch(() => undefined);
+    void getAgentIdentity(hermesKey).then((value) => { if (!cancelled) setIdentity(value); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [hermesKey]);
+
+  if (!hermesKey) return null;
+
+  const displayName = identity?.displayName;
+
+  const send = async () => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
+    setSendError("");
+    try {
+      const api = getVellumApi();
+      if (!api || typeof api.agentMessage !== "function") throw new Error("agent messaging unreachable");
+      const result = await api.agentMessage(hermesKey, text);
+      if (result.ok && result.reply) {
+        setReply({ text: result.reply, at: Date.now() });
+      } else {
+        setSendError(result.error ?? "agent did not reply");
+      }
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return <>
+    <div className="inspector-section">
+      <div className="inspector-section__label">identity</div>
+      <div className="mt-2 flex items-center gap-2.5">
+        <span className="shrink-0 overflow-hidden rounded-full" style={{ width: 36, height: 36, background: "rgba(255,255,255,.04)", border: "1px solid rgba(237,230,218,.12)" }}>
+          {avatar ? <img src={avatar} alt="" className="size-full object-cover" /> : null}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12px]" style={{ color: INK }} title={rawName}>{displayName ?? rawName}</div>
+          {identity?.matrixUserId ? <div className="mt-0.5 truncate text-[9px]" style={{ color: DIM }}>{identity.matrixUserId}</div> : null}
+          {identity?.homeRoomName ? <div className="mt-0.5 truncate text-[9px]" style={{ color: DIM }}>{identity.homeRoomName}</div> : null}
+        </div>
+      </div>
+    </div>
+    <div className="inspector-section">
+      <div className="inspector-section__label">message</div>
+      <div className="inspector-editor mt-2">
+        <textarea aria-label="Message this agent" rows={3} placeholder="fire a message at this agent…" value={draft} disabled={sending} onChange={(event) => setDraft(event.target.value)} />
+      </div>
+      <button
+        type="button"
+        className="mt-2 w-full rounded-md border py-1.5 text-[9px] uppercase tracking-[.12em] transition disabled:cursor-not-allowed disabled:opacity-35"
+        style={{ borderColor: withAlpha(HUE.amber, 0.35), background: withAlpha(HUE.amber, 0.08), color: HUE.amber }}
+        disabled={sending || !draft.trim()}
+        onClick={() => void send()}
+      >
+        {sending ? "sending…" : "send"}
+      </button>
+      {sending ? <div className="vellum-dot--pulse mt-2 text-[10px]" style={{ color: DIM }}>waiting for {displayName ?? rawName}… (can take a minute)</div> : null}
+      {sendError ? <div className="mt-2 text-[10px]" style={{ color: withAlpha(HUE.crimson, 0.75) }}>{sendError}</div> : null}
+      {reply ? <div className="mt-2">
+        <div className="text-[8px] uppercase tracking-[.14em]" style={{ color: DIM }}>reply · {new Date(reply.at).toLocaleTimeString()}</div>
+        <pre className="nowheel mt-1 max-h-[300px] overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed" style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}>{reply.text}</pre>
+      </div> : null}
+    </div>
+  </>;
+}
+
 function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
   const bindings = node.ether?.bindings ?? [];
   const doc = use$(state$.doc);
@@ -59,6 +149,8 @@ function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly 
     <div className="inspector-body">
       {!isEntity ? <div className="inspector-detail">{nodeDetail(node) || "No description recorded."}</div> : null}
       {isEntity ? <LiveReadout node={node} /> : null}
+      {isEntity && node.ether?.entity?.kind === "project" ? <ProjectBrowseSection key={node.id} node={node} /> : null}
+      {isEntity && node.ether?.entity?.kind === "agent" ? <AgentSections key={node.id} node={node} /> : null}
       <NodeFieldEditors node={node} />
       {!isEntity && bindings.length > 0 ? <div className="inspector-section"><div className="inspector-section__label"><Link2 size={11} /> connectors</div><div className="inspector-bindings">{bindings.map((binding) => <div className="inspector-binding" key={`${binding.source}:${binding.ref.key}`}><span className="inspector-binding__source" style={{ color: SOURCE_HUE[binding.source] }}>{binding.source}</span><span>{binding.ref.key}</span></div>)}</div></div> : null}
       <AccentControls value={node.color} onChange={(color) => setNodeColor(node.id, color)} />

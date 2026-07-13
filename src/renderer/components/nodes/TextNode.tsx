@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
 import type { CanvasNode } from "@shared/canvas";
+import type { AgentIdentity } from "@shared/ipc";
 import type { FlowNode } from "../../lib/convert";
+import { getAgentAvatar, getAgentIdentity } from "../../lib/agent";
 import { entityReadout } from "../../lib/entity-readout";
 import { editText } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
@@ -15,10 +17,24 @@ import { NodeShell } from "./NodeShell";
 function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: string }) {
   const snapshots = use$(state$.snapshots);
   const refreshing = use$(state$.refreshing);
-  const name = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
+  const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const { segments, dots } = entityReadout(node.ether?.bindings, snapshots);
   const line = segments.join(" · ");
   const nameHue = node.color ? accentColor(node.color) : INK;
+  const isAgent = kind === "agent";
+  const hermesKey = isAgent ? node.ether?.bindings?.find((binding) => binding.source === "hermes")?.ref.key : undefined;
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [identity, setIdentity] = useState<AgentIdentity | null>(null);
+  useEffect(() => {
+    if (!hermesKey) return;
+    let cancelled = false;
+    // getAgentAvatar/getAgentIdentity never reject (lib/agent.ts resolves a
+    // miss to null) — the .catch is a floor against a future change to that.
+    void getAgentAvatar(hermesKey).then((url) => { if (!cancelled) setAvatarUrl(url); }).catch(() => undefined);
+    void getAgentIdentity(hermesKey).then((value) => { if (!cancelled) setIdentity(value); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [hermesKey]);
+  const displayName = isAgent && identity?.displayName && identity.displayName !== rawName ? identity.displayName : rawName;
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
       <div>
@@ -39,8 +55,15 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
             ))}
           </span>
         </div>
-        <div className="mt-1 truncate text-[14px] font-semibold leading-snug" style={{ color: nameHue, fontFamily: "ui-monospace, SFMono-Regular, monospace" }} title={name}>
-          {name}
+        <div className="mt-1 flex items-center gap-1.5 overflow-hidden">
+          {isAgent ? (
+            <span className="shrink-0 overflow-hidden rounded-full" style={{ width: 20, height: 20 }}>
+              {avatarUrl ? <img src={avatarUrl} alt="" className="size-full object-cover" /> : null}
+            </span>
+          ) : null}
+          <span className="truncate text-[14px] font-semibold leading-snug" style={{ color: nameHue, fontFamily: "ui-monospace, SFMono-Regular, monospace" }} title={rawName}>
+            {displayName}
+          </span>
         </div>
       </div>
       <div className="line-clamp-2 text-[10px] leading-snug tabular-nums" style={{ color: DIM }} title={line}>

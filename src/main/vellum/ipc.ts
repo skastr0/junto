@@ -5,6 +5,9 @@ import type { CanvasDoc } from "@shared/canvas";
 import { digestCanvas } from "@shared/digest";
 import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime } from "../runtime";
+import { fetchAgentAvatar, fetchAgentIdentity, fetchAgentMessage } from "./adapters/hermes-identity";
+import { fetchQuasarSearch, fetchQuasarSessionList } from "./adapters/quasar";
+import { fetchTowerBrowse, fetchTowerSearch } from "./adapters/tower-browse";
 import { CanvasesService } from "./canvases";
 import { SnapshotsService } from "./snapshots";
 
@@ -72,6 +75,32 @@ export const registerVellumIpc = () => {
       AppRuntime.runPromise(
         Effect.flatMap(SnapshotsService, (snapshots) => snapshots.refresh(hints)),
       ),
+  );
+
+  // Source browsing: read-only, hit the live adapters directly (no Effect
+  // runtime involvement — these don't touch canvas/snapshot state).
+  ipcMain.handle(IPC_CHANNELS.towerBrowse, (_event, projectKey: string) =>
+    fetchTowerBrowse(projectKey),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.towerSearch, (_event, query: string, projectKey?: string) =>
+    fetchTowerSearch(query, projectKey),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.quasarSessions, (_event, quasarKey: string, limit?: number) =>
+    fetchQuasarSessionList(quasarKey, limit),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.quasarSearch, (_event, query: string, quasarKey?: string) =>
+    fetchQuasarSearch(query, quasarKey),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.agentIdentity, (_event, key: string) => fetchAgentIdentity(key));
+
+  ipcMain.handle(IPC_CHANNELS.agentAvatar, (_event, key: string) => fetchAgentAvatar(key));
+
+  ipcMain.handle(IPC_CHANNELS.agentMessage, (_event, key: string, text: string) =>
+    fetchAgentMessage(key, text),
   );
 
   // Wire pushes and background loops once at startup.
