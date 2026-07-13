@@ -672,9 +672,14 @@ path.vellum-edge-ripple {
 }
 .vellum-modal {
   position: relative;
-  width: min(560px, 100%);
-  max-height: 75vh;
-  overflow-y: auto;
+  width: min(760px, 84vw);
+  height: min(78vh, 900px);
+  min-width: 420px;
+  min-height: 320px;
+  max-width: 96vw;
+  max-height: 92vh;
+  resize: both;
+  overflow: auto;
   border: 1px solid rgba(237, 230,218, 0.15);
   border-radius: 10px;
   background: #16130f;
@@ -697,7 +702,12 @@ path.vellum-edge-ripple {
 .vellum-modal__eyebrow { color: #39c6d6; font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; }
 .vellum-modal__title { margin-top: 7px; padding-right: 20px; overflow-wrap: anywhere; color: #ede6da; font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 19px; letter-spacing: 0.06em; line-height: 1.25; text-transform: uppercase; }
 .vellum-modal__meta { margin-top: 6px; color: #8a8378; font-size: 9px; letter-spacing: 0.04em; }
-.vellum-modal__body { margin-top: 14px; }
+.vellum-modal__body {
+  margin-top: 14px;
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.6;
+}
 .vellum-modal__paragraph { margin: 0; color: #ede6da; font-size: 11px; line-height: 1.55; }
 .vellum-modal__line { margin-top: 6px; color: #8a8378; font-size: 9px; letter-spacing: 0.03em; line-height: 1.5; }
 .vellum-modal__pre { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: #ede6da; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; line-height: 1.55; }
@@ -749,3 +759,34 @@ path.vellum-edge-ripple {
 .vellum-modal__comment-status { margin-top: 6px; font-size: 9px; letter-spacing: 0.03em; }
 .vellum-modal__comment-status--ok { color: #5fb98e; }
 .vellum-modal__comment-status--error { color: #e5484d; }
+
+/* Resize handle affordance: subtle diagonal-lines glyph in the bottom-right corner */
+.vellum-modal::after {
+  content: "";
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  background: linear-gradient(135deg,
+    transparent 0%,
+    transparent calc(50% - 1.5px),
+    rgba(237, 230, 218, 0.18) calc(50% - 1.5px),
+    rgba(237, 230, 218, 0.18) calc(50% + 1.5px),
+    transparent calc(50% + 1.5px),
+    transparent 100%),
+    linear-gradient(135deg,
+    transparent 25%,
+    transparent calc(25% + 50% - 1.5px),
+    rgba(237, 230, 218, 0.18) calc(25% + 50% - 1.5px),
+    rgba(237, 230, 218, 0.18) calc(25% + 50% + 1.5px),
+    transparent calc(25% + 50% + 1.5px),
+    transparent 75%);
+  pointer-events: none;
+  opacity: 0.35;
+  transition: opacity 0.18s ease;
+}
+
+.vellum-modal:hover::after {
+  opacity: 0.55;
+}

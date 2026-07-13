@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Either } from "effect";
-import { decodeCanvasDoc, type CanvasDoc } from "../src/shared/canvas";
-import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, renameGroup, setNodeColor, setNodeView, toggleFlag } from "../src/renderer/lib/mutations";
+import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
+import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, renameGroup, setNodeColor, setNodeView, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
 import { addEdge, deleteEdges, editEdgeLabel, setEdgeColor, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
-import { findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
+import { containedNodeIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
 
 const runtimeWindow = {
@@ -266,5 +266,57 @@ describe("renderer graph mutations", () => {
       expect.objectContaining({ id: "link", url: "https://after.example" }),
       expect.objectContaining({ id: "region", label: "After" }),
     ]));
+  });
+
+  it("includes a node whose center lies inside the region and excludes one merely overlapping its edge", () => {
+    const region: GroupNode = { id: "region", type: "group", label: "Hold", x: 0, y: 0, width: 400, height: 300 };
+    // Center (140, 120) — squarely inside the 400x300 rect.
+    const centered: CanvasDoc["nodes"][number] = { id: "centered", type: "text", text: "in", x: 100, y: 100, width: 80, height: 40 };
+    // Spans x 380-460, overlapping the region's right edge (x=400), but its
+    // center (420, 120) sits outside — geometric overlap is not membership.
+    const edgeOverlap: CanvasDoc["nodes"][number] = { id: "edge-overlap", type: "text", text: "edge", x: 380, y: 100, width: 80, height: 40 };
+    const doc: CanvasDoc = { nodes: [region, centered, edgeOverlap], edges: [] };
+
+    const ids = containedNodeIds(doc, region);
+
+    expect(ids).toEqual(["centered"]);
+  });
+
+  it("includes a nested region whose center lies inside the outer region", () => {
+    const outer: GroupNode = { id: "outer", type: "group", label: "Outer", x: 0, y: 0, width: 600, height: 600 };
+    const inner: GroupNode = { id: "inner", type: "group", label: "Inner", x: 100, y: 100, width: 200, height: 200 };
+    const doc: CanvasDoc = { nodes: [outer, inner], edges: [] };
+
+    expect(containedNodeIds(doc, outer)).toEqual(["inner"]);
+  });
+
+  it("never includes the region itself", () => {
+    const region: GroupNode = { id: "self", type: "group", label: "Self", x: 0, y: 0, width: 200, height: 200 };
+    const doc: CanvasDoc = { nodes: [region], edges: [] };
+
+    expect(containedNodeIds(doc, region)).toEqual([]);
+  });
+
+  it("writes and strips ether.region.hold following the flag-strip pattern", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({ nodes: [{ id: "region", type: "group", label: "Hold", x: 0, y: 0, width: 400, height: 300 }], edges: [] });
+
+    setRegionHold("region", true);
+    expect(state$.doc.peek().nodes[0]?.ether?.region).toEqual({ hold: true });
+
+    setRegionHold("region", false);
+    expect(Object.hasOwn(state$.doc.peek().nodes[0] ?? {}, "ether")).toBe(false);
+  });
+
+  it("clears just the region key, keeping a sibling ether field intact", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({ nodes: [{ id: "region", type: "group", label: "Hold", x: 0, y: 0, width: 400, height: 300 }], edges: [] });
+
+    toggleFlag("region", "attention");
+    setRegionHold("region", true);
+    setRegionHold("region", false);
+
+    expect(state$.doc.peek().nodes[0]?.ether?.flags).toEqual(["attention"]);
+    expect(Object.hasOwn(state$.doc.peek().nodes[0]?.ether ?? {}, "region")).toBe(false);
   });
 });

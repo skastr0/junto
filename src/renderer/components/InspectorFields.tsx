@@ -4,7 +4,7 @@ import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, CanvasNode, EtherEdgeKind, EtherFlag, EtherView } from "@shared/canvas";
 import { findEntity } from "@shared/entities";
 import { addEdge } from "../lib/edge-mutations";
-import { editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeView, toggleFlag } from "../lib/mutations";
+import { editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeView, setRegionHold, toggleFlag } from "../lib/mutations";
 import { glyphStateHue, orbitOptions, TOWER_STATES } from "../lib/browse";
 import { state$ } from "../lib/state";
 import { HUE, withAlpha } from "../lib/theme";
@@ -54,8 +54,29 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); event.currentTarget.blur(); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); event.currentTarget.blur(); } }} /></label> : null}
     {node.type === "file" ? <div className="inspector-section"><div className="inspector-section__label">file reference</div><div className="inspector-file-fields"><label><span>path</span><input aria-label="File path" value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setFileDraft(fileValue); event.currentTarget.blur(); } }} /></label><label><span>subpath</span><input aria-label="File subpath" value={subpathDraft} placeholder="#section or block" onChange={(event) => setSubpathDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setSubpathDraft(subpathValue); event.currentTarget.blur(); } }} /></label></div></div> : null}
     {node.type === "group" ? <div className="inspector-section"><div className="inspector-section__label">background</div><div className="inspector-background"><input aria-label="Region background source" value={backgroundDraft} placeholder="image URL or file path" onChange={(event) => setBackgroundDraft(event.target.value)} onBlur={() => commitBackground()} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitBackground(); event.currentTarget.blur(); } if (event.key === "Escape") { setBackgroundDraft(backgroundValue); event.currentTarget.blur(); } }} /><label><span>fit</span><select aria-label="Region background fit" value={backgroundStyleDraft} onChange={(event) => { const style = event.target.value as "cover" | "ratio" | "repeat"; setBackgroundStyleDraft(style); commitBackground(backgroundDraft, style); }}><option value="cover">cover</option><option value="ratio">contain</option><option value="repeat">repeat</option></select></label></div></div> : null}
+    {node.type === "group" ? <RegionHoldControl node={node} /> : null}
     {node.ether?.entity?.kind === "project" ? <ViewSliceFields node={node} /> : null}
   </>;
+}
+
+// Region hold (group nodes only): a structural container whose contents
+// travel with it when dragged. Membership is derived from geometry at drag
+// time — this toggle only ever writes the boolean flag, never a member list.
+function RegionHoldControl({ node }: { readonly node: CanvasNode }) {
+  const hold = Boolean(node.ether?.region?.hold);
+  return <div className="inspector-section">
+    <div className="inspector-section__label">region</div>
+    <div className="inspector-flags">
+      <button
+        type="button"
+        className="inspector-flag-toggle"
+        aria-label="Hold contents"
+        aria-pressed={hold}
+        style={{ color: hold ? HUE.amber : "#68604a", borderColor: hold ? withAlpha(HUE.amber, 0.5) : "rgba(237,230,218,.12)", background: hold ? withAlpha(HUE.amber, 0.1) : "rgba(255,255,255,.02)" }}
+        onClick={() => setRegionHold(node.id, !hold)}
+      >hold contents</button>
+    </div>
+  </div>;
 }
 
 // A project node's view slice: an optional lens (orbit, glyph filter, state

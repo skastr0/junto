@@ -14,7 +14,7 @@ import {
   useNodesState,
   useReactFlow,
 } from "@xyflow/react";
-import type { Connection, FinalConnectionState, Node } from "@xyflow/react";
+import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { EtherBinding, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { mergeProjects } from "@shared/portfolio";
@@ -24,7 +24,7 @@ import type { FlowEdge, FlowNode } from "../lib/convert";
 import { searchText, toFlow } from "../lib/convert";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, deleteEdges } from "../lib/edge-mutations";
-import { findOpenPosition, syncPositions } from "../lib/geometry";
+import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { makeAgentNode, makeFileNode, makeGroupNode, makeLinkNode, makeProjectNode, makeTextNode } from "../lib/node-factories";
 import { accentColor, GROUND, HUE } from "../lib/theme";
 import { nodeTypes } from "./nodes";
@@ -163,7 +163,7 @@ function useCanvasViewport(canvasName: string, nodeCount: number, rf: CanvasFlow
   }, [canvasName, nodeCount, rf]);
 }
 
-function useCanvasInteractions(rf: CanvasFlow) {
+function useCanvasInteractions(rf: CanvasFlow, setNodes: ReturnType<typeof useNodesState<FlowNode>>[1]) {
   const onConnect = useCallback((connection: Connection) => addEdge(connection), []);
   // Dropping a connection on a card body (not a handle) still creates the
   // edge — the whole node is a legitimate target, the dots are just anchors.
@@ -181,7 +181,42 @@ function useCanvasInteractions(rf: CanvasFlow) {
     if (!targetNode || targetNode.type === "group") return;
     addEdge({ source: from, target: targetId, sourceHandle: connectionState.fromHandle?.id, kind: "relates" });
   }, []);
+  // Region hold: dragging a `hold` region moves every node geometrically
+  // inside it. Membership is snapshotted at drag start — never stored — and a
+  // member that is ITSELF part of the same multi-selection is skipped, since
+  // React Flow already translates the rest of a selected group; without that
+  // guard a selected member would double-translate.
+  const holdDragRef = useRef<{
+    readonly regionId: string;
+    readonly regionStart: { readonly x: number; readonly y: number };
+    readonly startPositions: ReadonlyMap<string, { readonly x: number; readonly y: number }>;
+  } | null>(null);
+  const onNodeDragStart: OnNodeDrag<FlowNode> = useCallback((_event, node) => {
+    holdDragRef.current = null;
+    if (node.data.node.type !== "group" || !node.data.node.ether?.region?.hold) return;
+    const doc = state$.doc.peek();
+    const regionDoc = doc.nodes.find((n) => n.id === node.id);
+    if (!regionDoc || regionDoc.type !== "group") return;
+    const startPositions = new Map<string, { x: number; y: number }>();
+    for (const id of containedNodeIds(doc, regionDoc)) {
+      const member = rf.getNode(id);
+      if (!member || member.selected) continue;
+      startPositions.set(id, member.position);
+    }
+    holdDragRef.current = { regionId: node.id, regionStart: node.position, startPositions };
+  }, [rf]);
+  const onNodeDrag: OnNodeDrag<FlowNode> = useCallback((_event, node) => {
+    const drag = holdDragRef.current;
+    if (!drag || node.id !== drag.regionId || drag.startPositions.size === 0) return;
+    const dx = node.position.x - drag.regionStart.x;
+    const dy = node.position.y - drag.regionStart.y;
+    setNodes((nodes) => nodes.map((n) => {
+      const start = drag.startPositions.get(n.id);
+      return start ? { ...n, position: { x: start.x + dx, y: start.y + dy } } : n;
+    }));
+  }, [setNodes]);
   const onNodeDragStop = useCallback(() => {
+    holdDragRef.current = null;
     const positions = new Map<string, { x: number; y: number }>();
     for (const node of rf.getNodes()) positions.set(node.id, node.position);
     syncPositions(positions);
@@ -213,7 +248,7 @@ function useCanvasInteractions(rf: CanvasFlow) {
     const pos = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     addNode(makeTextNode(pos.x - 120, pos.y - 50));
   }, [rf]);
-  return { onConnect, onConnectEnd, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick };
+  return { onConnect, onConnectEnd, onNodeDragStart, onNodeDrag, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick };
 }
 
 type AddPicker = "project" | "agent" | null;
@@ -520,7 +555,7 @@ function useCanvasGraph() {
   useCanvasSearchViewport(searchQuery, nodes.length, rf, `${edgeFilter}|${flagFilter}`);
   useCanvasFocus(focusNodeId, rf);
   useCanvasViewport(canvasName, nodes.length, rf);
-  return { nodes, edges, onNodesChange, onEdgesChange, interactions: useCanvasInteractions(rf), rf };
+  return { nodes, edges, onNodesChange, onEdgesChange, interactions: useCanvasInteractions(rf, setNodes), rf };
 }
 
 function CanvasGraph() {

@@ -76,11 +76,21 @@ export const EtherView = Schema.Struct({
 });
 export type EtherView = typeof EtherView.Type;
 
+// Region behavior (group nodes only). `hold: true` makes the region a
+// structural container: nodes spatially inside it travel with it when it
+// moves. Membership itself is always DERIVED from geometry at interaction
+// time — never stored — so the document cannot go incoherent.
+export const EtherRegion = Schema.Struct({
+  hold: Schema.optionalWith(Schema.Boolean, { exact: true }),
+});
+export type EtherRegion = typeof EtherRegion.Type;
+
 export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalWith(EtherEntity, { exact: true }),
   bindings: Schema.optionalWith(Schema.Array(EtherBinding), { exact: true }),
   flags: Schema.optionalWith(Schema.Array(EtherFlag), { exact: true }),
   view: Schema.optionalWith(EtherView, { exact: true }),
+  region: Schema.optionalWith(EtherRegion, { exact: true }),
 });
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 

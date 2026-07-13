@@ -328,6 +328,26 @@ export const setFlagForNodes = (ids: ReadonlyArray<string>, flag: EtherFlag | nu
   });
 };
 
+// Region hold toggle (group nodes only). Follows the toggleFlag strip
+// pattern: `hold: true` writes ether.region, anything else strips the
+// `region` key entirely and degrades `ether` itself away once nothing else
+// is left. Membership is never written here — it stays derived (geometry.ts).
+export const setRegionHold = (id: string, hold: boolean): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id) return n;
+      if (hold) {
+        return { ...n, ether: { ...(n.ether ?? {}), region: { hold: true } } };
+      }
+      if (!n.ether) return n;
+      const nextEther = without(n.ether, "region");
+      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
+    }),
+  });
+};
+
 // Empty fields never survive into the document: a blank orbit/glyphQuery and
 // an empty states array all collapse to "field absent" rather than "field
 // present but empty" — one canonical way to say "no slice here".
