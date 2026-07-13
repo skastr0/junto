@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { app } from "electron";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { ServiceCheck, StationInfo } from "@shared/contracts";
+import { resolvedSpawnEnv } from "../vellum/adapters/exec";
 import { runProcess } from "./process";
 
 const PRISM_ROOT = "/Users/developer/Projects/prism";
@@ -66,8 +67,12 @@ export const PrismLive = Layer.succeed(
       };
     }),
     dryRunCodexCompile: Effect.tryPromise({
-      try: () =>
-        runProcess(
+      // Resolve the spawn env first so `bun` resolves on the PATH floor even
+      // under a packaged/launchd launch; runProcess inherits the mutated
+      // process.env.PATH that resolvedSpawnEnv() sets.
+      try: async () => {
+        await resolvedSpawnEnv();
+        return runProcess(
           "bun",
           [
             "src/cli.ts",
@@ -83,7 +88,8 @@ export const PrismLive = Layer.succeed(
             "--no-validate",
           ],
           { cwd: PRISM_ROOT, timeoutMs: 12_000 },
-        ),
+        );
+      },
       catch: (error) =>
         new PrismError({
           message: error instanceof Error ? error.message : String(error),

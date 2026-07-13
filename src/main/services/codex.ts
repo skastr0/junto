@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
+import { resolvedSpawnEnv } from "../vellum/adapters/exec";
 import { runProcess } from "./process";
 
 export class CodexError extends Schema.TaggedError<CodexError>()("CodexError", {
@@ -16,17 +17,24 @@ export class CodexService extends Context.Tag("@chassis/CodexService")<
 >() {}
 
 const checkCodexCli = Effect.tryPromise({
-  try: () => runProcess("codex", ["--version"], { timeoutMs: 3_000 }),
+  // Resolve the spawn env first so `codex` resolves on the PATH floor even
+  // under a packaged/launchd launch; runProcess inherits the mutated
+  // process.env.PATH that resolvedSpawnEnv() sets.
+  try: async () => {
+    await resolvedSpawnEnv();
+    return runProcess("codex", ["--version"], { timeoutMs: 3_000 });
+  },
   catch: (error) =>
     new CodexError({
       message: error instanceof Error ? error.message : String(error),
     }),
 });
 
-const initializeAppServer = (): Promise<string> =>
-  new Promise((resolve, reject) => {
+const initializeAppServer = async (): Promise<string> => {
+  const env = await resolvedSpawnEnv();
+  return new Promise((resolve, reject) => {
     const child = spawn("codex", ["app-server"], {
-      env: process.env,
+      env,
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -96,6 +104,7 @@ const initializeAppServer = (): Promise<string> =>
     );
     child.stdin?.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
   });
+};
 
 export const CodexLive = Layer.succeed(
   CodexService,
