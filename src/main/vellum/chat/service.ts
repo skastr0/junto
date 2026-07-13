@@ -60,10 +60,16 @@ export class ChatService {
   }
 
   // Idempotent per key: a second chatOpen for an already-live session
-  // returns its current state rather than respawning.
+  // returns its current state rather than respawning. The sessionId !== ""
+  // guard matters: openFresh registers the session in `sessions` (with
+  // sessionId "") synchronously, before it awaits the handshake — so a
+  // second chatOpen racing an in-flight first one must NOT take this fast
+  // path (it would return ok:true with an empty, unusable sessionId). It
+  // falls through to the openInFlight check below instead and joins the
+  // same in-flight open.
   async chatOpen(agentKey: string, resumeSessionId?: string): Promise<ChatOpenResult> {
     const existing = this.sessions.get(agentKey);
-    if (existing && !existing.client.closed) {
+    if (existing && !existing.client.closed && existing.sessionId !== "") {
       return { ok: true, sessionId: existing.sessionId, resumed: false, models: existing.models };
     }
 

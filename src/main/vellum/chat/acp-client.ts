@@ -1,4 +1,5 @@
 import { spawn as spawnProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { resolvedSpawnEnvSync } from "../adapters/exec";
 import type { AcpSpawnTarget } from "./spawn";
 
 // One long-lived `hermes acp` (or ssh-wrapped remote) child process, speaking
@@ -80,18 +81,45 @@ export interface AcpChildLike {
   readonly stderr: NodeJS.EventEmitter;
   on(event: "error", listener: (err: Error) => void): unknown;
   on(event: "exit", listener: (code: number | null) => void): unknown;
-  kill(): unknown;
+  kill(signal?: NodeJS.Signals): unknown;
 }
 
 export type SpawnFn = (target: AcpSpawnTarget) => AcpChildLike;
 
+// Resolved (login-shell-probed, PATH-floored) env, same one every other
+// spawn call-site in this app uses — a packaged/launchd launch otherwise
+// inherits launchd's minimal PATH and `hermes`/`ssh` ENOENT. Sync accessor
+// because SpawnFn itself is synchronous; src/main/index.ts primes the cache
+// with `void resolvedSpawnEnv()` at startup, so this is warm by the time a
+// chat is actually opened.
 const defaultSpawn: SpawnFn = (target) =>
   spawnProcess(target.command, [...target.argv], {
     stdio: ["pipe", "pipe", "pipe"],
+    env: resolvedSpawnEnvSync(),
   }) as ChildProcessWithoutNullStreams;
 
 const INIT_TIMEOUT_MS = 20_000;
 const PROTOCOL_VERSION = 1;
+
+// Grace window between SIGTERM and a SIGKILL escalation for a child that
+// ignores (or is too wedged to process) the polite signal. Shared by close()
+// and a post-handshake request timeout (killChild below).
+const SIGTERM_GRACE_MS = 2_000;
+
+// Per-method budget for post-handshake requests (session/new, session/load,
+// session/prompt, session/set_model, ...), each strictly under the matching
+// preload IPC ceiling (preload/index.ts: chatOpen/chatSetModel 45s,
+// chatPrompt 900s) so the main process always times out and tears the
+// session down first — the renderer's own timeout should only ever fire on a
+// genuinely dead main process, never race a live one. "initialize" is
+// deliberately absent: it is bounded by start()'s own withTimeout(
+// INIT_TIMEOUT_MS) wrap instead, so request() leaves it unbounded here.
+const REQUEST_TIMEOUT_MS: Readonly<Record<string, number>> = {
+  "session/new": 30_000,
+  "session/load": 30_000,
+  "session/set_model": 30_000,
+  "session/prompt": 840_000,
+};
 
 export interface AcpAuthMethod {
   readonly id?: string;
@@ -156,14 +184,28 @@ export class AcpClient {
   }
 
   // Client -> agent request (session/new, session/prompt, ...). Rejects with
-  // AcpRpcError when the agent answers with a JSON-RPC error.
+  // AcpRpcError when the agent answers with a JSON-RPC error. Post-handshake
+  // methods listed in REQUEST_TIMEOUT_MS are bounded: a timeout rejects this
+  // call AND presumes the whole child wedged — it tears the client down
+  // (killChild) and fires onLifecycle so ChatService cleans up the session,
+  // exactly like an unexpected exit, instead of latching promptInFlight/the
+  // session map forever.
   request<T = unknown>(method: string, params?: unknown): Promise<T> {
     const child = this.child;
     if (!child || this.closedFlag) return Promise.reject(new Error("ACP client is not running"));
     const id = this.nextId++;
-    return new Promise<T>((resolve, reject) => {
+    const raw = new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
       this.write({ jsonrpc: "2.0", id, method, params });
+    });
+
+    const timeoutMs = REQUEST_TIMEOUT_MS[method];
+    if (timeoutMs === undefined) return raw; // e.g. "initialize" — bounded by start()'s own wrap
+
+    const message = `ACP request '${method}' timed out after ${timeoutMs}ms`;
+    return this.withTimeout(raw, timeoutMs, message).catch((err: unknown) => {
+      if (err instanceof Error && err.message === message) this.handleRequestTimeout(message);
+      throw err;
     });
   }
 
@@ -178,17 +220,59 @@ export class AcpClient {
     this.write({ jsonrpc: "2.0", id, error: { code, message } });
   }
 
-  // Intentional teardown — never fires onLifecycle (the caller already knows).
+  // Intentional teardown — never fires onLifecycle (the caller already
+  // knows). Idempotent: a second call is a no-op. SIGTERM first, SIGKILL
+  // after a short grace window if the child hasn't actually exited.
   close(): void {
     if (this.closedFlag) return;
     this.closedFlag = true;
     this.rejectAllPending(new Error("ACP client closed"));
+    const child = this.child;
+    this.child = undefined;
+    if (child) this.killChild(child);
+  }
+
+  // Sends SIGTERM, then escalates to SIGKILL if the child hasn't exited
+  // within SIGTERM_GRACE_MS. Shared by close() and a post-handshake request
+  // timeout (handleRequestTimeout) — both need the same hard-kill guarantee
+  // for a child that ignores or is too wedged to process the polite signal.
+  private killChild(child: AcpChildLike): void {
     try {
-      this.child?.kill();
+      child.kill("SIGTERM");
     } catch {
       // best-effort — the child may already be gone
     }
+    let exited = false;
+    child.on("exit", () => {
+      exited = true;
+    });
+    const timer = setTimeout(() => {
+      if (exited) return;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // best-effort — the child may already be gone
+      }
+    }, SIGTERM_GRACE_MS);
+    (timer as unknown as { unref?: () => void }).unref?.();
+  }
+
+  // A post-handshake request that never gets a reply means the whole child
+  // is presumed wedged, not just that one call — tear the client down the
+  // same way an unexpected exit would (kill the child, notify onLifecycle)
+  // so ChatService deletes the session and its own promptInFlight/
+  // openInFlight bookkeeping clears via its existing finally()/catch,
+  // instead of latching "turn in flight" or a live-but-empty session
+  // forever. Idempotent — a second timeout (or a concurrent close()) after
+  // teardown has already started is a no-op.
+  private handleRequestTimeout(message: string): void {
+    if (this.closedFlag) return;
+    this.closedFlag = true;
+    this.rejectAllPending(new Error(message));
+    const child = this.child;
     this.child = undefined;
+    if (child) this.killChild(child);
+    this.handlers.onLifecycle({ kind: "error", message });
   }
 
   private withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {

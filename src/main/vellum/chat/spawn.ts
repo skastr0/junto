@@ -11,9 +11,25 @@ import { parseAgentKey, type HermesHostId } from "../adapters/hermes-identity";
 // PROVEN WIRE FACTS (live spike against hermes 0.16.0):
 //   local default profile -> `hermes acp`
 //   local named profile   -> `hermes -p <name> acp`
-//   remote (remote-a)     -> `ssh -o ConnectTimeout=6 -o BatchMode=yes remote-a hermes -p <name> acp`
-
-const SSH_OPTS = ["-o", "ConnectTimeout=6", "-o", "BatchMode=yes"] as const;
+//   remote (remote-a)     -> `ssh -o ConnectTimeout=6 -o BatchMode=yes
+//                             -o ServerAliveInterval=15 -o ServerAliveCountMax=3
+//                             remote-a hermes -p <name> acp`
+//
+// ServerAliveInterval/ServerAliveCountMax are set explicitly here (rather
+// than relying on the operator's own ~/.ssh/config) so a session over a
+// silently-dead network path (lid close, WiFi roam, NAT/tailnet relay drop
+// with no FIN/RST) surfaces as an ssh exit within ~45s on every deployment,
+// not just this machine's personal dotfile.
+const SSH_OPTS = [
+  "-o",
+  "ConnectTimeout=6",
+  "-o",
+  "BatchMode=yes",
+  "-o",
+  "ServerAliveInterval=15",
+  "-o",
+  "ServerAliveCountMax=3",
+] as const;
 const MAC_MINI = "remote-a";
 
 export interface AcpSpawnTarget {

@@ -6,6 +6,12 @@ import type { SnapshotState } from "@shared/entities";
 // process (e.g. killed during a dev restart) never responds. Rejecting then
 // surfaces the renderer's existing error banner instead of a silent freeze —
 // the exact failure mode that made a stale instance look "non-responsive".
+//
+// chatOpen/chatSetModel budget: main-side AcpClient.request() bounds
+// session/new + session/load + session/set_model at 30s each
+// (chat/acp-client.ts REQUEST_TIMEOUT_MS), strictly under this 45s ceiling —
+// the main process always wins the race and tears the wedged session down
+// before the renderer's own timeout would fire.
 const IPC_TIMEOUT_MS = 45_000;
 
 // agentMessage fires a real (up to 180s) hermes turn; give it headroom above
@@ -14,6 +20,10 @@ const AGENT_MESSAGE_TIMEOUT_MS = 200_000;
 
 // A chat turn can run tools for many minutes; streaming events keep the UI
 // alive meanwhile, so the invoke ceiling only guards a truly dead backend.
+//
+// chatPrompt budget: main-side AcpClient.request() bounds session/prompt at
+// 840s (chat/acp-client.ts REQUEST_TIMEOUT_MS), strictly under this 900s
+// ceiling, for the same reason — main tears the session down first.
 const CHAT_TURN_TIMEOUT_MS = 900_000;
 
 const invoke = <T>(channel: string, timeoutMs: number, ...args: unknown[]): Promise<T> =>

@@ -24,7 +24,19 @@ describe("buildAcpSpawnTarget", () => {
   it("remote default profile -> ssh ... remote-a hermes acp", () => {
     expect(buildAcpSpawnTarget("remote-a:default")).toEqual({
       command: "ssh",
-      argv: ["-o", "ConnectTimeout=6", "-o", "BatchMode=yes", "remote-a", "hermes", "acp"],
+      argv: [
+        "-o",
+        "ConnectTimeout=6",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
+        "remote-a",
+        "hermes",
+        "acp",
+      ],
       host: "remote-a",
       profile: "default",
     });
@@ -33,7 +45,21 @@ describe("buildAcpSpawnTarget", () => {
   it("remote named profile -> ssh ... remote-a hermes -p <name> acp", () => {
     expect(buildAcpSpawnTarget("remote-a:profile-03")).toEqual({
       command: "ssh",
-      argv: ["-o", "ConnectTimeout=6", "-o", "BatchMode=yes", "remote-a", "hermes", "-p", "profile-03", "acp"],
+      argv: [
+        "-o",
+        "ConnectTimeout=6",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
+        "remote-a",
+        "hermes",
+        "-p",
+        "profile-03",
+        "acp",
+      ],
       host: "remote-a",
       profile: "profile-03",
     });
