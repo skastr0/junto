@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  fetchTowerCommentGlyph,
+  fetchTowerCommentSignal,
   formatPayloadJson,
+  isBlankCommentBody,
   mapGlyphDetail,
   mapGlyphItems,
   mapSearchMatches,
@@ -221,5 +224,31 @@ describe("mapSignalDetail", () => {
     expect(mapped.consumedBy).toBeUndefined();
     expect(mapped.consumptionSummary).toBeUndefined();
     expect(mapped.payloadJson).toBeUndefined();
+  });
+});
+
+describe("isBlankCommentBody", () => {
+  it("treats empty and whitespace-only bodies as blank", () => {
+    expect(isBlankCommentBody("")).toBe(true);
+    expect(isBlankCommentBody("   \n\t  ")).toBe(true);
+  });
+
+  it("treats real text as non-blank", () => {
+    expect(isBlankCommentBody("a note")).toBe(false);
+    expect(isBlankCommentBody("  a note  ")).toBe(false);
+  });
+});
+
+describe("fetchTowerCommentGlyph / fetchTowerCommentSignal", () => {
+  // The blank-body guard fires before any config load or network call, so
+  // these resolve deterministically with no fetch mocking required.
+  it("rejects a blank glyph comment body without touching the network", async () => {
+    const result = await fetchTowerCommentGlyph("vellum", "forge", "VL-011", "   ");
+    expect(result).toEqual({ ok: false, error: "comment body is empty" });
+  });
+
+  it("rejects a blank signal comment body without touching the network", async () => {
+    const result = await fetchTowerCommentSignal("prism", "forge", "sig_abc", "");
+    expect(result).toEqual({ ok: false, error: "comment body is empty" });
   });
 });

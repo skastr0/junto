@@ -1,14 +1,17 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { Effect } from "effect";
-import { IPC_CHANNELS, type BindingHint } from "@shared/ipc";
+import { IPC_CHANNELS, type BindingHint, type BoothReviewAction } from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
 import { digestCanvas } from "@shared/digest";
 import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime } from "../runtime";
+import { fetchBoothDrafts, fetchBoothReview } from "./adapters/booth-controls";
 import { fetchAgentAvatar, fetchAgentIdentity, fetchAgentMessage } from "./adapters/hermes-identity";
 import { fetchQuasarSearch, fetchQuasarSessionDetail, fetchQuasarSessionList } from "./adapters/quasar";
 import {
   fetchTowerBrowse,
+  fetchTowerCommentGlyph,
+  fetchTowerCommentSignal,
   fetchTowerDispatches,
   fetchTowerGlyphRead,
   fetchTowerSearch,
@@ -104,6 +107,27 @@ export const registerVellumIpc = () => {
 
   ipcMain.handle(IPC_CHANNELS.towerDispatches, (_event, projectKey: string) =>
     fetchTowerDispatches(projectKey),
+  );
+
+  // Deliberate writes: narrow, user-initiated, never automatic.
+  ipcMain.handle(
+    IPC_CHANNELS.towerCommentGlyph,
+    (_event, projectKey: string, orbit: string, glyphId: string, body: string) =>
+      fetchTowerCommentGlyph(projectKey, orbit, glyphId, body),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.towerCommentSignal,
+    (_event, projectKey: string, orbit: string, signalId: string, body: string) =>
+      fetchTowerCommentSignal(projectKey, orbit, signalId, body),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.boothDrafts, (_event, projectKey: string) => fetchBoothDrafts(projectKey));
+
+  ipcMain.handle(
+    IPC_CHANNELS.boothReview,
+    (_event, projectKey: string, draftId: string, action: BoothReviewAction, body?: string) =>
+      fetchBoothReview(projectKey, draftId, action, body),
   );
 
   ipcMain.handle(IPC_CHANNELS.quasarSessions, (_event, quasarKey: string, limit?: number) =>

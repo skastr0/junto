@@ -1,15 +1,18 @@
+import type { EtherView } from "@shared/canvas";
 import type {
   QuasarSearchResult,
   QuasarSessionDetail,
   QuasarSessionDetailResult,
   QuasarSessionRow,
   QuasarSessionsResult,
+  SourceWriteResult,
   TowerBrowseResult,
   TowerDispatchesResult,
   TowerGlyphReadResult,
   TowerGlyphRow,
   TowerSearchResult,
   TowerSignalReadResult,
+  TowerSignalRow,
 } from "@shared/ipc";
 import { DIM, HUE } from "./theme";
 import { getVellumApi } from "./vellum-api";
@@ -62,6 +65,93 @@ export const groupGlyphs = (glyphs: ReadonlyArray<TowerGlyphRow>): GlyphGroups =
 export const formatCollapsedSummary = (
   counts: ReadonlyArray<{ readonly state: string; readonly count: number }>,
 ): string => counts.map(({ state, count }) => `${count} ${state}`).join(" · ");
+
+// --- project view slices ----------------------------------------------------
+// A node's ether.view is a per-node lens over one bound project: it narrows
+// what the browse section shows, never what exists. Pure filter functions
+// here compose two layers: the node's stored view (auto pre-applied, not
+// interactive) and, for glyphs, an interactive orbit-chip that further
+// narrows within whatever the view already permits.
+
+// The gateway's five well-known orbits (see main/vellum/adapters/tower-browse
+// ORBITS) plus, in the editor, whatever additional orbit_<name> stat keys a
+// project's own live tower snapshot happens to carry.
+export const CANONICAL_ORBITS = ["forge", "survey", "beacon", "scribe", "oracle"] as const;
+
+// The full glyph state vocabulary in natural workflow order (distinct from
+// GLYPH_ACTIVE_ORDER/GLYPH_COLLAPSED_STATES, which order for above/below the
+// fold, not for a states picker).
+export const TOWER_STATES = ["backlog", "exploring", "committed", "building", "reviewing", "done", "abandoned"] as const;
+
+// Orbit options for the view-slice editor: canonical five first, then any
+// orbit_<name> stat keys discovered on the project's live tower entity,
+// deduped. `stats` is intentionally loose (Entity.stats' value union) since
+// only the key names are read here.
+export const orbitOptions = (stats: Record<string, unknown> | undefined): ReadonlyArray<string> => {
+  const discovered = Object.keys(stats ?? {})
+    .filter((key) => key.startsWith("orbit_"))
+    .map((key) => key.slice("orbit_".length));
+  return Array.from(new Set<string>([...CANONICAL_ORBITS, ...discovered]));
+};
+
+// A view/chip query is a /regex/ when wrapped in slashes and it actually
+// compiles; anything else — including a wrapped pattern that fails to
+// compile — degrades to a plain case-insensitive substring test. A broken
+// regex must never blank the list, only fall back to something coarser.
+export const compileGlyphQuery = (query: string): ((text: string) => boolean) => {
+  const trimmed = query.trim();
+  if (!trimmed) return () => true;
+  const wrapped = trimmed.match(/^\/(.+)\/([a-z]*)$/i);
+  if (wrapped) {
+    try {
+      const re = new RegExp(wrapped[1], wrapped[2]);
+      return (text: string) => re.test(text);
+    } catch {
+      // invalid pattern — fall through to substring below
+    }
+  }
+  const needle = trimmed.toLowerCase();
+  return (text: string) => text.toLowerCase().includes(needle);
+};
+
+// Layer 1: the node's stored view, auto pre-applied to the glyphs tab.
+export const filterGlyphsByView = (
+  glyphs: ReadonlyArray<TowerGlyphRow>,
+  view: EtherView | undefined,
+): ReadonlyArray<TowerGlyphRow> => {
+  if (!view) return glyphs;
+  let out = glyphs;
+  if (view.orbit) out = out.filter((glyph) => glyph.orbit === view.orbit);
+  if (view.states && view.states.length > 0) {
+    const states = new Set(view.states);
+    out = out.filter((glyph) => states.has(glyph.state));
+  }
+  if (view.glyphQuery) {
+    const test = compileGlyphQuery(view.glyphQuery);
+    out = out.filter((glyph) => test(glyph.glyphId) || test(glyph.title));
+  }
+  return out;
+};
+
+// Layer 1 for signals: orbit only, per the contract (states/glyphQuery are
+// glyph-shaped concepts a signal row doesn't carry).
+export const filterSignalsByView = (
+  signals: ReadonlyArray<TowerSignalRow>,
+  view: EtherView | undefined,
+): ReadonlyArray<TowerSignalRow> => (view?.orbit ? signals.filter((signal) => signal.orbit === view.orbit) : signals);
+
+// Layer 2: the standalone orbit-chip row, narrowing further within whatever
+// layer 1 already produced. `undefined`/empty orbit is "all".
+export const filterGlyphsByOrbit = (
+  glyphs: ReadonlyArray<TowerGlyphRow>,
+  orbit: string | undefined,
+): ReadonlyArray<TowerGlyphRow> => (orbit ? glyphs.filter((glyph) => glyph.orbit === orbit) : glyphs);
+
+// Orbit chip options: every orbit actually present in a glyph list, deduped
+// and sorted — never the canonical five, since a chip for an orbit with zero
+// rows in the current slice would be a dead control.
+export const orbitsPresent = (glyphs: ReadonlyArray<TowerGlyphRow>): ReadonlyArray<string> =>
+  Array.from(new Set(glyphs.map((glyph) => glyph.orbit))).sort();
 
 export const signalStatusHue = (status: string): string => {
   if (status === "inbox") return HUE.amber;
@@ -269,5 +359,41 @@ export const fetchQuasarSearch = async (query: string, key?: string): Promise<Qu
     return await api.quasarSearch(query, key);
   } catch {
     return QUASAR_SEARCH_UNREACHABLE;
+  }
+};
+
+// --- deliberate writes (never cached) ---------------------------------------
+// Comment posts from the glyph/signal detail modals. Same source-down floor
+// as the readers above; never thrown out of the composer.
+
+const TOWER_WRITE_UNREACHABLE: SourceWriteResult = { ok: false, error: "tower unreachable" };
+
+export const postTowerCommentGlyph = async (
+  projectKey: string,
+  orbit: string,
+  glyphId: string,
+  body: string,
+): Promise<SourceWriteResult> => {
+  const api = getVellumApi();
+  if (!api || typeof api.towerCommentGlyph !== "function") return TOWER_WRITE_UNREACHABLE;
+  try {
+    return await api.towerCommentGlyph(projectKey, orbit, glyphId, body);
+  } catch {
+    return TOWER_WRITE_UNREACHABLE;
+  }
+};
+
+export const postTowerCommentSignal = async (
+  projectKey: string,
+  orbit: string,
+  signalId: string,
+  body: string,
+): Promise<SourceWriteResult> => {
+  const api = getVellumApi();
+  if (!api || typeof api.towerCommentSignal !== "function") return TOWER_WRITE_UNREACHABLE;
+  try {
+    return await api.towerCommentSignal(projectKey, orbit, signalId, body);
+  } catch {
+    return TOWER_WRITE_UNREACHABLE;
   }
 };

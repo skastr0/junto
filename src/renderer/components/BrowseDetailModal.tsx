@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   QuasarSessionDetail,
   QuasarSessionDetailResult,
+  SourceWriteResult,
   TowerDispatchRow,
   TowerGlyphDetail,
   TowerGlyphReadResult,
@@ -12,6 +13,8 @@ import {
   fetchQuasarSessionDetail,
   fetchTowerGlyphRead,
   fetchTowerSignalRead,
+  postTowerCommentGlyph,
+  postTowerCommentSignal,
   sessionDetailStats,
   sessionTitle,
 } from "../lib/browse";
@@ -33,6 +36,66 @@ function ChipRow({ label, values }: { readonly label: string; readonly values: R
     <div className="vellum-modal__section-label">{label}</div>
     <div className="vellum-modal__chips">{values.map((value) => <span key={value} className="vellum-modal__chip">{value}</span>)}</div>
   </div>;
+}
+
+// One-line-growing textarea + submit, shared by the glyph and signal detail
+// bodies. Never mutates automatically — a comment only posts on an explicit
+// click, and a blank/whitespace-only body never reaches onSubmit.
+function CommentComposer({ onSubmit }: { readonly onSubmit: (body: string) => Promise<SourceWriteResult> }) {
+  const [value, setValue] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [error, setError] = useState<string>();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
+  const submit = async () => {
+    const trimmed = value.trim();
+    if (!trimmed || state === "sending") return;
+    setState("sending");
+    setError(undefined);
+    const result = await onSubmit(trimmed);
+    if (result.ok) {
+      setValue("");
+      setState("sent");
+    } else {
+      setState("error");
+      setError(result.error ?? "comment failed");
+    }
+  };
+
+  return (
+    <div className="vellum-modal__comment">
+      <div className="vellum-modal__comment-row">
+        <textarea
+          ref={textareaRef}
+          className="vellum-modal__comment-input"
+          placeholder="add a comment…"
+          rows={1}
+          value={value}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setState("idle");
+          }}
+        />
+        <button
+          type="button"
+          className="vellum-modal__comment-submit"
+          disabled={!value.trim() || state === "sending"}
+          onClick={() => void submit()}
+        >
+          comment
+        </button>
+      </div>
+      {state === "sent" ? <div className="vellum-modal__comment-status vellum-modal__comment-status--ok">comment posted</div> : null}
+      {state === "error" ? <div className="vellum-modal__comment-status vellum-modal__comment-status--error">{error}</div> : null}
+    </div>
+  );
 }
 
 function GlyphDetailBody({ target }: { readonly target: Extract<BrowseDetailTarget, { kind: "glyph" }> }) {
@@ -64,6 +127,7 @@ function GlyphDetailBody({ target }: { readonly target: Extract<BrowseDetailTarg
         <div className="vellum-modal__section-label">comments · {glyph.commentsTotal}</div>
         {glyph.latestComment ? <div className="vellum-modal__quote">“{glyph.latestComment}”</div> : null}
       </div> : null}
+      <CommentComposer onSubmit={(body) => postTowerCommentGlyph(target.projectKey, target.orbit, target.glyphId, body)} />
     </div>
   </>;
 }
@@ -97,6 +161,7 @@ function SignalDetailBody({ target }: { readonly target: Extract<BrowseDetailTar
         <summary className="vellum-modal__summary">payload</summary>
         <pre className="vellum-modal__pre vellum-modal__pre--small">{signal.payloadJson}</pre>
       </details> : null}
+      <CommentComposer onSubmit={(body) => postTowerCommentSignal(target.projectKey, target.orbit, target.signalId, body)} />
     </div>
   </>;
 }

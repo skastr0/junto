@@ -1,5 +1,11 @@
-import type { EtherBinding } from "@shared/canvas";
-import { findEntity } from "@shared/entities";
+import type { EtherBinding, EtherView } from "@shared/canvas";
+// Relative, not "@shared/entities": this is the one *value* (non-type-only)
+// cross-package import in this file, and vitest here has no alias resolver
+// configured for runtime imports (only tsc resolves "@shared/*" via
+// tsconfig paths) — a relative path is what actually lets this module load
+// under `bun run test`. Type-only imports stay on the alias below since
+// those are erased before any resolver sees them.
+import { findEntity } from "../../shared/entities";
 import type { Entity, EntitySource, SnapshotState } from "@shared/entities";
 
 // The compact live readout an entity card wears: a handful of plain-English
@@ -31,12 +37,21 @@ const shortDate = (value: unknown): string | undefined => {
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" }).toLowerCase();
 };
 
-const towerSegments = (entity: Entity): string[] => {
+// Without an orbit slice this is the global "N active"; with one, the card
+// is a project slice — the active count narrows to that orbit's own
+// orbit_<name> stat ("0" when the orbit exists but has no active glyphs,
+// never omitted, since silence there would read as "no data" not "empty").
+const towerSegments = (entity: Entity, orbit?: string): string[] => {
   const out: string[] = [];
-  const active = num(entity, "glyphs_active");
+  if (orbit) {
+    const scoped = num(entity, `orbit_${orbit}`);
+    out.push(`${scoped ?? "0"} active in ${orbit}`);
+  } else {
+    const active = num(entity, "glyphs_active");
+    if (active) out.push(`${active} active`);
+  }
   const done = num(entity, "glyphs_done");
   const signals = num(entity, "signals");
-  if (active) out.push(`${active} active`);
   if (done && done !== "0") out.push(`${done} done`);
   if (signals) out.push(`${signals} signals`);
   return out;
@@ -75,10 +90,18 @@ const SEGMENTS: Record<string, (entity: Entity) => string[]> = {
 };
 
 const MAX_SEGMENTS = 4;
+const FILTER_QUERY_MAX_LEN = 18;
 
+const truncateQuery = (query: string): string =>
+  query.length > FILTER_QUERY_MAX_LEN ? `${query.slice(0, FILTER_QUERY_MAX_LEN)}…` : query;
+
+// `view` is the node's ether.view slice (project nodes only). It never
+// changes which bindings/dots render — purely presentational narrowing of
+// the tower segment plus one appended "active filter" cue.
 export const entityReadout = (
   bindings: ReadonlyArray<EtherBinding> | undefined,
   snapshots: SnapshotState,
+  view?: EtherView,
 ): EntityReadout => {
   const segments: string[] = [];
   const dots: ConnectorDot[] = [];
@@ -88,9 +111,10 @@ export const entityReadout = (
     const ok = (bundle?.ok ?? false) && entity !== undefined;
     dots.push({ source: binding.source, ok });
     if (!entity) continue;
-    const build = SEGMENTS[binding.source] ?? genericSegments;
-    const built = build(entity);
+    const built = binding.source === "tower" ? towerSegments(entity, view?.orbit) : (SEGMENTS[binding.source] ?? genericSegments)(entity);
     segments.push(...(built.length > 0 ? built : genericSegments(entity)));
   }
-  return { segments: segments.slice(0, MAX_SEGMENTS), dots };
+  const filterSegment = view?.glyphQuery ? `⌕ ${truncateQuery(view.glyphQuery)}` : undefined;
+  const capped = segments.slice(0, filterSegment ? MAX_SEGMENTS - 1 : MAX_SEGMENTS);
+  return { segments: filterSegment ? [...capped, filterSegment] : capped, dots };
 };

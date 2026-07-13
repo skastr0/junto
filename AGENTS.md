@@ -29,7 +29,8 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
       { "source": "tower",  "ref": { "type": "project", "key": "prism" } },
       { "source": "quasar", "ref": { "type": "project", "key": "git:github.com/skastr0/prism" } }
     ],
-    "flags": ["blocker"]                       // blocker|parked|attention
+    "flags": ["blocker"],                      // blocker|parked|attention
+    "view": { "orbit": "forge", "glyphQuery": "refactor", "states": ["reviewing"] }  // presentational filter
   } }
 ```
 
@@ -52,6 +53,14 @@ Derived state (blocked closure, group membership, binding health) is **never sto
 ## Sources (read-only adapters)
 
 `src/main/vellum/adapters/` shell out to the reference CLIs and normalize into snapshot bundles. A down source degrades to a stale badge; it never touches the document. tower/quasar/hermes are live; booth may be down. hermes enumerates profiles on the local machine + remote-a over ssh.
+
+## In-app planes
+
+**Read-only browse** — tower glyphs/signals and quasar sessions, searchable via canvas detail inspectors (ipc.ts channels: `towerBrowse`, `towerSearch`, `towerGlyphRead`, `towerSignalRead`, `quasarSessions`, `quasarSearch`, `quasarSessionDetail`). Never surface as nodes.
+
+**Deliberate writes** — narrow, user-initiated mutations: tower comments on glyphs/signals and booth review actions (channels: `towerCommentGlyph`, `towerCommentSignal`, `boothDrafts`, `boothReview`). Booth reviews pending server integration.
+
+**Attached agent chat** — one live ACP session per agent node (`<host>:<profile>`); resumable across app sessions (channels: `chatOpen`, `chatPrompt`, `chatPermission`, `chatSetModel`, `chatClose`). Main process owns the `hermes acp` child; renders in the canvas as inline composition. The file remains the agent API.
 
 ## Structure
 

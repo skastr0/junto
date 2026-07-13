@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { EtherView } from "../src/shared/canvas";
 import type {
   QuasarSessionDetail,
   QuasarSessionsResult,
   TowerBrowseResult,
   TowerDispatchesResult,
   TowerGlyphRow,
+  TowerSignalRow,
 } from "../src/shared/ipc";
 import {
   BROWSE_CACHE_TTL_MS,
+  CANONICAL_ORBITS,
+  compileGlyphQuery,
   fetchQuasarSessionDetail,
   fetchQuasarSessions,
   fetchTowerBrowse,
@@ -15,10 +19,15 @@ import {
   fetchTowerGlyphRead,
   fetchTowerSearch,
   fetchTowerSignalRead,
+  filterGlyphsByOrbit,
+  filterGlyphsByView,
+  filterSignalsByView,
   formatCollapsedSummary,
   formatDuration,
   glyphStateHue,
   groupGlyphs,
+  orbitOptions,
+  orbitsPresent,
   sessionDetailStats,
   sessionDurationOrDates,
   sessionStats,
@@ -26,6 +35,7 @@ import {
   shortDate,
   shortKind,
   signalStatusHue,
+  TOWER_STATES,
 } from "../src/renderer/lib/browse";
 
 const glyph = (state: string, glyphId = `g-${state}`): TowerGlyphRow => ({
@@ -83,6 +93,125 @@ describe("state hues", () => {
     expect(signalStatusHue("claimed")).toBe("#39C6D6");
     expect(signalStatusHue("dead")).toBe("#E5484D");
     expect(signalStatusHue("consumed")).not.toBe("#E5484D");
+  });
+});
+
+describe("project view slices", () => {
+  const signal = (orbit: string, status = "inbox"): TowerSignalRow => ({
+    signalId: `sig-${orbit}`,
+    orbit,
+    status,
+    kind: "test.kind",
+    summary: `signal in ${orbit}`,
+    updatedAt: 0,
+  });
+
+  it("exposes the full 7-state tower vocabulary and canonical five orbits", () => {
+    expect(TOWER_STATES).toEqual(["backlog", "exploring", "committed", "building", "reviewing", "done", "abandoned"]);
+    expect(CANONICAL_ORBITS).toEqual(["forge", "survey", "beacon", "scribe", "oracle"]);
+  });
+
+  it("merges canonical orbits with discovered orbit_<name> stat keys, deduped", () => {
+    expect(orbitOptions(undefined)).toEqual(CANONICAL_ORBITS);
+    expect(orbitOptions({ orbit_forge: 3, orbit_lattice: 1, glyphs_active: 9 })).toEqual([
+      "forge",
+      "survey",
+      "beacon",
+      "scribe",
+      "oracle",
+      "lattice",
+    ]);
+  });
+
+  describe("compileGlyphQuery", () => {
+    it("matches by case-insensitive substring when not wrapped in slashes", () => {
+      const test = compileGlyphQuery("BUG");
+      expect(test("fix the bug report")).toBe(true);
+      expect(test("unrelated")).toBe(false);
+    });
+
+    it("compiles a /regex/ pattern when it parses", () => {
+      const test = compileGlyphQuery("/^fix-\\d+$/i");
+      expect(test("FIX-42")).toBe(true);
+      expect(test("fix-abc")).toBe(false);
+    });
+
+    it("degrades an invalid regex to a plain substring match instead of matching nothing", () => {
+      const test = compileGlyphQuery("/unclosed[/");
+      expect(test("prefix /unclosed[/ suffix")).toBe(true);
+      expect(test("no match here")).toBe(false);
+    });
+
+    it("matches everything for an empty/blank query", () => {
+      const test = compileGlyphQuery("   ");
+      expect(test("anything")).toBe(true);
+    });
+  });
+
+  describe("filterGlyphsByView", () => {
+    const glyphs: ReadonlyArray<TowerGlyphRow> = [
+      { glyphId: "g-1", orbit: "forge", title: "fix the parser", state: "building", updatedAt: 0 },
+      { glyphId: "g-2", orbit: "beacon", title: "launch copy", state: "backlog", updatedAt: 0 },
+      { glyphId: "bug-3", orbit: "forge", title: "done thing", state: "done", updatedAt: 0 },
+    ];
+
+    it("passes every glyph through when there is no view", () => {
+      expect(filterGlyphsByView(glyphs, undefined)).toEqual(glyphs);
+    });
+
+    it("narrows by orbit", () => {
+      const view: EtherView = { orbit: "forge" };
+      expect(filterGlyphsByView(glyphs, view).map((g) => g.glyphId)).toEqual(["g-1", "bug-3"]);
+    });
+
+    it("narrows by a states set", () => {
+      const view: EtherView = { states: ["backlog", "done"] };
+      expect(filterGlyphsByView(glyphs, view).map((g) => g.glyphId)).toEqual(["g-2", "bug-3"]);
+    });
+
+    it("narrows by glyphQuery matched against id and title", () => {
+      const view: EtherView = { glyphQuery: "bug" };
+      expect(filterGlyphsByView(glyphs, view).map((g) => g.glyphId)).toEqual(["bug-3"]);
+    });
+
+    it("composes orbit, states, and glyphQuery together", () => {
+      const view: EtherView = { orbit: "forge", states: ["building"], glyphQuery: "parser" };
+      expect(filterGlyphsByView(glyphs, view).map((g) => g.glyphId)).toEqual(["g-1"]);
+    });
+  });
+
+  describe("filterSignalsByView", () => {
+    const signals: ReadonlyArray<TowerSignalRow> = [signal("forge"), signal("beacon")];
+
+    it("passes every signal through without a view or without view.orbit", () => {
+      expect(filterSignalsByView(signals, undefined)).toEqual(signals);
+      expect(filterSignalsByView(signals, {})).toEqual(signals);
+    });
+
+    it("narrows signals to the view's orbit only", () => {
+      expect(filterSignalsByView(signals, { orbit: "forge" }).map((s) => s.signalId)).toEqual(["sig-forge"]);
+    });
+  });
+
+  describe("orbit chip narrowing", () => {
+    const glyphs: ReadonlyArray<TowerGlyphRow> = [
+      { glyphId: "g-1", orbit: "forge", title: "a", state: "building", updatedAt: 0 },
+      { glyphId: "g-2", orbit: "beacon", title: "b", state: "backlog", updatedAt: 0 },
+      { glyphId: "g-3", orbit: "forge", title: "c", state: "done", updatedAt: 0 },
+    ];
+
+    it("lists every orbit present in the glyph list, deduped and sorted", () => {
+      expect(orbitsPresent(glyphs)).toEqual(["beacon", "forge"]);
+    });
+
+    it("passes glyphs through unfiltered for an undefined/empty orbit ('all')", () => {
+      expect(filterGlyphsByOrbit(glyphs, undefined)).toEqual(glyphs);
+      expect(filterGlyphsByOrbit(glyphs, "")).toEqual(glyphs);
+    });
+
+    it("narrows to a single orbit", () => {
+      expect(filterGlyphsByOrbit(glyphs, "forge").map((g) => g.glyphId)).toEqual(["g-1", "g-3"]);
+    });
   });
 });
 

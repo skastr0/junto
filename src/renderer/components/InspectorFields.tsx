@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
-import { Flag } from "lucide-react";
-import type { CanvasDoc, CanvasNode, EtherEdgeKind, EtherFlag } from "@shared/canvas";
+import { Flag, SlidersHorizontal } from "lucide-react";
+import { use$ } from "@legendapp/state/react";
+import type { CanvasDoc, CanvasNode, EtherEdgeKind, EtherFlag, EtherView } from "@shared/canvas";
+import { findEntity } from "@shared/entities";
 import { addEdge } from "../lib/edge-mutations";
-import { editFileDetails, editGroupBackground, editLink, editText, renameGroup, toggleFlag } from "../lib/mutations";
+import { editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeView, toggleFlag } from "../lib/mutations";
+import { glyphStateHue, orbitOptions, TOWER_STATES } from "../lib/browse";
+import { state$ } from "../lib/state";
 import { HUE, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
 
@@ -50,7 +54,76 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); event.currentTarget.blur(); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); event.currentTarget.blur(); } }} /></label> : null}
     {node.type === "file" ? <div className="inspector-section"><div className="inspector-section__label">file reference</div><div className="inspector-file-fields"><label><span>path</span><input aria-label="File path" value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setFileDraft(fileValue); event.currentTarget.blur(); } }} /></label><label><span>subpath</span><input aria-label="File subpath" value={subpathDraft} placeholder="#section or block" onChange={(event) => setSubpathDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setSubpathDraft(subpathValue); event.currentTarget.blur(); } }} /></label></div></div> : null}
     {node.type === "group" ? <div className="inspector-section"><div className="inspector-section__label">background</div><div className="inspector-background"><input aria-label="Region background source" value={backgroundDraft} placeholder="image URL or file path" onChange={(event) => setBackgroundDraft(event.target.value)} onBlur={() => commitBackground()} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitBackground(); event.currentTarget.blur(); } if (event.key === "Escape") { setBackgroundDraft(backgroundValue); event.currentTarget.blur(); } }} /><label><span>fit</span><select aria-label="Region background fit" value={backgroundStyleDraft} onChange={(event) => { const style = event.target.value as "cover" | "ratio" | "repeat"; setBackgroundStyleDraft(style); commitBackground(backgroundDraft, style); }}><option value="cover">cover</option><option value="ratio">contain</option><option value="repeat">repeat</option></select></label></div></div> : null}
+    {node.ether?.entity?.kind === "project" ? <ViewSliceFields node={node} /> : null}
   </>;
+}
+
+// A project node's view slice: an optional lens (orbit, glyph filter, state
+// set) over the SAME bound project — several nodes can bind one project with
+// different slices ("prism · forge" here, "prism · beacon" there). Purely
+// presentational; setNodeView never touches the binding itself.
+export function ViewSliceFields({ node }: { readonly node: CanvasNode }) {
+  const snapshots = use$(state$.snapshots);
+  const towerKey = node.ether?.bindings?.find((binding) => binding.source === "tower")?.ref.key;
+  const towerEntity = towerKey ? findEntity(snapshots, "tower", towerKey) : undefined;
+  const orbits = orbitOptions(towerEntity?.stats);
+  const view = node.ether?.view;
+  const orbitValue = view?.orbit ?? "";
+  const queryValue = view?.glyphQuery ?? "";
+  const statesValue = view?.states ?? [];
+  const [orbitDraft, setOrbitDraft] = useState(orbitValue);
+  const [queryDraft, setQueryDraft] = useState(queryValue);
+
+  useEffect(() => {
+    setOrbitDraft(orbitValue);
+    setQueryDraft(queryValue);
+  }, [node.id, orbitValue, queryValue]);
+
+  const commit = (overrides: { readonly orbit?: string; readonly glyphQuery?: string; readonly states?: ReadonlyArray<string> }): void => {
+    const nextView: EtherView = {
+      orbit: overrides.orbit ?? orbitDraft,
+      glyphQuery: overrides.glyphQuery ?? queryDraft,
+      states: overrides.states ?? statesValue,
+    };
+    setNodeView(node.id, nextView);
+  };
+
+  const toggleState = (stateName: string) => {
+    const next = statesValue.includes(stateName) ? statesValue.filter((s) => s !== stateName) : [...statesValue, stateName];
+    commit({ states: next });
+  };
+
+  return <div className="inspector-section">
+    <div className="inspector-section__label"><SlidersHorizontal size={11} /> view slice</div>
+    <label className="inspector-editor">
+      <span>orbit</span>
+      <select aria-label="View slice orbit" value={orbitDraft} onChange={(event) => { setOrbitDraft(event.target.value); commit({ orbit: event.target.value }); }}>
+        <option value="">all orbits</option>
+        {orbits.map((orbit) => <option key={orbit} value={orbit}>{orbit}</option>)}
+      </select>
+    </label>
+    <label className="inspector-editor">
+      <span>glyph filter</span>
+      <input
+        aria-label="View slice glyph filter"
+        value={queryDraft}
+        placeholder="substring or /regex/"
+        onChange={(event) => setQueryDraft(event.target.value)}
+        onBlur={() => commit({ glyphQuery: queryDraft })}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") { event.preventDefault(); commit({ glyphQuery: queryDraft }); event.currentTarget.blur(); }
+          if (event.key === "Escape") { setQueryDraft(queryValue); event.currentTarget.blur(); }
+        }}
+      />
+    </label>
+    <div className="inspector-flags">
+      {TOWER_STATES.map((stateName) => {
+        const active = statesValue.includes(stateName);
+        const hue = glyphStateHue(stateName);
+        return <button key={stateName} type="button" className="inspector-flag-toggle" aria-pressed={active} style={{ color: active ? hue : "#68604a", borderColor: active ? withAlpha(hue, 0.5) : "rgba(237,230,218,.12)", background: active ? withAlpha(hue, 0.1) : "rgba(255,255,255,.02)" }} onClick={() => toggleState(stateName)}>{stateName}</button>;
+      })}
+    </div>
+  </div>;
 }
 
 export function NodeFlagControls({ node }: { readonly node: CanvasNode }) {

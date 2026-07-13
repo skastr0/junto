@@ -18,8 +18,10 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
   const snapshots = use$(state$.snapshots);
   const refreshing = use$(state$.refreshing);
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
-  const { segments, dots } = entityReadout(node.ether?.bindings, snapshots);
+  const view = node.ether?.view;
+  const { segments, dots } = entityReadout(node.ether?.bindings, snapshots, view);
   const line = segments.join(" · ");
+  const eyebrow = kind === "project" && view?.orbit ? `${kind} · ${view.orbit}` : kind;
   const nameHue = node.color ? accentColor(node.color) : INK;
   const isAgent = kind === "agent";
   const hermesKey = isAgent ? node.ether?.bindings?.find((binding) => binding.source === "hermes")?.ref.key : undefined;
@@ -39,7 +41,7 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
       <div>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>{kind}</span>
+          <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>{eyebrow}</span>
           <span className="flex items-center gap-1.5">
             {dots.map(({ source, ok }, i) => (
               <span

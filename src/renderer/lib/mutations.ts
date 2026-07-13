@@ -2,6 +2,7 @@ import type {
   CanvasDoc,
   CanvasNode,
   EtherFlag,
+  EtherView,
   NodeSide,
 } from "@shared/canvas";
 import type { BindingHint } from "@shared/ipc";
@@ -323,6 +324,42 @@ export const setFlagForNodes = (ids: ReadonlyArray<string>, flag: EtherFlag | nu
       const flags = n.ether?.flags ?? [];
       if (flags.includes(flag)) return n;
       return { ...n, ether: { ...(n.ether ?? {}), flags: [...flags, flag] } };
+    }),
+  });
+};
+
+// Empty fields never survive into the document: a blank orbit/glyphQuery and
+// an empty states array all collapse to "field absent" rather than "field
+// present but empty" — one canonical way to say "no slice here".
+const stripEmptyView = (view: EtherView): EtherView | undefined => {
+  const orbit = view.orbit?.trim();
+  const glyphQuery = view.glyphQuery?.trim();
+  const states = view.states?.filter((s) => s.trim().length > 0);
+  const out: EtherView = {
+    ...(orbit ? { orbit } : {}),
+    ...(glyphQuery ? { glyphQuery } : {}),
+    ...(states && states.length > 0 ? { states } : {}),
+  };
+  return Object.keys(out).length > 0 ? out : undefined;
+};
+
+// Writes/clears a node's ether.view (project slice lens). Follows the
+// toggleFlag pattern: strip empty fields, drop the `view` key entirely once
+// every field is empty, and degrade `ether` itself away when it would
+// otherwise be left holding nothing.
+export const setNodeView = (id: string, view: EtherView | undefined): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id) return n;
+      const cleaned = view ? stripEmptyView(view) : undefined;
+      if (cleaned) {
+        return { ...n, ether: { ...(n.ether ?? {}), view: cleaned } };
+      }
+      if (!n.ether) return n;
+      const nextEther = without(n.ether, "view");
+      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
     }),
   });
 };

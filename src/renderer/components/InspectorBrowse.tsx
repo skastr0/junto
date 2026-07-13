@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type {
@@ -14,10 +14,39 @@ import {
   fetchTowerBrowse,
   fetchTowerDispatches,
   fetchTowerSearch,
+  filterGlyphsByOrbit,
+  filterGlyphsByView,
+  filterSignalsByView,
+  orbitsPresent,
 } from "../lib/browse";
 import { DIM, INK } from "../lib/theme";
 import { BrowseDetailModal, type BrowseDetailTarget } from "./BrowseDetailModal";
 import { DispatchesTab, GlyphsTab, SearchResults, SessionsTab, SignalsTab } from "./BrowseTabs";
+
+// The standalone orbit filter: "all" plus every orbit actually present in
+// the (view-pre-applied) glyph list, further narrowing on top of whatever
+// the node's own ether.view already restricted. Hidden once there is
+// nothing left to narrow between.
+function OrbitChips({ orbits, value, onChange }: { readonly orbits: ReadonlyArray<string>; readonly value: string; readonly onChange: (orbit: string) => void }) {
+  if (orbits.length === 0) return null;
+  const chip = (label: string, chipValue: string) => {
+    const active = value === chipValue;
+    return <button
+      key={chipValue || "all"}
+      type="button"
+      className="inspector-flag-toggle"
+      aria-pressed={active}
+      style={{ color: active ? INK : "#68604a", borderColor: active ? "rgba(237,230,218,.35)" : "rgba(237,230,218,.12)", background: active ? "rgba(255,255,255,.06)" : "rgba(255,255,255,.02)" }}
+      onClick={() => onChange(chipValue)}
+    >
+      {label}
+    </button>;
+  };
+  return <div className="mb-2 flex flex-wrap gap-1">
+    {chip("all", "")}
+    {orbits.map((orbit) => chip(orbit, orbit))}
+  </div>;
+}
 
 // Read-only detail views for a bound project — glyphs, signals, and sessions
 // never become canvas nodes. Lazily loaded on first selection of the node.
@@ -32,6 +61,7 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
   const bindings = node.ether?.bindings ?? [];
   const towerKey = bindings.find((binding) => binding.source === "tower")?.ref.key;
   const quasarKey = bindings.find((binding) => binding.source === "quasar")?.ref.key;
+  const view = node.ether?.view;
 
   const [tab, setTab] = useState<BrowseTab>("glyphs");
   const [query, setQuery] = useState("");
@@ -46,6 +76,28 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
   const [quasarSearchResult, setQuasarSearchResult] = useState<QuasarSearchResult>();
   const [searchLoading, setSearchLoading] = useState(false);
   const [detail, setDetail] = useState<BrowseDetailTarget>();
+  // Standalone orbit chip: defaults to the node's own view.orbit, but the
+  // reader can narrow to a different orbit within the view's slice without
+  // touching the stored view. Resets whenever the view's own orbit changes
+  // (this component is remounted on node switch via key={node.id} upstream,
+  // so no separate node.id dependency is needed here).
+  const [orbitChip, setOrbitChip] = useState(view?.orbit ?? "");
+  useEffect(() => { setOrbitChip(view?.orbit ?? ""); }, [view?.orbit]);
+
+  // Layer 1 (auto, from the node's view) then layer 2 (interactive chip).
+  const viewFilteredGlyphs = useMemo(
+    () => (towerBrowse?.ok ? filterGlyphsByView(towerBrowse.glyphs, view) : []),
+    [towerBrowse, view],
+  );
+  const glyphOrbits = useMemo(() => orbitsPresent(viewFilteredGlyphs), [viewFilteredGlyphs]);
+  const finalGlyphs = useMemo(
+    () => filterGlyphsByOrbit(viewFilteredGlyphs, orbitChip || undefined),
+    [viewFilteredGlyphs, orbitChip],
+  );
+  const glyphsResult: TowerBrowseResult | undefined = towerBrowse ? { ...towerBrowse, glyphs: finalGlyphs } : undefined;
+  const signalsResult: TowerBrowseResult | undefined = towerBrowse
+    ? { ...towerBrowse, signals: towerBrowse.ok ? filterSignalsByView(towerBrowse.signals, view) : towerBrowse.signals }
+    : undefined;
 
   // DISPATCHES only joins the picker once the probe comes back ok — a
   // gateway that doesn't expose the route degrades to "not offered" rather
@@ -151,8 +203,11 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
         {availableTabs.map((candidate) => <option key={candidate} value={candidate}>{candidate.toUpperCase()}</option>)}
       </select>
       <div className="mt-2">
-        {activeTab === "glyphs" ? <GlyphsTab result={towerBrowse} loading={towerLoading} projectKey={towerKey ?? ""} onOpen={setDetail} /> : null}
-        {activeTab === "signals" ? <SignalsTab result={towerBrowse} loading={towerLoading} projectKey={towerKey ?? ""} onOpen={setDetail} /> : null}
+        {activeTab === "glyphs" ? <>
+          <OrbitChips orbits={glyphOrbits} value={orbitChip} onChange={setOrbitChip} />
+          <GlyphsTab result={glyphsResult} loading={towerLoading} projectKey={towerKey ?? ""} onOpen={setDetail} />
+        </> : null}
+        {activeTab === "signals" ? <SignalsTab result={signalsResult} loading={towerLoading} projectKey={towerKey ?? ""} onOpen={setDetail} /> : null}
         {activeTab === "sessions" ? <SessionsTab result={quasarSessions} loading={quasarLoading} onOpen={setDetail} /> : null}
         {activeTab === "dispatches" ? <DispatchesTab result={dispatches} loading={dispatchesLoading} onOpen={setDetail} /> : null}
       </div>

@@ -24,6 +24,10 @@ export const IPC_CHANNELS = {
   quasarSessions: "vellum:quasar-sessions",
   quasarSearch: "vellum:quasar-search",
   quasarSessionDetail: "vellum:quasar-session-detail",
+  towerCommentGlyph: "vellum:tower-comment-glyph",
+  towerCommentSignal: "vellum:tower-comment-signal",
+  boothDrafts: "vellum:booth-drafts",
+  boothReview: "vellum:booth-review",
   agentIdentity: "vellum:agent-identity",
   agentAvatar: "vellum:agent-avatar",
   agentMessage: "vellum:agent-message",
@@ -225,6 +229,31 @@ export interface QuasarSessionDetailResult {
   readonly detail?: QuasarSessionDetail;
 }
 
+// --- source mutations (deliberate, narrow writes) ---------------------------
+// The adapter plane stays read-only except for these explicit, user-initiated
+// acts: commenting on tower glyphs/signals and booth review verdicts.
+
+export interface SourceWriteResult {
+  readonly ok: boolean;
+  readonly error?: string;
+}
+
+export interface BoothDraftRow {
+  readonly id: string;
+  readonly title: string;
+  readonly status?: string;
+  readonly kind?: string;
+  readonly updatedAt?: string;
+}
+
+export interface BoothDraftsResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly drafts: ReadonlyArray<BoothDraftRow>;
+}
+
+export type BoothReviewAction = "approve" | "reject" | "comment" | "request_revision";
+
 // --- hermes agent identity + messaging -------------------------------------
 
 // Enriched, non-secret identity for one fleet agent. Tokens and device ids
@@ -319,6 +348,11 @@ export interface VellumApi {
   readonly quasarSessions: (quasarKey: string, limit?: number) => Promise<QuasarSessionsResult>;
   readonly quasarSearch: (query: string, quasarKey?: string) => Promise<QuasarSearchResult>;
   readonly quasarSessionDetail: (sessionId: string) => Promise<QuasarSessionDetailResult>;
+  // Deliberate writes.
+  readonly towerCommentGlyph: (projectKey: string, orbit: string, glyphId: string, body: string) => Promise<SourceWriteResult>;
+  readonly towerCommentSignal: (projectKey: string, orbit: string, signalId: string, body: string) => Promise<SourceWriteResult>;
+  readonly boothDrafts: (projectKey: string) => Promise<BoothDraftsResult>;
+  readonly boothReview: (projectKey: string, draftId: string, action: BoothReviewAction, body?: string) => Promise<SourceWriteResult>;
   // Hermes fleet: identity enrichment, lazy avatar (data: URI), and messaging.
   readonly agentIdentity: (key: string) => Promise<AgentIdentity | null>;
   readonly agentAvatar: (key: string) => Promise<string | null>;

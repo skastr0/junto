@@ -67,6 +67,13 @@ const vellumApi: VellumApi = {
   towerSignalRead: (projectKey, orbit, signalId) =>
     invoke(IPC_CHANNELS.towerSignalRead, IPC_TIMEOUT_MS, projectKey, orbit, signalId),
   towerDispatches: (projectKey) => invoke(IPC_CHANNELS.towerDispatches, IPC_TIMEOUT_MS, projectKey),
+  towerCommentGlyph: (projectKey, orbit, glyphId, body) =>
+    invoke(IPC_CHANNELS.towerCommentGlyph, IPC_TIMEOUT_MS, projectKey, orbit, glyphId, body),
+  towerCommentSignal: (projectKey, orbit, signalId, body) =>
+    invoke(IPC_CHANNELS.towerCommentSignal, IPC_TIMEOUT_MS, projectKey, orbit, signalId, body),
+  boothDrafts: (projectKey) => invoke(IPC_CHANNELS.boothDrafts, IPC_TIMEOUT_MS, projectKey),
+  boothReview: (projectKey, draftId, action, body) =>
+    invoke(IPC_CHANNELS.boothReview, IPC_TIMEOUT_MS, projectKey, draftId, action, body),
   quasarSessions: (quasarKey, limit) =>
     invoke(IPC_CHANNELS.quasarSessions, IPC_TIMEOUT_MS, quasarKey, limit),
   quasarSearch: (query, quasarKey) =>

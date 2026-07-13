@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type {
+  SourceWriteResult,
   TowerBrowseResult,
   TowerDispatchesResult,
   TowerGlyphDetail,
@@ -373,3 +374,96 @@ export const fetchTowerSignalRead = async (
 // fan out across orbits; report unsupported so the UI hides the tab.
 export const fetchTowerDispatches = (_projectKey: string): Promise<TowerDispatchesResult> =>
   Promise.resolve({ ok: false, error: "unsupported", dispatches: [] });
+
+// --- comments (deliberate write; POST /api/comments) ------------------------
+//
+// Verified live (2026-07-12): the JSON body's field names match the checked-in
+// convex/domain.ts CreateCommentInput exactly — { projectKey, target: {
+// family, orbit, id }, body, provenance: { source, actor } } — no divergence
+// from the glyphs/read and signals/read query-param gotchas above. Probed
+// against a real target with a deliberately nonexistent id: the gateway
+// responded 404 "Signal 'NONEXISTENT_ID_TEST' does not exist." confirming
+// the shape without writing anything. The single real write required by the
+// smoke test uses this exact function against vellum/forge/VL-011.
+//
+// This is a deliberate, narrow, user-initiated write — never automatic, never
+// retried, never batched.
+
+export const isBlankCommentBody = (body: string): boolean => body.trim().length === 0;
+
+const postComment = async (
+  config: TowerConfig,
+  projectKey: string,
+  target: { readonly family: "glyphs" | "signals"; readonly orbit: string; readonly id: string },
+  body: string,
+): Promise<SourceWriteResult> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${config.url}/api/comments`, {
+      method: "POST",
+      headers: { ...authHeaders(config.token), "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        projectKey,
+        target,
+        body: body.trim(),
+        provenance: { source: "agent", actor: "vellum" },
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      const detail = parseErrorMessage(text);
+      return { ok: false, error: detail ? `tower comment failed: ${detail}` : `tower comment failed (${response.status})` };
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "tower comment request failed" };
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+// The gateway's error responses are `{ error: "...", code: "..." }`; pull the
+// human-readable message out defensively, falling back to undefined so the
+// caller's generic message takes over instead of surfacing raw JSON/HTML.
+const parseErrorMessage = (text: string): string | undefined => {
+  try {
+    const parsed = JSON.parse(text) as { readonly error?: unknown };
+    return typeof parsed.error === "string" ? parsed.error : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export const fetchTowerCommentGlyph = async (
+  projectKey: string,
+  orbit: string,
+  glyphId: string,
+  body: string,
+): Promise<SourceWriteResult> => {
+  if (isBlankCommentBody(body)) {
+    return { ok: false, error: "comment body is empty" };
+  }
+  const config = loadConfig();
+  if (!config) {
+    return { ok: false, error: CONFIG_MISSING_ERROR };
+  }
+  return postComment(config, projectKey, { family: "glyphs", orbit, id: glyphId }, body);
+};
+
+export const fetchTowerCommentSignal = async (
+  projectKey: string,
+  orbit: string,
+  signalId: string,
+  body: string,
+): Promise<SourceWriteResult> => {
+  if (isBlankCommentBody(body)) {
+    return { ok: false, error: "comment body is empty" };
+  }
+  const config = loadConfig();
+  if (!config) {
+    return { ok: false, error: CONFIG_MISSING_ERROR };
+  }
+  return postComment(config, projectKey, { family: "signals", orbit, id: signalId }, body);
+};
