@@ -25,10 +25,6 @@
     "@legendapp/state": "^3.0.0-beta.31",
     "@pierre/diffs": "^1.1.21",
     "@pierre/trees": "^1.0.0-beta.3",
-    "@skastr0/groundwork": "file:/Users/developer/Projects/groundwork",
-    "@skastr0/prism": "file:/Users/developer/Projects/prism",
-    "@skastr0/pulsar-core": "file:/Users/developer/Projects/pulsar/packages/core",
-    "@skastr0/quartz-core": "file:/Users/developer/Projects/quartz/packages/core",
     "@xyflow/react": "^12.11.2",
     "effect": "^3.21.1",
     "lucide-react": "^0.468.0",
@@ -53,7 +49,7 @@
     "vitest": "^4.0.15"
   },
   "build": {
-    "appId": "dev.skastr0.vellum",
+    "appId": "skastr0.vellum",
     "productName": "Vellum",
     "directories": {
       "output": "release"
@@ -65,7 +61,8 @@
     ],
     "mac": {
       "target": "dir",
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns"
     }
   }
 }
