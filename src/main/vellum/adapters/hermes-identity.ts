@@ -203,9 +203,13 @@ export const parseIdentityBatchOutput = (stdout: string): Map<string, AgentIdent
   return identities;
 };
 
-const fetchRemoteIdentityBatch = async (): Promise<Map<string, AgentIdentity>> => {
+// undefined signals "the ssh call itself failed" — distinct from a Map, even
+// an empty one, which means "the ssh call succeeded and the host reported
+// zero profiles". fetchHostBatch below relies on that distinction to avoid
+// caching a transient failure as a legitimate empty result.
+const fetchRemoteIdentityBatch = async (): Promise<Map<string, AgentIdentity> | undefined> => {
   const result = await runCli("ssh", [...SSH_OPTS, MAC_MINI, REMOTE_IDENTITY_SCRIPT], 15_000);
-  if (!result.ok) return new Map();
+  if (!result.ok) return undefined;
   return parseIdentityBatchOutput(result.stdout);
 };
 
@@ -216,6 +220,15 @@ const fetchRemoteIdentityBatch = async (): Promise<Map<string, AgentIdentity>> =
 // ---------------------------------------------------------------------------
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
+
+// A failed fetch (ssh down, tailnet blip) must never be cached as if it were
+// a legitimate empty result — that poisons every profile on the host for the
+// full CACHE_TTL_MS. On failure: if a previous (even TTL-expired) entry
+// exists, leave it untouched so the current call still serves that stale-but-
+// real data, and the next call retries against the real TTL boundary. With
+// nothing to fall back on, record a short-lived failure sentinel so the next
+// call retries soon instead of waiting out the full 10 minutes.
+const FAILURE_RETRY_MS = 30 * 1000;
 
 interface HostCacheEntry {
   readonly fetchedAt: number;
@@ -232,6 +245,16 @@ const fetchHostBatch = (host: HermesHostId): Promise<Map<string, AgentIdentity>>
   const run = host === "local" ? fetchLocalIdentityBatch : fetchRemoteIdentityBatch;
   const promise = run()
     .then((identities) => {
+      if (identities === undefined) {
+        const previous = hostCache.get(host);
+        if (!previous) {
+          hostCache.set(host, {
+            fetchedAt: Date.now() - CACHE_TTL_MS + FAILURE_RETRY_MS,
+            identities: new Map(),
+          });
+        }
+        return previous?.identities ?? new Map();
+      }
       hostCache.set(host, { fetchedAt: Date.now(), identities });
       return identities;
     })

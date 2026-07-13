@@ -42,6 +42,10 @@ const loadConfig = (): TowerConfig | undefined => {
 };
 
 const CONFIG_MISSING_ERROR = "tower-control config missing or unreadable (~/.tower-control/config.json)";
+// Mirrors CONFIG_MISSING_ERROR: distinguishes "the gateway is unreachable /
+// every request failed" from "this project legitimately has zero
+// glyphs/signals" — see fetchTowerBrowse below.
+const ALL_REQUESTS_FAILED_ERROR = "tower gateway unreachable — every glyph/signal request failed";
 const REQUEST_TIMEOUT_MS = 8_000;
 const SEARCH_LIMIT = 20;
 
@@ -51,17 +55,24 @@ const ORBITS = ["forge", "survey", "beacon", "scribe", "oracle"] as const;
 
 const authHeaders = (token: string): HeadersInit => ({ Authorization: `Bearer ${token}` });
 
+type FetchOutcome<T> =
+  | { readonly ok: true; readonly status: number; readonly data: T }
+  | { readonly ok: false; readonly status?: number };
+
 // Every request gets its own timeout + abort; a failing/slow request never
-// blocks the others and never throws out of this helper.
-const fetchJson = async <T>(url: string, init: RequestInit): Promise<T | undefined> => {
+// blocks the others and never throws out of this helper. Reports the raw
+// HTTP status (when the fetch itself completed) so callers can tell a 401
+// (stale/rotated bearer token) apart from a generic outage.
+const fetchJson = async <T>(url: string, init: RequestInit): Promise<FetchOutcome<T>> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
-    if (!response.ok) return undefined;
-    return (await response.json()) as T;
+    if (!response.ok) return { ok: false, status: response.status };
+    const data = (await response.json()) as T;
+    return { ok: true, status: response.status, data };
   } catch {
-    return undefined;
+    return { ok: false };
   } finally {
     clearTimeout(timer);
   }
@@ -120,29 +131,64 @@ export const mapSignalItems = (
   }));
 };
 
-const fetchOrbit = async (
-  config: TowerConfig,
-  projectKey: string,
-  orbit: string,
-): Promise<{ glyphs: ReadonlyArray<TowerGlyphRow>; signals: ReadonlyArray<TowerSignalRow> }> => {
+interface OrbitFetchResult {
+  readonly glyphs: ReadonlyArray<TowerGlyphRow>;
+  readonly signals: ReadonlyArray<TowerSignalRow>;
+  // true when at least one of the orbit's two requests (glyphs or signals)
+  // actually succeeded — false means both failed for this orbit.
+  readonly succeeded: boolean;
+  readonly unauthorized: boolean;
+}
+
+const fetchOrbit = async (config: TowerConfig, projectKey: string, orbit: string): Promise<OrbitFetchResult> => {
   const qs = `projectKey=${encodeURIComponent(projectKey)}&orbit=${orbit}`;
-  const [glyphData, signalData] = await Promise.all([
+  const [glyphResult, signalResult] = await Promise.all([
     fetchJson<GlyphsResponse>(`${config.url}/api/glyphs?${qs}`, { headers: authHeaders(config.token) }),
     fetchJson<SignalsResponse>(`${config.url}/api/signals?${qs}`, { headers: authHeaders(config.token) }),
   ]);
-  return { glyphs: mapGlyphItems(glyphData?.items), signals: mapSignalItems(signalData?.signals) };
+  return {
+    glyphs: mapGlyphItems(glyphResult.ok ? glyphResult.data.items : undefined),
+    signals: mapSignalItems(signalResult.ok ? signalResult.data.signals : undefined),
+    succeeded: glyphResult.ok || signalResult.ok,
+    unauthorized: glyphResult.status === 401 || signalResult.status === 401,
+  };
 };
 
+const runBrowseFanOut = (config: TowerConfig, projectKey: string): Promise<ReadonlyArray<OrbitFetchResult>> =>
+  Promise.all(ORBITS.map((orbit) => fetchOrbit(config, projectKey, orbit)));
+
 // Fans the 5 orbits x (glyphs+signals) = 10 requests in parallel. A failing
-// orbit contributes nothing (fetchJson already swallows its own errors) —
-// this function itself never throws.
+// orbit contributes nothing to glyphs/signals and this function itself never
+// throws — but unlike a single failing orbit, every one of the 10 requests
+// failing must NOT read as "this project has zero glyphs/signals": that
+// defeats the CONFIG_MISSING_ERROR path's whole point (distinguishing a down
+// source from an empty one). Partial failure still returns ok:true.
 export const fetchTowerBrowse = async (projectKey: string): Promise<TowerBrowseResult> => {
-  const config = loadConfig();
+  let config = loadConfig();
   if (!config) {
     return { ok: false, error: CONFIG_MISSING_ERROR, glyphs: [], signals: [] };
   }
 
-  const perOrbit = await Promise.all(ORBITS.map((orbit) => fetchOrbit(config, projectKey, orbit)));
+  let perOrbit = await runBrowseFanOut(config, projectKey);
+  let allFailed = perOrbit.every((entry) => !entry.succeeded);
+
+  if (allFailed && perOrbit.some((entry) => entry.unauthorized)) {
+    // Every request failed and at least one came back 401 — the cached
+    // bearer token looks rotated/expired. Invalidate it, re-read
+    // ~/.tower-control/config.json once, and retry the fan-out with
+    // whatever token is on disk now before giving up.
+    cachedConfig = undefined;
+    const refreshed = loadConfig();
+    if (refreshed) {
+      config = refreshed;
+      perOrbit = await runBrowseFanOut(config, projectKey);
+      allFailed = perOrbit.every((entry) => !entry.succeeded);
+    }
+  }
+
+  if (allFailed) {
+    return { ok: false, error: ALL_REQUESTS_FAILED_ERROR, glyphs: [], signals: [] };
+  }
 
   return {
     ok: true,
@@ -197,17 +243,17 @@ export const fetchTowerSearch = async (query: string, projectKey?: string): Prom
   const body: Record<string, unknown> = { query, limit: SEARCH_LIMIT };
   if (projectKey) body.projectKey = projectKey;
 
-  const data = await fetchJson<SearchResponse>(`${config.url}/api/search/text`, {
+  const result = await fetchJson<SearchResponse>(`${config.url}/api/search/text`, {
     method: "POST",
     headers: { ...authHeaders(config.token), "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 
-  if (!data) {
+  if (!result.ok) {
     return { ok: false, error: "tower search request failed", matches: [] };
   }
 
-  return { ok: true, matches: mapSearchMatches(data.matches) };
+  return { ok: true, matches: mapSearchMatches(result.data.matches) };
 };
 
 // --- glyph detail (reader modal; GET /api/glyphs/read) ----------------------
@@ -276,15 +322,15 @@ export const fetchTowerGlyphRead = async (
   }
 
   const qs = `projectKey=${encodeURIComponent(projectKey)}&orbit=${encodeURIComponent(orbit)}&glyphId=${encodeURIComponent(glyphId)}`;
-  const data = await fetchJson<RawGlyphDetail>(`${config.url}/api/glyphs/read?${qs}`, {
+  const result = await fetchJson<RawGlyphDetail>(`${config.url}/api/glyphs/read?${qs}`, {
     headers: authHeaders(config.token),
   });
 
-  if (!data) {
+  if (!result.ok) {
     return { ok: false, error: "tower glyph read request failed" };
   }
 
-  return { ok: true, glyph: mapGlyphDetail(data) };
+  return { ok: true, glyph: mapGlyphDetail(result.data) };
 };
 
 // --- signal detail (reader modal; GET /api/signals/read) --------------------
@@ -347,15 +393,15 @@ export const fetchTowerSignalRead = async (
   }
 
   const qs = `projectKey=${encodeURIComponent(projectKey)}&orbit=${encodeURIComponent(orbit)}&signalId=${encodeURIComponent(signalId)}`;
-  const data = await fetchJson<RawSignalDetail>(`${config.url}/api/signals/read?${qs}`, {
+  const result = await fetchJson<RawSignalDetail>(`${config.url}/api/signals/read?${qs}`, {
     headers: authHeaders(config.token),
   });
 
-  if (!data) {
+  if (!result.ok) {
     return { ok: false, error: "tower signal read request failed" };
   }
 
-  return { ok: true, signal: mapSignalDetail(data) };
+  return { ok: true, signal: mapSignalDetail(result.data) };
 };
 
 // --- dispatches (probed; no confirmed live browse route) --------------------
