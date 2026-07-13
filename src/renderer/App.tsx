@@ -3,6 +3,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import { state$ } from "./lib/state";
 import { bindingHints, getLastWriteAt, loadDoc, redo, retrySave, undo } from "./lib/mutations";
+import { startKernel } from "./lib/kernel-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { DigestPanel } from "./components/DigestPanel";
@@ -168,6 +169,8 @@ export function App() {
       void boot().catch(setError);
     }
 
+    const stopKernel = startKernel();
+
     const offSnapshots = vellum.onSnapshotsChanged((state) => state$.snapshots.set(state));
     const offCanvas = vellum.onCanvasChanged((name) => {
       // Ignore the echo of our own recent write; only reload true external edits.
@@ -188,6 +191,7 @@ export function App() {
     return () => {
       offSnapshots();
       offCanvas();
+      stopKernel();
     };
   }, []);
 

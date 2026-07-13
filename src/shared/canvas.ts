@@ -78,12 +78,52 @@ export type EtherView = typeof EtherView.Type;
 
 // Region behavior (group nodes only). `hold: true` makes the region a
 // structural container: nodes spatially inside it travel with it when it
-// moves. Membership itself is always DERIVED from geometry at interaction
-// time — never stored — so the document cannot go incoherent.
+// moves. `instruction` is the region's pulse briefing: when the region
+// activates (a watcher fires, a timer ticks, or a manual pulse), every agent
+// node inside receives it. Membership itself is always DERIVED from geometry
+// at interaction time — never stored — so the document cannot go incoherent.
+// ARMING deliberately does NOT live in the document: definitions travel with
+// the file; the switch that lets a pulse spend real agent turns exists only
+// in the running app, flipped by a human.
 export const EtherRegion = Schema.Struct({
   hold: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  instruction: Schema.optionalWith(Schema.String, { exact: true }),
 });
 export type EtherRegion = typeof EtherRegion.Type;
+
+// A watcher is a PREDICATE node — an assertion over live source data,
+// evaluated by the app's poll loop; its runtime state is derived, never
+// stored. Level rules (glyphs_done, stat_threshold) describe a condition;
+// the edge rule (glyphs_entered_state) fires when a watched glyph newly
+// enters `state` between two evaluations.
+export const WatchKind = Schema.Literal("glyphs_done", "glyphs_entered_state", "stat_threshold");
+export type WatchKind = typeof WatchKind.Type;
+
+export const EtherWatch = Schema.Struct({
+  kind: WatchKind,
+  // glyph rules: project+orbit scope; empty/absent glyphIds = every glyph in scope
+  project: Schema.optionalWith(Schema.String, { exact: true }),
+  orbit: Schema.optionalWith(Schema.String, { exact: true }),
+  glyphIds: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
+  state: Schema.optionalWith(Schema.String, { exact: true }), // entered-state target; default "committed"
+  // stat rule: a numeric stat on a bound entity
+  source: Schema.optionalWith(Schema.Literal("tower", "quasar", "booth", "hermes"), { exact: true }),
+  key: Schema.optionalWith(Schema.String, { exact: true }),
+  stat: Schema.optionalWith(Schema.String, { exact: true }),
+  op: Schema.optionalWith(Schema.Literal("gt", "lt", "eq"), { exact: true }),
+  value: Schema.optionalWith(Schema.Number, { exact: true }),
+  // level watchers may mirror their unsatisfied state into the blocker flag
+  flagOnUnsatisfied: Schema.optionalWith(Schema.Boolean, { exact: true }),
+});
+export type EtherWatch = typeof EtherWatch.Type;
+
+// A timer is a CLOCK node — a bare pulse on an interval. The definition
+// lives here; whether ticks may spend agent turns is the region's in-app
+// arming, never the file's.
+export const EtherTimer = Schema.Struct({
+  everyMinutes: Schema.Number,
+});
+export type EtherTimer = typeof EtherTimer.Type;
 
 export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalWith(EtherEntity, { exact: true }),
@@ -91,6 +131,8 @@ export const EtherNodeExtension = Schema.Struct({
   flags: Schema.optionalWith(Schema.Array(EtherFlag), { exact: true }),
   view: Schema.optionalWith(EtherView, { exact: true }),
   region: Schema.optionalWith(EtherRegion, { exact: true }),
+  watch: Schema.optionalWith(EtherWatch, { exact: true }),
+  timer: Schema.optionalWith(EtherTimer, { exact: true }),
 });
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 

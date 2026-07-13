@@ -2,7 +2,9 @@ import type {
   CanvasDoc,
   CanvasNode,
   EtherFlag,
+  EtherTimer,
   EtherView,
+  EtherWatch,
   NodeSide,
 } from "@shared/canvas";
 import type { BindingHint } from "@shared/ipc";
@@ -332,14 +334,18 @@ export const setFlagForNodes = (ids: ReadonlyArray<string>, flag: EtherFlag | nu
 // pattern: `hold: true` writes ether.region, anything else strips the
 // `region` key entirely and degrades `ether` itself away once nothing else
 // is left. Membership is never written here — it stays derived (geometry.ts).
+// Merges into ether.region rather than replacing it — a region's pulse
+// instruction must survive toggling hold.
 export const setRegionHold = (id: string, hold: boolean): void => {
   const doc = state$.doc.peek();
   commitDoc({
     ...doc,
     nodes: doc.nodes.map((n) => {
       if (n.id !== id) return n;
-      if (hold) {
-        return { ...n, ether: { ...(n.ether ?? {}), region: { hold: true } } };
+      const currentRegion = n.ether?.region ?? {};
+      const nextRegion = hold ? { ...currentRegion, hold: true } : without(currentRegion, "hold");
+      if (Object.keys(nextRegion).length > 0) {
+        return { ...n, ether: { ...(n.ether ?? {}), region: nextRegion } };
       }
       if (!n.ether) return n;
       const nextEther = without(n.ether, "region");
@@ -379,6 +385,77 @@ export const setNodeView = (id: string, view: EtherView | undefined): void => {
       }
       if (!n.ether) return n;
       const nextEther = without(n.ether, "view");
+      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
+    }),
+  });
+};
+
+// Watcher/timer definitions are document data (the kernel's runtime state
+// derived from them is not — that lives only in kernel-state.ts / app
+// memory, per the frozen contract). Empty optional fields never survive:
+// blank project/orbit/state/source/key/stat strings and an empty glyphIds
+// array all collapse to "field absent", same discipline as stripEmptyView.
+const stripEmptyWatch = (watch: EtherWatch): EtherWatch => {
+  const project = watch.project?.trim();
+  const orbit = watch.orbit?.trim();
+  const glyphIds = watch.glyphIds?.filter((g) => g.trim().length > 0);
+  const state = watch.state?.trim();
+  const key = watch.key?.trim();
+  const stat = watch.stat?.trim();
+  return {
+    kind: watch.kind,
+    ...(project ? { project } : {}),
+    ...(orbit ? { orbit } : {}),
+    ...(glyphIds && glyphIds.length > 0 ? { glyphIds } : {}),
+    ...(state ? { state } : {}),
+    ...(watch.source ? { source: watch.source } : {}),
+    ...(key ? { key } : {}),
+    ...(stat ? { stat } : {}),
+    ...(watch.op ? { op: watch.op } : {}),
+    ...(watch.value !== undefined ? { value: watch.value } : {}),
+    ...(watch.flagOnUnsatisfied ? { flagOnUnsatisfied: true } : {}),
+  };
+};
+
+// Writes/clears a node's ether.watch (predicate definition for a watcher
+// node). Follows the toggleFlag strip pattern: strip empty fields, drop the
+// `watch` key entirely once cleared, degrade `ether` itself away when it
+// would otherwise be left holding nothing. Runtime evaluation of the
+// predicate is the kernel's job (kernel-state.ts) — this only ever writes
+// the definition, never a result.
+export const setNodeWatch = (id: string, watch: EtherWatch | undefined): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id) return n;
+      const cleaned = watch ? stripEmptyWatch(watch) : undefined;
+      if (cleaned) {
+        return { ...n, ether: { ...(n.ether ?? {}), watch: cleaned } };
+      }
+      if (!n.ether) return n;
+      const nextEther = without(n.ether, "watch");
+      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
+    }),
+  });
+};
+
+// Writes/clears a node's ether.timer. The v1 5-minute floor is a UI guard
+// (the editor rejects the input before it ever reaches here); this mutation
+// stays defensive and drops a sub-floor value rather than persist it.
+const MIN_TIMER_EVERY_MINUTES = 5;
+
+export const setNodeTimer = (id: string, timer: EtherTimer | undefined): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id) return n;
+      if (timer && Number.isFinite(timer.everyMinutes) && timer.everyMinutes >= MIN_TIMER_EVERY_MINUTES) {
+        return { ...n, ether: { ...(n.ether ?? {}), timer: { everyMinutes: Math.round(timer.everyMinutes) } } };
+      }
+      if (!n.ether) return n;
+      const nextEther = without(n.ether, "timer");
       return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
     }),
   });

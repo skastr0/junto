@@ -42,6 +42,18 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "kind": "blocks" | "depends" | 
 
 Derived state (blocked closure, group membership, binding health) is **never stored** — recomputed from the document, so it cannot go incoherent.
 
+## Kernel: watchers, timers, region pulse
+
+Region activation gated by three structures (`src/shared/canvas.ts`):
+
+**EtherWatch** (102–118): `{ kind, project, orbit, glyphIds, state, source, key, stat, op, value, flagOnUnsatisfied }`. Predicate on live data. Kinds: `glyphs_done` | `glyphs_entered_state` | `stat_threshold`. Edge-detection fires when a glyph enters `state` between polls.
+
+**EtherTimer** (123–126): `{ everyMinutes }`. Bare pulse on interval.
+
+**EtherRegion** (88–92): `{ hold, instruction }` on group nodes. `hold: true` = structural container. `instruction` = pulse briefing sent to every agent node inside when a watcher fires, timer ticks, or manual pulse triggers.
+
+**Three laws**: (1) Watcher state is derived, never stored in the document. (2) Edge-detection memory is app-local — restart re-baselines, no latent fire. (3) Arming lives only in the running app: document defines pulses, app flips the switch.
+
 ## Binding refs and canonical keys
 
 `ref.key` is always the join key against a live `Entity.key`. Granularity by `ref.type`:

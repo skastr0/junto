@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { NodeResizer, NodeToolbar, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { Lock, Pencil, Trash2 } from "lucide-react";
+import { Lock, Pencil, ScrollText, Trash2 } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
 import { deleteNode, renameGroup } from "../../lib/mutations";
 import { resizeNode } from "../../lib/geometry";
 import { state$ } from "../../lib/state";
+import { kernel$ } from "../../lib/kernel-state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
 
 function RegionToolbar({ nodeId, selected, onEdit }: { readonly nodeId: string; readonly selected: boolean; readonly onEdit: () => void }) {
@@ -35,6 +36,8 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   const editNodeId = use$(state$.editNodeId);
   const [draft, setDraft] = useState(label);
   const inputRef = useRef<HTMLInputElement>(null);
+  const armed = Boolean(use$(kernel$.armed[node.id]));
+  const instruction = node.ether?.region?.instruction;
 
   useEffect(() => {
     if (!editing) return;
@@ -60,6 +63,8 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     <div className="absolute left-2 top-2 flex items-center gap-1">
       <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} />
       {node.ether?.region?.hold ? <Lock aria-label="Region holds its contents" size={10} style={{ opacity: 0.5, color: INK, flexShrink: 0 }} /> : null}
+      {instruction ? <span title={instruction} style={{ display: "inline-flex", flexShrink: 0 }}><ScrollText aria-label="Region has a pulse briefing" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
+      {armed ? <span className="vellum-armed-dot" title="armed — pulses spend real agent turns" style={{ background: HUE.amber }} /> : null}
     </div>
   </div>;
 }

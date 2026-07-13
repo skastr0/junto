@@ -16,9 +16,9 @@ import {
 } from "@xyflow/react";
 import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
-import type { EtherBinding, EtherEdgeKind, EtherFlag } from "@shared/canvas";
+import type { EtherBinding, EtherEdgeKind, EtherFlag, TextNode } from "@shared/canvas";
 import { mergeProjects } from "@shared/portfolio";
-import { Ban, Bot, Boxes, Expand, FileText, Link2, Plus, ScanLine, SquareDashed, Trash2 } from "lucide-react";
+import { Ban, Bot, Boxes, Expand, Eye, FileText, Link2, Plus, ScanLine, SquareDashed, Timer, Trash2 } from "lucide-react";
 import { state$ } from "../lib/state";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { searchText, toFlow } from "../lib/convert";
@@ -257,7 +257,28 @@ interface AddActions {
   readonly create: (kind: "text" | "file" | "link" | "group") => void;
   readonly addProject: (display: string, bindings: ReadonlyArray<EtherBinding>) => void;
   readonly addAgent: (label: string, key: string) => void;
+  readonly addWatcher: () => void;
+  readonly addTimer: () => void;
 }
+
+// Watcher/timer nodes are TEXT nodes carrying entity kind "watcher"/"timer" +
+// ether.watch/ether.timer (open vocab per the kernel contract). Inline here
+// rather than node-factories.ts — that module sits outside this lane.
+const makeWatcherNode = (x: number, y: number): TextNode => ({
+  ...makeTextNode(x, y),
+  text: "watcher",
+  width: 240,
+  height: 96,
+  ether: { entity: { kind: "watcher" }, watch: { kind: "glyphs_done" } },
+});
+
+const makeTimerNode = (x: number, y: number): TextNode => ({
+  ...makeTextNode(x, y),
+  text: "heartbeat",
+  width: 240,
+  height: 96,
+  ether: { entity: { kind: "timer" }, timer: { everyMinutes: 30 } },
+});
 
 // Node creation against a caller-supplied placement strategy — the toolbar
 // places near the viewport center, the context menu at the click point.
@@ -293,6 +314,20 @@ const makeAddActions = (
   addAgent: (label, key) => {
     const position = positionFor({ width: 240, height: 96 });
     const node = makeAgentNode(position.x, position.y, label, key);
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
+  addWatcher: () => {
+    const position = positionFor({ width: 240, height: 96 });
+    const node = makeWatcherNode(position.x, position.y);
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
+  addTimer: () => {
+    const position = positionFor({ width: 240, height: 96 });
+    const node = makeTimerNode(position.x, position.y);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -362,6 +397,8 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
       { key: "file", label: "file", sub: "workspace path", icon: <FileText size={14} />, ariaLabel: "Add file", onSelect: () => actions.create("file") },
       { key: "link", label: "link", sub: "web reference", icon: <Link2 size={14} />, ariaLabel: "Add link", onSelect: () => actions.create("link") },
       { key: "group", label: "region", sub: "spatial container", icon: <SquareDashed size={14} />, ariaLabel: "Add region", onSelect: () => actions.create("group") },
+      { key: "watcher", label: "watcher", sub: "condition over live data", icon: <Eye size={14} />, ariaLabel: "Add watcher", onSelect: () => actions.addWatcher() },
+      { key: "timer", label: "timer", sub: "pulse on an interval", icon: <Timer size={14} />, ariaLabel: "Add timer", onSelect: () => actions.addTimer() },
       { key: "project", label: "project", sub: "bound live readout", icon: <Boxes size={14} />, ariaLabel: "Add project", onSelect: () => setPicker("project") },
       { key: "agent", label: "agent", sub: "hermes profile", icon: <Bot size={14} />, ariaLabel: "Add agent", onSelect: () => setPicker("agent") },
     ]

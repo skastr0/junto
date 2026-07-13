@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Flag, SlidersHorizontal } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasDoc, CanvasNode, EtherEdgeKind, EtherFlag, EtherView } from "@shared/canvas";
+import type { CanvasDoc, CanvasNode, EtherEdgeKind, EtherFlag, EtherView, EtherWatch } from "@shared/canvas";
 import { findEntity } from "@shared/entities";
 import { addEdge } from "../lib/edge-mutations";
-import { editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeView, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTimer, setNodeView, setNodeWatch, setRegionHold, toggleFlag } from "../lib/mutations";
 import { glyphStateHue, orbitOptions, TOWER_STATES } from "../lib/browse";
 import { state$ } from "../lib/state";
+import { armRegion, kernel$, pulseRegion } from "../lib/kernel-state";
 import { HUE, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
 
@@ -55,7 +56,19 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     {node.type === "file" ? <div className="inspector-section"><div className="inspector-section__label">file reference</div><div className="inspector-file-fields"><label><span>path</span><input aria-label="File path" value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setFileDraft(fileValue); event.currentTarget.blur(); } }} /></label><label><span>subpath</span><input aria-label="File subpath" value={subpathDraft} placeholder="#section or block" onChange={(event) => setSubpathDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setSubpathDraft(subpathValue); event.currentTarget.blur(); } }} /></label></div></div> : null}
     {node.type === "group" ? <div className="inspector-section"><div className="inspector-section__label">background</div><div className="inspector-background"><input aria-label="Region background source" value={backgroundDraft} placeholder="image URL or file path" onChange={(event) => setBackgroundDraft(event.target.value)} onBlur={() => commitBackground()} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitBackground(); event.currentTarget.blur(); } if (event.key === "Escape") { setBackgroundDraft(backgroundValue); event.currentTarget.blur(); } }} /><label><span>fit</span><select aria-label="Region background fit" value={backgroundStyleDraft} onChange={(event) => { const style = event.target.value as "cover" | "ratio" | "repeat"; setBackgroundStyleDraft(style); commitBackground(backgroundDraft, style); }}><option value="cover">cover</option><option value="ratio">contain</option><option value="repeat">repeat</option></select></label></div></div> : null}
     {node.type === "group" ? <RegionHoldControl node={node} /> : null}
+    <KernelFieldEditors node={node} />
     {node.ether?.entity?.kind === "project" ? <ViewSliceFields node={node} /> : null}
+  </>;
+}
+
+// Watcher/timer/region-pulse editors, grouped behind one call so the
+// switchboard above reads as one branch per concern instead of three more
+// node-type ternaries stacked onto an already-dense dispatcher.
+function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
+  return <>
+    {node.type === "group" ? <RegionPulseControl node={node} /> : null}
+    {node.ether?.entity?.kind === "watcher" ? <WatcherEditor node={node} /> : null}
+    {node.ether?.entity?.kind === "timer" ? <TimerEditor node={node} /> : null}
   </>;
 }
 
@@ -76,6 +89,374 @@ function RegionHoldControl({ node }: { readonly node: CanvasNode }) {
         onClick={() => setRegionHold(node.id, !hold)}
       >hold contents</button>
     </div>
+  </div>;
+}
+
+const withoutKey = <T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> => {
+  const { [key]: _removed, ...rest } = value;
+  return rest;
+};
+
+// The region's pulse briefing text is document data (unlike ARM, which is
+// app-state only — see canvas.ts). This writes ether.region.instruction
+// directly via commitDoc rather than a lib/mutations.ts export: the watcher
+// and timer mutations are this lane's only grant into that file, so the
+// third document write this section needs stays local, following the same
+// strip pattern as setRegionHold.
+const commitRegionInstruction = (node: CanvasNode, instruction: string): void => {
+  const trimmed = instruction.trim();
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== node.id) return n;
+      if (trimmed) {
+        return { ...n, ether: { ...(n.ether ?? {}), region: { ...(n.ether?.region ?? {}), instruction: trimmed } } };
+      }
+      if (!n.ether?.region) return n;
+      const nextRegion = withoutKey(n.ether.region, "instruction");
+      const nextEther = Object.keys(nextRegion).length ? { ...n.ether, region: nextRegion } : withoutKey(n.ether, "region");
+      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : withoutKey(n, "ether")) as CanvasNode;
+    }),
+  });
+};
+
+// Region pulse surface: the briefing every agent inside receives, the ARM
+// switch (app-state only — armRegion never touches the document), and manual
+// pulse/dry-pulse triggers. Arming is deliberately never silent: the caution
+// line says exactly what flipping it costs.
+function RegionPulseControl({ node }: { readonly node: CanvasNode }) {
+  const instructionValue = node.ether?.region?.instruction ?? "";
+  const [instructionDraft, setInstructionDraft] = useState(instructionValue);
+  const armed = Boolean(use$(kernel$.armed[node.id]));
+  const [pulseError, setPulseError] = useState("");
+
+  useEffect(() => { setInstructionDraft(instructionValue); }, [node.id, instructionValue]);
+
+  const commitInstruction = () => {
+    if (instructionDraft === instructionValue) return;
+    commitRegionInstruction(node, instructionDraft);
+  };
+
+  const runPulse = (dry: boolean) => {
+    setPulseError("");
+    void pulseRegion(node.id, { dry }).catch((error: unknown) => setPulseError(error instanceof Error ? error.message : String(error)));
+  };
+
+  return <div className="inspector-section">
+    <div className="inspector-section__label">pulse briefing</div>
+    <label className="inspector-editor">
+      <span>every agent inside receives this</span>
+      <textarea
+        aria-label="Region pulse briefing"
+        placeholder="what should agents inside this region do when it pulses?"
+        value={instructionDraft}
+        onChange={(event) => setInstructionDraft(event.target.value)}
+        onBlur={commitInstruction}
+        onKeyDown={(event) => { if (event.key === "Escape") { setInstructionDraft(instructionValue); event.currentTarget.blur(); } }}
+      />
+    </label>
+    <div className="inspector-flags mt-2">
+      <button
+        type="button"
+        className="inspector-flag-toggle"
+        aria-label="Arm region"
+        aria-pressed={armed}
+        style={{ color: armed ? HUE.amber : "#68604a", borderColor: armed ? withAlpha(HUE.amber, 0.5) : "rgba(237,230,218,.12)", background: armed ? withAlpha(HUE.amber, 0.1) : "rgba(255,255,255,.02)" }}
+        onClick={() => armRegion(node.id, !armed)}
+      >{armed ? "armed" : "disarmed"}</button>
+    </div>
+    <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.6) }}>armed pulses spend real agent turns</div>
+    <div className="mt-2 flex gap-2">
+      <button type="button" className="inspector-flag-toggle" onClick={() => runPulse(false)}>pulse now</button>
+      <button type="button" className="inspector-flag-toggle" onClick={() => runPulse(true)}>dry pulse</button>
+    </div>
+    {pulseError ? <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.8) }}>{pulseError}</div> : null}
+  </div>;
+}
+
+const WATCH_KIND_OPTIONS: ReadonlyArray<{ readonly value: EtherWatch["kind"]; readonly label: string }> = [
+  { value: "glyphs_done", label: "all glyphs done" },
+  { value: "glyphs_entered_state", label: "on glyphs entering state" },
+  { value: "stat_threshold", label: "stat threshold" },
+];
+
+const STAT_SOURCE_OPTIONS: ReadonlyArray<NonNullable<EtherWatch["source"]>> = ["tower", "quasar", "booth", "hermes"];
+
+const STAT_OP_OPTIONS: ReadonlyArray<{ readonly value: NonNullable<EtherWatch["op"]>; readonly label: string }> = [
+  { value: "gt", label: "greater than" },
+  { value: "lt", label: "less than" },
+  { value: "eq", label: "equal to" },
+];
+
+// Enter commits and blurs; every text field below shares this handler.
+const commitOnEnter = (onCommit: () => void) => (event: React.KeyboardEvent<HTMLInputElement>) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  onCommit();
+  event.currentTarget.blur();
+};
+
+// The glyph-rule scope (glyphs_done, glyphs_entered_state): project + orbit
+// + an explicit glyphIds allowlist. Empty glyphIds means every glyph in scope.
+function GlyphScopeFields({ project, orbit, glyphIdsText, towerKey, onProject, onOrbit, onGlyphIds, onCommit }: {
+  readonly project: string;
+  readonly orbit: string;
+  readonly glyphIdsText: string;
+  readonly towerKey: string | undefined;
+  readonly onProject: (value: string) => void;
+  readonly onOrbit: (value: string) => void;
+  readonly onGlyphIds: (value: string) => void;
+  readonly onCommit: () => void;
+}) {
+  const onEnter = commitOnEnter(onCommit);
+  return <>
+    <label className="inspector-editor">
+      <span>project</span>
+      <input aria-label="Watcher project" value={project} placeholder={towerKey ?? "project key"} onChange={(event) => onProject(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
+    </label>
+    <label className="inspector-editor">
+      <span>orbit</span>
+      <input aria-label="Watcher orbit" value={orbit} placeholder="all orbits" onChange={(event) => onOrbit(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
+    </label>
+    <label className="inspector-editor">
+      <span>glyph ids</span>
+      <input aria-label="Watcher glyph ids" value={glyphIdsText} placeholder="comma-separated · empty = every glyph in scope" onChange={(event) => onGlyphIds(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
+    </label>
+  </>;
+}
+
+// The stat_threshold rule: a numeric comparison on a bound entity's stat.
+// Selects commit immediately (onSourceChange/onOpChange carry the override
+// into the same commit call — React state from setSource/setOp wouldn't be
+// flushed yet if commit() read it directly); text fields commit on blur.
+function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceChange, onKey, onStat, onOpChange, onValue, onCommit }: {
+  readonly source: NonNullable<EtherWatch["source"]>;
+  readonly entityKey: string;
+  readonly stat: string;
+  readonly op: NonNullable<EtherWatch["op"]>;
+  readonly valueText: string;
+  readonly onSourceChange: (value: NonNullable<EtherWatch["source"]>) => void;
+  readonly onKey: (value: string) => void;
+  readonly onStat: (value: string) => void;
+  readonly onOpChange: (value: NonNullable<EtherWatch["op"]>) => void;
+  readonly onValue: (value: string) => void;
+  readonly onCommit: () => void;
+}) {
+  const onEnter = commitOnEnter(onCommit);
+  return <>
+    <label className="inspector-editor">
+      <span>source</span>
+      <select aria-label="Watcher stat source" value={source} onChange={(event) => onSourceChange(event.target.value as NonNullable<EtherWatch["source"]>)}>
+        {STAT_SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+      </select>
+    </label>
+    <label className="inspector-editor">
+      <span>key</span>
+      <input aria-label="Watcher entity key" value={entityKey} placeholder="bound entity key" onChange={(event) => onKey(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
+    </label>
+    <label className="inspector-editor">
+      <span>stat</span>
+      <input aria-label="Watcher stat name" value={stat} placeholder="e.g. glyphs_active" onChange={(event) => onStat(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
+    </label>
+    <label className="inspector-editor">
+      <span>op</span>
+      <select aria-label="Watcher comparison" value={op} onChange={(event) => onOpChange(event.target.value as NonNullable<EtherWatch["op"]>)}>
+        {STAT_OP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </label>
+    <label className="inspector-editor">
+      <span>value</span>
+      <input aria-label="Watcher threshold value" type="number" value={valueText} onChange={(event) => onValue(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
+    </label>
+  </>;
+}
+
+// Every watch field's draft state, reset together whenever the inspected
+// node changes — split out of WatcherEditor so the component body reads as
+// "options + commit", not a wall of useState declarations.
+function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, towerKey: string | undefined) {
+  const [kind, setKind] = useState<EtherWatch["kind"]>(watch?.kind ?? "glyphs_done");
+  const [project, setProject] = useState(watch?.project ?? towerKey ?? "");
+  const [orbit, setOrbit] = useState(watch?.orbit ?? "");
+  const [glyphIdsText, setGlyphIdsText] = useState((watch?.glyphIds ?? []).join(", "));
+  const [stateName, setStateName] = useState(watch?.state ?? "committed");
+  const [source, setSource] = useState<NonNullable<EtherWatch["source"]>>(watch?.source ?? "tower");
+  const [key, setKey] = useState(watch?.key ?? "");
+  const [stat, setStat] = useState(watch?.stat ?? "");
+  const [op, setOp] = useState<NonNullable<EtherWatch["op"]>>(watch?.op ?? "gt");
+  const [valueText, setValueText] = useState(watch?.value !== undefined ? String(watch.value) : "");
+  const [flagOnUnsatisfied, setFlagOnUnsatisfied] = useState(Boolean(watch?.flagOnUnsatisfied));
+
+  useEffect(() => {
+    setKind(watch?.kind ?? "glyphs_done");
+    setProject(watch?.project ?? towerKey ?? "");
+    setOrbit(watch?.orbit ?? "");
+    setGlyphIdsText((watch?.glyphIds ?? []).join(", "));
+    setStateName(watch?.state ?? "committed");
+    setSource(watch?.source ?? "tower");
+    setKey(watch?.key ?? "");
+    setStat(watch?.stat ?? "");
+    setOp(watch?.op ?? "gt");
+    setValueText(watch?.value !== undefined ? String(watch.value) : "");
+    setFlagOnUnsatisfied(Boolean(watch?.flagOnUnsatisfied));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset drafts only on node identity change, not on every keystroke into watch/*
+  }, [nodeId]);
+
+  return {
+    kind, setKind, project, setProject, orbit, setOrbit, glyphIdsText, setGlyphIdsText,
+    stateName, setStateName, source, setSource, key, setKey, stat, setStat, op, setOp,
+    valueText, setValueText, flagOnUnsatisfied, setFlagOnUnsatisfied,
+  };
+}
+
+// Watcher editor: kind picks which shape of predicate this node evaluates;
+// fields below narrow by kind. flagOnUnsatisfied only applies to the level
+// rules (glyphs_done, stat_threshold) — glyphs_entered_state is an edge rule
+// with no persistent "unsatisfied" state to mirror (see canvas.ts).
+function WatcherEditor({ node }: { readonly node: CanvasNode }) {
+  const watch = node.ether?.watch;
+  const towerKey = node.ether?.bindings?.find((binding) => binding.source === "tower")?.ref.key;
+  const {
+    kind, setKind, project, setProject, orbit, setOrbit, glyphIdsText, setGlyphIdsText,
+    stateName, setStateName, source, setSource, key, setKey, stat, setStat, op, setOp,
+    valueText, setValueText, flagOnUnsatisfied, setFlagOnUnsatisfied,
+  } = useWatchDraft(node.id, watch, towerKey);
+
+  type Overrides = Partial<{
+    readonly kind: EtherWatch["kind"];
+    readonly state: string;
+    readonly source: NonNullable<EtherWatch["source"]>;
+    readonly op: NonNullable<EtherWatch["op"]>;
+    readonly flagOnUnsatisfied: boolean;
+  }>;
+
+  const commit = (overrides: Overrides = {}) => {
+    const nextKind = overrides.kind ?? kind;
+    const nextState = overrides.state ?? stateName;
+    const nextSource = overrides.source ?? source;
+    const nextOp = overrides.op ?? op;
+    const nextFlag = overrides.flagOnUnsatisfied ?? flagOnUnsatisfied;
+    const parsedValue = valueText.trim() === "" ? undefined : Number(valueText);
+    const nextWatch: EtherWatch = {
+      kind: nextKind,
+      ...(project.trim() ? { project: project.trim() } : {}),
+      ...(orbit.trim() ? { orbit: orbit.trim() } : {}),
+      ...(glyphIdsText.trim() ? { glyphIds: glyphIdsText.split(",").map((s) => s.trim()).filter(Boolean) } : {}),
+      ...(nextKind === "glyphs_entered_state" ? { state: nextState.trim() || "committed" } : {}),
+      ...(nextKind === "stat_threshold" ? {
+        source: nextSource,
+        ...(key.trim() ? { key: key.trim() } : {}),
+        ...(stat.trim() ? { stat: stat.trim() } : {}),
+        op: nextOp,
+        ...(parsedValue !== undefined && Number.isFinite(parsedValue) ? { value: parsedValue } : {}),
+      } : {}),
+      ...(nextKind !== "glyphs_entered_state" ? { flagOnUnsatisfied: nextFlag } : {}),
+    };
+    setNodeWatch(node.id, nextWatch);
+  };
+
+  return <div className="inspector-section">
+    <div className="inspector-section__label">watcher</div>
+    <label className="inspector-editor">
+      <span>kind</span>
+      <select aria-label="Watcher kind" value={kind} onChange={(event) => { const next = event.target.value as EtherWatch["kind"]; setKind(next); commit({ kind: next }); }}>
+        {WATCH_KIND_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+    </label>
+    {kind !== "stat_threshold" ? (
+      <GlyphScopeFields
+        project={project}
+        orbit={orbit}
+        glyphIdsText={glyphIdsText}
+        towerKey={towerKey}
+        onProject={setProject}
+        onOrbit={setOrbit}
+        onGlyphIds={setGlyphIdsText}
+        onCommit={() => commit()}
+      />
+    ) : null}
+    {kind === "glyphs_entered_state" ? (
+      <label className="inspector-editor">
+        <span>entered state</span>
+        <select aria-label="Watcher target state" value={stateName} onChange={(event) => { setStateName(event.target.value); commit({ state: event.target.value }); }}>
+          {TOWER_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </label>
+    ) : null}
+    {kind === "stat_threshold" ? (
+      <StatThresholdFields
+        source={source}
+        entityKey={key}
+        stat={stat}
+        op={op}
+        valueText={valueText}
+        onSourceChange={(next) => { setSource(next); commit({ source: next }); }}
+        onKey={setKey}
+        onStat={setStat}
+        onOpChange={(next) => { setOp(next); commit({ op: next }); }}
+        onValue={setValueText}
+        onCommit={() => commit()}
+      />
+    ) : null}
+    {kind !== "glyphs_entered_state" ? (
+      <div className="inspector-flags mt-2">
+        <button
+          type="button"
+          className="inspector-flag-toggle"
+          aria-label="Flag when unsatisfied"
+          aria-pressed={flagOnUnsatisfied}
+          style={{ color: flagOnUnsatisfied ? HUE.crimson : "#68604a", borderColor: flagOnUnsatisfied ? withAlpha(HUE.crimson, 0.5) : "rgba(237,230,218,.12)", background: flagOnUnsatisfied ? withAlpha(HUE.crimson, 0.1) : "rgba(255,255,255,.02)" }}
+          onClick={() => { const next = !flagOnUnsatisfied; setFlagOnUnsatisfied(next); commit({ flagOnUnsatisfied: next }); }}
+        >flag when unsatisfied</button>
+      </div>
+    ) : null}
+  </div>;
+}
+
+const MIN_TIMER_EVERY_MINUTES = 5;
+
+// Timer editor: one field, one v1 guard — the 5-minute floor is enforced
+// here before the value ever reaches setNodeTimer.
+function TimerEditor({ node }: { readonly node: CanvasNode }) {
+  const timer = node.ether?.timer;
+  const defaultMinutes = timer?.everyMinutes ?? 30;
+  const [minutesText, setMinutesText] = useState(String(defaultMinutes));
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setMinutesText(String(timer?.everyMinutes ?? 30));
+    setError("");
+  }, [node.id, timer?.everyMinutes]);
+
+  const commit = () => {
+    const parsed = Number(minutesText);
+    if (!Number.isFinite(parsed) || parsed < MIN_TIMER_EVERY_MINUTES) {
+      setError(`minimum is ${MIN_TIMER_EVERY_MINUTES}m`);
+      return;
+    }
+    setError("");
+    setNodeTimer(node.id, { everyMinutes: Math.round(parsed) });
+  };
+
+  return <div className="inspector-section">
+    <div className="inspector-section__label">timer</div>
+    <label className="inspector-editor">
+      <span>every (minutes)</span>
+      <input
+        aria-label="Timer interval minutes"
+        type="number"
+        min={MIN_TIMER_EVERY_MINUTES}
+        value={minutesText}
+        onChange={(event) => setMinutesText(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") { event.preventDefault(); commit(); event.currentTarget.blur(); }
+          if (event.key === "Escape") { setMinutesText(String(timer?.everyMinutes ?? 30)); setError(""); event.currentTarget.blur(); }
+        }}
+      />
+    </label>
+    {error ? <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.8) }}>{error}</div> : null}
   </div>;
 }
 
