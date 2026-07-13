@@ -150,8 +150,10 @@ export const parseSide = (handle?: string | null): NodeSide | undefined => {
 
 // --- mutations ------------------------------------------------------------
 // `edit` opens the inline editor right away — right for blank notes, wrong for
-// entity nodes that arrive already named and bound.
-export const addNode = (node: CanvasNode, options?: { readonly edit?: boolean }): void => {
+// entity nodes that arrive already named and bound. `focus` defaults to true;
+// pass false to skip the fitView jump (e.g. a region drawn around a selection
+// that is already fully in view — a zoom jump there would be jarring).
+export const addNode = (node: CanvasNode, options?: { readonly edit?: boolean; readonly focus?: boolean }): void => {
   state$.searchQuery.set("");
   state$.edgeFilter.set("");
   state$.flagFilter.set("");
@@ -159,6 +161,7 @@ export const addNode = (node: CanvasNode, options?: { readonly edit?: boolean })
   state$.selectedEdgeId.set("");
   const doc = state$.doc.peek();
   commitDoc({ ...doc, nodes: [...doc.nodes, node] });
+  if (options?.focus === false) return;
   window.setTimeout(() => {
     state$.focusNodeId.set(node.id);
     if (options?.edit !== false) state$.editNodeId.set(node.id);
@@ -297,6 +300,29 @@ export const toggleFlag = (id: string, flag: EtherFlag): void => {
       if (!n.ether) return n;
       const nextEther = without(n.ether, "flags");
       return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
+    }),
+  });
+};
+
+// Bulk flag set/clear over a whole selection in one commit — a multi-select
+// action applies once, not as N individual toggles. `flag: null` clears the
+// full flag vocabulary (not just one flag) for every target node.
+export const setFlagForNodes = (ids: ReadonlyArray<string>, flag: EtherFlag | null): void => {
+  const targets = new Set(ids);
+  if (targets.size === 0) return;
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (!targets.has(n.id)) return n;
+      if (flag === null) {
+        if (!n.ether) return n;
+        const nextEther = without(n.ether, "flags");
+        return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
+      }
+      const flags = n.ether?.flags ?? [];
+      if (flags.includes(flag)) return n;
+      return { ...n, ether: { ...(n.ether ?? {}), flags: [...flags, flag] } };
     }),
   });
 };

@@ -63,10 +63,24 @@ export const EtherEntity = Schema.Struct({
 });
 export type EtherEntity = typeof EtherEntity.Type;
 
+// A view slice: an optional per-node lens over a bound project's live data.
+// Several nodes may bind the SAME project with different slices — "prism ·
+// forge" in one region, "prism · beacon" in another — so a canvas can hold
+// many cuts of one project. Purely presentational: it narrows what the card
+// readout and the inspector browser show, never what exists.
+export const EtherView = Schema.Struct({
+  orbit: Schema.optionalWith(Schema.String, { exact: true }),
+  // Substring or /regex/ matched against glyph id + title.
+  glyphQuery: Schema.optionalWith(Schema.String, { exact: true }),
+  states: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
+});
+export type EtherView = typeof EtherView.Type;
+
 export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalWith(EtherEntity, { exact: true }),
   bindings: Schema.optionalWith(Schema.Array(EtherBinding), { exact: true }),
   flags: Schema.optionalWith(Schema.Array(EtherFlag), { exact: true }),
+  view: Schema.optionalWith(EtherView, { exact: true }),
 });
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 

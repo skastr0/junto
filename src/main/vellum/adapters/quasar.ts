@@ -2,6 +2,8 @@ import type { Entity, SnapshotBundle } from "@shared/entities";
 import type {
   QuasarSearchMatch,
   QuasarSearchResult,
+  QuasarSessionDetail,
+  QuasarSessionDetailResult,
   QuasarSessionRow,
   QuasarSessionsResult,
 } from "@shared/ipc";
@@ -142,30 +144,24 @@ interface QuasarSessionListResponse {
   readonly data?: { readonly rows: ReadonlyArray<QuasarSessionListRow> };
 }
 
-const sessionSortKey = (row: QuasarSessionListRow): string => row.updatedAt ?? row.startedAt ?? "";
-
-// Sort desc by (updatedAt ?? startedAt ?? ""), then take the requested page.
-// ISO timestamps sort correctly as plain strings, so no Date parsing needed.
+// The quasar server already returns rows in most-recent-first order. Most
+// providers (claude/codex/antigravity) leave updatedAt/startedAt null, so a
+// re-sort keyed on those fields floats the one provider that populates them
+// (kimi) to the top and sinks everyone else — the UI looked like "all
+// sessions are kimi". Preserve server order; just take the first N.
 export const sortAndMapSessions = (
   rows: ReadonlyArray<QuasarSessionListRow>,
   limit: number,
 ): ReadonlyArray<QuasarSessionRow> =>
-  [...rows]
-    .sort((a, b) => {
-      const ka = sessionSortKey(a);
-      const kb = sessionSortKey(b);
-      return ka === kb ? 0 : ka < kb ? 1 : -1;
-    })
-    .slice(0, limit)
-    .map((row) => ({
-      sessionId: row.sessionId,
-      title: row.title ?? undefined,
-      provider: row.provider,
-      agentName: row.agentName ?? undefined,
-      messageCount: row.messageCount ?? 0,
-      toolCallCount: row.toolCallCount ?? 0,
-      updatedAt: row.updatedAt ?? undefined,
-    }));
+  rows.slice(0, limit).map((row) => ({
+    sessionId: row.sessionId,
+    title: row.title ?? undefined,
+    provider: row.provider,
+    agentName: row.agentName ?? undefined,
+    messageCount: row.messageCount ?? 0,
+    toolCallCount: row.toolCallCount ?? 0,
+    updatedAt: row.updatedAt ?? undefined,
+  }));
 
 const SESSION_FETCH_LIMIT = 500;
 const DEFAULT_SESSION_LIMIT = 30;
@@ -255,4 +251,133 @@ export const fetchQuasarSearch = async (
   }
 
   return { ok: true, matches: mapSearchMatches(matches) };
+};
+
+// --- session detail (reader modal) ------------------------------------------
+//
+// Built from two CLI calls: `quasar messages` (per-message ts is reliable
+// even when the session-level updatedAt/startedAt is null for a provider)
+// and `quasar tool-calls` (tool usage stats). Never throws — a failing/
+// malformed CLI call degrades to ok:false.
+
+interface QuasarDetailMessageRow {
+  readonly role: string;
+  readonly text?: string | null;
+  readonly ts?: string | null;
+}
+
+interface QuasarMessagesResponse {
+  readonly ok: boolean;
+  readonly data?: { readonly rows: ReadonlyArray<QuasarDetailMessageRow> };
+}
+
+interface QuasarDetailToolCallRow {
+  readonly toolName?: string | null;
+}
+
+interface QuasarToolCallsResponse {
+  readonly ok: boolean;
+  readonly data?: { readonly rows: ReadonlyArray<QuasarDetailToolCallRow> };
+}
+
+const FIRST_USER_MAX_LENGTH = 600;
+const LAST_ASSISTANT_MAX_LENGTH = 900;
+const TOP_TOOLS_COUNT = 3;
+const SESSION_DETAIL_FETCH_LIMIT = 500;
+
+const trimTo = (text: string, maxLength: number): string => {
+  const trimmed = text.trim();
+  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength - 1)}…` : trimmed;
+};
+
+// firstUser = first user-role message; lastAssistant = last assistant-role
+// message (keeps overwriting as it walks forward); startedAt/endedAt = min/
+// max ts across every row, so they still resolve even when firstUser or
+// lastAssistant is undefined (e.g. a tool-only session).
+export const buildSessionBookends = (
+  rows: ReadonlyArray<QuasarDetailMessageRow>,
+): { firstUser?: string; lastAssistant?: string; startedAt?: string; endedAt?: string } => {
+  let firstUser: string | undefined;
+  let lastAssistant: string | undefined;
+  let startedAt: string | undefined;
+  let endedAt: string | undefined;
+
+  for (const row of rows) {
+    if (row.ts) {
+      if (!startedAt || row.ts < startedAt) startedAt = row.ts;
+      if (!endedAt || row.ts > endedAt) endedAt = row.ts;
+    }
+    if (!firstUser && row.role === "user" && row.text) {
+      firstUser = trimTo(row.text, FIRST_USER_MAX_LENGTH);
+    }
+    if (row.role === "assistant" && row.text) {
+      lastAssistant = trimTo(row.text, LAST_ASSISTANT_MAX_LENGTH);
+    }
+  }
+
+  return { firstUser, lastAssistant, startedAt, endedAt };
+};
+
+export const topToolNames = (
+  rows: ReadonlyArray<QuasarDetailToolCallRow>,
+  count: number = TOP_TOOLS_COUNT,
+): ReadonlyArray<string> => {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.toolName) continue;
+    counts.set(row.toolName, (counts.get(row.toolName) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, count)
+    .map(([name]) => name);
+};
+
+// sessionId is "<provider>:<hash>" (e.g. "codex:725dff0e..."); the prefix
+// before the first colon is the provider.
+export const parseProviderFromSessionId = (sessionId: string): string => {
+  const separatorIndex = sessionId.indexOf(":");
+  return separatorIndex === -1 ? sessionId : sessionId.slice(0, separatorIndex);
+};
+
+export const fetchQuasarSessionDetail = async (sessionId: string): Promise<QuasarSessionDetailResult> => {
+  const [messagesResult, toolCallsResult] = await Promise.all([
+    runCli("quasar", ["messages", "--session-id", sessionId, "--limit", String(SESSION_DETAIL_FETCH_LIMIT)]),
+    runCli("quasar", ["tool-calls", "--session-id", sessionId, "--limit", String(SESSION_DETAIL_FETCH_LIMIT)]),
+  ]);
+
+  if (!messagesResult.ok) {
+    return { ok: false, error: messagesResult.error ?? "quasar messages CLI failed" };
+  }
+
+  const messagesParsed = parseJson<QuasarMessagesResponse>(messagesResult.stdout);
+  const messageRows = messagesParsed?.data?.rows;
+  if (!messagesParsed?.ok || !Array.isArray(messageRows)) {
+    return { ok: false, error: "unexpected response shape from `quasar messages`" };
+  }
+
+  // Tool-call stats are best-effort: a failing/malformed `tool-calls` call
+  // degrades to empty tool stats rather than failing the whole detail — the
+  // transcript bookends are still useful without it.
+  const toolCallsParsed = toolCallsResult.ok
+    ? parseJson<QuasarToolCallsResponse>(toolCallsResult.stdout)
+    : undefined;
+  const toolRows = toolCallsParsed?.data?.rows ?? [];
+
+  const bookends = buildSessionBookends(messageRows);
+
+  const detail: QuasarSessionDetail = {
+    sessionId,
+    provider: parseProviderFromSessionId(sessionId),
+    title: undefined,
+    messageCount: messageRows.length,
+    toolCallCount: toolRows.length,
+    firstUser: bookends.firstUser,
+    lastAssistant: bookends.lastAssistant,
+    startedAt: bookends.startedAt,
+    endedAt: bookends.endedAt,
+    topTools: topToolNames(toolRows),
+  };
+
+  return { ok: true, detail };
 };

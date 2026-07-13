@@ -423,6 +423,10 @@ button {
 .node-palette__picker-head button { display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(237,230,218,.14); border-radius: 4px; background: rgba(255,255,255,.03); color: #8a8378; padding: 4px 7px; font-size: 8px; letter-spacing: .14em; text-transform: uppercase; transition: border-color .18s ease, color .18s ease; }
 .node-palette__picker-head button:hover { border-color: rgba(232,163,61,.5); color: #e8a33d; }
 .node-palette__picker-empty { border: 1px dashed rgba(237,230,218,.12); border-radius: 5px; color: #68604a; padding: 10px; font-size: 9px; line-height: 1.5; }
+.node-palette__filter { width: 100%; margin-bottom: 4px; border: 1px solid rgba(237,230,218,.14); border-radius: 4px; background: rgba(255,255,255,.03); color: #ede6da; padding: 5px 7px; font-size: 10px; letter-spacing: .04em; outline: none; }
+.node-palette__filter::placeholder { color: #68604a; }
+.node-palette__filter:focus { border-color: rgba(57,198,214,.55); box-shadow: 0 0 0 3px rgba(57,198,214,.08); }
+.node-palette__menu button.is-active { background: rgba(255,255,255,.07); color: #ede6da; }
 @media (max-width: 980px) {
   .node-palette-panel { margin-left: 14px !important; }
 }
@@ -533,6 +537,32 @@ button {
   transition: stroke 0.2s ease;
 }
 
+/* Edge labels are quiet annotations, not headlines — fixed tiny type on a
+   barely-there pill, independent of the edge's own accent color. Declared as
+   a plain class (not a Tailwind arbitrary-value utility) so it cannot lose a
+   cascade-layer fight against a plain-element rule like `button { font: … }`
+   above. */
+.vellum-edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  border-radius: 4px;
+  padding: 2px 6px;
+  background: rgba(12, 11, 10, 0.8);
+  border: 1px solid rgba(237, 230, 218, 0.12);
+  color: #8a8378;
+  font-size: 9px;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.vellum-edge-label:hover {
+  color: #ede6da;
+  border-color: rgba(237, 230, 218, 0.28);
+}
+
 /* --- Blocker pulse: multi-second, quiet, no bounce -------------------- */
 .vellum-blocker {
   animation: vellumPulse 3s ease-in-out infinite;
@@ -577,3 +607,96 @@ path.vellum-edge-ripple {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* --- inspector browse: small picker, clickable rows, detail modal ------ */
+
+/* The GLYPHS/SIGNALS/SESSIONS/DISPATCHES tab picker. A native select always
+   fits the 280px inspector at any tab count — including the moment
+   DISPATCHES joins asynchronously — where a 9px segmented row of four
+   uppercase labels in the house monospace font does not reliably clear the
+   available width. */
+.vellum-picker-select {
+  width: 100%;
+  height: 22px;
+  border: 1px solid rgba(237, 230, 218, 0.14);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #e8a33d;
+  padding: 0 6px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  outline: none;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.vellum-picker-select:hover { border-color: rgba(232, 163, 61, 0.32); }
+.vellum-picker-select:focus { border-color: rgba(232, 163, 61, 0.55); box-shadow: 0 0 0 3px rgba(232, 163, 61, 0.08); }
+.vellum-picker-select option { background: #16130f; color: #ede6da; }
+
+/* A row (glyph/signal/session/dispatch) that opens the detail modal. Resets
+   button UA chrome so it reads exactly like the plain div it replaces. */
+.vellum-row-button {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0 3px;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+.vellum-row-button:hover { background: rgba(255, 255, 255, 0.035); }
+.vellum-row-button:focus-visible { outline: 1px solid rgba(232, 163, 61, 0.5); outline-offset: 1px; }
+
+/* Centered detail-view overlay for a browsed row. Only one is ever mounted
+   at a time (the caller holds a single "active detail" state slot). */
+.vellum-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 7, 6, 0.55);
+}
+.vellum-modal {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: 75vh;
+  overflow-y: auto;
+  border: 1px solid rgba(237, 230,218, 0.15);
+  border-radius: 10px;
+  background: #16130f;
+  padding: 20px 22px 20px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+.vellum-modal__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: #68604a;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.vellum-modal__close:hover { background: rgba(255, 255, 255, 0.08); color: #ede6da; }
+.vellum-modal__eyebrow { color: #39c6d6; font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; }
+.vellum-modal__title { margin-top: 7px; padding-right: 20px; overflow-wrap: anywhere; color: #ede6da; font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 19px; letter-spacing: 0.06em; line-height: 1.25; text-transform: uppercase; }
+.vellum-modal__meta { margin-top: 6px; color: #8a8378; font-size: 9px; letter-spacing: 0.04em; }
+.vellum-modal__body { margin-top: 14px; }
+.vellum-modal__paragraph { margin: 0; color: #ede6da; font-size: 11px; line-height: 1.55; }
+.vellum-modal__line { margin-top: 6px; color: #8a8378; font-size: 9px; letter-spacing: 0.03em; line-height: 1.5; }
+.vellum-modal__pre { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: #ede6da; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; line-height: 1.55; }
+.vellum-modal__pre--small { color: #8a8378; font-size: 10px; }
+.vellum-modal__section-label { margin-top: 12px; color: #68604a; font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; }
+.vellum-modal__quote { margin-top: 5px; border-left: 2px solid rgba(237, 230,218, 0.14); overflow-wrap: anywhere; white-space: pre-wrap; color: #8a8378; padding-left: 9px; font-size: 10px; line-height: 1.55; }
+.vellum-modal__scroll { max-height: 160px; overflow-y: auto; }
+.vellum-modal__chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.vellum-modal__chip { border: 1px solid rgba(237, 230,218, 0.16); border-radius: 4px; color: #8a8378; padding: 2px 6px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 9px; }
+.vellum-modal__details { margin-top: 12px; }
+.vellum-modal__summary { cursor: pointer; color: #8a8378; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
+.vellum-modal__summary::marker { color: #68604a; }

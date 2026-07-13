@@ -18,11 +18,11 @@ import type { Connection, FinalConnectionState, Node } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { EtherBinding, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { mergeProjects } from "@shared/portfolio";
-import { Bot, Boxes, Expand, FileText, Link2, Plus, ScanLine, SquareDashed } from "lucide-react";
+import { Ban, Bot, Boxes, Expand, FileText, Link2, Plus, ScanLine, SquareDashed, Trash2 } from "lucide-react";
 import { state$ } from "../lib/state";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { searchText, toFlow } from "../lib/convert";
-import { addNode, deleteNodes } from "../lib/mutations";
+import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, deleteEdges } from "../lib/edge-mutations";
 import { findOpenPosition, syncPositions } from "../lib/geometry";
 import { makeAgentNode, makeFileNode, makeGroupNode, makeLinkNode, makeProjectNode, makeTextNode } from "../lib/node-factories";
@@ -41,7 +41,7 @@ const miniMapNodeColor = (node: Node): string => {
   return "rgba(232,163,61,0.5)";
 };
 
-type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown };
+type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
 type CanvasFlow = {
   readonly fitView: (options?: { readonly nodes?: Array<CanvasNodeRef>; readonly padding?: number; readonly duration?: number; readonly maxZoom?: number }) => Promise<boolean>;
   readonly getNode: (id: string) => CanvasNodeRef | undefined;
@@ -287,6 +287,18 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
   }, [active, dismiss]);
 };
 
+type MenuEntry = {
+  readonly key: string;
+  readonly label: string;
+  readonly sub: string;
+  readonly icon: React.ReactNode;
+  readonly ariaLabel: string;
+  readonly onSelect: () => void;
+};
+
+// Auto-focused filter + arrow/Enter selection, shared by the top-level kind
+// menu and both pickers. Typing narrows by label+sub; Enter commits whichever
+// row is highlighted (the top match by default).
 function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; readonly setPicker: (picker: AddPicker) => void; readonly actions: AddActions }) {
   const snapshots = use$(state$.snapshots);
   // Merged live projects (tower/quasar/booth, collapsed by title into one entry
@@ -297,32 +309,98 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
     .flatMap((bundle) => bundle.entities)
     .filter((entity) => entity.kind === "agent");
 
-  if (!picker) {
-    return <div className="node-palette__menu">
-      <button aria-label="Add note" onClick={() => actions.create("text")}><FileText size={14} /><span><strong>note</strong><small>freeform text</small></span></button>
-      <button aria-label="Add file" onClick={() => actions.create("file")}><FileText size={14} /><span><strong>file</strong><small>workspace path</small></span></button>
-      <button aria-label="Add link" onClick={() => actions.create("link")}><Link2 size={14} /><span><strong>link</strong><small>web reference</small></span></button>
-      <button aria-label="Add region" onClick={() => actions.create("group")}><SquareDashed size={14} /><span><strong>region</strong><small>spatial container</small></span></button>
-      <button aria-label="Add project" onClick={() => setPicker("project")}><Boxes size={14} /><span><strong>project</strong><small>bound live readout</small></span></button>
-      <button aria-label="Add agent" onClick={() => setPicker("agent")}><Bot size={14} /><span><strong>agent</strong><small>hermes profile</small></span></button>
-    </div>;
-  }
-  if (picker === "project") {
-    return <div className="node-palette__menu node-palette__menu--picker" role="listbox" aria-label="Choose a project">
-      <div className="node-palette__picker-head"><button type="button" aria-label="Back to add menu" onClick={() => setPicker(null)}>‹ project</button></div>
-      {projects.length === 0 ? <div className="node-palette__picker-empty">No projects in the live snapshots.</div>
-        : projects.map((project) => <button key={project.display} role="option" aria-label={`Add project ${project.display}`} onClick={() => actions.addProject(project.display, project.bindings)}><Boxes size={13} /><span><strong>{project.display}</strong><small>{[...project.sources].join(" · ")}</small></span></button>)}
-    </div>;
-  }
-  return <div className="node-palette__menu node-palette__menu--picker" role="listbox" aria-label="Choose an agent">
-    <div className="node-palette__picker-head"><button type="button" aria-label="Back to add menu" onClick={() => setPicker(null)}>‹ agent</button></div>
-    {agents.length === 0 ? <div className="node-palette__picker-empty">No agents in the live snapshots.</div>
+  const [query, setQuery] = useState("");
+  const [highlighted, setHighlighted] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Drilling into (or backing out of) a picker starts the filter fresh, and
+  // the filter input re-claims focus at every level.
+  useEffect(() => {
+    setQuery("");
+    setHighlighted(0);
+    inputRef.current?.focus();
+  }, [picker]);
+
+  const entries: ReadonlyArray<MenuEntry> = !picker
+    ? [
+      { key: "text", label: "note", sub: "freeform text", icon: <FileText size={14} />, ariaLabel: "Add note", onSelect: () => actions.create("text") },
+      { key: "file", label: "file", sub: "workspace path", icon: <FileText size={14} />, ariaLabel: "Add file", onSelect: () => actions.create("file") },
+      { key: "link", label: "link", sub: "web reference", icon: <Link2 size={14} />, ariaLabel: "Add link", onSelect: () => actions.create("link") },
+      { key: "group", label: "region", sub: "spatial container", icon: <SquareDashed size={14} />, ariaLabel: "Add region", onSelect: () => actions.create("group") },
+      { key: "project", label: "project", sub: "bound live readout", icon: <Boxes size={14} />, ariaLabel: "Add project", onSelect: () => setPicker("project") },
+      { key: "agent", label: "agent", sub: "hermes profile", icon: <Bot size={14} />, ariaLabel: "Add agent", onSelect: () => setPicker("agent") },
+    ]
+    : picker === "project"
+      ? projects.map((project) => ({
+        key: project.display,
+        label: project.display,
+        sub: [...project.sources].join(" · "),
+        icon: <Boxes size={13} />,
+        ariaLabel: `Add project ${project.display}`,
+        onSelect: () => actions.addProject(project.display, project.bindings),
+      }))
       : agents.map((agent) => {
         const host = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
         const title = agent.title ?? agent.key;
-        const label = host ? `${title} · ${host}` : title;
-        return <button key={agent.key} role="option" aria-label={`Add agent ${title}`} onClick={() => actions.addAgent(label, agent.key)}><Bot size={13} /><span><strong>{title}</strong><small>{host ?? "hermes"}</small></span></button>;
-      })}
+        return {
+          key: agent.key,
+          label: title,
+          sub: host ?? "hermes",
+          icon: <Bot size={13} />,
+          ariaLabel: `Add agent ${title}`,
+          onSelect: () => actions.addAgent(host ? `${title} · ${host}` : title, agent.key),
+        };
+      });
+
+  const needle = query.trim().toLowerCase();
+  const filtered = needle
+    ? entries.filter((entry) => entry.label.toLowerCase().includes(needle) || entry.sub.toLowerCase().includes(needle))
+    : entries;
+  const activeIndex = Math.min(highlighted, Math.max(filtered.length - 1, 0));
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlighted((value) => Math.min(value + 1, filtered.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlighted((value) => Math.max(value - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      filtered[activeIndex]?.onSelect();
+    }
+  };
+
+  const isPicker = picker !== null;
+  const emptyLabel = picker === "project" ? "No projects in the live snapshots." : "No agents in the live snapshots.";
+
+  return <div className={isPicker ? "node-palette__menu node-palette__menu--picker" : "node-palette__menu"} role={isPicker ? "listbox" : undefined} aria-label={isPicker ? `Choose ${picker === "project" ? "a project" : "an agent"}` : undefined}>
+    {isPicker ? <div className="node-palette__picker-head"><button type="button" aria-label="Back to add menu" onClick={() => setPicker(null)}>‹ {picker}</button></div> : null}
+    <input
+      ref={inputRef}
+      autoFocus
+      type="text"
+      className="node-palette__filter"
+      placeholder={isPicker ? "filter…" : "filter kinds…"}
+      aria-label="Filter add menu"
+      value={query}
+      onChange={(event) => { setQuery(event.target.value); setHighlighted(0); }}
+      onKeyDown={onKeyDown}
+    />
+    {isPicker && entries.length === 0 ? <div className="node-palette__picker-empty">{emptyLabel}</div>
+      : filtered.length === 0 ? <div className="node-palette__picker-empty">No matches.</div>
+        : filtered.map((entry, index) => (
+          <button
+            key={entry.key}
+            role={isPicker ? "option" : undefined}
+            aria-label={entry.ariaLabel}
+            className={index === activeIndex ? "is-active" : undefined}
+            onMouseEnter={() => setHighlighted(index)}
+            onClick={entry.onSelect}
+          >
+            {entry.icon}<span><strong>{entry.label}</strong><small>{entry.sub}</small></span>
+          </button>
+        ))}
   </div>;
 }
 
@@ -376,6 +454,46 @@ function ContextAddMenu({ at, onClose }: { readonly at: { x: number; y: number }
   );
 }
 
+// Right-click on (or inside) a live rubber-band selection: a small action
+// menu applying to every currently selected node. Reads the working set fresh
+// off the React Flow instance at action time, per the owner's contract.
+function MultiSelectMenu({ at, onClose }: { readonly at: { x: number; y: number }; readonly onClose: () => void }) {
+  const rf = useReactFlow<FlowNode, FlowEdge>();
+  useMenuDismiss(true, onClose);
+  const selected = rf.getNodes().filter((node) => node.selected);
+  const count = selected.length;
+
+  const run = (mutate: (ids: ReadonlyArray<string>) => void) => {
+    mutate(rf.getNodes().filter((node) => node.selected).map((node) => node.id));
+    onClose();
+  };
+
+  const createRegionFromSelection = (ids: ReadonlyArray<string>) => {
+    const targets = state$.doc.peek().nodes.filter((node) => ids.includes(node.id));
+    if (targets.length === 0) return;
+    const pad = 48;
+    const minX = Math.min(...targets.map((node) => node.x)) - pad;
+    const minY = Math.min(...targets.map((node) => node.y)) - pad;
+    const maxX = Math.max(...targets.map((node) => node.x + node.width)) + pad;
+    const maxY = Math.max(...targets.map((node) => node.y + node.height)) + pad;
+    const region = makeGroupNode(minX, minY, { width: maxX - minX, height: maxY - minY });
+    // The selection is already fully in view — a fitView jump here would be
+    // jarring, so this add skips the usual focus-zoom.
+    addNode(region, { edit: false, focus: false });
+  };
+
+  return (
+    <div className="node-palette node-palette--context" style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 200), zIndex: 40 }}>
+      <div className="node-palette__menu">
+        <button aria-label="Create region from selection" onClick={() => run(createRegionFromSelection)}><SquareDashed size={14} /><span><strong>create region</strong><small>from selection</small></span></button>
+        <button aria-label="Flag blocker" onClick={() => run((ids) => setFlagForNodes(ids, "blocker"))}><Ban size={14} /><span><strong>flag blocker</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
+        <button aria-label="Clear flags" onClick={() => run((ids) => setFlagForNodes(ids, null))}><Ban size={14} /><span><strong>clear flags</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
+        <button aria-label={`Delete ${count} nodes`} onClick={() => run((ids) => deleteNodes(ids))}><Trash2 size={14} /><span><strong>delete {count} node{count === 1 ? "" : "s"}</strong></span></button>
+      </div>
+    </div>
+  );
+}
+
 function FitAllPanel() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   return <Panel position="top-center" className="field-fit-panel"><button type="button" aria-label="Fit all nodes" title="fit all nodes" onClick={() => void rf.fitView({ padding: 0.18, duration: 320, maxZoom: 1.35 })}><Expand size={12} />fit all</button></Panel>;
@@ -402,32 +520,57 @@ function useCanvasGraph() {
   useCanvasSearchViewport(searchQuery, nodes.length, rf, `${edgeFilter}|${flagFilter}`);
   useCanvasFocus(focusNodeId, rf);
   useCanvasViewport(canvasName, nodes.length, rf);
-  return { nodes, edges, onNodesChange, onEdgesChange, interactions: useCanvasInteractions(rf) };
+  return { nodes, edges, onNodesChange, onEdgesChange, interactions: useCanvasInteractions(rf), rf };
 }
 
 function CanvasGraph() {
-  const { nodes, edges, onNodesChange, onEdgesChange, interactions } = useCanvasGraph();
+  const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.
   const connecting = useConnection((connection) => connection.inProgress);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);
+  // The two context menus are mutually exclusive — opening one always closes
+  // the other first.
+  const openContextMenu = useCallback((at: { x: number; y: number }) => {
+    setMultiMenu(null);
+    setCtxMenu(at);
+  }, []);
+  const openMultiMenu = useCallback((at: { x: number; y: number }) => {
+    setCtxMenu(null);
+    setMultiMenu(at);
+  }, []);
   const onPaneContextMenu = useCallback((event: React.MouseEvent | MouseEvent) => {
     event.preventDefault();
-    setCtxMenu({ x: event.clientX, y: event.clientY });
-  }, []);
+    openContextMenu({ x: event.clientX, y: event.clientY });
+  }, [openContextMenu]);
   // A region visually reads as empty space — right-clicking inside one offers
-  // the same picker, creating the node at that spot (inside the region).
+  // the same picker, creating the node at that spot (inside the region). A
+  // right-click on a node that is part of a live multi-selection instead
+  // opens the bulk action menu.
   const onNodeContextMenu = useCallback((event: React.MouseEvent, node: FlowNode) => {
+    const selectedCount = rf.getNodes().filter((n) => n.selected).length;
+    if (selectedCount > 1 && node.selected) {
+      event.preventDefault();
+      openMultiMenu({ x: event.clientX, y: event.clientY });
+      return;
+    }
     if (node.data?.node.type !== "group") return;
     event.preventDefault();
-    setCtxMenu({ x: event.clientX, y: event.clientY });
-  }, []);
+    openContextMenu({ x: event.clientX, y: event.clientY });
+  }, [rf, openContextMenu, openMultiMenu]);
+  // Right-click on the rubber-band selection itself (not a single node).
+  const onSelectionContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    openMultiMenu({ x: event.clientX, y: event.clientY });
+  }, [openMultiMenu]);
   const onPaneClick = useCallback((event: React.MouseEvent) => {
     setCtxMenu(null);
+    setMultiMenu(null);
     interactions.onPaneClick(event);
   }, [interactions.onPaneClick]);
   return <>
-    <ReactFlow className={connecting ? "is-connecting" : undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} onPaneClick={onPaneClick} onPaneContextMenu={onPaneContextMenu} onNodeContextMenu={onNodeContextMenu} onMoveStart={() => setCtxMenu(null)} connectionMode={ConnectionMode.Loose} connectionRadius={42} panOnScroll panOnScrollSpeed={1.2} panOnDrag={[1]} selectionOnDrag selectionMode={SelectionMode.Partial} zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.15} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
+    <ReactFlow className={connecting ? "is-connecting" : undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} onPaneClick={onPaneClick} onPaneContextMenu={onPaneContextMenu} onNodeContextMenu={onNodeContextMenu} onSelectionContextMenu={onSelectionContextMenu} onMoveStart={() => { setCtxMenu(null); setMultiMenu(null); }} connectionMode={ConnectionMode.Loose} connectionRadius={42} panOnScroll panOnScrollSpeed={1.2} panOnDrag={[1]} selectionOnDrag selectionMode={SelectionMode.Partial} zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.15} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
       <AddNodePanel />
       <FitAllPanel />
@@ -435,6 +578,7 @@ function CanvasGraph() {
       <FieldControls />
     </ReactFlow>
     {ctxMenu ? <ContextAddMenu at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
+    {multiMenu ? <MultiSelectMenu at={multiMenu} onClose={() => setMultiMenu(null)} /> : null}
   </>;
 }
 

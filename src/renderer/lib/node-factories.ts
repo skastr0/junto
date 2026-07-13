@@ -31,14 +31,18 @@ export const makeLinkNode = (x: number, y: number): LinkNode => ({
   height: 110,
 });
 
-export const makeGroupNode = (x: number, y: number): GroupNode => ({
+export const makeGroupNode = (
+  x: number,
+  y: number,
+  size?: { readonly width: number; readonly height: number },
+): GroupNode => ({
   id: `region-${ulid()}`,
   type: "group",
   label: "new region",
   x: Math.round(x),
   y: Math.round(y),
-  width: 560,
-  height: 320,
+  width: Math.round(size?.width ?? 560),
+  height: Math.round(size?.height ?? 320),
 });
 
 // A project is ONE bound text node — its name in the current hue plus a compact

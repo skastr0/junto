@@ -1,13 +1,26 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { QuasarSessionsResult, TowerBrowseResult, TowerGlyphRow } from "../src/shared/ipc";
+import type {
+  QuasarSessionDetail,
+  QuasarSessionsResult,
+  TowerBrowseResult,
+  TowerDispatchesResult,
+  TowerGlyphRow,
+} from "../src/shared/ipc";
 import {
   BROWSE_CACHE_TTL_MS,
+  fetchQuasarSessionDetail,
   fetchQuasarSessions,
   fetchTowerBrowse,
+  fetchTowerDispatches,
+  fetchTowerGlyphRead,
   fetchTowerSearch,
+  fetchTowerSignalRead,
   formatCollapsedSummary,
+  formatDuration,
   glyphStateHue,
   groupGlyphs,
+  sessionDetailStats,
+  sessionDurationOrDates,
   sessionStats,
   sessionTitle,
   shortDate,
@@ -93,6 +106,35 @@ describe("row formatting helpers", () => {
   });
 });
 
+describe("session detail formatting", () => {
+  const detail = (overrides: Partial<QuasarSessionDetail> = {}): QuasarSessionDetail => ({
+    sessionId: "s1",
+    provider: "claude",
+    messageCount: 12,
+    toolCallCount: 5,
+    ...overrides,
+  });
+
+  it("rounds a duration to a single unit and rejects a missing or inverted span", () => {
+    expect(formatDuration("2026-03-04T00:00:00Z", "2026-03-04T00:41:00Z")).toBe("41m");
+    expect(formatDuration("2026-03-04T00:00:00Z", "2026-03-04T02:05:00Z")).toBe("2h 5m");
+    expect(formatDuration("2026-03-04T00:00:00Z", "2026-03-06T00:00:00Z")).toBe("2d");
+    expect(formatDuration(undefined, "2026-03-04T00:41:00Z")).toBeUndefined();
+    expect(formatDuration("2026-03-04T00:41:00Z", "2026-03-04T00:00:00Z")).toBeUndefined();
+  });
+
+  it("falls back from duration to whatever dates are actually present — never a fake cue", () => {
+    expect(sessionDurationOrDates(detail({ startedAt: "2026-03-04T00:00:00Z", endedAt: "2026-03-04T00:41:00Z" }))).toBe("41m");
+    expect(sessionDurationOrDates(detail({ startedAt: "2026-03-04T00:00:00Z" }))).toMatch(/mar/);
+    expect(sessionDurationOrDates(detail())).toBeUndefined();
+  });
+
+  it("builds the modal counts line with the duration/dates segment only when it exists", () => {
+    expect(sessionDetailStats(detail({ startedAt: "2026-03-04T00:00:00Z", endedAt: "2026-03-04T00:41:00Z" }))).toBe("12 messages · 5 tool calls · 41m");
+    expect(sessionDetailStats(detail())).toBe("12 messages · 5 tool calls");
+  });
+});
+
 describe("cached fetchers", () => {
   const runtimeWindow = { vellum: undefined as unknown };
   (globalThis as unknown as { window: typeof runtimeWindow }).window = runtimeWindow;
@@ -148,5 +190,52 @@ describe("cached fetchers", () => {
     runtimeWindow.vellum = { towerBrowse: async () => { throw new Error("ipc timeout"); } };
     const result = await fetchTowerBrowse("proj-cache-throws");
     expect(result.ok).toBe(false);
+  });
+
+  it("probes dispatches once per project and caches the result — same call gates the tab and supplies its rows", async () => {
+    const towerDispatches = vi.fn(async (): Promise<TowerDispatchesResult> => ({ ok: true, dispatches: [] }));
+    runtimeWindow.vellum = { towerDispatches };
+    vi.spyOn(Date, "now").mockReturnValue(3_000_000);
+
+    const first = await fetchTowerDispatches("proj-dispatches");
+    const second = await fetchTowerDispatches("proj-dispatches");
+    expect(towerDispatches).toHaveBeenCalledTimes(1);
+    expect(first).toEqual(second);
+  });
+
+  it("reports dispatches unreachable without throwing when the bridge method is absent", async () => {
+    runtimeWindow.vellum = {};
+    const result = await fetchTowerDispatches("no-bridge-yet");
+    expect(result).toEqual({ ok: false, error: "tower unreachable", dispatches: [] });
+  });
+
+  it("caches glyph/signal reads by the full projectKey/orbit/id composite", async () => {
+    const towerGlyphRead = vi.fn(async () => ({ ok: true, glyph: undefined }));
+    const towerSignalRead = vi.fn(async () => ({ ok: true, signal: undefined }));
+    runtimeWindow.vellum = { towerGlyphRead, towerSignalRead };
+    vi.spyOn(Date, "now").mockReturnValue(4_000_000);
+
+    await fetchTowerGlyphRead("proj", "forge", "g1");
+    await fetchTowerGlyphRead("proj", "forge", "g1");
+    await fetchTowerGlyphRead("proj", "forge", "g2");
+    expect(towerGlyphRead).toHaveBeenCalledTimes(2);
+
+    await fetchTowerSignalRead("proj", "forge", "sig1");
+    await fetchTowerSignalRead("proj", "forge", "sig1");
+    expect(towerSignalRead).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches quasar session detail by sessionId and reports unreachable when the bridge is absent", async () => {
+    const quasarSessionDetail = vi.fn(async () => ({ ok: true, detail: undefined }));
+    runtimeWindow.vellum = { quasarSessionDetail };
+    vi.spyOn(Date, "now").mockReturnValue(5_000_000);
+
+    await fetchQuasarSessionDetail("s1");
+    await fetchQuasarSessionDetail("s1");
+    expect(quasarSessionDetail).toHaveBeenCalledTimes(1);
+
+    runtimeWindow.vellum = {};
+    const result = await fetchQuasarSessionDetail("s2");
+    expect(result).toEqual({ ok: false, error: "quasar unreachable" });
   });
 });

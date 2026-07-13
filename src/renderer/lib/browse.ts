@@ -1,10 +1,15 @@
 import type {
   QuasarSearchResult,
+  QuasarSessionDetail,
+  QuasarSessionDetailResult,
   QuasarSessionRow,
   QuasarSessionsResult,
   TowerBrowseResult,
+  TowerDispatchesResult,
+  TowerGlyphReadResult,
   TowerGlyphRow,
   TowerSearchResult,
+  TowerSignalReadResult,
 } from "@shared/ipc";
 import { DIM, HUE } from "./theme";
 import { getVellumApi } from "./vellum-api";
@@ -69,7 +74,9 @@ export const signalStatusHue = (status: string): string => {
 // attribute.
 export const shortKind = (kind: string): string => kind.split(".").pop() || kind;
 
-export const sessionTitle = (session: QuasarSessionRow): string =>
+// Structurally typed so both the row (list) and detail (modal) session shapes
+// satisfy it without a cast at the call site.
+export const sessionTitle = (session: { readonly title?: string; readonly provider: string }): string =>
   session.title ?? `${session.provider} session`;
 
 export const sessionStats = (session: QuasarSessionRow): string =>
@@ -80,6 +87,43 @@ export const shortDate = (value?: string): string | undefined => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return undefined;
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" }).toLowerCase();
+};
+
+// Wall-clock span between two ISO timestamps, rounded to a single unit
+// ("42m", "3h 5m", "2d"). undefined when either bookend is missing/garbage
+// or the span is negative (clock skew across providers).
+export const formatDuration = (startedAt?: string, endedAt?: string): string | undefined => {
+  if (!startedAt || !endedAt) return undefined;
+  const start = new Date(startedAt).getTime();
+  const end = new Date(endedAt).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return undefined;
+  const minutes = Math.round((end - start) / 60_000);
+  if (minutes < 1) return "<1m";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const remainder = minutes % 60;
+    return remainder > 0 ? `${hours}h ${remainder}m` : `${hours}h`;
+  }
+  return `${Math.floor(hours / 24)}d`;
+};
+
+// The modal's third counts segment: a computed duration when both bookends
+// are present, else the date(s) we do have, else nothing (never a fake cue).
+export const sessionDurationOrDates = (detail: QuasarSessionDetail): string | undefined => {
+  const duration = formatDuration(detail.startedAt, detail.endedAt);
+  if (duration) return duration;
+  const start = shortDate(detail.startedAt);
+  const end = shortDate(detail.endedAt);
+  if (start && end && start !== end) return `${start} – ${end}`;
+  return start ?? end;
+};
+
+// "N messages · K tool calls · <duration or dates>" for the session modal.
+export const sessionDetailStats = (detail: QuasarSessionDetail): string => {
+  const base = `${detail.messageCount} messages · ${detail.toolCallCount} tool calls`;
+  const extra = sessionDurationOrDates(detail);
+  return extra ? `${base} · ${extra}` : base;
 };
 
 // --- cached, defensive fetchers ---------------------------------------------
@@ -97,6 +141,10 @@ interface CacheEntry<T> {
 
 const towerBrowseCache = new Map<string, CacheEntry<TowerBrowseResult>>();
 const quasarSessionsCache = new Map<string, CacheEntry<QuasarSessionsResult>>();
+const towerDispatchesCache = new Map<string, CacheEntry<TowerDispatchesResult>>();
+const towerGlyphReadCache = new Map<string, CacheEntry<TowerGlyphReadResult>>();
+const towerSignalReadCache = new Map<string, CacheEntry<TowerSignalReadResult>>();
+const quasarSessionDetailCache = new Map<string, CacheEntry<QuasarSessionDetailResult>>();
 
 const cacheGet = <T,>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined => {
   const hit = cache.get(key);
@@ -109,6 +157,10 @@ const TOWER_UNREACHABLE: TowerBrowseResult = { ok: false, error: "tower unreacha
 const QUASAR_UNREACHABLE: QuasarSessionsResult = { ok: false, error: "quasar unreachable", sessions: [] };
 const TOWER_SEARCH_UNREACHABLE: TowerSearchResult = { ok: false, error: "tower unreachable", matches: [] };
 const QUASAR_SEARCH_UNREACHABLE: QuasarSearchResult = { ok: false, error: "quasar unreachable", matches: [] };
+const TOWER_DISPATCHES_UNREACHABLE: TowerDispatchesResult = { ok: false, error: "tower unreachable", dispatches: [] };
+const TOWER_GLYPH_READ_UNREACHABLE: TowerGlyphReadResult = { ok: false, error: "tower unreachable" };
+const TOWER_SIGNAL_READ_UNREACHABLE: TowerSignalReadResult = { ok: false, error: "tower unreachable" };
+const QUASAR_SESSION_DETAIL_UNREACHABLE: QuasarSessionDetailResult = { ok: false, error: "quasar unreachable" };
 
 export const fetchTowerBrowse = async (key: string): Promise<TowerBrowseResult> => {
   const cached = cacheGet(towerBrowseCache, key);
@@ -136,6 +188,67 @@ export const fetchQuasarSessions = async (key: string, limit: number): Promise<Q
     return result;
   } catch {
     return QUASAR_UNREACHABLE;
+  }
+};
+
+// Dispatches probe/list, cached per project — the same call both answers
+// "does DISPATCHES belong in the tab picker" and supplies the tab's rows, so
+// there is exactly one fetch per project per TTL window either way.
+export const fetchTowerDispatches = async (key: string): Promise<TowerDispatchesResult> => {
+  const cached = cacheGet(towerDispatchesCache, key);
+  if (cached) return cached;
+  const api = getVellumApi();
+  if (!api || typeof api.towerDispatches !== "function") return TOWER_DISPATCHES_UNREACHABLE;
+  try {
+    const result = await api.towerDispatches(key);
+    towerDispatchesCache.set(key, { value: result, at: Date.now() });
+    return result;
+  } catch {
+    return TOWER_DISPATCHES_UNREACHABLE;
+  }
+};
+
+export const fetchTowerGlyphRead = async (projectKey: string, orbit: string, glyphId: string): Promise<TowerGlyphReadResult> => {
+  const cacheKey = `${projectKey}::${orbit}::${glyphId}`;
+  const cached = cacheGet(towerGlyphReadCache, cacheKey);
+  if (cached) return cached;
+  const api = getVellumApi();
+  if (!api || typeof api.towerGlyphRead !== "function") return TOWER_GLYPH_READ_UNREACHABLE;
+  try {
+    const result = await api.towerGlyphRead(projectKey, orbit, glyphId);
+    towerGlyphReadCache.set(cacheKey, { value: result, at: Date.now() });
+    return result;
+  } catch {
+    return TOWER_GLYPH_READ_UNREACHABLE;
+  }
+};
+
+export const fetchTowerSignalRead = async (projectKey: string, orbit: string, signalId: string): Promise<TowerSignalReadResult> => {
+  const cacheKey = `${projectKey}::${orbit}::${signalId}`;
+  const cached = cacheGet(towerSignalReadCache, cacheKey);
+  if (cached) return cached;
+  const api = getVellumApi();
+  if (!api || typeof api.towerSignalRead !== "function") return TOWER_SIGNAL_READ_UNREACHABLE;
+  try {
+    const result = await api.towerSignalRead(projectKey, orbit, signalId);
+    towerSignalReadCache.set(cacheKey, { value: result, at: Date.now() });
+    return result;
+  } catch {
+    return TOWER_SIGNAL_READ_UNREACHABLE;
+  }
+};
+
+export const fetchQuasarSessionDetail = async (sessionId: string): Promise<QuasarSessionDetailResult> => {
+  const cached = cacheGet(quasarSessionDetailCache, sessionId);
+  if (cached) return cached;
+  const api = getVellumApi();
+  if (!api || typeof api.quasarSessionDetail !== "function") return QUASAR_SESSION_DETAIL_UNREACHABLE;
+  try {
+    const result = await api.quasarSessionDetail(sessionId);
+    quasarSessionDetailCache.set(sessionId, { value: result, at: Date.now() });
+    return result;
+  } catch {
+    return QUASAR_SESSION_DETAIL_UNREACHABLE;
   }
 };
 
