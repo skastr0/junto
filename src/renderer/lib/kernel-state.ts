@@ -102,7 +102,18 @@ const defaultDeliverDeps: PulseDeliverDeps = {
 
 export const PULSE_CAP_PER_REGION_PER_HOUR = 6;
 const ROLLING_HOUR_MS = 60 * 60 * 1000;
-const PULSE_LOG_CAP = 200;
+// Display-tray retention floor — NOT the enforcement mechanism for the hourly
+// cap. The cap is enforced by armedDeliveriesLastHour (below), which counts a
+// region's live records inside the rolling hour; if appendPulseRecord evicted a
+// within-hour record purely to bound the array (the old size-only ring did,
+// oldest-first, regardless of age or region), a region's earlier deliveries
+// could fall out of the count while still inside their hour and the cap would
+// fail OPEN at high total volume. So appendPulseRecord retains EVERY record
+// from the last rolling hour at any volume (keeping the cap exact), and keeps
+// the newest PULSE_LOG_DISPLAY_CAP entries on top of that so the tray still
+// shows recent history during a quiet hour. A record is dropped only when it is
+// BOTH older than the rolling hour AND beyond the newest PULSE_LOG_DISPLAY_CAP.
+const PULSE_LOG_DISPLAY_CAP = 200;
 
 const armedDeliveriesLastHour = (regionId: string): number => {
   const cutoff = Date.now() - ROLLING_HOUR_MS;
@@ -112,8 +123,10 @@ const armedDeliveriesLastHour = (regionId: string): number => {
 };
 
 const appendPulseRecord = (record: PulseRecord): void => {
-  const next = [...kernel$.pulseLog.peek(), record];
-  kernel$.pulseLog.set(next.length > PULSE_LOG_CAP ? next.slice(next.length - PULSE_LOG_CAP) : next);
+  const cutoff = record.at - ROLLING_HOUR_MS;
+  const all = [...kernel$.pulseLog.peek(), record];
+  const keepFromIndex = Math.max(0, all.length - PULSE_LOG_DISPLAY_CAP);
+  kernel$.pulseLog.set(all.filter((entry, index) => entry.at >= cutoff || index >= keepFromIndex));
 };
 
 export interface DeliverPulseParams {
@@ -171,20 +184,82 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
   });
 }
 
-const firePulseForNode = async (doc: CanvasDoc, nodeId: string, kind: "watcher" | "timer", summary: string): Promise<void> => {
-  await deliverPulse({ sourceNodeId: nodeId, kind, regionId: findContainingRegionId(doc, nodeId), summary });
+// --- pulse delivery queue (decoupled from the evaluation cycle) --------------
+// A live pulse spends a real agent chat turn, and chatPrompt is bounded only by
+// a 15-minute IPC ceiling (a turn may run tools for many minutes). If the
+// evaluation cycle AWAITED delivery inline, one slow/hung agent would freeze
+// watcher + timer detection across the WHOLE canvas — every region, not just
+// the busy one, and defeating the 30s safety interval — until that turn
+// returned. So deliveries are enqueued fire-and-forget and drained by a single
+// serialized worker OFF the cycle's critical path: the evaluation loop completes
+// on schedule regardless of a hung delivery, while serialized draining preserves
+// per-region backpressure (one turn at a time, never a parallel fan-out) and
+// keeps the hourly cap exact (each record appends before the next starts).
+const pulseDeliveryQueue: DeliverPulseParams[] = [];
+let deliveryDraining = false;
+// Test seam: override the deps the queue delivers through. undefined = the real
+// chat-backed defaults (production path).
+let deliveryDeps: PulseDeliverDeps | undefined = undefined;
+
+const drainPulseDeliveries = async (): Promise<void> => {
+  if (deliveryDraining) return;
+  deliveryDraining = true;
+  try {
+    while (pulseDeliveryQueue.length > 0) {
+      const params = pulseDeliveryQueue.shift();
+      if (params === undefined) break;
+      // Error capture: a failing — or forever-pending — delivery never sinks
+      // the drain; the next queued pulse still gets its turn.
+      await deliverPulse(params).catch(() => undefined);
+    }
+  } finally {
+    deliveryDraining = false;
+  }
+};
+
+const enqueuePulseDelivery = (params: DeliverPulseParams): void => {
+  pulseDeliveryQueue.push(params);
+  void drainPulseDeliveries();
+};
+
+// Enqueues a region pulse for the node and returns immediately — the actual
+// agent turn is delivered by the serialized worker above, never inline in the
+// evaluation cycle. (Was `await deliverPulse(...)`; that await is exactly what
+// let one 15-minute agent turn stall the whole kernel loop.)
+const firePulseForNode = (doc: CanvasDoc, nodeId: string, kind: "watcher" | "timer", summary: string): void => {
+  enqueuePulseDelivery({ sourceNodeId: nodeId, kind, regionId: findContainingRegionId(doc, nodeId), summary, deps: deliveryDeps });
+};
+
+// Test seams (not part of the frozen UI interface).
+export const __setDeliveryDepsForTest = (deps: PulseDeliverDeps | undefined): void => {
+  deliveryDeps = deps;
+};
+export const __resetDeliveryQueueForTest = (): void => {
+  pulseDeliveryQueue.length = 0;
+  deliveryDraining = false;
+  deliveryDeps = undefined;
 };
 
 // --- flagOnUnsatisfied (level watchers only) ----------------------------------
 // Mirrors the derived "unsatisfied" state into the blocker flag, writing
 // only when the flag actually needs to change — never on every tick.
+// Pure decision: does the blocker flag need to flip for this watcher read?
+// A down/absent source reads "unknown" — which must NEVER mutate the document
+// (the down-source invariant). So "unknown" always returns false (leave the
+// existing flag untouched, neither raising nor clearing it on a transient
+// blip); only a KNOWN read drives the flag — "pending" wants the blocker,
+// "satisfied" wants it gone.
+export const flagShouldToggle = (hasFlag: boolean, status: WatcherStatus): boolean => {
+  if (status === "unknown") return false;
+  return hasFlag !== (status === "pending");
+};
+
 const applyFlagOnUnsatisfied = (doc: CanvasDoc, nodeId: string, flagOnUnsatisfied: boolean | undefined, status: WatcherStatus): void => {
   if (!flagOnUnsatisfied) return;
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
   if (!node) return;
   const hasFlag = node.ether?.flags?.includes("blocker") ?? false;
-  const shouldFlag = status !== "satisfied";
-  if (hasFlag !== shouldFlag) toggleFlag(nodeId, "blocker");
+  if (flagShouldToggle(hasFlag, status)) toggleFlag(nodeId, "blocker");
 };
 
 // --- glyph index (bridges the pure evaluator to the browse cache) ------------
@@ -237,7 +312,9 @@ const buildGlyphIndex = async (doc: CanvasDoc): Promise<GlyphIndex> => {
 
 // --- evaluation cycle ----------------------------------------------------------
 
-const runEvaluationCycle = async (): Promise<void> => {
+// Exported for tests (not part of the frozen UI interface): lets a test drive
+// exactly one evaluation pass and assert it completes even while a delivery pends.
+export const runEvaluationCycle = async (): Promise<void> => {
   const doc = state$.doc.peek();
   const snapshots = state$.snapshots.peek();
   const glyphIndex = await buildGlyphIndex(doc);
@@ -254,7 +331,7 @@ const runEvaluationCycle = async (): Promise<void> => {
     }
 
     if (result.fired) {
-      await firePulseForNode(doc, nodeId, "watcher", result.state.detail);
+      firePulseForNode(doc, nodeId, "watcher", result.state.detail);
     }
   }
 };
@@ -279,7 +356,7 @@ const checkTimers = async (): Promise<void> => {
     const due = kernel$.nextFire[node.id].peek();
     if (due === undefined || now < due) continue;
     kernel$.nextFire[node.id].set(now + timer.everyMinutes * 60_000);
-    await firePulseForNode(doc, node.id, "timer", `timer fired · every ${timer.everyMinutes}m`);
+    firePulseForNode(doc, node.id, "timer", `timer fired · every ${timer.everyMinutes}m`);
   }
 };
 

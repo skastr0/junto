@@ -169,7 +169,17 @@ export function evaluateWatcher(
     : evaluateStatThreshold(watch, snapshots);
 
   const previous = seenLevelStatus.get(watcherId);
-  seenLevelStatus.set(watcherId, evaluation.status);
+  // Only a KNOWN level (satisfied/pending) belongs in the edge-detection
+  // baseline. An "unknown" read means the source was down/absent this pass —
+  // it is not a level the condition actually passed through, so it must
+  // neither overwrite the baseline nor manufacture a rising edge when the
+  // source recovers. Skipping the write lets recovery re-baseline silently
+  // against the last known level: a satisfied -> unknown -> satisfied blip
+  // leaves `previous` at "satisfied", so it can never re-fire an already-met
+  // condition on nothing more than a transient tower/quasar outage.
+  if (evaluation.status !== "unknown") {
+    seenLevelStatus.set(watcherId, evaluation.status);
+  }
   // Baseline (previous === undefined) never fires, even if already
   // satisfied on first look — matches the edge-rule baseline law above.
   const fired = previous !== undefined && previous !== "satisfied" && evaluation.status === "satisfied";
