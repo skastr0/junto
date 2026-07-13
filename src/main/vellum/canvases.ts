@@ -1,5 +1,6 @@
 import { mkdirSync, watch as watchDir } from "node:fs";
 import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { Context, Effect, Either, Layer, Schema } from "effect";
@@ -60,6 +61,26 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let watcher: ReturnType<typeof watchDir> | null = null;
 
+  // Per-canvas-file write mutex: overlapping write() calls for the same
+  // name queue behind each other instead of racing the same tmp file. Each
+  // queued write still runs to completion once its turn comes (its own
+  // unique tmp path, its own rename) — a losing writer is delayed, never
+  // silently dropped. The tail promise never rejects so one failed write
+  // doesn't wedge writers still waiting behind it.
+  const canvasMutexes = new Map<string, Promise<void>>();
+  const withCanvasMutex = <T>(key: string, fn: () => Promise<T>): Promise<T> => {
+    const previous = canvasMutexes.get(key) ?? Promise.resolve();
+    const settled = previous.then(fn, fn);
+    canvasMutexes.set(
+      key,
+      settled.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return settled;
+  };
+
   const list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError> = Effect.tryPromise({
     try: async () => {
       await mkdir(canvasesDir(), { recursive: true });
@@ -114,24 +135,28 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   // can suppress the echo it will otherwise see.
   const write = (name: string, doc: CanvasDoc): Effect.Effect<void, CanvasError> =>
     Effect.tryPromise({
-      try: async () => {
-        const decoded = decodeCanvasDoc(doc);
-        if (Either.isLeft(decoded)) {
-          throw new CanvasError({
-            message: `cannot write ${canvasFileName(name)}: ${decoded.left.message}`,
-          });
-        }
+      try: () =>
+        withCanvasMutex(canvasFileName(name), async () => {
+          const decoded = decodeCanvasDoc(doc);
+          if (Either.isLeft(decoded)) {
+            throw new CanvasError({
+              message: `cannot write ${canvasFileName(name)}: ${decoded.left.message}`,
+            });
+          }
 
-        const serialized = serializeCanvas(applyMirrorLaw(decoded.right));
+          const serialized = serializeCanvas(applyMirrorLaw(decoded.right));
 
-        await mkdir(canvasesDir(), { recursive: true });
-        const path = canvasPath(name);
-        const tmpPath = `${path}.tmp`;
-        await writeFile(tmpPath, serialized, "utf8");
-        await rename(tmpPath, path);
+          await mkdir(canvasesDir(), { recursive: true });
+          const path = canvasPath(name);
+          // Unique per write so two overlapping writers (even outside the
+          // mutex above, e.g. a separate OS process like populate.ts) never
+          // share one tmp file.
+          const tmpPath = `${path}.${randomUUID()}.tmp`;
+          await writeFile(tmpPath, serialized, "utf8");
+          await rename(tmpPath, path);
 
-        ownWrites.set(canvasFileName(name), Date.now());
-      },
+          ownWrites.set(canvasFileName(name), Date.now());
+        }),
       catch: toCanvasError,
     });
 

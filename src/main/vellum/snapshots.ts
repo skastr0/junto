@@ -52,25 +52,80 @@ const guarded = async (
   }
 };
 
+// A canonical, order-independent key for a hint set: used to decide whether
+// an in-flight refresh already covers what a new call is asking for.
+const hintsKeySet = (hints: ReadonlyArray<BindingHint> | undefined): ReadonlySet<string> =>
+  new Set((hints ?? []).map((hint) => `${hint.source}:${hint.key}`));
+
+// True when everything `requested` needs is already covered by `covering`
+// (requested is a subset-or-equal of covering) — i.e. `covering` has
+// equal-or-newer/broader hints than what's being asked for.
+const isSubsumedBy = (
+  requested: ReadonlyArray<BindingHint> | undefined,
+  covering: ReadonlyArray<BindingHint> | undefined,
+): boolean => {
+  const coveringKeys = hintsKeySet(covering);
+  for (const key of hintsKeySet(requested)) {
+    if (!coveringKeys.has(key)) return false;
+  }
+  return true;
+};
+
 export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
   let state: SnapshotState = emptyState;
   let lastHints: ReadonlyArray<BindingHint> | undefined;
   let started = false;
   const listeners = new Set<(state: SnapshotState) => void>();
 
-  const refresh = async (hints?: ReadonlyArray<BindingHint>): Promise<SnapshotState> => {
-    lastHints = hints;
+  // Monotonic call-order stamp: whichever refresh() call started last is
+  // "newest". A completion only commits to `state` (and only notifies
+  // listeners) if its stamp is not older than the newest one already
+  // committed — so a slow, superseded call can never clobber a faster,
+  // newer one, regardless of Promise settle order.
+  let sequenceCounter = 0;
+  let lastCommittedSequence = 0;
 
+  // The currently-running refresh, if any, plus the hint set it was
+  // started with. A new call whose hints are already covered by this one
+  // joins it instead of kicking off a redundant CLI fan-out.
+  let inFlight: { readonly hints: ReadonlyArray<BindingHint> | undefined; readonly promise: Promise<SnapshotState> } | null =
+    null;
+
+  const runRefresh = async (
+    hints: ReadonlyArray<BindingHint> | undefined,
+    sequence: number,
+  ): Promise<SnapshotState> => {
     const [tower, quasar, booth, hermes] = await Promise.all([
-      guarded("tower", () => fetchTowerBundle()),
+      guarded("tower", () => fetchTowerBundle(hintsFor(hints, "tower"))),
       guarded("quasar", () => fetchQuasarBundle(hintsFor(hints, "quasar"))),
       guarded("booth", () => fetchBoothBundle(hintsFor(hints, "booth"))),
       guarded("hermes", () => fetchHermesBundle()),
     ]);
 
-    state = { bundles: [tower, quasar, booth, hermes] };
-    for (const listener of listeners) listener(state);
+    if (sequence >= lastCommittedSequence) {
+      lastCommittedSequence = sequence;
+      state = { bundles: [tower, quasar, booth, hermes] };
+      for (const listener of listeners) listener(state);
+    }
+
     return state;
+  };
+
+  const refresh = (hints?: ReadonlyArray<BindingHint>): Promise<SnapshotState> => {
+    lastHints = hints;
+
+    if (inFlight && isSubsumedBy(hints, inFlight.hints)) {
+      return inFlight.promise;
+    }
+
+    const sequence = ++sequenceCounter;
+    const promise = runRefresh(hints, sequence);
+    const record = { hints, promise };
+    inFlight = record;
+    void promise.finally(() => {
+      if (inFlight === record) inFlight = null;
+    });
+    return promise;
   };
 
   return SnapshotsService.of({

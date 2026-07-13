@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Either } from "effect";
@@ -90,8 +91,12 @@ const main = async () => {
   const serialized = serializeCanvas(applyMirrorLaw(validated.right));
   await mkdir(canvasesDir(), { recursive: true });
   const path = canvasPath(name);
-  await writeFile(`${path}.tmp`, serialized, "utf8");
-  await rename(`${path}.tmp`, path);
+  // Unique per write so a populate run racing the live app (both writing
+  // the same canvas — see AGENTS.md's headless-populate-while-app-runs
+  // workflow) never shares a tmp file with the app's own writer.
+  const tmpPath = `${path}.${randomUUID()}.tmp`;
+  await writeFile(tmpPath, serialized, "utf8");
+  await rename(tmpPath, path);
 
   const totalProjects = mergeProjects(state, { all }).length;
   console.error(
