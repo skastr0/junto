@@ -36,10 +36,14 @@ export const IPC_CHANNELS = {
   chatPermission: "vellum:chat-permission",
   chatSetModel: "vellum:chat-set-model",
   chatClose: "vellum:chat-close",
+  getKernelState: "vellum:get-kernel-state",
+  armRegion: "vellum:arm-region",
+  pulseRegion: "vellum:pulse-region",
   // main -> renderer pushes
   canvasChanged: "vellum:canvas-changed",
   snapshotsChanged: "vellum:snapshots-changed",
   chatEvent: "vellum:chat-event",
+  kernelChanged: "vellum:kernel-changed",
 } as const;
 
 export interface ChassisApi {
@@ -72,6 +76,40 @@ export interface DigestResult {
 export interface BindingHint {
   readonly source: "tower" | "quasar" | "booth" | "hermes";
   readonly key: string;
+}
+
+// --- kernel state types (wire) -----------------------------------------------
+
+export interface WatcherRuntimeState {
+  readonly status: "satisfied" | "pending" | "unknown";
+  readonly detail: string;
+  readonly lastFiredAt?: number;
+}
+
+export interface PulseRecord {
+  readonly id: string;
+  readonly at: number;
+  readonly canvasName: string;
+  readonly sourceNodeId: string;
+  readonly regionId?: string;
+  readonly kind: "watcher" | "timer" | "manual";
+  readonly summary: string;
+  readonly delivered: ReadonlyArray<string>;
+  readonly dry: boolean;
+}
+
+export interface KernelSnapshot {
+  readonly canvases: Readonly<
+    Record<
+      string,
+      {
+        readonly watchers: Record<string, WatcherRuntimeState>;
+        readonly armed: Record<string, boolean>;
+        readonly nextFire: Record<string, number>;
+      }
+    >
+  >;
+  readonly pulseLog: ReadonlyArray<PulseRecord>;
 }
 
 // --- source browsing (read-only detail views; never canvas nodes) ----------
@@ -357,8 +395,13 @@ export interface VellumApi {
   readonly agentIdentity: (key: string) => Promise<AgentIdentity | null>;
   readonly agentAvatar: (key: string) => Promise<string | null>;
   readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
+  // Kernel state and control (headless kernel in main process).
+  readonly getKernelState: () => Promise<KernelSnapshot>;
+  readonly armRegion: (canvasName: string, regionId: string, armed: boolean) => Promise<void>;
+  readonly pulseRegion: (canvasName: string, regionId: string, opts?: unknown) => Promise<void>;
   readonly onCanvasChanged: (listener: (name: string) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
+  readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
 }
 
 // The attached-chat surface is declared separately and merged into the

@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import { IPC_CHANNELS, type ChassisApi, type ChatEvent, type VellumApi, type VellumChatApi } from "@shared/ipc";
+import {
+  IPC_CHANNELS,
+  type ChassisApi,
+  type ChatEvent,
+  type VellumApi,
+  type VellumChatApi,
+  type KernelSnapshot,
+} from "@shared/ipc";
 import type { SnapshotState } from "@shared/entities";
 
 // Every real handler answers in well under this; only a dead/wedged main
@@ -93,9 +100,15 @@ const vellumApi: VellumApi = {
   agentIdentity: (key) => invoke(IPC_CHANNELS.agentIdentity, IPC_TIMEOUT_MS, key),
   agentAvatar: (key) => invoke(IPC_CHANNELS.agentAvatar, IPC_TIMEOUT_MS, key),
   agentMessage: (key, text) => invoke(IPC_CHANNELS.agentMessage, AGENT_MESSAGE_TIMEOUT_MS, key, text),
+  getKernelState: () => invoke<KernelSnapshot>(IPC_CHANNELS.getKernelState, IPC_TIMEOUT_MS),
+  armRegion: (canvasName, regionId, armed) =>
+    invoke<void>(IPC_CHANNELS.armRegion, IPC_TIMEOUT_MS, canvasName, regionId, armed),
+  pulseRegion: (canvasName, regionId, opts) =>
+    invoke<void>(IPC_CHANNELS.pulseRegion, IPC_TIMEOUT_MS, canvasName, regionId, opts),
   onCanvasChanged: (listener) => subscribe<string>(IPC_CHANNELS.canvasChanged, listener),
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
+  onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),
 };
 
 const chatApi: VellumChatApi = {
