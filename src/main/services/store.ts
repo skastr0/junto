@@ -35,12 +35,19 @@ const writeStore = async (data: Record<string, unknown>) => {
 export const StoreLive = Layer.succeed(
   StoreService,
   StoreService.of({
-    doctor: Effect.succeed({
+    // Effect.sync (not Effect.succeed) — storePath() touches Electron's
+    // `app`, which must stay unevaluated until this Effect actually runs.
+    // StoreLive itself (Layer.succeed) is built eagerly at module-import
+    // time, so an Effect.succeed here would call app.getPath() the instant
+    // anything imports runtime.ts (e.g. a test importing an adapter that
+    // now reaches AppRuntime) — before Electron's `app` is ready, or under
+    // vitest where it never will be.
+    doctor: Effect.sync(() => ({
       id: "store",
       label: "Local Store",
-      status: "ok",
+      status: "ok" as const,
       detail: storePath(),
-    }),
+    })),
     get: <T>(key: string) =>
       Effect.tryPromise({
         try: async () => (await readStore())[key] as T | undefined,
