@@ -11,16 +11,17 @@ import type { BindingHint } from "../src/shared/ipc";
 // completion at-least-as-new as the last committed one is applied, and (2)
 // in-flight coalescing so a call whose hints are already covered by a
 // running refresh joins it instead of firing a redundant adapter fan-out.
-// Also covers: tower hints are now threaded into fetchTowerBundle (previously
-// called with none).
+// Tower is a single unhinted bulk call (`tower dashboards --json`); quasar
+// still takes per-source hint keys, so quasar is the channel these tests use
+// to tell concurrent refreshes apart.
 
-const mockFetchTower = vi.fn<(hintKeys: ReadonlyArray<string>) => Promise<SnapshotBundle>>();
+const mockFetchTower = vi.fn<() => Promise<SnapshotBundle>>();
 const mockFetchQuasar = vi.fn<(hintKeys: ReadonlyArray<string>) => Promise<SnapshotBundle>>();
 const mockFetchBooth = vi.fn<(hintKeys: ReadonlyArray<string>) => Promise<SnapshotBundle>>();
 const mockFetchHermes = vi.fn<() => Promise<SnapshotBundle>>();
 
 vi.mock("../src/main/vellum/adapters/tower", () => ({
-  fetchTowerBundle: (...args: [ReadonlyArray<string>]) => mockFetchTower(...args),
+  fetchTowerBundle: (...args: ReadonlyArray<unknown>) => mockFetchTower(...(args as [])),
 }));
 vi.mock("../src/main/vellum/adapters/quasar", () => ({
   fetchQuasarBundle: (...args: [ReadonlyArray<string>]) => mockFetchQuasar(...args),
@@ -43,13 +44,13 @@ const bundle = (source: SnapshotBundle["source"], key: string): SnapshotBundle =
   entities: [{ source, key, kind: "project", title: key, stats: {}, updatedAt: new Date().toISOString() }],
 });
 
-const towerKeyOf = (state: { bundles: ReadonlyArray<SnapshotBundle> }): string | undefined =>
-  state.bundles.find((b) => b.source === "tower")?.entities[0]?.key;
+const quasarKeyOf = (state: { bundles: ReadonlyArray<SnapshotBundle> }): string | undefined =>
+  state.bundles.find((b) => b.source === "quasar")?.entities[0]?.key;
 
 let runtime: ManagedRuntime.ManagedRuntime<SnapshotsService, never>;
 
 beforeEach(() => {
-  mockFetchTower.mockReset();
+  mockFetchTower.mockReset().mockResolvedValue(bundle("tower", "t"));
   mockFetchQuasar.mockReset().mockResolvedValue(bundle("quasar", "q"));
   mockFetchBooth.mockReset().mockResolvedValue(bundle("booth", "b"));
   mockFetchHermes.mockReset().mockResolvedValue(bundle("hermes", "h"));
@@ -62,20 +63,20 @@ afterEach(async () => {
 
 describe("snapshots.ts refresh() — newest-wins sequencing", () => {
   it("a slower older call never clobbers a faster newer one; subscribers only ever see the final state", async () => {
-    // Two genuinely distinct calls (disjoint tower hints, so neither
+    // Two genuinely distinct calls (disjoint quasar hints, so neither
     // subsumes the other and both actually fire their own fetch).
-    mockFetchTower.mockImplementation(async (hintKeys) => {
+    mockFetchQuasar.mockImplementation(async (hintKeys) => {
       const isSlowCall = hintKeys.includes("proj-a");
       await delay(isSlowCall ? 40 : 5);
-      return bundle("tower", isSlowCall ? "A" : "B");
+      return bundle("quasar", isSlowCall ? "A" : "B");
     });
 
     const snapshots = await runtime.runPromise(SnapshotsService);
     const seen: Array<string | undefined> = [];
-    snapshots.subscribe((s) => seen.push(towerKeyOf(s)));
+    snapshots.subscribe((s) => seen.push(quasarKeyOf(s)));
 
-    const hintsA: ReadonlyArray<BindingHint> = [{ source: "tower", key: "proj-a" }];
-    const hintsB: ReadonlyArray<BindingHint> = [{ source: "tower", key: "proj-b" }];
+    const hintsA: ReadonlyArray<BindingHint> = [{ source: "quasar", key: "proj-a" }];
+    const hintsB: ReadonlyArray<BindingHint> = [{ source: "quasar", key: "proj-b" }];
 
     // A starts first (older, slow); B starts second (newer, fast) while A
     // is still in flight.
@@ -87,11 +88,11 @@ describe("snapshots.ts refresh() — newest-wins sequencing", () => {
     // Both callers observe the authoritative, newest-committed state (B) —
     // A's late completion never overwrote it, so there is no torn state
     // visible to either awaiter.
-    expect(towerKeyOf(stateFromA)).toBe("B");
-    expect(towerKeyOf(stateFromB)).toBe("B");
+    expect(quasarKeyOf(stateFromA)).toBe("B");
+    expect(quasarKeyOf(stateFromB)).toBe("B");
 
     const current = await runtime.runPromise(snapshots.current);
-    expect(towerKeyOf(current)).toBe("B");
+    expect(quasarKeyOf(current)).toBe("B");
 
     // The stale (A) completion must not have broadcast at all — subscribers
     // only ever see the final, correct state.
@@ -119,30 +120,30 @@ describe("snapshots.ts refresh() — in-flight coalescing", () => {
     });
 
     const snapshots = await runtime.runPromise(SnapshotsService);
-    const hints: ReadonlyArray<BindingHint> = [{ source: "tower", key: "shared" }];
+    const hints: ReadonlyArray<BindingHint> = [{ source: "quasar", key: "shared" }];
 
     const first = runtime.runPromise(snapshots.refresh(hints));
     const second = runtime.runPromise(snapshots.refresh(hints)); // identical hints, still in flight
 
     const [a, b] = await Promise.all([first, second]);
 
-    expect(towerKeyOf(a)).toBe("only-call");
-    expect(towerKeyOf(b)).toBe("only-call");
+    expect(a.bundles.find((x) => x.source === "tower")?.entities[0]?.key).toBe("only-call");
+    expect(b.bundles.find((x) => x.source === "tower")?.entities[0]?.key).toBe("only-call");
     // Exactly one underlying adapter fan-out — the second call joined the
     // first rather than duplicating it.
     expect(mockFetchTower).toHaveBeenCalledTimes(1);
   });
 
   it("a call needing hints NOT covered by the in-flight refresh starts its own fetch rather than joining", async () => {
-    mockFetchTower.mockImplementation(async (hintKeys) => {
+    mockFetchTower.mockImplementation(async () => {
       await delay(20);
-      return bundle("tower", hintKeys.join(","));
+      return bundle("tower", "t");
     });
 
     const snapshots = await runtime.runPromise(SnapshotsService);
 
-    const first = runtime.runPromise(snapshots.refresh([{ source: "tower", key: "one" }]));
-    const second = runtime.runPromise(snapshots.refresh([{ source: "tower", key: "two" }]));
+    const first = runtime.runPromise(snapshots.refresh([{ source: "quasar", key: "one" }]));
+    const second = runtime.runPromise(snapshots.refresh([{ source: "quasar", key: "two" }]));
 
     await Promise.all([first, second]);
 
@@ -150,10 +151,8 @@ describe("snapshots.ts refresh() — in-flight coalescing", () => {
   });
 });
 
-describe("snapshots.ts refresh() — tower hints threaded", () => {
-  it("passes tower-sourced hint keys into fetchTowerBundle (previously called with none)", async () => {
-    mockFetchTower.mockResolvedValue(bundle("tower", "x"));
-
+describe("snapshots.ts refresh() — tower bulk call", () => {
+  it("calls fetchTowerBundle with no arguments (bulk dashboards needs no hints)", async () => {
     const snapshots = await runtime.runPromise(SnapshotsService);
     await runtime.runPromise(
       snapshots.refresh([
@@ -162,6 +161,7 @@ describe("snapshots.ts refresh() — tower hints threaded", () => {
       ]),
     );
 
-    expect(mockFetchTower).toHaveBeenCalledWith(["proj-x"]);
+    expect(mockFetchTower).toHaveBeenCalledTimes(1);
+    expect(mockFetchTower.mock.calls[0]).toEqual([]);
   });
 });

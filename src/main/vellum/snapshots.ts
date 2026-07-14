@@ -96,7 +96,7 @@ export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
     sequence: number,
   ): Promise<SnapshotState> => {
     const [tower, quasar, booth, hermes] = await Promise.all([
-      guarded("tower", () => fetchTowerBundle(hintsFor(hints, "tower"))),
+      guarded("tower", () => fetchTowerBundle()),
       guarded("quasar", () => fetchQuasarBundle(hintsFor(hints, "quasar"))),
       guarded("booth", () => fetchBoothBundle(hintsFor(hints, "booth"))),
       guarded("hermes", () => fetchHermesBundle()),
