@@ -11,14 +11,19 @@ import {
   mapSignalItems,
 } from "../src/main/vellum/adapters/tower-browse";
 
+// Fixtures below model what @skastr0/tower-sdk actually hands these mappers
+// after Effect Schema decode — every row is already schema-valid (required
+// fields present, enums narrowed), unlike the pre-SDK hand-rolled-fetch era
+// where these functions had to defensively tolerate arbitrary raw JSON.
+
 describe("mapGlyphItems", () => {
   it("picks the frozen-contract fields off each item", () => {
     const items = [
       {
         glyphId: "g1",
-        orbit: "forge",
+        orbit: "forge" as const,
         title: "Ship the thing",
-        state: "building",
+        state: "building" as const,
         updatedAt: 1_700_000_000_000,
         createdAt: 1_699_000_000_000,
         extra: "dropped",
@@ -40,10 +45,10 @@ describe("mapSignalItems", () => {
       {
         signalId: "s1",
         orbit: "beacon",
-        status: "inbox",
+        status: "inbox" as const,
         kind: "handoff",
         summary: "route to survey",
-        priority: "high",
+        priority: "high" as const,
         updatedAt: 1_700_000_000_000,
         payload: { big: "x".repeat(6000) },
       },
@@ -69,18 +74,19 @@ describe("mapSignalItems", () => {
 });
 
 describe("mapSearchMatches (tower)", () => {
-  it("picks the frozen-contract fields off each match", () => {
+  it("picks the frozen-contract fields off each glyph match", () => {
     const matches = [
       {
-        family: "glyphs",
+        family: "glyphs" as const,
         title: "Ship the thing",
         summary: "a summary",
         projectKey: "prism",
         orbit: "forge",
         glyphId: "g1",
         state: "building",
+        status: undefined,
         score: 0.87,
-        extra: "dropped",
+        sourceRef: { family: "glyphs" as const, projectKey: "prism", orbit: "forge", glyphId: "g1" },
       },
     ];
     expect(mapSearchMatches(matches)).toEqual([
@@ -99,6 +105,28 @@ describe("mapSearchMatches (tower)", () => {
     ]);
   });
 
+  // The SDK's SearchMatch carries no flat `signalId` field — it only lives
+  // inside `sourceRef` when sourceRef.family === "signals". This is the one
+  // shape genuinely dissolved-then-relocated by SDK adoption (the old
+  // hand-rolled fetch response had a flat signalId).
+  it("pulls signalId out of sourceRef for a signal match", () => {
+    const matches = [
+      {
+        family: "signals" as const,
+        title: "Route to survey",
+        summary: undefined,
+        projectKey: "prism",
+        orbit: "beacon",
+        glyphId: undefined,
+        state: undefined,
+        status: "inbox",
+        score: 0.5,
+        sourceRef: { family: "signals" as const, projectKey: "prism", orbit: "beacon", signalId: "sig_abc123def456abc123def456" },
+      },
+    ];
+    expect(mapSearchMatches(matches)[0]?.signalId).toBe("sig_abc123def456abc123def456");
+  });
+
   it("returns an empty array for a missing/malformed matches field", () => {
     expect(mapSearchMatches(undefined)).toEqual([]);
   });
@@ -106,22 +134,22 @@ describe("mapSearchMatches (tower)", () => {
 
 describe("mapGlyphDetail", () => {
   it("maps the live GET /api/glyphs/read shape, pulling far-end glyphIds off dependency edges", () => {
+    const dependencyEdge = (from: string, to: string) => ({
+      from: { glyphId: from },
+      to: { glyphId: to },
+    });
     const raw = {
       glyphId: "VL-011",
-      orbit: "forge",
+      orbit: "forge" as const,
       title: "Session drill",
-      state: "done",
+      state: "done" as const,
       content: "# Session drill\n\nbody text",
       comments: {
         total: 2,
         latest: [{ body: "most recent comment" }, { body: "older comment" }],
       },
-      dependencies: [
-        { from: { glyphId: "VL-011" }, to: { glyphId: "VL-005" } },
-      ],
-      dependents: [
-        { from: { glyphId: "VL-012" }, to: { glyphId: "VL-011" } },
-      ],
+      dependencies: [dependencyEdge("VL-011", "VL-005")],
+      dependents: [dependencyEdge("VL-012", "VL-011")],
       updatedAt: 1_700_000_000_000,
     };
     expect(mapGlyphDetail(raw)).toEqual({
@@ -138,8 +166,17 @@ describe("mapGlyphDetail", () => {
     });
   });
 
-  it("defaults content to empty string and comments/deps to empty when absent", () => {
-    const raw = { glyphId: "g1", orbit: "forge", title: "t", state: "backlog", updatedAt: 0 };
+  it("defaults comments to empty when absent, content/deps stay empty", () => {
+    const raw = {
+      glyphId: "g1",
+      orbit: "forge" as const,
+      title: "t",
+      state: "backlog" as const,
+      content: "",
+      dependencies: [],
+      dependents: [],
+      updatedAt: 0,
+    };
     const mapped = mapGlyphDetail(raw);
     expect(mapped.content).toBe("");
     expect(mapped.commentsTotal).toBe(0);
@@ -148,17 +185,11 @@ describe("mapGlyphDetail", () => {
     expect(mapped.dependents).toEqual([]);
   });
 
-  it("drops dependency edges missing the far-end glyphId instead of emitting undefined", () => {
-    const raw = {
-      glyphId: "g1",
-      orbit: "forge",
-      title: "t",
-      state: "backlog",
-      dependencies: [{ from: { glyphId: "g1" }, to: {} }],
-      updatedAt: 0,
-    };
-    expect(mapGlyphDetail(raw).dependencies).toEqual([]);
-  });
+  // The old "edge missing the far-end glyphId" defensive test is dissolved:
+  // GlyphDependency.to/from.glyphId are required, non-optional fields on the
+  // SDK's schema, so Effect Schema decode already rejects such a response
+  // before mapGlyphDetail ever sees it — there is no longer a malformed-edge
+  // case to defend against at this layer.
 });
 
 describe("formatPayloadJson", () => {
@@ -180,17 +211,23 @@ describe("formatPayloadJson", () => {
 });
 
 describe("mapSignalDetail", () => {
+  const audit = (extra: Partial<{ consumed_by: string; consumption_summary: string }> = {}) => ({
+    recorded_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+    ...extra,
+  });
+
   it("maps the live GET /api/signals/read shape, pulling consumedBy/consumptionSummary off audit", () => {
     const raw = {
       signalId: "sig_abc",
       orbit: "forge",
-      status: "consumed",
+      status: "consumed" as const,
       kind: "quartz.research-finding",
       summary: "a summary",
-      priority: "high",
+      priority: "high" as const,
       payload: { topic: "x" },
       source: { name: "grok-build" },
-      audit: { consumed_by: "claude-fable-orchestrator", consumption_summary: "fulfilled by X" },
+      audit: audit({ consumed_by: "claude-fable-orchestrator", consumption_summary: "fulfilled by X" }),
       updatedAt: 1_700_000_000_000,
     };
     expect(mapSignalDetail(raw)).toEqual({
@@ -208,15 +245,18 @@ describe("mapSignalDetail", () => {
     });
   });
 
-  it("leaves sourceName/consumedBy/consumptionSummary undefined when source/audit are null", () => {
+  // `audit` is a required field on the SDK's Signal schema (never null/
+  // absent post-decode) — only `source` and audit's consumed_by/
+  // consumption_summary sub-fields are genuinely optional.
+  it("leaves sourceName/consumedBy/consumptionSummary undefined when source is absent and audit has no consumption fields", () => {
     const raw = {
       signalId: "sig_abc",
       orbit: "forge",
-      status: "inbox",
+      status: "inbox" as const,
       kind: "k",
       summary: "s",
-      source: null,
-      audit: null,
+      source: undefined,
+      audit: audit(),
       updatedAt: 0,
     };
     const mapped = mapSignalDetail(raw);
@@ -240,8 +280,8 @@ describe("isBlankCommentBody", () => {
 });
 
 describe("fetchTowerCommentGlyph / fetchTowerCommentSignal", () => {
-  // The blank-body guard fires before any config load or network call, so
-  // these resolve deterministically with no fetch mocking required.
+  // The blank-body guard fires before AppRuntime/the SDK client is ever
+  // touched, so these resolve deterministically with no network involved.
   it("rejects a blank glyph comment body without touching the network", async () => {
     const result = await fetchTowerCommentGlyph("vellum", "forge", "VL-011", "   ");
     expect(result).toEqual({ ok: false, error: "comment body is empty" });

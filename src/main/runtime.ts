@@ -21,6 +21,10 @@ export const chatService = new ChatService();
 // provided the base layer explicitly (Layer.provideMerge keeps its inputs
 // memoized: the SAME CanvasesService instance the rest of the app uses, not
 // a second independent one with its own file watcher and own-write tracking).
+// Tower/quasar SDK clients (TowerSdkLive/QuasarSdkLive) deliberately do NOT
+// live in this layer — see adapters/sdk-runtime.ts for why (a dedicated
+// small runtime avoids a circular-dependency cluster between this file and
+// the adapters that would otherwise need it).
 const BaseLayer = Layer.mergeAll(StoreLive, FolderLive, PrismLive, CodexLive, CanvasesLive, SnapshotsLive);
 
 export const RootLayer = Layer.provideMerge(KernelLive(chatService), BaseLayer);

@@ -1,142 +1,82 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { TowerClient } from "@skastr0/tower-sdk";
+import { describe, expect, it } from "vitest";
+import { towerBrowseRows } from "../src/main/vellum/adapters/tower-browse";
 
-const readFileSyncMock = vi.fn();
+// b4-negcache: the original hand-rolled fetch adapter distinguished "every
+// one of the 10 fanned-out requests failed" (gateway outage) from "every
+// request succeeded with an empty payload" (legitimate empty project) —
+// losing that distinction would silently misreport an outage as "this
+// project has zero glyphs/signals". @skastr0/tower-sdk swap keeps the same
+// fan-out shape (5 orbits x listGlyphs+listSignals), so the same invariant
+// is re-proven here against a fake TowerClient instead of a mocked fetch.
+//
+// The stale-token (401) auto-retry this file used to cover is DROPPED, not
+// silently lost: it was a hand-rolled-fetch-era workaround (invalidate a
+// cached ~/.tower-control/config.json read, re-read once, retry) that has
+// no equivalent hook on the SDK's TowerConfig (resolved once at
+// TowerSdkLive's layer-build time, not re-resolvable per-call). A rotated
+// bearer token now surfaces as an ordinary ApiResponseError like any other
+// request failure — correctly ok:false, just without the one-shot recovery
+// attempt.
 
-vi.mock("node:fs", async () => {
-  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
-  return {
-    ...actual,
-    readFileSync: (...args: Parameters<typeof actual.readFileSync>) => readFileSyncMock(...args),
-  };
-});
+const ORBIT_COUNT = 5;
 
-// tower-browse.ts holds `cachedConfig` at module scope, so every test needs
-// a fresh module instance — otherwise a config cached (or invalidated) by
-// one test leaks into the next.
-const loadAdapter = async () => {
-  vi.resetModules();
-  return import("../src/main/vellum/adapters/tower-browse");
+const fakeTowerClient = (outcome: {
+  readonly listGlyphs: () => Effect.Effect<{ readonly items: ReadonlyArray<never> }, unknown>;
+  readonly listSignals: () => Effect.Effect<{ readonly signals: ReadonlyArray<never> }, unknown>;
+}) => Layer.succeed(TowerClient, outcome as unknown as typeof TowerClient.Service);
+
+const runBrowse = (outcome: Parameters<typeof fakeTowerClient>[0]) => {
+  const runtime = ManagedRuntime.make(fakeTowerClient(outcome));
+  return runtime.runPromise(towerBrowseRows("vellum")).finally(() => runtime.dispose());
 };
 
-const configJson = (token: string) => JSON.stringify({ url: "https://gateway.test/tower-api", token });
+const allFail = Effect.fail(new Error("gateway down"));
 
-// The gateway is fanned out across 5 orbits x (glyphs, signals) = 10 calls.
-const ORBIT_COUNT = 5;
-const REQUESTS_PER_FANOUT = ORBIT_COUNT * 2;
-
-const jsonResponse = (status: number, body: unknown) => ({
-  ok: status >= 200 && status < 300,
-  status,
-  json: async () => body,
-});
-
-beforeEach(() => {
-  readFileSyncMock.mockReset();
-  vi.unstubAllGlobals();
-});
-
-describe("fetchTowerBrowse — total-outage negative-cache regression", () => {
-  it("returns ok:false when every one of the 10 fanned-out requests fails (total gateway outage)", async () => {
-    readFileSyncMock.mockReturnValue(configJson("tok-a"));
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(500, { error: "gateway down" }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const { fetchTowerBrowse } = await loadAdapter();
-    const result = await fetchTowerBrowse("vellum");
+describe("towerBrowseRows — total-outage negative-cache regression", () => {
+  it("returns ok:false when every fanned-out request fails (total gateway outage)", async () => {
+    let glyphCalls = 0;
+    let signalCalls = 0;
+    const result = await runBrowse({
+      listGlyphs: () => {
+        glyphCalls += 1;
+        return allFail;
+      },
+      listSignals: () => {
+        signalCalls += 1;
+        return allFail;
+      },
+    });
 
     expect(result.ok).toBe(false);
     expect(result.glyphs).toEqual([]);
     expect(result.signals).toEqual([]);
-    expect(result.error).toBeTruthy();
-    expect(fetchMock).toHaveBeenCalledTimes(REQUESTS_PER_FANOUT);
+    if (!result.ok) expect(result.error).toBeTruthy();
+    expect(glyphCalls).toBe(ORBIT_COUNT);
+    expect(signalCalls).toBe(ORBIT_COUNT);
   });
 
-  it("stays ok:true when only some of the 10 requests fail (partial outage)", async () => {
-    readFileSyncMock.mockReturnValue(configJson("tok-a"));
-    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
-      if (url.includes("orbit=forge") && url.includes("/api/glyphs")) {
-        return jsonResponse(200, {
-          items: [{ glyphId: "g1", orbit: "forge", title: "t", state: "building", updatedAt: 1 }],
-        });
-      }
-      return jsonResponse(500, { error: "down" });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const { fetchTowerBrowse } = await loadAdapter();
-    const result = await fetchTowerBrowse("vellum");
+  it("stays ok:true when only some orbits fail (partial outage)", async () => {
+    const result = await runBrowse({
+      listGlyphs: (input: { readonly orbit: string }) =>
+        input.orbit === "forge"
+          ? Effect.succeed({ items: [{ glyphId: "g1", orbit: "forge", title: "t", state: "building", updatedAt: 1 }] })
+          : (allFail as Effect.Effect<never, unknown>),
+      listSignals: () => allFail,
+    } as never);
 
     expect(result.ok).toBe(true);
     expect(result.glyphs).toEqual([{ glyphId: "g1", orbit: "forge", title: "t", state: "building", updatedAt: 1 }]);
     expect(result.signals).toEqual([]);
-    expect(fetchMock).toHaveBeenCalledTimes(REQUESTS_PER_FANOUT);
   });
 
-  it("never throws and reports total failure distinctly from a legitimate empty project", async () => {
-    readFileSyncMock.mockReturnValue(configJson("tok-a"));
-    // Legitimate-empty case for comparison: every request succeeds with an
-    // empty payload.
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { items: [], signals: [] }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const { fetchTowerBrowse } = await loadAdapter();
-    const emptyButHealthy = await fetchTowerBrowse("vellum");
+  it("distinguishes total failure from a legitimate empty project", async () => {
+    const emptyButHealthy = await runBrowse({
+      listGlyphs: () => Effect.succeed({ items: [] }),
+      listSignals: () => Effect.succeed({ signals: [] }),
+    });
 
     expect(emptyButHealthy).toEqual({ ok: true, glyphs: [], signals: [] });
-  });
-});
-
-describe("fetchTowerBrowse — stale-token (401) recovery", () => {
-  it("on all-401, invalidates the cached config and re-reads it exactly once, retrying with the fresh token", async () => {
-    readFileSyncMock.mockReturnValueOnce(configJson("stale-token")).mockReturnValueOnce(configJson("fresh-token"));
-
-    const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
-      const auth = (init.headers as Record<string, string>).Authorization;
-      if (auth === "Bearer stale-token") return jsonResponse(401, { error: "unauthorized" });
-      if (auth === "Bearer fresh-token") return jsonResponse(200, { items: [], signals: [] });
-      throw new Error(`unexpected auth header: ${auth}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const { fetchTowerBrowse } = await loadAdapter();
-    const result = await fetchTowerBrowse("vellum");
-
-    expect(result).toEqual({ ok: true, glyphs: [], signals: [] });
-    // Initial load + exactly one re-read after the 401-triggered invalidation.
-    expect(readFileSyncMock).toHaveBeenCalledTimes(2);
-    // 10 requests against the stale token, then 10 more against the fresh one.
-    expect(fetchMock).toHaveBeenCalledTimes(REQUESTS_PER_FANOUT * 2);
-  });
-
-  it("gives up with ok:false (not an infinite retry loop) when the re-read config is still unauthorized", async () => {
-    readFileSyncMock.mockReturnValueOnce(configJson("stale-token")).mockReturnValueOnce(configJson("still-stale"));
-
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(401, { error: "unauthorized" }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const { fetchTowerBrowse } = await loadAdapter();
-    const result = await fetchTowerBrowse("vellum");
-
-    expect(result.ok).toBe(false);
-    expect(result.glyphs).toEqual([]);
-    expect(result.signals).toEqual([]);
-    // Config was re-read exactly once to attempt recovery, not retried again.
-    expect(readFileSyncMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenCalledTimes(REQUESTS_PER_FANOUT * 2);
-  });
-
-  it("does not touch the cached config on a non-401 failure", async () => {
-    readFileSyncMock.mockReturnValue(configJson("tok-a"));
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(500, { error: "server error" }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const { fetchTowerBrowse } = await loadAdapter();
-    const result = await fetchTowerBrowse("vellum");
-
-    expect(result.ok).toBe(false);
-    // No 401 anywhere -> no reason to invalidate/re-read the config; single
-    // fan-out only.
-    expect(readFileSyncMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledTimes(REQUESTS_PER_FANOUT);
   });
 });

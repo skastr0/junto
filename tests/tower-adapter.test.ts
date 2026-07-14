@@ -1,51 +1,37 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const runCliMock = vi.fn();
-
-vi.mock("../src/main/vellum/adapters/exec", async () => {
-  const actual = await vi.importActual<typeof import("../src/main/vellum/adapters/exec")>(
-    "../src/main/vellum/adapters/exec",
-  );
-  return {
-    ...actual,
-    runCli: (...args: Parameters<typeof actual.runCli>) => runCliMock(...args),
-  };
-});
-
-import { fetchTowerBundle } from "../src/main/vellum/adapters/tower";
+import { Effect, Either, Layer, ManagedRuntime } from "effect";
+import { TowerClient } from "@skastr0/tower-sdk";
+import { beforeEach, describe, expect, it } from "vitest";
+import { buildTowerBundle, towerDashboardEntities } from "../src/main/vellum/adapters/tower";
 
 // --- fixtures --------------------------------------------------------------
 //
-// Captured live (2026-07-13) from `tower dashboards --json --project vellum
-// --project vouch` against the deployed authority — the single bulk call
-// that replaced the projects + per-hint dashboard fan-out. Extra unread
-// fields (description/gitRemote/metrics/…) kept in to prove they are
-// tolerated, not required.
+// Shaped like the live `TowerClient.listDashboardSummaries()` response
+// (captured live 2026-07-13 against the deployed authority) — every project
+// arrives fully schema-decoded now, so there is no separate "CLI stdout" /
+// "malformed JSON" layer to fake any more; only the SDK call itself
+// succeeds or fails.
 
 const orbitStates = (building: number, done: number, abandoned: number, backlog = 0) => [
-  { state: "backlog", count: backlog },
-  { state: "exploring", count: 0 },
-  { state: "committed", count: 0 },
-  { state: "building", count: building },
-  { state: "reviewing", count: 0 },
-  { state: "done", count: done },
-  { state: "abandoned", count: abandoned },
+  { state: "backlog" as const, count: backlog },
+  { state: "exploring" as const, count: 0 },
+  { state: "committed" as const, count: 0 },
+  { state: "building" as const, count: building },
+  { state: "reviewing" as const, count: 0 },
+  { state: "done" as const, count: done },
+  { state: "abandoned" as const, count: abandoned },
 ];
 
-const emptyOrbit = (orbit: string) => ({ orbit, states: orbitStates(0, 0, 0) });
+const emptyOrbit = (orbit: "forge" | "survey" | "beacon" | "scribe" | "oracle") => ({ orbit, states: orbitStates(0, 0, 0) });
 
 const vellumSummary = {
   project: {
     key: "vellum",
     name: "vellum",
-    description: "Desktop station for the portfolio canvas.",
-    gitRemote: "https://github.com/skastr0/vellum",
-    defaultBranch: "main",
     createdAt: 1783832734544,
     updatedAt: 1783974760898,
   },
   orbits: [
-    { orbit: "forge", states: orbitStates(1, 10, 1) },
+    { orbit: "forge" as const, states: orbitStates(1, 10, 1) },
     emptyOrbit("survey"),
     emptyOrbit("beacon"),
     emptyOrbit("scribe"),
@@ -59,36 +45,36 @@ const vellumSummary = {
 const busySummary = {
   project: { key: "vouch", name: "vouch", createdAt: 1780000000000, updatedAt: 1783900000000 },
   orbits: [
-    { orbit: "forge", states: orbitStates(2, 31, 0, 10) },
-    { orbit: "beacon", states: orbitStates(0, 4, 0) },
+    { orbit: "forge" as const, states: orbitStates(2, 31, 0, 10) },
+    { orbit: "beacon" as const, states: orbitStates(0, 4, 0) },
     emptyOrbit("survey"),
     emptyOrbit("scribe"),
     emptyOrbit("oracle"),
   ],
   signals: { total: 30, inbox: 5, claimed: 2 },
   chatter: { total: 12 },
+  metrics: { glyphs: 47, activeGlyphs: 12, doneGlyphs: 35 },
 };
 
-const envelope = (data: unknown) => ({ ok: true, command: "dashboards", data });
+// A fake TowerClient exposing only the one method these tests exercise —
+// the rest of the (large) service surface is never called.
+const fakeTowerClient = (
+  listDashboardSummaries: () => Effect.Effect<ReadonlyArray<unknown>, unknown>,
+) => Layer.succeed(TowerClient, { listDashboardSummaries } as unknown as typeof TowerClient.Service);
 
-const cliOk = (payload: unknown) => ({ ok: true, stdout: JSON.stringify(payload) });
+const runEntities = (summaries: ReadonlyArray<unknown>) => {
+  const runtime = ManagedRuntime.make(fakeTowerClient(() => Effect.succeed(summaries)));
+  return runtime.runPromise(Effect.either(towerDashboardEntities)).finally(() => runtime.dispose());
+};
 
-beforeEach(() => {
-  runCliMock.mockReset();
-});
-
-describe("fetchTowerBundle (bulk dashboards)", () => {
+describe("towerDashboardEntities (bulk dashboards)", () => {
   it("builds fully-enriched entities from one bulk call", async () => {
-    runCliMock.mockResolvedValueOnce(cliOk(envelope([vellumSummary, busySummary])));
+    const result = await runEntities([vellumSummary, busySummary]);
+    expect(Either.isRight(result)).toBe(true);
+    const entities = Either.isRight(result) ? result.right : [];
+    expect(entities).toHaveLength(2);
 
-    const bundle = await fetchTowerBundle();
-
-    expect(runCliMock).toHaveBeenCalledTimes(1);
-    expect(runCliMock).toHaveBeenCalledWith("tower", ["dashboards", "--json"]);
-    expect(bundle.ok).toBe(true);
-    expect(bundle.entities).toHaveLength(2);
-
-    const vellum = bundle.entities.find((entity) => entity.key === "vellum");
+    const vellum = entities.find((entity) => entity.key === "vellum");
     expect(vellum).toMatchObject({
       source: "tower",
       kind: "project",
@@ -102,12 +88,11 @@ describe("fetchTowerBundle (bulk dashboards)", () => {
   });
 
   it("surfaces signal/chatter totals and multi-orbit rollups when non-zero", async () => {
-    runCliMock.mockResolvedValueOnce(cliOk(envelope([busySummary])));
+    const result = await runEntities([busySummary]);
+    const entities = Either.isRight(result) ? result.right : [];
+    const vouch = entities[0];
 
-    const bundle = await fetchTowerBundle();
-    const vouch = bundle.entities[0];
-
-    expect(vouch.stats).toMatchObject({
+    expect(vouch?.stats).toMatchObject({
       glyphs_active: 12, // forge backlog 10 + building 2
       glyphs_done: 35, // forge 31 + beacon 4
       orbits: 2,
@@ -115,44 +100,38 @@ describe("fetchTowerBundle (bulk dashboards)", () => {
       signals: 30,
       chatter: 12,
     });
-    expect(vouch.stats).not.toHaveProperty("orbit_beacon"); // active 0 → omitted
+    expect(vouch?.stats).not.toHaveProperty("orbit_beacon"); // active 0 → omitted
   });
 
-  it("degrades to ok:false when the CLI fails", async () => {
-    runCliMock.mockResolvedValueOnce({ ok: false, stdout: "", error: "boom" });
+  it("skips a row that throws during entity construction without taking down the fleet", async () => {
+    // A defect a live schema decode would never actually let through
+    // (orbits missing) — Effect.either around the per-row Effect.try is the
+    // isolation belt this proves, not a "malformed JSON" scenario (that
+    // whole class of failure is now dissolved by the SDK's schema decode).
+    const poisoned = { ...vellumSummary, orbits: undefined };
+    const result = await runEntities([poisoned, busySummary]);
+    const entities = Either.isRight(result) ? result.right : [];
+    expect(entities).toHaveLength(1);
+    expect(entities[0]?.key).toBe("vouch");
+  });
+});
 
-    const bundle = await fetchTowerBundle();
+describe("buildTowerBundle", () => {
+  const fetchedAt = "2026-07-13T00:00:00.000Z";
 
-    expect(bundle).toMatchObject({ source: "tower", ok: false, error: "boom", entities: [] });
+  it("wraps a Right into ok:true with the entities", () => {
+    const bundle = buildTowerBundle(fetchedAt, Either.right([]));
+    expect(bundle).toEqual({ source: "tower", fetchedAt, ok: true, entities: [] });
   });
 
-  it("degrades to explicit ok:false naming the command on malformed JSON", async () => {
-    runCliMock.mockResolvedValueOnce({ ok: true, stdout: "not json at all" });
+  it("wraps a Left into ok:false naming the error message", () => {
+    const bundle = buildTowerBundle(fetchedAt, Either.left(new Error("gateway down")));
+    expect(bundle).toEqual({ source: "tower", fetchedAt, ok: false, error: "gateway down", entities: [] });
+  });
 
-    const bundle = await fetchTowerBundle();
-
+  it("falls back to a generic message for a non-Error left", () => {
+    const bundle = buildTowerBundle(fetchedAt, Either.left("boom"));
     expect(bundle.ok).toBe(false);
-    expect(bundle.error).toContain("tower dashboards --json");
-    expect(bundle.entities).toEqual([]);
-  });
-
-  it("degrades to ok:false when data drifts to a non-array", async () => {
-    runCliMock.mockResolvedValueOnce(cliOk(envelope({ projects: [vellumSummary] })));
-
-    const bundle = await fetchTowerBundle();
-
-    expect(bundle.ok).toBe(false);
-    expect(bundle.error).toContain("tower dashboards --json");
-  });
-
-  it("skips malformed rows without taking down the fleet", async () => {
-    const drifted = { project: { key: "broken" }, orbits: "nope" };
-    runCliMock.mockResolvedValueOnce(cliOk(envelope([drifted, vellumSummary, null, 42])));
-
-    const bundle = await fetchTowerBundle();
-
-    expect(bundle.ok).toBe(true);
-    expect(bundle.entities).toHaveLength(1);
-    expect(bundle.entities[0].key).toBe("vellum");
+    expect(bundle.error).toBe("SDK request failed");
   });
 });

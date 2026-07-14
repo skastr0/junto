@@ -1,3 +1,5 @@
+import { Context, Effect, Either } from "effect";
+import { QuasarClient, QuasarClientTag } from "@skastr0/quasar-sdk";
 import type { Entity, SnapshotBundle } from "@shared/entities";
 import type {
   QuasarSearchMatch,
@@ -7,127 +9,36 @@ import type {
   QuasarSessionRow,
   QuasarSessionsResult,
 } from "@shared/ipc";
-import { parseJson, runCli } from "./exec";
+import { SdkRuntime } from "./sdk-runtime";
+import { describeSdkError } from "./sdk-errors";
 
-// Shape of `quasar projects --limit N`, trimmed to the fields we read.
-interface QuasarProjectRow {
+// Read-only quasar adapter, talking to the remote Quasar HTTP server through
+// @skastr0/quasar-sdk's QuasarClient — no `quasar` CLI shell-out. Effect
+// Schema decode at the SDK boundary already validated every shape below
+// (including normalizing SQL NULL -> undefined for nullable string columns),
+// so this file only projects typed rows onto the frozen IPC contract the
+// renderer consumes (kept byte-identical).
+
+type QuasarClientService = Context.Tag.Service<typeof QuasarClient>;
+
+// The mapper-facing row types below are explicit interfaces narrowed to
+// exactly what each mapper reads, not Pick<> chains off the SDK's real
+// nested return types (a Pick<Effect.Effect.Success<ReturnType<
+// QuasarClientService["x"]>>, ...> chain is a lot of type indirection for a
+// handful of flat fields). The session/message/tool-call rows also stay
+// permissive (`?: T | null`) rather than matching the SDK's decoded types
+// exactly: the SDK normalizes SQL NULL -> undefined during decode, so every
+// real call site already satisfies these, but keeping the mapper itself
+// tolerant of a stray `null` is a free belt (matches the server's actual
+// bun:sqlite column shape one layer up) and keeps these pure functions
+// testable with plain fixtures that don't have to round-trip through Schema
+// decode first.
+
+interface SdkProjectRow {
   readonly projectKey: string;
   readonly displayName: string;
 }
 
-interface QuasarProjectsResponse {
-  readonly ok: boolean;
-  readonly data?: { readonly rows: ReadonlyArray<QuasarProjectRow> };
-}
-
-// `updatedAt` is present on every row but frequently null (some providers,
-// e.g. claude-code, never populate it); only fold it into stats when at
-// least one row has a real value.
-interface QuasarBundleSessionRow {
-  readonly updatedAt?: string | null;
-}
-
-interface QuasarSessionsResponse {
-  readonly ok: boolean;
-  readonly data?: { readonly rows: ReadonlyArray<QuasarBundleSessionRow> };
-}
-
-const SESSIONS_LIMIT = 500;
-const MAX_HINTS = 8;
-
-// Per-key enrichment: fetches the session count for one hinted project key
-// and folds it into the entity map. Any failure (bad exit, malformed JSON,
-// missing rows) degrades to a no-op — the entity keeps whatever stats it
-// already had.
-const enrichSessions = async (
-  key: string,
-  entities: Map<string, Entity>,
-  fetchedAt: string,
-): Promise<void> => {
-  const result = await runCli("quasar", [
-    "sessions",
-    "--project-key",
-    key,
-    "--limit",
-    String(SESSIONS_LIMIT),
-  ]);
-  if (!result.ok) return;
-
-  const parsed = parseJson<QuasarSessionsResponse>(result.stdout);
-  const rows = parsed?.data?.rows;
-  if (!Array.isArray(rows)) return;
-
-  const sessions: string | number = rows.length === SESSIONS_LIMIT ? "500+" : rows.length;
-
-  let lastSession: string | undefined;
-  for (const row of rows) {
-    if (!row.updatedAt) continue;
-    if (!lastSession || row.updatedAt > lastSession) lastSession = row.updatedAt;
-  }
-
-  const existing = entities.get(key);
-  entities.set(key, {
-    source: "quasar",
-    key,
-    kind: "project",
-    title: existing?.title ?? key,
-    stats: {
-      ...existing?.stats,
-      sessions,
-      ...(lastSession ? { last_session: lastSession } : {}),
-    },
-    updatedAt: existing?.updatedAt ?? fetchedAt,
-  });
-};
-
-export const fetchQuasarBundle = async (hints: ReadonlyArray<string>): Promise<SnapshotBundle> => {
-  const fetchedAt = new Date().toISOString();
-  const result = await runCli("quasar", ["projects", "--limit", "500"]);
-  if (!result.ok) {
-    return {
-      source: "quasar",
-      fetchedAt,
-      ok: false,
-      error: result.error ?? "quasar CLI failed",
-      entities: [],
-    };
-  }
-
-  const parsed = parseJson<QuasarProjectsResponse>(result.stdout);
-  if (!parsed?.ok || !parsed.data) {
-    return {
-      source: "quasar",
-      fetchedAt,
-      ok: false,
-      error: "unexpected response shape from `quasar projects`",
-      entities: [],
-    };
-  }
-
-  const entities = new Map<string, Entity>();
-  for (const row of parsed.data.rows) {
-    entities.set(row.projectKey, {
-      source: "quasar",
-      key: row.projectKey,
-      kind: "project",
-      title: row.displayName,
-      stats: {},
-      updatedAt: fetchedAt,
-    });
-  }
-
-  const hintedKeys = Array.from(new Set(hints)).slice(0, MAX_HINTS);
-  await Promise.all(hintedKeys.map((key) => enrichSessions(key, entities, fetchedAt)));
-
-  return { source: "quasar", fetchedAt, ok: true, entities: Array.from(entities.values()) };
-};
-
-// --- session browsing (read-only detail view) -------------------------------
-
-// Shape of one row in `quasar sessions --project-key K --limit N`, trimmed to
-// the fields the browse view reads. title/agentName/updatedAt are frequently
-// null (title IS null for the claude/codex/antigravity providers) — pass
-// through as undefined, the UI supplies its own fallback.
 interface QuasarSessionListRow {
   readonly sessionId: string;
   readonly provider: string;
@@ -139,10 +50,109 @@ interface QuasarSessionListRow {
   readonly toolCallCount?: number;
 }
 
-interface QuasarSessionListResponse {
-  readonly ok: boolean;
-  readonly data?: { readonly rows: ReadonlyArray<QuasarSessionListRow> };
+interface QuasarDetailMessageRow {
+  readonly role: string;
+  readonly text?: string | null;
+  readonly ts?: string | null;
 }
+
+interface QuasarDetailToolCallRow {
+  readonly toolName?: string | null;
+}
+
+// Search results live under match.row, structurally narrower than the SDK's
+// full SearchHit (key/seq/projectKey/contentHash are decoded but unused
+// here) — same permissive-mapper reasoning as the row types above.
+interface QuasarSearchRawMatch {
+  readonly score: number;
+  readonly row: {
+    readonly sessionId: string;
+    readonly role: string;
+    readonly provider: string;
+    readonly text: string;
+  };
+}
+
+const SESSIONS_LIMIT = 500;
+const MAX_HINTS = 8;
+
+// Per-key enrichment: fetches the session count for one hinted project key
+// and folds it into the entity map. Any failure (SDK error, empty result)
+// degrades to a no-op — the entity keeps whatever stats it already had.
+const enrichSessions = (
+  quasar: QuasarClientService,
+  key: string,
+  entities: Map<string, Entity>,
+  fetchedAt: string,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const result = yield* Effect.either(quasar.listSessions({ projectKey: key, limit: SESSIONS_LIMIT }));
+    if (Either.isLeft(result)) return;
+    const rows = result.right;
+
+    const sessions: string | number = rows.length === SESSIONS_LIMIT ? "500+" : rows.length;
+
+    let lastSession: string | undefined;
+    for (const row of rows) {
+      if (!row.updatedAt) continue;
+      if (!lastSession || row.updatedAt > lastSession) lastSession = row.updatedAt;
+    }
+
+    const existing = entities.get(key);
+    entities.set(key, {
+      source: "quasar",
+      key,
+      kind: "project",
+      title: existing?.title ?? key,
+      stats: {
+        ...existing?.stats,
+        sessions,
+        ...(lastSession ? { last_session: lastSession } : {}),
+      },
+      updatedAt: existing?.updatedAt ?? fetchedAt,
+    });
+  });
+
+// The testable unit: requires only QuasarClient, never touches SdkRuntime.
+export const quasarBundleEntities = (
+  hints: ReadonlyArray<string>,
+  fetchedAt: string,
+): Effect.Effect<ReadonlyArray<Entity>, unknown, QuasarClientTag> =>
+  Effect.gen(function* () {
+    const quasar = yield* QuasarClient;
+    const rows: ReadonlyArray<SdkProjectRow> = yield* quasar.listProjects({ limit: 500 });
+
+    const entities = new Map<string, Entity>();
+    for (const row of rows) {
+      entities.set(row.projectKey, {
+        source: "quasar",
+        key: row.projectKey,
+        kind: "project",
+        title: row.displayName,
+        stats: {},
+        updatedAt: fetchedAt,
+      });
+    }
+
+    const hintedKeys = Array.from(new Set(hints)).slice(0, MAX_HINTS);
+    yield* Effect.all(
+      hintedKeys.map((key) => enrichSessions(quasar, key, entities, fetchedAt)),
+      { concurrency: "unbounded" },
+    );
+
+    return Array.from(entities.values());
+  });
+
+export const fetchQuasarBundle = async (hints: ReadonlyArray<string>): Promise<SnapshotBundle> => {
+  const fetchedAt = new Date().toISOString();
+  const result = await SdkRuntime.runPromise(Effect.either(quasarBundleEntities(hints, fetchedAt)));
+  if (Either.isLeft(result)) {
+    return { source: "quasar", fetchedAt, ok: false, error: describeSdkError(result.left), entities: [] };
+  }
+  return { source: "quasar", fetchedAt, ok: true, entities: result.right };
+};
+
+// --- session browsing (read-only detail view) -------------------------------
 
 // The quasar server already returns rows in most-recent-first order. Most
 // providers (claude/codex/antigravity) leave updatedAt/startedAt null, so a
@@ -170,43 +180,16 @@ export const fetchQuasarSessionList = async (
   quasarKey: string,
   limit: number = DEFAULT_SESSION_LIMIT,
 ): Promise<QuasarSessionsResult> => {
-  const result = await runCli("quasar", [
-    "sessions",
-    "--project-key",
-    quasarKey,
-    "--limit",
-    String(SESSION_FETCH_LIMIT),
-  ]);
-  if (!result.ok) {
-    return { ok: false, error: result.error ?? "quasar CLI failed", sessions: [] };
+  const result = await SdkRuntime.runPromise(
+    Effect.either(Effect.flatMap(QuasarClient, (quasar) => quasar.listSessions({ projectKey: quasarKey, limit: SESSION_FETCH_LIMIT }))),
+  );
+  if (Either.isLeft(result)) {
+    return { ok: false, error: describeSdkError(result.left), sessions: [] };
   }
-
-  const parsed = parseJson<QuasarSessionListResponse>(result.stdout);
-  const rows = parsed?.data?.rows;
-  if (!parsed?.ok || !Array.isArray(rows)) {
-    return { ok: false, error: "unexpected response shape from `quasar sessions`", sessions: [] };
-  }
-
-  return { ok: true, sessions: sortAndMapSessions(rows, limit) };
+  return { ok: true, sessions: sortAndMapSessions(result.right, limit) };
 };
 
 // --- search (read-only detail view) -----------------------------------------
-
-// Search results live under data.matches, NOT data.rows (unlike `sessions`).
-interface QuasarSearchRawMatch {
-  readonly score: number;
-  readonly row: {
-    readonly sessionId: string;
-    readonly role: string;
-    readonly provider: string;
-    readonly text: string;
-  };
-}
-
-interface QuasarSearchResponse {
-  readonly ok: boolean;
-  readonly data?: { readonly matches: ReadonlyArray<QuasarSearchRawMatch> };
-}
 
 const MAX_EXCERPT_LENGTH = 220;
 
@@ -236,49 +219,25 @@ export const fetchQuasarSearch = async (
   query: string,
   quasarKey?: string,
 ): Promise<QuasarSearchResult> => {
-  const args = ["search", "--query", query, "--mode", "fusion", "--limit", String(SEARCH_LIMIT)];
-  if (quasarKey) args.push("--project-key", quasarKey);
-
-  const result = await runCli("quasar", args);
-  if (!result.ok) {
-    return { ok: false, error: result.error ?? "quasar CLI failed", matches: [] };
+  const result = await SdkRuntime.runPromise(
+    Effect.either(
+      Effect.flatMap(QuasarClient, (quasar) =>
+        quasar.search("fusion", { query, projectKey: quasarKey, limit: SEARCH_LIMIT }),
+      ),
+    ),
+  );
+  if (Either.isLeft(result)) {
+    return { ok: false, error: describeSdkError(result.left), matches: [] };
   }
-
-  const parsed = parseJson<QuasarSearchResponse>(result.stdout);
-  const matches = parsed?.data?.matches;
-  if (!parsed?.ok || !Array.isArray(matches)) {
-    return { ok: false, error: "unexpected response shape from `quasar search`", matches: [] };
-  }
-
-  return { ok: true, matches: mapSearchMatches(matches) };
+  return { ok: true, matches: mapSearchMatches(result.right) };
 };
 
 // --- session detail (reader modal) ------------------------------------------
 //
-// Built from two CLI calls: `quasar messages` (per-message ts is reliable
-// even when the session-level updatedAt/startedAt is null for a provider)
-// and `quasar tool-calls` (tool usage stats). Never throws — a failing/
-// malformed CLI call degrades to ok:false.
-
-interface QuasarDetailMessageRow {
-  readonly role: string;
-  readonly text?: string | null;
-  readonly ts?: string | null;
-}
-
-interface QuasarMessagesResponse {
-  readonly ok: boolean;
-  readonly data?: { readonly rows: ReadonlyArray<QuasarDetailMessageRow> };
-}
-
-interface QuasarDetailToolCallRow {
-  readonly toolName?: string | null;
-}
-
-interface QuasarToolCallsResponse {
-  readonly ok: boolean;
-  readonly data?: { readonly rows: ReadonlyArray<QuasarDetailToolCallRow> };
-}
+// Built from two SDK calls: readMessages (per-message ts is reliable even
+// when the session-level updatedAt/startedAt is null for a provider) and
+// listToolCalls (tool usage stats). Never throws — a failing/malformed call
+// degrades to ok:false (messages) or empty tool stats (tool-calls, best-effort).
 
 const FIRST_USER_MAX_LENGTH = 600;
 const LAST_ASSISTANT_MAX_LENGTH = 900;
@@ -341,43 +300,39 @@ export const parseProviderFromSessionId = (sessionId: string): string => {
 };
 
 export const fetchQuasarSessionDetail = async (sessionId: string): Promise<QuasarSessionDetailResult> => {
-  const [messagesResult, toolCallsResult] = await Promise.all([
-    runCli("quasar", ["messages", "--session-id", sessionId, "--limit", String(SESSION_DETAIL_FETCH_LIMIT)]),
-    runCli("quasar", ["tool-calls", "--session-id", sessionId, "--limit", String(SESSION_DETAIL_FETCH_LIMIT)]),
-  ]);
+  const program = Effect.gen(function* () {
+    const quasar = yield* QuasarClient;
+    const messageRows = yield* quasar.readMessages(sessionId, { limit: SESSION_DETAIL_FETCH_LIMIT });
 
-  if (!messagesResult.ok) {
-    return { ok: false, error: messagesResult.error ?? "quasar messages CLI failed" };
+    // Tool-call stats are best-effort: a failing/malformed call degrades to
+    // empty tool stats rather than failing the whole detail — the
+    // transcript bookends are still useful without it.
+    const toolRowsResult = yield* Effect.either(
+      quasar.listToolCalls({ sessionId, limit: SESSION_DETAIL_FETCH_LIMIT }),
+    );
+    const toolRows = Either.isRight(toolRowsResult) ? toolRowsResult.right : [];
+
+    const bookends = buildSessionBookends(messageRows);
+
+    const detail: QuasarSessionDetail = {
+      sessionId,
+      provider: parseProviderFromSessionId(sessionId),
+      title: undefined,
+      messageCount: messageRows.length,
+      toolCallCount: toolRows.length,
+      firstUser: bookends.firstUser,
+      lastAssistant: bookends.lastAssistant,
+      startedAt: bookends.startedAt,
+      endedAt: bookends.endedAt,
+      topTools: topToolNames(toolRows),
+    };
+
+    return detail;
+  });
+
+  const result = await SdkRuntime.runPromise(Effect.either(program));
+  if (Either.isLeft(result)) {
+    return { ok: false, error: describeSdkError(result.left) };
   }
-
-  const messagesParsed = parseJson<QuasarMessagesResponse>(messagesResult.stdout);
-  const messageRows = messagesParsed?.data?.rows;
-  if (!messagesParsed?.ok || !Array.isArray(messageRows)) {
-    return { ok: false, error: "unexpected response shape from `quasar messages`" };
-  }
-
-  // Tool-call stats are best-effort: a failing/malformed `tool-calls` call
-  // degrades to empty tool stats rather than failing the whole detail — the
-  // transcript bookends are still useful without it.
-  const toolCallsParsed = toolCallsResult.ok
-    ? parseJson<QuasarToolCallsResponse>(toolCallsResult.stdout)
-    : undefined;
-  const toolRows = toolCallsParsed?.data?.rows ?? [];
-
-  const bookends = buildSessionBookends(messageRows);
-
-  const detail: QuasarSessionDetail = {
-    sessionId,
-    provider: parseProviderFromSessionId(sessionId),
-    title: undefined,
-    messageCount: messageRows.length,
-    toolCallCount: toolRows.length,
-    firstUser: bookends.firstUser,
-    lastAssistant: bookends.lastAssistant,
-    startedAt: bookends.startedAt,
-    endedAt: bookends.endedAt,
-    topTools: topToolNames(toolRows),
-  };
-
-  return { ok: true, detail };
+  return { ok: true, detail: result.right };
 };

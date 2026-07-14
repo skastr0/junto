@@ -1,63 +1,21 @@
+import { Effect, Either } from "effect";
+import { TowerClient, type ControlDashboardSummaryList } from "@skastr0/tower-sdk";
 import type { Entity, SnapshotBundle } from "@shared/entities";
-import { parseJson, runCli } from "./exec";
+import { SdkRuntime } from "./sdk-runtime";
+import { describeSdkError } from "./sdk-errors";
+import { resolved } from "./tower-client";
 
-// Shape of `tower dashboards --json`: ONE bulk authority roundtrip returning
-// every project pre-enriched (~0.75s for the whole fleet), replacing the old
-// `tower projects` + per-hint `tower dashboard <key>` fan-out. `data` is a
-// BARE ARRAY of summaries. `orbits` is always the full fixed set
-// (forge/survey/beacon/scribe/oracle) with per-state counts — "present" is
-// derived as "has any glyph in any state". `signals`/`chatter` are
-// server-computed rollup counters.
-interface TowerOrbitState {
-  readonly state: string;
-  readonly count: number;
-}
+// Shape of `TowerClient.listDashboardSummaries()`: ONE bulk authority
+// roundtrip returning every project pre-enriched (~0.75s for the whole
+// fleet). `orbits` is always the full fixed set (forge/survey/beacon/scribe/
+// oracle) with per-state counts — "present" is derived as "has any glyph in
+// any state". `signals`/`chatter` are server-computed rollup counters, both
+// non-optional under the SDK's DashboardSummary schema (Effect Schema decode
+// at the boundary already rejected anything malformed before this code
+// runs — no hand-rolled guards or Raw* interfaces needed any more).
+type DashboardSummary = ControlDashboardSummaryList[number];
 
-interface TowerOrbitSummary {
-  readonly orbit: string;
-  readonly states: ReadonlyArray<TowerOrbitState>;
-}
-
-interface TowerDashboardSummary {
-  readonly project: { readonly key: string; readonly name: string; readonly updatedAt: number };
-  readonly orbits: ReadonlyArray<TowerOrbitSummary>;
-  readonly signals?: { readonly total?: number };
-  readonly chatter?: { readonly total?: number };
-}
-
-interface TowerDashboardsResponse {
-  readonly ok: boolean;
-  readonly data?: ReadonlyArray<unknown>;
-}
-
-const isOrbitState = (value: unknown): value is TowerOrbitState => {
-  if (typeof value !== "object" || value === null) return false;
-  const state = value as Record<string, unknown>;
-  return typeof state.state === "string" && typeof state.count === "number";
-};
-
-const isOrbitSummary = (value: unknown): value is TowerOrbitSummary => {
-  if (typeof value !== "object" || value === null) return false;
-  const orbit = value as Record<string, unknown>;
-  return typeof orbit.orbit === "string" && Array.isArray(orbit.states) && orbit.states.every(isOrbitState);
-};
-
-const isDashboardSummary = (value: unknown): value is TowerDashboardSummary => {
-  if (typeof value !== "object" || value === null) return false;
-  const summary = value as Record<string, unknown>;
-  const project = summary.project as Record<string, unknown> | undefined;
-  return (
-    typeof project === "object" &&
-    project !== null &&
-    typeof project.key === "string" &&
-    typeof project.name === "string" &&
-    typeof project.updatedAt === "number" &&
-    Array.isArray(summary.orbits) &&
-    summary.orbits.every(isOrbitSummary)
-  );
-};
-
-const toEntity = (summary: TowerDashboardSummary): Entity => {
+const toEntity = (summary: DashboardSummary): Entity => {
   let active = 0;
   let done = 0;
   let orbitCount = 0;
@@ -84,10 +42,10 @@ const toEntity = (summary: TowerDashboardSummary): Entity => {
     orbits: orbitCount,
     ...perOrbit,
   };
-  if (typeof summary.signals?.total === "number" && summary.signals.total > 0) {
+  if (summary.signals.total > 0) {
     stats.signals = summary.signals.total;
   }
-  if (typeof summary.chatter?.total === "number" && summary.chatter.total > 0) {
+  if (summary.chatter.total > 0) {
     stats.chatter = summary.chatter.total;
   }
 
@@ -101,35 +59,40 @@ const toEntity = (summary: TowerDashboardSummary): Entity => {
   };
 };
 
-// Single bulk call: every project arrives fully enriched, so there is no
-// hint mechanism any more. A malformed top-level response degrades to an
-// explicit ok:false naming the command (never ok:true with silently-empty
-// entities); a malformed individual row is skipped so one drifted project
-// cannot take down the rest of the fleet.
+// The testable unit: requires only TowerClient, never touches SdkRuntime —
+// a test provides a fake TowerClient layer and runs this directly. A single
+// row that fails entity construction is skipped via Effect.either so one
+// poisoned project can never take down the rest of the fleet (kernel
+// concurrency-safety constraint: one bad row, isolated).
+export const towerDashboardEntities: Effect.Effect<ReadonlyArray<Entity>, unknown, TowerClient> = Effect.gen(
+  function* () {
+    const tower = yield* TowerClient;
+    const summaries = yield* resolved(tower.listDashboardSummaries());
+    const entities: Entity[] = [];
+    for (const summary of summaries) {
+      const built = yield* Effect.either(Effect.try(() => toEntity(summary)));
+      if (Either.isRight(built)) entities.push(built.right);
+    }
+    return entities;
+  },
+);
+
+// Pure envelope wrapper — split out so ok/error framing is unit-testable
+// without a runtime.
+export const buildTowerBundle = (
+  fetchedAt: string,
+  result: Either.Either<ReadonlyArray<Entity>, unknown>,
+): SnapshotBundle =>
+  Either.isLeft(result)
+    ? { source: "tower", fetchedAt, ok: false, error: describeSdkError(result.left), entities: [] }
+    : { source: "tower", fetchedAt, ok: true, entities: result.right };
+
+// Single bulk call over the SDK: every project arrives fully schema-decoded,
+// so there is no hint mechanism any more. A failed request degrades to an
+// explicit ok:false naming the SDK error (never ok:true with silently-empty
+// entities).
 export const fetchTowerBundle = async (): Promise<SnapshotBundle> => {
   const fetchedAt = new Date().toISOString();
-  const result = await runCli("tower", ["dashboards", "--json"]);
-  if (!result.ok) {
-    return {
-      source: "tower",
-      fetchedAt,
-      ok: false,
-      error: result.error ?? "`tower dashboards --json` failed",
-      entities: [],
-    };
-  }
-
-  const parsed = parseJson<TowerDashboardsResponse>(result.stdout);
-  if (!parsed?.ok || !Array.isArray(parsed.data)) {
-    return {
-      source: "tower",
-      fetchedAt,
-      ok: false,
-      error: "unexpected response shape from `tower dashboards --json`",
-      entities: [],
-    };
-  }
-
-  const entities = parsed.data.filter(isDashboardSummary).map(toEntity);
-  return { source: "tower", fetchedAt, ok: true, entities };
+  const result = await SdkRuntime.runPromise(Effect.either(towerDashboardEntities));
+  return buildTowerBundle(fetchedAt, result);
 };
