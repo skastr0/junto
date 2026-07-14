@@ -13,7 +13,11 @@ export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError"
   message: Schema.String,
 }) {}
 
-export const canvasesDir = () => join(homedir(), ".vellum", "canvases");
+// Overridable for hermetic headless probes/tests (scripts/kernel-headless-probe.ts)
+// so they never touch the operator's real ~/.vellum/canvases. Unset in normal
+// (dev or packaged) operation — production behavior is unchanged.
+export const canvasesDir = () =>
+  process.env.VELLUM_CANVASES_DIR || join(homedir(), ".vellum", "canvases");
 
 // The document plane. All writes go through validate -> mirror law ->
 // canonical serialize -> atomic write (tmp + rename). The watcher reports
@@ -25,6 +29,14 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
     readonly list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError>;
     readonly read: (name: string) => Effect.Effect<CanvasReadResult, CanvasError>;
     readonly write: (name: string, doc: CanvasDoc) => Effect.Effect<void, CanvasError>;
+    // Atomic read-modify-write under the same per-canvas mutex as write():
+    // rereads the file, applies fn, validates + writes the result. Used by
+    // the kernel's flag mirror so a racing user write and a kernel flag
+    // write serialize instead of one clobbering the other's tmp file.
+    readonly mutate: (
+      name: string,
+      fn: (doc: CanvasDoc) => CanvasDoc,
+    ) => Effect.Effect<void, CanvasError>;
     readonly create: (name: string) => Effect.Effect<CanvasReadResult, CanvasError>;
     // Creates the seed canvas when the canvases dir is empty. Called at startup.
     readonly ensureSeed: Effect.Effect<void, CanvasError>;
@@ -101,32 +113,35 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     catch: toCanvasError,
   });
 
+  // Shared by read() and mutate(): parse + decode the file on disk. Thrown
+  // errors are CanvasError already, so callers can let them propagate as-is.
+  const readAndDecode = async (name: string): Promise<CanvasDoc> => {
+    const raw = await readFile(canvasPath(name), "utf8");
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      throw new CanvasError({
+        message: `${canvasFileName(name)} is not valid JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
+
+    const decoded = decodeCanvasDoc(parsed);
+    if (Either.isLeft(decoded)) {
+      throw new CanvasError({
+        message: `${canvasFileName(name)} failed validation: ${decoded.left.message}`,
+      });
+    }
+
+    return decoded.right;
+  };
+
   const read = (name: string): Effect.Effect<CanvasReadResult, CanvasError> =>
     Effect.tryPromise({
-      try: async () => {
-        const path = canvasPath(name);
-        const raw = await readFile(path, "utf8");
-
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(raw);
-        } catch (error) {
-          throw new CanvasError({
-            message: `${canvasFileName(name)} is not valid JSON: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          });
-        }
-
-        const decoded = decodeCanvasDoc(parsed);
-        if (Either.isLeft(decoded)) {
-          throw new CanvasError({
-            message: `${canvasFileName(name)} failed validation: ${decoded.left.message}`,
-          });
-        }
-
-        return { name, path, doc: decoded.right };
-      },
+      try: async () => ({ name, path: canvasPath(name), doc: await readAndDecode(name) }),
       catch: toCanvasError,
     });
 
@@ -151,6 +166,39 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           // Unique per write so two overlapping writers (even outside the
           // mutex above, e.g. a separate OS process like populate.ts) never
           // share one tmp file.
+          const tmpPath = `${path}.${randomUUID()}.tmp`;
+          await writeFile(tmpPath, serialized, "utf8");
+          await rename(tmpPath, path);
+
+          ownWrites.set(canvasFileName(name), Date.now());
+        }),
+      catch: toCanvasError,
+    });
+
+  // Same mutex key as write() (canvasFileName(name)), so a racing user
+  // writeCanvas either lands first (mutate rereads it, applies fn on top) or
+  // second (clobbers fn's result — self-healed next cycle, since callers
+  // like the kernel's flag mirror are level-driven and idempotent). The
+  // reread happens INSIDE the mutex so it can never race write()'s own
+  // read-less overwrite.
+  const mutate = (name: string, fn: (doc: CanvasDoc) => CanvasDoc): Effect.Effect<void, CanvasError> =>
+    Effect.tryPromise({
+      try: () =>
+        withCanvasMutex(canvasFileName(name), async () => {
+          const current = await readAndDecode(name);
+          const next = fn(current);
+
+          const decoded = decodeCanvasDoc(next);
+          if (Either.isLeft(decoded)) {
+            throw new CanvasError({
+              message: `cannot mutate ${canvasFileName(name)}: ${decoded.left.message}`,
+            });
+          }
+
+          const serialized = serializeCanvas(applyMirrorLaw(decoded.right));
+
+          await mkdir(canvasesDir(), { recursive: true });
+          const path = canvasPath(name);
           const tmpPath = `${path}.${randomUUID()}.tmp`;
           await writeFile(tmpPath, serialized, "utf8");
           await rename(tmpPath, path);
@@ -277,6 +325,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     list,
     read,
     write,
+    mutate,
     create,
     ensureSeed,
     writeSidecar,

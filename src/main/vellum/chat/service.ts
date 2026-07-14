@@ -55,6 +55,15 @@ export class ChatService {
     this.eventSink = sink;
   }
 
+  // Mirrors the fast-path guard in chatOpen: a session counts as "live" only
+  // once it has a real sessionId and its ACP child hasn't exited. The kernel
+  // uses this to decide whether a pulse can skip straight to sendPrompt or
+  // must chatOpen first.
+  isLive(agentKey: string): boolean {
+    const session = this.sessions.get(agentKey);
+    return session !== undefined && !session.client.closed && session.sessionId !== "";
+  }
+
   private emit(agentKey: string, kind: string, payload: unknown): void {
     this.eventSink?.({ agentKey, kind, payload });
   }
