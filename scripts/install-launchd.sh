@@ -19,6 +19,13 @@ DOMAIN="gui/$(id -u)"
 
 unload() {
   launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+  # bootout returns before the job fully drains; bootstrapping while the old
+  # instance is still SIGTERM-ing fails with EIO. Wait for it to disappear.
+  for _ in $(seq 1 20); do
+    launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || return 0
+    sleep 1
+  done
+  echo "warning: $LABEL still draining after 20s; bootstrap may fail" >&2
 }
 
 if [[ "${1:-}" == "--uninstall" ]]; then
