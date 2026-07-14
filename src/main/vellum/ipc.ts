@@ -4,7 +4,7 @@ import { IPC_CHANNELS, type BindingHint, type BoothReviewAction } from "@shared/
 import type { CanvasDoc } from "@shared/canvas";
 import { digestCanvas } from "@shared/digest";
 import { mergePortfolioInto } from "@shared/portfolio";
-import { AppRuntime } from "../runtime";
+import { AppRuntime, chatService } from "../runtime";
 import { fetchBoothDrafts, fetchBoothReview } from "./adapters/booth-controls";
 import { fetchAgentAvatar, fetchAgentIdentity, fetchAgentMessage } from "./adapters/hermes-identity";
 import { fetchQuasarSearch, fetchQuasarSessionDetail, fetchQuasarSessionList } from "./adapters/quasar";
@@ -19,6 +19,8 @@ import {
 } from "./adapters/tower-browse";
 import { CanvasesService } from "./canvases";
 import { registerChatIpc } from "./chat/ipc";
+import type { PulseRegionOptions } from "./kernel/service";
+import { KernelService } from "./kernel/service";
 import { SnapshotsService } from "./snapshots";
 
 const broadcast = (channel: string, payload: unknown) => {
@@ -150,19 +152,44 @@ export const registerVellumIpc = () => {
     fetchAgentMessage(key, text),
   );
 
-  // The attached-chat plane (hermes ACP sessions per agent node).
-  registerChatIpc(ipcMain, () => BrowserWindow.getAllWindows().map((window) => window.webContents));
+  // The attached-chat plane (hermes ACP sessions per agent node). Shares its
+  // ChatService instance with KernelService below — a pulse-driven turn and
+  // a human reuse the same live ACP session per agent.
+  registerChatIpc(ipcMain, () => BrowserWindow.getAllWindows().map((window) => window.webContents), chatService);
+
+  // The kernel plane: watcher/timer evaluation over every hydrated canvas,
+  // running continuously in main regardless of window state.
+  ipcMain.handle(IPC_CHANNELS.getKernelState, () =>
+    AppRuntime.runPromise(Effect.map(KernelService, (kernel) => kernel.getSnapshot())),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.armRegion, (_event, canvasName: string, regionId: string, armed: boolean) =>
+    AppRuntime.runPromise(Effect.flatMap(KernelService, (kernel) => kernel.armRegion(canvasName, regionId, armed))),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.pulseRegion,
+    (_event, canvasName: string, regionId: string, opts?: PulseRegionOptions) =>
+      AppRuntime.runPromise(Effect.flatMap(KernelService, (kernel) => kernel.pulseRegion(canvasName, regionId, opts))),
+  );
 
   // Wire pushes and background loops once at startup.
   void AppRuntime.runPromise(
     Effect.gen(function* () {
       const canvases = yield* CanvasesService;
       const snapshots = yield* SnapshotsService;
+      const kernel = yield* KernelService;
       yield* canvases.ensureSeed.pipe(Effect.catchAll(() => Effect.void));
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
+      // A kernel flag mutate() is an "own write" CanvasesService suppresses
+      // from the normal file-watch broadcast above — this is the explicit
+      // push that keeps an open renderer's doc coherent with a kernel write.
+      kernel.subscribeCanvasMutated((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
+      kernel.subscribe((snapshot) => broadcast(IPC_CHANNELS.kernelChanged, snapshot));
       canvases.start();
       snapshots.start();
+      kernel.start();
     }),
   );
 };

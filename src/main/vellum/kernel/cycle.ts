@@ -516,3 +516,16 @@ export const getPulseLog = (): PulseRecord[] => {
 export const getArmed = (): Map<string, boolean> => {
   return new Map(armed);
 };
+
+// Drops every namespaced entry for a canvas that's gone from disk (deleted,
+// or renamed out from under us) — watchers/nextFire/armed-in-memory, keyed
+// `${canvasName}::${id}`. Arming's durable mirror in StoreService is NOT
+// touched here (kept on purpose: a delete+recreate under the same name
+// should resume armed, matching the restart-resume law in kernel-design.md
+// §3 — only the service's persistence layer decides to drop a store entry).
+export const purgeCanvasMemory = (canvasName: string): void => {
+  const prefix = `${canvasName}::`;
+  for (const key of watchers.keys()) if (key.startsWith(prefix)) watchers.delete(key);
+  for (const key of nextFire.keys()) if (key.startsWith(prefix)) nextFire.delete(key);
+  for (const key of armed.keys()) if (key.startsWith(prefix)) armed.delete(key);
+};

@@ -5,16 +5,25 @@ import { FolderLive, FolderService } from "./services/folder";
 import { PrismLive, PrismService } from "./services/prism";
 import { StoreLive, StoreService } from "./services/store";
 import { CanvasesLive, CanvasesService } from "./vellum/canvases";
+import { ChatService } from "./vellum/chat/service";
+import { KernelLive, KernelService } from "./vellum/kernel/service";
 import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
 
-export const RootLayer = Layer.mergeAll(
-  StoreLive,
-  FolderLive,
-  PrismLive,
-  CodexLive,
-  CanvasesLive,
-  SnapshotsLive,
-);
+// One shared ACP-session manager for the whole app: pulse-driven turns
+// (KernelService, below) and user-driven turns (registerChatIpc, wired in
+// vellum/ipc.ts) reuse the same live sessions per agent rather than racing
+// two independent ChatService instances (kernel-design.md §2.3).
+export const chatService = new ChatService();
+
+// KernelLive requires CanvasesService/SnapshotsService/StoreService.
+// Layer.mergeAll builds merged layers independently — it does not thread one
+// merge member's output to satisfy another's requirement — so KernelLive is
+// provided the base layer explicitly (Layer.provideMerge keeps its inputs
+// memoized: the SAME CanvasesService instance the rest of the app uses, not
+// a second independent one with its own file watcher and own-write tracking).
+const BaseLayer = Layer.mergeAll(StoreLive, FolderLive, PrismLive, CodexLive, CanvasesLive, SnapshotsLive);
+
+export const RootLayer = Layer.provideMerge(KernelLive(chatService), BaseLayer);
 
 export const AppRuntime = ManagedRuntime.make(RootLayer);
 
@@ -25,10 +34,11 @@ export const buildDoctorReport = Effect.gen(function* () {
   const codex = yield* CodexService;
   const canvases = yield* CanvasesService;
   const snapshots = yield* SnapshotsService;
+  const kernel = yield* KernelService;
 
   const station = yield* prism.stationInfo;
   const serviceResults = yield* Effect.all(
-    [store.doctor, folder.doctor, prism.doctor, codex.doctor, canvases.doctor, snapshots.doctor],
+    [store.doctor, folder.doctor, prism.doctor, codex.doctor, canvases.doctor, snapshots.doctor, kernel.doctor],
     { concurrency: "unbounded" },
   );
 
