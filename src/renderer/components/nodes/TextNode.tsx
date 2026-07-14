@@ -9,8 +9,8 @@ import { entityReadout } from "../../lib/entity-readout";
 import { editText } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
 import { accentColor, INK, DIM, HUE, SOURCE_HUE, withAlpha } from "../../lib/theme";
-import { kernel$ } from "../../lib/kernel-state";
-import type { WatcherRuntimeState } from "../../lib/kernel-state";
+import { kernel$ } from "../../lib/kernel-view";
+import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { NodeShell } from "./NodeShell";
 
 // Re-renders every intervalMs so relative-time copy ("fired 2m ago", "next

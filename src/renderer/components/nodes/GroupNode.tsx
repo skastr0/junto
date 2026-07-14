@@ -7,7 +7,7 @@ import type { FlowNode } from "../../lib/convert";
 import { deleteNode, renameGroup } from "../../lib/mutations";
 import { resizeNode } from "../../lib/geometry";
 import { state$ } from "../../lib/state";
-import { kernel$ } from "../../lib/kernel-state";
+import { kernel$ } from "../../lib/kernel-view";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
 
 function RegionToolbar({ nodeId, selected, onEdit }: { readonly nodeId: string; readonly selected: boolean; readonly onEdit: () => void }) {

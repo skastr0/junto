@@ -7,7 +7,7 @@ import { addEdge } from "../lib/edge-mutations";
 import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTimer, setNodeView, setNodeWatch, setRegionHold, toggleFlag } from "../lib/mutations";
 import { glyphStateHue, orbitOptions, TOWER_STATES } from "../lib/browse";
 import { state$ } from "../lib/state";
-import { armRegion, kernel$, pulseRegion } from "../lib/kernel-state";
+import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
 import { HUE, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
 

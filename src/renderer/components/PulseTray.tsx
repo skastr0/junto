@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { state$ } from "../lib/state";
 import { comparePulse, type PulseItem } from "../lib/pulse";
-import { kernel$, type PulseRecord } from "../lib/kernel-state";
+import { kernel$, type PulseRecord } from "../lib/kernel-view";
 import { nodeTitle } from "../lib/presentation";
 import { SOURCE_HUE, GROUND, INK, DIM, HUE } from "../lib/theme";
 
