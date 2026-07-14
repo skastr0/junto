@@ -1,17 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
-import { resetWatcherMemory } from "../src/renderer/lib/kernel";
+import { resetWatcherMemory } from "../src/main/vellum/kernel/evaluate";
 import {
   __resetDeliveryQueueForTest,
   __setDeliveryDepsForTest,
+  __setSnapshotsForTest,
+  __setDocsForTest,
   deliverPulse,
-  kernel$,
   PULSE_CAP_PER_REGION_PER_HOUR,
   runEvaluationCycle,
   type PulseDeliverDeps,
-} from "../src/renderer/lib/kernel-state";
-import { state$ } from "../src/renderer/lib/state";
+  setArmed,
+  getPulseLog,
+} from "../src/main/vellum/kernel/cycle";
 
 const snapshotsWithStat = (stat: string, value: number): SnapshotState => ({
   bundles: [
@@ -33,6 +35,7 @@ const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T | "TIMEOUT"> =>
 
 describe("runEvaluationCycle — one hung delivery does not stall watcher/timer evaluation", () => {
   const regionId = "region-hang";
+  const canvasName = "test-canvas";
   // A stat_threshold watcher (no glyph fetch) + a hermes agent, both inside an
   // armed region — so a fire produces a real, live delivery.
   const doc: CanvasDoc = {
@@ -65,11 +68,8 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
   beforeEach(() => {
     resetWatcherMemory();
     __resetDeliveryQueueForTest();
-    kernel$.armed.set({});
-    kernel$.watchers.set({});
-    kernel$.pulseLog.set([]);
-    state$.doc.set(doc);
-    kernel$.armed[regionId].set(true);
+    __setDocsForTest(new Map([[canvasName, doc]]));
+    setArmed(`${canvasName}::${regionId}`, true);
   });
 
   afterEach(() => {
@@ -78,7 +78,7 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
 
   it("completes the cycle promptly even when the fired pulse's sendPrompt never resolves", async () => {
     // pass 1: signals below threshold -> pending baseline, no fire.
-    state$.snapshots.set(snapshotsWithStat("signals", 3));
+    __setSnapshotsForTest(snapshotsWithStat("signals", 3));
     await runEvaluationCycle();
 
     // Deliver through an agent whose turn hangs forever (models a tool-heavy /
@@ -97,14 +97,14 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
     // pass 2: signals cross the threshold -> rising edge -> fires -> enqueues a
     // delivery that will hang. If delivery were still awaited inline, this cycle
     // would not resolve until the (15-min) turn returned.
-    state$.snapshots.set(snapshotsWithStat("signals", 34));
+    __setSnapshotsForTest(snapshotsWithStat("signals", 34));
     const outcome = await withTimeout(runEvaluationCycle(), 1000);
 
     expect(outcome).not.toBe("TIMEOUT"); // the evaluation loop completed on schedule
     expect(sendStarted).toBe(true); // a live delivery genuinely started off-cycle (not skipped/dry)
     // Delivery is still pending (the record only lands once sendPrompt resolves,
     // which it never does) — proving evaluation is decoupled from delivery.
-    expect(kernel$.pulseLog.peek()).toHaveLength(0);
+    expect(getPulseLog()).toHaveLength(0);
   });
 });
 
@@ -112,13 +112,12 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
 
 describe("deliverPulse — the per-region hourly cap holds past 200 mixed-region records", () => {
   const armedRegion = "region-A";
+  const canvasName = "test-canvas";
 
   beforeEach(() => {
     __resetDeliveryQueueForTest();
-    kernel$.armed.set({});
-    kernel$.pulseLog.set([]);
-    state$.doc.set({ nodes: [], edges: [] });
-    kernel$.armed[armedRegion].set(true);
+    __setDocsForTest(new Map([[canvasName, { nodes: [], edges: [] }]]));
+    setArmed(`${canvasName}::${armedRegion}`, true);
   });
 
   afterEach(() => {
@@ -128,7 +127,7 @@ describe("deliverPulse — the per-region hourly cap holds past 200 mixed-region
   it("does not let a busy canvas evict an armed region's within-hour deliveries and fail the cap open", async () => {
     // Spend region A's whole hourly budget: 6 live deliveries.
     for (let i = 0; i < PULSE_CAP_PER_REGION_PER_HOUR; i += 1) {
-      await deliverPulse({ sourceNodeId: `a${i}`, kind: "watcher", regionId: armedRegion, summary: `a ${i}` });
+      await deliverPulse({ canvasName, sourceNodeId: `a${i}`, kind: "watcher", regionId: armedRegion, summary: `a ${i}` });
     }
 
     // Flood the shared log with >200 records from OTHER, disarmed regions (all
@@ -136,13 +135,19 @@ describe("deliverPulse — the per-region hourly cap holds past 200 mixed-region
     // region A's 6 live records here — dropping them from the cap count while
     // they are still inside their rolling hour — so the cap would fail open.
     for (let i = 0; i < 300; i += 1) {
-      await deliverPulse({ sourceNodeId: `b${i}`, kind: "timer", regionId: `region-other-${i % 5}`, summary: `b ${i}` });
+      await deliverPulse({
+        canvasName,
+        sourceNodeId: `b${i}`,
+        kind: "timer",
+        regionId: `region-other-${i % 5}`,
+        summary: `b ${i}`,
+      });
     }
 
     // region A asks for a 7th live delivery, still inside the same hour.
-    await deliverPulse({ sourceNodeId: "a-seventh", kind: "watcher", regionId: armedRegion, summary: "seventh" });
+    await deliverPulse({ canvasName, sourceNodeId: "a-seventh", kind: "watcher", regionId: armedRegion, summary: "seventh" });
 
-    const log = kernel$.pulseLog.peek();
+    const log = getPulseLog();
     expect(log.length).toBeGreaterThan(200); // past the old eviction point — proves the flood took effect
 
     // All 6 of region A's live records survived the flood (age-retained), so the

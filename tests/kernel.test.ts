@@ -7,15 +7,19 @@ import {
   evaluateWatcher,
   resetWatcherMemory,
   type GlyphIndex,
-} from "../src/renderer/lib/kernel";
+} from "../src/main/vellum/kernel/evaluate";
 import {
   composePulseMessage,
   deliverPulse,
-  kernel$,
   PULSE_CAP_PER_REGION_PER_HOUR,
   type PulseDeliverDeps,
-} from "../src/renderer/lib/kernel-state";
-import { state$ } from "../src/renderer/lib/state";
+  __setDocsForTest,
+  __setSnapshotsForTest,
+  setArmed,
+  getPulseLog,
+  __resetPulseLogForTest,
+  __setDeliveryDepsForTest,
+} from "../src/main/vellum/kernel/cycle";
 
 // --- fixtures ----------------------------------------------------------------
 
@@ -57,14 +61,15 @@ afterEach(() => {
 
 describe("evaluateWatcher — glyphs_done", () => {
   const watch: EtherWatch = { kind: "glyphs_done", project: "proj" };
+  const canvasName = "test-canvas";
 
   it("is unknown when the project isn't in the glyph index (cache miss)", () => {
-    const result = evaluateWatcher("w1", watch, EMPTY_SNAPSHOTS, new Map());
+    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, new Map());
     expect(result.state).toEqual({ status: "unknown", detail: "glyph data unavailable" });
   });
 
   it("is unknown, not vacuously satisfied, when scope resolves to zero glyphs", () => {
-    const result = evaluateWatcher("w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", []));
+    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", []));
     expect(result.state.status).toBe("unknown");
   });
 
@@ -74,13 +79,13 @@ describe("evaluateWatcher — glyphs_done", () => {
       glyphRow({ glyphId: "g2", state: "done" }),
       glyphRow({ glyphId: "g3", state: "building" }),
     ];
-    const result = evaluateWatcher("w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", rows));
+    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", rows));
     expect(result.state).toEqual({ status: "pending", detail: "2/3 done" });
   });
 
   it("is satisfied only when every scoped glyph is done — abandoned counts as not-done", () => {
     const allDone = [glyphRow({ glyphId: "g1", state: "done" }), glyphRow({ glyphId: "g2", state: "done" })];
-    expect(evaluateWatcher("w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", allDone)).state).toEqual({
+    expect(evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", allDone)).state).toEqual({
       status: "satisfied",
       detail: "2/2 done",
     });
@@ -89,7 +94,7 @@ describe("evaluateWatcher — glyphs_done", () => {
       glyphRow({ glyphId: "g1", state: "done" }),
       glyphRow({ glyphId: "g2", state: "abandoned" }),
     ];
-    const abandonedResult = evaluateWatcher("w2", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", withAbandoned));
+    const abandonedResult = evaluateWatcher(canvasName, "w2", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", withAbandoned));
     expect(abandonedResult.state.status).toBe("pending");
     expect(abandonedResult.state.detail).toBe("1/2 done (1 abandoned)");
   });
@@ -99,19 +104,20 @@ describe("evaluateWatcher — glyphs_done", () => {
 
 describe("evaluateWatcher — stat_threshold", () => {
   const watch: EtherWatch = { kind: "stat_threshold", source: "tower", key: "proj", stat: "signals", op: "gt", value: 10 };
+  const canvasName = "test-canvas";
 
   it("is unknown when the bound entity is missing", () => {
-    const result = evaluateWatcher("w1", watch, EMPTY_SNAPSHOTS, new Map());
+    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, new Map());
     expect(result.state.status).toBe("unknown");
   });
 
   it("is satisfied when the stat crosses the threshold, with a readable detail", () => {
-    const result = evaluateWatcher("w1", watch, snapshotsWithStat("signals", 34), new Map());
+    const result = evaluateWatcher(canvasName, "w1", watch, snapshotsWithStat("signals", 34), new Map());
     expect(result.state).toEqual({ status: "satisfied", detail: "signals 34 > 10" });
   });
 
   it("is pending when the stat hasn't crossed the threshold", () => {
-    const result = evaluateWatcher("w1", watch, snapshotsWithStat("signals", 3), new Map());
+    const result = evaluateWatcher(canvasName, "w1", watch, snapshotsWithStat("signals", 3), new Map());
     expect(result.state).toEqual({ status: "pending", detail: "signals 3 > 10" });
   });
 });
@@ -120,17 +126,19 @@ describe("evaluateWatcher — stat_threshold", () => {
 
 describe("evaluateWatcher — glyphs_entered_state (edge rule)", () => {
   const watch: EtherWatch = { kind: "glyphs_entered_state", project: "proj", state: "committed" };
+  const canvasName = "test-canvas";
 
   it("never fires on the first observation of a glyph — baseline only", () => {
     const rows = [glyphRow({ glyphId: "g1", state: "committed" })];
-    const result = evaluateWatcher("w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", rows));
+    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", rows));
     expect(result.fired).toBe(false);
     expect(result.firedGlyphIds).toEqual([]);
   });
 
   it("fires when a scoped glyph transitions into the target state on a later pass", () => {
-    evaluateWatcher("w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "exploring" })])); // baseline
+    evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "exploring" })])); // baseline
     const result = evaluateWatcher(
+      canvasName,
       "w1",
       watch,
       EMPTY_SNAPSHOTS,
@@ -142,9 +150,10 @@ describe("evaluateWatcher — glyphs_entered_state (edge rule)", () => {
   });
 
   it("does not re-fire on the next pass once the glyph stays in the target state", () => {
-    evaluateWatcher("w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "exploring" })])); // baseline
-    evaluateWatcher("w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "committed" })])); // fires
+    evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "exploring" })])); // baseline
+    evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "committed" })])); // fires
     const stillCommitted = evaluateWatcher(
+      canvasName,
       "w1",
       watch,
       EMPTY_SNAPSHOTS,
@@ -155,12 +164,12 @@ describe("evaluateWatcher — glyphs_entered_state (edge rule)", () => {
 
   it("keys edge memory per watcher node, so two watchers on the same glyph don't interfere", () => {
     const baseline = glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "exploring" })]);
-    evaluateWatcher("watcher-a", watch, EMPTY_SNAPSHOTS, baseline);
-    evaluateWatcher("watcher-b", watch, EMPTY_SNAPSHOTS, baseline);
+    evaluateWatcher(canvasName, "watcher-a", watch, EMPTY_SNAPSHOTS, baseline);
+    evaluateWatcher(canvasName, "watcher-b", watch, EMPTY_SNAPSHOTS, baseline);
 
     const entered = glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "committed" })]);
-    const resultA = evaluateWatcher("watcher-a", watch, EMPTY_SNAPSHOTS, entered);
-    const resultB = evaluateWatcher("watcher-b", watch, EMPTY_SNAPSHOTS, entered);
+    const resultA = evaluateWatcher(canvasName, "watcher-a", watch, EMPTY_SNAPSHOTS, entered);
+    const resultB = evaluateWatcher(canvasName, "watcher-b", watch, EMPTY_SNAPSHOTS, entered);
     expect(resultA.fired).toBe(true);
     expect(resultB.fired).toBe(true);
   });
@@ -169,18 +178,20 @@ describe("evaluateWatcher — glyphs_entered_state (edge rule)", () => {
 // --- level-rule rising-edge (drives whether a watcher pulses a region) -----------
 
 describe("evaluateWatcher — level rules only fire on a rising edge into satisfied", () => {
+  const canvasName = "test-canvas";
+
   it("never fires on a watcher's first evaluation, even if already satisfied", () => {
     const watch: EtherWatch = { kind: "glyphs_done", project: "proj" };
     const done = glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "done" })]);
-    const result = evaluateWatcher("w1", watch, EMPTY_SNAPSHOTS, done);
+    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, done);
     expect(result.state.status).toBe("satisfied");
     expect(result.fired).toBe(false);
   });
 
   it("fires when status transitions from pending to satisfied on a later pass", () => {
     const watch: EtherWatch = { kind: "glyphs_done", project: "proj" };
-    evaluateWatcher("w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "building" })]));
-    const result = evaluateWatcher("w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "done" })]));
+    evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "building" })]));
+    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "done" })]));
     expect(result.fired).toBe(true);
   });
 });
@@ -188,6 +199,8 @@ describe("evaluateWatcher — level rules only fire on a rising edge into satisf
 // --- detectPulses ------------------------------------------------------------------
 
 describe("detectPulses", () => {
+  const canvasName = "test-canvas";
+
   it("evaluates every watcher node in the doc and reports which ones fired", () => {
     const doc: CanvasDoc = {
       nodes: [
@@ -200,7 +213,7 @@ describe("detectPulses", () => {
       edges: [],
     };
     const glyphIndex = glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "done" })]);
-    const results = detectPulses(doc, EMPTY_SNAPSHOTS, glyphIndex);
+    const results = detectPulses(canvasName, doc, EMPTY_SNAPSHOTS, glyphIndex);
     expect(results).toHaveLength(1);
     expect(results[0]?.nodeId).toBe("watcher-1");
     expect(results[0]?.result.state.status).toBe("satisfied");
@@ -224,31 +237,44 @@ describe("composePulseMessage", () => {
 
 describe("deliverPulse — arming and the hard cap", () => {
   const regionId = "region-cap-test";
+  const canvasName = "test-canvas";
 
   beforeEach(() => {
-    kernel$.armed.set({});
-    kernel$.pulseLog.set([]);
-    state$.doc.set({ nodes: [], edges: [] });
+    __resetPulseLogForTest();
+    __setDocsForTest(new Map([[canvasName, { nodes: [], edges: [] }]]));
+    // Set default deps that simulate successful delivery when arming is true
+    const defaultDeps: PulseDeliverDeps = {
+      isLive: () => true,
+      openChat: async () => undefined,
+      sendPrompt: async () => undefined,
+    };
+    __setDeliveryDepsForTest(defaultDeps);
+  });
+
+  afterEach(() => {
+    __setDeliveryDepsForTest(undefined);
   });
 
   it("stays live (non-dry) for the first PULSE_CAP_PER_REGION_PER_HOUR deliveries", async () => {
-    kernel$.armed[regionId].set(true);
+    __resetPulseLogForTest();
+    setArmed(`${canvasName}::${regionId}`, true);
     for (let i = 0; i < PULSE_CAP_PER_REGION_PER_HOUR; i += 1) {
-      await deliverPulse({ sourceNodeId: `n${i}`, kind: "manual", regionId, summary: `pulse ${i}` });
+      await deliverPulse({ canvasName, sourceNodeId: `n${i}`, kind: "manual", regionId, summary: `pulse ${i}` });
     }
-    const log = kernel$.pulseLog.peek();
+    const log = getPulseLog();
     expect(log).toHaveLength(PULSE_CAP_PER_REGION_PER_HOUR);
     expect(log.every((record) => record.dry === false)).toBe(true);
   });
 
   it("forces delivery past the cap to dry, with a cap note on the summary", async () => {
-    kernel$.armed[regionId].set(true);
+    __resetPulseLogForTest();
+    setArmed(`${canvasName}::${regionId}`, true);
     for (let i = 0; i < PULSE_CAP_PER_REGION_PER_HOUR; i += 1) {
-      await deliverPulse({ sourceNodeId: `n${i}`, kind: "manual", regionId, summary: `pulse ${i}` });
+      await deliverPulse({ canvasName, sourceNodeId: `n${i}`, kind: "manual", regionId, summary: `pulse ${i}` });
     }
-    await deliverPulse({ sourceNodeId: "n-over", kind: "manual", regionId, summary: "one too many" });
+    await deliverPulse({ canvasName, sourceNodeId: "n-over", kind: "manual", regionId, summary: "one too many" });
 
-    const log = kernel$.pulseLog.peek();
+    const log = getPulseLog();
     expect(log).toHaveLength(PULSE_CAP_PER_REGION_PER_HOUR + 1);
     const last = log[log.length - 1];
     expect(last?.dry).toBe(true);
@@ -256,25 +282,28 @@ describe("deliverPulse — arming and the hard cap", () => {
   });
 
   it("a disarmed region always logs dry with nothing delivered", async () => {
-    kernel$.armed[regionId].set(false);
-    await deliverPulse({ sourceNodeId: "n", kind: "manual", regionId, summary: "quiet" });
-    const record = kernel$.pulseLog.peek()[0];
+    __resetPulseLogForTest();
+    setArmed(`${canvasName}::${regionId}`, false);
+    await deliverPulse({ canvasName, sourceNodeId: "n", kind: "manual", regionId, summary: "quiet" });
+    const record = getPulseLog()[0];
     expect(record?.dry).toBe(true);
     expect(record?.delivered).toEqual([]);
   });
 
   it("a regionless pulse always logs dry with delivered: [] and no regionId", async () => {
-    await deliverPulse({ sourceNodeId: "n", kind: "watcher", regionId: undefined, summary: "no region" });
-    const record = kernel$.pulseLog.peek()[0];
+    __resetPulseLogForTest();
+    await deliverPulse({ canvasName, sourceNodeId: "n", kind: "watcher", regionId: undefined, summary: "no region" });
+    const record = getPulseLog()[0];
     expect(record?.dry).toBe(true);
     expect(record?.regionId).toBeUndefined();
     expect(record?.delivered).toEqual([]);
   });
 
   it("forceDry short-circuits an armed, under-cap region straight to dry", async () => {
-    kernel$.armed[regionId].set(true);
-    await deliverPulse({ sourceNodeId: "n", kind: "manual", regionId, summary: "manual dry run", forceDry: true });
-    const record = kernel$.pulseLog.peek()[0];
+    __resetPulseLogForTest();
+    setArmed(`${canvasName}::${regionId}`, true);
+    await deliverPulse({ canvasName, sourceNodeId: "n", kind: "manual", regionId, summary: "manual dry run", forceDry: true });
+    const record = getPulseLog()[0];
     expect(record?.dry).toBe(true);
     expect(record?.summary).toBe("manual dry run");
   });
@@ -284,6 +313,7 @@ describe("deliverPulse — arming and the hard cap", () => {
 
 describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
   const regionId = "region-agents";
+  const canvasName = "test-canvas";
   const agentDoc: CanvasDoc = {
     nodes: [
       { id: regionId, type: "group", x: 0, y: 0, width: 400, height: 400 },
@@ -323,10 +353,13 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
   };
 
   beforeEach(() => {
-    kernel$.armed.set({});
-    kernel$.armed[regionId].set(true);
-    kernel$.pulseLog.set([]);
-    state$.doc.set(agentDoc);
+    __resetPulseLogForTest();
+    __setDocsForTest(new Map([[canvasName, agentDoc]]));
+    setArmed(`${canvasName}::${regionId}`, true);
+  });
+
+  afterEach(() => {
+    __setDeliveryDepsForTest(undefined);
   });
 
   it("opens only the not-yet-live agent, then sends every member sequentially in order", async () => {
@@ -341,14 +374,14 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
       },
     };
 
-    await deliverPulse({ sourceNodeId: regionId, kind: "manual", regionId, summary: "go", deps });
+    await deliverPulse({ canvasName, sourceNodeId: regionId, kind: "manual", regionId, summary: "go", deps });
 
     expect(calls).toEqual([
       "open:remote-a:vega",
       "send:remote-a:vega:[pulse] go",
       "send:remote-a:nova:[pulse] go",
     ]);
-    const record = kernel$.pulseLog.peek()[0];
+    const record = getPulseLog()[0];
     expect(record?.dry).toBe(false);
     expect(record?.delivered).toEqual(["remote-a:vega", "remote-a:nova"]);
   });
@@ -361,8 +394,8 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
         if (key === "remote-a:vega") throw new Error("boom");
       },
     };
-    await deliverPulse({ sourceNodeId: regionId, kind: "manual", regionId, summary: "go", deps });
-    const record = kernel$.pulseLog.peek()[0];
+    await deliverPulse({ canvasName, sourceNodeId: regionId, kind: "manual", regionId, summary: "go", deps });
+    const record = getPulseLog()[0];
     expect(record?.delivered).toEqual(["remote-a:nova"]);
   });
 });
