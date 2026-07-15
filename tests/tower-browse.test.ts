@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   fetchTowerCommentGlyph,
   fetchTowerCommentSignal,
+  fetchTowerEmitSignal,
   formatPayloadJson,
   isBlankCommentBody,
   mapGlyphDetail,
@@ -9,6 +10,7 @@ import {
   mapSearchMatches,
   mapSignalDetail,
   mapSignalItems,
+  parseEmitSignalInput,
 } from "../src/main/vellum/adapters/tower-browse";
 
 // Fixtures below model what @skastr0/tower-sdk actually hands these mappers
@@ -290,5 +292,88 @@ describe("fetchTowerCommentGlyph / fetchTowerCommentSignal", () => {
   it("rejects a blank signal comment body without touching the network", async () => {
     const result = await fetchTowerCommentSignal("prism", "forge", "sig_abc", "");
     expect(result).toEqual({ ok: false, error: "comment body is empty" });
+  });
+});
+
+describe("parseEmitSignalInput", () => {
+  const base = {
+    projectKey: "vellum",
+    orbit: "forge",
+    kind: "note",
+    summary: "ship the emit form",
+  };
+
+  it("accepts a minimal valid emit and defaults contract/payload", () => {
+    const parsed = parseEmitSignalInput(base);
+    expect(parsed).toEqual({
+      ok: true,
+      input: {
+        projectKey: "vellum",
+        orbit: "forge",
+        kind: "note",
+        summary: "ship the emit form",
+        contractSchemaId: "signal/v1",
+        payload: {},
+      },
+    });
+  });
+
+  it("rejects missing summary / kind / orbit without touching the network", () => {
+    expect(parseEmitSignalInput({ ...base, summary: "  " })).toEqual({
+      ok: false,
+      error: "summary is required",
+    });
+    expect(parseEmitSignalInput({ ...base, kind: "" })).toEqual({
+      ok: false,
+      error: "kind is required",
+    });
+    expect(parseEmitSignalInput({ ...base, orbit: "" })).toEqual({
+      ok: false,
+      error: "orbit is required",
+    });
+  });
+
+  it("rejects malformed kind, contract, and non-object payload", () => {
+    expect(parseEmitSignalInput({ ...base, kind: "Bad Kind" }).ok).toBe(false);
+    expect(parseEmitSignalInput({ ...base, contractSchemaId: "no-version" }).ok).toBe(false);
+    expect(parseEmitSignalInput({ ...base, payloadJson: "[]" })).toEqual({
+      ok: false,
+      error: "payload must be a JSON object",
+    });
+    expect(parseEmitSignalInput({ ...base, payloadJson: "{not json" }).ok).toBe(false);
+  });
+
+  it("rejects invalid project key and oversize summary/payload before network", () => {
+    expect(parseEmitSignalInput({ ...base, projectKey: " bad key " }).ok).toBe(false);
+    expect(parseEmitSignalInput({ ...base, summary: "x".repeat(4_001) }).ok).toBe(false);
+    expect(parseEmitSignalInput({ ...base, payloadJson: `{"x":"${"y".repeat(20_000)}"}` }).ok).toBe(false);
+  });
+
+  it("parses payload JSON and optional priority / dedupe", () => {
+    const parsed = parseEmitSignalInput({
+      ...base,
+      payloadJson: '{"ref":"VL-1"}',
+      priority: "high",
+      dedupeKey: "vl-1-once",
+      contractSchemaId: "tower/signals/note/v1",
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.input.payload).toEqual({ ref: "VL-1" });
+    expect(parsed.input.priority).toBe("high");
+    expect(parsed.input.dedupeKey).toBe("vl-1-once");
+    expect(parsed.input.contractSchemaId).toBe("tower/signals/note/v1");
+  });
+});
+
+describe("fetchTowerEmitSignal", () => {
+  it("rejects invalid input before the network", async () => {
+    const result = await fetchTowerEmitSignal({
+      projectKey: "vellum",
+      orbit: "forge",
+      kind: "note",
+      summary: "   ",
+    });
+    expect(result).toEqual({ ok: false, error: "summary is required" });
   });
 });

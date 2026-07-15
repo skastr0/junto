@@ -3,11 +3,6 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
 import { digestCanvas } from "../src/shared/digest";
 
-// Small fixture exercising every digest section: a region, an entity whose
-// identity resolves live (Foo -> tower), entities that resolve to nothing and
-// therefore read as seeds (Bar has no identity name, Baz's name has no corpus
-// match), edges of every label shape (ether.kind, edge.label, and the bare
-// "relates" fallback), and a tower/quasar/booth source mix.
 const doc: CanvasDoc = {
   nodes: [
     { id: "grp1", type: "group", label: "team", x: 0, y: 0, width: 400, height: 200 },
@@ -45,10 +40,23 @@ const doc: CanvasDoc = {
         entity: { kind: "project", name: "baz" },
       },
     },
+    {
+      id: "t1",
+      type: "text",
+      text: "Ops",
+      x: 250,
+      y: 300,
+      width: 100,
+      height: 50,
+      ether: {
+        entity: { kind: "task" },
+        tasks: { items: [{ id: "i1", text: "ship", done: false }] },
+      },
+    },
   ],
   edges: [
-    { id: "e1", fromNode: "m1", toNode: "m2", ether: { kind: "depends" } },
-    { id: "e2", fromNode: "m2", toNode: "m3", ether: { kind: "blocks" } },
+    { id: "e1", fromNode: "m1", toNode: "m2" },
+    { id: "e2", fromNode: "t1", toNode: "m3", ether: { criteria: { mode: "tasks" } } },
     { id: "e3", fromNode: "m3", toNode: "m1", label: "refs" },
     { id: "e4", fromNode: "m1", toNode: "m3" },
   ],
@@ -87,7 +95,7 @@ const snapshots: SnapshotState = {
 };
 
 const expected = `canvas :: fixture
-nodes :: 4
+nodes :: 5
 edges :: 4
 
 regions
@@ -98,21 +106,24 @@ Foo :: project
   tower: a=1 b=x
 Bar :: orbit
 Baz :: project
+Ops :: task
+  tasks: 0/1 done
 
 edges
-Foo --depends--> Bar
-Bar --blocks--> Baz
+Foo --relates--> Bar
+Ops --blocks(0/1 tasks done · open: ship)--> Baz
 Baz --refs--> Foo
 Foo --relates--> Baz
 
 blockers
 Bar
 blocked closure :: 1 nodes
-Baz · pinned blocks
+Baz · 0/1 tasks done · open: ship
 
 seeds
 Bar
 Baz
+Ops
 
 sources
 tower :: ok (1 entities)

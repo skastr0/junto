@@ -4,7 +4,7 @@
 // writes) are behind injectable seams.
 
 import { ulid } from "ulid";
-import type { CanvasDoc, EdgePhase, GroupNode } from "@shared/canvas";
+import { applyPhaseMirror, type CanvasDoc, type EdgePhase, type GroupNode } from "@shared/canvas";
 import {
   composeRegionExecutionContext,
   deriveExecutionGraph,
@@ -141,6 +141,15 @@ export interface FlagWriterDeps {
   readonly toggleFlag: (canvasName: string, nodeId: string, flag: string) => void;
 }
 
+// Level-driven mirror of derived edge phase into ether.kind for criteria
+// edges so offline readers of the .canvas file see the last live phase.
+export interface PhaseMirrorDeps {
+  readonly mirrorPhases: (
+    canvasName: string,
+    phaseByEdgeId: ReadonlyMap<string, EdgePhase>,
+  ) => void;
+}
+
 // Operator-set spacing rule (2026-07-15, replacing an agent-invented 6/hr
 // quota): a region that the operator armed fires as often as its watchers and
 // timers say — the only catastrophe worth suppressing is seconds-level
@@ -164,6 +173,7 @@ let pulseLog: PulseRecord[] = [];
 
 let deliveryDeps: PulseDeliverDeps | undefined = undefined;
 let flagWriterDeps: FlagWriterDeps | undefined = undefined;
+let phaseMirrorDeps: PhaseMirrorDeps | undefined = undefined;
 let glyphFetcher: ((project: string) => Promise<ReadonlyArray<TowerGlyphRow> | undefined>) | undefined = undefined;
 
 // Test seams
@@ -187,6 +197,10 @@ export const __setFlagWriterForTest = (deps: FlagWriterDeps | undefined): void =
   flagWriterDeps = deps;
 };
 
+export const __setPhaseMirrorForTest = (deps: PhaseMirrorDeps | undefined): void => {
+  phaseMirrorDeps = deps;
+};
+
 export const __setGlyphFetcherForTest = (fetcher: ((project: string) => Promise<ReadonlyArray<TowerGlyphRow> | undefined>) | undefined): void => {
   glyphFetcher = fetcher;
 };
@@ -198,10 +212,23 @@ export const __resetKernelMemoryForTest = (): void => {
   pulseLog = [];
   deliveryDeps = undefined;
   flagWriterDeps = undefined;
+  phaseMirrorDeps = undefined;
   glyphFetcher = undefined;
   lastGlyphIndex = null;
   executionByCanvas.clear();
   resetWatcherMemory();
+};
+
+/** True when any edge's mirrored kind differs from the derived phase. */
+export const criteriaPhasesNeedMirror = (
+  doc: CanvasDoc,
+  phaseByEdgeId: ReadonlyMap<string, EdgePhase>,
+): boolean => {
+  for (const edge of doc.edges) {
+    const phase = phaseByEdgeId.get(edge.id);
+    if (phase !== undefined && edge.ether?.kind !== phase) return true;
+  }
+  return false;
 };
 
 export const __resetPulseLogForTest = (): void => {
@@ -520,7 +547,19 @@ export const runEvaluationCycle = async (): Promise<void> => {
   // Evaluate each canvas with per-canvas isolation
   for (const [canvasName, doc] of docs.entries()) {
     try {
-      executionByCanvas.set(canvasName, snapshotFromGraph(doc, index));
+      const execution = snapshotFromGraph(doc, index);
+      executionByCanvas.set(canvasName, execution);
+
+      // Mirror derived phase into stored kind for criteria edges (offline
+      // readability). Level-driven + idempotent — only writes when kind drifts.
+      if (phaseMirrorDeps) {
+        const phaseMap = new Map(
+          Object.entries(execution.phaseByEdgeId) as Array<[string, EdgePhase]>,
+        );
+        if (criteriaPhasesNeedMirror(doc, phaseMap)) {
+          phaseMirrorDeps.mirrorPhases(canvasName, phaseMap);
+        }
+      }
 
       for (const { nodeId, watch, result } of detectPulses(canvasName, doc, snapshots, index)) {
         const watcherKey = `${canvasName}::${nodeId}`;

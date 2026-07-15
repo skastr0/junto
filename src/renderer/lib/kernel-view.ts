@@ -11,22 +11,36 @@
 // DRY pulse — logged, no agent turns.
 
 import { observable, observe } from "@legendapp/state";
-import type { ArmRegionResult, KernelSnapshot, PulseRecord, WatcherRuntimeState } from "@shared/ipc";
+import type {
+  ArmRegionResult,
+  ExecutionSnapshot,
+  KernelSnapshot,
+  PulseRecord,
+  WatcherRuntimeState,
+} from "@shared/ipc";
 import { getVellumApi } from "./vellum-api";
 import { state$ } from "./state";
 
 // --- frozen interface --------------------------------------------------------
 
-export type { WatcherRuntimeState, PulseRecord };
+export type { WatcherRuntimeState, PulseRecord, ExecutionSnapshot };
 
 // fault + orphaned are snapshot-GLOBAL (not per-canvas): a persisted-arming
 // load failure, and the armed `canvas::region` keys whose canvas/region no
 // longer exists in any hydrated document. Both are durable-intent surfacing —
 // the kernel refuses to silently disarm, so the renderer must show them.
+//
+// `execution` is the open canvas's live edge phase + blocked closure from the
+// kernel cycle (glyph-aware). Canvas toFlow consumes it so criteria edges
+// paint blocks/depends without the renderer re-fetching tower browse.
 export const kernel$ = observable<{
   watchers: Record<string, WatcherRuntimeState>;
   armed: Record<string, boolean>;
   nextFire: Record<string, number>;
+  execution: ExecutionSnapshot | null;
+  // Monotonic stamp so React effects can depend on execution changes without
+  // deep-comparing the snapshot object.
+  executionRev: number;
   pulseLog: PulseRecord[];
   fault: string;
   orphaned: string[];
@@ -34,6 +48,8 @@ export const kernel$ = observable<{
   watchers: {},
   armed: {},
   nextFire: {},
+  execution: null,
+  executionRev: 0,
   pulseLog: [],
   fault: "",
   orphaned: [],
@@ -53,6 +69,7 @@ const EMPTY_CANVAS_ENTRY: {
   readonly watchers: Record<string, WatcherRuntimeState>;
   readonly armed: Record<string, boolean>;
   readonly nextFire: Record<string, number>;
+  readonly execution?: ExecutionSnapshot;
 } = { watchers: {}, armed: {}, nextFire: {} };
 
 // The last snapshot pushed/hydrated from main, kept so a canvasName switch
@@ -64,6 +81,16 @@ const projectSnapshot = (snapshot: KernelSnapshot, canvasName: string): void => 
   kernel$.watchers.set(entry.watchers);
   kernel$.armed.set(entry.armed);
   kernel$.nextFire.set(entry.nextFire);
+  const nextExecution = entry.execution ?? null;
+  const prev = kernel$.execution.peek();
+  // Stamp only when the serializable payload actually changes so canvas
+  // rebuilds are not thrashing every kernel heartbeat with identical data.
+  const prevKey = prev ? JSON.stringify(prev) : "";
+  const nextKey = nextExecution ? JSON.stringify(nextExecution) : "";
+  if (prevKey !== nextKey) {
+    kernel$.execution.set(nextExecution);
+    kernel$.executionRev.set(kernel$.executionRev.peek() + 1);
+  }
   kernel$.pulseLog.set(snapshot.pulseLog.filter((record) => record.canvasName === canvasName));
   // Global surfaces — independent of the open canvas.
   kernel$.fault.set(snapshot.fault ?? "");

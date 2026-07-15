@@ -7,8 +7,8 @@ import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
 // blockedClosure / blockedEdgeIds are thin wrappers over deriveExecutionGraph.
 // Callers with a live GlyphView should prefer deriveExecutionGraph directly
 // so glyph-bound criteria can resolve; without a view, criteria edges that
-// need tower data stay non-generating (relates) while legacy pins and tasks
-// criteria still evaluate from the document alone.
+// need tower data stay non-generating (relates); tasks criteria still
+// evaluate from the document alone.
 
 export const blockedClosure = (
   doc: CanvasDoc,

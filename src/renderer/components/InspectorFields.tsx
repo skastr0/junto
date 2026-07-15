@@ -2,15 +2,15 @@ import { useEffect, useState } from "react";
 import { Flag, SlidersHorizontal } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { ulid } from "ulid";
-import type { CanvasDoc, CanvasNode, EdgeCriteria, EtherEdgeKind, EtherFlag, EtherView, EtherWatch } from "@shared/canvas";
+import type { CanvasDoc, CanvasNode, EdgeCriteria, EtherFlag, EtherView, EtherWatch } from "@shared/canvas";
 import { towerProjectKey } from "@shared/execution-graph";
 import { findEntity } from "@shared/entities";
 import { addEdge, setEdgeCriteria } from "../lib/edge-mutations";
 import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTasks, setNodeTimer, setNodeView, setNodeWatch, setRegionHold, toggleFlag } from "../lib/mutations";
-import { glyphStateHue, orbitOptions, TOWER_STATES } from "../lib/browse";
+import { fetchTowerBrowse, glyphStateHue, orbitOptions, TOWER_STATES } from "../lib/browse";
 import { state$ } from "../lib/state";
 import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
-import { HUE, withAlpha } from "../lib/theme";
+import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
 
 const FLAG_OPTIONS: ReadonlyArray<{ readonly flag: EtherFlag; readonly hue: string }> = [
@@ -127,22 +127,155 @@ function TasksEditor({ node }: { readonly node: CanvasNode }) {
   );
 }
 
+function GlyphTypeaheadPicker({
+  towerKey,
+  selectedIds,
+  onChange,
+}: {
+  readonly towerKey: string;
+  readonly selectedIds: ReadonlyArray<string>;
+  readonly onChange: (ids: ReadonlyArray<string>) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [rows, setRows] = useState<
+    ReadonlyArray<{ readonly glyphId: string; readonly title: string; readonly state: string; readonly orbit: string }>
+  >([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!towerKey) return;
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    void fetchTowerBrowse(towerKey)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.ok) {
+          setError(result.error ?? "browse failed");
+          setRows([]);
+          return;
+        }
+        setRows(
+          result.glyphs.map((g) => ({
+            glyphId: g.glyphId,
+            title: g.title,
+            state: g.state,
+            orbit: g.orbit,
+          })),
+        );
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [towerKey]);
+
+  const selected = new Set(selectedIds);
+  const q = query.trim().toLowerCase();
+  const filtered = rows.filter((row) => {
+    if (!q) return true;
+    return (
+      row.glyphId.toLowerCase().includes(q) ||
+      row.title.toLowerCase().includes(q) ||
+      row.state.toLowerCase().includes(q) ||
+      row.orbit.toLowerCase().includes(q)
+    );
+  });
+
+  const toggle = (glyphId: string) => {
+    if (selected.has(glyphId)) onChange(selectedIds.filter((id) => id !== glyphId));
+    else onChange([...selectedIds, glyphId]);
+  };
+
+  return (
+    <div style={{ marginTop: 6 }}>
+      <label className="inspector-editor">
+        <span>find glyphs</span>
+        <input
+          aria-label="Filter glyphs"
+          value={query}
+          placeholder="typeahead · id, title, state, orbit"
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </label>
+      {loading ? <div className="inspector-detail">loading tower glyphs…</div> : null}
+      {error ? <div className="inspector-detail" style={{ color: HUE.crimson }}>{error}</div> : null}
+      {selectedIds.length > 0 ? (
+        <div className="mb-1 flex flex-wrap gap-1">
+          {selectedIds.map((id) => {
+            const row = rows.find((r) => r.glyphId === id);
+            return (
+              <button
+                key={id}
+                type="button"
+                className="inspector-flag-toggle"
+                style={{ color: HUE.amber, borderColor: withAlpha(HUE.amber, 0.5) }}
+                onClick={() => toggle(id)}
+                title="remove"
+              >
+                {row ? `${row.glyphId} · ${row.state}` : id} ×
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="inspector-detail">Select one or more glyphs that must be done.</div>
+      )}
+      <div className="max-h-40 overflow-y-auto" style={{ border: "1px solid rgba(237,230,218,.08)", borderRadius: 6 }}>
+        {filtered.slice(0, 40).map((row) => {
+          const on = selected.has(row.glyphId);
+          return (
+            <button
+              key={`${row.orbit}:${row.glyphId}`}
+              type="button"
+              className="flex w-full items-center gap-2 px-2 py-1 text-left text-[11px]"
+              style={{
+                color: on ? INK : DIM,
+                background: on ? withAlpha(HUE.amber, 0.1) : "transparent",
+                borderBottom: "1px solid rgba(237,230,218,.06)",
+              }}
+              onClick={() => toggle(row.glyphId)}
+            >
+              <span style={{ color: on ? HUE.amber : DIM }}>{on ? "☑" : "☐"}</span>
+              <span className="truncate font-mono">{row.glyphId}</span>
+              <span className="truncate opacity-80">{row.title}</span>
+              <span className="ml-auto shrink-0 tabular-nums opacity-60">{row.state}</span>
+            </button>
+          );
+        })}
+        {!loading && filtered.length === 0 ? (
+          <div className="inspector-detail px-2 py-2">no glyphs match</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function EdgeCriteriaEditor({
   edgeId,
   fromNode,
+  livePhase,
+  liveDetail,
 }: {
   readonly edgeId: string;
   readonly fromNode: CanvasNode | undefined;
+  readonly livePhase?: string;
+  readonly liveDetail?: string;
 }) {
   const doc = use$(state$.doc);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
   const criteria = edge?.ether?.criteria;
   const fromIsTask = fromNode?.ether?.entity?.kind === "task";
+  const fromIsProject = fromNode?.ether?.entity?.kind === "project";
   const towerKey = towerProjectKey(fromNode) ?? "";
 
-  const mode: "none" | "glyphs" | "wip" | "tasks" = !criteria
-    ? "none"
-    : criteria.mode;
+  const mode: "none" | "glyphs" | "wip" | "tasks" = !criteria ? "none" : criteria.mode;
 
   const setMode = (next: "none" | "glyphs" | "wip" | "tasks") => {
     if (next === "none") {
@@ -150,10 +283,7 @@ export function EdgeCriteriaEditor({
       return;
     }
     if (next === "wip") {
-      setEdgeCriteria(edgeId, {
-        mode: "wip",
-        ...(towerKey ? { project: towerKey } : {}),
-      });
+      setEdgeCriteria(edgeId, { mode: "wip", ...(towerKey ? { project: towerKey } : {}) });
       return;
     }
     if (next === "tasks") {
@@ -168,64 +298,67 @@ export function EdgeCriteriaEditor({
     });
   };
 
-  const glyphIdsText =
-    criteria?.mode === "glyphs" ? criteria.glyphIds.join(", ") : "";
+  const selectedGlyphIds = criteria?.mode === "glyphs" ? criteria.glyphIds : [];
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">live criteria</div>
+      <div className="inspector-section__label">live phase</div>
+      {livePhase ? (
+        <div className="inspector-detail" style={{ marginBottom: 8 }}>
+          <strong style={{ color: livePhase === "blocks" ? HUE.crimson : livePhase === "depends" ? HUE.amber : undefined }}>
+            {livePhase}
+          </strong>
+          {liveDetail ? ` · ${liveDetail}` : null}
+          {!criteria ? " · soft relates (no criteria)" : null}
+        </div>
+      ) : null}
+      <div className="inspector-section__label">criteria</div>
       <label className="inspector-editor">
-        <span>binding</span>
+        <span>mode</span>
         <select
           aria-label="Edge criteria mode"
           value={mode}
           onChange={(event) => setMode(event.target.value as "none" | "glyphs" | "wip" | "tasks")}
         >
-          <option value="none">none · plain relates (or legacy pin)</option>
-          <option value="glyphs">selected glyphs must be done</option>
-          <option value="wip">opt-in WIP (committed|building|reviewing)</option>
-          {fromIsTask ? <option value="tasks">tasks checklist on source</option> : null}
+          <option value="none">none · soft relates</option>
+          {fromIsTask ? <option value="tasks">tasks · open checklist blocks</option> : null}
+          {fromIsProject || towerKey ? (
+            <option value="wip">WIP · committed/building/reviewing (opt-in)</option>
+          ) : null}
+          {fromIsProject || towerKey ? (
+            <option value="glyphs">glyphs · selected must be done</option>
+          ) : null}
         </select>
       </label>
-      {mode === "glyphs" ? (
-        <label className="inspector-editor">
-          <span>glyph ids</span>
-          <input
-            aria-label="Glyph ids for edge criteria"
-            placeholder="comma-separated glyph ids"
-            defaultValue={glyphIdsText}
-            key={`${edgeId}:${glyphIdsText}`}
-            onBlur={(event) => {
-              const glyphIds = event.target.value
-                .split(",")
-                .map((part) => part.trim())
-                .filter(Boolean);
-              const next: EdgeCriteria = {
-                mode: "glyphs",
-                glyphIds,
-                ...(towerKey ? { project: towerKey } : {}),
-                ...(criteria?.mode === "glyphs" && criteria.orbit ? { orbit: criteria.orbit } : {}),
-              };
-              setEdgeCriteria(edgeId, next);
-            }}
-          />
-        </label>
+      {mode === "glyphs" && towerKey ? (
+        <GlyphTypeaheadPicker
+          towerKey={towerKey}
+          selectedIds={selectedGlyphIds}
+          onChange={(glyphIds) =>
+            setEdgeCriteria(edgeId, {
+              mode: "glyphs",
+              glyphIds: [...glyphIds],
+              project: towerKey,
+              ...(criteria?.mode === "glyphs" && criteria.orbit ? { orbit: criteria.orbit } : {}),
+            })
+          }
+        />
+      ) : null}
+      {mode === "glyphs" && !towerKey ? (
+        <div className="inspector-detail">Source needs a tower project binding to pick glyphs.</div>
       ) : null}
       {mode === "wip" ? (
         <div className="inspector-detail">
-          Blocks while any glyph on the source project is in committed, building, or reviewing.
-          Opt-in only — never the default for projects.
+          Blocks while any glyph on the source tower project is in committed, building, or reviewing.
         </div>
       ) : null}
       {mode === "tasks" ? (
         <div className="inspector-detail">
-          Blocks while incomplete items remain on the source tasks node.
+          Blocks while incomplete items remain on the source tasks node. Auto-set when connecting from tasks.
         </div>
       ) : null}
       {mode === "none" ? (
-        <div className="inspector-detail">
-          No live binding. Use cycle kind for a static pin, or attach glyphs/WIP/tasks above.
-        </div>
+        <div className="inspector-detail">Soft structural link — does not generate or relay blocks.</div>
       ) : null}
     </div>
   );
@@ -708,18 +841,57 @@ export function NodeFlagControls({ node }: { readonly node: CanvasNode }) {
 export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node: CanvasNode; readonly doc: CanvasDoc; readonly open: boolean; readonly onOpenChange: (open: boolean) => void }) {
   const [targetId, setTargetId] = useState("");
   const [targetQuery, setTargetQuery] = useState("");
-  const [edgeKind, setEdgeKind] = useState<EtherEdgeKind>("relates");
   const targets = doc.nodes.filter((candidate) => candidate.id !== node.id && candidate.type !== "group");
   const availableTargets = targets.filter((target) => !doc.edges.some((edge) => edge.fromNode === node.id && edge.toNode === target.id));
   const filteredTargets = availableTargets.filter((target) => !targetQuery.trim() || searchText(target).includes(targetQuery.trim().toLowerCase()));
+  const fromIsTask = node.ether?.entity?.kind === "task";
   const connect = () => {
     if (!targetId) return;
-    addEdge({ source: node.id, target: targetId, kind: edgeKind });
+    // Criteria inferred from source (tasks → tasks criteria). No static kind picker.
+    addEdge({ source: node.id, target: targetId });
     setTargetId("");
     setTargetQuery("");
-    setEdgeKind("relates");
     onOpenChange(false);
   };
   if (!open) return null;
-  return <div className="inspector-connect"><label><span>find a node <em>{filteredTargets.length}/{availableTargets.length}</em></span><input aria-label="Find a node" value={targetQuery} onChange={(event) => setTargetQuery(event.target.value)} placeholder="name, source, or binding" /></label>{availableTargets.length === 0 ? <div className="inspector-connect__empty">No unlinked nodes available.</div> : filteredTargets.length === 0 ? <div className="inspector-connect__empty">No nodes match this filter.</div> : <label><span>connect to</span><select aria-label="Connect to node" value={targetId} onChange={(event) => setTargetId(event.target.value)}><option value="">choose a node</option>{filteredTargets.map((target) => <option key={target.id} value={target.id}>{nodeTitle(target)} · {target.type}</option>)}</select></label>}<label><span>edge kind</span><select aria-label="Edge kind" value={edgeKind} onChange={(event) => setEdgeKind(event.target.value as EtherEdgeKind)}><option value="relates">relates</option><option value="depends">depends</option><option value="blocks">blocks</option></select></label><button disabled={!targetId} onClick={connect}>create edge</button></div>;
+  return (
+    <div className="inspector-connect">
+      <label>
+        <span>
+          find a node <em>{filteredTargets.length}/{availableTargets.length}</em>
+        </span>
+        <input
+          aria-label="Find a node"
+          value={targetQuery}
+          onChange={(event) => setTargetQuery(event.target.value)}
+          placeholder="name, source, or binding"
+        />
+      </label>
+      {availableTargets.length === 0 ? (
+        <div className="inspector-connect__empty">No unlinked nodes available.</div>
+      ) : filteredTargets.length === 0 ? (
+        <div className="inspector-connect__empty">No nodes match this filter.</div>
+      ) : (
+        <label>
+          <span>connect to</span>
+          <select aria-label="Connect to node" value={targetId} onChange={(event) => setTargetId(event.target.value)}>
+            <option value="">choose a node</option>
+            {filteredTargets.map((target) => (
+              <option key={target.id} value={target.id}>
+                {nodeTitle(target)} · {target.ether?.entity?.kind ?? target.type}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <div className="inspector-detail">
+        {fromIsTask
+          ? "From a tasks node: edge auto-binds to the checklist (blocks while open)."
+          : "Soft relates by default. Attach WIP or glyph criteria on the edge after connect."}
+      </div>
+      <button disabled={!targetId} onClick={connect}>
+        create edge
+      </button>
+    </div>
+  );
 }

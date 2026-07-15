@@ -4,12 +4,15 @@ import type {
   SourceWriteResult,
   TowerBrowseResult,
   TowerDispatchesResult,
+  TowerEmitSignalInput,
+  TowerEmitSignalResult,
   TowerGlyphDetail,
   TowerGlyphReadResult,
   TowerGlyphRow,
   TowerSearchMatch,
   TowerSearchResult,
   TowerSignalDetail,
+  TowerSignalPriority,
   TowerSignalReadResult,
   TowerSignalRow,
 } from "@shared/ipc";
@@ -186,6 +189,107 @@ export const mapSignalDetail = (raw: SdkSignalDetail): TowerSignalDetail => ({
 });
 
 export const isBlankCommentBody = (body: string): boolean => body.trim().length === 0;
+
+// Defaults mirror tower-cli `signal emit` (contract → signal/v1, payload → {}).
+export const DEFAULT_SIGNAL_CONTRACT = "signal/v1";
+
+// Tower signal kind: lowercase lead, then alnum / . _ - segments.
+const SIGNAL_KIND_RE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
+// Contract schema id ends in /vN (tower SignalContractSchemaId).
+const SIGNAL_CONTRACT_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*\/v[0-9]+$/;
+const SIGNAL_ORBIT_RE = /^[a-z][a-z0-9-]{0,63}$/;
+// Mirrors tower-sdk ProjectKey (httpSchemas).
+const SIGNAL_PROJECT_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const SIGNAL_PRIORITIES: ReadonlyArray<TowerSignalPriority> = ["low", "normal", "high", "urgent"];
+// Write-side size caps (read path uses PAYLOAD_JSON_CAP for display).
+export const EMIT_SUMMARY_MAX = 4_000;
+export const EMIT_PAYLOAD_JSON_MAX = PAYLOAD_JSON_CAP;
+
+export interface ParsedEmitSignalInput {
+  readonly projectKey: string;
+  readonly orbit: string;
+  readonly kind: string;
+  readonly summary: string;
+  readonly contractSchemaId: string;
+  readonly payload: Record<string, unknown>;
+  readonly priority?: TowerSignalPriority;
+  readonly dedupeKey?: string;
+}
+
+export type ParsedEmitSignal =
+  | { readonly ok: true; readonly input: ParsedEmitSignalInput }
+  | { readonly ok: false; readonly error: string };
+
+// Pure validation for deliberate signal emit. Keeps network out of the loop
+// for empty/malformed forms (same role as isBlankCommentBody for comments).
+export const parseEmitSignalInput = (raw: TowerEmitSignalInput): ParsedEmitSignal => {
+  const projectKey = raw.projectKey.trim();
+  if (!projectKey) return { ok: false, error: "project key is required" };
+  if (!SIGNAL_PROJECT_KEY_RE.test(projectKey)) {
+    return { ok: false, error: "project key is invalid" };
+  }
+
+  const orbit = raw.orbit.trim();
+  if (!orbit) return { ok: false, error: "orbit is required" };
+  if (!SIGNAL_ORBIT_RE.test(orbit)) {
+    return { ok: false, error: "orbit must be lowercase alphanumeric (with hyphens)" };
+  }
+
+  const kind = raw.kind.trim();
+  if (!kind) return { ok: false, error: "kind is required" };
+  if (!SIGNAL_KIND_RE.test(kind)) {
+    return { ok: false, error: "kind must match e.g. note or handoff.request" };
+  }
+
+  const summary = raw.summary.trim();
+  if (!summary) return { ok: false, error: "summary is required" };
+  if (summary.length > EMIT_SUMMARY_MAX) {
+    return { ok: false, error: `summary exceeds ${EMIT_SUMMARY_MAX} characters` };
+  }
+
+  const contractSchemaId = (raw.contractSchemaId ?? "").trim() || DEFAULT_SIGNAL_CONTRACT;
+  if (!SIGNAL_CONTRACT_RE.test(contractSchemaId)) {
+    return { ok: false, error: "contract must end in /vN (e.g. signal/v1)" };
+  }
+
+  const payloadText = (raw.payloadJson ?? "").trim();
+  if (payloadText.length > EMIT_PAYLOAD_JSON_MAX) {
+    return { ok: false, error: `payload exceeds ${EMIT_PAYLOAD_JSON_MAX} characters` };
+  }
+  let payload: Record<string, unknown> = {};
+  if (payloadText) {
+    try {
+      const parsed: unknown = JSON.parse(payloadText);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { ok: false, error: "payload must be a JSON object" };
+      }
+      payload = parsed as Record<string, unknown>;
+    } catch {
+      return { ok: false, error: "payload is not valid JSON" };
+    }
+  }
+
+  const priority = raw.priority;
+  if (priority !== undefined && !SIGNAL_PRIORITIES.includes(priority)) {
+    return { ok: false, error: "priority must be low, normal, high, or urgent" };
+  }
+
+  const dedupeKey = (raw.dedupeKey ?? "").trim() || undefined;
+
+  return {
+    ok: true,
+    input: {
+      projectKey,
+      orbit,
+      kind,
+      summary,
+      contractSchemaId,
+      payload,
+      ...(priority !== undefined ? { priority } : {}),
+      ...(dedupeKey !== undefined ? { dedupeKey } : {}),
+    },
+  };
+};
 
 // --- browse (fan-out over the 5 orbits, glyphs+signals each) --------------
 
@@ -409,3 +513,41 @@ export const fetchTowerCommentSignal = (
         () => SdkRuntime.runPromise(towerComment(projectKey, "signals", orbit, signalId, body)),
         (error) => ({ ok: false, error }),
       );
+
+// --- signal emit (deliberate write) ----------------------------------------
+// User-initiated only. Validation runs before the SDK so blank/malformed
+// forms never touch the network.
+
+const towerEmitSignal = (
+  input: ParsedEmitSignalInput,
+): Effect.Effect<TowerEmitSignalResult, never, TowerClient> =>
+  Effect.gen(function* () {
+    const tower = yield* TowerClient;
+    const result = yield* Effect.either(
+      resolved(
+        tower.emitSignal({
+          projectKey: input.projectKey,
+          orbit: input.orbit,
+          kind: input.kind,
+          contractSchemaId: input.contractSchemaId,
+          summary: input.summary,
+          payload: input.payload,
+          ...(input.priority !== undefined ? { priority: input.priority } : {}),
+          ...(input.dedupeKey !== undefined ? { dedupeKey: input.dedupeKey } : {}),
+        }),
+      ),
+    );
+    if (Either.isLeft(result)) {
+      return { ok: false, error: `tower emit failed: ${describeSdkError(result.left)}` };
+    }
+    return { ok: true, signalId: result.right.signalId };
+  });
+
+export const fetchTowerEmitSignal = (raw: TowerEmitSignalInput): Promise<TowerEmitSignalResult> => {
+  const parsed = parseEmitSignalInput(raw);
+  if (!parsed.ok) return Promise.resolve({ ok: false, error: parsed.error });
+  return runSdkGuarded(
+    () => SdkRuntime.runPromise(towerEmitSignal(parsed.input)),
+    (error) => ({ ok: false, error }),
+  );
+};

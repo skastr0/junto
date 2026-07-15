@@ -90,6 +90,7 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.towerCommentGlyph, IPC_TIMEOUT_MS, projectKey, orbit, glyphId, body),
   towerCommentSignal: (projectKey, orbit, signalId, body) =>
     invoke(IPC_CHANNELS.towerCommentSignal, IPC_TIMEOUT_MS, projectKey, orbit, signalId, body),
+  towerEmitSignal: (input) => invoke(IPC_CHANNELS.towerEmitSignal, IPC_TIMEOUT_MS, input),
   boothDrafts: (projectKey) => invoke(IPC_CHANNELS.boothDrafts, IPC_TIMEOUT_MS, projectKey),
   boothDraftRead: (draftId) => invoke(IPC_CHANNELS.boothDraftRead, IPC_TIMEOUT_MS, draftId),
   boothRequests: (projectKey) => invoke(IPC_CHANNELS.boothRequests, IPC_TIMEOUT_MS, projectKey),

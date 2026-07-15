@@ -68,7 +68,6 @@ const rawDoc = {
       toSide: "left",
       color: "3",
       label: "link",
-      ether: { kind: "relates" },
     },
   ],
 };
@@ -83,8 +82,14 @@ describe("canvas contract", () => {
 
   it("still decodes once every ether key is stripped", () => {
     const stripped = {
-      nodes: rawDoc.nodes.map(({ ether: _ether, ...rest }) => rest),
-      edges: rawDoc.edges.map(({ ether: _ether, ...rest }) => rest),
+      nodes: rawDoc.nodes.map((node) => {
+        const { ether: _ether, ...rest } = node as typeof node & { ether?: unknown };
+        return rest;
+      }),
+      edges: rawDoc.edges.map((edge) => {
+        const { ether: _ether, ...rest } = edge as typeof edge & { ether?: unknown };
+        return rest;
+      }),
     };
     const decoded = decodeCanvasDoc(stripped);
     expect(Either.isRight(decoded)).toBe(true);
@@ -97,8 +102,8 @@ describe("canvas contract", () => {
         { id: "n2", type: "text", text: "Plain", x: 0, y: 100, width: 200, height: 80 },
       ],
       edges: [
-        { id: "e-blocks", fromNode: "n1", toNode: "n2", ether: { kind: "blocks" } },
-        { id: "e-depends", fromNode: "n1", toNode: "n2", ether: { kind: "depends" } },
+        { id: "e-blocks", fromNode: "n1", toNode: "n2", ether: { kind: "blocks", criteria: { mode: "tasks" } } },
+        { id: "e-depends", fromNode: "n1", toNode: "n2", ether: { kind: "depends", criteria: { mode: "wip" } } },
         { id: "e-relates-labeled", fromNode: "n1", toNode: "n2", label: "kept", ether: { kind: "relates" } },
         { id: "e-plain", fromNode: "n1", toNode: "n2" },
       ],

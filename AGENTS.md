@@ -71,7 +71,7 @@ Region activation gated by three structures (`src/shared/canvas.ts`):
 
 **Read-only browse** — tower glyphs/signals and quasar sessions, searchable via canvas detail inspectors (ipc.ts channels: `towerBrowse`, `towerSearch`, `towerGlyphRead`, `towerSignalRead`, `quasarSessions`, `quasarSearch`, `quasarSessionDetail`). Never surface as nodes.
 
-**Deliberate writes** — narrow, user-initiated mutations: tower comments on glyphs/signals and booth review actions (channels: `towerCommentGlyph`, `towerCommentSignal`, `boothDrafts`, `boothReview`). Booth reviews pending server integration.
+**Deliberate writes** — narrow, user-initiated mutations: tower comments on glyphs/signals, tower signal emit, and booth review actions (channels: `towerCommentGlyph`, `towerCommentSignal`, `towerEmitSignal`, `boothDrafts`, `boothReview`). Booth reviews pending server integration.
 
 **Attached agent chat** — one live ACP session per agent node (`<host>:<profile>`); resumable across app sessions (channels: `chatOpen`, `chatPrompt`, `chatPermission`, `chatSetModel`, `chatClose`). Main process owns the `hermes acp` child; renders in the canvas as inline composition. The file remains the agent API.
 

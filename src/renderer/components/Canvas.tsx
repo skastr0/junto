@@ -20,6 +20,7 @@ import type { EtherEdgeKind, EtherFlag, TextNode } from "@shared/canvas";
 import { mergeProjects } from "@shared/portfolio";
 import { Ban, Bot, Boxes, Expand, Eye, FileText, Link2, ListChecks, Plus, ScanLine, SquareDashed, Timer, Trash2 } from "lucide-react";
 import { state$ } from "../lib/state";
+import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { searchText, toFlow } from "../lib/convert";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
@@ -60,16 +61,26 @@ const fitReadableField = (rf: CanvasFlow, duration = 320): void => {
   void rf.fitView({ nodes: anchors, padding: 0.18, duration, maxZoom: regions.length > 0 ? 1.15 : 1.35 }).catch(() => undefined);
 };
 
-function useCanvasDocument(docVersion: number, searchQuery: string, edgeFilter: EtherEdgeKind | "", flagFilter: EtherFlag | "", selectedNodeId: string, selectedEdgeId: string, setNodes: ReturnType<typeof useNodesState<FlowNode>>[1], setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1]) {
-  // Structural rebuild — document/filter/search changes only. Selection is
-  // stamped from a peek so a click never rebuilds the whole graph.
+function useCanvasDocument(
+  docVersion: number,
+  executionRev: number,
+  searchQuery: string,
+  edgeFilter: EtherEdgeKind | "",
+  flagFilter: EtherFlag | "",
+  selectedNodeId: string,
+  selectedEdgeId: string,
+  setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
+  setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1],
+) {
+  // Structural rebuild — document/filter/search + live kernel execution.
+  // Selection is stamped from a peek so a click never rebuilds the whole graph.
   useEffect(() => {
-    const built = toFlow(state$.doc.peek());
+    const built = toFlow(state$.doc.peek(), kernel$.execution.peek());
     const nodeId = state$.selectedNodeId.peek();
     const edgeId = state$.selectedEdgeId.peek();
     const visibleNodes = flagFilter ? built.nodes.filter((node) => node.type === "group" || node.data?.node.ether?.flags?.includes(flagFilter)) : built.nodes;
     const visibleIds = new Set(visibleNodes.map((node) => node.id));
-    const filteredEdges = built.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target) && (!edgeFilter || (edge.data?.edge.ether?.kind ?? "relates") === edgeFilter));
+    const filteredEdges = built.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target) && (!edgeFilter || (edge.data?.phase ?? edge.data?.edge.ether?.kind ?? "relates") === edgeFilter));
     const selectedNodes = visibleNodes.map((node) => node.id === nodeId ? { ...node, selected: true } : node);
     const selectedEdges = filteredEdges.map((edge) => edge.id === edgeId ? { ...edge, selected: true } : edge);
     const query = searchQuery.trim().toLowerCase();
@@ -82,7 +93,7 @@ function useCanvasDocument(docVersion: number, searchQuery: string, edgeFilter: 
     const queryVisibleIds = new Set(matches.map((flowNode) => flowNode.id));
     setNodes(matches);
     setEdges(selectedEdges.filter((edge) => queryVisibleIds.has(edge.source) && queryVisibleIds.has(edge.target)));
-  }, [docVersion, edgeFilter, flagFilter, searchQuery, setNodes, setEdges]);
+  }, [docVersion, executionRev, edgeFilter, flagFilter, searchQuery, setNodes, setEdges]);
 
   // Selection sync — a light map over the existing graph, not a rebuild. A
   // live rubber-band multi-selection (no single subject) is left untouched.
@@ -179,7 +190,8 @@ function useCanvasInteractions(rf: CanvasFlow, setNodes: ReturnType<typeof useNo
     if (!targetId || targetId === from) return;
     const targetNode = state$.doc.peek().nodes.find((node) => node.id === targetId);
     if (!targetNode || targetNode.type === "group") return;
-    addEdge({ source: from, target: targetId, sourceHandle: connectionState.fromHandle?.id, kind: "relates" });
+    // Infer criteria from source (tasks → tasks criteria). No static kind.
+    addEdge({ source: from, target: targetId, sourceHandle: connectionState.fromHandle?.id });
   }, []);
   // Region hold: dragging a `hold` region moves every node geometrically
   // inside it. Membership is snapshotted at drag start — never stored — and a
@@ -588,6 +600,7 @@ function FieldControls() {
 function useCanvasGraph() {
   const canvasName = use$(state$.canvasName);
   const docVersion = use$(state$.docVersion);
+  const executionRev = use$(kernel$.executionRev);
   const searchQuery = use$(state$.searchQuery);
   const selectedNodeId = use$(state$.selectedNodeId);
   const selectedEdgeId = use$(state$.selectedEdgeId);
@@ -597,7 +610,7 @@ function useCanvasGraph() {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([]);
   const rf = useReactFlow<FlowNode, FlowEdge>();
-  useCanvasDocument(docVersion, searchQuery, edgeFilter, flagFilter, selectedNodeId, selectedEdgeId, setNodes, setEdges);
+  useCanvasDocument(docVersion, executionRev, searchQuery, edgeFilter, flagFilter, selectedNodeId, selectedEdgeId, setNodes, setEdges);
   useCanvasSearchViewport(searchQuery, nodes.length, rf, `${edgeFilter}|${flagFilter}`);
   useCanvasFocus(focusNodeId, rf);
   useCanvasViewport(canvasName, nodes.length, rf);
