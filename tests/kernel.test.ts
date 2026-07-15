@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc, EtherWatch } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
 import type { TowerGlyphRow } from "../src/shared/ipc";
@@ -11,7 +11,7 @@ import {
 import {
   composePulseMessage,
   deliverPulse,
-  PULSE_CAP_PER_REGION_PER_HOUR,
+  MIN_LIVE_PULSE_SPACING_MS,
   type PulseDeliverDeps,
   __setDocsForTest,
   __setSnapshotsForTest,
@@ -233,13 +233,15 @@ describe("composePulseMessage", () => {
   });
 });
 
-// --- deliverPulse: arming, hard cap, regionless — no chat calls -------------------
+// --- deliverPulse: arming, spacing, regionless — no chat calls -------------------
 
-describe("deliverPulse — arming and the hard cap", () => {
+describe("deliverPulse — arming and live-pulse spacing", () => {
   const regionId = "region-cap-test";
   const canvasName = "test-canvas";
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-15T12:00:00Z"));
     __resetPulseLogForTest();
     __setDocsForTest(new Map([[canvasName, { nodes: [], edges: [] }]]));
     // Set default deps that simulate successful delivery when arming is true
@@ -253,32 +255,33 @@ describe("deliverPulse — arming and the hard cap", () => {
 
   afterEach(() => {
     __setDeliveryDepsForTest(undefined);
+    vi.useRealTimers();
   });
 
-  it("stays live (non-dry) for the first PULSE_CAP_PER_REGION_PER_HOUR deliveries", async () => {
+  it("stays live (non-dry) at a 5-minute-or-slower cadence", async () => {
     __resetPulseLogForTest();
     setArmed(`${canvasName}::${regionId}`, true);
-    for (let i = 0; i < PULSE_CAP_PER_REGION_PER_HOUR; i += 1) {
+    for (let i = 0; i < 3; i += 1) {
       await deliverPulse({ canvasName, sourceNodeId: `n${i}`, kind: "manual", regionId, summary: `pulse ${i}` });
+      vi.setSystemTime(Date.now() + MIN_LIVE_PULSE_SPACING_MS);
     }
     const log = getPulseLog();
-    expect(log).toHaveLength(PULSE_CAP_PER_REGION_PER_HOUR);
+    expect(log).toHaveLength(3);
     expect(log.every((record) => record.dry === false)).toBe(true);
   });
 
-  it("forces delivery past the cap to dry, with a cap note on the summary", async () => {
+  it("forces a delivery inside the spacing window to dry, with a cooldown note", async () => {
     __resetPulseLogForTest();
     setArmed(`${canvasName}::${regionId}`, true);
-    for (let i = 0; i < PULSE_CAP_PER_REGION_PER_HOUR; i += 1) {
-      await deliverPulse({ canvasName, sourceNodeId: `n${i}`, kind: "manual", regionId, summary: `pulse ${i}` });
-    }
-    await deliverPulse({ canvasName, sourceNodeId: "n-over", kind: "manual", regionId, summary: "one too many" });
+    await deliverPulse({ canvasName, sourceNodeId: "n0", kind: "manual", regionId, summary: "pulse 0" });
+    vi.setSystemTime(Date.now() + 1_000); // one second later — the catastrophe cadence
+    await deliverPulse({ canvasName, sourceNodeId: "n-over", kind: "manual", regionId, summary: "one too soon" });
 
     const log = getPulseLog();
-    expect(log).toHaveLength(PULSE_CAP_PER_REGION_PER_HOUR + 1);
+    expect(log).toHaveLength(2);
     const last = log[log.length - 1];
     expect(last?.dry).toBe(true);
-    expect(last?.summary).toContain("cap reached");
+    expect(last?.summary).toContain("cooldown");
   });
 
   it("a disarmed region always logs dry with nothing delivered", async () => {

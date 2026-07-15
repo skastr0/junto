@@ -119,19 +119,18 @@ export interface FlagWriterDeps {
   readonly toggleFlag: (canvasName: string, nodeId: string, flag: string) => void;
 }
 
-export const PULSE_CAP_PER_REGION_PER_HOUR = 6;
-const ROLLING_HOUR_MS = 60 * 60 * 1000;
-// Display-tray retention floor — NOT the enforcement mechanism for the hourly
-// cap. The cap is enforced by armedDeliveriesLastHour (below), which counts a
-// region's live records inside the rolling hour; if appendPulseRecord evicted a
-// within-hour record purely to bound the array (the old size-only ring did,
-// oldest-first, regardless of age or region), a region's earlier deliveries
-// could fall out of the count while still inside their hour and the cap would
-// fail OPEN at high total volume. So appendPulseRecord retains EVERY record
-// from the last rolling hour at any volume (keeping the cap exact), and keeps
-// the newest PULSE_LOG_DISPLAY_CAP entries on top of that so the tray still
-// shows recent history during a quiet hour. A record is dropped only when it is
-// BOTH older than the rolling hour AND beyond the newest PULSE_LOG_DISPLAY_CAP.
+// Operator-set spacing rule (2026-07-15, replacing an agent-invented 6/hr
+// quota): a region that the operator armed fires as often as its watchers and
+// timers say — the only catastrophe worth suppressing is seconds-level
+// flapping (a watcher misfiring every evaluation pass). So live activations
+// per (canvas, region) are spaced at least MIN_LIVE_PULSE_SPACING_MS apart; a
+// 5-minute-or-slower cadence flows completely untouched.
+export const MIN_LIVE_PULSE_SPACING_MS = 5 * 60 * 1000;
+// Display-tray retention floor. appendPulseRecord additionally retains every
+// record inside the spacing window at any volume, so a flood of records can
+// never evict the one live record the cooldown check needs (which would make
+// the spacing rule fail open). A record is dropped only when it is BOTH older
+// than the spacing window AND beyond the newest PULSE_LOG_DISPLAY_CAP.
 const PULSE_LOG_DISPLAY_CAP = 200;
 
 // --- module-level state (injected for tests) ---------------------------------
@@ -197,34 +196,24 @@ export const getKernelSnapshot = (): KernelSnapshot => {
 
 // --- arming + state tracking -------------------------------------------------
 
-// Counts every `dry: false` record — i.e. every pass that was armed and
-// under cap and therefore reached the delivery-attempt stage — regardless of
-// whether `delivered` ends up non-empty. This is DELIBERATE, not an
-// oversight: `dry` marks a genuine LIVE activation (deps.openChat/
-// sendPrompt actually got invoked, real subprocess/ssh/network cost
-// incurred) even when every bound agent's turn ultimately failed — a
-// persistently-failing agent must not get unlimited retries within the same
-// hour just because none of them succeeded ("failed" is not "free"; this
-// cap IS the spend-protection mechanism). The cap is deliberately an
-// activation-per-hour limit on the ARMED REGION, not a strict
-// dollars-delivered counter — kernel.test.ts's "arming and the hard cap"
-// suite exercises it against a region with zero agent nodes on purpose, to
-// keep cap correctness decoupled from delivery mechanics. Narrowing this to
-// only count delivered.length > 0 would be a behavior change against that
-// existing, intentional contract, not a bug fix.
-// The cap is per (canvas, region): a region id is document-local, so the same
-// id on two canvases is two distinct regions and must each get its own 6/hr
-// allowance rather than share one. Filtering on regionId alone let two
-// canvases' same-named regions cannibalize a single budget.
-const armedDeliveriesLastHour = (canvasName: string, regionId: string): number => {
-  const cutoff = Date.now() - ROLLING_HOUR_MS;
-  return pulseLog.filter(
-    (record) => record.canvasName === canvasName && record.regionId === regionId && !record.dry && record.at >= cutoff,
-  ).length;
+// The most recent LIVE activation for a (canvas, region). A `dry: false`
+// record marks a genuine live activation (openChat/sendPrompt actually got
+// invoked, real cost incurred) even when every bound agent's turn ultimately
+// failed — a flapping-but-failing region still restarts its spacing window
+// ("failed" is not "free"). Scoped per (canvas, region): region ids are
+// document-local, so the same id on two canvases is two distinct regions with
+// independent spacing.
+const lastLiveActivationAt = (canvasName: string, regionId: string): number | undefined => {
+  let latest: number | undefined;
+  for (const record of pulseLog) {
+    if (record.canvasName !== canvasName || record.regionId !== regionId || record.dry) continue;
+    if (latest === undefined || record.at > latest) latest = record.at;
+  }
+  return latest;
 };
 
 const appendPulseRecord = (record: PulseRecord): void => {
-  const cutoff = record.at - ROLLING_HOUR_MS;
+  const cutoff = record.at - MIN_LIVE_PULSE_SPACING_MS;
   const all = [...pulseLog, record];
   const keepFromIndex = Math.max(0, all.length - PULSE_LOG_DISPLAY_CAP);
   pulseLog = all.filter((entry, index) => entry.at >= cutoff || index >= keepFromIndex);
@@ -268,8 +257,9 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
   const armedKey = regionId !== undefined ? `${params.canvasName}::${regionId}` : undefined;
   const isArmed = armedKey !== undefined && (armed.get(armedKey) ?? false);
   const wantsLive = isArmed && params.forceDry !== true;
-  const capped = wantsLive && regionId !== undefined && armedDeliveriesLastHour(params.canvasName, regionId) >= PULSE_CAP_PER_REGION_PER_HOUR;
-  const dry = !wantsLive || capped;
+  const lastLiveAt = wantsLive && regionId !== undefined ? lastLiveActivationAt(params.canvasName, regionId) : undefined;
+  const cooling = lastLiveAt !== undefined && Date.now() - lastLiveAt < MIN_LIVE_PULSE_SPACING_MS;
+  const dry = !wantsLive || cooling;
 
   let delivered: ReadonlyArray<string> = [];
   if (!dry && regionId !== undefined) {
@@ -300,7 +290,7 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
     at: Date.now(),
     sourceNodeId: params.sourceNodeId,
     kind: params.kind,
-    summary: capped ? `${params.summary} (cap reached · ${PULSE_CAP_PER_REGION_PER_HOUR}/hr)` : params.summary,
+    summary: cooling ? `${params.summary} (cooldown · 5m min spacing)` : params.summary,
     delivered,
     dry,
     canvasName: params.canvasName,

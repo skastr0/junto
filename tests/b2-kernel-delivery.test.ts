@@ -8,7 +8,7 @@ import {
   __setSnapshotsForTest,
   __setDocsForTest,
   deliverPulse,
-  PULSE_CAP_PER_REGION_PER_HOUR,
+  MIN_LIVE_PULSE_SPACING_MS,
   runEvaluationCycle,
   type PulseDeliverDeps,
   setArmed,
@@ -108,9 +108,9 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
   });
 });
 
-// --- BUG 4: the hourly cap must hold at arbitrary log volume ------------------
+// --- the spacing window must hold at arbitrary log volume ---------------------
 
-describe("deliverPulse — the per-region hourly cap holds past 200 mixed-region records", () => {
+describe("deliverPulse — live-pulse spacing holds past 200 mixed-region records", () => {
   const armedRegion = "region-A";
   const canvasName = "test-canvas";
 
@@ -124,16 +124,14 @@ describe("deliverPulse — the per-region hourly cap holds past 200 mixed-region
     __resetDeliveryQueueForTest();
   });
 
-  it("does not let a busy canvas evict an armed region's within-hour deliveries and fail the cap open", async () => {
-    // Spend region A's whole hourly budget: 6 live deliveries.
-    for (let i = 0; i < PULSE_CAP_PER_REGION_PER_HOUR; i += 1) {
-      await deliverPulse({ canvasName, sourceNodeId: `a${i}`, kind: "watcher", regionId: armedRegion, summary: `a ${i}` });
-    }
+  it("does not let a busy canvas evict the region's last live record and fail the spacing open", async () => {
+    // One live delivery starts region A's spacing window.
+    await deliverPulse({ canvasName, sourceNodeId: "a0", kind: "watcher", regionId: armedRegion, summary: "a 0" });
 
     // Flood the shared log with >200 records from OTHER, disarmed regions (all
-    // dry). The old size-only ring buffer (last 200 by count) would evict
-    // region A's 6 live records here — dropping them from the cap count while
-    // they are still inside their rolling hour — so the cap would fail open.
+    // dry). A size-only ring buffer (last 200 by count) would evict region A's
+    // live record — dropping the timestamp the cooldown check needs while it is
+    // still inside its spacing window — so the spacing would fail open.
     for (let i = 0; i < 300; i += 1) {
       await deliverPulse({
         canvasName,
@@ -144,21 +142,20 @@ describe("deliverPulse — the per-region hourly cap holds past 200 mixed-region
       });
     }
 
-    // region A asks for a 7th live delivery, still inside the same hour.
-    await deliverPulse({ canvasName, sourceNodeId: "a-seventh", kind: "watcher", regionId: armedRegion, summary: "seventh" });
+    // region A asks again, still inside the same spacing window.
+    await deliverPulse({ canvasName, sourceNodeId: "a-second", kind: "watcher", regionId: armedRegion, summary: "second" });
 
     const log = getPulseLog();
     expect(log.length).toBeGreaterThan(200); // past the old eviction point — proves the flood took effect
 
-    // All 6 of region A's live records survived the flood (age-retained), so the
-    // cap counted them correctly.
+    // Region A's live record survived the flood (age-retained), so the spacing
+    // check saw it and suppressed the second ask.
     const aLive = log.filter((record) => record.regionId === armedRegion && !record.dry);
-    expect(aLive).toHaveLength(PULSE_CAP_PER_REGION_PER_HOUR);
+    expect(aLive).toHaveLength(1);
 
-    // The 7th was correctly capped to a dry pulse — the cap held.
     const aRecords = log.filter((record) => record.regionId === armedRegion);
-    const seventh = aRecords[aRecords.length - 1];
-    expect(seventh?.dry).toBe(true);
-    expect(seventh?.summary).toContain("cap reached");
+    const second = aRecords[aRecords.length - 1];
+    expect(second?.dry).toBe(true);
+    expect(second?.summary).toContain("cooldown");
   });
 });
