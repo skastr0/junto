@@ -19,11 +19,27 @@ export class StoreService extends Context.Tag("@chassis/StoreService")<
 
 const storePath = () => join(app.getPath("userData"), "store.json");
 
+// A missing store is a legitimate empty store; an unreadable or corrupt one
+// is NOT — treating it as empty would silently reset every operator-set
+// durable state (e.g. kernel arming), which the durable-intent invariant
+// forbids. Corruption fails loudly through StoreError, and because set()
+// reads before writing, a corrupt file can never be clobbered by a write.
 const readStore = async (): Promise<Record<string, unknown>> => {
+  let raw: string;
   try {
-    return JSON.parse(await readFile(storePath(), "utf8")) as Record<string, unknown>;
-  } catch {
-    return {};
+    raw = await readFile(storePath(), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw error;
+  }
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(
+      `store.json unreadable at ${storePath()} — refusing to treat as empty (${
+        error instanceof Error ? error.message : String(error)
+      })`,
+    );
   }
 };
 

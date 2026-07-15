@@ -110,6 +110,13 @@ export interface KernelSnapshot {
     >
   >;
   readonly pulseLog: ReadonlyArray<PulseRecord>;
+  // Durable-intent surfacing (both additive). `fault` is set when persisted
+  // arming state could not be loaded — armed regions were NOT resumed and the
+  // operator must see that loudly, never infer it. `orphanedArming` lists
+  // armed `canvas::region` keys whose canvas/region no longer exists in any
+  // hydrated document — the arm-intent is preserved, surfaced, never dropped.
+  readonly fault?: string;
+  readonly orphanedArming?: ReadonlyArray<string>;
 }
 
 // --- source browsing (read-only detail views; never canvas nodes) ----------

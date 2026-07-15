@@ -142,6 +142,26 @@ const splitNamespacedKey = (key: string): readonly [canvasName: string, id: stri
   return [key.slice(0, idx), key.slice(idx + 2)];
 };
 
+// Durable-intent invariant: an armed key whose canvas or region no longer
+// exists in any hydrated document is ORPHANED — the arm-intent stays in the
+// store and is surfaced in the snapshot; it is never silently dropped. With
+// zero docs hydrated (early startup) no judgment is possible, so none is made.
+export const computeOrphanedArming = (
+  docs: ReadonlyMap<string, CanvasDoc>,
+  armed: Iterable<readonly [string, boolean]>,
+): ReadonlyArray<string> => {
+  if (docs.size === 0) return [];
+  const orphaned: string[] = [];
+  for (const [key, value] of armed) {
+    if (!value) continue;
+    const split = splitNamespacedKey(key);
+    if (!split) continue;
+    const doc = docs.get(split[0]);
+    if (!doc || !doc.nodes.some((node) => node.id === split[1])) orphaned.push(key);
+  }
+  return orphaned;
+};
+
 type CanvasesShape = Context.Tag.Service<typeof CanvasesService>;
 type SnapshotsShape = Context.Tag.Service<typeof SnapshotsService>;
 type StoreShape = Context.Tag.Service<typeof StoreService>;
@@ -160,6 +180,7 @@ const makeKernelService = (
   const canvasMutatedListeners = new Set<(name: string) => void>();
 
   let started = false;
+  let armingFault: string | undefined;
   let cycleInFlight = false;
   let cycleQueued = false;
   let lastPulseLogLength = 0;
@@ -194,7 +215,13 @@ const makeKernelService = (
       if (!split) continue;
       entryFor(split[0]).armed[split[1]] = value;
     }
-    return { canvases: canvasesOut, pulseLog: getPulseLog() as ReadonlyArray<PulseRecord> };
+    const orphanedArming = computeOrphanedArming(docs, getArmed());
+    return {
+      canvases: canvasesOut,
+      pulseLog: getPulseLog() as ReadonlyArray<PulseRecord>,
+      ...(armingFault !== undefined ? { fault: armingFault } : {}),
+      ...(orphanedArming.length > 0 ? { orphanedArming } : {}),
+    };
   };
 
   const emitSnapshot = (): void => {
@@ -339,9 +366,22 @@ const makeKernelService = (
 
   // --- arming: StoreService-persisted, cycle.ts's in-memory map is the hot read
 
+  // Durable-intent invariant: a store that cannot be READ must not boot the
+  // kernel silently disarmed — that is a silent disarm wearing an error's
+  // clothes. On load failure the fault is surfaced in every snapshot, armed
+  // regions are explicitly NOT resumed, and nothing is overwritten (store.set
+  // reads first, so the corrupt file also cannot be clobbered by later
+  // writes). The kernel itself keeps running.
   const hydrateArming = async (): Promise<void> => {
-    const stored = await Effect.runPromise(store.get<Record<string, true>>(ARMED_STORE_KEY));
-    for (const key of Object.keys(stored ?? {})) setArmed(key, true);
+    const result = await Effect.runPromise(Effect.either(store.get<Record<string, true>>(ARMED_STORE_KEY)));
+    if (result._tag === "Left") {
+      armingFault =
+        `arming state unreadable (${result.left.message}) — armed regions were NOT resumed and arming ` +
+        `changes will fail until the store file is repaired or removed; nothing was overwritten`;
+      console.error(`[kernel] ${armingFault}`);
+      return;
+    }
+    for (const key of Object.keys(result.right ?? {})) setArmed(key, true);
   };
 
   const persistArming = async (): Promise<void> => {
