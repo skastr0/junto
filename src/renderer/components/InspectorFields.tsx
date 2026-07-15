@@ -275,25 +275,46 @@ export function EdgeCriteriaEditor({
   const towerKey =
     fromNode?.ether?.bindings?.find((binding) => binding.source === "tower")?.ref.key ?? "";
 
-  const mode: "none" | "glyphs" | "wip" | "tasks" = !criteria ? "none" : criteria.mode;
+  // Local draft only — never persist empty glyphs criteria (mutation also strips).
+  const [glyphsDraft, setGlyphsDraft] = useState(false);
+  useEffect(() => {
+    setGlyphsDraft(false);
+  }, [edgeId]);
+  useEffect(() => {
+    if (criteria?.mode === "glyphs" && criteria.glyphIds.length > 0) setGlyphsDraft(false);
+  }, [criteria]);
+
+  const storedMode: "none" | "glyphs" | "wip" | "tasks" = !criteria ? "none" : criteria.mode;
+  const mode: "none" | "glyphs" | "wip" | "tasks" =
+    storedMode === "none" && glyphsDraft ? "glyphs" : storedMode;
 
   const setMode = (next: "none" | "glyphs" | "wip" | "tasks") => {
     if (next === "none") {
+      setGlyphsDraft(false);
       setEdgeCriteria(edgeId, undefined);
       return;
     }
     if (next === "wip") {
+      setGlyphsDraft(false);
       setEdgeCriteria(edgeId, { mode: "wip", ...(towerKey ? { project: towerKey } : {}) });
       return;
     }
     if (next === "tasks") {
+      setGlyphsDraft(false);
       setEdgeCriteria(edgeId, { mode: "tasks" });
       return;
     }
     const existing = criteria?.mode === "glyphs" ? criteria.glyphIds : [];
+    if (existing.length === 0) {
+      // Refuse empty shell: keep picker open in UI, write only after first pick.
+      setGlyphsDraft(true);
+      if (criteria) setEdgeCriteria(edgeId, undefined);
+      return;
+    }
+    setGlyphsDraft(false);
     setEdgeCriteria(edgeId, {
       mode: "glyphs",
-      glyphIds: existing.length > 0 ? [...existing] : [],
+      glyphIds: [...existing],
       ...(towerKey ? { project: towerKey } : {}),
     });
   };
@@ -334,14 +355,20 @@ export function EdgeCriteriaEditor({
         <GlyphTypeaheadPicker
           towerKey={towerKey}
           selectedIds={selectedGlyphIds}
-          onChange={(glyphIds) =>
+          onChange={(glyphIds) => {
+            if (glyphIds.length === 0) {
+              setGlyphsDraft(true);
+              setEdgeCriteria(edgeId, undefined);
+              return;
+            }
+            setGlyphsDraft(false);
             setEdgeCriteria(edgeId, {
               mode: "glyphs",
               glyphIds: [...glyphIds],
               project: towerKey,
               ...(criteria?.mode === "glyphs" && criteria.orbit ? { orbit: criteria.orbit } : {}),
-            })
-          }
+            });
+          }}
         />
       ) : null}
       {mode === "glyphs" && !towerKey ? (

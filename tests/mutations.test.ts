@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
 import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, renameGroup, setNodeColor, setNodeView, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
-import { addEdge, deleteEdges, editEdgeLabel, inferEdgeCriteria, setEdgeColor, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
+import { addEdge, deleteEdges, editEdgeLabel, inferEdgeCriteria, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
 
@@ -82,6 +82,36 @@ describe("renderer graph mutations", () => {
     const edge = state$.doc.peek().edges[0];
     expect(edge?.ether?.criteria).toEqual({ mode: "tasks" });
     expect(edge?.ether?.kind).toBeUndefined();
+    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+  });
+
+  it("refuses empty glyphs criteria shells and strips them when cleared", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      ...doc,
+      edges: [
+        {
+          id: "edge-1",
+          fromNode: "source",
+          toNode: "target",
+          ether: { criteria: { mode: "glyphs", glyphIds: ["g1"], project: "quasar" } },
+        },
+      ],
+    });
+
+    setEdgeCriteria("edge-1", { mode: "glyphs", glyphIds: [], project: "quasar" });
+    expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
+    expect(Object.hasOwn(state$.doc.peek().edges[0] ?? {}, "ether")).toBe(false);
+
+    setEdgeCriteria("edge-1", { mode: "glyphs", glyphIds: ["g2"], project: "quasar" });
+    expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({
+      mode: "glyphs",
+      glyphIds: ["g2"],
+      project: "quasar",
+    });
+
+    setEdgeCriteria("edge-1", undefined);
+    expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
     expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 

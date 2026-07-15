@@ -32,17 +32,20 @@ export const setEdgeColor = (id: string, color?: string): void => {
 
 export const setEdgeCriteria = (id: string, criteria: EdgeCriteria | undefined): void => {
   const doc = state$.doc.peek();
+  // Empty glyphs criteria is a no-op shell — do not store it.
+  const cleaned =
+    criteria?.mode === "glyphs" && criteria.glyphIds.length === 0 ? undefined : criteria;
   commitDoc({
     ...doc,
     edges: doc.edges.map((edge) => {
       if (edge.id !== id) return edge;
-      if (!criteria) {
+      if (!cleaned) {
         if (!edge.ether) return edge;
         const rest = without(without(edge.ether, "criteria"), "kind");
         return Object.keys(rest).length > 0 ? { ...edge, ether: rest } : without(edge, "ether");
       }
       const rest = edge.ether ? without(edge.ether, "kind") : {};
-      return { ...edge, ether: { ...rest, criteria } };
+      return { ...edge, ether: { ...rest, criteria: cleaned } };
     }),
   });
 };
