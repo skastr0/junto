@@ -22,6 +22,7 @@ import {
   fetchTowerSearch,
   fetchTowerSignalRead,
 } from "./adapters/tower-browse";
+import { startBoothAttention } from "./booth-attention";
 import { CanvasesService } from "./canvases";
 import { registerChatIpc } from "./chat/ipc";
 import type { PulseRegionOptions } from "./kernel/service";
@@ -195,6 +196,9 @@ export const registerVellumIpc = () => {
       yield* canvases.ensureSeed.pipe(Effect.catchAll(() => Effect.void));
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
+      // Booth review attention: native notification on a rising pending
+      // count, off the same poll — window-optional by construction.
+      startBoothAttention(snapshots.subscribe);
       // A kernel flag mutate() is an "own write" CanvasesService suppresses
       // from the normal file-watch broadcast above — this is the explicit
       // push that keeps an open renderer's doc coherent with a kernel write.
