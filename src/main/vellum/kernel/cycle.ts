@@ -220,14 +220,19 @@ export const __resetKernelMemoryForTest = (): void => {
   resetWatcherMemory();
 };
 
-/** True when any edge's mirrored kind differs from the derived phase. */
+/** True when any criteria edge's mirrored kind/color differs from derived phase. */
 export const criteriaPhasesNeedMirror = (
   doc: CanvasDoc,
   phaseByEdgeId: ReadonlyMap<string, EdgePhase>,
 ): boolean => {
   for (const edge of doc.edges) {
+    if (!edge.ether?.criteria) continue;
     const phase = phaseByEdgeId.get(edge.id);
-    if (phase !== undefined && edge.ether?.kind !== phase) return true;
+    if (phase === undefined) continue;
+    if (edge.ether.kind !== phase) return true;
+    // Stuck blocks crimson after demotion.
+    if (phase !== "blocks" && edge.color === "1") return true;
+    if (phase === "blocks" && edge.color !== "1") return true;
   }
   return false;
 };

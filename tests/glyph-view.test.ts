@@ -138,4 +138,127 @@ describe("applyPhaseMirror production path helpers", () => {
     expect(mirrored.edges[0]?.color).toBe("1");
     expect(criteriaPhasesNeedMirror(mirrored, phaseByEdgeId)).toBe(false);
   });
+
+  it("does not stamp soft relates (no criteria) with kind/label/color", () => {
+    const soft = {
+      id: "soft",
+      fromNode: "a",
+      toNode: "b",
+      label: "my free label",
+      color: "4" as const,
+    };
+    const doc: CanvasDoc = {
+      nodes: [project("a", "pa"), project("b", "pb")],
+      edges: [soft],
+    };
+    const phaseByEdgeId = new Map([
+      ["soft", "blocks" as const],
+      ["missing", "depends" as const],
+    ]);
+    expect(criteriaPhasesNeedMirror(doc, phaseByEdgeId)).toBe(false);
+    const mirrored = applyPhaseMirror(doc, phaseByEdgeId);
+    expect(mirrored.edges[0]).toEqual(soft);
+    expect(mirrored.edges[0]?.ether).toBeUndefined();
+  });
+
+  it("demotes blocks → depends: clears color 1 and updates kind/label", () => {
+    const doc: CanvasDoc = {
+      nodes: [project("a", "pa"), project("b", "pb")],
+      edges: [
+        {
+          id: "e1",
+          fromNode: "a",
+          toNode: "b",
+          label: "blocks",
+          color: "1",
+          ether: {
+            kind: "blocks",
+            criteria: { mode: "glyphs", glyphIds: ["g1"] },
+          },
+        },
+      ],
+    };
+    const phaseByEdgeId = new Map([["e1", "depends" as const]]);
+    expect(criteriaPhasesNeedMirror(doc, phaseByEdgeId)).toBe(true);
+    const demoted = applyPhaseMirror(doc, phaseByEdgeId);
+    expect(demoted.edges[0]?.ether?.kind).toBe("depends");
+    expect(demoted.edges[0]?.label).toBe("depends");
+    expect(demoted.edges[0]?.color).toBeUndefined();
+    expect(demoted.edges[0]?.ether?.criteria).toEqual({ mode: "glyphs", glyphIds: ["g1"] });
+    expect(criteriaPhasesNeedMirror(demoted, phaseByEdgeId)).toBe(false);
+  });
+
+  it("demotes blocks → relates: clears color 1 and updates kind/label", () => {
+    const doc: CanvasDoc = {
+      nodes: [project("a", "pa"), project("b", "pb")],
+      edges: [
+        {
+          id: "e1",
+          fromNode: "a",
+          toNode: "b",
+          label: "blocks",
+          color: "1",
+          ether: {
+            kind: "blocks",
+            criteria: { mode: "tasks" },
+          },
+        },
+      ],
+    };
+    const phaseByEdgeId = new Map([["e1", "relates" as const]]);
+    const demoted = applyPhaseMirror(doc, phaseByEdgeId);
+    expect(demoted.edges[0]?.ether?.kind).toBe("relates");
+    expect(demoted.edges[0]?.label).toBe("relates");
+    expect(demoted.edges[0]?.color).toBeUndefined();
+    expect(criteriaPhasesNeedMirror(demoted, phaseByEdgeId)).toBe(false);
+  });
+
+  it("criteriaPhasesNeedMirror is true when color 1 is stuck after demotion phase", () => {
+    // kind already depends, but mirror crimson left behind — still needs write.
+    const doc: CanvasDoc = {
+      nodes: [project("a", "pa"), project("b", "pb")],
+      edges: [
+        {
+          id: "e1",
+          fromNode: "a",
+          toNode: "b",
+          label: "depends",
+          color: "1",
+          ether: {
+            kind: "depends",
+            criteria: { mode: "glyphs", glyphIds: ["g1"] },
+          },
+        },
+      ],
+    };
+    const phaseByEdgeId = new Map([["e1", "depends" as const]]);
+    expect(criteriaPhasesNeedMirror(doc, phaseByEdgeId)).toBe(true);
+    const fixed = applyPhaseMirror(doc, phaseByEdgeId);
+    expect(fixed.edges[0]?.color).toBeUndefined();
+    expect(fixed.edges[0]?.ether?.kind).toBe("depends");
+    expect(criteriaPhasesNeedMirror(fixed, phaseByEdgeId)).toBe(false);
+  });
+
+  it("criteriaPhasesNeedMirror is true when blocks phase is missing color 1", () => {
+    const doc: CanvasDoc = {
+      nodes: [project("a", "pa"), project("b", "pb")],
+      edges: [
+        {
+          id: "e1",
+          fromNode: "a",
+          toNode: "b",
+          label: "blocks",
+          ether: {
+            kind: "blocks",
+            criteria: { mode: "wip" },
+          },
+        },
+      ],
+    };
+    const phaseByEdgeId = new Map([["e1", "blocks" as const]]);
+    expect(criteriaPhasesNeedMirror(doc, phaseByEdgeId)).toBe(true);
+    const fixed = applyPhaseMirror(doc, phaseByEdgeId);
+    expect(fixed.edges[0]?.color).toBe("1");
+    expect(criteriaPhasesNeedMirror(fixed, phaseByEdgeId)).toBe(false);
+  });
 });

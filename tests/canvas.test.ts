@@ -132,6 +132,37 @@ describe("canvas contract", () => {
     expect(plainEdge?.color).toBeUndefined();
   });
 
+  it("applyMirrorLaw demotes stuck blocks color 1 when kind is no longer blocks", () => {
+    const doc: CanvasDoc = {
+      nodes: [{ id: "n1", type: "text", text: "A", x: 0, y: 0, width: 100, height: 50 }],
+      edges: [
+        {
+          id: "e-stuck",
+          fromNode: "n1",
+          toNode: "n1",
+          label: "depends",
+          color: "1",
+          ether: { kind: "depends", criteria: { mode: "tasks" } },
+        },
+        {
+          id: "e-soft",
+          fromNode: "n1",
+          toNode: "n1",
+          label: "free",
+          color: "4",
+        },
+      ],
+    };
+    const mirrored = applyMirrorLaw(doc);
+    const stuck = mirrored.edges.find((e) => e.id === "e-stuck");
+    expect(stuck?.color).toBeUndefined();
+    expect(stuck?.label).toBe("depends");
+    // Soft relates with no kind mirror: leave user color alone.
+    const soft = mirrored.edges.find((e) => e.id === "e-soft");
+    expect(soft?.color).toBe("4");
+    expect(soft?.label).toBe("free");
+  });
+
   it("serializeCanvas produces a stable key order and is idempotent", () => {
     const decoded = Either.getOrThrow(decodeCanvasDoc(rawDoc));
     const first = serializeCanvas(decoded);

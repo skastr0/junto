@@ -324,10 +324,8 @@ export const serializeCanvas = (doc: CanvasDoc): string => {
 };
 
 // Mirror law: extension semantics must remain visible to plain JSON Canvas
-// readers. Applied on every save.
-// For criteria edges, mirror the last-known stored kind (if any) into label;
-// live phase is projected by digest/svg/kernel and may rewrite kind on the
-// live path via applyPhaseMirror.
+// readers. Applied on every save. Edge ether.kind is a derived phase mirror
+// only (authorial truth is criteria); when present it projects to label/color.
 export const applyMirrorLaw = (doc: CanvasDoc): CanvasDoc => ({
   nodes: doc.nodes.map((node) =>
     node.ether?.flags?.includes("blocker") ? { ...node, color: "1" } : node,
@@ -335,34 +333,44 @@ export const applyMirrorLaw = (doc: CanvasDoc): CanvasDoc => ({
   edges: doc.edges.map((edge) => {
     const kind = edge.ether?.kind;
     if (kind === undefined) return edge;
-    return {
-      ...edge,
-      label: edge.label ?? kind,
-      ...(kind === "blocks" ? { color: "1" as CanvasColor } : {}),
-    };
+    if (kind === "blocks") {
+      return { ...edge, label: edge.label ?? kind, color: "1" as CanvasColor };
+    }
+    // Leaving blocks: drop mirror crimson "1" so demotion is visible offline.
+    if (edge.color === "1") {
+      const { color: _c, ...rest } = edge;
+      return { ...rest, label: edge.label ?? kind };
+    }
+    return { ...edge, label: edge.label ?? kind };
   }),
 });
 
-// Project derived edge phases into stored kind/label/color so offline readers
-// of the file see the last evaluated phase. Pure: takes an already-derived
-// phase map (from deriveExecutionGraph).
+// Project derived phase onto criteria edges only. Soft relates (no criteria)
+// are never stamped with kind/label — free optional labels stay free.
+// Blocks demotion clears mirror color "1".
 export const applyPhaseMirror = (
   doc: CanvasDoc,
   phaseByEdgeId: ReadonlyMap<string, EdgePhase>,
 ): CanvasDoc => ({
   nodes: doc.nodes,
   edges: doc.edges.map((edge) => {
+    if (!edge.ether?.criteria) return edge;
     const phase = phaseByEdgeId.get(edge.id);
     if (phase === undefined) return edge;
-    return {
+    const base = {
       ...edge,
       label: phase,
-      ...(phase === "blocks" ? { color: "1" as CanvasColor } : {}),
       ether: {
         ...edge.ether,
         kind: phase,
-        ...(edge.ether?.criteria ? { criteria: edge.ether.criteria } : {}),
+        criteria: edge.ether.criteria,
       },
     };
+    if (phase === "blocks") return { ...base, color: "1" as CanvasColor };
+    if (edge.color === "1") {
+      const { color: _c, ...rest } = base;
+      return rest;
+    }
+    return base;
   }),
 });
