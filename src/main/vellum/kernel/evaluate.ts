@@ -61,6 +61,21 @@ export const resetWatcherMemory = (): void => {
   seenGlyphState.clear();
 };
 
+// Drops every namespaced entry for one deleted canvas, mirroring cycle.ts's
+// purgeCanvasMemory for the OTHER half of the kernel's in-memory state: that
+// function only ever purged its own watchers/nextFire/armed maps, never
+// these two — so a canvas that gets created, watched a while, and deleted
+// left its edge-detection baselines behind forever (unbounded growth across
+// the app's lifetime, one entry per watcher-node/glyph pair ever observed).
+// Both maps are keyed `${canvasName}::...`, same convention as everywhere
+// else in the kernel, so a prefix match is exact and can't collide with a
+// differently-named canvas.
+export const purgeCanvasEdgeMemory = (canvasName: string): void => {
+  const prefix = `${canvasName}::`;
+  for (const key of seenLevelStatus.keys()) if (key.startsWith(prefix)) seenLevelStatus.delete(key);
+  for (const key of seenGlyphState.keys()) if (key.startsWith(prefix)) seenGlyphState.delete(key);
+};
+
 // --- level-rule scoping (glyphs_done, glyphs_entered_state) -----------------
 
 const scopeGlyphs = (watch: EtherWatch, glyphIndex: GlyphIndex): ReadonlyArray<TowerGlyphRow> | undefined => {

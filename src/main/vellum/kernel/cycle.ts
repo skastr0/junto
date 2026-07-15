@@ -6,7 +6,14 @@
 import { ulid } from "ulid";
 import type { CanvasDoc, GroupNode } from "@shared/canvas";
 import type { TowerGlyphRow } from "@shared/ipc";
-import { detectPulses, evaluateWatcher, resetWatcherMemory, type GlyphIndex, type WatcherStatus } from "./evaluate";
+import {
+  detectPulses,
+  evaluateWatcher,
+  purgeCanvasEdgeMemory,
+  resetWatcherMemory,
+  type GlyphIndex,
+  type WatcherStatus,
+} from "./evaluate";
 import { findEntity, type SnapshotState } from "../../../shared/entities";
 
 // --- frozen interface --------------------------------------------------------
@@ -186,6 +193,21 @@ export const getKernelSnapshot = (): KernelSnapshot => {
 
 // --- arming + state tracking -------------------------------------------------
 
+// Counts every `dry: false` record — i.e. every pass that was armed and
+// under cap and therefore reached the delivery-attempt stage — regardless of
+// whether `delivered` ends up non-empty. This is DELIBERATE, not an
+// oversight: `dry` marks a genuine LIVE activation (deps.openChat/
+// sendPrompt actually got invoked, real subprocess/ssh/network cost
+// incurred) even when every bound agent's turn ultimately failed — a
+// persistently-failing agent must not get unlimited retries within the same
+// hour just because none of them succeeded ("failed" is not "free"; this
+// cap IS the spend-protection mechanism). The cap is deliberately an
+// activation-per-hour limit on the ARMED REGION, not a strict
+// dollars-delivered counter — kernel.test.ts's "arming and the hard cap"
+// suite exercises it against a region with zero agent nodes on purpose, to
+// keep cap correctness decoupled from delivery mechanics. Narrowing this to
+// only count delivered.length > 0 would be a behavior change against that
+// existing, intentional contract, not a bug fix.
 const armedDeliveriesLastHour = (regionId: string): number => {
   const cutoff = Date.now() - ROLLING_HOUR_MS;
   return pulseLog.filter((record) => record.regionId === regionId && !record.dry && record.at >= cutoff).length;
@@ -478,6 +500,17 @@ const ensureTimerScheduled = (canvasName: string, nodeId: string, everyMinutes: 
   nextFire.set(timerKey, Date.now() + everyMinutes * 60_000);
 };
 
+// EtherTimer.everyMinutes is Schema.Number at the document level — the
+// schema validates SHAPE, not business range, and the UI editor's 5-minute
+// floor (renderer/lib/mutations.ts) is a UI-only guard a direct file edit
+// (the agent API, per AGENTS.md) bypasses entirely. Left unvalidated here,
+// 0/negative would compute a `due` in the past and fire every check (a
+// tight loop); NaN makes `now < due` permanently false (the skip-guard
+// never engages) so it ALSO fires every check, forever. Only a positive,
+// finite interval is schedulable.
+export const isValidTimerInterval = (everyMinutes: number): boolean =>
+  Number.isFinite(everyMinutes) && everyMinutes > 0;
+
 export const checkTimers = async (): Promise<void> => {
   const now = Date.now();
   for (const [canvasName, doc] of docs.entries()) {
@@ -486,6 +519,15 @@ export const checkTimers = async (): Promise<void> => {
       const timer = node.ether?.timer;
       if (!timer) continue;
       const timerKey = `${canvasName}::${node.id}`;
+      if (!isValidTimerInterval(timer.everyMinutes)) {
+        // Invalid -> unknown-style no-op: never scheduled, never fires
+        // (LAW: unknown never fires). Clear any stale schedule left over
+        // from before an edit made it invalid, and surface it loudly rather
+        // than let it silently stop pulsing.
+        if (nextFire.has(timerKey)) nextFire.delete(timerKey);
+        console.error(`[kernel] invalid timer everyMinutes (${timer.everyMinutes}) on ${timerKey} — disabled until fixed`);
+        continue;
+      }
       ensureTimerScheduled(canvasName, node.id, timer.everyMinutes);
       const due = nextFire.get(timerKey);
       if (due === undefined || now < due) continue;
@@ -528,4 +570,9 @@ export const purgeCanvasMemory = (canvasName: string): void => {
   for (const key of watchers.keys()) if (key.startsWith(prefix)) watchers.delete(key);
   for (const key of nextFire.keys()) if (key.startsWith(prefix)) nextFire.delete(key);
   for (const key of armed.keys()) if (key.startsWith(prefix)) armed.delete(key);
+  // evaluate.ts's edge-detection memory (seenLevelStatus/seenGlyphState) is
+  // namespaced the same way and grows unbounded across the app's lifetime
+  // otherwise — purge it here too so a deleted canvas's baselines don't
+  // outlive the canvas.
+  purgeCanvasEdgeMemory(canvasName);
 };
