@@ -7,7 +7,7 @@ import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import type { FlowNode } from "../../lib/convert";
 import { getAgentAvatar, getAgentIdentity } from "../../lib/agent";
-import { entityReadout } from "../../lib/entity-readout";
+import { boothPendingReview, entityReadout } from "../../lib/entity-readout";
 import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { state$ } from "../../lib/state";
@@ -118,6 +118,9 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
   const view = node.ether?.view;
   const { segments, dots } = entityReadout(node.ether?.bindings, snapshots, view);
   const line = segments.join(" · ");
+  // Booth attention decal: drafts owed a human verdict. Exists only above
+  // zero — a quiet card carries no badge, per the exception-only contract.
+  const pendingReview = boothPendingReview(node.ether?.bindings, snapshots);
   const eyebrow = kind === "project" && view?.orbit ? `${kind} · ${view.orbit}` : kind;
   const nameHue = node.color ? accentColor(node.color) : INK;
   const isAgent = kind === "agent";
@@ -140,6 +143,20 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
         <div className="flex items-center justify-between gap-2">
           <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>{eyebrow}</span>
           <span className="flex items-center gap-1.5">
+            {pendingReview > 0 ? (
+              <span
+                title={`${pendingReview} booth draft${pendingReview === 1 ? "" : "s"} awaiting review`}
+                className="rounded-full border px-1.5 py-px text-[8px] font-semibold tabular-nums leading-none tracking-[.06em]"
+                style={{
+                  color: SOURCE_HUE.booth,
+                  borderColor: withAlpha(SOURCE_HUE.booth, 0.45),
+                  background: withAlpha(SOURCE_HUE.booth, 0.12),
+                  boxShadow: `0 0 8px ${withAlpha(SOURCE_HUE.booth, 0.35)}`,
+                }}
+              >
+                {pendingReview} to review
+              </span>
+            ) : null}
             {dots.map(({ source, ok }, i) => (
               <span
                 key={`${source}-${i}`}

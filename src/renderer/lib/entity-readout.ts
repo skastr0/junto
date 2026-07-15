@@ -66,6 +66,38 @@ const quasarSegments = (entity: Entity): string[] => {
   return out;
 };
 
+// "3 drafts · 2 to review" — pending_review is the attention state (a human
+// verdict is owed), so it surfaces whenever non-zero; needs_revision is the
+// producer's queue, shown only when nothing is pending on the human.
+const boothSegments = (entity: Entity): string[] => {
+  const out: string[] = [];
+  const drafts = num(entity, "drafts");
+  if (drafts && drafts !== "0") out.push(`${drafts} drafts`);
+  const pending = num(entity, "pending_review");
+  if (pending && pending !== "0") out.push(`${pending} to review`);
+  else {
+    const revising = num(entity, "needs_revision");
+    if (revising && revising !== "0") out.push(`${revising} revising`);
+  }
+  return out;
+};
+
+// Total drafts owed a human verdict across a node's booth bindings — the
+// canvas decal's input. 0 means quiet; the badge only exists above zero.
+export const boothPendingReview = (
+  bindings: ReadonlyArray<EtherBinding> | undefined,
+  snapshots: SnapshotState,
+): number => {
+  let total = 0;
+  for (const binding of bindings ?? []) {
+    if (binding.source !== "booth") continue;
+    const entity = findEntity(snapshots, "booth", binding.ref.key);
+    const pending = entity?.stats.pending_review;
+    if (typeof pending === "number") total += pending;
+  }
+  return total;
+};
+
 const hermesSegments = (entity: Entity): string[] => {
   const out: string[] = [];
   const status = entity.stats.status;
@@ -86,6 +118,7 @@ const genericSegments = (entity: Entity): string[] =>
 const SEGMENTS: Record<string, (entity: Entity) => string[]> = {
   tower: towerSegments,
   quasar: quasarSegments,
+  booth: boothSegments,
   hermes: hermesSegments,
 };
 
