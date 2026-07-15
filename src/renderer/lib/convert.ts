@@ -1,7 +1,8 @@
 import { MarkerType } from "@xyflow/react";
 import type { Edge, Node } from "@xyflow/react";
 import type { CanvasDoc, CanvasEdge, CanvasNode, EdgePhase } from "@shared/canvas";
-import { deriveExecutionGraph, type GlyphView } from "@shared/execution-graph";
+import { deriveExecutionGraph } from "@shared/execution-graph";
+import type { ExecutionSnapshot } from "@shared/ipc";
 import { nodeTitle, searchText } from "./presentation";
 
 export type NodeData = {
@@ -21,15 +22,29 @@ export type FlowEdge = Edge<EdgeData>;
 
 export { searchText } from "./presentation";
 
-// CanvasDoc -> React Flow. x/y -> position, width/height -> style, node.type
-// selects the custom component, and derived blocked state rides along in data
-// so nodes/edges can tint without re-querying the graph.
-// Optional GlyphView (from kernel execution or empty) drives criteria phases.
+// Live overlay from the kernel cycle (glyph-aware phases + blocked closure).
+// When absent, toFlow falls back to pure deriveExecutionGraph(doc) which still
+// resolves tasks criteria and legacy kind pins from the document alone.
+export type ExecutionOverlay = Pick<
+  ExecutionSnapshot,
+  "phaseByEdgeId" | "detailByEdgeId" | "blocked" | "blockedEdgeIds"
+>;
+
+// CanvasDoc -> React Flow. Optional kernel execution overlay carries live
+// glyph/WIP phase so the canvas does not re-derive with an empty GlyphView.
 export const toFlow = (
   doc: CanvasDoc,
-  glyphs?: GlyphView,
+  execution?: ExecutionOverlay | null,
 ): { nodes: FlowNode[]; edges: FlowEdge[] } => {
-  const graph = deriveExecutionGraph(doc, glyphs ?? new Map());
+  const fallback = deriveExecutionGraph(doc, new Map());
+  const blocked = new Set(execution?.blocked ?? fallback.blocked);
+  const blockedEdgeIds = new Set(execution?.blockedEdgeIds ?? fallback.blockedEdgeIds);
+  const phaseOf = (edgeId: string): EdgePhase =>
+    (execution?.phaseByEdgeId[edgeId] as EdgePhase | undefined) ??
+    fallback.phaseByEdgeId.get(edgeId) ??
+    "relates";
+  const detailOf = (edgeId: string): string =>
+    execution?.detailByEdgeId[edgeId] ?? fallback.detailByEdgeId.get(edgeId) ?? "";
 
   const nodes: FlowNode[] = doc.nodes.map((node) => {
     const isGroup = node.type === "group";
@@ -37,7 +52,7 @@ export const toFlow = (
       id: node.id,
       type: node.type,
       position: { x: node.x, y: node.y },
-      data: { node, blocked: graph.blocked.has(node.id) },
+      data: { node, blocked: blocked.has(node.id) },
       style: { width: node.width, height: node.height },
       zIndex: isGroup ? 0 : 1,
       connectable: !isGroup,
@@ -49,10 +64,8 @@ export const toFlow = (
   });
 
   const edges: FlowEdge[] = doc.edges.map((edge) => {
-    const phase = graph.phaseByEdgeId.get(edge.id) ?? "relates";
-    const detail = graph.detailByEdgeId.get(edge.id) ?? "";
-    // Project live phase onto a shallow edge copy so filters / labels see it
-    // without mutating the document.
+    const phase = phaseOf(edge.id);
+    const detail = detailOf(edge.id);
     const projected: CanvasEdge = {
       ...edge,
       ether: { ...edge.ether, kind: phase },
@@ -69,7 +82,7 @@ export const toFlow = (
       type: "ether",
       data: {
         edge: projected,
-        rippling: graph.blockedEdgeIds.has(edge.id),
+        rippling: blockedEdgeIds.has(edge.id),
         phase,
         detail,
       },

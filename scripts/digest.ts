@@ -110,7 +110,16 @@ const main = async () => {
   ]);
   const snapshots: SnapshotState = { bundles: [tower, quasar, booth, hermes] };
 
-  const digest = digestCanvas(name, doc, snapshots);
+  // Live glyph rows for edge criteria (glyphs / wip). Partial/failed projects
+  // are omitted so criteria stay non-generating rather than fail-closed.
+  const needed = projectsNeedingGlyphs(doc);
+  const fetched = new Map<string, Awaited<ReturnType<typeof fetchTowerBrowse>>>();
+  for (const project of needed) {
+    fetched.set(project, await fetchTowerBrowse(project));
+  }
+  const glyphs = buildGlyphView(doc, fetched);
+
+  const digest = digestCanvas(name, doc, snapshots, glyphs);
   process.stdout.write(digest);
 
   const sidecarPath = join(canvasesDir(), `${name}.digest.txt`);

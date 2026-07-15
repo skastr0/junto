@@ -12,7 +12,7 @@
 // separately-named "prod" variant, by design (kernel-design.md §2, §7).
 
 import { Context, Effect, Layer } from "effect";
-import type { CanvasDoc, CanvasNode, EtherFlag } from "@shared/canvas";
+import { applyPhaseMirror, type CanvasDoc, type CanvasNode, type EdgePhase, type EtherFlag } from "@shared/canvas";
 import type { ServiceCheck } from "@shared/contracts";
 import type {
   ArmRegionResult,
@@ -44,6 +44,7 @@ import {
   __setDeliveryDepsForTest,
   __setFlagWriterForTest,
   __setGlyphFetcherForTest,
+  __setPhaseMirrorForTest,
   __setSnapshotsForTest,
 } from "./cycle";
 
@@ -318,6 +319,22 @@ const makeKernelService = (
           emitSnapshot();
         })
         .catch((err) => console.error(`[kernel] flag write failed for ${canvasName}/${nodeId}:`, err));
+    },
+  });
+
+  // Mirror derived criteria-edge phases into ether.kind for offline readers.
+  __setPhaseMirrorForTest({
+    mirrorPhases: (canvasName, phaseByEdgeId) => {
+      void Effect.runPromise(
+        canvases.mutate(canvasName, (doc) => applyPhaseMirror(doc, phaseByEdgeId as ReadonlyMap<string, EdgePhase>)),
+      )
+        .then(() => Effect.runPromise(Effect.either(canvases.read(canvasName))))
+        .then((result) => {
+          if (result._tag === "Right") docs.set(canvasName, result.right.doc);
+          for (const listener of canvasMutatedListeners) listener(canvasName);
+          emitSnapshot();
+        })
+        .catch((err) => console.error(`[kernel] phase mirror failed for ${canvasName}:`, err));
     },
   });
 

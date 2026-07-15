@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { IPC_CHANNELS, type BindingHint, type BoothReviewAction } from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
 import { digestCanvas } from "@shared/digest";
+import { buildGlyphView, projectsNeedingGlyphs } from "@shared/glyph-view";
 import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime, chatService } from "../runtime";
 import {
@@ -63,7 +64,14 @@ export const registerVellumIpc = () => {
         const snapshots = yield* SnapshotsService;
         const result = yield* canvases.read(name);
         const state = yield* snapshots.current;
-        const digest = digestCanvas(name, result.doc, state);
+        // Glyph-aware digest: same policy as scripts/digest.ts — only complete
+        // non-partial tower browse results feed criteria edges.
+        const fetched = new Map<string, Awaited<ReturnType<typeof fetchTowerBrowse>>>();
+        for (const project of projectsNeedingGlyphs(result.doc)) {
+          fetched.set(project, yield* Effect.promise(() => fetchTowerBrowse(project)));
+        }
+        const glyphs = buildGlyphView(result.doc, fetched);
+        const digest = digestCanvas(name, result.doc, state, glyphs);
         const path = yield* canvases.writeSidecar(name, "digest.txt", digest);
         return { digest, path };
       }),
