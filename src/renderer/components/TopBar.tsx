@@ -68,15 +68,25 @@ function CanvasPicker({
   const createName$ = useObservable("");
   const createOpen$ = useObservable(false);
   const deleteOpen$ = useObservable(false);
+  const deleteTarget$ = useObservable("");
   const createName = use$(createName$);
   const createOpen = use$(createOpen$);
   const deleteOpen = use$(deleteOpen$);
+  const deleteTarget = use$(deleteTarget$);
 
   const closeCreate = () => {
     createOpen$.set(false);
     createName$.set("");
   };
-  const closeDelete = () => deleteOpen$.set(false);
+  const closeDelete = () => {
+    deleteOpen$.set(false);
+    deleteTarget$.set("");
+  };
+  const openDelete = () => {
+    if (!canvasName) return;
+    deleteTarget$.set(canvasName);
+    deleteOpen$.set(true);
+  };
   const submitCreate = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = createName.trim();
@@ -86,8 +96,8 @@ function CanvasPicker({
   };
   const submitDelete = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canvasName) return;
-    onDelete(canvasName);
+    if (!deleteTarget) return;
+    onDelete(deleteTarget);
     closeDelete();
   };
 
@@ -99,7 +109,7 @@ function CanvasPicker({
         {canvases.map((canvas) => <option key={canvas.name} value={canvas.name} style={{ background: "#131110" }}>{canvas.name}</option>)}
       </select>
       <button className="station-icon-button" disabled={busy} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="new canvas" aria-label="New canvas" onClick={() => createOpen$.set(true)}><Plus size={15} /></button>
-      <button className="station-icon-button" disabled={busy || !canvasName} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.crimson }} title="delete canvas" aria-label="Delete canvas" onClick={() => deleteOpen$.set(true)}><Trash2 size={15} /></button>
+      <button className="station-icon-button" disabled={busy || !canvasName} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.crimson }} title="delete canvas" aria-label="Delete canvas" onClick={openDelete}><Trash2 size={15} /></button>
       {createOpen ? (
         <div className="canvas-dialog-backdrop" role="presentation" onMouseDown={closeCreate}>
           <form className="canvas-dialog" role="dialog" aria-modal="true" aria-labelledby="canvas-dialog-title" onSubmit={submitCreate} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") closeCreate(); }}>
@@ -117,15 +127,15 @@ function CanvasPicker({
           </form>
         </div>
       ) : null}
-      {deleteOpen && canvasName ? (
+      {deleteOpen && deleteTarget ? (
         <div className="canvas-dialog-backdrop" role="presentation" onMouseDown={closeDelete}>
           <form className="canvas-dialog" role="dialog" aria-modal="true" aria-labelledby="canvas-delete-title" onSubmit={submitDelete} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") closeDelete(); }}>
             <div className="canvas-dialog__eyebrow">station / remove surface</div>
             <h2 id="canvas-delete-title">Delete canvas</h2>
-            <p>Permanently remove <strong style={{ color: INK }}>{canvasName}</strong> and its digest/svg sidecars. This cannot be undone from the station.</p>
+            <p>Permanently remove <strong style={{ color: INK }}>{deleteTarget}</strong> and its digest/svg sidecars. This cannot be undone from the station.</p>
             <div className="canvas-dialog__actions">
-              <button type="button" className="canvas-dialog__cancel" onClick={closeDelete}>cancel</button>
-              <button type="submit" className="canvas-dialog__danger" autoFocus>delete canvas</button>
+              <button type="button" className="canvas-dialog__cancel" autoFocus onClick={closeDelete}>cancel</button>
+              <button type="submit" className="canvas-dialog__danger">delete canvas</button>
             </div>
           </form>
         </div>

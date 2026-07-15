@@ -13,6 +13,8 @@ import { state$ } from "./state";
 // --- external-write guard -------------------------------------------------
 // The main-process watcher reports external edits. We stamp our own writes so
 // the change push can be ignored for a beat and we don't reload our own save.
+// prepareCanvasRemoval also stamps this so a delete's own subscribe notify is
+// not treated as an external edit (which would re-read a now-missing file).
 let lastWriteAt = 0;
 export const getLastWriteAt = (): number => lastWriteAt;
 
@@ -29,6 +31,13 @@ const confirmDestructive = (message: string): boolean =>
 
 // --- save pipeline --------------------------------------------------------
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+// In-flight write IPC (at most one logical flush at a time). Removal awaits
+// this so a write that already passed the abandon gate still finishes before
+// delete, and delete wins on disk.
+let inFlightSave: Promise<void> | null = null;
+// Names we intentionally discarded (delete). flushSave refuses to write them
+// until clearAbandonedCanvas (open/create of that name).
+const abandonedNames = new Set<string>();
 
 const roundNode = (n: CanvasNode): CanvasNode => ({
   ...n,
@@ -64,20 +73,48 @@ export const roundDoc = (doc: CanvasDoc): CanvasDoc => stripUndefined({
 
 const flushSave = async () => {
   const name = state$.canvasName.peek();
-  if (!name || !window.vellum) return;
-  state$.saveState.set("saving");
-  const doc = roundDoc(state$.doc.peek());
+  const api = window.vellum;
+  if (!name || !api) return;
+  if (abandonedNames.has(name)) return;
+
+  const run = (async () => {
+    state$.saveState.set("saving");
+    const doc = roundDoc(state$.doc.peek());
+    // Re-check immediately before IPC: prepareCanvasRemoval may have abandoned
+    // this name after we entered flushSave.
+    if (abandonedNames.has(name)) {
+      state$.saveState.set("saved");
+      return;
+    }
+    try {
+      await api.writeCanvas(name, doc);
+      if (abandonedNames.has(name)) {
+        // Write may have recreated a just-deleted file; the removal path
+        // awaits this promise then deletes, so delete still wins on disk.
+        state$.saveState.set("saved");
+        return;
+      }
+      // Stamp after IPC returns: the watcher can report the atomic rename after
+      // the main-process write completes, so the suppression window must begin
+      // at the boundary where the renderer knows the write is durable.
+      lastWriteAt = Date.now();
+      state$.saveState.set("saved");
+      state$.error.set("");
+    } catch (error) {
+      if (abandonedNames.has(name)) {
+        state$.saveState.set("saved");
+        return;
+      }
+      state$.saveState.set("error");
+      state$.error.set(error instanceof Error ? error.message : String(error));
+    }
+  })();
+
+  inFlightSave = run;
   try {
-    await window.vellum.writeCanvas(name, doc);
-    // Stamp after IPC returns: the watcher can report the atomic rename after
-    // the main-process write completes, so the suppression window must begin
-    // at the boundary where the renderer knows the write is durable.
-    lastWriteAt = Date.now();
-    state$.saveState.set("saved");
-    state$.error.set("");
-  } catch (error) {
-    state$.saveState.set("error");
-    state$.error.set(error instanceof Error ? error.message : String(error));
+    await run;
+  } finally {
+    if (inFlightSave === run) inFlightSave = null;
   }
 };
 
@@ -97,6 +134,26 @@ export const scheduleSave = (): void => {
     saveTimer = null;
     void flushSave().catch(() => undefined);
   }, 500);
+};
+
+// Call before deleting a canvas: drop the debounced save, mark the name
+// abandoned so no further write lands for it, stamp lastWriteAt so the
+// delete's own canvasChanged notify is ignored, and wait out any in-flight
+// write so remove() can run after (delete wins if write already recreated).
+export const prepareCanvasRemoval = async (name: string): Promise<void> => {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  abandonedNames.add(name);
+  lastWriteAt = Date.now();
+  state$.saveState.set("saved");
+  if (inFlightSave) await inFlightSave.catch(() => undefined);
+};
+
+// After a successful open/create of `name`, allow saves again.
+export const clearAbandonedCanvas = (name: string): void => {
+  abandonedNames.delete(name);
 };
 
 // Commit a new document. `structural` bumps docVersion so React Flow rebuilds;

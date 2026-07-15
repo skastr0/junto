@@ -2,7 +2,16 @@ import { useEffect } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import { state$ } from "./lib/state";
-import { bindingHints, getLastWriteAt, loadDoc, redo, retrySave, undo } from "./lib/mutations";
+import {
+  bindingHints,
+  clearAbandonedCanvas,
+  getLastWriteAt,
+  loadDoc,
+  prepareCanvasRemoval,
+  redo,
+  retrySave,
+  undo,
+} from "./lib/mutations";
 import { startKernelBridge } from "./lib/kernel-view";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
@@ -51,6 +60,7 @@ const openCanvas = async (name: string) => {
   state$.canvasLoading.set(true);
   try {
     const result = await window.vellum.readCanvas(name);
+    clearAbandonedCanvas(result.name);
     state$.canvasName.set(result.name);
     resetCanvasView();
     loadDoc(result.doc);
@@ -68,6 +78,7 @@ const createCanvas = async (name: string) => {
   state$.canvasLoading.set(true);
   try {
     const result = await window.vellum.createCanvas(name);
+    clearAbandonedCanvas(result.name);
     await refreshList();
     state$.canvasName.set(result.name);
     resetCanvasView();
@@ -87,6 +98,9 @@ const deleteCanvas = async (name: string) => {
   state$.canvasLoading.set(true);
   try {
     const wasOpen = state$.canvasName.peek() === name;
+    // Drop pending/in-flight saves for this name and stamp lastWriteAt so the
+    // delete's own canvasChanged notify is not re-read as an external edit.
+    await prepareCanvasRemoval(name);
     await window.vellum.deleteCanvas(name);
     await refreshList();
     const remaining = state$.canvases.peek();
