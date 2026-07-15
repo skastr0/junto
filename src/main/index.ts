@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { app, BrowserWindow, shell } from "electron";
 import { resolvedSpawnEnv } from "./vellum/adapters/exec";
@@ -108,6 +109,55 @@ const createWindow = () => {
   return mainWindow;
 };
 
+// Supervision handoff — the operator contract: whenever the LaunchAgent is
+// installed, the running Vellum is ALWAYS the launchd-supervised instance.
+// Cmd-Q stays quit for good (KeepAlive revives crashes only, never a
+// deliberate quit); any manual re-open (Dock, Finder, `open`) routes itself
+// through launchd via kickstart and exits, so crash supervision is never
+// silently absent for the session the operator just started. Detection is by
+// pid identity against `launchctl print`, never argv — immune to stale plists.
+const LAUNCHD_LABEL = "skastr0.vellum";
+// getuid is absent on non-POSIX platforms (where launchd cannot exist anyway);
+// callers bail to standalone when no target can be formed.
+const launchdTarget = (): string | undefined => {
+  const uid = process.getuid?.();
+  return uid === undefined ? undefined : `gui/${uid}/${LAUNCHD_LABEL}`;
+};
+
+const launchctl = (args: ReadonlyArray<string>): Promise<{ ok: boolean; stdout: string }> =>
+  new Promise((resolve) => {
+    execFile("/bin/launchctl", args as string[], (error, stdout) =>
+      resolve({ ok: !error, stdout: stdout?.toString() ?? "" }),
+    );
+  });
+
+// Returns true when THIS process should keep running (it is the supervised
+// instance, or no LaunchAgent is installed, or the handoff failed safely).
+const ensureSupervised = async (): Promise<boolean> => {
+  if (!app.isPackaged) return true; // dev runs are never rerouted
+  const target = launchdTarget();
+  if (target === undefined) return true;
+  const print = await launchctl(["print", target]);
+  if (!print.ok) return true; // no LaunchAgent — standalone launch is legitimate
+  const pidMatch = print.stdout.match(/\bpid = (\d+)/);
+  if (pidMatch && Number(pidMatch[1]) === process.pid) return true; // we ARE supervised
+  // Hand off: release the lock so the kickstarted instance can take it.
+  app.releaseSingleInstanceLock();
+  const kick = await launchctl(["kickstart", target]);
+  if (kick.ok) {
+    app.exit(0);
+    return false;
+  }
+  // Kickstart failed (odd job state) — reclaim the lock and run unsupervised
+  // rather than leaving the operator with nothing; say so loudly.
+  if (!app.requestSingleInstanceLock()) {
+    app.quit();
+    return false;
+  }
+  console.error("[launchd] kickstart failed — running unsupervised this session");
+  return true;
+};
+
 // Single-instance lock — under a permanent/launchd deployment a second launch
 // (Spotlight, `open`, a KeepAlive race) must NOT start a second process that
 // would file-watch and clobber the same ~/.vellum/canvases document plane.
@@ -124,7 +174,9 @@ if (!gotSingleInstanceLock) {
     existing.focus();
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    if (!(await ensureSupervised())) return;
+
     // Warm the resolved spawn environment (login-shell PATH + static floor) so
     // process.env.PATH is fixed before any adapter/service spawns a CLI. Never
     // rejects; adapters also await it lazily, so this is belt-and-suspenders.

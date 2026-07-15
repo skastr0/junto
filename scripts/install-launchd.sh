@@ -7,6 +7,9 @@
 #
 # KeepAlive semantics: a crash (non-zero exit) relaunches the app; a deliberate
 # quit (Cmd-Q, exit 0) stays quit until next login or `launchctl kickstart`.
+# Manual re-opens self-route back through launchd (the app kickstarts this
+# label and exits when it detects it isn't the supervised instance), so the
+# running Vellum is always crash-supervised while this agent is installed.
 set -euo pipefail
 
 LABEL="skastr0.vellum"
