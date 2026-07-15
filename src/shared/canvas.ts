@@ -16,6 +16,15 @@ export type EdgeEnd = typeof EdgeEnd.Type;
 export const EtherEdgeKind = Schema.Literal("blocks", "depends", "relates");
 export type EtherEdgeKind = typeof EtherEdgeKind.Type;
 
+// Live edge phase is always one of these three. Authorial criteria (or a
+// legacy kind pin) determine phase; phase is never the source of truth for
+// what the user declared — it is derived at evaluation time.
+export type EdgePhase = EtherEdgeKind;
+
+// Glyph states that count as in-flight execution work for opt-in WIP criteria.
+export const WIP_GLYPH_STATES = ["committed", "building", "reviewing"] as const;
+export type WipGlyphState = (typeof WIP_GLYPH_STATES)[number];
+
 export const EtherFlag = Schema.Literal("blocker", "parked", "attention");
 export type EtherFlag = typeof EtherFlag.Type;
 
@@ -56,6 +65,7 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "agent",
   "station",
   "skill",
+  "task",
 ] as const;
 
 export const EtherEntity = Schema.Struct({
@@ -125,6 +135,50 @@ export const EtherTimer = Schema.Struct({
 });
 export type EtherTimer = typeof EtherTimer.Type;
 
+// Local checklist on a tasks node (entity.kind === "task"). State lives in the
+// document; incomplete items do NOT auto-seed blocks — only an edge whose
+// criteria mode is "tasks" can turn them into a generating relation.
+export const EtherTaskItem = Schema.Struct({
+  id: Schema.String,
+  text: Schema.String,
+  done: Schema.optionalWith(Schema.Boolean, { exact: true }),
+});
+export type EtherTaskItem = typeof EtherTaskItem.Type;
+
+export const EtherTasks = Schema.Struct({
+  items: Schema.Array(EtherTaskItem),
+});
+export type EtherTasks = typeof EtherTasks.Type;
+
+// Edge glyph-binding / task-binding criteria. Absence → plain relates.
+// - glyphs: selected glyph ids on a project must all be "done"
+// - wip:    opt-in; any glyph in committed|building|reviewing generates blocks
+// - tasks:  incomplete checklist items on the fromNode (kind=task)
+export const EdgeCriteriaGlyphs = Schema.Struct({
+  mode: Schema.Literal("glyphs"),
+  project: Schema.optionalWith(Schema.String, { exact: true }),
+  orbit: Schema.optionalWith(Schema.String, { exact: true }),
+  glyphIds: Schema.Array(Schema.String),
+});
+export type EdgeCriteriaGlyphs = typeof EdgeCriteriaGlyphs.Type;
+
+export const EdgeCriteriaWip = Schema.Struct({
+  mode: Schema.Literal("wip"),
+  project: Schema.optionalWith(Schema.String, { exact: true }),
+  orbit: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type EdgeCriteriaWip = typeof EdgeCriteriaWip.Type;
+
+export const EdgeCriteriaTasks = Schema.Struct({
+  mode: Schema.Literal("tasks"),
+  // empty/absent itemIds = every item on the fromNode tasks list
+  itemIds: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
+});
+export type EdgeCriteriaTasks = typeof EdgeCriteriaTasks.Type;
+
+export const EdgeCriteria = Schema.Union(EdgeCriteriaGlyphs, EdgeCriteriaWip, EdgeCriteriaTasks);
+export type EdgeCriteria = typeof EdgeCriteria.Type;
+
 export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalWith(EtherEntity, { exact: true }),
   bindings: Schema.optionalWith(Schema.Array(EtherBinding), { exact: true }),
@@ -133,11 +187,15 @@ export const EtherNodeExtension = Schema.Struct({
   region: Schema.optionalWith(EtherRegion, { exact: true }),
   watch: Schema.optionalWith(EtherWatch, { exact: true }),
   timer: Schema.optionalWith(EtherTimer, { exact: true }),
+  tasks: Schema.optionalWith(EtherTasks, { exact: true }),
 });
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 
 export const EtherEdgeExtension = Schema.Struct({
+  // Legacy / pin: when criteria is absent, kind is authorial (compatibility).
+  // When criteria is present, kind is derived and may be mirrored for offline readers.
   kind: Schema.optionalWith(EtherEdgeKind, { exact: true }),
+  criteria: Schema.optionalWith(EdgeCriteria, { exact: true }),
 });
 export type EtherEdgeExtension = typeof EtherEdgeExtension.Type;
 
@@ -265,17 +323,44 @@ export const serializeCanvas = (doc: CanvasDoc): string => {
 
 // Mirror law: extension semantics must remain visible to plain JSON Canvas
 // readers. Applied on every save.
+// For criteria edges, mirror the last-known stored kind (if any) into label;
+// live phase is projected by digest/svg/kernel and may rewrite kind on the
+// live path via applyPhaseMirror.
 export const applyMirrorLaw = (doc: CanvasDoc): CanvasDoc => ({
   nodes: doc.nodes.map((node) =>
     node.ether?.flags?.includes("blocker") ? { ...node, color: "1" } : node,
   ),
-  edges: doc.edges.map((edge) =>
-    edge.ether?.kind !== undefined
-      ? {
-          ...edge,
-          label: edge.label ?? edge.ether.kind,
-          ...(edge.ether.kind === "blocks" ? { color: "1" as CanvasColor } : {}),
-        }
-      : edge,
-  ),
+  edges: doc.edges.map((edge) => {
+    const kind = edge.ether?.kind;
+    if (kind === undefined) return edge;
+    return {
+      ...edge,
+      label: edge.label ?? kind,
+      ...(kind === "blocks" ? { color: "1" as CanvasColor } : {}),
+    };
+  }),
+});
+
+// Project derived edge phases into stored kind/label/color so offline readers
+// of the file see the last evaluated phase. Pure: takes an already-derived
+// phase map (from deriveExecutionGraph).
+export const applyPhaseMirror = (
+  doc: CanvasDoc,
+  phaseByEdgeId: ReadonlyMap<string, EtherEdgeKind>,
+): CanvasDoc => ({
+  nodes: doc.nodes,
+  edges: doc.edges.map((edge) => {
+    const phase = phaseByEdgeId.get(edge.id);
+    if (phase === undefined) return edge;
+    // Only rewrite kind when criteria is present (live edge); legacy pins keep authorial kind.
+    if (!edge.ether?.criteria) {
+      return applyMirrorLaw({ nodes: [], edges: [edge] }).edges[0] ?? edge;
+    }
+    return {
+      ...edge,
+      label: phase,
+      ...(phase === "blocks" ? { color: "1" as CanvasColor } : {}),
+      ether: { ...edge.ether, kind: phase },
+    };
+  }),
 });
