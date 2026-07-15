@@ -369,7 +369,7 @@ body {
    shadow only — transform belongs to motion, so it is never touched here. */
 .vellum-lod-card, .vellum-lod-bubble, .vellum-lod-chip { transition: border-color .18s ease, box-shadow .18s ease; }
 .react-flow__node:hover .vellum-lod-card { border-color: rgba(232,163,61,.5) !important; box-shadow: 0 0 0 1px rgba(232,163,61,.16), 0 16px 38px rgba(0,0,0,.34) !important; }
-.react-flow__node:hover .vellum-lod-bubble { border-color: rgba(232,163,61,.68) !important; box-shadow: 0 0 0 1px rgba(232,163,61,.22), 0 18px 42px rgba(0,0,0,.42) !important; }
+.react-flow__node:hover .vellum-lod-bubble { border-color: rgba(232,163,61,.85) !important; box-shadow: 0 0 0 1px rgba(232,163,61,.3), 0 0 22px rgba(232,163,61,.32), 0 18px 42px rgba(0,0,0,.42) !important; }
 .react-flow__node:hover .vellum-lod-chip { border-color: rgba(237,230,218,.28) !important; }
 
 /* Every card advertises its dots while a connection drag is live. */
