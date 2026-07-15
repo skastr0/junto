@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Flag, SlidersHorizontal } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { ulid } from "ulid";
-import type { CanvasDoc, CanvasNode, EdgeCriteria, EtherEdgeKind, EtherFlag, EtherView, EtherWatch } from "@shared/canvas";
+import type { CanvasDoc, CanvasNode, EdgeCriteria, EtherFlag, EtherView, EtherWatch } from "@shared/canvas";
 import { findEntity } from "@shared/entities";
 import { addEdge, setEdgeCriteria } from "../lib/edge-mutations";
 import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTasks, setNodeTimer, setNodeView, setNodeWatch, setRegionHold, toggleFlag } from "../lib/mutations";
@@ -129,14 +129,19 @@ function TasksEditor({ node }: { readonly node: CanvasNode }) {
 export function EdgeCriteriaEditor({
   edgeId,
   fromNode,
+  livePhase,
+  liveDetail,
 }: {
   readonly edgeId: string;
   readonly fromNode: CanvasNode | undefined;
+  readonly livePhase?: string;
+  readonly liveDetail?: string;
 }) {
   const doc = use$(state$.doc);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
   const criteria = edge?.ether?.criteria;
   const fromIsTask = fromNode?.ether?.entity?.kind === "task";
+  const fromIsProject = fromNode?.ether?.entity?.kind === "project";
   const towerKey =
     fromNode?.ether?.bindings?.find((binding) => binding.source === "tower")?.ref.key ?? "";
 
@@ -173,18 +178,37 @@ export function EdgeCriteriaEditor({
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">live criteria</div>
+      <div className="inspector-section__label">live phase</div>
+      {livePhase ? (
+        <div className="inspector-detail" style={{ marginBottom: 8 }}>
+          <strong style={{ color: livePhase === "blocks" ? HUE.crimson : livePhase === "depends" ? HUE.amber : undefined }}>
+            {livePhase}
+          </strong>
+          {liveDetail ? ` · ${liveDetail}` : null}
+          {!criteria ? " · soft link (no criteria)" : null}
+        </div>
+      ) : null}
+      <div className="inspector-section__label">what drives this edge</div>
       <label className="inspector-editor">
-        <span>binding</span>
+        <span>criteria</span>
         <select
           aria-label="Edge criteria mode"
           value={mode}
           onChange={(event) => setMode(event.target.value as "none" | "glyphs" | "wip" | "tasks")}
         >
-          <option value="none">none · plain relates (or legacy pin)</option>
-          <option value="glyphs">selected glyphs must be done</option>
-          <option value="wip">opt-in WIP (committed|building|reviewing)</option>
-          {fromIsTask ? <option value="tasks">tasks checklist on source</option> : null}
+          <option value="none">none · plain relates</option>
+          {fromIsTask ? <option value="tasks">tasks · open checklist items block</option> : null}
+          {fromIsProject || towerKey ? (
+            <option value="wip">WIP · any committed/building/reviewing (opt-in)</option>
+          ) : null}
+          {fromIsProject || towerKey ? (
+            <option value="glyphs">glyphs · selected ids must be done</option>
+          ) : null}
+          {!fromIsTask && !fromIsProject && !towerKey ? (
+            <option value="tasks" disabled>
+              tasks (source must be a tasks node)
+            </option>
+          ) : null}
         </select>
       </label>
       {mode === "glyphs" ? (
@@ -192,7 +216,7 @@ export function EdgeCriteriaEditor({
           <span>glyph ids</span>
           <input
             aria-label="Glyph ids for edge criteria"
-            placeholder="comma-separated glyph ids"
+            placeholder="comma-separated glyph ids from source project"
             defaultValue={glyphIdsText}
             key={`${edgeId}:${glyphIdsText}`}
             onBlur={(event) => {
@@ -213,18 +237,19 @@ export function EdgeCriteriaEditor({
       ) : null}
       {mode === "wip" ? (
         <div className="inspector-detail">
-          Blocks while any glyph on the source project is in committed, building, or reviewing.
+          Blocks while any glyph on the source tower project is in committed, building, or reviewing.
           Opt-in only — never the default for projects.
         </div>
       ) : null}
       {mode === "tasks" ? (
         <div className="inspector-detail">
-          Blocks while incomplete items remain on the source tasks node.
+          Blocks while incomplete items remain on the source tasks node. Connecting from a tasks
+          node sets this automatically.
         </div>
       ) : null}
       {mode === "none" ? (
         <div className="inspector-detail">
-          No live binding. Use cycle kind for a static pin, or attach glyphs/WIP/tasks above.
+          Soft structural link. Attach criteria above so phase becomes blocks/depends live.
         </div>
       ) : null}
     </div>
@@ -708,18 +733,57 @@ export function NodeFlagControls({ node }: { readonly node: CanvasNode }) {
 export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node: CanvasNode; readonly doc: CanvasDoc; readonly open: boolean; readonly onOpenChange: (open: boolean) => void }) {
   const [targetId, setTargetId] = useState("");
   const [targetQuery, setTargetQuery] = useState("");
-  const [edgeKind, setEdgeKind] = useState<EtherEdgeKind>("relates");
   const targets = doc.nodes.filter((candidate) => candidate.id !== node.id && candidate.type !== "group");
   const availableTargets = targets.filter((target) => !doc.edges.some((edge) => edge.fromNode === node.id && edge.toNode === target.id));
   const filteredTargets = availableTargets.filter((target) => !targetQuery.trim() || searchText(target).includes(targetQuery.trim().toLowerCase()));
+  const fromIsTask = node.ether?.entity?.kind === "task";
   const connect = () => {
     if (!targetId) return;
-    addEdge({ source: node.id, target: targetId, kind: edgeKind });
+    // Criteria inferred from source (tasks → tasks criteria). No static kind picker.
+    addEdge({ source: node.id, target: targetId });
     setTargetId("");
     setTargetQuery("");
-    setEdgeKind("relates");
     onOpenChange(false);
   };
   if (!open) return null;
-  return <div className="inspector-connect"><label><span>find a node <em>{filteredTargets.length}/{availableTargets.length}</em></span><input aria-label="Find a node" value={targetQuery} onChange={(event) => setTargetQuery(event.target.value)} placeholder="name, source, or binding" /></label>{availableTargets.length === 0 ? <div className="inspector-connect__empty">No unlinked nodes available.</div> : filteredTargets.length === 0 ? <div className="inspector-connect__empty">No nodes match this filter.</div> : <label><span>connect to</span><select aria-label="Connect to node" value={targetId} onChange={(event) => setTargetId(event.target.value)}><option value="">choose a node</option>{filteredTargets.map((target) => <option key={target.id} value={target.id}>{nodeTitle(target)} · {target.type}</option>)}</select></label>}<label><span>edge kind</span><select aria-label="Edge kind" value={edgeKind} onChange={(event) => setEdgeKind(event.target.value as EtherEdgeKind)}><option value="relates">relates</option><option value="depends">depends</option><option value="blocks">blocks</option></select></label><button disabled={!targetId} onClick={connect}>create edge</button></div>;
+  return (
+    <div className="inspector-connect">
+      <label>
+        <span>
+          find a node <em>{filteredTargets.length}/{availableTargets.length}</em>
+        </span>
+        <input
+          aria-label="Find a node"
+          value={targetQuery}
+          onChange={(event) => setTargetQuery(event.target.value)}
+          placeholder="name, source, or binding"
+        />
+      </label>
+      {availableTargets.length === 0 ? (
+        <div className="inspector-connect__empty">No unlinked nodes available.</div>
+      ) : filteredTargets.length === 0 ? (
+        <div className="inspector-connect__empty">No nodes match this filter.</div>
+      ) : (
+        <label>
+          <span>connect to</span>
+          <select aria-label="Connect to node" value={targetId} onChange={(event) => setTargetId(event.target.value)}>
+            <option value="">choose a node</option>
+            {filteredTargets.map((target) => (
+              <option key={target.id} value={target.id}>
+                {nodeTitle(target)} · {target.ether?.entity?.kind ?? target.type}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <div className="inspector-detail">
+        {fromIsTask
+          ? "From a tasks node: edge auto-binds to the checklist (blocks while open)."
+          : "Soft relates by default. Attach WIP or glyph criteria on the edge after connect."}
+      </div>
+      <button disabled={!targetId} onClick={connect}>
+        create edge
+      </button>
+    </div>
+  );
 }

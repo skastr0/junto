@@ -190,7 +190,8 @@ function useCanvasInteractions(rf: CanvasFlow, setNodes: ReturnType<typeof useNo
     if (!targetId || targetId === from) return;
     const targetNode = state$.doc.peek().nodes.find((node) => node.id === targetId);
     if (!targetNode || targetNode.type === "group") return;
-    addEdge({ source: from, target: targetId, sourceHandle: connectionState.fromHandle?.id, kind: "relates" });
+    // Infer criteria from source (tasks → tasks criteria). No static kind.
+    addEdge({ source: from, target: targetId, sourceHandle: connectionState.fromHandle?.id });
   }, []);
   // Region hold: dragging a `hold` region moves every node geometrically
   // inside it. Membership is snapshotted at drag start — never stored — and a

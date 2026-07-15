@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
 import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, renameGroup, setNodeColor, setNodeView, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
-import { addEdge, deleteEdges, editEdgeLabel, setEdgeColor, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
+import { addEdge, deleteEdges, editEdgeLabel, inferEdgeCriteria, setEdgeColor, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
 
@@ -40,6 +40,47 @@ describe("renderer graph mutations", () => {
     expect(state$.selectedEdgeId.peek()).toBe(edge?.id);
     expect(Object.hasOwn(edge ?? {}, "fromSide")).toBe(false);
     expect(Object.hasOwn(edge ?? {}, "toSide")).toBe(false);
+    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+  });
+
+  it("auto-binds tasks criteria when connecting from a tasks node", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        {
+          id: "tasks",
+          type: "text",
+          text: "ops",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: {
+            entity: { kind: "task" },
+            tasks: { items: [{ id: "i1", text: "ship", done: false }] },
+          },
+        },
+        {
+          id: "proj",
+          type: "text",
+          text: "quasar",
+          x: 300,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: {
+            entity: { kind: "project" },
+            bindings: [{ source: "tower", ref: { type: "project", key: "quasar" } }],
+          },
+        },
+      ],
+      edges: [],
+    });
+    expect(inferEdgeCriteria(state$.doc.peek().nodes[0])).toEqual({ mode: "tasks" });
+    addEdge({ source: "tasks", target: "proj" });
+    const edge = state$.doc.peek().edges[0];
+    expect(edge?.ether?.criteria).toEqual({ mode: "tasks" });
+    expect(edge?.ether?.kind).toBeUndefined();
     expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 

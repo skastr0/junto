@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import type { CanvasEdge, EdgeCriteria, EdgeEnd, EtherEdgeKind } from "@shared/canvas";
+import type { CanvasEdge, CanvasNode, EdgeCriteria, EdgeEnd, EtherEdgeKind } from "@shared/canvas";
 import { state$ } from "./state";
 import { commitDoc, parseSide } from "./mutations";
 
@@ -64,15 +64,14 @@ export const setEdgeCriteria = (id: string, criteria: EdgeCriteria | undefined):
         if (!edge.ether) return edge;
         const { criteria: _c, ...rest } = edge.ether;
         const nextEther = Object.keys(rest).length > 0 ? rest : undefined;
-        return nextEther ? { ...edge, ether: nextEther } : { ...edge, ether: undefined };
+        return nextEther ? { ...edge, ether: nextEther } : without(edge, "ether");
       }
       return {
         ...edge,
+        // Drop legacy pin when attaching live criteria — phase is derived.
         ether: {
-          ...edge.ether,
+          ...(edge.ether ? without(edge.ether, "kind") : {}),
           criteria,
-          // Clear stale pin when attaching live criteria — phase is derived.
-          kind: edge.ether?.kind,
         },
       };
     }),
@@ -107,12 +106,35 @@ export const toggleEdgeArrow = (id: string, side: "from" | "to"): void => {
   });
 };
 
+const towerProjectKey = (node: CanvasNode | undefined): string | undefined => {
+  if (!node) return undefined;
+  for (const binding of node.ether?.bindings ?? []) {
+    if (binding.source === "tower" && binding.ref.type === "project") return binding.ref.key;
+  }
+  return undefined;
+};
+
+/**
+ * Infer live criteria from the source node so connect-and-reward is the default.
+ * - tasks node → tasks criteria (blocks while checklist incomplete)
+ * - otherwise → no criteria (plain relates); WIP/glyphs stay explicit opt-in
+ */
+export const inferEdgeCriteria = (fromNode: CanvasNode | undefined): EdgeCriteria | undefined => {
+  if (!fromNode) return undefined;
+  if (fromNode.ether?.entity?.kind === "task") {
+    return { mode: "tasks" };
+  }
+  return undefined;
+};
+
 export const addEdge = (params: {
   source: string;
   target: string;
   sourceHandle?: string | null;
   targetHandle?: string | null;
   kind?: EtherEdgeKind;
+  /** Explicit criteria; when omitted, inferred from the source node. */
+  criteria?: EdgeCriteria;
 }): void => {
   if (params.source === params.target) {
     state$.error.set("A node cannot connect to itself.");
@@ -123,6 +145,10 @@ export const addEdge = (params: {
     state$.error.set("That relation already exists.");
     return;
   }
+  const fromNode = doc.nodes.find((node) => node.id === params.source);
+  const criteria = params.criteria ?? inferEdgeCriteria(fromNode);
+  // If caller still passed a legacy kind and no criteria, keep pin for compat.
+  const kind = criteria ? undefined : (params.kind ?? "relates");
   const fromSide = parseSide(params.sourceHandle);
   const toSide = parseSide(params.targetHandle);
   const edge: CanvasEdge = {
@@ -131,10 +157,19 @@ export const addEdge = (params: {
     toNode: params.target,
     ...(fromSide ? { fromSide } : {}),
     ...(toSide ? { toSide } : {}),
-    ether: { kind: params.kind ?? "relates" },
+    ether: {
+      ...(kind ? { kind } : {}),
+      ...(criteria ? { criteria } : {}),
+    },
   };
+  // Avoid empty ether object.
+  if (edge.ether && Object.keys(edge.ether).length === 0) {
+    delete (edge as { ether?: unknown }).ether;
+  }
   state$.selectedNodeId.set("");
   state$.selectedEdgeId.set(edge.id);
   state$.error.set("");
   commitDoc({ ...doc, edges: [...doc.edges, edge] });
 };
+
+export { towerProjectKey };

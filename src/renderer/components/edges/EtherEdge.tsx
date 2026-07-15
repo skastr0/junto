@@ -1,7 +1,7 @@
 import type { EdgeProps, EdgeTypes } from "@xyflow/react";
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath } from "@xyflow/react";
 import type { FlowEdge } from "../../lib/convert";
-import { cycleEdgeKind } from "../../lib/edge-mutations";
+import { state$ } from "../../lib/state";
 import { accentColor, EDGE_COLOR } from "../../lib/theme";
 
 export function EtherEdge({
@@ -15,18 +15,25 @@ export function EtherEdge({
   data,
   markerEnd,
 }: EdgeProps<FlowEdge>) {
-  const kind = data?.phase ?? data?.edge.ether?.kind ?? "relates";
+  const phase = data?.phase ?? data?.edge.ether?.kind ?? "relates";
   const detail = data?.detail ?? "";
+  const hasCriteria = Boolean(data?.edge.ether?.criteria);
+  // Live phase is the label. For criteria edges show short detail when blocking.
   const label =
-    data?.edge.ether?.criteria && detail && kind !== "relates"
-      ? `${kind}`
-      : (data?.edge.label ?? kind);
-  const title =
-    data?.edge.ether?.criteria && detail
-      ? `${kind} · ${detail}`
-      : "cycle edge kind (clears criteria if set)";
+    hasCriteria && detail && phase === "blocks"
+      ? `blocks · ${detail.length > 28 ? `${detail.slice(0, 26)}…` : detail}`
+      : hasCriteria
+        ? phase
+        : (data?.edge.label ?? phase);
+  const title = hasCriteria
+    ? detail
+      ? `${phase} · ${detail}`
+      : `${phase} (live criteria)`
+    : phase === "relates"
+      ? "soft link · select to attach live criteria"
+      : `pinned ${phase} · select to edit`;
   const rippling = data?.rippling ?? false;
-  const color = data?.edge.color ? accentColor(data.edge.color) : EDGE_COLOR[kind];
+  const color = data?.edge.color ? accentColor(data.edge.color) : EDGE_COLOR[phase];
 
   const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,
@@ -47,19 +54,21 @@ export function EtherEdge({
         className={rippling ? "vellum-edge-ripple" : undefined}
         style={{
           stroke: color,
-          strokeWidth: 1.2,
-          opacity: kind === "relates" ? 0.55 : 0.85,
+          strokeWidth: phase === "blocks" || rippling ? 1.6 : 1.2,
+          opacity: phase === "relates" && !hasCriteria ? 0.55 : 0.9,
         }}
       />
       <EdgeLabelRenderer>
         <button
-          aria-label={`Cycle ${kind} edge kind`}
+          aria-label={`Select edge · ${phase}`}
           className="nodrag nopan vellum-edge-label"
           style={{ top: labelY, left: labelX }}
           title={title}
           onClick={(e) => {
             e.stopPropagation();
-            cycleEdgeKind(id);
+            // Select for inspector — do not cycle kind (that was the old model).
+            state$.selectedNodeId.set("");
+            state$.selectedEdgeId.set(id);
           }}
         >
           {label}

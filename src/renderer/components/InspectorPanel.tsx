@@ -4,9 +4,10 @@ import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import { deleteNode, setNodeColor } from "../lib/mutations";
-import { cycleEdgeKind, deleteEdges, editEdgeLabel, setEdgeColor, toggleEdgeArrow } from "../lib/edge-mutations";
+import { cycleEdgeKind, deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../lib/edge-mutations";
 import { EdgeCriteriaEditor } from "./InspectorFields";
 import { state$ } from "../lib/state";
+import { kernel$ } from "../lib/kernel-view";
 import { DIM, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
 import { entityReadout } from "../lib/entity-readout";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
@@ -191,37 +192,43 @@ function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly 
 function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
   const doc = use$(state$.doc);
   const edgeId = use$(state$.selectedEdgeId);
+  const execution = use$(kernel$.execution);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
   const [labelDraft, setLabelDraft] = useState(edge?.label ?? "");
   useEffect(() => setLabelDraft(edge?.label ?? ""), [edge?.label, edgeId]);
   if (!edge) return null;
   const source = doc.nodes.find((node) => node.id === edge.fromNode);
   const target = doc.nodes.find((node) => node.id === edge.toNode);
-  const kind = edge.ether?.kind ?? "relates";
+  const livePhase = execution?.phaseByEdgeId?.[edge.id] ?? edge.ether?.kind ?? "relates";
+  const liveDetail = execution?.detailByEdgeId?.[edge.id] ?? "";
+  const criteria = edge.ether?.criteria;
   const commitLabel = () => {
     if (labelDraft !== (edge.label ?? "")) editEdgeLabel(edge.id, labelDraft);
   };
-  const criteria = edge.ether?.criteria;
-  const eyebrow = criteria ? `connection / ${criteria.mode}` : `connection / ${kind}`;
+  const eyebrow = criteria
+    ? `live / ${livePhase} · ${criteria.mode}`
+    : `soft / ${livePhase}`;
   return (
     <aside className="inspector-panel">
-      <InspectorHeader eyebrow={eyebrow} title="graph relation" onClose={onClose} />
+      <InspectorHeader eyebrow={eyebrow} title="execution edge" onClose={onClose} />
       <div className="inspector-body">
         <div className="inspector-edge">
           <span>{source ? nodeTitle(source) : edge.fromNode}</span>
           <ArrowRight size={14} style={{ color: HUE.amber }} />
           <span>{target ? nodeTitle(target) : edge.toNode}</span>
         </div>
-        <div className="inspector-detail">
-          Live criteria drive phase (blocks/depends). Legacy kind pin applies only when criteria is empty.
-        </div>
-        <EdgeCriteriaEditor edgeId={edge.id} fromNode={source} />
+        <EdgeCriteriaEditor
+          edgeId={edge.id}
+          fromNode={source}
+          livePhase={livePhase}
+          liveDetail={liveDetail}
+        />
         <label className="inspector-edge-label">
-          <span>edge label</span>
+          <span>optional label</span>
           <input
             aria-label="Edit edge label"
             value={labelDraft}
-            placeholder={kind}
+            placeholder={livePhase}
             onChange={(event) => setLabelDraft(event.target.value)}
             onBlur={commitLabel}
             onKeyDown={(event) => {
@@ -264,10 +271,17 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
           </div>
         </div>
         <div className="inspector-actions">
-          <button onClick={() => cycleEdgeKind(edge.id)}>
-            <RotateCw size={13} />
-            {criteria ? "clear criteria" : "cycle kind pin"}
-          </button>
+          {criteria ? (
+            <button onClick={() => setEdgeCriteria(edge.id, undefined)}>
+              <RotateCw size={13} />
+              clear criteria
+            </button>
+          ) : (
+            <button onClick={() => cycleEdgeKind(edge.id)} title="Legacy pin for old canvases">
+              <RotateCw size={13} />
+              legacy pin
+            </button>
+          )}
           <button className="inspector-action--danger" onClick={() => deleteEdges([edge.id])}>
             <Trash2 size={13} />
             delete edge
