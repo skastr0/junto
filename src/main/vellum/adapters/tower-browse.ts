@@ -192,9 +192,14 @@ export const isBlankCommentBody = (body: string): boolean => body.trim().length 
 interface OrbitFetchResult {
   readonly glyphs: ReadonlyArray<TowerGlyphRow>;
   readonly signals: ReadonlyArray<TowerSignalRow>;
-  // true when at least one of the orbit's two calls actually succeeded —
-  // false means both failed for this orbit.
-  readonly succeeded: boolean;
+  // The two facets are tracked SEPARATELY. Collapsing them into one
+  // `succeeded = glyphOk || signalOk` hid the case that matters: glyphs failed
+  // but signals answered still read as "this orbit succeeded", so the missing
+  // glyphs were treated as authoritative (a glyphs_done watcher could see
+  // fewer done glyphs than reality and mis-fire). Each facet's own ok flag
+  // lets the caller mark the whole read partial when ANY facet fails.
+  readonly glyphsOk: boolean;
+  readonly signalsOk: boolean;
 }
 
 const fetchOrbit = (
@@ -213,7 +218,8 @@ const fetchOrbit = (
     return {
       glyphs: Either.isRight(glyphResult) ? mapGlyphItems(glyphResult.right.items) : [],
       signals: Either.isRight(signalResult) ? mapSignalItems(signalResult.right.signals) : [],
-      succeeded: Either.isRight(glyphResult) || Either.isRight(signalResult),
+      glyphsOk: Either.isRight(glyphResult),
+      signalsOk: Either.isRight(signalResult),
     };
   });
 
@@ -233,17 +239,21 @@ export const towerBrowseRows = (
       ORBITS.map((orbit) => fetchOrbit(tower, projectKey, orbit)),
       { concurrency: "unbounded" },
     );
-    const allFailed = perOrbit.every((entry) => !entry.succeeded);
+    // Total outage only when EVERY facet of EVERY orbit failed — the 10
+    // requests (5 orbits x glyphs+signals) all down — which stays distinct
+    // from a legitimately empty project (all ok, all empty).
+    const allFailed = perOrbit.every((entry) => !entry.glyphsOk && !entry.signalsOk);
     if (allFailed) {
       return { ok: false, error: ALL_REQUESTS_FAILED_ERROR, glyphs: [], signals: [] };
     }
-    // Some (but not all) orbits failed: glyphs/signals only cover the
-    // orbits that answered, so this ok:true result under-reports what a
-    // healthy gateway would return. `partial` makes that explicit and
-    // additive rather than silent — a caller that needs authoritative
-    // counts (the kernel's glyph-cache fetcher) must be able to tell this
-    // apart from a genuinely complete read.
-    const partial = perOrbit.some((entry) => !entry.succeeded);
+    // ANY facet of ANY orbit failing makes the read partial: glyphs/signals
+    // only cover the facets that answered, so this ok:true result
+    // under-reports what a healthy gateway would return. `partial` makes that
+    // explicit and additive rather than silent — a caller that needs
+    // authoritative counts (the kernel's glyph-cache fetcher) must be able to
+    // tell this apart from a genuinely complete read. Tracked per facet so a
+    // glyphs-failed/signals-ok orbit is NOT mistaken for complete.
+    const partial = perOrbit.some((entry) => !entry.glyphsOk || !entry.signalsOk);
     return {
       ok: true,
       glyphs: perOrbit.flatMap((entry) => entry.glyphs),

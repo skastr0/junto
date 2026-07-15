@@ -76,6 +76,19 @@ describe("towerBrowseRows — total-outage negative-cache regression", () => {
     expect(result.partial).toBe(true);
   });
 
+  // sdk-kernel-build fix 4: facets are tracked separately. Glyphs fail but
+  // signals answer -> the orbit is NOT "succeeded"; the missing glyphs must
+  // mark the whole read partial, never be treated as authoritative.
+  it("marks partial when glyphs fail but signals succeed (per-facet, not per-orbit)", async () => {
+    const result = await runBrowse({
+      listGlyphs: () => allFail,
+      listSignals: () => Effect.succeed({ signals: [] }),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.glyphs).toEqual([]);
+    expect(result.partial).toBe(true);
+  });
+
   it("distinguishes total failure from a legitimate empty project", async () => {
     const emptyButHealthy = await runBrowse({
       listGlyphs: () => Effect.succeed({ items: [] }),
