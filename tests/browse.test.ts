@@ -19,6 +19,7 @@ import {
   fetchTowerGlyphRead,
   fetchTowerSearch,
   fetchTowerSignalRead,
+  invalidateTowerBrowse,
   filterGlyphsByOrbit,
   filterGlyphsByView,
   filterSignalsByView,
@@ -291,6 +292,23 @@ describe("cached fetchers", () => {
     nowSpy.mockReturnValue(1_000_000 + BROWSE_CACHE_TTL_MS + 1);
     await fetchTowerBrowse("proj-cache-a");
     expect(towerBrowse).toHaveBeenCalledTimes(2);
+  });
+
+  it("force-bypasses the towerBrowse cache so deliberate writes re-read live rows", async () => {
+    const towerBrowse = vi.fn(async (): Promise<TowerBrowseResult> => ({ ok: true, glyphs: [], signals: [] }));
+    runtimeWindow.vellum = { towerBrowse };
+    vi.spyOn(Date, "now").mockReturnValue(1_500_000);
+
+    await fetchTowerBrowse("proj-cache-force");
+    await fetchTowerBrowse("proj-cache-force");
+    expect(towerBrowse).toHaveBeenCalledTimes(1);
+
+    await fetchTowerBrowse("proj-cache-force", { force: true });
+    expect(towerBrowse).toHaveBeenCalledTimes(2);
+
+    invalidateTowerBrowse("proj-cache-force");
+    await fetchTowerBrowse("proj-cache-force");
+    expect(towerBrowse).toHaveBeenCalledTimes(3);
   });
 
   it("keys the quasarSessions cache by both project key and limit", async () => {

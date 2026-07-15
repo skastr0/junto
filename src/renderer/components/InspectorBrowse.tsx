@@ -106,7 +106,8 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
   const refreshTowerBrowse = () => {
     if (!towerKey) return;
     setTowerLoading(true);
-    void fetchTowerBrowse(towerKey)
+    // Force-bypass the 60s browse TTL — deliberate writes must re-read live rows.
+    void fetchTowerBrowse(towerKey, { force: true })
       .then((value) => setTowerBrowse(value))
       .catch(() => setTowerBrowse({ ok: false, error: "tower unreachable", glyphs: [], signals: [] }))
       .finally(() => setTowerLoading(false));
@@ -231,7 +232,10 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
           className="signal-emit-button"
           aria-label="Emit signal"
           title="Emit a tower signal into this project"
-          onClick={() => setEmitOpen(true)}
+          onClick={() => {
+            setDetail(undefined);
+            setEmitOpen(true);
+          }}
         >
           <Radio size={11} /> emit signal
         </button>

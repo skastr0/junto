@@ -254,9 +254,22 @@ const TOWER_GLYPH_READ_UNREACHABLE: TowerGlyphReadResult = { ok: false, error: "
 const TOWER_SIGNAL_READ_UNREACHABLE: TowerSignalReadResult = { ok: false, error: "tower unreachable" };
 const QUASAR_SESSION_DETAIL_UNREACHABLE: QuasarSessionDetailResult = { ok: false, error: "quasar unreachable" };
 
-export const fetchTowerBrowse = async (key: string): Promise<TowerBrowseResult> => {
-  const cached = cacheGet(towerBrowseCache, key);
-  if (cached) return cached;
+export const invalidateTowerBrowse = (key?: string): void => {
+  if (key === undefined) {
+    towerBrowseCache.clear();
+    return;
+  }
+  towerBrowseCache.delete(key);
+};
+
+export const fetchTowerBrowse = async (
+  key: string,
+  options?: { readonly force?: boolean },
+): Promise<TowerBrowseResult> => {
+  if (!options?.force) {
+    const cached = cacheGet(towerBrowseCache, key);
+    if (cached) return cached;
+  }
   const api = getVellumApi();
   if (!api || typeof api.towerBrowse !== "function") return TOWER_UNREACHABLE;
   try {
