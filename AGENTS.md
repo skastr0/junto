@@ -35,13 +35,20 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
   } }
 ```
 
-Edges: `{ "id", "fromNode", "toNode", "ether": { "kind": "blocks" | "depends" | "relates" } }`.
+Edges: `{ "id", "fromNode", "toNode", "ether": { "criteria"?: EdgeCriteria } }`.
+
+**Edge product (criteria-only):**
+- No `criteria` → soft **relates** (never generates or relays blocks).
+- `criteria.mode: "glyphs"` → selected glyph ids on a tower project must be `done` (blocks while pending; depends when clear). Unknown/missing tower data does not invent blocks.
+- `criteria.mode: "wip"` → opt-in: any glyph in `committed`|`building`|`reviewing` blocks (never default on projects).
+- `criteria.mode: "tasks"` → incomplete checklist items on the source tasks node block. Connecting from a tasks node attaches this automatically.
+- Live **phase** (`blocks`|`depends`|`relates`) is derived. Optional `ether.kind` is only a phase mirror for offline JSON Canvas readers — never authorial input.
 
 **Two invariants** (enforced on every app/CLI write):
 1. **Graceful degradation** — strip every `ether` key and the file is still valid, readable JSON Canvas 1.0.
-2. **Mirror law** — extension semantics mirror into native fields (edge `kind` → `label`, blocker → red `color`).
+2. **Mirror law** — extension semantics mirror into native fields (blocker → red `color`; derived phase may project to edge `label`/`color`).
 
-Derived state (blocked closure, group membership, binding health) is **never stored** — recomputed from the document, so it cannot go incoherent.
+Derived state (blocked closure, group membership, binding health, live phase) is **recomputed** from the document (+ live sources). Phase may be mirrored onto `ether.kind` for offline readability; it is not the authoring surface.
 
 ## Kernel: watchers, timers, region pulse
 

@@ -11,14 +11,14 @@ vellum renders JSON Canvas 1.0 documents extended with a namespaced `ether` key 
 - `ether.entity.kind` — open vocabulary (`project`, `orbit`, `plugin`, `agent`, `station`, `skill`, …)
 - `ether.bindings[]` — pointers into tower / quasar / booth (project-level refs in the POC)
 - `ether.flags[]` — `blocker`, `parked`, `attention`
-- edge `ether.kind` — `blocks` | `depends` | `relates`
+- edge `ether.criteria` — optional; modes `glyphs` | `wip` | `tasks`. No criteria → soft **relates**. Live phase (`blocks`|`depends`|`relates`) is derived; `ether.kind` is only an optional offline phase mirror, never authorial input.
 
 Two laws hold on every save:
 
 1. **Graceful degradation** — stripped of every `ether` key, the file is valid, readable JSON Canvas 1.0 (Obsidian opens it).
-2. **Mirror law** — extension semantics mirror into native fields (`kind` → edge label, blocker → red) so plain readers see the degraded truth.
+2. **Mirror law** — extension semantics mirror into native fields (blocker → red; derived phase may project to edge label/color) so plain readers see the degraded truth.
 
-Derived state (blocked closure, region membership, binding health) is never stored — recomputed from the document, so the file cannot go incoherent.
+Derived state (blocked closure, region membership, binding health, live phase) is never stored — recomputed from the document (+ live sources), so the file cannot go incoherent.
 
 ## Agent surface
 
