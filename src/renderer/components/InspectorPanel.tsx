@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, Crosshair, ExternalLink, Link2, RotateCw, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Crosshair, ExternalLink, Link2, Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import { deleteNode, setNodeColor } from "../lib/mutations";
-import { cycleEdgeKind, deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../lib/edge-mutations";
+import { deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../lib/edge-mutations";
 import { EdgeCriteriaEditor } from "./InspectorFields";
 import { state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
@@ -199,7 +199,7 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
   if (!edge) return null;
   const source = doc.nodes.find((node) => node.id === edge.fromNode);
   const target = doc.nodes.find((node) => node.id === edge.toNode);
-  const livePhase = execution?.phaseByEdgeId?.[edge.id] ?? edge.ether?.kind ?? "relates";
+  const livePhase = execution?.phaseByEdgeId?.[edge.id] ?? "relates";
   const liveDetail = execution?.detailByEdgeId?.[edge.id] ?? "";
   const criteria = edge.ether?.criteria;
   const commitLabel = () => {
@@ -273,15 +273,9 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
         <div className="inspector-actions">
           {criteria ? (
             <button onClick={() => setEdgeCriteria(edge.id, undefined)}>
-              <RotateCw size={13} />
               clear criteria
             </button>
-          ) : (
-            <button onClick={() => cycleEdgeKind(edge.id)} title="Legacy pin for old canvases">
-              <RotateCw size={13} />
-              legacy pin
-            </button>
-          )}
+          ) : null}
           <button className="inspector-action--danger" onClick={() => deleteEdges([edge.id])}>
             <Trash2 size={13} />
             delete edge

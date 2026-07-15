@@ -220,15 +220,14 @@ export const __resetKernelMemoryForTest = (): void => {
   resetWatcherMemory();
 };
 
-/** True when any criteria edge's stored kind differs from the derived phase. */
+/** True when any edge's mirrored kind differs from the derived phase. */
 export const criteriaPhasesNeedMirror = (
   doc: CanvasDoc,
   phaseByEdgeId: ReadonlyMap<string, EdgePhase>,
 ): boolean => {
   for (const edge of doc.edges) {
-    if (!edge.ether?.criteria) continue;
     const phase = phaseByEdgeId.get(edge.id);
-    if (phase !== undefined && edge.ether.kind !== phase) return true;
+    if (phase !== undefined && edge.ether?.kind !== phase) return true;
   }
   return false;
 };

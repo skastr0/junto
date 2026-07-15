@@ -6,10 +6,10 @@ import type { CanvasDoc, CanvasNode, EdgeCriteria, EtherFlag, EtherView, EtherWa
 import { findEntity } from "@shared/entities";
 import { addEdge, setEdgeCriteria } from "../lib/edge-mutations";
 import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTasks, setNodeTimer, setNodeView, setNodeWatch, setRegionHold, toggleFlag } from "../lib/mutations";
-import { glyphStateHue, orbitOptions, TOWER_STATES } from "../lib/browse";
+import { fetchTowerBrowse, glyphStateHue, orbitOptions, TOWER_STATES } from "../lib/browse";
 import { state$ } from "../lib/state";
 import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
-import { HUE, withAlpha } from "../lib/theme";
+import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
 
 const FLAG_OPTIONS: ReadonlyArray<{ readonly flag: EtherFlag; readonly hue: string }> = [
@@ -126,6 +126,136 @@ function TasksEditor({ node }: { readonly node: CanvasNode }) {
   );
 }
 
+function GlyphTypeaheadPicker({
+  towerKey,
+  selectedIds,
+  onChange,
+}: {
+  readonly towerKey: string;
+  readonly selectedIds: ReadonlyArray<string>;
+  readonly onChange: (ids: ReadonlyArray<string>) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [rows, setRows] = useState<
+    ReadonlyArray<{ readonly glyphId: string; readonly title: string; readonly state: string; readonly orbit: string }>
+  >([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!towerKey) return;
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    void fetchTowerBrowse(towerKey)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.ok) {
+          setError(result.error ?? "browse failed");
+          setRows([]);
+          return;
+        }
+        setRows(
+          result.glyphs.map((g) => ({
+            glyphId: g.glyphId,
+            title: g.title,
+            state: g.state,
+            orbit: g.orbit,
+          })),
+        );
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [towerKey]);
+
+  const selected = new Set(selectedIds);
+  const q = query.trim().toLowerCase();
+  const filtered = rows.filter((row) => {
+    if (!q) return true;
+    return (
+      row.glyphId.toLowerCase().includes(q) ||
+      row.title.toLowerCase().includes(q) ||
+      row.state.toLowerCase().includes(q) ||
+      row.orbit.toLowerCase().includes(q)
+    );
+  });
+
+  const toggle = (glyphId: string) => {
+    if (selected.has(glyphId)) onChange(selectedIds.filter((id) => id !== glyphId));
+    else onChange([...selectedIds, glyphId]);
+  };
+
+  return (
+    <div style={{ marginTop: 6 }}>
+      <label className="inspector-editor">
+        <span>find glyphs</span>
+        <input
+          aria-label="Filter glyphs"
+          value={query}
+          placeholder="typeahead · id, title, state, orbit"
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </label>
+      {loading ? <div className="inspector-detail">loading tower glyphs…</div> : null}
+      {error ? <div className="inspector-detail" style={{ color: HUE.crimson }}>{error}</div> : null}
+      {selectedIds.length > 0 ? (
+        <div className="mb-1 flex flex-wrap gap-1">
+          {selectedIds.map((id) => {
+            const row = rows.find((r) => r.glyphId === id);
+            return (
+              <button
+                key={id}
+                type="button"
+                className="inspector-flag-toggle"
+                style={{ color: HUE.amber, borderColor: withAlpha(HUE.amber, 0.5) }}
+                onClick={() => toggle(id)}
+                title="remove"
+              >
+                {row ? `${row.glyphId} · ${row.state}` : id} ×
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="inspector-detail">Select one or more glyphs that must be done.</div>
+      )}
+      <div className="max-h-40 overflow-y-auto" style={{ border: "1px solid rgba(237,230,218,.08)", borderRadius: 6 }}>
+        {filtered.slice(0, 40).map((row) => {
+          const on = selected.has(row.glyphId);
+          return (
+            <button
+              key={`${row.orbit}:${row.glyphId}`}
+              type="button"
+              className="flex w-full items-center gap-2 px-2 py-1 text-left text-[11px]"
+              style={{
+                color: on ? INK : DIM,
+                background: on ? withAlpha(HUE.amber, 0.1) : "transparent",
+                borderBottom: "1px solid rgba(237,230,218,.06)",
+              }}
+              onClick={() => toggle(row.glyphId)}
+            >
+              <span style={{ color: on ? HUE.amber : DIM }}>{on ? "☑" : "☐"}</span>
+              <span className="truncate font-mono">{row.glyphId}</span>
+              <span className="truncate opacity-80">{row.title}</span>
+              <span className="ml-auto shrink-0 tabular-nums opacity-60">{row.state}</span>
+            </button>
+          );
+        })}
+        {!loading && filtered.length === 0 ? (
+          <div className="inspector-detail px-2 py-2">no glyphs match</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function EdgeCriteriaEditor({
   edgeId,
   fromNode,
@@ -145,9 +275,7 @@ export function EdgeCriteriaEditor({
   const towerKey =
     fromNode?.ether?.bindings?.find((binding) => binding.source === "tower")?.ref.key ?? "";
 
-  const mode: "none" | "glyphs" | "wip" | "tasks" = !criteria
-    ? "none"
-    : criteria.mode;
+  const mode: "none" | "glyphs" | "wip" | "tasks" = !criteria ? "none" : criteria.mode;
 
   const setMode = (next: "none" | "glyphs" | "wip" | "tasks") => {
     if (next === "none") {
@@ -155,10 +283,7 @@ export function EdgeCriteriaEditor({
       return;
     }
     if (next === "wip") {
-      setEdgeCriteria(edgeId, {
-        mode: "wip",
-        ...(towerKey ? { project: towerKey } : {}),
-      });
+      setEdgeCriteria(edgeId, { mode: "wip", ...(towerKey ? { project: towerKey } : {}) });
       return;
     }
     if (next === "tasks") {
@@ -173,8 +298,7 @@ export function EdgeCriteriaEditor({
     });
   };
 
-  const glyphIdsText =
-    criteria?.mode === "glyphs" ? criteria.glyphIds.join(", ") : "";
+  const selectedGlyphIds = criteria?.mode === "glyphs" ? criteria.glyphIds : [];
 
   return (
     <div className="inspector-section">
@@ -185,72 +309,56 @@ export function EdgeCriteriaEditor({
             {livePhase}
           </strong>
           {liveDetail ? ` · ${liveDetail}` : null}
-          {!criteria ? " · soft link (no criteria)" : null}
+          {!criteria ? " · soft relates (no criteria)" : null}
         </div>
       ) : null}
-      <div className="inspector-section__label">what drives this edge</div>
+      <div className="inspector-section__label">criteria</div>
       <label className="inspector-editor">
-        <span>criteria</span>
+        <span>mode</span>
         <select
           aria-label="Edge criteria mode"
           value={mode}
           onChange={(event) => setMode(event.target.value as "none" | "glyphs" | "wip" | "tasks")}
         >
-          <option value="none">none · plain relates</option>
-          {fromIsTask ? <option value="tasks">tasks · open checklist items block</option> : null}
+          <option value="none">none · soft relates</option>
+          {fromIsTask ? <option value="tasks">tasks · open checklist blocks</option> : null}
           {fromIsProject || towerKey ? (
-            <option value="wip">WIP · any committed/building/reviewing (opt-in)</option>
+            <option value="wip">WIP · committed/building/reviewing (opt-in)</option>
           ) : null}
           {fromIsProject || towerKey ? (
-            <option value="glyphs">glyphs · selected ids must be done</option>
-          ) : null}
-          {!fromIsTask && !fromIsProject && !towerKey ? (
-            <option value="tasks" disabled>
-              tasks (source must be a tasks node)
-            </option>
+            <option value="glyphs">glyphs · selected must be done</option>
           ) : null}
         </select>
       </label>
-      {mode === "glyphs" ? (
-        <label className="inspector-editor">
-          <span>glyph ids</span>
-          <input
-            aria-label="Glyph ids for edge criteria"
-            placeholder="comma-separated glyph ids from source project"
-            defaultValue={glyphIdsText}
-            key={`${edgeId}:${glyphIdsText}`}
-            onBlur={(event) => {
-              const glyphIds = event.target.value
-                .split(",")
-                .map((part) => part.trim())
-                .filter(Boolean);
-              const next: EdgeCriteria = {
-                mode: "glyphs",
-                glyphIds,
-                ...(towerKey ? { project: towerKey } : {}),
-                ...(criteria?.mode === "glyphs" && criteria.orbit ? { orbit: criteria.orbit } : {}),
-              };
-              setEdgeCriteria(edgeId, next);
-            }}
-          />
-        </label>
+      {mode === "glyphs" && towerKey ? (
+        <GlyphTypeaheadPicker
+          towerKey={towerKey}
+          selectedIds={selectedGlyphIds}
+          onChange={(glyphIds) =>
+            setEdgeCriteria(edgeId, {
+              mode: "glyphs",
+              glyphIds: [...glyphIds],
+              project: towerKey,
+              ...(criteria?.mode === "glyphs" && criteria.orbit ? { orbit: criteria.orbit } : {}),
+            })
+          }
+        />
+      ) : null}
+      {mode === "glyphs" && !towerKey ? (
+        <div className="inspector-detail">Source needs a tower project binding to pick glyphs.</div>
       ) : null}
       {mode === "wip" ? (
         <div className="inspector-detail">
           Blocks while any glyph on the source tower project is in committed, building, or reviewing.
-          Opt-in only — never the default for projects.
         </div>
       ) : null}
       {mode === "tasks" ? (
         <div className="inspector-detail">
-          Blocks while incomplete items remain on the source tasks node. Connecting from a tasks
-          node sets this automatically.
+          Blocks while incomplete items remain on the source tasks node. Auto-set when connecting from tasks.
         </div>
       ) : null}
       {mode === "none" ? (
-        <div className="inspector-detail">
-          Soft structural link. Attach criteria above so phase becomes blocks/depends live.
-        </div>
+        <div className="inspector-detail">Soft structural link — does not generate or relay blocks.</div>
       ) : null}
     </div>
   );

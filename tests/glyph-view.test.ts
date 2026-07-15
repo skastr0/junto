@@ -126,7 +126,7 @@ describe("applyPhaseMirror production path helpers", () => {
           id: "e1",
           fromNode: "a",
           toNode: "b",
-          ether: { criteria: { mode: "glyphs", glyphIds: ["g1"] }, kind: "relates" },
+          ether: { criteria: { mode: "glyphs", glyphIds: ["g1"] } },
         },
       ],
     };

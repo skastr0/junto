@@ -13,13 +13,14 @@ export type NodeSide = typeof NodeSide.Type;
 export const EdgeEnd = Schema.Literal("none", "arrow");
 export type EdgeEnd = typeof EdgeEnd.Type;
 
-export const EtherEdgeKind = Schema.Literal("blocks", "depends", "relates");
-export type EtherEdgeKind = typeof EtherEdgeKind.Type;
-
-// Live edge phase is always one of these three. Authorial criteria (or a
-// legacy kind pin) determine phase; phase is never the source of truth for
-// what the user declared — it is derived at evaluation time.
-export type EdgePhase = EtherEdgeKind;
+// Live edge phase — always DERIVED from criteria (+ live glyph/task state).
+// Never authorial in UI: document stores criteria; evaluation produces phase;
+// applyPhaseMirror may write phase back as ether.kind for offline readers.
+export const EdgePhase = Schema.Literal("blocks", "depends", "relates");
+export type EdgePhase = typeof EdgePhase.Type;
+/** Alias used by theme/svg color maps. */
+export type EtherEdgeKind = EdgePhase;
+export const EtherEdgeKind = EdgePhase;
 
 // Glyph states that count as in-flight execution work for opt-in WIP criteria.
 export const WIP_GLYPH_STATES = ["committed", "building", "reviewing"] as const;
@@ -192,10 +193,11 @@ export const EtherNodeExtension = Schema.Struct({
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 
 export const EtherEdgeExtension = Schema.Struct({
-  // Legacy / pin: when criteria is absent, kind is authorial (compatibility).
-  // When criteria is present, kind is derived and may be mirrored for offline readers.
-  kind: Schema.optionalWith(EtherEdgeKind, { exact: true }),
+  // Authorial: only criteria. Absence = soft relates (never generates/relays).
   criteria: Schema.optionalWith(EdgeCriteria, { exact: true }),
+  // Derived mirror of last live phase for offline JSON Canvas readers.
+  // Written only by applyPhaseMirror — never set by authoring UI.
+  kind: Schema.optionalWith(EdgePhase, { exact: true }),
 });
 export type EtherEdgeExtension = typeof EtherEdgeExtension.Type;
 
@@ -346,21 +348,21 @@ export const applyMirrorLaw = (doc: CanvasDoc): CanvasDoc => ({
 // phase map (from deriveExecutionGraph).
 export const applyPhaseMirror = (
   doc: CanvasDoc,
-  phaseByEdgeId: ReadonlyMap<string, EtherEdgeKind>,
+  phaseByEdgeId: ReadonlyMap<string, EdgePhase>,
 ): CanvasDoc => ({
   nodes: doc.nodes,
   edges: doc.edges.map((edge) => {
     const phase = phaseByEdgeId.get(edge.id);
     if (phase === undefined) return edge;
-    // Only rewrite kind when criteria is present (live edge); legacy pins keep authorial kind.
-    if (!edge.ether?.criteria) {
-      return applyMirrorLaw({ nodes: [], edges: [edge] }).edges[0] ?? edge;
-    }
     return {
       ...edge,
       label: phase,
       ...(phase === "blocks" ? { color: "1" as CanvasColor } : {}),
-      ether: { ...edge.ether, kind: phase },
+      ether: {
+        ...edge.ether,
+        kind: phase,
+        ...(edge.ether?.criteria ? { criteria: edge.ether.criteria } : {}),
+      },
     };
   }),
 });

@@ -11,11 +11,11 @@ import { WIP_GLYPH_STATES } from "./canvas";
 // Live execution graph: pure function of (document + glyph view).
 // Derived state is never stored in the .canvas file.
 //
-// Edge authorial modes:
-//   - no criteria → phase from legacy kind pin, default "relates"
-//   - criteria glyphs/wip/tasks → phase "blocks" | "depends" when data is known;
-//     when glyph data is unknown/missing, phase stays "relates" (no fail-closed
-//     generation). Tasks criteria need only the document.
+// Authorial edge model — criteria only:
+//   - no criteria → soft "relates" (never generates, never relays)
+//   - criteria glyphs/wip → "blocks" | "depends" when glyph data known;
+//     unknown/missing glyph data → "relates" (no fail-closed generation)
+//   - criteria tasks → from document checklist only
 //
 // Propagation:
 //   - phase "blocks" generates a block on toNode
@@ -232,16 +232,12 @@ const evalTasksCriteria = (
   };
 };
 
-const evalLegacyPin = (edge: CanvasEdge): EdgeEval => {
-  const kind = edge.ether?.kind ?? "relates";
-  if (kind === "blocks") {
-    return { phase: "blocks", detail: "pinned blocks", generates: true, relays: true };
-  }
-  if (kind === "depends") {
-    return { phase: "depends", detail: "pinned depends", generates: false, relays: true };
-  }
-  return { phase: "relates", detail: "relates", generates: false, relays: false };
-};
+const softRelates = (): EdgeEval => ({
+  phase: "relates",
+  detail: "relates",
+  generates: false,
+  relays: false,
+});
 
 export const evaluateEdge = (
   edge: CanvasEdge,
@@ -249,7 +245,7 @@ export const evaluateEdge = (
   glyphs: GlyphView,
 ): EdgeEval => {
   const criteria = edge.ether?.criteria;
-  if (!criteria) return evalLegacyPin(edge);
+  if (!criteria) return softRelates();
   switch (criteria.mode) {
     case "glyphs":
       return evalGlyphsCriteria(criteria, fromNode, glyphs);

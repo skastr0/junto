@@ -48,11 +48,11 @@ describe("evaluateEdge — authorial modes", () => {
     expect(result.generates).toBe(false);
   });
 
-  it("legacy kind pin blocks without criteria", () => {
+  it("kind-only ether is soft relates (kind is not authorial)", () => {
     const edge = { id: "e1", fromNode: "a", toNode: "b", ether: { kind: "blocks" as const } };
     const result = evaluateEdge(edge, projectNode("a", "A", "proj"), new Map());
-    expect(result.phase).toBe("blocks");
-    expect(result.generates).toBe(true);
+    expect(result.phase).toBe("relates");
+    expect(result.generates).toBe(false);
   });
 
   it("selected glyphs pending → blocks; all done → depends", () => {
@@ -185,11 +185,14 @@ describe("deriveExecutionGraph — propagation", () => {
           id: "e-bc",
           fromNode: "b",
           toNode: "c",
-          ether: { kind: "depends" },
+          ether: { criteria: { mode: "glyphs", project: "proj-b", glyphIds: ["gb"] } },
         },
       ],
     };
-    const glyphs = viewOf(["proj-a", [glyph({ glyphId: "g1", state: "building" })]]);
+    const glyphs = viewOf(
+      ["proj-a", [glyph({ glyphId: "g1", state: "building" })]],
+      ["proj-b", [glyph({ glyphId: "gb", state: "done" })]],
+    );
     const graph = deriveExecutionGraph(doc, glyphs);
     expect(graph.phaseByEdgeId.get("e-ab")).toBe("blocks");
     expect(graph.phaseByEdgeId.get("e-bc")).toBe("depends");
@@ -212,10 +215,18 @@ describe("deriveExecutionGraph — propagation", () => {
           toNode: "b",
           ether: { criteria: { mode: "glyphs", glyphIds: ["g1"] } },
         },
-        { id: "e-bc", fromNode: "b", toNode: "c", ether: { kind: "depends" } },
+        {
+          id: "e-bc",
+          fromNode: "b",
+          toNode: "c",
+          ether: { criteria: { mode: "glyphs", project: "proj-b", glyphIds: ["gb"] } },
+        },
       ],
     };
-    const clear = viewOf(["proj-a", [glyph({ glyphId: "g1", state: "done" })]]);
+    const clear = viewOf(
+      ["proj-a", [glyph({ glyphId: "g1", state: "done" })]],
+      ["proj-b", [glyph({ glyphId: "gb", state: "done" })]],
+    );
     const graph = deriveExecutionGraph(doc, clear);
     expect(graph.phaseByEdgeId.get("e-ab")).toBe("depends");
     expect(graph.blocked.size).toBe(0);
@@ -280,11 +291,12 @@ describe("deriveExecutionGraph — propagation", () => {
         }),
       ],
       edges: [
-        { id: "e1", fromNode: "a", toNode: "note1", ether: { kind: "blocks" } },
-        { id: "e2", fromNode: "a", toNode: "agent1", ether: { kind: "blocks" } },
+        { id: "e1", fromNode: "a", toNode: "note1", ether: { criteria: { mode: "wip", project: "proj-a" } } },
+        { id: "e2", fromNode: "a", toNode: "agent1", ether: { criteria: { mode: "wip", project: "proj-a" } } },
       ],
     };
-    const graph = deriveExecutionGraph(doc);
+    const glyphs = viewOf(["proj-a", [glyph({ glyphId: "g1", state: "building" })]]);
+    const graph = deriveExecutionGraph(doc, glyphs);
     expect(graph.blocked.size).toBe(0);
   });
 
@@ -320,16 +332,7 @@ describe("deriveExecutionGraph — propagation", () => {
     expect(graph.phaseByEdgeId.get("e-bc")).toBe("blocks");
   });
 
-  it("manual blocker flag seeds outbound depends", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        projectNode("a", "A", "pa"),
-        { ...projectNode("b", "B", "pb"), ether: { ...projectNode("b", "B", "pb").ether, flags: ["blocker"] } },
-        projectNode("c", "C", "pc"),
-      ],
-      edges: [{ id: "e-bc", fromNode: "b", toNode: "c", ether: { kind: "depends" } }],
-    };
-    // Fix flags merge properly
+  it("manual blocker flag seeds outbound depends criteria edges", () => {
     const doc2: CanvasDoc = {
       nodes: [
         projectNode("a", "A", "pa"),
@@ -340,10 +343,19 @@ describe("deriveExecutionGraph — propagation", () => {
         }),
         projectNode("c", "C", "pc"),
       ],
-      edges: [{ id: "e-bc", fromNode: "b", toNode: "c", ether: { kind: "depends" } }],
+      edges: [
+        {
+          id: "e-bc",
+          fromNode: "b",
+          toNode: "c",
+          ether: { criteria: { mode: "glyphs", project: "pb", glyphIds: ["gx"] } },
+        },
+      ],
     };
-    const graph = deriveExecutionGraph(doc2);
+    const glyphs = viewOf(["pb", [glyph({ glyphId: "gx", state: "done" })]]);
+    const graph = deriveExecutionGraph(doc2, glyphs);
     expect(graph.seedNodeIds.has("b")).toBe(true);
+    expect(graph.phaseByEdgeId.get("e-bc")).toBe("depends");
     expect(graph.blocked.has("c")).toBe(true);
   });
 

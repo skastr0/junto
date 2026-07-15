@@ -29,13 +29,14 @@ describe("renderer graph mutations", () => {
     loadDoc({ nodes: [], edges: [] });
   });
 
-  it("creates schema-valid edges without explicit undefined side fields", () => {
+  it("creates schema-valid soft edges without criteria", () => {
     state$.canvasName.set("mutation-test");
     loadDoc(doc);
-    addEdge({ source: "source", target: "target", kind: "blocks" });
+    addEdge({ source: "source", target: "target" });
 
     const edge = state$.doc.peek().edges[0];
-    expect(edge).toMatchObject({ fromNode: "source", toNode: "target", ether: { kind: "blocks" } });
+    expect(edge).toMatchObject({ fromNode: "source", toNode: "target" });
+    expect(edge?.ether?.criteria).toBeUndefined();
     expect(state$.selectedNodeId.peek()).toBe("");
     expect(state$.selectedEdgeId.peek()).toBe(edge?.id);
     expect(Object.hasOwn(edge ?? {}, "fromSide")).toBe(false);
@@ -207,7 +208,7 @@ describe("renderer graph mutations", () => {
 
   it("edits and clears native edge labels", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target", ether: { kind: "relates" } }] });
+    loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target" }] });
     editEdgeLabel("edge-1", "in");
     expect(state$.doc.peek().edges[0]?.label).toBe("in");
     editEdgeLabel("edge-1", "  ");

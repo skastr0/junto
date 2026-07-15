@@ -13,12 +13,24 @@ const doc: CanvasDoc = {
       width: 180,
       height: 70,
       text: "prism",
-      ether: { entity: { kind: "project" }, flags: ["blocker"] },
+      ether: {
+        entity: { kind: "task" },
+        tasks: { items: [{ id: "i1", text: "ship", done: false }] },
+      },
     },
-    { id: "n2", type: "text", x: 240, y: 40, width: 180, height: 70, text: "tower" },
+    {
+      id: "n2",
+      type: "text",
+      x: 240,
+      y: 40,
+      width: 180,
+      height: 70,
+      text: "tower",
+      ether: { entity: { kind: "project" }, bindings: [{ source: "tower", ref: { type: "project", key: "tower" } }] },
+    },
   ],
   edges: [
-    { id: "e1", fromNode: "n1", toNode: "n2", label: "blocks", ether: { kind: "blocks" } },
+    { id: "e1", fromNode: "n1", toNode: "n2", ether: { criteria: { mode: "tasks" } } },
   ],
 };
 
