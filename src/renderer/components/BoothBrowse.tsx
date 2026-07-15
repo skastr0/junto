@@ -14,6 +14,7 @@ import {
   orderDrafts,
   postBoothReview,
   requestStatusHue,
+  reviewActionNeedsBody,
 } from "../lib/booth-browse";
 import { DIM, INK } from "../lib/theme";
 import { EmptyLine, LoadingLine } from "./BrowseStatusLine";
@@ -191,9 +192,10 @@ function VerdictBar({
     }
   };
 
-  const needsNote = note.trim().length === 0;
-  const verdictButton = (action: BoothReviewAction, label: string, hue: string, disabled: boolean) => (
-    <button
+  const noteEmpty = note.trim().length === 0;
+  const verdictButton = (action: BoothReviewAction, label: string, hue: string) => {
+    const disabled = reviewActionNeedsBody(action) && noteEmpty;
+    return <button
       type="button"
       className="vellum-modal__comment-submit"
       style={{ color: disabled ? DIM : hue, borderColor: disabled ? undefined : `color-mix(in srgb, ${hue} 45%, transparent)` }}
@@ -201,8 +203,8 @@ function VerdictBar({
       onClick={() => void act(action)}
     >
       {pending === action ? "…" : label}
-    </button>
-  );
+    </button>;
+  };
 
   return <div className="vellum-modal__comment">
     <div className="vellum-modal__comment-row">
@@ -215,10 +217,10 @@ function VerdictBar({
       />
     </div>
     <div className="mt-1.5 flex flex-wrap gap-1.5">
-      {verdictButton("approve", "approve", "#5FB98E", false)}
-      {verdictButton("request_revision", "request revision", "#D9A03F", needsNote)}
-      {verdictButton("reject", "reject", "#C25E5E", false)}
-      {verdictButton("comment", "comment", "#8A8FBF", needsNote)}
+      {verdictButton("approve", "approve", "#5FB98E")}
+      {verdictButton("request_revision", "request revision", "#D9A03F")}
+      {verdictButton("reject", "reject", "#C25E5E")}
+      {verdictButton("comment", "comment", "#8A8FBF")}
     </div>
     {status ? (
       <div className={`vellum-modal__comment-status vellum-modal__comment-status--${status.kind === "ok" ? "ok" : "error"}`}>
