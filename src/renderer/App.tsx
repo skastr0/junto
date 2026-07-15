@@ -82,6 +82,28 @@ const createCanvas = async (name: string) => {
   }
 };
 
+const deleteCanvas = async (name: string) => {
+  if (!window.vellum || !name) return;
+  state$.canvasLoading.set(true);
+  try {
+    const wasOpen = state$.canvasName.peek() === name;
+    await window.vellum.deleteCanvas(name);
+    await refreshList();
+    const remaining = state$.canvases.peek();
+    state$.error.set("");
+    if (!wasOpen) return;
+    if (remaining.length === 0) {
+      await createCanvas(SEED_CANVAS_NAME);
+      return;
+    }
+    await openCanvas(remaining[0]!.name);
+  } catch (error) {
+    setError(error);
+  } finally {
+    state$.canvasLoading.set(false);
+  }
+};
+
 const exportDigest = async () => {
   const name = state$.canvasName.peek();
   if (!window.vellum || !name) return;
@@ -230,6 +252,7 @@ export function App() {
       <TopBar
         onOpen={(name) => void openCanvas(name)}
         onCreate={(name) => void createCanvas(name)}
+        onDelete={(name) => void deleteCanvas(name)}
         onUndo={undo}
         onRedo={redo}
         onExport={() => void exportDigest()}

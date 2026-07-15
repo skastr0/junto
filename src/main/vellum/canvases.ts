@@ -1,5 +1,5 @@
 import { mkdirSync, watch as watchDir } from "node:fs";
-import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -38,6 +38,10 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       fn: (doc: CanvasDoc) => CanvasDoc,
     ) => Effect.Effect<void, CanvasError>;
     readonly create: (name: string) => Effect.Effect<CanvasReadResult, CanvasError>;
+    // Removes the canvas document and its known derived sidecars (digest/svg).
+    // Notifies change subscribers so the kernel can drop hydrated state. Does
+    // not touch arming intent (operator may re-open a same-named canvas later).
+    readonly remove: (name: string) => Effect.Effect<{ name: string }, CanvasError>;
     // Creates the seed canvas when the canvases dir is empty. Called at startup.
     readonly ensureSeed: Effect.Effect<void, CanvasError>;
     // Writes a sidecar file next to the canvas (e.g. digest). Returns its path.
@@ -246,6 +250,46 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       return yield* read(sanitized);
     });
 
+  // Known agent-surface derivatives written next to the document. Best-effort:
+  // a missing sidecar is fine; a missing .canvas is the hard failure.
+  const SIDECAR_SUFFIXES = ["digest.txt", "svg"] as const;
+
+  const remove = (name: string): Effect.Effect<{ name: string }, CanvasError> =>
+    Effect.gen(function* () {
+      const sanitized = yield* sanitizeName(name);
+
+      yield* Effect.tryPromise({
+        try: () =>
+          withCanvasMutex(canvasFileName(sanitized), async () => {
+            const path = canvasPath(sanitized);
+            try {
+              await stat(path);
+            } catch {
+              throw new CanvasError({ message: `canvas "${sanitized}" does not exist` });
+            }
+
+            await rm(path);
+
+            for (const suffix of SIDECAR_SUFFIXES) {
+              try {
+                await rm(join(canvasesDir(), `${sanitized}.${suffix}`));
+              } catch {
+                // sidecar may not exist
+              }
+            }
+
+            // Suppress the fs.watch echo of our own unlink, then notify
+            // subscribers ourselves so kernel resync drops the doc even when
+            // watch is down or the delete event is coalesced away.
+            ownWrites.set(canvasFileName(sanitized), Date.now());
+            for (const listener of listeners) listener(sanitized);
+          }),
+        catch: toCanvasError,
+      });
+
+      return { name: sanitized };
+    });
+
   const ensureSeed: Effect.Effect<void, CanvasError> = Effect.gen(function* () {
     const files = yield* Effect.tryPromise({
       try: async () => {
@@ -327,6 +371,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     write,
     mutate,
     create,
+    remove,
     ensureSeed,
     writeSidecar,
     start,

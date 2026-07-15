@@ -17,6 +17,7 @@
     "verify": "bun run typecheck && bun run test && electron-vite build",
     "digest": "bun scripts/digest.ts",
     "canvas:ls": "bun scripts/canvas-ls.ts",
+    "canvas:rm": "bun scripts/canvas-rm.ts",
     "populate": "bun scripts/populate.ts",
     "render": "bun scripts/render.ts"
   },

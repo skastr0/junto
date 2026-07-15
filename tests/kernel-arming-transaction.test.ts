@@ -28,6 +28,7 @@ const fakeCanvases = Layer.succeed(
     write: () => Effect.void,
     mutate: () => Effect.void,
     create: (name: string) => Effect.succeed(emptyDoc(name)),
+    remove: (name: string) => Effect.succeed({ name }),
     ensureSeed: Effect.void,
     writeSidecar: () => Effect.succeed(""),
     start: () => {},

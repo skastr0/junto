@@ -72,6 +72,7 @@ const vellumApi: VellumApi = {
   readCanvas: (name) => invoke(IPC_CHANNELS.readCanvas, IPC_TIMEOUT_MS, name),
   writeCanvas: (name, doc) => invoke(IPC_CHANNELS.writeCanvas, IPC_TIMEOUT_MS, name, doc),
   createCanvas: (name) => invoke(IPC_CHANNELS.createCanvas, IPC_TIMEOUT_MS, name),
+  deleteCanvas: (name) => invoke(IPC_CHANNELS.deleteCanvas, IPC_TIMEOUT_MS, name),
   exportDigest: (name) => invoke(IPC_CHANNELS.exportDigest, IPC_TIMEOUT_MS, name),
   generatePortfolio: (name, options) =>
     invoke(IPC_CHANNELS.generatePortfolio, IPC_TIMEOUT_MS, name, options),

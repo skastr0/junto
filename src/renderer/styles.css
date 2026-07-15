@@ -108,6 +108,8 @@ body {
 .canvas-dialog__submit { border: 1px solid rgba(232,163,61,.52); background: rgba(232,163,61,.12); color: #e8a33d; }
 .canvas-dialog__submit:hover:not(:disabled) { background: rgba(232,163,61,.2); }
 .canvas-dialog__submit:disabled { cursor: not-allowed; opacity: .35; }
+.canvas-dialog__danger { border: 1px solid rgba(229,72,77,.55); background: rgba(229,72,77,.14); color: #e5484d; }
+.canvas-dialog__danger:hover:not(:disabled) { background: rgba(229,72,77,.24); }
 .station-search input { min-width: 0; flex: 1; height: 32px; border: 0; outline: 0; background: transparent; color: #ede6da; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
 .station-search input::placeholder { color: #68604a; opacity: 1; }
 .station-search__clear { display: grid; height: 22px; width: 22px; place-items: center; border-radius: 4px; color: #8a8378; }

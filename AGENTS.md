@@ -14,6 +14,7 @@ Canvases live at `~/.vellum/canvases/*.canvas`. Read or write them directly (the
 | `bun run render [name]` | write `<name>.svg` — a deep-field image of the board, for multimodal reading. |
 | `bun run digest [name]` | print (and write `<name>.digest.txt`) a deterministic text projection of the board + live source data. |
 | `bun run canvas:ls [--json]` | list canvases with node/edge counts. |
+| `bun run canvas:rm <name> [name...] [--json]` | delete canvas document(s) and known sidecars (digest/svg). |
 
 To **read the board as an agent**: `bun run digest` (text) or `bun run render` then view the SVG (image).
 

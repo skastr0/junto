@@ -1,6 +1,6 @@
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useRef, useState } from "react";
-import { Activity, CircleHelp, FileDown, Plus, Redo2, RefreshCw, ScanLine, Search, Undo2, X } from "lucide-react";
+import { Activity, CircleHelp, FileDown, Plus, Redo2, RefreshCw, ScanLine, Search, Trash2, Undo2, X } from "lucide-react";
 import type { EntitySource } from "@shared/entities";
 import type { CanvasSummary } from "@shared/ipc";
 import { state$ } from "../lib/state";
@@ -50,22 +50,45 @@ function HelpPopover({ onClose }: { readonly onClose: () => void }) {
   </aside>;
 }
 
-function CanvasPicker({ canvases, canvasName, busy, onOpen, onCreate }: { readonly canvases: ReadonlyArray<CanvasSummary>; readonly canvasName: string; readonly busy: boolean; readonly onOpen: (name: string) => void; readonly onCreate: (name: string) => void }) {
+function CanvasPicker({
+  canvases,
+  canvasName,
+  busy,
+  onOpen,
+  onCreate,
+  onDelete,
+}: {
+  readonly canvases: ReadonlyArray<CanvasSummary>;
+  readonly canvasName: string;
+  readonly busy: boolean;
+  readonly onOpen: (name: string) => void;
+  readonly onCreate: (name: string) => void;
+  readonly onDelete: (name: string) => void;
+}) {
   const createName$ = useObservable("");
   const createOpen$ = useObservable(false);
+  const deleteOpen$ = useObservable(false);
   const createName = use$(createName$);
   const createOpen = use$(createOpen$);
+  const deleteOpen = use$(deleteOpen$);
 
   const closeCreate = () => {
     createOpen$.set(false);
     createName$.set("");
   };
+  const closeDelete = () => deleteOpen$.set(false);
   const submitCreate = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = createName.trim();
     if (!name) return;
     onCreate(name);
     closeCreate();
+  };
+  const submitDelete = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canvasName) return;
+    onDelete(canvasName);
+    closeDelete();
   };
 
   return (
@@ -76,6 +99,7 @@ function CanvasPicker({ canvases, canvasName, busy, onOpen, onCreate }: { readon
         {canvases.map((canvas) => <option key={canvas.name} value={canvas.name} style={{ background: "#131110" }}>{canvas.name}</option>)}
       </select>
       <button className="station-icon-button" disabled={busy} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="new canvas" aria-label="New canvas" onClick={() => createOpen$.set(true)}><Plus size={15} /></button>
+      <button className="station-icon-button" disabled={busy || !canvasName} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.crimson }} title="delete canvas" aria-label="Delete canvas" onClick={() => deleteOpen$.set(true)}><Trash2 size={15} /></button>
       {createOpen ? (
         <div className="canvas-dialog-backdrop" role="presentation" onMouseDown={closeCreate}>
           <form className="canvas-dialog" role="dialog" aria-modal="true" aria-labelledby="canvas-dialog-title" onSubmit={submitCreate} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") closeCreate(); }}>
@@ -89,6 +113,19 @@ function CanvasPicker({ canvases, canvasName, busy, onOpen, onCreate }: { readon
             <div className="canvas-dialog__actions">
               <button type="button" className="canvas-dialog__cancel" onClick={closeCreate}>cancel</button>
               <button type="submit" className="canvas-dialog__submit" disabled={!createName.trim()}>create canvas</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+      {deleteOpen && canvasName ? (
+        <div className="canvas-dialog-backdrop" role="presentation" onMouseDown={closeDelete}>
+          <form className="canvas-dialog" role="dialog" aria-modal="true" aria-labelledby="canvas-delete-title" onSubmit={submitDelete} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") closeDelete(); }}>
+            <div className="canvas-dialog__eyebrow">station / remove surface</div>
+            <h2 id="canvas-delete-title">Delete canvas</h2>
+            <p>Permanently remove <strong style={{ color: INK }}>{canvasName}</strong> and its digest/svg sidecars. This cannot be undone from the station.</p>
+            <div className="canvas-dialog__actions">
+              <button type="button" className="canvas-dialog__cancel" onClick={closeDelete}>cancel</button>
+              <button type="submit" className="canvas-dialog__danger" autoFocus>delete canvas</button>
             </div>
           </form>
         </div>
@@ -138,7 +175,23 @@ function SaveStatus() {
   return <div role="status" aria-live="polite" className={`station-save station-save--${saveState}`} title={`Canvas ${label}`}><span className="station-save__dot" /><span>{label}</span></div>;
 }
 
-export function TopBar({ onOpen, onCreate, onUndo, onRedo, onExport, onRefresh }: { readonly onOpen: (name: string) => void; readonly onCreate: (name: string) => void; readonly onUndo: () => void; readonly onRedo: () => void; readonly onExport: () => void; readonly onRefresh: () => void }) {
+export function TopBar({
+  onOpen,
+  onCreate,
+  onDelete,
+  onUndo,
+  onRedo,
+  onExport,
+  onRefresh,
+}: {
+  readonly onOpen: (name: string) => void;
+  readonly onCreate: (name: string) => void;
+  readonly onDelete: (name: string) => void;
+  readonly onUndo: () => void;
+  readonly onRedo: () => void;
+  readonly onExport: () => void;
+  readonly onRefresh: () => void;
+}) {
   const canvases = use$(state$.canvases);
   const canvasName = use$(state$.canvasName);
   const canvasLoading = use$(state$.canvasLoading);
@@ -164,7 +217,7 @@ export function TopBar({ onOpen, onCreate, onUndo, onRedo, onExport, onRefresh }
     <header className="station-bar">
       <div className="station-brand"><div className="station-brand__mark" aria-hidden><span /><span /><span /></div><div><div className="station-brand__name">vellum</div><div className="station-brand__sub">station / portfolio canvas</div></div></div>
       <div className="station-bar__divider" />
-      <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} />
+      <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
       <SearchField canvasName={canvasName} />
       <HistoryButtons onUndo={onUndo} onRedo={onRedo} />
       <SaveStatus />

@@ -46,6 +46,10 @@ export const registerVellumIpc = () => {
     AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.create(name))),
   );
 
+  ipcMain.handle(IPC_CHANNELS.deleteCanvas, (_event, name: string) =>
+    AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.remove(name))),
+  );
+
   ipcMain.handle(IPC_CHANNELS.exportDigest, (_event, name: string) =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
