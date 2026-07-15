@@ -1,6 +1,7 @@
 import { Layer, ManagedRuntime } from "effect";
 import { TowerSdkLive } from "@skastr0/tower-sdk";
 import { QuasarSdkLive } from "@skastr0/quasar-sdk";
+import { BoothSdkLive } from "@skastr0/booth-sdk";
 import { describeSdkError } from "./sdk-errors";
 
 // A small, dedicated runtime for the tower/quasar SDK clients — deliberately
@@ -15,7 +16,7 @@ import { describeSdkError } from "./sdk-errors";
 // remaining requirements) — this is the "one shared X" instance for the
 // adapter plane specifically, same idiom as chatService in runtime.ts, just
 // scoped to what actually needs it.
-export const SdkRuntime = ManagedRuntime.make(Layer.mergeAll(TowerSdkLive, QuasarSdkLive));
+export const SdkRuntime = ManagedRuntime.make(Layer.mergeAll(TowerSdkLive, QuasarSdkLive, BoothSdkLive));
 
 // Every SDK-backed IPC handler must degrade to its own channel's ok:false
 // envelope instead of rejecting across IPC — every other channel in ipc.ts

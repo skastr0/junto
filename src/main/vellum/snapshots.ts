@@ -133,7 +133,7 @@ export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
       id: "snapshots",
       label: "Adapter Snapshots",
       status: "ok",
-      detail: "tower/quasar/booth CLI adapters",
+      detail: "tower/quasar/booth SDK adapters",
     }),
     current: Effect.sync(() => state),
     refresh: (hints) => Effect.promise(() => refresh(hints)),

@@ -1,117 +1,90 @@
+import { Context, Effect, Either } from "effect";
+import { BoothClient } from "@skastr0/booth-sdk";
 import type { Entity, SnapshotBundle } from "@shared/entities";
-import { parseJson, runCli } from "./exec";
+import { SdkRuntime } from "./sdk-runtime";
+import { describeSdkError } from "./sdk-errors";
 
-// The booth server is currently 502ing (Convex-backed HTTP action, down as
-// of this writing), so this adapter parses defensively: it accepts the
-// `{ok, data: {...}}` envelope the sibling CLIs use, but also tolerates a
-// bare array or an unwrapped `{items: [...]}` shape in case the live
-// response differs once the server is back.
-interface BoothProjectRow {
-  readonly key?: string;
-  readonly id?: string;
-  readonly slug?: string;
-  readonly name?: string;
-  readonly title?: string;
-  readonly updatedAt?: string | number;
-}
+// Read-only booth adapter, talking to the Booth Control HTTP server through
+// @skastr0/booth-sdk's BoothClient — no `booth` CLI shell-out. Effect Schema
+// decode at the SDK boundary already validated every project/draft shape, so
+// this file only projects typed rows onto the SnapshotBundle contract the
+// renderer consumes (kept byte-identical). A down/slow server folds to
+// ok:false via the SDK's typed BoothError (never a hang: the SDK bounds every
+// roundtrip with a timeout).
 
-const asArray = (value: unknown): ReadonlyArray<unknown> | undefined => {
-  if (Array.isArray(value)) return value;
-  if (value && typeof value === "object") {
-    for (const field of ["projects", "rows", "items", "data"]) {
-      const candidate = (value as Record<string, unknown>)[field];
-      if (Array.isArray(candidate)) return candidate;
-      if (field === "data" && candidate && typeof candidate === "object") {
-        const nested = asArray(candidate);
-        if (nested) return nested;
-      }
-    }
-  }
-  return undefined;
-};
-
-const toIso = (value: string | number | undefined, fallback: string): string => {
-  if (value === undefined) return fallback;
-  const date = typeof value === "number" ? new Date(value) : new Date(value);
-  return Number.isNaN(date.getTime()) ? fallback : date.toISOString();
-};
-
-const toProjectEntity = (row: unknown, fetchedAt: string): Entity | undefined => {
-  if (!row || typeof row !== "object") return undefined;
-  const project = row as BoothProjectRow;
-  const key = project.key ?? project.id ?? project.slug;
-  if (!key) return undefined;
-  return {
-    source: "booth",
-    key,
-    kind: "project",
-    title: project.name ?? project.title ?? key,
-    stats: {},
-    updatedAt: toIso(project.updatedAt, fetchedAt),
-  };
-};
+type BoothClientService = Context.Tag.Service<typeof BoothClient>;
 
 const MAX_HINTS = 8;
 
-// Per-key enrichment: fetches the draft count for one hinted project key.
-// Any failure (down server, bad exit, unparseable body) is a no-op — the
-// entity keeps whatever stats it already had.
-const enrichDrafts = async (
+// Per-key enrichment: fetches the draft count for one hinted project key and
+// folds it into the entity map. Any failure (SDK error, empty result) degrades
+// to a no-op — the entity keeps whatever stats it already had.
+const enrichDrafts = (
+  booth: BoothClientService,
   key: string,
   entities: Map<string, Entity>,
   fetchedAt: string,
-): Promise<void> => {
-  const result = await runCli("booth", ["drafts", "list", "--project", key, "--json"]);
-  if (!result.ok) return;
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const result = yield* Effect.either(booth.listDrafts(key));
+    if (Either.isLeft(result)) return;
 
-  const parsed = parseJson<unknown>(result.stdout);
-  const drafts = parsed ? asArray(parsed) : undefined;
-  if (!drafts) return;
-
-  const existing = entities.get(key);
-  entities.set(key, {
-    source: "booth",
-    key,
-    kind: "project",
-    title: existing?.title ?? key,
-    stats: { ...existing?.stats, drafts: drafts.length },
-    updatedAt: existing?.updatedAt ?? fetchedAt,
+    const existing = entities.get(key);
+    entities.set(key, {
+      source: "booth",
+      key,
+      kind: "project",
+      title: existing?.title ?? key,
+      stats: { ...existing?.stats, drafts: result.right.length },
+      updatedAt: existing?.updatedAt ?? fetchedAt,
+    });
   });
-};
 
+// The testable unit: requires only BoothClient, never touches SdkRuntime — a
+// test provides a fake BoothClient layer and runs this directly.
+export const boothBundleEntities = (
+  hints: ReadonlyArray<string>,
+  fetchedAt: string,
+): Effect.Effect<ReadonlyArray<Entity>, unknown, BoothClient> =>
+  Effect.gen(function* () {
+    const booth = yield* BoothClient;
+    const rows = yield* booth.listProjects();
+
+    const entities = new Map<string, Entity>();
+    for (const row of rows) {
+      entities.set(row.key, {
+        source: "booth",
+        key: row.key,
+        kind: "project",
+        title: row.name,
+        stats: {},
+        updatedAt: new Date(row.updatedAt).toISOString(),
+      });
+    }
+
+    const hintedKeys = Array.from(new Set(hints)).slice(0, MAX_HINTS);
+    yield* Effect.all(
+      hintedKeys.map((key) => enrichDrafts(booth, key, entities, fetchedAt)),
+      { concurrency: "unbounded" },
+    );
+
+    return Array.from(entities.values());
+  });
+
+// Pure envelope wrapper — split out so ok/error framing is unit-testable
+// without a runtime.
+export const buildBoothBundle = (
+  fetchedAt: string,
+  result: Either.Either<ReadonlyArray<Entity>, unknown>,
+): SnapshotBundle =>
+  Either.isLeft(result)
+    ? { source: "booth", fetchedAt, ok: false, error: describeSdkError(result.left), entities: [] }
+    : { source: "booth", fetchedAt, ok: true, entities: result.right };
+
+// A failed request degrades to an explicit ok:false naming the SDK error
+// (never ok:true with silently-empty entities).
 export const fetchBoothBundle = async (hints: ReadonlyArray<string>): Promise<SnapshotBundle> => {
   const fetchedAt = new Date().toISOString();
-  const result = await runCli("booth", ["projects", "list", "--json"]);
-  if (!result.ok) {
-    return {
-      source: "booth",
-      fetchedAt,
-      ok: false,
-      error: result.error ?? "booth CLI failed",
-      entities: [],
-    };
-  }
-
-  const parsed = parseJson<unknown>(result.stdout);
-  const rows = parsed ? asArray(parsed) : undefined;
-  if (!rows) {
-    return {
-      source: "booth",
-      fetchedAt,
-      ok: false,
-      error: "unexpected response shape from `booth projects list --json`",
-      entities: [],
-    };
-  }
-
-  const entities = new Map<string, Entity>();
-  for (const row of rows) {
-    const entity = toProjectEntity(row, fetchedAt);
-    if (entity) entities.set(entity.key, entity);
-  }
-
-  const hintedKeys = Array.from(new Set(hints)).slice(0, MAX_HINTS);
-  await Promise.all(hintedKeys.map((key) => enrichDrafts(key, entities, fetchedAt)));
-
-  return { source: "booth", fetchedAt, ok: true, entities: Array.from(entities.values()) };
+  const result = await SdkRuntime.runPromise(Effect.either(boothBundleEntities(hints, fetchedAt)));
+  return buildBoothBundle(fetchedAt, result);
 };

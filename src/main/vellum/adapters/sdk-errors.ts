@@ -15,6 +15,14 @@ import {
   QuasarTransportError,
   type QuasarError,
 } from "@skastr0/quasar-sdk";
+import {
+  BoothConfigError,
+  BoothDecodeError,
+  BoothRequestError,
+  BoothResponseError,
+  BoothTimeoutError,
+  type BoothError,
+} from "@skastr0/booth-sdk";
 
 // Shared error-to-string projection for every tower.ts/tower-browse.ts/
 // quasar.ts SDK call site. Both @skastr0/tower-sdk's AppError and
@@ -25,7 +33,7 @@ import {
 // check passed for ANY thrown value shaped like `{ message: string }` —
 // a plain Error, a defect, an unrelated exception — whether or not it
 // actually came from either SDK's declared taxonomy.
-export type SdkError = AppError | QuasarError;
+export type SdkError = AppError | QuasarError | BoothError;
 
 export const isSdkError = (error: unknown): error is SdkError =>
   error instanceof ApiRequestError ||
@@ -38,15 +46,20 @@ export const isSdkError = (error: unknown): error is SdkError =>
   error instanceof QuasarConfigError ||
   error instanceof QuasarTransportError ||
   error instanceof QuasarServerError ||
-  error instanceof QuasarDecodeError;
+  error instanceof QuasarDecodeError ||
+  error instanceof BoothConfigError ||
+  error instanceof BoothRequestError ||
+  error instanceof BoothTimeoutError ||
+  error instanceof BoothResponseError ||
+  error instanceof BoothDecodeError;
 
 export const describeSdkError = (error: unknown): string => {
-  // A real member of one of the two SDKs' typed error unions. Every class
+  // A real member of one of the three SDKs' typed error unions. Every class
   // above carries (or Schema.TaggedError auto-derives, for the couple that
   // declare no `message` field of their own, e.g. MissingApiKeyError) a
   // usable `.message` string.
   if (isSdkError(error)) return error.message;
-  // Not a member of either taxonomy — sdk-runtime.ts's runSdkGuarded also
+  // Not a member of any of the three taxonomies — sdk-runtime.ts's runSdkGuarded also
   // routes SdkRuntime's OWN layer-build failures and genuine defects
   // through this function (wrapped by Effect in a FiberFailure, itself an
   // Error subclass), and test fixtures/other call sites reasonably pass a
