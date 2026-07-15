@@ -343,6 +343,12 @@ describe("parseEmitSignalInput", () => {
     expect(parseEmitSignalInput({ ...base, payloadJson: "{not json" }).ok).toBe(false);
   });
 
+  it("rejects invalid project key and oversize summary/payload before network", () => {
+    expect(parseEmitSignalInput({ ...base, projectKey: " bad key " }).ok).toBe(false);
+    expect(parseEmitSignalInput({ ...base, summary: "x".repeat(4_001) }).ok).toBe(false);
+    expect(parseEmitSignalInput({ ...base, payloadJson: `{"x":"${"y".repeat(20_000)}"}` }).ok).toBe(false);
+  });
+
   it("parses payload JSON and optional priority / dedupe", () => {
     const parsed = parseEmitSignalInput({
       ...base,

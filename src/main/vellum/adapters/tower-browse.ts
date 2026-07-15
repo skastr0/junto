@@ -198,7 +198,12 @@ const SIGNAL_KIND_RE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 // Contract schema id ends in /vN (tower SignalContractSchemaId).
 const SIGNAL_CONTRACT_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*\/v[0-9]+$/;
 const SIGNAL_ORBIT_RE = /^[a-z][a-z0-9-]{0,63}$/;
+// Mirrors tower-sdk ProjectKey (httpSchemas).
+const SIGNAL_PROJECT_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SIGNAL_PRIORITIES: ReadonlyArray<TowerSignalPriority> = ["low", "normal", "high", "urgent"];
+// Write-side size caps (read path uses PAYLOAD_JSON_CAP for display).
+export const EMIT_SUMMARY_MAX = 4_000;
+export const EMIT_PAYLOAD_JSON_MAX = PAYLOAD_JSON_CAP;
 
 export interface ParsedEmitSignalInput {
   readonly projectKey: string;
@@ -220,6 +225,9 @@ export type ParsedEmitSignal =
 export const parseEmitSignalInput = (raw: TowerEmitSignalInput): ParsedEmitSignal => {
   const projectKey = raw.projectKey.trim();
   if (!projectKey) return { ok: false, error: "project key is required" };
+  if (!SIGNAL_PROJECT_KEY_RE.test(projectKey)) {
+    return { ok: false, error: "project key is invalid" };
+  }
 
   const orbit = raw.orbit.trim();
   if (!orbit) return { ok: false, error: "orbit is required" };
@@ -235,6 +243,9 @@ export const parseEmitSignalInput = (raw: TowerEmitSignalInput): ParsedEmitSigna
 
   const summary = raw.summary.trim();
   if (!summary) return { ok: false, error: "summary is required" };
+  if (summary.length > EMIT_SUMMARY_MAX) {
+    return { ok: false, error: `summary exceeds ${EMIT_SUMMARY_MAX} characters` };
+  }
 
   const contractSchemaId = (raw.contractSchemaId ?? "").trim() || DEFAULT_SIGNAL_CONTRACT;
   if (!SIGNAL_CONTRACT_RE.test(contractSchemaId)) {
@@ -242,6 +253,9 @@ export const parseEmitSignalInput = (raw: TowerEmitSignalInput): ParsedEmitSigna
   }
 
   const payloadText = (raw.payloadJson ?? "").trim();
+  if (payloadText.length > EMIT_PAYLOAD_JSON_MAX) {
+    return { ok: false, error: `payload exceeds ${EMIT_PAYLOAD_JSON_MAX} characters` };
+  }
   let payload: Record<string, unknown> = {};
   if (payloadText) {
     try {
