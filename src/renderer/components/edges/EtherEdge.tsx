@@ -15,8 +15,16 @@ export function EtherEdge({
   data,
   markerEnd,
 }: EdgeProps<FlowEdge>) {
-  const kind = data?.edge.ether?.kind ?? "relates";
-  const label = data?.edge.label ?? kind;
+  const kind = data?.phase ?? data?.edge.ether?.kind ?? "relates";
+  const detail = data?.detail ?? "";
+  const label =
+    data?.edge.ether?.criteria && detail && kind !== "relates"
+      ? `${kind}`
+      : (data?.edge.label ?? kind);
+  const title =
+    data?.edge.ether?.criteria && detail
+      ? `${kind} · ${detail}`
+      : "cycle edge kind (clears criteria if set)";
   const rippling = data?.rippling ?? false;
   const color = data?.edge.color ? accentColor(data.edge.color) : EDGE_COLOR[kind];
 
@@ -48,7 +56,7 @@ export function EtherEdge({
           aria-label={`Cycle ${kind} edge kind`}
           className="nodrag nopan vellum-edge-label"
           style={{ top: labelY, left: labelX }}
-          title="cycle edge kind"
+          title={title}
           onClick={(e) => {
             e.stopPropagation();
             cycleEdgeKind(id);

@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import type { CanvasEdge, EdgeEnd, EtherEdgeKind } from "@shared/canvas";
+import type { CanvasEdge, EdgeCriteria, EdgeEnd, EtherEdgeKind } from "@shared/canvas";
 import { state$ } from "./state";
 import { commitDoc, parseSide } from "./mutations";
 
@@ -42,8 +42,39 @@ export const cycleEdgeKind = (id: string): void => {
     ...doc,
     edges: doc.edges.map((edge) => {
       if (edge.id !== id) return edge;
+      // Criteria edges are live — cycling kind would fight derivation. Clear
+      // criteria first if present; otherwise cycle the legacy pin.
+      if (edge.ether?.criteria) {
+        const { criteria: _c, ...rest } = edge.ether;
+        return { ...edge, ether: { ...rest, kind: "relates" } };
+      }
       const current = edge.ether?.kind ?? "relates";
       return { ...edge, ether: { ...edge.ether, kind: KIND_CYCLE[current] } };
+    }),
+  });
+};
+
+export const setEdgeCriteria = (id: string, criteria: EdgeCriteria | undefined): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    edges: doc.edges.map((edge) => {
+      if (edge.id !== id) return edge;
+      if (!criteria) {
+        if (!edge.ether) return edge;
+        const { criteria: _c, ...rest } = edge.ether;
+        const nextEther = Object.keys(rest).length > 0 ? rest : undefined;
+        return nextEther ? { ...edge, ether: nextEther } : { ...edge, ether: undefined };
+      }
+      return {
+        ...edge,
+        ether: {
+          ...edge.ether,
+          criteria,
+          // Clear stale pin when attaching live criteria — phase is derived.
+          kind: edge.ether?.kind,
+        },
+      };
     }),
   });
 };

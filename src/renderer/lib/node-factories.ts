@@ -81,3 +81,21 @@ export const makeAgentNode = (
   height: 96,
   ether: { entity: { kind: "agent" }, bindings: [{ source: "hermes", ref: { type: "agent", key } }] },
 });
+
+// A tasks node — local checklist that can block only when connected by an
+// edge with criteria.mode === "tasks". Never auto-creates edges.
+export const makeTasksNode = (x: number, y: number): TextNode => ({
+  id: `task-${ulid()}`,
+  type: "text",
+  text: "tasks",
+  x: Math.round(x),
+  y: Math.round(y),
+  width: 240,
+  height: 120,
+  ether: {
+    entity: { kind: "task" },
+    tasks: {
+      items: [{ id: `item-${ulid()}`, text: "first item" }],
+    },
+  },
+});

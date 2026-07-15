@@ -5,6 +5,7 @@ import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import { deleteNode, setNodeColor } from "../lib/mutations";
 import { cycleEdgeKind, deleteEdges, editEdgeLabel, setEdgeColor, toggleEdgeArrow } from "../lib/edge-mutations";
+import { EdgeCriteriaEditor } from "./InspectorFields";
 import { state$ } from "../lib/state";
 import { DIM, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
 import { entityReadout } from "../lib/entity-readout";
@@ -200,7 +201,81 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
   const commitLabel = () => {
     if (labelDraft !== (edge.label ?? "")) editEdgeLabel(edge.id, labelDraft);
   };
-  return <aside className="inspector-panel"><InspectorHeader eyebrow={`connection / ${kind}`} title="graph relation" onClose={onClose} /><div className="inspector-body"><div className="inspector-edge"><span>{source ? nodeTitle(source) : edge.fromNode}</span><ArrowRight size={14} style={{ color: HUE.amber }} /><span>{target ? nodeTitle(target) : edge.toNode}</span></div><div className="inspector-detail">Label, accent, arrows, and kind are editable below.</div><label className="inspector-edge-label"><span>edge label</span><input aria-label="Edit edge label" value={labelDraft} placeholder={kind} onChange={(event) => setLabelDraft(event.target.value)} onBlur={commitLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitLabel(); event.currentTarget.blur(); } if (event.key === "Escape") { setLabelDraft(edge.label ?? ""); event.currentTarget.blur(); } }} /></label><AccentControls value={edge.color} onChange={(color) => setEdgeColor(edge.id, color)} /><div className="inspector-edge-ends"><span>arrow ends</span><div><button type="button" aria-label="Toggle source arrow" aria-pressed={edge.fromEnd === "arrow"} className={edge.fromEnd === "arrow" ? "is-active" : ""} onClick={() => toggleEdgeArrow(edge.id, "from")}><ArrowLeft size={13} />source</button><button type="button" aria-label="Toggle target arrow" aria-pressed={edge.toEnd === "arrow"} className={edge.toEnd === "arrow" ? "is-active" : ""} onClick={() => toggleEdgeArrow(edge.id, "to")}><ArrowRight size={13} />target</button></div></div><div className="inspector-actions"><button onClick={() => cycleEdgeKind(edge.id)}><RotateCw size={13} />cycle kind</button><button className="inspector-action--danger" onClick={() => deleteEdges([edge.id])}><Trash2 size={13} />delete edge</button></div></div></aside>;
+  const criteria = edge.ether?.criteria;
+  const eyebrow = criteria ? `connection / ${criteria.mode}` : `connection / ${kind}`;
+  return (
+    <aside className="inspector-panel">
+      <InspectorHeader eyebrow={eyebrow} title="graph relation" onClose={onClose} />
+      <div className="inspector-body">
+        <div className="inspector-edge">
+          <span>{source ? nodeTitle(source) : edge.fromNode}</span>
+          <ArrowRight size={14} style={{ color: HUE.amber }} />
+          <span>{target ? nodeTitle(target) : edge.toNode}</span>
+        </div>
+        <div className="inspector-detail">
+          Live criteria drive phase (blocks/depends). Legacy kind pin applies only when criteria is empty.
+        </div>
+        <EdgeCriteriaEditor edgeId={edge.id} fromNode={source} />
+        <label className="inspector-edge-label">
+          <span>edge label</span>
+          <input
+            aria-label="Edit edge label"
+            value={labelDraft}
+            placeholder={kind}
+            onChange={(event) => setLabelDraft(event.target.value)}
+            onBlur={commitLabel}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitLabel();
+                event.currentTarget.blur();
+              }
+              if (event.key === "Escape") {
+                setLabelDraft(edge.label ?? "");
+                event.currentTarget.blur();
+              }
+            }}
+          />
+        </label>
+        <AccentControls value={edge.color} onChange={(color) => setEdgeColor(edge.id, color)} />
+        <div className="inspector-edge-ends">
+          <span>arrow ends</span>
+          <div>
+            <button
+              type="button"
+              aria-label="Toggle source arrow"
+              aria-pressed={edge.fromEnd === "arrow"}
+              className={edge.fromEnd === "arrow" ? "is-active" : ""}
+              onClick={() => toggleEdgeArrow(edge.id, "from")}
+            >
+              <ArrowLeft size={13} />
+              source
+            </button>
+            <button
+              type="button"
+              aria-label="Toggle target arrow"
+              aria-pressed={edge.toEnd === "arrow"}
+              className={edge.toEnd === "arrow" ? "is-active" : ""}
+              onClick={() => toggleEdgeArrow(edge.id, "to")}
+            >
+              <ArrowRight size={13} />
+              target
+            </button>
+          </div>
+        </div>
+        <div className="inspector-actions">
+          <button onClick={() => cycleEdgeKind(edge.id)}>
+            <RotateCw size={13} />
+            {criteria ? "clear criteria" : "cycle kind pin"}
+          </button>
+          <button className="inspector-action--danger" onClick={() => deleteEdges([edge.id])}>
+            <Trash2 size={13} />
+            delete edge
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
 }
 
 export function InspectorPanel() {

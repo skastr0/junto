@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Flag, SlidersHorizontal } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasDoc, CanvasNode, EtherEdgeKind, EtherFlag, EtherView, EtherWatch } from "@shared/canvas";
+import { ulid } from "ulid";
+import type { CanvasDoc, CanvasNode, EdgeCriteria, EtherEdgeKind, EtherFlag, EtherView, EtherWatch } from "@shared/canvas";
 import { findEntity } from "@shared/entities";
-import { addEdge } from "../lib/edge-mutations";
-import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTimer, setNodeView, setNodeWatch, setRegionHold, toggleFlag } from "../lib/mutations";
+import { addEdge, setEdgeCriteria } from "../lib/edge-mutations";
+import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTasks, setNodeTimer, setNodeView, setNodeWatch, setRegionHold, toggleFlag } from "../lib/mutations";
 import { glyphStateHue, orbitOptions, TOWER_STATES } from "../lib/browse";
 import { state$ } from "../lib/state";
 import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
@@ -69,7 +70,165 @@ function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
     {node.type === "group" ? <RegionPulseControl node={node} /> : null}
     {node.ether?.entity?.kind === "watcher" ? <WatcherEditor node={node} /> : null}
     {node.ether?.entity?.kind === "timer" ? <TimerEditor node={node} /> : null}
+    {node.ether?.entity?.kind === "task" ? <TasksEditor node={node} /> : null}
   </>;
+}
+
+function TasksEditor({ node }: { readonly node: CanvasNode }) {
+  const items = node.ether?.tasks?.items ?? [];
+  const commit = (next: typeof items) => setNodeTasks(node.id, next);
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">checklist</div>
+      <div className="flex flex-col gap-1.5">
+        {items.map((item) => (
+          <div key={item.id} className="flex items-center gap-1.5">
+            <button
+              type="button"
+              aria-label={item.done ? "Mark incomplete" : "Mark done"}
+              className="inspector-flag-toggle"
+              onClick={() =>
+                commit(items.map((row) => (row.id === item.id ? { ...row, done: !row.done } : row)))
+              }
+            >
+              {item.done ? "☑" : "☐"}
+            </button>
+            <input
+              aria-label="Task text"
+              className="flex-1"
+              value={item.text}
+              onChange={(event) =>
+                commit(items.map((row) => (row.id === item.id ? { ...row, text: event.target.value } : row)))
+              }
+            />
+            <button
+              type="button"
+              aria-label="Remove task"
+              className="inspector-action--danger"
+              onClick={() => commit(items.filter((row) => row.id !== item.id))}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="mt-2"
+        onClick={() => commit([...items, { id: `item-${ulid()}`, text: "new item" }])}
+      >
+        add item
+      </button>
+      <div className="inspector-detail mt-1">
+        Incomplete tasks block only when this node is the source of an edge with tasks criteria.
+      </div>
+    </div>
+  );
+}
+
+export function EdgeCriteriaEditor({
+  edgeId,
+  fromNode,
+}: {
+  readonly edgeId: string;
+  readonly fromNode: CanvasNode | undefined;
+}) {
+  const doc = use$(state$.doc);
+  const edge = doc.edges.find((candidate) => candidate.id === edgeId);
+  const criteria = edge?.ether?.criteria;
+  const fromIsTask = fromNode?.ether?.entity?.kind === "task";
+  const towerKey =
+    fromNode?.ether?.bindings?.find((binding) => binding.source === "tower")?.ref.key ?? "";
+
+  const mode: "none" | "glyphs" | "wip" | "tasks" = !criteria
+    ? "none"
+    : criteria.mode;
+
+  const setMode = (next: "none" | "glyphs" | "wip" | "tasks") => {
+    if (next === "none") {
+      setEdgeCriteria(edgeId, undefined);
+      return;
+    }
+    if (next === "wip") {
+      setEdgeCriteria(edgeId, {
+        mode: "wip",
+        ...(towerKey ? { project: towerKey } : {}),
+      });
+      return;
+    }
+    if (next === "tasks") {
+      setEdgeCriteria(edgeId, { mode: "tasks" });
+      return;
+    }
+    const existing = criteria?.mode === "glyphs" ? criteria.glyphIds : [];
+    setEdgeCriteria(edgeId, {
+      mode: "glyphs",
+      glyphIds: existing.length > 0 ? [...existing] : [],
+      ...(towerKey ? { project: towerKey } : {}),
+    });
+  };
+
+  const glyphIdsText =
+    criteria?.mode === "glyphs" ? criteria.glyphIds.join(", ") : "";
+
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">live criteria</div>
+      <label className="inspector-editor">
+        <span>binding</span>
+        <select
+          aria-label="Edge criteria mode"
+          value={mode}
+          onChange={(event) => setMode(event.target.value as "none" | "glyphs" | "wip" | "tasks")}
+        >
+          <option value="none">none · plain relates (or legacy pin)</option>
+          <option value="glyphs">selected glyphs must be done</option>
+          <option value="wip">opt-in WIP (committed|building|reviewing)</option>
+          {fromIsTask ? <option value="tasks">tasks checklist on source</option> : null}
+        </select>
+      </label>
+      {mode === "glyphs" ? (
+        <label className="inspector-editor">
+          <span>glyph ids</span>
+          <input
+            aria-label="Glyph ids for edge criteria"
+            placeholder="comma-separated glyph ids"
+            defaultValue={glyphIdsText}
+            key={`${edgeId}:${glyphIdsText}`}
+            onBlur={(event) => {
+              const glyphIds = event.target.value
+                .split(",")
+                .map((part) => part.trim())
+                .filter(Boolean);
+              const next: EdgeCriteria = {
+                mode: "glyphs",
+                glyphIds,
+                ...(towerKey ? { project: towerKey } : {}),
+                ...(criteria?.mode === "glyphs" && criteria.orbit ? { orbit: criteria.orbit } : {}),
+              };
+              setEdgeCriteria(edgeId, next);
+            }}
+          />
+        </label>
+      ) : null}
+      {mode === "wip" ? (
+        <div className="inspector-detail">
+          Blocks while any glyph on the source project is in committed, building, or reviewing.
+          Opt-in only — never the default for projects.
+        </div>
+      ) : null}
+      {mode === "tasks" ? (
+        <div className="inspector-detail">
+          Blocks while incomplete items remain on the source tasks node.
+        </div>
+      ) : null}
+      {mode === "none" ? (
+        <div className="inspector-detail">
+          No live binding. Use cycle kind for a static pin, or attach glyphs/WIP/tasks above.
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 // Region hold (group nodes only): a structural container whose contents
