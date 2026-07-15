@@ -23,8 +23,8 @@ export type FlowEdge = Edge<EdgeData>;
 export { searchText } from "./presentation";
 
 // Live overlay from the kernel cycle (glyph-aware phases + blocked closure).
-// When absent, toFlow falls back to pure deriveExecutionGraph(doc) which still
-// resolves tasks criteria and legacy kind pins from the document alone.
+// When absent, toFlow falls back to pure deriveExecutionGraph(doc) which
+// resolves tasks criteria from the document and soft-relates otherwise.
 export type ExecutionOverlay = Pick<
   ExecutionSnapshot,
   "phaseByEdgeId" | "detailByEdgeId" | "blocked" | "blockedEdgeIds"

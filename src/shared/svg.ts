@@ -99,7 +99,7 @@ export const renderCanvasSvg = (doc: CanvasDoc, glyphs?: GlyphView): string => {
     if (!from || !to) continue;
     const a = center(from);
     const b = center(to);
-    const kind = (graph.phaseByEdgeId.get(edge.id) ?? edge.ether?.kind) as EtherEdgeKind | undefined;
+    const kind = graph.phaseByEdgeId.get(edge.id) as EtherEdgeKind | undefined;
     const color = kind ? EDGE_COLOR[kind] : STEEL;
     const active = activeEdges.has(edge.id);
     parts.push(
