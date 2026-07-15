@@ -13,7 +13,7 @@ import type {
   TowerSignalReadResult,
   TowerSignalRow,
 } from "@shared/ipc";
-import { SdkRuntime } from "./sdk-runtime";
+import { runSdkGuarded, SdkRuntime } from "./sdk-runtime";
 import { describeSdkError } from "./sdk-errors";
 import { resolved } from "./tower-client";
 
@@ -245,7 +245,10 @@ export const towerBrowseRows = (
   });
 
 export const fetchTowerBrowse = (projectKey: string): Promise<TowerBrowseResult> =>
-  SdkRuntime.runPromise(towerBrowseRows(projectKey));
+  runSdkGuarded(
+    () => SdkRuntime.runPromise(towerBrowseRows(projectKey)),
+    (error) => ({ ok: false, error, glyphs: [], signals: [] }),
+  );
 
 // --- search (POST /api/search/text) ----------------------------------------
 
@@ -267,7 +270,10 @@ export const towerSearchMatches = (
   });
 
 export const fetchTowerSearch = (query: string, projectKey?: string): Promise<TowerSearchResult> =>
-  SdkRuntime.runPromise(towerSearchMatches(query, projectKey));
+  runSdkGuarded(
+    () => SdkRuntime.runPromise(towerSearchMatches(query, projectKey)),
+    (error) => ({ ok: false, error, matches: [] }),
+  );
 
 // --- glyph detail (reader modal) --------------------------------------------
 
@@ -289,7 +295,11 @@ export const fetchTowerGlyphRead = (
   projectKey: string,
   orbit: string,
   glyphId: string,
-): Promise<TowerGlyphReadResult> => SdkRuntime.runPromise(towerGlyphRead(projectKey, orbit, glyphId));
+): Promise<TowerGlyphReadResult> =>
+  runSdkGuarded(
+    () => SdkRuntime.runPromise(towerGlyphRead(projectKey, orbit, glyphId)),
+    (error) => ({ ok: false, error }),
+  );
 
 // --- signal detail (reader modal) -------------------------------------------
 
@@ -311,7 +321,11 @@ export const fetchTowerSignalRead = (
   projectKey: string,
   orbit: string,
   signalId: string,
-): Promise<TowerSignalReadResult> => SdkRuntime.runPromise(towerSignalRead(projectKey, orbit, signalId));
+): Promise<TowerSignalReadResult> =>
+  runSdkGuarded(
+    () => SdkRuntime.runPromise(towerSignalRead(projectKey, orbit, signalId)),
+    (error) => ({ ok: false, error }),
+  );
 
 // --- dispatches (no confirmed live browse route — see tower-cli's SDK,
 // which never wires a GET /api/dispatches route either) --------------------
@@ -360,7 +374,10 @@ export const fetchTowerCommentGlyph = (
 ): Promise<SourceWriteResult> =>
   isBlankCommentBody(body)
     ? Promise.resolve({ ok: false, error: "comment body is empty" })
-    : SdkRuntime.runPromise(towerComment(projectKey, "glyphs", orbit, glyphId, body));
+    : runSdkGuarded(
+        () => SdkRuntime.runPromise(towerComment(projectKey, "glyphs", orbit, glyphId, body)),
+        (error) => ({ ok: false, error }),
+      );
 
 export const fetchTowerCommentSignal = (
   projectKey: string,
@@ -370,4 +387,7 @@ export const fetchTowerCommentSignal = (
 ): Promise<SourceWriteResult> =>
   isBlankCommentBody(body)
     ? Promise.resolve({ ok: false, error: "comment body is empty" })
-    : SdkRuntime.runPromise(towerComment(projectKey, "signals", orbit, signalId, body));
+    : runSdkGuarded(
+        () => SdkRuntime.runPromise(towerComment(projectKey, "signals", orbit, signalId, body)),
+        (error) => ({ ok: false, error }),
+      );

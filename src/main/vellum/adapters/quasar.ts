@@ -9,7 +9,7 @@ import type {
   QuasarSessionRow,
   QuasarSessionsResult,
 } from "@shared/ipc";
-import { SdkRuntime } from "./sdk-runtime";
+import { runSdkGuarded, SdkRuntime } from "./sdk-runtime";
 import { describeSdkError } from "./sdk-errors";
 
 // Read-only quasar adapter, talking to the remote Quasar HTTP server through
@@ -176,18 +176,22 @@ export const sortAndMapSessions = (
 const SESSION_FETCH_LIMIT = 500;
 const DEFAULT_SESSION_LIMIT = 30;
 
-export const fetchQuasarSessionList = async (
+export const fetchQuasarSessionList = (
   quasarKey: string,
   limit: number = DEFAULT_SESSION_LIMIT,
-): Promise<QuasarSessionsResult> => {
-  const result = await SdkRuntime.runPromise(
-    Effect.either(Effect.flatMap(QuasarClient, (quasar) => quasar.listSessions({ projectKey: quasarKey, limit: SESSION_FETCH_LIMIT }))),
+): Promise<QuasarSessionsResult> =>
+  runSdkGuarded(
+    async () => {
+      const result = await SdkRuntime.runPromise(
+        Effect.either(Effect.flatMap(QuasarClient, (quasar) => quasar.listSessions({ projectKey: quasarKey, limit: SESSION_FETCH_LIMIT }))),
+      );
+      if (Either.isLeft(result)) {
+        return { ok: false, error: describeSdkError(result.left), sessions: [] };
+      }
+      return { ok: true, sessions: sortAndMapSessions(result.right, limit) };
+    },
+    (error) => ({ ok: false, error, sessions: [] }),
   );
-  if (Either.isLeft(result)) {
-    return { ok: false, error: describeSdkError(result.left), sessions: [] };
-  }
-  return { ok: true, sessions: sortAndMapSessions(result.right, limit) };
-};
 
 // --- search (read-only detail view) -----------------------------------------
 
@@ -215,22 +219,26 @@ export const mapSearchMatches = (
 
 const SEARCH_LIMIT = 20;
 
-export const fetchQuasarSearch = async (
+export const fetchQuasarSearch = (
   query: string,
   quasarKey?: string,
-): Promise<QuasarSearchResult> => {
-  const result = await SdkRuntime.runPromise(
-    Effect.either(
-      Effect.flatMap(QuasarClient, (quasar) =>
-        quasar.search("fusion", { query, projectKey: quasarKey, limit: SEARCH_LIMIT }),
-      ),
-    ),
+): Promise<QuasarSearchResult> =>
+  runSdkGuarded(
+    async () => {
+      const result = await SdkRuntime.runPromise(
+        Effect.either(
+          Effect.flatMap(QuasarClient, (quasar) =>
+            quasar.search("fusion", { query, projectKey: quasarKey, limit: SEARCH_LIMIT }),
+          ),
+        ),
+      );
+      if (Either.isLeft(result)) {
+        return { ok: false, error: describeSdkError(result.left), matches: [] };
+      }
+      return { ok: true, matches: mapSearchMatches(result.right) };
+    },
+    (error) => ({ ok: false, error, matches: [] }),
   );
-  if (Either.isLeft(result)) {
-    return { ok: false, error: describeSdkError(result.left), matches: [] };
-  }
-  return { ok: true, matches: mapSearchMatches(result.right) };
-};
 
 // --- session detail (reader modal) ------------------------------------------
 //
@@ -299,40 +307,44 @@ export const parseProviderFromSessionId = (sessionId: string): string => {
   return separatorIndex === -1 ? sessionId : sessionId.slice(0, separatorIndex);
 };
 
-export const fetchQuasarSessionDetail = async (sessionId: string): Promise<QuasarSessionDetailResult> => {
-  const program = Effect.gen(function* () {
-    const quasar = yield* QuasarClient;
-    const messageRows = yield* quasar.readMessages(sessionId, { limit: SESSION_DETAIL_FETCH_LIMIT });
+export const fetchQuasarSessionDetail = (sessionId: string): Promise<QuasarSessionDetailResult> =>
+  runSdkGuarded(
+    async () => {
+      const program = Effect.gen(function* () {
+        const quasar = yield* QuasarClient;
+        const messageRows = yield* quasar.readMessages(sessionId, { limit: SESSION_DETAIL_FETCH_LIMIT });
 
-    // Tool-call stats are best-effort: a failing/malformed call degrades to
-    // empty tool stats rather than failing the whole detail — the
-    // transcript bookends are still useful without it.
-    const toolRowsResult = yield* Effect.either(
-      quasar.listToolCalls({ sessionId, limit: SESSION_DETAIL_FETCH_LIMIT }),
-    );
-    const toolRows = Either.isRight(toolRowsResult) ? toolRowsResult.right : [];
+        // Tool-call stats are best-effort: a failing/malformed call degrades to
+        // empty tool stats rather than failing the whole detail — the
+        // transcript bookends are still useful without it.
+        const toolRowsResult = yield* Effect.either(
+          quasar.listToolCalls({ sessionId, limit: SESSION_DETAIL_FETCH_LIMIT }),
+        );
+        const toolRows = Either.isRight(toolRowsResult) ? toolRowsResult.right : [];
 
-    const bookends = buildSessionBookends(messageRows);
+        const bookends = buildSessionBookends(messageRows);
 
-    const detail: QuasarSessionDetail = {
-      sessionId,
-      provider: parseProviderFromSessionId(sessionId),
-      title: undefined,
-      messageCount: messageRows.length,
-      toolCallCount: toolRows.length,
-      firstUser: bookends.firstUser,
-      lastAssistant: bookends.lastAssistant,
-      startedAt: bookends.startedAt,
-      endedAt: bookends.endedAt,
-      topTools: topToolNames(toolRows),
-    };
+        const detail: QuasarSessionDetail = {
+          sessionId,
+          provider: parseProviderFromSessionId(sessionId),
+          title: undefined,
+          messageCount: messageRows.length,
+          toolCallCount: toolRows.length,
+          firstUser: bookends.firstUser,
+          lastAssistant: bookends.lastAssistant,
+          startedAt: bookends.startedAt,
+          endedAt: bookends.endedAt,
+          topTools: topToolNames(toolRows),
+        };
 
-    return detail;
-  });
+        return detail;
+      });
 
-  const result = await SdkRuntime.runPromise(Effect.either(program));
-  if (Either.isLeft(result)) {
-    return { ok: false, error: describeSdkError(result.left) };
-  }
-  return { ok: true, detail: result.right };
-};
+      const result = await SdkRuntime.runPromise(Effect.either(program));
+      if (Either.isLeft(result)) {
+        return { ok: false, error: describeSdkError(result.left) };
+      }
+      return { ok: true, detail: result.right };
+    },
+    (error) => ({ ok: false, error }),
+  );
