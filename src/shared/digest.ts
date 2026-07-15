@@ -1,12 +1,14 @@
 import type { CanvasDoc, CanvasNode } from "./canvas";
 import type { EntitySource, SnapshotState } from "./entities";
 import { findEntity } from "./entities";
-import { blockedClosure, groupMembers, isGroup } from "./graph";
+import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
+import { groupMembers, isGroup } from "./graph";
 
 // Deterministic text projection of a canvas + snapshots for agent consumption.
-// Contract: same doc + same snapshots -> byte-identical output. No timestamps,
-// no randomness. Sections: regions (with members), entities (with stats),
-// edges, blockers (with closure), seeds (unbound entity nodes), sources.
+// Contract: same doc + same snapshots (+ same glyph view) -> byte-identical
+// output. No timestamps, no randomness. Sections: regions (with members),
+// entities (with stats), edges (live phase), blockers (with closure), seeds
+// (unbound entity nodes), sources.
 // Ordering is document order throughout; the one place input order is
 // unstable (which adapter bundle landed first) is sorted to a fixed source
 // order instead.
@@ -39,12 +41,19 @@ const formatStats = (stats: Record<string, string | number>): string => {
 const isSeed = (node: CanvasNode): boolean =>
   node.ether?.entity !== undefined && (node.ether.bindings?.length ?? 0) === 0;
 
-export const digestCanvas = (name: string, doc: CanvasDoc, snapshots: SnapshotState): string => {
+export const digestCanvas = (
+  name: string,
+  doc: CanvasDoc,
+  snapshots: SnapshotState,
+  glyphs?: GlyphView,
+): string => {
   const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));
   const titleForId = (id: string): string => {
     const node = nodeById.get(id);
     return node ? titleOf(node) : id;
   };
+
+  const graph = deriveExecutionGraph(doc, glyphs ?? new Map());
 
   const lines: string[] = [
     `canvas :: ${name}`,
@@ -83,28 +92,55 @@ export const digestCanvas = (name: string, doc: CanvasDoc, snapshots: SnapshotSt
           found ? `  ${binding.source}: ${formatStats(found.stats)}` : `  ${binding.source}: stale`,
         );
       }
+      // Local task checklist lives in the document.
+      if (entity.kind === "task") {
+        const items = node.ether?.tasks?.items ?? [];
+        const open = items.filter((item) => !item.done).length;
+        entityLines.push(`  tasks: ${items.length - open}/${items.length} done`);
+      }
     }
     sections.push(entityLines);
   }
 
-  // edges
+  // edges — live phase (derived). Free-text labels win only for plain relates
+  // without criteria (authorial annotation). Criteria edges always show phase.
   if (doc.edges.length > 0) {
     const edgeLines = ["edges"];
     for (const edge of doc.edges) {
-      const token = edge.ether?.kind ?? edge.label ?? "relates";
+      const phase = graph.phaseByEdgeId.get(edge.id) ?? "relates";
+      const detail = graph.detailByEdgeId.get(edge.id);
+      let token: string;
+      if (edge.ether?.criteria && detail && phase !== "relates") {
+        token = `${phase}(${detail})`;
+      } else if (phase === "relates" && edge.label && !edge.ether?.kind && !edge.ether?.criteria) {
+        token = edge.label;
+      } else {
+        token = phase;
+      }
       edgeLines.push(`${titleForId(edge.fromNode)} --${token}--> ${titleForId(edge.toNode)}`);
     }
     sections.push(edgeLines);
   }
 
-  // blockers
+  // blockers: seeds (manual flag) + derived blocked closure
   const blockerNodes = doc.nodes.filter((node) => node.ether?.flags?.includes("blocker"));
-  if (blockerNodes.length > 0) {
-    const blocked = blockedClosure(doc);
+  if (blockerNodes.length > 0 || graph.blocked.size > 0) {
     const blockerLines = ["blockers", ...blockerNodes.map(titleOf)];
-    blockerLines.push(`blocked closure :: ${blocked.size} nodes`);
+    blockerLines.push(`blocked closure :: ${graph.blocked.size} nodes`);
     for (const node of doc.nodes) {
-      if (blocked.has(node.id)) blockerLines.push(titleOf(node));
+      if (graph.blocked.has(node.id)) {
+        const reasons = graph.reasonsByNodeId.get(node.id) ?? [];
+        const first = reasons[0];
+        const suffix =
+          first?.kind === "edge"
+            ? ` · ${first.detail}`
+            : first?.kind === "relay"
+              ? ` · relay`
+              : first?.kind === "seed"
+                ? ` · ${first.detail}`
+                : "";
+        blockerLines.push(`${titleOf(node)}${suffix}`);
+      }
     }
     sections.push(blockerLines);
   }

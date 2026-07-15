@@ -1,5 +1,6 @@
 import type { CanvasDoc, CanvasNode, EtherEdgeKind } from "./canvas";
-import { blockedClosure, blockedEdgeIds, isGroup } from "./graph";
+import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
+import { isGroup } from "./graph";
 
 // Headless deep-field render of a canvas to SVG — the "screenshot for agents"
 // half of the agent surface (the text half is digest.ts). Pure and
@@ -56,10 +57,11 @@ const nodeTitle = (node: CanvasNode): string => {
 
 const center = (node: CanvasNode) => ({ x: node.x + node.width / 2, y: node.y + node.height / 2 });
 
-export const renderCanvasSvg = (doc: CanvasDoc): string => {
+export const renderCanvasSvg = (doc: CanvasDoc, glyphs?: GlyphView): string => {
   const nodesById = new Map(doc.nodes.map((n) => [n.id, n] as const));
-  const blocked = blockedClosure(doc);
-  const activeEdges = blockedEdgeIds(doc);
+  const graph = deriveExecutionGraph(doc, glyphs ?? new Map());
+  const blocked = graph.blocked;
+  const activeEdges = graph.blockedEdgeIds;
 
   const PAD = 80;
   const xs = doc.nodes.flatMap((n) => [n.x, n.x + n.width]);
@@ -97,7 +99,7 @@ export const renderCanvasSvg = (doc: CanvasDoc): string => {
     if (!from || !to) continue;
     const a = center(from);
     const b = center(to);
-    const kind = edge.ether?.kind;
+    const kind = (graph.phaseByEdgeId.get(edge.id) ?? edge.ether?.kind) as EtherEdgeKind | undefined;
     const color = kind ? EDGE_COLOR[kind] : STEEL;
     const active = activeEdges.has(edge.id);
     parts.push(

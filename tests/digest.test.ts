@@ -45,6 +45,10 @@ const doc: CanvasDoc = {
       y: 300,
       width: 100,
       height: 50,
+      ether: {
+        entity: { kind: "project" },
+        bindings: [{ source: "tower", ref: { type: "project", key: "baz" } }],
+      },
     },
   ],
   edges: [
@@ -99,6 +103,8 @@ Foo :: project
   tower: a=1 b=x
   quasar: stale
 Bar :: orbit
+Baz :: project
+  tower: stale
 
 edges
 Foo --depends--> Bar
@@ -109,7 +115,7 @@ Foo --relates--> Baz
 blockers
 Bar
 blocked closure :: 1 nodes
-Baz
+Baz · pinned blocks
 
 seeds
 Bar
