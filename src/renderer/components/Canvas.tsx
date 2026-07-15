@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -14,13 +14,12 @@ import {
   useNodesState,
   useReactFlow,
 } from "@xyflow/react";
-import type { Connection, FinalConnectionState, Node, OnEdgesChange, OnMove, OnNodeDrag, OnNodesChange } from "@xyflow/react";
+import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { EtherBinding, EtherEdgeKind, EtherFlag, TextNode } from "@shared/canvas";
 import { mergeProjects } from "@shared/portfolio";
 import { Ban, Bot, Boxes, Expand, Eye, FileText, Link2, Plus, ScanLine, SquareDashed, Timer, Trash2 } from "lucide-react";
 import { state$ } from "../lib/state";
-import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { searchText, toFlow } from "../lib/convert";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
@@ -28,37 +27,23 @@ import { addEdge, deleteEdges } from "../lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { makeAgentNode, makeFileNode, makeGroupNode, makeLinkNode, makeProjectNode, makeTextNode } from "../lib/node-factories";
 import { accentColor, GROUND, HUE } from "../lib/theme";
-import { projectLod } from "../lib/lod/project";
-import { MID_LANDING_ZOOM, NEAR_LANDING_ZOOM, selectTier } from "../lib/lod/tier";
-import type { LodTier } from "../lib/lod/types";
-import type { LodFlowEdge, LodFlowNode, RegionCardData, ClusterBubbleData } from "../lib/lod/flow-types";
 import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 
 const miniMapNodeColor = (node: Node): string => {
   const data = node.data as FlowNode["data"] | undefined;
-  const canvasNode = data?.node;
-  // A collapsed-tier LOD node carries no `.node` on its data — colour it by its
-  // emblem type instead of dereferencing a document node that is not there.
-  if (!canvasNode) {
-    if (node.type === "cluster-bubble") return HUE.amber;
-    if (node.type === "region-card") return accentColor((node.data as RegionCardData | undefined)?.aggregate.color);
-    return "rgba(143,163,176,0.4)"; // title-chip
-  }
-  const flags = canvasNode.ether?.flags ?? [];
+  const flags = data?.node.ether?.flags ?? [];
   if (flags.includes("blocker")) return HUE.crimson;
   if (flags.includes("attention")) return HUE.amber;
   if (flags.includes("parked")) return HUE.violet;
-  if (canvasNode.type === "group") return "rgba(143,163,176,0.25)";
-  if (canvasNode.color) return accentColor(canvasNode.color);
+  if (data?.node.type === "group") return "rgba(143,163,176,0.25)";
+  if (data?.node.color) return accentColor(data.node.color);
   return "rgba(232,163,61,0.5)";
 };
 
-type WorldBounds = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
 type CanvasFlow = {
   readonly fitView: (options?: { readonly nodes?: Array<CanvasNodeRef>; readonly padding?: number; readonly duration?: number; readonly maxZoom?: number }) => Promise<boolean>;
-  readonly fitBounds: (bounds: WorldBounds, options?: { readonly padding?: number; readonly duration?: number; readonly maxZoom?: number }) => Promise<boolean>;
   readonly getNode: (id: string) => CanvasNodeRef | undefined;
   readonly getNodes: () => ReadonlyArray<CanvasNodeRef>;
   readonly screenToFlowPosition: (position: { readonly x: number; readonly y: number }) => { readonly x: number; readonly y: number };
@@ -141,32 +126,22 @@ function useCanvasFocus(focusNodeId: string, rf: CanvasFlow) {
     let attempts = 0;
     let frame = 0;
     const focus = () => {
-      // Jump-to-node must expand THROUGH the LOD: when the field is collapsed,
-      // the real node is not in the live graph (a region emblem or cluster
-      // bubble stands for it), so fit to the node's DOCUMENT rect by
-      // coordinates — that dive crosses the near boundary, the base node
-      // materializes, and it lands selected at T0. When the node is already
-      // live the same rect fit works identically.
-      const docNode = state$.doc.peek().nodes.find((n) => n.id === focusNodeId);
-      if (!docNode) {
-        // Not yet in the document (mid-load) — retry a few frames, then give up.
+      const node = rf.getNode(focusNodeId);
+      if (!node) {
         attempts += 1;
         if (attempts < 12) frame = requestAnimationFrame(focus);
         else state$.focusNodeId.set("");
         return;
       }
+      // React Flow emits an empty selection while the canvas mounts. Re-apply
+      // the focus target only after it is present in the live graph.
       state$.selectedNodeId.set(focusNodeId);
       state$.selectedEdgeId.set("");
-      void rf
-        .fitBounds({ x: docNode.x, y: docNode.y, width: docNode.width, height: docNode.height }, { padding: 0.5, maxZoom: 1.45, duration: 380 })
-        .catch(() => undefined)
-        .finally(() => {
-          // React Flow emits an empty selection while the near graph mounts;
-          // re-apply the target after the dive so it stays selected.
-          state$.selectedNodeId.set(focusNodeId);
-          state$.selectedEdgeId.set("");
-          state$.focusNodeId.set("");
-        });
+      void rf.fitView({ nodes: [node], padding: 0.35, maxZoom: 1.45, duration: 360 }).catch(() => undefined).finally(() => {
+        state$.selectedNodeId.set(focusNodeId);
+        state$.selectedEdgeId.set("");
+        state$.focusNodeId.set("");
+      });
     };
     frame = requestAnimationFrame(focus);
     return () => cancelAnimationFrame(frame);
@@ -248,21 +223,6 @@ function useCanvasInteractions(rf: CanvasFlow, setNodes: ReturnType<typeof useNo
   }, [rf]);
   const onNodesDelete = useCallback((deleted: ReadonlyArray<FlowNode>) => deleteNodes(deleted.map((node) => node.id)), []);
   const onEdgesDelete = useCallback((deleted: ReadonlyArray<FlowEdge>) => deleteEdges(deleted.map((edge) => edge.id)), []);
-  // Dive-in from a collapsed tier: clicking a region emblem fits its region and
-  // drops to T0 there; clicking a cluster bubble fits its extent and settles at
-  // T1. Both act purely on the LOD node's carried rect — no document read — and
-  // are no-ops on the real nodes at T0 (their types never match).
-  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
-    if (node.type === "region-card") {
-      const rect = (node.data as RegionCardData).aggregate.rect;
-      void rf.fitBounds(rect, { padding: 0.35, maxZoom: NEAR_LANDING_ZOOM, duration: 420 }).catch(() => undefined);
-      return;
-    }
-    if (node.type === "cluster-bubble") {
-      const extent = (node.data as ClusterBubbleData).bubble.extent;
-      void rf.fitBounds(extent, { padding: 0.24, maxZoom: MID_LANDING_ZOOM, duration: 420 }).catch(() => undefined);
-    }
-  }, [rf]);
   const onSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }: { readonly nodes: ReadonlyArray<FlowNode>; readonly edges: ReadonlyArray<FlowEdge> }) => {
     // React Flow emits empty selections while the graph remounts. A pane
     // click is the explicit deselection gesture; do not erase an inspector
@@ -288,7 +248,7 @@ function useCanvasInteractions(rf: CanvasFlow, setNodes: ReturnType<typeof useNo
     const pos = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     addNode(makeTextNode(pos.x - 120, pos.y - 50));
   }, [rf]);
-  return { onConnect, onConnectEnd, onNodeDragStart, onNodeDrag, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick, onNodeClick };
+  return { onConnect, onConnectEnd, onNodeDragStart, onNodeDrag, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick };
 }
 
 type AddPicker = "project" | "agent" | null;
@@ -616,50 +576,6 @@ function FieldControls() {
   return <Controls showFitView={false} showInteractive={false} aria-label="Canvas controls" style={{ marginBottom: 64 }}><ControlButton aria-label="Fit readable view" title="fit readable view" onClick={() => fitReadableField(rf)}><ScanLine size={14} /></ControlButton></Controls>;
 }
 
-// Tracks the level-of-detail tier from viewport zoom, with hysteresis. The
-// returned onMove only flips React state when a tier boundary is fully crossed
-// — so panning and same-tier zooming never re-render the graph or recompute the
-// projection. That is the memoization the perf contract asks for: recompute on
-// zoom-tier change, not every pan frame.
-function useLodTier(): { readonly tier: LodTier; readonly onMove: OnMove } {
-  const [tier, setTier] = useState<LodTier>("near");
-  const tierRef = useRef<LodTier>("near");
-  const onMove = useCallback<OnMove>((_event, viewport) => {
-    const next = selectTier(viewport.zoom, tierRef.current);
-    if (next !== tierRef.current) {
-      tierRef.current = next;
-      setTier(next);
-    }
-  }, []);
-  return { tier, onMove };
-}
-
-const EMPTY_LOD = { nodes: [] as ReadonlyArray<LodFlowNode>, edges: [] as ReadonlyArray<LodFlowEdge> };
-
-// The collapsed projection for the active tier, memoized so it recomputes only
-// on a tier change, a document change (docVersion), or a live-data change
-// (snapshots / kernel arming / pulses) — never on a pan. Reads the document via
-// peek + docVersion, matching useCanvasDocument's structural-rebuild idiom.
-function useLodProjection(activeTier: LodTier, docVersion: number) {
-  const canvasName = use$(state$.canvasName);
-  const snapshots = use$(state$.snapshots);
-  const armed = use$(kernel$.armed);
-  const orphaned = use$(kernel$.orphaned);
-  const pulseLog = use$(kernel$.pulseLog);
-  return useMemo(() => {
-    if (activeTier === "near") return EMPTY_LOD;
-    return projectLod({
-      doc: state$.doc.peek(),
-      tier: activeTier,
-      snapshots,
-      kernel: { canvasName, armed, orphaned, pulseLog },
-    });
-    // doc is read via peek() and tracked by docVersion, matching the graph's
-    // structural-rebuild effect; listing state$.doc here would be a lie.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTier, docVersion, canvasName, snapshots, armed, orphaned, pulseLog]);
-}
-
 function useCanvasGraph() {
   const canvasName = use$(state$.canvasName);
   const docVersion = use$(state$.docVersion);
@@ -669,49 +585,18 @@ function useCanvasGraph() {
   const edgeFilter = use$(state$.edgeFilter);
   const flagFilter = use$(state$.flagFilter);
   const focusNodeId = use$(state$.focusNodeId);
-  // The base (T0) graph — the source of truth for every existing interaction.
-  const [baseNodes, setBaseNodes, onBaseNodesChange] = useNodesState<FlowNode>([]);
-  const [baseEdges, setBaseEdges, onBaseEdgesChange] = useEdgesState<FlowEdge>([]);
-  // The collapsed (T1/T2) graph — a disjoint, read-only projection. Kept in its
-  // own controlled state so React Flow can still measure/select whichever set
-  // is on screen; the two never render at once.
-  const [lodNodes, setLodNodes, onLodNodesChange] = useNodesState<LodFlowNode>([]);
-  const [lodEdges, setLodEdges, onLodEdgesChange] = useEdgesState<LodFlowEdge>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([]);
   const rf = useReactFlow<FlowNode, FlowEdge>();
-  const { tier, onMove } = useLodTier();
-
-  // Collapse is a browse mode. A live search or filter means the operator is
-  // hunting specific nodes — force the detailed graph (already narrowed by the
-  // filter) rather than folding it into emblems.
-  const collapseEnabled = !searchQuery.trim() && !flagFilter && !edgeFilter;
-  const activeTier: LodTier = collapseEnabled ? tier : "near";
-  const near = activeTier === "near";
-
-  const projection = useLodProjection(activeTier, docVersion);
-  useEffect(() => {
-    setLodNodes([...projection.nodes]);
-    setLodEdges([...projection.edges]);
-  }, [projection, setLodNodes, setLodEdges]);
-
-  useCanvasDocument(docVersion, searchQuery, edgeFilter, flagFilter, selectedNodeId, selectedEdgeId, setBaseNodes, setBaseEdges);
-  useCanvasSearchViewport(searchQuery, baseNodes.length, rf, `${edgeFilter}|${flagFilter}`);
+  useCanvasDocument(docVersion, searchQuery, edgeFilter, flagFilter, selectedNodeId, selectedEdgeId, setNodes, setEdges);
+  useCanvasSearchViewport(searchQuery, nodes.length, rf, `${edgeFilter}|${flagFilter}`);
   useCanvasFocus(focusNodeId, rf);
-  useCanvasViewport(canvasName, baseNodes.length, rf);
-
-  // Boundary casts: at a collapsed tier the rendered set is LOD nodes whose
-  // `data` shape differs from the base graph's. React Flow dispatches on
-  // `node.type` (each LOD component reads its own data), so presenting them
-  // through the base graph's types at the <ReactFlow> boundary is sound.
-  const nodes = near ? baseNodes : (lodNodes as unknown as FlowNode[]);
-  const edges = near ? baseEdges : (lodEdges as unknown as FlowEdge[]);
-  const onNodesChange = near ? onBaseNodesChange : (onLodNodesChange as unknown as OnNodesChange<FlowNode>);
-  const onEdgesChange = near ? onBaseEdgesChange : (onLodEdgesChange as unknown as OnEdgesChange<FlowEdge>);
-
-  return { nodes, edges, onNodesChange, onEdgesChange, onMove, interactions: useCanvasInteractions(rf, setBaseNodes), rf };
+  useCanvasViewport(canvasName, nodes.length, rf);
+  return { nodes, edges, onNodesChange, onEdgesChange, interactions: useCanvasInteractions(rf, setNodes), rf };
 }
 
 function CanvasGraph() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onMove, interactions, rf } = useCanvasGraph();
+  const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.
   const connecting = useConnection((connection) => connection.inProgress);
@@ -742,9 +627,7 @@ function CanvasGraph() {
       openMultiMenu({ x: event.clientX, y: event.clientY });
       return;
     }
-    // `node.type` (never data.node.type) so a right-click on a collapsed LOD
-    // node — whose data has no `.node` — is a safe no-op, not a crash.
-    if (node.type !== "group") return;
+    if (node.data?.node.type !== "group") return;
     event.preventDefault();
     openContextMenu({ x: event.clientX, y: event.clientY });
   }, [rf, openContextMenu, openMultiMenu]);
@@ -759,7 +642,7 @@ function CanvasGraph() {
     interactions.onPaneClick(event);
   }, [interactions.onPaneClick]);
   return <>
-    <ReactFlow className={connecting ? "is-connecting" : undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} onPaneClick={onPaneClick} onPaneContextMenu={onPaneContextMenu} onNodeContextMenu={onNodeContextMenu} onSelectionContextMenu={onSelectionContextMenu} onMove={onMove} onMoveStart={() => { setCtxMenu(null); setMultiMenu(null); }} connectionMode={ConnectionMode.Loose} connectionRadius={42} panOnScroll panOnScrollSpeed={1.2} panOnDrag={[1]} selectionOnDrag selectionMode={SelectionMode.Partial} zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.08} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
+    <ReactFlow className={connecting ? "is-connecting" : undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} onPaneClick={onPaneClick} onPaneContextMenu={onPaneContextMenu} onNodeContextMenu={onNodeContextMenu} onSelectionContextMenu={onSelectionContextMenu} onMoveStart={() => { setCtxMenu(null); setMultiMenu(null); }} connectionMode={ConnectionMode.Loose} connectionRadius={42} panOnScroll panOnScrollSpeed={1.2} panOnDrag={[1]} selectionOnDrag selectionMode={SelectionMode.Partial} zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.15} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
       <AddNodePanel />
       <FitAllPanel />
