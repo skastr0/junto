@@ -59,14 +59,19 @@ describe("boothBundleEntities", () => {
     ]);
   });
 
-  it("folds a per-hint draft count into stats.drafts", async () => {
+  it("folds per-status draft counts into stats", async () => {
     const layer = fakeBooth({
       listProjects: () => Effect.succeed([project("vellum", "Vellum", 1784121579771)]),
-      listDrafts: (key) => Effect.succeed(key === "vellum" ? [{}, {}] : []),
+      listDrafts: (key) =>
+        Effect.succeed(
+          key === "vellum"
+            ? [{ status: "ready_for_review" }, { status: "ready_for_review" }, { status: "needs_revision" }, { status: "approved" }]
+            : [],
+        ),
     });
     const result = await runEntities(layer, ["vellum"]);
     const entities = Either.isRight(result) ? result.right : [];
-    expect(entities[0]?.stats).toEqual({ drafts: 2 });
+    expect(entities[0]?.stats).toEqual({ drafts: 4, pending_review: 2, needs_revision: 1 });
   });
 
   it("degrades a failing per-hint drafts fetch to a no-op (keeps the entity)", async () => {
