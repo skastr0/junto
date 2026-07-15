@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Crosshair, ExternalLink, Link2, Trash2, X } from
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
+import { deriveExecutionGraph } from "@shared/execution-graph";
 import { deleteNode, setNodeColor } from "../lib/mutations";
 import { deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../lib/edge-mutations";
 import { EdgeCriteriaEditor } from "./InspectorFields";
@@ -199,8 +200,12 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
   if (!edge) return null;
   const source = doc.nodes.find((node) => node.id === edge.fromNode);
   const target = doc.nodes.find((node) => node.id === edge.toNode);
-  const livePhase = execution?.phaseByEdgeId?.[edge.id] ?? "relates";
-  const liveDetail = execution?.detailByEdgeId?.[edge.id] ?? "";
+  // Match canvas: prefer kernel overlay, else cold derive (tasks work offline).
+  const cold = execution ? null : deriveExecutionGraph(doc);
+  const livePhase =
+    execution?.phaseByEdgeId?.[edge.id] ?? cold?.phaseByEdgeId.get(edge.id) ?? "relates";
+  const liveDetail =
+    execution?.detailByEdgeId?.[edge.id] ?? cold?.detailByEdgeId.get(edge.id) ?? "";
   const criteria = edge.ether?.criteria;
   const commitLabel = () => {
     if (labelDraft !== (edge.label ?? "")) editEdgeLabel(edge.id, labelDraft);

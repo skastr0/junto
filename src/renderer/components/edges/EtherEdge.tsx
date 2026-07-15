@@ -29,11 +29,13 @@ export function EtherEdge({
     ? detail
       ? `${phase} · ${detail}`
       : `${phase} (live criteria)`
-    : phase === "relates"
-      ? "soft link · select to attach live criteria"
-      : `pinned ${phase} · select to edit`;
+    : "soft relates · select to attach criteria";
   const rippling = data?.rippling ?? false;
-  const color = data?.edge.color ? accentColor(data.edge.color) : EDGE_COLOR[phase];
+  // Prefer live phase palette; only honor non-mirror accents (not stuck "1").
+  const color =
+    data?.edge.color && data.edge.color !== "1"
+      ? accentColor(data.edge.color)
+      : EDGE_COLOR[phase];
 
   const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,

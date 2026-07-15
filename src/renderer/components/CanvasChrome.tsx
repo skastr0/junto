@@ -1,8 +1,10 @@
 import { use$ } from "@legendapp/state/react";
 import { CircleDot, Link2, MousePointer2, Plus } from "lucide-react";
 import type { EtherEdgeKind, EtherFlag } from "@shared/canvas";
+import { deriveExecutionGraph } from "@shared/execution-graph";
 import { searchText } from "../lib/presentation";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../lib/state";
+import { kernel$ } from "../lib/kernel-view";
 import { HUE } from "../lib/theme";
 
 function CanvasReadout({ name, countLabel, edges, regions }: { readonly name: string; readonly countLabel: string; readonly edges: number; readonly regions: number }) {
@@ -85,6 +87,7 @@ export function CanvasChrome() {
   const doc = use$(state$.doc);
   const name = use$(state$.canvasName);
   const searchQuery = use$(state$.searchQuery);
+  const execution = use$(kernel$.execution);
   const nodes = doc.nodes.filter((node) => node.type !== "group");
   const regions = doc.nodes.filter((node) => node.type === "group");
   const edgeFilter = use$(state$.edgeFilter);
@@ -95,7 +98,18 @@ export function CanvasChrome() {
   const visibleCount = query ? filteredNodes.filter((node) => searchText(node).includes(query)).length : filteredNodes.length;
   const countLabel = query ? `${visibleCount.toString().padStart(2, "0")} / ${nodes.length.toString().padStart(2, "0")}` : visibleCount.toString().padStart(2, "0");
   const visibleIds = new Set(filteredNodes.map((node) => node.id));
-  const visibleEdges = doc.edges.filter((edge) => visibleIds.has(edge.fromNode) && visibleIds.has(edge.toNode) && (!edgeFilter || (edge.ether?.kind ?? "relates") === edgeFilter)).length;
+  // Same phase source as canvas paint: kernel overlay, else cold derive.
+  const coldPhases = execution ? null : deriveExecutionGraph(doc).phaseByEdgeId;
+  const phaseOf = (edgeId: string): EtherEdgeKind =>
+    (execution?.phaseByEdgeId?.[edgeId] as EtherEdgeKind | undefined) ??
+    coldPhases?.get(edgeId) ??
+    "relates";
+  const visibleEdges = doc.edges.filter(
+    (edge) =>
+      visibleIds.has(edge.fromNode) &&
+      visibleIds.has(edge.toNode) &&
+      (!edgeFilter || phaseOf(edge.id) === edgeFilter),
+  ).length;
   const emptyReason: EmptyReason | undefined = query && visibleCount === 0
     ? "search"
     : flagFilter && filteredNodes.length === 0
