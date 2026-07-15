@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type {
+  BoothDraftsResult,
+  BoothRequestsResult,
   QuasarSessionsResult,
   TowerBrowseResult,
   TowerDispatchesResult,
@@ -19,7 +21,9 @@ import {
   filterSignalsByView,
   orbitsPresent,
 } from "../lib/browse";
+import { fetchBoothDrafts, fetchBoothRequests } from "../lib/booth-browse";
 import { DIM, INK } from "../lib/theme";
+import { BoothDraftsTab, BoothRequestsTab } from "./BoothBrowse";
 import { BrowseDetailModal, type BrowseDetailTarget } from "./BrowseDetailModal";
 import { DispatchesTab, GlyphsTab, SearchResults, SessionsTab, SignalsTab } from "./BrowseTabs";
 
@@ -54,13 +58,14 @@ function OrbitChips({ orbits, value, onChange }: { readonly orbits: ReadonlyArra
 // Tab bodies live in BrowseTabs.tsx; this file owns fetching, the tab
 // picker, and free-text search.
 
-type BrowseTab = "glyphs" | "signals" | "sessions" | "dispatches";
-const TAB_ORDER: ReadonlyArray<BrowseTab> = ["glyphs", "signals", "sessions", "dispatches"];
+type BrowseTab = "glyphs" | "signals" | "drafts" | "sessions" | "dispatches" | "requests";
+const TAB_ORDER: ReadonlyArray<BrowseTab> = ["glyphs", "signals", "drafts", "sessions", "dispatches", "requests"];
 
 export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
   const bindings = node.ether?.bindings ?? [];
   const towerKey = bindings.find((binding) => binding.source === "tower")?.ref.key;
   const quasarKey = bindings.find((binding) => binding.source === "quasar")?.ref.key;
+  const boothKey = bindings.find((binding) => binding.source === "booth")?.ref.key;
   const view = node.ether?.view;
 
   const [tab, setTab] = useState<BrowseTab>("glyphs");
@@ -72,6 +77,10 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
   const [quasarLoading, setQuasarLoading] = useState(Boolean(quasarKey));
   const [dispatches, setDispatches] = useState<TowerDispatchesResult>();
   const [dispatchesLoading, setDispatchesLoading] = useState(Boolean(towerKey));
+  const [boothDrafts, setBoothDrafts] = useState<BoothDraftsResult>();
+  const [boothDraftsLoading, setBoothDraftsLoading] = useState(Boolean(boothKey));
+  const [boothRequests, setBoothRequests] = useState<BoothRequestsResult>();
+  const [boothRequestsLoading, setBoothRequestsLoading] = useState(Boolean(boothKey));
   const [towerSearchResult, setTowerSearchResult] = useState<TowerSearchResult>();
   const [quasarSearchResult, setQuasarSearchResult] = useState<QuasarSearchResult>();
   const [searchLoading, setSearchLoading] = useState(false);
@@ -101,10 +110,14 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
 
   // DISPATCHES only joins the picker once the probe comes back ok — a
   // gateway that doesn't expose the route degrades to "not offered" rather
-  // than a fourth tab that always errors.
+  // than a fourth tab that always errors. DRAFTS is booth's primary review
+  // surface ("no drafts" is informative); REQUESTS only joins when the
+  // project actually has some — an always-empty optional tab is dead weight.
   const availableTabs = TAB_ORDER.filter((candidate) => {
     if (candidate === "sessions") return Boolean(quasarKey);
     if (candidate === "dispatches") return Boolean(towerKey) && dispatches?.ok === true;
+    if (candidate === "drafts") return Boolean(boothKey);
+    if (candidate === "requests") return Boolean(boothKey) && boothRequests?.ok === true && boothRequests.requests.length > 0;
     return Boolean(towerKey);
   });
 
@@ -135,9 +148,23 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
         .catch(() => { if (!cancelled) setQuasarSessions({ ok: false, error: "quasar unreachable", sessions: [] }); })
         .finally(() => { if (!cancelled) setQuasarLoading(false); });
     }
+    if (boothKey) {
+      setBoothDraftsLoading(true);
+      void fetchBoothDrafts(boothKey)
+        .then((result) => { if (!cancelled) setBoothDrafts(result); })
+        .catch(() => { if (!cancelled) setBoothDrafts({ ok: false, error: "booth unreachable", drafts: [] }); })
+        .finally(() => { if (!cancelled) setBoothDraftsLoading(false); });
+      // Probed once per project (cached in lib/booth-browse) — the same
+      // result both gates the REQUESTS tab and supplies its rows.
+      setBoothRequestsLoading(true);
+      void fetchBoothRequests(boothKey)
+        .then((result) => { if (!cancelled) setBoothRequests(result); })
+        .catch(() => { if (!cancelled) setBoothRequests({ ok: false, error: "booth unreachable", requests: [] }); })
+        .finally(() => { if (!cancelled) setBoothRequestsLoading(false); });
+    }
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [towerKey, quasarKey]);
+  }, [towerKey, quasarKey, boothKey]);
 
   useEffect(() => {
     if (query.trim() === "") { setDebouncedQuery(""); return; }
@@ -208,8 +235,10 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
           <GlyphsTab result={glyphsResult} loading={towerLoading} projectKey={towerKey ?? ""} onOpen={setDetail} />
         </> : null}
         {activeTab === "signals" ? <SignalsTab result={signalsResult} loading={towerLoading} projectKey={towerKey ?? ""} onOpen={setDetail} /> : null}
+        {activeTab === "drafts" ? <BoothDraftsTab result={boothDrafts} loading={boothDraftsLoading} projectKey={boothKey ?? ""} /> : null}
         {activeTab === "sessions" ? <SessionsTab result={quasarSessions} loading={quasarLoading} onOpen={setDetail} /> : null}
         {activeTab === "dispatches" ? <DispatchesTab result={dispatches} loading={dispatchesLoading} onOpen={setDetail} /> : null}
+        {activeTab === "requests" ? <BoothRequestsTab result={boothRequests} loading={boothRequestsLoading} /> : null}
       </div>
     </>}
     {detail ? <BrowseDetailModal target={detail} onClose={() => setDetail(undefined)} /> : null}
