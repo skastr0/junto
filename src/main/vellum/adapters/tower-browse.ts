@@ -237,10 +237,18 @@ export const towerBrowseRows = (
     if (allFailed) {
       return { ok: false, error: ALL_REQUESTS_FAILED_ERROR, glyphs: [], signals: [] };
     }
+    // Some (but not all) orbits failed: glyphs/signals only cover the
+    // orbits that answered, so this ok:true result under-reports what a
+    // healthy gateway would return. `partial` makes that explicit and
+    // additive rather than silent — a caller that needs authoritative
+    // counts (the kernel's glyph-cache fetcher) must be able to tell this
+    // apart from a genuinely complete read.
+    const partial = perOrbit.some((entry) => !entry.succeeded);
     return {
       ok: true,
       glyphs: perOrbit.flatMap((entry) => entry.glyphs),
       signals: perOrbit.flatMap((entry) => entry.signals),
+      ...(partial ? { partial: true } : {}),
     };
   });
 

@@ -57,7 +57,7 @@ describe("towerBrowseRows — total-outage negative-cache regression", () => {
     expect(signalCalls).toBe(ORBIT_COUNT);
   });
 
-  it("stays ok:true when only some orbits fail (partial outage)", async () => {
+  it("stays ok:true when only some orbits fail (partial outage), and marks the result partial", async () => {
     const result = await runBrowse({
       listGlyphs: (input: { readonly orbit: string }) =>
         input.orbit === "forge"
@@ -69,6 +69,11 @@ describe("towerBrowseRows — total-outage negative-cache regression", () => {
     expect(result.ok).toBe(true);
     expect(result.glyphs).toEqual([{ glyphId: "g1", orbit: "forge", title: "t", state: "building", updatedAt: 1 }]);
     expect(result.signals).toEqual([]);
+    // Additive marker: a downstream consumer (the kernel's glyph-cache
+    // fetcher) must be able to tell this apart from a genuinely complete
+    // read — under-reported glyphs/signals must never be silently mistaken
+    // for the whole picture.
+    expect(result.partial).toBe(true);
   });
 
   it("distinguishes total failure from a legitimate empty project", async () => {
@@ -78,5 +83,22 @@ describe("towerBrowseRows — total-outage negative-cache regression", () => {
     });
 
     expect(emptyButHealthy).toEqual({ ok: true, glyphs: [], signals: [] });
+  });
+
+  it("never sets partial when every orbit succeeds", async () => {
+    const result = await runBrowse({
+      listGlyphs: () => Effect.succeed({ items: [] }),
+      listSignals: () => Effect.succeed({ signals: [] }),
+    });
+    expect(result.partial).toBeUndefined();
+  });
+
+  it("never sets partial on total outage — ok:false already signals it's authoritative-nothing", async () => {
+    const result = await runBrowse({
+      listGlyphs: () => allFail,
+      listSignals: () => allFail,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.partial).toBeUndefined();
   });
 });

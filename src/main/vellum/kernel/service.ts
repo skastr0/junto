@@ -14,7 +14,14 @@
 import { Context, Effect, Layer } from "effect";
 import type { CanvasDoc, CanvasNode, EtherFlag } from "@shared/canvas";
 import type { ServiceCheck } from "@shared/contracts";
-import type { BindingHint, KernelSnapshot, PulseRecord, TowerGlyphRow, WatcherRuntimeState } from "@shared/ipc";
+import type {
+  BindingHint,
+  KernelSnapshot,
+  PulseRecord,
+  TowerBrowseResult,
+  TowerGlyphRow,
+  WatcherRuntimeState,
+} from "@shared/ipc";
 import { fetchTowerBrowse } from "../adapters/tower-browse";
 import { CanvasesService } from "../canvases";
 import type { ChatService } from "../chat/service";
@@ -162,6 +169,27 @@ export const computeOrphanedArming = (
   return orphaned;
 };
 
+// Pure decision: given a fresh tower-browse result and the previous cache
+// entry (if any), what should the durable cache now hold, and what rows
+// should THIS call return. A partial read (some, not all, of the 5 fanned-
+// out orbit requests failed) must never be treated as authoritative for
+// edge decisions — a glyphs_done/glyphs_entered_state watcher fed a partial
+// read could see fewer done glyphs than reality and suppress or mis-time a
+// fire. So: prefer a prior COMPLETE cache entry over the fresh partial one;
+// with no prior cache, fall through to `undefined` (matches "glyph data
+// unavailable" -> unknown in evaluate.ts) rather than let the watcher
+// evaluate against data already known to be incomplete. Partial rows are
+// NEVER written to the durable cache either, so they can never clobber a
+// real complete snapshot or be mistaken for one on a later TTL-expired read.
+export const resolveGlyphCacheUpdate = (
+  fresh: TowerBrowseResult,
+  cached: { readonly rows: ReadonlyArray<TowerGlyphRow> } | undefined,
+): { readonly rows: ReadonlyArray<TowerGlyphRow> | undefined; readonly cacheWrite: ReadonlyArray<TowerGlyphRow> | undefined } => {
+  if (!fresh.ok) return { rows: cached?.rows, cacheWrite: undefined };
+  if (fresh.partial) return { rows: cached?.rows, cacheWrite: undefined };
+  return { rows: fresh.glyphs, cacheWrite: fresh.glyphs };
+};
+
 type CanvasesShape = Context.Tag.Service<typeof CanvasesService>;
 type SnapshotsShape = Context.Tag.Service<typeof SnapshotsService>;
 type StoreShape = Context.Tag.Service<typeof StoreService>;
@@ -242,9 +270,9 @@ const makeKernelService = (
     if (cached && Date.now() - cached.at < GLYPH_CACHE_TTL_MS) return cached.rows;
     try {
       const result = await fetchTowerBrowse(project);
-      if (!result.ok) return cached?.rows;
-      glyphCache.set(project, { at: Date.now(), rows: result.glyphs });
-      return result.glyphs;
+      const { rows, cacheWrite } = resolveGlyphCacheUpdate(result, cached);
+      if (cacheWrite !== undefined) glyphCache.set(project, { at: Date.now(), rows: cacheWrite });
+      return rows;
     } catch {
       return cached?.rows;
     }

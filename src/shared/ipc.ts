@@ -144,6 +144,13 @@ export interface TowerBrowseResult {
   readonly error?: string;
   readonly glyphs: ReadonlyArray<TowerGlyphRow>;
   readonly signals: ReadonlyArray<TowerSignalRow>;
+  // Additive: set when SOME (but not all) of the 5 fanned-out orbit requests
+  // failed — glyphs/signals only cover the orbits that succeeded, so this
+  // result under-reports what a healthy gateway would return. Consumers
+  // that make edge-fire decisions off glyph counts (the kernel's
+  // glyphs_done/glyphs_entered_state watchers) must never treat a partial
+  // read as authoritative — absent (or false) means every orbit answered.
+  readonly partial?: boolean;
 }
 
 export interface TowerSearchMatch {
