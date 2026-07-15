@@ -3,6 +3,7 @@ import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath } from "@xyflow/react";
 import type { FlowEdge } from "../../lib/convert";
 import { cycleEdgeKind } from "../../lib/edge-mutations";
 import { accentColor, EDGE_COLOR } from "../../lib/theme";
+import { LodEdge } from "./LodEdge";
 
 export function EtherEdge({
   id,
@@ -63,4 +64,5 @@ export function EtherEdge({
 
 export const edgeTypes: EdgeTypes = {
   ether: EtherEdge,
+  "lod-edge": LodEdge,
 };

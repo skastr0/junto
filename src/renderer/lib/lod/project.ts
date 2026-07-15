@@ -25,12 +25,15 @@ const center = (node: CanvasNode): { x: number; y: number } => ({
   y: node.y + node.height / 2,
 });
 
+// LOD nodes are ephemeral projections: never dragged, connected, deleted, or
+// selected (a click dives in via onNodeClick rather than opening the inspector
+// on the underlying region — no selection cross-talk with the base graph).
 const readOnlyNode = <T extends LodFlowNode>(node: T): T => ({
   ...node,
   draggable: false,
-  selectable: true,
+  selectable: false,
   connectable: false,
-  focusable: true,
+  focusable: false,
   deletable: false,
 });
 

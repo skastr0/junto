@@ -364,6 +364,14 @@ body {
 }
 .vellum-armed-dot { display: inline-block; width: 6px; height: 6px; border-radius: 999px; flex-shrink: 0; animation: vellum-armed-pulse 2.2s ease-in-out infinite; }
 
+/* Semantic-zoom LOD projection. The emblem / chip / bubble each fade+scale in
+   via motion on mount (the quiet tier transition); hover brightens border and
+   shadow only — transform belongs to motion, so it is never touched here. */
+.vellum-lod-card, .vellum-lod-bubble, .vellum-lod-chip { transition: border-color .18s ease, box-shadow .18s ease; }
+.react-flow__node:hover .vellum-lod-card { border-color: rgba(232,163,61,.5) !important; box-shadow: 0 0 0 1px rgba(232,163,61,.16), 0 16px 38px rgba(0,0,0,.34) !important; }
+.react-flow__node:hover .vellum-lod-bubble { border-color: rgba(232,163,61,.68) !important; box-shadow: 0 0 0 1px rgba(232,163,61,.22), 0 18px 42px rgba(0,0,0,.42) !important; }
+.react-flow__node:hover .vellum-lod-chip { border-color: rgba(237,230,218,.28) !important; }
+
 /* Every card advertises its dots while a connection drag is live. */
 .react-flow.is-connecting .vellum-handle--source { opacity: 1; }
 
