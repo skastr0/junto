@@ -5,7 +5,7 @@ import type { EtherEntity, EtherView } from "@shared/canvas";
 // tsconfig paths) — a relative path is what actually lets this module load
 // under `bun run test`. Type-only imports stay on the alias below since
 // those are erased before any resolver sees them.
-import { resolveNodeConnections, type Connection } from "../../shared/connections";
+import { resolveNodeConnections } from "../../shared/connections";
 import type { Entity, EntitySource, SnapshotState } from "@shared/entities";
 
 // The compact live readout an entity card wears: a handful of plain-English
@@ -190,4 +190,3 @@ export const boothPendingReview = (
   return total;
 };
 
-export type { Connection };
