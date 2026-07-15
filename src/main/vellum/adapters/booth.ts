@@ -16,9 +16,25 @@ type BoothClientService = Context.Tag.Service<typeof BoothClient>;
 
 const MAX_HINTS = 8;
 
-// Per-key enrichment: fetches the draft count for one hinted project key and
-// folds it into the entity map. Any failure (SDK error, empty result) degrades
-// to a no-op — the entity keeps whatever stats it already had.
+// Per-status draft stats for one project: `drafts` (total), plus
+// `pending_review` / `needs_revision` — the two attention states the canvas
+// decorates on and the kernel can watch (stat_threshold source "booth").
+// Pure + exported for tests.
+export const draftStats = (
+  rows: ReadonlyArray<{ readonly status: string }>,
+): Record<string, number> => {
+  let pendingReview = 0;
+  let needsRevision = 0;
+  for (const row of rows) {
+    if (row.status === "ready_for_review") pendingReview += 1;
+    else if (row.status === "needs_revision") needsRevision += 1;
+  }
+  return { drafts: rows.length, pending_review: pendingReview, needs_revision: needsRevision };
+};
+
+// Per-key enrichment: fetches the draft list for one hinted project key and
+// folds per-status counts into the entity map. Any failure (SDK error, empty
+// result) degrades to a no-op — the entity keeps whatever stats it already had.
 const enrichDrafts = (
   booth: BoothClientService,
   key: string,
@@ -35,7 +51,7 @@ const enrichDrafts = (
       key,
       kind: "project",
       title: existing?.title ?? key,
-      stats: { ...existing?.stats, drafts: result.right.length },
+      stats: { ...existing?.stats, ...draftStats(result.right) },
       updatedAt: existing?.updatedAt ?? fetchedAt,
     });
   });

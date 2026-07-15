@@ -28,6 +28,8 @@ export const IPC_CHANNELS = {
   towerCommentGlyph: "vellum:tower-comment-glyph",
   towerCommentSignal: "vellum:tower-comment-signal",
   boothDrafts: "vellum:booth-drafts",
+  boothDraftRead: "vellum:booth-draft-read",
+  boothRequests: "vellum:booth-requests",
   boothReview: "vellum:booth-review",
   agentIdentity: "vellum:agent-identity",
   agentAvatar: "vellum:agent-avatar",
@@ -306,6 +308,8 @@ export interface BoothDraftRow {
   readonly title: string;
   readonly status?: string;
   readonly kind?: string;
+  readonly assetType?: string;
+  readonly agentName?: string;
   readonly updatedAt?: string;
 }
 
@@ -313,6 +317,62 @@ export interface BoothDraftsResult {
   readonly ok: boolean;
   readonly error?: string;
   readonly drafts: ReadonlyArray<BoothDraftRow>;
+}
+
+// One review event on a draft's thread — comments and verdicts share the
+// same timeline (that IS booth's review model: a verdict is an event).
+export interface BoothReviewEventRow {
+  readonly id: string;
+  readonly eventType: string; // comment|approve|reject|request_revision
+  readonly actor: string;
+  readonly body?: string;
+  readonly createdAt: number; // epoch ms
+}
+
+// Full draft detail for the reader modal (GET /api/drafts/read): the draft,
+// its media asset (URLs made absolute in main — the renderer never learns
+// how booth's base url resolves), and the complete review thread.
+export interface BoothDraftDetail {
+  readonly id: string;
+  readonly projectKey: string;
+  readonly title: string;
+  readonly status: string;
+  readonly mediaKind: string; // image|video|copy|post|carousel|ad_unit|other
+  readonly assetType: string;
+  readonly channel?: string;
+  readonly placement?: string;
+  readonly agentName?: string;
+  readonly bodyText?: string;
+  readonly captionText?: string;
+  readonly mediaUrl?: string; // absolute; unauthenticated GET, renderer-loadable
+  readonly thumbnailUrl?: string; // absolute
+  readonly mimeType?: string;
+  readonly createdAt: number; // epoch ms
+  readonly updatedAt: number; // epoch ms
+  readonly reviewEvents: ReadonlyArray<BoothReviewEventRow>;
+}
+
+export interface BoothDraftReadResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly detail?: BoothDraftDetail;
+}
+
+// A creative request (production ask) — the cycle's entry point.
+export interface BoothRequestRow {
+  readonly id: string;
+  readonly title: string;
+  readonly status: string; // open|in_progress|in_review|approved|closed|archived
+  readonly assetType: string;
+  readonly briefSummary: string;
+  readonly requester?: string;
+  readonly updatedAt: number; // epoch ms
+}
+
+export interface BoothRequestsResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly requests: ReadonlyArray<BoothRequestRow>;
 }
 
 export type BoothReviewAction = "approve" | "reject" | "comment" | "request_revision";
@@ -416,6 +476,8 @@ export interface VellumApi {
   readonly towerCommentGlyph: (projectKey: string, orbit: string, glyphId: string, body: string) => Promise<SourceWriteResult>;
   readonly towerCommentSignal: (projectKey: string, orbit: string, signalId: string, body: string) => Promise<SourceWriteResult>;
   readonly boothDrafts: (projectKey: string) => Promise<BoothDraftsResult>;
+  readonly boothDraftRead: (draftId: string) => Promise<BoothDraftReadResult>;
+  readonly boothRequests: (projectKey: string) => Promise<BoothRequestsResult>;
   readonly boothReview: (projectKey: string, draftId: string, action: BoothReviewAction, body?: string) => Promise<SourceWriteResult>;
   // Hermes fleet: identity enrichment, lazy avatar (data: URI), and messaging.
   readonly agentIdentity: (key: string) => Promise<AgentIdentity | null>;

@@ -1,8 +1,18 @@
 import { Effect, Either } from "effect";
-import { BoothClient, type DraftItem } from "@skastr0/booth-sdk";
+import {
+  BoothClient,
+  BoothConfig,
+  type CreativeRequest,
+  type DraftDetail,
+  type DraftItem,
+} from "@skastr0/booth-sdk";
 import type {
+  BoothDraftDetail,
+  BoothDraftReadResult,
   BoothDraftRow,
   BoothDraftsResult,
+  BoothRequestRow,
+  BoothRequestsResult,
   BoothReviewAction,
   SourceWriteResult,
 } from "@shared/ipc";
@@ -30,6 +40,8 @@ export const mapBoothDraftRows = (
     title: row.title,
     status: row.status,
     kind: row.mediaKind,
+    ...(row.assetType === undefined ? {} : { assetType: row.assetType }),
+    ...(row.agentName === undefined ? {} : { agentName: row.agentName }),
     updatedAt: new Date(row.updatedAt).toISOString(),
   }));
 
@@ -45,6 +57,110 @@ export const fetchBoothDrafts = (projectKey: string): Promise<BoothDraftsResult>
       return { ok: true, drafts: mapBoothDraftRows(result.right) };
     },
     (error) => ({ ok: false, error, drafts: [] }),
+  );
+
+// --- draft detail (reader modal) --------------------------------------------
+
+// booth stores media urls root-relative ("/booth-media/assets/med_x"); the
+// renderer needs them absolute against the SAME origin the api base resolves
+// to (media routes are unauthenticated GETs, so a plain <img src> works).
+// Pure + exported for tests. A malformed base degrades to undefined — a
+// missing preview, never a broken modal.
+export const absoluteBoothUrl = (apiUrl: string, path: string | undefined): string | undefined => {
+  if (path === undefined || path.length === 0) return undefined;
+  try {
+    return new URL(path, new URL(apiUrl).origin).toString();
+  } catch {
+    return undefined;
+  }
+};
+
+// Projection onto the frozen IPC contract — exported for tests.
+export const mapBoothDraftDetail = (
+  detail: NonNullable<DraftDetail>,
+  apiUrl: string,
+): BoothDraftDetail => {
+  const { draft, mediaAsset, reviewEvents } = detail;
+  const mediaUrl = absoluteBoothUrl(apiUrl, mediaAsset?.boothMediaUrl);
+  const thumbnailUrl = absoluteBoothUrl(apiUrl, mediaAsset?.boothThumbnailUrl);
+  return {
+    id: draft.draftItemId,
+    projectKey: draft.projectKey,
+    title: draft.title,
+    status: draft.status,
+    mediaKind: draft.mediaKind,
+    assetType: draft.assetType,
+    ...(draft.channel === undefined ? {} : { channel: draft.channel }),
+    ...(draft.placement === undefined ? {} : { placement: draft.placement }),
+    ...(draft.agentName === undefined ? {} : { agentName: draft.agentName }),
+    ...(draft.bodyText === undefined ? {} : { bodyText: draft.bodyText }),
+    ...(draft.captionText === undefined ? {} : { captionText: draft.captionText }),
+    ...(mediaUrl === undefined ? {} : { mediaUrl }),
+    ...(thumbnailUrl === undefined ? {} : { thumbnailUrl }),
+    ...(mediaAsset?.mimeType === undefined ? {} : { mimeType: mediaAsset.mimeType }),
+    createdAt: draft.createdAt,
+    updatedAt: draft.updatedAt,
+    reviewEvents: reviewEvents.map((event) => ({
+      id: event.reviewEventId,
+      eventType: event.eventType,
+      actor: event.actor,
+      ...(event.body === undefined ? {} : { body: event.body }),
+      createdAt: event.createdAt,
+    })),
+  };
+};
+
+export const fetchBoothDraftRead = (draftId: string): Promise<BoothDraftReadResult> =>
+  runSdkGuarded(
+    async () => {
+      const result = await SdkRuntime.runPromise(
+        Effect.either(
+          Effect.gen(function* () {
+            const booth = yield* BoothClient;
+            const config = yield* BoothConfig;
+            const detail = yield* booth.readDraft(draftId);
+            return { detail, apiUrl: config.apiUrl };
+          }),
+        ),
+      );
+      if (Either.isLeft(result)) {
+        return { ok: false, error: describeSdkError(result.left) };
+      }
+      if (result.right.detail === null) {
+        return { ok: false, error: `draft ${draftId} not found` };
+      }
+      return { ok: true, detail: mapBoothDraftDetail(result.right.detail, result.right.apiUrl) };
+    },
+    (error) => ({ ok: false, error }),
+  );
+
+// --- creative requests (the cycle's entry point) -----------------------------
+
+export const mapBoothRequestRows = (
+  rows: ReadonlyArray<CreativeRequest>,
+): ReadonlyArray<BoothRequestRow> =>
+  rows.map((row) => ({
+    id: row.requestId,
+    title: row.title,
+    status: row.status,
+    assetType: row.assetType,
+    briefSummary: row.briefSummary,
+    ...(row.requester === undefined ? {} : { requester: row.requester }),
+    updatedAt: row.updatedAt,
+  }));
+
+export const fetchBoothRequests = (projectKey: string): Promise<BoothRequestsResult> =>
+  runSdkGuarded(
+    async () => {
+      const result = await SdkRuntime.runPromise(
+        Effect.either(Effect.flatMap(BoothClient, (booth) => booth.listRequests(projectKey))),
+      );
+      if (Either.isLeft(result)) {
+        return { ok: false, error: describeSdkError(result.left), requests: [] };
+      }
+      return { ok: true, requests: mapBoothRequestRows(result.right) };
+    },
+    (error) => ({ ok: false, error, requests: [] }),
   );
 
 // --- review actions -------------------------------------------------------

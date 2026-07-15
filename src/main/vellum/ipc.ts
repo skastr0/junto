@@ -5,7 +5,12 @@ import type { CanvasDoc } from "@shared/canvas";
 import { digestCanvas } from "@shared/digest";
 import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime, chatService } from "../runtime";
-import { fetchBoothDrafts, fetchBoothReview } from "./adapters/booth-controls";
+import {
+  fetchBoothDraftRead,
+  fetchBoothDrafts,
+  fetchBoothRequests,
+  fetchBoothReview,
+} from "./adapters/booth-controls";
 import { fetchAgentAvatar, fetchAgentIdentity, fetchAgentMessage } from "./adapters/hermes-identity";
 import { fetchQuasarSearch, fetchQuasarSessionDetail, fetchQuasarSessionList } from "./adapters/quasar";
 import {
@@ -129,6 +134,10 @@ export const registerVellumIpc = () => {
   );
 
   ipcMain.handle(IPC_CHANNELS.boothDrafts, (_event, projectKey: string) => fetchBoothDrafts(projectKey));
+
+  ipcMain.handle(IPC_CHANNELS.boothDraftRead, (_event, draftId: string) => fetchBoothDraftRead(draftId));
+
+  ipcMain.handle(IPC_CHANNELS.boothRequests, (_event, projectKey: string) => fetchBoothRequests(projectKey));
 
   ipcMain.handle(
     IPC_CHANNELS.boothReview,
