@@ -9,6 +9,7 @@ import { TopBar } from "./components/TopBar";
 import { DigestPanel } from "./components/DigestPanel";
 import { PulseTray } from "./components/PulseTray";
 import { CanvasChrome } from "./components/CanvasChrome";
+import { KernelStatus } from "./components/KernelStatus";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 
@@ -260,6 +261,7 @@ export function App() {
           <Canvas />
         </ReactFlowProvider>
         <CanvasChrome />
+        <KernelStatus />
         <InspectorPanel />
 
         <DigestPanel />

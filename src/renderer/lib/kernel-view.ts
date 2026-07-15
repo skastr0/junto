@@ -11,7 +11,7 @@
 // DRY pulse — logged, no agent turns.
 
 import { observable, observe } from "@legendapp/state";
-import type { KernelSnapshot, PulseRecord, WatcherRuntimeState } from "@shared/ipc";
+import type { ArmRegionResult, KernelSnapshot, PulseRecord, WatcherRuntimeState } from "@shared/ipc";
 import { getVellumApi } from "./vellum-api";
 import { state$ } from "./state";
 
@@ -19,16 +19,24 @@ import { state$ } from "./state";
 
 export type { WatcherRuntimeState, PulseRecord };
 
+// fault + orphaned are snapshot-GLOBAL (not per-canvas): a persisted-arming
+// load failure, and the armed `canvas::region` keys whose canvas/region no
+// longer exists in any hydrated document. Both are durable-intent surfacing —
+// the kernel refuses to silently disarm, so the renderer must show them.
 export const kernel$ = observable<{
   watchers: Record<string, WatcherRuntimeState>;
   armed: Record<string, boolean>;
   nextFire: Record<string, number>;
   pulseLog: PulseRecord[];
+  fault: string;
+  orphaned: string[];
 }>({
   watchers: {},
   armed: {},
   nextFire: {},
   pulseLog: [],
+  fault: "",
+  orphaned: [],
 });
 
 // composePulseMessage does NOT live here: the renderer no longer composes
@@ -57,15 +65,30 @@ const projectSnapshot = (snapshot: KernelSnapshot, canvasName: string): void => 
   kernel$.armed.set(entry.armed);
   kernel$.nextFire.set(entry.nextFire);
   kernel$.pulseLog.set(snapshot.pulseLog.filter((record) => record.canvasName === canvasName));
+  // Global surfaces — independent of the open canvas.
+  kernel$.fault.set(snapshot.fault ?? "");
+  kernel$.orphaned.set([...(snapshot.orphanedArming ?? [])]);
 };
 
 // --- arming + manual pulse (IPC invokes, closing over the open canvas) -------
 
-export function armRegion(regionId: string, armed: boolean): void {
+// Returns the transactional result so the caller can surface a failed persist
+// inline instead of the old fire-and-forget that discarded the rejection.
+export function armRegion(regionId: string, armed: boolean): Promise<ArmRegionResult> {
   const api = getVellumApi();
   const canvasName = state$.canvasName.peek();
-  if (!api || !canvasName) return;
-  void api.armRegion(canvasName, regionId, armed);
+  if (!api || !canvasName) return Promise.resolve({ ok: false, error: "no canvas is open" });
+  return api.armRegion(canvasName, regionId, armed);
+}
+
+// Disarm an orphaned arm-intent, addressed by its full `canvas::region` key —
+// its canvas may not be the open one (it can be a deleted canvas). Disarm stays
+// an explicit operator act; this is that act for an orphan.
+export function disarmOrphan(key: string): Promise<ArmRegionResult> {
+  const api = getVellumApi();
+  const idx = key.indexOf("::");
+  if (!api || idx < 0) return Promise.resolve({ ok: false, error: "malformed key" });
+  return api.armRegion(key.slice(0, idx), key.slice(idx + 2), false);
 }
 
 export async function pulseRegion(regionId: string, opts?: { dry?: boolean; summary?: string }): Promise<void> {

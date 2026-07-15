@@ -130,12 +130,23 @@ function RegionPulseControl({ node }: { readonly node: CanvasNode }) {
   const [instructionDraft, setInstructionDraft] = useState(instructionValue);
   const armed = Boolean(use$(kernel$.armed[node.id]));
   const [pulseError, setPulseError] = useState("");
+  const [armError, setArmError] = useState("");
 
-  useEffect(() => { setInstructionDraft(instructionValue); }, [node.id, instructionValue]);
+  useEffect(() => { setInstructionDraft(instructionValue); setArmError(""); }, [node.id, instructionValue]);
 
   const commitInstruction = () => {
     if (instructionDraft === instructionValue) return;
     commitRegionInstruction(node, instructionDraft);
+  };
+
+  // Arming is transactional in main (store write before the memory flip); a
+  // failed persist returns { ok:false } instead of throwing, so the toggle
+  // never lies about a change that did not stick. Surface it quietly inline.
+  const toggleArm = () => {
+    setArmError("");
+    void armRegion(node.id, !armed)
+      .then((result) => { if (!result.ok) setArmError(result.error ?? "arming did not save"); })
+      .catch((error: unknown) => setArmError(error instanceof Error ? error.message : String(error)));
   };
 
   const runPulse = (dry: boolean) => {
@@ -163,10 +174,12 @@ function RegionPulseControl({ node }: { readonly node: CanvasNode }) {
         aria-label="Arm region"
         aria-pressed={armed}
         style={{ color: armed ? HUE.amber : "#68604a", borderColor: armed ? withAlpha(HUE.amber, 0.5) : "rgba(237,230,218,.12)", background: armed ? withAlpha(HUE.amber, 0.1) : "rgba(255,255,255,.02)" }}
-        onClick={() => armRegion(node.id, !armed)}
+        onClick={toggleArm}
       >{armed ? "armed" : "disarmed"}</button>
     </div>
-    <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.6) }}>armed pulses spend real agent turns</div>
+    {armError
+      ? <button type="button" aria-label="Dismiss arming error" title="dismiss" onClick={() => setArmError("")} className="mt-1 block w-full cursor-pointer text-left text-[9px] uppercase tracking-[0.14em]" style={{ color: withAlpha(HUE.crimson, 0.85) }}>{armError}</button>
+      : <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.6) }}>armed pulses spend real agent turns</div>}
     <div className="mt-2 flex gap-2">
       <button type="button" className="inspector-flag-toggle" onClick={() => runPulse(false)}>pulse now</button>
       <button type="button" className="inspector-flag-toggle" onClick={() => runPulse(true)}>dry pulse</button>
