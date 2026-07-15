@@ -169,6 +169,49 @@ export const computeOrphanedArming = (
   return orphaned;
 };
 
+// Pure derivation: which canvas "owns" each node id, given every hydrated
+// doc. Per-canvas isolation (the flag mirror's toggleFlag(nodeId, flag) —
+// cycle.ts's frozen FlagWriterDeps shape carries no canvasName) depends on
+// node ids being globally unique across canvases, which nothing in the
+// schema enforces: a copy-pasted node, two canvases seeded from the same
+// starter template, or a portfolio merge can collide. A colliding id is
+// fundamentally unroutable through that single-argument interface — there
+// is no way to tell, from nodeId alone, which canvas a write meant — so
+// rather than pick a winner and risk silently mutating the WRONG canvas's
+// document, a collision drops the id from the index entirely for every
+// canvas that shares it. That reuses toggleFlag's existing "cannot resolve
+// canvas for node" no-op (below) instead of adding a new failure path.
+export interface NodeCanvasCollision {
+  readonly nodeId: string;
+  readonly canvases: ReadonlyArray<string>;
+}
+
+export const buildNodeCanvasIndex = (
+  docs: ReadonlyMap<string, CanvasDoc>,
+): { readonly index: ReadonlyMap<string, string>; readonly collisions: ReadonlyArray<NodeCanvasCollision> } => {
+  const owners = new Map<string, string[]>();
+  for (const [name, doc] of docs) {
+    for (const node of doc.nodes) {
+      const list = owners.get(node.id);
+      if (!list) {
+        owners.set(node.id, [name]);
+      } else if (!list.includes(name)) {
+        list.push(name);
+      }
+    }
+  }
+  const index = new Map<string, string>();
+  const collisions: NodeCanvasCollision[] = [];
+  for (const [nodeId, canvases] of owners) {
+    if (canvases.length === 1) {
+      index.set(nodeId, canvases[0]!);
+    } else {
+      collisions.push({ nodeId, canvases });
+    }
+  }
+  return { index, collisions };
+};
+
 // Pure decision: given a fresh tower-browse result and the previous cache
 // entry (if any), what should the durable cache now hold, and what rows
 // should THIS call return. A partial read (some, not all, of the 5 fanned-
@@ -214,9 +257,14 @@ const makeKernelService = (
   let lastPulseLogLength = 0;
 
   const reindexNodeCanvas = (): void => {
+    const { index, collisions } = buildNodeCanvasIndex(docs);
     nodeCanvasIndex.clear();
-    for (const [name, doc] of docs) {
-      for (const node of doc.nodes) nodeCanvasIndex.set(node.id, name);
+    for (const [nodeId, canvasName] of index) nodeCanvasIndex.set(nodeId, canvasName);
+    for (const collision of collisions) {
+      console.error(
+        `[kernel] node id collision: "${collision.nodeId}" exists in ${collision.canvases.length} canvases ` +
+          `(${collision.canvases.join(", ")}) — flag writes for this node are disabled until the ids are made unique`,
+      );
     }
   };
 
