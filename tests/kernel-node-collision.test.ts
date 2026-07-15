@@ -1,55 +1,97 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { buildNodeCanvasIndex } from "../src/main/vellum/kernel/service";
+import type { SnapshotState } from "../src/shared/entities";
+import { resetWatcherMemory } from "../src/main/vellum/kernel/evaluate";
+import {
+  __setDocsForTest,
+  __setFlagWriterForTest,
+  __setSnapshotsForTest,
+  runEvaluationCycle,
+  type FlagWriterDeps,
+} from "../src/main/vellum/kernel/cycle";
 
-// forge-review sdk-kernel-build fix 4 — a colliding node id must never route
-// a flag write to the wrong canvas.
+// sdk-kernel-build fix 5 — JSON Canvas node ids are DOCUMENT-LOCAL: the same id
+// on two canvases is legitimate. The flag-mirror write is now routed by
+// (canvasName, nodeId), so a colliding id reaches the RIGHT document on each
+// canvas — the previous behavior (drop the id from a global index, disabling
+// flag writes for all 250 colliding real nodes) is gone.
 
-describe("buildNodeCanvasIndex", () => {
-  const doc = (nodeIds: ReadonlyArray<string>): CanvasDoc =>
-    ({
-      nodes: nodeIds.map((id) => ({ id, type: "text", text: id, x: 0, y: 0, width: 100, height: 40 })),
-      edges: [],
-    }) as unknown as CanvasDoc;
+const snapshotsWithStat = (stat: string, value: number): SnapshotState => ({
+  bundles: [
+    {
+      source: "tower",
+      fetchedAt: new Date().toISOString(),
+      ok: true,
+      entities: [{ source: "tower", key: "proj", kind: "project", stats: { [stat]: value }, updatedAt: new Date().toISOString() }],
+    },
+  ],
+});
 
-  it("indexes every node to its one owning canvas when ids are unique", () => {
-    const docs = new Map([
-      ["canvas-a", doc(["n1", "n2"])],
-      ["canvas-b", doc(["n3"])],
-    ]);
-    const { index, collisions } = buildNodeCanvasIndex(docs);
-    expect(index.get("n1")).toBe("canvas-a");
-    expect(index.get("n2")).toBe("canvas-a");
-    expect(index.get("n3")).toBe("canvas-b");
-    expect(collisions).toEqual([]);
+// A watcher node with a given id. stat_threshold (below the threshold ->
+// pending) + flagOnUnsatisfied drives the blocker flag write. No existing
+// blocker flag, so pending -> the write fires.
+const docWithWatcher = (nodeId: string): CanvasDoc => ({
+  nodes: [
+    {
+      id: nodeId,
+      type: "text",
+      text: "watch",
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 40,
+      ether: { watch: { kind: "stat_threshold", source: "tower", key: "proj", stat: "signals", op: "gt", value: 10, flagOnUnsatisfied: true } },
+    },
+  ],
+  edges: [],
+});
+
+describe("flag-mirror routing by (canvasName, nodeId)", () => {
+  const writes: Array<{ canvasName: string; nodeId: string; flag: string }> = [];
+
+  beforeEach(() => {
+    resetWatcherMemory();
+    writes.length = 0;
+    const capture: FlagWriterDeps = {
+      toggleFlag: (canvasName, nodeId, flag) => void writes.push({ canvasName, nodeId, flag }),
+    };
+    __setFlagWriterForTest(capture);
+    __setSnapshotsForTest(snapshotsWithStat("signals", 3)); // below 10 -> pending
   });
 
-  it("a node id shared by two canvases is excluded from the index entirely — never routed to either", () => {
-    const docs = new Map([
-      ["canvas-a", doc(["shared", "only-a"])],
-      ["canvas-b", doc(["shared", "only-b"])],
-    ]);
-    const { index, collisions } = buildNodeCanvasIndex(docs);
-    expect(index.has("shared")).toBe(false);
-    expect(index.get("only-a")).toBe("canvas-a");
-    expect(index.get("only-b")).toBe("canvas-b");
-    expect(collisions).toEqual([{ nodeId: "shared", canvases: ["canvas-a", "canvas-b"] }]);
+  afterEach(() => {
+    __setFlagWriterForTest(undefined);
   });
 
-  it("a collision across three canvases is reported once with every owning canvas named", () => {
-    const docs = new Map([
-      ["canvas-a", doc(["dup"])],
-      ["canvas-b", doc(["dup"])],
-      ["canvas-c", doc(["dup"])],
-    ]);
-    const { index, collisions } = buildNodeCanvasIndex(docs);
-    expect(index.has("dup")).toBe(false);
-    expect(collisions).toEqual([{ nodeId: "dup", canvases: ["canvas-a", "canvas-b", "canvas-c"] }]);
+  it("a node id shared across two canvases routes a flag write to EACH canvas — never dropped", async () => {
+    __setDocsForTest(
+      new Map([
+        ["canvas-a", docWithWatcher("shared-node")],
+        ["canvas-b", docWithWatcher("shared-node")],
+      ]),
+    );
+
+    await runEvaluationCycle();
+
+    // Both canvases got their own write for the same node id — the old
+    // collision-exclusion would have produced ZERO writes here.
+    expect(writes).toContainEqual({ canvasName: "canvas-a", nodeId: "shared-node", flag: "blocker" });
+    expect(writes).toContainEqual({ canvasName: "canvas-b", nodeId: "shared-node", flag: "blocker" });
+    expect(writes).toHaveLength(2);
   });
 
-  it("an empty doc set produces an empty index and no collisions", () => {
-    const { index, collisions } = buildNodeCanvasIndex(new Map());
-    expect(index.size).toBe(0);
-    expect(collisions).toEqual([]);
+  it("routes to the single owning canvas when ids are unique", async () => {
+    __setDocsForTest(
+      new Map([
+        ["canvas-a", docWithWatcher("shared-node")],
+        ["canvas-b", docWithWatcher("only-b")],
+      ]),
+    );
+
+    await runEvaluationCycle();
+
+    expect(writes).toContainEqual({ canvasName: "canvas-a", nodeId: "shared-node", flag: "blocker" });
+    expect(writes).toContainEqual({ canvasName: "canvas-b", nodeId: "only-b", flag: "blocker" });
+    expect(writes).toHaveLength(2);
   });
 });

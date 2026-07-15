@@ -119,6 +119,16 @@ export interface KernelSnapshot {
   readonly orphanedArming?: ReadonlyArray<string>;
 }
 
+// armRegion is transactional: the store write happens BEFORE the in-memory
+// arming map mutates, so a failed persist leaves memory and disk in sync and
+// the caller learns the change did not stick. ok:false carries the reason
+// (store write failure, or a boot-time arming fault) for the renderer to
+// surface inline near the arming control — never swallowed.
+export interface ArmRegionResult {
+  readonly ok: boolean;
+  readonly error?: string;
+}
+
 // --- source browsing (read-only detail views; never canvas nodes) ----------
 
 export interface TowerGlyphRow {
@@ -411,7 +421,7 @@ export interface VellumApi {
   readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
   // Kernel state and control (headless kernel in main process).
   readonly getKernelState: () => Promise<KernelSnapshot>;
-  readonly armRegion: (canvasName: string, regionId: string, armed: boolean) => Promise<void>;
+  readonly armRegion: (canvasName: string, regionId: string, armed: boolean) => Promise<ArmRegionResult>;
   readonly pulseRegion: (canvasName: string, regionId: string, opts?: unknown) => Promise<void>;
   readonly onCanvasChanged: (listener: (name: string) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;

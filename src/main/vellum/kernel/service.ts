@@ -15,6 +15,7 @@ import { Context, Effect, Layer } from "effect";
 import type { CanvasDoc, CanvasNode, EtherFlag } from "@shared/canvas";
 import type { ServiceCheck } from "@shared/contracts";
 import type {
+  ArmRegionResult,
   BindingHint,
   KernelSnapshot,
   PulseRecord,
@@ -35,6 +36,7 @@ import {
   getPulseLog,
   getWatchers,
   purgeCanvasMemory,
+  reconcileLiveCanvasMemory,
   runEvaluationCycle,
   setArmed,
   setDocs,
@@ -59,7 +61,7 @@ export class KernelService extends Context.Tag("@vellum/KernelService")<
     // Synchronous read of the current wire snapshot — used for getKernelState's
     // initial-hydrate answer.
     readonly getSnapshot: () => KernelSnapshot;
-    readonly armRegion: (canvasName: string, regionId: string, armed: boolean) => Effect.Effect<void>;
+    readonly armRegion: (canvasName: string, regionId: string, armed: boolean) => Effect.Effect<ArmRegionResult>;
     readonly pulseRegion: (
       canvasName: string,
       regionId: string,
@@ -169,49 +171,6 @@ export const computeOrphanedArming = (
   return orphaned;
 };
 
-// Pure derivation: which canvas "owns" each node id, given every hydrated
-// doc. Per-canvas isolation (the flag mirror's toggleFlag(nodeId, flag) —
-// cycle.ts's frozen FlagWriterDeps shape carries no canvasName) depends on
-// node ids being globally unique across canvases, which nothing in the
-// schema enforces: a copy-pasted node, two canvases seeded from the same
-// starter template, or a portfolio merge can collide. A colliding id is
-// fundamentally unroutable through that single-argument interface — there
-// is no way to tell, from nodeId alone, which canvas a write meant — so
-// rather than pick a winner and risk silently mutating the WRONG canvas's
-// document, a collision drops the id from the index entirely for every
-// canvas that shares it. That reuses toggleFlag's existing "cannot resolve
-// canvas for node" no-op (below) instead of adding a new failure path.
-export interface NodeCanvasCollision {
-  readonly nodeId: string;
-  readonly canvases: ReadonlyArray<string>;
-}
-
-export const buildNodeCanvasIndex = (
-  docs: ReadonlyMap<string, CanvasDoc>,
-): { readonly index: ReadonlyMap<string, string>; readonly collisions: ReadonlyArray<NodeCanvasCollision> } => {
-  const owners = new Map<string, string[]>();
-  for (const [name, doc] of docs) {
-    for (const node of doc.nodes) {
-      const list = owners.get(node.id);
-      if (!list) {
-        owners.set(node.id, [name]);
-      } else if (!list.includes(name)) {
-        list.push(name);
-      }
-    }
-  }
-  const index = new Map<string, string>();
-  const collisions: NodeCanvasCollision[] = [];
-  for (const [nodeId, canvases] of owners) {
-    if (canvases.length === 1) {
-      index.set(nodeId, canvases[0]!);
-    } else {
-      collisions.push({ nodeId, canvases });
-    }
-  }
-  return { index, collisions };
-};
-
 // Pure decision: given a fresh tower-browse result and the previous cache
 // entry (if any), what should the durable cache now hold, and what rows
 // should THIS call return. A partial read (some, not all, of the 5 fanned-
@@ -245,7 +204,6 @@ const makeKernelService = (
   chatService: ChatService,
 ): KernelServiceShape => {
   const docs = new Map<string, CanvasDoc>();
-  const nodeCanvasIndex = new Map<string, string>();
   const glyphCache = new Map<string, { readonly at: number; readonly rows: ReadonlyArray<TowerGlyphRow> }>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
   const canvasMutatedListeners = new Set<(name: string) => void>();
@@ -255,18 +213,6 @@ const makeKernelService = (
   let cycleInFlight = false;
   let cycleQueued = false;
   let lastPulseLogLength = 0;
-
-  const reindexNodeCanvas = (): void => {
-    const { index, collisions } = buildNodeCanvasIndex(docs);
-    nodeCanvasIndex.clear();
-    for (const [nodeId, canvasName] of index) nodeCanvasIndex.set(nodeId, canvasName);
-    for (const collision of collisions) {
-      console.error(
-        `[kernel] node id collision: "${collision.nodeId}" exists in ${collision.canvases.length} canvases ` +
-          `(${collision.canvases.join(", ")}) — flag writes for this node are disabled until the ids are made unique`,
-      );
-    }
-  };
 
   const composeSnapshot = (): KernelSnapshot => {
     const canvasesOut: Record<
@@ -289,6 +235,11 @@ const makeKernelService = (
       if (!value) continue;
       const split = splitNamespacedKey(key);
       if (!split) continue;
+      // An armed key whose canvas is not hydrated (deleted in-session, but the
+      // arm-intent is deliberately preserved in memory — cycle.ts's
+      // purgeCanvasMemory no longer drops it) must NOT conjure a phantom
+      // healthy canvas entry here. It surfaces via orphanedArming instead.
+      if (!docs.has(split[0])) continue;
       entryFor(split[0]).armed[split[1]] = value;
     }
     const orphanedArming = computeOrphanedArming(docs, getArmed());
@@ -340,18 +291,15 @@ const makeKernelService = (
     },
   });
 
-  // --- flag mirror: CanvasesService.mutate, resolved via the node->canvas index
-  // toggleFlag(nodeId, flag) carries no canvasName (cycle.ts's frozen
-  // FlagWriterDeps shape) — nodeCanvasIndex resolves it. Node ids are
-  // generated fresh per node (never reused across canvases in practice), so
-  // this reverse lookup is safe.
+  // --- flag mirror: CanvasesService.mutate, routed by (canvasName, nodeId).
+  // The evaluator that fires a flag write always knows which canvas the node
+  // came from (evaluation iterates per-doc), so cycle.ts threads canvasName
+  // through FlagWriterDeps.toggleFlag directly — no node->canvas reverse
+  // index, and therefore no cross-canvas collision to disambiguate. JSON
+  // Canvas node ids are document-local by spec; the same id on two canvases
+  // now routes to the right document instead of being safe-dropped.
   __setFlagWriterForTest({
-    toggleFlag: (nodeId, flag) => {
-      const canvasName = nodeCanvasIndex.get(nodeId);
-      if (!canvasName) {
-        console.error(`[kernel] cannot resolve canvas for node ${nodeId} — flag write dropped`);
-        return;
-      }
+    toggleFlag: (canvasName, nodeId, flag) => {
       void Effect.runPromise(canvases.mutate(canvasName, (doc) => toggleFlagInDoc(doc, nodeId, flag)))
         .then(() => Effect.runPromise(Effect.either(canvases.read(canvasName))))
         .then((result) => {
@@ -368,6 +316,10 @@ const makeKernelService = (
   const runCycle = async (): Promise<void> => {
     __setSnapshotsForTest(await Effect.runPromise(snapshots.current));
     await Promise.all([runEvaluationCycle(), checkTimers()]);
+    // Sweep stale watcher/timer runtime entries for nodes removed on a still-
+    // existing canvas (whole-canvas deletes are handled by purgeCanvasMemory
+    // on resync). Runs after evaluation so this cycle's fresh entries stand.
+    reconcileLiveCanvasMemory();
     emitSnapshot();
   };
 
@@ -412,7 +364,6 @@ const makeKernelService = (
       const batch = summaries.slice(i, i + MAX_CONCURRENT_HYDRATIONS);
       await Promise.all(batch.map((summary) => hydrateDoc(summary.name)));
     }
-    reindexNodeCanvas();
     setDocs(docs);
   };
 
@@ -424,7 +375,6 @@ const makeKernelService = (
     if (!summaries.some((summary) => summary.name === name)) {
       docs.delete(name);
       purgeCanvasMemory(name);
-      reindexNodeCanvas();
       scheduleCycle();
       return;
     }
@@ -432,7 +382,6 @@ const makeKernelService = (
     const result = await Effect.runPromise(Effect.either(canvases.read(name)));
     if (result._tag === "Right") {
       docs.set(name, result.right.doc);
-      reindexNodeCanvas();
       void Effect.runPromise(snapshots.refresh(unionHints(docs)));
       scheduleCycle();
     }
@@ -460,19 +409,30 @@ const makeKernelService = (
     for (const key of Object.keys(result.right ?? {})) setArmed(key, true);
   };
 
-  const persistArming = async (): Promise<void> => {
+  // The armed record as it would be persisted, computed WITHOUT mutating the
+  // in-memory map — the transactional-arming precondition. armRegion writes
+  // this to the store first and only calls setArmed after the write lands, so
+  // a failed persist leaves memory and disk in sync (nothing changed) instead
+  // of the old order (setArmed first, then persist) that diverged them on a
+  // store write error.
+  const armedRecordWith = (key: string, value: boolean): Record<string, true> => {
     const out: Record<string, true> = {};
-    for (const [key, value] of getArmed()) if (value) out[key] = true;
-    await Effect.runPromise(store.set(ARMED_STORE_KEY, out));
+    for (const [k, v] of getArmed()) if (v) out[k] = true;
+    if (value) out[key] = true;
+    else delete out[key];
+    return out;
   };
 
   return KernelService.of({
-    doctor: Effect.succeed({
+    // Effect.sync, not Effect.succeed: the report reads docs.size at CALL
+    // time, not at layer-build time (when it is always 0, before any
+    // hydration) — a live count, not a frozen one.
+    doctor: Effect.sync(() => ({
       id: "kernel",
       label: "Kernel",
-      status: "ok",
+      status: "ok" as const,
       detail: `${docs.size} canvas(es) hydrated`,
-    }),
+    })),
 
     start: () => {
       if (started) return;
@@ -499,9 +459,24 @@ const makeKernelService = (
 
     armRegion: (canvasName, regionId, armedValue) =>
       Effect.gen(function* () {
-        setArmed(armedStoreKey(canvasName, regionId), armedValue);
-        yield* Effect.promise(() => persistArming());
+        // Fail fast under a boot-time arming fault: the store could not be
+        // read, so armed regions were NOT resumed and no write may proceed
+        // (the corrupt file must not be clobbered). The caller surfaces this.
+        if (armingFault !== undefined) {
+          return { ok: false, error: armingFault } as const;
+        }
+        const key = armedStoreKey(canvasName, regionId);
+        // Persist FIRST (memory untouched on failure), then mutate memory.
+        const stored = yield* Effect.either(store.set(ARMED_STORE_KEY, armedRecordWith(key, armedValue)));
+        if (stored._tag === "Left") {
+          return {
+            ok: false,
+            error: `arming not saved (${stored.left.message}) — nothing changed; the region stays as it was`,
+          } as const;
+        }
+        setArmed(key, armedValue);
         emitSnapshot();
+        return { ok: true } as const;
       }),
 
     pulseRegion: (canvasName, regionId, opts) =>

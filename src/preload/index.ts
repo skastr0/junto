@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import {
   IPC_CHANNELS,
+  type ArmRegionResult,
   type ChassisApi,
   type ChatEvent,
   type VellumApi,
@@ -102,7 +103,7 @@ const vellumApi: VellumApi = {
   agentMessage: (key, text) => invoke(IPC_CHANNELS.agentMessage, AGENT_MESSAGE_TIMEOUT_MS, key, text),
   getKernelState: () => invoke<KernelSnapshot>(IPC_CHANNELS.getKernelState, IPC_TIMEOUT_MS),
   armRegion: (canvasName, regionId, armed) =>
-    invoke<void>(IPC_CHANNELS.armRegion, IPC_TIMEOUT_MS, canvasName, regionId, armed),
+    invoke<ArmRegionResult>(IPC_CHANNELS.armRegion, IPC_TIMEOUT_MS, canvasName, regionId, armed),
   pulseRegion: (canvasName, regionId, opts) =>
     invoke<void>(IPC_CHANNELS.pulseRegion, IPC_TIMEOUT_MS, canvasName, regionId, opts),
   onCanvasChanged: (listener) => subscribe<string>(IPC_CHANNELS.canvasChanged, listener),

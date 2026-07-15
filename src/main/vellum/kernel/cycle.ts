@@ -112,7 +112,11 @@ export interface PulseDeliverDeps {
 }
 
 export interface FlagWriterDeps {
-  readonly toggleFlag: (nodeId: string, flag: string) => void;
+  // canvasName is threaded in (not resolved from a node->canvas index) because
+  // JSON Canvas node ids are document-local: the same id can legitimately exist
+  // on two canvases. The evaluator always knows which canvas a fired node came
+  // from, so it routes the write by (canvasName, nodeId) directly.
+  readonly toggleFlag: (canvasName: string, nodeId: string, flag: string) => void;
 }
 
 export const PULSE_CAP_PER_REGION_PER_HOUR = 6;
@@ -208,9 +212,15 @@ export const getKernelSnapshot = (): KernelSnapshot => {
 // keep cap correctness decoupled from delivery mechanics. Narrowing this to
 // only count delivered.length > 0 would be a behavior change against that
 // existing, intentional contract, not a bug fix.
-const armedDeliveriesLastHour = (regionId: string): number => {
+// The cap is per (canvas, region): a region id is document-local, so the same
+// id on two canvases is two distinct regions and must each get its own 6/hr
+// allowance rather than share one. Filtering on regionId alone let two
+// canvases' same-named regions cannibalize a single budget.
+const armedDeliveriesLastHour = (canvasName: string, regionId: string): number => {
   const cutoff = Date.now() - ROLLING_HOUR_MS;
-  return pulseLog.filter((record) => record.regionId === regionId && !record.dry && record.at >= cutoff).length;
+  return pulseLog.filter(
+    (record) => record.canvasName === canvasName && record.regionId === regionId && !record.dry && record.at >= cutoff,
+  ).length;
 };
 
 const appendPulseRecord = (record: PulseRecord): void => {
@@ -258,7 +268,7 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
   const armedKey = regionId !== undefined ? `${params.canvasName}::${regionId}` : undefined;
   const isArmed = armedKey !== undefined && (armed.get(armedKey) ?? false);
   const wantsLive = isArmed && params.forceDry !== true;
-  const capped = wantsLive && regionId !== undefined && armedDeliveriesLastHour(regionId) >= PULSE_CAP_PER_REGION_PER_HOUR;
+  const capped = wantsLive && regionId !== undefined && armedDeliveriesLastHour(params.canvasName, regionId) >= PULSE_CAP_PER_REGION_PER_HOUR;
   const dry = !wantsLive || capped;
 
   let delivered: ReadonlyArray<string> = [];
@@ -368,13 +378,13 @@ export const flagShouldToggle = (hasFlag: boolean, status: WatcherStatus): boole
   return hasFlag !== (status === "pending");
 };
 
-const applyFlagOnUnsatisfied = (doc: CanvasDoc, nodeId: string, flagOnUnsatisfied: boolean | undefined, status: WatcherStatus): void => {
+const applyFlagOnUnsatisfied = (canvasName: string, doc: CanvasDoc, nodeId: string, flagOnUnsatisfied: boolean | undefined, status: WatcherStatus): void => {
   if (!flagOnUnsatisfied || !flagWriterDeps) return;
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
   if (!node) return;
   const hasFlag = node.ether?.flags?.includes("blocker") ?? false;
   if (flagShouldToggle(hasFlag, status)) {
-    flagWriterDeps.toggleFlag(nodeId, "blocker");
+    flagWriterDeps.toggleFlag(canvasName, nodeId, "blocker");
   }
 };
 
@@ -476,7 +486,7 @@ export const runEvaluationCycle = async (): Promise<void> => {
         watchers.set(watcherKey, nextRuntime);
 
         if (watch.kind !== "glyphs_entered_state") {
-          applyFlagOnUnsatisfied(doc, nodeId, watch.flagOnUnsatisfied, result.state.status);
+          applyFlagOnUnsatisfied(canvasName, doc, nodeId, watch.flagOnUnsatisfied, result.state.status);
         }
 
         if (result.fired) {
@@ -559,20 +569,62 @@ export const getArmed = (): Map<string, boolean> => {
   return new Map(armed);
 };
 
-// Drops every namespaced entry for a canvas that's gone from disk (deleted,
-// or renamed out from under us) — watchers/nextFire/armed-in-memory, keyed
-// `${canvasName}::${id}`. Arming's durable mirror in StoreService is NOT
-// touched here (kept on purpose: a delete+recreate under the same name
-// should resume armed, matching the restart-resume law in kernel-design.md
-// §3 — only the service's persistence layer decides to drop a store entry).
+// Drops the DERIVED namespaced state for a canvas that's gone from disk
+// (deleted, or renamed out from under us) — watchers/nextFire/edge-detection
+// memory, keyed `${canvasName}::${id}`. ARMING is operator intent, not derived
+// state, so the in-memory `armed` map is deliberately NOT purged here: a
+// delete+recreate under the same name must resume armed (kernel-design.md §3),
+// and while the canvas is gone the preserved intent surfaces as orphaned
+// arming (service.ts computeOrphanedArming reads this same in-memory map).
+// Previously this also `armed.delete`d the entries, which made preserved store
+// intent invisible until an app restart — that deletion is now removed.
 export const purgeCanvasMemory = (canvasName: string): void => {
   const prefix = `${canvasName}::`;
   for (const key of watchers.keys()) if (key.startsWith(prefix)) watchers.delete(key);
   for (const key of nextFire.keys()) if (key.startsWith(prefix)) nextFire.delete(key);
-  for (const key of armed.keys()) if (key.startsWith(prefix)) armed.delete(key);
   // evaluate.ts's edge-detection memory (seenLevelStatus/seenGlyphState) is
   // namespaced the same way and grows unbounded across the app's lifetime
   // otherwise — purge it here too so a deleted canvas's baselines don't
   // outlive the canvas.
   purgeCanvasEdgeMemory(canvasName);
+};
+
+// Splits a `${canvasName}::${id}` namespaced key. Canvas names are [a-z0-9-]
+// and node ids never contain "::", so the first occurrence is the boundary.
+const splitNamespacedKey = (key: string): readonly [canvasName: string, id: string] | undefined => {
+  const idx = key.indexOf("::");
+  if (idx < 0) return undefined;
+  return [key.slice(0, idx), key.slice(idx + 2)];
+};
+
+// Per-cycle reconcile for canvases that STILL exist but whose watcher/timer
+// nodes changed underneath us: a node deleted, or its ether.watch / ether.timer
+// removed, leaves a stale `${canvasName}::${nodeId}` entry in watchers/nextFire
+// that would otherwise project into the snapshot forever (purgeCanvasMemory
+// only fires on whole-canvas deletion, never on an in-place node edit). Drops
+// exactly those entries whose owning canvas IS hydrated but no longer carries a
+// matching watch/timer. Entries for a canvas that is NOT hydrated are left
+// alone (that is purgeCanvasMemory's job, on delete). ARMING is never touched —
+// it is operator intent, surfaced as orphaned arming, not swept.
+export const reconcileLiveCanvasMemory = (): void => {
+  const hasWatch = (canvasName: string, nodeId: string): boolean => {
+    const doc = docs.get(canvasName);
+    if (!doc) return false; // canvas not hydrated — leave to purgeCanvasMemory
+    return doc.nodes.some((node) => node.id === nodeId && node.type === "text" && node.ether?.watch !== undefined);
+  };
+  const hasTimer = (canvasName: string, nodeId: string): boolean => {
+    const doc = docs.get(canvasName);
+    if (!doc) return false;
+    return doc.nodes.some((node) => node.id === nodeId && node.type === "text" && node.ether?.timer !== undefined);
+  };
+  for (const key of [...watchers.keys()]) {
+    const split = splitNamespacedKey(key);
+    if (!split || !docs.has(split[0])) continue;
+    if (!hasWatch(split[0], split[1])) watchers.delete(key);
+  }
+  for (const key of [...nextFire.keys()]) {
+    const split = splitNamespacedKey(key);
+    if (!split || !docs.has(split[0])) continue;
+    if (!hasTimer(split[0], split[1])) nextFire.delete(key);
+  }
 };
