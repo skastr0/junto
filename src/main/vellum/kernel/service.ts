@@ -32,6 +32,7 @@ import {
   checkTimers,
   deliverPulse,
   getArmed,
+  getExecutionByCanvas,
   getNextFire,
   getPulseLog,
   getWatchers,
@@ -217,10 +218,19 @@ const makeKernelService = (
   const composeSnapshot = (): KernelSnapshot => {
     const canvasesOut: Record<
       string,
-      { watchers: Record<string, WatcherRuntimeState>; armed: Record<string, boolean>; nextFire: Record<string, number> }
+      {
+        watchers: Record<string, WatcherRuntimeState>;
+        armed: Record<string, boolean>;
+        nextFire: Record<string, number>;
+        execution?: import("./cycle").ExecutionSnapshot;
+      }
     > = {};
     const entryFor = (name: string) => (canvasesOut[name] ??= { watchers: {}, armed: {}, nextFire: {} });
-    for (const name of docs.keys()) entryFor(name);
+    for (const name of docs.keys()) {
+      const entry = entryFor(name);
+      const execution = getExecutionByCanvas().get(name);
+      if (execution) entry.execution = execution;
+    }
     for (const [key, value] of getWatchers()) {
       const split = splitNamespacedKey(key);
       if (!split) continue;
@@ -285,8 +295,8 @@ const makeKernelService = (
       const result = await chatService.chatOpen(agentKey);
       if (!result.ok) throw new Error(result.error);
     },
-    sendPrompt: async (agentKey, message) => {
-      const result = await chatService.chatPrompt(agentKey, message);
+    sendPrompt: async (agentKey, message, contextBlocks) => {
+      const result = await chatService.chatPrompt(agentKey, message, contextBlocks);
       if (!result.ok) throw new Error(result.error);
     },
   });

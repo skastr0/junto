@@ -4,7 +4,15 @@
 // writes) are behind injectable seams.
 
 import { ulid } from "ulid";
-import type { CanvasDoc, GroupNode } from "@shared/canvas";
+import type { CanvasDoc, EdgePhase, GroupNode } from "@shared/canvas";
+import {
+  composeRegionExecutionContext,
+  deriveExecutionGraph,
+  edgeGlyphProjects,
+  type BlockedReason,
+  type GlyphView,
+} from "@shared/execution-graph";
+import { groupMembers } from "@shared/graph";
 import type { TowerGlyphRow } from "@shared/ipc";
 import {
   detectPulses,
@@ -36,6 +44,15 @@ export interface PulseRecord {
   canvasName: string;
 }
 
+/** Serializable per-canvas execution graph for renderer projection. */
+export interface ExecutionSnapshot {
+  readonly phaseByEdgeId: Record<string, EdgePhase>;
+  readonly detailByEdgeId: Record<string, string>;
+  readonly blocked: ReadonlyArray<string>;
+  readonly blockedEdgeIds: ReadonlyArray<string>;
+  readonly reasonsByNodeId: Record<string, ReadonlyArray<BlockedReason>>;
+}
+
 export interface KernelSnapshot {
   canvases: Record<
     string,
@@ -43,6 +60,7 @@ export interface KernelSnapshot {
       watchers: Record<string, WatcherRuntimeState>;
       armed: Record<string, boolean>;
       nextFire: Record<string, number>;
+      execution?: ExecutionSnapshot;
     }
   >;
   pulseLog: ReadonlyArray<PulseRecord>;
@@ -98,8 +116,9 @@ const agentKeysInRegion = (doc: CanvasDoc, regionId: string): ReadonlyArray<stri
 };
 
 // --- pulse message ------------------------------------------------------------
-// "[pulse] <summary>" + blank line + region.instruction when present.
-// Nothing else — no canvas data ever leaks into the prompt.
+// "[pulse] <summary>" + optional region.instruction. Live execution context
+// (edges, blocked reasons, task lists) is a separate ACP context block so the
+// operator briefing stays distinct from derived graph state.
 export const composePulseMessage = (summary: string, instruction?: string): string =>
   instruction ? `[pulse] ${summary}\n\n${instruction}` : `[pulse] ${summary}`;
 
@@ -108,7 +127,11 @@ export const composePulseMessage = (summary: string, instruction?: string): stri
 export interface PulseDeliverDeps {
   readonly isLive: (agentKey: string) => boolean;
   readonly openChat: (agentKey: string) => Promise<void>;
-  readonly sendPrompt: (agentKey: string, message: string) => Promise<void>;
+  readonly sendPrompt: (
+    agentKey: string,
+    message: string,
+    contextBlocks?: ReadonlyArray<string>,
+  ) => Promise<void>;
 }
 
 export interface FlagWriterDeps {
@@ -177,6 +200,8 @@ export const __resetKernelMemoryForTest = (): void => {
   deliveryDeps = undefined;
   flagWriterDeps = undefined;
   glyphFetcher = undefined;
+  lastGlyphIndex = null;
+  executionByCanvas.clear();
   resetWatcherMemory();
 };
 
@@ -268,6 +293,13 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
       const region = doc.nodes.find((node) => node.id === regionId);
       const instruction = region?.type === "group" ? region.ether?.region?.instruction : undefined;
       const message = composePulseMessage(params.summary, instruction);
+      // Prefer center-in membership (digest/UI) for context; fall back to full-rect.
+      const centerMembers = groupMembers(doc).get(regionId) ?? [];
+      const memberIds = centerMembers.length > 0 ? centerMembers : containedNodeIds(doc, region as GroupNode);
+      const glyphView = lastGlyphIndex ?? new Map();
+      const graph = deriveExecutionGraph(doc, glyphView as GlyphView);
+      const executionContext = composeRegionExecutionContext(doc, regionId, graph, memberIds);
+      const contextBlocks = executionContext.length > 0 ? [executionContext] : undefined;
       const keys = agentKeysInRegion(doc, regionId);
       const ok: string[] = [];
       // Sequential by contract — one agent turn spends real work; fan-out here
@@ -275,7 +307,7 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
       for (const key of keys) {
         try {
           if (!deps.isLive(key)) await deps.openChat(key);
-          await deps.sendPrompt(key, message);
+          await deps.sendPrompt(key, message, contextBlocks);
           ok.push(key);
         } catch {
           // Best-effort per agent: one failing delivery doesn't sink the rest.
@@ -386,6 +418,32 @@ const applyFlagOnUnsatisfied = (canvasName: string, doc: CanvasDoc, nodeId: stri
 // change) tends to land it.
 const GLYPH_FETCH_TIMEOUT_MS = 2_000;
 
+// Last glyph index built for the cycle — also used by pulse delivery so
+// execution context sees the same rows as watcher evaluation.
+let lastGlyphIndex: GlyphIndex | null = null;
+
+// Per-canvas derived execution graphs (recomputed each evaluation cycle).
+const executionByCanvas = new Map<string, ExecutionSnapshot>();
+
+export const getExecutionByCanvas = (): ReadonlyMap<string, ExecutionSnapshot> => executionByCanvas;
+
+const snapshotFromGraph = (doc: CanvasDoc, glyphs: GlyphView): ExecutionSnapshot => {
+  const graph = deriveExecutionGraph(doc, glyphs);
+  const phaseByEdgeId: Record<string, EdgePhase> = {};
+  const detailByEdgeId: Record<string, string> = {};
+  for (const [id, phase] of graph.phaseByEdgeId) phaseByEdgeId[id] = phase;
+  for (const [id, detail] of graph.detailByEdgeId) detailByEdgeId[id] = detail;
+  const reasonsByNodeId: Record<string, ReadonlyArray<BlockedReason>> = {};
+  for (const [id, reasons] of graph.reasonsByNodeId) reasonsByNodeId[id] = reasons;
+  return {
+    phaseByEdgeId,
+    detailByEdgeId,
+    blocked: Array.from(graph.blocked),
+    blockedEdgeIds: Array.from(graph.blockedEdgeIds),
+    reasonsByNodeId,
+  };
+};
+
 const relevantGlyphProjects = (doc: CanvasDoc): ReadonlySet<string> => {
   const projects = new Set<string>();
   for (const node of doc.nodes) {
@@ -394,6 +452,8 @@ const relevantGlyphProjects = (doc: CanvasDoc): ReadonlySet<string> => {
     if (!watch?.project) continue;
     if (watch.kind === "glyphs_done" || watch.kind === "glyphs_entered_state") projects.add(watch.project);
   }
+  // Edge criteria (glyphs / wip) need the same browse rows.
+  for (const project of edgeGlyphProjects(doc)) projects.add(project);
   return projects;
 };
 
@@ -437,21 +497,12 @@ const nextFire = new Map<string, number>();
 // Exported for tests: lets a test drive exactly one evaluation pass and assert
 // it completes even while a delivery pends.
 export const runEvaluationCycle = async (): Promise<void> => {
-  // Get union of all projects from all canvases for glyph indexing
+  // Union of watcher-scoped + edge-criteria projects across all canvases.
   const allProjects = new Set<string>();
   for (const doc of docs.values()) {
-    for (const node of doc.nodes) {
-      if (node.type !== "text") continue;
-      const watch = node.ether?.watch;
-      if (watch?.kind === "glyphs_done" || watch?.kind === "glyphs_entered_state") {
-        if (watch.project) allProjects.add(watch.project);
-      }
-    }
+    for (const project of relevantGlyphProjects(doc)) allProjects.add(project);
   }
 
-  // Build deduplicated glyph index across all canvases
-  const glyphIndex = await buildGlyphIndex({ nodes: [], edges: [] }); // Dummy doc for now
-  // Actually we need to build from all docs properly
   const index = new Map<string, ReadonlyArray<TowerGlyphRow>>();
   const projects = Array.from(allProjects);
   for (let i = 0; i < projects.length; i += MAX_CONCURRENT_GLYPH_FETCHES) {
@@ -459,14 +510,19 @@ export const runEvaluationCycle = async (): Promise<void> => {
     await Promise.all(
       batch.map(async (project) => {
         const glyphRows = await fetchGlyphsBounded(project);
+        // Record presence even when undefined so criteria can distinguish
+        // "not fetched" (missing key → relates) vs explicit unavailability.
         if (glyphRows !== undefined) index.set(project, glyphRows);
       }),
     );
   }
+  lastGlyphIndex = index;
 
   // Evaluate each canvas with per-canvas isolation
   for (const [canvasName, doc] of docs.entries()) {
     try {
+      executionByCanvas.set(canvasName, snapshotFromGraph(doc, index));
+
       for (const { nodeId, watch, result } of detectPulses(canvasName, doc, snapshots, index)) {
         const watcherKey = `${canvasName}::${nodeId}`;
         const previous = watchers.get(watcherKey);
@@ -572,6 +628,7 @@ export const purgeCanvasMemory = (canvasName: string): void => {
   const prefix = `${canvasName}::`;
   for (const key of watchers.keys()) if (key.startsWith(prefix)) watchers.delete(key);
   for (const key of nextFire.keys()) if (key.startsWith(prefix)) nextFire.delete(key);
+  executionByCanvas.delete(canvasName);
   // evaluate.ts's edge-detection memory (seenLevelStatus/seenGlyphState) is
   // namespaced the same way and grows unbounded across the app's lifetime
   // otherwise — purge it here too so a deleted canvas's baselines don't

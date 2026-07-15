@@ -367,13 +367,15 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
 
   it("opens only the not-yet-live agent, then sends every member sequentially in order", async () => {
     const calls: string[] = [];
+    const contextBlocksByAgent: Record<string, ReadonlyArray<string> | undefined> = {};
     const deps: PulseDeliverDeps = {
       isLive: (key) => key === "remote-a:nova",
       openChat: async (key) => {
         calls.push(`open:${key}`);
       },
-      sendPrompt: async (key, message) => {
+      sendPrompt: async (key, message, contextBlocks) => {
         calls.push(`send:${key}:${message}`);
+        contextBlocksByAgent[key] = contextBlocks;
       },
     };
 
@@ -384,6 +386,8 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
       "send:remote-a:vega:[pulse] go",
       "send:remote-a:nova:[pulse] go",
     ]);
+    // Execution context rides as a separate ACP block.
+    expect(contextBlocksByAgent["remote-a:vega"]?.[0]).toContain("execution");
     const record = getPulseLog()[0];
     expect(record?.dry).toBe(false);
     expect(record?.delivered).toEqual(["remote-a:vega", "remote-a:nova"]);
