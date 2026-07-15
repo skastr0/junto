@@ -37,12 +37,20 @@ import { edgeTypes } from "./edges/EtherEdge";
 
 const miniMapNodeColor = (node: Node): string => {
   const data = node.data as FlowNode["data"] | undefined;
-  const flags = data?.node.ether?.flags ?? [];
+  const canvasNode = data?.node;
+  // A collapsed-tier LOD node carries no `.node` on its data — colour it by its
+  // emblem type instead of dereferencing a document node that is not there.
+  if (!canvasNode) {
+    if (node.type === "cluster-bubble") return HUE.amber;
+    if (node.type === "region-card") return accentColor((node.data as RegionCardData | undefined)?.aggregate.color);
+    return "rgba(143,163,176,0.4)"; // title-chip
+  }
+  const flags = canvasNode.ether?.flags ?? [];
   if (flags.includes("blocker")) return HUE.crimson;
   if (flags.includes("attention")) return HUE.amber;
   if (flags.includes("parked")) return HUE.violet;
-  if (data?.node.type === "group") return "rgba(143,163,176,0.25)";
-  if (data?.node.color) return accentColor(data.node.color);
+  if (canvasNode.type === "group") return "rgba(143,163,176,0.25)";
+  if (canvasNode.color) return accentColor(canvasNode.color);
   return "rgba(232,163,61,0.5)";
 };
 
