@@ -98,7 +98,9 @@ export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
     const [tower, quasar, booth, hermes] = await Promise.all([
       guarded("tower", () => fetchTowerBundle()),
       guarded("quasar", () => fetchQuasarBundle(hintsFor(hints, "quasar"))),
-      guarded("booth", () => fetchBoothBundle(hintsFor(hints, "booth"))),
+      // booth ignores hints by design: every project is enriched each poll,
+      // which is what lets the renderer resolve booth implicitly via tower.
+      guarded("booth", () => fetchBoothBundle()),
       guarded("hermes", () => fetchHermesBundle()),
     ]);
 

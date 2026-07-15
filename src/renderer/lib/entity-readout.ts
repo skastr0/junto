@@ -66,6 +66,44 @@ const quasarSegments = (entity: Entity): string[] => {
   return out;
 };
 
+// --- implicit booth resolution ------------------------------------------------
+// Booth joins the canvas through TOWER identity, not through hand-wired
+// bindings: booth projects carry their tower linkage (key equality, or the
+// tower_project stat the adapter forwards from booth's towerProjectKey), so a
+// node bound to tower project X is booth-connected the moment a booth project
+// for X exists. An explicit booth binding still wins when present.
+
+// The booth project key joined to a tower project key, if any.
+export const boothKeyForTower = (
+  towerKey: string | undefined,
+  snapshots: SnapshotState,
+): string | undefined => {
+  if (!towerKey) return undefined;
+  const bundle = snapshots.bundles.find((candidate) => candidate.source === "booth");
+  if (!bundle?.ok) return undefined;
+  const match = bundle.entities.find(
+    (entity) => entity.key === towerKey || entity.stats.tower_project === towerKey,
+  );
+  return match?.key;
+};
+
+// The node's bindings plus the implicit booth binding (when a booth project
+// joins the node's tower project and no explicit booth binding exists).
+// Everything binding-driven — readout segments, connector dots, decals,
+// browse tabs — consumes THIS, so implicit booth behaves exactly like a
+// stored binding without ever touching the document.
+export const effectiveBindings = (
+  bindings: ReadonlyArray<EtherBinding> | undefined,
+  snapshots: SnapshotState,
+): ReadonlyArray<EtherBinding> => {
+  const stored = bindings ?? [];
+  if (stored.some((binding) => binding.source === "booth")) return stored;
+  const towerKey = stored.find((binding) => binding.source === "tower")?.ref.key;
+  const boothKey = boothKeyForTower(towerKey, snapshots);
+  if (boothKey === undefined) return stored;
+  return [...stored, { source: "booth", ref: { type: "project", key: boothKey } }];
+};
+
 // "3 drafts · 2 to review" — pending_review is the attention state (a human
 // verdict is owed), so it surfaces whenever non-zero; needs_revision is the
 // producer's queue, shown only when nothing is pending on the human.
@@ -82,14 +120,15 @@ const boothSegments = (entity: Entity): string[] => {
   return out;
 };
 
-// Total drafts owed a human verdict across a node's booth bindings — the
-// canvas decal's input. 0 means quiet; the badge only exists above zero.
+// Total drafts owed a human verdict across a node's booth connections
+// (explicit or implicit) — the canvas decal's input. 0 means quiet; the badge
+// only exists above zero.
 export const boothPendingReview = (
   bindings: ReadonlyArray<EtherBinding> | undefined,
   snapshots: SnapshotState,
 ): number => {
   let total = 0;
-  for (const binding of bindings ?? []) {
+  for (const binding of effectiveBindings(bindings, snapshots)) {
     if (binding.source !== "booth") continue;
     const entity = findEntity(snapshots, "booth", binding.ref.key);
     const pending = entity?.stats.pending_review;
@@ -138,7 +177,7 @@ export const entityReadout = (
 ): EntityReadout => {
   const segments: string[] = [];
   const dots: ConnectorDot[] = [];
-  for (const binding of bindings ?? []) {
+  for (const binding of effectiveBindings(bindings, snapshots)) {
     const bundle = snapshots.bundles.find((candidate) => candidate.source === binding.source);
     const entity = findEntity(snapshots, binding.source, binding.ref.key);
     const ok = (bundle?.ok ?? false) && entity !== undefined;

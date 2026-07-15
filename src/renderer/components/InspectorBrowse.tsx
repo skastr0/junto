@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { use$ } from "@legendapp/state/react";
 import { Search } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type {
@@ -22,6 +23,8 @@ import {
   orbitsPresent,
 } from "../lib/browse";
 import { fetchBoothDrafts, fetchBoothRequests } from "../lib/booth-browse";
+import { boothKeyForTower } from "../lib/entity-readout";
+import { state$ } from "../lib/state";
 import { DIM, INK } from "../lib/theme";
 import { BoothDraftsTab, BoothRequestsTab } from "./BoothBrowse";
 import { BrowseDetailModal, type BrowseDetailTarget } from "./BrowseDetailModal";
@@ -63,9 +66,14 @@ const TAB_ORDER: ReadonlyArray<BrowseTab> = ["glyphs", "signals", "drafts", "ses
 
 export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
   const bindings = node.ether?.bindings ?? [];
+  const snapshots = use$(state$.snapshots);
   const towerKey = bindings.find((binding) => binding.source === "tower")?.ref.key;
   const quasarKey = bindings.find((binding) => binding.source === "quasar")?.ref.key;
-  const boothKey = bindings.find((binding) => binding.source === "booth")?.ref.key;
+  // Explicit booth binding wins; otherwise booth resolves implicitly through
+  // the node's tower project (see entity-readout's implicit-resolution note).
+  const boothKey =
+    bindings.find((binding) => binding.source === "booth")?.ref.key ??
+    boothKeyForTower(towerKey, snapshots);
   const view = node.ether?.view;
 
   const [tab, setTab] = useState<BrowseTab>("glyphs");

@@ -67,7 +67,7 @@ const main = async () => {
   const [tower, quasar, booth, hermes] = await Promise.all([
     guarded("tower", () => fetchTowerBundle()),
     guarded("quasar", () => fetchQuasarBundle(hints.map((h) => h.key))),
-    guarded("booth", () => fetchBoothBundle(hints.map((h) => h.key))),
+    guarded("booth", () => fetchBoothBundle()),
     guarded("hermes", () => fetchHermesBundle()),
   ]);
   const state: SnapshotState = { bundles: [tower, quasar, booth, hermes] };

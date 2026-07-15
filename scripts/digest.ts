@@ -6,10 +6,12 @@ import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc } from "../src/shared/canvas";
 import { digestCanvas } from "../src/shared/digest";
 import type { SnapshotBundle, SnapshotState } from "../src/shared/entities";
+import { buildGlyphView, projectsNeedingGlyphs } from "../src/shared/glyph-view";
 import type { BindingHint } from "../src/shared/ipc";
 import { fetchBoothBundle } from "../src/main/vellum/adapters/booth";
 import { fetchHermesBundle } from "../src/main/vellum/adapters/hermes";
 import { fetchQuasarBundle } from "../src/main/vellum/adapters/quasar";
+import { fetchTowerBrowse } from "../src/main/vellum/adapters/tower-browse";
 import { fetchTowerBundle } from "../src/main/vellum/adapters/tower";
 
 // Headless agent surface: `bun run digest [name]` reads
@@ -103,7 +105,7 @@ const main = async () => {
   const [tower, quasar, booth, hermes] = await Promise.all([
     guarded("tower", () => fetchTowerBundle()),
     guarded("quasar", () => fetchQuasarBundle(hintsFor(hints, "quasar"))),
-    guarded("booth", () => fetchBoothBundle(hintsFor(hints, "booth"))),
+    guarded("booth", () => fetchBoothBundle()),
     guarded("hermes", () => fetchHermesBundle()),
   ]);
   const snapshots: SnapshotState = { bundles: [tower, quasar, booth, hermes] };

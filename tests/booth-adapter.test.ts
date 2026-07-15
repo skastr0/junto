@@ -11,9 +11,10 @@ import { boothBundleEntities, buildBoothBundle } from "../src/main/vellum/adapte
 // no "CLI stdout" / "malformed JSON" layer to fake; only the SDK call itself
 // succeeds or fails.
 
-const project = (key: string, name: string, updatedAt: number) => ({
+const project = (key: string, name: string, updatedAt: number, towerProjectKey?: string) => ({
   key,
   name,
+  ...(towerProjectKey === undefined ? {} : { towerProjectKey }),
   createdAt: updatedAt - 1000,
   updatedAt,
 });
@@ -28,58 +29,64 @@ const fakeBooth = (over: {
     listDrafts: over.listDrafts ?? (() => Effect.succeed([])),
   } as unknown as typeof BoothClient.Service);
 
-const runEntities = (
-  layer: Layer.Layer<BoothClient>,
-  hints: ReadonlyArray<string>,
-  fetchedAt = "2026-07-15T00:00:00.000Z",
-) => {
+const runEntities = (layer: Layer.Layer<BoothClient>) => {
   const runtime = ManagedRuntime.make(layer);
   return runtime
-    .runPromise(Effect.either(boothBundleEntities(hints, fetchedAt)))
+    .runPromise(Effect.either(boothBundleEntities()))
     .finally(() => runtime.dispose());
 };
 
 describe("boothBundleEntities", () => {
-  it("builds project entities (title=name, updatedAt from ms)", async () => {
+  it("builds project entities (title=name, updatedAt from ms, tower linkage forwarded)", async () => {
     const layer = fakeBooth({
-      listProjects: () => Effect.succeed([project("vellum", "Vellum", 1784121579771)]),
+      listProjects: () => Effect.succeed([project("vellum-assets", "Vellum", 1784121579771, "vellum")]),
     });
-    const result = await runEntities(layer, []);
+    const result = await runEntities(layer);
     expect(Either.isRight(result)).toBe(true);
     const entities = Either.isRight(result) ? result.right : [];
     expect(entities).toEqual([
       {
         source: "booth",
-        key: "vellum",
+        key: "vellum-assets",
         kind: "project",
         title: "Vellum",
-        stats: {},
+        stats: { tower_project: "vellum", drafts: 0, pending_review: 0, needs_revision: 0 },
         updatedAt: new Date(1784121579771).toISOString(),
       },
     ]);
   });
 
-  it("folds per-status draft counts into stats", async () => {
+  it("folds per-status draft counts into EVERY project's stats, unhinted", async () => {
     const layer = fakeBooth({
-      listProjects: () => Effect.succeed([project("vellum", "Vellum", 1784121579771)]),
+      listProjects: () =>
+        Effect.succeed([project("vellum", "Vellum", 1784121579771), project("flare", "Flare", 1784121579772)]),
       listDrafts: (key) =>
         Effect.succeed(
           key === "vellum"
             ? [{ status: "ready_for_review" }, { status: "ready_for_review" }, { status: "needs_revision" }, { status: "approved" }]
-            : [],
+            : [{ status: "approved" }],
         ),
     });
-    const result = await runEntities(layer, ["vellum"]);
+    const result = await runEntities(layer);
     const entities = Either.isRight(result) ? result.right : [];
-    expect(entities[0]?.stats).toEqual({ drafts: 4, pending_review: 2, needs_revision: 1 });
+    expect(entities.find((entity) => entity.key === "vellum")?.stats).toEqual({
+      drafts: 4,
+      pending_review: 2,
+      needs_revision: 1,
+    });
+    expect(entities.find((entity) => entity.key === "flare")?.stats).toEqual({
+      drafts: 1,
+      pending_review: 0,
+      needs_revision: 0,
+    });
   });
 
-  it("degrades a failing per-hint drafts fetch to a no-op (keeps the entity)", async () => {
+  it("degrades a failing drafts fetch to a no-op (keeps the entity)", async () => {
     const layer = fakeBooth({
       listProjects: () => Effect.succeed([project("vellum", "Vellum", 1784121579771)]),
       listDrafts: () => Effect.fail(new Error("drafts 502")),
     });
-    const result = await runEntities(layer, ["vellum"]);
+    const result = await runEntities(layer);
     const entities = Either.isRight(result) ? result.right : [];
     expect(entities).toHaveLength(1);
     expect(entities[0]?.stats).toEqual({});
@@ -89,7 +96,7 @@ describe("boothBundleEntities", () => {
     const layer = fakeBooth({
       listProjects: () => Effect.fail(new Error("projects gateway down")),
     });
-    const result = await runEntities(layer, []);
+    const result = await runEntities(layer);
     expect(Either.isLeft(result)).toBe(true);
   });
 });
