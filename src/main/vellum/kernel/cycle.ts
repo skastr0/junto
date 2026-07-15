@@ -108,9 +108,8 @@ const agentKeysInRegion = (doc: CanvasDoc, regionId: string): ReadonlyArray<stri
   const keys: string[] = [];
   for (const node of doc.nodes) {
     if (!memberIds.has(node.id)) continue;
-    for (const binding of node.ether?.bindings ?? []) {
-      if (binding.source === "hermes") keys.push(binding.ref.key);
-    }
+    const entity = node.ether?.entity;
+    if (entity?.kind === "agent" && entity.name) keys.push(entity.name);
   }
   return keys;
 };

@@ -9,7 +9,7 @@ export type EntitySource = typeof EntitySource.Type;
 
 export const Entity = Schema.Struct({
   source: EntitySource,
-  // For project-level refs the key matches EtherBinding.ref.key exactly.
+  // The canonical join key shared/connections.ts resolves identities against.
   key: Schema.String,
   kind: Schema.String,
   title: Schema.optionalWith(Schema.String, { exact: true }),

@@ -27,8 +27,7 @@ const text = (
 
 const projectNode = (id: string, label: string, projectKey: string) =>
   text(id, label, {
-    entity: { kind: "project" },
-    bindings: [{ source: "tower", ref: { type: "project", key: projectKey } }],
+    entity: { kind: "project", name: projectKey },
   });
 
 const glyph = (partial: Partial<GlyphRow> & Pick<GlyphRow, "glyphId" | "state">): GlyphRow => ({
@@ -275,8 +274,7 @@ describe("deriveExecutionGraph — propagation", () => {
         projectNode("a", "A", "proj-a"),
         text("note1", "just a note"),
         text("agent1", "hermes", {
-          entity: { kind: "agent" },
-          bindings: [{ source: "hermes", ref: { type: "agent", key: "local:default" } }],
+          entity: { kind: "agent", name: "local:default" },
         }),
       ],
       edges: [
@@ -334,8 +332,7 @@ describe("deriveExecutionGraph — propagation", () => {
       nodes: [
         projectNode("a", "A", "pa"),
         text("b", "B", {
-          entity: { kind: "project" },
-          bindings: [{ source: "tower", ref: { type: "project", key: "pb" } }],
+          entity: { kind: "project", name: "pb" },
           flags: ["blocker"],
         }),
         projectNode("c", "C", "pc"),

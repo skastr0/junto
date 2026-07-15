@@ -5,22 +5,18 @@ import type { CanvasNode } from "../src/shared/canvas";
 const base = { id: "node", x: 0, y: 0, width: 200, height: 80 } as const;
 
 describe("canvas presentation", () => {
-  it("uses bindings when a project node has no body detail", () => {
+  it("uses the identity when a project node has no body detail", () => {
     const node: CanvasNode = {
       ...base,
       type: "text",
       text: "PRISM",
       ether: {
-        entity: { kind: "project" },
-        bindings: [
-          { source: "tower", ref: { type: "project", key: "prism" } },
-          { source: "quasar", ref: { type: "project", key: "git:github.com/skastr0/prism" } },
-        ],
+        entity: { kind: "project", name: "prism" },
       },
     };
 
     expect(nodeTitle(node)).toBe("PRISM");
-    expect(nodeDetail(node)).toBe("tower / prism · quasar / git:github.com/skastr0/prism");
+    expect(nodeDetail(node)).toBe("project · prism");
     expect(nodeTypeLabel(node)).toBe("project");
   });
 

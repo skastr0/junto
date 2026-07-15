@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import type { EtherBinding, FileNode, GroupNode, LinkNode, TextNode } from "@shared/canvas";
+import type { FileNode, GroupNode, LinkNode, TextNode } from "@shared/canvas";
 
 export const makeTextNode = (x: number, y: number): TextNode => ({
   id: `node-${ulid()}`,
@@ -45,14 +45,14 @@ export const makeGroupNode = (
   height: Math.round(size?.height ?? 320),
 });
 
-// A project is ONE bound text node — its name in the current hue plus a compact
-// stat readout hydrated from the sources it binds to. It never explodes into
-// child nodes.
+// A project is ONE identity card — its name in the current hue plus a compact
+// stat readout derived live from every source that knows it. `name` is the
+// immutable identity stamped at creation; the visible label stays free.
 export const makeProjectNode = (
   x: number,
   y: number,
   label: string,
-  bindings: ReadonlyArray<EtherBinding>,
+  name: string,
 ): TextNode => ({
   id: `proj-${ulid()}`,
   type: "text",
@@ -61,7 +61,7 @@ export const makeProjectNode = (
   y: Math.round(y),
   width: 240,
   height: 96,
-  ether: { entity: { kind: "project" }, bindings: [...bindings] },
+  ether: { entity: { kind: "project", name } },
 });
 
 // An agent node — profile name plus its live hermes readout (running/stopped,
@@ -79,7 +79,7 @@ export const makeAgentNode = (
   y: Math.round(y),
   width: 240,
   height: 96,
-  ether: { entity: { kind: "agent" }, bindings: [{ source: "hermes", ref: { type: "agent", key } }] },
+  ether: { entity: { kind: "agent", name: key } },
 });
 
 // A tasks node — local checklist that can block only when connected by an

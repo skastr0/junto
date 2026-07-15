@@ -1,17 +1,19 @@
-import type { EtherBinding, EtherView } from "@shared/canvas";
-// Relative, not "@shared/entities": this is the one *value* (non-type-only)
+import type { EtherEntity, EtherView } from "@shared/canvas";
+// Relative, not "@shared/connections": this is the one *value* (non-type-only)
 // cross-package import in this file, and vitest here has no alias resolver
 // configured for runtime imports (only tsc resolves "@shared/*" via
 // tsconfig paths) — a relative path is what actually lets this module load
 // under `bun run test`. Type-only imports stay on the alias below since
 // those are erased before any resolver sees them.
-import { findEntity } from "../../shared/entities";
+import { resolveNodeConnections, type Connection } from "../../shared/connections";
 import type { Entity, EntitySource, SnapshotState } from "@shared/entities";
 
 // The compact live readout an entity card wears: a handful of plain-English
 // stat segments ("82 active · 213 done · 500+ sessions") plus one connector
-// dot per binding (lit = fresh, dim = stale/source down). One node, one line —
-// never a wall of chips.
+// dot per resolved connection (lit = live entity present, dim = source down
+// or entity gone). Connections are DERIVED from the node's identity by
+// shared/connections.ts — nothing here reads stored per-source keys, because
+// none exist.
 
 export interface ConnectorDot {
   readonly source: EntitySource;
@@ -57,51 +59,26 @@ const towerSegments = (entity: Entity, orbit?: string): string[] => {
   return out;
 };
 
-const quasarSegments = (entity: Entity): string[] => {
+// Quasar connections arrive as FACETS of one project (git identity + local
+// checkouts) — the readout aggregates them: total sessions, latest activity.
+const quasarSegments = (facets: ReadonlyArray<Entity>): string[] => {
   const out: string[] = [];
-  const sessions = num(entity, "sessions");
-  if (sessions) out.push(`${sessions} sessions`);
-  const last = shortDate(entity.stats.last_session);
-  if (last) out.push(last);
+  let sessions = 0;
+  let sawSessions = false;
+  let last: string | undefined;
+  for (const facet of facets) {
+    const count = facet.stats.sessions;
+    if (typeof count === "number") {
+      sessions += count;
+      sawSessions = true;
+    }
+    const facetLast = typeof facet.stats.last_session === "string" ? facet.stats.last_session : undefined;
+    if (facetLast && (!last || facetLast > last)) last = facetLast;
+  }
+  if (sawSessions) out.push(`${sessions} sessions`);
+  const date = shortDate(last);
+  if (date) out.push(date);
   return out;
-};
-
-// --- implicit booth resolution ------------------------------------------------
-// Booth joins the canvas through TOWER identity, not through hand-wired
-// bindings: booth projects carry their tower linkage (key equality, or the
-// tower_project stat the adapter forwards from booth's towerProjectKey), so a
-// node bound to tower project X is booth-connected the moment a booth project
-// for X exists. An explicit booth binding still wins when present.
-
-// The booth project key joined to a tower project key, if any.
-export const boothKeyForTower = (
-  towerKey: string | undefined,
-  snapshots: SnapshotState,
-): string | undefined => {
-  if (!towerKey) return undefined;
-  const bundle = snapshots.bundles.find((candidate) => candidate.source === "booth");
-  if (!bundle?.ok) return undefined;
-  const match = bundle.entities.find(
-    (entity) => entity.key === towerKey || entity.stats.tower_project === towerKey,
-  );
-  return match?.key;
-};
-
-// The node's bindings plus the implicit booth binding (when a booth project
-// joins the node's tower project and no explicit booth binding exists).
-// Everything binding-driven — readout segments, connector dots, decals,
-// browse tabs — consumes THIS, so implicit booth behaves exactly like a
-// stored binding without ever touching the document.
-export const effectiveBindings = (
-  bindings: ReadonlyArray<EtherBinding> | undefined,
-  snapshots: SnapshotState,
-): ReadonlyArray<EtherBinding> => {
-  const stored = bindings ?? [];
-  if (stored.some((binding) => binding.source === "booth")) return stored;
-  const towerKey = stored.find((binding) => binding.source === "tower")?.ref.key;
-  const boothKey = boothKeyForTower(towerKey, snapshots);
-  if (boothKey === undefined) return stored;
-  return [...stored, { source: "booth", ref: { type: "project", key: boothKey } }];
 };
 
 // "3 drafts · 2 to review" — pending_review is the attention state (a human
@@ -118,23 +95,6 @@ const boothSegments = (entity: Entity): string[] => {
     if (revising && revising !== "0") out.push(`${revising} revising`);
   }
   return out;
-};
-
-// Total drafts owed a human verdict across a node's booth connections
-// (explicit or implicit) — the canvas decal's input. 0 means quiet; the badge
-// only exists above zero.
-export const boothPendingReview = (
-  bindings: ReadonlyArray<EtherBinding> | undefined,
-  snapshots: SnapshotState,
-): number => {
-  let total = 0;
-  for (const binding of effectiveBindings(bindings, snapshots)) {
-    if (binding.source !== "booth") continue;
-    const entity = findEntity(snapshots, "booth", binding.ref.key);
-    const pending = entity?.stats.pending_review;
-    if (typeof pending === "number") total += pending;
-  }
-  return total;
 };
 
 const hermesSegments = (entity: Entity): string[] => {
@@ -154,39 +114,80 @@ const genericSegments = (entity: Entity): string[] =>
     .slice(0, 2)
     .map(([key, value]) => `${value} ${key.replace(/_/g, " ")}`);
 
-const SEGMENTS: Record<string, (entity: Entity) => string[]> = {
-  tower: towerSegments,
-  quasar: quasarSegments,
-  booth: boothSegments,
-  hermes: hermesSegments,
-};
-
 const MAX_SEGMENTS = 4;
 const FILTER_QUERY_MAX_LEN = 18;
 
 const truncateQuery = (query: string): string =>
   query.length > FILTER_QUERY_MAX_LEN ? `${query.slice(0, FILTER_QUERY_MAX_LEN)}…` : query;
 
+const bundleOk = (snapshots: SnapshotState, source: EntitySource): boolean =>
+  snapshots.bundles.find((bundle) => bundle.source === source)?.ok === true;
+
 // `view` is the node's ether.view slice (project nodes only). It never
-// changes which bindings/dots render — purely presentational narrowing of
+// changes which connections/dots render — purely presentational narrowing of
 // the tower segment plus one appended "active filter" cue.
 export const entityReadout = (
-  bindings: ReadonlyArray<EtherBinding> | undefined,
+  entity: EtherEntity | undefined,
   snapshots: SnapshotState,
   view?: EtherView,
 ): EntityReadout => {
+  const connections = resolveNodeConnections(entity, snapshots);
   const segments: string[] = [];
   const dots: ConnectorDot[] = [];
-  for (const binding of effectiveBindings(bindings, snapshots)) {
-    const bundle = snapshots.bundles.find((candidate) => candidate.source === binding.source);
-    const entity = findEntity(snapshots, binding.source, binding.ref.key);
-    const ok = (bundle?.ok ?? false) && entity !== undefined;
-    dots.push({ source: binding.source, ok });
-    if (!entity) continue;
-    const built = binding.source === "tower" ? towerSegments(entity, view?.orbit) : (SEGMENTS[binding.source] ?? genericSegments)(entity);
-    segments.push(...(built.length > 0 ? built : genericSegments(entity)));
+
+  // One dot per source, quasar facets collapsed into one.
+  const seenSources = new Set<EntitySource>();
+  for (const connection of connections) {
+    if (seenSources.has(connection.source)) continue;
+    seenSources.add(connection.source);
+    dots.push({
+      source: connection.source,
+      ok: bundleOk(snapshots, connection.source) && connection.entity !== undefined,
+    });
   }
+
+  const tower = connections.find((connection) => connection.source === "tower")?.entity;
+  if (tower) {
+    const built = towerSegments(tower, view?.orbit);
+    segments.push(...(built.length > 0 ? built : genericSegments(tower)));
+  }
+
+  const facets = connections
+    .filter((connection) => connection.source === "quasar")
+    .flatMap((connection) => (connection.entity ? [connection.entity] : []));
+  if (facets.length > 0) segments.push(...quasarSegments(facets));
+
+  const booth = connections.find((connection) => connection.source === "booth")?.entity;
+  if (booth) {
+    const built = boothSegments(booth);
+    segments.push(...(built.length > 0 ? built : genericSegments(booth)));
+  }
+
+  const hermes = connections.find((connection) => connection.source === "hermes")?.entity;
+  if (hermes) {
+    const built = hermesSegments(hermes);
+    segments.push(...(built.length > 0 ? built : genericSegments(hermes)));
+  }
+
   const filterSegment = view?.glyphQuery ? `⌕ ${truncateQuery(view.glyphQuery)}` : undefined;
   const capped = segments.slice(0, filterSegment ? MAX_SEGMENTS - 1 : MAX_SEGMENTS);
   return { segments: filterSegment ? [...capped, filterSegment] : capped, dots };
 };
+
+// Total drafts owed a human verdict across the node's resolved booth
+// connection — the canvas decal's input. 0 means quiet; the badge only
+// exists above zero.
+export const boothPendingReview = (
+  entity: EtherEntity | undefined,
+  snapshots: SnapshotState,
+): number => {
+  let total = 0;
+  for (const connection of resolveNodeConnections(entity, snapshots)) {
+    if (connection.source !== "booth") continue;
+    const pending = connection.entity?.stats.pending_review;
+    if (typeof pending === "number") total += pending;
+  }
+  return total;
+};
+
+export type { Connection };

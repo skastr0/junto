@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc } from "../src/shared/canvas";
+import { identityHints } from "../src/shared/connections";
 import { digestCanvas } from "../src/shared/digest";
 import type { SnapshotBundle, SnapshotState } from "../src/shared/entities";
 import { buildGlyphView, projectsNeedingGlyphs } from "../src/shared/glyph-view";
@@ -55,16 +56,7 @@ const hintsFor = (
   source: BindingHint["source"],
 ): ReadonlyArray<string> => hints.filter((hint) => hint.source === source).map((hint) => hint.key);
 
-// Derive binding hints straight from the doc's own ether.bindings — no GUI
-// state to reuse headlessly, so the digest hydrates exactly what the
-// document itself points at.
-const bindingHints = (doc: CanvasDoc): ReadonlyArray<BindingHint> =>
-  doc.nodes.flatMap((node) =>
-    (node.ether?.bindings ?? []).map((binding) => ({
-      source: binding.source,
-      key: binding.ref.key,
-    })),
-  );
+
 
 const readCanvas = async (name: string, path: string): Promise<CanvasDoc> => {
   let raw: string;
@@ -100,13 +92,23 @@ const main = async () => {
   const path = join(canvasesDir(), `${name}.canvas`);
 
   const doc = await readCanvas(name, path);
-  const hints = bindingHints(doc);
 
-  const [tower, quasar, booth, hermes] = await Promise.all([
+  // Two-pass fetch: base lists first (unhinted), then identity resolution
+  // over the doc derives the quasar keys worth enriching — the same
+  // convergence contract the live kernel uses.
+  const base = await Promise.all([
     guarded("tower", () => fetchTowerBundle()),
-    guarded("quasar", () => fetchQuasarBundle(hintsFor(hints, "quasar"))),
+    guarded("quasar", () => fetchQuasarBundle([])),
     guarded("booth", () => fetchBoothBundle()),
     guarded("hermes", () => fetchHermesBundle()),
+  ]);
+  const hints = identityHints([doc], { bundles: base });
+
+  const [tower, quasar, booth, hermes] = await Promise.all([
+    Promise.resolve(base[0]),
+    guarded("quasar", () => fetchQuasarBundle(hintsFor(hints, "quasar"))),
+    Promise.resolve(base[2]),
+    Promise.resolve(base[3]),
   ]);
   const snapshots: SnapshotState = { bundles: [tower, quasar, booth, hermes] };
 

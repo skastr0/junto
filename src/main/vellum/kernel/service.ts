@@ -13,6 +13,7 @@
 
 import { Context, Effect, Layer } from "effect";
 import type { CanvasDoc, CanvasNode, EtherFlag } from "@shared/canvas";
+import { identityHints } from "@shared/connections";
 import type { ServiceCheck } from "@shared/contracts";
 import type {
   ArmRegionResult,
@@ -123,24 +124,7 @@ const toggleFlagInDoc = (doc: CanvasDoc, nodeId: string, flag: string): CanvasDo
   };
 };
 
-// Every ether binding across every hydrated canvas, deduped — the union the
-// snapshot poll needs so a stat_threshold watcher on ANY watched canvas is
-// never blind to that project's live data, not just the one open in a window.
-const unionHints = (docs: ReadonlyMap<string, CanvasDoc>): ReadonlyArray<BindingHint> => {
-  const seen = new Set<string>();
-  const hints: BindingHint[] = [];
-  for (const doc of docs.values()) {
-    for (const node of doc.nodes) {
-      for (const binding of node.ether?.bindings ?? []) {
-        const key = `${binding.source}:${binding.ref.key}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        hints.push({ source: binding.source, key: binding.ref.key });
-      }
-    }
-  }
-  return hints;
-};
+
 
 // Splits a `${canvasName}::${id}` module-memory key back into its parts.
 // Canvas names are restricted to [a-z0-9-] (canvases.ts NAME_PATTERN) and
@@ -392,12 +376,19 @@ const makeKernelService = (
     const result = await Effect.runPromise(Effect.either(canvases.read(name)));
     if (result._tag === "Right") {
       docs.set(name, result.right.doc);
-      void Effect.runPromise(snapshots.refresh(unionHints(docs)));
+      void Effect.runPromise(refreshWithIdentityHints());
       scheduleCycle();
     }
     // else: transient read/decode failure (e.g. mid-write) — keep the
     // previously hydrated doc; the next external-edit event retries.
   };
+
+  // Enrichment hints derive from identity resolution over every hydrated doc
+  // against the CURRENT snapshot (shared/connections.ts). Cold start: the
+  // first poll fetches base lists unhinted, the next resolves against them —
+  // convergence within two cycles, by design.
+  const refreshWithIdentityHints = () =>
+    Effect.flatMap(snapshots.current, (state) => snapshots.refresh(identityHints(docs.values(), state)));
 
   // --- arming: StoreService-persisted, cycle.ts's in-memory map is the hot read
 
@@ -450,7 +441,7 @@ const makeKernelService = (
       void (async () => {
         await hydrateArming();
         await hydrateAllDocs();
-        void Effect.runPromise(snapshots.refresh(unionHints(docs)));
+        void Effect.runPromise(refreshWithIdentityHints());
 
         canvases.subscribeChanges((name) => void resyncCanvas(name));
         snapshots.subscribe(() => scheduleCycle());

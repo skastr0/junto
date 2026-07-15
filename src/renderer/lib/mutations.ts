@@ -184,21 +184,6 @@ export const loadDoc = (doc: CanvasDoc): void => {
   state$.docVersion.set(state$.docVersion.peek() + 1);
 };
 
-// --- binding hints --------------------------------------------------------
-export const bindingHints = (doc: CanvasDoc): ReadonlyArray<BindingHint> => {
-  const seen = new Set<string>();
-  const hints: BindingHint[] = [];
-  for (const node of doc.nodes) {
-    for (const binding of node.ether?.bindings ?? []) {
-      const key = `${binding.source}:${binding.ref.key}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      hints.push({ source: binding.source, key: binding.ref.key });
-    }
-  }
-  return hints;
-};
-
 // --- graph queries used by interactions -----------------------------------
 const SIDES: ReadonlyArray<NodeSide> = ["top", "right", "bottom", "left"];
 

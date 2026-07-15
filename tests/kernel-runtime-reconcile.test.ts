@@ -106,7 +106,7 @@ describe("fix 3 — arming survives canvas deletion; derived state does not", ()
           y: 40,
           width: 100,
           height: 50,
-          ether: { bindings: [{ source: "hermes", ref: { type: "agent", key: "remote-a:vega" } }] },
+          ether: { entity: { kind: "agent", name: "remote-a:vega" } },
         },
       ],
       edges: [],

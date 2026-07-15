@@ -104,7 +104,7 @@ const fixtureDoc = () => ({
       width: 200,
       height: 80,
       text: "probe agent",
-      ether: { bindings: [{ source: "hermes", ref: { type: "agent", key: AGENT_KEY } }] },
+      ether: { entity: { kind: "agent", name: AGENT_KEY } },
     },
   ],
   edges: [],

@@ -3,11 +3,11 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
 import { digestCanvas } from "../src/shared/digest";
 
-// Small fixture exercising every digest section: a region, a bound entity
-// (one live binding, one stale binding), a seed (unbound entity + blocker
-// flag), a plain node with no ether at all, edges of every label shape
-// (ether.kind, edge.label, and the bare "relates" fallback), and a
-// tower/quasar/booth source mix.
+// Small fixture exercising every digest section: a region, an entity whose
+// identity resolves live (Foo -> tower), entities that resolve to nothing and
+// therefore read as seeds (Bar has no identity name, Baz's name has no corpus
+// match), edges of every label shape (ether.kind, edge.label, and the bare
+// "relates" fallback), and a tower/quasar/booth source mix.
 const doc: CanvasDoc = {
   nodes: [
     { id: "grp1", type: "group", label: "team", x: 0, y: 0, width: 400, height: 200 },
@@ -20,11 +20,7 @@ const doc: CanvasDoc = {
       width: 100,
       height: 50,
       ether: {
-        entity: { kind: "project" },
-        bindings: [
-          { source: "tower", ref: { type: "project", key: "foo" } },
-          { source: "quasar", ref: { type: "project", key: "bar" } },
-        ],
+        entity: { kind: "project", name: "foo" },
       },
     },
     {
@@ -46,8 +42,7 @@ const doc: CanvasDoc = {
       width: 100,
       height: 50,
       ether: {
-        entity: { kind: "project" },
-        bindings: [{ source: "tower", ref: { type: "project", key: "baz" } }],
+        entity: { kind: "project", name: "baz" },
       },
     },
   ],
@@ -101,10 +96,8 @@ team :: Foo, Bar
 entities
 Foo :: project
   tower: a=1 b=x
-  quasar: stale
 Bar :: orbit
 Baz :: project
-  tower: stale
 
 edges
 Foo --depends--> Bar
@@ -119,6 +112,7 @@ Baz · pinned blocks
 
 seeds
 Bar
+Baz
 
 sources
 tower :: ok (1 entities)

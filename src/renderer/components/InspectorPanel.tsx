@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, Crosshair, ExternalLink, Link2, RotateCw, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Crosshair, ExternalLink, RotateCw, Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
@@ -9,6 +9,7 @@ import { EdgeCriteriaEditor } from "./InspectorFields";
 import { state$ } from "../lib/state";
 import { DIM, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
 import { entityReadout } from "../lib/entity-readout";
+import { resolveNodeConnections } from "../../shared/connections";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
 import { getAgentAvatar, getAgentIdentity } from "../lib/agent";
 import { getVellumApi } from "../lib/vellum-api";
@@ -37,20 +38,20 @@ function AccentControls({ value, onChange }: { readonly value?: string; readonly
 // row per connector — the same truth the card wears, with room to breathe.
 function LiveReadout({ node }: { readonly node: CanvasNode }) {
   const snapshots = use$(state$.snapshots);
-  const { segments, dots } = entityReadout(node.ether?.bindings, snapshots);
-  const bindings = node.ether?.bindings ?? [];
+  const { segments } = entityReadout(node.ether?.entity, snapshots);
+  const connections = resolveNodeConnections(node.ether?.entity, snapshots);
   return <div className="inspector-section">
     <div className="inspector-section__label">live readout</div>
     <div className="text-[13px] tabular-nums" style={{ color: "#EDE6DA" }}>{segments.join(" · ") || <span style={{ color: DIM }}>no live data</span>}</div>
-    <div className="inspector-bindings mt-2">{bindings.map((binding, i) => {
-      const ok = dots[i]?.ok ?? false;
-      return <div className="inspector-binding" key={`${binding.source}:${binding.ref.key}`}>
-        <span className="inspector-binding__source" style={{ color: SOURCE_HUE[binding.source] }}>
-          <i className="mr-1.5 inline-block size-[5px] rounded-full align-middle" style={{ background: SOURCE_HUE[binding.source], opacity: ok ? 1 : 0.3 }} />
-          {binding.source}
+    <div className="inspector-bindings mt-2">{connections.map((connection) => {
+      const ok = connection.entity !== undefined;
+      return <div className="inspector-binding" key={`${connection.source}:${connection.key}`}>
+        <span className="inspector-binding__source" style={{ color: SOURCE_HUE[connection.source] }}>
+          <i className="mr-1.5 inline-block size-[5px] rounded-full align-middle" style={{ background: SOURCE_HUE[connection.source], opacity: ok ? 1 : 0.3 }} />
+          {connection.source}
         </span>
-        <span>{binding.ref.key}</span>
-        <span style={{ color: ok ? SOURCE_HUE[binding.source] : DIM }}>{ok ? "fresh" : "stale"}</span>
+        <span>{connection.key}</span>
+        <span style={{ color: ok ? SOURCE_HUE[connection.source] : DIM }}>{ok ? "fresh" : "stale"}</span>
       </div>;
     })}</div>
   </div>;
@@ -60,7 +61,8 @@ function LiveReadout({ node }: { readonly node: CanvasNode }) {
 // fire-and-response messaging for one hermes agent. No session history —
 // the last reply just stays on screen until the next send replaces it.
 function AgentSections({ node }: { readonly node: CanvasNode }) {
-  const hermesKey = (node.ether?.bindings ?? []).find((binding) => binding.source === "hermes")?.ref.key;
+  const entity = node.ether?.entity;
+  const hermesKey = entity?.kind === "agent" ? entity.name : undefined;
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const [avatar, setAvatar] = useState<string | null>(null);
   const [identity, setIdentity] = useState<AgentIdentity | null>(null);
@@ -156,13 +158,12 @@ function AgentTabBar({ agentKey, active, onSelect }: { readonly agentKey: string
 }
 
 function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
-  const bindings = node.ether?.bindings ?? [];
   const doc = use$(state$.doc);
   const [connectOpen, setConnectOpen] = useState(false);
   const [agentTab, setAgentTab] = useState("chat");
   const isEntity = Boolean(node.ether?.entity);
   const isAgent = isEntity && node.ether?.entity?.kind === "agent";
-  const hermesKey = isAgent ? bindings.find((binding) => binding.source === "hermes")?.ref.key : undefined;
+  const hermesKey = isAgent ? node.ether?.entity?.name : undefined;
   const chatTab = Boolean(hermesKey) && agentTab === "chat";
   return <aside className="inspector-panel">
     <InspectorHeader eyebrow={nodeTypeLabel(node)} title={nodeTitle(node)} onClose={onClose} />
@@ -178,7 +179,6 @@ function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly 
         {isEntity && node.ether?.entity?.kind === "project" ? <ProjectBrowseSection key={node.id} node={node} /> : null}
         {isAgent ? <AgentSections key={node.id} node={node} /> : null}
         <NodeFieldEditors node={node} />
-        {!isEntity && bindings.length > 0 ? <div className="inspector-section"><div className="inspector-section__label"><Link2 size={11} /> connectors</div><div className="inspector-bindings">{bindings.map((binding) => <div className="inspector-binding" key={`${binding.source}:${binding.ref.key}`}><span className="inspector-binding__source" style={{ color: SOURCE_HUE[binding.source] }}>{binding.source}</span><span>{binding.ref.key}</span></div>)}</div></div> : null}
         <AccentControls value={node.color} onChange={(color) => setNodeColor(node.id, color)} />
         <NodeFlagControls node={node} />
         <div className="inspector-actions"><button onClick={() => { state$.searchQuery.set(""); state$.edgeFilter.set(""); state$.flagFilter.set(""); state$.focusNodeId.set(node.id); }}><Crosshair size={13} />focus node</button>{node.type === "link" ? <button onClick={() => window.open(node.url, "_blank")}><ExternalLink size={13} />open link</button> : null}<button onClick={() => setConnectOpen((open) => !open)}><ArrowRight size={13} />connect to…</button><button className="inspector-action--danger" onClick={() => deleteNode(node.id)}><Trash2 size={13} />delete</button></div>
