@@ -12,6 +12,7 @@ export const IPC_CHANNELS = {
   readCanvas: "vellum:read-canvas",
   writeCanvas: "vellum:write-canvas",
   createCanvas: "vellum:create-canvas",
+  deleteCanvas: "vellum:delete-canvas",
   exportDigest: "vellum:export-digest",
   generatePortfolio: "vellum:generate-portfolio",
   getSnapshots: "vellum:get-snapshots",
@@ -391,6 +392,7 @@ export interface VellumApi {
   readonly readCanvas: (name: string) => Promise<CanvasReadResult>;
   readonly writeCanvas: (name: string, doc: CanvasDoc) => Promise<void>;
   readonly createCanvas: (name: string) => Promise<CanvasReadResult>;
+  readonly deleteCanvas: (name: string) => Promise<{ name: string }>;
   readonly exportDigest: (name: string) => Promise<DigestResult>;
   // Merge the live corpus (tower/quasar/booth projects) onto the named canvas
   // as bound, hydrated nodes. Preserves existing nodes; appends new ones.
