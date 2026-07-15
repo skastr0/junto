@@ -27,6 +27,7 @@ export const IPC_CHANNELS = {
   quasarSessionDetail: "vellum:quasar-session-detail",
   towerCommentGlyph: "vellum:tower-comment-glyph",
   towerCommentSignal: "vellum:tower-comment-signal",
+  towerEmitSignal: "vellum:tower-emit-signal",
   boothDrafts: "vellum:booth-drafts",
   boothDraftRead: "vellum:booth-draft-read",
   boothRequests: "vellum:booth-requests",
@@ -315,11 +316,37 @@ export interface QuasarSessionDetailResult {
 
 // --- source mutations (deliberate, narrow writes) ---------------------------
 // The adapter plane stays read-only except for these explicit, user-initiated
-// acts: commenting on tower glyphs/signals and booth review verdicts.
+// acts: commenting on tower glyphs/signals, emitting signals, and booth
+// review verdicts.
 
 export interface SourceWriteResult {
   readonly ok: boolean;
   readonly error?: string;
+}
+
+// Signal priority vocabulary (tower signal/v1). Omitted → gateway default.
+export type TowerSignalPriority = "low" | "normal" | "high" | "urgent";
+
+// Form payload for deliberate signal emit. Mirrors TowerClient.emitSignal
+// with stringly JSON for the payload field so the renderer can own a
+// textarea without needing a schema compiler.
+export interface TowerEmitSignalInput {
+  readonly projectKey: string;
+  readonly orbit: string;
+  readonly kind: string;
+  readonly summary: string;
+  /** Defaults to signal/v1 when blank. */
+  readonly contractSchemaId?: string;
+  /** JSON object text; blank → {}. */
+  readonly payloadJson?: string;
+  readonly priority?: TowerSignalPriority;
+  readonly dedupeKey?: string;
+}
+
+export interface TowerEmitSignalResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly signalId?: string;
 }
 
 export interface BoothDraftRow {
@@ -494,6 +521,7 @@ export interface VellumApi {
   // Deliberate writes.
   readonly towerCommentGlyph: (projectKey: string, orbit: string, glyphId: string, body: string) => Promise<SourceWriteResult>;
   readonly towerCommentSignal: (projectKey: string, orbit: string, signalId: string, body: string) => Promise<SourceWriteResult>;
+  readonly towerEmitSignal: (input: TowerEmitSignalInput) => Promise<TowerEmitSignalResult>;
   readonly boothDrafts: (projectKey: string) => Promise<BoothDraftsResult>;
   readonly boothDraftRead: (draftId: string) => Promise<BoothDraftReadResult>;
   readonly boothRequests: (projectKey: string) => Promise<BoothRequestsResult>;

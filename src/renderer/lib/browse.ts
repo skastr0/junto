@@ -8,6 +8,8 @@ import type {
   SourceWriteResult,
   TowerBrowseResult,
   TowerDispatchesResult,
+  TowerEmitSignalInput,
+  TowerEmitSignalResult,
   TowerGlyphReadResult,
   TowerGlyphRow,
   TowerSearchResult,
@@ -395,5 +397,17 @@ export const postTowerCommentSignal = async (
     return await api.towerCommentSignal(projectKey, orbit, signalId, body);
   } catch {
     return TOWER_WRITE_UNREACHABLE;
+  }
+};
+
+const TOWER_EMIT_UNREACHABLE: TowerEmitSignalResult = { ok: false, error: "tower unreachable" };
+
+export const postTowerEmitSignal = async (input: TowerEmitSignalInput): Promise<TowerEmitSignalResult> => {
+  const api = getVellumApi();
+  if (!api || typeof api.towerEmitSignal !== "function") return TOWER_EMIT_UNREACHABLE;
+  try {
+    return await api.towerEmitSignal(input);
+  } catch {
+    return TOWER_EMIT_UNREACHABLE;
   }
 };

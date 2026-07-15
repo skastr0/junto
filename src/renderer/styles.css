@@ -737,6 +737,75 @@ path.vellum-edge-ripple {
    match .inspector-editor's input/textarea treatment. */
 .vellum-modal__comment { margin-top: 14px; border-top: 1px solid rgba(237, 230, 218, 0.08); padding-top: 12px; }
 .vellum-modal__comment-row { display: flex; align-items: flex-end; gap: 6px; }
+
+/* Signal emit form (deliberate write modal) */
+.signal-emit { display: grid; gap: 10px; margin-top: 4px; }
+.signal-emit__field { display: grid; gap: 5px; color: #8a8378; font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; }
+.signal-emit__field--block { grid-column: 1 / -1; }
+.signal-emit__field input,
+.signal-emit__field select,
+.signal-emit__summary,
+.signal-emit__payload {
+  width: 100%;
+  border: 1px solid rgba(237, 230, 218, 0.16);
+  border-radius: 6px;
+  background: rgba(12, 11, 10, 0.82);
+  color: #ede6da;
+  padding: 9px 10px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  outline: none;
+}
+.signal-emit__field select { cursor: pointer; }
+.signal-emit__field input:focus,
+.signal-emit__field select:focus,
+.signal-emit__summary:focus,
+.signal-emit__payload:focus {
+  border-color: rgba(57, 198, 214, 0.65);
+  box-shadow: 0 0 0 3px rgba(57, 198, 214, 0.1);
+}
+.signal-emit__summary,
+.signal-emit__payload {
+  resize: vertical;
+  min-height: 88px;
+  line-height: 1.5;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+}
+.signal-emit__payload { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; }
+.signal-emit__advanced-toggle {
+  justify-self: start;
+  border: none;
+  background: transparent;
+  color: #68604a;
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.signal-emit__advanced-toggle:hover { color: #8a8378; }
+.signal-emit__advanced { display: grid; gap: 10px; }
+.signal-emit__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.signal-emit__success { display: grid; gap: 10px; }
+.signal-emit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(57, 198, 214, 0.4);
+  border-radius: 5px;
+  background: rgba(57, 198, 214, 0.1);
+  color: #39c6d6;
+  padding: 4px 8px;
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.signal-emit-button:hover { background: rgba(57, 198, 214, 0.18); border-color: rgba(57, 198, 214, 0.6); }
+.signal-emit-button:disabled { opacity: 0.35; cursor: not-allowed; }
 .vellum-modal__comment-input {
   flex: 1;
   min-height: 30px;

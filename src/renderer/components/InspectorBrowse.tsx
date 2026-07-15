@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { Search } from "lucide-react";
+import { Radio, Search } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type {
   BoothDraftsResult,
@@ -29,6 +29,7 @@ import { DIM, INK } from "../lib/theme";
 import { BoothDraftsTab, BoothRequestsTab } from "./BoothBrowse";
 import { BrowseDetailModal, type BrowseDetailTarget } from "./BrowseDetailModal";
 import { DispatchesTab, GlyphsTab, SearchResults, SessionsTab, SignalsTab } from "./BrowseTabs";
+import { SignalEmitModal } from "./SignalEmitModal";
 
 // The standalone orbit filter: "all" plus every orbit actually present in
 // the (view-pre-applied) glyph list, further narrowing on top of whatever
@@ -93,6 +94,7 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
   const [quasarSearchResult, setQuasarSearchResult] = useState<QuasarSearchResult>();
   const [searchLoading, setSearchLoading] = useState(false);
   const [detail, setDetail] = useState<BrowseDetailTarget>();
+  const [emitOpen, setEmitOpen] = useState(false);
   // Standalone orbit chip: defaults to the node's own view.orbit, but the
   // reader can narrow to a different orbit within the view's slice without
   // touching the stored view. Resets whenever the view's own orbit changes
@@ -100,6 +102,15 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
   // so no separate node.id dependency is needed here).
   const [orbitChip, setOrbitChip] = useState(view?.orbit ?? "");
   useEffect(() => { setOrbitChip(view?.orbit ?? ""); }, [view?.orbit]);
+
+  const refreshTowerBrowse = () => {
+    if (!towerKey) return;
+    setTowerLoading(true);
+    void fetchTowerBrowse(towerKey)
+      .then((value) => setTowerBrowse(value))
+      .catch(() => setTowerBrowse({ ok: false, error: "tower unreachable", glyphs: [], signals: [] }))
+      .finally(() => setTowerLoading(false));
+  };
 
   // Layer 1 (auto, from the node's view) then layer 2 (interactive chip).
   const viewFilteredGlyphs = useMemo(
@@ -212,7 +223,20 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
   const activeTab = availableTabs.includes(tab) ? tab : availableTabs[0]!;
 
   return <div className="inspector-section">
-    <div className="inspector-section__label"><Search size={11} /> browse</div>
+    <div className="flex items-center justify-between gap-2">
+      <div className="inspector-section__label"><Search size={11} /> browse</div>
+      {towerKey ? (
+        <button
+          type="button"
+          className="signal-emit-button"
+          aria-label="Emit signal"
+          title="Emit a tower signal into this project"
+          onClick={() => setEmitOpen(true)}
+        >
+          <Radio size={11} /> emit signal
+        </button>
+      ) : null}
+    </div>
     <div className="mt-2 flex h-7 items-center gap-1.5 rounded-md border px-2" style={{ borderColor: "rgba(237,230,218,.14)", background: "rgba(255,255,255,.02)" }}>
       <Search size={11} style={{ color: DIM }} />
       <input
@@ -250,5 +274,13 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
       </div>
     </>}
     {detail ? <BrowseDetailModal target={detail} onClose={() => setDetail(undefined)} /> : null}
+    {emitOpen && towerKey ? (
+      <SignalEmitModal
+        projectKey={towerKey}
+        defaultOrbit={view?.orbit || orbitChip || undefined}
+        onClose={() => setEmitOpen(false)}
+        onEmitted={() => refreshTowerBrowse()}
+      />
+    ) : null}
   </div>;
 }

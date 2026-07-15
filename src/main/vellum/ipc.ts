@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { Effect } from "effect";
-import { IPC_CHANNELS, type BindingHint, type BoothReviewAction } from "@shared/ipc";
+import { IPC_CHANNELS, type BindingHint, type BoothReviewAction, type TowerEmitSignalInput } from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
 import { digestCanvas } from "@shared/digest";
 import { buildGlyphView, projectsNeedingGlyphs } from "@shared/glyph-view";
@@ -19,6 +19,7 @@ import {
   fetchTowerCommentGlyph,
   fetchTowerCommentSignal,
   fetchTowerDispatches,
+  fetchTowerEmitSignal,
   fetchTowerGlyphRead,
   fetchTowerSearch,
   fetchTowerSignalRead,
@@ -140,6 +141,10 @@ export const registerVellumIpc = () => {
     IPC_CHANNELS.towerCommentSignal,
     (_event, projectKey: string, orbit: string, signalId: string, body: string) =>
       fetchTowerCommentSignal(projectKey, orbit, signalId, body),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.towerEmitSignal, (_event, input: TowerEmitSignalInput) =>
+    fetchTowerEmitSignal(input),
   );
 
   ipcMain.handle(IPC_CHANNELS.boothDrafts, (_event, projectKey: string) => fetchBoothDrafts(projectKey));
