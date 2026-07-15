@@ -800,3 +800,185 @@ path.vellum-edge-ripple {
 .vellum-modal:hover::after {
   opacity: 0.55;
 }
+
+/* Freeform note nodes: stable ink, one typeface family. Structure comes from
+   markdown, never from a head/body shade ladder. Content anchors top-left —
+   never vertically centered (UA button defaults do that). */
+.note-surface {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  color: #ede6da;
+  text-align: left;
+}
+.note-surface > .note-md {
+  flex: 0 1 auto;
+  width: 100%;
+  min-height: 0;
+}
+.note-edit-inline {
+  font-size: 12px;
+  line-height: 1.55;
+  letter-spacing: 0;
+}
+.note-md {
+  color: #ede6da;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow: hidden;
+}
+.note-md--empty {
+  color: #8a8378;
+  font-size: 11px;
+  font-style: italic;
+}
+.note-md__h {
+  margin: 0 0 0.35em;
+  color: #ede6da;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+}
+.note-md__h1 { font-size: 14px; }
+.note-md__h2 { font-size: 13px; }
+.note-md__h3 { font-size: 12px; }
+.note-md__p {
+  margin: 0 0 0.45em;
+  color: #ede6da;
+  white-space: pre-wrap;
+}
+.note-md__p:last-child,
+.note-md__list:last-child,
+.note-md__pre:last-child,
+.note-md__quote:last-child,
+.note-md__h:last-child {
+  margin-bottom: 0;
+}
+.note-md__list {
+  margin: 0 0 0.45em;
+  padding-left: 1.15em;
+  color: #ede6da;
+}
+.note-md__li {
+  margin: 0.1em 0;
+  color: #ede6da;
+}
+.note-md__li::marker {
+  color: #8a8378;
+}
+.note-md__code {
+  border: 1px solid rgba(237, 230, 218, 0.12);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #ede6da;
+  padding: 0 0.28em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+}
+.note-md__pre {
+  margin: 0 0 0.45em;
+  overflow: auto;
+  border: 1px solid rgba(237, 230, 218, 0.1);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #ede6da;
+  padding: 6px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.note-md__quote {
+  margin: 0 0 0.45em;
+  border-left: 2px solid rgba(237, 230, 218, 0.2);
+  color: #ede6da;
+  padding-left: 8px;
+}
+.note-md__link {
+  color: #39c6d6;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.note-md__hr {
+  margin: 0.5em 0;
+  border: 0;
+  border-top: 1px solid rgba(237, 230, 218, 0.14);
+}
+.note-md strong { color: #ede6da; font-weight: 600; }
+.note-md em { color: #ede6da; font-style: italic; }
+
+/* Expanded note editor — same shell as detail modals, write-first layout. */
+.note-edit-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 88vw);
+  height: min(72vh, 820px);
+  min-width: 420px;
+  min-height: 360px;
+  padding: 16px 18px 14px;
+}
+.note-edit-modal__chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding-right: 4px;
+}
+.note-edit-modal__eyebrow {
+  color: #68604a;
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.note-edit-modal__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.note-edit-modal__actions .vellum-modal__close {
+  position: static;
+}
+.note-edit-modal__done {
+  border: 1px solid rgba(237, 230, 218, 0.16);
+  border-radius: 4px;
+  background: transparent;
+  color: #8a8378;
+  padding: 5px 10px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.note-edit-modal__done:hover {
+  background: rgba(57, 198, 214, 0.08);
+  border-color: rgba(57, 198, 214, 0.4);
+  color: #ede6da;
+}
+.note-edit-modal__textarea {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  resize: none;
+  border: 1px solid rgba(237, 230, 218, 0.12);
+  border-radius: 6px;
+  background: #131110;
+  color: #ede6da;
+  padding: 12px 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  outline: none;
+}
+.note-edit-modal__textarea::placeholder { color: #68604a; }
+.note-edit-modal__textarea:focus {
+  border-color: rgba(57, 198, 214, 0.45);
+  box-shadow: 0 0 0 3px rgba(57, 198, 214, 0.08);
+}
+.note-edit-modal__hint {
+  margin-top: 8px;
+  color: #68604a;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}

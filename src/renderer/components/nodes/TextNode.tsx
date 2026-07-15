@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
+import { X } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import type { FlowNode } from "../../lib/convert";
 import { getAgentAvatar, getAgentIdentity } from "../../lib/agent";
 import { entityReadout } from "../../lib/entity-readout";
 import { editText } from "../../lib/mutations";
+import { NoteMarkdown } from "../../lib/note-markdown";
 import { state$ } from "../../lib/state";
 import { accentColor, INK, DIM, HUE, SOURCE_HUE, withAlpha } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
@@ -169,48 +172,160 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
   );
 }
 
+// Freeform note body: one ink tone, one typeface — markdown is structure,
+// not a shade ladder. Entity cards keep their own compact presentation.
+const NOTE_FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+const NOTE_MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
+
+function NoteEditModal({
+  draft,
+  onChange,
+  onCommit,
+  onDiscard,
+}: {
+  readonly draft: string;
+  readonly onChange: (value: string) => void;
+  readonly onCommit: () => void;
+  readonly onDiscard: () => void;
+}) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+    // Place caret at end for writing continuation rather than select-all.
+    const el = textareaRef.current;
+    if (el) {
+      const len = el.value.length;
+      el.setSelectionRange(len, len);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onDiscard();
+      }
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        onCommit();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onCommit, onDiscard]);
+
+  return createPortal(
+    <div
+      ref={overlayRef}
+      className="vellum-modal-overlay"
+      onMouseDown={(event) => {
+        if (event.target === overlayRef.current) onCommit();
+      }}
+    >
+      <div className="vellum-modal note-edit-modal nowheel" role="dialog" aria-modal="true" aria-label="Edit note">
+        <div className="note-edit-modal__chrome">
+          <span className="note-edit-modal__eyebrow">note · markdown</span>
+          <div className="note-edit-modal__actions">
+            <button type="button" className="note-edit-modal__done" onClick={onCommit}>
+              done
+            </button>
+            <button type="button" className="vellum-modal__close" aria-label="Close without saving" onClick={onDiscard}>
+              <X size={13} />
+            </button>
+          </div>
+        </div>
+        <textarea
+          ref={textareaRef}
+          className="note-edit-modal__textarea nodrag nowheel"
+          aria-label="Note markdown"
+          spellCheck
+          value={draft}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={"# heading\n\n- list item\n\n**bold** and `code`"}
+        />
+        <div className="note-edit-modal__hint">⌘↵ save · esc discard</div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const node = data.node;
   const text = node.type === "text" ? node.text : "";
+  const isFreeNote = !node.ether?.entity;
   const editNodeId = use$(state$.editNodeId);
   const [editing, setEditing] = useState(false);
+  const [maximized, setMaximized] = useState(false);
   const [draft, setDraft] = useState(text);
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (editing) {
+    if (editing && !maximized) {
       setDraft(text);
       ref.current?.focus();
       ref.current?.select();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing]);
+  }, [editing, maximized]);
 
   useEffect(() => {
     if (editNodeId !== node.id) return;
-    setEditing(true);
+    setDraft(text);
+    if (isFreeNote) setMaximized(true);
+    else setEditing(true);
     state$.editNodeId.set("");
-  }, [editNodeId, node.id]);
+  }, [editNodeId, node.id, isFreeNote, text]);
 
   const commit = () => {
     setEditing(false);
+    setMaximized(false);
     if (draft !== text) editText(node.id, draft);
   };
 
-  const lines = text.split("\n");
-  const firstIsHeading = lines[0]?.startsWith("#") ?? false;
-  const head = firstIsHeading ? lines[0].replace(/^#+\s*/, "") : lines[0];
-  const rest = lines.slice(1).join("\n").trim();
+  const discard = () => {
+    setEditing(false);
+    setMaximized(false);
+    setDraft(text);
+  };
+
+  const openInline = () => {
+    setDraft(text);
+    setMaximized(false);
+    setEditing(true);
+  };
+
+  const openMaximized = () => {
+    setDraft(text);
+    setEditing(false);
+    setMaximized(true);
+  };
 
   return (
-    <NodeShell node={node} selected={selected} blocked={data.blocked} onEdit={() => setEditing(true)}>
-      {editing ? (
+    <NodeShell
+      node={node}
+      selected={selected}
+      blocked={data.blocked}
+      onEdit={openInline}
+      onMaximize={isFreeNote ? openMaximized : undefined}
+    >
+      {maximized ? (
+        <NoteEditModal
+          draft={draft}
+          onChange={setDraft}
+          onCommit={commit}
+          onDiscard={discard}
+        />
+      ) : null}
+      {editing && !maximized ? (
         <textarea
           ref={ref}
           autoFocus
           aria-label="Edit note"
-          className="nodrag nowheel h-full w-full resize-none bg-transparent text-[12px] leading-relaxed outline-none"
-          style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
+          className="note-edit-inline nodrag nowheel h-full w-full resize-none bg-transparent outline-none"
+          style={{ color: INK, fontFamily: NOTE_MONO }}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
@@ -221,7 +336,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             }
             if (e.key === "Escape") {
               e.preventDefault();
-              setEditing(false);
+              discard();
             }
           }}
         />
@@ -231,7 +346,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           onDoubleClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            setEditing(true);
+            openInline();
           }}
         >
           {node.ether.entity.kind === "watcher" ? <WatcherCard node={node} />
@@ -241,29 +356,20 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       ) : (
         <button
           type="button"
-          className="nopan h-full w-full cursor-text overflow-hidden border-0 bg-transparent p-0 text-left"
+          className="note-surface nopan h-full w-full cursor-text overflow-hidden border-0 bg-transparent p-0 text-left items-stretch justify-start"
+          style={{ fontFamily: NOTE_FONT, color: INK }}
           onClick={(event) => {
             if (!selected) return;
             event.stopPropagation();
-            setEditing(true);
+            openInline();
           }}
           onDoubleClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            setEditing(true);
+            openInline();
           }}
         >
-          <div
-            className={firstIsHeading ? "text-[15px] font-semibold leading-snug" : "text-[12px] leading-snug"}
-            style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
-          >
-            {head}
-          </div>
-          {rest ? (
-            <div className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed" style={{ color: DIM }}>
-              {rest}
-            </div>
-          ) : null}
+          <NoteMarkdown source={text} />
         </button>
       )}
     </NodeShell>

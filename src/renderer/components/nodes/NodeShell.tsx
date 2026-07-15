@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Handle, NodeResizer, NodeToolbar, Position } from "@xyflow/react";
-import { Ban, ExternalLink, Pencil, Trash2 } from "lucide-react";
+import { Ban, ExternalLink, Maximize2, Pencil, Trash2 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
 import { resizeNode } from "../../lib/geometry";
@@ -17,16 +17,96 @@ function ConnectionHandles() {
   return <>{HANDLE_SIDES.map(([name, pos]) => <Handle key={`s-${name}`} id={`s-${name}`} aria-label={`Connect from ${name}`} type="source" position={pos} className={`vellum-handle vellum-handle--source vellum-handle--${name}`} />)}{HANDLE_SIDES.map(([name, pos]) => <Handle key={`t-${name}`} id={`t-${name}`} aria-label={`Connect to ${name}`} type="target" position={pos} className={`vellum-handle vellum-handle--target vellum-handle--${name}`} />)}</>;
 }
 
-function NodeActions({ node, selected, onEdit }: { readonly node: CanvasNode; readonly selected: boolean; readonly onEdit?: () => void }) {
+function NodeActions({
+  node,
+  selected,
+  onEdit,
+  onMaximize,
+}: {
+  readonly node: CanvasNode;
+  readonly selected: boolean;
+  readonly onEdit?: () => void;
+  readonly onMaximize?: () => void;
+}) {
   const isBlocker = node.ether?.flags?.includes("blocker") ?? false;
-  return <NodeToolbar isVisible={selected} position={Position.Top} offset={8}><div className="nodrag nopan flex items-center gap-1 rounded-md border border-white/10 bg-[#131110] px-1 py-1 shadow-lg shadow-black/40">
-    {onEdit ? <button aria-label="Edit item" className="nodrag nopan grid size-7 place-items-center rounded text-[11px] text-slate-300 transition hover:bg-white/10 hover:text-[#EDE6DA]" title="edit item" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onEdit(); }}><Pencil size={14} /></button> : null}
-    <button aria-label={isBlocker ? "Clear blocker flag" : "Flag blocker"} className="nodrag nopan grid size-7 place-items-center rounded text-[11px] transition hover:bg-white/10" style={{ color: isBlocker ? HUE.crimson : HUE.steel }} title={isBlocker ? "clear blocker" : "flag blocker"} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); toggleFlag(node.id, "blocker"); }}><Ban size={14} /></button>
-    <button aria-label="Delete node" className="nodrag nopan grid size-7 place-items-center rounded text-[11px] text-slate-300 transition hover:bg-white/10 hover:text-[#E5484D]" title="delete node" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); deleteNode(node.id); }}><Trash2 size={14} /></button>
-  </div></NodeToolbar>;
+  return (
+    <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
+      <div className="nodrag nopan flex items-center gap-1 rounded-md border border-white/10 bg-[#131110] px-1 py-1 shadow-lg shadow-black/40">
+        {onEdit ? (
+          <button
+            aria-label="Edit item"
+            className="nodrag nopan grid size-7 place-items-center rounded text-[11px] text-slate-300 transition hover:bg-white/10 hover:text-[#EDE6DA]"
+            title="edit item"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onEdit();
+            }}
+          >
+            <Pencil size={14} />
+          </button>
+        ) : null}
+        {onMaximize ? (
+          <button
+            aria-label="Expand note editor"
+            className="nodrag nopan grid size-7 place-items-center rounded text-[11px] text-slate-300 transition hover:bg-white/10 hover:text-[#EDE6DA]"
+            title="expand editor"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onMaximize();
+            }}
+          >
+            <Maximize2 size={14} />
+          </button>
+        ) : null}
+        <button
+          aria-label={isBlocker ? "Clear blocker flag" : "Flag blocker"}
+          className="nodrag nopan grid size-7 place-items-center rounded text-[11px] transition hover:bg-white/10"
+          style={{ color: isBlocker ? HUE.crimson : HUE.steel }}
+          title={isBlocker ? "clear blocker" : "flag blocker"}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleFlag(node.id, "blocker");
+          }}
+        >
+          <Ban size={14} />
+        </button>
+        <button
+          aria-label="Delete node"
+          className="nodrag nopan grid size-7 place-items-center rounded text-[11px] text-slate-300 transition hover:bg-white/10 hover:text-[#E5484D]"
+          title="delete node"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            deleteNode(node.id);
+          }}
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+    </NodeToolbar>
+  );
 }
 
-export function NodeShell({ node, selected, blocked, onEdit, onOpen, children }: { readonly node: CanvasNode; readonly selected: boolean; readonly blocked: boolean; readonly onEdit?: () => void; readonly onOpen?: () => void; readonly children: ReactNode }) {
+export function NodeShell({
+  node,
+  selected,
+  blocked,
+  onEdit,
+  onMaximize,
+  onOpen,
+  children,
+}: {
+  readonly node: CanvasNode;
+  readonly selected: boolean;
+  readonly blocked: boolean;
+  readonly onEdit?: () => void;
+  readonly onMaximize?: () => void;
+  readonly onOpen?: () => void;
+  readonly children: ReactNode;
+}) {
   const flags = node.ether?.flags ?? [];
   const isBlocker = flags.includes("blocker");
   const primaryFlag: EtherFlag | undefined = isBlocker ? "blocker" : flags.includes("attention") ? "attention" : flags.includes("parked") ? "parked" : undefined;
@@ -47,14 +127,74 @@ export function NodeShell({ node, selected, blocked, onEdit, onOpen, children }:
       : primaryFlag === "parked"
         ? `0 0 0 1px ${withAlpha(HUE.violet, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
         : "0 10px 28px rgba(0,0,0,0.18)";
-  return <div className={`vellum-node group relative flex h-full w-full flex-col overflow-visible rounded-[10px] px-3.5 py-3 ${isBlocker ? "vellum-blocker" : ""}`} style={{ border: `1px solid ${selected ? withAlpha(isBlocker ? HUE.crimson : accent, 0.75) : border}`, background, boxShadow: shadow }}>
-    <NodeResizer isVisible={selected} minWidth={170} minHeight={72} color={accent} handleClassName="vellum-resize-handle" lineClassName="vellum-resize-line" onResizeEnd={(_event, params) => resizeNode(node.id, params)} />
-    {onEdit ? <button className="vellum-node__edit nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-slate-400 transition hover:bg-white/10 hover:text-[#EDE6DA]" aria-label="Edit item" title="edit item" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onEdit(); }}><Pencil size={12} /></button> : null}
-    {onOpen ? <button className="vellum-node__open nodrag nopan absolute right-10 top-2 z-10 grid size-6 place-items-center rounded text-cyan-300/70 transition hover:bg-white/10 hover:text-cyan-200" aria-label="Open external link" title="open external link" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onOpen(); }}><ExternalLink size={12} /></button> : null}
-    <ConnectionHandles /><NodeActions node={node} selected={selected} onEdit={onEdit} />
-    {flags.length > 0 ? <div className="vellum-node__flag-rail">{flags.map((flag) => <span key={flag} className="vellum-node__flag" style={{ color: FLAG_HUES[flag], borderColor: withAlpha(FLAG_HUES[flag], 0.36), background: withAlpha(FLAG_HUES[flag], 0.09) }}>{flag}</span>)}</div> : null}
-    <div className="vellum-node__body min-h-0 flex-1 overflow-hidden">
-      <div className="h-full min-h-0 overflow-hidden">{children}</div>
+  return (
+    <div
+      className={`vellum-node group relative flex h-full w-full flex-col overflow-visible rounded-[10px] px-3.5 py-3 ${isBlocker ? "vellum-blocker" : ""}`}
+      style={{
+        border: `1px solid ${selected ? withAlpha(isBlocker ? HUE.crimson : accent, 0.75) : border}`,
+        background,
+        boxShadow: shadow,
+      }}
+    >
+      <NodeResizer
+        isVisible={selected}
+        minWidth={170}
+        minHeight={72}
+        color={accent}
+        handleClassName="vellum-resize-handle"
+        lineClassName="vellum-resize-line"
+        onResizeEnd={(_event, params) => resizeNode(node.id, params)}
+      />
+      {onEdit ? (
+        <button
+          className="vellum-node__edit nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-slate-400 transition hover:bg-white/10 hover:text-[#EDE6DA]"
+          aria-label="Edit item"
+          title="edit item"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onEdit();
+          }}
+        >
+          <Pencil size={12} />
+        </button>
+      ) : null}
+      {onOpen ? (
+        <button
+          className="vellum-node__open nodrag nopan absolute right-10 top-2 z-10 grid size-6 place-items-center rounded text-cyan-300/70 transition hover:bg-white/10 hover:text-cyan-200"
+          aria-label="Open external link"
+          title="open external link"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpen();
+          }}
+        >
+          <ExternalLink size={12} />
+        </button>
+      ) : null}
+      <ConnectionHandles />
+      <NodeActions node={node} selected={selected} onEdit={onEdit} onMaximize={onMaximize} />
+      {flags.length > 0 ? (
+        <div className="vellum-node__flag-rail">
+          {flags.map((flag) => (
+            <span
+              key={flag}
+              className="vellum-node__flag"
+              style={{
+                color: FLAG_HUES[flag],
+                borderColor: withAlpha(FLAG_HUES[flag], 0.36),
+                background: withAlpha(FLAG_HUES[flag], 0.09),
+              }}
+            >
+              {flag}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div className="vellum-node__body min-h-0 flex-1 overflow-hidden">
+        <div className="h-full min-h-0 overflow-hidden">{children}</div>
+      </div>
     </div>
-  </div>;
+  );
 }
