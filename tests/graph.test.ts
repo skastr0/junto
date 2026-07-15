@@ -2,13 +2,28 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { blockedClosure, blockedEdgeIds, groupMembers } from "../src/shared/graph";
 
+const project = (id: string, label: string, flags?: ReadonlyArray<"blocker" | "parked" | "attention">) => ({
+  id,
+  type: "text" as const,
+  text: label,
+  x: 0,
+  y: 0,
+  width: 200,
+  height: 80,
+  ether: {
+    entity: { kind: "project" as const },
+    bindings: [{ source: "tower" as const, ref: { type: "project" as const, key: id } }],
+    ...(flags ? { flags: [...flags] } : {}),
+  },
+});
+
 describe("graph derivations", () => {
   it("blockedClosure is transitive: a blocks b blocks c => {b, c}", () => {
     const doc: CanvasDoc = {
       nodes: [
-        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 200, height: 80, ether: { flags: ["blocker"] } },
-        { id: "b", type: "text", text: "b", x: 300, y: 0, width: 200, height: 80 },
-        { id: "c", type: "text", text: "c", x: 600, y: 0, width: 200, height: 80 },
+        project("a", "a", ["blocker"]),
+        project("b", "b"),
+        project("c", "c"),
       ],
       edges: [
         { id: "e-ab", fromNode: "a", toNode: "b", ether: { kind: "blocks" } },
@@ -23,9 +38,9 @@ describe("graph derivations", () => {
   it("blockedEdgeIds picks both edges in the transitive chain", () => {
     const doc: CanvasDoc = {
       nodes: [
-        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 200, height: 80, ether: { flags: ["blocker"] } },
-        { id: "b", type: "text", text: "b", x: 300, y: 0, width: 200, height: 80 },
-        { id: "c", type: "text", text: "c", x: 600, y: 0, width: 200, height: 80 },
+        project("a", "a", ["blocker"]),
+        project("b", "b"),
+        project("c", "c"),
       ],
       edges: [
         { id: "e-ab", fromNode: "a", toNode: "b", ether: { kind: "blocks" } },

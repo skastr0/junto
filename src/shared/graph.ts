@@ -1,55 +1,24 @@
 import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
+import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
 
 // Derived state. Never persisted — recomputed from the document so the
 // .canvas file cannot go incoherent.
+//
+// blockedClosure / blockedEdgeIds are thin wrappers over deriveExecutionGraph.
+// Callers with a live GlyphView should prefer deriveExecutionGraph directly
+// so glyph-bound criteria can resolve; without a view, criteria edges that
+// need tower data stay non-generating (relates) while legacy pins and tasks
+// criteria still evaluate from the document alone.
 
-// Semantics: an edge of kind "blocks" means fromNode blocks toNode. The
-// blocked closure is every node reachable from a blocker-flagged node by
-// following blocks edges forward.
-export const blockedClosure = (doc: CanvasDoc): ReadonlySet<string> => {
-  const forward = new Map<string, string[]>();
-  for (const edge of doc.edges) {
-    if (edge.ether?.kind !== "blocks") continue;
-    const targets = forward.get(edge.fromNode) ?? [];
-    targets.push(edge.toNode);
-    forward.set(edge.fromNode, targets);
-  }
+export const blockedClosure = (
+  doc: CanvasDoc,
+  glyphs?: GlyphView,
+): ReadonlySet<string> => deriveExecutionGraph(doc, glyphs ?? new Map()).blocked;
 
-  const blocked = new Set<string>();
-  const queue = doc.nodes
-    .filter((node) => node.ether?.flags?.includes("blocker"))
-    .map((node) => node.id);
-
-  while (queue.length > 0) {
-    const current = queue.pop()!;
-    for (const target of forward.get(current) ?? []) {
-      if (!blocked.has(target)) {
-        blocked.add(target);
-        queue.push(target);
-      }
-    }
-  }
-
-  return blocked;
-};
-
-// Edges participating in the blocked closure: blocks edges whose source is a
-// blocker or itself blocked. These are the edges the surface animates.
-export const blockedEdgeIds = (doc: CanvasDoc): ReadonlySet<string> => {
-  const blocked = blockedClosure(doc);
-  const blockers = new Set(
-    doc.nodes.filter((node) => node.ether?.flags?.includes("blocker")).map((node) => node.id),
-  );
-  return new Set(
-    doc.edges
-      .filter(
-        (edge) =>
-          edge.ether?.kind === "blocks" &&
-          (blockers.has(edge.fromNode) || blocked.has(edge.fromNode)),
-      )
-      .map((edge) => edge.id),
-  );
-};
+export const blockedEdgeIds = (
+  doc: CanvasDoc,
+  glyphs?: GlyphView,
+): ReadonlySet<string> => deriveExecutionGraph(doc, glyphs ?? new Map()).blockedEdgeIds;
 
 export const isGroup = (node: CanvasNode): node is GroupNode => node.type === "group";
 
