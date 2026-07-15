@@ -174,7 +174,12 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           await writeFile(tmpPath, serialized, "utf8");
           await rename(tmpPath, path);
 
+          // Suppress fs.watch echo, then notify subscribers ourselves so the
+          // kernel rehydrates immediately. Without this, own-write suppression
+          // leaves kernel docs stale after normal UI writeCanvas (tasks done,
+          // criteria edits) and live phase/blocked paint lies.
           ownWrites.set(canvasFileName(name), Date.now());
+          for (const listener of listeners) listener(name);
         }),
       catch: toCanvasError,
     });
@@ -208,6 +213,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           await rename(tmpPath, path);
 
           ownWrites.set(canvasFileName(name), Date.now());
+          for (const listener of listeners) listener(name);
         }),
       catch: toCanvasError,
     });

@@ -92,6 +92,45 @@ describe("canvases.ts remove()", () => {
     expect(seen).toContain(name);
   });
 
+  it("notifies subscribeChanges listeners after write (own-write path)", async () => {
+    // Kernel rehydrate depends on this: own-write suppress would silence fs.watch,
+    // so write() must notify listeners itself for live phase honesty.
+    const name = "write-notify";
+    await runtime.runPromise(canvases.create(name));
+
+    const seen: string[] = [];
+    const unsubscribe = canvases.subscribeChanges((changed) => seen.push(changed));
+    await runtime.runPromise(
+      canvases.write(name, {
+        nodes: [{ id: "n1", type: "text", text: "after-write", x: 0, y: 0, width: 100, height: 50 }],
+        edges: [],
+      }),
+    );
+    unsubscribe();
+
+    expect(seen).toContain(name);
+  });
+
+  it("notifies subscribeChanges listeners after mutate", async () => {
+    const name = "mutate-notify";
+    await runtime.runPromise(canvases.create(name));
+
+    const seen: string[] = [];
+    const unsubscribe = canvases.subscribeChanges((changed) => seen.push(changed));
+    await runtime.runPromise(
+      canvases.mutate(name, (doc) => ({
+        ...doc,
+        nodes: [
+          ...doc.nodes,
+          { id: "extra", type: "text" as const, text: "mutated", x: 10, y: 10, width: 80, height: 40 },
+        ],
+      })),
+    );
+    unsubscribe();
+
+    expect(seen).toContain(name);
+  });
+
   it("serializes remove behind write mutex (no clobber of a concurrent write after delete)", async () => {
     const name = "mutex-delete";
     await runtime.runPromise(canvases.create(name));
