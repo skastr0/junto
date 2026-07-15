@@ -27,9 +27,11 @@ import {
   formatDuration,
   glyphStateHue,
   groupGlyphs,
+  isValidSignalKind,
   orbitOptions,
   orbitsPresent,
   sessionDetailStats,
+  signalEmitOrbitOptions,
   sessionDurationOrDates,
   sessionStats,
   sessionTitle,
@@ -122,6 +124,32 @@ describe("project view slices", () => {
       "oracle",
       "lattice",
     ]);
+  });
+
+  it("builds emit orbit choices from stats, browse rows, and preferred", () => {
+    expect(
+      signalEmitOrbitOptions({
+        stats: { orbit_lattice: 1 },
+        browseOrbits: ["atelier"],
+        preferred: "custom",
+      }),
+    ).toEqual([
+      "forge",
+      "survey",
+      "beacon",
+      "scribe",
+      "oracle",
+      "lattice",
+      "atelier",
+      "custom",
+    ]);
+  });
+
+  it("gates signal kinds to the tower SignalKind shape", () => {
+    expect(isValidSignalKind("note")).toBe(true);
+    expect(isValidSignalKind("handoff.request")).toBe(true);
+    expect(isValidSignalKind("Bad Kind")).toBe(false);
+    expect(isValidSignalKind("")).toBe(false);
   });
 
   describe("compileGlyphQuery", () => {

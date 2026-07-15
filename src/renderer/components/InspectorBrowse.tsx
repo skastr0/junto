@@ -11,6 +11,7 @@ import type {
   TowerSearchResult,
   QuasarSearchResult,
 } from "@shared/ipc";
+import { findEntity } from "@shared/entities";
 import {
   fetchQuasarSearch,
   fetchQuasarSessions,
@@ -21,6 +22,7 @@ import {
   filterGlyphsByView,
   filterSignalsByView,
   orbitsPresent,
+  signalEmitOrbitOptions,
 } from "../lib/browse";
 import { fetchBoothDrafts, fetchBoothRequests } from "../lib/booth-browse";
 import { boothKeyForTower } from "../lib/entity-readout";
@@ -112,6 +114,26 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
       .catch(() => setTowerBrowse({ ok: false, error: "tower unreachable", glyphs: [], signals: [] }))
       .finally(() => setTowerLoading(false));
   };
+
+  const towerEntity = towerKey ? findEntity(snapshots, "tower", towerKey) : undefined;
+  const browseOrbits = useMemo(() => {
+    if (!towerBrowse?.ok) return [] as string[];
+    return Array.from(
+      new Set([
+        ...towerBrowse.glyphs.map((glyph) => glyph.orbit),
+        ...towerBrowse.signals.map((signal) => signal.orbit),
+      ]),
+    );
+  }, [towerBrowse]);
+  const emitOrbits = useMemo(
+    () =>
+      signalEmitOrbitOptions({
+        stats: towerEntity?.stats,
+        browseOrbits,
+        preferred: view?.orbit || orbitChip || undefined,
+      }),
+    [towerEntity?.stats, browseOrbits, view?.orbit, orbitChip],
+  );
 
   // Layer 1 (auto, from the node's view) then layer 2 (interactive chip).
   const viewFilteredGlyphs = useMemo(
@@ -282,8 +304,15 @@ export function ProjectBrowseSection({ node }: { readonly node: CanvasNode }) {
       <SignalEmitModal
         projectKey={towerKey}
         defaultOrbit={view?.orbit || orbitChip || undefined}
+        orbits={emitOrbits}
         onClose={() => setEmitOpen(false)}
-        onEmitted={() => refreshTowerBrowse()}
+        onEmitted={() => {
+          // Surface the new row: leave search, open signals, force-refresh.
+          setQuery("");
+          setDebouncedQuery("");
+          setTab("signals");
+          refreshTowerBrowse();
+        }}
       />
     ) : null}
   </div>;

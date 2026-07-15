@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { TowerSignalPriority } from "@shared/ipc";
-import { CANONICAL_ORBITS, postTowerEmitSignal } from "../lib/browse";
+import { CANONICAL_ORBITS, isValidSignalKind, postTowerEmitSignal } from "../lib/browse";
 import { DetailModal } from "./DetailModal";
 
 // Typed emit form for Tower signals. Required fields match signal/v1 + the
@@ -12,18 +12,25 @@ const PRIORITIES: ReadonlyArray<TowerSignalPriority | ""> = ["", "low", "normal"
 export function SignalEmitModal({
   projectKey,
   defaultOrbit,
+  orbits,
   onClose,
   onEmitted,
 }: {
   readonly projectKey: string;
   readonly defaultOrbit?: string;
+  /** Orbit choices (canonical + discovered). Falls back to CANONICAL_ORBITS. */
+  readonly orbits?: ReadonlyArray<string>;
   readonly onClose: () => void;
-  readonly onEmitted?: (signalId: string) => void;
+  readonly onEmitted?: (signalId?: string) => void;
 }) {
+  const orbitChoices =
+    orbits && orbits.length > 0
+      ? orbits
+      : (CANONICAL_ORBITS as ReadonlyArray<string>);
   const initialOrbit =
-    defaultOrbit && (CANONICAL_ORBITS as ReadonlyArray<string>).includes(defaultOrbit)
+    defaultOrbit && orbitChoices.includes(defaultOrbit)
       ? defaultOrbit
-      : "forge";
+      : (orbitChoices[0] ?? "forge");
   const [orbit, setOrbit] = useState(initialOrbit);
   const [kind, setKind] = useState("note");
   const [summary, setSummary] = useState("");
@@ -35,11 +42,20 @@ export function SignalEmitModal({
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [error, setError] = useState<string>();
   const [signalId, setSignalId] = useState<string>();
+  // Sync guard: React state alone can double-fire before re-render.
+  const sendingRef = useRef(false);
 
-  const canSubmit = summary.trim().length > 0 && kind.trim().length > 0 && orbit.trim().length > 0 && state !== "sending";
+  const kindOk = isValidSignalKind(kind);
+  const canSubmit =
+    summary.trim().length > 0 &&
+    kind.trim().length > 0 &&
+    kindOk &&
+    orbit.trim().length > 0 &&
+    state !== "sending";
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || sendingRef.current) return;
+    sendingRef.current = true;
     setState("sending");
     setError(undefined);
     const result = await postTowerEmitSignal({
@@ -52,10 +68,11 @@ export function SignalEmitModal({
       priority: priority || undefined,
       dedupeKey: dedupeKey.trim() || undefined,
     });
+    sendingRef.current = false;
     if (result.ok) {
       setState("sent");
       setSignalId(result.signalId);
-      if (result.signalId) onEmitted?.(result.signalId);
+      onEmitted?.(result.signalId);
     } else {
       setState("error");
       setError(result.error ?? "emit failed");
@@ -84,6 +101,7 @@ export function SignalEmitModal({
                   setDedupeKey("");
                   setState("idle");
                   setSignalId(undefined);
+                  sendingRef.current = false;
                 }}
               >
                 emit another
@@ -101,7 +119,7 @@ export function SignalEmitModal({
             <label className="signal-emit__field">
               <span>orbit</span>
               <select aria-label="Orbit" value={orbit} onChange={(event) => setOrbit(event.target.value)}>
-                {CANONICAL_ORBITS.map((name) => (
+                {orbitChoices.map((name) => (
                   <option key={name} value={name}>{name}</option>
                 ))}
               </select>
@@ -111,12 +129,19 @@ export function SignalEmitModal({
               <span>kind</span>
               <input
                 aria-label="Signal kind"
-                autoFocus
+                aria-invalid={kind.trim().length > 0 && !kindOk}
                 value={kind}
                 onChange={(event) => { setKind(event.target.value); setState("idle"); }}
                 placeholder="note"
                 spellCheck={false}
               />
+              {kind.trim().length > 0 && !kindOk ? (
+                <span className="signal-emit__hint signal-emit__hint--error">
+                  use lowercase segments, e.g. note or handoff.request
+                </span>
+              ) : (
+                <span className="signal-emit__hint">lowercase · dots/underscores/hyphens ok</span>
+              )}
             </label>
 
             <label className="signal-emit__field signal-emit__field--block">
@@ -125,6 +150,7 @@ export function SignalEmitModal({
                 aria-label="Signal summary"
                 className="signal-emit__summary"
                 rows={5}
+                autoFocus
                 value={summary}
                 onChange={(event) => { setSummary(event.target.value); setState("idle"); }}
                 placeholder="What should the receiving orbit do?"

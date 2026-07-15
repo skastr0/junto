@@ -96,6 +96,27 @@ export const orbitOptions = (stats: Record<string, unknown> | undefined): Readon
   return Array.from(new Set<string>([...CANONICAL_ORBITS, ...discovered]));
 };
 
+// Emit orbit picker: canonical + live stats + orbits already present on
+// browse rows + any preferred default, so project-local orbits are reachable.
+export const signalEmitOrbitOptions = (input: {
+  readonly stats?: Record<string, unknown>;
+  readonly browseOrbits?: ReadonlyArray<string>;
+  readonly preferred?: string;
+}): ReadonlyArray<string> => {
+  const preferred = input.preferred?.trim();
+  return Array.from(
+    new Set<string>([
+      ...orbitOptions(input.stats),
+      ...(input.browseOrbits ?? []),
+      ...(preferred ? [preferred] : []),
+    ]),
+  );
+};
+
+// Mirrors tower-sdk SignalKind / main parseEmitSignalInput kind gate.
+export const SIGNAL_KIND_RE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
+export const isValidSignalKind = (kind: string): boolean => SIGNAL_KIND_RE.test(kind.trim());
+
 // A view/chip query is a /regex/ when wrapped in slashes and it actually
 // compiles; anything else — including a wrapped pattern that fails to
 // compile — degrades to a plain case-insensitive substring test. A broken

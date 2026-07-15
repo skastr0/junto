@@ -775,6 +775,17 @@ path.vellum-edge-ripple {
   font-size: 12px;
 }
 .signal-emit__payload { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; }
+.signal-emit__hint {
+  color: #68604a;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: none;
+  line-height: 1.4;
+}
+.signal-emit__hint--error { color: #e5484d; }
+.signal-emit__field input[aria-invalid="true"] {
+  border-color: rgba(229, 72, 77, 0.55);
+}
 .signal-emit__advanced-toggle {
   justify-self: start;
   border: none;
