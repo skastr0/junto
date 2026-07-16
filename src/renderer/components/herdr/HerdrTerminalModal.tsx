@@ -203,7 +203,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
           setStatus(`image paste failed: ${res.error}`);
           return;
         }
-        setStatus(`image pasted · ${image.extension} · ${image.byteLength} B`);
+        setStatus(`image sent · ${image.extension} · ${image.byteLength} B`);
       });
     };
 
@@ -215,10 +215,13 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       if (!id || !api) return;
 
       // Image first (screenshot / copied file). Text paste remains the fallback.
+      // Capture text *before* any await — clipboard DataTransfer text often clears after.
       e.preventDefault();
       e.stopPropagation();
+      const text = e.clipboardData?.getData("text") ?? "";
+      const data = e.clipboardData;
       void (async () => {
-        const image = await extractHerdrClipboardImage(e.clipboardData);
+        const image = await extractHerdrClipboardImage(data);
         if (image && "error" in image) {
           setStatus(`image paste failed: ${image.error}`);
           return;
@@ -227,7 +230,6 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
           sendClipboardImage(image);
           return;
         }
-        const text = e.clipboardData?.getData("text");
         if (!text) return;
         void api.herdrStreamInput(id, utf8ToBase64(text)).then((res) => {
           if (res && res.ok === false && res.error) setStatus(`input failed: ${res.error}`);
@@ -527,7 +529,10 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       e.preventDefault();
       e.stopPropagation();
       const id = streamIdRef.current;
-      if (!id || !api.herdrStreamClipboardImage) return;
+      if (!id || !api.herdrStreamClipboardImage) {
+        setStatus("image drop dropped · stream not ready");
+        return;
+      }
       void (async () => {
         const image = await extractHerdrClipboardImage(e.dataTransfer);
         if (image && "error" in image) {
@@ -544,7 +549,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
           setStatus(`image drop failed: ${res.error}`);
           return;
         }
-        setStatus(`image pasted · ${image.extension} · ${image.byteLength} B`);
+        setStatus(`image sent · ${image.extension} · ${image.byteLength} B`);
       })();
     };
 

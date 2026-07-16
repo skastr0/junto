@@ -207,11 +207,21 @@ export class HerdrStreamManager {
     const stream = this.require(streamId);
     if (!stream.ok) return stream;
     const ext = extension.trim().replace(/^\./, "").toLowerCase();
-    if (!ext) return { ok: false, error: "clipboard image extension required" };
+    // Mirror herdr server sanitize_extension allowlist (unknown → reject here for fast feedback).
+    const allowed = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
+    if (!ext || !allowed.has(ext)) {
+      return { ok: false, error: `clipboard image extension not allowed: ${ext || "(empty)"}` };
+    }
     if (!dataBase64) return { ok: false, error: "clipboard image bytes required" };
+    // herdr MAX_CLIPBOARD_IMAGE_PAYLOAD = 16 MiB decoded. Base64 expands ~4/3.
+    const maxBytes = 16 * 1024 * 1024;
+    const approxDecoded = Math.floor((dataBase64.length * 3) / 4);
+    if (approxDecoded > maxBytes || dataBase64.length > Math.ceil((maxBytes * 4) / 3) + 4) {
+      return { ok: false, error: `clipboard image too large (max ${maxBytes} bytes)` };
+    }
     return this.writeJson(stream.stream, {
       type: "terminal.clipboard_image",
-      extension: ext,
+      extension: ext === "jpeg" ? "jpg" : ext,
       bytes: dataBase64,
     });
   }
