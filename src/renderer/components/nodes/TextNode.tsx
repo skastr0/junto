@@ -14,6 +14,7 @@ import { state$ } from "../../lib/state";
 import { accentColor, INK, DIM, HUE, SOURCE_HUE, withAlpha } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
+import { HerdrCard } from "../herdr/HerdrCard";
 import { NodeShell } from "./NodeShell";
 
 // Re-renders every intervalMs so relative-time copy ("fired 2m ago", "next
@@ -425,6 +426,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           {node.ether.entity.kind === "watcher" ? <WatcherCard node={node} />
             : node.ether.entity.kind === "timer" ? <TimerCard node={node} />
               : node.ether.entity.kind === "task" ? <TasksCard node={node} />
+                : node.ether.entity.kind === "herdr" ? <HerdrCard node={node} />
                 : <EntityCard node={node} kind={node.ether.entity.kind} />}
         </div>
       ) : (
