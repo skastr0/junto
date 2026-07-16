@@ -284,12 +284,17 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
         return;
       }
 
-      let terminalId = herdr.terminalId;
-      if (!terminalId && herdr.paneId) {
+      // Terminal ids regenerate whenever the herdr server restarts or live-
+      // hands-off; a cached id then fails every reconnect and the modal spins
+      // in an attach loop. The pane id is the stable handle — always re-resolve
+      // the live terminal id from it, falling back to the cached one.
+      let terminalId: string | undefined;
+      if (herdr.paneId) {
         const meta = await api.herdrGetMeta(herdr.host, herdr.session ?? null, herdr.paneId);
         if (cancelled) return;
         terminalId = meta.data?.terminalId;
       }
+      terminalId ||= herdr.terminalId;
       if (!terminalId) {
         setStatus("no terminal id on bound pane");
         setConnectionEvent(terminalOpen.nodeId, { type: "pane_missing" });
