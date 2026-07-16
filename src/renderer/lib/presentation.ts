@@ -1,5 +1,16 @@
 import type { CanvasNode } from "@shared/canvas";
 
+// Shared by LinkNode.tsx and PageCard.tsx — the host to show for a link/page
+// card. Falls back to a naive scheme-strip rather than the raw url (unlike
+// nodeTitle below) so a malformed url still renders a short, glanceable label.
+export const hostOf = (url: string): string => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url.replace(/^https?:\/\//, "").split("/")[0] ?? url;
+  }
+};
+
 export const searchText = (node: CanvasNode): string => [
   node.type,
   node.type === "text" ? node.text : "",

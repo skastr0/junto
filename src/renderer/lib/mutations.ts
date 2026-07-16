@@ -315,6 +315,29 @@ export const editLink = (id: string, url: string): void => {
   });
 };
 
+// Promote a plain link node in place into a bound browser page work surface —
+// stamps entity.kind "page" + ether.browser onto the EXISTING node.id (never
+// spawns a new node; the JSON Canvas `link` type never changes). Product
+// default onDelete is detach, matching makePageNode/makeHerdrNode.
+export const promoteLinkToPage = (id: string, profile: string): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) =>
+      n.id === id && n.type === "link"
+        ? {
+            ...n,
+            ether: {
+              ...(n.ether ?? {}),
+              entity: { kind: "page" },
+              browser: { profile, onDelete: "detach" },
+            },
+          }
+        : n,
+    ),
+  });
+};
+
 export const renameGroup = (id: string, label: string): void => {
   const doc = state$.doc.peek();
   commitDoc({
