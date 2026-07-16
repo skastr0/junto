@@ -133,8 +133,8 @@ export class HerdrStreamManager {
 
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
-      const text = chunk.trim();
-      if (text) {
+      // herdr often prints "herdr: … input ignored: …" on stderr (or stdout).
+      for (const text of chunk.split("\n").map((l) => l.trim()).filter(Boolean)) {
         this.emit({ streamId, type: "error", message: text.slice(0, 400) });
       }
     });
@@ -276,6 +276,7 @@ export class HerdrStreamManager {
     payload: Record<string, unknown>,
   ): { readonly ok: boolean; readonly error?: string } {
     try {
+      // NDJSON line; Node pipes flush small writes promptly for interactive use.
       stream.child.stdin.write(`${JSON.stringify(payload)}\n`);
       return { ok: true };
     } catch (error) {
@@ -291,6 +292,10 @@ export class HerdrStreamManager {
     try {
       obj = JSON.parse(line) as Record<string, unknown>;
     } catch {
+      // Non-JSON diagnostics (protocol nags) — surface without killing stream.
+      if (/input ignored|invalid json|error/i.test(line)) {
+        this.emit({ streamId, type: "error", message: line.slice(0, 400) });
+      }
       return;
     }
     const type = typeof obj.type === "string" ? obj.type : "";

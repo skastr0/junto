@@ -208,7 +208,10 @@ export function HerdrTerminalModal() {
 
     const dataDisp = term.onData((data) => {
       const id = streamIdRef.current;
-      if (!id) return;
+      if (!id) {
+        setStatus("input dropped · stream not ready");
+        return;
+      }
       void api.herdrStreamInput(id, utf8ToBase64(data)).then((res) => {
         if (res && res.ok === false && res.error) {
           setStatus(`input failed: ${res.error}`);
@@ -216,17 +219,31 @@ export function HerdrTerminalModal() {
       });
     });
 
-    // Keep keys inside the modal — do not let React Flow / app chrome steal them.
+    // Let xterm handle keys; stop bubbling to React Flow / canvas shortcuts.
+    term.attachCustomKeyEventHandler((ev) => {
+      ev.stopPropagation();
+      return true;
+    });
+
+    // Document-level trap while modal is open: reclaim focus + block canvas keys.
     const trapKeys = (e: KeyboardEvent) => {
-      if (!hostEl.contains(document.activeElement) && document.activeElement !== term.textarea) {
-        // If focus drifted, reclaim on any key while pointer is over the pane.
-        focusTerm();
+      const t = e.target as Node | null;
+      const inTerm =
+        (t && hostEl.contains(t)) ||
+        t === term.textarea ||
+        (t instanceof HTMLElement && t.classList.contains("xterm-helper-textarea"));
+      if (!inTerm) {
+        // Any key while modal open focuses the PTY (unless typing in chrome buttons).
+        const inChrome = t instanceof HTMLElement && t.closest("button, input, textarea, select");
+        if (!inChrome) {
+          focusTerm();
+          // Re-dispatch path: after focus, xterm will get subsequent keys.
+        }
       }
       e.stopPropagation();
     };
-    hostEl.addEventListener("keydown", trapKeys, true);
-    hostEl.addEventListener("keyup", trapKeys, true);
-    hostEl.addEventListener("keypress", trapKeys, true);
+    document.addEventListener("keydown", trapKeys, true);
+    document.addEventListener("keyup", trapKeys, true);
     hostEl.addEventListener("mousedown", focusTerm);
     hostEl.addEventListener("click", focusTerm);
 
@@ -270,9 +287,8 @@ export function HerdrTerminalModal() {
       window.removeEventListener("resize", scheduleResize);
       resizeObs?.disconnect();
       hostEl.removeEventListener("wheel", onWheel);
-      hostEl.removeEventListener("keydown", trapKeys, true);
-      hostEl.removeEventListener("keyup", trapKeys, true);
-      hostEl.removeEventListener("keypress", trapKeys, true);
+      document.removeEventListener("keydown", trapKeys, true);
+      document.removeEventListener("keyup", trapKeys, true);
       hostEl.removeEventListener("mousedown", focusTerm);
       hostEl.removeEventListener("click", focusTerm);
       if (resizeTimer) clearTimeout(resizeTimer);

@@ -40,6 +40,31 @@ body {
   background: radial-gradient(circle at 50% 20%, rgba(232, 163, 61, 0.025), transparent 45%);
 }
 
+/* Herdr interactive terminal — xterm must fill flex host to receive focus + keys */
+.herdr-xterm {
+  position: relative;
+  outline: none;
+}
+.herdr-xterm .xterm {
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+}
+.herdr-xterm .xterm-viewport {
+  width: 100% !important;
+  height: 100% !important;
+  overflow-y: hidden !important; /* scroll is herdr-side, not local */
+}
+.herdr-xterm .xterm-screen {
+  width: 100% !important;
+}
+.herdr-xterm .xterm-helper-textarea {
+  /* Keep helper textarea focusable for keyboard input */
+  opacity: 0;
+  left: 0;
+  top: 0;
+}
+
 /* hiddenInset macOS window: leave room for the traffic lights, and let the
    bar itself drag the window — interactive children opt back out below. */
 .station-bar {
