@@ -10,6 +10,7 @@ import { EdgeCriteriaEditor } from "./InspectorFields";
 import { state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { DIM, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
+import { ActivityMarkFromSpec } from "./ActivityMark";
 import { entityReadout } from "../lib/entity-readout";
 import { resolveNodeConnections } from "../../shared/connections";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
@@ -136,7 +137,7 @@ function AgentSections({ node }: { readonly node: CanvasNode }) {
       >
         {sending ? "sending…" : "send"}
       </button>
-      {sending ? <div className="vellum-dot--pulse mt-2 text-[10px]" style={{ color: DIM }}>waiting for {displayName ?? rawName}… (can take a minute)</div> : null}
+      {sending ? <div className="mt-2 flex items-center gap-2" role="status" aria-label={`waiting for ${displayName ?? rawName}`}><ActivityMarkFromSpec spec={{ mode: "wave", tone: "amber", label: `waiting for ${displayName ?? rawName}` }} size="inline" /><span className="text-[10px]" style={{ color: DIM }}>{displayName ?? rawName}</span></div> : null}
       {sendError ? <div className="mt-2 text-[10px]" style={{ color: withAlpha(HUE.crimson, 0.75) }}>{sendError}</div> : null}
       {reply ? <div className="mt-2">
         <div className="text-[8px] uppercase tracking-[.14em]" style={{ color: DIM }}>reply · {new Date(reply.at).toLocaleTimeString()}</div>

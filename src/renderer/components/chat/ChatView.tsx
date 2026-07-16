@@ -12,18 +12,12 @@ import {
   type AgentChatState,
 } from "../../lib/chat-state";
 import { getAgentIdentity } from "../../lib/agent";
+import { chatActivity } from "../../lib/activity";
 import { DIM, HUE, withAlpha } from "../../lib/theme";
+import { ActivityMarkFromSpec } from "../ActivityMark";
 import { ChatTranscript } from "./ChatTranscript";
 import { ChatComposer, type ChatContextBlock } from "./ChatComposer";
 import "./chat.css";
-
-const STATUS_DOT: Record<AgentChatState["status"], { readonly color: string; readonly pulse: boolean }> = {
-  idle: { color: DIM, pulse: false },
-  connecting: { color: HUE.amber, pulse: true },
-  live: { color: "#5FB98E", pulse: false },
-  closed: { color: DIM, pulse: false },
-  error: { color: HUE.crimson, pulse: false },
-};
 
 function formatUsage(usage: AgentChatState["usage"]): string | undefined {
   if (!usage) return undefined;
@@ -60,15 +54,22 @@ export function ChatView({
     return () => { cancelled = true; };
   }, [agentKey, displayNameProp]);
 
-  const dot = STATUS_DOT[agentState.status];
   const isLive = agentState.status === "live";
   const usageText = formatUsage(agentState.usage);
+  const tools = agentState.transcript
+    .filter((item): item is Extract<typeof item, { kind: "tool" }> => item.kind === "tool")
+    .map((item) => ({ status: item.status }));
+  const headerActivity = chatActivity({
+    status: agentState.status,
+    pendingPermission: Boolean(agentState.pendingPermission),
+    tools,
+  });
 
   return (
     <div className="chat-view">
       <div className="chat-header">
         <div className="chat-header__top">
-          <span className={`chat-status-dot${dot.pulse ? " vellum-dot--pulse" : ""}`} style={{ background: dot.color }} />
+          <ActivityMarkFromSpec spec={headerActivity} size="inline" />
           <span className="chat-header__name" title={displayName ?? agentKey}>{displayName ?? agentKey}</span>
         </div>
         {(isLive && agentState.models.length > 0) || usageText ? (
@@ -91,7 +92,9 @@ export function ChatView({
       {!isLive ? (
         <div className="chat-empty">
           {agentState.status === "connecting" ? (
-            <div className="chat-empty__line vellum-dot--pulse" style={{ color: DIM }}>connecting…</div>
+            <div className="chat-empty__line" style={{ color: DIM, display: "flex", alignItems: "center", gap: 8 }}>
+              <ActivityMarkFromSpec spec={{ mode: "wave", tone: "amber", label: "connecting" }} size="inline" />
+            </div>
           ) : (
             <>
               <div className="chat-empty__line" style={{ color: agentState.status === "error" ? withAlpha(HUE.crimson, 0.85) : DIM }}>

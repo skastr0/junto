@@ -1,23 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatItem, ChatPlanEntry } from "../../lib/chat-state";
+import { toolActivity } from "../../lib/activity";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
+import { ActivityMarkFromSpec } from "../ActivityMark";
 
 // One card per ChatItem kind. Kept deliberately quiet — the transcript is a
 // record to scan, not a marketing surface.
-
-const TOOL_STATUS_LABEL: Record<string, string> = {
-  pending: "pending",
-  in_progress: "running",
-  completed: "done",
-  failed: "failed",
-};
-
-const TOOL_STATUS_COLOR: Record<string, string> = {
-  pending: HUE.amber,
-  in_progress: HUE.amber,
-  completed: "#5FB98E",
-  failed: HUE.crimson,
-};
 
 const PERMISSION_OPTION_LABEL: Record<string, string> = {
   allow_once: "Allow once",
@@ -81,19 +69,13 @@ function PlanStrip({ item }: { readonly item: Extract<ChatItem, { kind: "plan" }
 }
 
 function ToolCard({ item }: { readonly item: Extract<ChatItem, { kind: "tool" }> }) {
-  const color = TOOL_STATUS_COLOR[item.status] ?? DIM;
-  const pulse = item.status === "pending" || item.status === "in_progress";
+  const activity = toolActivity(item.status);
   const hasDetail = item.rawInput !== undefined || item.rawOutput !== undefined || Boolean(item.contentText);
   return (
     <div className="chat-tool-card">
       <div className="chat-tool-card__head">
         <span className="chat-tool-card__name" title={item.title}>{item.title}</span>
-        <span
-          className={`chat-tool-card__chip${pulse ? " vellum-dot--pulse" : ""}`}
-          style={{ color, borderColor: withAlpha(color, 0.4), background: withAlpha(color, 0.1) }}
-        >
-          {TOOL_STATUS_LABEL[item.status] ?? item.status}
-        </span>
+        <ActivityMarkFromSpec spec={activity} size="inline" />
       </div>
       {hasDetail ? (
         <details className="chat-tool-card__details">
@@ -117,7 +99,10 @@ function PermissionCard({
   const answered = Boolean(item.answeredOptionId);
   return (
     <div className="chat-permission-card">
-      <div className="chat-permission-card__title">{item.toolKind ? `${item.toolKind} · ` : ""}{item.title}</div>
+      <div className="chat-permission-card__title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {!answered ? <ActivityMarkFromSpec spec={{ mode: "wave", tone: "amber", label: "awaiting permission" }} size="inline" /> : null}
+        <span>{item.toolKind ? `${item.toolKind} · ` : ""}{item.title}</span>
+      </div>
       <div className="chat-permission-card__options">
         {item.options.map((option) => {
           const isChosen = item.answeredOptionId === option.optionId;
