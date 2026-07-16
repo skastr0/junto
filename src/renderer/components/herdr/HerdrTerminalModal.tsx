@@ -34,7 +34,7 @@ const base64ToUtf8 = (b64: string): string => {
   }
 };
 
-/** Browser key → PTY bytes. Escape is reserved for modal close (not sent). */
+/** Browser key → PTY bytes. Escape goes to the PTY (TUIs need it); close is ⌘W / Close / backdrop. */
 const keyEventToPty = (e: KeyboardEvent): string | null => {
   if (e.isComposing) return null;
   if (e.metaKey || e.altKey) return null;
@@ -70,7 +70,7 @@ const keyEventToPty = (e: KeyboardEvent): string | null => {
     case "Delete":
       return "\x1b[3~";
     case "Escape":
-      return null; // modal close only
+      return "\x1b";
     default:
       break;
   }
@@ -150,8 +150,9 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
     if (!terminalOpen) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
-      // Always allow Esc to dismiss.
-      if (e.key === "Escape" || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "w")) {
+      // Close on ⌘W/Ctrl+W only — Escape belongs to the terminal (agent TUIs
+      // use it to interrupt); Close button and backdrop remain pointer exits.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "w") {
         e.preventDefault();
         e.stopImmediatePropagation();
         closeHerdrTerminal();
@@ -317,7 +318,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       }
       streamIdRef.current = opened.streamId;
       setTerminalStreamId(opened.streamId);
-      setStatus(`connected · ${cols}×${rows} · type · Esc closes`);
+      setStatus(`connected · ${cols}×${rows} · type · ⌘W closes`);
       setConnectionEvent(terminalOpen.nodeId, { type: "ok" });
       // One more resize after attach — layout often settles after first paint.
       window.setTimeout(() => {
@@ -377,18 +378,44 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
     const modifierBits = (e: MouseEvent): number =>
       (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0);
 
-    const onWheel = (e: WheelEvent) => {
+    // Coalesce wheel ticks: over ssh, one NDJSON command per trackpad tick
+    // floods the stream and the frame echo queues up (rubber-banding). First
+    // tick flushes immediately; the rest accumulate into one command per 50ms
+    // window. herdr fans `lines` back out into per-tick wheel reports.
+    let wheelDelta = 0;
+    let wheelLast: WheelEvent | null = null;
+    let wheelTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const flushWheel = () => {
       const id = streamIdRef.current;
-      if (!id) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const lines = Math.max(1, Math.min(12, Math.round(Math.abs(e.deltaY) / 40) || 1));
+      const e = wheelLast;
+      const delta = wheelDelta;
+      wheelDelta = 0;
+      wheelLast = null;
+      if (!id || !e || delta === 0) return;
+      const lines = Math.max(1, Math.min(20, Math.round(Math.abs(delta) / 40) || 1));
       const { column, row } = cellAt(e);
-      void api.herdrStreamScroll(id, e.deltaY < 0 ? -lines : lines, {
+      void api.herdrStreamScroll(id, delta < 0 ? -lines : lines, {
         column,
         row,
         modifiers: modifierBits(e),
       });
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (!streamIdRef.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // Direction reversal flushes immediately so it never feels laggy.
+      if (wheelDelta !== 0 && Math.sign(e.deltaY) !== Math.sign(wheelDelta)) flushWheel();
+      wheelDelta += e.deltaY;
+      wheelLast = e;
+      if (wheelTimer) return;
+      flushWheel();
+      wheelTimer = setTimeout(() => {
+        wheelTimer = null;
+        flushWheel();
+      }, 50);
     };
     // Capture phase: run before xterm's own listeners on descendant elements.
     hostEl.addEventListener("wheel", onWheel, { passive: false, capture: true });
@@ -461,6 +488,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       hostEl.removeEventListener("mousemove", onMouseMove);
       hostEl.removeEventListener("contextmenu", onContextMenu);
       window.removeEventListener("mouseup", onMouseUp);
+      if (wheelTimer) clearTimeout(wheelTimer);
       if (resizeTimer) clearTimeout(resizeTimer);
       const id = streamIdRef.current;
       if (id) void api.herdrStreamClose(id);
@@ -489,7 +517,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
     >
         <header data-herdr-chrome className="herdr-modal-header">
           <div className="herdr-modal-header__meta min-w-0">
-            <div className="herdr-modal-eyebrow">herdr · Esc / Close detaches (pane keeps running)</div>
+            <div className="herdr-modal-eyebrow">herdr · ⌘W / Close detaches (pane keeps running) · Esc goes to the terminal</div>
             <div className="herdr-modal-title truncate">{terminalOpen.title}</div>
             <div className="herdr-modal-status truncate">
               {terminalOpen.herdr.host}
