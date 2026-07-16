@@ -35,6 +35,12 @@ commands:
   shot <nodeId> [--path <abs.png>]        screenshot to PNG
   close <nodeId>                  detach the surface (session stays warm)`;
 
+// Bounds the whole request/response round-trip. Without this, a hung page
+// script (executeJavaScript that never resolves — e.g. `while(true){}` run
+// through `eval`) wedges the HTTP handler forever and the CLI hangs with no
+// typed error, contradicting the runtime_down contract this file documents.
+const REQUEST_TIMEOUT_MS = 30_000;
+
 const httpOverSocket = (
   socketPath: string,
   route: { method: string; path: string },
@@ -69,6 +75,9 @@ const httpOverSocket = (
         });
       },
     );
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new Error(`request timed out after ${REQUEST_TIMEOUT_MS}ms — the app may be hung`));
+    });
     req.on("error", (error: NodeJS.ErrnoException) => {
       // Socket missing (never started) or refusing (crashed): the app is down.
       resolve(
@@ -158,9 +167,16 @@ const main = async (): Promise<void> => {
   try {
     token = (await readFile(controlTokenPath(home), "utf8")).trim();
   } catch {
-    // No token file → the app has never started its control plane.
+    // No token file → the app has never started its control plane. Route
+    // through the same human/json branching as every other error below, so
+    // this runtime_down looks identical to the socket-level one regardless of
+    // which path detected it.
     const envelope = controlErr("runtime_down", `token file missing: ${controlTokenPath(home)} — is the app running?`);
-    console.log(JSON.stringify(envelope, null, parsed.json ? 0 : 2));
+    if (parsed.json) {
+      console.log(JSON.stringify(envelope));
+    } else {
+      console.error(`${envelope.error._tag}: ${envelope.error.message}`);
+    }
     process.exit(1);
   }
 
