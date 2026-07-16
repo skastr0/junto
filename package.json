@@ -43,6 +43,7 @@
     "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.11.2",
     "effect": "^3.21.1",
+    "gradient-spin": "^0.1.0",
     "lucide-react": "^0.468.0",
     "motion": "^12.23.24",
     "react": "^19.2.0",
