@@ -11,9 +11,11 @@ import { boothPendingReview, entityReadout } from "../../lib/entity-readout";
 import { editText, setNodeTasks } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { state$ } from "../../lib/state";
+import { timerActivity, watcherActivity } from "../../lib/activity";
 import { accentColor, INK, DIM, HUE, SOURCE_HUE, withAlpha } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
+import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { NodeShell } from "./NodeShell";
 
@@ -40,18 +42,13 @@ function formatAgo(firedAt: number, now: number): string {
 
 function formatCountdown(nextFire: number, now: number): string {
   const minutes = Math.round((nextFire - now) / 60000);
-  if (minutes <= 0) return "pulsing…";
+  // Due state is ActivityMark wave only — no "pulsing…" label.
+  if (minutes <= 0) return "now";
   if (minutes < 60) return `next pulse in ${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
   return `next pulse in ${hours}h${remainder ? ` ${remainder}m` : ""}`;
 }
-
-const WATCH_STATUS_DOT: Record<WatcherRuntimeState["status"], { readonly color: string; readonly pulse: boolean; readonly glow?: string }> = {
-  satisfied: { color: "#5FB98E", pulse: false, glow: "0 0 6px rgba(95,185,142,0.6)" },
-  pending: { color: HUE.amber, pulse: true },
-  unknown: { color: DIM, pulse: false },
-};
 
 // A watcher card: a predicate over live data. Its status is entirely
 // DERIVED from kernel$ (never from the document) — the node itself only ever
@@ -62,16 +59,12 @@ function WatcherCard({ node }: { readonly node: CanvasNode }) {
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const status = runtime?.status ?? "unknown";
   const detail = runtime?.detail ?? "watching";
-  const dot = WATCH_STATUS_DOT[status];
+  const activity = watcherActivity(status);
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
       <div>
         <div className="flex items-center gap-2">
-          <span
-            className={`size-[6px] shrink-0 rounded-full${dot.pulse ? " vellum-dot--pulse" : ""}`}
-            style={{ background: dot.color, boxShadow: dot.glow }}
-            title={status}
-          />
+          <ActivityMarkFromSpec spec={activity} />
           <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>watcher</span>
         </div>
         <div className="mt-1 truncate text-[13px] font-semibold leading-snug" style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }} title={rawName}>
@@ -93,16 +86,21 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
   const now = useRelativeNow(30_000);
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const everyMinutes = node.ether?.timer?.everyMinutes;
+  const activity = timerActivity({ nextFire, now });
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
       <div>
-        <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>timer</span>
+        <div className="flex items-center gap-2">
+          <ActivityMarkFromSpec spec={activity} />
+          <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>timer</span>
+        </div>
         <div className="mt-1 truncate text-[13px] font-semibold leading-snug" style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }} title={rawName}>
           {rawName}
         </div>
       </div>
       <div className="text-[10px] leading-snug tabular-nums" style={{ color: DIM }}>
-        <div>{nextFire ? formatCountdown(nextFire, now) : "next pulse pending"}</div>
+        {/* Countdown numbers are content, not status labels. */}
+        <div>{nextFire ? formatCountdown(nextFire, now) : "—"}</div>
         {everyMinutes ? <div className="mt-0.5" style={{ opacity: 0.7 }}>every {everyMinutes}m</div> : null}
       </div>
     </div>
