@@ -231,6 +231,11 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
     term.loadAddon(fit);
     hostEl.replaceChildren();
     term.open(hostEl);
+    // xterm is display-only, but with scrollback: 0 its screen-element wheel
+    // listener consumes wheel events itself (alt-buffer arrow synthesis) and
+    // cancels them before they bubble to hostEl. Returning false here makes
+    // xterm ignore wheel entirely; the modal owns all pointer input.
+    term.attachCustomWheelEventHandler(() => false);
     termRef.current = term;
     fitRef.current = fit;
 
@@ -385,7 +390,8 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
         modifiers: modifierBits(e),
       });
     };
-    hostEl.addEventListener("wheel", onWheel, { passive: false });
+    // Capture phase: run before xterm's own listeners on descendant elements.
+    hostEl.addEventListener("wheel", onWheel, { passive: false, capture: true });
 
     // Mouse forwarding: hover/click/drag → terminal.mouse. herdr's emulation
     // encodes for the child app only when it enabled mouse reporting (grok-style
@@ -450,7 +456,11 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       unsub();
       window.removeEventListener("resize", scheduleResize);
       resizeObs?.disconnect();
-      hostEl.removeEventListener("wheel", onWheel);
+      hostEl.removeEventListener("wheel", onWheel, { capture: true });
+      hostEl.removeEventListener("mousedown", onMouseDown);
+      hostEl.removeEventListener("mousemove", onMouseMove);
+      hostEl.removeEventListener("contextmenu", onContextMenu);
+      window.removeEventListener("mouseup", onMouseUp);
       if (resizeTimer) clearTimeout(resizeTimer);
       const id = streamIdRef.current;
       if (id) void api.herdrStreamClose(id);
