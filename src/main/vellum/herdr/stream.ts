@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { herdrArgv } from "./hosts";
+import { herdrArgv, isKnownHerdrHost, UnknownHerdrHostError } from "./hosts";
 
 export interface HerdrStreamFrame {
   readonly streamId: string;
@@ -53,6 +53,9 @@ export class HerdrStreamManager {
     if (!input.terminalId) {
       return { ok: false, message: "terminalId required for control stream" };
     }
+    if (!isKnownHerdrHost(input.hostId) || input.hostId.startsWith("-")) {
+      return { ok: false, message: `unknown herdr host: ${input.hostId}` };
+    }
     // Single global control stream — release previous first.
     if (this.active) this.close(this.active.streamId, "superseded");
 
@@ -68,7 +71,19 @@ export class HerdrStreamManager {
       "--rows",
       String(Math.max(5, Math.floor(input.rows || 24))),
     ];
-    const { command, argv } = herdrArgv(input.hostId, args, input.session);
+    let command: string;
+    let argv: string[];
+    try {
+      ({ command, argv } = herdrArgv(input.hostId, args, input.session));
+    } catch (error) {
+      const message =
+        error instanceof UnknownHerdrHostError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : String(error);
+      return { ok: false, message };
+    }
 
     let child: ChildProcessWithoutNullStreams;
     try {

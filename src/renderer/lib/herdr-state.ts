@@ -36,6 +36,8 @@ export const herdr$ = observable({
 });
 
 export const openHerdrWizard = (anchor: { readonly x: number; readonly y: number }): void => {
+  // One interactive surface at a time — close terminal before wizard.
+  if (herdr$.terminal.peek()) void closeHerdrTerminal();
   herdr$.wizardAnchor.set(anchor);
   herdr$.wizardOpen.set(true);
 };
@@ -45,6 +47,8 @@ export const closeHerdrWizard = (): void => {
 };
 
 export const openHerdrTerminal = (nodeId: string, herdr: EtherHerdr, title: string): void => {
+  // Product lock: single interactive modal — close wizard first.
+  herdr$.wizardOpen.set(false);
   herdr$.terminal.set({ nodeId, herdr, title });
   ensureConnection(nodeId);
   setConnectionEvent(nodeId, { type: "ok" });

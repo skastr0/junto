@@ -24,7 +24,7 @@ describe("herdr hosts", () => {
     expect(argv).toEqual(["pane", "list"]);
   });
 
-  it("wraps remote in ssh BatchMode", () => {
+  it("wraps remote in ssh BatchMode with keepalives", () => {
     const { command, argv } = herdrArgv("remote-a", ["workspace", "list"], "ops");
     expect(command).toBe("ssh");
     expect(argv).toEqual([
@@ -32,6 +32,10 @@ describe("herdr hosts", () => {
       "ConnectTimeout=6",
       "-o",
       "BatchMode=yes",
+      "-o",
+      "ServerAliveInterval=30",
+      "-o",
+      "ServerAliveCountMax=3",
       "remote-a",
       "herdr",
       "--session",
@@ -40,7 +44,14 @@ describe("herdr hosts", () => {
       "list",
     ]);
   });
+
+  it("rejects unknown or option-shaped hosts", () => {
+    expect(() => herdrArgv("evil-host", ["status"])).toThrow(/unknown herdr host/);
+    expect(() => herdrArgv("-oProxyCommand=x", ["status"])).toThrow(/unknown herdr host/);
+  });
 });
+
+// Note: isKnownHerdrHost is enforced at herdrArgv + HerdrService + stream open.
 
 describe("herdr parse", () => {
   it("parses envelope result and error", () => {
@@ -192,6 +203,14 @@ describe("HerdrService with mock runner", () => {
     const res = await svc.listWorkspaces("remote-a");
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.code).toBe("timeout");
+  });
+
+  it("rejects unknown hosts at the service boundary", async () => {
+    const runner: HerdrRunner = async () => ok("{}");
+    const svc = new HerdrService(runner);
+    const res = await svc.listWorkspaces("attacker.example");
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("invalid");
   });
 
   it("create flows parse ids from JSON", async () => {

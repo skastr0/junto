@@ -38,8 +38,12 @@ const formatStats = (stats: Record<string, string | number>): string => {
   return parts.length > 0 ? parts.join(" ") : "ok";
 };
 
-const isSeed = (node: CanvasNode): boolean =>
-  node.ether?.entity !== undefined && (node.ether.bindings?.length ?? 0) === 0;
+const isSeed = (node: CanvasNode): boolean => {
+  const kind = node.ether?.entity?.kind;
+  // Herdr is a bound work surface (ether.herdr), not an unbound project seed.
+  if (kind === "herdr") return false;
+  return node.ether?.entity !== undefined && (node.ether.bindings?.length ?? 0) === 0;
+};
 
 export const digestCanvas = (
   name: string,

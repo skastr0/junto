@@ -70,11 +70,11 @@ export const killHerdrPane = async (nodeId: string, herdr: EtherHerdr): Promise<
   await closeHerdrTerminal();
   const result = await api.herdrKillPane(herdr.host, herdr.session ?? null, herdr.paneId);
   if (!result.ok) {
-    setHerdrToast(result.message ?? "Kill pane failed");
-  } else {
-    setConnectionEvent(nodeId, { type: "pane_closed" });
-    setHerdrToast("Pane closed on host");
+    setHerdrToast(result.message ?? "Kill pane failed — card kept");
+    return;
   }
+  setConnectionEvent(nodeId, { type: "pane_closed" });
+  setHerdrToast("Pane closed on host");
   detachHerdrNode(nodeId);
 };
 
@@ -90,8 +90,11 @@ export const killHerdrTab = async (nodeId: string, herdr: EtherHerdr): Promise<v
   }
   await closeHerdrTerminal();
   const result = await api.herdrKillTab(herdr.host, herdr.session ?? null, herdr.tabId);
-  if (!result.ok) setHerdrToast(result.message ?? "Kill tab failed");
-  else setHerdrToast("Tab closed on host");
+  if (!result.ok) {
+    setHerdrToast(result.message ?? "Kill tab failed — card kept");
+    return;
+  }
+  setHerdrToast("Tab closed on host");
   detachHerdrNode(nodeId);
 };
 
@@ -128,22 +131,55 @@ export const recreateHerdrPane = async (nodeId: string, herdr: EtherHerdr): Prom
     setHerdrToast(ensure.message ?? "ensure server failed");
     return;
   }
-  const created = await api.herdrCreatePane(herdr.host, herdr.session ?? null, {
-    paneId: herdr.paneId,
-    direction: "right",
-  });
-  if (!created.ok || !created.data?.paneId) {
-    setHerdrToast(created.message ?? "create pane failed");
+  // Lost panes must not split-from-missing-id. Prefer new tab under workspace
+  // (herdr returns a root pane); never use the dead paneId as split base.
+  const extended = api as {
+    herdrCreateTab?: (
+      hostId: string,
+      session: string | null | undefined,
+      input: { workspaceId: string; label?: string },
+    ) => Promise<{
+      ok: boolean;
+      data?: { tabId: string; paneId?: string; terminalId?: string };
+      message?: string;
+    }>;
+  };
+  let nextIds: {
+    paneId?: string;
+    terminalId?: string;
+    tabId?: string;
+    workspaceId?: string;
+  } = {};
+  if (herdr.workspaceId && extended.herdrCreateTab) {
+    const tab = await extended.herdrCreateTab(herdr.host, herdr.session ?? null, {
+      workspaceId: herdr.workspaceId,
+      label: "recreate",
+    });
+    if (tab.ok && tab.data?.paneId) {
+      nextIds = {
+        paneId: tab.data.paneId,
+        terminalId: tab.data.terminalId,
+        tabId: tab.data.tabId,
+        workspaceId: herdr.workspaceId,
+      };
+    } else if (!tab.ok) {
+      setHerdrToast(tab.message ?? "recreate tab failed — open attach wizard");
+      setConnectionEvent(nodeId, { type: "manual_fail" });
+      return;
+    }
+  }
+  if (!nextIds.paneId) {
+    setHerdrToast("recreate needs a workspace — open attach wizard to create a new pane");
     setConnectionEvent(nodeId, { type: "manual_fail" });
     return;
   }
   const doc = state$.doc.peek();
   const nextHerdr: EtherHerdr = {
     ...herdr,
-    paneId: created.data.paneId,
-    terminalId: created.data.terminalId ?? herdr.terminalId,
-    tabId: created.data.tabId ?? herdr.tabId,
-    workspaceId: created.data.workspaceId ?? herdr.workspaceId,
+    paneId: nextIds.paneId,
+    terminalId: nextIds.terminalId ?? herdr.terminalId,
+    tabId: nextIds.tabId ?? herdr.tabId,
+    workspaceId: nextIds.workspaceId ?? herdr.workspaceId,
   };
   commitDoc({
     ...doc,

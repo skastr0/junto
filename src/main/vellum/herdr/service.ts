@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { runCli, type CliResult } from "../adapters/exec";
-import { HERDR_HOSTS, herdrArgv, type HerdrHostDef } from "./hosts";
+import { HERDR_HOSTS, herdrArgv, isKnownHerdrHost, UnknownHerdrHostError, type HerdrHostDef } from "./hosts";
 import {
   parseCliEnvelope,
   parseCreateIds,
@@ -66,6 +66,13 @@ const mapCliFailure = (result: CliResult, hostId: string): HerdrResultErr => {
   return { ok: false, code: "failed", message: err };
 };
 
+const requireHost = (hostId: string): HerdrResultErr | null => {
+  if (!isKnownHerdrHost(hostId) || hostId.startsWith("-")) {
+    return { ok: false, code: "invalid", message: `unknown herdr host: ${hostId}` };
+  }
+  return null;
+};
+
 const runEnvelope = async (
   runner: HerdrRunner,
   hostId: string,
@@ -73,7 +80,17 @@ const runEnvelope = async (
   session?: string | null,
   timeoutMs?: number,
 ): Promise<HerdrResult<unknown>> => {
-  const cli = await runner(hostId, args, session, timeoutMs);
+  const bad = requireHost(hostId);
+  if (bad) return bad;
+  let cli: CliResult;
+  try {
+    cli = await runner(hostId, args, session, timeoutMs);
+  } catch (error) {
+    if (error instanceof UnknownHerdrHostError) {
+      return { ok: false, code: "invalid", message: error.message };
+    }
+    throw error;
+  }
   if (!cli.ok) return mapCliFailure(cli, hostId);
   const envelope = parseCliEnvelope(cli.stdout);
   if (!envelope.ok) {
@@ -95,8 +112,18 @@ export class HerdrService {
     hostId: string,
     session?: string | null,
   ): Promise<HerdrResult<{ readonly running: boolean; readonly started: boolean }>> {
+    const bad = requireHost(hostId);
+    if (bad) return bad;
     // status is cheap; if server is up we're done.
-    const status = await this.runner(hostId, ["status", "--json"], session, 8_000);
+    let status: CliResult;
+    try {
+      status = await this.runner(hostId, ["status", "--json"], session, 8_000);
+    } catch (error) {
+      if (error instanceof UnknownHerdrHostError) {
+        return { ok: false, code: "invalid", message: error.message };
+      }
+      throw error;
+    }
     if (status.ok) {
       try {
         const parsed = JSON.parse(status.stdout.trim()) as {
@@ -115,7 +142,17 @@ export class HerdrService {
     }
 
     // Spawn headless server (detached). API CLI does not autostart.
-    const { command, argv } = herdrArgv(hostId, ["server"], session);
+    let command: string;
+    let argv: string[];
+    try {
+      ({ command, argv } = herdrArgv(hostId, ["server"], session));
+    } catch (error) {
+      if (error instanceof UnknownHerdrHostError) {
+        return { ok: false, code: "invalid", message: error.message };
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, code: "failed", message };
+    }
     try {
       const child = spawn(command, argv, {
         detached: true,
@@ -152,6 +189,8 @@ export class HerdrService {
   }
 
   async listSessions(hostId: string): Promise<HerdrResult<ReadonlyArray<HerdrSessionRow>>> {
+    const bad = requireHost(hostId);
+    if (bad) return bad;
     const cli = await this.runner(hostId, ["session", "list", "--json"], null, 10_000);
     if (!cli.ok) return mapCliFailure(cli, hostId);
     try {
