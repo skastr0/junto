@@ -18,7 +18,7 @@ import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow
 import { use$ } from "@legendapp/state/react";
 import type { EtherBinding, EtherEdgeKind, EtherFlag, TextNode } from "@shared/canvas";
 import { mergeProjects } from "@shared/portfolio";
-import { Ban, Bot, Boxes, Expand, Eye, FileText, Link2, ListChecks, Plus, ScanLine, SquareDashed, Timer, Trash2 } from "lucide-react";
+import { Ban, Bot, Boxes, Expand, Eye, FileText, Link2, ListChecks, Plus, ScanLine, SquareDashed, Terminal, Timer, Trash2 } from "lucide-react";
 import { state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
@@ -27,6 +27,7 @@ import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, deleteEdges } from "../lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { makeAgentNode, makeFileNode, makeGroupNode, makeLinkNode, makeProjectNode, makeTasksNode, makeTextNode } from "../lib/node-factories";
+import { openHerdrWizard } from "../lib/herdr-state";
 import { accentColor, GROUND, HUE } from "../lib/theme";
 import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
@@ -272,6 +273,7 @@ interface AddActions {
   readonly addWatcher: () => void;
   readonly addTimer: () => void;
   readonly addTasks: () => void;
+  readonly addHerdr: () => void;
 }
 
 // Watcher/timer nodes are TEXT nodes carrying entity kind "watcher"/"timer" +
@@ -352,6 +354,11 @@ const makeAddActions = (
     state$.focusNodeId.set(node.id);
     dismiss();
   },
+  addHerdr: () => {
+    const position = positionFor({ width: 260, height: 110 });
+    openHerdrWizard(position);
+    dismiss();
+  },
 });
 
 // Escape / outside-pointerdown dismissal shared by both menu hosts.
@@ -420,6 +427,7 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
       { key: "watcher", label: "watcher", sub: "condition over live data", icon: <Eye size={14} />, ariaLabel: "Add watcher", onSelect: () => actions.addWatcher() },
       { key: "timer", label: "timer", sub: "pulse on an interval", icon: <Timer size={14} />, ariaLabel: "Add timer", onSelect: () => actions.addTimer() },
       { key: "tasks", label: "tasks", sub: "local checklist · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", onSelect: () => actions.addTasks() },
+      { key: "herdr", label: "herdr", sub: "work surface · attach live pane", icon: <Terminal size={14} />, ariaLabel: "Add herdr work surface", onSelect: () => actions.addHerdr() },
       { key: "project", label: "project", sub: "bound live readout", icon: <Boxes size={14} />, ariaLabel: "Add project", onSelect: () => setPicker("project") },
       { key: "agent", label: "agent", sub: "hermes profile", icon: <Bot size={14} />, ariaLabel: "Add agent", onSelect: () => setPicker("agent") },
     ]
