@@ -82,7 +82,7 @@ function BrowserDockSlot({ nodeId }: { readonly nodeId: string }) {
           <div className="browser-modal-eyebrow">page · {payload.browser.profile} · close detaches (session keeps running)</div>
           <div className="browser-modal-title truncate">{session?.title ?? payload.title}</div>
           <div className="browser-modal-status truncate">
-            {payload.url}
+            {session?.url ?? payload.url}
             {" · "}
             {session?.state ?? status}
           </div>
