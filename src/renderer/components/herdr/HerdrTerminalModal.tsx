@@ -35,6 +35,8 @@ const base64ToUtf8 = (b64: string): string => {
 
 export function HerdrTerminalModal() {
   const terminalOpen = use$(herdr$.terminal);
+  const nodeId = terminalOpen?.nodeId ?? "";
+  const conn = use$(herdr$.connectionByNodeId[nodeId]);
   const hostRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -213,8 +215,6 @@ export function HerdrTerminalModal() {
   }, [terminalOpen?.nodeId, terminalOpen?.herdr.paneId, terminalOpen?.herdr.terminalId]);
 
   if (!terminalOpen) return null;
-
-  const conn = use$(herdr$.connectionByNodeId[terminalOpen.nodeId]);
 
   return (
     <div className="fixed inset-0 z-[90] flex flex-col bg-black/70 p-4" role="dialog" aria-label="Herdr terminal">
