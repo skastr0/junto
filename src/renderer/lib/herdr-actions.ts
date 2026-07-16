@@ -4,6 +4,7 @@ import { herdrDeleteAction } from "@shared/herdr";
 import { getVellumApi } from "./vellum-api";
 import {
   closeHerdrTerminal,
+  herdr$,
   setConnectionEvent,
   setHerdrToast,
 } from "./herdr-state";
@@ -122,7 +123,7 @@ export const handleHerdrNodeDelete = async (nodeId: string): Promise<boolean> =>
 /** Recreate: new pane under same host/session, rebind ids into ether.herdr. */
 export const recreateHerdrPane = async (nodeId: string, herdr: EtherHerdr): Promise<void> => {
   const api = herdrApi();
-  if (!api?.herdrCreatePane || !api.herdrEnsureServer) {
+  if (!api?.herdrEnsureServer) {
     setHerdrToast("Recreate unavailable");
     return;
   }
@@ -197,5 +198,14 @@ export const recreateHerdrPane = async (nodeId: string, herdr: EtherHerdr): Prom
     ),
   });
   setConnectionEvent(nodeId, { type: "reconnected" });
+  // Keep open terminal binding in sync if this card is the active modal target.
+  const open = herdr$.terminal.peek();
+  if (open?.nodeId === nodeId) {
+    herdr$.terminal.set({
+      ...open,
+      herdr: nextHerdr,
+      streamId: undefined,
+    });
+  }
   setHerdrToast("Pane recreated and rebound");
 };

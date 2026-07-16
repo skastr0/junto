@@ -36,8 +36,15 @@ export const herdr$ = observable({
 });
 
 export const openHerdrWizard = (anchor: { readonly x: number; readonly y: number }): void => {
-  // One interactive surface at a time — close terminal before wizard.
-  if (herdr$.terminal.peek()) void closeHerdrTerminal();
+  // One interactive surface at a time — null terminal UI immediately, release stream async.
+  const open = herdr$.terminal.peek();
+  if (open?.streamId) {
+    const api = getVellumApi() as
+      | (ReturnType<typeof getVellumApi> & { herdrStreamClose?: (id: string) => Promise<unknown> })
+      | undefined;
+    void api?.herdrStreamClose?.(open.streamId);
+  }
+  herdr$.terminal.set(null);
   herdr$.wizardAnchor.set(anchor);
   herdr$.wizardOpen.set(true);
 };

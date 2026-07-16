@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import { connectionStateOf, herdr$, openHerdrTerminal, refreshHerdrMeta } from "../../lib/herdr-state";
-import { killHerdrPane, recreateHerdrPane } from "../../lib/herdr-actions";
+import { killHerdrPane, killHerdrTab, recreateHerdrPane } from "../../lib/herdr-actions";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -136,6 +136,18 @@ export function HerdrCard({ node }: { readonly node: CanvasNode }) {
           >
             kill pane
           </button>
+          {herdr.tabId ? (
+            <button
+              type="button"
+              className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-slate-300 hover:bg-white/10"
+              onClick={(e) => {
+                e.stopPropagation();
+                void killHerdrTab(node.id, herdr);
+              }}
+            >
+              kill tab
+            </button>
+          ) : null}
           {(connState === "lost" || connState === "failed") && (
             <button
               type="button"
