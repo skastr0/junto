@@ -14,6 +14,7 @@ import {
   undo,
 } from "./lib/mutations";
 import { startKernelBridge } from "./lib/kernel-view";
+import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { DigestPanel } from "./components/DigestPanel";
@@ -210,6 +211,11 @@ export function App() {
       didBoot = true;
       void boot().catch(setError);
     }
+
+    // A renderer-only reload (dev hot reload, crash-recovery reload) leaves
+    // any already-attached WebContentsView orphaned unless the dock is
+    // rebuilt from the main process's live session list on mount.
+    void reconcileDockFromLiveSessions();
 
     const stopKernel = startKernelBridge();
 

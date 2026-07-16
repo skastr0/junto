@@ -74,6 +74,45 @@ const applyTransition = (transition: DockTransition): void => {
 };
 
 /**
+ * Reconcile the dock with the main process's actual live sessions. dock$
+ * always starts empty on a fresh render tree (module init) — that's the
+ * ground truth after a real app launch, but NOT after a renderer-only reload
+ * (dev hot reload, or registerCrashRecovery's webContents.reload()): a
+ * WebContentsView already attached under the window's contentView survives
+ * that reload untouched, while the new React tree has no memory of it, so an
+ * empty dock renders nothing and the surviving native view floats with no
+ * dock chrome. Runs once per renderer lifetime; any session reported
+ * attached:true gets its slot rebuilt so BrowserDockSlot mounts and its own
+ * ResizeObserver effect repositions the surviving view via browserSetBounds.
+ */
+let reconciledLiveSessions = false;
+
+export const reconcileDockFromLiveSessions = async (): Promise<void> => {
+  if (reconciledLiveSessions) return;
+  reconciledLiveSessions = true;
+  const a = api();
+  if (!a?.browserSessionList) return;
+  try {
+    const result = await a.browserSessionList();
+    if (!result.ok || !result.data) return;
+    for (const session of result.data) {
+      if (!session.attached) continue;
+      browser$.sessionByNodeId[session.nodeId].set(session);
+      dock$.browserByNodeId[session.nodeId].set({
+        nodeId: session.nodeId,
+        browser: { profile: session.profile },
+        url: session.url,
+        title: session.title ?? session.url,
+      });
+      applyTransition(openSurface(dock$.registry.peek(), { id: session.nodeId, kind: "browser" }));
+    }
+  } catch {
+    // Best-effort — an unreconciled attached session degrades to the existing
+    // manual recovery (the card's own detach button, fed by refreshBrowserSession).
+  }
+};
+
+/**
  * Open (or re-focus) a page node's browser surface in the dock. The dock slot
  * appears immediately; the warm session opens/reuses over IPC and its state
  * flows back on the browserSessionChanged push channel.
@@ -84,7 +123,13 @@ export const openDockBrowser = async (
   url: string,
   title: string,
 ): Promise<void> => {
-  void hydrateDockConfig();
+  // Awaited (not fire-and-forget): hydrateDockConfig no-ops instantly once
+  // already hydrated, so this only ever delays the FIRST surface of a
+  // session — long enough that openSurface's eviction below never runs
+  // against the placeholder maxVisible=2 default when the real config says
+  // otherwise (a same-beat second/third open would evict under the wrong
+  // limit, and nothing re-admits a wrongly-evicted surface afterward).
+  await hydrateDockConfig();
   dock$.browserByNodeId[nodeId].set({ nodeId, browser, url, title });
   applyTransition(openSurface(dock$.registry.peek(), { id: nodeId, kind: "browser" }));
   const a = api();
