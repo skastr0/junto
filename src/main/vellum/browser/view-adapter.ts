@@ -31,6 +31,15 @@ export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
     if (code !== -3) events.onLoadFail(`${description || "load failed"} (${code})`);
   });
 
+  // The window this view is actually parented under — tracked locally because
+  // sessions.ts's `attached` boolean can go stale across a window close/reopen
+  // (mac red-button close + Dock reopen creates a NEW BrowserWindow; nothing
+  // resets `attached`). setBounds self-heals against that staleness by
+  // re-parenting whenever the live window differs from the one last attached
+  // to, so a setBounds call is always enough to make the surface visible
+  // again regardless of what the caller's bookkeeping believes.
+  let attachedWindow: BrowserWindow | undefined;
+
   const handle: BrowserViewHandle = {
     loadUrl: (url) => {
       void view.webContents.loadURL(url);
@@ -39,9 +48,15 @@ export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
       const win = mainWindow();
       if (!win || win.isDestroyed()) return;
       win.contentView.addChildView(view);
+      attachedWindow = win;
       handle.setBounds(bounds);
     },
     setBounds: (bounds: BrowserSurfaceBounds) => {
+      const win = mainWindow();
+      if (win && !win.isDestroyed() && win !== attachedWindow) {
+        win.contentView.addChildView(view);
+        attachedWindow = win;
+      }
       view.setBounds({
         x: Math.round(bounds.x),
         y: Math.round(bounds.y),
@@ -50,9 +65,10 @@ export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
       });
     },
     detach: () => {
-      const win = mainWindow();
-      if (!win || win.isDestroyed()) return;
-      win.contentView.removeChildView(view);
+      if (attachedWindow && !attachedWindow.isDestroyed()) {
+        attachedWindow.contentView.removeChildView(view);
+      }
+      attachedWindow = undefined;
     },
     destroy: () => {
       // Runtime teardown only — the persist: partition (cookies) is on disk.
