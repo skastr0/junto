@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
+import { Globe } from "lucide-react";
 import {
   closeBrowserSurface,
   openBrowserSurface,
@@ -80,15 +81,22 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
         </div>
         <button
           type="button"
-          className="nodrag nopan mt-1 w-full truncate text-left text-[14px] font-semibold leading-snug"
-          style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
+          className="nodrag nopan mt-1 flex w-full items-center gap-1.5 text-left"
           title="Attach browser surface"
           onClick={(e) => {
             e.stopPropagation();
             open();
           }}
         >
-          {warm && title ? title : host}
+          {/* No favicon in the BR-004 session payload yet — a quiet globe
+              glyph fills the slot honestly rather than guessing a fetch. */}
+          <Globe size={13} className="shrink-0" style={{ color: HUE.steel }} />
+          <span
+            className="truncate text-[14px] font-semibold leading-snug"
+            style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
+          >
+            {warm && title ? title : host}
+          </span>
         </button>
         <div className="mt-0.5 truncate text-[10px]" style={{ color: DIM }} title={url}>
           {url}
