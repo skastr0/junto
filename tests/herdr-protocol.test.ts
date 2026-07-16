@@ -60,4 +60,15 @@ describe("herdr control protocol field names", () => {
     expect(mouseMethod).toMatch(/row:/);
     expect(mouseMethod).toMatch(/modifiers:/);
   });
+
+  it("terminal.clipboard_image uses extension + bytes — stages on host, pastes path", () => {
+    const methodStart = streamSrc.indexOf("clipboardImage(");
+    expect(methodStart).toBeGreaterThan(-1);
+    const method = streamSrc.slice(methodStart, streamSrc.indexOf("resize(", methodStart));
+    expect(method).toMatch(/type:\s*["']terminal\.clipboard_image["']/);
+    expect(method).toMatch(/extension:\s*ext/);
+    expect(method).toMatch(/bytes:\s*dataBase64/);
+    // Same silent-noop trap as terminal.input — never ship a field herdr ignores.
+    expect(method).not.toMatch(/\bdata:\s*dataBase64\b/);
+  });
 });

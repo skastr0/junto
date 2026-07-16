@@ -113,6 +113,13 @@ export const registerHerdrIpc = (
     herdrStreams.input(streamId, dataBase64),
   );
 
+
+  ipcMain.handle(
+    IPC_CHANNELS.herdrStreamClipboardImage,
+    (_e, streamId: string, extension: string, dataBase64: string) =>
+      herdrStreams.clipboardImage(streamId, extension, dataBase64),
+  );
+
   ipcMain.handle(
     IPC_CHANNELS.herdrStreamResize,
     (_e, streamId: string, cols: number, rows: number) => herdrStreams.resize(streamId, cols, rows),

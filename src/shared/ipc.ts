@@ -60,6 +60,7 @@ export const IPC_CHANNELS = {
   herdrKillTab: "vellum:herdr-kill-tab",
   herdrStreamOpen: "vellum:herdr-stream-open",
   herdrStreamInput: "vellum:herdr-stream-input",
+  herdrStreamClipboardImage: "vellum:herdr-stream-clipboard-image",
   herdrStreamResize: "vellum:herdr-stream-resize",
   herdrStreamScroll: "vellum:herdr-stream-scroll",
   herdrStreamMouse: "vellum:herdr-stream-mouse",
@@ -732,6 +733,16 @@ export interface VellumHerdrApi {
   ) => Promise<HerdrOpResult<{ readonly closed: true }>>;
   readonly herdrStreamOpen: (input: HerdrStreamOpenInput) => Promise<HerdrStreamOpenResult>;
   readonly herdrStreamInput: (streamId: string, dataBase64: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
+  /**
+   * Stage a clipboard/dropped image on the herdr host and paste its path into
+   * the attached pane. `dataBase64` is raw image bytes (not a data URL).
+   * Cap is herdr's 16MB clipboard image limit.
+   */
+  readonly herdrStreamClipboardImage: (
+    streamId: string,
+    extension: string,
+    dataBase64: string,
+  ) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly herdrStreamResize: (streamId: string, cols: number, rows: number) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly herdrStreamScroll: (
     streamId: string,

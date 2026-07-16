@@ -12,6 +12,7 @@ import {
   setTerminalStreamId,
 } from "../../lib/herdr-state";
 import { recreateHerdrPane } from "../../lib/herdr-actions";
+import { extractHerdrClipboardImage } from "../../lib/herdr-clipboard-image";
 import { dock$ } from "../../lib/dock-state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { HUE } from "../../lib/theme";
@@ -89,6 +90,11 @@ type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
     takeover?: boolean;
   }) => Promise<{ ok: boolean; streamId?: string; message?: string }>;
   herdrStreamInput: (streamId: string, data: string) => Promise<{ ok?: boolean; error?: string }>;
+  herdrStreamClipboardImage: (
+    streamId: string,
+    extension: string,
+    dataBase64: string,
+  ) => Promise<{ ok?: boolean; error?: string }>;
   herdrStreamResize: (streamId: string, cols: number, rows: number) => Promise<unknown>;
   herdrStreamScroll: (
     streamId: string,
@@ -182,17 +188,51 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       });
     };
 
+    const sendClipboardImage = (
+      image: { readonly extension: string; readonly dataBase64: string; readonly byteLength: number },
+    ) => {
+      const id = streamIdRef.current;
+      const api = apiRef.current;
+      if (!id || !api?.herdrStreamClipboardImage) {
+        setStatus("image paste dropped · stream not ready");
+        return;
+      }
+      setStatus(`pasting image (${image.byteLength} B)…`);
+      void api.herdrStreamClipboardImage(id, image.extension, image.dataBase64).then((res) => {
+        if (res && res.ok === false && res.error) {
+          setStatus(`image paste failed: ${res.error}`);
+          return;
+        }
+        setStatus(`image pasted · ${image.extension} · ${image.byteLength} B`);
+      });
+    };
+
     const onPaste = (e: ClipboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t?.closest?.("[data-herdr-chrome]")) return;
-      const text = e.clipboardData?.getData("text");
-      if (!text) return;
-      e.preventDefault();
-      e.stopPropagation();
       const id = streamIdRef.current;
       const api = apiRef.current;
       if (!id || !api) return;
-      void api.herdrStreamInput(id, utf8ToBase64(text));
+
+      // Image first (screenshot / copied file). Text paste remains the fallback.
+      e.preventDefault();
+      e.stopPropagation();
+      void (async () => {
+        const image = await extractHerdrClipboardImage(e.clipboardData);
+        if (image && "error" in image) {
+          setStatus(`image paste failed: ${image.error}`);
+          return;
+        }
+        if (image) {
+          sendClipboardImage(image);
+          return;
+        }
+        const text = e.clipboardData?.getData("text");
+        if (!text) return;
+        void api.herdrStreamInput(id, utf8ToBase64(text)).then((res) => {
+          if (res && res.ok === false && res.error) setStatus(`input failed: ${res.error}`);
+        });
+      })();
     };
 
     window.addEventListener("keydown", onKeyDown, true);
@@ -475,9 +515,44 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
     };
     const onContextMenu = (e: MouseEvent) => e.preventDefault();
 
+    // Image file drop — same stage+path path as clipboard paste.
+    const onDragOver = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "copy";
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!e.dataTransfer) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const id = streamIdRef.current;
+      if (!id || !api.herdrStreamClipboardImage) return;
+      void (async () => {
+        const image = await extractHerdrClipboardImage(e.dataTransfer);
+        if (image && "error" in image) {
+          setStatus(`image drop failed: ${image.error}`);
+          return;
+        }
+        if (!image) {
+          setStatus("drop ignored · not an image");
+          return;
+        }
+        setStatus(`pasting image (${image.byteLength} B)…`);
+        const res = await api.herdrStreamClipboardImage(id, image.extension, image.dataBase64);
+        if (res && res.ok === false && res.error) {
+          setStatus(`image drop failed: ${res.error}`);
+          return;
+        }
+        setStatus(`image pasted · ${image.extension} · ${image.byteLength} B`);
+      })();
+    };
+
     hostEl.addEventListener("mousedown", onMouseDown);
     hostEl.addEventListener("mousemove", onMouseMove);
     hostEl.addEventListener("contextmenu", onContextMenu);
+    hostEl.addEventListener("dragover", onDragOver);
+    hostEl.addEventListener("drop", onDrop);
     // Releases outside the terminal must still end the drag.
     window.addEventListener("mouseup", onMouseUp);
 
@@ -492,6 +567,8 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       hostEl.removeEventListener("mousedown", onMouseDown);
       hostEl.removeEventListener("mousemove", onMouseMove);
       hostEl.removeEventListener("contextmenu", onContextMenu);
+      hostEl.removeEventListener("dragover", onDragOver);
+      hostEl.removeEventListener("drop", onDrop);
       window.removeEventListener("mouseup", onMouseUp);
       if (wheelTimer) clearTimeout(wheelTimer);
       if (resizeTimer) clearTimeout(resizeTimer);

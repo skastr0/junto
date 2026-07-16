@@ -191,6 +191,31 @@ export class HerdrStreamManager {
     });
   }
 
+
+  /**
+   * herdr control protocol:
+   *   { type: "terminal.clipboard_image", extension: "png", bytes: "<base64>" }
+   * Server stages the image on the host and pastes the absolute path into the
+   * attached pane (same path as `herdr --remote` clipboard image bridge).
+   * Requires a herdr build that knows the command; older builds reject on stderr.
+   */
+  clipboardImage(
+    streamId: string,
+    extension: string,
+    dataBase64: string,
+  ): { readonly ok: boolean; readonly error?: string } {
+    const stream = this.require(streamId);
+    if (!stream.ok) return stream;
+    const ext = extension.trim().replace(/^\./, "").toLowerCase();
+    if (!ext) return { ok: false, error: "clipboard image extension required" };
+    if (!dataBase64) return { ok: false, error: "clipboard image bytes required" };
+    return this.writeJson(stream.stream, {
+      type: "terminal.clipboard_image",
+      extension: ext,
+      bytes: dataBase64,
+    });
+  }
+
   resize(
     streamId: string,
     cols: number,
