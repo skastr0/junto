@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, renameGroup, setNodeColor, setNodeView, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
+import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, renameGroup, setNodeColor, setNodeView, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
 import { addEdge, deleteEdges, editEdgeLabel, inferEdgeCriteria, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
@@ -337,6 +337,34 @@ describe("renderer graph mutations", () => {
       expect.objectContaining({ id: "link", url: "https://after.example" }),
       expect.objectContaining({ id: "region", label: "After" }),
     ]));
+  });
+
+  it("promotes a plain link node in place into a bound browser page work surface", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({ nodes: [
+      { id: "link", type: "link", url: "https://before.example", x: 0, y: 0, width: 200, height: 80 },
+    ], edges: [] });
+
+    promoteLinkToPage("link", "work");
+
+    const node = state$.doc.peek().nodes[0];
+    expect(node).toMatchObject({
+      id: "link",
+      type: "link",
+      url: "https://before.example", // url untouched — only ether is stamped
+      ether: { entity: { kind: "page" }, browser: { profile: "work", onDelete: "detach" } },
+    });
+    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+  });
+
+  it("promoteLinkToPage is a no-op against a non-link node id", () => {
+    state$.canvasName.set("mutation-test");
+    const note = { id: "note", type: "text" as const, text: "hello", x: 0, y: 0, width: 200, height: 80 };
+    loadDoc({ nodes: [note], edges: [] });
+
+    promoteLinkToPage("note", "personal");
+
+    expect(state$.doc.peek().nodes[0]).toEqual(note);
   });
 
   it("includes a node whose center lies inside the region and excludes one merely overlapping its edge", () => {
