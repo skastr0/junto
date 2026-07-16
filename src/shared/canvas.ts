@@ -68,6 +68,7 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "skill",
   "task",
   "herdr",
+  "page",
 ] as const;
 
 // Bound herdr work surface (PTY pane on a host). Not a hermes agent binding —
@@ -92,6 +93,24 @@ export type EtherHerdr = typeof EtherHerdr.Type;
 /** Resolve onDelete with product default `detach` when the field is omitted. */
 export const resolveHerdrOnDelete = (herdr: EtherHerdr | undefined): HerdrOnDelete =>
   herdr?.onDelete ?? "detach";
+
+// Bound browser page work surface. Document holds profile *name* only —
+// cookies live in ~/.vellum/browser (runtime), never in the .canvas file.
+// Native JSON Canvas type remains `link` (url); kind "page" + ether.browser
+// upgrade the node to an in-app session binding. onDelete default is detach:
+// removing the card must not wipe the profile or force-kill a warm session.
+export const BrowserOnDelete = Schema.Literal("detach", "kill-session");
+export type BrowserOnDelete = typeof BrowserOnDelete.Type;
+
+export const EtherBrowser = Schema.Struct({
+  profile: Schema.String,
+  onDelete: Schema.optionalWith(BrowserOnDelete, { exact: true }),
+});
+export type EtherBrowser = typeof EtherBrowser.Type;
+
+/** Resolve onDelete with product default `detach` when the field is omitted. */
+export const resolveBrowserOnDelete = (browser: EtherBrowser | undefined): BrowserOnDelete =>
+  browser?.onDelete ?? "detach";
 
 export const EtherEntity = Schema.Struct({
   kind: Schema.String,
@@ -215,6 +234,8 @@ export const EtherNodeExtension = Schema.Struct({
   tasks: Schema.optionalWith(EtherTasks, { exact: true }),
   // Work-surface binding for entity.kind === "herdr". Not an EntitySource.
   herdr: Schema.optionalWith(EtherHerdr, { exact: true }),
+  // Work-surface binding for entity.kind === "page" on a link node. Not an EntitySource.
+  browser: Schema.optionalWith(EtherBrowser, { exact: true }),
 });
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 

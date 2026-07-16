@@ -89,8 +89,15 @@ export const isBlockableNode = (node: CanvasNode | undefined): boolean => {
   if (!node) return false;
   if (node.type === "group") return false;
   const kind = node.ether?.entity?.kind;
-  // herdr is a work surface (PTY card), not a primary execution-graph actor.
-  if (kind === "agent" || kind === "watcher" || kind === "timer" || kind === "herdr") return false;
+  // herdr/page are work surfaces (PTY / browser), not primary execution-graph actors.
+  if (
+    kind === "agent" ||
+    kind === "watcher" ||
+    kind === "timer" ||
+    kind === "herdr" ||
+    kind === "page"
+  )
+    return false;
   // Free notes (text without entity) are not blockable.
   if (node.type === "text" && kind === undefined) return false;
   return true;

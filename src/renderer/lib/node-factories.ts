@@ -1,5 +1,13 @@
 import { ulid } from "ulid";
-import type { EtherBinding, EtherHerdr, FileNode, GroupNode, LinkNode, TextNode } from "@shared/canvas";
+import type {
+  EtherBinding,
+  EtherBrowser,
+  EtherHerdr,
+  FileNode,
+  GroupNode,
+  LinkNode,
+  TextNode,
+} from "@shared/canvas";
 
 export const makeTextNode = (x: number, y: number): TextNode => ({
   id: `node-${ulid()}`,
@@ -126,6 +134,34 @@ export const makeHerdrNode = (
       herdr: {
         ...herdr,
         onDelete: herdr.onDelete ?? "detach",
+      },
+    },
+  };
+};
+
+// A browser page work-surface node — JSON Canvas `link` + ether.browser.
+// Profile name only in the document; cookies stay in the browser runtime.
+// Not an EntitySource; not a pulse target; not blockable.
+export const makePageNode = (
+  x: number,
+  y: number,
+  url: string,
+  browser?: Partial<EtherBrowser>,
+): LinkNode => {
+  const profile = browser?.profile?.trim() || "personal";
+  return {
+    id: `page-${ulid()}`,
+    type: "link",
+    url,
+    x: Math.round(x),
+    y: Math.round(y),
+    width: 260,
+    height: 110,
+    ether: {
+      entity: { kind: "page" },
+      browser: {
+        profile,
+        onDelete: browser?.onDelete ?? "detach",
       },
     },
   };

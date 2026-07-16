@@ -40,8 +40,8 @@ const formatStats = (stats: Record<string, string | number>): string => {
 
 const isSeed = (node: CanvasNode): boolean => {
   const kind = node.ether?.entity?.kind;
-  // Herdr is a bound work surface (ether.herdr), not an unbound project seed.
-  if (kind === "herdr") return false;
+  // Work surfaces (herdr PTY, browser page) are not unbound project seeds.
+  if (kind === "herdr" || kind === "page") return false;
   return node.ether?.entity !== undefined && (node.ether.bindings?.length ?? 0) === 0;
 };
 
