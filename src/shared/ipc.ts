@@ -71,6 +71,7 @@ export const IPC_CHANNELS = {
   browserSessionState: "vellum:browser-session-state",
   browserSessionList: "vellum:browser-session-list",
   browserSetBounds: "vellum:browser-set-bounds",
+  browserSurfaceConfig: "vellum:browser-surface-config",
   // main -> renderer pushes
   canvasChanged: "vellum:canvas-changed",
   snapshotsChanged: "vellum:snapshots-changed",
@@ -784,8 +785,15 @@ export interface BrowserSessionInfo {
   readonly lastError?: string;
 }
 
+/** Dock/pool limits from BrowserProfileService config — renderer reads, never guesses. */
+export interface BrowserSurfaceConfigInfo {
+  readonly maxVisibleSurfaces: number;
+  readonly maxWarmSessions: number;
+}
+
 export interface VellumBrowserApi {
   readonly browserProfiles: () => Promise<BrowserOpResult<ReadonlyArray<BrowserProfileInfo>>>;
+  readonly browserSurfaceConfig: () => Promise<BrowserOpResult<BrowserSurfaceConfigInfo>>;
   readonly browserOpen: (input: BrowserOpenInput) => Promise<BrowserOpResult<BrowserSessionInfo>>;
   readonly browserClose: (nodeId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
   readonly browserSessionState: (nodeId: string) => Promise<BrowserOpResult<BrowserSessionInfo | null>>;

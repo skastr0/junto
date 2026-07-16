@@ -24,7 +24,7 @@ import { InspectorPanel } from "./components/InspectorPanel";
 import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
-import { BrowserSurfaceModal } from "./components/browser/BrowserSurfaceModal";
+import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 
 const setError = (error: unknown) =>
@@ -278,7 +278,9 @@ export function App() {
         onRefresh={() => void refreshSnapshots()}
       />
 
-      <div className="vellum-stage relative min-h-0 flex-1">
+      <div className="vellum-stage flex min-h-0 flex-1">
+        {/* Canvas column shrinks when the dock opens; overlays anchor to it. */}
+        <div className="vellum-stage-main relative min-w-0 flex-1">
         {error ? (
           <div
             role="alert"
@@ -311,7 +313,8 @@ export function App() {
         <HerdrWizard />
         <HerdrTerminalModal />
         <HerdrToast />
-        <BrowserSurfaceModal />
+        </div>
+        <WorkSurfaceDock />
       </div>
     </div>
   );

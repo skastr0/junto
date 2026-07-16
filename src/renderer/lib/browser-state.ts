@@ -1,5 +1,4 @@
 import { observable } from "@legendapp/state";
-import type { EtherBrowser } from "@shared/canvas";
 import type { BrowserSessionInfo, VellumBrowserApi } from "@shared/ipc";
 import { getVellumApi } from "./vellum-api";
 
@@ -7,18 +6,9 @@ import { getVellumApi } from "./vellum-api";
 // but is PUSH-fed (onBrowserSessionChanged) rather than polled: the main
 // process already owns the session's live state and broadcasts every change.
 export const browser$ = observable({
-  /** nodeId -> currently portaled attach surface, at most one at a time. */
-  surface: null as BrowserSurfaceOpen | null,
   /** nodeId -> last known session info. */
   sessionByNodeId: {} as Record<string, BrowserSessionInfo>,
 });
-
-export interface BrowserSurfaceOpen {
-  readonly nodeId: string;
-  readonly browser: EtherBrowser;
-  readonly url: string;
-  readonly title: string;
-}
 
 // getVellumApi() narrows its return type to VellumApi proper; every browser
 // method lives on the sibling VellumBrowserApi slice that global.d.ts merges
@@ -60,46 +50,5 @@ export const subscribeBrowserSessionEvents = (): (() => void) => {
   return activeUnsubscribe;
 };
 
-/**
- * Request the surface attach. Opens/reuses the warm session over IPC, then
- * marks the portal container as wanting a surface — BrowserSurfaceModal reads
- * `surface` and drives browserSetBounds once it has a real rect. Honest
- * degrade: an IPC failure surfaces on the session's `failed` state via the
- * push channel, never a thrown error here.
- */
-export const openBrowserSurface = async (
-  nodeId: string,
-  browser: EtherBrowser,
-  url: string,
-  title: string,
-): Promise<void> => {
-  browser$.surface.set({ nodeId, browser, url, title });
-  const api = getVellumApi() as BrowserApi | undefined;
-  if (!api?.browserOpen) return;
-  try {
-    const result = await api.browserOpen({ nodeId, url, profile: browser.profile });
-    if (result.ok && result.data) browser$.sessionByNodeId[nodeId].set(result.data);
-  } catch {
-    // Session push events (or their absence) carry the failure state.
-  }
-};
-
-/**
- * Detach a session's surface (UI first — never trap the operator behind a
- * stuck session). browserClose only detaches: the warm session and its
- * cookies survive, mirroring closeHerdrTerminal's detach-first shape.
- *
- * `nodeId` defaults to whichever node's surface is currently portaled — the
- * modal's own Close button/Escape call this with no argument. PageCard's own
- * "detach" action passes its node.id explicitly so it always targets ITS
- * session (never whatever the modal happens to show), and only clears the
- * portal state when it was the one open.
- */
-export const closeBrowserSurface = (nodeId?: string): void => {
-  const surface = browser$.surface.peek();
-  const target = nodeId ?? surface?.nodeId;
-  if (!target) return;
-  if (surface?.nodeId === target) browser$.surface.set(null);
-  const api = getVellumApi() as BrowserApi | undefined;
-  void api?.browserClose?.(target).catch(() => undefined);
-};
+// Surface open/close moved to dock-state.ts — the WorkSurfaceDock owns the
+// attach placeholder now; this module keeps only push-fed session state.

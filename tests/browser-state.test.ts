@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrowserOpResult, BrowserSessionInfo } from "../src/shared/ipc";
 import {
   browser$,
-  closeBrowserSurface,
-  openBrowserSurface,
   refreshBrowserSession,
   subscribeBrowserSessionEvents,
 } from "../src/renderer/lib/browser-state";
@@ -55,10 +53,7 @@ function clearWindow(): void {
 }
 
 describe("subscribeBrowserSessionEvents", () => {
-  afterEach(() => {
-    clearWindow();
-    browser$.surface.set(null);
-  });
+  afterEach(clearWindow);
 
   it("degrades to a no-op unsubscribe when onBrowserSessionChanged is absent", () => {
     clearWindow();
@@ -105,77 +100,7 @@ describe("subscribeBrowserSessionEvents", () => {
   });
 });
 
-describe("openBrowserSurface / closeBrowserSurface", () => {
-  afterEach(() => {
-    clearWindow();
-    browser$.surface.set(null);
-  });
-
-  it("sets the surface immediately, then adopts the resolved session into the cache", async () => {
-    const nodeId = freshNodeId();
-    const mock = installMockVellum();
-    const promise = openBrowserSurface(nodeId, { profile: "personal" }, "https://example.com", "Example");
-    expect(browser$.surface.peek()).toMatchObject({ nodeId, url: "https://example.com", title: "Example" });
-    await promise;
-    expect(mock.browserOpen).toHaveBeenCalledWith({ nodeId, url: "https://example.com", profile: "personal" });
-    expect(sessionOf(nodeId)).toMatchObject({ state: "loading" });
-  });
-
-  it("degrades quietly when window.vellum is absent — surface still opens, no throw", async () => {
-    clearWindow();
-    const nodeId = freshNodeId();
-    await expect(
-      openBrowserSurface(nodeId, { profile: "work" }, "https://example.com", "Example"),
-    ).resolves.toBeUndefined();
-    expect(browser$.surface.peek()).toMatchObject({ nodeId });
-  });
-
-  it("degrades quietly when browserOpen rejects", async () => {
-    const nodeId = freshNodeId();
-    installMockVellum({ browserOpen: vi.fn(async () => { throw new Error("ipc down"); }) });
-    await expect(
-      openBrowserSurface(nodeId, { profile: "personal" }, "https://example.com", "Example"),
-    ).resolves.toBeUndefined();
-  });
-
-  it("clears the surface immediately (UI first) and requests detach for the closed nodeId", () => {
-    const nodeId = freshNodeId();
-    const mock = installMockVellum();
-    browser$.surface.set({ nodeId, browser: { profile: "personal" }, url: "https://example.com", title: "Example" });
-
-    closeBrowserSurface();
-
-    expect(browser$.surface.peek()).toBeNull();
-    expect(mock.browserClose).toHaveBeenCalledWith(nodeId);
-  });
-
-  it("closeBrowserSurface with no open surface is a no-op — never throws", () => {
-    expect(() => closeBrowserSurface()).not.toThrow();
-  });
-
-  it("an explicit nodeId always requests detach for THAT node, even when a different surface is portaled", () => {
-    const openNodeId = freshNodeId();
-    const otherNodeId = freshNodeId();
-    const mock = installMockVellum();
-    browser$.surface.set({ nodeId: openNodeId, browser: { profile: "personal" }, url: "https://example.com", title: "Example" });
-
-    closeBrowserSurface(otherNodeId);
-
-    expect(mock.browserClose).toHaveBeenCalledWith(otherNodeId);
-    // Portal state is untouched — it wasn't the surface being closed.
-    expect(browser$.surface.peek()).toMatchObject({ nodeId: openNodeId });
-  });
-
-  it("an explicit nodeId still requests detach when no surface is portaled at all", () => {
-    const nodeId = freshNodeId();
-    const mock = installMockVellum();
-
-    closeBrowserSurface(nodeId);
-
-    expect(mock.browserClose).toHaveBeenCalledWith(nodeId);
-    expect(browser$.surface.peek()).toBeNull();
-  });
-});
+// Surface open/close moved to the work-surface dock — see tests/surface-dock.test.ts.
 
 describe("refreshBrowserSession", () => {
   afterEach(clearWindow);

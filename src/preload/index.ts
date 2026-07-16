@@ -177,6 +177,7 @@ const herdrApi: VellumHerdrApi = {
 
 const browserApi: VellumBrowserApi = {
   browserProfiles: () => invoke(IPC_CHANNELS.browserProfiles, IPC_TIMEOUT_MS),
+  browserSurfaceConfig: () => invoke(IPC_CHANNELS.browserSurfaceConfig, IPC_TIMEOUT_MS),
   browserOpen: (input: BrowserOpenInput) => invoke(IPC_CHANNELS.browserOpen, IPC_TIMEOUT_MS, input),
   browserClose: (nodeId) => invoke(IPC_CHANNELS.browserClose, IPC_TIMEOUT_MS, nodeId),
   browserSessionState: (nodeId) =>

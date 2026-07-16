@@ -138,6 +138,24 @@ export class BrowserSessionService {
     }
   }
 
+  /** Dock/pool limits for the renderer's work-surface dock (default 2/3). */
+  async surfaceConfig(): Promise<
+    BrowserResult<{ maxVisibleSurfaces: number; maxWarmSessions: number }>
+  > {
+    try {
+      const config = await Effect.runPromise(this.profiles.readConfig);
+      return {
+        ok: true,
+        data: {
+          maxVisibleSurfaces: config.maxVisibleSurfaces,
+          maxWarmSessions: config.maxWarmSessions,
+        },
+      };
+    } catch (error) {
+      return err("failed", error instanceof Error ? error.message : String(error));
+    }
+  }
+
   /**
    * Open (or re-open) a page node's session. Reuses a warm session for the
    * same nodeId; otherwise creates a partitioned view, evicting the

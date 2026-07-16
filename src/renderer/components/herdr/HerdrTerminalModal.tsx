@@ -12,6 +12,7 @@ import {
   setTerminalStreamId,
 } from "../../lib/herdr-state";
 import { recreateHerdrPane } from "../../lib/herdr-actions";
+import { dock$ } from "../../lib/dock-state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { HUE } from "../../lib/theme";
 
@@ -124,11 +125,15 @@ type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
 };
 
 /**
- * Full-window herdr work surface (portaled to document.body so app chrome
- * cannot clip it). xterm is display-only; keyboard is owned by a window-level
- * capture handler so focus never blocks typing.
+ * Herdr terminal work surface: header + xterm + stream lifecycle. xterm is
+ * display-only; keyboard is owned by a window-level capture handler so focus
+ * never blocks typing. Two hosts render it (never both at once — the dock's
+ * herdr slot suppresses the modal): full-window HerdrTerminalModal below, and
+ * WorkSurfaceDock's interactive slot ("dock" variant, inline, no portal or
+ * backdrop). Either way herdr$.terminal stays the single source, so there is
+ * exactly one control stream total.
  */
-export function HerdrTerminalModal() {
+export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "dock" }) {
   const terminalOpen = use$(herdr$.terminal);
   const nodeId = terminalOpen?.nodeId ?? "";
   const conn = use$(herdr$.connectionByNodeId[nodeId]);
@@ -467,22 +472,11 @@ export function HerdrTerminalModal() {
 
   if (!terminalOpen) return null;
 
-  const modal = (
+  const panel = (
     <div
-      className="herdr-modal-root"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Herdr terminal"
+      className={variant === "dock" ? "herdr-modal-panel herdr-dock-panel" : "herdr-modal-panel"}
+      onClick={(e) => e.stopPropagation()}
     >
-      {/* Backdrop */}
-      <button
-        type="button"
-        className="herdr-modal-backdrop"
-        aria-label="Close terminal"
-        onClick={() => closeHerdrTerminal()}
-      />
-
-      <div className="herdr-modal-panel" onClick={(e) => e.stopPropagation()}>
         <header data-herdr-chrome className="herdr-modal-header">
           <div className="herdr-modal-header__meta min-w-0">
             <div className="herdr-modal-eyebrow">herdr · Esc / Close detaches (pane keeps running)</div>
@@ -529,9 +523,38 @@ export function HerdrTerminalModal() {
             // Keep window key handler as the input path; no focus requirement.
           }}
         />
-      </div>
     </div>
   );
 
-  return createPortal(modal, document.body);
+  if (variant === "dock") return panel;
+
+  return createPortal(
+    <div
+      className="herdr-modal-root"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Herdr terminal"
+    >
+      {/* Backdrop */}
+      <button
+        type="button"
+        className="herdr-modal-backdrop"
+        aria-label="Close terminal"
+        onClick={() => closeHerdrTerminal()}
+      />
+      {panel}
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * Full-window herdr work surface (portaled to document.body so app chrome
+ * cannot clip it). Yields to WorkSurfaceDock whenever the dock holds the
+ * herdr slot — one render host at a time, one control stream always.
+ */
+export function HerdrTerminalModal() {
+  const registry = use$(dock$.registry);
+  if (registry.surfaces.some((s) => s.kind === "herdr")) return null;
+  return <HerdrTerminalPanel variant="modal" />;
 }

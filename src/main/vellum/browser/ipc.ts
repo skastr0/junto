@@ -22,6 +22,8 @@ export const registerBrowserIpc = (
 
   ipcMain.handle(IPC_CHANNELS.browserProfiles, () => browserSessions.listProfiles());
 
+  ipcMain.handle(IPC_CHANNELS.browserSurfaceConfig, () => browserSessions.surfaceConfig());
+
   ipcMain.handle(IPC_CHANNELS.browserOpen, (_e, input: BrowserOpenInput) =>
     browserSessions.open(input),
   );

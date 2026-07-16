@@ -3,12 +3,11 @@ import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import { Globe } from "lucide-react";
 import {
-  closeBrowserSurface,
-  openBrowserSurface,
   refreshBrowserSession,
   subscribeBrowserSessionEvents,
   browser$,
 } from "../../lib/browser-state";
+import { closeDockBrowser, dock$, openDockBrowser } from "../../lib/dock-state";
 import { hostOf } from "../../lib/presentation";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
 
@@ -31,8 +30,9 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
   const browser = node.ether?.browser;
   const url = node.type === "link" ? node.url : "";
   const session = use$(browser$.sessionByNodeId[node.id]);
-  const surface = use$(browser$.surface);
-  const attaching = surface?.nodeId === node.id && !session?.attached;
+  const registry = use$(dock$.registry);
+  const docked = registry.surfaces.some((s) => s.kind === "browser" && s.id === node.id);
+  const attaching = docked && !session?.attached;
 
   useEffect(() => {
     subscribeBrowserSessionEvents();
@@ -54,12 +54,14 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
   const statusColor = STATUS_COLOR[state] ?? HUE.steel;
 
   const open = () => {
-    void openBrowserSurface(node.id, browser, url, title ?? host);
+    void openDockBrowser(node.id, browser, url, title ?? host);
   };
   const detach = () => {
-    // Explicit nodeId — always targets THIS session, regardless of which
-    // node's surface the portal currently shows (or whether it's open at all).
-    closeBrowserSurface(node.id);
+    // Explicit nodeId — always targets THIS session's dock slot, whether or
+    // not it is currently open (closeDockBrowser is idempotent on unknown ids
+    // slot-wise; the IPC detach still runs so a warm-but-undocked session
+    // detaches too).
+    closeDockBrowser(node.id);
   };
 
   return (

@@ -133,42 +133,38 @@ body {
   overflow: hidden;
 }
 
-/* Browser surface modal — same portaled-full-window shape as the herdr modal
-   above; kept as its own small block rather than sharing herdr's classes so
-   the browser feature stays self-contained. The body tracks a rect only — a
-   partitioned WebContentsView (main process) paints over it once attached. */
-.browser-modal-root {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
+/* Work-surface dock — flex sibling of the canvas column inside .vellum-stage;
+   opening it splits the stage width instead of overlaying the canvas. Browser
+   slot bodies track a rect only — a partitioned WebContentsView (main
+   process) paints over them once attached, never parented under a node. */
+.work-surface-dock {
   display: flex;
-  align-items: stretch;
-  justify-content: center;
-  padding: 40px 16px 16px;
+  flex: 0 0 min(55%, 1100px);
+  min-width: 0;
+  gap: 8px;
+  padding: 8px;
   box-sizing: border-box;
+  border-left: 1px solid rgba(237, 230, 218, 0.12);
+  background: #0c0b0a;
 }
-.browser-modal-backdrop {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  margin: 0;
-  padding: 0;
-  background: rgba(0, 0, 0, 0.72);
-  cursor: default;
-}
-.browser-modal-panel {
+.dock-slot {
   position: relative;
-  z-index: 1;
   display: flex;
+  flex: 1 1 0;
+  min-width: 0;
   flex-direction: column;
-  width: min(1100px, 100%);
-  height: 100%;
-  max-height: 100%;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: 10px;
   border: 1px solid rgba(237, 230, 218, 0.14);
   background: #0c0b0a;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+/* The docked terminal reuses the modal panel chrome, sized to its slot. */
+.dock-slot--herdr .herdr-dock-panel {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 .browser-modal-header {
   display: flex;
