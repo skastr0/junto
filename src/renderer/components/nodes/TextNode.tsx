@@ -11,7 +11,8 @@ import { boothPendingReview, entityReadout } from "../../lib/entity-readout";
 import { editText, setNodeTasks } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { state$ } from "../../lib/state";
-import { timerActivity, watcherActivity } from "../../lib/activity";
+import { chatActivity, timerActivity, watcherActivity } from "../../lib/activity";
+import { chatState$, initialAgentChatState } from "../../lib/chat-state";
 import { accentColor, INK, DIM, HUE, SOURCE_HUE, withAlpha } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
@@ -163,12 +164,26 @@ function TasksCard({ node }: { readonly node: CanvasNode }) {
   );
 }
 
+/** Live chat activity for a hermes agent node — separate component so hooks stay unconditional. */
+function AgentActivityMark({ agentKey }: { readonly agentKey: string }) {
+  const raw = use$(chatState$[agentKey]);
+  const state = raw ?? initialAgentChatState();
+  const tools = state.transcript
+    .filter((item): item is Extract<typeof item, { kind: "tool" }> => item.kind === "tool")
+    .map((item) => ({ status: item.status }));
+  const activity = chatActivity({
+    status: state.status,
+    pendingPermission: Boolean(state.pendingPermission),
+    tools,
+  });
+  return <ActivityMarkFromSpec spec={activity} />;
+}
+
 // An entity card (project / agent) is ONE node: its name, one line of live
 // stats hydrated from its connectors, and a quiet dot per connector. Never a
 // wall of chips, never exploded into child nodes.
 function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: string }) {
   const snapshots = use$(state$.snapshots);
-  const refreshing = use$(state$.refreshing);
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const view = node.ether?.view;
   const { segments, dots } = entityReadout(node.ether?.entity, snapshots, view);
@@ -212,11 +227,12 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
                 {pendingReview} to review
               </span>
             ) : null}
+            {hermesKey ? <AgentActivityMark agentKey={hermesKey} /> : null}
             {dots.map(({ source, ok }, i) => (
               <span
                 key={`${source}-${i}`}
                 title={`${source} · ${ok ? "fresh" : "stale"}`}
-                className={`size-[5px] rounded-full${refreshing ? " vellum-dot--pulse" : ""}`}
+                className="size-[5px] rounded-full"
                 style={{
                   background: SOURCE_HUE[source] ?? DIM,
                   opacity: ok ? 1 : 0.3,
