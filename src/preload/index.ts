@@ -4,8 +4,11 @@ import {
   type ArmRegionResult,
   type ChassisApi,
   type ChatEvent,
+  type HerdrStreamEvent,
+  type HerdrStreamOpenInput,
   type VellumApi,
   type VellumChatApi,
+  type VellumHerdrApi,
   type KernelSnapshot,
 } from "@shared/ipc";
 import type { SnapshotState } from "@shared/entities";
@@ -129,5 +132,42 @@ const chatApi: VellumChatApi = {
   onChatEvent: (listener) => subscribe<ChatEvent>(IPC_CHANNELS.chatEvent, listener),
 };
 
+const herdrApi: VellumHerdrApi = {
+  herdrHosts: () => invoke(IPC_CHANNELS.herdrHosts, IPC_TIMEOUT_MS),
+  herdrEnsureServer: (hostId, session) =>
+    invoke(IPC_CHANNELS.herdrEnsureServer, IPC_TIMEOUT_MS, hostId, session),
+  herdrListSessions: (hostId) => invoke(IPC_CHANNELS.herdrListSessions, IPC_TIMEOUT_MS, hostId),
+  herdrListWorkspaces: (hostId, session) =>
+    invoke(IPC_CHANNELS.herdrListWorkspaces, IPC_TIMEOUT_MS, hostId, session),
+  herdrListTabs: (hostId, session, workspaceId) =>
+    invoke(IPC_CHANNELS.herdrListTabs, IPC_TIMEOUT_MS, hostId, session, workspaceId),
+  herdrListPanes: (hostId, session, workspaceId) =>
+    invoke(IPC_CHANNELS.herdrListPanes, IPC_TIMEOUT_MS, hostId, session, workspaceId),
+  herdrListAgents: (hostId, session) =>
+    invoke(IPC_CHANNELS.herdrListAgents, IPC_TIMEOUT_MS, hostId, session),
+  herdrGetMeta: (hostId, session, paneId) =>
+    invoke(IPC_CHANNELS.herdrGetMeta, IPC_TIMEOUT_MS, hostId, session, paneId),
+  herdrCreateWorkspace: (hostId, session, input) =>
+    invoke(IPC_CHANNELS.herdrCreateWorkspace, IPC_TIMEOUT_MS, hostId, session, input),
+  herdrCreateTab: (hostId, session, input) =>
+    invoke(IPC_CHANNELS.herdrCreateTab, IPC_TIMEOUT_MS, hostId, session, input),
+  herdrCreatePane: (hostId, session, input) =>
+    invoke(IPC_CHANNELS.herdrCreatePane, IPC_TIMEOUT_MS, hostId, session, input),
+  herdrKillPane: (hostId, session, paneId) =>
+    invoke(IPC_CHANNELS.herdrKillPane, IPC_TIMEOUT_MS, hostId, session, paneId),
+  herdrKillTab: (hostId, session, tabId) =>
+    invoke(IPC_CHANNELS.herdrKillTab, IPC_TIMEOUT_MS, hostId, session, tabId),
+  herdrStreamOpen: (input: HerdrStreamOpenInput) =>
+    invoke(IPC_CHANNELS.herdrStreamOpen, IPC_TIMEOUT_MS, input),
+  herdrStreamInput: (streamId, dataBase64) =>
+    invoke(IPC_CHANNELS.herdrStreamInput, IPC_TIMEOUT_MS, streamId, dataBase64),
+  herdrStreamResize: (streamId, cols, rows) =>
+    invoke(IPC_CHANNELS.herdrStreamResize, IPC_TIMEOUT_MS, streamId, cols, rows),
+  herdrStreamScroll: (streamId, delta) =>
+    invoke(IPC_CHANNELS.herdrStreamScroll, IPC_TIMEOUT_MS, streamId, delta),
+  herdrStreamClose: (streamId) => invoke(IPC_CHANNELS.herdrStreamClose, IPC_TIMEOUT_MS, streamId),
+  onHerdrStreamEvent: (listener) => subscribe<HerdrStreamEvent>(IPC_CHANNELS.herdrStreamEvent, listener),
+};
+
 contextBridge.exposeInMainWorld("chassis", chassisApi);
-contextBridge.exposeInMainWorld("vellum", { ...vellumApi, ...chatApi });
+contextBridge.exposeInMainWorld("vellum", { ...vellumApi, ...chatApi, ...herdrApi });

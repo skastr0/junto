@@ -27,6 +27,7 @@ import {
 import { startBoothAttention } from "./booth-attention";
 import { CanvasesService } from "./canvases";
 import { registerChatIpc } from "./chat/ipc";
+import { registerHerdrIpc } from "./herdr/ipc";
 import type { PulseRegionOptions } from "./kernel/service";
 import { KernelService } from "./kernel/service";
 import { SnapshotsService } from "./snapshots";
@@ -38,6 +39,7 @@ const broadcast = (channel: string, payload: unknown) => {
 };
 
 export const registerVellumIpc = () => {
+  registerHerdrIpc(ipcMain, () => BrowserWindow.getAllWindows().map((w) => w.webContents));
   ipcMain.handle(IPC_CHANNELS.listCanvases, () =>
     AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.list)),
   );

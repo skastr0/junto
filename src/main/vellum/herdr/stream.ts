@@ -1,0 +1,271 @@
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { herdrArgv } from "./hosts";
+
+export interface HerdrStreamFrame {
+  readonly streamId: string;
+  readonly type: "frame" | "closed" | "error";
+  readonly bytes?: string; // base64 ANSI
+  readonly encoding?: string;
+  readonly full?: boolean;
+  readonly width?: number;
+  readonly height?: number;
+  readonly seq?: number;
+  readonly reason?: string;
+  readonly message?: string;
+}
+
+export type StreamSink = (frame: HerdrStreamFrame) => void;
+
+interface ActiveStream {
+  readonly streamId: string;
+  readonly hostId: string;
+  readonly session?: string | null;
+  readonly terminalId: string;
+  readonly child: ChildProcessWithoutNullStreams;
+  readonly openedAt: number;
+}
+
+/**
+ * Owns at most one interactive control stream globally (product lock).
+ * Opening a second stream releases the previous control (takeover path).
+ */
+export class HerdrStreamManager {
+  private active: ActiveStream | undefined;
+  private seq = 0;
+  private sink: StreamSink | undefined;
+
+  setSink(sink: StreamSink | undefined): void {
+    this.sink = sink;
+  }
+
+  getActiveStreamId(): string | undefined {
+    return this.active?.streamId;
+  }
+
+  open(input: {
+    readonly hostId: string;
+    readonly session?: string | null;
+    readonly terminalId: string;
+    readonly cols: number;
+    readonly rows: number;
+    readonly takeover?: boolean;
+  }): { readonly ok: true; readonly streamId: string } | { readonly ok: false; readonly message: string } {
+    if (!input.terminalId) {
+      return { ok: false, message: "terminalId required for control stream" };
+    }
+    // Single global control stream — release previous first.
+    if (this.active) this.close(this.active.streamId, "superseded");
+
+    const streamId = `hs-${Date.now().toString(36)}-${(++this.seq).toString(36)}`;
+    const args = [
+      "terminal",
+      "session",
+      "control",
+      input.terminalId,
+      ...(input.takeover === false ? [] : ["--takeover"]),
+      "--cols",
+      String(Math.max(20, Math.floor(input.cols || 80))),
+      "--rows",
+      String(Math.max(5, Math.floor(input.rows || 24))),
+    ];
+    const { command, argv } = herdrArgv(input.hostId, args, input.session);
+
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(command, argv, {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: process.env,
+      }) as ChildProcessWithoutNullStreams;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, message: `failed to spawn control stream: ${message}` };
+    }
+
+    this.active = {
+      streamId,
+      hostId: input.hostId,
+      session: input.session,
+      terminalId: input.terminalId,
+      child,
+      openedAt: Date.now(),
+    };
+
+    let buffer = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      buffer += chunk;
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (line) this.handleLine(streamId, line);
+      }
+    });
+
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      const text = chunk.trim();
+      if (text) {
+        this.emit({ streamId, type: "error", message: text.slice(0, 400) });
+      }
+    });
+
+    child.on("close", (code) => {
+      if (this.active?.streamId === streamId) {
+        this.active = undefined;
+        this.emit({
+          streamId,
+          type: "closed",
+          reason: code === 0 ? "exit" : `exit_${code ?? "null"}`,
+        });
+      }
+    });
+
+    child.on("error", (error) => {
+      if (this.active?.streamId === streamId) {
+        this.active = undefined;
+        this.emit({
+          streamId,
+          type: "error",
+          message: error.message,
+        });
+        this.emit({ streamId, type: "closed", reason: "spawn_error" });
+      }
+    });
+
+    return { ok: true, streamId };
+  }
+
+  input(streamId: string, dataBase64: string): { readonly ok: boolean; readonly error?: string } {
+    const stream = this.require(streamId);
+    if (!stream.ok) return stream;
+    return this.writeJson(stream.stream, {
+      type: "terminal.input",
+      data: dataBase64,
+    });
+  }
+
+  /** Convenience: encode utf-8 text as base64 input. */
+  inputText(streamId: string, text: string): { readonly ok: boolean; readonly error?: string } {
+    return this.input(streamId, Buffer.from(text, "utf8").toString("base64"));
+  }
+
+  resize(
+    streamId: string,
+    cols: number,
+    rows: number,
+  ): { readonly ok: boolean; readonly error?: string } {
+    const stream = this.require(streamId);
+    if (!stream.ok) return stream;
+    return this.writeJson(stream.stream, {
+      type: "terminal.resize",
+      cols: Math.max(20, Math.floor(cols)),
+      rows: Math.max(5, Math.floor(rows)),
+    });
+  }
+
+  scroll(
+    streamId: string,
+    delta: number,
+  ): { readonly ok: boolean; readonly error?: string } {
+    const stream = this.require(streamId);
+    if (!stream.ok) return stream;
+    return this.writeJson(stream.stream, {
+      type: "terminal.scroll",
+      delta,
+    });
+  }
+
+  close(streamId: string, reason = "client_close"): { readonly ok: boolean; readonly error?: string } {
+    const active = this.active;
+    if (!active || active.streamId !== streamId) {
+      return { ok: true };
+    }
+    try {
+      this.writeJson(active, { type: "terminal.release" });
+    } catch {
+      // ignore
+    }
+    try {
+      active.child.kill("SIGTERM");
+    } catch {
+      // ignore
+    }
+    this.active = undefined;
+    this.emit({ streamId, type: "closed", reason });
+    return { ok: true };
+  }
+
+  closeAll(): void {
+    if (this.active) this.close(this.active.streamId, "shutdown");
+  }
+
+  private require(
+    streamId: string,
+  ): { readonly ok: true; readonly stream: ActiveStream } | { readonly ok: false; readonly error: string } {
+    if (!this.active || this.active.streamId !== streamId) {
+      return { ok: false, error: "stream not active" };
+    }
+    return { ok: true, stream: this.active };
+  }
+
+  private writeJson(
+    stream: ActiveStream,
+    payload: Record<string, unknown>,
+  ): { readonly ok: boolean; readonly error?: string } {
+    try {
+      stream.child.stdin.write(`${JSON.stringify(payload)}\n`);
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private handleLine(streamId: string, line: string): void {
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+    const type = typeof obj.type === "string" ? obj.type : "";
+    if (type === "terminal.frame") {
+      this.emit({
+        streamId,
+        type: "frame",
+        bytes: typeof obj.bytes === "string" ? obj.bytes : "",
+        encoding: typeof obj.encoding === "string" ? obj.encoding : "ansi",
+        full: typeof obj.full === "boolean" ? obj.full : undefined,
+        width: typeof obj.width === "number" ? obj.width : undefined,
+        height: typeof obj.height === "number" ? obj.height : undefined,
+        seq: typeof obj.seq === "number" ? obj.seq : undefined,
+      });
+      return;
+    }
+    if (type === "terminal.closed") {
+      this.emit({
+        streamId,
+        type: "closed",
+        reason: typeof obj.reason === "string" ? obj.reason : "closed",
+      });
+      if (this.active?.streamId === streamId) {
+        try {
+          this.active.child.kill("SIGTERM");
+        } catch {
+          // ignore
+        }
+        this.active = undefined;
+      }
+      return;
+    }
+  }
+
+  private emit(frame: HerdrStreamFrame): void {
+    this.sink?.(frame);
+  }
+}
+
+export const herdrStreams = new HerdrStreamManager();

@@ -43,11 +43,31 @@ export const IPC_CHANNELS = {
   getKernelState: "vellum:get-kernel-state",
   armRegion: "vellum:arm-region",
   pulseRegion: "vellum:pulse-region",
+  // herdr work surface
+  herdrHosts: "vellum:herdr-hosts",
+  herdrEnsureServer: "vellum:herdr-ensure-server",
+  herdrListSessions: "vellum:herdr-list-sessions",
+  herdrListWorkspaces: "vellum:herdr-list-workspaces",
+  herdrListTabs: "vellum:herdr-list-tabs",
+  herdrListPanes: "vellum:herdr-list-panes",
+  herdrListAgents: "vellum:herdr-list-agents",
+  herdrGetMeta: "vellum:herdr-get-meta",
+  herdrCreateWorkspace: "vellum:herdr-create-workspace",
+  herdrCreateTab: "vellum:herdr-create-tab",
+  herdrCreatePane: "vellum:herdr-create-pane",
+  herdrKillPane: "vellum:herdr-kill-pane",
+  herdrKillTab: "vellum:herdr-kill-tab",
+  herdrStreamOpen: "vellum:herdr-stream-open",
+  herdrStreamInput: "vellum:herdr-stream-input",
+  herdrStreamResize: "vellum:herdr-stream-resize",
+  herdrStreamScroll: "vellum:herdr-stream-scroll",
+  herdrStreamClose: "vellum:herdr-stream-close",
   // main -> renderer pushes
   canvasChanged: "vellum:canvas-changed",
   snapshotsChanged: "vellum:snapshots-changed",
   chatEvent: "vellum:chat-event",
   kernelChanged: "vellum:kernel-changed",
+  herdrStreamEvent: "vellum:herdr-stream-event",
 } as const;
 
 export interface ChassisApi {
@@ -542,3 +562,144 @@ export interface VellumApi {
 // The attached-chat surface is declared separately and merged into the
 // preload bridge alongside VellumApi.
 export interface VellumChatApi extends ChatApi {}
+
+// --- herdr work surface (PTY panes; not hermes ACP) -------------------------
+
+export interface HerdrHostInfo {
+  readonly id: string;
+  readonly label: string;
+}
+
+export interface HerdrOpResult<T = unknown> {
+  readonly ok: boolean;
+  readonly data?: T;
+  readonly code?: string;
+  readonly message?: string;
+}
+
+export interface HerdrSessionInfo {
+  readonly name: string;
+  readonly default?: boolean;
+  readonly running?: boolean;
+}
+
+export interface HerdrWorkspaceInfo {
+  readonly workspaceId: string;
+  readonly label?: string;
+  readonly tabCount?: number;
+  readonly paneCount?: number;
+  readonly agentStatus?: string;
+}
+
+export interface HerdrTabInfo {
+  readonly tabId: string;
+  readonly workspaceId?: string;
+  readonly label?: string;
+  readonly paneCount?: number;
+  readonly agentStatus?: string;
+}
+
+export interface HerdrPaneInfo {
+  readonly paneId: string;
+  readonly workspaceId?: string;
+  readonly tabId?: string;
+  readonly terminalId?: string;
+  readonly cwd?: string;
+  readonly agent?: string;
+  readonly agentStatus?: string;
+  readonly label?: string;
+  readonly focused?: boolean;
+  readonly preview?: string;
+}
+
+export interface HerdrStreamOpenInput {
+  readonly hostId: string;
+  readonly session?: string | null;
+  readonly terminalId: string;
+  readonly cols: number;
+  readonly rows: number;
+  readonly takeover?: boolean;
+}
+
+export interface HerdrStreamOpenResult {
+  readonly ok: boolean;
+  readonly streamId?: string;
+  readonly message?: string;
+}
+
+/** High-frequency main→renderer stream push (not request/response per frame). */
+export interface HerdrStreamEvent {
+  readonly streamId: string;
+  readonly type: "frame" | "closed" | "error";
+  readonly bytes?: string;
+  readonly encoding?: string;
+  readonly full?: boolean;
+  readonly width?: number;
+  readonly height?: number;
+  readonly seq?: number;
+  readonly reason?: string;
+  readonly message?: string;
+}
+
+export interface VellumHerdrApi {
+  readonly herdrHosts: () => Promise<ReadonlyArray<HerdrHostInfo>>;
+  readonly herdrEnsureServer: (
+    hostId: string,
+    session?: string | null,
+  ) => Promise<HerdrOpResult<{ readonly running: boolean; readonly started: boolean }>>;
+  readonly herdrListSessions: (hostId: string) => Promise<HerdrOpResult<ReadonlyArray<HerdrSessionInfo>>>;
+  readonly herdrListWorkspaces: (
+    hostId: string,
+    session?: string | null,
+  ) => Promise<HerdrOpResult<ReadonlyArray<HerdrWorkspaceInfo>>>;
+  readonly herdrListTabs: (
+    hostId: string,
+    session?: string | null,
+    workspaceId?: string,
+  ) => Promise<HerdrOpResult<ReadonlyArray<HerdrTabInfo>>>;
+  readonly herdrListPanes: (
+    hostId: string,
+    session?: string | null,
+    workspaceId?: string,
+  ) => Promise<HerdrOpResult<ReadonlyArray<HerdrPaneInfo>>>;
+  readonly herdrListAgents: (
+    hostId: string,
+    session?: string | null,
+  ) => Promise<HerdrOpResult<ReadonlyArray<HerdrPaneInfo>>>;
+  readonly herdrGetMeta: (
+    hostId: string,
+    session: string | null | undefined,
+    paneId: string,
+  ) => Promise<HerdrOpResult<HerdrPaneInfo>>;
+  readonly herdrCreateWorkspace: (
+    hostId: string,
+    session: string | null | undefined,
+    input: { readonly cwd: string; readonly label?: string },
+  ) => Promise<HerdrOpResult<{ readonly workspaceId: string; readonly tabId?: string; readonly paneId?: string; readonly terminalId?: string }>>;
+  readonly herdrCreateTab: (
+    hostId: string,
+    session: string | null | undefined,
+    input: { readonly workspaceId: string; readonly label?: string },
+  ) => Promise<HerdrOpResult<{ readonly tabId: string; readonly paneId?: string; readonly terminalId?: string }>>;
+  readonly herdrCreatePane: (
+    hostId: string,
+    session: string | null | undefined,
+    input: { readonly paneId?: string; readonly direction?: "right" | "down"; readonly cwd?: string },
+  ) => Promise<HerdrOpResult<{ readonly paneId: string; readonly terminalId?: string; readonly tabId?: string; readonly workspaceId?: string }>>;
+  readonly herdrKillPane: (
+    hostId: string,
+    session: string | null | undefined,
+    paneId: string,
+  ) => Promise<HerdrOpResult<{ readonly closed: true }>>;
+  readonly herdrKillTab: (
+    hostId: string,
+    session: string | null | undefined,
+    tabId: string,
+  ) => Promise<HerdrOpResult<{ readonly closed: true }>>;
+  readonly herdrStreamOpen: (input: HerdrStreamOpenInput) => Promise<HerdrStreamOpenResult>;
+  readonly herdrStreamInput: (streamId: string, dataBase64: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
+  readonly herdrStreamResize: (streamId: string, cols: number, rows: number) => Promise<{ readonly ok: boolean; readonly error?: string }>;
+  readonly herdrStreamScroll: (streamId: string, delta: number) => Promise<{ readonly ok: boolean; readonly error?: string }>;
+  readonly herdrStreamClose: (streamId: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
+  readonly onHerdrStreamEvent: (listener: (event: HerdrStreamEvent) => void) => () => void;
+}
