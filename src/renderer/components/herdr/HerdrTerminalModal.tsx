@@ -101,16 +101,6 @@ type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
     delta: number,
     at?: { column: number; row: number; modifiers: number },
   ) => Promise<unknown>;
-  herdrStreamMouse: (
-    streamId: string,
-    input: {
-      kind: "down" | "up" | "drag" | "moved";
-      button?: "left" | "right" | "middle";
-      column: number;
-      row: number;
-      modifiers: number;
-    },
-  ) => Promise<unknown>;
   herdrStreamClose: (streamId: string) => Promise<unknown>;
   herdrEnsureServer: (hostId: string, session?: string | null) => Promise<{ ok: boolean; message?: string }>;
   herdrGetMeta: (
@@ -467,55 +457,8 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
     // Capture phase: run before xterm's own listeners on descendant elements.
     hostEl.addEventListener("wheel", onWheel, { passive: false, capture: true });
 
-    // Mouse forwarding: hover/click/drag → terminal.mouse. herdr's emulation
-    // encodes for the child app only when it enabled mouse reporting (grok-style
-    // TUIs), so forwarding is inert on plain shells. Motion is cell-deduped.
-    type MouseButtonName = "left" | "right" | "middle";
-    let dragButton: MouseButtonName | null = null;
-    let lastMotionCell = { column: -1, row: -1 };
-
-    const buttonName = (button: number): MouseButtonName | null =>
-      button === 0 ? "left" : button === 1 ? "middle" : button === 2 ? "right" : null;
-
-    const sendMouse = (
-      kind: "down" | "up" | "drag" | "moved",
-      button: MouseButtonName | null,
-      cell: { column: number; row: number },
-      e: MouseEvent,
-    ) => {
-      const id = streamIdRef.current;
-      if (!id) return;
-      void api.herdrStreamMouse(id, {
-        kind,
-        ...(button ? { button } : {}),
-        column: cell.column,
-        row: cell.row,
-        modifiers: modifierBits(e),
-      });
-    };
-
-    const onMouseDown = (e: MouseEvent) => {
-      const btn = buttonName(e.button);
-      if (!btn) return;
-      e.preventDefault();
-      dragButton = btn;
-      sendMouse("down", btn, cellAt(e), e);
-    };
-    const onMouseUp = (e: MouseEvent) => {
-      const btn = buttonName(e.button) ?? dragButton;
-      const wasDragging = dragButton != null;
-      dragButton = null;
-      if (!btn || !wasDragging) return;
-      sendMouse("up", btn, cellAt(e), e);
-    };
-    const onMouseMove = (e: MouseEvent) => {
-      const cell = cellAt(e);
-      if (cell.column === lastMotionCell.column && cell.row === lastMotionCell.row) return;
-      lastMotionCell = cell;
-      if (dragButton) sendMouse("drag", dragButton, cell, e);
-      else sendMouse("moved", null, cell, e);
-    };
-    const onContextMenu = (e: MouseEvent) => e.preventDefault();
+    // NOTE: no pointer (hover/click/drag) forwarding — stock herdr's control
+    // protocol has no mouse command. Wheel is the only pointer input it accepts.
 
     // Image file drop — same stage+path path as clipboard paste.
     const onDragOver = (e: DragEvent) => {
@@ -553,13 +496,8 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       })();
     };
 
-    hostEl.addEventListener("mousedown", onMouseDown);
-    hostEl.addEventListener("mousemove", onMouseMove);
-    hostEl.addEventListener("contextmenu", onContextMenu);
     hostEl.addEventListener("dragover", onDragOver);
     hostEl.addEventListener("drop", onDrop);
-    // Releases outside the terminal must still end the drag.
-    window.addEventListener("mouseup", onMouseUp);
 
     void openStream();
 
@@ -569,12 +507,8 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       window.removeEventListener("resize", scheduleResize);
       resizeObs?.disconnect();
       hostEl.removeEventListener("wheel", onWheel, { capture: true });
-      hostEl.removeEventListener("mousedown", onMouseDown);
-      hostEl.removeEventListener("mousemove", onMouseMove);
-      hostEl.removeEventListener("contextmenu", onContextMenu);
       hostEl.removeEventListener("dragover", onDragOver);
       hostEl.removeEventListener("drop", onDrop);
-      window.removeEventListener("mouseup", onMouseUp);
       if (wheelTimer) clearTimeout(wheelTimer);
       if (resizeTimer) clearTimeout(resizeTimer);
       const id = streamIdRef.current;

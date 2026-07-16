@@ -63,7 +63,6 @@ export const IPC_CHANNELS = {
   herdrStreamClipboardImage: "vellum:herdr-stream-clipboard-image",
   herdrStreamResize: "vellum:herdr-stream-resize",
   herdrStreamScroll: "vellum:herdr-stream-scroll",
-  herdrStreamMouse: "vellum:herdr-stream-mouse",
   herdrStreamClose: "vellum:herdr-stream-close",
   // browser work surface (partitioned WebContentsView sessions)
   browserProfiles: "vellum:browser-profiles",
@@ -651,17 +650,6 @@ export interface HerdrPointerCell {
   readonly modifiers: number;
 }
 
-/**
- * Structured mouse event for herdr's `terminal.mouse` control command.
- * herdr's terminal emulation encodes it for the child app only when that app
- * enabled the matching mouse reporting mode — plain shells receive nothing,
- * so vellum may forward hover/click/drag unconditionally.
- */
-export interface HerdrMouseInput extends HerdrPointerCell {
-  readonly kind: "down" | "up" | "drag" | "moved";
-  readonly button?: "left" | "right" | "middle";
-}
-
 /** High-frequency main→renderer stream push (not request/response per frame). */
 export interface HerdrStreamEvent {
   readonly streamId: string;
@@ -748,10 +736,6 @@ export interface VellumHerdrApi {
     streamId: string,
     delta: number,
     at?: HerdrPointerCell,
-  ) => Promise<{ readonly ok: boolean; readonly error?: string }>;
-  readonly herdrStreamMouse: (
-    streamId: string,
-    input: HerdrMouseInput,
   ) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly herdrStreamClose: (streamId: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly onHerdrStreamEvent: (listener: (event: HerdrStreamEvent) => void) => () => void;

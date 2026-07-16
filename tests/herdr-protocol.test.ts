@@ -40,7 +40,7 @@ describe("herdr control protocol field names", () => {
   it("terminal.scroll forwards the pointer cell — mouse-reporting apps scroll under the cursor", () => {
     const scrollMethod = streamSrc.slice(
       streamSrc.indexOf("scroll("),
-      streamSrc.indexOf("mouse("),
+      streamSrc.indexOf("/**\n   * Detach control"),
     );
     // herdr encodes wheel for mouse-reporting apps at (column,row); without
     // these the event lands at the (0,0) corner and grok-style TUIs ignore it.
@@ -49,16 +49,22 @@ describe("herdr control protocol field names", () => {
     expect(scrollMethod).toMatch(/modifiers:/);
   });
 
-  it("terminal.mouse carries kind + cell — hover/click/drag for mouse-native TUIs", () => {
-    const mouseMethod = streamSrc.slice(
-      streamSrc.indexOf("mouse("),
+  it("stays on the stock herdr protocol — no terminal.mouse anywhere", () => {
+    // Product invariant: vellum must never require a patched herdr binary.
+    // Stock herdr's control stream has no mouse command; sending one makes
+    // every input line after it suspect. Wheel is the only pointer input.
+    expect(streamSrc).not.toMatch(/terminal\.mouse/);
+  });
+
+  it("terminal.scroll fans coalesced ticks into single-line commands (stock-compatible)", () => {
+    const scrollMethod = streamSrc.slice(
+      streamSrc.indexOf("scroll("),
       streamSrc.indexOf("/**\n   * Detach control"),
     );
-    expect(mouseMethod).toMatch(/type:\s*["']terminal\.mouse["']/);
-    expect(mouseMethod).toMatch(/kind:/);
-    expect(mouseMethod).toMatch(/column:/);
-    expect(mouseMethod).toMatch(/row:/);
-    expect(mouseMethod).toMatch(/modifiers:/);
+    // Stock herdr emits one wheel report per command; a coalesced gesture must
+    // become N commands of lines: 1, not one command of lines: N.
+    expect(scrollMethod).toMatch(/lines:\s*1/);
+    expect(scrollMethod).toMatch(/repeat\(ticks\)/);
   });
 
   it("terminal.clipboard_image uses extension + bytes — stages on host, pastes path", () => {

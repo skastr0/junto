@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import type { HerdrMouseInput, HerdrPointerCell } from "@shared/ipc";
+import type { HerdrPointerCell } from "@shared/ipc";
 import { herdrArgv, isKnownHerdrHost, UnknownHerdrHostError } from "./hosts";
 
 export interface HerdrStreamFrame {
@@ -256,13 +256,13 @@ export class HerdrStreamManager {
   ): { readonly ok: boolean; readonly error?: string } {
     const stream = this.require(streamId);
     if (!stream.ok) return stream;
-    const lines = Math.max(1, Math.min(40, Math.abs(Math.round(delta)) || 1));
+    const ticks = Math.max(1, Math.min(20, Math.abs(Math.round(delta)) || 1));
     // Browser wheel: deltaY > 0 → scroll down; herdr uses direction up/down.
     const direction = delta < 0 ? "up" : "down";
-    return this.writeJson(stream.stream, {
+    const payload = JSON.stringify({
       type: "terminal.scroll",
       direction,
-      lines,
+      lines: 1,
       ...(at
         ? {
             column: Math.max(0, Math.floor(at.column)),
@@ -271,26 +271,19 @@ export class HerdrStreamManager {
           }
         : {}),
     });
-  }
-
-  /**
-   * herdr control protocol: { type: "terminal.mouse", kind, button?, column, row, modifiers }
-   * Requires a herdr build with the terminal.mouse command; older servers nag
-   * "invalid json command" on stderr, which surfaces in the modal status bar.
-   * herdr encodes for the child app only when it enabled mouse reporting, so
-   * hover/click/drag are safe to forward unconditionally.
-   */
-  mouse(streamId: string, input: HerdrMouseInput): { readonly ok: boolean; readonly error?: string } {
-    const stream = this.require(streamId);
-    if (!stream.ok) return stream;
-    return this.writeJson(stream.stream, {
-      type: "terminal.mouse",
-      kind: input.kind,
-      ...(input.button ? { button: input.button } : {}),
-      column: Math.max(0, Math.floor(input.column)),
-      row: Math.max(0, Math.floor(input.row)),
-      modifiers: input.modifiers & 0xff,
-    });
+    // One command per wheel tick, batched into a single stdin write: stock
+    // herdr emits one wheel report per command for mouse-reporting apps, so a
+    // coalesced gesture keeps real per-tick semantics. Host scrollback apps
+    // see the same total (N × 1 line). No patched binary required.
+    try {
+      stream.stream.child.stdin.write(`${`${payload}\n`.repeat(ticks)}`);
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
