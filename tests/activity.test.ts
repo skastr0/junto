@@ -11,19 +11,21 @@ import {
 } from "../src/renderer/lib/activity";
 
 describe("houseGradientStops", () => {
-  it("returns monochrome stops for a tone", () => {
+  it("returns monochrome hex stops for a tone (gradient-spin needs #rrggbb)", () => {
     const stops = houseGradientStops("amber");
     expect(stops).toHaveLength(3);
     expect(stops[0]?.position).toBe(0);
     expect(stops[2]?.position).toBe(1);
-    expect(stops[0]?.color).toMatch(/^rgba\(/);
-    expect(stops[1]?.color).toMatch(/^#/);
-    expect(stops[2]?.color).toMatch(/^rgba\(/);
+    for (const s of stops) {
+      expect(s.color).toMatch(/^#[0-9a-fA-F]{6}$/);
+    }
   });
 
-  it("can tip amber into cyan", () => {
+  it("can tip amber into cyan with hex only", () => {
     const stops = houseGradientStops("amber", { cyanTip: true });
-    expect(stops[2]?.color).toContain("57"); // cyan channel fragment
+    expect(stops[2]?.color).toMatch(/^#[0-9a-fA-F]{6}$/);
+    // tip should move toward cyan vs pure amber mid stop
+    expect(stops[2]?.color.toLowerCase()).not.toBe(stops[1]?.color.toLowerCase());
   });
 });
 

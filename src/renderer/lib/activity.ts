@@ -5,7 +5,7 @@
  * Visible status labels are forbidden; aria/title carry the word.
  */
 
-import { HUE, withAlpha } from "./theme";
+import { HUE } from "./theme";
 
 export type ActivityTone = "amber" | "cyan" | "green" | "crimson" | "steel";
 export type ActivityMode = "wave" | "static";
@@ -26,7 +26,33 @@ export const ACTIVITY_TONE_HEX: Record<ActivityTone, string> = {
   steel: HUE.steel,
 };
 
-/** Monochrome (or amber→cyan tip) OKLab stops for gradient-spin. */
+/** Near-black house ground — used as the dim end of monochrome ramps. */
+const GROUND_HEX = "#0c0b0a";
+
+/**
+ * Linear mix of two #rrggbb colors. gradient-spin's OKLab sampler only accepts
+ * hex (hexToOklab) — rgba stops become NaN cell fills.
+ */
+export function mixHex(a: string, b: string, t: number): string {
+  const parse = (hex: string): [number, number, number] => {
+    const clean = hex.replace("#", "");
+    return [
+      parseInt(clean.slice(0, 2), 16),
+      parseInt(clean.slice(2, 4), 16),
+      parseInt(clean.slice(4, 6), 16),
+    ];
+  };
+  const [ar, ag, ab] = parse(a);
+  const [br, bg, bb] = parse(b);
+  const clamp = (n: number) => Math.max(0, Math.min(255, Math.round(n)));
+  const to = (n: number) => clamp(n).toString(16).padStart(2, "0");
+  const r = ar + (br - ar) * t;
+  const g = ag + (bg - ag) * t;
+  const bl = ab + (bb - ab) * t;
+  return `#${to(r)}${to(g)}${to(bl)}`;
+}
+
+/** Monochrome (or amber→cyan tip) hex stops for gradient-spin. */
 export function houseGradientStops(
   tone: ActivityTone,
   opts?: { readonly cyanTip?: boolean },
@@ -34,15 +60,15 @@ export function houseGradientStops(
   const hex = ACTIVITY_TONE_HEX[tone];
   if (opts?.cyanTip && tone === "amber") {
     return [
-      { color: withAlpha(hex, 0.18), position: 0 },
+      { color: mixHex(GROUND_HEX, hex, 0.22), position: 0 },
       { color: hex, position: 0.55 },
-      { color: withAlpha(HUE.cyan, 0.9), position: 1 },
+      { color: mixHex(hex, HUE.cyan, 0.65), position: 1 },
     ];
   }
   return [
-    { color: withAlpha(hex, 0.16), position: 0 },
+    { color: mixHex(GROUND_HEX, hex, 0.2), position: 0 },
     { color: hex, position: 0.5 },
-    { color: withAlpha(hex, 0.85), position: 1 },
+    { color: mixHex(hex, "#ffffff", 0.12), position: 1 },
   ];
 }
 
@@ -140,7 +166,10 @@ export function watcherActivity(status: WatcherStatus | null | undefined): Activ
   return { mode: "static", tone: "steel", label: status ?? "unknown" };
 }
 
-/** Timer is due (or mid-pulse) when nextFire is missing after being set, or now >= nextFire. */
+/**
+ * Timer: wave when due (now >= nextFire). Missing nextFire is settled pending
+ * (static), not "actively pulsing."
+ */
 export function timerActivity(input: {
   readonly nextFire?: number | null;
   readonly now: number;

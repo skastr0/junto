@@ -70,7 +70,12 @@ export function ActivityMark({
   const dims = SIZE[size];
   const wave = mode === "wave" && active;
 
+  // Footprint matches the wave grid so mode flips don't shift card chrome.
+  const box = dims.cols * dims.cellSize + (dims.cols - 1) * dims.cellGap;
+  const boxH = dims.rows * dims.cellSize + (dims.rows - 1) * dims.cellGap;
+
   if (!wave) {
+    const dot = Math.max(5, Math.min(box, boxH) - 4);
     return (
       <span
         role="status"
@@ -78,17 +83,29 @@ export function ActivityMark({
         title={label}
         className={className}
         style={{
-          display: "inline-block",
-          width: 6,
-          height: 6,
-          borderRadius: 999,
+          display: "inline-flex",
+          width: box,
+          height: boxH,
+          alignItems: "center",
+          justifyContent: "center",
           flexShrink: 0,
-          background: hex,
-          boxShadow: tone === "green" || tone === "amber" || tone === "cyan"
-            ? `0 0 6px ${hex}99`
-            : "none",
+          lineHeight: 0,
         }}
-      />
+      >
+        <span
+          style={{
+            display: "inline-block",
+            width: dot,
+            height: dot,
+            borderRadius: 999,
+            background: hex,
+            boxShadow:
+              tone === "green" || tone === "amber" || tone === "cyan"
+                ? `0 0 6px ${hex}99`
+                : "none",
+          }}
+        />
+      </span>
     );
   }
 
