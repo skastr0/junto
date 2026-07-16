@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import type { HerdrPointerCell } from "@shared/ipc";
+import type { HerdrMouseInput, HerdrPointerCell } from "@shared/ipc";
 import { herdrArgv, isKnownHerdrHost, UnknownHerdrHostError } from "./hosts";
 
 export interface HerdrStreamFrame {
@@ -235,6 +235,26 @@ export class HerdrStreamManager {
             modifiers: at.modifiers & 0xff,
           }
         : {}),
+    });
+  }
+
+  /**
+   * herdr control protocol: { type: "terminal.mouse", kind, button?, column, row, modifiers }
+   * Requires a herdr build with the terminal.mouse command; older servers nag
+   * "invalid json command" on stderr, which surfaces in the modal status bar.
+   * herdr encodes for the child app only when it enabled mouse reporting, so
+   * hover/click/drag are safe to forward unconditionally.
+   */
+  mouse(streamId: string, input: HerdrMouseInput): { readonly ok: boolean; readonly error?: string } {
+    const stream = this.require(streamId);
+    if (!stream.ok) return stream;
+    return this.writeJson(stream.stream, {
+      type: "terminal.mouse",
+      kind: input.kind,
+      ...(input.button ? { button: input.button } : {}),
+      column: Math.max(0, Math.floor(input.column)),
+      row: Math.max(0, Math.floor(input.row)),
+      modifiers: input.modifiers & 0xff,
     });
   }
 

@@ -40,12 +40,24 @@ describe("herdr control protocol field names", () => {
   it("terminal.scroll forwards the pointer cell — mouse-reporting apps scroll under the cursor", () => {
     const scrollMethod = streamSrc.slice(
       streamSrc.indexOf("scroll("),
-      streamSrc.indexOf("/**\n   * Detach control"),
+      streamSrc.indexOf("mouse("),
     );
     // herdr encodes wheel for mouse-reporting apps at (column,row); without
     // these the event lands at the (0,0) corner and grok-style TUIs ignore it.
     expect(scrollMethod).toMatch(/column:/);
     expect(scrollMethod).toMatch(/row:/);
     expect(scrollMethod).toMatch(/modifiers:/);
+  });
+
+  it("terminal.mouse carries kind + cell — hover/click/drag for mouse-native TUIs", () => {
+    const mouseMethod = streamSrc.slice(
+      streamSrc.indexOf("mouse("),
+      streamSrc.indexOf("/**\n   * Detach control"),
+    );
+    expect(mouseMethod).toMatch(/type:\s*["']terminal\.mouse["']/);
+    expect(mouseMethod).toMatch(/kind:/);
+    expect(mouseMethod).toMatch(/column:/);
+    expect(mouseMethod).toMatch(/row:/);
+    expect(mouseMethod).toMatch(/modifiers:/);
   });
 });

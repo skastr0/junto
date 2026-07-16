@@ -1,5 +1,10 @@
 import type { IpcMain, WebContents } from "electron";
-import { IPC_CHANNELS, type HerdrPointerCell, type HerdrStreamOpenInput } from "@shared/ipc";
+import {
+  IPC_CHANNELS,
+  type HerdrMouseInput,
+  type HerdrPointerCell,
+  type HerdrStreamOpenInput,
+} from "@shared/ipc";
 import { herdrService } from "./service";
 import { herdrStreams } from "./stream";
 
@@ -117,6 +122,10 @@ export const registerHerdrIpc = (
     IPC_CHANNELS.herdrStreamScroll,
     (_e, streamId: string, delta: number, at?: HerdrPointerCell) =>
       herdrStreams.scroll(streamId, delta, at),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.herdrStreamMouse, (_e, streamId: string, input: HerdrMouseInput) =>
+    herdrStreams.mouse(streamId, input),
   );
 
   ipcMain.handle(IPC_CHANNELS.herdrStreamClose, (_e, streamId: string) =>
