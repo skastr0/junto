@@ -20,6 +20,9 @@ import { PulseTray } from "./components/PulseTray";
 import { CanvasChrome } from "./components/CanvasChrome";
 import { KernelStatus } from "./components/KernelStatus";
 import { InspectorPanel } from "./components/InspectorPanel";
+import { HerdrWizard } from "./components/herdr/HerdrWizard";
+import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
+import { HerdrToast } from "./components/herdr/HerdrToast";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 
 const setError = (error: unknown) =>
@@ -303,6 +306,9 @@ export function App() {
 
         <DigestPanel />
         <PulseTray />
+        <HerdrWizard />
+        <HerdrTerminalModal />
+        <HerdrToast />
       </div>
     </div>
   );
