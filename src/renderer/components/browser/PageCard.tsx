@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import { Globe } from "lucide-react";
+import { browserActivity } from "../../lib/activity";
 import {
   refreshBrowserSession,
   subscribeBrowserSessionEvents,
@@ -10,21 +11,12 @@ import {
 import { closeDockBrowser, dock$, openDockBrowser } from "../../lib/dock-state";
 import { hostOf } from "../../lib/presentation";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
-
-const STATUS_COLOR: Record<string, string> = {
-  idle: HUE.steel,
-  loading: HUE.amber,
-  ready: "#5bb98c",
-  failed: HUE.crimson,
-  detached: HUE.steel,
-  destroyed: DIM,
-};
+import { ActivityMarkFromSpec } from "../ActivityMark";
 
 /**
  * Browser page work-surface card — rendered by LinkNode.tsx for kind "page" +
- * ether.browser nodes. Mirrors HerdrCard.tsx's shape (profile chip instead of
- * host/pane, live title instead of agent preview): session state is entirely
- * runtime (browser$), the document only ever carries the profile binding.
+ * ether.browser nodes. Session state is runtime (browser$); the document only
+ * carries the profile binding. ActivityMark: wave while loading/attaching.
  */
 export function PageCard({ node }: { readonly node: CanvasNode }) {
   const browser = node.ether?.browser;
@@ -51,16 +43,12 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
   const warm = state === "loading" || state === "ready" || state === "failed" || state === "detached";
   const title = session?.title;
   const host = hostOf(url);
-  const statusColor = STATUS_COLOR[state] ?? HUE.steel;
+  const activity = browserActivity({ state, attaching });
 
   const open = () => {
     void openDockBrowser(node.id, browser, url, title ?? host);
   };
   const detach = () => {
-    // Explicit nodeId — always targets THIS session's dock slot, whether or
-    // not it is currently open (closeDockBrowser is idempotent on unknown ids
-    // slot-wise; the IPC detach still runs so a warm-but-undocked session
-    // detaches too).
     closeDockBrowser(node.id);
   };
 
@@ -75,10 +63,12 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
           >
             {browser.profile}
           </span>
-          <span
-            className="size-[5px] shrink-0 rounded-full"
-            style={{ background: statusColor, boxShadow: `0 0 6px ${withAlpha(statusColor, 0.6)}` }}
-            title={state}
+          <ActivityMarkFromSpec
+            spec={
+              session?.lastError && state === "failed"
+                ? { ...activity, label: session.lastError }
+                : activity
+            }
           />
         </div>
         <button
@@ -90,8 +80,6 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
             open();
           }}
         >
-          {/* No favicon in the BR-004 session payload yet — a quiet globe
-              glyph fills the slot honestly rather than guessing a fetch. */}
           <Globe size={13} className="shrink-0" style={{ color: HUE.steel }} />
           <span
             className="truncate text-[14px] font-semibold leading-snug"
@@ -113,7 +101,7 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
             open();
           }}
         >
-          {attaching ? "attaching…" : "open"}
+          open
         </button>
         {session?.attached ? (
           <button

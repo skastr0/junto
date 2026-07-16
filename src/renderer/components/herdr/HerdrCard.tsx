@@ -1,21 +1,11 @@
 import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
+import { herdrActivity } from "../../lib/activity";
 import { connectionStateOf, herdr$, openHerdrTerminal, refreshHerdrMeta } from "../../lib/herdr-state";
 import { killHerdrPane, killHerdrTab, recreateHerdrPane } from "../../lib/herdr-actions";
-import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
-
-const STATUS_COLOR: Record<string, string> = {
-  idle: HUE.steel,
-  working: HUE.amber,
-  blocked: HUE.crimson,
-  done: "#5bb98c",
-  unknown: DIM,
-  connected: "#5bb98c",
-  degraded: HUE.amber,
-  lost: HUE.crimson,
-  failed: HUE.crimson,
-};
+import { DIM, INK } from "../../lib/theme";
+import { ActivityMarkFromSpec } from "../ActivityMark";
 
 export function HerdrCard({ node }: { readonly node: CanvasNode }) {
   const herdr = node.ether?.herdr;
@@ -42,7 +32,11 @@ export function HerdrCard({ node }: { readonly node: CanvasNode }) {
   const cwd = meta?.cwd;
   const preview = meta?.preview;
   const connState = conn?.state ?? connectionStateOf(node.id);
-  const stale = metaCache?.status === "error" || connState === "degraded" || connState === "failed" || connState === "lost";
+  const activity = herdrActivity({
+    agentStatus,
+    metaStatus: metaCache?.status,
+    connState,
+  });
 
   const open = () => {
     openHerdrTerminal(node.id, herdr, rawName);
@@ -55,26 +49,13 @@ export function HerdrCard({ node }: { readonly node: CanvasNode }) {
           <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
             herdr
           </span>
-          <span className="flex items-center gap-1">
-            {stale ? (
-              <span
-                className="rounded-full border px-1.5 py-px text-[8px] font-semibold uppercase tracking-wide"
-                style={{
-                  color: STATUS_COLOR[connState] ?? HUE.amber,
-                  borderColor: withAlpha(STATUS_COLOR[connState] ?? HUE.amber, 0.45),
-                }}
-                title={metaCache?.error ?? connState}
-              >
-                {connState}
-              </span>
-            ) : (
-              <span
-                className="size-[5px] rounded-full"
-                style={{ background: STATUS_COLOR.connected, boxShadow: `0 0 6px ${withAlpha(STATUS_COLOR.connected, 0.6)}` }}
-                title="connected"
-              />
-            )}
-          </span>
+          <ActivityMarkFromSpec
+            spec={
+              metaCache?.error
+                ? { ...activity, label: metaCache.error }
+                : activity
+            }
+          />
         </div>
         <button
           type="button"
@@ -99,17 +80,6 @@ export function HerdrCard({ node }: { readonly node: CanvasNode }) {
         {agent ? (
           <div className="flex items-center gap-1.5">
             <span className="truncate text-[11px] text-[#EDE6DA]">{agent}</span>
-            {agentStatus ? (
-              <span
-                className="shrink-0 rounded-full border px-1.5 py-px text-[8px] uppercase tracking-wide"
-                style={{
-                  color: STATUS_COLOR[agentStatus] ?? DIM,
-                  borderColor: withAlpha(STATUS_COLOR[agentStatus] ?? DIM, 0.4),
-                }}
-              >
-                {agentStatus}
-              </span>
-            ) : null}
           </div>
         ) : null}
         <div className="line-clamp-1 text-[10px]" style={{ color: DIM }} title={cwd ?? preview ?? ""}>

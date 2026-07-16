@@ -35,7 +35,7 @@ describe("herdrActivity", () => {
       label: "working",
     });
     expect(herdrActivity({ agentStatus: "blocked" }).mode).toBe("wave");
-    expect(herdrActivity({ agentStatus: "idle" }).mode).toBe("static");
+    expect(herdrActivity({ agentStatus: "idle" })).toMatchObject({ mode: "static", tone: "green" });
     expect(herdrActivity({ agentStatus: "done" }).tone).toBe("green");
   });
 

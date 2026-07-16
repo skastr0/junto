@@ -84,12 +84,13 @@ export function herdrActivity(input: {
     return { mode: "static", tone: "green", label: "done" };
   }
   if (input.connState === "lost" || input.connState === "failed" || input.metaStatus === "error") {
-    return { mode: "static", tone: "crimson", label: input.connState ?? "error" };
+    return { mode: "static", tone: "crimson", label: input.metaStatus === "error" ? "error" : String(input.connState) };
   }
-  if (agent === "idle") {
-    return { mode: "static", tone: "steel", label: "idle" };
+  // Quiet healthy card: green static (connected + idle/unknown).
+  if (agent === "idle" || agent === "unknown" || !agent) {
+    return { mode: "static", tone: "green", label: agent === "idle" ? "idle" : "connected" };
   }
-  return { mode: "static", tone: "steel", label: agent || "unknown" };
+  return { mode: "static", tone: "steel", label: agent };
 }
 
 // --- browser -----------------------------------------------------------------
