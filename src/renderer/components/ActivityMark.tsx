@@ -12,15 +12,13 @@ const SIZE: Record<
   ActivitySize,
   { readonly rows: number; readonly cols: number; readonly cellSize: number; readonly cellGap: number }
 > = {
-  // Match gradient-spin demo density (4px cells) so the wavefront reads clean.
+  // Package demo density (4px cells / 2px gap) — smaller cells lose the trail.
   node: { rows: 3, cols: 3, cellSize: 4, cellGap: 2 },
-  // List rows / tool chips — still compact, square so ripple stays circular.
   inline: { rows: 3, cols: 3, cellSize: 3, cellGap: 2 },
 };
 
-// Demo default is 750ms. Slightly longer for dark instrument chrome without
-// the 2.2s crawl that made cells feel like discrete blips.
-const WAVE_PERIOD_MS = 900;
+// Package default. The 2.2s first ship made each phase a discrete pop.
+const WAVE_PERIOD_MS = 750;
 
 export type ActivityMarkProps = {
   readonly mode: ActivityMode;
@@ -56,14 +54,14 @@ export function ActivityMarkFromSpec({
 
 /**
  * Canvas activity indicator.
- * wave  → monochrome gradient-spin (ripple rings, ~900ms — demo-smooth)
+ * wave  → monochrome gradient-spin snake trail (package demo knobs)
  * static → single filled dot of the same tone
  * No visible text — label is aria-only.
  *
- * Why these knobs (vs the awkward first ship):
- * - `ripple` = expanding rings from center (reads circular; snake zigzags/blips)
- * - `colorBy: "row"` = smooth ramp like the package demo (path = one-cell strobes)
- * - period ~900ms near the demo's 750ms (2200ms felt like discrete pops)
+ * First ship looked bad for config reasons, not snake itself:
+ * - period 2200ms → discrete pops (demo is 750ms linear)
+ * - colorBy "path" → each cell unique color + sequential light = strobe
+ * - snake + colorBy "row" + 750ms = continuous trail like the demo
  */
 export function ActivityMark({
   mode,
@@ -124,7 +122,7 @@ export function ActivityMark({
     >
       <GradientSpin
         gradient={[...houseGradientStops(tone)]}
-        pattern="ripple"
+        pattern="snake"
         rows={dims.rows}
         cols={dims.cols}
         cellSize={dims.cellSize}
