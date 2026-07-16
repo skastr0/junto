@@ -54,29 +54,29 @@ export const closeHerdrWizard = (): void => {
 };
 
 export const openHerdrTerminal = (nodeId: string, herdr: EtherHerdr, title: string): void => {
-  // Product lock: single interactive modal — close wizard first.
   herdr$.wizardOpen.set(false);
   herdr$.terminal.set({ nodeId, herdr, title });
   ensureConnection(nodeId);
   setConnectionEvent(nodeId, { type: "ok" });
 };
 
-export const closeHerdrTerminal = async (): Promise<void> => {
+/**
+ * Close the terminal modal immediately (UI first).
+ * Stream detach is fire-and-forget — never block the UI on a stuck herdr child.
+ */
+export const closeHerdrTerminal = (): void => {
   const terminal = herdr$.terminal.peek();
   if (!terminal) return;
+  const streamId = terminal.streamId;
+  // UI first — operator must never be trapped in the modal.
+  herdr$.terminal.set(null);
+  if (!streamId) return;
   const api = getVellumApi() as
     | (ReturnType<typeof getVellumApi> & {
         herdrStreamClose?: (streamId: string) => Promise<unknown>;
       })
     | undefined;
-  if (terminal.streamId && api?.herdrStreamClose) {
-    try {
-      await api.herdrStreamClose(terminal.streamId);
-    } catch {
-      // detach-friendly: closing modal never kills the pane
-    }
-  }
-  herdr$.terminal.set(null);
+  void api?.herdrStreamClose?.(streamId).catch(() => undefined);
 };
 
 export const setTerminalStreamId = (streamId: string | undefined): void => {

@@ -68,7 +68,7 @@ export const killHerdrPane = async (nodeId: string, herdr: EtherHerdr): Promise<
     setHerdrToast("Kill unavailable — herdr API missing");
     return;
   }
-  await closeHerdrTerminal();
+  closeHerdrTerminal();
   const result = await api.herdrKillPane(herdr.host, herdr.session ?? null, herdr.paneId);
   if (!result.ok) {
     setHerdrToast(result.message ?? "Kill pane failed — card kept");
@@ -89,7 +89,7 @@ export const killHerdrTab = async (nodeId: string, herdr: EtherHerdr): Promise<v
     setHerdrToast("Kill tab unavailable — herdr API missing");
     return;
   }
-  await closeHerdrTerminal();
+  closeHerdrTerminal();
   const result = await api.herdrKillTab(herdr.host, herdr.session ?? null, herdr.tabId);
   if (!result.ok) {
     setHerdrToast(result.message ?? "Kill tab failed — card kept");

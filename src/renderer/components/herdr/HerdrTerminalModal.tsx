@@ -8,7 +8,6 @@ import {
   closeHerdrTerminal,
   herdr$,
   setConnectionEvent,
-  setHerdrToast,
   setTerminalStreamId,
 } from "../../lib/herdr-state";
 import { recreateHerdrPane } from "../../lib/herdr-actions";
@@ -31,6 +30,51 @@ const base64ToUtf8 = (b64: string): string => {
   } catch {
     return "";
   }
+};
+
+/** Map a browser keyboard event to PTY bytes (when not using xterm onData). */
+const keyEventToPty = (e: KeyboardEvent): string | null => {
+  if (e.isComposing) return null;
+  if (e.metaKey || e.altKey) return null; // leave OS shortcuts alone
+
+  if (e.ctrlKey && e.key.length === 1) {
+    const code = e.key.toUpperCase().charCodeAt(0);
+    if (code >= 64 && code <= 95) return String.fromCharCode(code - 64);
+  }
+
+  switch (e.key) {
+    case "Enter":
+      return "\r";
+    case "Backspace":
+      return "\x7f";
+    case "Tab":
+      return "\t";
+    case "Escape":
+      return "\x1b";
+    case "ArrowUp":
+      return "\x1b[A";
+    case "ArrowDown":
+      return "\x1b[B";
+    case "ArrowRight":
+      return "\x1b[C";
+    case "ArrowLeft":
+      return "\x1b[D";
+    case "Home":
+      return "\x1b[H";
+    case "End":
+      return "\x1b[F";
+    case "PageUp":
+      return "\x1b[5~";
+    case "PageDown":
+      return "\x1b[6~";
+    case "Delete":
+      return "\x1b[3~";
+    default:
+      break;
+  }
+
+  if (e.key.length === 1 && !e.ctrlKey) return e.key;
+  return null;
 };
 
 type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
@@ -64,29 +108,53 @@ type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
   ) => () => void;
 };
 
+/**
+ * Interactive herdr work surface.
+ *
+ * Architecture:
+ * - xterm is DISPLAY ONLY (disableStdin) — reliable for ANSI re-blit frames
+ * - a transparent capture layer owns keyboard + wheel and talks IPC
+ * - close is always synchronous (UI first; stream detach in background)
+ */
 export function HerdrTerminalModal() {
   const terminalOpen = use$(herdr$.terminal);
   const nodeId = terminalOpen?.nodeId ?? "";
   const conn = use$(herdr$.connectionByNodeId[nodeId]);
   const hostRef = useRef<HTMLDivElement>(null);
-  const xtermRef = useRef<Terminal | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
+  const captureRef = useRef<HTMLTextAreaElement>(null);
   const streamIdRef = useRef<string | undefined>(undefined);
+  const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
   const [status, setStatus] = useState("connecting…");
 
+  // Escape / Cmd-W always closes — never trap the operator.
+  useEffect(() => {
+    if (!terminalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "w")) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeHerdrTerminal();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [Boolean(terminalOpen)]);
+
+  // Stream + xterm lifecycle
   useEffect(() => {
     if (!terminalOpen || !hostRef.current) return;
     const api = getVellumApi() as HerdrApi | undefined;
     const hostEl = hostRef.current;
-
     if (!api?.herdrStreamOpen || !api.onHerdrStreamEvent) {
       setStatus("herdr stream API unavailable");
       return;
     }
 
     const term = new Terminal({
+      // Display path only — keyboard is owned by the capture textarea.
+      disableStdin: true,
       cursorBlink: true,
-      disableStdin: false,
       fontSize: 13,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       theme: {
@@ -95,43 +163,45 @@ export function HerdrTerminalModal() {
         cursor: "#E8A33D",
       },
       allowProposedApi: true,
-      // Scrollback is server-side (herdr re-blit); keep local buffer small.
       scrollback: 0,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    // Clear host before open (StrictMode remount safety).
     hostEl.replaceChildren();
     term.open(hostEl);
-    // Give flex layout a frame so fit gets non-zero geometry.
-    requestAnimationFrame(() => {
-      try {
-        fit.fit();
-      } catch {
-        // ignore zero-size fit
-      }
-      term.focus();
-    });
-    xtermRef.current = term;
+    termRef.current = term;
     fitRef.current = fit;
 
     let cancelled = false;
-    let unsub = () => undefined as void;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     let resizeObs: ResizeObserver | undefined;
 
-    const focusTerm = () => {
+    const fitNow = () => {
       try {
-        term.focus();
+        fit.fit();
       } catch {
-        // disposed
+        // zero size
       }
+    };
+
+    requestAnimationFrame(() => {
+      fitNow();
+      captureRef.current?.focus();
+    });
+
+    const sendPty = (raw: string) => {
+      const id = streamIdRef.current;
+      if (!id || !raw) return;
+      void api.herdrStreamInput(id, utf8ToBase64(raw)).then((res) => {
+        if (res && res.ok === false && res.error) setStatus(`input failed: ${res.error}`);
+      });
     };
 
     const openStream = async () => {
       setStatus("ensuring server…");
       const herdr = terminalOpen.herdr;
       const ensure = await api.herdrEnsureServer(herdr.host, herdr.session ?? null);
+      if (cancelled) return;
       if (!ensure.ok) {
         setStatus(ensure.message ?? "ensure failed");
         setConnectionEvent(terminalOpen.nodeId, { type: "host_unreachable" });
@@ -141,6 +211,7 @@ export function HerdrTerminalModal() {
       let terminalId = herdr.terminalId;
       if (!terminalId && herdr.paneId) {
         const meta = await api.herdrGetMeta(herdr.host, herdr.session ?? null, herdr.paneId);
+        if (cancelled) return;
         terminalId = meta.data?.terminalId;
       }
       if (!terminalId) {
@@ -149,11 +220,7 @@ export function HerdrTerminalModal() {
         return;
       }
 
-      try {
-        fit.fit();
-      } catch {
-        // ignore
-      }
+      fitNow();
       const cols = Math.max(20, term.cols || 80);
       const rows = Math.max(5, term.rows || 24);
       setStatus("attaching control…");
@@ -173,23 +240,18 @@ export function HerdrTerminalModal() {
       }
       streamIdRef.current = opened.streamId;
       setTerminalStreamId(opened.streamId);
-      setStatus("connected · click terminal to type");
+      setStatus("connected · type here · Esc closes");
       setConnectionEvent(terminalOpen.nodeId, { type: "ok" });
-      // Focus after control is live so keystrokes hit onData → herdr.
-      requestAnimationFrame(focusTerm);
+      captureRef.current?.focus();
     };
 
-    unsub = api.onHerdrStreamEvent((event) => {
+    const unsub = api.onHerdrStreamEvent((event) => {
       if (event.streamId !== streamIdRef.current) return;
       if (event.type === "frame" && event.bytes) {
         const text = base64ToUtf8(event.bytes);
-        if (event.full) {
-          // Full re-blit: clear then write (herdr cell-grid path).
-          term.reset();
-        }
+        if (event.full) term.reset();
         term.write(text);
       } else if (event.type === "error") {
-        // Protocol nags (e.g. bad scroll JSON) — surface without killing stream.
         setStatus(event.message ?? "stream error");
       } else if (event.type === "closed") {
         setStatus(`closed · ${event.reason ?? "eof"}`);
@@ -206,68 +268,8 @@ export function HerdrTerminalModal() {
       }
     });
 
-    const dataDisp = term.onData((data) => {
-      const id = streamIdRef.current;
-      if (!id) {
-        setStatus("input dropped · stream not ready");
-        return;
-      }
-      void api.herdrStreamInput(id, utf8ToBase64(data)).then((res) => {
-        if (res && res.ok === false && res.error) {
-          setStatus(`input failed: ${res.error}`);
-        }
-      });
-    });
-
-    // After xterm has the key: block bubble to React Flow. Do NOT use document
-    // capture stopPropagation for keys already targeted at the helper textarea
-    // — that runs BEFORE the textarea and makes the terminal read-only.
-    term.attachCustomKeyEventHandler((ev) => {
-      // stop bubble only (not capture); xterm already owns this event.
-      if (ev.eventPhase === Event.BUBBLING_PHASE || ev.eventPhase === Event.AT_TARGET) {
-        ev.stopPropagation();
-      }
-      return true; // still process in xterm
-    });
-
-    // Capture on document: only intercept keys that are NOT already on xterm's
-    // helper textarea. hostEl.contains(x) is NOT enough — focus on the wrapper
-    // div still means keystrokes never reach the textarea.
-    const trapKeys = (e: KeyboardEvent) => {
-      const t = e.target as Node | null;
-      const inXtermTextarea =
-        t === term.textarea ||
-        (t instanceof HTMLElement && t.classList.contains("xterm-helper-textarea"));
-      if (inXtermTextarea) {
-        // Critical: do NOT stopPropagation in capture — xterm must receive the key.
-        return;
-      }
-      // Header buttons keep their keys.
-      if (t instanceof HTMLElement && t.closest("button, input, select, [contenteditable='true']")) {
-        return;
-      }
-      // Focus the real xterm textarea; swallow this key so canvas shortcuts don't fire.
-      focusTerm();
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    document.addEventListener("keydown", trapKeys, true);
-    document.addEventListener("keyup", trapKeys, true);
-    hostEl.addEventListener("mousedown", (e) => {
-      e.stopPropagation();
-      focusTerm();
-    });
-    hostEl.addEventListener("click", (e) => {
-      e.stopPropagation();
-      focusTerm();
-    });
-
     const scheduleResize = () => {
-      try {
-        fit.fit();
-      } catch {
-        return;
-      }
+      fitNow();
       const id = streamIdRef.current;
       if (!id) return;
       if (resizeTimer) clearTimeout(resizeTimer);
@@ -281,62 +283,77 @@ export function HerdrTerminalModal() {
       resizeObs.observe(hostEl);
     }
 
-    const onWheel = (e: WheelEvent) => {
-      const id = streamIdRef.current;
-      if (!id) return;
-      e.preventDefault();
-      e.stopPropagation();
-      // Normalize to line steps for herdr (direction + lines protocol).
-      const lines = Math.max(1, Math.min(12, Math.round(Math.abs(e.deltaY) / 40) || 1));
-      const signed = e.deltaY < 0 ? -lines : lines;
-      void api.herdrStreamScroll(id, signed);
-    };
-    hostEl.addEventListener("wheel", onWheel, { passive: false });
+    // Capture layer owns keys (attached outside this effect via captureRef).
+    // Expose sendPty on the element for the onKeyDown handler below.
+    (hostEl as HTMLDivElement & { __sendPty?: (s: string) => void }).__sendPty = sendPty;
 
     void openStream();
 
     return () => {
       cancelled = true;
       unsub();
-      dataDisp.dispose();
       window.removeEventListener("resize", scheduleResize);
       resizeObs?.disconnect();
-      hostEl.removeEventListener("wheel", onWheel);
-      document.removeEventListener("keydown", trapKeys, true);
-      document.removeEventListener("keyup", trapKeys, true);
-      hostEl.removeEventListener("mousedown", focusTerm);
-      hostEl.removeEventListener("click", focusTerm);
       if (resizeTimer) clearTimeout(resizeTimer);
       const id = streamIdRef.current;
       if (id) void api.herdrStreamClose(id);
       streamIdRef.current = undefined;
+      delete (hostEl as HTMLDivElement & { __sendPty?: unknown }).__sendPty;
       term.dispose();
-      xtermRef.current = null;
+      termRef.current = null;
     };
   }, [terminalOpen?.nodeId, terminalOpen?.herdr.paneId, terminalOpen?.herdr.terminalId]);
 
+  // Keep capture layer focused whenever the modal is open.
+  useEffect(() => {
+    if (!terminalOpen) return;
+    const t = window.setInterval(() => {
+      const el = captureRef.current;
+      if (!el) return;
+      if (document.activeElement === el) return;
+      // Don't steal focus from the close button while user is clicking chrome.
+      const a = document.activeElement;
+      if (a instanceof HTMLElement && a.closest("[data-herdr-chrome]")) return;
+      el.focus({ preventScroll: true });
+    }, 400);
+    return () => window.clearInterval(t);
+  }, [Boolean(terminalOpen)]);
+
   if (!terminalOpen) return null;
+
+  const sendFromCapture = (raw: string) => {
+    const id = streamIdRef.current;
+    if (!id || !raw) return;
+    const api = getVellumApi() as HerdrApi | undefined;
+    void api?.herdrStreamInput?.(id, utf8ToBase64(raw));
+  };
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex flex-col bg-black/70 p-3"
+      className="fixed inset-0 z-[200] flex flex-col bg-black/75 p-3"
       role="dialog"
+      aria-modal="true"
       aria-label="Herdr terminal"
-      // Bubble only — never capture-stop, or xterm never sees keystrokes.
-      onKeyDown={(e) => {
-        if ((e.target as HTMLElement | null)?.classList?.contains("xterm-helper-textarea")) return;
-        e.stopPropagation();
-      }}
-      onKeyUp={(e) => {
-        if ((e.target as HTMLElement | null)?.classList?.contains("xterm-helper-textarea")) return;
-        e.stopPropagation();
-      }}
     >
-      <div className="mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0c0b0a] shadow-2xl">
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-3 py-2">
+      {/* Backdrop click closes */}
+      <button
+        type="button"
+        className="absolute inset-0 z-0 cursor-default bg-transparent"
+        aria-label="Close terminal"
+        onClick={() => closeHerdrTerminal()}
+      />
+
+      <div
+        className="relative z-10 mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0c0b0a] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          data-herdr-chrome
+          className="relative z-30 flex shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-[#141210] px-3 py-2"
+        >
           <div className="min-w-0">
             <div className="text-[10px] uppercase tracking-[0.16em]" style={{ color: HUE.steel }}>
-              herdr terminal · interactive control
+              herdr terminal · Esc / close detaches (pane keeps running)
             </div>
             <div className="truncate text-sm font-semibold text-[#EDE6DA]">{terminalOpen.title}</div>
             <div className="truncate text-[11px] text-slate-500">
@@ -350,45 +367,91 @@ export function HerdrTerminalModal() {
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {(conn?.state === "failed" || conn?.state === "lost" || conn?.state === "degraded") && (
-              <>
-                <button
-                  type="button"
-                  className="rounded px-2 py-1 text-xs text-amber-200 hover:bg-white/10"
-                  onClick={() => {
-                    setConnectionEvent(terminalOpen.nodeId, { type: "reconnect_start" });
-                    setHerdrToast("Reconnect: close and reopen modal");
-                    void closeHerdrTerminal().then(() => {
-                      herdr$.terminal.set({ ...terminalOpen, streamId: undefined });
-                    });
-                  }}
-                >
-                  reconnect
-                </button>
-                <button
-                  type="button"
-                  className="rounded px-2 py-1 text-xs text-amber-200 hover:bg-white/10"
-                  onClick={() => void recreateHerdrPane(terminalOpen.nodeId, terminalOpen.herdr)}
-                >
-                  recreate
-                </button>
-              </>
+              <button
+                type="button"
+                data-herdr-chrome
+                className="rounded px-2 py-1 text-xs text-amber-200 hover:bg-white/10"
+                onClick={() => void recreateHerdrPane(terminalOpen.nodeId, terminalOpen.herdr)}
+              >
+                recreate
+              </button>
             )}
             <button
               type="button"
-              className="rounded px-2 py-1 text-xs text-slate-300 hover:bg-white/10 hover:text-[#EDE6DA]"
-              onClick={() => void closeHerdrTerminal()}
+              data-herdr-chrome
+              className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-[#EDE6DA] hover:bg-white/15"
+              onPointerDown={(e) => {
+                // Pointer-down so we win even if something steals click.
+                e.preventDefault();
+                e.stopPropagation();
+                closeHerdrTerminal();
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeHerdrTerminal();
+              }}
             >
-              close (detach)
+              Close
             </button>
           </div>
         </div>
-        {/* Flex child needs min-h-0 + explicit height chain for xterm. */}
-        <div
-          ref={hostRef}
-          className="herdr-xterm min-h-0 w-full flex-1 overflow-hidden p-1"
-          style={{ height: "100%" }}
-          tabIndex={0}
-        />
+
+        <div className="relative min-h-0 flex-1">
+          {/* Display surface */}
+          <div ref={hostRef} className="herdr-xterm absolute inset-0 overflow-hidden p-1" />
+
+          {/* Input capture — always on top of xterm, near-invisible, owns keyboard */}
+          <textarea
+            ref={captureRef}
+            aria-label="Terminal input"
+            className="absolute inset-0 z-20 h-full w-full resize-none border-0 bg-transparent p-0 text-transparent caret-transparent outline-none"
+            style={{ color: "transparent", caretColor: "transparent" }}
+            autoFocus
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            value=""
+            onChange={() => {
+              // Prefer onKeyDown for special keys; onChange covers paste/IME leftovers.
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                closeHerdrTerminal();
+                return;
+              }
+              // Let the capture layer own the key; do not bubble to canvas.
+              e.stopPropagation();
+              if (e.metaKey || e.altKey) return;
+
+              // Paste handled separately
+              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") return;
+
+              const pty = keyEventToPty(e.nativeEvent);
+              if (pty != null) {
+                e.preventDefault();
+                sendFromCapture(pty);
+              }
+            }}
+            onPaste={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const text = e.clipboardData.getData("text");
+              if (text) sendFromCapture(text);
+            }}
+            onWheel={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const id = streamIdRef.current;
+              const api = getVellumApi() as HerdrApi | undefined;
+              if (!id || !api?.herdrStreamScroll) return;
+              const lines = Math.max(1, Math.min(12, Math.round(Math.abs(e.deltaY) / 40) || 1));
+              const signed = e.deltaY < 0 ? -lines : lines;
+              void api.herdrStreamScroll(id, signed);
+            }}
+          />
+        </div>
       </div>
     </div>
   );
