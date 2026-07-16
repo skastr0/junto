@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { use$ } from "@legendapp/state/react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -32,10 +33,10 @@ const base64ToUtf8 = (b64: string): string => {
   }
 };
 
-/** Map a browser keyboard event to PTY bytes (when not using xterm onData). */
+/** Browser key → PTY bytes. Escape is reserved for modal close (not sent). */
 const keyEventToPty = (e: KeyboardEvent): string | null => {
   if (e.isComposing) return null;
-  if (e.metaKey || e.altKey) return null; // leave OS shortcuts alone
+  if (e.metaKey || e.altKey) return null;
 
   if (e.ctrlKey && e.key.length === 1) {
     const code = e.key.toUpperCase().charCodeAt(0);
@@ -49,8 +50,6 @@ const keyEventToPty = (e: KeyboardEvent): string | null => {
       return "\x7f";
     case "Tab":
       return "\t";
-    case "Escape":
-      return "\x1b";
     case "ArrowUp":
       return "\x1b[A";
     case "ArrowDown":
@@ -69,6 +68,8 @@ const keyEventToPty = (e: KeyboardEvent): string | null => {
       return "\x1b[6~";
     case "Delete":
       return "\x1b[3~";
+    case "Escape":
+      return null; // modal close only
     default:
       break;
   }
@@ -109,42 +110,84 @@ type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
 };
 
 /**
- * Interactive herdr work surface.
- *
- * Architecture:
- * - xterm is DISPLAY ONLY (disableStdin) — reliable for ANSI re-blit frames
- * - a transparent capture layer owns keyboard + wheel and talks IPC
- * - close is always synchronous (UI first; stream detach in background)
+ * Full-window herdr work surface (portaled to document.body so app chrome
+ * cannot clip it). xterm is display-only; keyboard is owned by a window-level
+ * capture handler so focus never blocks typing.
  */
 export function HerdrTerminalModal() {
   const terminalOpen = use$(herdr$.terminal);
   const nodeId = terminalOpen?.nodeId ?? "";
   const conn = use$(herdr$.connectionByNodeId[nodeId]);
   const hostRef = useRef<HTMLDivElement>(null);
-  const captureRef = useRef<HTMLTextAreaElement>(null);
   const streamIdRef = useRef<string | undefined>(undefined);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const apiRef = useRef<HerdrApi | undefined>(undefined);
   const [status, setStatus] = useState("connecting…");
+  const [geom, setGeom] = useState({ cols: 0, rows: 0 });
 
-  // Escape / Cmd-W always closes — never trap the operator.
+  // Keyboard: window capture while open — independent of focus/xterm.
   useEffect(() => {
     if (!terminalOpen) return;
-    const onKey = (e: KeyboardEvent) => {
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Always allow Esc to dismiss.
       if (e.key === "Escape" || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "w")) {
         e.preventDefault();
-        e.stopPropagation();
+        e.stopImmediatePropagation();
         closeHerdrTerminal();
+        return;
       }
+
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("[data-herdr-chrome]")) return;
+
+      // Steal from canvas / app shortcuts while modal is open.
+      e.stopPropagation();
+
+      if (e.metaKey || e.altKey) return;
+
+      const pty = keyEventToPty(e);
+      if (pty == null) return;
+
+      e.preventDefault();
+      const id = streamIdRef.current;
+      const api = apiRef.current;
+      if (!id || !api) {
+        setStatus("input dropped · stream not ready");
+        return;
+      }
+      void api.herdrStreamInput(id, utf8ToBase64(pty)).then((res) => {
+        if (res && res.ok === false && res.error) setStatus(`input failed: ${res.error}`);
+      });
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
+
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("[data-herdr-chrome]")) return;
+      const text = e.clipboardData?.getData("text");
+      if (!text) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const id = streamIdRef.current;
+      const api = apiRef.current;
+      if (!id || !api) return;
+      void api.herdrStreamInput(id, utf8ToBase64(text));
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("paste", onPaste, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("paste", onPaste, true);
+    };
   }, [Boolean(terminalOpen)]);
 
   // Stream + xterm lifecycle
   useEffect(() => {
     if (!terminalOpen || !hostRef.current) return;
     const api = getVellumApi() as HerdrApi | undefined;
+    apiRef.current = api;
     const hostEl = hostRef.current;
     if (!api?.herdrStreamOpen || !api.onHerdrStreamEvent) {
       setStatus("herdr stream API unavailable");
@@ -152,11 +195,10 @@ export function HerdrTerminalModal() {
     }
 
     const term = new Terminal({
-      // Display path only — keyboard is owned by the capture textarea.
-      disableStdin: true,
+      disableStdin: true, // display only — keyboard is window-level
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
       theme: {
         background: "#0c0b0a",
         foreground: "#EDE6DA",
@@ -164,6 +206,7 @@ export function HerdrTerminalModal() {
       },
       allowProposedApi: true,
       scrollback: 0,
+      convertEol: false,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -176,25 +219,33 @@ export function HerdrTerminalModal() {
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     let resizeObs: ResizeObserver | undefined;
 
-    const fitNow = () => {
+    const measure = (): { cols: number; rows: number } => {
       try {
         fit.fit();
       } catch {
-        // zero size
+        // ignore
       }
+      // Prefer measured xterm geometry; fall back to pixel estimate.
+      let cols = term.cols | 0;
+      let rows = term.rows | 0;
+      if (cols < 20 || rows < 5) {
+        const w = hostEl.clientWidth || 800;
+        const h = hostEl.clientHeight || 480;
+        // 13px mono ≈ 7.8×16 cell
+        cols = Math.max(20, Math.floor(w / 7.8));
+        rows = Math.max(5, Math.floor(h / 16));
+      }
+      cols = Math.max(20, Math.min(300, cols));
+      rows = Math.max(5, Math.min(120, rows));
+      setGeom({ cols, rows });
+      return { cols, rows };
     };
 
-    requestAnimationFrame(() => {
-      fitNow();
-      captureRef.current?.focus();
-    });
-
-    const sendPty = (raw: string) => {
+    const pushResize = () => {
       const id = streamIdRef.current;
-      if (!id || !raw) return;
-      void api.herdrStreamInput(id, utf8ToBase64(raw)).then((res) => {
-        if (res && res.ok === false && res.error) setStatus(`input failed: ${res.error}`);
-      });
+      if (!id) return;
+      const { cols, rows } = measure();
+      void api.herdrStreamResize(id, cols, rows);
     };
 
     const openStream = async () => {
@@ -220,10 +271,12 @@ export function HerdrTerminalModal() {
         return;
       }
 
-      fitNow();
-      const cols = Math.max(20, term.cols || 80);
-      const rows = Math.max(5, term.rows || 24);
-      setStatus("attaching control…");
+      // Wait two frames so flex layout has real size before we measure.
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+      if (cancelled) return;
+      const { cols, rows } = measure();
+
+      setStatus(`attaching ${cols}×${rows}…`);
       const opened = await api.herdrStreamOpen({
         hostId: herdr.host,
         session: herdr.session ?? null,
@@ -240,9 +293,12 @@ export function HerdrTerminalModal() {
       }
       streamIdRef.current = opened.streamId;
       setTerminalStreamId(opened.streamId);
-      setStatus("connected · type here · Esc closes");
+      setStatus(`connected · ${cols}×${rows} · type · Esc closes`);
       setConnectionEvent(terminalOpen.nodeId, { type: "ok" });
-      captureRef.current?.focus();
+      // One more resize after attach — layout often settles after first paint.
+      window.setTimeout(() => {
+        if (!cancelled) pushResize();
+      }, 100);
     };
 
     const unsub = api.onHerdrStreamEvent((event) => {
@@ -269,13 +325,8 @@ export function HerdrTerminalModal() {
     });
 
     const scheduleResize = () => {
-      fitNow();
-      const id = streamIdRef.current;
-      if (!id) return;
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        void api.herdrStreamResize(id, term.cols, term.rows);
-      }, 80);
+      resizeTimer = setTimeout(pushResize, 60);
     };
     window.addEventListener("resize", scheduleResize);
     if (typeof ResizeObserver !== "undefined") {
@@ -283,9 +334,15 @@ export function HerdrTerminalModal() {
       resizeObs.observe(hostEl);
     }
 
-    // Capture layer owns keys (attached outside this effect via captureRef).
-    // Expose sendPty on the element for the onKeyDown handler below.
-    (hostEl as HTMLDivElement & { __sendPty?: (s: string) => void }).__sendPty = sendPty;
+    const onWheel = (e: WheelEvent) => {
+      const id = streamIdRef.current;
+      if (!id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const lines = Math.max(1, Math.min(12, Math.round(Math.abs(e.deltaY) / 40) || 1));
+      void api.herdrStreamScroll(id, e.deltaY < 0 ? -lines : lines);
+    };
+    hostEl.addEventListener("wheel", onWheel, { passive: false });
 
     void openStream();
 
@@ -294,83 +351,63 @@ export function HerdrTerminalModal() {
       unsub();
       window.removeEventListener("resize", scheduleResize);
       resizeObs?.disconnect();
+      hostEl.removeEventListener("wheel", onWheel);
       if (resizeTimer) clearTimeout(resizeTimer);
       const id = streamIdRef.current;
       if (id) void api.herdrStreamClose(id);
       streamIdRef.current = undefined;
-      delete (hostEl as HTMLDivElement & { __sendPty?: unknown }).__sendPty;
+      apiRef.current = undefined;
       term.dispose();
       termRef.current = null;
     };
   }, [terminalOpen?.nodeId, terminalOpen?.herdr.paneId, terminalOpen?.herdr.terminalId]);
 
-  // Keep capture layer focused whenever the modal is open.
-  useEffect(() => {
+  // Force a layout pass when opening so host has non-zero size.
+  useLayoutEffect(() => {
     if (!terminalOpen) return;
-    const t = window.setInterval(() => {
-      const el = captureRef.current;
-      if (!el) return;
-      if (document.activeElement === el) return;
-      // Don't steal focus from the close button while user is clicking chrome.
-      const a = document.activeElement;
-      if (a instanceof HTMLElement && a.closest("[data-herdr-chrome]")) return;
-      el.focus({ preventScroll: true });
-    }, 400);
-    return () => window.clearInterval(t);
+    const el = hostRef.current;
+    if (!el) return;
+    // Touch layout
+    void el.offsetHeight;
   }, [Boolean(terminalOpen)]);
 
   if (!terminalOpen) return null;
 
-  const sendFromCapture = (raw: string) => {
-    const id = streamIdRef.current;
-    if (!id || !raw) return;
-    const api = getVellumApi() as HerdrApi | undefined;
-    void api?.herdrStreamInput?.(id, utf8ToBase64(raw));
-  };
-
-  return (
+  const modal = (
     <div
-      className="fixed inset-0 z-[200] flex flex-col bg-black/75 p-3"
+      className="herdr-modal-root"
       role="dialog"
       aria-modal="true"
       aria-label="Herdr terminal"
     >
-      {/* Backdrop click closes */}
+      {/* Backdrop */}
       <button
         type="button"
-        className="absolute inset-0 z-0 cursor-default bg-transparent"
+        className="herdr-modal-backdrop"
         aria-label="Close terminal"
         onClick={() => closeHerdrTerminal()}
       />
 
-      <div
-        className="relative z-10 mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0c0b0a] shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div
-          data-herdr-chrome
-          className="relative z-30 flex shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-[#141210] px-3 py-2"
-        >
-          <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-[0.16em]" style={{ color: HUE.steel }}>
-              herdr terminal · Esc / close detaches (pane keeps running)
-            </div>
-            <div className="truncate text-sm font-semibold text-[#EDE6DA]">{terminalOpen.title}</div>
-            <div className="truncate text-[11px] text-slate-500">
+      <div className="herdr-modal-panel" onClick={(e) => e.stopPropagation()}>
+        <header data-herdr-chrome className="herdr-modal-header">
+          <div className="herdr-modal-header__meta min-w-0">
+            <div className="herdr-modal-eyebrow">herdr · Esc / Close detaches (pane keeps running)</div>
+            <div className="herdr-modal-title truncate">{terminalOpen.title}</div>
+            <div className="herdr-modal-status truncate">
               {terminalOpen.herdr.host}
-              {terminalOpen.herdr.session ? ` · ${terminalOpen.herdr.session}` : ""}
               {terminalOpen.herdr.paneId ? ` · ${terminalOpen.herdr.paneId}` : ""}
+              {geom.cols ? ` · ${geom.cols}×${geom.rows}` : ""}
               {" · "}
               {status}
               {conn?.state ? ` · ${conn.state}` : ""}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          <div data-herdr-chrome className="herdr-modal-actions">
             {(conn?.state === "failed" || conn?.state === "lost" || conn?.state === "degraded") && (
               <button
                 type="button"
                 data-herdr-chrome
-                className="rounded px-2 py-1 text-xs text-amber-200 hover:bg-white/10"
+                className="herdr-modal-btn"
                 onClick={() => void recreateHerdrPane(terminalOpen.nodeId, terminalOpen.herdr)}
               >
                 recreate
@@ -379,14 +416,8 @@ export function HerdrTerminalModal() {
             <button
               type="button"
               data-herdr-chrome
-              className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-[#EDE6DA] hover:bg-white/15"
+              className="herdr-modal-btn herdr-modal-btn--primary"
               onPointerDown={(e) => {
-                // Pointer-down so we win even if something steals click.
-                e.preventDefault();
-                e.stopPropagation();
-                closeHerdrTerminal();
-              }}
-              onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 closeHerdrTerminal();
@@ -395,64 +426,18 @@ export function HerdrTerminalModal() {
               Close
             </button>
           </div>
-        </div>
+        </header>
 
-        <div className="relative min-h-0 flex-1">
-          {/* Display surface */}
-          <div ref={hostRef} className="herdr-xterm absolute inset-0 overflow-hidden p-1" />
-
-          {/* Input capture — always on top of xterm, near-invisible, owns keyboard */}
-          <textarea
-            ref={captureRef}
-            aria-label="Terminal input"
-            className="absolute inset-0 z-20 h-full w-full resize-none border-0 bg-transparent p-0 text-transparent caret-transparent outline-none"
-            style={{ color: "transparent", caretColor: "transparent" }}
-            autoFocus
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            value=""
-            onChange={() => {
-              // Prefer onKeyDown for special keys; onChange covers paste/IME leftovers.
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.preventDefault();
-                closeHerdrTerminal();
-                return;
-              }
-              // Let the capture layer own the key; do not bubble to canvas.
-              e.stopPropagation();
-              if (e.metaKey || e.altKey) return;
-
-              // Paste handled separately
-              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") return;
-
-              const pty = keyEventToPty(e.nativeEvent);
-              if (pty != null) {
-                e.preventDefault();
-                sendFromCapture(pty);
-              }
-            }}
-            onPaste={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              const text = e.clipboardData.getData("text");
-              if (text) sendFromCapture(text);
-            }}
-            onWheel={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              const id = streamIdRef.current;
-              const api = getVellumApi() as HerdrApi | undefined;
-              if (!id || !api?.herdrStreamScroll) return;
-              const lines = Math.max(1, Math.min(12, Math.round(Math.abs(e.deltaY) / 40) || 1));
-              const signed = e.deltaY < 0 ? -lines : lines;
-              void api.herdrStreamScroll(id, signed);
-            }}
-          />
-        </div>
+        <div
+          ref={hostRef}
+          className="herdr-xterm herdr-modal-body"
+          onMouseDown={() => {
+            // Keep window key handler as the input path; no focus requirement.
+          }}
+        />
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

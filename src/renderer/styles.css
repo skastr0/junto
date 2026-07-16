@@ -40,29 +40,116 @@ body {
   background: radial-gradient(circle at 50% 20%, rgba(232, 163, 61, 0.025), transparent 45%);
 }
 
-/* Herdr interactive terminal — xterm must fill flex host to receive focus + keys */
-.herdr-xterm {
+/* Herdr modal — portaled to document.body; never clipped by canvas stage */
+.herdr-modal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  /* traffic lights + breathing room under hiddenInset titlebar */
+  padding: 40px 16px 16px;
+  box-sizing: border-box;
+}
+.herdr-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.72);
+  cursor: default;
+}
+.herdr-modal-panel {
   position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, 100%);
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(237, 230, 218, 0.14);
+  background: #0c0b0a;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+.herdr-modal-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(237, 230, 218, 0.12);
+  background: #141210;
+}
+.herdr-modal-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8fa3b0;
+}
+.herdr-modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ede6da;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.herdr-modal-status {
+  font-size: 11px;
+  color: #8a8378;
+  margin-top: 2px;
+}
+.herdr-modal-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+.herdr-modal-btn {
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #ede6da;
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.herdr-modal-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.herdr-modal-btn--primary {
+  background: rgba(232, 163, 61, 0.18);
+  border-color: rgba(232, 163, 61, 0.35);
+  color: #f0d9a8;
+  font-weight: 600;
+}
+.herdr-modal-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* xterm fills the measured body so cols×rows match the host */
+.herdr-xterm {
   outline: none;
 }
 .herdr-xterm .xterm {
   width: 100%;
   height: 100%;
-  padding: 4px;
+  padding: 6px 8px;
+  box-sizing: border-box;
 }
 .herdr-xterm .xterm-viewport {
   width: 100% !important;
   height: 100% !important;
-  overflow-y: hidden !important; /* scroll is herdr-side, not local */
+  overflow-y: hidden !important;
 }
 .herdr-xterm .xterm-screen {
   width: 100% !important;
-}
-.herdr-xterm .xterm-helper-textarea {
-  /* Keep helper textarea focusable for keyboard input */
-  opacity: 0;
-  left: 0;
-  top: 0;
 }
 
 /* hiddenInset macOS window: leave room for the traffic lights, and let the
