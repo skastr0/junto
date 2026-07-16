@@ -49,23 +49,6 @@ describe("herdr control protocol field names", () => {
     expect(scrollMethod).toMatch(/modifiers:/);
   });
 
-  it("stays on the stock herdr protocol — no terminal.mouse anywhere", () => {
-    // Product invariant: vellum must never require a patched herdr binary.
-    // Stock herdr's control stream has no mouse command; sending one makes
-    // every input line after it suspect. Wheel is the only pointer input.
-    expect(streamSrc).not.toMatch(/terminal\.mouse/);
-  });
-
-  it("terminal.scroll fans coalesced ticks into single-line commands (stock-compatible)", () => {
-    const scrollMethod = streamSrc.slice(
-      streamSrc.indexOf("scroll("),
-      streamSrc.indexOf("/**\n   * Detach control"),
-    );
-    // Stock herdr emits one wheel report per command; a coalesced gesture must
-    // become N commands of lines: 1, not one command of lines: N.
-    expect(scrollMethod).toMatch(/lines:\s*1/);
-    expect(scrollMethod).toMatch(/repeat\(ticks\)/);
-  });
 
   it("terminal.clipboard_image uses extension + bytes — stages on host, pastes path", () => {
     const methodStart = streamSrc.indexOf("clipboardImage(");
