@@ -28,11 +28,22 @@ interface ActiveStream {
 /**
  * Owns at most one interactive control stream globally (product lock).
  * Opening a second stream releases the previous control (takeover path).
+ *
+ * ## Product lock — detach, never murder
+ *
+ * Closing a stream (modal close, takeover, app quit, launchd unload) ONLY:
+ *   1. sends `terminal.release` to herdr
+ *   2. SIGTERM the local/ssh *control client* process (`herdr terminal session control …`)
+ *
+ * It NEVER runs `pane close`, `tab close`, `workspace close`, or `session stop`.
+ * Herdr panes and agents keep running on the host when Vellum exits. Rebuilding
+ * or quitting Vellum must be a non-event for the fleet.
  */
 export class HerdrStreamManager {
   private active: ActiveStream | undefined;
   private seq = 0;
   private sink: StreamSink | undefined;
+  private shutDown = false;
 
   setSink(sink: StreamSink | undefined): void {
     this.sink = sink;
@@ -50,14 +61,17 @@ export class HerdrStreamManager {
     readonly rows: number;
     readonly takeover?: boolean;
   }): { readonly ok: true; readonly streamId: string } | { readonly ok: false; readonly message: string } {
+    if (this.shutDown) {
+      return { ok: false, message: "herdr streams shut down (app quitting)" };
+    }
     if (!input.terminalId) {
       return { ok: false, message: "terminalId required for control stream" };
     }
     if (!isKnownHerdrHost(input.hostId) || input.hostId.startsWith("-")) {
       return { ok: false, message: `unknown herdr host: ${input.hostId}` };
     }
-    // Single global control stream — release previous first.
-    if (this.active) this.close(this.active.streamId, "superseded");
+    // Single global control stream — detach previous first (never kill panes).
+    if (this.active) this.detachControl(this.active.streamId, "superseded");
 
     const streamId = `hs-${Date.now().toString(36)}-${(++this.seq).toString(36)}`;
     const args = [
@@ -191,17 +205,32 @@ export class HerdrStreamManager {
     });
   }
 
+  /**
+   * Detach control only. Alias kept for IPC naming (`herdrStreamClose`).
+   * Never kills a herdr pane/tab/session.
+   */
   close(streamId: string, reason = "client_close"): { readonly ok: boolean; readonly error?: string } {
+    return this.detachControl(streamId, reason);
+  }
+
+  /**
+   * Release the interactive control client for `streamId`.
+   * |- never pane close / tab close / session stop
+   * |- safe to call on app quit and launchd unload
+   */
+  detachControl(streamId: string, reason = "client_close"): { readonly ok: boolean; readonly error?: string } {
     const active = this.active;
     if (!active || active.streamId !== streamId) {
       return { ok: true };
     }
     try {
+      // Protocol: release input ownership; PTY continues on host.
       this.writeJson(active, { type: "terminal.release" });
     } catch {
       // ignore
     }
     try {
+      // Kill only the control CLI/ssh *client* child — not the herdr server, not the pane.
       active.child.kill("SIGTERM");
     } catch {
       // ignore
@@ -211,8 +240,18 @@ export class HerdrStreamManager {
     return { ok: true };
   }
 
+  /**
+   * App/launchd shutdown: detach every control stream. Idempotent.
+   * Product lock: quitting Vellum must not mass-kill herdr sessions.
+   */
+  detachAllOnQuit(reason = "app_quit"): void {
+    this.shutDown = true;
+    if (this.active) this.detachControl(this.active.streamId, reason);
+  }
+
+  /** @deprecated use detachAllOnQuit — name kept so greps for closeAll still find the intent */
   closeAll(): void {
-    if (this.active) this.close(this.active.streamId, "shutdown");
+    this.detachAllOnQuit("shutdown");
   }
 
   private require(

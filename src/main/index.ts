@@ -4,6 +4,7 @@ import { app, BrowserWindow, shell } from "electron";
 import { resolvedSpawnEnv } from "./vellum/adapters/exec";
 import { AppRuntime } from "./runtime";
 import { registerIpcHandlers } from "./ipc";
+import { herdrStreams } from "./vellum/herdr/stream";
 
 // Dev-only: expose the Chrome DevTools Protocol so agents can drive the app
 // end to end (screenshot, click, evaluate) over CDP. Never in packaged builds.
@@ -195,6 +196,29 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
+// Herdr product lock: quit / relaunch / launchd unload MUST detach control only.
+// Never pane close, tab close, or session stop. The fleet keeps running.
+const detachHerdrOnQuit = (reason: string) => {
+  try {
+    herdrStreams.detachAllOnQuit(reason);
+  } catch (error) {
+    console.error(`[herdr] detach on quit failed (${reason}):`, error);
+  }
+};
+
 app.on("before-quit", () => {
+  detachHerdrOnQuit("before-quit");
   void AppRuntime.dispose();
+});
+
+app.on("will-quit", () => {
+  detachHerdrOnQuit("will-quit");
+});
+
+// launchd bootout / kill send SIGTERM before exit; release control without murder.
+process.on("SIGTERM", () => {
+  detachHerdrOnQuit("SIGTERM");
+});
+process.on("SIGINT", () => {
+  detachHerdrOnQuit("SIGINT");
 });

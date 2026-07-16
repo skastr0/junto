@@ -1,53 +1,48 @@
 #!/usr/bin/env bash
-# Install Vellum as an always-running launchd LaunchAgent.
+# Install Vellum as a crash-supervised LaunchAgent (KeepAlive only on non-zero exit).
 #
 #   scripts/install-launchd.sh              build, install to /Applications, load agent
-#   scripts/install-launchd.sh --skip-build reuse release/mac-arm64/Vellum.app as-is
-#   scripts/install-launchd.sh --uninstall  unload agent, remove plist (keeps /Applications/Vellum.app)
+#   scripts/install-launchd.sh --skip-build reuse existing release app / already-installed
+#   scripts/install-launchd.sh --uninstall  unload agent, remove plist (keeps /Applications app)
 #
-# KeepAlive semantics: a crash (non-zero exit) relaunches the app; a deliberate
-# quit (Cmd-Q, exit 0) stays quit until next login or `launchctl kickstart`.
-# Manual re-opens self-route back through launchd (the app kickstarts this
-# label and exits when it detects it isn't the supervised instance), so the
-# running Vellum is always crash-supervised while this agent is installed.
+# Prefer day-to-day:
+#   bun run app:install              # plain /Applications install
+#   bun run app:install:supervised   # install + this LaunchAgent
+#
+# Herdr: reload/unload soft-quits Vellum → control streams detach; panes keep running.
+# Never mass-kills herdr sessions.
 set -euo pipefail
 
-LABEL="skastr0.vellum"
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_SRC="$REPO_ROOT/release/mac-arm64/Vellum.app"
-APP_DST="/Applications/Vellum.app"
-PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-LOG_DIR="$HOME/Library/Logs/Vellum"
-DOMAIN="gui/$(id -u)"
-
-unload() {
-  launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
-  # bootout returns before the job fully drains; bootstrapping while the old
-  # instance is still SIGTERM-ing fails with EIO. Wait for it to disappear.
-  for _ in $(seq 1 20); do
-    launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || return 0
-    sleep 1
-  done
-  echo "warning: $LABEL still draining after 20s; bootstrap may fail" >&2
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=app-paths.sh
+source "$SCRIPT_DIR/app-paths.sh"
 
 if [[ "${1:-}" == "--uninstall" ]]; then
-  unload
+  unload_launchd
   rm -f "$PLIST"
-  echo "unloaded $LABEL and removed $PLIST (app left at $APP_DST)"
+  log "unloaded $LABEL and removed $PLIST (app left at $APP_DST)"
   exit 0
 fi
 
 if [[ "${1:-}" != "--skip-build" ]]; then
-  (cd "$REPO_ROOT" && bun run build)
+  bash "$SCRIPT_DIR/install-app.sh"
+else
+  # Ensure /Applications is current when skipping full rebuild.
+  if [[ -d "$(detect_app_src)" ]]; then
+    bash "$SCRIPT_DIR/install-app.sh" --skip-build
+  else
+    assert_app_bundle "$APP_DST" || {
+      err "no release app and no $APP_DST — run scripts/build-app.sh first"
+      exit 1
+    }
+    unload_launchd
+    quit_running_app
+  fi
 fi
 
-[[ -d "$APP_SRC" ]] || { echo "missing $APP_SRC — run bun run build first" >&2; exit 1; }
+assert_app_bundle "$APP_DST"
 
-# Replace any loaded agent before swapping the binary out from under it.
-unload
-
-ditto --rsrc "$APP_SRC" "$APP_DST"
+unload_launchd
 mkdir -p "$LOG_DIR" "$(dirname "$PLIST")"
 
 cat > "$PLIST" <<PLIST_EOF
@@ -59,7 +54,7 @@ cat > "$PLIST" <<PLIST_EOF
   <string>$LABEL</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$APP_DST/Contents/MacOS/Vellum</string>
+    <string>$APP_DST/Contents/MacOS/${PRODUCT_NAME}</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -80,14 +75,17 @@ cat > "$PLIST" <<PLIST_EOF
 </plist>
 PLIST_EOF
 
+log "bootstrapping $DOMAIN/$LABEL …"
 launchctl bootstrap "$DOMAIN" "$PLIST"
 launchctl enable "$DOMAIN/$LABEL"
 
 sleep 2
-if launchctl print "$DOMAIN/$LABEL" | grep -q "state = running"; then
-  echo "$LABEL loaded and running (logs: $LOG_DIR)"
+if launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -q "state = running"; then
+  log "$LABEL loaded and running"
+  log "  logs: $LOG_DIR"
+  log "  herdr panes are NOT killed by this reload (detach control only)"
 else
-  echo "$LABEL loaded but not reported running — check $LOG_DIR/vellum.err.log" >&2
-  launchctl print "$DOMAIN/$LABEL" | sed -n '1,12p' >&2
+  err "$LABEL loaded but not reported running — check $LOG_DIR/vellum.err.log"
+  launchctl print "$DOMAIN/$LABEL" 2>/dev/null | sed -n '1,12p' >&2 || true
   exit 1
 fi

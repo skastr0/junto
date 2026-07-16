@@ -7,7 +7,15 @@ Automated gates: `bun run typecheck` · `bun run test` (no live ssh required).
 - Work surface, not hermes — no ACP, no pulse target, no EntitySource herdr
 - One interactive modal; takeover OK
 - Detach default on card delete; kill pane/tab explicit
+- **Quit / relaunch / launchd unload detaches control only — never mass-kills herdr panes/sessions**
 - Kitty graphics out of scope (ANSI re-blit only)
+
+### Quit / reinstall smoke
+
+1. Attach a live agent pane in Vellum; leave it working in herdr
+2. Quit Vellum (Cmd-Q) or `bun run app:install:fast`
+3. `herdr pane list` still shows the pane; agent still running
+4. Re-open Vellum and re-attach — same pane, work preserved
 
 ## Manual local
 

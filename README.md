@@ -37,11 +37,30 @@ Built on the [chassis](https://github.com/skastr0/chassis) station recipe: Elect
 ```bash
 bun install
 bun run dev      # electron + renderer at localhost:5173
-bun run verify   # typecheck + tests + build
+bun run verify   # typecheck + tests + vite compile
 ```
 
 First launch seeds a starter portfolio canvas.
 
+## Package & install (macOS)
+
+```bash
+bun run app:build              # typecheck + package → release/mac-arm64/Vellum.app
+bun run app:build:fast         # skip typecheck (iterate packaging)
+bun run app:build:verify       # typecheck + tests + package
+
+bun run app:install            # build then install → /Applications/Vellum.app
+bun run app:install:fast       # fast build + install
+bun run app:install:skip-build # install already-built release app
+bun run app:install:supervised # install + LaunchAgent (crash-only KeepAlive)
+bun run app:open               # open /Applications/Vellum.app
+bun run app:uninstall-agent    # remove LaunchAgent; leave the .app
+```
+
+Scripts: `scripts/build-app.sh`, `scripts/install-app.sh`, `scripts/install-launchd.sh`.
+
+**Herdr safety:** quitting Vellum (Dock, install reload, launchd unload) **detaches** terminal control streams only. It does **not** kill herdr panes, tabs, or sessions. Rebuilding/reinstalling is a non-event for your agent fleet.
+
 ## Status
 
-POC. Read paths and canvas editing are real; review gates and packaging are deliberately deferred.
+POC. Canvas + live sources are real; packaging scripts install a local Developer-ID-signed `.app` when codesign is available.
