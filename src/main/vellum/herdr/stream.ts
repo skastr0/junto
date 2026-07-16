@@ -193,15 +193,23 @@ export class HerdrStreamManager {
     });
   }
 
+  /**
+   * herdr control protocol: { type: "terminal.scroll", direction: "up"|"down", lines: N }
+   * (not `delta` — that is rejected as missing field `direction`).
+   */
   scroll(
     streamId: string,
     delta: number,
   ): { readonly ok: boolean; readonly error?: string } {
     const stream = this.require(streamId);
     if (!stream.ok) return stream;
+    const lines = Math.max(1, Math.min(40, Math.abs(Math.round(delta)) || 1));
+    // Browser wheel: deltaY > 0 → scroll down; herdr uses direction up/down.
+    const direction = delta < 0 ? "up" : "down";
     return this.writeJson(stream.stream, {
       type: "terminal.scroll",
-      delta,
+      direction,
+      lines,
     });
   }
 

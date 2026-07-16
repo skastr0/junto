@@ -33,6 +33,37 @@ const base64ToUtf8 = (b64: string): string => {
   }
 };
 
+type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
+  herdrStreamOpen: (input: {
+    hostId: string;
+    session?: string | null;
+    terminalId: string;
+    cols: number;
+    rows: number;
+    takeover?: boolean;
+  }) => Promise<{ ok: boolean; streamId?: string; message?: string }>;
+  herdrStreamInput: (streamId: string, data: string) => Promise<{ ok?: boolean; error?: string }>;
+  herdrStreamResize: (streamId: string, cols: number, rows: number) => Promise<unknown>;
+  herdrStreamScroll: (streamId: string, delta: number) => Promise<unknown>;
+  herdrStreamClose: (streamId: string) => Promise<unknown>;
+  herdrEnsureServer: (hostId: string, session?: string | null) => Promise<{ ok: boolean; message?: string }>;
+  herdrGetMeta: (
+    hostId: string,
+    session: string | null | undefined,
+    paneId: string,
+  ) => Promise<{ ok: boolean; data?: { terminalId?: string }; message?: string }>;
+  onHerdrStreamEvent: (
+    listener: (event: {
+      streamId: string;
+      type: "frame" | "closed" | "error";
+      bytes?: string;
+      full?: boolean;
+      reason?: string;
+      message?: string;
+    }) => void,
+  ) => () => void;
+};
+
 export function HerdrTerminalModal() {
   const terminalOpen = use$(herdr$.terminal);
   const nodeId = terminalOpen?.nodeId ?? "";
@@ -45,36 +76,8 @@ export function HerdrTerminalModal() {
 
   useEffect(() => {
     if (!terminalOpen || !hostRef.current) return;
-    const api = getVellumApi() as
-      | (ReturnType<typeof getVellumApi> & {
-          herdrStreamOpen: (input: {
-            hostId: string;
-            session?: string | null;
-            terminalId: string;
-            cols: number;
-            rows: number;
-            takeover?: boolean;
-          }) => Promise<{ ok: boolean; streamId?: string; message?: string }>;
-          herdrStreamInput: (streamId: string, data: string) => Promise<unknown>;
-          herdrStreamResize: (streamId: string, cols: number, rows: number) => Promise<unknown>;
-          herdrStreamScroll: (streamId: string, delta: number) => Promise<unknown>;
-          herdrStreamClose: (streamId: string) => Promise<unknown>;
-          herdrEnsureServer: (hostId: string, session?: string | null) => Promise<{ ok: boolean; message?: string }>;
-          herdrGetMeta: (
-            hostId: string,
-            session: string | null | undefined,
-            paneId: string,
-          ) => Promise<{ ok: boolean; data?: { terminalId?: string }; message?: string }>;
-          onHerdrStreamEvent: (listener: (event: {
-            streamId: string;
-            type: "frame" | "closed" | "error";
-            bytes?: string;
-            full?: boolean;
-            reason?: string;
-            message?: string;
-          }) => void) => () => void;
-        })
-      | undefined;
+    const api = getVellumApi() as HerdrApi | undefined;
+    const hostEl = hostRef.current;
 
     if (!api?.herdrStreamOpen || !api.onHerdrStreamEvent) {
       setStatus("herdr stream API unavailable");
@@ -83,6 +86,7 @@ export function HerdrTerminalModal() {
 
     const term = new Terminal({
       cursorBlink: true,
+      disableStdin: false,
       fontSize: 13,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       theme: {
@@ -91,17 +95,38 @@ export function HerdrTerminalModal() {
         cursor: "#E8A33D",
       },
       allowProposedApi: true,
+      // Scrollback is server-side (herdr re-blit); keep local buffer small.
+      scrollback: 0,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(hostRef.current);
-    fit.fit();
+    // Clear host before open (StrictMode remount safety).
+    hostEl.replaceChildren();
+    term.open(hostEl);
+    // Give flex layout a frame so fit gets non-zero geometry.
+    requestAnimationFrame(() => {
+      try {
+        fit.fit();
+      } catch {
+        // ignore zero-size fit
+      }
+      term.focus();
+    });
     xtermRef.current = term;
     fitRef.current = fit;
 
     let cancelled = false;
     let unsub = () => undefined as void;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    let resizeObs: ResizeObserver | undefined;
+
+    const focusTerm = () => {
+      try {
+        term.focus();
+      } catch {
+        // disposed
+      }
+    };
 
     const openStream = async () => {
       setStatus("ensuring server…");
@@ -124,9 +149,13 @@ export function HerdrTerminalModal() {
         return;
       }
 
-      fit.fit();
-      const cols = term.cols;
-      const rows = term.rows;
+      try {
+        fit.fit();
+      } catch {
+        // ignore
+      }
+      const cols = Math.max(20, term.cols || 80);
+      const rows = Math.max(5, term.rows || 24);
       setStatus("attaching control…");
       const opened = await api.herdrStreamOpen({
         hostId: herdr.host,
@@ -144,24 +173,29 @@ export function HerdrTerminalModal() {
       }
       streamIdRef.current = opened.streamId;
       setTerminalStreamId(opened.streamId);
-      setStatus("connected");
+      setStatus("connected · click terminal to type");
       setConnectionEvent(terminalOpen.nodeId, { type: "ok" });
+      // Focus after control is live so keystrokes hit onData → herdr.
+      requestAnimationFrame(focusTerm);
     };
 
     unsub = api.onHerdrStreamEvent((event) => {
       if (event.streamId !== streamIdRef.current) return;
       if (event.type === "frame" && event.bytes) {
         const text = base64ToUtf8(event.bytes);
-        if (event.full) term.reset();
+        if (event.full) {
+          // Full re-blit: clear then write (herdr cell-grid path).
+          term.reset();
+        }
         term.write(text);
       } else if (event.type === "error") {
+        // Protocol nags (e.g. bad scroll JSON) — surface without killing stream.
         setStatus(event.message ?? "stream error");
       } else if (event.type === "closed") {
         setStatus(`closed · ${event.reason ?? "eof"}`);
         setConnectionEvent(terminalOpen.nodeId, { type: "stream_drop" });
         streamIdRef.current = undefined;
         setTerminalStreamId(undefined);
-        // Bounded auto-reconnect when modal still open.
         if (canAutoReconnect(terminalOpen.nodeId)) {
           setConnectionEvent(terminalOpen.nodeId, { type: "reconnect_start" });
           setStatus("reconnecting…");
@@ -175,11 +209,33 @@ export function HerdrTerminalModal() {
     const dataDisp = term.onData((data) => {
       const id = streamIdRef.current;
       if (!id) return;
-      void api.herdrStreamInput(id, utf8ToBase64(data));
+      void api.herdrStreamInput(id, utf8ToBase64(data)).then((res) => {
+        if (res && res.ok === false && res.error) {
+          setStatus(`input failed: ${res.error}`);
+        }
+      });
     });
 
-    const onResize = () => {
-      fit.fit();
+    // Keep keys inside the modal — do not let React Flow / app chrome steal them.
+    const trapKeys = (e: KeyboardEvent) => {
+      if (!hostEl.contains(document.activeElement) && document.activeElement !== term.textarea) {
+        // If focus drifted, reclaim on any key while pointer is over the pane.
+        focusTerm();
+      }
+      e.stopPropagation();
+    };
+    hostEl.addEventListener("keydown", trapKeys, true);
+    hostEl.addEventListener("keyup", trapKeys, true);
+    hostEl.addEventListener("keypress", trapKeys, true);
+    hostEl.addEventListener("mousedown", focusTerm);
+    hostEl.addEventListener("click", focusTerm);
+
+    const scheduleResize = () => {
+      try {
+        fit.fit();
+      } catch {
+        return;
+      }
       const id = streamIdRef.current;
       if (!id) return;
       if (resizeTimer) clearTimeout(resizeTimer);
@@ -187,15 +243,23 @@ export function HerdrTerminalModal() {
         void api.herdrStreamResize(id, term.cols, term.rows);
       }, 80);
     };
-    window.addEventListener("resize", onResize);
+    window.addEventListener("resize", scheduleResize);
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObs = new ResizeObserver(() => scheduleResize());
+      resizeObs.observe(hostEl);
+    }
 
     const onWheel = (e: WheelEvent) => {
       const id = streamIdRef.current;
       if (!id) return;
-      const delta = Math.sign(e.deltaY);
-      if (delta !== 0) void api.herdrStreamScroll(id, delta);
+      e.preventDefault();
+      e.stopPropagation();
+      // Normalize to line steps for herdr (direction + lines protocol).
+      const lines = Math.max(1, Math.min(12, Math.round(Math.abs(e.deltaY) / 40) || 1));
+      const signed = e.deltaY < 0 ? -lines : lines;
+      void api.herdrStreamScroll(id, signed);
     };
-    hostRef.current.addEventListener("wheel", onWheel, { passive: true });
+    hostEl.addEventListener("wheel", onWheel, { passive: false });
 
     void openStream();
 
@@ -203,8 +267,14 @@ export function HerdrTerminalModal() {
       cancelled = true;
       unsub();
       dataDisp.dispose();
-      window.removeEventListener("resize", onResize);
-      hostRef.current?.removeEventListener("wheel", onWheel);
+      window.removeEventListener("resize", scheduleResize);
+      resizeObs?.disconnect();
+      hostEl.removeEventListener("wheel", onWheel);
+      hostEl.removeEventListener("keydown", trapKeys, true);
+      hostEl.removeEventListener("keyup", trapKeys, true);
+      hostEl.removeEventListener("keypress", trapKeys, true);
+      hostEl.removeEventListener("mousedown", focusTerm);
+      hostEl.removeEventListener("click", focusTerm);
       if (resizeTimer) clearTimeout(resizeTimer);
       const id = streamIdRef.current;
       if (id) void api.herdrStreamClose(id);
@@ -217,15 +287,22 @@ export function HerdrTerminalModal() {
   if (!terminalOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[90] flex flex-col bg-black/70 p-4" role="dialog" aria-label="Herdr terminal">
+    <div
+      className="fixed inset-0 z-[90] flex flex-col bg-black/70 p-3"
+      role="dialog"
+      aria-label="Herdr terminal"
+      // Capture phase: stop canvas shortcuts while modal is open.
+      onKeyDown={(e) => e.stopPropagation()}
+      onKeyUp={(e) => e.stopPropagation()}
+    >
       <div className="mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0c0b0a] shadow-2xl">
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-2">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-3 py-2">
           <div className="min-w-0">
             <div className="text-[10px] uppercase tracking-[0.16em]" style={{ color: HUE.steel }}>
-              herdr terminal · one control stream
+              herdr terminal · interactive control
             </div>
             <div className="truncate text-sm font-semibold text-[#EDE6DA]">{terminalOpen.title}</div>
-            <div className="text-[11px] text-slate-500">
+            <div className="truncate text-[11px] text-slate-500">
               {terminalOpen.herdr.host}
               {terminalOpen.herdr.session ? ` · ${terminalOpen.herdr.session}` : ""}
               {terminalOpen.herdr.paneId ? ` · ${terminalOpen.herdr.paneId}` : ""}
@@ -244,7 +321,6 @@ export function HerdrTerminalModal() {
                     setConnectionEvent(terminalOpen.nodeId, { type: "reconnect_start" });
                     setHerdrToast("Reconnect: close and reopen modal");
                     void closeHerdrTerminal().then(() => {
-                      // Re-open same binding
                       herdr$.terminal.set({ ...terminalOpen, streamId: undefined });
                     });
                   }}
@@ -265,11 +341,17 @@ export function HerdrTerminalModal() {
               className="rounded px-2 py-1 text-xs text-slate-300 hover:bg-white/10 hover:text-[#EDE6DA]"
               onClick={() => void closeHerdrTerminal()}
             >
-              close (detach stream)
+              close (detach)
             </button>
           </div>
         </div>
-        <div ref={hostRef} className="min-h-0 flex-1 p-2" />
+        {/* Flex child needs min-h-0 + explicit height chain for xterm. */}
+        <div
+          ref={hostRef}
+          className="herdr-xterm min-h-0 w-full flex-1 overflow-hidden p-1"
+          style={{ height: "100%" }}
+          tabIndex={0}
+        />
       </div>
     </div>
   );
