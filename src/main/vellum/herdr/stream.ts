@@ -165,18 +165,29 @@ export class HerdrStreamManager {
     return { ok: true, streamId };
   }
 
+  /**
+   * herdr control protocol (verified against herdr client):
+   *   { type: "terminal.input", bytes: "<base64>" }
+   *   { type: "terminal.input", text: "<utf8>" }
+   * Field name `data` is IGNORED → empty write, silent no-op (not an error).
+   */
   input(streamId: string, dataBase64: string): { readonly ok: boolean; readonly error?: string } {
     const stream = this.require(streamId);
     if (!stream.ok) return stream;
     return this.writeJson(stream.stream, {
       type: "terminal.input",
-      data: dataBase64,
+      bytes: dataBase64,
     });
   }
 
-  /** Convenience: encode utf-8 text as base64 input. */
+  /** Plaintext path — herdr accepts `text` without base64. */
   inputText(streamId: string, text: string): { readonly ok: boolean; readonly error?: string } {
-    return this.input(streamId, Buffer.from(text, "utf8").toString("base64"));
+    const stream = this.require(streamId);
+    if (!stream.ok) return stream;
+    return this.writeJson(stream.stream, {
+      type: "terminal.input",
+      text,
+    });
   }
 
   resize(

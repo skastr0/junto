@@ -1,0 +1,39 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+/**
+ * Field-name contract against herdr's control NDJSON protocol.
+ * Wrong keys are often silent no-ops (input) or noisy rejects (scroll).
+ */
+describe("herdr control protocol field names", () => {
+  const streamSrc = readFileSync(
+    join(import.meta.dirname, "../src/main/vellum/herdr/stream.ts"),
+    "utf8",
+  );
+
+  it("terminal.input uses bytes or text — never the silent-noop field data", () => {
+    // input() body must include bytes:
+    expect(streamSrc).toMatch(/type:\s*["']terminal\.input["']/);
+    expect(streamSrc).toMatch(/bytes:\s*dataBase64/);
+    // Guard against regressing to { data: ... } which herdr ignores.
+    const inputMethod = streamSrc.slice(
+      streamSrc.indexOf("input(streamId: string, dataBase64: string)"),
+      streamSrc.indexOf("inputText("),
+    );
+    expect(inputMethod).not.toMatch(/\bdata:\s*dataBase64\b/);
+    expect(inputMethod).toMatch(/\bbytes:\s*dataBase64\b/);
+  });
+
+  it("terminal.scroll uses direction + lines — not delta", () => {
+    const scrollMethod = streamSrc.slice(
+      streamSrc.indexOf("scroll("),
+      streamSrc.indexOf("detachControl") > 0
+        ? streamSrc.indexOf("/**\n   * Detach control")
+        : streamSrc.indexOf("close(streamId"),
+    );
+    expect(scrollMethod).toMatch(/type:\s*["']terminal\.scroll["']/);
+    expect(scrollMethod).toMatch(/direction/);
+    expect(scrollMethod).toMatch(/lines/);
+  });
+});
