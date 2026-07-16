@@ -175,10 +175,11 @@ export const recreateHerdrPane = async (nodeId: string, herdr: EtherHerdr): Prom
     return;
   }
   const doc = state$.doc.peek();
+  // Never carry dead pane's terminalId — force meta resolve when create omits it.
   const nextHerdr: EtherHerdr = {
     ...herdr,
     paneId: nextIds.paneId,
-    terminalId: nextIds.terminalId ?? herdr.terminalId,
+    terminalId: nextIds.terminalId,
     tabId: nextIds.tabId ?? herdr.tabId,
     workspaceId: nextIds.workspaceId ?? herdr.workspaceId,
   };
