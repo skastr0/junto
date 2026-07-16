@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { HerdrPointerCell } from "@shared/ipc";
 import { herdrArgv, isKnownHerdrHost, UnknownHerdrHostError } from "./hosts";
+import { pastePathPayload, stageImageOnHost } from "./stage-image";
 
 export interface HerdrStreamFrame {
   readonly streamId: string;
@@ -193,37 +194,26 @@ export class HerdrStreamManager {
 
 
   /**
-   * herdr control protocol:
-   *   { type: "terminal.clipboard_image", extension: "png", bytes: "<base64>" }
-   * Server stages the image on the host and pastes the absolute path into the
-   * attached pane (same path as `herdr --remote` clipboard image bridge).
-   * Requires a herdr build that knows the command; older builds reject on stderr.
+   * Vellum-owned image paste (stock herdr only):
+   *   1. stage bytes as a temp file on the stream's host (local FS or ssh write)
+   *   2. paste the absolute path via stock `terminal.input` (bracketed paste)
+   * No herdr protocol extensions.
    */
-  clipboardImage(
+  async clipboardImage(
     streamId: string,
     extension: string,
     dataBase64: string,
-  ): { readonly ok: boolean; readonly error?: string } {
+  ): Promise<{ readonly ok: boolean; readonly error?: string; readonly path?: string }> {
     const stream = this.require(streamId);
     if (!stream.ok) return stream;
-    const ext = extension.trim().replace(/^\./, "").toLowerCase();
-    // Mirror herdr server sanitize_extension allowlist (unknown → reject here for fast feedback).
-    const allowed = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
-    if (!ext || !allowed.has(ext)) {
-      return { ok: false, error: `clipboard image extension not allowed: ${ext || "(empty)"}` };
-    }
-    if (!dataBase64) return { ok: false, error: "clipboard image bytes required" };
-    // herdr MAX_CLIPBOARD_IMAGE_PAYLOAD = 16 MiB decoded. Base64 expands ~4/3.
-    const maxBytes = 16 * 1024 * 1024;
-    const approxDecoded = Math.floor((dataBase64.length * 3) / 4);
-    if (approxDecoded > maxBytes || dataBase64.length > Math.ceil((maxBytes * 4) / 3) + 4) {
-      return { ok: false, error: `clipboard image too large (max ${maxBytes} bytes)` };
-    }
-    return this.writeJson(stream.stream, {
-      type: "terminal.clipboard_image",
-      extension: ext === "jpeg" ? "jpg" : ext,
-      bytes: dataBase64,
+    const staged = await stageImageOnHost(stream.stream.hostId, extension, dataBase64);
+    if (!staged.ok) return { ok: false, error: staged.error };
+    const written = this.writeJson(stream.stream, {
+      type: "terminal.input",
+      text: pastePathPayload(staged.path),
     });
+    if (!written.ok) return written;
+    return { ok: true, path: staged.path };
   }
 
   resize(

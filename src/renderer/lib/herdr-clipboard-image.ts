@@ -1,8 +1,7 @@
 /**
  * Extract image payloads from browser ClipboardEvent / drag-drop DataTransfer
- * for the herdr terminal attach path. Mirrors herdr's remote bridge: bytes go
- * to the host via `terminal.clipboard_image`, which stages a temp file and
- * pastes the absolute path into the pane.
+ * for the herdr terminal attach path. Main stages a temp file on the herdr host
+ * and pastes the absolute path via stock terminal.input (no herdr forks).
  */
 
 /** Match herdr MAX_CLIPBOARD_IMAGE_PAYLOAD (16 MiB). */

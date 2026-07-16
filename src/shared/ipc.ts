@@ -722,15 +722,15 @@ export interface VellumHerdrApi {
   readonly herdrStreamOpen: (input: HerdrStreamOpenInput) => Promise<HerdrStreamOpenResult>;
   readonly herdrStreamInput: (streamId: string, dataBase64: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   /**
-   * Stage a clipboard/dropped image on the herdr host and paste its path into
-   * the attached pane. `dataBase64` is raw image bytes (not a data URL).
-   * Cap is herdr's 16MB clipboard image limit.
+   * Stage a clipboard/dropped image on the herdr host (local write or ssh),
+   * then paste the absolute path via stock `terminal.input`. No herdr forks.
+   * `dataBase64` is raw image bytes (not a data URL). Cap 16 MiB.
    */
   readonly herdrStreamClipboardImage: (
     streamId: string,
     extension: string,
     dataBase64: string,
-  ) => Promise<{ readonly ok: boolean; readonly error?: string }>;
+  ) => Promise<{ readonly ok: boolean; readonly error?: string; readonly path?: string }>;
   readonly herdrStreamResize: (streamId: string, cols: number, rows: number) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly herdrStreamScroll: (
     streamId: string,

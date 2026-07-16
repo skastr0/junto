@@ -94,7 +94,7 @@ type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
     streamId: string,
     extension: string,
     dataBase64: string,
-  ) => Promise<{ ok?: boolean; error?: string }>;
+  ) => Promise<{ ok?: boolean; error?: string; path?: string }>;
   herdrStreamResize: (streamId: string, cols: number, rows: number) => Promise<unknown>;
   herdrStreamScroll: (
     streamId: string,
@@ -193,7 +193,12 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
           setStatus(`image paste failed: ${res.error}`);
           return;
         }
-        setStatus(`image sent · ${image.extension} · ${image.byteLength} B`);
+        const path = typeof res?.path === "string" ? res.path : "";
+        setStatus(
+          path
+            ? `image path pasted · ${path}`
+            : `image path pasted · ${image.extension} · ${image.byteLength} B`,
+        );
       });
     };
 
@@ -492,7 +497,12 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
           setStatus(`image drop failed: ${res.error}`);
           return;
         }
-        setStatus(`image sent · ${image.extension} · ${image.byteLength} B`);
+        const path = typeof res?.path === "string" ? res.path : "";
+        setStatus(
+          path
+            ? `image path pasted · ${path}`
+            : `image path pasted · ${image.extension} · ${image.byteLength} B`,
+        );
       })();
     };
 
