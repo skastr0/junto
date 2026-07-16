@@ -627,6 +627,18 @@ export interface HerdrStreamOpenResult {
   readonly message?: string;
 }
 
+/**
+ * Pointer position in terminal cells for wheel/mouse forwarding.
+ * herdr routes wheel by app mode: mouse-reporting apps get an SGR wheel event
+ * at this cell, so a missing/wrong cell scrolls the wrong region (or nothing).
+ * `modifiers` uses crossterm bits: SHIFT=1, CONTROL=2, ALT=4.
+ */
+export interface HerdrPointerCell {
+  readonly column: number;
+  readonly row: number;
+  readonly modifiers: number;
+}
+
 /** High-frequency main→renderer stream push (not request/response per frame). */
 export interface HerdrStreamEvent {
   readonly streamId: string;
@@ -699,7 +711,11 @@ export interface VellumHerdrApi {
   readonly herdrStreamOpen: (input: HerdrStreamOpenInput) => Promise<HerdrStreamOpenResult>;
   readonly herdrStreamInput: (streamId: string, dataBase64: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly herdrStreamResize: (streamId: string, cols: number, rows: number) => Promise<{ readonly ok: boolean; readonly error?: string }>;
-  readonly herdrStreamScroll: (streamId: string, delta: number) => Promise<{ readonly ok: boolean; readonly error?: string }>;
+  readonly herdrStreamScroll: (
+    streamId: string,
+    delta: number,
+    at?: HerdrPointerCell,
+  ) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly herdrStreamClose: (streamId: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly onHerdrStreamEvent: (listener: (event: HerdrStreamEvent) => void) => () => void;
 }

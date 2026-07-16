@@ -163,8 +163,8 @@ const herdrApi: VellumHerdrApi = {
     invoke(IPC_CHANNELS.herdrStreamInput, IPC_TIMEOUT_MS, streamId, dataBase64),
   herdrStreamResize: (streamId, cols, rows) =>
     invoke(IPC_CHANNELS.herdrStreamResize, IPC_TIMEOUT_MS, streamId, cols, rows),
-  herdrStreamScroll: (streamId, delta) =>
-    invoke(IPC_CHANNELS.herdrStreamScroll, IPC_TIMEOUT_MS, streamId, delta),
+  herdrStreamScroll: (streamId, delta, at) =>
+    invoke(IPC_CHANNELS.herdrStreamScroll, IPC_TIMEOUT_MS, streamId, delta, at),
   herdrStreamClose: (streamId) => invoke(IPC_CHANNELS.herdrStreamClose, IPC_TIMEOUT_MS, streamId),
   onHerdrStreamEvent: (listener) => subscribe<HerdrStreamEvent>(IPC_CHANNELS.herdrStreamEvent, listener),
 };

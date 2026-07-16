@@ -89,7 +89,11 @@ type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
   }) => Promise<{ ok: boolean; streamId?: string; message?: string }>;
   herdrStreamInput: (streamId: string, data: string) => Promise<{ ok?: boolean; error?: string }>;
   herdrStreamResize: (streamId: string, cols: number, rows: number) => Promise<unknown>;
-  herdrStreamScroll: (streamId: string, delta: number) => Promise<unknown>;
+  herdrStreamScroll: (
+    streamId: string,
+    delta: number,
+    at?: { column: number; row: number; modifiers: number },
+  ) => Promise<unknown>;
   herdrStreamClose: (streamId: string) => Promise<unknown>;
   herdrEnsureServer: (hostId: string, session?: string | null) => Promise<{ ok: boolean; message?: string }>;
   herdrGetMeta: (
@@ -334,13 +338,37 @@ export function HerdrTerminalModal() {
       resizeObs.observe(hostEl);
     }
 
+    // Cell under the pointer. herdr routes wheel to mouse-reporting apps as an
+    // SGR event at this cell; falling back to the screen center beats herdr's
+    // (0,0) corner default when geometry is not measurable yet.
+    const cellAt = (e: MouseEvent): { column: number; row: number } => {
+      const cols = Math.max(1, term.cols | 0);
+      const rows = Math.max(1, term.rows | 0);
+      const rect = hostEl.querySelector(".xterm-screen")?.getBoundingClientRect();
+      if (!rect || rect.width < 1 || rect.height < 1) {
+        return { column: cols >> 1, row: rows >> 1 };
+      }
+      const column = Math.min(cols - 1, Math.max(0, Math.floor(((e.clientX - rect.left) / rect.width) * cols)));
+      const row = Math.min(rows - 1, Math.max(0, Math.floor(((e.clientY - rect.top) / rect.height) * rows)));
+      return { column, row };
+    };
+
+    // crossterm KeyModifiers bits: SHIFT=1, CONTROL=2, ALT=4.
+    const modifierBits = (e: MouseEvent): number =>
+      (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0);
+
     const onWheel = (e: WheelEvent) => {
       const id = streamIdRef.current;
       if (!id) return;
       e.preventDefault();
       e.stopPropagation();
       const lines = Math.max(1, Math.min(12, Math.round(Math.abs(e.deltaY) / 40) || 1));
-      void api.herdrStreamScroll(id, e.deltaY < 0 ? -lines : lines);
+      const { column, row } = cellAt(e);
+      void api.herdrStreamScroll(id, e.deltaY < 0 ? -lines : lines, {
+        column,
+        row,
+        modifiers: modifierBits(e),
+      });
     };
     hostEl.addEventListener("wheel", onWheel, { passive: false });
 

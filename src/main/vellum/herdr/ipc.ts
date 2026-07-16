@@ -1,5 +1,5 @@
 import type { IpcMain, WebContents } from "electron";
-import { IPC_CHANNELS, type HerdrStreamOpenInput } from "@shared/ipc";
+import { IPC_CHANNELS, type HerdrPointerCell, type HerdrStreamOpenInput } from "@shared/ipc";
 import { herdrService } from "./service";
 import { herdrStreams } from "./stream";
 
@@ -113,8 +113,10 @@ export const registerHerdrIpc = (
     (_e, streamId: string, cols: number, rows: number) => herdrStreams.resize(streamId, cols, rows),
   );
 
-  ipcMain.handle(IPC_CHANNELS.herdrStreamScroll, (_e, streamId: string, delta: number) =>
-    herdrStreams.scroll(streamId, delta),
+  ipcMain.handle(
+    IPC_CHANNELS.herdrStreamScroll,
+    (_e, streamId: string, delta: number, at?: HerdrPointerCell) =>
+      herdrStreams.scroll(streamId, delta, at),
   );
 
   ipcMain.handle(IPC_CHANNELS.herdrStreamClose, (_e, streamId: string) =>

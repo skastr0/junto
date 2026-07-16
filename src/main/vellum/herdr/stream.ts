@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { HerdrPointerCell } from "@shared/ipc";
 import { herdrArgv, isKnownHerdrHost, UnknownHerdrHostError } from "./hosts";
 
 export interface HerdrStreamFrame {
@@ -207,10 +208,16 @@ export class HerdrStreamManager {
   /**
    * herdr control protocol: { type: "terminal.scroll", direction: "up"|"down", lines: N }
    * (not `delta` — that is rejected as missing field `direction`).
+   *
+   * `at` matters for mouse-reporting apps (grok, htop, …): herdr encodes an
+   * SGR wheel event at that cell instead of moving host scrollback, so the
+   * app scrolls the region under the pointer. Without it herdr defaults to
+   * cell (0,0) and mouse-aware apps scroll the wrong region or nothing.
    */
   scroll(
     streamId: string,
     delta: number,
+    at?: HerdrPointerCell,
   ): { readonly ok: boolean; readonly error?: string } {
     const stream = this.require(streamId);
     if (!stream.ok) return stream;
@@ -221,6 +228,13 @@ export class HerdrStreamManager {
       type: "terminal.scroll",
       direction,
       lines,
+      ...(at
+        ? {
+            column: Math.max(0, Math.floor(at.column)),
+            row: Math.max(0, Math.floor(at.row)),
+            modifiers: at.modifiers & 0xff,
+          }
+        : {}),
     });
   }
 
