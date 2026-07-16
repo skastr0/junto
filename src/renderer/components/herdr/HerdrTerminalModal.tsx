@@ -188,18 +188,24 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
         return;
       }
       setStatus(`pasting image (${image.byteLength} B)…`);
-      void api.herdrStreamClipboardImage(id, image.extension, image.dataBase64).then((res) => {
-        if (res && res.ok === false && res.error) {
-          setStatus(`image paste failed: ${res.error}`);
-          return;
-        }
-        const path = typeof res?.path === "string" ? res.path : "";
-        setStatus(
-          path
-            ? `image path pasted · ${path}`
-            : `image path pasted · ${image.extension} · ${image.byteLength} B`,
-        );
-      });
+      void api
+        .herdrStreamClipboardImage(id, image.extension, image.dataBase64)
+        .then((res) => {
+          if (res && res.ok === false && res.error) {
+            setStatus(`image paste failed: ${res.error}`);
+            return;
+          }
+          const path = typeof res?.path === "string" ? res.path : "";
+          setStatus(
+            path
+              ? `image path pasted · ${path}`
+              : `image path pasted · ${image.extension} · ${image.byteLength} B`,
+          );
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          setStatus(`image paste failed: ${msg}`);
+        });
     };
 
     const onPaste = (e: ClipboardEvent) => {
@@ -492,17 +498,22 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
           return;
         }
         setStatus(`pasting image (${image.byteLength} B)…`);
-        const res = await api.herdrStreamClipboardImage(id, image.extension, image.dataBase64);
-        if (res && res.ok === false && res.error) {
-          setStatus(`image drop failed: ${res.error}`);
-          return;
+        try {
+          const res = await api.herdrStreamClipboardImage(id, image.extension, image.dataBase64);
+          if (res && res.ok === false && res.error) {
+            setStatus(`image drop failed: ${res.error}`);
+            return;
+          }
+          const path = typeof res?.path === "string" ? res.path : "";
+          setStatus(
+            path
+              ? `image path pasted · ${path}`
+              : `image path pasted · ${image.extension} · ${image.byteLength} B`,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setStatus(`image drop failed: ${msg}`);
         }
-        const path = typeof res?.path === "string" ? res.path : "";
-        setStatus(
-          path
-            ? `image path pasted · ${path}`
-            : `image path pasted · ${image.extension} · ${image.byteLength} B`,
-        );
       })();
     };
 

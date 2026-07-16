@@ -46,4 +46,11 @@ describe("herdr stage-image (vellum-owned)", () => {
     const res = await stageImageOnHost("not-a-host", "png", Buffer.from("x").toString("base64"));
     expect(res.ok).toBe(false);
   });
+
+  it("rejects oversized base64 before decode", () => {
+    const huge = "A".repeat(Math.ceil((VELLUM_CLIPBOARD_IMAGE_MAX_BYTES * 4) / 3) + 32);
+    const res = decodeClipboardImageBase64("png", huge);
+    expect(res.ok).toBe(false);
+  });
+
 });

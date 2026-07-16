@@ -33,12 +33,15 @@ export const decodeClipboardImageBase64 = (
     return { ok: false, error: `clipboard image extension not allowed: ${extension.trim() || "(empty)"}` };
   }
   if (!dataBase64) return { ok: false, error: "clipboard image bytes required" };
-  let bytes: Buffer;
-  try {
-    bytes = Buffer.from(dataBase64, "base64");
-  } catch {
-    return { ok: false, error: "invalid clipboard image base64" };
+  // Bound before decode so a hostile IPC caller cannot force huge peak alloc.
+  const maxB64 = Math.ceil((VELLUM_CLIPBOARD_IMAGE_MAX_BYTES * 4) / 3) + 8;
+  if (dataBase64.length > maxB64) {
+    return {
+      ok: false,
+      error: `image too large (base64 length ${dataBase64.length}; max ~${maxB64})`,
+    };
   }
+  const bytes = Buffer.from(dataBase64, "base64");
   if (bytes.byteLength === 0) return { ok: false, error: "empty image" };
   if (bytes.byteLength > VELLUM_CLIPBOARD_IMAGE_MAX_BYTES) {
     return {

@@ -204,11 +204,16 @@ export class HerdrStreamManager {
     extension: string,
     dataBase64: string,
   ): Promise<{ readonly ok: boolean; readonly error?: string; readonly path?: string }> {
-    const stream = this.require(streamId);
-    if (!stream.ok) return stream;
-    const staged = await stageImageOnHost(stream.stream.hostId, extension, dataBase64);
+    const opened = this.require(streamId);
+    if (!opened.ok) return opened;
+    // Capture host before await — stream may detach during remote stage.
+    const hostId = opened.stream.hostId;
+    const staged = await stageImageOnHost(hostId, extension, dataBase64);
     if (!staged.ok) return { ok: false, error: staged.error };
-    const written = this.writeJson(stream.stream, {
+    // Re-bind after stage: close/takeover must not write a stale stdin.
+    const live = this.require(streamId);
+    if (!live.ok) return live;
+    const written = this.writeJson(live.stream, {
       type: "terminal.input",
       text: pastePathPayload(staged.path),
     });
