@@ -129,7 +129,7 @@ export function ActivityMark({
         cellGap={dims.cellGap}
         cellRadius={1}
         period={WAVE_PERIOD_MS}
-        dim={0.1}
+        dim={0}
         colorBy="row"
         label={label}
         respectReducedMotion
