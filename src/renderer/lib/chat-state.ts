@@ -115,6 +115,8 @@ export interface AgentChatState {
   readonly unread: number;
   readonly error?: string;
   readonly authMethods?: ReadonlyArray<string>;
+  /** True while chatPrompt awaits the full turn (tools may not have arrived yet). */
+  readonly turnBusy: boolean;
 }
 
 export const initialAgentChatState = (): AgentChatState => ({
@@ -122,6 +124,7 @@ export const initialAgentChatState = (): AgentChatState => ({
   models: [],
   transcript: [],
   unread: 0,
+  turnBusy: false,
 });
 
 // --- defensive payload narrowing --------------------------------------------
@@ -434,11 +437,14 @@ export async function sendPrompt(
     pushStatus(agentKey, "chat unavailable", "error");
     return;
   }
+  chatState$[agentKey].turnBusy.set(true);
   try {
     const result = await api.chatPrompt(agentKey, trimmed, contextBlocks?.map((block) => block.text));
     if (!result.ok) pushStatus(agentKey, result.error ?? "turn failed", "error");
   } catch (error) {
     pushStatus(agentKey, error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    chatState$[agentKey].turnBusy.set(false);
   }
 }
 

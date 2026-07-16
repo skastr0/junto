@@ -175,6 +175,7 @@ function AgentActivityMark({ agentKey }: { readonly agentKey: string }) {
     status: state.status,
     pendingPermission: Boolean(state.pendingPermission),
     tools,
+    sending: state.turnBusy,
   });
   return <ActivityMarkFromSpec spec={activity} />;
 }

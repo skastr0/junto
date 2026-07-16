@@ -63,6 +63,7 @@ export function ChatView({
     status: agentState.status,
     pendingPermission: Boolean(agentState.pendingPermission),
     tools,
+    sending: agentState.turnBusy,
   });
 
   return (
