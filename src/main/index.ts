@@ -6,6 +6,7 @@ import { AppRuntime } from "./runtime";
 import { registerIpcHandlers } from "./ipc";
 import { herdrStreams } from "./vellum/herdr/stream";
 import { browserSessions } from "./vellum/browser/ipc";
+import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 
 // Dev-only: expose the Chrome DevTools Protocol so agents can drive the app
 // end to end (screenshot, click, evaluate) over CDP. Never in packaged builds.
@@ -185,6 +186,18 @@ if (!gotSingleInstanceLock) {
     void resolvedSpawnEnv();
 
     registerIpcHandlers();
+
+    // Agent control plane (unix socket + token). App-hosted: exists exactly as
+    // long as the runtime that owns the warm sessions does.
+    try {
+      browserControl = startBrowserControlServer({
+        sessions: browserSessions,
+        version: app.getVersion(),
+      });
+    } catch (error) {
+      console.error("[browser-control] failed to start:", error);
+    }
+
     createWindow();
 
     app.on("activate", () => {
@@ -199,6 +212,8 @@ app.on("window-all-closed", () => {
 
 // Herdr product lock: quit / relaunch / launchd unload MUST detach control only.
 // Never pane close, tab close, or session stop. The fleet keeps running.
+let browserControl: BrowserControlServer | undefined;
+
 const detachHerdrOnQuit = (reason: string) => {
   try {
     herdrStreams.detachAllOnQuit(reason);
@@ -217,6 +232,12 @@ const detachHerdrOnQuit = (reason: string) => {
 
 app.on("before-quit", () => {
   detachHerdrOnQuit("before-quit");
+  // Close the control socket so the CLI reports runtime_down instead of hanging.
+  try {
+    browserControl?.close();
+  } catch (error) {
+    console.error("[browser-control] close on quit failed:", error);
+  }
   void AppRuntime.dispose();
 });
 

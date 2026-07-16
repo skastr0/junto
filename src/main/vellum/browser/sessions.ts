@@ -38,6 +38,10 @@ export interface BrowserViewHandle {
   detach(): void;
   /** Drop the runtime view. Profile partition data persists. */
   destroy(): void;
+  /** Control-plane seam: run JS in the page, JSON-serializable result. Optional — spies may omit. */
+  executeJavaScript?(code: string): Promise<unknown>;
+  /** Control-plane seam: capture the page as PNG bytes. Optional — spies may omit. */
+  capturePagePng?(): Promise<Uint8Array>;
 }
 
 export interface BrowserViewEvents {
@@ -245,6 +249,37 @@ export class BrowserSessionService {
     entry.lastActiveAt = this.now();
     this.reduce(entry, { type: "detach" });
     return { ok: true, data: this.info(entry) };
+  }
+
+  /**
+   * Control-plane eval: run JS inside the page's isolated web content. The
+   * result is whatever executeJavaScript resolves to (JSON-serializable by the
+   * time it crosses the socket). Works on warm detached sessions too — a
+   * surface on screen is not required.
+   */
+  async eval(nodeId: string, code: string): Promise<BrowserResult<{ result: unknown }>> {
+    const entry = this.sessions.get(nodeId);
+    if (!entry) return err("not_found", `no session for ${nodeId}`);
+    if (!entry.view.executeJavaScript) return err("failed", "adapter does not support eval");
+    entry.lastActiveAt = this.now();
+    try {
+      return { ok: true, data: { result: await entry.view.executeJavaScript(code) } };
+    } catch (error) {
+      return err("failed", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** Control-plane screenshot: PNG bytes of the page. Caller owns persistence. */
+  async screenshot(nodeId: string): Promise<BrowserResult<{ png: Uint8Array }>> {
+    const entry = this.sessions.get(nodeId);
+    if (!entry) return err("not_found", `no session for ${nodeId}`);
+    if (!entry.view.capturePagePng) return err("failed", "adapter does not support screenshot");
+    entry.lastActiveAt = this.now();
+    try {
+      return { ok: true, data: { png: await entry.view.capturePagePng() } };
+    } catch (error) {
+      return err("failed", error instanceof Error ? error.message : String(error));
+    }
   }
 
   state(nodeId: string): BrowserResult<BrowserSessionInfo | null> {

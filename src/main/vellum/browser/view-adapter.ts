@@ -58,6 +58,13 @@ export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
       // Runtime teardown only — the persist: partition (cookies) is on disk.
       view.webContents.close();
     },
+    // Control-plane seams (unix-socket HttpApi). userGesture=false: agent code
+    // gets no synthetic-gesture privileges in the untrusted page.
+    executeJavaScript: (code) => view.webContents.executeJavaScript(code, false),
+    capturePagePng: async () => {
+      const image = await view.webContents.capturePage();
+      return new Uint8Array(image.toPNG());
+    },
   };
   return handle;
 };
