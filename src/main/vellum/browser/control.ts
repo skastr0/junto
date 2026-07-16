@@ -4,7 +4,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
-import { dirname, join, isAbsolute } from "node:path";
+import { dirname, join, isAbsolute, resolve, sep } from "node:path";
 import { Either, Schema } from "effect";
 import { decodeCanvasDoc } from "@shared/canvas";
 import {
@@ -191,6 +191,18 @@ export const makeControlHandlers = (deps: ControlDeps) => {
       if (!shot.ok) return fromResult(shot);
       const path =
         input.path ?? join(deps.shotsDir, `${input.nodeId}-${Date.now()}.png`);
+      // nodeId is caller-controlled (canvas node.id, unrestricted) and flows
+      // straight into the default path — `path.join` collapses `..` segments,
+      // so a nodeId like "../../etc/pwned" would otherwise escape shotsDir.
+      // Explicit `input.path` is a deliberate absolute override (checked
+      // above) and is exempt; only the nodeId-derived default is confined.
+      if (input.path === undefined) {
+        const resolvedShotsDir = resolve(deps.shotsDir);
+        const resolvedPath = resolve(path);
+        if (resolvedPath !== resolvedShotsDir && !resolvedPath.startsWith(resolvedShotsDir + sep)) {
+          return controlErr("invalid", `nodeId produces an unsafe default screenshot path: ${input.nodeId}`);
+        }
+      }
       try {
         await mkdir(dirname(path), { recursive: true });
         await writeFile(path, shot.data.png);
