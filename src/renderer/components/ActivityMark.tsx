@@ -12,13 +12,15 @@ const SIZE: Record<
   ActivitySize,
   { readonly rows: number; readonly cols: number; readonly cellSize: number; readonly cellGap: number }
 > = {
-  // Compact card chrome (~14×14 visual).
-  node: { rows: 3, cols: 3, cellSize: 3, cellGap: 2 },
-  // List rows / tool chips.
-  inline: { rows: 2, cols: 4, cellSize: 3, cellGap: 2 },
+  // Match gradient-spin demo density (4px cells) so the wavefront reads clean.
+  node: { rows: 3, cols: 3, cellSize: 4, cellGap: 2 },
+  // List rows / tool chips — still compact, square so ripple stays circular.
+  inline: { rows: 3, cols: 3, cellSize: 3, cellGap: 2 },
 };
 
-const WAVE_PERIOD_MS = 2200;
+// Demo default is 750ms. Slightly longer for dark instrument chrome without
+// the 2.2s crawl that made cells feel like discrete blips.
+const WAVE_PERIOD_MS = 900;
 
 export type ActivityMarkProps = {
   readonly mode: ActivityMode;
@@ -54,9 +56,14 @@ export function ActivityMarkFromSpec({
 
 /**
  * Canvas activity indicator.
- * wave  → monochrome gradient-spin (house stops, ~2.2s)
+ * wave  → monochrome gradient-spin (ripple rings, ~900ms — demo-smooth)
  * static → single filled dot of the same tone
  * No visible text — label is aria-only.
+ *
+ * Why these knobs (vs the awkward first ship):
+ * - `ripple` = expanding rings from center (reads circular; snake zigzags/blips)
+ * - `colorBy: "row"` = smooth ramp like the package demo (path = one-cell strobes)
+ * - period ~900ms near the demo's 750ms (2200ms felt like discrete pops)
  */
 export function ActivityMark({
   mode,
@@ -117,15 +124,15 @@ export function ActivityMark({
     >
       <GradientSpin
         gradient={[...houseGradientStops(tone)]}
-        pattern="snake"
+        pattern="ripple"
         rows={dims.rows}
         cols={dims.cols}
         cellSize={dims.cellSize}
         cellGap={dims.cellGap}
         cellRadius={1}
         period={WAVE_PERIOD_MS}
-        dim={0.12}
-        colorBy="path"
+        dim={0.1}
+        colorBy="row"
         label={label}
         respectReducedMotion
       />
