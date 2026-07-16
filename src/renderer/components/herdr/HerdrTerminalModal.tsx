@@ -219,33 +219,48 @@ export function HerdrTerminalModal() {
       });
     });
 
-    // Let xterm handle keys; stop bubbling to React Flow / canvas shortcuts.
+    // After xterm has the key: block bubble to React Flow. Do NOT use document
+    // capture stopPropagation for keys already targeted at the helper textarea
+    // — that runs BEFORE the textarea and makes the terminal read-only.
     term.attachCustomKeyEventHandler((ev) => {
-      ev.stopPropagation();
-      return true;
+      // stop bubble only (not capture); xterm already owns this event.
+      if (ev.eventPhase === Event.BUBBLING_PHASE || ev.eventPhase === Event.AT_TARGET) {
+        ev.stopPropagation();
+      }
+      return true; // still process in xterm
     });
 
-    // Document-level trap while modal is open: reclaim focus + block canvas keys.
+    // Capture on document: only intercept keys that are NOT already on xterm's
+    // helper textarea. hostEl.contains(x) is NOT enough — focus on the wrapper
+    // div still means keystrokes never reach the textarea.
     const trapKeys = (e: KeyboardEvent) => {
       const t = e.target as Node | null;
-      const inTerm =
-        (t && hostEl.contains(t)) ||
+      const inXtermTextarea =
         t === term.textarea ||
         (t instanceof HTMLElement && t.classList.contains("xterm-helper-textarea"));
-      if (!inTerm) {
-        // Any key while modal open focuses the PTY (unless typing in chrome buttons).
-        const inChrome = t instanceof HTMLElement && t.closest("button, input, textarea, select");
-        if (!inChrome) {
-          focusTerm();
-          // Re-dispatch path: after focus, xterm will get subsequent keys.
-        }
+      if (inXtermTextarea) {
+        // Critical: do NOT stopPropagation in capture — xterm must receive the key.
+        return;
       }
+      // Header buttons keep their keys.
+      if (t instanceof HTMLElement && t.closest("button, input, select, [contenteditable='true']")) {
+        return;
+      }
+      // Focus the real xterm textarea; swallow this key so canvas shortcuts don't fire.
+      focusTerm();
+      e.preventDefault();
       e.stopPropagation();
     };
     document.addEventListener("keydown", trapKeys, true);
     document.addEventListener("keyup", trapKeys, true);
-    hostEl.addEventListener("mousedown", focusTerm);
-    hostEl.addEventListener("click", focusTerm);
+    hostEl.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+      focusTerm();
+    });
+    hostEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      focusTerm();
+    });
 
     const scheduleResize = () => {
       try {
@@ -307,9 +322,15 @@ export function HerdrTerminalModal() {
       className="fixed inset-0 z-[90] flex flex-col bg-black/70 p-3"
       role="dialog"
       aria-label="Herdr terminal"
-      // Capture phase: stop canvas shortcuts while modal is open.
-      onKeyDown={(e) => e.stopPropagation()}
-      onKeyUp={(e) => e.stopPropagation()}
+      // Bubble only — never capture-stop, or xterm never sees keystrokes.
+      onKeyDown={(e) => {
+        if ((e.target as HTMLElement | null)?.classList?.contains("xterm-helper-textarea")) return;
+        e.stopPropagation();
+      }}
+      onKeyUp={(e) => {
+        if ((e.target as HTMLElement | null)?.classList?.contains("xterm-helper-textarea")) return;
+        e.stopPropagation();
+      }}
     >
       <div className="mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0c0b0a] shadow-2xl">
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-3 py-2">
