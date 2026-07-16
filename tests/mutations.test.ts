@@ -70,8 +70,7 @@ describe("renderer graph mutations", () => {
           width: 200,
           height: 80,
           ether: {
-            entity: { kind: "project" },
-            bindings: [{ source: "tower", ref: { type: "project", key: "quasar" } }],
+            entity: { kind: "project", name: "quasar" },
           },
         },
       ],

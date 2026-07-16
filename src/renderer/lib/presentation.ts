@@ -8,8 +8,8 @@ export const searchText = (node: CanvasNode): string => [
   node.type === "link" ? node.url : "",
   node.type === "group" ? node.label ?? "" : "",
   node.ether?.entity?.kind ?? "",
+  node.ether?.entity?.name ?? "",
   ...(node.ether?.flags ?? []),
-  ...(node.ether?.bindings ?? []).flatMap((binding) => [binding.source, binding.ref.key]),
 ].join(" ").toLowerCase();
 
 // The honest user-facing noun for a node: note / file / link / region, or the
@@ -38,6 +38,7 @@ export const nodeDetail = (node: CanvasNode): string => {
   if (node.type === "file") return node.subpath ? `${node.file} ${node.subpath}` : node.file;
   if (node.type === "link") return node.url;
   if (node.type === "group") return "Spatial region";
-  const bindings = (node.ether?.bindings ?? []).map((binding) => `${binding.source} / ${binding.ref.key}`);
-  return bindings.join(" · ") || "No description recorded.";
+  const entity = node.ether?.entity;
+  if (entity?.name) return `${entity.kind} · ${entity.name}`;
+  return "No description recorded.";
 };

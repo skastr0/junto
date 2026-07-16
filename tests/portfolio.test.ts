@@ -34,13 +34,12 @@ describe("portfolio merge", () => {
     const merged = mergeProjects(state);
     const prism = merged.find((p) => p.display.toLowerCase() === "prism");
     expect(prism?.display).toBe("prism");
-    const towerBinding = prism?.bindings.find((b) => b.source === "tower");
-    expect(towerBinding?.ref.key).toBe("prism");
+    expect(prism?.name).toBe("prism");
   });
 
-  it("merges the same project across sources into one node with both bindings", () => {
+  it("merges the same project across sources into one identity knowing both", () => {
     const prism = mergeProjects(state).find((p) => p.display.toLowerCase() === "prism");
-    expect(prism?.bindings.map((b) => b.source).sort()).toEqual(["quasar", "tower"]);
+    expect([...(prism?.sources ?? [])].sort()).toEqual(["quasar", "tower"]);
   });
 
   it("excludes third-party repos by default, includes them with { all }", () => {

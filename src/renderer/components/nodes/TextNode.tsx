@@ -173,15 +173,15 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
   const refreshing = use$(state$.refreshing);
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const view = node.ether?.view;
-  const { segments, dots } = entityReadout(node.ether?.bindings, snapshots, view);
+  const { segments, dots } = entityReadout(node.ether?.entity, snapshots, view);
   const line = segments.join(" · ");
   // Booth attention decal: drafts owed a human verdict. Exists only above
   // zero — a quiet card carries no badge, per the exception-only contract.
-  const pendingReview = boothPendingReview(node.ether?.bindings, snapshots);
+  const pendingReview = boothPendingReview(node.ether?.entity, snapshots);
   const eyebrow = kind === "project" && view?.orbit ? `${kind} · ${view.orbit}` : kind;
   const nameHue = node.color ? accentColor(node.color) : INK;
   const isAgent = kind === "agent";
-  const hermesKey = isAgent ? node.ether?.bindings?.find((binding) => binding.source === "hermes")?.ref.key : undefined;
+  const hermesKey = isAgent ? node.ether?.entity?.name : undefined;
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [identity, setIdentity] = useState<AgentIdentity | null>(null);
   useEffect(() => {

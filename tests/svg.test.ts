@@ -26,7 +26,7 @@ const doc: CanvasDoc = {
       width: 180,
       height: 70,
       text: "tower",
-      ether: { entity: { kind: "project" }, bindings: [{ source: "tower", ref: { type: "project", key: "tower" } }] },
+      ether: { entity: { kind: "project", name: "tower" } },
     },
   ],
   edges: [

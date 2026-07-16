@@ -59,7 +59,7 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
         y: 140,
         width: 100,
         height: 50,
-        ether: { bindings: [{ source: "hermes", ref: { type: "agent", key: "remote-a:vega" } }] },
+        ether: { entity: { kind: "agent", name: "remote-a:vega" } },
       },
     ],
     edges: [],

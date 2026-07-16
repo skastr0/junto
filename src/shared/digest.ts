@@ -1,6 +1,6 @@
 import type { CanvasDoc, CanvasNode } from "./canvas";
+import { buildConnectionIndex, resolveConnections, type Connection } from "./connections";
 import type { EntitySource, SnapshotState } from "./entities";
-import { findEntity } from "./entities";
 import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
 import { groupMembers, isGroup } from "./graph";
 
@@ -38,11 +38,14 @@ const formatStats = (stats: Record<string, string | number>): string => {
   return parts.length > 0 ? parts.join(" ") : "ok";
 };
 
-const isSeed = (node: CanvasNode): boolean => {
+// A seed is an entity card whose identity resolves to nothing in the live
+// corpus yet — planned, not real. (Agents excepted: their hermes connection
+// is identity-declared, so they are never seeds. Work surfaces — herdr PTY,
+// browser page — are bound by construction, never seeds.)
+const isSeed = (node: CanvasNode, connections: ReadonlyArray<Connection>): boolean => {
   const kind = node.ether?.entity?.kind;
-  // Work surfaces (herdr PTY, browser page) are not unbound project seeds.
   if (kind === "herdr" || kind === "page") return false;
-  return node.ether?.entity !== undefined && (node.ether.bindings?.length ?? 0) === 0;
+  return node.ether?.entity !== undefined && kind !== "agent" && connections.length === 0;
 };
 
 export const digestCanvas = (
@@ -52,6 +55,7 @@ export const digestCanvas = (
   glyphs?: GlyphView,
 ): string => {
   const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));
+  const connectionIndex = buildConnectionIndex(snapshots);
   const titleForId = (id: string): string => {
     const node = nodeById.get(id);
     return node ? titleOf(node) : id;
@@ -87,13 +91,11 @@ export const digestCanvas = (
       const entity = node.ether?.entity;
       if (!entity) continue;
       entityLines.push(`${titleOf(node)} :: ${entity.kind}`);
-      for (const binding of node.ether?.bindings ?? []) {
-        const bundle = snapshots.bundles.find((b) => b.source === binding.source);
-        const found = bundle?.ok
-          ? findEntity(snapshots, binding.source, binding.ref.key)
-          : undefined;
+      for (const connection of resolveConnections(entity, connectionIndex)) {
         entityLines.push(
-          found ? `  ${binding.source}: ${formatStats(found.stats)}` : `  ${binding.source}: stale`,
+          connection.entity
+            ? `  ${connection.source}: ${formatStats(connection.entity.stats)}`
+            : `  ${connection.source}: stale`,
         );
       }
       // Local task checklist lives in the document.
@@ -150,7 +152,9 @@ export const digestCanvas = (
   }
 
   // seeds
-  const seedNodes = doc.nodes.filter(isSeed);
+  const seedNodes = doc.nodes.filter((node) =>
+    isSeed(node, resolveConnections(node.ether?.entity, connectionIndex)),
+  );
   if (seedNodes.length > 0) {
     sections.push(["seeds", ...seedNodes.map(titleOf)]);
   }

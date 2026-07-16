@@ -15,11 +15,7 @@ const doc: CanvasDoc = {
       width: 100,
       height: 50,
       ether: {
-        entity: { kind: "project" },
-        bindings: [
-          { source: "tower", ref: { type: "project", key: "foo" } },
-          { source: "quasar", ref: { type: "project", key: "bar" } },
-        ],
+        entity: { kind: "project", name: "foo" },
       },
     },
     {
@@ -41,8 +37,7 @@ const doc: CanvasDoc = {
       width: 100,
       height: 50,
       ether: {
-        entity: { kind: "project" },
-        bindings: [{ source: "tower", ref: { type: "project", key: "baz" } }],
+        entity: { kind: "project", name: "baz" },
       },
     },
     {
@@ -109,10 +104,8 @@ team :: Foo, Bar
 entities
 Foo :: project
   tower: a=1 b=x
-  quasar: stale
 Bar :: orbit
 Baz :: project
-  tower: stale
 Ops :: task
   tasks: 0/1 done
 
@@ -129,6 +122,7 @@ Baz · 0/1 tasks done · open: ship
 
 seeds
 Bar
+Baz
 Ops
 
 sources

@@ -16,8 +16,7 @@ const project = (id: string, key: string) => ({
   width: 200,
   height: 80,
   ether: {
-    entity: { kind: "project" as const },
-    bindings: [{ source: "tower" as const, ref: { type: "project" as const, key } }],
+    entity: { kind: "project" as const, name: key },
   },
 });
 

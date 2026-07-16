@@ -328,7 +328,7 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
         y: 50,
         width: 100,
         height: 50,
-        ether: { bindings: [{ source: "hermes", ref: { type: "agent", key: "remote-a:vega" } }] },
+        ether: { entity: { kind: "agent", name: "remote-a:vega" } },
       },
       {
         id: "agent-b",
@@ -338,7 +338,7 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
         y: 200,
         width: 100,
         height: 50,
-        ether: { bindings: [{ source: "hermes", ref: { type: "agent", key: "remote-a:nova" } }] },
+        ether: { entity: { kind: "agent", name: "remote-a:nova" } },
       },
       // Outside the region's rect — must never receive a pulse.
       {
@@ -349,7 +349,7 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
         y: 900,
         width: 100,
         height: 50,
-        ether: { bindings: [{ source: "hermes", ref: { type: "agent", key: "remote-a:outside" } }] },
+        ether: { entity: { kind: "agent", name: "remote-a:outside" } },
       },
     ],
     edges: [],

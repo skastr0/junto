@@ -16,7 +16,7 @@ import {
 } from "@xyflow/react";
 import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
-import type { EtherBinding, EtherEdgeKind, EtherFlag, TextNode } from "@shared/canvas";
+import type { EtherEdgeKind, EtherFlag, TextNode } from "@shared/canvas";
 import { mergeProjects } from "@shared/portfolio";
 import { Ban, Bot, Boxes, Expand, Eye, FileText, Link2, ListChecks, Plus, ScanLine, SquareDashed, Terminal, Timer, Trash2 } from "lucide-react";
 import { state$ } from "../lib/state";
@@ -268,7 +268,7 @@ type AddPicker = "project" | "agent" | null;
 
 interface AddActions {
   readonly create: (kind: "text" | "file" | "link" | "group") => void;
-  readonly addProject: (display: string, bindings: ReadonlyArray<EtherBinding>) => void;
+  readonly addProject: (display: string, name: string) => void;
   readonly addAgent: (label: string, key: string) => void;
   readonly addWatcher: () => void;
   readonly addTimer: () => void;
@@ -319,9 +319,9 @@ const makeAddActions = (
     state$.focusNodeId.set(node.id);
     dismiss();
   },
-  addProject: (display, bindings) => {
+  addProject: (display, name) => {
     const position = positionFor({ width: 240, height: 96 });
-    const node = makeProjectNode(position.x, position.y, display, bindings);
+    const node = makeProjectNode(position.x, position.y, display, name);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -438,7 +438,7 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
         sub: [...project.sources].join(" · "),
         icon: <Boxes size={13} />,
         ariaLabel: `Add project ${project.display}`,
-        onSelect: () => actions.addProject(project.display, project.bindings),
+        onSelect: () => actions.addProject(project.display, project.name),
       }))
       : agents.map((agent) => {
         const host = typeof agent.stats.host === "string" ? agent.stats.host : undefined;

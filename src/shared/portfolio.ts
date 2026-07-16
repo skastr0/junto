@@ -1,22 +1,25 @@
-import type { CanvasDoc, CanvasNode, EtherBinding } from "./canvas";
+import type { CanvasDoc, CanvasNode } from "./canvas";
 import type { Entity, EntitySource, SnapshotState } from "./entities";
 
-// Live portfolio projection: turn the adapter snapshots into bound, hydrated
-// project nodes. This is NOT a seed — it is a regenerable projection of the
-// real corpus. Running it reflects whatever tower/quasar/booth report now.
-//
-// Merge rule: one node per real project, identified by normalized display
-// name, bound to every source that knows it (tower "prism" + quasar
-// "git:github.com/skastr0/prism" collapse into one node with two bindings).
+// Live portfolio projection: spawn identity cards for real projects the doc
+// doesn't hold yet. This is NOT a seed — it is a regenerable projection of
+// the corpus. A generated node stores ONLY its identity (ether.entity: kind +
+// immutable name); every source connection is derived live by
+// shared/connections.ts. The generator never writes per-source keys.
 
-const normalize = (entity: Entity): string => (entity.title ?? entity.key).trim().toLowerCase();
+const normalizeName = (value: string): string => value.trim().toLowerCase();
+
+const normalize = (entity: Entity): string => normalizeName(entity.title ?? entity.key);
 
 const slug = (name: string): string =>
   name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "project";
 
 interface MergedProject {
   readonly display: string;
-  readonly bindings: EtherBinding[];
+  // The immutable identity stamped onto the node: the tower project key when
+  // tower knows the project (keys are the canonical project names), else the
+  // most-active entity's display title.
+  readonly name: string;
   readonly sources: Set<EntitySource>;
   readonly activity: number;
 }
@@ -24,11 +27,6 @@ interface MergedProject {
 // The user's own GitHub orgs — the signal for "my project" vs a third-party
 // repo quasar happened to index from a browsing session.
 const OWNED_ORGS = ["skastr0", "castrotechstudio"];
-
-const bindingFor = (entity: Entity): EtherBinding => ({
-  source: entity.source,
-  ref: { type: "project", key: entity.key },
-}) as EtherBinding;
 
 const activityOf = (entity: Entity): number => {
   const active = entity.stats.glyphs_active;
@@ -46,10 +44,9 @@ export interface MergeOptions {
   readonly all?: boolean;
 }
 
-// Collapse all project entities across bundles into merged projects. Within a
-// single source, the highest-activity entity wins (so an empty duplicate board
-// key like "PRISM" never shadows the real "prism"). Ordered busiest-first so
-// the most important work lands top-left.
+// Collapse all project entities across bundles into merged projects, one per
+// normalized display name. Ordered busiest-first so the most important work
+// lands top-left.
 export const mergeProjects = (
   state: SnapshotState,
   options: MergeOptions = {},
@@ -57,7 +54,8 @@ export const mergeProjects = (
   interface Acc {
     display: string;
     displayActivity: number;
-    bestPerSource: Map<EntitySource, { key: string; activity: number }>;
+    towerKey?: string;
+    sources: Set<EntitySource>;
     activity: number;
   }
   const byName = new Map<string, Acc>();
@@ -72,14 +70,11 @@ export const mergeProjects = (
       const acc = byName.get(name) ?? {
         display: entity.title ?? entity.key,
         displayActivity: -1,
-        bestPerSource: new Map(),
+        sources: new Set<EntitySource>(),
         activity: 0,
       };
-      // Best binding per source = highest activity within that source.
-      const prev = acc.bestPerSource.get(entity.source);
-      if (!prev || activity > prev.activity) {
-        acc.bestPerSource.set(entity.source, { key: entity.key, activity });
-      }
+      acc.sources.add(entity.source);
+      if (entity.source === "tower" && acc.towerKey === undefined) acc.towerKey = entity.key;
       // Display name from the single most-active entity across all sources.
       if (activity > acc.displayActivity) {
         acc.display = entity.title ?? entity.key;
@@ -92,12 +87,9 @@ export const mergeProjects = (
 
   const merged: MergedProject[] = [...byName.values()].map((acc) => ({
     display: acc.display,
+    name: acc.towerKey ?? acc.display,
+    sources: acc.sources,
     activity: acc.activity,
-    sources: new Set(acc.bestPerSource.keys()),
-    bindings: [...acc.bestPerSource.entries()].map(([source, { key }]) => ({
-      source,
-      ref: { type: "project" as const, key },
-    })) as EtherBinding[],
   }));
 
   return merged.sort((a, b) => b.activity - a.activity || a.display.localeCompare(b.display));
@@ -109,14 +101,15 @@ const GAP_X = 60;
 const GAP_Y = 70;
 const COLUMNS = 6;
 
-// Keys already bound anywhere on a doc, so a merge can skip projects that are
-// already present (idempotent re-runs, preserved user authorship).
-const boundKeys = (doc: CanvasDoc): Set<string> => {
-  const keys = new Set<string>();
+// Identity names already present on a doc, so a merge can skip projects that
+// already have a card (idempotent re-runs, preserved user authorship).
+const presentIdentities = (doc: CanvasDoc): Set<string> => {
+  const names = new Set<string>();
   for (const node of doc.nodes) {
-    for (const binding of node.ether?.bindings ?? []) keys.add(`${binding.source}:${binding.ref.key}`);
+    const name = node.ether?.entity?.name;
+    if (name) names.add(normalizeName(name));
   }
-  return keys;
+  return names;
 };
 
 const projectNode = (project: MergedProject, index: number, originX: number, originY: number): CanvasNode => {
@@ -131,19 +124,19 @@ const projectNode = (project: MergedProject, index: number, originX: number, ori
     height: NODE_H,
     text: project.display,
     ether: {
-      entity: { kind: "project" },
-      bindings: project.bindings,
+      entity: { kind: "project", name: project.name },
     },
   };
 };
 
-// Hermes fleet agents, one node per agent, keyed by the hermes entity key
-// (host:profile). Placed in their own band so the fleet reads as a cluster.
-const agentNodes = (state: SnapshotState, alreadyBound: Set<string>, originY: number): CanvasNode[] => {
+// Hermes fleet agents, one node per agent. The agent's identity IS its hermes
+// "<host>:<profile>" key — the label stays free-form (host suffix and all)
+// because identity never derives from the title.
+const agentNodes = (state: SnapshotState, present: Set<string>, originY: number): CanvasNode[] => {
   const agents = state.bundles
     .filter((bundle) => bundle.ok && bundle.source === "hermes")
     .flatMap((bundle) => bundle.entities)
-    .filter((entity) => entity.kind === "agent" && !alreadyBound.has(`hermes:${entity.key}`));
+    .filter((entity) => entity.kind === "agent" && !present.has(normalizeName(entity.key)));
 
   return agents.map((agent, index) => {
     const col = index % COLUMNS;
@@ -159,24 +152,24 @@ const agentNodes = (state: SnapshotState, alreadyBound: Set<string>, originY: nu
       height: NODE_H,
       text: label,
       ether: {
-        entity: { kind: "agent" },
-        bindings: [{ source: "hermes", ref: { type: "agent", key: agent.key } }],
+        entity: { kind: "agent", name: agent.key },
       },
     } as CanvasNode;
   });
 };
 
 // Merge live projects onto an existing document: keep every existing node and
-// edge, append a bound node for each project not already bound. New nodes are
-// laid below existing content so they never cover the user's arrangement.
+// edge, append an identity card for each project not already present. New
+// nodes are laid below existing content so they never cover the user's
+// arrangement.
 export const mergePortfolioInto = (
   doc: CanvasDoc,
   state: SnapshotState,
   options: MergeOptions = {},
 ): CanvasDoc => {
-  const already = boundKeys(doc);
+  const present = presentIdentities(doc);
   const fresh = mergeProjects(state, options).filter(
-    (project) => !project.bindings.some((b) => already.has(`${b.source}:${b.ref.key}`)),
+    (project) => !present.has(normalizeName(project.name)) && !present.has(normalizeName(project.display)),
   );
   const existingIds = new Set(doc.nodes.map((n) => n.id));
   const maxY = doc.nodes.reduce((m, n) => Math.max(m, n.y + n.height), 0);
@@ -194,7 +187,7 @@ export const mergePortfolioInto = (
   // Fleet band: below the projects just added.
   const projectRows = Math.ceil(added.length / COLUMNS);
   const agentOriginY = originY + projectRows * (NODE_H + GAP_Y) + 120;
-  for (const node of agentNodes(state, already, agentOriginY)) {
+  for (const node of agentNodes(state, present, agentOriginY)) {
     if (existingIds.has(node.id)) continue;
     existingIds.add(node.id);
     added.push(node);

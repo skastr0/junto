@@ -3,6 +3,7 @@ import { Flag, SlidersHorizontal } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { ulid } from "ulid";
 import type { CanvasDoc, CanvasNode, EdgeCriteria, EtherFlag, EtherView, EtherWatch } from "@shared/canvas";
+import { towerProjectKey } from "@shared/execution-graph";
 import { findEntity } from "@shared/entities";
 import { addEdge, setEdgeCriteria } from "../lib/edge-mutations";
 import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTasks, setNodeTimer, setNodeView, setNodeWatch, setRegionHold, toggleFlag } from "../lib/mutations";
@@ -272,8 +273,7 @@ export function EdgeCriteriaEditor({
   const criteria = edge?.ether?.criteria;
   const fromIsTask = fromNode?.ether?.entity?.kind === "task";
   const fromIsProject = fromNode?.ether?.entity?.kind === "project";
-  const towerKey =
-    fromNode?.ether?.bindings?.find((binding) => binding.source === "tower")?.ref.key ?? "";
+  const towerKey = towerProjectKey(fromNode) ?? "";
 
   // Local draft only — never persist empty glyphs criteria (mutation also strips).
   const [glyphsDraft, setGlyphsDraft] = useState(false);
@@ -648,7 +648,7 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, towerKey: 
 // with no persistent "unsatisfied" state to mirror (see canvas.ts).
 function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   const watch = node.ether?.watch;
-  const towerKey = node.ether?.bindings?.find((binding) => binding.source === "tower")?.ref.key;
+  const towerKey = towerProjectKey(node);
   const {
     kind, setKind, project, setProject, orbit, setOrbit, glyphIdsText, setGlyphIdsText,
     stateName, setStateName, source, setSource, key, setKey, stat, setStat, op, setOp,
@@ -798,7 +798,7 @@ function TimerEditor({ node }: { readonly node: CanvasNode }) {
 // presentational; setNodeView never touches the binding itself.
 export function ViewSliceFields({ node }: { readonly node: CanvasNode }) {
   const snapshots = use$(state$.snapshots);
-  const towerKey = node.ether?.bindings?.find((binding) => binding.source === "tower")?.ref.key;
+  const towerKey = towerProjectKey(node);
   const towerEntity = towerKey ? findEntity(snapshots, "tower", towerKey) : undefined;
   const orbits = orbitOptions(towerEntity?.stats);
   const view = node.ether?.view;

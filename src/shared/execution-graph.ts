@@ -103,12 +103,13 @@ export const isBlockableNode = (node: CanvasNode | undefined): boolean => {
   return true;
 };
 
+// The node's identity name IS the tower project key when tower knows the
+// project (tower keys are the canonical project names). Edge criteria that
+// need a different key carry an explicit criteria.project.
 export const towerProjectKey = (node: CanvasNode | undefined): string | undefined => {
-  if (!node) return undefined;
-  for (const binding of node.ether?.bindings ?? []) {
-    if (binding.source === "tower" && binding.ref.type === "project") return binding.ref.key;
-  }
-  return undefined;
+  const entity = node?.ether?.entity;
+  if (!entity?.name || entity.kind === "agent") return undefined;
+  return entity.name;
 };
 
 const filterOrbit = (rows: ReadonlyArray<GlyphRow>, orbit: string | undefined): ReadonlyArray<GlyphRow> =>

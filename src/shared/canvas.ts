@@ -29,35 +29,6 @@ export type WipGlyphState = (typeof WIP_GLYPH_STATES)[number];
 export const EtherFlag = Schema.Literal("blocker", "parked", "attention");
 export type EtherFlag = typeof EtherFlag.Type;
 
-// ref.key is always the canonical join key against Entity.key. `type` is the
-// granularity a binding can point at: project (a whole project entity) or
-// orbit (a per-orbit stat slice within a project).
-export const TowerBinding = Schema.Struct({
-  source: Schema.Literal("tower"),
-  ref: Schema.Struct({
-    type: Schema.Literal("project", "orbit"),
-    key: Schema.String,
-  }),
-});
-export const QuasarBinding = Schema.Struct({
-  source: Schema.Literal("quasar"),
-  ref: Schema.Struct({
-    type: Schema.Literal("project"),
-    key: Schema.String,
-  }),
-});
-export const BoothBinding = Schema.Struct({
-  source: Schema.Literal("booth"),
-  ref: Schema.Struct({ type: Schema.Literal("project"), key: Schema.String }),
-});
-export const HermesBinding = Schema.Struct({
-  source: Schema.Literal("hermes"),
-  ref: Schema.Struct({ type: Schema.Literal("agent"), key: Schema.String }),
-});
-
-export const EtherBinding = Schema.Union(TowerBinding, QuasarBinding, BoothBinding, HermesBinding);
-export type EtherBinding = typeof EtherBinding.Type;
-
 // entity.kind is an open vocabulary; well-known kinds get richer rendering.
 export const WELL_KNOWN_ENTITY_KINDS = [
   "project",
@@ -112,8 +83,15 @@ export type EtherBrowser = typeof EtherBrowser.Type;
 export const resolveBrowserOnDelete = (browser: EtherBrowser | undefined): BrowserOnDelete =>
   browser?.onDelete ?? "detach";
 
+// `name` is the node's IMMUTABLE identity — the join key against the live
+// corpus (shared/connections.ts resolves every source connection from it at
+// read time; nothing per-source is ever stored). The node's visible text
+// label is free to change; `name` is stamped at creation and never edited by
+// label mutations. For kind "agent" it is the hermes "<host>:<profile>" key.
+// Kinds that don't join the corpus (watcher, timer, task, …) omit it.
 export const EtherEntity = Schema.Struct({
   kind: Schema.String,
+  name: Schema.optionalWith(Schema.String, { exact: true }),
 });
 export type EtherEntity = typeof EtherEntity.Type;
 
@@ -225,7 +203,6 @@ export type EdgeCriteria = typeof EdgeCriteria.Type;
 
 export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalWith(EtherEntity, { exact: true }),
-  bindings: Schema.optionalWith(Schema.Array(EtherBinding), { exact: true }),
   flags: Schema.optionalWith(Schema.Array(EtherFlag), { exact: true }),
   view: Schema.optionalWith(EtherView, { exact: true }),
   region: Schema.optionalWith(EtherRegion, { exact: true }),

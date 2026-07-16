@@ -1,9 +1,10 @@
 import { useEffect } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
+import { identityHints } from "../shared/connections";
+import type { CanvasDoc } from "@shared/canvas";
 import { use$ } from "@legendapp/state/react";
 import { state$ } from "./lib/state";
 import {
-  bindingHints,
   clearAbandonedCanvas,
   getLastWriteAt,
   loadDoc,
@@ -33,11 +34,11 @@ const refreshList = async () => {
   state$.canvases.set(await window.vellum.listCanvases());
 };
 
-const refreshSnapshotsSoft = async (doc: Parameters<typeof bindingHints>[0]) => {
+const refreshSnapshotsSoft = async (doc: CanvasDoc) => {
   if (!window.vellum) return;
   try {
     const snapshots = await Promise.race([
-      window.vellum.refreshSnapshots(bindingHints(doc)),
+      window.vellum.refreshSnapshots(identityHints([doc], state$.snapshots.peek())),
       new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1500)),
     ]);
     if (snapshots) state$.snapshots.set(snapshots);
@@ -150,7 +151,7 @@ const refreshSnapshots = async () => {
   state$.error.set("");
   try {
     const result = await Promise.race([
-      window.vellum.refreshSnapshots(bindingHints(state$.doc.peek())),
+      window.vellum.refreshSnapshots(identityHints([state$.doc.peek()], state$.snapshots.peek())),
       new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 4000)),
     ]);
     if (result) state$.snapshots.set(result);
