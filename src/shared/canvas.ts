@@ -67,7 +67,31 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "station",
   "skill",
   "task",
+  "herdr",
 ] as const;
+
+// Bound herdr work surface (PTY pane on a host). Not a hermes agent binding —
+// meta hydration is a service call, not the EntitySource snapshot plane.
+// onDelete default is detach: removing the canvas card must not kill the pane.
+export const HerdrOnDelete = Schema.Literal("detach", "kill-pane");
+export type HerdrOnDelete = typeof HerdrOnDelete.Type;
+
+export const EtherHerdr = Schema.Struct({
+  host: Schema.String,
+  session: Schema.optionalWith(Schema.NullOr(Schema.String), { exact: true }),
+  workspaceId: Schema.optionalWith(Schema.String, { exact: true }),
+  tabId: Schema.optionalWith(Schema.String, { exact: true }),
+  // Required once bound; optional so partially-authored nodes can decode.
+  paneId: Schema.optionalWith(Schema.String, { exact: true }),
+  terminalId: Schema.optionalWith(Schema.String, { exact: true }),
+  label: Schema.optionalWith(Schema.String, { exact: true }),
+  onDelete: Schema.optionalWith(HerdrOnDelete, { exact: true }),
+});
+export type EtherHerdr = typeof EtherHerdr.Type;
+
+/** Resolve onDelete with product default `detach` when the field is omitted. */
+export const resolveHerdrOnDelete = (herdr: EtherHerdr | undefined): HerdrOnDelete =>
+  herdr?.onDelete ?? "detach";
 
 export const EtherEntity = Schema.Struct({
   kind: Schema.String,
@@ -189,6 +213,8 @@ export const EtherNodeExtension = Schema.Struct({
   watch: Schema.optionalWith(EtherWatch, { exact: true }),
   timer: Schema.optionalWith(EtherTimer, { exact: true }),
   tasks: Schema.optionalWith(EtherTasks, { exact: true }),
+  // Work-surface binding for entity.kind === "herdr". Not an EntitySource.
+  herdr: Schema.optionalWith(EtherHerdr, { exact: true }),
 });
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 
