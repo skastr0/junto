@@ -218,4 +218,25 @@ describe("BrowserSessionService", () => {
       expect(res.data.find((p) => p.id === "personal")?.default).toBe(true);
     }
   });
+
+  it("screenshot of a detached session fails typed instead of returning an empty PNG", async () => {
+    // Chromium yields 0 bytes from capturePage when the view is not in a
+    // window's view tree — the service must not launder that as ok.
+    const adapter: BrowserViewAdapter = () => ({
+      loadUrl: () => {},
+      attach: () => {},
+      setBounds: () => {},
+      detach: () => {},
+      destroy: () => {},
+      capturePagePng: async () => new Uint8Array(0),
+    });
+    const service = new BrowserSessionService(adapter, makeBrowserProfileService(root), () => ++clock);
+    await service.open({ nodeId: "n1", url: "https://example.com", profile: "personal" });
+    const shot = await service.screenshot("n1");
+    expect(shot.ok).toBe(false);
+    if (!shot.ok) {
+      expect(shot.code).toBe("failed");
+      expect(shot.message).toContain("detached");
+    }
+  });
 });

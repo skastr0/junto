@@ -330,7 +330,18 @@ export class BrowserSessionService {
     if (!entry.view.capturePagePng) return err("failed", "adapter does not support screenshot");
     entry.lastActiveAt = this.now();
     try {
-      return { ok: true, data: { png: await entry.view.capturePagePng() } };
+      const png = await entry.view.capturePagePng();
+      // Chromium suspends painting for views that are not in a window's view
+      // tree, so capturePage on a detached session yields a 0-byte image.
+      // Surface that as a typed failure instead of letting an "ok" envelope
+      // carry an empty PNG downstream.
+      if (png.byteLength === 0) {
+        return err(
+          "failed",
+          `capture produced no pixels — session ${nodeId} is detached; open its surface (dock) and retry`,
+        );
+      }
+      return { ok: true, data: { png } };
     } catch (error) {
       return err("failed", error instanceof Error ? error.message : String(error));
     }
