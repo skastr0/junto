@@ -264,11 +264,31 @@ export const deleteNodes = (ids: ReadonlyArray<string>): void => {
   const nodeLabel = existingNodes.length === 1 ? "this node" : `${existingNodes.length} nodes`;
   const relationLabel = connectedEdges === 0 ? "" : ` Connected edges (${connectedEdges}) will also be removed.`;
   if (!confirmDestructive(`Delete ${nodeLabel}?${relationLabel}`)) return;
-  if (removed.has(state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
+
+  // Herdr default is detach-only (never session stop). Kill-pane onDelete
+  // is handled async without blocking other non-herdr deletions.
+  const herdrIds = existingNodes
+    .filter((n) => n.ether?.entity?.kind === "herdr")
+    .map((n) => n.id);
+  if (herdrIds.length > 0) {
+    void import("./herdr-actions").then(({ handleHerdrNodeDelete }) => {
+      for (const id of herdrIds) void handleHerdrNodeDelete(id);
+    });
+  }
+
+  const nonHerdr = new Set(
+    existingNodes.filter((n) => n.ether?.entity?.kind !== "herdr").map((n) => n.id),
+  );
+  if (nonHerdr.size === 0) {
+    // Pure herdr delete — async path owns the doc mutation.
+    if (herdrIds.some((id) => id === state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
+    return;
+  }
+  if (nonHerdr.has(state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
   if (removed.has(state$.selectedEdgeId.peek())) state$.selectedEdgeId.set("");
   commitDoc({
-    nodes: doc.nodes.filter((n) => !removed.has(n.id)),
-    edges: doc.edges.filter((e) => !removed.has(e.fromNode) && !removed.has(e.toNode)),
+    nodes: doc.nodes.filter((n) => !nonHerdr.has(n.id)),
+    edges: doc.edges.filter((e) => !nonHerdr.has(e.fromNode) && !nonHerdr.has(e.toNode)),
   });
 };
 
