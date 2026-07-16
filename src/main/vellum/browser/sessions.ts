@@ -84,6 +84,27 @@ const err = (code: BrowserErrorCode, message: string): BrowserResultErr => ({
   message,
 });
 
+// A hung page script (e.g. `while(true){}` run through eval) would otherwise
+// leave executeJavaScript unresolved forever, wedging the control-plane HTTP
+// handler with no typed error. This bounds the wait; it does not (cannot)
+// cancel the underlying script — it only lets the caller stop waiting.
+const EVAL_TIMEOUT_MS = 30_000;
+
+const withTimeout = <T>(promise: Promise<T>, ms: number, message: string): Promise<T> =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+
 export class BrowserSessionService {
   private readonly sessions = new Map<string, SessionEntry>();
   private sink: ((session: BrowserSessionInfo) => void) | undefined;
@@ -225,14 +246,24 @@ export class BrowserSessionService {
       lastActiveAt: this.now(),
       view: undefined as unknown as BrowserViewHandle,
     };
-    entry.view = this.adapter(partition, {
-      onLoadStart: () => this.reduce(entry, { type: "load_start" }),
-      onLoadOk: (title) => this.reduce(entry, { type: "load_ok", ...(title !== undefined ? { title } : {}) }),
-      onLoadFail: (message) => this.reduce(entry, { type: "load_fail", message }),
-    });
-    this.sessions.set(input.nodeId, entry);
-    this.reduce(entry, { type: "open" });
-    entry.view.loadUrl(input.url);
+    // Adapter construction (WebContentsView creation under resource/GPU
+    // pressure) and the initial load are the two calls into Electron here —
+    // wrapped so a throw returns a typed BrowserResult err instead of
+    // rejecting open()'s promise raw after the warm-pool eviction above has
+    // already happened.
+    try {
+      entry.view = this.adapter(partition, {
+        onLoadStart: () => this.reduce(entry, { type: "load_start" }),
+        onLoadOk: (title) => this.reduce(entry, { type: "load_ok", ...(title !== undefined ? { title } : {}) }),
+        onLoadFail: (message) => this.reduce(entry, { type: "load_fail", message }),
+      });
+      this.sessions.set(input.nodeId, entry);
+      this.reduce(entry, { type: "open" });
+      entry.view.loadUrl(input.url);
+    } catch (error) {
+      this.sessions.delete(input.nodeId);
+      return err("failed", error instanceof Error ? error.message : String(error));
+    }
     return { ok: true, data: this.info(entry) };
   }
 
@@ -281,7 +312,12 @@ export class BrowserSessionService {
     if (!entry.view.executeJavaScript) return err("failed", "adapter does not support eval");
     entry.lastActiveAt = this.now();
     try {
-      return { ok: true, data: { result: await entry.view.executeJavaScript(code) } };
+      const result = await withTimeout(
+        entry.view.executeJavaScript(code),
+        EVAL_TIMEOUT_MS,
+        `eval timed out after ${EVAL_TIMEOUT_MS}ms — the page script may be hung`,
+      );
+      return { ok: true, data: { result } };
     } catch (error) {
       return err("failed", error instanceof Error ? error.message : String(error));
     }
