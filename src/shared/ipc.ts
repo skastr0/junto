@@ -1,3 +1,4 @@
+import type { BrowserSessionState } from "./browser";
 import type { DirectoryEntry, DoctorReport, FolderSnapshot, ServiceCheck } from "./contracts";
 import type { CanvasDoc } from "./canvas";
 import type { SnapshotState } from "./entities";
@@ -62,12 +63,20 @@ export const IPC_CHANNELS = {
   herdrStreamResize: "vellum:herdr-stream-resize",
   herdrStreamScroll: "vellum:herdr-stream-scroll",
   herdrStreamClose: "vellum:herdr-stream-close",
+  // browser work surface (partitioned WebContentsView sessions)
+  browserProfiles: "vellum:browser-profiles",
+  browserOpen: "vellum:browser-open",
+  browserClose: "vellum:browser-close",
+  browserSessionState: "vellum:browser-session-state",
+  browserSessionList: "vellum:browser-session-list",
+  browserSetBounds: "vellum:browser-set-bounds",
   // main -> renderer pushes
   canvasChanged: "vellum:canvas-changed",
   snapshotsChanged: "vellum:snapshots-changed",
   chatEvent: "vellum:chat-event",
   kernelChanged: "vellum:kernel-changed",
   herdrStreamEvent: "vellum:herdr-stream-event",
+  browserSessionChanged: "vellum:browser-session-changed",
 } as const;
 
 export interface ChassisApi {
@@ -718,4 +727,58 @@ export interface VellumHerdrApi {
   ) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly herdrStreamClose: (streamId: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly onHerdrStreamEvent: (listener: (event: HerdrStreamEvent) => void) => () => void;
+}
+
+// --- browser work surface (partitioned WebContentsView; not a corpus join) ---
+
+export interface BrowserProfileInfo {
+  readonly id: string;
+  readonly label?: string;
+  readonly default?: boolean;
+}
+
+export interface BrowserOpResult<T = unknown> {
+  readonly ok: boolean;
+  readonly data?: T;
+  readonly code?: string;
+  readonly message?: string;
+}
+
+export interface BrowserOpenInput {
+  readonly nodeId: string;
+  readonly url: string;
+  readonly profile: string;
+}
+
+/** Renderer-measured DOM rect where the native view should sit (CSS px). */
+export interface BrowserSurfaceBounds {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface BrowserSessionInfo {
+  readonly nodeId: string;
+  readonly url: string;
+  readonly profile: string;
+  readonly state: BrowserSessionState;
+  readonly attached: boolean;
+  readonly title?: string;
+  readonly lastError?: string;
+}
+
+export interface VellumBrowserApi {
+  readonly browserProfiles: () => Promise<BrowserOpResult<ReadonlyArray<BrowserProfileInfo>>>;
+  readonly browserOpen: (input: BrowserOpenInput) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  readonly browserClose: (nodeId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  readonly browserSessionState: (nodeId: string) => Promise<BrowserOpResult<BrowserSessionInfo | null>>;
+  readonly browserSessionList: () => Promise<BrowserOpResult<ReadonlyArray<BrowserSessionInfo>>>;
+  readonly browserSetBounds: (
+    nodeId: string,
+    bounds: BrowserSurfaceBounds,
+  ) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  readonly onBrowserSessionChanged: (
+    listener: (session: BrowserSessionInfo) => void,
+  ) => () => void;
 }

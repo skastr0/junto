@@ -6,7 +6,11 @@ import {
   type ChatEvent,
   type HerdrStreamEvent,
   type HerdrStreamOpenInput,
+  type BrowserOpenInput,
+  type BrowserSessionInfo,
+  type BrowserSurfaceBounds,
   type VellumApi,
+  type VellumBrowserApi,
   type VellumChatApi,
   type VellumHerdrApi,
   type KernelSnapshot,
@@ -169,5 +173,18 @@ const herdrApi: VellumHerdrApi = {
   onHerdrStreamEvent: (listener) => subscribe<HerdrStreamEvent>(IPC_CHANNELS.herdrStreamEvent, listener),
 };
 
+const browserApi: VellumBrowserApi = {
+  browserProfiles: () => invoke(IPC_CHANNELS.browserProfiles, IPC_TIMEOUT_MS),
+  browserOpen: (input: BrowserOpenInput) => invoke(IPC_CHANNELS.browserOpen, IPC_TIMEOUT_MS, input),
+  browserClose: (nodeId) => invoke(IPC_CHANNELS.browserClose, IPC_TIMEOUT_MS, nodeId),
+  browserSessionState: (nodeId) =>
+    invoke(IPC_CHANNELS.browserSessionState, IPC_TIMEOUT_MS, nodeId),
+  browserSessionList: () => invoke(IPC_CHANNELS.browserSessionList, IPC_TIMEOUT_MS),
+  browserSetBounds: (nodeId, bounds: BrowserSurfaceBounds) =>
+    invoke(IPC_CHANNELS.browserSetBounds, IPC_TIMEOUT_MS, nodeId, bounds),
+  onBrowserSessionChanged: (listener) =>
+    subscribe<BrowserSessionInfo>(IPC_CHANNELS.browserSessionChanged, listener),
+};
+
 contextBridge.exposeInMainWorld("chassis", chassisApi);
-contextBridge.exposeInMainWorld("vellum", { ...vellumApi, ...chatApi, ...herdrApi });
+contextBridge.exposeInMainWorld("vellum", { ...vellumApi, ...chatApi, ...herdrApi, ...browserApi });

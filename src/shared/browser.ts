@@ -96,6 +96,40 @@ export const browserDeleteAction = (input: {
   return "detach";
 };
 
+// --- warm session pool (pure) ------------------------------------------------
+// The main-process session service keeps at most maxWarmSessions live
+// WebContentsViews. Eviction is decided here, Electron-free, so vitest covers
+// the policy: evict the least-recently-active DETACHED session first; an
+// attached (visible) session is never evicted; nothing is evicted while the
+// pool fits. Destroying an evicted view only drops runtime state — the
+// persist: partition on disk (cookies) always survives.
+
+export interface WarmPoolEntry {
+  readonly key: string;
+  readonly attached: boolean;
+  readonly lastActiveAt: number;
+}
+
+/**
+ * Keys to destroy so that adding one more session keeps the pool within
+ * maxWarmSessions. Returns [] when the incoming session already exists
+ * (reuse, not growth) or the pool still fits.
+ */
+export const warmPoolEvictions = (
+  pool: ReadonlyArray<WarmPoolEntry>,
+  incomingKey: string,
+  maxWarmSessions: number,
+): ReadonlyArray<string> => {
+  if (pool.some((e) => e.key === incomingKey)) return [];
+  const overBy = pool.length + 1 - Math.max(1, maxWarmSessions);
+  if (overBy <= 0) return [];
+  return pool
+    .filter((e) => !e.attached)
+    .sort((a, b) => a.lastActiveAt - b.lastActiveAt)
+    .slice(0, overBy)
+    .map((e) => e.key);
+};
+
 /** Electron partition name for a validated profile id. */
 export const partitionNameForProfile = (profileId: string): string =>
   `persist:vellum-profile-${profileId}`;

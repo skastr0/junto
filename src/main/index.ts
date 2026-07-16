@@ -5,6 +5,7 @@ import { resolvedSpawnEnv } from "./vellum/adapters/exec";
 import { AppRuntime } from "./runtime";
 import { registerIpcHandlers } from "./ipc";
 import { herdrStreams } from "./vellum/herdr/stream";
+import { browserSessions } from "./vellum/browser/ipc";
 
 // Dev-only: expose the Chrome DevTools Protocol so agents can drive the app
 // end to end (screenshot, click, evaluate) over CDP. Never in packaged builds.
@@ -203,6 +204,14 @@ const detachHerdrOnQuit = (reason: string) => {
     herdrStreams.detachAllOnQuit(reason);
   } catch (error) {
     console.error(`[herdr] detach on quit failed (${reason}):`, error);
+  }
+  // Browser product lock: quit detaches WebContentsViews only — warm sessions
+  // are dropped with the process but profile partitions (cookies) are never
+  // wiped and no session is explicitly destroyed.
+  try {
+    browserSessions.detachAllOnQuit(reason);
+  } catch (error) {
+    console.error(`[browser] detach on quit failed (${reason}):`, error);
   }
 };
 
