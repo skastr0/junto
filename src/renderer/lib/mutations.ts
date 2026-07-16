@@ -261,6 +261,20 @@ export const deleteNodes = (ids: ReadonlyArray<string>): void => {
     });
   }
 
+  // Page (browser) nodes: detach the dock slot + warm session so neither
+  // outlives the node it was opened from. Unlike herdr, this doesn't own doc
+  // removal — closeDockBrowser only ever detaches (product lock: profile/
+  // cookies survive), so the node still falls through to the synchronous
+  // commitDoc below.
+  const pageIds = existingNodes
+    .filter((n) => n.ether?.entity?.kind === "page")
+    .map((n) => n.id);
+  if (pageIds.length > 0) {
+    void import("./dock-state").then(({ closeDockBrowser }) => {
+      for (const id of pageIds) closeDockBrowser(id);
+    });
+  }
+
   const nonHerdr = new Set(
     existingNodes.filter((n) => n.ether?.entity?.kind !== "herdr").map((n) => n.id),
   );
