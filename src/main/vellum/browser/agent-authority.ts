@@ -42,6 +42,8 @@ export interface BrowserAutomationSubject {
 export interface BrowserAutomationConfirmation {
   readonly subject: BrowserAutomationSubject;
   readonly targetCount: number;
+  /** Exact, main-derived scope rendered by the native approval prompt. */
+  readonly targets: ReadonlyArray<BrowserCapabilityTarget>;
   readonly actions: ReadonlyArray<BrowserCapabilityAction>;
   readonly ttlMs: number;
   readonly maxUses: number;
@@ -250,6 +252,7 @@ export class BrowserAgentAuthority {
     const confirmation: BrowserAutomationConfirmation = Object.freeze({
       subject,
       targetCount: targets.length,
+      targets,
       actions: PRODUCT_ACTIONS,
       ttlMs: BROWSER_AGENT_AUTHORITY_TTL_MS,
       maxUses: BROWSER_AGENT_AUTHORITY_MAX_USES,

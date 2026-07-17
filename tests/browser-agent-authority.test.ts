@@ -77,9 +77,18 @@ describe("BrowserAgentAuthority", () => {
     expect(confirmations[0]).toMatchObject({
       subject: SUBJECT,
       targetCount: 1,
+      targets: [
+        {
+          ref: "vellum://canvas/work?node=n1",
+          profile: "default",
+          exactOrigins: ["https://example.com"],
+        },
+      ],
       ttlMs: BROWSER_AGENT_AUTHORITY_TTL_MS,
       maxUses: BROWSER_AGENT_AUTHORITY_MAX_USES,
     });
+    expect(Object.isFrozen(confirmations[0]?.targets)).toBe(true);
+    expect(Object.isFrozen(confirmations[0]?.targets[0]?.exactOrigins)).toBe(true);
     expect(deliveries).toHaveLength(0);
     expect(registry.stats().activeCapabilities).toBe(0);
   });
