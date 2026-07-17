@@ -33,6 +33,7 @@ import type { PulseRegionOptions } from "./kernel/service";
 import { KernelService } from "./kernel/service";
 import { RegionRollupService } from "./region-rollup";
 import { SnapshotsService } from "./snapshots";
+import { UsageService } from "./usage/usage-service";
 
 const broadcast = (channel: string, payload: unknown) => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -111,6 +112,14 @@ export const registerVellumIpc = () => {
       AppRuntime.runPromise(
         Effect.flatMap(SnapshotsService, (snapshots) => snapshots.refresh(hints)),
       ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.getUsage, () =>
+    AppRuntime.runPromise(Effect.flatMap(UsageService, (usage) => usage.current)),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.refreshUsage, () =>
+    AppRuntime.runPromise(Effect.flatMap(UsageService, (usage) => usage.refresh())),
   );
 
   // Source browsing: read-only, hit the live adapters directly (no Effect
@@ -216,10 +225,12 @@ export const registerVellumIpc = () => {
     Effect.gen(function* () {
       const canvases = yield* CanvasesService;
       const snapshots = yield* SnapshotsService;
+      const usage = yield* UsageService;
       const kernel = yield* KernelService;
       yield* canvases.ensureSeed.pipe(Effect.catchAll(() => Effect.void));
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
+      usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
       // Booth review attention: native notification on a rising pending
       // count, off the same poll — window-optional by construction.
       startBoothAttention(snapshots.subscribe);
@@ -230,6 +241,9 @@ export const registerVellumIpc = () => {
       kernel.subscribe((snapshot) => broadcast(IPC_CHANNELS.kernelChanged, snapshot));
       canvases.start();
       snapshots.start();
+      // First usage fetch is fire-and-forget off the boot critical path;
+      // codexbar can take ~15-20s so it never blocks window open.
+      usage.start();
       kernel.start();
     }),
   );

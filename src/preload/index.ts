@@ -19,6 +19,7 @@ import {
   type NodeRefOpenedEvent,
 } from "@shared/ipc";
 import type { SnapshotState } from "@shared/entities";
+import type { UsageState } from "@shared/usage";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
 
 // Every real handler answers in well under this; only a dead/wedged main
@@ -169,6 +170,9 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.generatePortfolio, IPC_TIMEOUT_MS, name, options),
   getSnapshots: () => invoke(IPC_CHANNELS.getSnapshots, IPC_TIMEOUT_MS),
   refreshSnapshots: (hints) => invoke(IPC_CHANNELS.refreshSnapshots, IPC_TIMEOUT_MS, hints),
+  // codexbar usage --json can take ~15-20s; IPC_TIMEOUT_MS (45s) is the ceiling.
+  getUsage: () => invoke(IPC_CHANNELS.getUsage, IPC_TIMEOUT_MS),
+  refreshUsage: () => invoke(IPC_CHANNELS.refreshUsage, IPC_TIMEOUT_MS),
   towerBrowse: (projectKey) => invoke(IPC_CHANNELS.towerBrowse, IPC_TIMEOUT_MS, projectKey),
   towerSearch: (query, projectKey) =>
     invoke(IPC_CHANNELS.towerSearch, IPC_TIMEOUT_MS, query, projectKey),
@@ -207,6 +211,7 @@ const vellumApi: VellumApi = {
   onCanvasChanged: (listener) => subscribe<string>(IPC_CHANNELS.canvasChanged, listener),
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
+  onUsageChanged: (listener) => subscribe<UsageState>(IPC_CHANNELS.usageChanged, listener),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),
 };
 

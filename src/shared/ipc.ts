@@ -4,6 +4,7 @@ import type { CanvasDoc } from "./canvas";
 import type { SnapshotState } from "./entities";
 import type { NodeRefKey } from "./node-ref";
 import type { RegionRollup } from "./region-rollup";
+import type { UsageState } from "./usage";
 
 export const IPC_CHANNELS = {
   doctor: "chassis:doctor",
@@ -20,6 +21,8 @@ export const IPC_CHANNELS = {
   generatePortfolio: "vellum:generate-portfolio",
   getSnapshots: "vellum:get-snapshots",
   refreshSnapshots: "vellum:refresh-snapshots",
+  getUsage: "vellum:get-usage",
+  refreshUsage: "vellum:refresh-usage",
   towerBrowse: "vellum:tower-browse",
   towerSearch: "vellum:tower-search",
   towerGlyphRead: "vellum:tower-glyph-read",
@@ -83,6 +86,7 @@ export const IPC_CHANNELS = {
   nodeRefOpenedAck: "vellum:node-ref-opened-ack",
   canvasChanged: "vellum:canvas-changed",
   snapshotsChanged: "vellum:snapshots-changed",
+  usageChanged: "vellum:usage-changed",
   chatEvent: "vellum:chat-event",
   kernelChanged: "vellum:kernel-changed",
   herdrStreamEvent: "vellum:herdr-stream-event",
@@ -561,6 +565,10 @@ export interface VellumApi {
   ) => Promise<CanvasReadResult>;
   readonly getSnapshots: () => Promise<SnapshotState>;
   readonly refreshSnapshots: (hints?: ReadonlyArray<BindingHint>) => Promise<SnapshotState>;
+  // Provider usage plane (codexbar CLI first). Fail-open: empty / ok:false
+  // snapshots when the CLI is absent — renderer hides the HUD.
+  readonly getUsage: () => Promise<UsageState>;
+  readonly refreshUsage: () => Promise<UsageState>;
   // Source browsing (read-only; feeds inspector detail views, never nodes).
   readonly towerBrowse: (projectKey: string) => Promise<TowerBrowseResult>;
   readonly towerSearch: (query: string, projectKey?: string) => Promise<TowerSearchResult>;
@@ -594,6 +602,7 @@ export interface VellumApi {
   ) => () => void;
   readonly onCanvasChanged: (listener: (name: string) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
+  readonly onUsageChanged: (listener: (state: UsageState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
 }
 
