@@ -1,8 +1,10 @@
 import { BrowserWindow, WebContentsView } from "electron";
 import {
+  BROWSER_MAX_EVAL_CODE_BYTES,
   BROWSER_MAX_EVAL_RESULT_BYTES,
   BROWSER_MAX_EVAL_RESULT_DEPTH,
   BROWSER_MAX_EVAL_RESULT_NODES,
+  isUtf8WithinLimit,
 } from "@shared/browser-limits";
 import type { BrowserSurfaceBounds } from "@shared/ipc";
 import type { BrowserViewAdapter, BrowserViewHandle } from "./sessions";
@@ -314,8 +316,12 @@ const runBoundedEvalInPage = async (
   }
 };
 
-export const buildBoundedEvalScript = (source: string): string =>
-  `(${runBoundedEvalInPage.toString()})(${JSON.stringify(source)},${BROWSER_MAX_EVAL_RESULT_BYTES},${BROWSER_MAX_EVAL_RESULT_DEPTH},${BROWSER_MAX_EVAL_RESULT_NODES})`;
+export const buildBoundedEvalScript = (source: string): string => {
+  if (!isUtf8WithinLimit(source, BROWSER_MAX_EVAL_CODE_BYTES)) {
+    throw new RangeError("eval source exceeds the hard limit");
+  }
+  return `(${runBoundedEvalInPage.toString()})(${JSON.stringify(source)},${BROWSER_MAX_EVAL_RESULT_BYTES},${BROWSER_MAX_EVAL_RESULT_DEPTH},${BROWSER_MAX_EVAL_RESULT_NODES})`;
+};
 
 export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
   const view = new WebContentsView({

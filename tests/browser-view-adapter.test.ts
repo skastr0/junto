@@ -1,6 +1,7 @@
 import { createContext, runInContext, type Context } from "node:vm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  BROWSER_MAX_EVAL_CODE_BYTES,
   BROWSER_MAX_EVAL_RESULT_BYTES,
   BROWSER_MAX_EVAL_RESULT_DEPTH,
   BROWSER_MAX_EVAL_RESULT_NODES,
@@ -239,6 +240,17 @@ describe("electron browser view generation seam", () => {
       userGesture: false,
       scripts: [{ code: expect.stringContaining("document.title") }],
     });
+  });
+
+  it("bounds direct adapter eval source at exact N/N+1 before Electron", async () => {
+    const { handle, webContents } = setup();
+
+    await handle.executeJavaScript?.("x".repeat(BROWSER_MAX_EVAL_CODE_BYTES));
+    expect(webContents.isolatedCalls).toHaveLength(1);
+
+    expect(() => handle.executeJavaScript?.("x".repeat(BROWSER_MAX_EVAL_CODE_BYTES + 1)))
+      .toThrow("eval source exceeds the hard limit");
+    expect(webContents.isolatedCalls).toHaveLength(1);
   });
 });
 
