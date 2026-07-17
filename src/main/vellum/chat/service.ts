@@ -279,6 +279,12 @@ export class ChatService {
       return { ok: false, error: describeError(error) };
     }
 
+    const current = this.sessions.get(agentKey);
+    const effectiveResumeSessionId =
+      resumeSessionId ??
+      (current !== undefined && !current.client.closed && current.sessionId !== ""
+        ? current.sessionId
+        : undefined);
     const previousOpen = this.openInFlight.get(agentKey);
     const generation = this.nextGeneration(agentKey);
     this.closeCurrent(agentKey);
@@ -287,7 +293,7 @@ export class ChatService {
       if (this.generation(agentKey) !== generation) {
         return { ok: false, error: "authority restart superseded" };
       }
-      return this.beginOpen(agentKey, resumeSessionId, overlay, generation);
+      return this.beginOpen(agentKey, effectiveResumeSessionId, overlay, generation);
     })().finally(() => {
       if (this.authorityRestartInFlight.get(agentKey) === restart) {
         this.authorityRestartInFlight.delete(agentKey);

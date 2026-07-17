@@ -311,10 +311,10 @@ describe("local browser authority child environment", () => {
     ]);
   });
 
-  it("requires deliberate restart instead of silently retaining stale authority", async () => {
+  it("requires deliberate restart and automatically resumes the current live ACP session", async () => {
     const { spawnFn, children, calls } = fakeSpawn();
     const service = new ChatService(spawnFn);
-    await openHappyPath(service, children);
+    await openHappyPath(service, children, "local:default", { sessionId: "sess-current" });
 
     await expect(
       service.chatOpenWithLocalBrowserAuthority("local:default", BROWSER_AUTHORITY),
@@ -332,8 +332,57 @@ describe("local browser authority child environment", () => {
     expect(children).toHaveLength(2);
     expect(calls[1]?.options?.environmentOverlay?.VELLUM_BROWSER_CAPABILITY)
       .toBe(BROWSER_AUTHORITY.capability);
-    await expect(finishPendingOpen(restart, children[1]!, "sess-restarted"))
-      .resolves.toMatchObject({ ok: true, sessionId: "sess-restarted" });
+    const restartedChild = children[1]!;
+    await waitForWrites(restartedChild, 1);
+    respondOk(restartedChild, lastSentId(restartedChild), INIT_RESULT());
+    await waitForWrites(restartedChild, 2);
+    expect(methodOf(restartedChild, 1)).toBe("session/load");
+    expect(paramsOf(restartedChild, 1)).toEqual({
+      sessionId: "sess-current",
+      cwd: homedir(),
+      mcpServers: [],
+    });
+    respondOk(restartedChild, lastSentId(restartedChild), {
+      models: { availableModels: [] },
+    });
+    await expect(restart).resolves.toEqual({
+      ok: true,
+      sessionId: "sess-current",
+      resumed: true,
+      models: [],
+    });
+  });
+
+  it("prefers an explicit resume id over the current live ACP session", async () => {
+    const { spawnFn, children } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    await openHappyPath(service, children, "local:default", { sessionId: "sess-current" });
+
+    const restart = service.chatRestartWithLocalBrowserAuthority(
+      "local:default",
+      BROWSER_AUTHORITY,
+      "sess-explicit",
+    );
+    const restartedChild = children[1]!;
+    await waitForWrites(restartedChild, 1);
+    respondOk(restartedChild, lastSentId(restartedChild), INIT_RESULT());
+    await waitForWrites(restartedChild, 2);
+    expect(methodOf(restartedChild, 1)).toBe("session/load");
+    expect(paramsOf(restartedChild, 1)).toEqual({
+      sessionId: "sess-explicit",
+      cwd: homedir(),
+      mcpServers: [],
+    });
+    respondOk(restartedChild, lastSentId(restartedChild), {
+      models: { availableModels: [] },
+    });
+
+    await expect(restart).resolves.toEqual({
+      ok: true,
+      sessionId: "sess-explicit",
+      resumed: true,
+      models: [],
+    });
   });
 
   it("revocation cancels an in-flight restart before stale authority can respawn", async () => {
