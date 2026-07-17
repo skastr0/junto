@@ -8,7 +8,7 @@ import {
   type HerdrConnectionState,
 } from "@shared/herdr";
 import { resolveHerdrSpawnDefaults } from "@shared/region-defaults";
-import type { HerdrPaneInfo } from "@shared/ipc";
+import type { HerdrMirrorEvent, HerdrMirrorStateInfo, HerdrPaneInfo } from "@shared/ipc";
 import { state$ } from "./state";
 import { getVellumApi } from "./vellum-api";
 
@@ -26,6 +26,12 @@ export interface HerdrTerminalOpen {
   readonly title: string;
 }
 
+/** Per-host mirror freshness (Phase B/D1) — push-fed by onHerdrMirrorEvent. */
+export interface HerdrMirrorFresh {
+  readonly fresh: boolean;
+  readonly lastSyncAt?: number;
+}
+
 export const herdr$ = observable({
   wizardOpen: false,
   wizardAnchor: { x: 0, y: 0 } as { readonly x: number; readonly y: number },
@@ -41,6 +47,8 @@ export const herdr$ = observable({
   metaByNodeId: {} as Record<string, HerdrMetaCache>,
   /** nodeId → connection machine */
   connectionByNodeId: {} as Record<string, HerdrConnectionMachine>,
+  /** hostId → mirror freshness. Fresh host → cards run push-driven, no polling. */
+  mirrorByHost: {} as Record<string, HerdrMirrorFresh>,
   toast: "" as string,
 });
 
@@ -141,6 +149,42 @@ export const setHerdrToast = (message: string): void => {
       if (herdr$.toast.peek() === message) herdr$.toast.set("");
     }, 4000);
   }
+};
+
+type HerdrMirrorApi = ReturnType<typeof getVellumApi> & {
+  herdrMirrorState?: () => Promise<ReadonlyArray<HerdrMirrorStateInfo>>;
+  onHerdrMirrorEvent?: (listener: (event: HerdrMirrorEvent) => void) => () => void;
+};
+
+let mirrorUnsub: (() => void) | undefined;
+
+/**
+ * One app-wide subscription feeding herdr$.mirrorByHost. Idempotent — every
+ * card mount may call it; only the first attaches (browser-state precedent).
+ * Absent the bridge (IPC not landed) it degrades to a retryable no-op.
+ */
+export const subscribeHerdrMirror = (): (() => void) => {
+  if (mirrorUnsub) return mirrorUnsub;
+  const api = getVellumApi() as HerdrMirrorApi | undefined;
+  if (!api?.onHerdrMirrorEvent) return () => undefined;
+  if (api.herdrMirrorState) {
+    void api
+      .herdrMirrorState()
+      .then((states) => {
+        for (const s of states) {
+          herdr$.mirrorByHost[s.hostId].set({ fresh: s.fresh, lastSyncAt: s.lastSyncAt });
+        }
+      })
+      .catch(() => undefined);
+  }
+  const unsubscribe = api.onHerdrMirrorEvent((event) => {
+    herdr$.mirrorByHost[event.hostId].set({ fresh: event.fresh, lastSyncAt: Date.now() });
+  });
+  mirrorUnsub = () => {
+    unsubscribe();
+    mirrorUnsub = undefined;
+  };
+  return mirrorUnsub;
 };
 
 export const refreshHerdrMeta = async (

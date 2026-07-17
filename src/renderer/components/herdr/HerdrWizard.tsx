@@ -17,8 +17,25 @@ import {
   setHerdrToast,
 } from "../../lib/herdr-state";
 import { bootstrapHerdrWizard, type HerdrWizardApi, type HerdrWizardStep } from "../../lib/herdr-wizard-seed";
+import {
+  fetchHerdrPanes,
+  fetchHerdrSessions,
+  fetchHerdrTabs,
+  fetchHerdrWorkspaces,
+  invalidateHerdrBrowse,
+  peekHerdrBrowse,
+  subscribeHerdrBrowseInvalidation,
+  type HerdrBrowseFetch,
+} from "../../lib/herdr-browse";
+import {
+  initialHerdrPickGuard,
+  pickFromClick as decidePickFromClick,
+  pickFromPointer as decidePickFromPointer,
+  type HerdrPickGuardState,
+} from "../../lib/herdr-pick-guard";
 import { getVellumApi } from "../../lib/vellum-api";
 import { HUE } from "../../lib/theme";
+import { ActivityMark } from "../ActivityMark";
 
 type Step = HerdrWizardStep;
 
@@ -82,9 +99,17 @@ export function HerdrWizard() {
   const anchor = use$(herdr$.wizardAnchor);
   const seed = use$(herdr$.wizardSeed);
   const epochRef = useRef(0);
+  // Bumps on every step navigation so a superseded step's in-flight fetch
+  // cannot stomp the current step's rows (epoch guards only across open/close).
+  const stepTokenRef = useRef(0);
+  // Coalesce pointerdown+click and rapid double-selection of the same row.
+  const pickGuardRef = useRef<HerdrPickGuardState>(initialHerdrPickGuard);
   const [step, setStep] = useState<Step>("host");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  /** A foreground list fetch (cache miss) is in flight — drives the ActivityMark. */
+  const [loading, setLoading] = useState(false);
+  /** A create mutation is in flight — disables the create button only. */
+  const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState("");
   const [hosts, setHosts] = useState<ReadonlyArray<HerdrHostInfo>>([]);
   const [sessions, setSessions] = useState<ReadonlyArray<HerdrSessionInfo>>([]);
@@ -104,7 +129,10 @@ export function HerdrWizard() {
 
   useEffect(() => {
     if (!open) return;
+    // Ensure pushed mirror "change" events refresh any open step (idempotent).
+    subscribeHerdrBrowseInvalidation();
     epochRef.current = herdr$.wizardEpoch.peek();
+    stepTokenRef.current = 0;
     setStep("host");
     setError("");
     setFilter("");
@@ -115,7 +143,7 @@ export function HerdrWizard() {
     setCreateCwd("");
     setCreateLabel("");
     setSeedApplied(false);
-    setBusy(true);
+    setLoading(true);
 
     const applySnapshot = (snap: Awaited<ReturnType<typeof bootstrapHerdrWizard>>) => {
       if (!stillOpen()) return;
@@ -138,7 +166,7 @@ export function HerdrWizard() {
       if (!a?.herdrHosts) {
         if (stillOpen()) {
           setError("herdr API unavailable");
-          setBusy(false);
+          setLoading(false);
         }
         return;
       }
@@ -151,7 +179,7 @@ export function HerdrWizard() {
       } catch (e) {
         if (stillOpen()) setError(String(e));
       } finally {
-        if (stillOpen()) setBusy(false);
+        if (stillOpen()) setLoading(false);
       }
     };
 
@@ -160,6 +188,7 @@ export function HerdrWizard() {
 
   /** Escape hatch: drop region seed and restart full wizard at host. */
   const ignoreRegionDefaults = () => {
+    stepTokenRef.current += 1;
     herdr$.wizardSeed.set(null);
     setSeedApplied(false);
     setStep("host");
@@ -173,6 +202,7 @@ export function HerdrWizard() {
     setWorkspaces([]);
     setTabs([]);
     setPanes([]);
+    setLoading(false);
   };
 
   const needle = filter.trim().toLowerCase();
@@ -234,102 +264,126 @@ export function HerdrWizard() {
 
   if (!open) return null;
 
-  const pickHost = async (id: string) => {
-    setBusy(true);
+  // Panes are listed per workspace; scope to the picked tab at display time.
+  const scopePanes = (rows: ReadonlyArray<HerdrPaneInfo>, id: string): ReadonlyArray<HerdrPaneInfo> => {
+    const scoped = rows.filter((p) => !p.tabId || p.tabId === id);
+    return scoped.length > 0 ? scoped : rows;
+  };
+
+  // Rows advance on pointerdown (press, not release). Because advancing swaps
+  // the list to the next step, the trailing click of that same mouse press would
+  // otherwise land on a *different* row — so it is suppressed. A keyboard-driven
+  // click (no preceding pointerdown) still runs; see herdr-pick-guard.ts.
+  type PickDecider = typeof decidePickFromPointer;
+  const applyPick = (decide: PickDecider, key: string, run: () => void) => {
+    const d = decide(pickGuardRef.current, key, Date.now());
+    pickGuardRef.current = d.state;
+    if (d.run) run();
+  };
+
+  // Stale-while-revalidate load for a step: paint cached rows this frame, kick a
+  // background/foreground refresh, and only surface an error when nothing shows.
+  // `from` is the originating step: a cold-cache fetch that fails would otherwise
+  // strand the wizard on an empty step with no visible list and only "cancel" to
+  // recover, so on that path we revert to `from` (whose rows are still in state)
+  // and surface the error there — the user can retry by re-picking.
+  const loadStep = <T,>(cfg: {
+    readonly from: Step;
+    readonly peek: () => ReadonlyArray<T> | undefined;
+    readonly fetch: (onUpdate: (rows: ReadonlyArray<T>) => void) => Promise<HerdrBrowseFetch<T>>;
+    readonly setRows: (rows: ReadonlyArray<T>) => void;
+  }): void => {
+    const token = (stepTokenRef.current += 1);
+    const live = () => stillOpen() && stepTokenRef.current === token;
+    const cached = cfg.peek();
+    if (cached) {
+      cfg.setRows(cached);
+      setLoading(false);
+    } else {
+      cfg.setRows([]);
+      setLoading(true);
+    }
+    cfg
+      .fetch((rows) => {
+        if (live()) cfg.setRows(rows);
+      })
+      .then((res) => {
+        if (!live()) return;
+        cfg.setRows(res.rows);
+        setLoading(false);
+      })
+      .catch((e: unknown) => {
+        if (!live()) return;
+        // Cold miss failed: revert to the originating step so there is a way
+        // back. Background (cached-hit) failures keep the stale rows in place.
+        if (!cached) {
+          setError(e instanceof Error ? e.message : String(e));
+          setStep(cfg.from);
+        }
+        setLoading(false);
+      });
+  };
+
+  const pickHost = (id: string) => {
     setError("");
+    setFilter("");
     setHostId(id);
-    const a = api();
-    if (!a) {
-      if (stillOpen()) setBusy(false);
-      return;
-    }
-    const ensured = await a.herdrEnsureServer(id, null);
-    if (!stillOpen()) return;
-    if (!ensured.ok) {
-      setError(ensured.message ?? "ensure server failed");
-      setBusy(false);
-      return;
-    }
-    const sess = await a.herdrListSessions(id);
-    if (!stillOpen()) return;
-    setSessions(sess.ok ? sess.data ?? [] : []);
     setStep("session");
-    setFilter("");
-    setBusy(false);
+    // ensureServer off the critical path — the mirror short-circuits it when
+    // fresh, and the list fetch surfaces any real "server down" on its own.
+    void api()?.herdrEnsureServer(id, null);
+    loadStep<HerdrSessionInfo>({
+      from: "host",
+      peek: () => peekHerdrBrowse<HerdrSessionInfo>({ step: "sessions", hostId: id, session: null }),
+      fetch: (onUpdate) => fetchHerdrSessions(id, { onUpdate }),
+      setRows: setSessions,
+    });
   };
 
-  const pickSession = async (name: string | null) => {
-    setBusy(true);
+  const pickSession = (name: string | null) => {
     setError("");
+    setFilter("");
     setSession(name);
-    const a = api();
-    if (!a) {
-      if (stillOpen()) setBusy(false);
-      return;
-    }
-    const ensured = await a.herdrEnsureServer(hostId, name);
-    if (!stillOpen()) return;
-    if (!ensured.ok) {
-      setError(ensured.message ?? "ensure server failed");
-      setBusy(false);
-      return;
-    }
-    const list = await a.herdrListWorkspaces(hostId, name);
-    if (!stillOpen()) return;
-    if (!list.ok) {
-      setError(list.message ?? "list workspaces failed");
-      setBusy(false);
-      return;
-    }
-    setWorkspaces(list.data ?? []);
     setStep("workspace");
-    setFilter("");
-    setBusy(false);
+    void api()?.herdrEnsureServer(hostId, name);
+    loadStep<HerdrWorkspaceInfo>({
+      from: "session",
+      peek: () => peekHerdrBrowse<HerdrWorkspaceInfo>({ step: "workspaces", hostId, session: name }),
+      fetch: (onUpdate) => fetchHerdrWorkspaces(hostId, name, { onUpdate }),
+      setRows: setWorkspaces,
+    });
   };
 
-  const pickWorkspace = async (id: string) => {
-    setBusy(true);
+  const pickWorkspace = (id: string) => {
     setError("");
+    setFilter("");
     setWorkspaceId(id);
-    const a = api();
-    if (!a) {
-      if (stillOpen()) setBusy(false);
-      return;
-    }
-    const list = await a.herdrListTabs(hostId, session, id);
-    if (!stillOpen()) return;
-    if (!list.ok) {
-      setError(list.message ?? "list tabs failed");
-      setBusy(false);
-      return;
-    }
-    setTabs(list.data ?? []);
     setStep("tab");
-    setFilter("");
-    setBusy(false);
+    loadStep<HerdrTabInfo>({
+      from: "workspace",
+      peek: () => peekHerdrBrowse<HerdrTabInfo>({ step: "tabs", hostId, session, parentId: id }),
+      fetch: (onUpdate) => fetchHerdrTabs(hostId, session, id, { onUpdate }),
+      setRows: setTabs,
+    });
   };
 
-  const pickTab = async (id: string) => {
-    setBusy(true);
+  const pickTab = (id: string) => {
     setError("");
-    setTabId(id);
-    const a = api();
-    if (!a) {
-      if (stillOpen()) setBusy(false);
-      return;
-    }
-    const list = await a.herdrListPanes(hostId, session, workspaceId);
-    if (!stillOpen()) return;
-    if (!list.ok) {
-      setError(list.message ?? "list panes failed");
-      setBusy(false);
-      return;
-    }
-    const scoped = (list.data ?? []).filter((p) => !p.tabId || p.tabId === id);
-    setPanes(scoped.length > 0 ? scoped : list.data ?? []);
-    setStep("pane");
     setFilter("");
-    setBusy(false);
+    setTabId(id);
+    setStep("pane");
+    loadStep<HerdrPaneInfo>({
+      from: "tab",
+      peek: () => {
+        const raw = peekHerdrBrowse<HerdrPaneInfo>({ step: "panes", hostId, session, parentId: workspaceId });
+        return raw ? scopePanes(raw, id) : undefined;
+      },
+      fetch: (onUpdate) =>
+        fetchHerdrPanes(hostId, session, workspaceId, {
+          onUpdate: (raw) => onUpdate(scopePanes(raw, id)),
+        }).then((res) => ({ ...res, rows: scopePanes(res.rows, id) })),
+      setRows: setPanes,
+    });
   };
 
   const placeNode = (herdr: EtherHerdr, label?: string) => {
@@ -359,13 +413,13 @@ export function HerdrWizard() {
   const createAtStep = async () => {
     const a = api();
     if (!a || !stillOpen()) return;
-    setBusy(true);
+    setCreating(true);
     setError("");
     try {
       if (step === "workspace") {
         if (!createCwd.trim()) {
           setError("cwd required to create workspace");
-          setBusy(false);
+          setCreating(false);
           return;
         }
         const res = await a.herdrCreateWorkspace(hostId, session, {
@@ -375,7 +429,7 @@ export function HerdrWizard() {
         if (!stillOpen()) return;
         if (!res.ok || !res.data) {
           setError(res.message ?? "create workspace failed");
-          setBusy(false);
+          setCreating(false);
           return;
         }
         if (res.data.paneId) {
@@ -389,10 +443,13 @@ export function HerdrWizard() {
             label: createLabel.trim() || undefined,
             onDelete: "detach",
           });
-          if (stillOpen()) setBusy(false);
+          if (stillOpen()) setCreating(false);
           return;
         }
-        await pickWorkspace(res.data.workspaceId);
+        // Just mutated this host — drop stale lists so the child step re-reads.
+        invalidateHerdrBrowse(hostId);
+        setCreating(false);
+        pickWorkspace(res.data.workspaceId);
         return;
       }
       if (step === "tab") {
@@ -403,7 +460,7 @@ export function HerdrWizard() {
         if (!stillOpen()) return;
         if (!res.ok || !res.data) {
           setError(res.message ?? "create tab failed");
-          setBusy(false);
+          setCreating(false);
           return;
         }
         if (res.data.paneId) {
@@ -416,10 +473,12 @@ export function HerdrWizard() {
             terminalId: res.data.terminalId,
             onDelete: "detach",
           });
-          if (stillOpen()) setBusy(false);
+          if (stillOpen()) setCreating(false);
           return;
         }
-        await pickTab(res.data.tabId);
+        invalidateHerdrBrowse(hostId);
+        setCreating(false);
+        pickTab(res.data.tabId);
         return;
       }
       if (step === "pane") {
@@ -432,7 +491,7 @@ export function HerdrWizard() {
         if (!stillOpen()) return;
         if (!res.ok || !res.data) {
           setError(res.message ?? "create pane failed");
-          setBusy(false);
+          setCreating(false);
           return;
         }
         placeNode({
@@ -446,7 +505,7 @@ export function HerdrWizard() {
         });
       }
     } finally {
-      if (stillOpen()) setBusy(false);
+      if (stillOpen()) setCreating(false);
     }
   };
 
@@ -505,20 +564,28 @@ export function HerdrWizard() {
             placeholder="filter…"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            disabled={busy}
           />
           {error ? <div className="text-xs text-[#E5484D]">{error}</div> : null}
           <div className="max-h-64 overflow-auto rounded border border-white/5">
             {rows.length === 0 ? (
-              <div className="px-3 py-4 text-xs text-slate-500">{busy ? "loading…" : "No matches."}</div>
+              <div className="flex items-center gap-2 px-3 py-4 text-xs text-slate-500">
+                {loading ? (
+                  <>
+                    <ActivityMark mode="wave" tone="amber" size="inline" label="loading" />
+                    <span>loading…</span>
+                  </>
+                ) : (
+                  <span>No matches.</span>
+                )}
+              </div>
             ) : (
               rows.map((row) => (
                 <button
                   key={row.key}
                   type="button"
                   className="flex w-full flex-col items-start gap-0.5 border-b border-white/5 px-3 py-2 text-left hover:bg-white/5"
-                  onClick={row.onPick}
-                  disabled={busy}
+                  onPointerDown={() => applyPick(decidePickFromPointer, row.key, row.onPick)}
+                  onClick={() => applyPick(decidePickFromClick, row.key, row.onPick)}
                 >
                   <span className="text-sm text-[#EDE6DA]">{row.label}</span>
                   <span className="text-[11px] text-slate-500">{row.sub}</span>
@@ -547,9 +614,9 @@ export function HerdrWizard() {
               ) : null}
               <button
                 type="button"
-                className="rounded bg-amber-500/20 px-2 py-1 text-xs text-amber-200 hover:bg-amber-500/30"
+                className="rounded bg-amber-500/20 px-2 py-1 text-xs text-amber-200 hover:bg-amber-500/30 disabled:opacity-50"
                 onClick={() => void createAtStep()}
-                disabled={busy}
+                disabled={creating}
               >
                 create {step}
               </button>
