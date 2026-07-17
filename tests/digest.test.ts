@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
+import type { GlyphView } from "../src/shared/execution-graph";
 import { digestCanvas } from "../src/shared/digest";
 
 const doc: CanvasDoc = {
@@ -146,3 +147,73 @@ describe("digestCanvas", () => {
     expect(digestCanvas("fixture", doc, snapshots)).toBe(expected);
   });
 });
+
+// Formatting pins for the region rollups section: singular member counts, an
+// empty region, a multi-bucket join, and attention/working member lines. The
+// empty group also pins the "unnamed region" fallback in BOTH sections.
+const doc2: CanvasDoc = {
+  nodes: [
+    { id: "g-ops", type: "group", label: "ops", x: 0, y: 0, width: 500, height: 350 },
+    { id: "b1", type: "text", text: "B1", x: 10, y: 10, width: 100, height: 40, ether: { flags: ["blocker"] } },
+    { id: "a1", type: "text", text: "A1", x: 120, y: 10, width: 100, height: 40, ether: { flags: ["attention"] } },
+    { id: "a2", type: "text", text: "A2", x: 230, y: 10, width: 100, height: 40, ether: { flags: ["attention"] } },
+    {
+      id: "w1",
+      type: "text",
+      text: "W1",
+      x: 10,
+      y: 60,
+      width: 100,
+      height: 40,
+      ether: { entity: { kind: "project", name: "prism" } },
+    },
+    { id: "g-solo", type: "group", label: "  solo  ", x: 0, y: 400, width: 300, height: 300 },
+    { id: "solo1", type: "text", text: "Lone", x: 10, y: 410, width: 100, height: 40 },
+    { id: "g-empty", type: "group", x: 600, y: 400, width: 200, height: 200 },
+  ],
+  edges: [],
+};
+
+const glyphs2: GlyphView = new Map([
+  ["prism", [{ glyphId: "g-1", orbit: "forge", title: "work", state: "building" }]],
+]);
+
+// Array-of-lines (not a template literal) so the trailing separator space on
+// the memberless regions line stays visible.
+const expected2 = [
+  "canvas :: fixture2",
+  "nodes :: 8",
+  "edges :: 0",
+  "",
+  "regions",
+  "ops :: B1, A1, A2, W1",
+  "solo :: Lone",
+  "unnamed region :: ",
+  "",
+  "region rollups",
+  "ops :: blocked · 4 members (1 blocked, 2 attention, 1 working)",
+  "  B1 :: blocked · flag:blocker",
+  "  A1 :: attention · flag:attention",
+  "  A2 :: attention · flag:attention",
+  "  W1 :: working · glyph:wip:building",
+  "solo :: idle · 1 member",
+  "unnamed region :: idle · 0 members",
+  "",
+  "entities",
+  "W1 :: project",
+  "",
+  "blockers",
+  "B1",
+  "blocked closure :: 0 nodes",
+  "",
+  "seeds",
+  "W1",
+  "",
+].join("\n");
+
+describe("digestCanvas — region rollups formatting", () => {
+  it("pins singular counts, empty region, multi-bucket join, and member lines", () => {
+    expect(digestCanvas("fixture2", doc2, { bundles: [] }, glyphs2)).toBe(expected2);
+  });
+});
+
