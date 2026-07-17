@@ -409,3 +409,59 @@ describe("deriveRegionRollups — member ordering", () => {
     ]);
   });
 });
+
+describe("deriveRegionRollups — derivation edges", () => {
+  it("flag:blocker and a graph block on the same node union their reasons, no duplicates", () => {
+    const base: CanvasDoc = {
+      nodes: [
+        group("r", 0, 0, 800, 800, "ops"),
+        taskNode("u", 10, 10, "Ops tasks", [{ id: "i1", text: "ship" }]),
+        projectNode("t", 10, 110, "Target", "target"),
+      ],
+      edges: [{ id: "e1", fromNode: "u", toNode: "t", ether: { criteria: { mode: "tasks" } } }],
+    };
+    const flagged: CanvasDoc = {
+      ...base,
+      nodes: base.nodes.map((n) =>
+        n.id === "t" ? { ...n, ether: { ...n.ether, flags: ["blocker" as const] } } : n,
+      ),
+    };
+    const [rollup] = deriveRegionRollups({ doc: flagged });
+    const target = rollup?.members.find((member) => member.nodeId === "t");
+    expect(target?.severity).toBe("blocked");
+    expect(target?.reasons).toEqual(["flag:blocker", "edge:0/1 tasks done · open: ship"]);
+    expect(new Set(target?.reasons).size).toBe(target?.reasons.length);
+  });
+
+  it("an agent with a pending permission and a live session is attention, reasons in ladder order", () => {
+    const doc: CanvasDoc = {
+      nodes: [group("r", 0, 0, 500, 500, "ops"), agentNode("a", 10, 10, "MIRA", "remote-a:mira")],
+      edges: [],
+    };
+    const [rollup] = deriveRegionRollups({
+      doc,
+      agentActivity: activityOf(["remote-a:mira", { permissionPending: true, sessionLive: true }]),
+    });
+    const agent = rollup?.members[0];
+    expect(agent?.severity).toBe("attention");
+    expect(agent?.reasons).toEqual(["permission:pending", "session:live"]);
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 1, working: 0 });
+  });
+
+  it("a non-project node whose name collides with a glyph-view key does not become working", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        group("r", 0, 0, 500, 500, "ops"),
+        node("o", 10, 10, "forge", { entity: { kind: "orbit", name: "prism" } }),
+        agentNode("a", 10, 110, "twin", "prism"),
+      ],
+      edges: [],
+    };
+    // The view knows "prism" and it is hot — but only kind "project" reads it.
+    const glyphs: GlyphView = new Map([["prism", [glyphRow("building")]]]);
+    const [rollup] = deriveRegionRollups({ doc, glyphs });
+    expect(rollup?.members.every((member) => member.severity === "idle" && member.reasons.length === 0)).toBe(
+      true,
+    );
+  });
+});
