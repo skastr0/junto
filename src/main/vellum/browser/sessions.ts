@@ -37,6 +37,12 @@ import {
   makeBrowserProfileService,
   type BrowserProfileServiceApi,
 } from "./profiles";
+import {
+  makeBrowserProfileGate,
+  type BrowserProfileBlock,
+  type BrowserProfileGate,
+  type BrowserProfileSnapshot,
+} from "./profile-gate";
 
 /**
  * Thin Electron seam. The real adapter creates a partitioned
@@ -50,6 +56,8 @@ export interface BrowserViewHandle {
   setBounds(bounds: BrowserSurfaceBounds): void;
   detach(): void;
   destroy(): void;
+  /** Production resolves this only after Electron emits `destroyed`. */
+  whenDestroyed?(): Promise<void>;
   executeJavaScript?(code: string): Promise<unknown>;
   capturePagePng?(): Promise<Uint8Array>;
 }
@@ -104,6 +112,19 @@ export interface BrowserResultErr {
 }
 export type BrowserResult<T> = BrowserResultOk<T> | BrowserResultErr;
 
+export const BROWSER_PROFILE_VIEW_DESTROY_TIMEOUT_MS = 5_000;
+
+export interface BrowserProfileQuiescenceSummary {
+  readonly pendingOpensInvalidated: number;
+  readonly sessionsDestroyed: number;
+  readonly viewsDestroyed: number;
+}
+
+export interface BrowserProfileQuiescence {
+  readonly block: BrowserProfileBlock;
+  readonly completion: Promise<BrowserResult<BrowserProfileQuiescenceSummary>>;
+}
+
 type PowerfulOperationKind = "navigation" | "eval" | "screenshot";
 
 class BrowserOperationFailure extends Error {
@@ -148,6 +169,7 @@ interface SessionEntry {
 interface PendingOpen {
   readonly target: ResolvedPageTarget;
   readonly ownerEpoch: number;
+  readonly profileSnapshot: BrowserProfileSnapshot;
   readonly promise: Promise<BrowserResult<BrowserSessionInfo>>;
 }
 
@@ -439,6 +461,7 @@ export class BrowserSessionService {
   private readonly ownerEpochs = new Map<string, number>();
   private activeOperationCount = 0;
   private sink: ((session: BrowserSessionInfo) => void) | undefined;
+  private readonly viewDestroyTimeoutMs: number;
   // Sole durable SoT for these numbers is Settings.browser; profiles.config
   // remains fallback for tests that never install a limits provider.
   private poolLimits: (() => Promise<BrowserPoolLimits>) | undefined;
@@ -449,7 +472,14 @@ export class BrowserSessionService {
     private readonly now: () => number = Date.now,
     private readonly generateSessionId: () => string = randomUUID,
     private readonly targetAdmission: BrowserTargetAdmission = isAllowedBrowserUrl,
-  ) {}
+    private readonly profileGate: BrowserProfileGate = makeBrowserProfileGate(),
+    viewDestroyTimeoutMs: number = BROWSER_PROFILE_VIEW_DESTROY_TIMEOUT_MS,
+  ) {
+    this.viewDestroyTimeoutMs =
+      Number.isFinite(viewDestroyTimeoutMs) && viewDestroyTimeoutMs > 0
+        ? Math.min(Math.floor(viewDestroyTimeoutMs), BROWSER_PROFILE_VIEW_DESTROY_TIMEOUT_MS)
+        : BROWSER_PROFILE_VIEW_DESTROY_TIMEOUT_MS;
+  }
 
   setSink(sink: (session: BrowserSessionInfo) => void): void {
     this.sink = sink;
@@ -490,12 +520,25 @@ export class BrowserSessionService {
     return this.ownerEpochs.get(owner) ?? 0;
   }
 
+  private isOpenAttemptCurrent(
+    owner: string,
+    ownerEpoch: number,
+    profileSnapshot: BrowserProfileSnapshot,
+    signal?: AbortSignal,
+  ): boolean {
+    return (
+      this.ownerEpoch(owner) === ownerEpoch &&
+      this.profileGate.isCurrent(profileSnapshot) &&
+      !isAborted(signal)
+    );
+  }
+
   private async awaitOwnerOpen(
     owner: string,
     record: PendingOpen,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     const result = await record.promise;
-    if (this.ownerEpoch(owner) !== record.ownerEpoch) {
+    if (!this.isOpenAttemptCurrent(owner, record.ownerEpoch, record.profileSnapshot)) {
       return err("cancelled", "navigation cancelled");
     }
     if (result.ok && this.entryForOwner(owner, result.data.sessionId) === undefined) {
@@ -952,6 +995,10 @@ export class BrowserSessionService {
       return err("forbidden", "automation target has no exact browser origin");
     }
     if (isAborted(signal)) return err("cancelled", "navigation cancelled");
+    const profileSnapshot = this.profileGate.snapshot(target.profile);
+    if (profileSnapshot === undefined) {
+      return err("forbidden", "browser profile is unavailable");
+    }
 
     const epoch = this.ownerEpoch(owner);
     const pendingByRef = this.ownerPendingOpens(owner, true);
@@ -962,8 +1009,13 @@ export class BrowserSessionService {
         : err("invalid", "canonical page ref resolved to conflicting page metadata");
     }
 
-    const promise = this.openResolved(owner, epoch, target, signal);
-    const record: PendingOpen = { target, ownerEpoch: epoch, promise };
+    const promise = this.openResolved(owner, epoch, profileSnapshot, target, signal);
+    const record: PendingOpen = {
+      target,
+      ownerEpoch: epoch,
+      profileSnapshot,
+      promise,
+    };
     pendingByRef.set(target.ref, record);
     try {
       return await this.awaitOwnerOpen(owner, record);
@@ -980,10 +1032,11 @@ export class BrowserSessionService {
   private async openResolved(
     owner: string,
     ownerEpoch: number,
+    profileSnapshot: BrowserProfileSnapshot,
     target: ResolvedPageTarget,
     signal?: AbortSignal,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
-    if (this.ownerEpoch(owner) !== ownerEpoch || isAborted(signal)) {
+    if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
       return err("cancelled", "navigation cancelled");
     }
     const ownerRefs = this.ownerRefSessions(owner);
@@ -1008,7 +1061,13 @@ export class BrowserSessionService {
     let maxWarmSessions: number;
     try {
       partition = await Effect.runPromise(this.profiles.partitionName(target.profile));
+      if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
+        return err("cancelled", "navigation cancelled");
+      }
       const limits = await this.resolvePoolLimits();
+      if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
+        return err("cancelled", "navigation cancelled");
+      }
       maxWarmSessions = Math.min(
         BROWSER_MAX_WARM_SESSIONS_HARD,
         Number.isFinite(limits.maxWarmSessions)
@@ -1019,7 +1078,7 @@ export class BrowserSessionService {
     } catch (error) {
       return err("invalid", error instanceof Error ? error.message : String(error));
     }
-    if (this.ownerEpoch(owner) !== ownerEpoch || isAborted(signal)) {
+    if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
       return err("cancelled", "navigation cancelled");
     }
 
@@ -1081,7 +1140,7 @@ export class BrowserSessionService {
           ? undefined
           : { exactTopLevelOrigin: entry.currentOrigin },
       );
-      if (this.ownerEpoch(owner) !== ownerEpoch || isAborted(signal)) {
+      if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
         entry.view.destroy();
         return err("cancelled", "navigation cancelled");
       }
@@ -1451,6 +1510,112 @@ export class BrowserSessionService {
     });
   }
 
+  /**
+   * Synchronously closes admission for one profile, invalidates matching
+   * pending opens, and logically destroys every matching UI/automation view.
+   * The returned completion is the bounded physical WebContents barrier that
+   * storage deletion must await.
+   */
+  beginProfileQuiescence(
+    profile: string,
+    reason = "browser profile quiesced",
+  ): BrowserResult<BrowserProfileQuiescence> {
+    const blocked = this.profileGate.begin(profile);
+    if (!blocked.ok) {
+      switch (blocked.code) {
+        case "invalid":
+          return err("invalid", "browser profile is invalid");
+        case "busy":
+          return err("resource_exhausted", "browser profile is already quiescing");
+        case "deleted":
+          return err("forbidden", "browser profile is unavailable");
+      }
+    }
+
+    const pendingOpensInvalidated = this.invalidatePendingProfileOpens(profile);
+    const entries = [...this.sessions.values()].filter(
+      (entry) => entry.profile === profile && this.isCurrent(entry),
+    );
+    const acknowledgements: Promise<void>[] = [];
+    let teardownFailures = 0;
+    const failure = new BrowserOperationFailure(
+      "cancelled",
+      clampUtf8Bytes(reason, BROWSER_MAX_ERROR_BYTES),
+    );
+
+    for (const entry of entries) {
+      try {
+        if (entry.view.whenDestroyed === undefined) {
+          teardownFailures += 1;
+        } else {
+          acknowledgements.push(Promise.resolve(entry.view.whenDestroyed()));
+        }
+      } catch {
+        teardownFailures += 1;
+      }
+      try {
+        this.destroySession(entry.sessionId, failure);
+      } catch {
+        // Logical invalidation must continue across every matching view.
+        teardownFailures += 1;
+      }
+    }
+
+    const completion = this.awaitProfileViewDestruction(
+      acknowledgements,
+      teardownFailures,
+      Object.freeze({
+        pendingOpensInvalidated,
+        sessionsDestroyed: entries.length,
+        viewsDestroyed: entries.length,
+      }),
+    );
+    return {
+      ok: true,
+      data: Object.freeze({ block: blocked.data, completion }),
+    };
+  }
+
+  private invalidatePendingProfileOpens(profile: string): number {
+    let invalidated = 0;
+    for (const [owner, pendingByRef] of this.pendingOpenByOwnerRef) {
+      for (const [ref, pending] of pendingByRef) {
+        if (pending.target.profile !== profile) continue;
+        if (pendingByRef.delete(ref)) invalidated += 1;
+      }
+      if (pendingByRef.size === 0) this.pendingOpenByOwnerRef.delete(owner);
+    }
+    return invalidated;
+  }
+
+  private async awaitProfileViewDestruction(
+    acknowledgements: ReadonlyArray<Promise<void>>,
+    teardownFailures: number,
+    summary: BrowserProfileQuiescenceSummary,
+  ): Promise<BrowserResult<BrowserProfileQuiescenceSummary>> {
+    const settled = Promise.allSettled(acknowledgements);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<undefined>((resolve) => {
+      timeout = setTimeout(() => resolve(undefined), this.viewDestroyTimeoutMs);
+    });
+    const result = await Promise.race([settled, deadline]);
+    if (timeout !== undefined) clearTimeout(timeout);
+    if (result === undefined) {
+      return err(
+        "timeout",
+        `browser views did not terminate within ${this.viewDestroyTimeoutMs}ms`,
+      );
+    }
+    if (
+      teardownFailures > 0 ||
+      acknowledgements.length !== summary.viewsDestroyed ||
+      result.some((entry) => entry.status === "rejected")
+    ) {
+      return err("failed", "browser view teardown did not complete cleanly");
+    }
+    return { ok: true, data: summary };
+  }
+
   /** Revoke one owner namespace without touching UI or sibling-job views. */
   destroyOwnerSessions(owner: string, reason = "browser authority revoked"): number {
     this.ownerEpochs.set(owner, this.ownerEpoch(owner) + 1);
@@ -1484,12 +1649,15 @@ export class BrowserSessionService {
       sessionId,
       err(failure?.code ?? "not_found", failure?.message ?? `no session for ${sessionId}`),
     );
-    this.reduceCurrent(entry, { type: "destroy" });
-    this.unregister(entry);
     try {
-      if (entry.attached) entry.view.detach();
+      this.reduceCurrent(entry, { type: "destroy" });
     } finally {
-      entry.view.destroy();
+      this.unregister(entry);
+      try {
+        if (entry.attached) entry.view.detach();
+      } finally {
+        entry.view.destroy();
+      }
     }
   }
 

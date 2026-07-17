@@ -47,6 +47,7 @@ const electron = vi.hoisted(() => {
       readonly userGesture: boolean | undefined;
     }> = [];
     mainWorldEvalCalls = 0;
+    closeCalls = 0;
 
     constructor(readonly session: FakeSession) {}
 
@@ -58,7 +59,11 @@ const electron = vi.hoisted(() => {
     }
 
     once(event: string, listener: Listener): this {
-      return this.on(event, listener);
+      const onceListener: Listener = (...args) => {
+        this.off(event, onceListener);
+        listener(...args);
+      };
+      return this.on(event, onceListener);
     }
 
     off(event: string, listener: Listener): this {
@@ -90,7 +95,9 @@ const electron = vi.hoisted(() => {
     setWindowOpenHandler(): void {}
     setWebRTCIPHandlingPolicy(): void {}
 
-    close(): void {}
+    close(): void {
+      this.closeCalls += 1;
+    }
     executeJavaScript(): Promise<unknown> {
       this.mainWorldEvalCalls += 1;
       return Promise.resolve(null);
@@ -378,6 +385,25 @@ describe("electron browser view generation seam", () => {
         safeDialogs: true,
       },
     });
+  });
+
+  it("acknowledges physical teardown only after Electron emits destroyed", async () => {
+    const { handle, webContents } = setup();
+    const destroyed = handle.whenDestroyed?.();
+    if (destroyed === undefined) throw new Error("destruction acknowledgement unavailable");
+    let acknowledged = false;
+    void destroyed.then(() => {
+      acknowledged = true;
+    });
+
+    handle.destroy();
+    await Promise.resolve();
+    expect(webContents.closeCalls).toBe(1);
+    expect(acknowledged).toBe(false);
+
+    webContents.emit("destroyed");
+    await expect(destroyed).resolves.toBeUndefined();
+    expect(acknowledged).toBe(true);
   });
 
   it("bounds direct adapter eval source at exact N/N+1 before Electron", async () => {

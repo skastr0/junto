@@ -23,7 +23,11 @@ import {
   utf8ByteLength,
 } from "../src/shared/browser-limits";
 import type { ResolvedPageTarget } from "../src/main/vellum/browser/page-target";
-import { makeBrowserProfileService } from "../src/main/vellum/browser/profiles";
+import {
+  makeBrowserProfileService,
+  type BrowserProfileServiceApi,
+} from "../src/main/vellum/browser/profiles";
+import { BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
@@ -73,13 +77,27 @@ interface SpyView {
   readonly events: BrowserViewEvents;
   readonly options: BrowserViewOptions | undefined;
   readonly calls: string[];
+  readonly destroyedPromise: Promise<void>;
+  readonly resolveDestroyed: () => void;
   destroyed: boolean;
 }
 
-const makeSpyAdapter = () => {
+const makeSpyAdapter = (acknowledgeDestroy = true) => {
   const views: SpyView[] = [];
   const adapter: BrowserViewAdapter = (partition, events, options) => {
-    const spy: SpyView = { partition, events, options, calls: [], destroyed: false };
+    let resolveDestroyed!: () => void;
+    const destroyedPromise = new Promise<void>((resolve) => {
+      resolveDestroyed = resolve;
+    });
+    const spy: SpyView = {
+      partition,
+      events,
+      options,
+      calls: [],
+      destroyedPromise,
+      resolveDestroyed,
+      destroyed: false,
+    };
     views.push(spy);
     return {
       loadUrl: (url) => spy.calls.push(`load:${url}`),
@@ -90,7 +108,9 @@ const makeSpyAdapter = () => {
       destroy: () => {
         spy.destroyed = true;
         spy.calls.push("destroy");
+        if (acknowledgeDestroy) spy.resolveDestroyed();
       },
+      whenDestroyed: () => spy.destroyedPromise,
       executeJavaScript: async (code) => {
         spy.calls.push(`eval:${utf8ByteLength(code)}`);
         return {
@@ -131,6 +151,56 @@ const deferred = <T>() => {
   });
   return { promise, resolve, reject };
 };
+
+describe("BrowserProfileGate", () => {
+  it("invalidates stale snapshots monotonically across cancel, delete, and recreate", () => {
+    const gate = new BrowserProfileGate();
+    const initial = gate.snapshot("personal");
+    expect(initial).toEqual({ profile: "personal", epoch: 0n });
+    expect(gate.isCurrent(initial!)).toBe(true);
+
+    const first = gate.begin("personal");
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(gate.snapshot("personal")).toBeUndefined();
+    expect(gate.isCurrent(initial!)).toBe(false);
+    expect(gate.cancelBeforeMutation(first.data)).toBe(true);
+    expect(gate.cancelBeforeMutation(first.data)).toBe(false);
+
+    const reopened = gate.snapshot("personal");
+    expect(reopened?.epoch).toBe(1n);
+    expect(gate.isCurrent(reopened!)).toBe(true);
+    expect(gate.isCurrent(initial!)).toBe(false);
+
+    const second = gate.begin("personal");
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.data.epoch).toBe(2n);
+    expect(gate.commitDeleted(second.data)).toBe(true);
+    expect(gate.commitDeleted(second.data)).toBe(false);
+    expect(gate.disposition("personal")).toBe("deleted");
+    expect(gate.snapshot("personal")).toBeUndefined();
+
+    const created = gate.markCreated("personal");
+    expect(created).toEqual({
+      ok: true,
+      data: { profile: "personal", epoch: 3n },
+    });
+    expect(created.ok && gate.isCurrent(created.data)).toBe(true);
+    expect(gate.isCurrent(reopened!)).toBe(false);
+  });
+
+  it("returns bounded typed failures for invalid, busy, and deleted profiles", () => {
+    const gate = new BrowserProfileGate();
+    expect(gate.begin("../escape")).toEqual({ ok: false, code: "invalid" });
+    const blocked = gate.begin("personal");
+    expect(blocked.ok).toBe(true);
+    expect(gate.begin("personal")).toEqual({ ok: false, code: "busy" });
+    if (!blocked.ok) return;
+    expect(gate.commitDeleted(blocked.data)).toBe(true);
+    expect(gate.begin("personal")).toEqual({ ok: false, code: "deleted" });
+  });
+});
 
 describe("BrowserSessionService", () => {
   let root: string;
@@ -1068,6 +1138,299 @@ describe("BrowserSessionService", () => {
 
     views[1]?.events.onLoadOk(sibling.data.sessionId);
     await expect(siblingTerminal).resolves.toMatchObject({ ok: true });
+  });
+
+  it("invalidates only the matching pending profile within one owner", async () => {
+    const base = makeBrowserProfileService(root);
+    await Effect.runPromise(base.ensureDefaults);
+    const gate = new BrowserProfileGate();
+    const personalPartition = deferred<string>();
+    const workPartition = deferred<string>();
+    let personalPartitionReads = 0;
+    let workPartitionReads = 0;
+    const profiles: BrowserProfileServiceApi = {
+      ...base,
+      partitionName: (profile) => {
+        if (profile === "personal") {
+          return Effect.promise(() => {
+            personalPartitionReads += 1;
+            return personalPartition.promise;
+          });
+        }
+        if (profile === "work") {
+          return Effect.promise(() => {
+            workPartitionReads += 1;
+            return workPartition.promise;
+          });
+        }
+        return base.partitionName(profile);
+      },
+    };
+    const { adapter, views } = makeSpyAdapter();
+    const service = new BrowserSessionService(
+      adapter,
+      profiles,
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      gate,
+    );
+    service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 2, maxWarmSessions: 8 }));
+
+    const pendingPersonal = service.openForOwner("job-shared", target("personal-page"));
+    const pendingWork = service.openForOwner(
+      "job-shared",
+      target("work-page", { profile: "work" }),
+    );
+    await vi.waitFor(() => {
+      expect(personalPartitionReads).toBe(1);
+      expect(workPartitionReads).toBe(1);
+    });
+
+    const started = service.beginProfileQuiescence("personal");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    await expect(started.data.completion).resolves.toEqual({
+      ok: true,
+      data: {
+        pendingOpensInvalidated: 1,
+        sessionsDestroyed: 0,
+        viewsDestroyed: 0,
+      },
+    });
+    workPartition.resolve("persist:vellum-profile-work");
+    const work = await pendingWork;
+    expect(work).toMatchObject({ ok: true });
+    expect(service.stateForOwner("job-shared", work.ok ? work.data.sessionId : "missing"))
+      .toMatchObject({ ok: true });
+    expect(views).toHaveLength(1);
+    expect(views[0]?.partition).toBe("persist:vellum-profile-work");
+
+    expect(gate.cancelBeforeMutation(started.data.block)).toBe(true);
+    personalPartition.resolve("persist:vellum-profile-personal");
+    await expect(pendingPersonal).resolves.toMatchObject({ ok: false, code: "cancelled" });
+    expect(views).toHaveLength(1);
+  });
+
+  it("revalidates the profile epoch after a paused touch and before adapter construction", async () => {
+    const base = makeBrowserProfileService(root);
+    await Effect.runPromise(base.ensureDefaults);
+    const gate = new BrowserProfileGate();
+    const pausedTouch = deferred<void>();
+    let touchCalls = 0;
+    const profiles: BrowserProfileServiceApi = {
+      ...base,
+      touchProfile: (profile) =>
+        profile === "personal"
+          ? Effect.promise(() => {
+              touchCalls += 1;
+              return pausedTouch.promise;
+            })
+          : base.touchProfile(profile),
+    };
+    const { adapter, views } = makeSpyAdapter();
+    const service = new BrowserSessionService(
+      adapter,
+      profiles,
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      gate,
+    );
+
+    const opening = service.open(target("paused-touch"));
+    await vi.waitFor(() => expect(touchCalls).toBe(1));
+    const started = service.beginProfileQuiescence("personal");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    expect(gate.cancelBeforeMutation(started.data.block)).toBe(true);
+    pausedTouch.resolve();
+
+    await expect(opening).resolves.toMatchObject({ ok: false, code: "cancelled" });
+    expect(views).toHaveLength(0);
+  });
+
+  it("revalidates the profile epoch after a paused pool-limits lookup", async () => {
+    const base = makeBrowserProfileService(root);
+    await Effect.runPromise(base.ensureDefaults);
+    const gate = new BrowserProfileGate();
+    const pausedLimits = deferred<{
+      readonly maxVisibleSurfaces: number;
+      readonly maxWarmSessions: number;
+    }>();
+    let limitsReads = 0;
+    const { adapter, views } = makeSpyAdapter();
+    const service = new BrowserSessionService(
+      adapter,
+      base,
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      gate,
+    );
+    service.setPoolLimitsProvider(() => {
+      limitsReads += 1;
+      return pausedLimits.promise;
+    });
+
+    const opening = service.open(target("paused-limits"));
+    await vi.waitFor(() => expect(limitsReads).toBe(1));
+    const started = service.beginProfileQuiescence("personal");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    expect(gate.cancelBeforeMutation(started.data.block)).toBe(true);
+    pausedLimits.resolve({ maxVisibleSurfaces: 2, maxWarmSessions: 8 });
+
+    await expect(opening).resolves.toMatchObject({ ok: false, code: "cancelled" });
+    expect(views).toHaveLength(0);
+  });
+
+  it("destroys matching UI and automation sessions while preserving every sibling profile", async () => {
+    const gate = new BrowserProfileGate();
+    const { adapter, views } = makeSpyAdapter();
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      gate,
+    );
+    service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 2, maxWarmSessions: 8 }));
+    const ui = await service.open(target("ui-personal"));
+    const jobA = await service.openForOwner("job-a", target("a-personal"));
+    const jobB = await service.openForOwner("job-b", target("b-personal"));
+    const sibling = await service.openForOwner(
+      "job-sibling",
+      target("sibling-work", { profile: "work" }),
+    );
+    if (!ui.ok || !jobA.ok || !jobB.ok || !sibling.ok) throw new Error("open failed");
+
+    const started = service.beginProfileQuiescence("personal", "profile wipe started");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    await expect(started.data.completion).resolves.toEqual({
+      ok: true,
+      data: {
+        pendingOpensInvalidated: 0,
+        sessionsDestroyed: 3,
+        viewsDestroyed: 3,
+      },
+    });
+
+    expect(service.state(ui.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
+    expect(service.stateForOwner("job-a", jobA.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(service.stateForOwner("job-b", jobB.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(service.stateForOwner("job-sibling", sibling.data.sessionId))
+      .toMatchObject({ ok: true });
+    expect(views.map((view) => view.destroyed)).toEqual([true, true, true, false]);
+    await expect(service.open(target("blocked-personal"))).resolves.toMatchObject({
+      ok: false,
+      code: "forbidden",
+    });
+  });
+
+  it("continues profile teardown after one view destroy throws and fails closed", async () => {
+    const gate = new BrowserProfileGate();
+    const spies = makeSpyAdapter();
+    let viewIndex = 0;
+    const adapter: BrowserViewAdapter = (partition, events, options) => {
+      const index = viewIndex;
+      viewIndex += 1;
+      const handle = spies.adapter(partition, events, options);
+      if (index !== 0) return handle;
+      return {
+        ...handle,
+        destroy: () => {
+          handle.destroy();
+          throw new Error("injected destroy failure");
+        },
+      };
+    };
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      gate,
+    );
+    service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 2, maxWarmSessions: 8 }));
+    const ui = await service.open(target("throwing-personal"));
+    const job = await service.openForOwner("job-a", target("later-personal"));
+    const sibling = await service.openForOwner(
+      "job-a",
+      target("surviving-work", { profile: "work" }),
+    );
+    if (!ui.ok || !job.ok || !sibling.ok) throw new Error("open failed");
+
+    const started = service.beginProfileQuiescence("personal");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    await expect(started.data.completion).resolves.toMatchObject({
+      ok: false,
+      code: "failed",
+    });
+
+    expect(spies.views.map((view) => view.destroyed)).toEqual([true, true, false]);
+    expect(service.state(ui.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
+    expect(service.stateForOwner("job-a", job.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(service.stateForOwner("job-a", sibling.data.sessionId)).toMatchObject({ ok: true });
+    expect(gate.disposition("personal")).toBe("quiescing");
+  });
+
+  it("waits for physical destruction and fails closed at the hard bounded deadline", async () => {
+    const gate = new BrowserProfileGate();
+    const { adapter, views } = makeSpyAdapter(false);
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      gate,
+      20,
+    );
+    const opened = await service.open(target("physical-barrier"));
+    if (!opened.ok) throw new Error("open failed");
+
+    const started = service.beginProfileQuiescence("personal");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    let completed = false;
+    void started.data.completion.then(() => {
+      completed = true;
+    });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    views[0]?.resolveDestroyed();
+    await expect(started.data.completion).resolves.toMatchObject({ ok: true });
+
+    const secondGate = new BrowserProfileGate();
+    const secondAdapter = makeSpyAdapter(false);
+    const timed = new BrowserSessionService(
+      secondAdapter.adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      secondGate,
+      5,
+    );
+    const timedOpen = await timed.open(target("physical-timeout"));
+    if (!timedOpen.ok) throw new Error("open failed");
+    const timedStart = timed.beginProfileQuiescence("personal");
+    expect(timedStart.ok).toBe(true);
+    if (!timedStart.ok) return;
+    await expect(timedStart.data.completion).resolves.toMatchObject({
+      ok: false,
+      code: "timeout",
+    });
+    expect(secondGate.disposition("personal")).toBe("quiescing");
+    expect(timed.state(timedOpen.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
   });
 
   it("preserves the initiating abort signal through navigation terminal", async () => {

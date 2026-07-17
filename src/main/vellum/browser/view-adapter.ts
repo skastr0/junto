@@ -360,6 +360,9 @@ const makeElectronViewAdapter = (
       safeDialogs: true,
     },
   });
+  const destroyed = new Promise<void>((resolveDestroyed) => {
+    view.webContents.once("destroyed", () => resolveDestroyed());
+  });
 
   let expectedNavigation: { readonly url: string; readonly sessionId: string } | undefined;
   let activeNavigation: { readonly url: string; readonly sessionId: string } | undefined;
@@ -522,6 +525,7 @@ const makeElectronViewAdapter = (
       // Runtime teardown only — the persist: partition (cookies) is on disk.
       view.webContents.close();
     },
+    whenDestroyed: () => destroyed,
     // Hardened automation runs in a dedicated isolated world. DOM and Web APIs
     // remain available, but page main-world JavaScript globals intentionally do
     // not. userGesture=false grants no synthetic-gesture privileges.
