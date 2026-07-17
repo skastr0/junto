@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
 import { join } from "node:path";
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, powerMonitor, shell } from "electron";
 import { resolvedSpawnEnv } from "./vellum/adapters/exec";
 import { AppRuntime } from "./runtime";
 import { registerIpcHandlers } from "./ipc";
+import { warmAllHosts } from "./vellum/herdr/masters";
 import { herdrStreams } from "./vellum/herdr/stream";
 import { browserSessions } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
@@ -186,6 +187,14 @@ if (!gotSingleInstanceLock) {
     void resolvedSpawnEnv();
 
     registerIpcHandlers();
+
+    // Warm the herdr ControlMaster sockets so the first real remote op rides
+    // an already-open ssh connection instead of paying a fresh handshake.
+    // Best-effort (masters.ts swallows failures) — never blocks startup.
+    void warmAllHosts();
+    powerMonitor.on("resume", () => {
+      void warmAllHosts();
+    });
 
     // Agent control plane (unix socket + token). App-hosted: exists exactly as
     // long as the runtime that owns the warm sessions does.

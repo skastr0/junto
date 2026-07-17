@@ -7,7 +7,9 @@ import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { controlArgs } from "./control-path";
 import { isKnownHerdrHost, sshTargetForHost, UnknownHerdrHostError } from "./hosts";
+import { withHostSlot } from "./masters";
 
 /** Match common agent clipboard-image caps (16 MiB). */
 export const VELLUM_CLIPBOARD_IMAGE_MAX_BYTES = 16 * 1024 * 1024;
@@ -88,6 +90,7 @@ export const defaultRunSsh: RunSsh = (target, remoteCommand, stdin) =>
         "ServerAliveInterval=30",
         "-o",
         "ServerAliveCountMax=3",
+        ...controlArgs(),
         target,
         remoteCommand,
       ],
@@ -171,17 +174,23 @@ export const stageImageOnHost = async (
   // Fixed remote dir under /tmp - path is fully controlled (no user input).
   const remoteDir = "/tmp/vellum-herdr-images";
   const remotePath = `${remoteDir}/${name}`;
-  const mkdirRes = await runSsh(
-    sshTarget,
-    `mkdir -p ${shellSingleQuote(remoteDir)} && chmod 700 ${shellSingleQuote(remoteDir)}`,
+  // Same per-host budget as every other remote exec (withHostSlot) — paste
+  // is 2 sequential ssh round trips and must not bypass sshd MaxSessions.
+  const mkdirRes = await withHostSlot(hostId, () =>
+    runSsh(
+      sshTarget,
+      `mkdir -p ${shellSingleQuote(remoteDir)} && chmod 700 ${shellSingleQuote(remoteDir)}`,
+    ),
   );
   if (!mkdirRes.ok) {
     return { ok: false, error: `remote mkdir failed: ${mkdirRes.error}` };
   }
-  const writeRes = await runSsh(
-    sshTarget,
-    `cat > ${shellSingleQuote(remotePath)} && chmod 600 ${shellSingleQuote(remotePath)}`,
-    decoded.bytes,
+  const writeRes = await withHostSlot(hostId, () =>
+    runSsh(
+      sshTarget,
+      `cat > ${shellSingleQuote(remotePath)} && chmod 600 ${shellSingleQuote(remotePath)}`,
+      decoded.bytes,
+    ),
   );
   if (!writeRes.ok) {
     return { ok: false, error: `remote write failed: ${writeRes.error}` };

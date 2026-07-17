@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CliResult } from "../src/main/vellum/adapters/exec";
+import { controlArgs } from "../src/main/vellum/herdr/control-path";
 import { herdrArgv, HERDR_HOSTS } from "../src/main/vellum/herdr/hosts";
 import {
   parseCliEnvelope,
@@ -24,7 +25,7 @@ describe("herdr hosts", () => {
     expect(argv).toEqual(["pane", "list"]);
   });
 
-  it("wraps remote in ssh BatchMode with keepalives", () => {
+  it("wraps remote in ssh BatchMode with keepalives + ControlMaster reuse", () => {
     const { command, argv } = herdrArgv("remote-a", ["workspace", "list"], "ops");
     expect(command).toBe("ssh");
     expect(argv).toEqual([
@@ -36,6 +37,7 @@ describe("herdr hosts", () => {
       "ServerAliveInterval=30",
       "-o",
       "ServerAliveCountMax=3",
+      ...controlArgs(),
       "remote-a",
       "herdr",
       "--session",

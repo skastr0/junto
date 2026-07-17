@@ -1,5 +1,7 @@
 // P0 herdr hosts. Easy to extend — discovery is deliberately out of scope.
 
+import { controlArgs } from "./control-path";
+
 export interface HerdrHostDef {
   /** Stable product id used in ether.herdr.host and IPC. */
   readonly id: string;
@@ -47,7 +49,9 @@ export const herdrArgv = (
   if (!sshTarget || sshTarget.startsWith("-")) {
     throw new UnknownHerdrHostError(hostId);
   }
-  // Remote: ssh BatchMode + keepalives (mirror ACP spawn posture for long streams).
+  // Remote: ssh BatchMode + keepalives (mirror ACP spawn posture for long streams),
+  // plus ControlMaster reuse — warmHost() (masters.ts) opens the socket ahead of
+  // time; this call rides it when warm, falls back to a fresh handshake when not.
   return {
     command: "ssh",
     argv: [
@@ -59,6 +63,7 @@ export const herdrArgv = (
       "ServerAliveInterval=30",
       "-o",
       "ServerAliveCountMax=3",
+      ...controlArgs(),
       sshTarget,
       "herdr",
       ...herdrArgs,

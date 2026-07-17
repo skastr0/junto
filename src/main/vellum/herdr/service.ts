@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { runCli, type CliResult } from "../adapters/exec";
 import { HERDR_HOSTS, herdrArgv, isKnownHerdrHost, UnknownHerdrHostError, type HerdrHostDef } from "./hosts";
+import { withHostSlot } from "./masters";
 import {
   parseCliEnvelope,
   parseCreateIds,
@@ -49,7 +50,7 @@ export type HerdrRunner = (
 
 const defaultRunner: HerdrRunner = async (hostId, args, session, timeoutMs = 12_000) => {
   const { command, argv } = herdrArgv(hostId, args, session);
-  return runCli(command, argv, timeoutMs);
+  return withHostSlot(hostId, () => runCli(command, argv, timeoutMs));
 };
 
 const mapCliFailure = (result: CliResult, hostId: string): HerdrResultErr => {
