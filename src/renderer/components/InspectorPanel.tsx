@@ -19,6 +19,7 @@ import { getAgentAvatar, getAgentIdentity } from "../lib/agent";
 import { getVellumApi } from "../lib/vellum-api";
 import { ConnectEditor, NodeFieldEditors, NodeFlagControls } from "./InspectorFields";
 import { ProjectBrowseSection } from "./InspectorBrowse";
+import { BrowserAutomationSection } from "./BrowserAutomationSection";
 import { ChatView, InspectorTabs } from "./chat";
 import { chatState$ } from "../lib/chat-state";
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -225,6 +226,7 @@ function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly 
         {isEntity ? <LiveReadout node={node} /> : null}
         {isEntity && node.ether?.entity?.kind === "project" ? <ProjectBrowseSection key={node.id} node={node} /> : null}
         {isAgent ? <AgentSections key={node.id} node={node} /> : null}
+        <BrowserAutomationSection key={`${canvasName}:${node.id}`} canvasName={canvasName} node={node} />
         <NodeFieldEditors node={node} />
         <AccentControls value={node.color} onChange={(color) => setNodeColor(node.id, color)} />
         <NodeFlagControls node={node} />
