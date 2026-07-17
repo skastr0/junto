@@ -29,6 +29,7 @@ import {
 } from "../src/main/vellum/browser/profiles";
 import { BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
 import {
+  BrowserOwnerSessionTeardownFailure,
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewEvents,
@@ -1138,6 +1139,63 @@ describe("BrowserSessionService", () => {
 
     views[1]?.events.onLoadOk(sibling.data.sessionId);
     await expect(siblingTerminal).resolves.toMatchObject({ ok: true });
+  });
+
+  it("continues exact-owner teardown after one view fails without disclosing the adapter error", async () => {
+    const { adapter: spyAdapter, views } = makeSpyAdapter();
+    let viewIndex = 0;
+    const adapter: BrowserViewAdapter = (partition, events, options) => {
+      const handle = spyAdapter(partition, events, options);
+      const currentIndex = viewIndex;
+      viewIndex += 1;
+      if (currentIndex !== 0) return handle;
+      return {
+        ...handle,
+        destroy: () => {
+          handle.destroy();
+          throw new Error("raw adapter teardown sentinel");
+        },
+      };
+    };
+    const { service } = makeService(adapter);
+    const firstOwned = await service.openForOwner("job-a", target("owned-a"));
+    const laterOwned = await service.openForOwner("job-a", target("owned-b"));
+    const sibling = await service.openForOwner("job-b", target("sibling"));
+    if (!firstOwned.ok || !laterOwned.ok || !sibling.ok) throw new Error("open failed");
+
+    let teardownFailure: unknown;
+    try {
+      service.destroyOwnerSessions("job-a", "reason with raw authority context");
+    } catch (error) {
+      teardownFailure = error;
+    }
+
+    expect(teardownFailure).toBeInstanceOf(BrowserOwnerSessionTeardownFailure);
+    expect(teardownFailure).toMatchObject({
+      name: "BrowserOwnerSessionTeardownFailure",
+      code: "browser_owner_session_teardown_failed",
+      failureCount: 1,
+      message: "browser owner session teardown did not complete cleanly",
+    });
+    expect(String(teardownFailure)).not.toContain("raw adapter teardown sentinel");
+    expect(utf8ByteLength((teardownFailure as Error).message)).toBeLessThanOrEqual(
+      BROWSER_MAX_ERROR_BYTES,
+    );
+
+    expect(service.stateForOwner("job-a", firstOwned.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(service.stateForOwner("job-a", laterOwned.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(service.listForOwner("job-a")).toEqual({ ok: true, data: [] });
+    expect(views[0]?.destroyed).toBe(true);
+    expect(views[1]?.destroyed).toBe(true);
+    expect(views[2]?.destroyed).toBe(false);
+
+    views[2]?.events.onLoadOk(sibling.data.sessionId, "sibling ready");
+    expect(await service.evalForOwner("job-b", sibling.data.sessionId, "document.title"))
+      .toMatchObject({ ok: true });
+    expect(service.destroyOwnerSessions("job-a", "repeat is safe")).toBe(0);
+    expect(service.stateForOwner("job-b", sibling.data.sessionId)).toMatchObject({ ok: true });
   });
 
   it("invalidates only the matching pending profile within one owner", async () => {

@@ -137,6 +137,20 @@ class BrowserOperationFailure extends Error {
   }
 }
 
+/**
+ * Fixed, aggregate failure surfaced only after every owned session has been
+ * logically invalidated and physical teardown has been attempted. Adapter
+ * errors are intentionally not retained as a cause or copied into the message.
+ */
+export class BrowserOwnerSessionTeardownFailure extends Error {
+  readonly code = "browser_owner_session_teardown_failed";
+
+  constructor(readonly failureCount: number) {
+    super("browser owner session teardown did not complete cleanly");
+    this.name = "BrowserOwnerSessionTeardownFailure";
+  }
+}
+
 interface ActiveOperation {
   readonly kind: PowerfulOperationKind;
   sessionId: string;
@@ -1623,11 +1637,22 @@ export class BrowserSessionService {
     const ownedSessionIds = [...this.sessions.values()]
       .filter((entry) => entry.owner === owner)
       .map((entry) => entry.sessionId);
+    const failure = new BrowserOperationFailure(
+      "cancelled",
+      clampUtf8Bytes(reason, BROWSER_MAX_ERROR_BYTES),
+    );
+    let teardownFailures = 0;
     for (const sessionId of ownedSessionIds) {
-      this.destroySession(
-        sessionId,
-        new BrowserOperationFailure("cancelled", clampUtf8Bytes(reason, BROWSER_MAX_ERROR_BYTES)),
-      );
+      try {
+        this.destroySession(sessionId, failure);
+      } catch {
+        // Continue through the exact owner snapshot. destroySession unregisters
+        // logically before invoking the fallible adapter teardown methods.
+        teardownFailures += 1;
+      }
+    }
+    if (teardownFailures > 0) {
+      throw new BrowserOwnerSessionTeardownFailure(teardownFailures);
     }
     return ownedSessionIds.length;
   }
