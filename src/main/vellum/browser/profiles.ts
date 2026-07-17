@@ -24,6 +24,10 @@ import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
 } from "@shared/browser-limits";
+import type {
+  BrowserProfileGateResult,
+  BrowserProfileSnapshot,
+} from "./profile-gate";
 
 // Browser profile registry under ~/.vellum/browser. The registry contains no
 // cookies or credentials, but it controls which persistent Electron partitions
@@ -44,6 +48,7 @@ const CANVAS_NAME = /^[a-z0-9-]{1,63}$/;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TEMP_FILE = /^\.config\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/i;
+const PROFILE_ADMISSION_FAILURE_MESSAGE = "browser profile admission unavailable";
 
 export type BrowserProfileErrorCode =
   | "invalid"
@@ -126,8 +131,14 @@ export interface BrowserProfileWipeLifecycle {
   readonly recoverCold: (pending: BrowserProfilePendingWipe) => Promise<void>;
 }
 
+/** Exact creation authority; storage/wipe transitions stay outside this port. */
+export interface BrowserProfileCreationGate {
+  markCreated(profile: string): BrowserProfileGateResult<BrowserProfileSnapshot>;
+}
+
 export interface BrowserProfileServiceOptions {
   readonly wipeLifecycle?: BrowserProfileWipeLifecycle;
+  readonly profileGate?: BrowserProfileCreationGate;
   readonly now?: () => Date;
 }
 
@@ -909,6 +920,18 @@ export const makeBrowserProfileService = (
             ...config,
             profiles: [...config.profiles, record],
           });
+          let admitted = false;
+          try {
+            admitted = options.profileGate?.markCreated(id).ok ?? true;
+          } catch {
+            // Gate-controlled failure is intentionally collapsed below.
+          }
+          if (!admitted) {
+            throw new BrowserProfileError({
+              message: PROFILE_ADMISSION_FAILURE_MESSAGE,
+              code: "pending_wipe",
+            });
+          }
           return record;
         }),
       ),

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import {
   access,
   chmod,
@@ -16,7 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Either } from "effect";
 import {
   listProfileDirs,
@@ -25,6 +26,7 @@ import {
   type BrowserProfileWipeLifecycle,
   type BrowserProfileWipeOutcome,
 } from "../src/main/vellum/browser/profiles";
+import { BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
 import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
@@ -296,6 +298,65 @@ describe("browser profile registry", () => {
     expect(results.filter(Either.isRight)).toHaveLength(1);
     expect(results.filter(Either.isLeft)).toHaveLength(1);
     expect((await run(registry.listProfiles)).filter((profile) => profile.id === "lab")).toHaveLength(1);
+  });
+
+  it("reopens a deleted profile id only after the recreated registry entry is durable", async () => {
+    await freshRoot();
+    const gate = new BrowserProfileGate();
+    const registry = makeBrowserProfileService(root, {
+      wipeLifecycle: lifecycle(),
+      profileGate: gate,
+      now: () => new Date(FIXED_TIME),
+    });
+    await run(registry.initialize);
+    const block = gate.begin("personal");
+    if (!block.ok) throw new Error("profile gate did not block");
+    expect(gate.commitDeleted(block.data)).toBe(true);
+    await run(registry.wipeProfile("personal"));
+
+    let durableAtAdmission = false;
+    const markCreated = gate.markCreated.bind(gate);
+    const markCreatedSpy = vi.spyOn(gate, "markCreated").mockImplementation((profile) => {
+      const disk = JSON.parse(readFileSync(join(root, "config.json"), "utf8")) as {
+        readonly profiles: ReadonlyArray<{ readonly id: string }>;
+      };
+      durableAtAdmission = disk.profiles.some((record) => record.id === profile);
+      return markCreated(profile);
+    });
+
+    await expect(run(registry.createProfile("personal", "Personal"))).resolves.toMatchObject({
+      id: "personal",
+    });
+    expect(markCreatedSpy).toHaveBeenCalledOnce();
+    expect(durableAtAdmission).toBe(true);
+    expect(gate.disposition("personal")).toBe("open");
+  });
+
+  it("fails closed with a fixed error if the durable profile cannot be admitted", async () => {
+    await freshRoot();
+    const gate = new BrowserProfileGate();
+    expect(gate.begin("lab")).toMatchObject({ ok: true });
+    const registry = makeBrowserProfileService(root, {
+      profileGate: gate,
+      now: () => new Date(FIXED_TIME),
+    });
+    await run(registry.initialize);
+
+    const result = await runEither(registry.createProfile("lab", "Lab"));
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toMatchObject({
+        code: "pending_wipe",
+        message: "browser profile admission unavailable",
+      });
+      expect(result.left.message).not.toContain(root);
+    }
+    const disk = JSON.parse(await readFile(join(root, "config.json"), "utf8")) as {
+      readonly profiles: ReadonlyArray<{ readonly id: string }>;
+    };
+    expect(disk.profiles.some((profile) => profile.id === "lab")).toBe(true);
+    expect(gate.disposition("lab")).toBe("quiescing");
   });
 
   it("durably journals exact paths before lifecycle execution and finalizes default refs afterward", async () => {
