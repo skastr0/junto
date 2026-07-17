@@ -1,6 +1,6 @@
 import { Context, Effect, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import type { GlyphRow, GlyphView } from "@shared/execution-graph";
+import type { GlyphRow } from "@shared/execution-graph";
 import { projectsNeedingGlyphs } from "@shared/glyph-view";
 import type { TowerBrowseResult, TowerGlyphRow } from "@shared/ipc";
 import { deriveRegionRollups, type AgentActivity, type RegionRollup } from "@shared/region-rollup";
@@ -89,7 +89,7 @@ export const RegionRollupLive = (
 
             // Glyph rows come from the TTL cache; projects the cache cannot
             // answer stay absent from the view (unavailable = derives nothing).
-            const glyphs: GlyphView = new Map<string, ReadonlyArray<GlyphRow>>();
+            const glyphs = new Map<string, ReadonlyArray<GlyphRow>>();
             for (const project of projectsNeedingGlyphs(doc)) {
               const rows = yield* Effect.promise(() => glyphRowsFor(project));
               if (rows !== undefined) glyphs.set(project, rows.map(toGlyphRow));
