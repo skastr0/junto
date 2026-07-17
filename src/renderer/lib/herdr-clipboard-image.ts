@@ -4,8 +4,8 @@
  * and pastes the absolute path via stock terminal.input (no herdr forks).
  */
 
-/** Match herdr MAX_CLIPBOARD_IMAGE_PAYLOAD (16 MiB). */
-export const HERDR_CLIPBOARD_IMAGE_MAX_BYTES = 16 * 1024 * 1024;
+/** Align with main `VELLUM_CLIPBOARD_IMAGE_MAX_BYTES` (16 MiB). */
+export const VELLUM_CLIPBOARD_IMAGE_MAX_BYTES = 16 * 1024 * 1024;
 
 export interface HerdrClipboardImage {
   readonly extension: string;
@@ -38,6 +38,9 @@ export const extensionFromFileName = (name: string): string | undefined => {
   return undefined;
 };
 
+const resolvedExtension = (file: File): string | undefined =>
+  extensionFromMime(file.type) ?? extensionFromFileName(file.name);
+
 /** Encode binary without blowing the call stack on large images. */
 export const uint8ToBase64 = (bytes: Uint8Array): string => {
   const chunk = 0x8000;
@@ -52,18 +55,21 @@ export const uint8ToBase64 = (bytes: Uint8Array): string => {
 export const fileToHerdrClipboardImage = async (
   file: File,
 ): Promise<HerdrClipboardImage | { readonly error: string }> => {
-  const extension =
-    extensionFromMime(file.type) ?? extensionFromFileName(file.name) ?? "png";
+  const extension = resolvedExtension(file);
+  if (!extension) {
+    const hint = file.type.trim() || file.name.trim() || "(unknown)";
+    return { error: `clipboard image type not allowed: ${hint}` };
+  }
   if (file.size <= 0) return { error: "empty image" };
-  if (file.size > HERDR_CLIPBOARD_IMAGE_MAX_BYTES) {
-    return { error: `image too large (${file.size} bytes; max ${HERDR_CLIPBOARD_IMAGE_MAX_BYTES})` };
+  if (file.size > VELLUM_CLIPBOARD_IMAGE_MAX_BYTES) {
+    return { error: `image too large (${file.size} bytes; max ${VELLUM_CLIPBOARD_IMAGE_MAX_BYTES})` };
   }
   const buffer = await file.arrayBuffer();
   const bytes = new Uint8Array(buffer);
   if (bytes.byteLength === 0) return { error: "empty image" };
-  if (bytes.byteLength > HERDR_CLIPBOARD_IMAGE_MAX_BYTES) {
+  if (bytes.byteLength > VELLUM_CLIPBOARD_IMAGE_MAX_BYTES) {
     return {
-      error: `image too large (${bytes.byteLength} bytes; max ${HERDR_CLIPBOARD_IMAGE_MAX_BYTES})`,
+      error: `image too large (${bytes.byteLength} bytes; max ${VELLUM_CLIPBOARD_IMAGE_MAX_BYTES})`,
     };
   }
   return {
@@ -76,6 +82,7 @@ export const fileToHerdrClipboardImage = async (
 /**
  * Prefer clipboard items (screenshot paste) then FileList (file paste / drop).
  * Returns null when no image is present so callers can fall through to text paste.
+ * Unmappable image/* (e.g. HEIC/SVG/TIFF) returns an error — never defaults to png.
  */
 export const extractHerdrClipboardImage = async (
   data: DataTransfer | null | undefined,
@@ -83,21 +90,33 @@ export const extractHerdrClipboardImage = async (
   if (!data) return null;
 
   const candidates: File[] = [];
+  let unmappableImage: File | undefined;
+
   if (data.items) {
     for (const item of Array.from(data.items)) {
       if (item.kind === "file" && item.type.startsWith("image/")) {
         const file = item.getAsFile();
-        if (file) candidates.push(file);
+        if (!file) continue;
+        if (resolvedExtension(file)) {
+          candidates.push(file);
+        } else {
+          unmappableImage ??= file;
+        }
       }
     }
   }
   if (candidates.length === 0 && data.files?.length) {
     for (const file of Array.from(data.files)) {
-      if (file.type.startsWith("image/") || extensionFromFileName(file.name)) {
+      if (resolvedExtension(file)) {
         candidates.push(file);
+      } else if (file.type.startsWith("image/")) {
+        unmappableImage ??= file;
       }
     }
   }
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) {
+    if (unmappableImage) return fileToHerdrClipboardImage(unmappableImage);
+    return null;
+  }
   return fileToHerdrClipboardImage(candidates[0]!);
 };
