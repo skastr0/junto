@@ -118,14 +118,18 @@ export const resolvePageSpawnDefaults = (
   };
 };
 
-/** Full defaults bag on the innermost region that has any defaults key. */
+/** Full defaults bag on the innermost region that has a non-empty defaults bag. */
 export const resolveRegionDefaults = (
   doc: CanvasDoc,
   x: number,
   y: number,
 ): EtherRegionDefaults | undefined => {
-  const region = findInnermostGroup(doc, x, y, (g) => Boolean(g.ether?.region?.defaults));
-  return region?.ether?.region?.defaults;
+  const region = findInnermostGroup(doc, x, y, (g) => {
+    const d = g.ether?.region?.defaults;
+    if (!d) return false;
+    return regionHasHerdrHost(g) || regionHasPageSpawnFields(g);
+  });
+  return stripEmptyRegionDefaults(region?.ether?.region?.defaults);
 };
 
 /** Collapse empty strings / empty nested bags so the document stays sparse. */

@@ -464,7 +464,7 @@ export const setRegionDefaults = (id: string, defaults: EtherRegionDefaults | un
   commitDoc({
     ...doc,
     nodes: doc.nodes.map((n) => {
-      if (n.id !== id) return n;
+      if (n.id !== id || n.type !== "group") return n;
       const currentRegion = n.ether?.region ?? {};
       const nextRegion = cleaned
         ? { ...currentRegion, defaults: cleaned }

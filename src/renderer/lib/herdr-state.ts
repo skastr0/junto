@@ -31,6 +31,11 @@ export const herdr$ = observable({
   wizardAnchor: { x: 0, y: 0 } as { readonly x: number; readonly y: number },
   /** Create-time seed from containing region defaults (stamp only; not live). */
   wizardSeed: null as EtherRegionHerdrDefaults | null,
+  /**
+   * Bumps on every open/close so in-flight pick/create awaits cannot place a
+   * node or stomp React state after cancel or after a later reopen.
+   */
+  wizardEpoch: 0,
   terminal: null as HerdrTerminalOpen | null,
   /** nodeId → meta hydration */
   metaByNodeId: {} as Record<string, HerdrMetaCache>,
@@ -42,6 +47,10 @@ export const herdr$ = observable({
 // Default herdr card size — seed resolves against the card center so membership
 // matches geometry.containedNodeIds (center-in-region).
 const HERDR_NODE_SIZE = { width: 260, height: 110 } as const;
+
+/** True while this wizard session is still the active one. */
+export const isHerdrWizardEpochCurrent = (epoch: number): boolean =>
+  herdr$.wizardOpen.peek() && herdr$.wizardEpoch.peek() === epoch;
 
 export const openHerdrWizard = (anchor: { readonly x: number; readonly y: number }): void => {
   // One interactive surface at a time — null terminal UI immediately, release stream async.
@@ -58,12 +67,14 @@ export const openHerdrWizard = (anchor: { readonly x: number; readonly y: number
   const cy = anchor.y + HERDR_NODE_SIZE.height / 2;
   const seed = resolveHerdrSpawnDefaults(state$.doc.peek(), cx, cy) ?? null;
   herdr$.wizardSeed.set(seed);
+  herdr$.wizardEpoch.set(herdr$.wizardEpoch.peek() + 1);
   herdr$.wizardOpen.set(true);
 };
 
 export const closeHerdrWizard = (): void => {
   herdr$.wizardOpen.set(false);
   herdr$.wizardSeed.set(null);
+  herdr$.wizardEpoch.set(herdr$.wizardEpoch.peek() + 1);
 };
 
 export const openHerdrTerminal = (nodeId: string, herdr: EtherHerdr, title: string): void => {

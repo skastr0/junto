@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { EtherHerdr } from "@shared/canvas";
 import type {
@@ -10,7 +10,12 @@ import type {
 } from "@shared/ipc";
 import { makeHerdrNode } from "../../lib/node-factories";
 import { addNode } from "../../lib/mutations";
-import { closeHerdrWizard, herdr$, setHerdrToast } from "../../lib/herdr-state";
+import {
+  closeHerdrWizard,
+  herdr$,
+  isHerdrWizardEpochCurrent,
+  setHerdrToast,
+} from "../../lib/herdr-state";
 import { bootstrapHerdrWizard, type HerdrWizardApi, type HerdrWizardStep } from "../../lib/herdr-wizard-seed";
 import { getVellumApi } from "../../lib/vellum-api";
 import { HUE } from "../../lib/theme";
@@ -76,6 +81,7 @@ export function HerdrWizard() {
   const open = use$(herdr$.wizardOpen);
   const anchor = use$(herdr$.wizardAnchor);
   const seed = use$(herdr$.wizardSeed);
+  const epochRef = useRef(0);
   const [step, setStep] = useState<Step>("host");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -94,9 +100,11 @@ export function HerdrWizard() {
   /** True when region defaults pre-filled layers (escape: ignore region defaults). */
   const [seedApplied, setSeedApplied] = useState(false);
 
+  const stillOpen = (): boolean => isHerdrWizardEpochCurrent(epochRef.current);
+
   useEffect(() => {
     if (!open) return;
-    let cancelled = false;
+    epochRef.current = herdr$.wizardEpoch.peek();
     setStep("host");
     setError("");
     setFilter("");
@@ -110,6 +118,7 @@ export function HerdrWizard() {
     setBusy(true);
 
     const applySnapshot = (snap: Awaited<ReturnType<typeof bootstrapHerdrWizard>>) => {
+      if (!stillOpen()) return;
       setHosts(snap.hosts);
       setSessions(snap.sessions);
       setWorkspaces(snap.workspaces);
@@ -127,7 +136,7 @@ export function HerdrWizard() {
     const run = async () => {
       const a = api();
       if (!a?.herdrHosts) {
-        if (!cancelled) {
+        if (stillOpen()) {
           setError("herdr API unavailable");
           setBusy(false);
         }
@@ -138,18 +147,15 @@ export function HerdrWizard() {
           a as HerdrWizardApi,
           herdr$.wizardSeed.peek(),
         );
-        if (!cancelled) applySnapshot(snap);
+        applySnapshot(snap);
       } catch (e) {
-        if (!cancelled) setError(String(e));
+        if (stillOpen()) setError(String(e));
       } finally {
-        if (!cancelled) setBusy(false);
+        if (stillOpen()) setBusy(false);
       }
     };
 
     void run();
-    return () => {
-      cancelled = true;
-    };
   }, [open]);
 
   /** Escape hatch: drop region seed and restart full wizard at host. */
@@ -163,6 +169,7 @@ export function HerdrWizard() {
     setSession(null);
     setWorkspaceId("");
     setTabId("");
+    setSessions([]);
     setWorkspaces([]);
     setTabs([]);
     setPanes([]);
@@ -232,14 +239,19 @@ export function HerdrWizard() {
     setError("");
     setHostId(id);
     const a = api();
-    if (!a) return setBusy(false);
+    if (!a) {
+      if (stillOpen()) setBusy(false);
+      return;
+    }
     const ensured = await a.herdrEnsureServer(id, null);
+    if (!stillOpen()) return;
     if (!ensured.ok) {
       setError(ensured.message ?? "ensure server failed");
       setBusy(false);
       return;
     }
     const sess = await a.herdrListSessions(id);
+    if (!stillOpen()) return;
     setSessions(sess.ok ? sess.data ?? [] : []);
     setStep("session");
     setFilter("");
@@ -251,14 +263,19 @@ export function HerdrWizard() {
     setError("");
     setSession(name);
     const a = api();
-    if (!a) return setBusy(false);
+    if (!a) {
+      if (stillOpen()) setBusy(false);
+      return;
+    }
     const ensured = await a.herdrEnsureServer(hostId, name);
+    if (!stillOpen()) return;
     if (!ensured.ok) {
       setError(ensured.message ?? "ensure server failed");
       setBusy(false);
       return;
     }
     const list = await a.herdrListWorkspaces(hostId, name);
+    if (!stillOpen()) return;
     if (!list.ok) {
       setError(list.message ?? "list workspaces failed");
       setBusy(false);
@@ -275,8 +292,12 @@ export function HerdrWizard() {
     setError("");
     setWorkspaceId(id);
     const a = api();
-    if (!a) return setBusy(false);
+    if (!a) {
+      if (stillOpen()) setBusy(false);
+      return;
+    }
     const list = await a.herdrListTabs(hostId, session, id);
+    if (!stillOpen()) return;
     if (!list.ok) {
       setError(list.message ?? "list tabs failed");
       setBusy(false);
@@ -293,8 +314,12 @@ export function HerdrWizard() {
     setError("");
     setTabId(id);
     const a = api();
-    if (!a) return setBusy(false);
+    if (!a) {
+      if (stillOpen()) setBusy(false);
+      return;
+    }
     const list = await a.herdrListPanes(hostId, session, workspaceId);
+    if (!stillOpen()) return;
     if (!list.ok) {
       setError(list.message ?? "list panes failed");
       setBusy(false);
@@ -308,6 +333,8 @@ export function HerdrWizard() {
   };
 
   const placeNode = (herdr: EtherHerdr, label?: string) => {
+    // Cancel / reopen must not attach after an in-flight create completes.
+    if (!stillOpen()) return;
     const node = makeHerdrNode(anchor.x, anchor.y, herdr, label);
     addNode(node, { edit: false });
     setHerdrToast(`Attached herdr · ${herdr.host} · ${herdr.paneId}`);
@@ -315,6 +342,7 @@ export function HerdrWizard() {
   };
 
   const pickPane = async (pane: HerdrPaneInfo) => {
+    if (!stillOpen()) return;
     const herdr: EtherHerdr = {
       host: hostId,
       session,
@@ -330,7 +358,7 @@ export function HerdrWizard() {
 
   const createAtStep = async () => {
     const a = api();
-    if (!a) return;
+    if (!a || !stillOpen()) return;
     setBusy(true);
     setError("");
     try {
@@ -344,6 +372,7 @@ export function HerdrWizard() {
           cwd: createCwd.trim(),
           label: createLabel.trim() || undefined,
         });
+        if (!stillOpen()) return;
         if (!res.ok || !res.data) {
           setError(res.message ?? "create workspace failed");
           setBusy(false);
@@ -360,7 +389,7 @@ export function HerdrWizard() {
             label: createLabel.trim() || undefined,
             onDelete: "detach",
           });
-          setBusy(false);
+          if (stillOpen()) setBusy(false);
           return;
         }
         await pickWorkspace(res.data.workspaceId);
@@ -371,6 +400,7 @@ export function HerdrWizard() {
           workspaceId,
           label: createLabel.trim() || undefined,
         });
+        if (!stillOpen()) return;
         if (!res.ok || !res.data) {
           setError(res.message ?? "create tab failed");
           setBusy(false);
@@ -386,7 +416,7 @@ export function HerdrWizard() {
             terminalId: res.data.terminalId,
             onDelete: "detach",
           });
-          setBusy(false);
+          if (stillOpen()) setBusy(false);
           return;
         }
         await pickTab(res.data.tabId);
@@ -399,6 +429,7 @@ export function HerdrWizard() {
           direction: "right",
           cwd: createCwd.trim() || undefined,
         });
+        if (!stillOpen()) return;
         if (!res.ok || !res.data) {
           setError(res.message ?? "create pane failed");
           setBusy(false);
@@ -415,7 +446,7 @@ export function HerdrWizard() {
         });
       }
     } finally {
-      setBusy(false);
+      if (stillOpen()) setBusy(false);
     }
   };
 

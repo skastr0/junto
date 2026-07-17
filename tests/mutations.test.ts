@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, renameGroup, setNodeColor, setNodeView, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
+import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, renameGroup, setNodeColor, setNodeView, setRegionDefaults, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
 import { addEdge, deleteEdges, editEdgeLabel, inferEdgeCriteria, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
@@ -417,5 +417,47 @@ describe("renderer graph mutations", () => {
 
     expect(state$.doc.peek().nodes[0]?.ether?.flags).toEqual(["attention"]);
     expect(Object.hasOwn(state$.doc.peek().nodes[0]?.ether ?? {}, "region")).toBe(false);
+  });
+
+  it("setRegionDefaults writes bag and preserves hold + instruction on clear", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [{
+        id: "region",
+        type: "group",
+        label: "Defaults",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+        ether: { region: { hold: true, instruction: "pulse me" } },
+      }],
+      edges: [],
+    });
+
+    setRegionDefaults("region", {
+      herdr: { host: "local", session: null, workspaceId: "w1" },
+      page: { url: "https://example.com", profile: "work" },
+    });
+    const withDefaults = state$.doc.peek().nodes[0];
+    expect(withDefaults?.ether?.region?.hold).toBe(true);
+    expect(withDefaults?.ether?.region?.instruction).toBe("pulse me");
+    expect(withDefaults?.ether?.region?.defaults?.herdr?.host).toBe("local");
+    expect(withDefaults?.ether?.region?.defaults?.page?.profile).toBe("work");
+
+    setRegionDefaults("region", undefined);
+    const cleared = state$.doc.peek().nodes[0];
+    expect(cleared?.ether?.region).toEqual({ hold: true, instruction: "pulse me" });
+    expect(Object.hasOwn(cleared?.ether?.region ?? {}, "defaults")).toBe(false);
+  });
+
+  it("setRegionDefaults ignores non-group nodes", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [{ id: "note", type: "text", text: "x", x: 0, y: 0, width: 100, height: 80 }],
+      edges: [],
+    });
+    setRegionDefaults("note", { herdr: { host: "local" } });
+    expect(state$.doc.peek().nodes[0]?.ether).toBeUndefined();
   });
 });

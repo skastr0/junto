@@ -61,4 +61,26 @@ describe("bootstrapHerdrWizard", () => {
     expect(snap.hostId).toBe("remote-a");
     expect(snap.seedApplied).toBe(true);
   });
+
+  it("fails loud when tab id is missing on host", async () => {
+    const snap = await bootstrapHerdrWizard(mockApi(), {
+      host: "local",
+      session: null,
+      workspaceId: "w1",
+      tabId: "missing-tab",
+    });
+    expect(snap.seedApplied).toBe(true);
+    expect(snap.step).toBe("tab");
+    expect(snap.error).toMatch(/tab missing/);
+  });
+
+  it("advances through null session to workspace", async () => {
+    const snap = await bootstrapHerdrWizard(mockApi(), {
+      host: "local",
+      session: null,
+    });
+    expect(snap.session).toBeNull();
+    expect(snap.step).toBe("workspace");
+    expect(snap.workspaces).toHaveLength(1);
+  });
 });
