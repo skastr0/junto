@@ -1,17 +1,15 @@
 import { useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { Gauge } from "lucide-react";
 import type { ProviderQuota, UsageSnapshot, UsageState, UsageWindow } from "@shared/usage";
 import { worstWindow } from "@shared/usage";
 import { state$ } from "../lib/state";
-import { HUE, withAlpha } from "../lib/theme";
+import { HUE } from "../lib/theme";
 import { FocusSurface } from "./FocusSurface";
 import "./UsageHud.css";
 
-// RTS-style provider usage readout. Fail-open: renders null when every
-// snapshot is ok:false or empty (codexbar absent / all sources down).
-// Collapsed pill sits top-left on the canvas stage; click opens a document
-// FocusSurface with per-provider windows, pace, resets, and credits.
+// Compact provider-usage rail: one [glyph|bar] cell per quota. No chrome
+// labels, no pressure border. Hover = minimal provider · limit · %;
+// click = document FocusSurface detail. Fail-open when nothing ok.
 
 const EMPTY_USAGE: UsageState = { snapshots: [] };
 
@@ -21,62 +19,94 @@ const usageHue = (usedPercent: number): string => {
   return "#5FB98E";
 };
 
-const visibleQuotas = (state: UsageState): ReadonlyArray<{ snapshot: UsageSnapshot; quota: ProviderQuota }> => {
-  const rows: Array<{ snapshot: UsageSnapshot; quota: ProviderQuota }> = [];
+const rowKey = (snapshot: UsageSnapshot, quota: ProviderQuota, index: number): string =>
+  `${snapshot.source}:${quota.provider}:${quota.source}:${quota.account ?? ""}:${index}`;
+
+const visibleQuotas = (
+  state: UsageState,
+): ReadonlyArray<{ snapshot: UsageSnapshot; quota: ProviderQuota; index: number }> => {
+  const rows: Array<{ snapshot: UsageSnapshot; quota: ProviderQuota; index: number }> = [];
   for (const snapshot of state.snapshots) {
     if (!snapshot.ok) continue;
-    for (const quota of snapshot.quotas) {
-      rows.push({ snapshot, quota });
+    for (const [index, quota] of snapshot.quotas.entries()) {
+      rows.push({ snapshot, quota, index });
     }
   }
   return rows;
 };
 
-const windowTitle = (window: UsageWindow): string =>
-  window.title ?? window.id ?? window.label;
+// Short limit tag for glance copy — never pace essays or reset prose walls.
+const shortLimit = (window: UsageWindow | undefined): string => {
+  if (!window) return "—";
+  if (window.title && window.title.length <= 18) return window.title;
+  if (window.windowMinutes !== undefined) {
+    const m = window.windowMinutes;
+    if (m <= 60) return `${m}m`;
+    if (m <= 24 * 60) return `${Math.round(m / 60)}h`;
+    if (m <= 8 * 24 * 60) return `${Math.round(m / (24 * 60))}d`;
+    return "weekly";
+  }
+  return window.label;
+};
 
 const formatPercent = (value: number): string => `${Math.round(value)}%`;
 
-function Segment({ quota }: { readonly quota: ProviderQuota }) {
+const providerLabel = (quota: ProviderQuota): string => {
+  // Disambiguate multi-account same provider (e.g. two Codex logins).
+  if (quota.account) {
+    const local = quota.account.includes("@") ? quota.account.split("@")[0]! : quota.account;
+    if (local.length > 0 && local.length <= 14) return `${quota.provider} · ${local}`;
+  }
+  return quota.provider;
+};
+
+const glyph = (quota: ProviderQuota): string => {
+  const name = quota.provider.trim();
+  return name.length > 0 ? name[0]!.toUpperCase() : "?";
+};
+
+function Cell({ quota }: { readonly quota: ProviderQuota }) {
   if (quota.status === "error") {
     return (
-      <span
-        className="usage-hud__segment is-error"
-        title={`${quota.provider}: ${quota.error ?? "error"}`}
-      />
+      <span className="usage-hud__cell is-error" title={`${quota.provider}: error`}>
+        <span className="usage-hud__glyph">{glyph(quota)}</span>
+        <span className="usage-hud__bar" />
+      </span>
     );
   }
   const worst = worstWindow(quota);
   const used = worst?.usedPercent ?? 0;
   const hue = usageHue(used);
   return (
-    <span
-      className="usage-hud__segment"
-      title={`${quota.provider} · ${formatPercent(used)}${worst?.resetDescription ? ` · ${worst.resetDescription}` : ""}`}
-    >
-      <i className="usage-hud__fill" style={{ width: `${Math.min(100, Math.max(0, used))}%`, background: hue }} />
+    <span className="usage-hud__cell" title={`${quota.provider} ${formatPercent(used)}`}>
+      <span className="usage-hud__glyph">{glyph(quota)}</span>
+      <span className="usage-hud__bar">
+        <i style={{ width: `${Math.min(100, Math.max(0, used))}%`, background: hue }} />
+      </span>
     </span>
   );
 }
 
-function Tooltip({ rows }: { readonly rows: ReadonlyArray<{ quota: ProviderQuota }> }) {
+function Tooltip({
+  rows,
+}: {
+  readonly rows: ReadonlyArray<{ quota: ProviderQuota }>;
+}) {
   return (
     <div className="usage-hud__tooltip" role="tooltip">
-      {rows.map(({ quota }) => {
+      {rows.map(({ quota }, i) => {
         const worst = worstWindow(quota);
+        const limit =
+          quota.status === "error" ? "error" : shortLimit(worst);
+        const pct =
+          quota.status === "error" ? "—" : formatPercent(worst?.usedPercent ?? 0);
+        const color =
+          quota.status === "error" ? HUE.crimson : usageHue(worst?.usedPercent ?? 0);
         return (
-          <div key={`${quota.provider}:${quota.source}`} className="usage-hud__tooltip-row">
-            <strong>{quota.provider}</strong>
-            <span>
-              {quota.status === "error"
-                ? quota.error ?? "error"
-                : worst
-                  ? `${windowTitle(worst)}${worst.resetDescription ? ` · ${worst.resetDescription}` : ""}`
-                  : "no windows"}
-            </span>
-            <em style={{ color: quota.status === "error" ? HUE.crimson : usageHue(worst?.usedPercent ?? 0) }}>
-              {quota.status === "error" ? "—" : formatPercent(worst?.usedPercent ?? 0)}
-            </em>
+          <div key={`${quota.provider}:${quota.account ?? ""}:${i}`} className="usage-hud__tooltip-row">
+            <strong>{providerLabel(quota)}</strong>
+            <span>{limit}</span>
+            <em style={{ color }}>{pct}</em>
           </div>
         );
       })}
@@ -89,9 +119,9 @@ function DetailCard({ quota }: { readonly quota: ProviderQuota }) {
     <article className={`usage-hud-detail__card${quota.status === "error" ? " is-error" : ""}`}>
       <header className="usage-hud-detail__card-head">
         <div>
-          <div className="usage-hud-detail__provider">{quota.provider}</div>
+          <div className="usage-hud-detail__provider">{providerLabel(quota)}</div>
           <div className="usage-hud-detail__plan">
-            {[quota.plan, quota.source, quota.account].filter(Boolean).join(" · ") || quota.source}
+            {[quota.source, quota.plan].filter(Boolean).join(" · ") || "—"}
           </div>
         </div>
         {quota.creditsRemaining !== undefined ? (
@@ -104,22 +134,25 @@ function DetailCard({ quota }: { readonly quota: ProviderQuota }) {
         quota.windows.map((window) => {
           const hue = usageHue(window.usedPercent);
           return (
-            <div key={`${window.label}:${window.id ?? ""}:${window.title ?? ""}`} className="usage-hud-detail__window">
+            <div
+              key={`${window.label}:${window.id ?? ""}:${window.title ?? ""}`}
+              className="usage-hud-detail__window"
+            >
               <div className="usage-hud-detail__window-meta">
-                <span>{windowTitle(window)}</span>
+                <span>{shortLimit(window)}</span>
                 <strong style={{ color: hue }}>{formatPercent(window.usedPercent)}</strong>
               </div>
               <div className="usage-hud-detail__bar">
-                <i style={{ width: `${Math.min(100, Math.max(0, window.usedPercent))}%`, background: hue }} />
+                <i
+                  style={{
+                    width: `${Math.min(100, Math.max(0, window.usedPercent))}%`,
+                    background: hue,
+                  }}
+                />
               </div>
-              <div className="usage-hud-detail__pace">
-                {window.resetDescription
-                  ? `resets ${window.resetDescription}`
-                  : window.resetsAt
-                    ? `resets ${window.resetsAt}`
-                    : "reset unknown"}
-                {window.pace?.summary ? ` · ${window.pace.summary}` : ""}
-              </div>
+              {window.resetDescription ? (
+                <div className="usage-hud-detail__pace">{window.resetDescription}</div>
+              ) : null}
             </div>
           );
         })
@@ -136,34 +169,33 @@ function UsageDetail({
   readonly onClose: () => void;
 }) {
   const rows = visibleQuotas(state);
-  const footerSource = state.snapshots.find((snapshot) => snapshot.ok)?.source ?? state.snapshots[0]?.source;
   const footerFetched =
     state.snapshots.find((snapshot) => snapshot.ok)?.fetchedAt ?? state.snapshots[0]?.fetchedAt;
 
   return (
-    <FocusSurface measure="document" height="resizable" layer="detail" label="Provider usage" onClose={onClose}>
+    <FocusSurface measure="document" height="resizable" layer="detail" label="Limits" onClose={onClose}>
       <div className="usage-hud-detail">
         <header className="usage-hud-detail__header">
           <div>
-            <div className="usage-hud-detail__eyebrow">provider usage</div>
-            <strong>Resource limits</strong>
+            <div className="usage-hud-detail__eyebrow">limits</div>
+            <strong>Providers</strong>
           </div>
-          <button type="button" aria-label="Close provider usage" onClick={onClose}>
+          <button type="button" aria-label="Close limits" onClick={onClose}>
             ×
           </button>
         </header>
         <div className="usage-hud-detail__body">
           {rows.length === 0 ? (
-            <div className="usage-hud-detail__error">No provider quotas available.</div>
+            <div className="usage-hud-detail__error">No quotas available.</div>
           ) : (
-            rows.map(({ quota, snapshot }) => (
-              <DetailCard key={`${snapshot.source}:${quota.provider}:${quota.source}`} quota={quota} />
+            rows.map(({ quota, snapshot, index }) => (
+              <DetailCard key={rowKey(snapshot, quota, index)} quota={quota} />
             ))
           )}
         </div>
         <footer className="usage-hud-detail__footer">
-          <span>{footerSource ?? "—"}</span>
-          <span>{footerFetched ? `fetched ${footerFetched}` : "not yet fetched"}</span>
+          <span>codexbar</span>
+          <span>{footerFetched ? footerFetched.slice(0, 16).replace("T", " ") : "—"}</span>
         </footer>
       </div>
     </FocusSurface>
@@ -171,20 +203,13 @@ function UsageDetail({
 }
 
 export function UsageHud() {
-  const usage = use$(state$.usage) as UsageState | undefined;
+  const usage = use$(state$.usage);
   const state = usage ?? EMPTY_USAGE;
   const [open, setOpen] = useState(false);
   const [hover, setHover] = useState(false);
 
   const rows = useMemo(() => visibleQuotas(state), [state]);
   if (rows.length === 0) return null;
-
-  const okCount = rows.filter(({ quota }) => quota.status === "ok").length;
-  const worstOverall = rows.reduce<number>((acc, { quota }) => {
-    if (quota.status !== "ok") return acc;
-    const used = worstWindow(quota)?.usedPercent ?? 0;
-    return used > acc ? used : acc;
-  }, 0);
 
   return (
     <>
@@ -195,24 +220,14 @@ export function UsageHud() {
       >
         <button
           type="button"
-          className="usage-hud__pill"
-          aria-label="Provider usage"
-          title="Provider usage"
+          className="usage-hud__rail"
+          aria-label="Provider limits"
+          aria-expanded={open}
           onClick={() => setOpen(true)}
-          style={{ borderColor: withAlpha(usageHue(worstOverall), 0.35) }}
         >
-          <Gauge className="usage-hud__icon" size={14} strokeWidth={1.75} />
-          <div className="usage-hud__meta">
-            <div className="usage-hud__eyebrow">usage</div>
-            <div className="usage-hud__title">
-              {okCount}/{rows.length}
-            </div>
-          </div>
-          <div className="usage-hud__segments" aria-hidden="true">
-            {rows.map(({ quota, snapshot }) => (
-              <Segment key={`${snapshot.source}:${quota.provider}:${quota.source}`} quota={quota} />
-            ))}
-          </div>
+          {rows.map(({ quota, snapshot, index }) => (
+            <Cell key={rowKey(snapshot, quota, index)} quota={quota} />
+          ))}
         </button>
         {hover && !open ? <Tooltip rows={rows} /> : null}
       </div>

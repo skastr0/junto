@@ -1,135 +1,149 @@
-/* Component-scoped styles — do not land in styles.css (other-agent worktree). */
+/* Compact usage rail — component-scoped (do not land in styles.css). */
 
-/* Positioned by CanvasChrome's top-left stack; only visibility is local. */
 .usage-hud {
   pointer-events: auto;
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  width: min(280px, calc(100vw - 24px));
+  width: max-content;
+  max-width: min(420px, calc(100vw - 24px));
   color: #ede6da;
 }
 
-.usage-hud__pill {
+/* Flat rail: no pressure border, no card chrome. */
+.usage-hud__rail {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  border: 1px solid rgba(237, 230, 218, 0.14);
-  border-radius: 8px;
-  background: rgba(12, 11, 10, 0.72);
-  backdrop-filter: blur(12px);
-  padding: 7px 9px;
+  gap: 4px;
+  width: max-content;
+  max-width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(12, 11, 10, 0.55);
+  backdrop-filter: blur(10px);
+  padding: 4px 5px;
   color: inherit;
   cursor: pointer;
   text-align: left;
-  transition: border-color 120ms ease, background 120ms ease;
 }
 
-.usage-hud__pill:hover,
-.usage-hud__pill:focus-visible {
-  border-color: rgba(232, 163, 61, 0.4);
-  background: rgba(19, 17, 16, 0.9);
+.usage-hud__rail:hover,
+.usage-hud__rail:focus-visible {
+  background: rgba(19, 17, 16, 0.82);
   outline: none;
 }
 
-.usage-hud__icon {
-  flex: 0 0 auto;
-  color: #e8a33d;
-}
-
-.usage-hud__meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.usage-hud__eyebrow {
-  color: #68604a;
-  font-size: 8px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.usage-hud__title {
-  color: #ede6da;
-  font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif;
-  font-size: 12px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.usage-hud__segments {
-  display: flex;
-  flex: 1 1 auto;
+/* [glyph | bar] per provider */
+.usage-hud__cell {
+  display: inline-flex;
+  align-items: center;
   gap: 3px;
   min-width: 0;
-  height: 10px;
-  align-items: center;
 }
 
-.usage-hud__segment {
+.usage-hud__glyph {
+  flex: 0 0 auto;
+  width: 11px;
+  color: #8a8378;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.usage-hud__bar {
   position: relative;
-  flex: 1 1 0;
-  min-width: 10px;
-  height: 100%;
+  display: block;
+  width: 18px;
+  height: 7px;
   overflow: hidden;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(237, 230, 218, 0.08);
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.07);
 }
 
-.usage-hud__segment.is-error {
+.usage-hud__bar > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 160ms ease-out;
+}
+
+.usage-hud__cell.is-error .usage-hud__glyph {
+  color: #e5484d;
+}
+
+.usage-hud__cell.is-error .usage-hud__bar {
   background: repeating-linear-gradient(
     -45deg,
     rgba(255, 255, 255, 0.04),
-    rgba(255, 255, 255, 0.04) 2px,
-    rgba(229, 72, 77, 0.12) 2px,
-    rgba(229, 72, 77, 0.12) 4px
+    rgba(255, 255, 255, 0.04) 1px,
+    rgba(229, 72, 77, 0.18) 1px,
+    rgba(229, 72, 77, 0.18) 2px
   );
-  opacity: 0.7;
 }
 
-.usage-hud__fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  height: 100%;
-  border-radius: inherit;
-  transition: width 200ms ease;
-}
-
+/* Overlay — does not reflow the canvas readout */
 .usage-hud__tooltip {
-  border: 1px solid rgba(237, 230, 218, 0.14);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 200px;
+  max-width: min(320px, 70vw);
+  border: 1px solid rgba(237, 230, 218, 0.12);
   border-radius: 8px;
-  background: rgba(19, 17, 16, 0.96);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
-  padding: 8px;
+  background: rgba(14, 12, 11, 0.97);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  padding: 6px 7px;
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .usage-hud__tooltip-row {
   display: grid;
-  grid-template-columns: 72px 1fr auto;
+  grid-template-columns: minmax(72px, 1.2fr) minmax(48px, 1fr) auto;
   gap: 8px;
-  align-items: center;
+  align-items: baseline;
   font-size: 9px;
   color: #8a8378;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .usage-hud__tooltip-row strong {
   color: #ede6da;
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-hud__tooltip-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .usage-hud__tooltip-row em {
   font-style: normal;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .usage-hud__bar > i {
+    transition: none;
+  }
+}
+
+/* —— detail surface —— */
 
 .usage-hud-detail {
   display: flex;

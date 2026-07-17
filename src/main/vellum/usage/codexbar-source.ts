@@ -182,6 +182,30 @@ export const buildCodexbarSnapshot = (fetchedAt: string, outcome: CodexbarOutcom
     ? { source: "codexbar", fetchedAt, ok: true, quotas: outcome.quotas }
     : { source: "codexbar", fetchedAt, ok: false, reason: outcome.reason, error: outcome.error, quotas: [] };
 
+// Codex multi-account: the default multi-provider call returns only the
+// active Codex account. Account selection flags require a single provider, so
+// we fan a second call with --provider codex --all-accounts and splice codex
+// rows. Other providers stay on the multi-provider payload.
+export const mergeCodexAllAccounts = (
+  enabled: ReadonlyArray<ProviderQuota>,
+  codexAccounts: ReadonlyArray<ProviderQuota>,
+): ReadonlyArray<ProviderQuota> => {
+  if (codexAccounts.length === 0) return enabled;
+  const rest = enabled.filter((quota) => quota.provider.toLowerCase() !== "codex");
+  return [...rest, ...codexAccounts];
+};
+
+const parseUsageStdout = (
+  stdout: string,
+  fetchedAt: string,
+): { readonly ok: true; readonly quotas: ReadonlyArray<ProviderQuota> } | { readonly ok: false; readonly reason: UsageUnavailableReason; readonly error: string } => {
+  const parsed = parseJson<unknown>(stdout);
+  if (parsed === undefined) {
+    return { ok: false, reason: "parse-error", error: "codexbar returned non-JSON output" };
+  }
+  return { ok: true, quotas: parseCodexbarPayload(parsed, fetchedAt) };
+};
+
 // Total by construction: runCli never rejects, every branch returns an
 // envelope, and the outer try/catch guards only against a parser defect.
 const fetchCodexbar = async (): Promise<UsageSnapshot> => {
@@ -195,23 +219,43 @@ const fetchCodexbar = async (): Promise<UsageSnapshot> => {
         error: detected.error ?? "codexbar CLI not found on PATH",
       });
     }
-    const result = await runCli("codexbar", ["usage", "--json"], FETCH_TIMEOUT_MS);
-    if (!result.ok) {
+
+    // Parallel: full enabled set + every visible Codex account.
+    const [enabledResult, codexAccountsResult] = await Promise.all([
+      runCli("codexbar", ["usage", "--json"], FETCH_TIMEOUT_MS),
+      runCli("codexbar", ["usage", "--json", "--provider", "codex", "--all-accounts"], FETCH_TIMEOUT_MS),
+    ]);
+
+    if (!enabledResult.ok) {
       return buildCodexbarSnapshot(fetchedAt, {
         kind: "unavailable",
         reason: "cli-error",
-        error: result.error ?? "codexbar usage failed",
+        error: enabledResult.error ?? "codexbar usage failed",
       });
     }
-    const parsed = parseJson<unknown>(result.stdout);
-    if (parsed === undefined) {
+    const enabledParsed = parseUsageStdout(enabledResult.stdout, fetchedAt);
+    if (!enabledParsed.ok) {
       return buildCodexbarSnapshot(fetchedAt, {
         kind: "unavailable",
-        reason: "parse-error",
-        error: "codexbar returned non-JSON output",
+        reason: enabledParsed.reason,
+        error: enabledParsed.error,
       });
     }
-    return buildCodexbarSnapshot(fetchedAt, { kind: "ok", quotas: parseCodexbarPayload(parsed, fetchedAt) });
+
+    // Codex all-accounts is best-effort: if it fails, keep the single active
+    // codex row from the multi-provider payload rather than hiding the HUD.
+    let codexAccounts: ReadonlyArray<ProviderQuota> = [];
+    if (codexAccountsResult.ok) {
+      const codexParsed = parseUsageStdout(codexAccountsResult.stdout, fetchedAt);
+      if (codexParsed.ok) {
+        codexAccounts = codexParsed.quotas.filter((quota) => quota.provider.toLowerCase() === "codex");
+      }
+    }
+
+    return buildCodexbarSnapshot(fetchedAt, {
+      kind: "ok",
+      quotas: mergeCodexAllAccounts(enabledParsed.quotas, codexAccounts),
+    });
   } catch (error) {
     return buildCodexbarSnapshot(fetchedAt, {
       kind: "unavailable",

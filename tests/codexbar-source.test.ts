@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { buildCodexbarSnapshot, parseCodexbarPayload } from "../src/main/vellum/usage/codexbar-source";
+import {
+  buildCodexbarSnapshot,
+  mergeCodexAllAccounts,
+  parseCodexbarPayload,
+} from "../src/main/vellum/usage/codexbar-source";
 
 // Shaped like a live `codexbar usage --json` capture (12 enabled providers,
 // 2026-07-17) with account identifiers sanitized to agent@example.dev /
@@ -127,4 +131,40 @@ describe("buildCodexbarSnapshot", () => {
       });
     },
   );
+});
+
+describe("mergeCodexAllAccounts", () => {
+  it("replaces the single active codex row with every all-accounts row", () => {
+    const enabled = parse(FIXTURE);
+    const a = {
+      provider: "codex",
+      source: "oauth",
+      status: "ok" as const,
+      account: "a@example.dev",
+      windows: [{ label: "secondary" as const, usedPercent: 10 }],
+      updatedAt: FETCHED_AT,
+    };
+    const b = {
+      provider: "codex",
+      source: "oauth",
+      status: "ok" as const,
+      account: "b@example.dev",
+      windows: [{ label: "secondary" as const, usedPercent: 40 }],
+      updatedAt: FETCHED_AT,
+    };
+    const merged = mergeCodexAllAccounts(enabled, [a, b]);
+    const codex = merged.filter((quota) => quota.provider === "codex");
+    expect(codex).toHaveLength(2);
+    expect(codex.map((quota) => quota.account)).toEqual(["a@example.dev", "b@example.dev"]);
+    // Non-codex providers retained once.
+    expect(merged.filter((quota) => quota.provider === "claude")).toHaveLength(1);
+    expect(merged.filter((quota) => quota.provider !== "codex").length).toBe(
+      enabled.filter((quota) => quota.provider !== "codex").length,
+    );
+  });
+
+  it("keeps enabled payload when all-accounts is empty", () => {
+    const enabled = parse(FIXTURE);
+    expect(mergeCodexAllAccounts(enabled, [])).toEqual(enabled);
+  });
 });
