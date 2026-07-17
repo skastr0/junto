@@ -84,7 +84,7 @@ Region activation gated by three structures (`src/shared/canvas.ts`):
 
 ## Structure
 
-- `src/shared/` — **frozen contracts**: `canvas.ts` (document schema), `entities.ts` (snapshots), `graph.ts` (derived), `digest.ts`, `portfolio.ts`, `svg.ts`. Change deliberately; much depends on them.
+- `src/shared/` — **frozen contracts**: `canvas.ts` (document schema), `entities.ts` (snapshots), `graph.ts` (derived), `region-rollup.ts` (derived region severity rollups), `digest.ts`, `portfolio.ts`, `svg.ts`. Change deliberately; much depends on them.
 - `src/main/vellum/` — document plane (`canvases.ts`), data plane (`snapshots.ts` + `adapters/`), IPC (`ipc.ts`).
 - `src/renderer/` — the canvas surface.
 - `scripts/` — the headless CLIs above.
