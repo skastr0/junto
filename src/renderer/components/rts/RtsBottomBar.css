@@ -324,6 +324,51 @@
   min-height: 0;
 }
 
+/* Add + fit docked just above the minimap (not top-scattered). */
+.rts-field-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.rts-field-tools__fit {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(237, 230, 218, 0.13);
+  background: rgba(19, 17, 16, 0.9);
+  color: rgba(138, 131, 120, 0.95);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.rts-field-tools__fit:hover {
+  border-color: rgba(57, 198, 214, 0.48);
+  background: rgba(57, 198, 214, 0.08);
+  color: #ede6da;
+}
+
+.rts-field-tools .node-palette__trigger {
+  padding: 6px 8px;
+  font-size: 9px;
+}
+
+/* Menu opens upward so it doesn't cover the minimap. */
+.rts-field-tools .node-palette--docked .node-palette__menu {
+  top: auto;
+  bottom: calc(100% + 7px);
+  right: 0;
+  left: auto;
+}
+
 .rts-notify {
   display: flex;
   flex-direction: column;

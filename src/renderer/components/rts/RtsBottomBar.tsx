@@ -525,7 +525,7 @@ export function useSeverityByNodeId(rollups: ReadonlyArray<RegionRollup>): Reado
 const severityRank = (s: MemberSeverity): number =>
   s === "blocked" ? 0 : s === "attention" ? 1 : s === "working" ? 2 : s === "parked" ? 3 : 4;
 
-export function RtsBottomBar({ minimap }: { readonly minimap: ReactNode }) {
+export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; readonly tools?: ReactNode }) {
   useRegionHotkeys();
   const rollups = useRegionRollups();
   const byId = useMemo(() => new Map(rollups.map((r) => [r.regionId, r])), [rollups]);
@@ -550,6 +550,7 @@ export function RtsBottomBar({ minimap }: { readonly minimap: ReactNode }) {
         <div className="rts-notify rts-notify--pulse">
           <PulseTray embedded />
         </div>
+        {tools}
         <MinimapChrome>{minimap}</MinimapChrome>
       </div>
     </div>

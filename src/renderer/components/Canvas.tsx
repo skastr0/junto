@@ -524,7 +524,8 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
   </div>;
 }
 
-function AddNodePanel() {
+// Docked above the bottom-right minimap with fit-all — not scattered top chrome.
+function CanvasFieldTools() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const [open, setOpen] = useState(false);
   const [picker, setPicker] = useState<AddPicker>(null);
@@ -547,12 +548,29 @@ function AddNodePanel() {
   const actions = makeAddActions(nextPosition, dismiss);
 
   return (
-    <Panel position="top-left" className="node-palette-panel">
-      <div className="node-palette">
-        <button className="node-palette__trigger" aria-label="Add canvas item" aria-expanded={open} onClick={() => { setPicker(null); setOpen((value) => !value); }}><Plus size={14} /><span>add item</span></button>
+    <div className="rts-field-tools" aria-label="Canvas field tools">
+      <div className="node-palette node-palette--docked">
+        <button
+          type="button"
+          className="node-palette__trigger"
+          aria-label="Add canvas item"
+          aria-expanded={open}
+          onClick={() => { setPicker(null); setOpen((value) => !value); }}
+        >
+          <Plus size={12} /><span>add item</span>
+        </button>
         {open ? <AddMenu picker={picker} setPicker={setPicker} actions={actions} /> : null}
       </div>
-    </Panel>
+      <button
+        type="button"
+        className="rts-field-tools__fit"
+        aria-label="Fit all nodes"
+        title="fit all nodes"
+        onClick={() => void rf.fitView({ padding: 0.18, duration: 320, maxZoom: 1.35 })}
+      >
+        <Expand size={12} />fit all
+      </button>
+    </div>
   );
 }
 
@@ -612,11 +630,6 @@ function MultiSelectMenu({ at, onClose }: { readonly at: { x: number; y: number 
       </div>
     </div>
   );
-}
-
-function FitAllPanel() {
-  const rf = useReactFlow<FlowNode, FlowEdge>();
-  return <Panel position="top-center" className="field-fit-panel"><button type="button" aria-label="Fit all nodes" title="fit all nodes" onClick={() => void rf.fitView({ padding: 0.18, duration: 320, maxZoom: 1.35 })}><Expand size={12} />fit all</button></Panel>;
 }
 
 function FieldControls() {
@@ -729,11 +742,9 @@ function CanvasGraph() {
   return <>
     <ReactFlow className={connecting ? "is-connecting" : undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} onPaneClick={onPaneClick} onPaneContextMenu={onPaneContextMenu} onNodeContextMenu={onNodeContextMenu} onSelectionContextMenu={onSelectionContextMenu} onMoveStart={() => { setCtxMenu(null); setMultiMenu(null); }} connectionMode={ConnectionMode.Loose} connectionRadius={42} panOnScroll panOnScrollSpeed={1.2} panOnDrag={[1]} selectionOnDrag selectionMode={SelectionMode.Partial} zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.15} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
-      <AddNodePanel />
-      <FitAllPanel />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>
-        <RtsBottomBar minimap={<RtsMinimapStack />} />
+        <RtsBottomBar tools={<CanvasFieldTools />} minimap={<RtsMinimapStack />} />
       </Panel>
     </ReactFlow>
     {ctxMenu ? <ContextAddMenu at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
