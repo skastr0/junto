@@ -78,6 +78,13 @@
       "station/**",
       "package.json"
     ],
+    "protocols": [
+      {
+        "name": "Vellum node reference",
+        "schemes": ["vellum"],
+        "role": "Viewer"
+      }
+    ],
     "mac": {
       "target": "dir",
       "category": "public.app-category.developer-tools",

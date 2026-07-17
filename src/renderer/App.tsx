@@ -27,6 +27,10 @@ import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { SEED_CANVAS_NAME } from "@shared/seed";
+import {
+  makeNavigationClock,
+  makeNodeRefNavigationCoordinator,
+} from "./lib/node-ref-navigation";
 
 const setError = (error: unknown) =>
   state$.error.set(error instanceof Error ? error.message : String(error));
@@ -59,13 +63,17 @@ const resetCanvasView = (): void => {
   state$.focusNodeId.set("");
 };
 
+const canvasNavigationClock = makeNavigationClock();
+
 // Read a canvas, load it as the source of truth, and prime the adapter plane
 // with just this document's bindings.
 const openCanvas = async (name: string) => {
   if (!window.vellum) return;
+  const request = canvasNavigationClock.begin();
   state$.canvasLoading.set(true);
   try {
     const result = await window.vellum.readCanvas(name);
+    if (!canvasNavigationClock.isCurrent(request)) return;
     clearAbandonedCanvas(result.name);
     state$.canvasName.set(result.name);
     resetCanvasView();
@@ -73,19 +81,45 @@ const openCanvas = async (name: string) => {
     state$.error.set("");
     await refreshSnapshotsSoft(result.doc);
   } catch (error) {
-    setError(error);
+    if (canvasNavigationClock.isCurrent(request)) setError(error);
   } finally {
-    state$.canvasLoading.set(false);
+    if (canvasNavigationClock.isCurrent(request)) state$.canvasLoading.set(false);
   }
 };
 
+const nodeRefNavigation = makeNodeRefNavigationCoordinator({
+  clock: canvasNavigationClock,
+  readCanvas: async (name) => {
+    const vellum = window.vellum;
+    if (!vellum) throw new Error("Electron preload bridge is not available.");
+    return vellum.readCanvas(name);
+  },
+  apply: (event, result) => {
+    clearAbandonedCanvas(result.name);
+    state$.canvasName.set(result.name);
+    resetCanvasView();
+    loadDoc(result.doc);
+    state$.selectedNodeId.set(event.nodeId);
+    state$.focusNodeId.set(event.nodeId);
+    state$.canvasLoading.set(false);
+    state$.error.set("");
+    void refreshSnapshotsSoft(result.doc);
+  },
+  onFailure: (error) => {
+    state$.canvasLoading.set(false);
+    state$.error.set(`node reference / ${error.message}`);
+  },
+});
+
 const createCanvas = async (name: string) => {
   if (!window.vellum) return;
+  const request = canvasNavigationClock.begin();
   state$.canvasLoading.set(true);
   try {
     const result = await window.vellum.createCanvas(name);
     clearAbandonedCanvas(result.name);
     await refreshList();
+    if (!canvasNavigationClock.isCurrent(request)) return;
     state$.canvasName.set(result.name);
     resetCanvasView();
     state$.digestOpen.set(false);
@@ -93,9 +127,9 @@ const createCanvas = async (name: string) => {
     state$.error.set("");
     await refreshSnapshotsSoft(result.doc);
   } catch (error) {
-    setError(error);
+    if (canvasNavigationClock.isCurrent(request)) setError(error);
   } finally {
-    state$.canvasLoading.set(false);
+    if (canvasNavigationClock.isCurrent(request)) state$.canvasLoading.set(false);
   }
 };
 
@@ -191,15 +225,25 @@ export function App() {
     }
     const vellum = window.vellum;
 
+    // Subscribe before boot touches a default canvas. Preload can deliver a
+    // buffered cold-start locator synchronously from this call; returning the
+    // navigation promise delays its durable relay ACK until focus is applied.
+    const offNodeRef = vellum.onNodeRefOpened((event) => {
+      state$.canvasLoading.set(true);
+      return nodeRefNavigation.navigate(event);
+    });
+
     const boot = async () => {
       try {
         state$.snapshots.set(await vellum.getSnapshots());
         const list = await vellum.listCanvases();
         state$.canvases.set(list);
-        if (list.length === 0) {
-          await createCanvas(SEED_CANVAS_NAME);
-        } else {
-          await openCanvas(list[0].name);
+        if (!nodeRefNavigation.hasReceived()) {
+          if (list.length === 0) {
+            await createCanvas(SEED_CANVAS_NAME);
+          } else {
+            await openCanvas(list[0].name);
+          }
         }
       } catch (error) {
         setError(error);
@@ -237,6 +281,7 @@ export function App() {
     });
 
     return () => {
+      offNodeRef();
       offSnapshots();
       offCanvas();
       stopKernel();
