@@ -14,12 +14,17 @@ import {
   type BrowserCapabilityTerminationNotice,
 } from "../src/main/vellum/browser/capabilities";
 import type { ResolvedPageTarget } from "../src/main/vellum/browser/page-target";
+import { BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
 
-const PAGE = (nodeId = "n1", url = "https://example.com/inbox"): ResolvedPageTarget => ({
+const PAGE = (
+  nodeId = "n1",
+  url = "https://example.com/inbox",
+  profile = "default",
+): ResolvedPageTarget => ({
   ref: `vellum://canvas/work?node=${nodeId}`,
   nodeId,
   url,
-  profile: "default",
+  profile,
 });
 
 const SUBJECT = { id: "local:default", kind: "hermes" as const, label: "Hermes default" };
@@ -37,6 +42,7 @@ const setup = (options?: {
   readonly confirm?: (confirmation: BrowserAutomationConfirmation) => Promise<boolean>;
   readonly deliver?: (delivery: BrowserAutomationDelivery) => Promise<unknown>;
   readonly makeGrantId?: () => string;
+  readonly profileGate?: BrowserProfileGate;
 }) => {
   let authority: BrowserAgentAuthority | undefined;
   const notices: BrowserCapabilityTerminationNotice[] = [];
@@ -52,6 +58,7 @@ const setup = (options?: {
   authority = new BrowserAgentAuthority(registry, {
     controlHome: "/Users/tester",
     makeGrantId: options?.makeGrantId ?? (() => "grant-1"),
+    ...(options?.profileGate === undefined ? {} : { profileGate: options.profileGate }),
     confirm: async (request) => {
       confirmations.push(request);
       return options?.confirm?.(request) ?? options?.approve ?? true;
@@ -91,6 +98,99 @@ describe("BrowserAgentAuthority", () => {
     expect(Object.isFrozen(confirmations[0]?.targets[0]?.exactOrigins)).toBe(true);
     expect(deliveries).toHaveLength(0);
     expect(registry.stats().activeCapabilities).toBe(0);
+  });
+
+  it("snapshots each exact target profile once and ignores unrelated profile blocks", async () => {
+    const profileGate = new BrowserProfileGate();
+    const snapshot = vi.spyOn(profileGate, "snapshot");
+    const test = setup({
+      profileGate,
+      confirm: async () => {
+        expect(profileGate.begin("unrelated")).toMatchObject({ ok: true });
+        return true;
+      },
+    });
+
+    await expect(test.authority.issue(SUBJECT, [
+      PAGE("n1", "https://one.example.com", "default"),
+      PAGE("n2", "https://two.example.com", "default"),
+      PAGE("n3", "https://three.example.com", "work"),
+    ])).resolves.toMatchObject({ ok: true, data: { targetCount: 3 } });
+
+    expect(snapshot.mock.calls.map(([profile]) => profile)).toEqual(["default", "work"]);
+    expect(test.confirmations).toHaveLength(1);
+    expect(test.deliveries).toHaveLength(1);
+    expect(test.registry.stats().activeCapabilities).toBe(1);
+  });
+
+  it("denies a profile already blocked before confirmation without minting", async () => {
+    const profileGate = new BrowserProfileGate();
+    expect(profileGate.begin("default")).toMatchObject({ ok: true });
+    const test = setup({ profileGate });
+    const createPrincipal = vi.spyOn(test.registry, "createPrincipal");
+    const issue = vi.spyOn(test.registry, "issue");
+
+    await expect(test.authority.issue(SUBJECT, [PAGE()])).resolves.toEqual({
+      ok: false,
+      code: "cancelled",
+      message: "browser authority profiles changed during confirmation",
+    });
+    expect(test.confirmations).toHaveLength(0);
+    expect(createPrincipal).not.toHaveBeenCalled();
+    expect(issue).not.toHaveBeenCalled();
+    expect(test.deliveries).toHaveLength(0);
+    expect(test.registry.stats().activeCapabilities).toBe(0);
+  });
+
+  it.each([
+    {
+      name: "block",
+      mutate: (gate: BrowserProfileGate) => {
+        expect(gate.begin("work")).toMatchObject({ ok: true });
+      },
+    },
+    {
+      name: "block then cancel",
+      mutate: (gate: BrowserProfileGate) => {
+        const blocked = gate.begin("work");
+        expect(blocked.ok).toBe(true);
+        if (blocked.ok) expect(gate.cancelBeforeMutation(blocked.data)).toBe(true);
+      },
+    },
+    {
+      name: "delete then recreate",
+      mutate: (gate: BrowserProfileGate) => {
+        const blocked = gate.begin("work");
+        expect(blocked.ok).toBe(true);
+        if (!blocked.ok) return;
+        expect(gate.commitDeleted(blocked.data)).toBe(true);
+        expect(gate.markCreated("work")).toMatchObject({ ok: true });
+      },
+    },
+  ])("denies stale profile snapshots after $name during confirmation", async ({ mutate }) => {
+    const profileGate = new BrowserProfileGate();
+    const approval = deferred<boolean>();
+    const test = setup({ profileGate, confirm: () => approval.promise });
+    const createPrincipal = vi.spyOn(test.registry, "createPrincipal");
+    const issue = vi.spyOn(test.registry, "issue");
+    const issuing = test.authority.issue(SUBJECT, [
+      PAGE("n1", "https://one.example.com", "default"),
+      PAGE("n2", "https://two.example.com", "work"),
+    ]);
+    await vi.waitFor(() => expect(test.confirmations).toHaveLength(1));
+
+    mutate(profileGate);
+    approval.resolve(true);
+
+    await expect(issuing).resolves.toEqual({
+      ok: false,
+      code: "cancelled",
+      message: "browser authority profiles changed during confirmation",
+    });
+    expect(createPrincipal).not.toHaveBeenCalled();
+    expect(issue).not.toHaveBeenCalled();
+    expect(test.deliveries).toHaveLength(0);
+    expect(test.registry.stats().activeCapabilities).toBe(0);
   });
 
   it("delivers the bearer once but exposes only a bounded non-secret summary", async () => {

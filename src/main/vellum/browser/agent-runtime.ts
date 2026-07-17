@@ -41,6 +41,7 @@ import {
   type SupportedHerdrBrowserAgent,
 } from "./herdr-agent-delivery";
 import type { PageTargetResolver, ResolvedPageTarget } from "./page-target";
+import { makeBrowserProfileGate, type BrowserProfileGate } from "./profile-gate";
 
 const MAX_PAGE_TARGETS = 64;
 const MAX_SUBJECT_LABEL_BYTES = 256;
@@ -119,6 +120,8 @@ export interface BrowserAutomationRuntimeDependencies {
   ) => Promise<BrowserAutomationDeliveryReceipt | void>;
   readonly controlHome?: string;
   readonly makeAutomationId?: () => string;
+  /** Production injects the main-process gate shared with profile/session lifecycle. */
+  readonly profileGate?: BrowserProfileGate;
 }
 
 interface PreparedPlan {
@@ -291,9 +294,11 @@ export class BrowserAutomationRuntime {
     registry: BrowserCapabilityRegistry,
     private readonly dependencies: BrowserAutomationRuntimeDependencies,
   ) {
+    const profileGate = dependencies.profileGate ?? makeBrowserProfileGate();
     this.#authority = new BrowserAgentAuthority(registry, {
       confirm: dependencies.confirm,
       deliver: (delivery) => this.#deliver(delivery),
+      profileGate,
       ...(dependencies.controlHome === undefined
         ? {}
         : { controlHome: dependencies.controlHome }),

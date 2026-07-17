@@ -14,6 +14,11 @@ import {
   type BrowserCapabilityRegistry,
 } from "./capabilities";
 import type { ResolvedPageTarget } from "./page-target";
+import {
+  makeBrowserProfileGate,
+  type BrowserProfileGate,
+  type BrowserProfileSnapshot,
+} from "./profile-gate";
 
 export const BROWSER_AGENT_AUTHORITY_TTL_MS = 60 * 60 * 1_000;
 export const BROWSER_AGENT_AUTHORITY_MAX_USES = 4_096;
@@ -96,6 +101,8 @@ export interface BrowserAutomationAuthorityDependencies {
   ) => Promise<BrowserAutomationDeliveryReceipt | void>;
   readonly controlHome?: string;
   readonly makeGrantId?: () => string;
+  /** Production injects the main-process gate shared with profile/session lifecycle. */
+  readonly profileGate?: BrowserProfileGate;
 }
 
 interface ActiveGrant {
@@ -193,6 +200,26 @@ const mapIssueFailure = (error: unknown): BrowserAutomationAuthorityResult<never
   return fail("delivery_failed", "browser authority issuance failed");
 };
 
+const PROFILE_EPOCH_DENIAL = "browser authority profiles changed during confirmation";
+
+const captureProfileSnapshots = (
+  gate: BrowserProfileGate,
+  targets: ReadonlyArray<BrowserCapabilityTarget>,
+): ReadonlyArray<BrowserProfileSnapshot> | undefined => {
+  const snapshots: BrowserProfileSnapshot[] = [];
+  for (const profile of new Set(targets.map((target) => target.profile))) {
+    const snapshot = gate.snapshot(profile);
+    if (snapshot === undefined) return undefined;
+    snapshots.push(snapshot);
+  }
+  return Object.freeze(snapshots);
+};
+
+const profileSnapshotsCurrent = (
+  gate: BrowserProfileGate,
+  snapshots: ReadonlyArray<BrowserProfileSnapshot>,
+): boolean => snapshots.every((snapshot) => gate.isCurrent(snapshot));
+
 /**
  * Main-process-only trusted issuance coordinator. It never returns or retains
  * bearer material after the delivery callback completes. Renderer-provided
@@ -201,6 +228,7 @@ const mapIssueFailure = (error: unknown): BrowserAutomationAuthorityResult<never
 export class BrowserAgentAuthority {
   readonly #controlHome: string;
   readonly #makeGrantId: () => string;
+  readonly #profileGate: BrowserProfileGate;
   readonly #active = new Map<string, ActiveGrant>();
   readonly #activeBySubject = new Map<string, string>();
   readonly #pendingBySubject = new Map<string, symbol>();
@@ -214,6 +242,7 @@ export class BrowserAgentAuthority {
     if (!validControlHome(controlHome)) throw new BrowserCapabilityIssueDenied("invalid");
     this.#controlHome = controlHome;
     this.#makeGrantId = dependencies.makeGrantId ?? randomUUID;
+    this.#profileGate = dependencies.profileGate ?? makeBrowserProfileGate();
   }
 
   async issue(
@@ -249,6 +278,8 @@ export class BrowserAgentAuthority {
     subjectKey: string,
     targets: ReadonlyArray<BrowserCapabilityTarget>,
   ): Promise<BrowserAutomationAuthorityResult<BrowserAutomationGrantSummary>> {
+    const profileSnapshots = captureProfileSnapshots(this.#profileGate, targets);
+    if (profileSnapshots === undefined) return fail("cancelled", PROFILE_EPOCH_DENIAL);
     const confirmation: BrowserAutomationConfirmation = Object.freeze({
       subject,
       targetCount: targets.length,
@@ -266,6 +297,9 @@ export class BrowserAgentAuthority {
     }
     if (!approved) return fail("cancelled", "browser authority was not approved");
     if (this.#closed) return fail("closed", "browser authority is closed");
+    if (!profileSnapshotsCurrent(this.#profileGate, profileSnapshots)) {
+      return fail("cancelled", PROFILE_EPOCH_DENIAL);
+    }
 
     let grant: BrowserCapabilityGrant;
     try {

@@ -15,6 +15,7 @@ import {
 import type {
   PageTargetResolver,
 } from "../src/main/vellum/browser/page-target";
+import { BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import type { BrowserAutomationEnableInput } from "../src/shared/ipc";
 import { formatNodeRef, parseNodeRef } from "../src/shared/node-ref";
@@ -103,6 +104,7 @@ interface SetupOptions {
   ) => Promise<{ readonly cleanup?: () => void | Promise<void> } | void>;
   readonly resolvePageTarget?: PageTargetResolver;
   readonly paneMeta?: BrowserAutomationHerdrPaneMeta;
+  readonly profileGate?: BrowserProfileGate;
 }
 
 const liveRuntimes: BrowserAutomationRuntime[] = [];
@@ -194,6 +196,7 @@ const setup = (options: SetupOptions = {}) => {
     deliver,
     controlHome: CONTROL_HOME,
     makeAutomationId: () => automationId(++idSequence),
+    ...(options.profileGate === undefined ? {} : { profileGate: options.profileGate }),
   });
   liveRuntimes.push(runtime);
 
@@ -437,6 +440,27 @@ describe("BrowserAutomationRuntime", () => {
     });
     expect(retry.confirm).toHaveBeenCalledTimes(2);
     expect(retry.deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it("threads the shared profile gate through confirmation without minting or delivering", async () => {
+    const profileGate = new BrowserProfileGate();
+    const approval = deferred<boolean>();
+    const test = setup({ profileGate, confirm: () => approval.promise });
+    const createPrincipal = vi.spyOn(test.registry, "createPrincipal");
+    const issue = vi.spyOn(test.registry, "issue");
+
+    const enabling = test.runtime.enable({ kind: "hermes", ref: HERMES_REF });
+    await vi.waitFor(() => expect(test.confirm).toHaveBeenCalledTimes(1));
+    expect(profileGate.begin("default")).toMatchObject({ ok: true });
+    approval.resolve(true);
+
+    await expect(enabling).resolves.toEqual({ ok: false, code: "cancelled" });
+    expect(createPrincipal).not.toHaveBeenCalled();
+    expect(issue).not.toHaveBeenCalled();
+    expect(test.deliver).not.toHaveBeenCalled();
+    expect(test.deliveries).toHaveLength(0);
+    expect(test.registry.stats().activeCapabilities).toBe(0);
+    expect(test.registry.auditSnapshot().some((event) => event.kind === "issued")).toBe(false);
   });
 
   it("redacts a failed one-shot delivery and releases the subject for retry", async () => {
