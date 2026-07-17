@@ -32,6 +32,9 @@ export const ControlErrorTag = Schema.Literal(
   "invalid", // domain-invalid input (bad profile id, profile switch on warm session)
   "not_found", // no such session / node
   "forbidden", // url scheme not allowed
+  "timeout", // operation exceeded its deadline
+  "cancelled", // operation was aborted by its caller
+  "resource_exhausted", // bounded browser capacity is currently full
   "failed", // operation attempted and failed (load error, eval throw, io)
   "runtime_down", // app not running — socket absent or refusing (CLI-side)
 );

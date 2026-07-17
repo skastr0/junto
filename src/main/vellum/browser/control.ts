@@ -116,9 +116,15 @@ const httpStatus = (tag: ControlErrorTag): number =>
       ? 404
       : tag === "forbidden"
         ? 403
-        : tag === "bad_request" || tag === "invalid"
-          ? 400
-          : 500;
+        : tag === "timeout"
+          ? 504
+          : tag === "cancelled"
+            ? 408
+            : tag === "resource_exhausted"
+              ? 429
+              : tag === "bad_request" || tag === "invalid"
+                ? 400
+                : 500;
 
 const fromResult = <T>(result: BrowserResult<T>): ControlEnvelope<T> =>
   result.ok ? controlOk(result.data) : controlErr(result.code, result.message);
