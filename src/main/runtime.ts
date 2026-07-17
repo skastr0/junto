@@ -7,7 +7,7 @@ import { StoreLive, StoreService } from "./services/store";
 import { CanvasesLive, CanvasesService } from "./vellum/canvases";
 import { ChatService } from "./vellum/chat/service";
 import { KernelLive, KernelService } from "./vellum/kernel/service";
-import { RegionRollupLive } from "./vellum/region-rollup";
+import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
 import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
 
 // One shared ACP-session manager for the whole app: pulse-driven turns
@@ -45,10 +45,11 @@ export const buildDoctorReport = Effect.gen(function* () {
   const canvases = yield* CanvasesService;
   const snapshots = yield* SnapshotsService;
   const kernel = yield* KernelService;
+  const regionRollup = yield* RegionRollupService;
 
   const station = yield* prism.stationInfo;
   const serviceResults = yield* Effect.all(
-    [store.doctor, folder.doctor, prism.doctor, codex.doctor, canvases.doctor, snapshots.doctor, kernel.doctor],
+    [store.doctor, folder.doctor, prism.doctor, codex.doctor, canvases.doctor, snapshots.doctor, kernel.doctor, regionRollup.doctor],
     { concurrency: "unbounded" },
   );
 
