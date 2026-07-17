@@ -101,6 +101,10 @@ edges :: 4
 regions
 team :: Foo, Bar
 
+region rollups
+team :: blocked · 2 members (1 blocked)
+  Bar :: blocked · flag:blocker
+
 entities
 Foo :: project
   tower: a=1 b=x

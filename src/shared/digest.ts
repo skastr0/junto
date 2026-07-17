@@ -3,12 +3,13 @@ import { buildConnectionIndex, resolveConnections, type Connection } from "./con
 import type { EntitySource, SnapshotState } from "./entities";
 import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
 import { groupMembers, isGroup } from "./graph";
+import { deriveRegionRollups } from "./region-rollup";
 
 // Deterministic text projection of a canvas + snapshots for agent consumption.
 // Contract: same doc + same snapshots (+ same glyph view) -> byte-identical
 // output. No timestamps, no randomness. Sections: regions (with members),
-// entities (with stats), edges (live phase), blockers (with closure), seeds
-// (unbound entity nodes), sources.
+// region rollups (severity), entities (with stats), edges (live phase),
+// blockers (with closure), seeds (unbound entity nodes), sources.
 // Ordering is document order throughout; the one place input order is
 // unstable (which adapter bundle landed first) is sorted to a fixed source
 // order instead.
@@ -81,6 +82,31 @@ export const digestCanvas = (
       regionLines.push(`${titleOf(group)} :: ${memberTitles.join(", ")}`);
     }
     sections.push(regionLines);
+  }
+
+  // region rollups — severity bubbled up per region (the bottom bar's
+  // operational tier). Headless: no agent activity input, so the section
+  // stays a pure function of doc + snapshots + glyph view.
+  if (groups.length > 0) {
+    const rollupLines = ["region rollups"];
+    for (const rollup of deriveRegionRollups({ doc, snapshots, glyphs })) {
+      const buckets = [
+        rollup.counts.blocked > 0 ? `${rollup.counts.blocked} blocked` : "",
+        rollup.counts.attention > 0 ? `${rollup.counts.attention} attention` : "",
+        rollup.counts.working > 0 ? `${rollup.counts.working} working` : "",
+      ].filter((part) => part.length > 0);
+      const total = `${rollup.counts.total} member${rollup.counts.total === 1 ? "" : "s"}`;
+      rollupLines.push(
+        buckets.length > 0
+          ? `${rollup.label} :: ${rollup.severity} · ${total} (${buckets.join(", ")})`
+          : `${rollup.label} :: ${rollup.severity} · ${total}`,
+      );
+      for (const member of rollup.members) {
+        if (member.severity === "idle") continue;
+        rollupLines.push(`  ${member.label} :: ${member.severity} · ${member.reasons.join(", ")}`);
+      }
+    }
+    sections.push(rollupLines);
   }
 
   // entities
