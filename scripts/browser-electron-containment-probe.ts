@@ -2,7 +2,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, request, type Server } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,7 @@ import {
   type ControlEnvelope,
   type ControlRouteName,
 } from "../src/shared/browser-control";
+import { formatNodeRef } from "../src/shared/node-ref";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fixturePath = join(repoRoot, "tests/fixtures/browser/hostile-containment.html");
@@ -111,7 +112,7 @@ const waitForControl = async (
 const waitForReport = async (
   socketPath: string,
   token: string,
-  nodeId: string,
+  sessionId: string,
 ): Promise<Record<string, unknown>> => {
   const deadline = Date.now() + PAGE_TIMEOUT_MS;
   let lastError = "page report not ready";
@@ -119,10 +120,10 @@ const waitForReport = async (
     try {
       const data = requireOk(
         await controlCall(socketPath, token, "eval", {
-          nodeId,
+          sessionId,
           code: "globalThis.__vellumContainmentProbe ?? null",
         }),
-        `eval ${nodeId}`,
+        `eval ${sessionId}`,
       );
       if (isRecord(data) && isRecord(data.result)) return data.result;
     } catch (error) {
@@ -130,7 +131,7 @@ const waitForReport = async (
     }
     await delay(100);
   }
-  throw new Error(`page probe timed out for ${nodeId}: ${lastError}`);
+  throw new Error(`page probe timed out for ${sessionId}: ${lastError}`);
 };
 
 const assertContainment = (report: Record<string, unknown>): void => {
@@ -258,6 +259,31 @@ const main = async (): Promise<void> => {
     url.searchParams.set("marker", markerPath);
     return url.toString();
   };
+  const canvasName = "browser-containment";
+  const pageTargets = [
+    { nodeId: "personal-seed", profile: "personal", url: fixtureUrl("seed") },
+    { nodeId: "work-read", profile: "work", url: fixtureUrl("read") },
+    { nodeId: "filler-one", profile: "work", url: fixtureUrl("read") },
+    { nodeId: "filler-two", profile: "work", url: fixtureUrl("read") },
+    { nodeId: "personal-restored", profile: "personal", url: fixtureUrl("read") },
+  ] as const;
+  await writeFile(
+    join(canvasesDir, `${canvasName}.canvas`),
+    JSON.stringify({
+      nodes: pageTargets.map(({ nodeId, profile, url }, index) => ({
+        id: nodeId,
+        type: "link",
+        url,
+        x: index * 420,
+        y: 0,
+        width: 400,
+        height: 300,
+        ether: { entity: { kind: "page" }, browser: { profile } },
+      })),
+      edges: [],
+    }),
+    { encoding: "utf8", mode: 0o600 },
+  );
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -291,39 +317,44 @@ const main = async (): Promise<void> => {
   try {
     const { socketPath, token } = await waitForControl(home, () => exited);
     await assertTcpControlAbsent(legacyTcpPort, token);
-    const open = async (nodeId: string, profile: string, url: string): Promise<void> => {
-      requireOk(await controlCall(socketPath, token, "open", { nodeId, profile, url }), `open ${nodeId}`);
+    const open = async (nodeId: string): Promise<string> => {
+      const ref = formatNodeRef({ canvasName, nodeId });
+      const data = requireOk(await controlCall(socketPath, token, "open", { ref }), `open ${ref}`);
+      if (!isRecord(data) || typeof data.sessionId !== "string") {
+        throw new Error(`open ${ref}: response has no sessionId`);
+      }
+      return data.sessionId;
     };
 
-    await open("personal-seed", "personal", fixtureUrl("seed"));
-    const personalSeed = await waitForReport(socketPath, token, "personal-seed");
+    const personalSeedSession = await open("personal-seed");
+    const personalSeed = await waitForReport(socketPath, token, personalSeedSession);
     assertContainment(personalSeed);
     if (personalSeed.cookieValue !== nonce || personalSeed.storageValue !== nonce) {
       throw new Error("personal profile did not persist its synthetic state");
     }
     if (!(await markerAbsent(markerPath))) throw new Error("hostile page wrote a host marker");
 
-    await open("work-read", "work", fixtureUrl("read"));
-    const workRead = await waitForReport(socketPath, token, "work-read");
+    const workReadSession = await open("work-read");
+    const workRead = await waitForReport(socketPath, token, workReadSession);
     assertContainment(workRead);
     if (workRead.cookieValue !== null || workRead.storageValue !== null) {
       throw new Error("work profile observed personal profile state");
     }
 
-    await open("filler-one", "work", fixtureUrl("read"));
-    await open("filler-two", "work", fixtureUrl("read"));
+    await open("filler-one");
+    await open("filler-two");
     const sessions = requireOk(await controlCall(socketPath, token, "sessions"), "sessions");
     if (!Array.isArray(sessions)) throw new Error("sessions response is not an array");
-    const sessionIds = sessions
+    const nodeIds = sessions
       .filter(isRecord)
       .map((session) => session.nodeId)
       .filter((nodeId): nodeId is string => typeof nodeId === "string");
-    if (sessionIds.includes("personal-seed")) {
+    if (nodeIds.includes("personal-seed")) {
       throw new Error("warm-pool pressure did not evict the original personal view");
     }
 
-    await open("personal-restored", "personal", fixtureUrl("read"));
-    const personalRestored = await waitForReport(socketPath, token, "personal-restored");
+    const personalRestoredSession = await open("personal-restored");
+    const personalRestored = await waitForReport(socketPath, token, personalRestoredSession);
     if (personalRestored.cookieValue !== nonce || personalRestored.storageValue !== nonce) {
       throw new Error("personal partition state did not survive WebContents eviction");
     }
