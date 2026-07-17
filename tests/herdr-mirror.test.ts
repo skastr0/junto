@@ -404,21 +404,20 @@ describe("HerdrService mirror integration", () => {
     expect(parsePaneList({ panes: data.panes })[0]?.paneId).toBe("w1:p1");
   });
 
-  it("getPaneMeta with a fresh mirror execs only the preview read", async () => {
+  it("getPaneMeta with a fresh mirror does zero execs (pure local read)", async () => {
     const calls: string[][] = [];
     const runner: HerdrRunner = async (_h, args) => {
       calls.push([...args]);
-      if (args[0] === "pane" && args[1] === "read") {
-        return okCli({ id: "r", result: { text: "ready.\n" } });
-      }
       throw new Error(`unexpected exec: ${args.join(" ")}`);
     };
     const svc = new HerdrService(runner, () => new FakeMirror());
     const meta = await svc.getPaneMeta("local", null, "w1:p1");
     expect(meta.ok && meta.data.paneId).toBe("w1:p1");
     expect(meta.ok && meta.data.cwd).toBe("/proj");
-    expect(meta.ok && meta.data.preview).toBe("ready.");
-    expect(calls).toEqual([["pane", "read", "w1:p1", "--lines", "1", "--format", "text"]]);
+    // Preview is exec-only; mirror path must not fan out pane read / process-info
+    // for every card on every agent_status_changed.
+    expect(meta.ok && meta.data.preview).toBeUndefined();
+    expect(calls).toEqual([]);
   });
 
   it("getPaneMeta falls back to pane get when the mirror misses the pane", async () => {

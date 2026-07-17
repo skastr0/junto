@@ -30,7 +30,7 @@ describe("houseGradientStops", () => {
 });
 
 describe("herdrActivity", () => {
-  it("waves on working, blocked, and idle; static on done", () => {
+  it("maps herdr seen/unseen: working/blocked/done wave; idle static", () => {
     expect(herdrActivity({ agentStatus: "working" })).toEqual({
       mode: "wave",
       tone: "amber",
@@ -42,12 +42,18 @@ describe("herdrActivity", () => {
       tone: "crimson",
       pattern: "arrow-up",
     });
-    expect(herdrActivity({ agentStatus: "idle" })).toMatchObject({
+    // done = Idle+!seen → attention until the operator looks
+    expect(herdrActivity({ agentStatus: "done" })).toMatchObject({
       mode: "wave",
-      tone: "cyan",
+      tone: "amber",
       pattern: "ripple",
     });
-    expect(herdrActivity({ agentStatus: "done" })).toMatchObject({ mode: "static", tone: "green" });
+    // idle = Idle+seen → quiet; never animate the whole fleet
+    expect(herdrActivity({ agentStatus: "idle" })).toMatchObject({
+      mode: "static",
+      tone: "steel",
+      label: "idle",
+    });
   });
 
   it("gives each wave state a distinct (tone, pattern) pair", () => {
@@ -55,10 +61,10 @@ describe("herdrActivity", () => {
       herdrActivity({ metaStatus: "loading" }),
       herdrActivity({ agentStatus: "working" }),
       herdrActivity({ agentStatus: "blocked" }),
+      herdrActivity({ agentStatus: "done" }),
       herdrActivity({ agentStatus: "idle", connState: "degraded" }),
-      herdrActivity({ agentStatus: "idle" }),
     ];
-    const keys = waves.map((s) => `${s.tone}:${s.pattern}`);
+    const keys = waves.map((s) => `${s.tone}:${s.pattern ?? "none"}`);
     expect(new Set(keys).size).toBe(keys.length);
   });
 
@@ -69,10 +75,18 @@ describe("herdrActivity", () => {
     });
   });
 
-  it("degraded connection waves steel when agent settled", () => {
+  it("degraded connection waves steel when agent is idle (seen)", () => {
     expect(herdrActivity({ agentStatus: "idle", connState: "degraded" })).toMatchObject({
       mode: "wave",
       tone: "steel",
+    });
+  });
+
+  it("done (unseen) beats degraded so attention stays visible", () => {
+    expect(herdrActivity({ agentStatus: "done", connState: "degraded" })).toMatchObject({
+      mode: "wave",
+      tone: "amber",
+      pattern: "ripple",
     });
   });
 });

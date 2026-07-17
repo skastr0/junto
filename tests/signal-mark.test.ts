@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
 import { identityHue, minimapFill, signalMark, signalMarkForMember } from "../src/renderer/lib/signal-mark";
 import { HUE } from "../src/renderer/lib/theme";

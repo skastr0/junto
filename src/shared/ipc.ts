@@ -65,6 +65,8 @@ export const IPC_CHANNELS = {
   herdrListPanes: "vellum:herdr-list-panes",
   herdrListAgents: "vellum:herdr-list-agents",
   herdrGetMeta: "vellum:herdr-get-meta",
+  /** Marks pane seen (done → idle). Stock: herdr agent focus <pane_id>. */
+  herdrMarkPaneSeen: "vellum:herdr-mark-pane-seen",
   herdrCreateWorkspace: "vellum:herdr-create-workspace",
   herdrCreateTab: "vellum:herdr-create-tab",
   herdrCreatePane: "vellum:herdr-create-pane",
@@ -802,6 +804,12 @@ export interface VellumHerdrApi {
     session: string | null | undefined,
     paneId: string,
   ) => Promise<HerdrOpResult<HerdrPaneInfo>>;
+  /** Marks the pane seen so herdr agent_status transitions done → idle. */
+  readonly herdrMarkPaneSeen: (
+    hostId: string,
+    session: string | null | undefined,
+    paneId: string,
+  ) => Promise<HerdrOpResult<{ readonly agentStatus?: string; readonly paneId: string }>>;
   readonly herdrCreateWorkspace: (
     hostId: string,
     session: string | null | undefined,

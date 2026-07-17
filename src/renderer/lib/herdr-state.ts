@@ -90,6 +90,11 @@ export const openHerdrTerminal = (nodeId: string, herdr: EtherHerdr, title: stri
   herdr$.terminal.set({ nodeId, herdr, title });
   ensureConnection(nodeId);
   setConnectionEvent(nodeId, { type: "ok" });
+  // Opening the terminal is "looking at" the pane. Optimistically clear herdr's
+  // done (Idle+!seen) → idle so the card stops waving before the focus round-trip.
+  // Then mark seen on the host so the mirror event confirms it for the fleet.
+  markHerdrPaneSeenLocal(nodeId);
+  void markHerdrPaneSeenRemote(herdr);
 };
 
 /**
@@ -187,6 +192,42 @@ export const subscribeHerdrMirror = (): (() => void) => {
   return mirrorUnsub;
 };
 
+/**
+ * Optimistic done → idle when the operator opens a terminal (looks at the pane).
+ * Herdr's agent_status is (state, seen): Idle+!seen = "done", Idle+seen = "idle".
+ */
+export const markHerdrPaneSeenLocal = (nodeId: string): void => {
+  const cache = herdr$.metaByNodeId[nodeId].peek();
+  const meta = cache?.meta;
+  if (!meta || meta.agentStatus !== "done") return;
+  herdr$.metaByNodeId[nodeId].set({
+    status: cache.status === "loading" ? "ok" : cache.status,
+    meta: { ...meta, agentStatus: "idle" },
+    error: cache.error,
+    fetchedAt: Date.now(),
+  });
+};
+
+/** Stock `herdr agent focus <pane>` — marks seen on the host (done → idle). */
+export const markHerdrPaneSeenRemote = async (herdr: EtherHerdr): Promise<void> => {
+  if (!herdr.paneId) return;
+  const api = getVellumApi() as
+    | (ReturnType<typeof getVellumApi> & {
+        herdrMarkPaneSeen?: (
+          hostId: string,
+          session: string | null | undefined,
+          paneId: string,
+        ) => Promise<{ ok: boolean; data?: { agentStatus?: string }; message?: string }>;
+      })
+    | undefined;
+  if (!api?.herdrMarkPaneSeen) return;
+  try {
+    await api.herdrMarkPaneSeen(herdr.host, herdr.session ?? null, herdr.paneId);
+  } catch {
+    // Best-effort: mirror push / next meta poll will reconverge.
+  }
+};
+
 export const refreshHerdrMeta = async (
   nodeId: string,
   herdr: EtherHerdr,
@@ -204,10 +245,16 @@ export const refreshHerdrMeta = async (
     herdr$.metaByNodeId[nodeId].set({ status: "error", error: "pane not bound" });
     return;
   }
-  herdr$.metaByNodeId[nodeId].set({
-    status: "loading",
-    meta: herdr$.metaByNodeId[nodeId].peek()?.meta,
-  });
+  const previous = herdr$.metaByNodeId[nodeId].peek();
+  // Stale-while-revalidate: keep status "ok" with prior meta so cards do not
+  // flash the cyan loading wave on every mirror change (fleet-wide thrash).
+  // Only the first fetch (no meta yet) uses "loading".
+  if (!previous?.meta) {
+    herdr$.metaByNodeId[nodeId].set({
+      status: "loading",
+      meta: previous?.meta,
+    });
+  }
   try {
     const result = await api.herdrGetMeta(herdr.host, herdr.session ?? null, herdr.paneId);
     if (!result.ok || !result.data) {
@@ -220,6 +267,7 @@ export const refreshHerdrMeta = async (
       herdr$.metaByNodeId[nodeId].set({
         status: "error",
         error: result.message ?? "meta failed",
+        meta: previous?.meta,
         fetchedAt: Date.now(),
       });
       return;
@@ -235,6 +283,7 @@ export const refreshHerdrMeta = async (
     herdr$.metaByNodeId[nodeId].set({
       status: "error",
       error: error instanceof Error ? error.message : String(error),
+      meta: previous?.meta,
       fetchedAt: Date.now(),
     });
   }

@@ -310,7 +310,14 @@ export class HerdrService {
       if (!pane) return { ok: false, code: "not_found", message: `pane ${paneId} not found` };
     }
 
-    // Cheap preview — non-blocking failure.
+    // Fresh mirror path is pure local memory — no pane read execs. N cards
+    // re-refreshing on every agent_status_changed must not fan out N herdr
+    // CLI calls (fleet flash + host burn).
+    if (mirroredRecord) {
+      return { ok: true, data: { ...pane } };
+    }
+
+    // Exec fallback: cheap preview — non-blocking failure.
     let preview: string | undefined;
     const read = await runEnvelope(
       this.runner,
@@ -331,6 +338,38 @@ export class HerdrService {
     }
 
     return { ok: true, data: { ...pane, preview } };
+  }
+
+  /**
+   * Mark a pane "seen" so herdr transitions agent_status done → idle
+   * (Idle+!seen → Idle+seen). Stock CLI: `herdr agent focus <pane_id>`.
+   * Fire-and-forget safe — never required for control attach. Emits
+   * pane.agent_status_changed so the mirror (and cards) follow.
+   */
+  async markPaneSeen(
+    hostId: string,
+    session: string | null | undefined,
+    paneId: string,
+  ): Promise<HerdrResult<{ readonly agentStatus?: string; readonly paneId: string }>> {
+    if (!paneId) return { ok: false, code: "invalid", message: "paneId required" };
+    const res = await runEnvelope(this.runner, hostId, ["agent", "focus", paneId], session);
+    if (!res.ok) return res;
+    // agent focus returns { type: "agent_info", agent: { pane_id, agent_status, … } }
+    const root = res.data && typeof res.data === "object" ? (res.data as Record<string, unknown>) : {};
+    const agent =
+      root.agent && typeof root.agent === "object"
+        ? (root.agent as Record<string, unknown>)
+        : root;
+    const status =
+      typeof agent.agent_status === "string"
+        ? agent.agent_status
+        : typeof agent.agentStatus === "string"
+          ? agent.agentStatus
+          : undefined;
+    return {
+      ok: true,
+      data: { paneId, agentStatus: status },
+    };
   }
 
   async createWorkspace(

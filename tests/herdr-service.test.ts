@@ -270,4 +270,23 @@ describe("HerdrService with mock runner", () => {
     const res = await svc.ensureServer("local");
     expect(res).toEqual({ ok: true, data: { running: true, started: false } });
   });
+
+  it("markPaneSeen runs agent focus and returns agent_status", async () => {
+    const runner: HerdrRunner = async (_host, args) => {
+      expect(args).toEqual(["agent", "focus", "w1:p1"]);
+      return ok(
+        JSON.stringify({
+          id: "cli:agent:focus",
+          result: {
+            type: "agent_info",
+            agent: { pane_id: "w1:p1", agent_status: "idle", agent: "claude" },
+          },
+        }),
+      );
+    };
+    const svc = new HerdrService(runner);
+    const res = await svc.markPaneSeen("local", null, "w1:p1");
+    expect(res).toEqual({ ok: true, data: { paneId: "w1:p1", agentStatus: "idle" } });
+  });
+
 });

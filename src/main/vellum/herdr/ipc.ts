@@ -87,6 +87,12 @@ export const registerHerdrIpc = (
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.herdrMarkPaneSeen,
+    (_e, hostId: string, session: string | null | undefined, paneId: string) =>
+      herdrService.markPaneSeen(hostId, session, paneId).then(toOp),
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.herdrCreateWorkspace,
     (
       _e,

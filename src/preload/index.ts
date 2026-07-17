@@ -252,6 +252,8 @@ const herdrApi: VellumHerdrApi = {
     invoke(IPC_CHANNELS.herdrListAgents, IPC_TIMEOUT_MS, hostId, session),
   herdrGetMeta: (hostId, session, paneId) =>
     invoke(IPC_CHANNELS.herdrGetMeta, IPC_TIMEOUT_MS, hostId, session, paneId),
+  herdrMarkPaneSeen: (hostId, session, paneId) =>
+    invoke(IPC_CHANNELS.herdrMarkPaneSeen, IPC_TIMEOUT_MS, hostId, session, paneId),
   herdrCreateWorkspace: (hostId, session, input) =>
     invoke(IPC_CHANNELS.herdrCreateWorkspace, IPC_TIMEOUT_MS, hostId, session, input),
   herdrCreateTab: (hostId, session, input) =>

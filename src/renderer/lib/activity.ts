@@ -88,10 +88,14 @@ export type HerdrConnState =
   | string;
 
 /**
- * Precedence: meta loading (cyan diagonal) → agent working/blocked (amber snake /
- * crimson arrow) → connection degraded (steel diagonal) → done (green static)
- * → lost/failed (crimson static) → idle (cyan ripple — waiting on you)
- * → unknown (green static "connected").
+ * Herdr agent_status is (AgentState, seen):
+ *   Idle+!seen → "done"  (finished turn, waiting for you to look)
+ *   Idle+seen  → "idle"  (you've looked; quiet)
+ *   Working / Blocked / Unknown map 1:1.
+ *
+ * Precedence: meta loading (cyan diagonal, first fetch only) → working/blocked
+ * → done (amber ripple — attention until open marks seen) → connection degraded
+ * → lost/failed → idle (static steel — no animation; fleet-safe) → unknown green.
  * Each wave state owns a distinct (tone, pattern) pair so states read apart
  * by shape, not just color.
  */
@@ -110,19 +114,21 @@ export function herdrActivity(input: {
   if (agent === "blocked") {
     return { mode: "wave", tone: "crimson", pattern: "arrow-up", label: "blocked" };
   }
+  // Unseen idle: herdr's "done" = waiting for the operator to look. Wave until
+  // open marks the pane seen (done → idle). Must not be static green — that
+  // read as "settled" and never cleared when focus propagation was missing.
+  if (agent === "done") {
+    return { mode: "wave", tone: "amber", pattern: "ripple", label: "done — waiting for look" };
+  }
   if (input.connState === "degraded") {
     return { mode: "wave", tone: "steel", pattern: "diagonal", label: "degraded" };
-  }
-  if (agent === "done") {
-    return { mode: "static", tone: "green", label: "done" };
   }
   if (input.connState === "lost" || input.connState === "failed" || input.metaStatus === "error") {
     return { mode: "static", tone: "crimson", label: input.metaStatus === "error" ? "error" : String(input.connState) };
   }
-  // Idle mirrors herdr's sidebar "waiting on you" cue: animated cyan ripple,
-  // clearly distinct from done's settled green dot.
+  // Seen idle: quiet. Static — never animate every idle card in a fleet.
   if (agent === "idle") {
-    return { mode: "wave", tone: "cyan", pattern: "ripple", label: "idle" };
+    return { mode: "static", tone: "steel", label: "idle" };
   }
   // Quiet healthy card: green static (connected, no agent report).
   if (agent === "unknown" || !agent) {
