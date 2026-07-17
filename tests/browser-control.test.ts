@@ -45,6 +45,11 @@ import {
   type BrowserViewAdapter,
   type BrowserViewHandle,
 } from "../src/main/vellum/browser/sessions";
+import {
+  BROWSER_CAPABILITY_ACTIONS,
+  makeBrowserCapabilityRegistry,
+  type BrowserCapabilityRegistry,
+} from "../src/main/vellum/browser/capabilities";
 
 const REF = "vellum://canvas/work?node=n1";
 const DEFAULT_TARGET: ResolvedPageTarget = {
@@ -242,13 +247,17 @@ describe("token handling", () => {
 describe("control route handlers", () => {
   let root: string;
   let sessionCounter: number;
+  let requestCounter: number;
+  const capabilityRegistries: BrowserCapabilityRegistry[] = [];
   const TOKEN = "test-token";
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-control-"));
     sessionCounter = 0;
+    requestCounter = 0;
   });
   afterEach(async () => {
+    for (const registry of capabilityRegistries.splice(0)) registry.close();
     await rm(root, { recursive: true, force: true });
   });
 
@@ -268,8 +277,23 @@ describe("control route handlers", () => {
       Date.now,
       () => `session-${++sessionCounter}`,
     );
+    const capabilities = makeBrowserCapabilityRegistry();
+    capabilityRegistries.push(capabilities);
+    const principal = capabilities.createPrincipal();
+    const grant = capabilities.issue(principal, {
+      actions: BROWSER_CAPABILITY_ACTIONS,
+      targets: [{
+        ref: REF,
+        profile: DEFAULT_TARGET.profile,
+        exactOrigins: [new URL(DEFAULT_TARGET.url).origin],
+      }],
+      ttlMs: 60_000,
+      maxUses: 10_000,
+      maxInFlight: 32,
+    });
     const handlers = makeControlHandlers({
       sessions,
+      capabilities,
       resolvePageTarget,
       version: "0.0.0-test",
       canvasesDir: join(root, "canvases"),
@@ -282,14 +306,23 @@ describe("control route handlers", () => {
       body?: unknown,
       token: string | null = TOKEN,
       signal?: AbortSignal,
+      capability: string | null = grant.secret,
+      requestId: string | null = (++requestCounter).toString(16).padStart(32, "0"),
     ) =>
       dispatchControlRequest(
         handlers,
         TOKEN,
-        { method, path, token: token ?? undefined, body },
+        {
+          method,
+          path,
+          token: token ?? undefined,
+          capability: capability ?? undefined,
+          requestId: requestId ?? undefined,
+          body,
+        },
         signal,
       );
-    return { call, sessions };
+    return { call, sessions, capabilities, grant };
   };
 
   it("authenticates every route and rejects unknown routes", async () => {
@@ -310,6 +343,188 @@ describe("control route handlers", () => {
       expect(Either.isRight(decoded)).toBe(true);
       if (Either.isRight(decoded)) expect(decoded.right).toEqual({ status: "ok" });
     }
+  });
+
+  it("requires a capability and UUID request id on every protected route", async () => {
+    const { call, grant } = makeStack();
+    expect(await call("GET", "/profiles", undefined, TOKEN, undefined, null)).toMatchObject({
+      status: 401,
+      envelope: { ok: false, error: { _tag: "unauthorized" } },
+    });
+    expect(
+      await call("GET", "/profiles", undefined, TOKEN, undefined, grant.secret, null),
+    ).toMatchObject({
+      status: 400,
+      envelope: { ok: false, error: { _tag: "bad_request" } },
+    });
+    expect(
+      await call("GET", "/profiles", undefined, TOKEN, undefined, grant.secret, "not-a-uuid"),
+    ).toMatchObject({
+      status: 400,
+      envelope: { ok: false, error: { _tag: "bad_request" } },
+    });
+  });
+
+  it("enforces action grants and rejects replayed request ids", async () => {
+    const { call, capabilities } = makeStack();
+    const principal = capabilities.createPrincipal();
+    const profilesOnly = capabilities.issue(principal, {
+      actions: ["profiles"],
+      targets: [{
+        ref: REF,
+        profile: DEFAULT_TARGET.profile,
+        exactOrigins: [new URL(DEFAULT_TARGET.url).origin],
+      }],
+      ttlMs: 60_000,
+      maxUses: 4,
+      maxInFlight: 1,
+    });
+    const requestId = "a".repeat(32);
+    expect(
+      await call("GET", "/profiles", undefined, TOKEN, undefined, profilesOnly.secret, requestId),
+    ).toMatchObject({ status: 200, envelope: { ok: true } });
+    expect(
+      await call("GET", "/pages", undefined, TOKEN, undefined, profilesOnly.secret),
+    ).toMatchObject({
+      status: 403,
+      envelope: { ok: false, error: { _tag: "forbidden" } },
+    });
+    expect(
+      await call("GET", "/profiles", undefined, TOKEN, undefined, profilesOnly.secret, requestId),
+    ).toMatchObject({
+      status: 403,
+      envelope: { ok: false, error: { _tag: "forbidden" } },
+    });
+  });
+
+  it("accepts only query-free origin-form request targets", async () => {
+    const { call } = makeStack();
+    for (const path of [
+      "/profiles?include=all",
+      "/profiles#fragment",
+      "//profiles",
+      "http://control.local/profiles",
+      "*",
+    ]) {
+      expect(await call("GET", path)).toMatchObject({
+        status: 400,
+        envelope: { ok: false, error: { _tag: "bad_request" } },
+      });
+    }
+  });
+
+  it("reuses an already bound warm owner session", async () => {
+    const { call } = makeStack();
+    const first = await call("POST", "/open", { ref: REF });
+    const second = await call("POST", "/open", { ref: REF });
+    expect(first).toMatchObject({ status: 200, envelope: { ok: true } });
+    expect(second).toMatchObject({ status: 200, envelope: { ok: true } });
+    if (!first.envelope.ok || !second.envelope.ok) throw new Error("open failed");
+    expect((second.envelope.data as { sessionId: string }).sessionId).toBe(
+      (first.envelope.data as { sessionId: string }).sessionId,
+    );
+  });
+
+  it("lists only bound owner generations and rebinds a closed warm session", async () => {
+    const canvasesDir = join(root, "canvases");
+    await mkdir(canvasesDir, { recursive: true });
+    await writeFile(
+      join(canvasesDir, "work.canvas"),
+      JSON.stringify({
+        nodes: [{
+          id: "n1",
+          type: "link",
+          url: DEFAULT_TARGET.url,
+          x: 0,
+          y: 0,
+          width: 400,
+          height: 300,
+          ether: {
+            entity: { kind: "page" },
+            browser: { profile: DEFAULT_TARGET.profile },
+          },
+        }],
+        edges: [],
+      }),
+    );
+    const { call, sessions, capabilities, grant } = makeStack();
+    const opened = await call("POST", "/open", { ref: REF });
+    if (!opened.envelope.ok) throw new Error("open failed");
+    const sessionId = (opened.envelope.data as { sessionId: string }).sessionId;
+
+    const siblingPrincipal = capabilities.createPrincipal();
+    const sibling = capabilities.issue(siblingPrincipal, {
+      actions: ["sessions", "pages"],
+      targets: [{
+        ref: REF,
+        profile: DEFAULT_TARGET.profile,
+        exactOrigins: [new URL(DEFAULT_TARGET.url).origin],
+      }],
+      ttlMs: 60_000,
+      maxUses: 4,
+      maxInFlight: 1,
+    });
+    expect(
+      await call("GET", "/sessions", undefined, TOKEN, undefined, sibling.secret),
+    ).toMatchObject({ status: 200, envelope: { ok: true, data: [] } });
+    expect(
+      await call("GET", "/pages", undefined, TOKEN, undefined, sibling.secret),
+    ).toMatchObject({
+      status: 200,
+      envelope: { ok: true, data: [{ ref: REF, sessionId: null }] },
+    });
+
+    expect(await call("POST", "/close", { sessionId })).toMatchObject({
+      status: 200,
+      envelope: { ok: true },
+    });
+    expect(sessions.stateForOwner(grant.ownerId, sessionId)).toMatchObject({
+      ok: true,
+      data: { state: "detached" },
+    });
+    expect(await call("GET", "/sessions")).toMatchObject({
+      status: 200,
+      envelope: { ok: true, data: [] },
+    });
+    expect(await call("GET", "/pages")).toMatchObject({
+      status: 200,
+      envelope: { ok: true, data: [{ ref: REF, sessionId: null }] },
+    });
+    expect(await call("POST", "/eval", { sessionId, code: "1" })).toMatchObject({
+      status: 403,
+      envelope: { ok: false, error: { _tag: "forbidden" } },
+    });
+
+    const reopened = await call("POST", "/open", { ref: REF });
+    expect(reopened).toMatchObject({ status: 200, envelope: { ok: true } });
+    if (!reopened.envelope.ok) throw new Error("reopen failed");
+    expect((reopened.envelope.data as { sessionId: string }).sessionId).toBe(sessionId);
+    expect(await call("GET", "/sessions")).toMatchObject({
+      status: 200,
+      envelope: { ok: true, data: [{ sessionId, ref: REF }] },
+    });
+    expect(await call("GET", "/pages")).toMatchObject({
+      status: 200,
+      envelope: { ok: true, data: [{ ref: REF, sessionId }] },
+    });
+  });
+
+  it("destroys owner sessions when the canonical target changes during open", async () => {
+    let resolutions = 0;
+    const resolver: PageTargetResolver = async (ref) => {
+      const resolved = await resolverFor()(ref);
+      if (!resolved.ok) return resolved;
+      resolutions += 1;
+      return resolutions === 1
+        ? resolved
+        : { ok: true, data: { ...resolved.data, url: "https://example.com/changed" } };
+    };
+    const { call, sessions, grant } = makeStack(makeSpyAdapter().adapter, resolver);
+    expect(await call("POST", "/open", { ref: REF })).toMatchObject({
+      status: 403,
+      envelope: { ok: false, error: { _tag: "forbidden" } },
+    });
+    expect(sessions.listForOwner(grant.ownerId)).toMatchObject({ ok: true, data: [] });
   });
 
   it("opens by canonical ref then uses the returned generation handle", async () => {
@@ -429,6 +644,22 @@ describe("control route handlers", () => {
       expect(response.status).toBe(400);
       if (!response.envelope.ok) expect(response.envelope.error._tag).toBe("bad_request");
     }
+    expect(resolutions).toBe(0);
+  });
+
+  it("rejects an out-of-scope canonical ref before document resolution", async () => {
+    let resolutions = 0;
+    const resolver: PageTargetResolver = async (ref) => {
+      resolutions += 1;
+      return resolverFor()(ref);
+    };
+    const { call } = makeStack(makeSpyAdapter().adapter, resolver);
+    expect(
+      await call("POST", "/open", { ref: "vellum://canvas/work?node=other" }),
+    ).toMatchObject({
+      status: 403,
+      envelope: { ok: false, error: { _tag: "forbidden" } },
+    });
     expect(resolutions).toBe(0);
   });
 

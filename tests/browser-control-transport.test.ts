@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { chmodSync } from "node:fs";
 import { access, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
@@ -7,8 +8,10 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CONTROL_CAPABILITY_ENV,
+  CONTROL_CAPABILITY_HEADER,
   CONTROL_MAX_BODY_BYTES,
   CONTROL_MAX_HEADER_BYTES,
+  CONTROL_REQUEST_ID_HEADER,
   CONTROL_TOKEN_HEADER,
   controlDir,
   controlShotsDir,
@@ -28,11 +31,17 @@ import {
   type BrowserViewHandle,
 } from "../src/main/vellum/browser/sessions";
 import type { PageTargetResolver } from "../src/main/vellum/browser/page-target";
+import {
+  BROWSER_CAPABILITY_ACTIONS,
+  makeBrowserCapabilityRegistry,
+  type BrowserCapabilityRegistry,
+} from "../src/main/vellum/browser/capabilities";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const TEST_ROOT_PREFIX = "/tmp/vct-";
 const roots: string[] = [];
 const servers: BrowserControlServer[] = [];
+const capabilityRegistries: BrowserCapabilityRegistry[] = [];
 const rogueServers: HttpServer[] = [];
 const PAGE_REF = "vellum://canvas/work?node=cli-node";
 const resolvePageTarget: PageTargetResolver = async (ref) =>
@@ -86,10 +95,32 @@ const startStack = async (
   readonly server: BrowserControlServer;
   readonly sessions: BrowserSessionService;
   readonly token: string;
+  readonly capability: string;
+  readonly ownerId: string;
 }> => {
   const sessions = makeSessions(root);
+  const capabilities = makeBrowserCapabilityRegistry();
+  capabilityRegistries.push(capabilities);
+  const principal = capabilities.createPrincipal();
+  const grant = capabilities.issue(principal, {
+    actions: BROWSER_CAPABILITY_ACTIONS,
+    targets: [{
+      ref: PAGE_REF,
+      profile: "personal",
+      exactOrigins: ["https://example.com"],
+    }],
+    ttlMs: 60_000,
+    maxUses: 10_000,
+    maxInFlight: 32,
+  });
   const server = await startBrowserControlServer(
-    { sessions, resolvePageTarget: resolver, version: "transport-test", home: root },
+    {
+      sessions,
+      capabilities,
+      resolvePageTarget: resolver,
+      version: "transport-test",
+      home: root,
+    },
     runtime,
   );
   servers.push(server);
@@ -97,8 +128,19 @@ const startStack = async (
     server,
     sessions,
     token: (await readFile(controlTokenPath(root), "utf8")).trim(),
+    capability: grant.secret,
+    ownerId: grant.ownerId,
   };
 };
+
+const capabilityHeaders = (
+  token: string,
+  capability: string,
+): ReadonlyArray<readonly [string, string]> => [
+  [CONTROL_TOKEN_HEADER, token],
+  [CONTROL_CAPABILITY_HEADER, capability],
+  [CONTROL_REQUEST_ID_HEADER, randomUUID()],
+];
 
 const rawExchange = (
   socketPath: string,
@@ -195,6 +237,7 @@ const runCli = (
 
 afterEach(async () => {
   for (const server of servers.splice(0)) server.close();
+  for (const registry of capabilityRegistries.splice(0)) registry.close();
   for (const server of rogueServers.splice(0)) server.close();
   for (const root of roots.splice(0)) {
     if (!root.startsWith(TEST_ROOT_PREFIX)) {
@@ -264,6 +307,82 @@ describe("browser control Unix transport", () => {
     });
   });
 
+  it("rejects missing capability metadata before waiting for a protected body", async () => {
+    const root = await newRoot();
+    const { server, token, capability } = await startStack(root);
+    const cases = [
+      {
+        headers: [[CONTROL_TOKEN_HEADER, token]] as const,
+        status: 401,
+        tag: "unauthorized",
+      },
+      {
+        headers: [
+          [CONTROL_TOKEN_HEADER, token],
+          [CONTROL_CAPABILITY_HEADER, capability],
+        ] as const,
+        status: 400,
+        tag: "bad_request",
+      },
+    ];
+    for (const testCase of cases) {
+      const started = Date.now();
+      const response = await rawExchange(
+        server.socketPath,
+        [
+          requestHead("POST", "/open", [
+            ...testCase.headers,
+            ["Content-Type", "application/json"],
+            ["Content-Length", "100"],
+          ]),
+          "{",
+        ],
+        false,
+      );
+      expect(Date.now() - started).toBeLessThan(3_000);
+      expect(statusOf(response)).toBe(testCase.status);
+      expect(envelopeOf(response)).toMatchObject({
+        ok: false,
+        error: { _tag: testCase.tag },
+      });
+    }
+  });
+
+  it("keeps doctor token-only and rejects non-origin-form or decorated targets", async () => {
+    const root = await newRoot();
+    const { server, token } = await startStack(root);
+    const doctor = await rawExchange(server.socketPath, [
+      requestHead("GET", "/doctor", [[CONTROL_TOKEN_HEADER, token]]),
+    ], true);
+    expect(statusOf(doctor)).toBe(200);
+
+    for (const target of [
+      "http://control.local/doctor",
+      "//doctor",
+      "/doctor?verbose=1",
+      "/doctor#fragment",
+      "*",
+    ]) {
+      const response = await rawExchange(server.socketPath, [
+        requestHead("GET", target, [[CONTROL_TOKEN_HEADER, token]]),
+      ]).catch((error: unknown) => {
+        throw new Error(
+          `request-target probe failed for ${JSON.stringify(target)}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+      expect(statusOf(response)).toBe(400);
+      expect(envelopeOf(response)).toMatchObject({
+        ok: false,
+        error: { _tag: "bad_request" },
+      });
+    }
+
+    const normalizedAlias = await rawExchange(server.socketPath, [
+      requestHead("GET", "/nested/../doctor", [[CONTROL_TOKEN_HEADER, token]]),
+    ]);
+    expect(statusOf(normalizedAlias)).toBe(404);
+  });
+
   it("accepts the fixed transport header only, never generic Authorization", async () => {
     const root = await newRoot();
     const { server, token } = await startStack(root);
@@ -280,12 +399,12 @@ describe("browser control Unix transport", () => {
 
   it("rejects a declared oversize body without waiting for body completion", async () => {
     const root = await newRoot();
-    const { server, token, sessions } = await startStack(root);
+    const { server, token, capability, ownerId, sessions } = await startStack(root);
     const response = await rawExchange(
       server.socketPath,
       [
         requestHead("POST", "/open", [
-          [CONTROL_TOKEN_HEADER, token],
+          ...capabilityHeaders(token, capability),
           ["Content-Type", "application/json"],
           ["Content-Length", String(CONTROL_MAX_BODY_BYTES + 1)],
         ]),
@@ -294,16 +413,16 @@ describe("browser control Unix transport", () => {
     );
 
     expect(statusOf(response)).toBe(413);
-    expect(sessions.list()).toMatchObject({ ok: true, data: [] });
+    expect(sessions.listForOwner(ownerId)).toMatchObject({ ok: true, data: [] });
   });
 
   it("rejects a streamed oversize body before dispatch", async () => {
     const root = await newRoot();
-    const { server, token, sessions } = await startStack(root);
+    const { server, token, capability, ownerId, sessions } = await startStack(root);
     const chunk = Buffer.alloc(CONTROL_MAX_BODY_BYTES + 1, 0x61);
     const response = await rawExchange(server.socketPath, [
       requestHead("POST", "/open", [
-        [CONTROL_TOKEN_HEADER, token],
+        ...capabilityHeaders(token, capability),
         ["Content-Type", "application/json"],
         ["Transfer-Encoding", "chunked"],
       ]),
@@ -314,15 +433,15 @@ describe("browser control Unix transport", () => {
 
     expect(statusOf(response)).toBe(413);
     expect(envelopeOf(response)).toMatchObject({ ok: false, error: { _tag: "bad_request" } });
-    expect(sessions.list()).toMatchObject({ ok: true, data: [] });
+    expect(sessions.listForOwner(ownerId)).toMatchObject({ ok: true, data: [] });
   });
 
   it("returns a typed bad request for authenticated malformed JSON", async () => {
     const root = await newRoot();
-    const { server, token } = await startStack(root);
+    const { server, token, capability } = await startStack(root);
     const response = await rawExchange(server.socketPath, [
       requestHead("POST", "/open", [
-        [CONTROL_TOKEN_HEADER, token],
+        ...capabilityHeaders(token, capability),
         ["Content-Type", "application/json"],
         ["Content-Length", "1"],
       ]),
@@ -346,7 +465,7 @@ describe("browser control Unix transport", () => {
 
   it("bounds active handlers and the whole handler deadline", async () => {
     const root = await newRoot();
-    const { server, token } = await startStack(root, {
+    const { server, token, capability } = await startStack(root, {
       chmodSocket: chmodSync,
       maxActiveHandlers: 1,
       handlerTimeoutMs: 80,
@@ -358,7 +477,7 @@ describe("browser control Unix transport", () => {
     });
     held.write(
       requestHead("POST", "/open", [
-        [CONTROL_TOKEN_HEADER, token],
+        ...capabilityHeaders(token, capability),
         ["Content-Type", "application/json"],
         ["Content-Length", "100"],
       ]) + "{",
@@ -384,7 +503,7 @@ describe("browser control Unix transport", () => {
     const body = JSON.stringify({ ref: PAGE_REF });
     const response = await rawExchange(timed.server.socketPath, [
       requestHead("POST", "/open", [
-        [CONTROL_TOKEN_HEADER, timed.token],
+        ...capabilityHeaders(timed.token, timed.capability),
         ["Content-Type", "application/json"],
         ["Content-Length", String(Buffer.byteLength(body))],
       ]),
@@ -405,7 +524,7 @@ describe("browser control Unix transport", () => {
       await gate;
       return resolvePageTarget(ref);
     };
-    const { server, token, sessions } = await startStack(root, undefined, delayed);
+    const { server, token, capability, ownerId, sessions } = await startStack(root, undefined, delayed);
     const body = JSON.stringify({ ref: PAGE_REF });
     const client = createConnection(server.socketPath);
     await new Promise<void>((resolveConnect, rejectConnect) => {
@@ -414,7 +533,7 @@ describe("browser control Unix transport", () => {
     });
     client.write(
       requestHead("POST", "/open", [
-        [CONTROL_TOKEN_HEADER, token],
+        ...capabilityHeaders(token, capability),
         ["Content-Type", "application/json"],
         ["Content-Length", String(Buffer.byteLength(body))],
       ]) + body,
@@ -423,7 +542,7 @@ describe("browser control Unix transport", () => {
     client.destroy();
     releaseResolver();
     await new Promise((resolveWait) => setTimeout(resolveWait, 40));
-    expect(sessions.list()).toMatchObject({ ok: true, data: [] });
+    expect(sessions.listForOwner(ownerId)).toMatchObject({ ok: true, data: [] });
   });
 
   it("bounds CLI response admission/accumulation and its wall-clock deadline", async () => {
@@ -515,12 +634,12 @@ describe("browser control Unix transport", () => {
 
   it("keeps the installed browser CLI compatible with under-cap chunked JSON", async () => {
     const root = await newRoot();
-    const { sessions } = await startStack(root);
+    const { sessions, capability, ownerId } = await startStack(root);
     const result = await runCli(root, [
       "open",
       PAGE_REF,
       "--json",
-    ], { [CONTROL_CAPABILITY_ENV]: "A".repeat(43) });
+    ], { [CONTROL_CAPABILITY_ENV]: capability });
 
     expect(result.code, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
@@ -528,7 +647,7 @@ describe("browser control Unix transport", () => {
       data: { ref: PAGE_REF, nodeId: "cli-node", url: "https://example.com/" },
     });
     const sessionId = (JSON.parse(result.stdout) as { data: { sessionId: string } }).data.sessionId;
-    expect(sessions.state(sessionId)).toMatchObject({
+    expect(sessions.stateForOwner(ownerId, sessionId)).toMatchObject({
       ok: true,
       data: { ref: PAGE_REF, nodeId: "cli-node" },
     });
