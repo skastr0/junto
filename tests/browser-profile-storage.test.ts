@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { Effect, Either } from "effect";
 import {
   browserProfileQuarantinePath,
   BrowserProfileStorageError,
@@ -27,7 +28,10 @@ import {
   type BrowserProfileStorageSessionControl,
 } from "../src/main/vellum/browser/profile-storage";
 import { makeBrowserProfileGate, type BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
-import type { BrowserProfilePendingWipe } from "../src/main/vellum/browser/profiles";
+import {
+  makeBrowserProfileService,
+  type BrowserProfilePendingWipe,
+} from "../src/main/vellum/browser/profiles";
 import type {
   BrowserProfileQuiescenceSummary,
   BrowserResult,
@@ -49,6 +53,8 @@ interface FakeSession extends BrowserProfileStorageSession {
   storagePath: string | null;
   persistent: boolean;
   failAt: string | undefined;
+  pendingAt: string | undefined;
+  pendingOperation: Promise<void> | undefined;
 }
 
 interface Harness {
@@ -86,6 +92,8 @@ describe("browser profile storage lifecycle", () => {
     storagePath: layout.storagePath,
     persistent: true,
     failAt: undefined,
+    pendingAt: undefined,
+    pendingOperation: undefined,
     getStoragePath() {
       calls.push("getStoragePath");
       if (this.failAt === "getStoragePath") throw new Error("private storage path");
@@ -99,22 +107,27 @@ describe("browser profile storage lifecycle", () => {
     flushStorageData() {
       calls.push("flushStorageData");
       if (this.failAt === "flushStorageData") throw new Error("private storage path");
+      if (this.pendingAt === "flushStorageData") return this.pendingOperation;
     },
     async closeAllConnections() {
       calls.push("closeAllConnections");
       if (this.failAt === "closeAllConnections") throw new Error("private connection data");
+      if (this.pendingAt === "closeAllConnections") await this.pendingOperation;
     },
     async clearData() {
       calls.push("clearData");
       if (this.failAt === "clearData") throw new Error("private cookie data");
+      if (this.pendingAt === "clearData") await this.pendingOperation;
     },
     async clearAuthCache() {
       calls.push("clearAuthCache");
       if (this.failAt === "clearAuthCache") throw new Error("private auth data");
+      if (this.pendingAt === "clearAuthCache") await this.pendingOperation;
     },
     async clearCache() {
       calls.push("clearCache");
       if (this.failAt === "clearCache") throw new Error("private cache data");
+      if (this.pendingAt === "clearCache") await this.pendingOperation;
     },
   });
 
@@ -473,6 +486,128 @@ describe("browser profile storage lifecycle", () => {
     ];
     expect(harness.calls.filter((call) => barriers.includes(call))).toEqual(
       barriers.slice(0, barriers.indexOf(method) + 1),
+    );
+  });
+
+  it.each([
+    ["flushStorageData", "flush"],
+    ["closeAllConnections", "connections"],
+    ["clearData", "browser_data"],
+    ["clearAuthCache", "auth_cache"],
+    ["clearCache", "http_cache"],
+  ] as const)("bounds a never-settling %s barrier and keeps admission blocked", async (method, stage) => {
+    const layout = await createLayout();
+    const harness = makeHarness(layout);
+    harness.session.pendingAt = method;
+    harness.session.pendingOperation = new Promise<void>(() => undefined);
+    const lifecycle = lifecycleFor(harness, {
+      liveClearStepTimeoutMs: 10,
+      liveClearAggregateTimeoutMs: 100,
+    });
+    const { pending } = await preparePending(layout, harness, lifecycle);
+    harness.calls.length = 0;
+
+    const error = await expectStorageError(
+      lifecycle.executeLive(pending),
+      "storage_clear_timeout",
+    );
+
+    expect(error.stage).toBe(stage);
+    expect(error.retryable).toBe(true);
+    expect(error.message).toBe("browser profile storage clear timed out");
+    expect(harness.gate.disposition(PROFILE)).toBe("quiescing");
+    const barriers = [
+      "flushStorageData",
+      "closeAllConnections",
+      "clearData",
+      "clearAuthCache",
+      "clearCache",
+    ];
+    expect(harness.calls.filter((call) => barriers.includes(call))).toEqual(
+      barriers.slice(0, barriers.indexOf(method) + 1),
+    );
+  });
+
+  it("observes a late storage rejection after timeout without leaking its reason", async () => {
+    const layout = await createLayout();
+    const harness = makeHarness(layout);
+    let rejectLate: ((reason: Error) => void) | undefined;
+    harness.session.pendingAt = "clearData";
+    harness.session.pendingOperation = new Promise<void>((_resolve, reject) => {
+      rejectLate = reject;
+    });
+    const lifecycle = lifecycleFor(harness, {
+      liveClearStepTimeoutMs: 10,
+      liveClearAggregateTimeoutMs: 100,
+    });
+    const { pending } = await preparePending(layout, harness, lifecycle);
+
+    const error = await expectStorageError(
+      lifecycle.executeLive(pending),
+      "storage_clear_timeout",
+    );
+    rejectLate?.(new Error("private credential cache path"));
+    await new Promise<void>((resolveTick) => setTimeout(resolveTick, 0));
+
+    expect(error).toMatchObject({
+      stage: "browser_data",
+      retryable: true,
+      message: "browser profile storage clear timed out",
+    });
+    expect(error.message).not.toContain("credential");
+    expect(error.message).not.toContain(layout.root);
+    expect(harness.gate.disposition(PROFILE)).toBe("quiescing");
+  });
+
+  it("releases the profile registry mutation chain after a live clear timeout", async () => {
+    const layout = await createLayout();
+    const harness = makeHarness(layout);
+    harness.session.pendingAt = "clearData";
+    harness.session.pendingOperation = new Promise<void>(() => undefined);
+    const lifecycle = lifecycleFor(harness, {
+      liveClearStepTimeoutMs: 10,
+      liveClearAggregateTimeoutMs: 100,
+    });
+    const registryRoot = join(layout.root, "registry");
+    const registry = makeBrowserProfileService(registryRoot, {
+      wipeLifecycle: lifecycle,
+      now: () => new Date("2026-07-17T12:00:00.000Z"),
+    });
+    await Effect.runPromise(registry.initialize);
+
+    const wipe = Effect.runPromise(Effect.either(registry.wipeProfile(PROFILE)));
+    const siblingTouch = Effect.runPromise(registry.touchProfile("work"));
+    let siblingDeadline: ReturnType<typeof setTimeout> | undefined;
+    const siblingProgress = Promise.race([
+      siblingTouch,
+      new Promise<never>((_resolve, reject) => {
+        siblingDeadline = setTimeout(
+          () => reject(new Error("sibling mutation remained blocked")),
+          500,
+        );
+      }),
+    ]).finally(() => {
+      if (siblingDeadline !== undefined) clearTimeout(siblingDeadline);
+    });
+    const [wipeResult] = await Promise.all([wipe, siblingProgress]);
+
+    expect(Either.isLeft(wipeResult)).toBe(true);
+    if (Either.isLeft(wipeResult)) {
+      expect(wipeResult.left).toMatchObject({
+        code: "pending_wipe",
+        message: "browser profile wipe incomplete; recovery required",
+      });
+    }
+    expect(harness.gate.disposition(PROFILE)).toBe("quiescing");
+    expect(JSON.parse(await readFile(join(registryRoot, "config.json"), "utf8"))).toMatchObject({
+      phase: "wipe_pending",
+      pendingWipe: {
+        profileId: PROFILE,
+        stage: "live_clear_pending",
+      },
+    });
+    expect(await Effect.runPromise(registry.partitionName("work"))).toBe(
+      "persist:vellum-profile-work",
     );
   });
 

@@ -9,6 +9,7 @@ import {
   unlink,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { performance } from "node:perf_hooks";
 import { isValidProfileId, partitionNameForProfile } from "@shared/browser";
 import type { BrowserCapabilityProfileRevocationReason } from "./capabilities";
 import type { BrowserProfileBlock, BrowserProfileGate } from "./profile-gate";
@@ -26,6 +27,8 @@ import type {
 const MAX_PATH_BYTES = 4_096;
 const MAX_DELETE_DEPTH = 128;
 const MAX_DELETE_ENTRIES = 1_000_000;
+const LIVE_CLEAR_STEP_TIMEOUT_MS = 15_000;
+const LIVE_CLEAR_AGGREGATE_TIMEOUT_MS = 45_000;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const QUARANTINE_PREFIX = ".vellum-wipe-";
@@ -56,6 +59,7 @@ export type BrowserProfileStorageErrorCode =
   | "quiescence_failed"
   | "quiescence_timeout"
   | "storage_clear_failed"
+  | "storage_clear_timeout"
   | "collision"
   | "filesystem_failed"
   | "delete_limit"
@@ -74,6 +78,7 @@ const ERROR_MESSAGES: Readonly<Record<BrowserProfileStorageErrorCode, string>> =
   quiescence_failed: "browser profile quiescence failed",
   quiescence_timeout: "browser profile quiescence timed out",
   storage_clear_failed: "browser profile storage clear failed",
+  storage_clear_timeout: "browser profile storage clear timed out",
   collision: "browser profile wipe quarantine collision",
   filesystem_failed: "browser profile storage filesystem operation failed",
   delete_limit: "browser profile storage delete limit exceeded",
@@ -102,7 +107,7 @@ export interface BrowserProfileStorageRootPaths {
 export interface BrowserProfileStorageSession {
   readonly getStoragePath: () => string | null;
   readonly isPersistent: () => boolean;
-  readonly flushStorageData: () => void;
+  readonly flushStorageData: () => void | Promise<void>;
   readonly closeAllConnections: () => Promise<void>;
   readonly clearData: () => Promise<void>;
   readonly clearAuthCache: () => Promise<void>;
@@ -162,6 +167,9 @@ export interface BrowserProfileStorageDependencies {
   readonly profileGate: BrowserProfileGate;
   readonly fileSystem?: Partial<BrowserProfileStorageFileSystem>;
   readonly failpoints?: BrowserProfileStorageFailpoints;
+  /** Test seams may shorten these bounds, but can never raise production limits. */
+  readonly liveClearStepTimeoutMs?: number;
+  readonly liveClearAggregateTimeoutMs?: number;
 }
 
 interface DirectoryIdentity {
@@ -279,6 +287,11 @@ const storageError = (
   retryable: boolean,
 ): BrowserProfileStorageError => new BrowserProfileStorageError(stage, code, retryable);
 
+const lowerBoundedTimeout = (candidate: number | undefined, maximum: number): number =>
+  candidate !== undefined && Number.isSafeInteger(candidate) && candidate > 0
+    ? Math.min(candidate, maximum)
+    : maximum;
+
 const quarantinePathFor = (storagePath: string, wipeId: string): string =>
   join(dirname(storagePath), `${QUARANTINE_PREFIX}${wipeId}`);
 
@@ -298,6 +311,8 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
   readonly #profileGate: BrowserProfileGate;
   readonly #fileSystem: BrowserProfileStorageFileSystem;
   readonly #failpoints: BrowserProfileStorageFailpoints;
+  readonly #liveClearStepTimeoutMs: number;
+  readonly #liveClearAggregateTimeoutMs: number;
   #prepared: PreparedWipe | undefined;
   #retainedBlock: RetainedBlock | undefined;
 
@@ -311,6 +326,14 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
       ...dependencies.fileSystem,
     });
     this.#failpoints = dependencies.failpoints ?? {};
+    this.#liveClearStepTimeoutMs = lowerBoundedTimeout(
+      dependencies.liveClearStepTimeoutMs,
+      LIVE_CLEAR_STEP_TIMEOUT_MS,
+    );
+    this.#liveClearAggregateTimeoutMs = lowerBoundedTimeout(
+      dependencies.liveClearAggregateTimeoutMs,
+      LIVE_CLEAR_AGGREGATE_TIMEOUT_MS,
+    );
   }
 
   async prepare(input: {
@@ -777,11 +800,12 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
   }
 
   async #clearLiveSession(session: BrowserProfileStorageSession): Promise<void> {
-    await this.#runClearBarrier("flush", () => session.flushStorageData());
-    await this.#runClearBarrier("connections", () => session.closeAllConnections());
-    await this.#runClearBarrier("browser_data", () => session.clearData());
-    await this.#runClearBarrier("auth_cache", () => session.clearAuthCache());
-    await this.#runClearBarrier("http_cache", () => session.clearCache());
+    const deadline = performance.now() + this.#liveClearAggregateTimeoutMs;
+    await this.#runClearBarrier("flush", deadline, () => session.flushStorageData());
+    await this.#runClearBarrier("connections", deadline, () => session.closeAllConnections());
+    await this.#runClearBarrier("browser_data", deadline, () => session.clearData());
+    await this.#runClearBarrier("auth_cache", deadline, () => session.clearAuthCache());
+    await this.#runClearBarrier("http_cache", deadline, () => session.clearCache());
   }
 
   async #runClearBarrier(
@@ -789,11 +813,34 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
       BrowserProfileStorageStage,
       "flush" | "connections" | "browser_data" | "auth_cache" | "http_cache"
     >,
+    aggregateDeadline: number,
     operation: () => void | Promise<void>,
   ): Promise<void> {
-    try {
-      await operation();
-    } catch {
+    const timeoutMs = Math.min(
+      this.#liveClearStepTimeoutMs,
+      Math.max(0, aggregateDeadline - performance.now()),
+    );
+    if (timeoutMs <= 0) {
+      throw storageError(stage, "storage_clear_timeout", true);
+    }
+
+    const observed = Promise.resolve()
+      .then(operation)
+      .then(
+        () => ({ status: "complete" as const }),
+        () => ({ status: "failed" as const }),
+      );
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<{ readonly status: "timeout" }>((resolveTimeout) => {
+      timeout = setTimeout(() => resolveTimeout({ status: "timeout" }), timeoutMs);
+    });
+    const outcome = await Promise.race([observed, expired]);
+    if (timeout !== undefined) clearTimeout(timeout);
+
+    if (outcome.status === "timeout") {
+      throw storageError(stage, "storage_clear_timeout", true);
+    }
+    if (outcome.status === "failed") {
       throw storageError(stage, "storage_clear_failed", true);
     }
   }
