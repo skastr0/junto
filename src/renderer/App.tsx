@@ -236,6 +236,11 @@ export function App() {
     const boot = async () => {
       try {
         state$.snapshots.set(await vellum.getSnapshots());
+        try {
+          state$.usage.set(await vellum.getUsage());
+        } catch {
+          // Fail open: usage HUD stays hidden until a successful push.
+        }
         const list = await vellum.listCanvases();
         state$.canvases.set(list);
         if (!nodeRefNavigation.hasReceived()) {
@@ -264,6 +269,7 @@ export function App() {
     const stopKernel = startKernelBridge();
 
     const offSnapshots = vellum.onSnapshotsChanged((state) => state$.snapshots.set(state));
+    const offUsage = vellum.onUsageChanged((state) => state$.usage.set(state));
     const offCanvas = vellum.onCanvasChanged((name) => {
       // Ignore the echo of our own recent write; only reload true external edits.
       if (name !== state$.canvasName.peek()) return;
@@ -283,6 +289,7 @@ export function App() {
     return () => {
       offNodeRef();
       offSnapshots();
+      offUsage();
       offCanvas();
       stopKernel();
     };

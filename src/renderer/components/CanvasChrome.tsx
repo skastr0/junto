@@ -6,10 +6,13 @@ import { searchText } from "../lib/presentation";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { HUE } from "../lib/theme";
+import { UsageHud } from "./UsageHud";
 
 function CanvasReadout({ name, countLabel, edges, regions }: { readonly name: string; readonly countLabel: string; readonly edges: number; readonly regions: number }) {
+  // Absolute positioning lives on the shared top-left stack in CanvasChrome
+  // so UsageHud can sit above this readout without fighting its own offsets.
   return (
-    <div className="field-readout pointer-events-none absolute left-5 top-5 z-20 hidden w-[230px] md:block">
+    <div className="field-readout pointer-events-none w-[230px]">
       <div className="field-readout__eyebrow"><span className="field-readout__signal" />canvas</div>
       <div className="field-readout__title">{name || "portfolio"}</div>
       <div className="field-readout__rule" />
@@ -121,7 +124,10 @@ export function CanvasChrome() {
 
   return (
     <>
-      <CanvasReadout name={name} countLabel={countLabel} edges={visibleEdges} regions={regions.length} />
+      <div className="pointer-events-none absolute left-5 top-5 z-20 hidden flex-col gap-2 md:flex">
+        <UsageHud />
+        <CanvasReadout name={name} countLabel={countLabel} edges={visibleEdges} regions={regions.length} />
+      </div>
       <EdgeLegend />
       <CanvasHint counts={flagCounts} />
       <FilterTray />

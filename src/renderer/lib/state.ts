@@ -2,9 +2,11 @@ import { observable } from "@legendapp/state";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import type { SnapshotState } from "@shared/entities";
 import type { CanvasSummary, DigestResult } from "@shared/ipc";
+import type { UsageState } from "@shared/usage";
 
 export const EMPTY_DOC: CanvasDoc = { nodes: [], edges: [] };
 export const EMPTY_SNAPSHOTS: SnapshotState = { bundles: [] };
+export const EMPTY_USAGE: UsageState = { snapshots: [] };
 
 // The document plane lives here as the single source of truth for persistence
 // and derived graph state. React Flow keeps its own copy for smooth
@@ -25,6 +27,8 @@ export const state$ = observable({
   // external reload — NOT on drag, which RF already reflects.
   docVersion: 0,
   snapshots: EMPTY_SNAPSHOTS as SnapshotState,
+  // Provider usage plane (codexbar). Fail-open empty until first push/boot load.
+  usage: EMPTY_USAGE as UsageState,
   digest: null as DigestResult | null,
   digestOpen: false,
   exporting: false,
