@@ -2,6 +2,8 @@
 // profile id validation, URL scheme allowlist.
 // No Node, no Electron — unit-tested and shared by main + renderer + CLI.
 
+import { BROWSER_MAX_WARM_SESSIONS_HARD } from "./browser-limits";
+
 export const DEFAULT_BROWSER_PROFILES = ["personal", "work"] as const;
 export type DefaultBrowserProfile = (typeof DEFAULT_BROWSER_PROFILES)[number];
 
@@ -121,7 +123,11 @@ export const warmPoolEvictions = (
   maxWarmSessions: number,
 ): ReadonlyArray<string> => {
   if (pool.some((e) => e.key === incomingKey)) return [];
-  const overBy = pool.length + 1 - Math.max(1, maxWarmSessions);
+  const boundedMaximum = Math.min(
+    BROWSER_MAX_WARM_SESSIONS_HARD,
+    Number.isFinite(maxWarmSessions) ? Math.max(1, Math.floor(maxWarmSessions)) : 1,
+  );
+  const overBy = pool.length + 1 - boundedMaximum;
   if (overBy <= 0) return [];
   return pool
     .filter((e) => !e.attached)

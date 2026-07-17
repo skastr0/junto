@@ -8,6 +8,10 @@ import {
   isValidProfileId,
   partitionNameForProfile,
 } from "@shared/browser";
+import {
+  BROWSER_MAX_VISIBLE_SURFACES_HARD,
+  BROWSER_MAX_WARM_SESSIONS_HARD,
+} from "@shared/browser-limits";
 
 // Browser profile registry under ~/.vellum/browser.
 // Document nodes store only profile *names*; this service owns config + dirs.
@@ -92,6 +96,11 @@ const toError = (error: unknown, code: BrowserProfileError["code"] = "io"): Brow
         code,
       });
 
+const boundedPositiveInteger = (value: unknown, fallback: number, hardMaximum: number): number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.max(1, Math.min(Math.floor(value), hardMaximum))
+    : fallback;
+
 const parseConfig = (raw: string): BrowserConfigFile => {
   const parsed = JSON.parse(raw) as Partial<BrowserConfigFile>;
   const base = defaultConfig();
@@ -118,14 +127,16 @@ const parseConfig = (raw: string): BrowserConfigFile => {
             ),
           )
         : {},
-    maxWarmSessions:
-      typeof parsed.maxWarmSessions === "number" && parsed.maxWarmSessions > 0
-        ? Math.floor(parsed.maxWarmSessions)
-        : base.maxWarmSessions,
-    maxVisibleSurfaces:
-      typeof parsed.maxVisibleSurfaces === "number" && parsed.maxVisibleSurfaces > 0
-        ? Math.floor(parsed.maxVisibleSurfaces)
-        : base.maxVisibleSurfaces,
+    maxWarmSessions: boundedPositiveInteger(
+      parsed.maxWarmSessions,
+      base.maxWarmSessions,
+      BROWSER_MAX_WARM_SESSIONS_HARD,
+    ),
+    maxVisibleSurfaces: boundedPositiveInteger(
+      parsed.maxVisibleSurfaces,
+      base.maxVisibleSurfaces,
+      BROWSER_MAX_VISIBLE_SURFACES_HARD,
+    ),
     profiles,
   };
 };

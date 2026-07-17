@@ -1,9 +1,13 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Either } from "effect";
 import { makeBrowserProfileService } from "../src/main/vellum/browser/profiles";
+import {
+  BROWSER_MAX_VISIBLE_SURFACES_HARD,
+  BROWSER_MAX_WARM_SESSIONS_HARD,
+} from "../src/shared/browser-limits";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(effect);
 
@@ -42,6 +46,20 @@ describe("browser profile registry", () => {
     expect(list.map((p) => p.id)).toContain("lab");
   });
 
+  it("clamps configured session and surface counts to process hard ceilings", async () => {
+    const svc = await fresh();
+    await run(svc.ensureDefaults);
+    const path = join(root, "config.json");
+    const raw = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    raw.maxWarmSessions = BROWSER_MAX_WARM_SESSIONS_HARD + 1;
+    raw.maxVisibleSurfaces = BROWSER_MAX_VISIBLE_SURFACES_HARD + 1;
+    await writeFile(path, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+
+    const config = await run(svc.readConfig);
+    expect(config.maxWarmSessions).toBe(BROWSER_MAX_WARM_SESSIONS_HARD);
+    expect(config.maxVisibleSurfaces).toBe(BROWSER_MAX_VISIBLE_SURFACES_HARD);
+  });
+
   it("rejects invalid profile ids", async () => {
     const svc = await fresh();
     await run(svc.ensureDefaults);
@@ -76,7 +94,6 @@ describe("browser profile registry", () => {
     const path = join(root, "config.json");
     const raw = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
     raw.canvasDefaults = { portfolio: "work" };
-    const { writeFile } = await import("node:fs/promises");
     await writeFile(path, `${JSON.stringify(raw, null, 2)}\n`);
     const resolved = await run(svc.resolveDefaultProfile("portfolio"));
     expect(resolved).toBe("work");

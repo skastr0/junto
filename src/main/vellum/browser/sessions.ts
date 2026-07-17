@@ -9,6 +9,19 @@ import {
   warmPoolEvictions,
   type BrowserSessionMachine,
 } from "@shared/browser";
+import {
+  BROWSER_CAPTURE_TIMEOUT_MS,
+  BROWSER_EVAL_TIMEOUT_MS,
+  BROWSER_MAX_ACTIVE_OPERATIONS,
+  BROWSER_MAX_ACTIVE_OPERATIONS_PER_SESSION,
+  BROWSER_MAX_ERROR_BYTES,
+  BROWSER_MAX_METADATA_BYTES,
+  BROWSER_MAX_TITLE_BYTES,
+  BROWSER_MAX_WARM_SESSIONS_HARD,
+  BROWSER_NAVIGATION_TIMEOUT_MS,
+  clampUtf8Bytes,
+  isValidBrowserSessionId,
+} from "@shared/browser-limits";
 import type { BrowserSessionInfo, BrowserSurfaceBounds } from "@shared/ipc";
 import { parseNodeRef } from "@shared/node-ref";
 import type { ResolvedPageTarget } from "./page-target";
@@ -49,7 +62,14 @@ export type BrowserViewAdapter = (
   events: BrowserViewEvents,
 ) => BrowserViewHandle;
 
-export type BrowserErrorCode = "invalid" | "not_found" | "forbidden" | "failed";
+export type BrowserErrorCode =
+  | "invalid"
+  | "not_found"
+  | "forbidden"
+  | "failed"
+  | "timeout"
+  | "cancelled"
+  | "resource_exhausted";
 
 export interface BrowserResultOk<T> {
   readonly ok: true;
@@ -62,6 +82,28 @@ export interface BrowserResultErr {
 }
 export type BrowserResult<T> = BrowserResultOk<T> | BrowserResultErr;
 
+type PowerfulOperationKind = "navigation" | "eval" | "screenshot";
+
+class BrowserOperationFailure extends Error {
+  constructor(
+    readonly code: Extract<BrowserErrorCode, "timeout" | "cancelled" | "not_found">,
+    message: string,
+  ) {
+    super(message);
+    this.name = "BrowserOperationFailure";
+  }
+}
+
+interface ActiveOperation {
+  readonly kind: PowerfulOperationKind;
+  sessionId: string;
+  readonly timeoutMs: number;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  readonly signal?: AbortSignal;
+  abortListener: (() => void) | undefined;
+  reject: ((failure: BrowserOperationFailure) => void) | undefined;
+}
+
 interface SessionEntry {
   sessionId: string;
   readonly ref: string;
@@ -72,6 +114,7 @@ interface SessionEntry {
   machine: BrowserSessionMachine;
   attached: boolean;
   navigationInFlight: string | undefined;
+  activeOperation: ActiveOperation | undefined;
   lastActiveAt: number;
   view: BrowserViewHandle;
 }
@@ -86,23 +129,6 @@ const err = (code: BrowserErrorCode, message: string): BrowserResultErr => ({
   code,
   message,
 });
-
-const EVAL_TIMEOUT_MS = 30_000;
-
-const withTimeout = <T>(promise: Promise<T>, ms: number, message: string): Promise<T> =>
-  new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
 
 const sameTarget = (left: ResolvedPageTarget, right: ResolvedPageTarget): boolean =>
   left.ref === right.ref &&
@@ -133,6 +159,7 @@ export class BrowserSessionService {
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly sessionIdByRef = new Map<string, string>();
   private readonly pendingOpenByRef = new Map<string, PendingOpen>();
+  private activeOperationCount = 0;
   private sink: ((session: BrowserSessionInfo) => void) | undefined;
 
   constructor(
@@ -146,17 +173,174 @@ export class BrowserSessionService {
     this.sink = sink;
   }
 
+  private releaseOperation(
+    entry: SessionEntry,
+    operation: ActiveOperation,
+    failure?: BrowserOperationFailure,
+  ): void {
+    if (entry.activeOperation !== operation) return;
+    entry.activeOperation = undefined;
+    if (operation.timer !== undefined) {
+      clearTimeout(operation.timer);
+      operation.timer = undefined;
+    }
+    if (operation.signal !== undefined && operation.abortListener !== undefined) {
+      operation.signal.removeEventListener("abort", operation.abortListener);
+      operation.abortListener = undefined;
+    }
+    this.activeOperationCount = Math.max(0, this.activeOperationCount - 1);
+    const reject = operation.reject;
+    operation.reject = undefined;
+    if (failure !== undefined) reject?.(failure);
+  }
+
+  private armOperationDeadline(entry: SessionEntry, operation: ActiveOperation): void {
+    if (operation.timer !== undefined) clearTimeout(operation.timer);
+    const timer = setTimeout(() => {
+      if (
+        entry.activeOperation !== operation ||
+        operation.timer !== timer ||
+        !this.isCurrent(entry)
+      ) {
+        return;
+      }
+      this.destroySession(
+        entry.sessionId,
+        new BrowserOperationFailure(
+          "timeout",
+          `${operation.kind} timed out after ${operation.timeoutMs}ms`,
+        ),
+      );
+    }, operation.timeoutMs);
+    operation.timer = timer;
+  }
+
+  private acquireOperation(
+    entry: SessionEntry,
+    kind: PowerfulOperationKind,
+    sessionId: string,
+    timeoutMs: number,
+    signal?: AbortSignal,
+    reject?: (failure: BrowserOperationFailure) => void,
+  ): BrowserResult<ActiveOperation> {
+    if (!this.isCurrent(entry) || entry.sessionId !== sessionId) {
+      return err("not_found", `no session for ${sessionId}`);
+    }
+    if (signal?.aborted === true) {
+      this.destroySession(
+        entry.sessionId,
+        new BrowserOperationFailure("cancelled", `${kind} cancelled`),
+      );
+      return err("cancelled", `${kind} cancelled`);
+    }
+    if (entry.activeOperation !== undefined) {
+      return err(
+        "resource_exhausted",
+        `session already has ${BROWSER_MAX_ACTIVE_OPERATIONS_PER_SESSION} powerful operation in flight`,
+      );
+    }
+    if (this.activeOperationCount >= BROWSER_MAX_ACTIVE_OPERATIONS) {
+      return err(
+        "resource_exhausted",
+        `browser operation capacity reached (${BROWSER_MAX_ACTIVE_OPERATIONS})`,
+      );
+    }
+
+    const operation: ActiveOperation = {
+      kind,
+      sessionId,
+      timeoutMs,
+      timer: undefined,
+      ...(signal !== undefined ? { signal } : {}),
+      abortListener: undefined,
+      reject,
+    };
+    entry.activeOperation = operation;
+    this.activeOperationCount += 1;
+    this.armOperationDeadline(entry, operation);
+    if (signal !== undefined) {
+      operation.abortListener = () => {
+        if (entry.activeOperation !== operation || !this.isCurrent(entry)) return;
+        this.destroySession(
+          entry.sessionId,
+          new BrowserOperationFailure("cancelled", `${kind} cancelled`),
+        );
+      };
+      signal.addEventListener("abort", operation.abortListener, { once: true });
+    }
+    return { ok: true, data: operation };
+  }
+
+  private retargetNavigation(
+    entry: SessionEntry,
+    operation: ActiveOperation,
+    sessionId: string,
+  ): void {
+    operation.sessionId = sessionId;
+    this.armOperationDeadline(entry, operation);
+  }
+
+  private async runPowerfulOperation<T>(input: {
+    readonly entry: SessionEntry;
+    readonly sessionId: string;
+    readonly kind: "eval" | "screenshot";
+    readonly timeoutMs: number;
+    readonly signal?: AbortSignal;
+    readonly run: () => Promise<T>;
+  }): Promise<BrowserResult<T>> {
+    let rejectFailure!: (failure: BrowserOperationFailure) => void;
+    const failed = new Promise<never>((_resolve, reject) => {
+      rejectFailure = reject;
+    });
+    const admitted = this.acquireOperation(
+      input.entry,
+      input.kind,
+      input.sessionId,
+      input.timeoutMs,
+      input.signal,
+      rejectFailure,
+    );
+    if (!admitted.ok) return admitted;
+    const operation = admitted.data;
+
+    try {
+      const value = await Promise.race([Promise.resolve().then(input.run), failed]);
+      if (
+        !this.isCurrent(input.entry) ||
+        input.entry.sessionId !== input.sessionId ||
+        input.entry.activeOperation !== operation
+      ) {
+        return err("not_found", `no session for ${input.sessionId}`);
+      }
+      this.releaseOperation(input.entry, operation);
+      return { ok: true, data: value };
+    } catch (error) {
+      if (error instanceof BrowserOperationFailure) {
+        return err(error.code, error.message);
+      }
+      if (!this.isCurrent(input.entry) || input.entry.sessionId !== input.sessionId) {
+        return err("not_found", `no session for ${input.sessionId}`);
+      }
+      this.releaseOperation(input.entry, operation);
+      return err("failed", error instanceof Error ? error.message : String(error));
+    }
+  }
+
   private info(entry: SessionEntry): BrowserSessionInfo {
     return {
       sessionId: entry.sessionId,
       ref: entry.ref,
       nodeId: entry.nodeId,
-      url: entry.url,
+      url: clampUtf8Bytes(entry.url, BROWSER_MAX_METADATA_BYTES),
       profile: entry.profile,
       state: entry.machine.state,
       attached: entry.attached,
-      ...(entry.machine.title !== undefined ? { title: entry.machine.title } : {}),
-      ...(entry.machine.lastError !== undefined ? { lastError: entry.machine.lastError } : {}),
+      ...(entry.machine.title !== undefined
+        ? { title: clampUtf8Bytes(entry.machine.title, BROWSER_MAX_TITLE_BYTES) }
+        : {}),
+      ...(entry.machine.lastError !== undefined
+        ? { lastError: clampUtf8Bytes(entry.machine.lastError, BROWSER_MAX_ERROR_BYTES) }
+        : {}),
     };
   }
 
@@ -194,13 +378,28 @@ export class BrowserSessionService {
     ) {
       return;
     }
+    const operation = entry.activeOperation;
+    if (
+      operation === undefined ||
+      operation.kind !== "navigation" ||
+      operation.sessionId !== sessionId
+    ) {
+      return;
+    }
+    this.releaseOperation(entry, operation);
     entry.navigationInFlight = undefined;
-    this.reduceCurrent(entry, event);
+    const boundedEvent =
+      event.type === "load_ok" && event.title !== undefined
+        ? { ...event, title: clampUtf8Bytes(event.title, BROWSER_MAX_TITLE_BYTES) }
+        : event.type === "load_fail"
+          ? { ...event, message: clampUtf8Bytes(event.message, BROWSER_MAX_ERROR_BYTES) }
+          : event;
+    this.reduceCurrent(entry, boundedEvent);
   }
 
   private updateGenerationUrl(entry: SessionEntry, sessionId: string, url: string): void {
     if (entry.sessionId !== sessionId || !this.isCurrent(entry)) return;
-    entry.url = url;
+    entry.url = clampUtf8Bytes(url, BROWSER_MAX_METADATA_BYTES);
     this.emit(entry);
   }
 
@@ -224,7 +423,7 @@ export class BrowserSessionService {
       } catch (error) {
         return err("failed", error instanceof Error ? error.message : String(error));
       }
-      if (candidate.length > 0 && candidate.length <= 256 && !this.sessions.has(candidate)) {
+      if (isValidBrowserSessionId(candidate) && !this.sessions.has(candidate)) {
         return { ok: true, data: candidate };
       }
     }
@@ -240,7 +439,7 @@ export class BrowserSessionService {
     if (!minted.ok) return minted;
     this.sessions.delete(entry.sessionId);
     entry.sessionId = minted.data;
-    entry.url = url;
+    entry.url = clampUtf8Bytes(url, BROWSER_MAX_METADATA_BYTES);
     this.sessions.set(entry.sessionId, entry);
     this.sessionIdByRef.set(entry.ref, entry.sessionId);
     return minted;
@@ -261,15 +460,43 @@ export class BrowserSessionService {
     }
     if (event.expectedSessionId !== undefined) {
       if (event.expectedSessionId !== entry.sessionId) return undefined;
-      entry.url = event.url;
+      const operation = entry.activeOperation;
+      if (
+        operation === undefined ||
+        operation.kind !== "navigation" ||
+        operation.sessionId !== entry.sessionId
+      ) {
+        this.destroySession(entry.sessionId);
+        return undefined;
+      }
+      entry.url = clampUtf8Bytes(event.url, BROWSER_MAX_METADATA_BYTES);
       entry.navigationInFlight = entry.sessionId;
       this.reduceCurrent(entry, { type: "load_start" });
       return entry.sessionId;
+    }
+    const active = entry.activeOperation;
+    if (active !== undefined && active.kind !== "navigation") {
+      this.destroySession(entry.sessionId);
+      return undefined;
     }
     const rotated = this.rotateGeneration(entry, event.url);
     if (!rotated.ok) {
       this.destroySession(entry.sessionId);
       return undefined;
+    }
+    if (active !== undefined) {
+      this.retargetNavigation(entry, active, rotated.data);
+    } else {
+      const admitted = this.acquireOperation(
+        entry,
+        "navigation",
+        rotated.data,
+        BROWSER_NAVIGATION_TIMEOUT_MS,
+      );
+      if (!admitted.ok) {
+        this.destroySession(entry.sessionId);
+        return undefined;
+      }
     }
     entry.navigationInFlight = rotated.data;
     this.reduceCurrent(entry, { type: "load_start" });
@@ -317,7 +544,10 @@ export class BrowserSessionService {
   }
 
   /** Same-ref callers share exactly one creation attempt and one sessionId. */
-  async open(target: ResolvedPageTarget): Promise<BrowserResult<BrowserSessionInfo>> {
+  async open(
+    target: ResolvedPageTarget,
+    signal?: AbortSignal,
+  ): Promise<BrowserResult<BrowserSessionInfo>> {
     const invalid = validateTarget(target);
     if (invalid !== undefined) return invalid;
 
@@ -328,7 +558,7 @@ export class BrowserSessionService {
         : err("invalid", "canonical page ref resolved to conflicting page metadata");
     }
 
-    const promise = this.openResolved(target);
+    const promise = this.openResolved(target, signal);
     const record: PendingOpen = { target, promise };
     this.pendingOpenByRef.set(target.ref, record);
     try {
@@ -342,6 +572,7 @@ export class BrowserSessionService {
 
   private async openResolved(
     target: ResolvedPageTarget,
+    signal?: AbortSignal,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     const existingId = this.sessionIdByRef.get(target.ref);
     const existing = existingId === undefined ? undefined : this.sessions.get(existingId);
@@ -365,7 +596,12 @@ export class BrowserSessionService {
     try {
       partition = await Effect.runPromise(this.profiles.partitionName(target.profile));
       const config = await Effect.runPromise(this.profiles.readConfig);
-      maxWarmSessions = config.maxWarmSessions;
+      maxWarmSessions = Math.min(
+        BROWSER_MAX_WARM_SESSIONS_HARD,
+        Number.isFinite(config.maxWarmSessions)
+          ? Math.max(1, Math.floor(config.maxWarmSessions))
+          : 1,
+      );
       await Effect.runPromise(this.profiles.touchProfile(target.profile));
     } catch (error) {
       return err("invalid", error instanceof Error ? error.message : String(error));
@@ -384,6 +620,12 @@ export class BrowserSessionService {
     )) {
       this.destroySession(sessionId);
     }
+    if (this.sessions.size >= maxWarmSessions) {
+      return err(
+        "resource_exhausted",
+        `warm browser session capacity reached (${maxWarmSessions}); detach a surface before opening another page`,
+      );
+    }
 
     const entry: SessionEntry = {
       sessionId: minted.data,
@@ -391,10 +633,11 @@ export class BrowserSessionService {
       nodeId: target.nodeId,
       profile: target.profile,
       targetUrl: target.url,
-      url: target.url,
+      url: clampUtf8Bytes(target.url, BROWSER_MAX_METADATA_BYTES),
       machine: initialBrowserSession(),
       attached: false,
-      navigationInFlight: minted.data,
+      navigationInFlight: undefined,
+      activeOperation: undefined,
       lastActiveAt: this.now(),
       view: undefined as unknown as BrowserViewHandle,
     };
@@ -413,21 +656,41 @@ export class BrowserSessionService {
         onNavigationUrl: (sessionId, url) => this.updateGenerationUrl(entry, sessionId, url),
       });
       this.register(entry);
+      const admitted = this.acquireOperation(
+        entry,
+        "navigation",
+        entry.sessionId,
+        BROWSER_NAVIGATION_TIMEOUT_MS,
+        signal,
+      );
+      if (!admitted.ok) {
+        if (this.isCurrent(entry)) this.destroySession(entry.sessionId);
+        return admitted;
+      }
+      entry.navigationInFlight = entry.sessionId;
       this.reduceCurrent(entry, { type: "open" });
-      entry.view.loadUrl(entry.url, entry.sessionId);
+      entry.view.loadUrl(target.url, entry.sessionId);
     } catch (error) {
-      this.unregister(entry);
-      try {
-        entry.view?.destroy();
-      } catch {
-        // Runtime construction already failed; cleanup remains best effort.
+      if (this.isCurrent(entry)) {
+        this.destroySession(entry.sessionId);
+      } else {
+        this.unregister(entry);
+        try {
+          entry.view?.destroy();
+        } catch {
+          // Runtime construction already failed; cleanup remains best effort.
+        }
       }
       return err("failed", error instanceof Error ? error.message : String(error));
     }
     return { ok: true, data: this.info(entry) };
   }
 
-  goto(sessionId: string, url: string): BrowserResult<BrowserSessionInfo> {
+  goto(
+    sessionId: string,
+    url: string,
+    signal?: AbortSignal,
+  ): BrowserResult<BrowserSessionInfo> {
     const entry = this.sessions.get(sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     if (!isAllowedBrowserUrl(url)) {
@@ -437,25 +700,46 @@ export class BrowserSessionService {
       return err("invalid", "a top-level navigation is already in flight");
     }
     entry.lastActiveAt = this.now();
-    const currentUrl = new URL(entry.url);
-    const nextUrl = new URL(url);
-    const sameDocument =
-      currentUrl.origin === nextUrl.origin &&
-      currentUrl.pathname === nextUrl.pathname &&
-      currentUrl.search === nextUrl.search &&
-      currentUrl.hash !== nextUrl.hash;
+    let sameDocument = false;
+    try {
+      const currentUrl = new URL(entry.url);
+      const nextUrl = new URL(url);
+      sameDocument =
+        currentUrl.origin === nextUrl.origin &&
+        currentUrl.pathname === nextUrl.pathname &&
+        currentUrl.search === nextUrl.search &&
+        currentUrl.hash !== nextUrl.hash;
+    } catch {
+      // Bounded display metadata can truncate a page-controlled URL. Treat an
+      // unparseable current value as a cross-document navigation.
+    }
+    const admitted = this.acquireOperation(
+      entry,
+      "navigation",
+      sessionId,
+      BROWSER_NAVIGATION_TIMEOUT_MS,
+      signal,
+    );
+    if (!admitted.ok) return admitted;
+    const operation = admitted.data;
     if (sameDocument) {
       try {
-        entry.url = url;
+        entry.url = clampUtf8Bytes(url, BROWSER_MAX_METADATA_BYTES);
         entry.view.loadUrl(url, entry.sessionId);
+        this.releaseOperation(entry, operation);
         return { ok: true, data: this.info(entry) };
       } catch (error) {
+        this.releaseOperation(entry, operation);
         return err("failed", error instanceof Error ? error.message : String(error));
       }
     }
 
     const rotated = this.rotateGeneration(entry, url);
-    if (!rotated.ok) return rotated;
+    if (!rotated.ok) {
+      this.releaseOperation(entry, operation);
+      return rotated;
+    }
+    this.retargetNavigation(entry, operation, rotated.data);
     entry.navigationInFlight = rotated.data;
     try {
       this.reduceCurrent(entry, { type: "reload" });
@@ -507,7 +791,11 @@ export class BrowserSessionService {
     }
   }
 
-  async eval(sessionId: string, code: string): Promise<BrowserResult<{ result: unknown }>> {
+  async eval(
+    sessionId: string,
+    code: string,
+    signal?: AbortSignal,
+  ): Promise<BrowserResult<{ result: unknown }>> {
     const entry = this.sessions.get(sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     if (entry.navigationInFlight !== undefined) {
@@ -517,21 +805,21 @@ export class BrowserSessionService {
       return err("failed", "adapter does not support eval");
     }
     entry.lastActiveAt = this.now();
-    try {
-      const result = await withTimeout(
-        entry.view.executeJavaScript(code),
-        EVAL_TIMEOUT_MS,
-        `eval timed out after ${EVAL_TIMEOUT_MS}ms — the page script may be hung`,
-      );
-      if (!this.isCurrent(entry)) return err("not_found", `no session for ${sessionId}`);
-      return { ok: true, data: { result } };
-    } catch (error) {
-      if (!this.isCurrent(entry)) return err("not_found", `no session for ${sessionId}`);
-      return err("failed", error instanceof Error ? error.message : String(error));
-    }
+    const executed = await this.runPowerfulOperation({
+      entry,
+      sessionId,
+      kind: "eval",
+      timeoutMs: BROWSER_EVAL_TIMEOUT_MS,
+      ...(signal !== undefined ? { signal } : {}),
+      run: () => entry.view.executeJavaScript!(code),
+    });
+    return executed.ok ? { ok: true, data: { result: executed.data } } : executed;
   }
 
-  async screenshot(sessionId: string): Promise<BrowserResult<{ png: Uint8Array }>> {
+  async screenshot(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<BrowserResult<{ png: Uint8Array }>> {
     const entry = this.sessions.get(sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     if (entry.navigationInFlight !== undefined) {
@@ -541,20 +829,22 @@ export class BrowserSessionService {
       return err("failed", "adapter does not support screenshot");
     }
     entry.lastActiveAt = this.now();
-    try {
-      const png = await entry.view.capturePagePng();
-      if (!this.isCurrent(entry)) return err("not_found", `no session for ${sessionId}`);
-      if (png.byteLength === 0) {
-        return err(
-          "failed",
-          `capture produced no pixels — session ${sessionId} is detached; open its surface and retry`,
-        );
-      }
-      return { ok: true, data: { png } };
-    } catch (error) {
-      if (!this.isCurrent(entry)) return err("not_found", `no session for ${sessionId}`);
-      return err("failed", error instanceof Error ? error.message : String(error));
+    const captured = await this.runPowerfulOperation({
+      entry,
+      sessionId,
+      kind: "screenshot",
+      timeoutMs: BROWSER_CAPTURE_TIMEOUT_MS,
+      ...(signal !== undefined ? { signal } : {}),
+      run: () => entry.view.capturePagePng!(),
+    });
+    if (!captured.ok) return captured;
+    if (captured.data.byteLength === 0) {
+      return err(
+        "failed",
+        `capture produced no pixels — session ${sessionId} is detached; open its surface and retry`,
+      );
     }
+    return { ok: true, data: { png: captured.data } };
   }
 
   state(sessionId: string): BrowserResult<BrowserSessionInfo> {
@@ -574,9 +864,17 @@ export class BrowserSessionService {
   }
 
   /** Warm-pool eviction only. Profile partition data persists. */
-  private destroySession(sessionId: string): void {
+  private destroySession(sessionId: string, failure?: BrowserOperationFailure): void {
     const entry = this.sessions.get(sessionId);
     if (entry === undefined) return;
+    const operation = entry.activeOperation;
+    if (operation !== undefined) {
+      this.releaseOperation(
+        entry,
+        operation,
+        failure ?? new BrowserOperationFailure("not_found", `no session for ${sessionId}`),
+      );
+    }
     this.reduceCurrent(entry, { type: "destroy" });
     this.unregister(entry);
     try {
@@ -590,6 +888,15 @@ export class BrowserSessionService {
   detachAllOnQuit(reason: string): void {
     for (const entry of this.sessions.values()) {
       try {
+        const operation = entry.activeOperation;
+        if (operation !== undefined) {
+          this.releaseOperation(
+            entry,
+            operation,
+            new BrowserOperationFailure("cancelled", `${operation.kind} cancelled during quit`),
+          );
+          entry.navigationInFlight = undefined;
+        }
         if (entry.attached) {
           entry.attached = false;
           entry.view.detach();
