@@ -11,8 +11,10 @@ import {
 import type { BrowserSurfaceBounds } from "@shared/ipc";
 import type { BrowserViewAdapter, BrowserViewHandle } from "./sessions";
 import {
+  canonicalBrowserOrigin,
   hardenBrowserPartition,
   installBrowserWebPolicy,
+  isAllowedByBrowserExactOrigin,
   isAllowedByBrowserTestOnlyExactOriginGrant,
   makeBrowserTestOnlyExactOriginGrant,
   type BrowserTestOnlyExactOriginGrant,
@@ -335,7 +337,7 @@ export const buildBoundedEvalScript = (source: string): string => {
 const makeElectronViewAdapter = (
   testOnlyGrant?: BrowserTestOnlyExactOriginGrant,
   testOnlyDownloadPath?: string,
-): BrowserViewAdapter => (partition, events) => {
+): BrowserViewAdapter => (partition, events, options) => {
   const browserPartition = session.fromPartition(partition);
   if (testOnlyDownloadPath !== undefined) {
     browserPartition.setDownloadPath(testOnlyDownloadPath);
@@ -362,6 +364,10 @@ const makeElectronViewAdapter = (
   let expectedNavigation: { readonly url: string; readonly sessionId: string } | undefined;
   let activeNavigation: { readonly url: string; readonly sessionId: string } | undefined;
   let currentSessionId: string | undefined;
+  let exactTopLevelOrigin =
+    options?.exactTopLevelOrigin === undefined
+      ? undefined
+      : canonicalBrowserOrigin(options.exactTopLevelOrigin);
   let releaseWebPolicy: () => void;
   try {
     releaseWebPolicy = installBrowserWebPolicy(
@@ -377,6 +383,11 @@ const makeElectronViewAdapter = (
         },
       },
       testOnlyGrant,
+      exactTopLevelOrigin === undefined
+        ? undefined
+        : (url) =>
+            exactTopLevelOrigin !== undefined &&
+            isAllowedByBrowserExactOrigin(url, exactTopLevelOrigin),
     );
   } catch (error) {
     view.webContents.close();
@@ -474,6 +485,12 @@ const makeElectronViewAdapter = (
         handleRejection(error);
         return Promise.resolve();
       }
+    },
+    setTopLevelOriginGuard: (origin) => {
+      if (exactTopLevelOrigin === undefined) {
+        throw new Error("UI browser views cannot acquire an automation origin guard");
+      }
+      exactTopLevelOrigin = canonicalBrowserOrigin(origin);
     },
     attach: (bounds) => {
       const win = mainWindow();

@@ -173,23 +173,27 @@ describe("electron browser view generation seam", () => {
     electron.sessions.clear();
   });
 
-  const setup = () => {
+  const setup = (exactTopLevelOrigin?: string) => {
     const starts: Array<Parameters<BrowserViewEvents["onNavigationStart"]>[0]> = [];
     const urls: Array<readonly [string, string]> = [];
     const completed: Array<readonly [string, string | undefined]> = [];
     const failed: Array<readonly [string, string]> = [];
     const ambiguous: string[] = [];
     let pageGeneration = 1;
-    const handle = electronViewAdapter("persist:test", {
-      onNavigationStart: (event) => {
-        starts.push(event);
-        return event.expectedSessionId ?? `page-${pageGeneration++}`;
+    const handle = electronViewAdapter(
+      "persist:test",
+      {
+        onNavigationStart: (event) => {
+          starts.push(event);
+          return event.expectedSessionId ?? `page-${pageGeneration++}`;
+        },
+        onNavigationAmbiguous: (sessionId) => ambiguous.push(sessionId),
+        onNavigationUrl: (sessionId, url) => urls.push([sessionId, url]),
+        onLoadOk: (sessionId, title) => completed.push([sessionId, title]),
+        onLoadFail: (sessionId, message) => failed.push([sessionId, message]),
       },
-      onNavigationAmbiguous: (sessionId) => ambiguous.push(sessionId),
-      onNavigationUrl: (sessionId, url) => urls.push([sessionId, url]),
-      onLoadOk: (sessionId, title) => completed.push([sessionId, title]),
-      onLoadFail: (sessionId, message) => failed.push([sessionId, message]),
-    });
+      exactTopLevelOrigin === undefined ? undefined : { exactTopLevelOrigin },
+    );
     const webContents = electron.views[0]?.webContents;
     if (webContents === undefined) throw new Error("view was not created");
     return { handle, webContents, starts, urls, completed, failed, ambiguous };
@@ -242,6 +246,44 @@ describe("electron browser view generation seam", () => {
     expect(failed).toEqual([
       ["session-1", "navigation blocked by browser policy (non_public_ip)"],
     ]);
+  });
+
+  it("pins automation views to an exact origin and retargets only deliberately", () => {
+    const { handle, webContents, failed } = setup("https://example.com");
+    handle.loadUrl("https://example.com/start", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+
+    const sameOrigin = {
+      ...navigation("https://example.com/next"),
+      preventDefault: vi.fn(),
+    };
+    webContents.emit("will-redirect", sameOrigin);
+    expect(sameOrigin.preventDefault).not.toHaveBeenCalled();
+
+    const crossOrigin = {
+      ...navigation("https://public.example.net/escape"),
+      preventDefault: vi.fn(),
+    };
+    webContents.emit("will-redirect", crossOrigin);
+    expect(crossOrigin.preventDefault).toHaveBeenCalledOnce();
+    expect(failed).toEqual([
+      ["session-1", "navigation blocked by browser policy (origin_mismatch)"],
+    ]);
+
+    handle.setTopLevelOriginGuard?.("https://next.example.com");
+    const deliberate = {
+      ...navigation("https://next.example.com/path"),
+      preventDefault: vi.fn(),
+    };
+    webContents.emit("will-frame-navigate", deliberate);
+    expect(deliberate.preventDefault).not.toHaveBeenCalled();
+
+    const staleOrigin = {
+      ...navigation("https://example.com/again"),
+      preventDefault: vi.fn(),
+    };
+    webContents.emit("will-frame-navigate", staleOrigin);
+    expect(staleOrigin.preventDefault).toHaveBeenCalledOnce();
   });
 
   it("fails closed when main-frame navigations overlap without a correlation id", () => {

@@ -29,6 +29,7 @@ import {
   type BrowserViewAdapter,
   type BrowserViewEvents,
   type BrowserViewHandle,
+  type BrowserViewOptions,
 } from "../src/main/vellum/browser/sessions";
 
 describe("warmPoolEvictions (pure)", () => {
@@ -70,17 +71,19 @@ describe("warmPoolEvictions (pure)", () => {
 interface SpyView {
   readonly partition: string;
   readonly events: BrowserViewEvents;
+  readonly options: BrowserViewOptions | undefined;
   readonly calls: string[];
   destroyed: boolean;
 }
 
 const makeSpyAdapter = () => {
   const views: SpyView[] = [];
-  const adapter: BrowserViewAdapter = (partition, events) => {
-    const spy: SpyView = { partition, events, calls: [], destroyed: false };
+  const adapter: BrowserViewAdapter = (partition, events, options) => {
+    const spy: SpyView = { partition, events, options, calls: [], destroyed: false };
     views.push(spy);
     return {
       loadUrl: (url) => spy.calls.push(`load:${url}`),
+      setTopLevelOriginGuard: (origin) => spy.calls.push(`guard:${origin}`),
       attach: () => spy.calls.push("attach"),
       setBounds: () => spy.calls.push("bounds"),
       detach: () => spy.calls.push("detach"),
@@ -431,6 +434,54 @@ describe("BrowserSessionService", () => {
     expect(reopened).toMatchObject({ ok: true, data: { sessionId: first.data.sessionId } });
     expect(views).toHaveLength(1);
     expect(views[0]?.destroyed).toBe(false);
+  });
+
+  it("keys warm reuse and pending coalescing by owner plus canonical ref", async () => {
+    const { service, views } = makeDefaultService();
+    const page = target("n1");
+    const [jobAFirst, jobASecond, jobB, ui] = await Promise.all([
+      service.openForOwner("job-a", page),
+      service.openForOwner("job-a", page),
+      service.openForOwner("job-b", page),
+      service.open(page),
+    ]);
+    if (!jobAFirst.ok || !jobASecond.ok || !jobB.ok || !ui.ok) {
+      throw new Error("owner-isolated opens failed");
+    }
+
+    expect(jobASecond.data.sessionId).toBe(jobAFirst.data.sessionId);
+    expect(new Set([
+      jobAFirst.data.sessionId,
+      jobB.data.sessionId,
+      ui.data.sessionId,
+    ]).size).toBe(3);
+    expect(views).toHaveLength(3);
+    expect(views.filter((view) => view.options?.exactTopLevelOrigin !== undefined))
+      .toHaveLength(2);
+    expect(views.find((view) => view.options === undefined)).toBeDefined();
+    expect(service.listForOwner("job-a")).toMatchObject({
+      ok: true,
+      data: [{ sessionId: jobAFirst.data.sessionId }],
+    });
+    expect(service.list()).toMatchObject({
+      ok: true,
+      data: [{ sessionId: ui.data.sessionId }],
+    });
+    expect(service.sessionIdForRefForOwner("job-b", page.ref)).toBe(jobB.data.sessionId);
+    expect(service.sessionIdForRef(page.ref)).toBe(ui.data.sessionId);
+  });
+
+  it("keeps automation metadata out of the renderer sink", async () => {
+    const { service, views } = makeDefaultService();
+    const emitted: string[] = [];
+    service.setSink((session) => emitted.push(session.sessionId));
+    const automated = await service.openForOwner("job-a", target("automation"));
+    const ui = await service.open(target("ui"));
+    if (!automated.ok || !ui.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(automated.data.sessionId);
+    views[1]?.events.onLoadOk(ui.data.sessionId);
+    expect(emitted).not.toContain(automated.data.sessionId);
+    expect(emitted).toContain(ui.data.sessionId);
   });
 
   it("rejects URL or profile drift for a warm canonical ref", async () => {
@@ -893,6 +944,153 @@ describe("BrowserSessionService", () => {
       expect(service.state(substitute)).toMatchObject({ ok: false, code: "not_found" });
     }
     expect(service.state(navigated.data.sessionId)).toMatchObject({ ok: true });
+  });
+
+  it("checks owner and generation in every automation operation lane", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.openForOwner("job-a", target("n1"));
+    if (!opened.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(opened.data.sessionId, "ready");
+
+    expect(service.stateForOwner("job-b", opened.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(service.gotoForOwner("job-b", opened.data.sessionId, "https://next.example.com"))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(await service.evalForOwner("job-b", opened.data.sessionId, "document.title"))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(await service.screenshotForOwner("job-b", opened.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(service.closeForOwner("job-b", opened.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(service.authorizationSnapshotForOwner("job-b", opened.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(views[0]?.calls.some((call) => call.startsWith("eval:"))).toBe(false);
+
+    expect(await service.evalForOwner("job-a", opened.data.sessionId, "document.title"))
+      .toMatchObject({ ok: true });
+    const navigated = service.gotoForOwner(
+      "job-a",
+      opened.data.sessionId,
+      "https://next.example.com/path",
+    );
+    if (!navigated.ok) throw new Error("goto failed");
+    expect(views[0]?.calls).toContain("guard:https://next.example.com");
+    expect(service.stateForOwner("job-a", opened.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(service.authorizationSnapshotForOwner("job-a", navigated.data.sessionId))
+      .toMatchObject({
+        ok: true,
+        data: {
+          owner: "job-a",
+          generation: navigated.data.sessionId,
+          ref: target("n1").ref,
+          profile: "personal",
+          origin: "https://next.example.com",
+          navigationInFlight: true,
+        },
+      });
+  });
+
+  it("keeps the full current origin in main-only authorization state", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.openForOwner("job-a", target("n1"));
+    if (!opened.ok) throw new Error("open failed");
+    const longUrl = `https://n1.example.com/${"x".repeat(BROWSER_MAX_METADATA_BYTES)}`;
+    views[0]?.events.onNavigationUrl(opened.data.sessionId, longUrl);
+
+    const visible = service.stateForOwner("job-a", opened.data.sessionId);
+    const authorization = service.authorizationSnapshotForOwner("job-a", opened.data.sessionId);
+    if (!visible.ok || !authorization.ok) throw new Error("session state unavailable");
+    expect(utf8ByteLength(visible.data.url)).toBe(BROWSER_MAX_METADATA_BYTES);
+    expect(authorization.data.origin).toBe("https://n1.example.com");
+    expect(authorization.data).not.toHaveProperty("url");
+  });
+
+  it("awaits navigation finish and failure before releasing the caller", async () => {
+    const { service, views } = makeDefaultService();
+    const successful = await service.openForOwner("job-ok", target("ok"));
+    const failed = await service.openForOwner("job-fail", target("fail"));
+    if (!successful.ok || !failed.ok) throw new Error("open failed");
+
+    const successTerminal = service.awaitNavigationTerminalForOwner(
+      "job-ok",
+      successful.data.sessionId,
+    );
+    const failedTerminal = service.awaitNavigationTerminalForOwner(
+      "job-fail",
+      failed.data.sessionId,
+    );
+    views[0]?.events.onLoadOk(successful.data.sessionId, "complete");
+    views[1]?.events.onLoadFail(failed.data.sessionId, "synthetic failure");
+
+    await expect(successTerminal).resolves.toMatchObject({
+      ok: true,
+      data: { state: "ready", title: "complete" },
+    });
+    await expect(failedTerminal).resolves.toMatchObject({
+      ok: false,
+      code: "failed",
+      message: "synthetic failure",
+    });
+  });
+
+  it("revokes one owner and aborts only that owner's terminal navigation", async () => {
+    const { service, views } = makeDefaultService();
+    const controller = new AbortController();
+    const owned = await service.openForOwner("job-a", target("a"), controller.signal);
+    const sibling = await service.openForOwner("job-b", target("b"));
+    const ui = await service.open(target("ui"));
+    if (!owned.ok || !sibling.ok || !ui.ok) throw new Error("open failed");
+
+    const ownedTerminal = service.awaitNavigationTerminalForOwner(
+      "job-a",
+      owned.data.sessionId,
+      controller.signal,
+    );
+    const siblingTerminal = service.awaitNavigationTerminalForOwner(
+      "job-b",
+      sibling.data.sessionId,
+    );
+    expect(service.destroyOwnerSessions("job-a", "grant revoked")).toBe(1);
+
+    await expect(ownedTerminal).resolves.toMatchObject({
+      ok: false,
+      code: "cancelled",
+      message: "grant revoked",
+    });
+    expect(service.stateForOwner("job-a", owned.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(service.stateForOwner("job-b", sibling.data.sessionId)).toMatchObject({ ok: true });
+    expect(service.state(ui.data.sessionId)).toMatchObject({ ok: true });
+    expect(views[0]?.destroyed).toBe(true);
+    expect(views[1]?.destroyed).toBe(false);
+    expect(views[2]?.destroyed).toBe(false);
+
+    views[1]?.events.onLoadOk(sibling.data.sessionId);
+    await expect(siblingTerminal).resolves.toMatchObject({ ok: true });
+  });
+
+  it("preserves the initiating abort signal through navigation terminal", async () => {
+    const { service, views } = makeDefaultService();
+    const controller = new AbortController();
+    const opened = await service.openForOwner("job-a", target("a"), controller.signal);
+    if (!opened.ok) throw new Error("open failed");
+    const terminal = service.awaitNavigationTerminalForOwner(
+      "job-a",
+      opened.data.sessionId,
+      controller.signal,
+    );
+
+    controller.abort();
+
+    await expect(terminal).resolves.toMatchObject({
+      ok: false,
+      code: "cancelled",
+      message: "navigation cancelled",
+    });
+    expect(views[0]?.destroyed).toBe(true);
+    expect(service.stateForOwner("job-a", opened.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
   });
 
   it("rotates once for page-initiated cross-document navigation and ignores old completion", async () => {

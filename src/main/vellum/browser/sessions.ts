@@ -45,6 +45,7 @@ import {
  */
 export interface BrowserViewHandle {
   loadUrl(url: string, expectedSessionId: string): void;
+  setTopLevelOriginGuard?(origin: string): void;
   attach(bounds: BrowserSurfaceBounds): void;
   setBounds(bounds: BrowserSurfaceBounds): void;
   detach(): void;
@@ -65,9 +66,18 @@ export interface BrowserViewEvents {
   readonly onNavigationUrl: (sessionId: string, url: string) => void;
 }
 
+export interface BrowserViewOptions {
+  /**
+   * Main-frame navigation is pinned to this exact origin. UI-owned views omit
+   * the option and retain the ordinary public-target browser policy.
+   */
+  readonly exactTopLevelOrigin?: string;
+}
+
 export type BrowserViewAdapter = (
   partition: string,
   events: BrowserViewEvents,
+  options?: BrowserViewOptions,
 ) => BrowserViewHandle;
 
 export type BrowserTargetAdmission = (url: string) => boolean;
@@ -117,11 +127,14 @@ interface ActiveOperation {
 }
 
 interface SessionEntry {
+  readonly owner: string;
   sessionId: string;
   readonly ref: string;
   readonly nodeId: string;
   readonly profile: string;
   readonly targetUrl: string;
+  currentUrl: string | undefined;
+  currentOrigin: string | undefined;
   url: string;
   machine: BrowserSessionMachine;
   attached: boolean;
@@ -129,12 +142,34 @@ interface SessionEntry {
   activeOperation: ActiveOperation | undefined;
   lastActiveAt: number;
   view: BrowserViewHandle;
+  readonly navigationWaiters: Set<NavigationWaiter>;
 }
 
 interface PendingOpen {
   readonly target: ResolvedPageTarget;
+  readonly ownerEpoch: number;
   readonly promise: Promise<BrowserResult<BrowserSessionInfo>>;
 }
+
+interface NavigationWaiter {
+  readonly sessionId: string;
+  readonly signal?: AbortSignal;
+  abortListener: (() => void) | undefined;
+  readonly resolve: (result: BrowserResult<BrowserSessionInfo>) => void;
+}
+
+/** Main-process-only view used by capability authorization. */
+export interface BrowserSessionAuthorizationSnapshot {
+  readonly owner: string;
+  readonly sessionId: string;
+  readonly generation: string;
+  readonly ref: string;
+  readonly profile: string;
+  readonly origin?: string;
+  readonly navigationInFlight: boolean;
+}
+
+export const BROWSER_UI_SESSION_OWNER = "vellum-ui";
 
 const err = (code: BrowserErrorCode, message: string): BrowserResultErr => ({
   ok: false,
@@ -339,6 +374,30 @@ const sameTarget = (left: ResolvedPageTarget, right: ResolvedPageTarget): boolea
   left.url === right.url &&
   left.profile === right.profile;
 
+const exactBrowserUrl = (url: string): string | undefined => {
+  if (!isUtf8WithinLimit(url, BROWSER_MAX_URL_BYTES)) return undefined;
+  try {
+    const parsed = new URL(url);
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.username !== "" ||
+      parsed.password !== ""
+    ) {
+      return undefined;
+    }
+    return parsed.href;
+  } catch {
+    return undefined;
+  }
+};
+
+const exactBrowserOrigin = (url: string): string | undefined => {
+  const exactUrl = exactBrowserUrl(url);
+  return exactUrl === undefined ? undefined : new URL(exactUrl).origin;
+};
+
+const isAborted = (signal?: AbortSignal): boolean => signal?.aborted ?? false;
+
 const validateTarget = (
   target: ResolvedPageTarget,
   targetAdmission: BrowserTargetAdmission,
@@ -375,8 +434,9 @@ export type BrowserPoolLimits = {
 
 export class BrowserSessionService {
   private readonly sessions = new Map<string, SessionEntry>();
-  private readonly sessionIdByRef = new Map<string, string>();
-  private readonly pendingOpenByRef = new Map<string, PendingOpen>();
+  private readonly sessionIdByOwnerRef = new Map<string, Map<string, string>>();
+  private readonly pendingOpenByOwnerRef = new Map<string, Map<string, PendingOpen>>();
+  private readonly ownerEpochs = new Map<string, number>();
   private activeOperationCount = 0;
   private sink: ((session: BrowserSessionInfo) => void) | undefined;
   // Sole durable SoT for these numbers is Settings.browser; profiles.config
@@ -398,6 +458,50 @@ export class BrowserSessionService {
   /** Install Settings (or test fake) as the pool-limits authority. */
   setPoolLimitsProvider(provider: () => Promise<BrowserPoolLimits>): void {
     this.poolLimits = provider;
+  }
+
+  private ownerRefSessions(owner: string, create: true): Map<string, string>;
+  private ownerRefSessions(owner: string, create?: false): Map<string, string> | undefined;
+  private ownerRefSessions(
+    owner: string,
+    create = false,
+  ): Map<string, string> | undefined {
+    const existing = this.sessionIdByOwnerRef.get(owner);
+    if (existing !== undefined || !create) return existing;
+    const created = new Map<string, string>();
+    this.sessionIdByOwnerRef.set(owner, created);
+    return created;
+  }
+
+  private ownerPendingOpens(owner: string, create: true): Map<string, PendingOpen>;
+  private ownerPendingOpens(owner: string, create?: false): Map<string, PendingOpen> | undefined;
+  private ownerPendingOpens(
+    owner: string,
+    create = false,
+  ): Map<string, PendingOpen> | undefined {
+    const existing = this.pendingOpenByOwnerRef.get(owner);
+    if (existing !== undefined || !create) return existing;
+    const created = new Map<string, PendingOpen>();
+    this.pendingOpenByOwnerRef.set(owner, created);
+    return created;
+  }
+
+  private ownerEpoch(owner: string): number {
+    return this.ownerEpochs.get(owner) ?? 0;
+  }
+
+  private async awaitOwnerOpen(
+    owner: string,
+    record: PendingOpen,
+  ): Promise<BrowserResult<BrowserSessionInfo>> {
+    const result = await record.promise;
+    if (this.ownerEpoch(owner) !== record.ownerEpoch) {
+      return err("cancelled", "navigation cancelled");
+    }
+    if (result.ok && this.entryForOwner(owner, result.data.sessionId) === undefined) {
+      return err("not_found", `no session for ${result.data.sessionId}`);
+    }
+    return result;
   }
 
   private async resolvePoolLimits(): Promise<BrowserPoolLimits> {
@@ -517,6 +621,7 @@ export class BrowserSessionService {
   }
 
   private async runPowerfulOperation<T>(input: {
+    readonly owner: string;
     readonly entry: SessionEntry;
     readonly sessionId: string;
     readonly kind: "eval" | "screenshot";
@@ -543,6 +648,7 @@ export class BrowserSessionService {
       const value = await Promise.race([Promise.resolve().then(input.run), failed]);
       if (
         !this.isCurrent(input.entry) ||
+        input.entry.owner !== input.owner ||
         input.entry.sessionId !== input.sessionId ||
         input.entry.activeOperation !== operation
       ) {
@@ -554,7 +660,11 @@ export class BrowserSessionService {
       if (error instanceof BrowserOperationFailure) {
         return err(error.code, error.message);
       }
-      if (!this.isCurrent(input.entry) || input.entry.sessionId !== input.sessionId) {
+      if (
+        !this.isCurrent(input.entry) ||
+        input.entry.owner !== input.owner ||
+        input.entry.sessionId !== input.sessionId
+      ) {
         return err("not_found", `no session for ${input.sessionId}`);
       }
       this.releaseOperation(input.entry, operation);
@@ -580,15 +690,40 @@ export class BrowserSessionService {
     };
   }
 
+  private entryForOwner(owner: string, sessionId: string): SessionEntry | undefined {
+    const entry = this.sessions.get(sessionId);
+    return entry !== undefined && entry.owner === owner && this.isCurrent(entry)
+      ? entry
+      : undefined;
+  }
+
   private isCurrent(entry: SessionEntry): boolean {
     return (
       this.sessions.get(entry.sessionId) === entry &&
-      this.sessionIdByRef.get(entry.ref) === entry.sessionId
+      this.ownerRefSessions(entry.owner)?.get(entry.ref) === entry.sessionId
     );
   }
 
   private emit(entry: SessionEntry): void {
-    if (this.isCurrent(entry)) this.sink?.(this.info(entry));
+    if (entry.owner === BROWSER_UI_SESSION_OWNER && this.isCurrent(entry)) {
+      this.sink?.(this.info(entry));
+    }
+  }
+
+  private settleNavigationWaiters(
+    entry: SessionEntry,
+    sessionId: string,
+    result: BrowserResult<BrowserSessionInfo>,
+  ): void {
+    for (const waiter of [...entry.navigationWaiters]) {
+      if (waiter.sessionId !== sessionId) continue;
+      entry.navigationWaiters.delete(waiter);
+      if (waiter.signal !== undefined && waiter.abortListener !== undefined) {
+        waiter.signal.removeEventListener("abort", waiter.abortListener);
+        waiter.abortListener = undefined;
+      }
+      waiter.resolve(result);
+    }
   }
 
   private reduceCurrent(
@@ -631,23 +766,34 @@ export class BrowserSessionService {
           ? { ...event, message: clampUtf8Bytes(event.message, BROWSER_MAX_ERROR_BYTES) }
           : event;
     this.reduceCurrent(entry, boundedEvent);
+    this.settleNavigationWaiters(
+      entry,
+      sessionId,
+      boundedEvent.type === "load_fail"
+        ? err("failed", boundedEvent.message)
+        : { ok: true, data: this.info(entry) },
+    );
   }
 
   private updateGenerationUrl(entry: SessionEntry, sessionId: string, url: string): void {
     if (entry.sessionId !== sessionId || !this.isCurrent(entry)) return;
+    entry.currentUrl = exactBrowserUrl(url);
+    entry.currentOrigin = exactBrowserOrigin(url);
     entry.url = clampUtf8Bytes(url, BROWSER_MAX_METADATA_BYTES);
     this.emit(entry);
   }
 
   private register(entry: SessionEntry): void {
     this.sessions.set(entry.sessionId, entry);
-    this.sessionIdByRef.set(entry.ref, entry.sessionId);
+    this.ownerRefSessions(entry.owner, true).set(entry.ref, entry.sessionId);
   }
 
   private unregister(entry: SessionEntry): void {
     if (this.sessions.get(entry.sessionId) === entry) this.sessions.delete(entry.sessionId);
-    if (this.sessionIdByRef.get(entry.ref) === entry.sessionId) {
-      this.sessionIdByRef.delete(entry.ref);
+    const refs = this.ownerRefSessions(entry.owner);
+    if (refs?.get(entry.ref) === entry.sessionId) {
+      refs.delete(entry.ref);
+      if (refs.size === 0) this.sessionIdByOwnerRef.delete(entry.owner);
     }
   }
 
@@ -675,9 +821,11 @@ export class BrowserSessionService {
     if (!minted.ok) return minted;
     this.sessions.delete(entry.sessionId);
     entry.sessionId = minted.data;
+    entry.currentUrl = exactBrowserUrl(url);
+    entry.currentOrigin = exactBrowserOrigin(url);
     entry.url = clampUtf8Bytes(url, BROWSER_MAX_METADATA_BYTES);
     this.sessions.set(entry.sessionId, entry);
-    this.sessionIdByRef.set(entry.ref, entry.sessionId);
+    this.ownerRefSessions(entry.owner, true).set(entry.ref, entry.sessionId);
     return minted;
   }
 
@@ -705,6 +853,8 @@ export class BrowserSessionService {
         this.destroySession(entry.sessionId);
         return undefined;
       }
+      entry.currentUrl = exactBrowserUrl(event.url);
+      entry.currentOrigin = exactBrowserOrigin(event.url);
       entry.url = clampUtf8Bytes(event.url, BROWSER_MAX_METADATA_BYTES);
       entry.navigationInFlight = entry.sessionId;
       this.reduceCurrent(entry, { type: "load_start" });
@@ -784,35 +934,62 @@ export class BrowserSessionService {
     target: ResolvedPageTarget,
     signal?: AbortSignal,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
+    return this.openForOwner(BROWSER_UI_SESSION_OWNER, target, signal);
+  }
+
+  /** Same owner+ref callers share one creation attempt; owners never share a view. */
+  async openForOwner(
+    owner: string,
+    target: ResolvedPageTarget,
+    signal?: AbortSignal,
+  ): Promise<BrowserResult<BrowserSessionInfo>> {
     const invalid = validateTarget(target, this.targetAdmission);
     if (invalid !== undefined) return invalid;
+    if (
+      owner !== BROWSER_UI_SESSION_OWNER &&
+      exactBrowserOrigin(target.url) === undefined
+    ) {
+      return err("forbidden", "automation target has no exact browser origin");
+    }
+    if (isAborted(signal)) return err("cancelled", "navigation cancelled");
 
-    const pending = this.pendingOpenByRef.get(target.ref);
+    const epoch = this.ownerEpoch(owner);
+    const pendingByRef = this.ownerPendingOpens(owner, true);
+    const pending = pendingByRef.get(target.ref);
     if (pending !== undefined) {
       return sameTarget(pending.target, target)
-        ? pending.promise
+        ? this.awaitOwnerOpen(owner, pending)
         : err("invalid", "canonical page ref resolved to conflicting page metadata");
     }
 
-    const promise = this.openResolved(target, signal);
-    const record: PendingOpen = { target, promise };
-    this.pendingOpenByRef.set(target.ref, record);
+    const promise = this.openResolved(owner, epoch, target, signal);
+    const record: PendingOpen = { target, ownerEpoch: epoch, promise };
+    pendingByRef.set(target.ref, record);
     try {
-      return await promise;
+      return await this.awaitOwnerOpen(owner, record);
     } finally {
-      if (this.pendingOpenByRef.get(target.ref) === record) {
-        this.pendingOpenByRef.delete(target.ref);
+      if (pendingByRef.get(target.ref) === record) {
+        pendingByRef.delete(target.ref);
+        if (pendingByRef.size === 0 && this.pendingOpenByOwnerRef.get(owner) === pendingByRef) {
+          this.pendingOpenByOwnerRef.delete(owner);
+        }
       }
     }
   }
 
   private async openResolved(
+    owner: string,
+    ownerEpoch: number,
     target: ResolvedPageTarget,
     signal?: AbortSignal,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
-    const existingId = this.sessionIdByRef.get(target.ref);
+    if (this.ownerEpoch(owner) !== ownerEpoch || isAborted(signal)) {
+      return err("cancelled", "navigation cancelled");
+    }
+    const ownerRefs = this.ownerRefSessions(owner);
+    const existingId = ownerRefs?.get(target.ref);
     const existing = existingId === undefined ? undefined : this.sessions.get(existingId);
-    if (existingId !== undefined && existing === undefined) this.sessionIdByRef.delete(target.ref);
+    if (existingId !== undefined && existing === undefined) ownerRefs?.delete(target.ref);
     if (existing !== undefined && isWarmBrowserSession(existing.machine.state)) {
       const currentTarget: ResolvedPageTarget = {
         ref: existing.ref,
@@ -842,11 +1019,14 @@ export class BrowserSessionService {
     } catch (error) {
       return err("invalid", error instanceof Error ? error.message : String(error));
     }
+    if (this.ownerEpoch(owner) !== ownerEpoch || isAborted(signal)) {
+      return err("cancelled", "navigation cancelled");
+    }
 
     const minted = this.mintSessionId();
     if (!minted.ok) return minted;
     for (const sessionId of warmPoolEvictions(
-      [...this.sessions.values()].map((entry) => ({
+      [...this.sessions.values()].filter((entry) => entry.owner === owner).map((entry) => ({
         key: entry.sessionId,
         attached: entry.attached,
         lastActiveAt: entry.lastActiveAt,
@@ -864,11 +1044,14 @@ export class BrowserSessionService {
     }
 
     const entry: SessionEntry = {
+      owner,
       sessionId: minted.data,
       ref: target.ref,
       nodeId: target.nodeId,
       profile: target.profile,
       targetUrl: target.url,
+      currentUrl: exactBrowserUrl(target.url),
+      currentOrigin: exactBrowserOrigin(target.url),
       url: clampUtf8Bytes(target.url, BROWSER_MAX_METADATA_BYTES),
       machine: initialBrowserSession(),
       attached: false,
@@ -876,21 +1059,32 @@ export class BrowserSessionService {
       activeOperation: undefined,
       lastActiveAt: this.now(),
       view: undefined as unknown as BrowserViewHandle,
+      navigationWaiters: new Set(),
     };
 
     try {
-      entry.view = this.adapter(partition, {
-        onNavigationStart: (event) => this.navigationStarted(entry, event),
-        onNavigationAmbiguous: (sessionId) => this.navigationAmbiguous(entry, sessionId),
-        onLoadOk: (sessionId, title) =>
-          this.finishGeneration(entry, sessionId, {
-            type: "load_ok",
-            ...(title !== undefined ? { title } : {}),
-          }),
-        onLoadFail: (sessionId, message) =>
-          this.finishGeneration(entry, sessionId, { type: "load_fail", message }),
-        onNavigationUrl: (sessionId, url) => this.updateGenerationUrl(entry, sessionId, url),
-      });
+      entry.view = this.adapter(
+        partition,
+        {
+          onNavigationStart: (event) => this.navigationStarted(entry, event),
+          onNavigationAmbiguous: (sessionId) => this.navigationAmbiguous(entry, sessionId),
+          onLoadOk: (sessionId, title) =>
+            this.finishGeneration(entry, sessionId, {
+              type: "load_ok",
+              ...(title !== undefined ? { title } : {}),
+            }),
+          onLoadFail: (sessionId, message) =>
+            this.finishGeneration(entry, sessionId, { type: "load_fail", message }),
+          onNavigationUrl: (sessionId, url) => this.updateGenerationUrl(entry, sessionId, url),
+        },
+        owner === BROWSER_UI_SESSION_OWNER || entry.currentOrigin === undefined
+          ? undefined
+          : { exactTopLevelOrigin: entry.currentOrigin },
+      );
+      if (this.ownerEpoch(owner) !== ownerEpoch || isAborted(signal)) {
+        entry.view.destroy();
+        return err("cancelled", "navigation cancelled");
+      }
       this.register(entry);
       const admitted = this.acquireOperation(
         entry,
@@ -919,6 +1113,9 @@ export class BrowserSessionService {
       }
       return err("failed", error instanceof Error ? error.message : String(error));
     }
+    if (!this.isCurrent(entry) || entry.owner !== owner) {
+      return err("not_found", `no session for ${entry.sessionId}`);
+    }
     return { ok: true, data: this.info(entry) };
   }
 
@@ -927,7 +1124,16 @@ export class BrowserSessionService {
     url: string,
     signal?: AbortSignal,
   ): BrowserResult<BrowserSessionInfo> {
-    const entry = this.sessions.get(sessionId);
+    return this.gotoForOwner(BROWSER_UI_SESSION_OWNER, sessionId, url, signal);
+  }
+
+  gotoForOwner(
+    owner: string,
+    sessionId: string,
+    url: string,
+    signal?: AbortSignal,
+  ): BrowserResult<BrowserSessionInfo> {
+    const entry = this.entryForOwner(owner, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     if (!isUtf8WithinLimit(url, BROWSER_MAX_URL_BYTES)) {
       return err("invalid", "navigation URL exceeds the hard limit");
@@ -935,22 +1141,27 @@ export class BrowserSessionService {
     if (!this.targetAdmission(url)) {
       return err("forbidden", `url not allowed (http/https only): ${url}`);
     }
+    const nextExactUrl = exactBrowserUrl(url);
+    const nextOrigin = exactBrowserOrigin(url);
+    if (nextExactUrl === undefined || nextOrigin === undefined) {
+      return err("forbidden", `url has no exact browser origin: ${url}`);
+    }
     if (entry.navigationInFlight !== undefined) {
       return err("invalid", "a top-level navigation is already in flight");
     }
     entry.lastActiveAt = this.now();
     let sameDocument = false;
     try {
-      const currentUrl = new URL(entry.url);
-      const nextUrl = new URL(url);
+      const currentUrl = new URL(entry.currentUrl ?? "");
+      const nextUrl = new URL(nextExactUrl);
       sameDocument =
         currentUrl.origin === nextUrl.origin &&
         currentUrl.pathname === nextUrl.pathname &&
         currentUrl.search === nextUrl.search &&
         currentUrl.hash !== nextUrl.hash;
     } catch {
-      // Bounded display metadata can truncate a page-controlled URL. Treat an
-      // unparseable current value as a cross-document navigation.
+      // A page-controlled URL that exceeds the internal bound cannot be used
+      // as authorization state; fail into a new guarded generation.
     }
     const admitted = this.acquireOperation(
       entry,
@@ -963,6 +1174,8 @@ export class BrowserSessionService {
     const operation = admitted.data;
     if (sameDocument) {
       try {
+        entry.currentUrl = nextExactUrl;
+        entry.currentOrigin = nextOrigin;
         entry.url = clampUtf8Bytes(url, BROWSER_MAX_METADATA_BYTES);
         entry.view.loadUrl(url, entry.sessionId);
         this.releaseOperation(entry, operation);
@@ -981,6 +1194,9 @@ export class BrowserSessionService {
     this.retargetNavigation(entry, operation, rotated.data);
     entry.navigationInFlight = rotated.data;
     try {
+      if (owner !== BROWSER_UI_SESSION_OWNER) {
+        entry.view.setTopLevelOriginGuard?.(nextOrigin);
+      }
       this.reduceCurrent(entry, { type: "reload" });
       entry.view.loadUrl(url, entry.sessionId);
       if (!this.isCurrent(entry)) return err("not_found", `no session for ${sessionId}`);
@@ -995,7 +1211,7 @@ export class BrowserSessionService {
     sessionId: string,
     bounds: BrowserSurfaceBounds,
   ): BrowserResult<BrowserSessionInfo> {
-    const entry = this.sessions.get(sessionId);
+    const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     entry.lastActiveAt = this.now();
     try {
@@ -1015,7 +1231,11 @@ export class BrowserSessionService {
 
   /** Detach only. The warm view and its profile storage remain alive. */
   close(sessionId: string): BrowserResult<BrowserSessionInfo> {
-    const entry = this.sessions.get(sessionId);
+    return this.closeForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+  }
+
+  closeForOwner(owner: string, sessionId: string): BrowserResult<BrowserSessionInfo> {
+    const entry = this.entryForOwner(owner, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     try {
       if (entry.attached) {
@@ -1035,7 +1255,16 @@ export class BrowserSessionService {
     code: string,
     signal?: AbortSignal,
   ): Promise<BrowserResult<{ result: unknown }>> {
-    const entry = this.sessions.get(sessionId);
+    return this.evalForOwner(BROWSER_UI_SESSION_OWNER, sessionId, code, signal);
+  }
+
+  async evalForOwner(
+    owner: string,
+    sessionId: string,
+    code: string,
+    signal?: AbortSignal,
+  ): Promise<BrowserResult<{ result: unknown }>> {
+    const entry = this.entryForOwner(owner, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     if (entry.navigationInFlight !== undefined) {
       return err("invalid", "cannot evaluate while top-level navigation is in flight");
@@ -1048,6 +1277,7 @@ export class BrowserSessionService {
     }
     entry.lastActiveAt = this.now();
     const executed = await this.runPowerfulOperation({
+      owner,
       entry,
       sessionId,
       kind: "eval",
@@ -1062,7 +1292,15 @@ export class BrowserSessionService {
     sessionId: string,
     signal?: AbortSignal,
   ): Promise<BrowserResult<{ png: Uint8Array }>> {
-    const entry = this.sessions.get(sessionId);
+    return this.screenshotForOwner(BROWSER_UI_SESSION_OWNER, sessionId, signal);
+  }
+
+  async screenshotForOwner(
+    owner: string,
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<BrowserResult<{ png: Uint8Array }>> {
+    const entry = this.entryForOwner(owner, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     if (entry.navigationInFlight !== undefined) {
       return err("invalid", "cannot capture while top-level navigation is in flight");
@@ -1072,6 +1310,7 @@ export class BrowserSessionService {
     }
     entry.lastActiveAt = this.now();
     const captured = await this.runPowerfulOperation({
+      owner,
       entry,
       sessionId,
       kind: "screenshot",
@@ -1093,19 +1332,139 @@ export class BrowserSessionService {
   }
 
   state(sessionId: string): BrowserResult<BrowserSessionInfo> {
-    const entry = this.sessions.get(sessionId);
+    return this.stateForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+  }
+
+  stateForOwner(owner: string, sessionId: string): BrowserResult<BrowserSessionInfo> {
+    const entry = this.entryForOwner(owner, sessionId);
     return entry === undefined
       ? err("not_found", `no session for ${sessionId}`)
       : { ok: true, data: this.info(entry) };
   }
 
   list(): BrowserResult<ReadonlyArray<BrowserSessionInfo>> {
-    return { ok: true, data: [...this.sessions.values()].map((entry) => this.info(entry)) };
+    return this.listForOwner(BROWSER_UI_SESSION_OWNER);
+  }
+
+  listForOwner(owner: string): BrowserResult<ReadonlyArray<BrowserSessionInfo>> {
+    return {
+      ok: true,
+      data: [...this.sessions.values()]
+        .filter((entry) => entry.owner === owner && this.isCurrent(entry))
+        .map((entry) => this.info(entry)),
+    };
   }
 
   sessionIdForRef(ref: string): string | undefined {
-    const sessionId = this.sessionIdByRef.get(ref);
-    return sessionId !== undefined && this.sessions.has(sessionId) ? sessionId : undefined;
+    return this.sessionIdForRefForOwner(BROWSER_UI_SESSION_OWNER, ref);
+  }
+
+  sessionIdForRefForOwner(owner: string, ref: string): string | undefined {
+    const sessionId = this.ownerRefSessions(owner)?.get(ref);
+    return sessionId !== undefined && this.entryForOwner(owner, sessionId) !== undefined
+      ? sessionId
+      : undefined;
+  }
+
+  authorizationSnapshotForOwner(
+    owner: string,
+    sessionId: string,
+  ): BrowserResult<BrowserSessionAuthorizationSnapshot> {
+    const entry = this.entryForOwner(owner, sessionId);
+    if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
+    return {
+      ok: true,
+      data: {
+        owner,
+        sessionId: entry.sessionId,
+        generation: entry.sessionId,
+        ref: entry.ref,
+        profile: entry.profile,
+        ...(entry.currentOrigin !== undefined ? { origin: entry.currentOrigin } : {}),
+        navigationInFlight: entry.navigationInFlight === entry.sessionId,
+      },
+    };
+  }
+
+  awaitNavigationTerminalForOwner(
+    owner: string,
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<BrowserResult<BrowserSessionInfo>> {
+    if (isAborted(signal)) {
+      return Promise.resolve(err("cancelled", "navigation cancelled"));
+    }
+    const entry = this.entryForOwner(owner, sessionId);
+    if (entry === undefined) {
+      return Promise.resolve(err("not_found", `no session for ${sessionId}`));
+    }
+    if (entry.navigationInFlight !== sessionId) {
+      if (entry.machine.state === "failed") {
+        return Promise.resolve(err("failed", entry.machine.lastError ?? "navigation failed"));
+      }
+      if (entry.machine.state === "loading") {
+        return Promise.resolve(err("failed", "navigation has no active completion lane"));
+      }
+      return Promise.resolve({ ok: true, data: this.info(entry) });
+    }
+
+    return new Promise((resolve) => {
+      const waiter: NavigationWaiter = {
+        sessionId,
+        ...(signal !== undefined ? { signal } : {}),
+        abortListener: undefined,
+        resolve,
+      };
+      if (signal !== undefined) {
+        waiter.abortListener = () => {
+          if (!entry.navigationWaiters.has(waiter)) return;
+          const current = this.entryForOwner(owner, sessionId);
+          if (current === entry && entry.navigationInFlight === sessionId) {
+            this.destroySession(
+              sessionId,
+              new BrowserOperationFailure("cancelled", "navigation cancelled"),
+            );
+            return;
+          }
+          entry.navigationWaiters.delete(waiter);
+          waiter.abortListener = undefined;
+          resolve(err("cancelled", "navigation cancelled"));
+        };
+        signal.addEventListener("abort", waiter.abortListener, { once: true });
+      }
+      entry.navigationWaiters.add(waiter);
+
+      // Recheck after installing the waiter so synchronous lifecycle progress
+      // cannot land between the state read and subscription.
+      const current = this.entryForOwner(owner, sessionId);
+      if (current !== entry || entry.navigationInFlight !== sessionId) {
+        this.settleNavigationWaiters(
+          entry,
+          sessionId,
+          current === entry
+            ? entry.machine.state === "failed"
+              ? err("failed", entry.machine.lastError ?? "navigation failed")
+              : { ok: true, data: this.info(entry) }
+            : err("not_found", `no session for ${sessionId}`),
+        );
+      }
+    });
+  }
+
+  /** Revoke one owner namespace without touching UI or sibling-job views. */
+  destroyOwnerSessions(owner: string, reason = "browser authority revoked"): number {
+    this.ownerEpochs.set(owner, this.ownerEpoch(owner) + 1);
+    this.pendingOpenByOwnerRef.delete(owner);
+    const ownedSessionIds = [...this.sessions.values()]
+      .filter((entry) => entry.owner === owner)
+      .map((entry) => entry.sessionId);
+    for (const sessionId of ownedSessionIds) {
+      this.destroySession(
+        sessionId,
+        new BrowserOperationFailure("cancelled", clampUtf8Bytes(reason, BROWSER_MAX_ERROR_BYTES)),
+      );
+    }
+    return ownedSessionIds.length;
   }
 
   /** Warm-pool eviction only. Profile partition data persists. */
@@ -1120,6 +1479,11 @@ export class BrowserSessionService {
         failure ?? new BrowserOperationFailure("not_found", `no session for ${sessionId}`),
       );
     }
+    this.settleNavigationWaiters(
+      entry,
+      sessionId,
+      err(failure?.code ?? "not_found", failure?.message ?? `no session for ${sessionId}`),
+    );
     this.reduceCurrent(entry, { type: "destroy" });
     this.unregister(entry);
     try {
@@ -1135,12 +1499,20 @@ export class BrowserSessionService {
       try {
         const operation = entry.activeOperation;
         if (operation !== undefined) {
+          const operationSessionId = operation.sessionId;
           this.releaseOperation(
             entry,
             operation,
             new BrowserOperationFailure("cancelled", `${operation.kind} cancelled during quit`),
           );
           entry.navigationInFlight = undefined;
+          if (operation.kind === "navigation") {
+            this.settleNavigationWaiters(
+              entry,
+              operationSessionId,
+              err("cancelled", "navigation cancelled during quit"),
+            );
+          }
         }
         if (entry.attached) {
           entry.attached = false;

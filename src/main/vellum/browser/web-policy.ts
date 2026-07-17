@@ -79,6 +79,47 @@ export const isAllowedByBrowserTestOnlyExactOriginGrant = (
   }
 };
 
+export type BrowserTopLevelNavigationGuard = (url: string) => boolean;
+export type BrowserTopLevelNavigationRejection =
+  | BrowserTargetRejection
+  | "origin_mismatch";
+
+export const canonicalBrowserOrigin = (candidate: string): string => {
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new TypeError("browser origin must be a canonical HTTP(S) origin");
+  }
+  if (
+    candidate !== parsed.origin ||
+    (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+    parsed.username !== "" ||
+    parsed.password !== ""
+  ) {
+    throw new TypeError("browser origin must be a canonical HTTP(S) origin");
+  }
+  return parsed.origin;
+};
+
+export const isAllowedByBrowserExactOrigin = (
+  url: string,
+  exactOrigin: string,
+): boolean => {
+  if (!isUtf8WithinLimit(url, BROWSER_MAX_URL_BYTES)) return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      parsed.username === "" &&
+      parsed.password === "" &&
+      parsed.origin === exactOrigin
+    );
+  } catch {
+    return false;
+  }
+};
+
 const FRAME_RESOURCE_TYPES = new Set<OnBeforeRequestListenerDetails["resourceType"]>([
   "mainFrame",
   "subFrame",
@@ -316,20 +357,39 @@ export const hardenBrowserPartition = (
  * must run after that WebContents is destroyed.
  */
 export interface BrowserWebPolicyEvents {
-  readonly onBlockedTopLevelNavigation?: (reason: BrowserTargetRejection) => void;
+  readonly onBlockedTopLevelNavigation?: (
+    reason: BrowserTopLevelNavigationRejection,
+  ) => void;
 }
 
 export const installBrowserWebPolicy = (
   webContents: WebContents,
   events: BrowserWebPolicyEvents = {},
   testOnlyGrant?: BrowserTestOnlyExactOriginGrant,
+  topLevelNavigationGuard?: BrowserTopLevelNavigationGuard,
 ): (() => void) => {
   hardenBrowserPartition(webContents.session, testOnlyGrant);
   managedBrowserContents.add(webContents);
   const prevent = (event: Event): void => event.preventDefault();
+  const topLevelNavigationAllowed = (url: string): boolean => {
+    if (topLevelNavigationGuard === undefined) return true;
+    try {
+      return topLevelNavigationGuard(url);
+    } catch {
+      return false;
+    }
+  };
   const denyFrameNavigation = (
     event: Event<Electron.WebContentsWillFrameNavigateEventParams>,
   ): void => {
+    if (
+      event.isMainFrame &&
+      !topLevelNavigationAllowed(event.url)
+    ) {
+      event.preventDefault();
+      events.onBlockedTopLevelNavigation?.("origin_mismatch");
+      return;
+    }
     if (
       testOnlyGrant !== undefined &&
       isAllowedByBrowserTestOnlyExactOriginGrant(event.url, testOnlyGrant)
@@ -344,6 +404,14 @@ export const installBrowserWebPolicy = (
   const denyRedirect = (
     event: Event<Electron.WebContentsWillRedirectEventParams>,
   ): void => {
+    if (
+      event.isMainFrame &&
+      !topLevelNavigationAllowed(event.url)
+    ) {
+      event.preventDefault();
+      events.onBlockedTopLevelNavigation?.("origin_mismatch");
+      return;
+    }
     if (
       testOnlyGrant !== undefined &&
       isAllowedByBrowserTestOnlyExactOriginGrant(event.url, testOnlyGrant)

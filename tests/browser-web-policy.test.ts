@@ -9,7 +9,9 @@ import {
   BROWSER_MAX_PENDING_DNS_HOSTS,
 } from "../src/shared/browser-limits";
 import {
+  canonicalBrowserOrigin,
   installBrowserWebPolicy,
+  isAllowedByBrowserExactOrigin,
   isAllowedByBrowserTestOnlyExactOriginGrant,
   isManagedBrowserWebContents,
   makeBrowserTestOnlyExactOriginGrant,
@@ -112,12 +114,14 @@ const install = (
   session = new FakeSession(),
   events: Parameters<typeof installBrowserWebPolicy>[1] = {},
   testOnlyGrant?: Parameters<typeof installBrowserWebPolicy>[2],
+  topLevelNavigationGuard?: Parameters<typeof installBrowserWebPolicy>[3],
 ) => {
   const contents = new FakeWebContents(session);
   const release = installBrowserWebPolicy(
     contents as unknown as WebContents,
     events,
     testOnlyGrant,
+    topLevelNavigationGuard,
   );
   return { session, contents, release };
 };
@@ -429,6 +433,72 @@ describe("browser partition policy", () => {
     const child = { destroy: vi.fn() };
     contents.emit("did-create-window", child);
     expect(child.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("pins automation top-level navigation and redirects to one exact origin", () => {
+    const blockedTopLevel = vi.fn();
+    const origin = canonicalBrowserOrigin("https://account.example.com");
+    const { contents } = install(
+      new FakeSession(),
+      { onBlockedTopLevelNavigation: blockedTopLevel },
+      undefined,
+      (url) => isAllowedByBrowserExactOrigin(url, origin),
+    );
+
+    for (const name of ["will-frame-navigate", "will-redirect"]) {
+      const sameOrigin = {
+        ...event(),
+        url: "https://account.example.com/next?step=1",
+        isMainFrame: true,
+      };
+      contents.emit(name, sameOrigin);
+      expect(sameOrigin.preventDefault).not.toHaveBeenCalled();
+
+      for (const url of [
+        "https://other.example.com/",
+        "https://user@account.example.com/",
+        "http://account.example.com/",
+      ]) {
+        const crossOrigin = { ...event(), url, isMainFrame: true };
+        contents.emit(name, crossOrigin);
+        expect(crossOrigin.preventDefault).toHaveBeenCalledOnce();
+      }
+    }
+    expect(blockedTopLevel).toHaveBeenCalledTimes(6);
+    expect(blockedTopLevel).toHaveBeenCalledWith("origin_mismatch");
+
+    const publicSubframe = {
+      ...event(),
+      url: "https://cdn.example.net/frame",
+      isMainFrame: false,
+    };
+    contents.emit("will-frame-navigate", publicSubframe);
+    expect(publicSubframe.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("fails a throwing top-level guard closed and validates canonical origins", () => {
+    expect(() => canonicalBrowserOrigin("https://example.com/")).toThrow(TypeError);
+    expect(() => canonicalBrowserOrigin("file:///tmp/a")).toThrow(TypeError);
+    expect(() => canonicalBrowserOrigin("https://example.com:443")).toThrow(TypeError);
+    expect(canonicalBrowserOrigin("https://example.com")).toBe("https://example.com");
+
+    const blockedTopLevel = vi.fn();
+    const { contents } = install(
+      new FakeSession(),
+      { onBlockedTopLevelNavigation: blockedTopLevel },
+      undefined,
+      () => {
+        throw new Error("guard failed");
+      },
+    );
+    const navigation = {
+      ...event(),
+      url: "https://example.com/",
+      isMainFrame: true,
+    };
+    contents.emit("will-frame-navigate", navigation);
+    expect(navigation.preventDefault).toHaveBeenCalledOnce();
+    expect(blockedTopLevel).toHaveBeenCalledWith("origin_mismatch");
   });
 
   it("installs once per partition and remains hardened after every view releases", () => {
