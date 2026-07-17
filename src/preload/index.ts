@@ -15,8 +15,11 @@ import {
   type VellumChatApi,
   type VellumHerdrApi,
   type KernelSnapshot,
+  type NodeRefOpenedDelivery,
+  type NodeRefOpenedEvent,
 } from "@shared/ipc";
 import type { SnapshotState } from "@shared/entities";
+import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
 
 // Every real handler answers in well under this; only a dead/wedged main
 // process (e.g. killed during a dev restart) never responds. Rejecting then
@@ -75,6 +78,70 @@ const subscribe = <T>(channel: string, listener: (payload: T) => void) => {
   };
 };
 
+let pendingNodeRefOpened: NodeRefOpenedDelivery | undefined;
+let nodeRefOpenedListener: ((event: NodeRefOpenedEvent) => void) | undefined;
+
+const DELIVERY_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const decodeNodeRefOpened = (payload: unknown): NodeRefOpenedDelivery | undefined => {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return undefined;
+  if (Object.keys(payload).sort().join(",") !== "canvasName,deliveryId,nodeId,ref") {
+    return undefined;
+  }
+  if (!("ref" in payload) || typeof payload.ref !== "string") return undefined;
+  if (!("canvasName" in payload) || typeof payload.canvasName !== "string") return undefined;
+  if (!("nodeId" in payload) || typeof payload.nodeId !== "string") return undefined;
+  if (!("deliveryId" in payload) || typeof payload.deliveryId !== "string") return undefined;
+  if (!DELIVERY_ID_PATTERN.test(payload.deliveryId)) return undefined;
+  const parsed = parseNodeRef(payload.ref);
+  if (!parsed.ok || nodeRefKey(parsed.value) !== payload.ref) return undefined;
+  if (parsed.value.canvasName !== payload.canvasName || parsed.value.nodeId !== payload.nodeId) {
+    return undefined;
+  }
+  return {
+    ref: payload.ref,
+    canvasName: payload.canvasName,
+    nodeId: payload.nodeId,
+    deliveryId: payload.deliveryId,
+  };
+};
+
+const deliverNodeRefOpened = (delivery: NodeRefOpenedDelivery): void => {
+  const listener = nodeRefOpenedListener;
+  if (listener === undefined) {
+    pendingNodeRefOpened = delivery;
+    return;
+  }
+  try {
+    listener({
+      ref: delivery.ref,
+      canvasName: delivery.canvasName,
+      nodeId: delivery.nodeId,
+    });
+    ipcRenderer.send(IPC_CHANNELS.nodeRefOpenedAck, delivery.deliveryId);
+  } catch {
+    pendingNodeRefOpened = delivery;
+  }
+};
+
+ipcRenderer.on(IPC_CHANNELS.nodeRefOpened, (_event, payload: unknown) => {
+  const decoded = decodeNodeRefOpened(payload);
+  if (decoded !== undefined) deliverNodeRefOpened(decoded);
+});
+
+const onNodeRefOpened = (listener: (event: NodeRefOpenedEvent) => void): (() => void) => {
+  nodeRefOpenedListener = listener;
+  const queued = pendingNodeRefOpened;
+  if (queued !== undefined) {
+    pendingNodeRefOpened = undefined;
+    deliverNodeRefOpened(queued);
+  }
+  return () => {
+    if (nodeRefOpenedListener === listener) nodeRefOpenedListener = undefined;
+  };
+};
+
 const vellumApi: VellumApi = {
   listCanvases: () => invoke(IPC_CHANNELS.listCanvases, IPC_TIMEOUT_MS),
   readCanvas: (name) => invoke(IPC_CHANNELS.readCanvas, IPC_TIMEOUT_MS, name),
@@ -118,6 +185,7 @@ const vellumApi: VellumApi = {
     invoke<ArmRegionResult>(IPC_CHANNELS.armRegion, IPC_TIMEOUT_MS, canvasName, regionId, armed),
   pulseRegion: (canvasName, regionId, opts) =>
     invoke<void>(IPC_CHANNELS.pulseRegion, IPC_TIMEOUT_MS, canvasName, regionId, opts),
+  onNodeRefOpened,
   onCanvasChanged: (listener) => subscribe<string>(IPC_CHANNELS.canvasChanged, listener),
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
@@ -173,6 +241,9 @@ const herdrApi: VellumHerdrApi = {
   herdrStreamScroll: (streamId, delta, at) =>
     invoke(IPC_CHANNELS.herdrStreamScroll, IPC_TIMEOUT_MS, streamId, delta, at),
   herdrStreamClose: (streamId) => invoke(IPC_CHANNELS.herdrStreamClose, IPC_TIMEOUT_MS, streamId),
+  herdrObserveTouch: (input) => invoke(IPC_CHANNELS.herdrObserveTouch, IPC_TIMEOUT_MS, input),
+  herdrObserveRetained: (terminalId) =>
+    invoke(IPC_CHANNELS.herdrObserveRetained, IPC_TIMEOUT_MS, terminalId),
   onHerdrStreamEvent: (listener) => subscribe<HerdrStreamEvent>(IPC_CHANNELS.herdrStreamEvent, listener),
   herdrMirrorState: () => invoke(IPC_CHANNELS.herdrMirrorState, IPC_TIMEOUT_MS),
   onHerdrMirrorEvent: (listener) =>

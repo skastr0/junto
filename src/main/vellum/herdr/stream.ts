@@ -1,6 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { HerdrPointerCell } from "@shared/ipc";
 import { herdrArgv, isKnownHerdrHost, UnknownHerdrHostError } from "./hosts";
+import { feedNdjson } from "./ndjson";
+import { herdrObservePool, type HerdrObservePool } from "./observe-pool";
 import { pastePathPayload, stageImageOnHost } from "./stage-image";
 
 export interface HerdrStreamFrame {
@@ -25,6 +27,27 @@ interface ActiveStream {
   readonly terminalId: string;
   readonly child: ChildProcessWithoutNullStreams;
   readonly openedAt: number;
+  /** Last known geometry — reused when handing the terminal back to the observe pool. */
+  cols: number;
+  rows: number;
+  /** First live control frame clears the pool's retention for this terminal. */
+  firstFrameSeen: boolean;
+}
+
+/** Observe-pool hooks the stream manager drives (injectable for tests). */
+export interface ObservePoolHooks {
+  ensureObserve(input: {
+    readonly hostId: string;
+    readonly session?: string | null;
+    readonly terminalId: string;
+    readonly cols: number;
+    readonly rows: number;
+  }): { readonly pooled: boolean };
+  retainedFrames(terminalId: string): ReadonlyArray<string>;
+  pauseForControl(terminalId: string): void;
+  clearRetention(terminalId: string): void;
+  releaseObserve(terminalId: string): void;
+  stopAll(): void;
 }
 
 /**
@@ -47,6 +70,11 @@ export class HerdrStreamManager {
   private sink: StreamSink | undefined;
   private shutDown = false;
 
+  constructor(
+    private readonly pool: ObservePoolHooks = herdrObservePool as HerdrObservePool,
+    private readonly spawnFn: typeof spawn = spawn,
+  ) {}
+
   setSink(sink: StreamSink | undefined): void {
     this.sink = sink;
   }
@@ -62,7 +90,9 @@ export class HerdrStreamManager {
     readonly cols: number;
     readonly rows: number;
     readonly takeover?: boolean;
-  }): { readonly ok: true; readonly streamId: string } | { readonly ok: false; readonly message: string } {
+  }):
+    | { readonly ok: true; readonly streamId: string; readonly retained: ReadonlyArray<string> }
+    | { readonly ok: false; readonly message: string } {
     if (this.shutDown) {
       return { ok: false, message: "herdr streams shut down (app quitting)" };
     }
@@ -101,9 +131,13 @@ export class HerdrStreamManager {
       return { ok: false, message };
     }
 
+    // Capture retained observe frames BEFORE the observe child is killed —
+    // the renderer paints these synchronously while live frames spin up.
+    const retained = this.pool.retainedFrames(input.terminalId);
+
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(command, argv, {
+      child = this.spawnFn(command, argv, {
         stdio: ["pipe", "pipe", "pipe"],
         env: process.env,
       }) as ChildProcessWithoutNullStreams;
@@ -112,6 +146,10 @@ export class HerdrStreamManager {
       return { ok: false, message: `failed to spawn control stream: ${message}` };
     }
 
+    // Control now provides frames: kill the terminal's observe child but keep
+    // its retention until the first live control frame arrives (handleLine).
+    this.pool.pauseForControl(input.terminalId);
+
     this.active = {
       streamId,
       hostId: input.hostId,
@@ -119,18 +157,15 @@ export class HerdrStreamManager {
       terminalId: input.terminalId,
       child,
       openedAt: Date.now(),
+      cols: Math.max(20, Math.floor(input.cols || 80)),
+      rows: Math.max(5, Math.floor(input.rows || 24)),
+      firstFrameSeen: false,
     };
 
     let buffer = "";
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
-      buffer += chunk;
-      let idx: number;
-      while ((idx = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, idx).trim();
-        buffer = buffer.slice(idx + 1);
-        if (line) this.handleLine(streamId, line);
-      }
+      buffer = feedNdjson(buffer, chunk, (line) => this.handleLine(streamId, line));
     });
 
     child.stderr.setEncoding("utf8");
@@ -143,7 +178,9 @@ export class HerdrStreamManager {
 
     child.on("close", (code) => {
       if (this.active?.streamId === streamId) {
+        const closing = this.active;
         this.active = undefined;
+        this.handBackToObservePool(closing);
         this.emit({
           streamId,
           type: "closed",
@@ -154,7 +191,9 @@ export class HerdrStreamManager {
 
     child.on("error", (error) => {
       if (this.active?.streamId === streamId) {
+        const closing = this.active;
         this.active = undefined;
+        this.handBackToObservePool(closing);
         this.emit({
           streamId,
           type: "error",
@@ -164,7 +203,7 @@ export class HerdrStreamManager {
       }
     });
 
-    return { ok: true, streamId };
+    return { ok: true, streamId, retained };
   }
 
   /**
@@ -228,11 +267,19 @@ export class HerdrStreamManager {
   ): { readonly ok: boolean; readonly error?: string } {
     const stream = this.require(streamId);
     if (!stream.ok) return stream;
-    return this.writeJson(stream.stream, {
+    const nextCols = Math.max(20, Math.floor(cols));
+    const nextRows = Math.max(5, Math.floor(rows));
+    const written = this.writeJson(stream.stream, {
       type: "terminal.resize",
-      cols: Math.max(20, Math.floor(cols)),
-      rows: Math.max(5, Math.floor(rows)),
+      cols: nextCols,
+      rows: nextRows,
     });
+    if (written.ok) {
+      // Track last geometry so the post-detach observe re-attach matches.
+      stream.stream.cols = nextCols;
+      stream.stream.rows = nextRows;
+    }
+    return written;
   }
 
   /**
@@ -312,6 +359,7 @@ export class HerdrStreamManager {
       // ignore
     }
     this.active = undefined;
+    this.handBackToObservePool(active);
     this.emit({ streamId, type: "closed", reason });
     return { ok: true };
   }
@@ -323,11 +371,29 @@ export class HerdrStreamManager {
   detachAllOnQuit(reason = "app_quit"): void {
     this.shutDown = true;
     if (this.active) this.detachControl(this.active.streamId, reason);
+    // Observers own nothing on the host — plain SIGTERM, no terminal.release.
+    this.pool.stopAll();
   }
 
   /** @deprecated use detachAllOnQuit — name kept so greps for closeAll still find the intent */
   closeAll(): void {
     this.detachAllOnQuit("shutdown");
+  }
+
+  /**
+   * Control closed for any reason: re-pool an observe stream for the terminal
+   * (most-recent LRU slot) so switching back paints instantly from retention.
+   * Never on app quit — detachAllOnQuit sets shutDown before detaching.
+   */
+  private handBackToObservePool(stream: ActiveStream): void {
+    if (this.shutDown) return;
+    this.pool.ensureObserve({
+      hostId: stream.hostId,
+      session: stream.session,
+      terminalId: stream.terminalId,
+      cols: stream.cols,
+      rows: stream.rows,
+    });
   }
 
   private require(
@@ -368,6 +434,13 @@ export class HerdrStreamManager {
     }
     const type = typeof obj.type === "string" ? obj.type : "";
     if (type === "terminal.frame") {
+      // First live control frame: renderer has fresher pixels than the pool's
+      // retained observe frames — clear that terminal's retention.
+      const active = this.active;
+      if (active && active.streamId === streamId && !active.firstFrameSeen) {
+        active.firstFrameSeen = true;
+        this.pool.clearRetention(active.terminalId);
+      }
       this.emit({
         streamId,
         type: "frame",
@@ -387,12 +460,16 @@ export class HerdrStreamManager {
         reason: typeof obj.reason === "string" ? obj.reason : "closed",
       });
       if (this.active?.streamId === streamId) {
+        const closing = this.active;
         try {
-          this.active.child.kill("SIGTERM");
+          closing.child.kill("SIGTERM");
         } catch {
           // ignore
         }
         this.active = undefined;
+        // Host reported the terminal genuinely closed — do NOT re-observe a
+        // dead terminal; drop its pooled entry and retention instead.
+        if (!this.shutDown) this.pool.releaseObserve(closing.terminalId);
       }
       return;
     }

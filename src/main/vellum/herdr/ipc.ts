@@ -2,11 +2,13 @@ import type { IpcMain, WebContents } from "electron";
 import {
   IPC_CHANNELS,
   type HerdrMirrorEvent,
+  type HerdrObserveTouchInput,
   type HerdrPointerCell,
   type HerdrStreamOpenInput,
 } from "@shared/ipc";
 import { HERDR_HOSTS } from "./hosts";
 import { mirrorFor, mirrorStates } from "./mirrors";
+import { herdrObservePool } from "./observe-pool";
 import { herdrService } from "./service";
 import { herdrStreams } from "./stream";
 
@@ -154,5 +156,13 @@ export const registerHerdrIpc = (
 
   ipcMain.handle(IPC_CHANNELS.herdrStreamClose, (_e, streamId: string) =>
     herdrStreams.close(streamId),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.herdrObserveTouch, (_e, input: HerdrObserveTouchInput) =>
+    herdrObservePool.ensureObserve(input),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.herdrObserveRetained, (_e, terminalId: string) =>
+    herdrObservePool.retainedFrames(terminalId),
   );
 };

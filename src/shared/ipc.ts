@@ -2,6 +2,7 @@ import type { BrowserSessionState } from "./browser";
 import type { DirectoryEntry, DoctorReport, FolderSnapshot, ServiceCheck } from "./contracts";
 import type { CanvasDoc } from "./canvas";
 import type { SnapshotState } from "./entities";
+import type { NodeRefKey } from "./node-ref";
 
 export const IPC_CHANNELS = {
   doctor: "chassis:doctor",
@@ -65,6 +66,8 @@ export const IPC_CHANNELS = {
   herdrStreamResize: "vellum:herdr-stream-resize",
   herdrStreamScroll: "vellum:herdr-stream-scroll",
   herdrStreamClose: "vellum:herdr-stream-close",
+  herdrObserveTouch: "vellum:herdr-observe-touch",
+  herdrObserveRetained: "vellum:herdr-observe-retained",
   // browser work surface (partitioned WebContentsView sessions)
   browserProfiles: "vellum:browser-profiles",
   browserOpen: "vellum:browser-open",
@@ -74,6 +77,8 @@ export const IPC_CHANNELS = {
   browserSetBounds: "vellum:browser-set-bounds",
   browserSurfaceConfig: "vellum:browser-surface-config",
   // main -> renderer pushes
+  nodeRefOpened: "vellum:node-ref-opened",
+  nodeRefOpenedAck: "vellum:node-ref-opened-ack",
   canvasChanged: "vellum:canvas-changed",
   snapshotsChanged: "vellum:snapshots-changed",
   chatEvent: "vellum:chat-event",
@@ -510,6 +515,18 @@ export interface ChatEvent {
   readonly payload: unknown;
 }
 
+export interface NodeRefOpenedEvent {
+  readonly ref: NodeRefKey;
+  readonly canvasName: string;
+  readonly nodeId: string;
+}
+
+// Internal main -> preload envelope. The delivery id never crosses the
+// context bridge; it acknowledges one durable open-url relay record exactly.
+export interface NodeRefOpenedDelivery extends NodeRefOpenedEvent {
+  readonly deliveryId: string;
+}
+
 export interface ChatApi {
   // Spawn/attach the agent's ACP session. resumeSessionId reattaches a prior
   // conversation (hermes advertises loadSession + resume).
@@ -567,6 +584,7 @@ export interface VellumApi {
   readonly getKernelState: () => Promise<KernelSnapshot>;
   readonly armRegion: (canvasName: string, regionId: string, armed: boolean) => Promise<ArmRegionResult>;
   readonly pulseRegion: (canvasName: string, regionId: string, opts?: unknown) => Promise<void>;
+  readonly onNodeRefOpened: (listener: (event: NodeRefOpenedEvent) => void) => () => void;
   readonly onCanvasChanged: (listener: (name: string) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
@@ -638,6 +656,18 @@ export interface HerdrStreamOpenResult {
   readonly ok: boolean;
   readonly streamId?: string;
   readonly message?: string;
+  /** Retained observe frames (base64 ANSI, [full, ...deltas] in order) —
+   * painted synchronously before live control frames arrive. */
+  readonly retained?: ReadonlyArray<string>;
+}
+
+/** Warm a pooled read-only observe stream for a terminal (LRU-touch). */
+export interface HerdrObserveTouchInput {
+  readonly hostId: string;
+  readonly session?: string | null;
+  readonly terminalId: string;
+  readonly cols: number;
+  readonly rows: number;
 }
 
 /**
@@ -754,6 +784,9 @@ export interface VellumHerdrApi {
     at?: HerdrPointerCell,
   ) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly herdrStreamClose: (streamId: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
+  readonly herdrObserveTouch: (input: HerdrObserveTouchInput) => Promise<{ readonly pooled: boolean }>;
+  /** Retained observe frames for a terminal — preview paint without opening a stream. */
+  readonly herdrObserveRetained: (terminalId: string) => Promise<ReadonlyArray<string>>;
   readonly onHerdrStreamEvent: (listener: (event: HerdrStreamEvent) => void) => () => void;
   readonly herdrMirrorState: () => Promise<ReadonlyArray<HerdrMirrorStateInfo>>;
   readonly onHerdrMirrorEvent: (listener: (event: HerdrMirrorEvent) => void) => () => void;
