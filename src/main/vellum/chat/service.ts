@@ -1,5 +1,14 @@
 import type { ChatEvent, ChatModelChoice, ChatOpenResult, ChatTurnResult } from "@shared/ipc";
-import { AcpClient, AcpRpcError, type AcpLifecycleEvent, type JsonRpcId, type SpawnFn } from "./acp-client";
+import {
+  AcpClient,
+  AcpRpcError,
+  makeLocalBrowserChildEnvironment,
+  type AcpChildEnvironmentOverlay,
+  type AcpLifecycleEvent,
+  type JsonRpcId,
+  type LocalBrowserChildEnvironmentInput,
+  type SpawnFn,
+} from "./acp-client";
 import { buildAcpSpawnTarget, resolveSessionCwd } from "./spawn";
 
 // One live ACP session per agent node ("<host>:<profile>"). ChatService owns
@@ -9,6 +18,7 @@ import { buildAcpSpawnTarget, resolveSessionCwd } from "./spawn";
 
 interface AgentSession {
   readonly client: AcpClient;
+  readonly generation: number;
   sessionId: string;
   models: ReadonlyArray<ChatModelChoice>;
   promptInFlight: boolean;
@@ -16,6 +26,15 @@ interface AgentSession {
   // chatPermission call can echo it back to the agent unchanged.
   readonly pendingPermissions: Map<string, JsonRpcId>;
 }
+
+interface OpenInFlight {
+  readonly generation: number;
+  readonly promise: Promise<ChatOpenResult>;
+}
+
+export type ChatEnvironmentChangeResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: string };
 
 interface RawModelInfo {
   readonly modelId?: string;
@@ -44,7 +63,9 @@ const describeError = (err: unknown): string => (err instanceof Error ? err.mess
 
 export class ChatService {
   private readonly sessions = new Map<string, AgentSession>();
-  private readonly openInFlight = new Map<string, Promise<ChatOpenResult>>();
+  private readonly openInFlight = new Map<string, OpenInFlight>();
+  private readonly authorityRestartInFlight = new Map<string, Promise<ChatOpenResult>>();
+  private readonly generations = new Map<string, number>();
   private eventSink: ((event: ChatEvent) => void) | undefined;
 
   // spawnFn is injectable for tests (a fake child instead of a real
@@ -75,6 +96,49 @@ export class ChatService {
     this.eventSink?.({ agentKey, kind, payload });
   }
 
+  private generation(agentKey: string): number {
+    return this.generations.get(agentKey) ?? 0;
+  }
+
+  private nextGeneration(agentKey: string): number {
+    const generation = this.generation(agentKey) + 1;
+    this.generations.set(agentKey, generation);
+    return generation;
+  }
+
+  private isCurrent(agentKey: string, session: AgentSession): boolean {
+    return (
+      this.generation(agentKey) === session.generation &&
+      this.sessions.get(agentKey) === session
+    );
+  }
+
+  private closeCurrent(agentKey: string): void {
+    const session = this.sessions.get(agentKey);
+    if (session === undefined) return;
+    if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
+    session.client.close();
+  }
+
+  private beginOpen(
+    agentKey: string,
+    resumeSessionId?: string,
+    environmentOverlay?: AcpChildEnvironmentOverlay,
+    generation = this.nextGeneration(agentKey),
+  ): Promise<ChatOpenResult> {
+    const promise = this.openFresh(
+      agentKey,
+      generation,
+      resumeSessionId,
+      environmentOverlay,
+    ).finally(() => {
+      const current = this.openInFlight.get(agentKey);
+      if (current?.generation === generation) this.openInFlight.delete(agentKey);
+    });
+    this.openInFlight.set(agentKey, { generation, promise });
+    return promise;
+  }
+
   // Idempotent per key: a second chatOpen for an already-live session
   // returns its current state rather than respawning. The sessionId !== ""
   // guard matters: openFresh registers the session in `sessions` (with
@@ -84,35 +148,125 @@ export class ChatService {
   // falls through to the openInFlight check below instead and joins the
   // same in-flight open.
   async chatOpen(agentKey: string, resumeSessionId?: string): Promise<ChatOpenResult> {
+    const authorityRestart = this.authorityRestartInFlight.get(agentKey);
+    if (authorityRestart !== undefined) return authorityRestart;
     const existing = this.sessions.get(agentKey);
     if (existing && !existing.client.closed && existing.sessionId !== "") {
       return { ok: true, sessionId: existing.sessionId, resumed: false, models: existing.models };
     }
 
     const inFlight = this.openInFlight.get(agentKey);
-    if (inFlight) return inFlight;
+    if (inFlight) return inFlight.promise;
 
-    const promise = this.openFresh(agentKey, resumeSessionId).finally(() => {
-      this.openInFlight.delete(agentKey);
-    });
-    this.openInFlight.set(agentKey, promise);
-    return promise;
+    return this.beginOpen(agentKey, resumeSessionId);
   }
 
-  private async openFresh(agentKey: string, resumeSessionId?: string): Promise<ChatOpenResult> {
+  async chatOpenWithLocalBrowserAuthority(
+    agentKey: string,
+    environment: LocalBrowserChildEnvironmentInput,
+    resumeSessionId?: string,
+  ): Promise<ChatOpenResult> {
+    const target = buildAcpSpawnTarget(agentKey);
+    if (target === undefined) return { ok: false, error: `invalid agent key: ${agentKey}` };
+    if (target.host !== "local") {
+      return { ok: false, error: "browser authority child environment is local-only" };
+    }
+    let overlay: AcpChildEnvironmentOverlay;
+    try {
+      overlay = makeLocalBrowserChildEnvironment(environment);
+    } catch (error) {
+      return { ok: false, error: describeError(error) };
+    }
+    if (
+      this.sessions.has(agentKey) ||
+      this.openInFlight.has(agentKey) ||
+      this.authorityRestartInFlight.has(agentKey)
+    ) {
+      return {
+        ok: false,
+        error: "chat session already open or opening — use deliberate authority restart",
+      };
+    }
+    return this.beginOpen(agentKey, resumeSessionId, overlay);
+  }
+
+  async chatRestartWithLocalBrowserAuthority(
+    agentKey: string,
+    environment: LocalBrowserChildEnvironmentInput,
+    resumeSessionId?: string,
+  ): Promise<ChatOpenResult> {
+    const target = buildAcpSpawnTarget(agentKey);
+    if (target === undefined) return { ok: false, error: `invalid agent key: ${agentKey}` };
+    if (target.host !== "local") {
+      return { ok: false, error: "browser authority child environment is local-only" };
+    }
+    if (this.authorityRestartInFlight.has(agentKey)) {
+      return { ok: false, error: "authority restart already in flight" };
+    }
+    let overlay: AcpChildEnvironmentOverlay;
+    try {
+      overlay = makeLocalBrowserChildEnvironment(environment);
+    } catch (error) {
+      return { ok: false, error: describeError(error) };
+    }
+
+    const previousOpen = this.openInFlight.get(agentKey);
+    const generation = this.nextGeneration(agentKey);
+    this.closeCurrent(agentKey);
+    const restart = (async (): Promise<ChatOpenResult> => {
+      if (previousOpen !== undefined) await previousOpen.promise;
+      if (this.generation(agentKey) !== generation) {
+        return { ok: false, error: "authority restart superseded" };
+      }
+      return this.beginOpen(agentKey, resumeSessionId, overlay, generation);
+    })().finally(() => {
+      if (this.authorityRestartInFlight.get(agentKey) === restart) {
+        this.authorityRestartInFlight.delete(agentKey);
+      }
+    });
+    this.authorityRestartInFlight.set(agentKey, restart);
+    return restart;
+  }
+
+  async chatRevokeLocalBrowserAuthority(
+    agentKey: string,
+  ): Promise<ChatEnvironmentChangeResult> {
+    const target = buildAcpSpawnTarget(agentKey);
+    if (target === undefined) return { ok: false, error: `invalid agent key: ${agentKey}` };
+    if (target.host !== "local") {
+      return { ok: false, error: "browser authority child environment is local-only" };
+    }
+    this.nextGeneration(agentKey);
+    this.closeCurrent(agentKey);
+    return { ok: true };
+  }
+
+  private async openFresh(
+    agentKey: string,
+    generation: number,
+    resumeSessionId?: string,
+    environmentOverlay?: AcpChildEnvironmentOverlay,
+  ): Promise<ChatOpenResult> {
     const target = buildAcpSpawnTarget(agentKey);
     if (!target) return { ok: false, error: `invalid agent key: ${agentKey}` };
+    if (this.generation(agentKey) !== generation) {
+      return { ok: false, error: "chat open superseded" };
+    }
 
     const session: AgentSession = {
       client: new AcpClient(
         target,
         {
-          onNotification: (method, params) => this.handleNotification(agentKey, method, params),
-          onAgentRequest: (method, id, params) => this.handleAgentRequest(agentKey, method, id, params),
-          onLifecycle: (event) => this.handleLifecycle(agentKey, event),
+          onNotification: (method, params) =>
+            this.handleNotification(agentKey, session, method, params),
+          onAgentRequest: (method, id, params) =>
+            this.handleAgentRequest(agentKey, session, method, id, params),
+          onLifecycle: (event) => this.handleLifecycle(agentKey, session, event),
         },
         this.spawnFn,
+        environmentOverlay,
       ),
+      generation,
       sessionId: "",
       models: [],
       promptInFlight: false,
@@ -125,6 +279,10 @@ export class ChatService {
     let authSuffix = "";
     try {
       const init = await session.client.start();
+      if (!this.isCurrent(agentKey, session)) {
+        session.client.close();
+        return { ok: false, error: "chat open superseded" };
+      }
       authSuffix = describeAuthMethods(init.authMethods);
       const cwd = resolveSessionCwd(target.host);
 
@@ -135,6 +293,10 @@ export class ChatService {
             cwd,
             mcpServers: [],
           });
+          if (!this.isCurrent(agentKey, session)) {
+            session.client.close();
+            return { ok: false, error: "chat open superseded" };
+          }
           if (result) {
             session.sessionId = resumeSessionId;
             session.models = toModelChoices(result);
@@ -144,19 +306,23 @@ export class ChatService {
           // agent side — fall through to a fresh session/new below rather
           // than hard-failing chatOpen.
         } catch (err) {
-          this.sessions.delete(agentKey);
+          if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
           session.client.close();
           return { ok: false, error: `resume failed: ${describeError(err)}${authSuffix}` };
         }
       }
 
       const created = await session.client.request<SessionResultShape>("session/new", { cwd, mcpServers: [] });
+      if (!this.isCurrent(agentKey, session)) {
+        session.client.close();
+        return { ok: false, error: "chat open superseded" };
+      }
       if (!created.sessionId) throw new Error("session/new returned no sessionId");
       session.sessionId = created.sessionId;
       session.models = toModelChoices(created);
       return { ok: true, sessionId: session.sessionId, resumed: false, models: session.models };
     } catch (err) {
-      this.sessions.delete(agentKey);
+      if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
       session.client.close();
       return { ok: false, error: `${describeError(err)}${authSuffix}` };
     }
@@ -219,16 +385,20 @@ export class ChatService {
   }
 
   async chatClose(agentKey: string): Promise<{ ok: boolean }> {
-    const session = this.sessions.get(agentKey);
-    if (!session) return { ok: true };
-    this.sessions.delete(agentKey);
-    session.client.close();
+    this.nextGeneration(agentKey);
+    this.closeCurrent(agentKey);
     return { ok: true };
   }
 
   // --- ACP -> ChatEvent projection ------------------------------------------
 
-  private handleNotification(agentKey: string, method: string, params: unknown): void {
+  private handleNotification(
+    agentKey: string,
+    session: AgentSession,
+    method: string,
+    params: unknown,
+  ): void {
+    if (!this.isCurrent(agentKey, session)) return;
     if (method !== "session/update") {
       console.debug(`[chat:${agentKey}] unhandled ACP notification`, method);
       return;
@@ -238,9 +408,14 @@ export class ChatService {
     this.emit(agentKey, update.sessionUpdate ?? "update", update);
   }
 
-  private handleAgentRequest(agentKey: string, method: string, id: JsonRpcId, params: unknown): void {
-    const session = this.sessions.get(agentKey);
-    if (!session) return;
+  private handleAgentRequest(
+    agentKey: string,
+    session: AgentSession,
+    method: string,
+    id: JsonRpcId,
+    params: unknown,
+  ): void {
+    if (!this.isCurrent(agentKey, session)) return;
 
     if (method === "session/request_permission") {
       const requestId = String(id);
@@ -254,7 +429,12 @@ export class ChatService {
     session.client.respondError(id, -32601, `method not found: ${method}`);
   }
 
-  private handleLifecycle(agentKey: string, event: AcpLifecycleEvent): void {
+  private handleLifecycle(
+    agentKey: string,
+    session: AgentSession,
+    event: AcpLifecycleEvent,
+  ): void {
+    if (!this.isCurrent(agentKey, session)) return;
     this.sessions.delete(agentKey);
     const message = event.kind === "error" ? event.message : `agent process exited (code ${event.code ?? "unknown"})`;
     this.emit(agentKey, "error", { message });

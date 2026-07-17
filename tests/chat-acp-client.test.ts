@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AcpClient,
   AcpRpcError,
+  makeLocalBrowserChildEnvironment,
   type AcpChildLike,
   type AcpClientHandlers,
   type JsonRpcId,
@@ -82,6 +83,71 @@ describe("AcpClient.start", () => {
   it("resolves with the agent's initialize result once the matching response arrives", async () => {
     const { client } = await startedClient();
     expect(client.closed).toBe(false);
+  });
+
+  it("consumes a validated local child overlay at spawn without changing argv or ACP", async () => {
+    const child = new FakeChild();
+    const spawn = vi.fn(() => child);
+    const overlay = makeLocalBrowserChildEnvironment({
+      capability: Buffer.alloc(32, 0xa1).toString("base64url"),
+      home: "/tmp/vellum-browser",
+    });
+    const client = new AcpClient(TARGET, noopHandlers(), spawn, overlay);
+    clients.push(client);
+    const start = client.start();
+
+    expect(spawn).toHaveBeenCalledWith(TARGET, { environmentOverlay: overlay });
+    expect(TARGET.argv).toEqual(["acp"]);
+    expect(child.written[0]).not.toContain(overlay.VELLUM_BROWSER_CAPABILITY);
+    expect(child.written[0]).not.toContain(overlay.VELLUM_BROWSER_HOME);
+    respondOk(child, lastSentId(child), {
+      protocolVersion: 1,
+      agentCapabilities: { loadSession: true },
+      authMethods: [],
+    });
+    await start;
+  });
+
+  it("rejects a remote child overlay before invoking spawn", async () => {
+    const remote: AcpSpawnTarget = {
+      command: "ssh",
+      argv: ["remote-a", "hermes", "acp"],
+      host: "remote-a",
+      profile: "default",
+    };
+    const spawn = vi.fn(() => new FakeChild());
+    const client = new AcpClient(
+      remote,
+      noopHandlers(),
+      spawn,
+      makeLocalBrowserChildEnvironment({
+        capability: Buffer.alloc(32, 0xa1).toString("base64url"),
+        home: "/tmp/vellum-browser",
+      }),
+    );
+    clients.push(client);
+
+    await expect(client.start()).rejects.toThrow("local-only");
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed or oversized environment values", () => {
+    expect(() => makeLocalBrowserChildEnvironment({
+      capability: "short",
+      home: "/tmp/vellum-browser",
+    })).toThrow("invalid format");
+    expect(() => makeLocalBrowserChildEnvironment({
+      capability: "a".repeat(43),
+      home: "/tmp/vellum-browser",
+    })).toThrow("invalid format");
+    expect(() => makeLocalBrowserChildEnvironment({
+      capability: Buffer.alloc(32, 0xa1).toString("base64url"),
+      home: "relative/path",
+    })).toThrow("bounded absolute path");
+    expect(() => makeLocalBrowserChildEnvironment({
+      capability: Buffer.alloc(32, 0xa1).toString("base64url"),
+      home: `/${"x".repeat(4_097)}`,
+    })).toThrow("bounded absolute path");
   });
 
   it("rejects and kills the child after 20s with no response", async () => {

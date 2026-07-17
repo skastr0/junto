@@ -1,7 +1,13 @@
 import { EventEmitter } from "node:events";
 import { homedir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AcpChildLike, JsonRpcId, SpawnFn } from "../src/main/vellum/chat/acp-client";
+import type {
+  AcpChildLike,
+  AcpSpawnOptions,
+  JsonRpcId,
+  SpawnFn,
+} from "../src/main/vellum/chat/acp-client";
+import type { AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
 import { ChatService } from "../src/main/vellum/chat/service";
 import type { ChatEvent } from "../src/shared/ipc";
 
@@ -56,15 +62,26 @@ const INIT_RESULT = (authMethods: ReadonlyArray<{ id?: string; name?: string }> 
 
 // One spawnFn shared by a test that hands out one FakeChild per spawn() call
 // (mirroring how ChatService spawns a fresh child per agentKey/session).
-function fakeSpawn(): { spawnFn: SpawnFn; children: FakeChild[] } {
+function fakeSpawn(): {
+  spawnFn: SpawnFn;
+  children: FakeChild[];
+  calls: Array<{ readonly target: AcpSpawnTarget; readonly options?: AcpSpawnOptions }>;
+} {
   const children: FakeChild[] = [];
-  const spawnFn: SpawnFn = () => {
+  const calls: Array<{ readonly target: AcpSpawnTarget; readonly options?: AcpSpawnOptions }> = [];
+  const spawnFn: SpawnFn = (target, options) => {
     const child = new FakeChild();
     children.push(child);
+    calls.push({ target, ...(options !== undefined ? { options } : {}) });
     return child;
   };
-  return { spawnFn, children };
+  return { spawnFn, children, calls };
 }
+
+const BROWSER_AUTHORITY = {
+  capability: Buffer.alloc(32, 0xa1).toString("base64url"),
+  home: "/tmp/vellum-browser",
+};
 
 // Drives chatOpen for the given agent key through a successful handshake +
 // session/new, returning once the open has resolved. Takes the shared
@@ -89,6 +106,21 @@ async function openHappyPath(
   }); // session/new
   const result = await openPromise;
   return { result, child };
+}
+
+async function finishPendingOpen(
+  openPromise: Promise<Awaited<ReturnType<ChatService["chatOpen"]>>>,
+  child: FakeChild,
+  sessionId = "sess-authorized",
+): Promise<Awaited<ReturnType<ChatService["chatOpen"]>>> {
+  await waitForWrites(child, 1);
+  respondOk(child, lastSentId(child), INIT_RESULT());
+  await waitForWrites(child, 2);
+  respondOk(child, lastSentId(child), {
+    sessionId,
+    models: { availableModels: [] },
+  });
+  return openPromise;
 }
 
 afterEach(() => {
@@ -196,6 +228,150 @@ describe("chatOpen", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("no credentials configured");
     expect(result.error).toContain("auth methods available: Environment Variable");
+  });
+});
+
+describe("local browser authority child environment", () => {
+  it("passes a copied one-shot overlay only to the selected local child", async () => {
+    const { spawnFn, children, calls } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    const processCapability = process.env.VELLUM_BROWSER_CAPABILITY;
+    const processHome = process.env.VELLUM_BROWSER_HOME;
+
+    const open = service.chatOpenWithLocalBrowserAuthority(
+      "local:default",
+      BROWSER_AUTHORITY,
+    );
+    expect(children).toHaveLength(1);
+    expect(calls[0]).toEqual({
+      target: {
+        command: "hermes",
+        argv: ["acp"],
+        host: "local",
+        profile: "default",
+      },
+      options: {
+        environmentOverlay: {
+          VELLUM_BROWSER_CAPABILITY: BROWSER_AUTHORITY.capability,
+          VELLUM_BROWSER_HOME: BROWSER_AUTHORITY.home,
+        },
+      },
+    });
+    expect(process.env.VELLUM_BROWSER_CAPABILITY).toBe(processCapability);
+    expect(process.env.VELLUM_BROWSER_HOME).toBe(processHome);
+
+    const result = await finishPendingOpen(open, children[0]!);
+    expect(result).toMatchObject({ ok: true, sessionId: "sess-authorized" });
+    const wire = children[0]!.written.join("");
+    expect(wire).not.toContain(BROWSER_AUTHORITY.capability);
+    expect(wire).not.toContain(BROWSER_AUTHORITY.home);
+  });
+
+  it("rejects remote and malformed overlays before spawning", async () => {
+    const { spawnFn, children } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    await expect(
+      service.chatOpenWithLocalBrowserAuthority("remote-a:default", BROWSER_AUTHORITY),
+    ).resolves.toEqual({
+      ok: false,
+      error: "browser authority child environment is local-only",
+    });
+    await expect(
+      service.chatOpenWithLocalBrowserAuthority("local:default", {
+        capability: "short",
+        home: "relative",
+      }),
+    ).resolves.toMatchObject({ ok: false });
+    expect(children).toHaveLength(0);
+  });
+
+  it("isolates concurrent local agents to their own overlay", async () => {
+    const { spawnFn, children, calls } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    const authorityB = {
+      capability: Buffer.alloc(32, 0xb2).toString("base64url"),
+      home: "/tmp/vellum-browser-b",
+    };
+    const openA = service.chatOpenWithLocalBrowserAuthority(
+      "local:agent-a",
+      BROWSER_AUTHORITY,
+    );
+    const openB = service.chatOpenWithLocalBrowserAuthority(
+      "local:agent-b",
+      authorityB,
+    );
+
+    expect(calls[0]?.options?.environmentOverlay?.VELLUM_BROWSER_CAPABILITY)
+      .toBe(BROWSER_AUTHORITY.capability);
+    expect(calls[1]?.options?.environmentOverlay?.VELLUM_BROWSER_CAPABILITY)
+      .toBe(authorityB.capability);
+    await Promise.all([
+      finishPendingOpen(openA, children[0]!, "sess-a"),
+      finishPendingOpen(openB, children[1]!, "sess-b"),
+    ]);
+  });
+
+  it("requires deliberate restart instead of silently retaining stale authority", async () => {
+    const { spawnFn, children, calls } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    await openHappyPath(service, children);
+
+    await expect(
+      service.chatOpenWithLocalBrowserAuthority("local:default", BROWSER_AUTHORITY),
+    ).resolves.toEqual({
+      ok: false,
+      error: "chat session already open or opening — use deliberate authority restart",
+    });
+    expect(children).toHaveLength(1);
+
+    const restart = service.chatRestartWithLocalBrowserAuthority(
+      "local:default",
+      BROWSER_AUTHORITY,
+    );
+    expect(children[0]!.kill).toHaveBeenCalled();
+    expect(children).toHaveLength(2);
+    expect(calls[1]?.options?.environmentOverlay?.VELLUM_BROWSER_CAPABILITY)
+      .toBe(BROWSER_AUTHORITY.capability);
+    await expect(finishPendingOpen(restart, children[1]!, "sess-restarted"))
+      .resolves.toMatchObject({ ok: true, sessionId: "sess-restarted" });
+  });
+
+  it("revocation cancels an in-flight restart before stale authority can respawn", async () => {
+    const { spawnFn, children } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    const original = service.chatOpen("local:default");
+    expect(children).toHaveLength(1);
+
+    const restart = service.chatRestartWithLocalBrowserAuthority(
+      "local:default",
+      BROWSER_AUTHORITY,
+    );
+    await expect(service.chatRevokeLocalBrowserAuthority("local:default"))
+      .resolves.toEqual({ ok: true });
+
+    await expect(original).resolves.toMatchObject({ ok: false });
+    await expect(restart).resolves.toEqual({
+      ok: false,
+      error: "authority restart superseded",
+    });
+    expect(children).toHaveLength(1);
+    expect(children[0]!.kill).toHaveBeenCalled();
+  });
+
+  it("does not reuse a consumed overlay after an unexpected child exit", async () => {
+    const { spawnFn, children, calls } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    const authorized = service.chatOpenWithLocalBrowserAuthority(
+      "local:default",
+      BROWSER_AUTHORITY,
+    );
+    await finishPendingOpen(authorized, children[0]!);
+    children[0]!.emit("exit", 1);
+
+    const ordinary = service.chatOpen("local:default");
+    expect(calls[1]?.options).toBeUndefined();
+    await expect(finishPendingOpen(ordinary, children[1]!, "sess-ordinary"))
+      .resolves.toMatchObject({ ok: true, sessionId: "sess-ordinary" });
   });
 });
 

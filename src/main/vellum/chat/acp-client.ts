@@ -1,4 +1,5 @@
 import { spawn as spawnProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { isAbsolute } from "node:path";
 import { resolvedSpawnEnvSync } from "../adapters/exec";
 import type { AcpSpawnTarget } from "./spawn";
 
@@ -84,7 +85,63 @@ export interface AcpChildLike {
   kill(signal?: NodeJS.Signals): unknown;
 }
 
-export type SpawnFn = (target: AcpSpawnTarget) => AcpChildLike;
+export interface LocalBrowserChildEnvironmentInput {
+  readonly capability: string;
+  readonly home: string;
+}
+
+export interface AcpChildEnvironmentOverlay {
+  readonly VELLUM_BROWSER_CAPABILITY: string;
+  readonly VELLUM_BROWSER_HOME: string;
+}
+
+export interface AcpSpawnOptions {
+  readonly environmentOverlay?: AcpChildEnvironmentOverlay;
+}
+
+export type SpawnFn = (
+  target: AcpSpawnTarget,
+  options?: AcpSpawnOptions,
+) => AcpChildLike;
+
+const BROWSER_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const BROWSER_CAPABILITY_BYTES = 32;
+const BROWSER_HOME_MAX_BYTES = 4_096;
+
+const isCanonicalBrowserCapability = (capability: unknown): capability is string => {
+  if (typeof capability !== "string" || !BROWSER_CAPABILITY_PATTERN.test(capability)) {
+    return false;
+  }
+  try {
+    const decoded = Buffer.from(capability, "base64url");
+    return (
+      decoded.byteLength === BROWSER_CAPABILITY_BYTES &&
+      decoded.toString("base64url") === capability
+    );
+  } catch {
+    return false;
+  }
+};
+
+export const makeLocalBrowserChildEnvironment = (
+  input: LocalBrowserChildEnvironmentInput,
+): AcpChildEnvironmentOverlay => {
+  if (!isCanonicalBrowserCapability(input.capability)) {
+    throw new TypeError("browser capability has an invalid format");
+  }
+  if (
+    typeof input.home !== "string" ||
+    !isAbsolute(input.home) ||
+    Buffer.byteLength(input.home, "utf8") > BROWSER_HOME_MAX_BYTES ||
+    /[\0\r\n]/u.test(input.home)
+  ) {
+    throw new TypeError("browser home must be a bounded absolute path");
+  }
+  return Object.freeze({
+    VELLUM_BROWSER_CAPABILITY: input.capability,
+    VELLUM_BROWSER_HOME: input.home,
+  });
+};
 
 // Resolved (login-shell-probed, PATH-floored) env, same one every other
 // spawn call-site in this app uses — a packaged/launchd launch otherwise
@@ -92,10 +149,13 @@ export type SpawnFn = (target: AcpSpawnTarget) => AcpChildLike;
 // because SpawnFn itself is synchronous; src/main/index.ts primes the cache
 // with `void resolvedSpawnEnv()` at startup, so this is warm by the time a
 // chat is actually opened.
-const defaultSpawn: SpawnFn = (target) =>
+const defaultSpawn: SpawnFn = (target, options) =>
   spawnProcess(target.command, [...target.argv], {
     stdio: ["pipe", "pipe", "pipe"],
-    env: resolvedSpawnEnvSync(),
+    env:
+      options?.environmentOverlay === undefined
+        ? resolvedSpawnEnvSync()
+        : { ...resolvedSpawnEnvSync(), ...options.environmentOverlay },
   }) as ChildProcessWithoutNullStreams;
 
 const INIT_TIMEOUT_MS = 20_000;
@@ -142,6 +202,7 @@ export class AcpClient {
   private buffer = "";
   private nextId = 1;
   private closedFlag = false;
+  private environmentOverlay: AcpChildEnvironmentOverlay | undefined;
   private readonly pending = new Map<
     JsonRpcId,
     { readonly resolve: (value: unknown) => void; readonly reject: (err: Error) => void }
@@ -151,7 +212,16 @@ export class AcpClient {
     private readonly target: AcpSpawnTarget,
     private readonly handlers: AcpClientHandlers,
     private readonly spawnFn: SpawnFn = defaultSpawn,
-  ) {}
+    environmentOverlay?: AcpChildEnvironmentOverlay,
+  ) {
+    this.environmentOverlay =
+      environmentOverlay === undefined
+        ? undefined
+        : makeLocalBrowserChildEnvironment({
+            capability: environmentOverlay.VELLUM_BROWSER_CAPABILITY,
+            home: environmentOverlay.VELLUM_BROWSER_HOME,
+          });
+  }
 
   get closed(): boolean {
     return this.closedFlag;
@@ -160,7 +230,15 @@ export class AcpClient {
   // Spawns the child and performs the initialize handshake. Rejects (and
   // tears down the child) if the handshake doesn't complete within 20s.
   async start(): Promise<AcpInitializeResult> {
-    const child = this.spawnFn(this.target);
+    const environmentOverlay = this.environmentOverlay;
+    this.environmentOverlay = undefined;
+    if (environmentOverlay !== undefined && this.target.host !== "local") {
+      throw new Error("ACP child environment overlays are local-only");
+    }
+    const child = this.spawnFn(
+      this.target,
+      environmentOverlay === undefined ? undefined : { environmentOverlay },
+    );
     this.child = child;
 
     child.stdout.on("data", (chunk: unknown) => this.onStdout(String(chunk)));
