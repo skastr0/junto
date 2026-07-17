@@ -6,6 +6,7 @@ import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  CONTROL_CAPABILITY_ENV,
   CONTROL_MAX_BODY_BYTES,
   CONTROL_MAX_HEADER_BYTES,
   CONTROL_TOKEN_HEADER,
@@ -519,7 +520,7 @@ describe("browser control Unix transport", () => {
       "open",
       PAGE_REF,
       "--json",
-    ]);
+    ], { [CONTROL_CAPABILITY_ENV]: "A".repeat(43) });
 
     expect(result.code, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({

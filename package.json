@@ -78,6 +78,12 @@
       "station/**",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "dist/vellum-browser",
+        "to": "bin/vellum-browser"
+      }
+    ],
     "protocols": [
       {
         "name": "Vellum node reference",

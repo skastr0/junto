@@ -1,14 +1,23 @@
 #!/usr/bin/env bun
 import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { request } from "node:http";
 import { homedir } from "node:os";
+import { isAbsolute, normalize } from "node:path";
 import {
+  CONTROL_CAPABILITY_ENV,
+  CONTROL_CAPABILITY_HEADER,
+  CONTROL_HOME_ENV,
+  CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
   CONTROL_TOKEN_HEADER,
   controlErr,
   controlSocketPath,
   controlTokenPath,
   decodeControlEnvelope,
+  isValidControlCapability,
+  isValidControlRequestId,
+  type ControlErr,
   type ControlEnvelope,
   type ControlRouteName,
 } from "../src/shared/browser-control";
@@ -27,7 +36,10 @@ import {
 
 const usage = `vellum browser control
 
-usage: bun run browser <command> [args] [--json]
+usage:
+  vellum browser <command> [args] [--json]
+  vellum-browser <command> [args] [--json]
+  bun run browser <command> [args] [--json]
 
 commands:
   doctor                          control plane health (app must be running)
@@ -59,6 +71,7 @@ const httpOverSocket = (
   socketPath: string,
   route: { method: string; path: string },
   token: string,
+  capability: string | undefined,
   body: unknown,
 ): Promise<ControlEnvelope<unknown>> =>
   new Promise((resolve) => {
@@ -93,6 +106,11 @@ const httpOverSocket = (
       if (timer !== undefined) clearTimeout(timer);
       resolve(envelope);
     };
+    const requestId = randomUUID();
+    if (!isValidControlRequestId(requestId)) {
+      settle(controlErr("failed", "could not create a valid request id"));
+      return;
+    }
     const req = request(
       {
         socketPath,
@@ -101,6 +119,10 @@ const httpOverSocket = (
         headers: {
           "content-type": "application/json",
           [CONTROL_TOKEN_HEADER]: token,
+          [CONTROL_REQUEST_ID_HEADER]: requestId,
+          ...(capability === undefined
+            ? {}
+            : { [CONTROL_CAPABILITY_HEADER]: capability }),
           ...(encodedBody === undefined
             ? {}
             : { "content-length": String(Buffer.byteLength(encodedBody)) }),
@@ -188,9 +210,13 @@ interface Call {
 const parseArgs = (
   argv: ReadonlyArray<string>,
 ): { call: Call; json: boolean } | { error: string } => {
-  const json = argv.includes("--json");
-  if (argv.includes("--path")) return { error: "shot does not accept --path; Vellum owns screenshot destinations" };
-  const positional = argv.filter((value) => value !== "--json");
+  // The packaged executable is installed under both names. `vellum-browser`
+  // receives the command directly; `vellum browser` reaches the same binary
+  // through a symlink and contributes the one dispatch word below.
+  const commandArgv = argv[0] === "browser" ? argv.slice(1) : argv;
+  const json = commandArgv.includes("--json");
+  if (commandArgv.includes("--path")) return { error: "shot does not accept --path; Vellum owns screenshot destinations" };
+  const positional = commandArgv.filter((value) => value !== "--json");
   const [cmd, a, b] = positional;
 
   switch (cmd) {
@@ -242,6 +268,48 @@ const printHuman = (route: ControlRouteName, data: unknown): void => {
   console.log(JSON.stringify(data, null, 2));
 };
 
+const printErrorAndExit = (envelope: ControlErr, json: boolean): never => {
+  if (json) {
+    console.log(JSON.stringify(envelope));
+  } else {
+    console.error(`${envelope.error._tag}: ${envelope.error.message}`);
+  }
+  process.exit(1);
+};
+
+const controlHome = (): string | ControlErr => {
+  const configured = process.env[CONTROL_HOME_ENV];
+  if (configured === undefined) return homedir();
+  if (
+    configured.length === 0 ||
+    Buffer.byteLength(configured) > 4_096 ||
+    /[\u0000-\u001f\u007f]/.test(configured) ||
+    !isAbsolute(configured)
+  ) {
+    return controlErr(
+      "bad_request",
+      `${CONTROL_HOME_ENV} must be a bounded absolute path without control characters`,
+    );
+  }
+  return normalize(configured);
+};
+
+const capabilityFor = (
+  route: ControlRouteName,
+): string | undefined | ControlErr => {
+  // Doctor is transport-authenticated liveness only. Never attach a browser
+  // authority secret to a route that does not need one.
+  if (route === "doctor") return undefined;
+  const capability = process.env[CONTROL_CAPABILITY_ENV];
+  if (capability === undefined || !isValidControlCapability(capability)) {
+    return controlErr(
+      "unauthorized",
+      `${CONTROL_CAPABILITY_ENV} is required for protected browser commands`,
+    );
+  }
+  return capability;
+};
+
 const main = async (): Promise<void> => {
   const parsed = parseArgs(process.argv.slice(2));
   if ("error" in parsed) {
@@ -249,8 +317,17 @@ const main = async (): Promise<void> => {
     process.exit(2);
   }
 
-  const home = homedir();
-  let token: string;
+  const resolvedHome = controlHome();
+  if (typeof resolvedHome !== "string") return printErrorAndExit(resolvedHome, parsed.json);
+  const home = resolvedHome;
+
+  const resolvedCapability = capabilityFor(parsed.call.route);
+  if (typeof resolvedCapability === "object") {
+    return printErrorAndExit(resolvedCapability, parsed.json);
+  }
+  const capability = resolvedCapability;
+
+  let token: string | undefined;
   try {
     token = (await readFile(controlTokenPath(home), "utf8")).trim();
   } catch {
@@ -258,19 +335,18 @@ const main = async (): Promise<void> => {
     // through the same human/json branching as every other error below, so
     // this runtime_down looks identical to the socket-level one regardless of
     // which path detected it.
-    const envelope = controlErr("runtime_down", `token file missing: ${controlTokenPath(home)} — is the app running?`);
-    if (parsed.json) {
-      console.log(JSON.stringify(envelope));
-    } else {
-      console.error(`${envelope.error._tag}: ${envelope.error.message}`);
-    }
-    process.exit(1);
+    printErrorAndExit(
+      controlErr("runtime_down", `control token unavailable — is the app running?`),
+      parsed.json,
+    );
   }
+  if (token === undefined) return;
 
   const envelope = await httpOverSocket(
     controlSocketPath(home),
     CONTROL_ROUTES[parsed.call.route],
     token,
+    capability,
     parsed.call.body,
   );
 

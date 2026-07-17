@@ -8,6 +8,10 @@
 #   scripts/install-app.sh --open          open the app after install
 #   scripts/install-app.sh --supervised    also (re)load LaunchAgent (crash-only KeepAlive)
 #
+# Installs `vellum browser …` and `vellum-browser …` as atomic symlinks under
+# $VELLUM_BIN_DIR (default: ~/.local/bin). Existing non-Vellum commands are
+# never overwritten.
+#
 # Safety:
 #   - Unloads LaunchAgent before replacing the binary
 #   - Soft-quits running app so herdr control streams can detach (never pane-kill)
@@ -46,6 +50,49 @@ done
 
 cd "$REPO_ROOT"
 
+BIN_DIR="${VELLUM_BIN_DIR:-$HOME/.local/bin}"
+
+preflight_cli_link() {
+  local target="$1"
+  local helper="$2"
+  if [[ -e "$target" && ! -L "$target" ]]; then
+    err "refusing to replace non-symlink command: $target"
+    return 1
+  fi
+  if [[ -L "$target" ]]; then
+    local existing
+    existing="$(readlink "$target")"
+    if [[ "$existing" != "$helper" ]]; then
+      err "refusing to replace non-Vellum symlink: $target -> $existing"
+      return 1
+    fi
+  fi
+}
+
+install_cli_link() {
+  local name="$1"
+  local helper="$2"
+  local target="$BIN_DIR/$name"
+  local stage="$BIN_DIR/.${name}.new.$$"
+  ln -s "$helper" "$stage"
+  # Same-filesystem rename keeps each command usable throughout reinstalls.
+  mv -f "$stage" "$target"
+}
+
+install_browser_cli() {
+  local helper="$APP_DST/Contents/Resources/bin/vellum-browser"
+  if [[ ! -x "$helper" ]]; then
+    err "installed browser CLI missing or not executable: $helper"
+    return 1
+  fi
+  mkdir -p "$BIN_DIR"
+  preflight_cli_link "$BIN_DIR/vellum" "$helper"
+  preflight_cli_link "$BIN_DIR/vellum-browser" "$helper"
+  install_cli_link "vellum" "$helper"
+  install_cli_link "vellum-browser" "$helper"
+  log "browser commands → $BIN_DIR/{vellum,vellum-browser}"
+}
+
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   build_flags=()
   [[ "$FAST" -eq 1 ]] && build_flags+=(--fast)
@@ -78,6 +125,7 @@ else
 fi
 
 assert_app_bundle "$APP_DST"
+install_browser_cli
 log "installed $APP_DST"
 
 if [[ "$SUPERVISED" -eq 1 ]]; then
