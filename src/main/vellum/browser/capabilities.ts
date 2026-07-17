@@ -228,7 +228,8 @@ export type BrowserCapabilityAuditOutcome =
   | "revoked_superseded"
   | "expired"
   | "exhausted"
-  | "app_closed";
+  | "app_closed"
+  | "termination_callback_failed";
 
 export interface BrowserCapabilityAuditEvent {
   readonly sequence: number;
@@ -255,6 +256,23 @@ export interface BrowserCapabilityRegistryStats {
   readonly auditEvents: number;
 }
 
+export type BrowserCapabilityTerminationReason = Extract<
+  BrowserCapabilityAuditOutcome,
+  | "revoked_operator"
+  | "revoked_job_complete"
+  | "revoked_principal_closed"
+  | "revoked_superseded"
+  | "expired"
+  | "exhausted"
+  | "app_closed"
+>;
+
+/** Main-process-only lifecycle notice. It intentionally contains no scope or bearer material. */
+export interface BrowserCapabilityTerminationNotice extends BrowserCapabilityHandle {
+  readonly reason: BrowserCapabilityTerminationReason;
+  readonly revocationGeneration: number;
+}
+
 export interface BrowserCapabilityDependencies {
   readonly wallNow: () => number;
   readonly monotonicNow: () => number;
@@ -268,6 +286,7 @@ export interface BrowserCapabilityRegistryOptions {
   readonly maxCapabilitiesPerPrincipal?: number;
   readonly auditCapacity?: number;
   readonly dependencies?: Partial<BrowserCapabilityDependencies>;
+  readonly onTerminate?: (notice: BrowserCapabilityTerminationNotice) => void;
 }
 
 interface PrincipalRecord {
@@ -475,6 +494,7 @@ export class BrowserCapabilityRegistry {
   readonly #maxCapabilitiesPerPrincipal: number;
   readonly #auditCapacity: number;
   readonly #dependencies: BrowserCapabilityDependencies;
+  readonly #onTerminate: (notice: BrowserCapabilityTerminationNotice) => void;
   readonly #auditKey: Uint8Array;
   readonly #principals = new WeakMap<BrowserAutomationPrincipal, PrincipalRecord>();
   readonly #handles = new WeakMap<BrowserCapabilityHandle, string>();
@@ -504,6 +524,10 @@ export class BrowserCapabilityRegistry {
       ...defaultDependencies,
       ...options.dependencies,
     };
+    if (options.onTerminate !== undefined && typeof options.onTerminate !== "function") {
+      throw new BrowserCapabilityIssueDenied("invalid");
+    }
+    this.#onTerminate = options.onTerminate ?? (() => undefined);
     this.#auditKey = this.#randomExact(BROWSER_CAPABILITY_SECRET_BYTES);
     this.#readClock(this.#dependencies.wallNow);
     this.#readClock(this.#dependencies.monotonicNow);
@@ -1064,16 +1088,7 @@ export class BrowserCapabilityRegistry {
 
   #terminateRecord(
     record: CapabilityRecord,
-    outcome: Extract<
-      BrowserCapabilityAuditOutcome,
-      | "revoked_operator"
-      | "revoked_job_complete"
-      | "revoked_principal_closed"
-      | "revoked_superseded"
-      | "expired"
-      | "exhausted"
-      | "app_closed"
-    >,
+    outcome: BrowserCapabilityTerminationReason,
     abortReason?: BrowserCapabilityAbortReason,
   ): void {
     if (this.#records.get(record.digest) !== record) return;
@@ -1094,14 +1109,30 @@ export class BrowserCapabilityRegistry {
       outcome,
       revocationGeneration: record.revocationGeneration,
     });
-    if (abortReason === undefined) return;
-    const completion = `aborted_${abortReason}` as Extract<
-      BrowserCapabilityAuditOutcome,
-      "aborted_expired" | "aborted_revoked" | "aborted_app_close"
-    >;
-    for (const lease of [...record.active.values()]) {
-      this.#settleLease(record, lease, completion);
-      lease.controller.abort(new BrowserCapabilityLeaseAbort(abortReason));
+    if (abortReason !== undefined) {
+      const completion = `aborted_${abortReason}` as Extract<
+        BrowserCapabilityAuditOutcome,
+        "aborted_expired" | "aborted_revoked" | "aborted_app_close"
+      >;
+      for (const lease of [...record.active.values()]) {
+        this.#settleLease(record, lease, completion);
+        lease.controller.abort(new BrowserCapabilityLeaseAbort(abortReason));
+      }
+    }
+    const notice: BrowserCapabilityTerminationNotice = Object.freeze({
+      ...record.handle,
+      reason: outcome,
+      revocationGeneration: record.revocationGeneration,
+    });
+    try {
+      this.#onTerminate(notice);
+    } catch {
+      this.#appendAudit({
+        ...this.#auditIdentity(record),
+        kind: "lifecycle",
+        outcome: "termination_callback_failed",
+        revocationGeneration: record.revocationGeneration,
+      });
     }
   }
 

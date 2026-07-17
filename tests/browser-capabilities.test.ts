@@ -14,6 +14,7 @@ import {
   type BrowserCapabilityGrant,
   type BrowserCapabilityIssueSpec,
   type BrowserCapabilityTarget,
+  type BrowserCapabilityTerminationNotice,
   type BrowserCapabilityUseTarget,
 } from "../src/main/vellum/browser/capabilities";
 
@@ -90,6 +91,7 @@ const makeRegistry = (
     readonly maxCapabilities?: number;
     readonly maxCapabilitiesPerPrincipal?: number;
     readonly auditCapacity?: number;
+    readonly onTerminate?: (notice: BrowserCapabilityTerminationNotice) => void;
   } = {},
 ): { readonly registry: BrowserCapabilityRegistry; readonly runtime: ManualCapabilityRuntime } => ({
   registry: new BrowserCapabilityRegistry({ dependencies: runtime.dependencies, ...limits }),
@@ -518,6 +520,157 @@ describe("browser capability admission and exact scope", () => {
 });
 
 describe("browser capability lifetime and bounded state", () => {
+  it("notifies the exact owner once for explicit revoke and use-capacity teardown", () => {
+    const notices: BrowserCapabilityTerminationNotice[] = [];
+    const { registry } = makeRegistry(undefined, {
+      onTerminate: (notice) => notices.push(notice),
+    });
+    const revoked = issue(registry, undefined, {
+      actions: ["pages"],
+      targets: [TARGET_ONE],
+    });
+    const exhausted = issue(registry, undefined, {
+      actions: ["pages"],
+      targets: [TARGET_TWO],
+      maxUses: 1,
+    });
+
+    expect(registry.revoke(revoked.handle, "operator")).toBe(true);
+    expect(registry.revoke(revoked.handle, "operator")).toBe(false);
+    const lastUse = registry.authorize(
+      exhausted.secret,
+      { action: "pages" },
+      { requestId: requestId(1) },
+    );
+    lastUse.release();
+    lastUse.release();
+
+    expect(notices).toEqual([
+      {
+        ownerId: revoked.ownerId,
+        principalId: revoked.principalId,
+        jobId: revoked.jobId,
+        auditId: revoked.auditId,
+        reason: "revoked_operator",
+        revocationGeneration: 0,
+      },
+      {
+        ownerId: exhausted.ownerId,
+        principalId: exhausted.principalId,
+        jobId: exhausted.jobId,
+        auditId: exhausted.auditId,
+        reason: "exhausted",
+        revocationGeneration: 0,
+      },
+    ]);
+    expect(notices.every(Object.isFrozen)).toBe(true);
+    const serialized = JSON.stringify(notices);
+    for (const secretData of [
+      revoked.secret,
+      exhausted.secret,
+      REF_ONE,
+      REF_TWO,
+      "https://example.com",
+    ]) {
+      expect(serialized).not.toContain(secretData);
+    }
+  });
+
+  it("notifies expiry once when resume reaping observes a suspended wall-clock deadline", () => {
+    const notices: BrowserCapabilityTerminationNotice[] = [];
+    const { registry, runtime } = makeRegistry(undefined, {
+      onTerminate: (notice) => notices.push(notice),
+    });
+    const grant = issue(registry, undefined, {
+      actions: ["pages"],
+      targets: [TARGET_ONE],
+      ttlMs: 100,
+    });
+    runtime.advanceWallWhileSuspended(100);
+
+    expect(registry.reapAfterResume()).toBe(1);
+    expect(registry.reapAfterResume()).toBe(0);
+    runtime.runDueTimers();
+    expect(notices).toEqual([
+      {
+        ownerId: grant.ownerId,
+        principalId: grant.principalId,
+        jobId: grant.jobId,
+        auditId: grant.auditId,
+        reason: "expired",
+        revocationGeneration: 0,
+      },
+    ]);
+  });
+
+  it("notifies once per record during principal revoke and app close", () => {
+    const notices: BrowserCapabilityTerminationNotice[] = [];
+    const { registry } = makeRegistry(undefined, {
+      onTerminate: (notice) => notices.push(notice),
+    });
+    const principal = registry.createPrincipal();
+    const principalGrants = [
+      issue(registry, principal, { actions: ["pages"], targets: [TARGET_ONE] }),
+      issue(registry, principal, { actions: ["pages"], targets: [TARGET_TWO] }),
+    ];
+    const closeGrants = [
+      issue(registry, undefined, { actions: ["pages"], targets: [TARGET_ONE] }),
+      issue(registry, undefined, { actions: ["pages"], targets: [TARGET_TWO] }),
+    ];
+
+    expect(registry.revokePrincipal(principal, "principal_closed")).toBe(2);
+    expect(registry.revokePrincipal(principal, "principal_closed")).toBe(0);
+    expect(registry.close()).toBe(2);
+    expect(registry.close()).toBe(0);
+
+    expect(notices).toHaveLength(4);
+    expect(notices.slice(0, 2).map((notice) => notice.auditId).sort()).toEqual(
+      principalGrants.map((grant) => grant.auditId).sort(),
+    );
+    expect(notices.slice(0, 2).every((notice) => notice.reason === "revoked_principal_closed")).toBe(
+      true,
+    );
+    expect(notices.slice(2).map((notice) => notice.auditId).sort()).toEqual(
+      closeGrants.map((grant) => grant.auditId).sort(),
+    );
+    expect(notices.slice(2).every((notice) => notice.reason === "app_closed")).toBe(true);
+  });
+
+  it("finishes teardown when the termination observer throws", () => {
+    let calls = 0;
+    const { registry } = makeRegistry(undefined, {
+      onTerminate: () => {
+        calls += 1;
+        throw new Error("observer failure must stay internal");
+      },
+    });
+    const grant = issue(registry, undefined, {
+      actions: ["pages"],
+      targets: [TARGET_ONE],
+    });
+    const lease = registry.authorize(
+      grant.secret,
+      { action: "pages" },
+      { requestId: requestId(1) },
+    );
+    let aborts = 0;
+    lease.signal.addEventListener("abort", () => {
+      aborts += 1;
+    });
+
+    expect(registry.revoke(grant.handle)).toBe(true);
+    expect(registry.revoke(grant.handle)).toBe(false);
+    expect(calls).toBe(1);
+    expect(aborts).toBe(1);
+    expect(registry.stats()).toMatchObject({ activeCapabilities: 0, activeLeases: 0 });
+    expect(
+      registry.auditSnapshot().filter((event) => event.outcome === "revoked_operator"),
+    ).toHaveLength(1);
+    expect(
+      registry.auditSnapshot().filter((event) => event.outcome === "termination_callback_failed"),
+    ).toHaveLength(1);
+  });
+
   it("expires on the exact monotonic boundary and aborts one active lease exactly once", () => {
     const { registry, runtime } = makeRegistry();
     const grant = issue(registry, undefined, {
