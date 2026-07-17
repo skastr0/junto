@@ -82,6 +82,18 @@ Region activation gated by three structures (`src/shared/canvas.ts`):
 
 **Attached agent chat** — one live ACP session per agent node (`<host>:<profile>`); resumable across app sessions (channels: `chatOpen`, `chatPrompt`, `chatPermission`, `chatSetModel`, `chatClose`). Main process owns the `hermes acp` child; renders in the canvas as inline composition. The file remains the agent API.
 
+**Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one glyph, one draft). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.
+
+| measure | width intent | use |
+|---|---|---|
+| `prose` | ~65ch reading line | long copy, booth body review |
+| `document` | ~760px, resizable | tower glyph/signal, quasar session, booth draft |
+| `terminal` | ~140 mono cells @ 13px (~1100px) | herdr agent PTY |
+| `workspace` | ~1280px immersive | focused browser / multi-pane still framed |
+| `form` | ~448px fit | wizards, emit-signal |
+
+Techniques baked in: dim+blur backdrop, titlebar-aware padding, enter animation (respects `prefers-reduced-motion`), portal to `document.body`, layer (`detail` vs `work` z-index). Dock/split remains available for multi-surface work; focus is the default for one subject.
+
 ## Structure
 
 - `src/shared/` — **frozen contracts**: `canvas.ts` (document schema), `entities.ts` (snapshots), `graph.ts` (derived), `region-rollup.ts` (derived region severity rollups), `digest.ts`, `portfolio.ts`, `svg.ts`. Change deliberately; much depends on them.

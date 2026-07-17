@@ -184,12 +184,18 @@ export function NoteMarkdown({ source }: { readonly source: string }) {
       {blocks.map((block, index) => {
         const key = `b-${index}`;
         switch (block.kind) {
-          case "heading":
+          case "heading": {
+            // Leading H1 stamps a plate cartouche (hairline under the title).
+            const cartouche = index === 0 && block.level === 1;
             return createElement(
               `h${block.level}`,
-              { key, className: `note-md__h note-md__h${block.level}` },
+              {
+                key,
+                className: `note-md__h note-md__h${block.level}${cartouche ? " note-md__h--cartouche" : ""}`,
+              },
               renderInline(block.children, key),
             );
+          }
           case "paragraph":
             return <p key={key} className="note-md__p">{renderInline(block.children, key)}</p>;
           case "list": {

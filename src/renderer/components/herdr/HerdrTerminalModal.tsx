@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { use$ } from "@legendapp/state/react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -15,7 +14,8 @@ import { recreateHerdrPane } from "../../lib/herdr-actions";
 import { extractHerdrClipboardImage } from "../../lib/herdr-clipboard-image";
 import { dock$ } from "../../lib/dock-state";
 import { getVellumApi } from "../../lib/vellum-api";
-import { HUE } from "../../lib/theme";
+import { ActivityMark } from "../ActivityMark";
+import { FocusSurface } from "../FocusSurface";
 
 const utf8ToBase64 = (text: string): string => {
   const bytes = new TextEncoder().encode(text);
@@ -88,7 +88,8 @@ type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
     cols: number;
     rows: number;
     takeover?: boolean;
-  }) => Promise<{ ok: boolean; streamId?: string; message?: string }>;
+  }) => Promise<{ ok: boolean; streamId?: string; message?: string; retained?: ReadonlyArray<string> }>;
+  herdrObserveRetained?: (terminalId: string) => Promise<ReadonlyArray<string>>;
   herdrStreamInput: (streamId: string, data: string) => Promise<{ ok?: boolean; error?: string }>;
   herdrStreamPasteImage: (
     streamId: string,
@@ -287,6 +288,31 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     let resizeObs: ResizeObserver | undefined;
 
+    // Retained-frame placeholder (VL-020): paint the observe pool's last known
+    // pixels immediately, dimmed; the control stream's first full frame resets
+    // the terminal and swaps to live at full opacity.
+    let liveFrameSeen = false;
+    let placeholderPainted = false;
+    const writePlaceholder = (frames: ReadonlyArray<string> | undefined): void => {
+      if (cancelled || liveFrameSeen || placeholderPainted || !frames?.length) return;
+      placeholderPainted = true;
+      hostEl.style.transition = "opacity 160ms ease";
+      hostEl.style.opacity = "0.55";
+      for (const bytes of frames) term.write(base64ToUtf8(bytes));
+    };
+    const markLive = (): void => {
+      liveFrameSeen = true;
+      hostEl.style.opacity = "1";
+    };
+    // Cached terminal id is good enough for a dimmed preview — the live id is
+    // re-resolved in openStream; a stale preview is wiped by the first full frame.
+    if (terminalOpen.herdr.terminalId && api.herdrObserveRetained) {
+      void api
+        .herdrObserveRetained(terminalOpen.herdr.terminalId)
+        .then(writePlaceholder)
+        .catch(() => undefined);
+    }
+
     const measure = (): { cols: number; rows: number } => {
       try {
         fit.fit();
@@ -364,6 +390,8 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
         setConnectionEvent(terminalOpen.nodeId, { type: "stream_drop" });
         return;
       }
+      // Pool handoff: frames captured before the observe stream was paused.
+      writePlaceholder(opened.retained);
       streamIdRef.current = opened.streamId;
       setTerminalStreamId(opened.streamId);
       setStatus(`connected · ${cols}×${rows} · type · ⌘W closes`);
@@ -378,6 +406,8 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       if (event.streamId !== streamIdRef.current) return;
       if (event.type === "frame" && event.bytes) {
         const text = base64ToUtf8(event.bytes);
+        if (!liveFrameSeen && placeholderPainted) term.reset(); // wipe placeholder
+        markLive();
         if (event.full) term.reset();
         term.write(text);
       } else if (event.type === "error") {
@@ -552,79 +582,84 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
 
   if (!terminalOpen) return null;
 
-  const panel = (
-    <div
-      className={variant === "dock" ? "herdr-modal-panel herdr-dock-panel" : "herdr-modal-panel"}
-      onClick={(e) => e.stopPropagation()}
-    >
-        <header data-herdr-chrome className="herdr-modal-header">
-          <div className="herdr-modal-header__meta min-w-0">
-            <div className="herdr-modal-eyebrow">herdr · ⌘W / Close detaches (pane keeps running) · Esc goes to the terminal</div>
-            <div className="herdr-modal-title truncate">{terminalOpen.title}</div>
-            <div className="herdr-modal-status truncate">
-              {terminalOpen.herdr.host}
-              {terminalOpen.herdr.paneId ? ` · ${terminalOpen.herdr.paneId}` : ""}
-              {geom.cols ? ` · ${geom.cols}×${geom.rows}` : ""}
-              {" · "}
-              {status}
-              {conn?.state ? ` · ${conn.state}` : ""}
-            </div>
+  const chrome = (
+    <>
+      <header data-herdr-chrome className="herdr-modal-header">
+        <div className="herdr-modal-header__meta min-w-0">
+          <div className="herdr-modal-eyebrow">
+            herdr · ⌘W / Close detaches (pane keeps running) · Esc goes to the terminal
           </div>
-          <div data-herdr-chrome className="herdr-modal-actions">
-            {(conn?.state === "failed" || conn?.state === "lost" || conn?.state === "degraded") && (
-              <button
-                type="button"
-                data-herdr-chrome
-                className="herdr-modal-btn"
-                onClick={() => void recreateHerdrPane(terminalOpen.nodeId, terminalOpen.herdr)}
-              >
-                recreate
-              </button>
-            )}
+          <div className="herdr-modal-title truncate">{terminalOpen.title}</div>
+          <div className="herdr-modal-status truncate">
+            <ActivityMark
+              mode={conn?.state === "connected" ? "static" : "wave"}
+              tone="amber"
+              size="inline"
+              label={conn?.state === "connected" ? "connected" : "connecting"}
+            />{" "}
+            {terminalOpen.herdr.host}
+            {terminalOpen.herdr.paneId ? ` · ${terminalOpen.herdr.paneId}` : ""}
+            {geom.cols ? ` · ${geom.cols}×${geom.rows}` : ""}
+            {" · "}
+            {status}
+            {conn?.state ? ` · ${conn.state}` : ""}
+          </div>
+        </div>
+        <div data-herdr-chrome className="herdr-modal-actions">
+          {(conn?.state === "failed" || conn?.state === "lost" || conn?.state === "degraded") && (
             <button
               type="button"
               data-herdr-chrome
-              className="herdr-modal-btn herdr-modal-btn--primary"
-              onPointerDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                closeHerdrTerminal();
-              }}
+              className="herdr-modal-btn"
+              onClick={() => void recreateHerdrPane(terminalOpen.nodeId, terminalOpen.herdr)}
             >
-              Close
+              recreate
             </button>
-          </div>
-        </header>
+          )}
+          <button
+            type="button"
+            data-herdr-chrome
+            className="herdr-modal-btn herdr-modal-btn--primary"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              closeHerdrTerminal();
+            }}
+          >
+            Close
+          </button>
+        </div>
+      </header>
 
-        <div
-          ref={hostRef}
-          className="herdr-xterm herdr-modal-body"
-          onMouseDown={() => {
-            // Keep window key handler as the input path; no focus requirement.
-          }}
-        />
-    </div>
+      <div
+        ref={hostRef}
+        className="herdr-xterm herdr-modal-body"
+        onMouseDown={() => {
+          // Keep window key handler as the input path; no focus requirement.
+        }}
+      />
+    </>
   );
 
-  if (variant === "dock") return panel;
+  // Dock: fill the work-surface slot (no focus measure — slot owns width).
+  if (variant === "dock") {
+    return <div className="herdr-modal-panel herdr-dock-panel">{chrome}</div>;
+  }
 
-  return createPortal(
-    <div
-      className="herdr-modal-root"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Herdr terminal"
+  // Focus surface: measure-constrained centered terminal (see focus-measure.ts).
+  // Esc is owned by the PTY — close via Close / ⌘W / backdrop only.
+  return (
+    <FocusSurface
+      measure="terminal"
+      height="immersive"
+      layer="work"
+      label="Herdr terminal"
+      onClose={() => closeHerdrTerminal()}
+      closeOnEscape={false}
+      closeOnBackdrop
     >
-      {/* Backdrop */}
-      <button
-        type="button"
-        className="herdr-modal-backdrop"
-        aria-label="Close terminal"
-        onClick={() => closeHerdrTerminal()}
-      />
-      {panel}
-    </div>,
-    document.body,
+      {chrome}
+    </FocusSurface>
   );
 }
 

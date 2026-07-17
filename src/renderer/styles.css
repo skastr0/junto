@@ -40,33 +40,110 @@ body {
   background: radial-gradient(circle at 50% 20%, rgba(232, 163, 61, 0.025), transparent 45%);
 }
 
-/* Herdr modal — portaled to document.body; never clipped by canvas stage */
-.herdr-modal-root {
+/* =============================================================================
+   Focus surface — general centered single-subject overlay
+   (herdr terminal, future browser focus, tower/booth detail, …)
+   Width comes from measure tokens (see focus-measure.ts). The bet: one subject
+   is more pleasant when measure-constrained + dimmed periphery than full-bleed.
+   ============================================================================= */
+.focus-surface {
   position: fixed;
   inset: 0;
-  z-index: 10000;
   display: flex;
-  align-items: stretch;
   justify-content: center;
+  box-sizing: border-box;
   /* traffic lights + breathing room under hiddenInset titlebar */
   padding: 40px 16px 16px;
-  box-sizing: border-box;
 }
-.herdr-modal-backdrop {
+.focus-surface--layer-work { z-index: 10000; }
+.focus-surface--layer-detail { z-index: 60; }
+.focus-surface--height-immersive {
+  align-items: stretch;
+}
+.focus-surface--height-fit,
+.focus-surface--height-resizable {
+  align-items: center;
+  padding: 24px;
+}
+.focus-surface__backdrop {
   position: absolute;
   inset: 0;
   border: 0;
   margin: 0;
   padding: 0;
+  /* deep dim + soft blur — periphery fades so the subject holds attention */
   background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(2px);
   cursor: default;
 }
-.herdr-modal-panel {
+.focus-surface__panel {
   position: relative;
   z-index: 1;
   display: flex;
   flex-direction: column;
-  width: min(1100px, 100%);
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(237, 230, 218, 0.14);
+  background: #0c0b0a;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(237, 230, 218, 0.03);
+  animation: focus-surface-enter 160ms ease-out;
+}
+@keyframes focus-surface-enter {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .focus-surface__panel { animation: none; }
+}
+
+/* Measure → width. Vars set by FocusSurface (focusMeasureCssVars). */
+.focus-surface__panel--prose {
+  width: min(calc(var(--focus-prose-ch, 65) * 1ch), calc(100vw - 32px));
+  max-height: min(78vh, 900px);
+  background: #16130f;
+}
+.focus-surface__panel--document {
+  width: min(var(--focus-document-width, 760px), 84vw);
+  min-width: 420px;
+  min-height: 320px;
+  height: min(78vh, 900px);
+  max-height: 92vh;
+  background: #16130f;
+  padding: 20px 22px 20px;
+}
+.focus-surface__panel--document[data-height="resizable"] {
+  resize: both;
+  overflow: auto;
+}
+.focus-surface__panel--terminal {
+  /* ~140 mono cells @ 13px — see terminalFocusWidthPx() */
+  width: min(var(--focus-terminal-width, 1100px), 100%);
+  height: 100%;
+  max-height: 100%;
+}
+.focus-surface__panel--workspace {
+  width: min(var(--focus-workspace-width, 1280px), 92vw);
+  height: 100%;
+  max-height: 100%;
+}
+.focus-surface__panel--form {
+  width: min(var(--focus-form-width, 448px), calc(100vw - 32px));
+  height: auto;
+  max-height: min(86vh, 720px);
+  background: #141210;
+}
+
+/* Herdr chrome (lives inside a focus-surface terminal panel) */
+.herdr-modal-panel {
+  /* dock variant still uses this class as the slot body */
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
   height: 100%;
   max-height: 100%;
   overflow: hidden;
@@ -74,6 +151,15 @@ body {
   border: 1px solid rgba(237, 230, 218, 0.14);
   background: #0c0b0a;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+/* When nested inside FocusSurface, panel chrome is owned by focus-surface__panel */
+.focus-surface__panel .herdr-modal-panel,
+.focus-surface__panel.herdr-modal-panel {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  width: 100%;
+  height: 100%;
 }
 .herdr-modal-header {
   display: flex;
@@ -873,8 +959,9 @@ path.vellum-edge-ripple {
 .vellum-row-button:hover { background: rgba(255, 255, 255, 0.035); }
 .vellum-row-button:focus-visible { outline: 1px solid rgba(232, 163, 61, 0.5); outline-offset: 1px; }
 
-/* Centered detail-view overlay for a browsed row. Only one is ever mounted
-   at a time (the caller holds a single "active detail" state slot). */
+/* Detail chrome (content classes live under vellum-modal__*).
+   Preferred host: FocusSurface measure=document. Legacy self-hosted
+   overlay kept for note-edit and any one-off that still portals itself. */
 .vellum-modal-overlay {
   position: fixed;
   inset: 0;
@@ -900,6 +987,20 @@ path.vellum-edge-ripple {
   background: #16130f;
   padding: 20px 22px 20px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+/* FocusSurface owns measure/layer; re-assert measure after .vellum-modal defaults. */
+.focus-surface__panel.vellum-modal.focus-surface__panel--document {
+  width: min(var(--focus-document-width, 760px), 84vw);
+  height: min(78vh, 900px);
+  max-height: 92vh;
+  border-radius: 12px;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(237, 230, 218, 0.03);
+}
+.focus-surface__panel.vellum-modal.focus-surface__panel--document[data-height="resizable"] {
+  resize: both;
+  overflow: auto;
 }
 .vellum-modal__close {
   position: absolute;
@@ -1056,7 +1157,8 @@ path.vellum-edge-ripple {
 .vellum-modal__comment-status--error { color: #e5484d; }
 
 /* Resize handle affordance: subtle diagonal-lines glyph in the bottom-right corner */
-.vellum-modal::after {
+.vellum-modal::after,
+.focus-surface__panel--document[data-height="resizable"]::after {
   content: "";
   position: absolute;
   bottom: 4px;
@@ -1082,19 +1184,22 @@ path.vellum-edge-ripple {
   transition: opacity 0.18s ease;
 }
 
-.vellum-modal:hover::after {
+.vellum-modal:hover::after,
+.focus-surface__panel--document[data-height="resizable"]:hover::after {
   opacity: 0.55;
 }
 
-/* Freeform note nodes: stable ink, one typeface family. Structure comes from
-   markdown, never from a head/body shade ladder. Content anchors top-left —
-   never vertically centered (UA button defaults do that). */
+/* Freeform notes = survey plates on the field.
+   Deep-field ink ladder (not pure white). Structure from markdown only.
+   System fonts stand in for brand faces: condensed display + mono body
+   (Big Shoulders / Martian Mono on the public site; no webfont ship here).
+   Parked: wiki links, source chips, task checkboxes, agent-shorthand. */
 .note-surface {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  color: #ede6da;
+  color: #c8c0b0;
   text-align: left;
 }
 .note-surface > .note-md {
@@ -1108,90 +1213,199 @@ path.vellum-edge-ripple {
   letter-spacing: 0;
 }
 .note-md {
-  color: #ede6da;
+  color: #c8c0b0;
   font-size: 12px;
   line-height: 1.55;
   overflow: hidden;
+  font-feature-settings: "ss01" 1, "zero" 1;
 }
 .note-md--empty {
   color: #8a8378;
   font-size: 11px;
   font-style: italic;
 }
+
+/* Heads — condensed workshop stamp; body stays mono/instrument. */
 .note-md__h {
-  margin: 0 0 0.35em;
-  color: #ede6da;
+  margin: 0 0 0.4em;
+  color: #e8e0d0;
+  font-family: "Arial Narrow", "Avenir Next Condensed", "Helvetica Neue", sans-serif;
   font-weight: 600;
-  letter-spacing: 0.01em;
-  line-height: 1.3;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  text-wrap: balance;
 }
-.note-md__h1 { font-size: 14px; }
-.note-md__h2 { font-size: 13px; }
-.note-md__h3 { font-size: 12px; }
+.note-md__h1 {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.note-md__h2 { font-size: 12.5px; letter-spacing: 0.05em; }
+.note-md__h3 {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #a9a08d;
+}
+/* Leading # Title stamps a plate cartouche — hairline under the name. */
+.note-md__h--cartouche {
+  margin: 0 0 0.55em;
+  padding-bottom: 0.4em;
+  border-bottom: 1px solid rgba(237, 230, 218, 0.12);
+}
+
 .note-md__p {
-  margin: 0 0 0.45em;
-  color: #ede6da;
+  margin: 0 0 0.5em;
+  color: #c8c0b0;
   white-space: pre-wrap;
 }
 .note-md__p:last-child,
 .note-md__list:last-child,
 .note-md__pre:last-child,
 .note-md__quote:last-child,
-.note-md__h:last-child {
+.note-md__h:last-child,
+.note-md__hr:last-child {
   margin-bottom: 0;
 }
+
+/* Lists: Tailwind preflight zeros list-style; overflow:hidden + invalid
+   <button> nesting clip native markers. Paint en-dash / ordinals in-flow. */
 .note-md__list {
-  margin: 0 0 0.45em;
-  padding-left: 1.15em;
-  color: #ede6da;
+  margin: 0 0 0.5em;
+  padding-left: 0;
+  list-style: none;
+  color: #c8c0b0;
 }
 .note-md__li {
-  margin: 0.1em 0;
-  color: #ede6da;
+  position: relative;
+  margin: 0.32em 0;
+  padding-left: 1.05em;
+  color: #c8c0b0;
 }
-.note-md__li::marker {
+ul.note-md__list > .note-md__li::before {
+  content: "–";
+  position: absolute;
+  left: 0;
   color: #8a8378;
 }
+ol.note-md__list {
+  counter-reset: note-md-ol;
+}
+ol.note-md__list > .note-md__li {
+  counter-increment: note-md-ol;
+  padding-left: 1.35em;
+}
+ol.note-md__list > .note-md__li::before {
+  content: counter(note-md-ol) ".";
+  position: absolute;
+  left: 0;
+  color: #8a8378;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inline / fenced code — inset instrument glass. */
 .note-md__code {
-  border: 1px solid rgba(237, 230, 218, 0.12);
+  border: 1px solid #2a2520;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #ede6da;
-  padding: 0 0.28em;
+  background: #090807;
+  color: #e8a33d;
+  padding: 0.05em 0.32em;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.92em;
+  font-size: 0.9em;
 }
 .note-md__pre {
-  margin: 0 0 0.45em;
+  margin: 0 0 0.5em;
   overflow: auto;
-  border: 1px solid rgba(237, 230, 218, 0.1);
+  border: 1px solid #2a2520;
   border-radius: 5px;
-  background: rgba(0, 0, 0, 0.28);
-  color: #ede6da;
-  padding: 6px 8px;
+  background: #090807;
+  color: #c8c0b0;
+  padding: 7px 9px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10.5px;
-  line-height: 1.45;
+  line-height: 1.5;
   white-space: pre-wrap;
 }
-.note-md__quote {
-  margin: 0 0 0.45em;
-  border-left: 2px solid rgba(237, 230, 218, 0.2);
-  color: #ede6da;
-  padding-left: 8px;
-}
-.note-md__link {
-  color: #39c6d6;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.note-md__hr {
-  margin: 0.5em 0;
+.note-md__pre code {
   border: 0;
-  border-top: 1px solid rgba(237, 230, 218, 0.14);
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
 }
-.note-md strong { color: #ede6da; font-weight: 600; }
-.note-md em { color: #ede6da; font-style: italic; }
+
+/* Hanging quotation — site prose gesture, card-scaled. No fat left stripe. */
+.note-md__quote {
+  position: relative;
+  margin: 0.35em 0 0.55em;
+  padding: 0.1em 0 0.1em 1.55em;
+  border: 0;
+  color: #e8e0d0;
+  font-family: "Arial Narrow", "Avenir Next Condensed", "Helvetica Neue", sans-serif;
+  font-style: italic;
+  font-size: 1.05em;
+  line-height: 1.45;
+}
+.note-md__quote::before {
+  content: "\201C";
+  position: absolute;
+  left: 0;
+  top: -0.2em;
+  font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 1.85em;
+  line-height: 1;
+  color: #e8a33d;
+  opacity: 0.72;
+}
+
+/* Links — hue border, not browser underline chrome. */
+.note-md__link {
+  color: #e8a33d;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(232, 163, 61, 0.35);
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.note-md__link:hover {
+  color: #ffe080;
+  border-bottom-color: #e8a33d;
+}
+
+/* Registration rule — deep-field plate divider. */
+.note-md__hr {
+  position: relative;
+  margin: 0.7em 0;
+  border: 0;
+  border-top: 1px solid rgba(237, 230, 218, 0.1);
+  height: 0;
+  overflow: visible;
+}
+.note-md__hr::after {
+  content: "◦ ◦ ◦";
+  position: absolute;
+  top: -0.55em;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0 0.45em;
+  /* Match raised card fill so the registration punch doesn't flash pure ground. */
+  background: #16130f;
+  color: #8a8378;
+  font-size: 8px;
+  letter-spacing: 0.28em;
+  line-height: 1;
+}
+
+.note-md strong {
+  color: #ede6da;
+  font-weight: 600;
+}
+.note-md em {
+  color: #e8e0d0;
+  font-style: italic;
+}
 
 /* Expanded note editor — same shell as detail modals, write-first layout. */
 .note-edit-modal {
