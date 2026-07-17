@@ -7,12 +7,20 @@
   <body>
     <script id="vellum-containment-report" type="application/json"></script>
     <script>
-      (() => {
+      void (async () => {
         const params = new URL(location.href).searchParams;
         const marker = params.get("marker") || "";
         const nonce = params.get("nonce") || "";
         const mode = params.get("mode") || "read";
+        const downloadUrl = params.get("download") || "";
+        const privateSentinelUrl = params.get("privateSentinel") || "";
+        const customProtocolUrl = params.get("customProtocol") || "vellum-probe://denied";
         const writes = [];
+
+        const delay = (milliseconds) =>
+          new Promise((resolve) => setTimeout(resolve, milliseconds));
+        const bounded = (promise, fallback, milliseconds = 2_000) =>
+          Promise.race([promise, delay(milliseconds).then(() => fallback)]);
 
         const attempt = (name, operation) => {
           try {
@@ -46,6 +54,54 @@
           .map((part) => part.trim())
           .find((part) => part.startsWith("vellum_probe="));
 
+        const popup = window.open(`${location.origin}/popup`, "vellum-hostile-popup");
+        const popupReturnedNull = popup === null;
+        if (popup !== null) popup.close();
+
+        const permissionState = await bounded(
+          navigator.permissions
+            .query({ name: "geolocation" })
+            .then((status) => status.state, () => "error"),
+          "timeout",
+        );
+        const geolocation = await bounded(
+          new Promise((resolve) => {
+            navigator.geolocation.getCurrentPosition(
+              () => resolve("granted"),
+              (error) => resolve(error.code === 1 ? "denied" : `error-${error.code}`),
+              { timeout: 1_000 },
+            );
+          }),
+          "timeout",
+        );
+        const notificationPermission =
+          typeof Notification === "undefined"
+            ? "unsupported"
+            : await bounded(Notification.requestPermission(), "timeout");
+
+        const privateSentinel = privateSentinelUrl
+          ? await bounded(
+              fetch(privateSentinelUrl, { mode: "no-cors", cache: "no-store" }).then(
+                () => "resolved",
+                () => "blocked",
+              ),
+              "timeout",
+            )
+          : "missing";
+
+        if (downloadUrl) {
+          const downloadFrame = document.createElement("iframe");
+          downloadFrame.hidden = true;
+          downloadFrame.src = downloadUrl;
+          document.body.append(downloadFrame);
+        }
+
+        const customProtocolFrame = document.createElement("iframe");
+        customProtocolFrame.hidden = true;
+        customProtocolFrame.src = customProtocolUrl;
+        document.body.append(customProtocolFrame);
+        await delay(350);
+
         const report = {
           globals: {
             require: typeof globalThis.require,
@@ -58,6 +114,14 @@
           writeAttempts: writes,
           cookieValue: cookie ? decodeURIComponent(cookie.slice("vellum_probe=".length)) : null,
           storageValue: localStorage.getItem("vellum-probe"),
+          popupReturnedNull,
+          permissionState,
+          geolocation,
+          notificationPermission,
+          privateSentinel,
+          downloadTriggered: Boolean(downloadUrl),
+          customProtocolAttempted: customProtocolUrl,
+          locationAfterAttacks: location.href,
         };
         globalThis.__vellumContainmentProbe = report;
         const reportNode = document.getElementById("vellum-containment-report");

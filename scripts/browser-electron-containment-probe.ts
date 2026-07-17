@@ -2,7 +2,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer, request, type Server } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,8 +21,11 @@ import { formatNodeRef } from "../src/shared/node-ref";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fixturePath = join(repoRoot, "tests/fixtures/browser/hostile-containment.html");
+const testMainEntryPath = join(
+  repoRoot,
+  "tests/fixtures/browser/electron-containment-main.ts",
+);
 const electronPath = join(repoRoot, "node_modules/.bin/electron");
-const mainPath = join(repoRoot, "out/main/index.js");
 const STARTUP_TIMEOUT_MS = 20_000;
 const PAGE_TIMEOUT_MS = 12_000;
 const CONTROL_TIMEOUT_MS = 5_000;
@@ -32,6 +35,7 @@ const MAX_LOG_BYTES = 256 * 1024;
 let probeStage = "setup";
 let activeProbeChild: ChildProcess | undefined;
 let activeProbeServer: Server | undefined;
+let activeSentinelServer: Server | undefined;
 let activeProbeRoot: string | undefined;
 // macOS limits AF_UNIX paths to roughly 104 bytes. os.tmpdir() expands to a
 // long /var/folders path, so this hermetic probe deliberately uses /tmp.
@@ -42,6 +46,105 @@ const delay = (milliseconds: number): Promise<void> =>
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+interface ProbeAudit {
+  readonly baselineWebContents: number;
+  readonly currentWebContents: number;
+  readonly maximumWebContents: number;
+  readonly browserWindows: number;
+  readonly createdWebContents: ReadonlyArray<{
+    readonly id: number;
+    readonly type: string;
+  }>;
+  readonly externalProtocolDispatches: ReadonlyArray<string>;
+  readonly ready: boolean;
+}
+
+const decodeProbeAudit = (value: unknown): ProbeAudit => {
+  if (
+    !isRecord(value) ||
+    typeof value.baselineWebContents !== "number" ||
+    typeof value.currentWebContents !== "number" ||
+    typeof value.maximumWebContents !== "number" ||
+    typeof value.browserWindows !== "number" ||
+    !Array.isArray(value.createdWebContents) ||
+    !Array.isArray(value.externalProtocolDispatches) ||
+    typeof value.ready !== "boolean"
+  ) {
+    throw new Error("dedicated Electron probe emitted a malformed audit");
+  }
+  const createdWebContents = value.createdWebContents.map((entry) => {
+    if (!isRecord(entry) || typeof entry.id !== "number" || typeof entry.type !== "string") {
+      throw new Error("dedicated Electron probe emitted a malformed WebContents audit");
+    }
+    return { id: entry.id, type: entry.type };
+  });
+  if (value.externalProtocolDispatches.some((entry) => typeof entry !== "string")) {
+    throw new Error("dedicated Electron probe emitted a malformed protocol audit");
+  }
+  return {
+    baselineWebContents: value.baselineWebContents,
+    currentWebContents: value.currentWebContents,
+    maximumWebContents: value.maximumWebContents,
+    browserWindows: value.browserWindows,
+    createdWebContents,
+    externalProtocolDispatches: value.externalProtocolDispatches as string[],
+    ready: value.ready,
+  };
+};
+
+const waitForAudit = async (
+  path: string,
+  predicate: (audit: ProbeAudit) => boolean,
+): Promise<ProbeAudit> => {
+  const deadline = Date.now() + PAGE_TIMEOUT_MS;
+  let lastError = "audit not ready";
+  while (Date.now() < deadline) {
+    try {
+      const audit = decodeProbeAudit(JSON.parse(await readFile(path, "utf8")));
+      if (predicate(audit)) return audit;
+      lastError = "audit predicate not yet satisfied";
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await delay(50);
+  }
+  throw new Error(`Electron probe audit timed out: ${lastError}`);
+};
+
+const buildDedicatedElectronEntry = async (root: string): Promise<string> => {
+  const outputName = "electron-containment-main.mjs";
+  const outputPath = join(root, outputName);
+  const build = spawn(process.execPath, [
+    "build",
+    testMainEntryPath,
+    "--target=node",
+    "--format=esm",
+    "--external=electron",
+    `--outfile=${outputPath}`,
+    "--sourcemap=none",
+  ], {
+    cwd: repoRoot,
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  build.stdout.on("data", (chunk: Buffer) => {
+    stdout = appendBounded(stdout, chunk);
+  });
+  build.stderr.on("data", (chunk: Buffer) => {
+    stderr = appendBounded(stderr, chunk);
+  });
+  const [exitCode, signal] = await once(build, "exit") as [number | null, NodeJS.Signals | null];
+  if (exitCode !== 0) {
+    throw new Error(
+      `dedicated Electron entry build failed (${String(exitCode ?? signal)}): ${stderr || stdout}`,
+    );
+  }
+  await access(outputPath);
+  return outputPath;
+};
 
 const appendBounded = (current: string, chunk: Buffer): string =>
   (current + chunk.toString("utf8")).slice(-MAX_LOG_BYTES);
@@ -221,7 +324,11 @@ const startNeverReturningEval = async (
   }
 };
 
-const assertContainment = (report: Record<string, unknown>): void => {
+const assertContainment = (
+  report: Record<string, unknown>,
+  fixtureOrigin: string,
+  customProtocolUrl: string,
+): void => {
   const globals = report.globals;
   if (!isRecord(globals)) throw new Error("hostile page did not report globals");
   for (const name of ["require", "process", "Buffer", "module", "vellum", "chassis"]) {
@@ -238,6 +345,34 @@ const assertContainment = (report: Record<string, unknown>): void => {
     if (!isRecord(attempt) || attempt.succeeded !== false) {
       throw new Error("hostile page marker-write attempt unexpectedly succeeded");
     }
+  }
+
+  if (report.popupReturnedNull !== true) {
+    throw new Error("hostile page received a popup/window handle");
+  }
+  if (
+    report.permissionState !== "denied" ||
+    report.geolocation !== "denied" ||
+    report.notificationPermission !== "denied"
+  ) {
+    throw new Error(
+      `hostile page permission was not denied (${String(report.permissionState)}/${String(report.geolocation)}/${String(report.notificationPermission)})`,
+    );
+  }
+  if (report.privateSentinel !== "blocked") {
+    throw new Error(`hostile page reached the private sentinel (${String(report.privateSentinel)})`);
+  }
+  if (report.downloadTriggered !== true) {
+    throw new Error("hostile page did not exercise the download path");
+  }
+  if (report.customProtocolAttempted !== customProtocolUrl) {
+    throw new Error("hostile page did not exercise the custom protocol path");
+  }
+  if (
+    typeof report.locationAfterAttacks !== "string" ||
+    !report.locationAfterAttacks.startsWith(`${fixtureOrigin}/`)
+  ) {
+    throw new Error("custom protocol navigation escaped the fixture origin");
   }
 };
 
@@ -320,13 +455,51 @@ const main = async (): Promise<void> => {
   const userData = join(root, "electron-user-data");
   const browserDir = join(root, "browser");
   const canvasesDir = join(root, "canvases");
+  const downloadsDir = join(root, "downloads");
+  const auditPath = join(root, "electron-audit.json");
   const markerPath = join(root, `host-marker-${randomUUID()}`);
   const nonce = randomUUID();
+  const customProtocolUrl = `vellum-probe://denied/${nonce}`;
   const legacyTcpPort = await reserveLoopbackPort();
-  await Promise.all([home, userData, browserDir, canvasesDir].map((path) => mkdir(path, { recursive: true })));
+  await Promise.all(
+    [home, userData, browserDir, canvasesDir, downloadsDir].map((path) =>
+      mkdir(path, { recursive: true }),
+    ),
+  );
+
+  let privateSentinelRequests = 0;
+  const sentinelServer = createServer((_req, res) => {
+    privateSentinelRequests += 1;
+    res.writeHead(204, { "cache-control": "no-store" });
+    res.end();
+  });
+  activeSentinelServer = sentinelServer;
+  await new Promise<void>((resolveListen, rejectListen) => {
+    sentinelServer.once("error", rejectListen);
+    sentinelServer.listen(0, "127.0.0.1", () => resolveListen());
+  });
+  const sentinelAddress = sentinelServer.address();
+  if (sentinelAddress === null || typeof sentinelAddress === "string") {
+    throw new Error("private sentinel server has no port");
+  }
+  const privateSentinelUrl = `http://127.0.0.1:${sentinelAddress.port}/private-sentinel`;
 
   const fixture = await readFile(fixturePath);
-  const server = createServer((_req, res) => {
+  let downloadRequests = 0;
+  let popupRequests = 0;
+  const server = createServer((req, res) => {
+    const requestUrl = new URL(req.url ?? "/", "http://fixture.invalid");
+    if (requestUrl.pathname === "/download") {
+      downloadRequests += 1;
+      res.writeHead(200, {
+        "content-type": "application/octet-stream",
+        "content-disposition": `attachment; filename="vellum-probe-${nonce}.txt"`,
+        "cache-control": "no-store",
+      });
+      res.end("a denied hostile download must never reach disk");
+      return;
+    }
+    if (requestUrl.pathname === "/popup") popupRequests += 1;
     res.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
@@ -341,11 +514,15 @@ const main = async (): Promise<void> => {
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("fixture server has no port");
   const origin = `http://127.0.0.1:${address.port}`;
+  const downloadUrl = `${origin}/download?nonce=${encodeURIComponent(nonce)}`;
   const fixtureUrl = (mode: "seed" | "read") => {
     const url = new URL(origin);
     url.searchParams.set("mode", mode);
     url.searchParams.set("nonce", nonce);
     url.searchParams.set("marker", markerPath);
+    url.searchParams.set("download", downloadUrl);
+    url.searchParams.set("privateSentinel", privateSentinelUrl);
+    url.searchParams.set("customProtocol", customProtocolUrl);
     return url.toString();
   };
   const canvasName = "browser-containment";
@@ -374,6 +551,9 @@ const main = async (): Promise<void> => {
     { encoding: "utf8", mode: 0o600 },
   );
 
+  probeStage = "dedicated Electron entry build";
+  const dedicatedMainPath = await buildDedicatedElectronEntry(root);
+
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,
@@ -385,11 +565,23 @@ const main = async (): Promise<void> => {
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.NODE_OPTIONS;
 
-  const child = spawn(electronPath, [mainPath, `--user-data-dir=${userData}`], {
-    cwd: repoRoot,
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child = spawn(
+    electronPath,
+    [
+      dedicatedMainPath,
+      `--user-data-dir=${userData}`,
+      `--fixture-origin=${origin}`,
+      `--browser-root=${browserDir}`,
+      `--control-home=${home}`,
+      `--download-path=${downloadsDir}`,
+      `--audit-path=${auditPath}`,
+    ],
+    {
+      cwd: repoRoot,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   activeProbeChild = child;
   let stdout = "";
   let stderr = "";
@@ -407,6 +599,15 @@ const main = async (): Promise<void> => {
   try {
     probeStage = "control startup";
     const { socketPath, token } = await waitForControl(home, () => exited);
+    const baselineAudit = await waitForAudit(auditPath, (audit) => audit.ready);
+    if (
+      baselineAudit.baselineWebContents !== 0 ||
+      baselineAudit.currentWebContents !== 0 ||
+      baselineAudit.createdWebContents.length !== 0 ||
+      baselineAudit.browserWindows !== 0
+    ) {
+      throw new Error("dedicated Electron entry did not start from an empty WebContents baseline");
+    }
     await assertTcpControlAbsent(legacyTcpPort, token);
     const open = async (nodeId: string): Promise<string> => {
       const ref = formatNodeRef({ canvasName, nodeId });
@@ -419,7 +620,21 @@ const main = async (): Promise<void> => {
 
     const personalSeedSession = await open("personal-seed");
     const personalSeed = await waitForReport(socketPath, token, personalSeedSession);
-    assertContainment(personalSeed);
+    assertContainment(personalSeed, origin, customProtocolUrl);
+    const afterFirstPageAudit = await waitForAudit(
+      auditPath,
+      (audit) => audit.createdWebContents.length >= 1,
+    );
+    if (
+      afterFirstPageAudit.createdWebContents.length -
+        afterFirstPageAudit.baselineWebContents !==
+        1 ||
+      afterFirstPageAudit.currentWebContents !==
+        afterFirstPageAudit.baselineWebContents + 1 ||
+      afterFirstPageAudit.browserWindows !== 0
+    ) {
+      throw new Error("popup attempt created an unmanaged BrowserWindow/WebContents");
+    }
     if (personalSeed.cookieValue !== nonce || personalSeed.storageValue !== nonce) {
       throw new Error("personal profile did not persist its synthetic state");
     }
@@ -427,7 +642,7 @@ const main = async (): Promise<void> => {
 
     const workReadSession = await open("work-read");
     const workRead = await waitForReport(socketPath, token, workReadSession);
-    assertContainment(workRead);
+    assertContainment(workRead, origin, customProtocolUrl);
     if (workRead.cookieValue !== null || workRead.storageValue !== null) {
       throw new Error("work profile observed personal profile state");
     }
@@ -435,7 +650,7 @@ const main = async (): Promise<void> => {
     await open("filler-one");
     const unaffectedWorkSession = await open("filler-two");
     const unaffectedBefore = await waitForReport(socketPath, token, unaffectedWorkSession);
-    assertContainment(unaffectedBefore);
+    assertContainment(unaffectedBefore, origin, customProtocolUrl);
     const sessions = requireOk(await controlCall(socketPath, token, "sessions"), "sessions");
     if (!Array.isArray(sessions)) throw new Error("sessions response is not an array");
     const nodeIds = sessions
@@ -448,6 +663,7 @@ const main = async (): Promise<void> => {
 
     const personalRestoredSession = await open("personal-restored");
     const personalRestored = await waitForReport(socketPath, token, personalRestoredSession);
+    assertContainment(personalRestored, origin, customProtocolUrl);
     if (personalRestored.cookieValue !== nonce || personalRestored.storageValue !== nonce) {
       throw new Error("personal partition state did not survive WebContents eviction");
     }
@@ -462,20 +678,51 @@ const main = async (): Promise<void> => {
 
     probeStage = "unaffected work session";
     const unaffectedAfter = await waitForReport(socketPath, token, unaffectedWorkSession);
-    assertContainment(unaffectedAfter);
+    assertContainment(unaffectedAfter, origin, customProtocolUrl);
     probeStage = "same-profile reopen";
     const reopenedPersonalSession = await open("personal-restored");
     if (reopenedPersonalSession === personalRestoredSession) {
       throw new Error("destroyed WebContents reused its stale session handle");
     }
     const reopenedPersonal = await waitForReport(socketPath, token, reopenedPersonalSession);
-    assertContainment(reopenedPersonal);
+    assertContainment(reopenedPersonal, origin, customProtocolUrl);
     if (reopenedPersonal.cookieValue !== nonce || reopenedPersonal.storageValue !== nonce) {
       throw new Error("personal profile state did not survive destructive eval timeout");
     }
     if (!(await markerAbsent(markerPath))) throw new Error("hostile page wrote a host marker");
     probeStage = "post-timeout TCP regression";
     await assertTcpControlAbsent(legacyTcpPort, token);
+
+    probeStage = "hostile web policy audit";
+    const finalAudit = await waitForAudit(
+      auditPath,
+      (audit) => audit.createdWebContents.length >= 6,
+    );
+    if (
+      finalAudit.createdWebContents.length !== 6 ||
+      finalAudit.browserWindows !== 0 ||
+      finalAudit.currentWebContents > 3
+    ) {
+      throw new Error(
+        `hostile popup created a transient or surviving unmanaged WebContents (${JSON.stringify(finalAudit)})`,
+      );
+    }
+    if (finalAudit.externalProtocolDispatches.length !== 0) {
+      throw new Error("custom protocol escaped into OS protocol dispatch");
+    }
+    if (privateSentinelRequests !== 0) {
+      throw new Error(`private loopback sentinel received ${privateSentinelRequests} request(s)`);
+    }
+    if (popupRequests !== 0) {
+      throw new Error(`denied popup origin received ${popupRequests} request(s)`);
+    }
+    if (downloadRequests === 0) {
+      throw new Error("hostile download response did not reach the Electron download policy");
+    }
+    const downloadedFiles = await readdir(downloadsDir);
+    if (downloadedFiles.length !== 0) {
+      throw new Error(`denied download wrote files: ${downloadedFiles.join(", ")}`);
+    }
 
     console.log(
       JSON.stringify({
@@ -490,6 +737,12 @@ const main = async (): Promise<void> => {
           profileSurvivesDestructiveTimeout: true,
           unaffectedSessionRemainsUsable: true,
           tcpListenerAbsent: true,
+          popupAndNewWebContentsDenied: true,
+          permissionsDeniedWithoutPagePrompt: true,
+          downloadBlockedWithoutFile: true,
+          customProtocolNotDispatched: true,
+          privateLoopbackSentinelUnreached: true,
+          dedicatedEntryBuiltHermetically: true,
         },
       }),
     );
@@ -509,12 +762,16 @@ const main = async (): Promise<void> => {
     probeStage = "cleanup fixture server";
     server.closeAllConnections();
     await Promise.race([closeServer(server), delay(2_000)]);
+    probeStage = "cleanup sentinel server";
+    sentinelServer.closeAllConnections();
+    await Promise.race([closeServer(sentinelServer), delay(2_000)]);
     if (!root.startsWith(PROBE_TEMP_PREFIX)) {
       throw new Error(`refusing unsafe probe cleanup: ${root}`);
     }
     await rm(root, { recursive: true, force: true });
     if (activeProbeChild === child) activeProbeChild = undefined;
     if (activeProbeServer === server) activeProbeServer = undefined;
+    if (activeSentinelServer === sentinelServer) activeSentinelServer = undefined;
     if (activeProbeRoot === root) activeProbeRoot = undefined;
   }
 };
@@ -536,6 +793,8 @@ const watchdog = setTimeout(() => {
     try {
       activeProbeServer?.closeAllConnections();
       activeProbeServer?.close();
+      activeSentinelServer?.closeAllConnections();
+      activeSentinelServer?.close();
     } catch {
       // Watchdog cleanup is best effort; process termination is the final bound.
     }
