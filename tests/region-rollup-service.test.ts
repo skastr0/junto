@@ -1,0 +1,266 @@
+import { EventEmitter } from "node:events";
+import { Effect, Either, Layer, ManagedRuntime } from "effect";
+import { describe, expect, it, vi } from "vitest";
+import type { CanvasDoc } from "../src/shared/canvas";
+import type { TowerBrowseResult } from "../src/shared/ipc";
+import { CanvasesService, CanvasError } from "../src/main/vellum/canvases";
+import type { AcpChildLike, JsonRpcId, SpawnFn } from "../src/main/vellum/chat/acp-client";
+import { ChatService } from "../src/main/vellum/chat/service";
+import {
+  RegionRollupLive,
+  RegionRollupService,
+  type GlyphBrowseFetcher,
+} from "../src/main/vellum/region-rollup";
+import { SnapshotsService } from "../src/main/vellum/snapshots";
+
+// Service-level glue tests: activity wiring from the ACP chat plane, the
+// CanvasError channel for unknown canvases, and the TTL glyph cache.
+// The ACP fakes mirror tests/chat-service.test.ts.
+
+class FakeChild extends EventEmitter implements AcpChildLike {
+  readonly stdout = new EventEmitter();
+  readonly stderr = new EventEmitter();
+  readonly written: string[] = [];
+  readonly stdin = {
+    write: (chunk: string): boolean => {
+      this.written.push(chunk);
+      return true;
+    },
+  };
+  kill = vi.fn();
+}
+
+const lastSentId = (child: FakeChild): JsonRpcId =>
+  (JSON.parse(child.written[child.written.length - 1]!) as { id: JsonRpcId }).id;
+
+const respondOk = (child: FakeChild, id: JsonRpcId, result: unknown): void => {
+  child.stdout.emit("data", `${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
+};
+
+const flush = async (ticks = 12): Promise<void> => {
+  for (let i = 0; i < ticks; i++) await Promise.resolve();
+};
+
+const waitForWrites = async (child: FakeChild, minLength: number): Promise<void> => {
+  for (let i = 0; i < 20 && child.written.length < minLength; i++) await flush(1);
+};
+
+function fakeSpawn(): { spawnFn: SpawnFn; children: FakeChild[] } {
+  const children: FakeChild[] = [];
+  const spawnFn: SpawnFn = () => {
+    const child = new FakeChild();
+    children.push(child);
+    return child;
+  };
+  return { spawnFn, children };
+}
+
+async function openHappyPath(
+  service: ChatService,
+  children: FakeChild[],
+  agentKey: string,
+): Promise<FakeChild> {
+  const openPromise = service.chatOpen(agentKey);
+  const child = children[children.length - 1]!;
+  await waitForWrites(child, 1);
+  respondOk(child, lastSentId(child), { protocolVersion: 1, agentCapabilities: {}, authMethods: [] });
+  await waitForWrites(child, 2);
+  respondOk(child, lastSentId(child), { sessionId: "sess-1", models: { availableModels: [] } });
+  const result = await openPromise;
+  expect(result.ok).toBe(true);
+  return child;
+}
+
+// --- fixture docs -------------------------------------------------------------
+
+const region = { id: "r", type: "group", label: "ops", x: 0, y: 0, width: 500, height: 500 } as const;
+
+// a1 (agent "local:default") gets live chat state; a2 (agent "local:quiet")
+// never opens a session; p1 is a PROJECT named "local:default" — activity is
+// keyed by name but only ever applies to kind "agent".
+const docActivity: CanvasDoc = {
+  nodes: [
+    { ...region },
+    { id: "a1", type: "text", text: "MIRA", x: 10, y: 10, width: 100, height: 40, ether: { entity: { kind: "agent", name: "local:default" } } },
+    { id: "a2", type: "text", text: "QUIET", x: 10, y: 60, width: 100, height: 40, ether: { entity: { kind: "agent", name: "local:quiet" } } },
+    { id: "p1", type: "text", text: "name twin", x: 10, y: 110, width: 100, height: 40, ether: { entity: { kind: "project", name: "local:default" } } },
+  ],
+  edges: [],
+};
+
+// wip-criteria edge p1 -> p2 puts "prism" into projectsNeedingGlyphs.
+const docCache: CanvasDoc = {
+  nodes: [
+    { ...region },
+    { id: "p1", type: "text", text: "prism", x: 10, y: 10, width: 100, height: 40, ether: { entity: { kind: "project", name: "prism" } } },
+    { id: "p2", type: "text", text: "vellum", x: 10, y: 60, width: 100, height: 40, ether: { entity: { kind: "project", name: "vellum" } } },
+  ],
+  edges: [{ id: "e1", fromNode: "p1", toNode: "p2", ether: { criteria: { mode: "wip" } } }],
+};
+
+// --- stubbed planes (kernel-arming-transaction idiom) -------------------------
+
+const check = (id: string) => ({ id, label: id, status: "ok" as const, detail: "" });
+
+const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
+  Layer.succeed(
+    CanvasesService,
+    CanvasesService.of({
+      doctor: Effect.succeed(check("canvases")),
+      list: Effect.succeed([]),
+      read: (name: string) => {
+        const doc = docs.get(name);
+        return doc !== undefined
+          ? Effect.succeed({ name, path: "", doc })
+          : Effect.fail(new CanvasError({ message: `canvas "${name}" does not exist` }));
+      },
+      write: () => Effect.void,
+      mutate: () => Effect.void,
+      create: (name: string) => Effect.succeed({ name, path: "", doc: { nodes: [], edges: [] } }),
+      remove: (name: string) => Effect.succeed({ name }),
+      ensureSeed: Effect.void,
+      writeSidecar: () => Effect.succeed(""),
+      start: () => {},
+      subscribeChanges: () => () => {},
+    }),
+  );
+
+const fakeSnapshots = Layer.succeed(
+  SnapshotsService,
+  SnapshotsService.of({
+    doctor: Effect.succeed(check("snapshots")),
+    current: Effect.succeed({ bundles: [] }),
+    refresh: () => Effect.succeed({ bundles: [] }),
+    start: () => {},
+    subscribe: () => () => {},
+  }),
+);
+
+const makeRuntime = (
+  chatService: ChatService,
+  docs: ReadonlyMap<string, CanvasDoc>,
+  fetchBrowse: GlyphBrowseFetcher,
+) =>
+  ManagedRuntime.make(
+    Layer.provide(RegionRollupLive(chatService, fetchBrowse), Layer.mergeAll(fakeCanvases(docs), fakeSnapshots)),
+  );
+
+const rollups = (runtime: ReturnType<typeof makeRuntime>, canvasName: string) =>
+  runtime.runPromise(Effect.flatMap(RegionRollupService, (service) => service.rollups(canvasName)));
+
+const neverBrowse = vi.fn<GlyphBrowseFetcher>(() => {
+  throw new Error("no criteria edges — a browse here is a bug");
+});
+
+describe("RegionRollupService — activity wiring", () => {
+  it("isLive maps to session:live/working, keyed by ether.entity.name, agents only", async () => {
+    const { spawnFn, children } = fakeSpawn();
+    const chat = new ChatService(spawnFn);
+    await openHappyPath(chat, children, "local:default");
+
+    const runtime = makeRuntime(chat, new Map([["ops", docActivity]]), neverBrowse);
+    try {
+      const [rollup] = await rollups(runtime, "ops");
+      const byId = new Map(rollup?.members.map((member) => [member.nodeId, member]));
+      expect(byId.get("a1")).toMatchObject({ severity: "working", reasons: ["session:live"] });
+      expect(byId.get("a2")).toMatchObject({ severity: "idle", reasons: [] });
+      expect(byId.get("p1")).toMatchObject({ severity: "idle", reasons: [] });
+      expect(neverBrowse).not.toHaveBeenCalled();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("hasPendingPermission maps to permission:pending/attention, outranking the live session", async () => {
+    const { spawnFn, children } = fakeSpawn();
+    const chat = new ChatService(spawnFn);
+    const child = await openHappyPath(chat, children, "local:default");
+
+    child.stdout.emit(
+      "data",
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        id: 42,
+        method: "session/request_permission",
+        params: { sessionId: "sess-1", options: [{ optionId: "allow_once" }] },
+      })}\n`,
+    );
+    expect(chat.hasPendingPermission("local:default")).toBe(true);
+
+    const runtime = makeRuntime(chat, new Map([["ops", docActivity]]), neverBrowse);
+    try {
+      const [rollup] = await rollups(runtime, "ops");
+      const agent = rollup?.members.find((member) => member.nodeId === "a1");
+      expect(agent?.severity).toBe("attention");
+      expect(agent?.reasons).toEqual(["permission:pending", "session:live"]);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+});
+
+describe("RegionRollupService — error channel", () => {
+  it("an unknown canvas name fails with CanvasError, not a fabricated rollup", async () => {
+    const chat = new ChatService();
+    const runtime = makeRuntime(chat, new Map([["ops", docActivity]]), neverBrowse);
+    try {
+      const result = await runtime.runPromise(
+        Effect.either(Effect.flatMap(RegionRollupService, (service) => service.rollups("missing"))),
+      );
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left).toBeInstanceOf(CanvasError);
+        expect(result.left.message).toContain("missing");
+      }
+    } finally {
+      await runtime.dispose();
+    }
+  });
+});
+
+describe("RegionRollupService — glyph cache", () => {
+  it("two rollups calls within TTL browse each project exactly once", async () => {
+    const chat = new ChatService();
+    const browseOk: TowerBrowseResult = {
+      ok: true,
+      glyphs: [{ glyphId: "g-1", orbit: "forge", title: "work", state: "building", updatedAt: 1 }],
+      signals: [],
+    };
+    const fetchBrowse = vi.fn<GlyphBrowseFetcher>(async () => browseOk);
+
+    const runtime = makeRuntime(chat, new Map([["ops", docCache]]), fetchBrowse);
+    try {
+      const [first] = await rollups(runtime, "ops");
+      const [second] = await rollups(runtime, "ops");
+
+      expect(fetchBrowse).toHaveBeenCalledTimes(1);
+      expect(fetchBrowse).toHaveBeenCalledWith("prism");
+
+      // Rows flowed through the cache into the derivation on BOTH calls:
+      // p1 works (glyph:wip:building) and p2 is blocked by the wip edge.
+      for (const rollup of [first, second]) {
+        const byId = new Map(rollup?.members.map((member) => [member.nodeId, member]));
+        expect(byId.get("p1")).toMatchObject({ severity: "working", reasons: ["glyph:wip:building"] });
+        expect(byId.get("p2")?.severity).toBe("blocked");
+      }
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("a failed browse stays absent from the view instead of failing the call", async () => {
+    const chat = new ChatService();
+    const fetchBrowse = vi.fn<GlyphBrowseFetcher>(async () => {
+      throw new Error("gateway down");
+    });
+
+    const runtime = makeRuntime(chat, new Map([["ops", docCache]]), fetchBrowse);
+    try {
+      const [rollup] = await rollups(runtime, "ops");
+      // Unknown glyph data invents nothing: the wip edge stays relates.
+      expect(rollup?.members.every((member) => member.severity === "idle")).toBe(true);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+});
