@@ -176,11 +176,10 @@ app.on("open-url", (event, uri) => {
   queueNodeRefPublication(event, uri);
 });
 
-// Dev-only: expose the Chrome DevTools Protocol so agents can drive the app
-// end to end (screenshot, click, evaluate) over CDP. Never in packaged builds.
-if (!app.isPackaged) {
-  app.commandLine.appendSwitch("remote-debugging-port", "9223");
-}
+// Explicit headless mode keeps the runtime, watchers, kernel, and local UDS
+// services alive without creating a renderer. It replaces the former dev CDP
+// listener: headless qualification must never require a network control port.
+const headless = process.argv.includes("--vellum-headless");
 
 // Bounded renderer crash recovery. A renderer that dies (GPU reset, OOM kill,
 // Chromium crash) is first reloaded in place — that recovers the common
@@ -454,11 +453,11 @@ if (!gotSingleInstanceLock) {
       console.error("[browser-control] failed to start:", error);
     }
 
-    createWindow();
+    if (!headless) createWindow();
 
     app.on("activate", () => {
       requestNodeRefDrain();
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      if (!headless && BrowserWindow.getAllWindows().length === 0) createWindow();
     });
   });
 }

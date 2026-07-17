@@ -9,9 +9,9 @@
 //
 //   1. ARMED   — pre-seeds store.json's kernel.armed (the "via store" arming
 //      path, kernel-design.md §3) for a fixture region, boots the app,
-//      closes every window over CDP (window-all-closed does not quit on
-//      darwin — the app + kernel keep running with zero windows, exactly
-//      the packaged/launchd shape), and waits for a rising-edge TIMER pulse
+//      boots the app in its explicit no-window mode (the app + kernel keep
+//      running with zero windows, exactly the packaged/launchd shape), and
+//      waits for a rising-edge TIMER pulse
 //      to deliver: a real ChatService.chatOpen + chatPrompt against a local
 //      hermes agent, landing a PulseRecord with delivered.length > 0.
 //   2. DISARMED — same fixture, armed:false from boot. Asserts the resulting
@@ -25,8 +25,7 @@
 //
 // External control surface is file-based (store.json + the canvas file),
 // matching AGENTS.md's headless contract — this app exposes no IPC to a
-// process outside itself, and CDP is only used here to close windows, not to
-// drive kernel state.
+// process outside itself; the explicit headless argv has no control transport.
 //
 // Exit 0 if both passes hold; exit 2 with a diagnosis otherwise.
 
@@ -42,11 +41,6 @@ const REPO_ROOT = process.cwd();
 const ELECTRON_BIN = join(REPO_ROOT, "node_modules", ".bin", "electron");
 const MAIN_ENTRY = join(REPO_ROOT, "out", "main", "index.js");
 
-// index.ts hardcodes 9223 for !app.isPackaged — a plain `electron <path>`
-// launch (not an electron-builder .app) is always unpackaged, so this is
-// live without any extra flag.
-const CDP_PORT = 9223;
-
 const FIXTURE_CANVAS = "__kernel-probe-fixture__";
 const REGION_ID = "probe-region";
 const TIMER_NODE_ID = "probe-timer";
@@ -60,7 +54,6 @@ const TIMER_EVERY_MINUTES = 0.02; // ~1.2s — fast enough for a probe, still a
 // discovery, per the kernel's re-baseline law).
 
 const BOOT_POLL_MS = 500;
-const CDP_ATTACH_TIMEOUT_MS = 20_000;
 const ARMED_DELIVERY_TIMEOUT_MS = 90_000; // headroom for a real model turn
 const DRY_PULSE_TIMEOUT_MS = 15_000;
 
@@ -143,56 +136,17 @@ const setUpFixture = async (armed: boolean): Promise<Fixture> => {
 };
 
 const spawnApp = (fixture: Fixture): ChildProcess => {
-  const child = spawn(ELECTRON_BIN, [MAIN_ENTRY, `--user-data-dir=${fixture.userDataDir}`], {
-    env: { ...process.env, VELLUM_CANVASES_DIR: fixture.canvasesDir },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child = spawn(
+    ELECTRON_BIN,
+    [MAIN_ENTRY, `--user-data-dir=${fixture.userDataDir}`, "--vellum-headless"],
+    {
+      env: { ...process.env, VELLUM_CANVASES_DIR: fixture.canvasesDir },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   child.stdout?.on("data", (chunk: Buffer) => process.stdout.write(`[app] ${chunk}`));
   child.stderr?.on("data", (chunk: Buffer) => process.stderr.write(`[app] ${chunk}`));
   return child;
-};
-
-interface CdpTarget {
-  readonly id: string;
-  readonly type: string;
-}
-
-// Hand-rolled HTTP calls against the CDP JSON endpoint rather than a CDP
-// client library: /json/list and /json/close/{id} are plain HTTP (no
-// WebSocket handshake needed to close a target), which sidesteps
-// playwright-core's connectOverCDP hanging indefinitely against this
-// Electron/Chrome build in practice (verified live against this exact app).
-const cdpBase = () => `http://127.0.0.1:${CDP_PORT}`;
-
-const listCdpTargets = async (): Promise<ReadonlyArray<CdpTarget>> => {
-  const res = await fetch(`${cdpBase()}/json/list`);
-  if (!res.ok) throw new Error(`CDP /json/list: HTTP ${res.status}`);
-  return (await res.json()) as ReadonlyArray<CdpTarget>;
-};
-
-// Closes every open window via the CDP HTTP endpoint, then verifies zero
-// windows remain — mirrors a packaged/launchd instance whose window the
-// operator closed. window-all-closed does NOT quit on darwin
-// (src/main/index.ts), so the app + kernel keep running underneath.
-const closeAllWindowsAndVerify = async (): Promise<void> => {
-  const deadline = Date.now() + CDP_ATTACH_TIMEOUT_MS;
-  let lastErr: unknown;
-  while (Date.now() < deadline) {
-    try {
-      const targets = await listCdpTargets();
-      for (const target of targets.filter((t) => t.type === "page")) {
-        await fetch(`${cdpBase()}/json/close/${target.id}`).catch(() => undefined);
-      }
-      await sleep(300);
-      const remaining = (await listCdpTargets()).filter((t) => t.type === "page");
-      if (remaining.length > 0) throw new Error(`${remaining.length} window(s) still open after close`);
-      return;
-    } catch (err) {
-      lastErr = err;
-      await sleep(300);
-    }
-  }
-  throw new Error(`could not close windows over CDP within ${CDP_ATTACH_TIMEOUT_MS}ms: ${String(lastErr)}`);
 };
 
 const waitForPulse = async (
@@ -230,8 +184,7 @@ const runPass = async (
   const fixture = await setUpFixture(armed);
   const child = spawnApp(fixture);
   try {
-    await closeAllWindowsAndVerify();
-    console.log("[probe] windows closed, BrowserWindow.getAllWindows().length === 0 confirmed via CDP");
+    console.log("[probe] explicit headless mode started with zero renderer windows");
     await assert(fixture);
     console.log(`[probe] ${label}: PASS`);
   } finally {

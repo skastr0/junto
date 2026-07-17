@@ -6,6 +6,8 @@ const root = join(import.meta.dirname, "..");
 const contract = readFileSync(join(root, "docs/browser-security.md"), "utf8");
 const agents = readFileSync(join(root, "AGENTS.md"), "utf8");
 const readme = readFileSync(join(root, "README.md"), "utf8");
+const mainProcess = readFileSync(join(root, "src/main/index.ts"), "utf8");
+const headlessProbe = readFileSync(join(root, "scripts/kernel-headless-probe.ts"), "utf8");
 
 const marker = "<!-- vellum-browser-credential-gate:v1 -->";
 const requiredEvidence = [
@@ -265,5 +267,13 @@ describe("browser credential security contract", () => {
       expect(surface).toContain("docs/browser-security.md");
       expect(surface).toMatch(/not (?:a )?runtime interception/i);
     }
+  });
+
+  it("keeps headless qualification off TCP and Chrome DevTools Protocol", () => {
+    expect(mainProcess).not.toContain("remote-debugging-port");
+    expect(mainProcess).not.toContain("openDevTools");
+    expect(headlessProbe).not.toMatch(/connectOverCDP|\/json\/close|\/json\/list/);
+    expect(mainProcess).toContain('--vellum-headless');
+    expect(headlessProbe).toContain('"--vellum-headless"');
   });
 });
