@@ -192,6 +192,13 @@ interface RetainedBlock {
   readonly block: BrowserProfileBlock;
 }
 
+interface ColdRecoveryStorage {
+  readonly parent: DirectoryIdentity | undefined;
+  readonly quarantinePath: string;
+  readonly target: DirectoryIdentity | undefined;
+  readonly quarantine: DirectoryIdentity | undefined;
+}
+
 interface DeleteBudget {
   entries: number;
 }
@@ -397,6 +404,15 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
   async recoverCold(pending: BrowserProfilePendingWipe): Promise<void> {
     this.#validatePending(pending, "cold_validate");
     const block = this.#beginOrRetainBlock(pending);
+    const storage = await this.#validateColdRecoveryStorage(pending);
+    const quarantine = await this.#quarantineColdRecoveryStorage(pending, storage);
+    await this.#deleteColdRecoveryStorage(pending.storagePath, storage, quarantine);
+    this.#commitColdRecovery(pending.profileId, block);
+  }
+
+  async #validateColdRecoveryStorage(
+    pending: BrowserProfilePendingWipe,
+  ): Promise<ColdRecoveryStorage> {
     const roots = await this.#readAndValidateCurrentRoots("cold_validate", {
       userDataPath: pending.userDataPath,
       sessionDataPath: pending.sessionDataPath,
@@ -407,81 +423,96 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
       pending.storagePath,
       "cold_validate",
     );
-    const parentIdentity = await this.#validateExistingAncestorPrefix(
+    const parent = await this.#validateExistingAncestorPrefix(
       roots.sessionData.path,
       dirname(pending.storagePath),
       "cold_validate",
     );
 
-    const quarantine = browserProfileQuarantinePath(pending.storagePath, pending.wipeId);
-    if (quarantine === undefined || !isStrictDescendant(roots.sessionData.path, quarantine)) {
+    const quarantinePath = browserProfileQuarantinePath(pending.storagePath, pending.wipeId);
+    if (
+      quarantinePath === undefined ||
+      !isStrictDescendant(roots.sessionData.path, quarantinePath)
+    ) {
       throw storageError("cold_validate", "unsafe_path", false);
     }
 
-    const targetBefore = await this.#optionalDirectory(pending.storagePath, "cold_validate");
-    const quarantineBefore = await this.#optionalDirectory(quarantine, "cold_validate");
-    if (
-      parentIdentity === undefined &&
-      (targetBefore !== undefined || quarantineBefore !== undefined)
-    ) {
+    const target = await this.#optionalDirectory(pending.storagePath, "cold_validate");
+    const quarantine = await this.#optionalDirectory(quarantinePath, "cold_validate");
+    if (parent === undefined && (target !== undefined || quarantine !== undefined)) {
       throw storageError("cold_validate", "path_changed", false);
     }
-    if (targetBefore !== undefined && quarantineBefore !== undefined) {
+    if (target !== undefined && quarantine !== undefined) {
       throw storageError("quarantine", "collision", false);
     }
     if (
-      parentIdentity !== undefined &&
-      ((targetBefore !== undefined && targetBefore.dev !== parentIdentity.dev) ||
-        (quarantineBefore !== undefined && quarantineBefore.dev !== parentIdentity.dev))
+      parent !== undefined &&
+      ((target !== undefined && target.dev !== parent.dev) ||
+        (quarantine !== undefined && quarantine.dev !== parent.dev))
     ) {
       throw storageError("cold_validate", "unsafe_path", false);
     }
+    return Object.freeze({ parent, quarantinePath, target, quarantine });
+  }
 
-    let quarantineIdentity = quarantineBefore;
-    if (targetBefore !== undefined) {
-      try {
-        await this.#fileSystem.rename(pending.storagePath, quarantine);
-      } catch {
-        throw storageError("quarantine", "filesystem_failed", true);
-      }
-      const targetAfter = await this.#optionalLstat(pending.storagePath, "quarantine");
-      const renamed = await this.#optionalDirectory(quarantine, "quarantine");
-      if (
-        targetAfter !== undefined ||
-        renamed === undefined ||
-        targetBefore.dev !== renamed.dev ||
-        targetBefore.ino !== renamed.ino ||
-        targetBefore.uid !== renamed.uid
-      ) {
-        throw storageError("quarantine", "path_changed", false);
-      }
-      quarantineIdentity = renamed;
-      if (parentIdentity === undefined) {
-        throw storageError("quarantine", "path_changed", false);
-      }
-      await this.#syncDirectory(parentIdentity, "quarantine");
-      await this.#runAfterRenameFailpoint(pending);
+  async #quarantineColdRecoveryStorage(
+    pending: BrowserProfilePendingWipe,
+    storage: ColdRecoveryStorage,
+  ): Promise<DirectoryIdentity | undefined> {
+    if (storage.target === undefined) return storage.quarantine;
+    try {
+      await this.#fileSystem.rename(pending.storagePath, storage.quarantinePath);
+    } catch {
+      throw storageError("quarantine", "filesystem_failed", true);
     }
+    const targetAfter = await this.#optionalLstat(pending.storagePath, "quarantine");
+    const renamed = await this.#optionalDirectory(storage.quarantinePath, "quarantine");
+    if (
+      targetAfter !== undefined ||
+      renamed === undefined ||
+      storage.target.dev !== renamed.dev ||
+      storage.target.ino !== renamed.ino ||
+      storage.target.uid !== renamed.uid
+    ) {
+      throw storageError("quarantine", "path_changed", false);
+    }
+    if (storage.parent === undefined) {
+      throw storageError("quarantine", "path_changed", false);
+    }
+    await this.#syncDirectory(storage.parent, "quarantine");
+    await this.#runAfterRenameFailpoint(pending);
+    return renamed;
+  }
 
-    if (quarantineIdentity !== undefined) {
-      await this.#removeTreeNoFollow(quarantine, 0, { entries: 0 }, quarantineIdentity);
+  async #deleteColdRecoveryStorage(
+    storagePath: string,
+    storage: ColdRecoveryStorage,
+    quarantine: DirectoryIdentity | undefined,
+  ): Promise<void> {
+    if (quarantine !== undefined) {
+      await this.#removeTreeNoFollow(storage.quarantinePath, 0, { entries: 0 }, quarantine);
     }
     if (
-      (await this.#optionalLstat(pending.storagePath, "delete")) !== undefined ||
-      (await this.#optionalLstat(quarantine, "delete")) !== undefined
+      (await this.#optionalLstat(storagePath, "delete")) !== undefined ||
+      (await this.#optionalLstat(storage.quarantinePath, "delete")) !== undefined
     ) {
       throw storageError("delete", "path_changed", true);
     }
-    if (parentIdentity !== undefined) {
-      await this.#syncDirectory(parentIdentity, "delete");
+    if (storage.parent !== undefined) {
+      await this.#syncDirectory(storage.parent, "delete");
     }
+  }
 
+  #commitColdRecovery(
+    profileId: string,
+    block: BrowserProfileBlock | undefined,
+  ): void {
     if (block !== undefined) {
       if (!this.#profileGate.commitDeleted(block)) {
         throw storageError("commit", "gate_commit_failed", false);
       }
       this.#retainedBlock = undefined;
-    } else if (this.#profileGate.disposition(pending.profileId) !== "deleted") {
+    } else if (this.#profileGate.disposition(profileId) !== "deleted") {
       throw storageError("commit", "gate_commit_failed", false);
     }
   }
