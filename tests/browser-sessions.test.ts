@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { warmPoolEvictions } from "../src/shared/browser";
+import type { ResolvedPageTarget } from "../src/main/vellum/browser/page-target";
 import { makeBrowserProfileService } from "../src/main/vellum/browser/profiles";
 import {
   BrowserSessionService,
@@ -18,32 +19,34 @@ describe("warmPoolEvictions (pure)", () => {
     lastActiveAt,
   });
 
-  it("evicts nothing while the pool fits", () => {
+  it("evicts nothing while the pool fits or when reusing a key", () => {
     expect(warmPoolEvictions([entry("a", false, 1)], "b", 3)).toEqual([]);
+    expect(
+      warmPoolEvictions(
+        [entry("a", false, 1), entry("b", false, 2), entry("c", false, 3)],
+        "a",
+        3,
+      ),
+    ).toEqual([]);
   });
 
-  it("evicts nothing on reuse of an existing key", () => {
-    const pool = [entry("a", false, 1), entry("b", false, 2), entry("c", false, 3)];
-    expect(warmPoolEvictions(pool, "a", 3)).toEqual([]);
-  });
-
-  it("evicts the least-recently-active detached session first", () => {
-    const pool = [entry("a", false, 5), entry("b", false, 1), entry("c", false, 3)];
-    expect(warmPoolEvictions(pool, "d", 3)).toEqual(["b"]);
-  });
-
-  it("never evicts an attached session", () => {
-    const pool = [entry("a", true, 1), entry("b", true, 2), entry("c", false, 3)];
-    expect(warmPoolEvictions(pool, "d", 3)).toEqual(["c"]);
-  });
-
-  it("returns fewer evictions than needed when only attached sessions remain", () => {
-    const pool = [entry("a", true, 1), entry("b", true, 2), entry("c", true, 3)];
-    expect(warmPoolEvictions(pool, "d", 3)).toEqual([]);
+  it("evicts the least-recent detached entry and never an attached entry", () => {
+    expect(
+      warmPoolEvictions(
+        [entry("a", false, 5), entry("b", false, 1), entry("c", true, 0)],
+        "d",
+        3,
+      ),
+    ).toEqual(["b"]);
+    expect(
+      warmPoolEvictions(
+        [entry("a", true, 1), entry("b", true, 2), entry("c", true, 3)],
+        "d",
+        3,
+      ),
+    ).toEqual([]);
   });
 });
-
-// --- service with spy adapter -------------------------------------------------
 
 interface SpyView {
   readonly partition: string;
@@ -57,7 +60,7 @@ const makeSpyAdapter = () => {
   const adapter: BrowserViewAdapter = (partition, events) => {
     const spy: SpyView = { partition, events, calls: [], destroyed: false };
     views.push(spy);
-    const handle: BrowserViewHandle = {
+    return {
       loadUrl: (url) => spy.calls.push(`load:${url}`),
       attach: () => spy.calls.push("attach"),
       setBounds: () => spy.calls.push("bounds"),
@@ -66,177 +69,400 @@ const makeSpyAdapter = () => {
         spy.destroyed = true;
         spy.calls.push("destroy");
       },
+      executeJavaScript: async (code) => ({ code }),
+      capturePagePng: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
     };
-    return handle;
   };
   return { adapter, views };
 };
 
+const target = (
+  nodeId: string,
+  overrides: Partial<ResolvedPageTarget> = {},
+): ResolvedPageTarget => ({
+  ref: `vellum://canvas/work?node=${nodeId}`,
+  nodeId,
+  url: `https://${nodeId}.example.com`,
+  profile: "personal",
+  ...overrides,
+});
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+};
+
 describe("BrowserSessionService", () => {
   let root: string;
-  let clock = 0;
+  let clock: number;
+  let idCounter: number;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-browser-sessions-"));
     clock = 0;
+    idCounter = 0;
   });
 
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  const makeService = () => {
+  const makeService = (adapter: BrowserViewAdapter) => {
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+    );
+    return { service };
+  };
+
+  const makeDefaultService = () => {
     const { adapter, views } = makeSpyAdapter();
     const service = new BrowserSessionService(
       adapter,
       makeBrowserProfileService(root),
       () => ++clock,
+      () => `session-${++idCounter}`,
     );
     return { service, views };
   };
 
   const bounds = { x: 0, y: 0, width: 800, height: 600 };
 
-  it("open loads the URL in a view on the profile's persist: partition", async () => {
-    const { service, views } = makeService();
-    const res = await service.open({ nodeId: "n1", url: "https://example.com", profile: "personal" });
-    expect(res.ok).toBe(true);
-    expect(views).toHaveLength(1);
-    expect(views[0]!.partition).toBe("persist:vellum-profile-personal");
-    expect(views[0]!.calls).toContain("load:https://example.com");
+  it("mints an opaque handle and loads the document-derived target", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.open(target("n1"));
+    expect(opened).toMatchObject({
+      ok: true,
+      data: {
+        sessionId: "session-1",
+        ref: "vellum://canvas/work?node=n1",
+        nodeId: "n1",
+        profile: "personal",
+      },
+    });
+    expect(views[0]?.partition).toBe("persist:vellum-profile-personal");
+    expect(views[0]?.calls).toContain("load:https://n1.example.com");
   });
 
-  it("rejects file:, javascript:, and data: urls at the service boundary", async () => {
-    const { service, views } = makeService();
-    for (const url of ["file:///etc/passwd", "javascript:alert(1)", "data:text/html,hi"]) {
-      const res = await service.open({ nodeId: "n1", url, profile: "personal" });
-      expect(res.ok).toBe(false);
-      if (!res.ok) expect(res.code).toBe("forbidden");
+  it("rejects a target whose canonical ref, URL, or profile was substituted", async () => {
+    const { service, views } = makeDefaultService();
+    for (const candidate of [
+      target("n1", { nodeId: "other" }),
+      target("n1", { url: "file:///etc/passwd" }),
+      target("n1", { profile: "../escape" }),
+    ]) {
+      expect((await service.open(candidate)).ok).toBe(false);
     }
     expect(views).toHaveLength(0);
   });
 
-  it("rejects unknown profiles", async () => {
-    const { service } = makeService();
-    const res = await service.open({ nodeId: "n1", url: "https://example.com", profile: "nope" });
-    expect(res.ok).toBe(false);
+  it("rejects a profile absent from the profile registry", async () => {
+    const { service } = makeDefaultService();
+    const result = await service.open(target("n1", { profile: "missing" }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("invalid");
   });
 
-  it("close detaches the surface but keeps the session warm (no destroy)", async () => {
-    const { service, views } = makeService();
-    await service.open({ nodeId: "n1", url: "https://example.com", profile: "personal" });
-    service.setBounds("n1", bounds);
-    expect(views[0]!.calls).toContain("attach");
-    const closed = service.close("n1");
-    expect(closed.ok && closed.data.state).toBe("detached");
-    expect(views[0]!.calls).toContain("detach");
-    expect(views[0]!.destroyed).toBe(false);
-    // session survives — reopen reuses the same view, no new view created
-    const reopened = await service.open({ nodeId: "n1", url: "https://example.com", profile: "personal" });
-    expect(reopened.ok).toBe(true);
+  it("coalesces concurrent same-ref opens and preserves the handle on warm reuse", async () => {
+    const { service, views } = makeDefaultService();
+    const [first, second] = await Promise.all([service.open(target("n1")), service.open(target("n1"))]);
+    expect(first.ok && second.ok && first.data.sessionId).toBe(second.ok ? second.data.sessionId : "");
     expect(views).toHaveLength(1);
+
+    if (!first.ok) throw new Error("open failed");
+    service.setBounds(first.data.sessionId, bounds);
+    expect(service.close(first.data.sessionId)).toMatchObject({ ok: true, data: { state: "detached" } });
+    const reopened = await service.open(target("n1"));
+    expect(reopened).toMatchObject({ ok: true, data: { sessionId: first.data.sessionId } });
+    expect(views).toHaveLength(1);
+    expect(views[0]?.destroyed).toBe(false);
   });
 
-  it("enforces maxWarmSessions by evicting the least-recent detached session", async () => {
-    const { service, views } = makeService();
-    // default config maxWarmSessions = 3
-    await service.open({ nodeId: "n1", url: "https://a.com", profile: "personal" });
-    await service.open({ nodeId: "n2", url: "https://b.com", profile: "personal" });
-    await service.open({ nodeId: "n3", url: "https://c.com", profile: "personal" });
-    // n2 is attached; n1 is the oldest detached -> evicted
-    service.setBounds("n2", bounds);
-    const res = await service.open({ nodeId: "n4", url: "https://d.com", profile: "personal" });
-    expect(res.ok).toBe(true);
-    expect(views[0]!.destroyed).toBe(true); // n1
-    expect(views[1]!.destroyed).toBe(false); // n2 attached, never evicted
-    const list = service.list();
-    expect(list.ok && list.data.map((s) => s.nodeId).sort()).toEqual(["n2", "n3", "n4"]);
-  });
-
-  it("never evicts an attached session even when the pool overflows", async () => {
-    const { service, views } = makeService();
-    await service.open({ nodeId: "n1", url: "https://a.com", profile: "personal" });
-    await service.open({ nodeId: "n2", url: "https://b.com", profile: "personal" });
-    await service.open({ nodeId: "n3", url: "https://c.com", profile: "personal" });
-    service.setBounds("n1", bounds);
-    service.setBounds("n2", bounds);
-    service.setBounds("n3", bounds);
-    await service.open({ nodeId: "n4", url: "https://d.com", profile: "personal" });
-    expect(views.filter((v) => v.destroyed)).toHaveLength(0);
-  });
-
-  it("refuses a silent profile switch on a warm session", async () => {
-    const { service } = makeService();
-    await service.open({ nodeId: "n1", url: "https://a.com", profile: "personal" });
-    const res = await service.open({ nodeId: "n1", url: "https://a.com", profile: "work" });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.code).toBe("invalid");
-  });
-
-  it("tracks load lifecycle through the shared state machine", async () => {
-    const { service, views } = makeService();
-    await service.open({ nodeId: "n1", url: "https://a.com", profile: "personal" });
-    views[0]!.events.onLoadOk("Example");
-    const state = service.state("n1");
-    expect(state.ok && state.data?.state).toBe("ready");
-    expect(state.ok && state.data?.title).toBe("Example");
-    views[0]!.events.onLoadFail("net::ERR");
-    const failed = service.state("n1");
-    expect(failed.ok && failed.data?.state).toBe("failed");
-  });
-
-  it("pushes session changes to the sink", async () => {
-    const { service, views } = makeService();
-    const events: string[] = [];
-    service.setSink((s) => events.push(`${s.nodeId}:${s.state}`));
-    await service.open({ nodeId: "n1", url: "https://a.com", profile: "personal" });
-    views[0]!.events.onLoadOk("t");
-    service.close("n1");
-    expect(events).toContain("n1:loading");
-    expect(events).toContain("n1:ready");
-    expect(events).toContain("n1:detached");
-  });
-
-  it("detachAllOnQuit detaches every view and destroys none", async () => {
-    const { service, views } = makeService();
-    await service.open({ nodeId: "n1", url: "https://a.com", profile: "personal" });
-    await service.open({ nodeId: "n2", url: "https://b.com", profile: "personal" });
-    service.setBounds("n1", bounds);
-    service.detachAllOnQuit("test");
-    expect(views[0]!.calls).toContain("detach");
-    expect(views.filter((v) => v.destroyed)).toHaveLength(0);
-    const list = service.list();
-    expect(list.ok && list.data.every((s) => !s.attached)).toBe(true);
-  });
-
-  it("lists profiles with the default flagged", async () => {
-    const { service } = makeService();
-    const res = await service.listProfiles();
-    expect(res.ok).toBe(true);
-    if (res.ok) {
-      expect(res.data.map((p) => p.id).sort()).toEqual(["personal", "work"]);
-      expect(res.data.find((p) => p.id === "personal")?.default).toBe(true);
+  it("rejects URL or profile drift for a warm canonical ref", async () => {
+    const { service } = makeDefaultService();
+    await service.open(target("n1"));
+    for (const changed of [
+      target("n1", { url: "https://other.example.com" }),
+      target("n1", { profile: "work" }),
+    ]) {
+      const result = await service.open(changed);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.code).toBe("invalid");
     }
   });
 
-  it("screenshot of a detached session fails typed instead of returning an empty PNG", async () => {
-    // Chromium yields 0 bytes from capturePage when the view is not in a
-    // window's view tree — the service must not launder that as ok.
-    const adapter: BrowserViewAdapter = () => ({
-      loadUrl: () => {},
+  it("eviction and recreation invalidate the old handle and mint a new one", async () => {
+    const { service, views } = makeDefaultService();
+    const first = await service.open(target("n1"));
+    if (!first.ok) throw new Error("open failed");
+    await service.open(target("n2"));
+    await service.open(target("n3"));
+    await service.open(target("n4"));
+    expect(service.state(first.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
+    expect(views[0]?.destroyed).toBe(true);
+
+    const recreated = await service.open(target("n1"));
+    expect(recreated.ok).toBe(true);
+    if (recreated.ok) expect(recreated.data.sessionId).not.toBe(first.data.sessionId);
+  });
+
+  it("a fresh service instance mints a fresh handle for the same ref", async () => {
+    const { adapter } = makeSpyAdapter();
+    const generator = () => `restart-${++idCounter}`;
+    const firstService = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      generator,
+    );
+    const first = await firstService.open(target("n1"));
+    const restarted = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      generator,
+    );
+    const second = await restarted.open(target("n1"));
+    expect(first.ok && second.ok && first.data.sessionId).not.toBe(second.ok ? second.data.sessionId : "");
+  });
+
+  it("never evicts attached sessions", async () => {
+    const { service, views } = makeDefaultService();
+    for (const id of ["n1", "n2", "n3"]) {
+      const opened = await service.open(target(id));
+      if (opened.ok) service.setBounds(opened.data.sessionId, bounds);
+    }
+    await service.open(target("n4"));
+    expect(views.filter((view) => view.destroyed)).toHaveLength(0);
+  });
+
+  it("ignores late lifecycle callbacks from an evicted generation", async () => {
+    const { service, views } = makeDefaultService();
+    const first = await service.open(target("n1"));
+    if (!first.ok) throw new Error("open failed");
+    await service.open(target("n2"));
+    await service.open(target("n3"));
+    await service.open(target("n4"));
+    const replacement = await service.open(target("n1"));
+    if (!replacement.ok) throw new Error("replacement failed");
+    views.at(-1)?.events.onLoadOk(replacement.data.sessionId, "replacement");
+    views[0]?.events.onLoadFail(first.data.sessionId, "late old failure");
+    expect(service.state(replacement.data.sessionId)).toMatchObject({
+      ok: true,
+      data: { state: "ready", title: "replacement" },
+    });
+  });
+
+  it("rechecks the generation after an in-flight eval resolves", async () => {
+    const evaluation = deferred<unknown>();
+    let viewNumber = 0;
+    const adapter: BrowserViewAdapter = (_partition, events) => {
+      const number = viewNumber++;
+      return {
+        loadUrl: (url, expectedSessionId) => {
+          events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
+          events.onLoadOk(expectedSessionId);
+        },
+        attach: () => {},
+        setBounds: () => {},
+        detach: () => {},
+        destroy: () => {},
+        executeJavaScript: number === 0 ? () => evaluation.promise : async () => null,
+      };
+    };
+    const { service } = makeService(adapter);
+    const first = await service.open(target("n1"));
+    if (!first.ok) throw new Error("open failed");
+    const pending = service.eval(first.data.sessionId, "secret()");
+    await service.open(target("n2"));
+    await service.open(target("n3"));
+    await service.open(target("n4"));
+    evaluation.resolve("stale result");
+    expect(await pending).toMatchObject({ ok: false, code: "not_found" });
+  });
+
+  it("rechecks the generation after an in-flight capture resolves", async () => {
+    const capture = deferred<Uint8Array>();
+    let viewNumber = 0;
+    const adapter: BrowserViewAdapter = (_partition, events) => {
+      const number = viewNumber++;
+      return {
+        loadUrl: (url, expectedSessionId) => {
+          events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
+          events.onLoadOk(expectedSessionId);
+        },
+        attach: () => {},
+        setBounds: () => {},
+        detach: () => {},
+        destroy: () => {},
+        capturePagePng:
+          number === 0 ? () => capture.promise : async () => new Uint8Array([1]),
+      };
+    };
+    const { service } = makeService(adapter);
+    const first = await service.open(target("n1"));
+    if (!first.ok) throw new Error("open failed");
+    const pending = service.screenshot(first.data.sessionId);
+    await service.open(target("n2"));
+    await service.open(target("n3"));
+    await service.open(target("n4"));
+    capture.resolve(new Uint8Array([1, 2, 3]));
+    expect(await pending).toMatchObject({ ok: false, code: "not_found" });
+  });
+
+  it("all existing-session operations require the exact sessionId", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.open(target("n1"));
+    if (!opened.ok) throw new Error("open failed");
+    expect(service.goto(opened.data.sessionId, "https://too-soon.example.com")).toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
+    views[0]?.events.onLoadOk(opened.data.sessionId, "initial");
+    const navigated = service.goto(opened.data.sessionId, "https://next.example.com");
+    expect(navigated).toMatchObject({
+      ok: true,
+      data: { url: "https://next.example.com" },
+    });
+    expect(service.state(opened.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
+    if (!navigated.ok) throw new Error("goto failed");
+    expect(service.goto(navigated.data.sessionId, "https://overlap.example.com")).toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
+    expect(await service.eval(navigated.data.sessionId, "document.title")).toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
+    expect(await service.screenshot(navigated.data.sessionId)).toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
+    for (const substitute of [opened.data.sessionId, "n1", target("n1").ref]) {
+      expect(service.goto(substitute, "https://x.example.com")).toMatchObject({
+        ok: false,
+        code: "not_found",
+      });
+      expect(service.close(substitute)).toMatchObject({ ok: false, code: "not_found" });
+      expect(service.state(substitute)).toMatchObject({ ok: false, code: "not_found" });
+    }
+    expect(service.state(navigated.data.sessionId)).toMatchObject({ ok: true });
+  });
+
+  it("rotates once for page-initiated cross-document navigation and ignores old completion", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.open(target("n1"));
+    if (!opened.ok) throw new Error("open failed");
+    const nextId = views[0]?.events.onNavigationStart({
+      url: "https://page-initiated.example.com",
+      isSameDocument: false,
+    });
+    expect(nextId).toBeDefined();
+    expect(nextId).not.toBe(opened.data.sessionId);
+    expect(service.state(opened.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
+    if (nextId === undefined) throw new Error("navigation did not mint a generation");
+    views[0]?.events.onLoadOk(opened.data.sessionId, "stale");
+    expect(service.state(nextId)).toMatchObject({ ok: true, data: { state: "loading" } });
+    views[0]?.events.onLoadOk(nextId, "current");
+    expect(service.state(nextId)).toMatchObject({
+      ok: true,
+      data: { state: "ready", title: "current" },
+    });
+  });
+
+  it("retains the generation for same-document navigation", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.open(target("n1"));
+    if (!opened.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(opened.data.sessionId, "initial");
+    const sameId = views[0]?.events.onNavigationStart({
+      url: "https://n1.example.com#section",
+      isSameDocument: true,
+    });
+    expect(sameId).toBe(opened.data.sessionId);
+    expect(service.state(opened.data.sessionId)).toMatchObject({
+      ok: true,
+      data: { url: "https://n1.example.com#section" },
+    });
+  });
+
+  it("serializes overlapping navigation generations and accepts only the latest completion", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.open(target("n1"));
+    if (!opened.ok) throw new Error("open failed");
+    const firstNavigation = views[0]?.events.onNavigationStart({
+      url: "https://first.example.com",
+      isSameDocument: false,
+    });
+    const secondNavigation = views[0]?.events.onNavigationStart({
+      url: "https://second.example.com",
+      isSameDocument: false,
+    });
+    if (firstNavigation === undefined || secondNavigation === undefined) {
+      throw new Error("navigation did not mint generations");
+    }
+    views[0]?.events.onLoadOk(firstNavigation, "first");
+    expect(service.state(secondNavigation)).toMatchObject({ ok: true, data: { state: "loading" } });
+    views[0]?.events.onLoadOk(secondNavigation, "second");
+    expect(service.state(secondNavigation)).toMatchObject({
+      ok: true,
+      data: { state: "ready", title: "second" },
+    });
+  });
+
+  it("tracks current lifecycle, emits current changes, and detaches all on quit", async () => {
+    const { service, views } = makeDefaultService();
+    const events: string[] = [];
+    service.setSink((session) => events.push(`${session.sessionId}:${session.state}`));
+    const opened = await service.open(target("n1"));
+    if (!opened.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(opened.data.sessionId, "Example");
+    service.setBounds(opened.data.sessionId, bounds);
+    service.detachAllOnQuit("test");
+    expect(service.state(opened.data.sessionId)).toMatchObject({
+      ok: true,
+      data: { state: "detached", attached: false, title: "Example" },
+    });
+    expect(events).toContain(`${opened.data.sessionId}:ready`);
+    expect(views[0]?.calls).toContain("detach");
+    expect(views[0]?.destroyed).toBe(false);
+  });
+
+  it("lists configured profiles and rejects empty detached captures", async () => {
+    const emptyAdapter: BrowserViewAdapter = (_partition, events) => ({
+      loadUrl: (url, expectedSessionId) => {
+        events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
+        events.onLoadOk(expectedSessionId);
+      },
       attach: () => {},
       setBounds: () => {},
       detach: () => {},
       destroy: () => {},
-      capturePagePng: async () => new Uint8Array(0),
+      capturePagePng: async () => new Uint8Array(),
     });
-    const service = new BrowserSessionService(adapter, makeBrowserProfileService(root), () => ++clock);
-    await service.open({ nodeId: "n1", url: "https://example.com", profile: "personal" });
-    const shot = await service.screenshot("n1");
-    expect(shot.ok).toBe(false);
-    if (!shot.ok) {
-      expect(shot.code).toBe("failed");
-      expect(shot.message).toContain("detached");
+    const { service } = makeService(emptyAdapter);
+    const profiles = await service.listProfiles();
+    expect(profiles.ok).toBe(true);
+    if (profiles.ok) {
+      expect(profiles.data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "personal", default: true }),
+          expect.objectContaining({ id: "work" }),
+        ]),
+      );
     }
+    const opened = await service.open(target("n1"));
+    if (!opened.ok) throw new Error("open failed");
+    expect(await service.screenshot(opened.data.sessionId)).toMatchObject({
+      ok: false,
+      code: "failed",
+    });
   });
 });

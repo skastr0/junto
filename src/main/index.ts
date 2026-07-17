@@ -11,7 +11,7 @@ import { CanvasesService } from "./vellum/canvases";
 import { warmAllHosts } from "./vellum/herdr/masters";
 import { startAllMirrors, stopAllMirrors } from "./vellum/herdr/mirrors";
 import { herdrStreams } from "./vellum/herdr/stream";
-import { browserSessions } from "./vellum/browser/ipc";
+import { browserSessions, resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 import {
   acknowledgeNodeRefRelay,
@@ -430,6 +430,7 @@ if (!gotSingleInstanceLock) {
     try {
       browserControl = await startBrowserControlServer({
         sessions: browserSessions,
+        resolvePageTarget: resolveBrowserPageTarget,
         version: app.getVersion(),
       });
     } catch (error) {

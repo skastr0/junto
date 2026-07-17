@@ -85,34 +85,31 @@ export const decodeControlEnvelope = (
 // Requests
 
 export const OpenRequest = Schema.Struct({
-  nodeId: Schema.String,
-  url: Schema.String,
-  // Omitted → server resolves the default profile from config.
-  profile: Schema.optionalWith(Schema.String, { exact: true }),
+  ref: Schema.String,
 });
 export type OpenRequest = typeof OpenRequest.Type;
 
 export const GotoRequest = Schema.Struct({
-  nodeId: Schema.String,
+  sessionId: Schema.String,
   url: Schema.String,
 });
 export type GotoRequest = typeof GotoRequest.Type;
 
 export const EvalRequest = Schema.Struct({
-  nodeId: Schema.String,
+  sessionId: Schema.String,
   code: Schema.String,
 });
 export type EvalRequest = typeof EvalRequest.Type;
 
 export const ScreenshotRequest = Schema.Struct({
-  nodeId: Schema.String,
+  sessionId: Schema.String,
   // Absolute PNG destination; omitted → server picks under ~/.vellum/browser/shots/.
   path: Schema.optionalWith(Schema.String, { exact: true }),
 });
 export type ScreenshotRequest = typeof ScreenshotRequest.Type;
 
 export const CloseRequest = Schema.Struct({
-  nodeId: Schema.String,
+  sessionId: Schema.String,
 });
 export type CloseRequest = typeof CloseRequest.Type;
 
@@ -135,6 +132,8 @@ export const ProfileRow = Schema.Struct({
 export type ProfileRow = typeof ProfileRow.Type;
 
 export const SessionData = Schema.Struct({
+  sessionId: Schema.String,
+  ref: Schema.String,
   nodeId: Schema.String,
   url: Schema.String,
   profile: Schema.String,
@@ -159,6 +158,8 @@ export type ScreenshotData = typeof ScreenshotData.Type;
 
 /** A page node found in a .canvas document (link node with entity.kind "page"). */
 export const PageNodeRow = Schema.Struct({
+  ref: Schema.String,
+  sessionId: Schema.NullOr(Schema.String),
   canvas: Schema.String,
   nodeId: Schema.String,
   url: Schema.String,

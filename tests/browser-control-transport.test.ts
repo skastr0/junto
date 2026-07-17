@@ -23,18 +23,35 @@ import {
   type BrowserViewAdapter,
   type BrowserViewHandle,
 } from "../src/main/vellum/browser/sessions";
+import type { PageTargetResolver } from "../src/main/vellum/browser/page-target";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const TEST_ROOT_PREFIX = "/tmp/vct-";
 const roots: string[] = [];
 const servers: BrowserControlServer[] = [];
+const PAGE_REF = "vellum://canvas/work?node=cli-node";
+const resolvePageTarget: PageTargetResolver = async (ref) =>
+  ref === PAGE_REF
+    ? {
+        ok: true,
+        data: {
+          ref: PAGE_REF,
+          nodeId: "cli-node",
+          url: "https://example.com/",
+          profile: "personal",
+        },
+      }
+    : { ok: false, code: "not_found", message: "page not found" };
 
 const mode = async (path: string): Promise<number> => (await stat(path)).mode & 0o777;
 
 const makeSessions = (root: string): BrowserSessionService => {
-  const adapter: BrowserViewAdapter = () => {
+  const adapter: BrowserViewAdapter = (_partition, events) => {
     const handle: BrowserViewHandle = {
-      loadUrl: () => {},
+      loadUrl: (url, expectedSessionId) => {
+        const sessionId = events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
+        if (sessionId !== undefined) events.onLoadOk(sessionId);
+      },
       attach: () => {},
       setBounds: () => {},
       detach: () => {},
@@ -66,7 +83,7 @@ const startStack = async (
 }> => {
   const sessions = makeSessions(root);
   const server = await startBrowserControlServer(
-    { sessions, version: "transport-test", home: root },
+    { sessions, resolvePageTarget, version: "transport-test", home: root },
     runtime,
   );
   servers.push(server);
@@ -80,7 +97,7 @@ const startStack = async (
 const rawExchange = (
   socketPath: string,
   writes: ReadonlyArray<string | Buffer>,
-  endRequest = true,
+  endRequest = false,
 ): Promise<string> =>
   new Promise((resolveExchange, rejectExchange) => {
     const socket = createConnection(socketPath);
@@ -206,7 +223,7 @@ describe("browser control Unix transport", () => {
 
     await expect(
       startBrowserControlServer(
-        { sessions: makeSessions(root), version: "transport-test", home: root },
+        { sessions: makeSessions(root), resolvePageTarget, version: "transport-test", home: root },
         runtime,
       ),
     ).rejects.toThrow("injected chmod failure");
@@ -308,19 +325,19 @@ describe("browser control Unix transport", () => {
     const { sessions } = await startStack(root);
     const result = await runCli(root, [
       "open",
-      "cli-node",
-      "https://example.com/",
+      PAGE_REF,
       "--json",
     ]);
 
     expect(result.code, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       ok: true,
-      data: { nodeId: "cli-node", url: "https://example.com/" },
+      data: { ref: PAGE_REF, nodeId: "cli-node", url: "https://example.com/" },
     });
-    expect(sessions.state("cli-node")).toMatchObject({
+    const sessionId = (JSON.parse(result.stdout) as { data: { sessionId: string } }).data.sessionId;
+    expect(sessions.state(sessionId)).toMatchObject({
       ok: true,
-      data: { nodeId: "cli-node" },
+      data: { ref: PAGE_REF, nodeId: "cli-node" },
     });
   });
 });

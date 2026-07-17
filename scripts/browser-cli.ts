@@ -29,11 +29,11 @@ commands:
   profiles                        list browser profiles
   pages                           list page nodes across canvases
   sessions                        list live sessions
-  open <nodeId> <url> [--profile <id>]   open/reuse a warm session
-  goto <nodeId> <url>             navigate an existing session
-  eval <nodeId> <code>            run JS in the page, print JSON result
-  shot <nodeId> [--path <abs.png>]        screenshot to PNG
-  close <nodeId>                  detach the surface (session stays warm)`;
+  open <vellum-ref>                resolve and open/reuse a page session
+  goto <sessionId> <url>           navigate an existing session
+  eval <sessionId> <code>          run JS in the page, print JSON result
+  shot <sessionId> [--path <abs.png>]      screenshot to PNG
+  close <sessionId>                detach the surface (session stays warm)`;
 
 // Bounds the whole request/response round-trip. Without this, a hung page
 // script (executeJavaScript that never resolves — e.g. `while(true){}` run
@@ -103,7 +103,7 @@ const parseArgs = (
     const i = argv.indexOf(`--${name}`);
     return i >= 0 ? argv[i + 1] : undefined;
   };
-  const positional = argv.filter((a, i) => !a.startsWith("--") && argv[i - 1] !== "--profile" && argv[i - 1] !== "--path");
+  const positional = argv.filter((a, i) => !a.startsWith("--") && argv[i - 1] !== "--path");
   const [cmd, a, b] = positional;
 
   switch (cmd) {
@@ -113,30 +113,30 @@ const parseArgs = (
     case "sessions":
       return { json, call: { route: cmd } };
     case "open":
-      if (!a || !b) return { error: "open requires <nodeId> <url>" };
+      if (!a || b) return { error: "open requires exactly one <vellum-ref>" };
       return {
         json,
         call: {
           route: "open",
-          body: { nodeId: a, url: b, ...(flag("profile") ? { profile: flag("profile") } : {}) },
+          body: { ref: a },
         },
       };
     case "goto":
-      if (!a || !b) return { error: "goto requires <nodeId> <url>" };
-      return { json, call: { route: "goto", body: { nodeId: a, url: b } } };
+      if (!a || !b) return { error: "goto requires <sessionId> <url>" };
+      return { json, call: { route: "goto", body: { sessionId: a, url: b } } };
     case "eval":
-      if (!a || !b) return { error: "eval requires <nodeId> <code>" };
-      return { json, call: { route: "eval", body: { nodeId: a, code: b } } };
+      if (!a || !b) return { error: "eval requires <sessionId> <code>" };
+      return { json, call: { route: "eval", body: { sessionId: a, code: b } } };
     case "shot":
     case "screenshot":
-      if (!a) return { error: "shot requires <nodeId>" };
+      if (!a) return { error: "shot requires <sessionId>" };
       return {
         json,
-        call: { route: "screenshot", body: { nodeId: a, ...(flag("path") ? { path: flag("path") } : {}) } },
+        call: { route: "screenshot", body: { sessionId: a, ...(flag("path") ? { path: flag("path") } : {}) } },
       };
     case "close":
-      if (!a) return { error: "close requires <nodeId>" };
-      return { json, call: { route: "close", body: { nodeId: a } } };
+      if (!a) return { error: "close requires <sessionId>" };
+      return { json, call: { route: "close", body: { sessionId: a } } };
     default:
       return { error: usage };
   }

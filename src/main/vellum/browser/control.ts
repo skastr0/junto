@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { dirname, join, isAbsolute, resolve, sep } from "node:path";
 import { Either, Schema } from "effect";
 import { decodeCanvasDoc } from "@shared/canvas";
+import { formatNodeRef } from "@shared/node-ref";
 import {
   CONTROL_ROUTES,
   CONTROL_HEADERS_TIMEOUT_MS,
@@ -31,6 +32,7 @@ import {
 } from "@shared/browser-control";
 import type { BrowserResult } from "./sessions";
 import { BrowserSessionService } from "./sessions";
+import type { PageTargetResolver } from "./page-target";
 
 // Local control plane for agents (the browser ACI): a tiny HTTP server on a
 // unix domain socket at ~/.vellum/browser/control.sock, hosted by the Electron
@@ -69,7 +71,10 @@ export const tokenMatches = (presented: string | undefined, expected: string): b
 // .canvas document. Read-only; a corrupt canvas degrades to zero rows for that
 // file rather than failing the listing (canvas-ls precedent).
 
-export const listPageNodes = async (canvasesDir: string): Promise<ReadonlyArray<PageNodeRow>> => {
+export const listPageNodes = async (
+  canvasesDir: string,
+  sessions?: BrowserSessionService,
+): Promise<ReadonlyArray<PageNodeRow>> => {
   await mkdir(canvasesDir, { recursive: true });
   const files = (await readdir(canvasesDir)).filter((f) => f.endsWith(".canvas"));
   const rows: PageNodeRow[] = [];
@@ -79,7 +84,13 @@ export const listPageNodes = async (canvasesDir: string): Promise<ReadonlyArray<
       if (Either.isLeft(decoded)) continue;
       for (const node of decoded.right.nodes) {
         if (node.type !== "link" || node.ether?.entity?.kind !== "page") continue;
+        const ref = formatNodeRef({
+          canvasName: file.slice(0, -".canvas".length),
+          nodeId: node.id,
+        });
         rows.push({
+          ref,
+          sessionId: sessions?.sessionIdForRef(ref) ?? null,
           canvas: file.slice(0, -".canvas".length),
           nodeId: node.id,
           url: node.url,
@@ -123,15 +134,40 @@ const decodeBody =
 
 export interface ControlDeps {
   readonly sessions: BrowserSessionService;
+  readonly resolvePageTarget: PageTargetResolver;
   readonly version: string;
   readonly canvasesDir: string;
   readonly shotsDir: string;
+  readonly screenshotFiles?: {
+    readonly ensureDirectory: (path: string) => Promise<void>;
+    readonly write: (path: string, data: Uint8Array) => Promise<void>;
+  };
 }
 
 export const makeControlHandlers = (deps: ControlDeps) => {
+  const screenshotFiles = deps.screenshotFiles ?? {
+    ensureDirectory: async (path: string) => {
+      await mkdir(path, { recursive: true });
+    },
+    write: async (path: string, data: Uint8Array) => {
+      await writeFile(path, data);
+    },
+  };
   const withBody =
-    <A, I>(schema: Schema.Schema<A, I>, run: (input: A) => Promise<ControlEnvelope<unknown>>) =>
+    <A, I>(
+      schema: Schema.Schema<A, I>,
+      keys: ReadonlyArray<string>,
+      run: (input: A) => Promise<ControlEnvelope<unknown>>,
+    ) =>
     async (body: unknown): Promise<ControlEnvelope<unknown>> => {
+      if (
+        typeof body !== "object" ||
+        body === null ||
+        Array.isArray(body) ||
+        Object.keys(body).some((key) => !keys.includes(key))
+      ) {
+        return controlErr("bad_request", "request contains unknown or invalid fields");
+      }
       const decoded = decodeBody(schema)(body);
       return Either.isLeft(decoded) ? decoded.left : run(decoded.right);
     };
@@ -151,71 +187,60 @@ export const makeControlHandlers = (deps: ControlDeps) => {
 
     "GET /sessions": async () => fromResult(deps.sessions.list()),
 
-    "GET /pages": async () => controlOk(await listPageNodes(deps.canvasesDir)),
+    "GET /pages": async () => controlOk(await listPageNodes(deps.canvasesDir, deps.sessions)),
 
-    "POST /open": withBody(OpenRequest, async (input) => {
-      let profile = input.profile;
-      if (profile === undefined) {
-        const profiles = await deps.sessions.listProfiles();
-        if (!profiles.ok) return fromResult(profiles);
-        profile = profiles.data.find((p) => p.default)?.id ?? profiles.data[0]?.id;
-        if (profile === undefined) return controlErr("invalid", "no browser profiles configured");
-      }
-      return fromResult(await deps.sessions.open({ nodeId: input.nodeId, url: input.url, profile }));
+    "POST /open": withBody(OpenRequest, ["ref"], async (input) => {
+      const target = await deps.resolvePageTarget(input.ref);
+      return target.ok
+        ? fromResult(await deps.sessions.open(target.data))
+        : controlErr(target.code, target.message);
     }),
 
-    // goto = navigate an EXISTING session (profile stays bound); open creates.
-    "POST /goto": withBody(GotoRequest, async (input) => {
-      const state = deps.sessions.state(input.nodeId);
-      if (!state.ok) return fromResult(state);
-      if (state.data === null) return controlErr("not_found", `no session for ${input.nodeId}`);
-      return fromResult(
-        await deps.sessions.open({
-          nodeId: input.nodeId,
-          url: input.url,
-          profile: state.data.profile,
-        }),
-      );
-    }),
+    "POST /goto": withBody(GotoRequest, ["sessionId", "url"], async (input) =>
+      fromResult(deps.sessions.goto(input.sessionId, input.url)),
+    ),
 
-    "POST /eval": withBody(EvalRequest, async (input) => {
-      const result = await deps.sessions.eval(input.nodeId, input.code);
+    "POST /eval": withBody(EvalRequest, ["sessionId", "code"], async (input) => {
+      const result = await deps.sessions.eval(input.sessionId, input.code);
       // executeJavaScript can resolve to undefined — normalize to null so the
       // JSON envelope keeps an explicit `result` key.
       return result.ok ? controlOk({ result: result.data.result ?? null }) : fromResult(result);
     }),
 
-    "POST /screenshot": withBody(ScreenshotRequest, async (input) => {
+    "POST /screenshot": withBody(ScreenshotRequest, ["sessionId", "path"], async (input) => {
       if (input.path !== undefined && !isAbsolute(input.path)) {
         return controlErr("invalid", `screenshot path must be absolute: ${input.path}`);
       }
-      const shot = await deps.sessions.screenshot(input.nodeId);
+      const shot = await deps.sessions.screenshot(input.sessionId);
       if (!shot.ok) return fromResult(shot);
+      const current = deps.sessions.state(input.sessionId);
+      if (!current.ok) return fromResult(current);
       const path =
-        input.path ?? join(deps.shotsDir, `${input.nodeId}-${Date.now()}.png`);
-      // nodeId is caller-controlled (canvas node.id, unrestricted) and flows
-      // straight into the default path — `path.join` collapses `..` segments,
-      // so a nodeId like "../../etc/pwned" would otherwise escape shotsDir.
+        input.path ?? join(deps.shotsDir, `${input.sessionId}-${Date.now()}.png`);
+      // Injected test generators are caller-owned seams, so confine even the
+      // sessionId-derived default rather than assuming UUID syntax here.
       // Explicit `input.path` is a deliberate absolute override (checked
       // above) and is exempt; only the nodeId-derived default is confined.
       if (input.path === undefined) {
         const resolvedShotsDir = resolve(deps.shotsDir);
         const resolvedPath = resolve(path);
         if (resolvedPath !== resolvedShotsDir && !resolvedPath.startsWith(resolvedShotsDir + sep)) {
-          return controlErr("invalid", `nodeId produces an unsafe default screenshot path: ${input.nodeId}`);
+          return controlErr("invalid", "sessionId produces an unsafe default screenshot path");
         }
       }
       try {
-        await mkdir(dirname(path), { recursive: true });
-        await writeFile(path, shot.data.png);
+        await screenshotFiles.ensureDirectory(dirname(path));
+        const writable = deps.sessions.state(input.sessionId);
+        if (!writable.ok) return fromResult(writable);
+        await screenshotFiles.write(path, shot.data.png);
       } catch (error) {
         return controlErr("failed", error instanceof Error ? error.message : String(error));
       }
       return controlOk({ path, bytes: shot.data.png.byteLength });
     }),
 
-    "POST /close": withBody(CloseRequest, async (input) =>
-      fromResult(deps.sessions.close(input.nodeId)),
+    "POST /close": withBody(CloseRequest, ["sessionId"], async (input) =>
+      fromResult(deps.sessions.close(input.sessionId)),
     ),
   };
 
@@ -379,6 +404,7 @@ const parseContentLength = (
 export const startBrowserControlServer = async (
   options: {
     readonly sessions: BrowserSessionService;
+    readonly resolvePageTarget: PageTargetResolver;
     readonly version: string;
     readonly home?: string;
   },
@@ -394,6 +420,7 @@ export const startBrowserControlServer = async (
   const token = loadOrCreateToken(controlTokenPath(home));
   const handlers = makeControlHandlers({
     sessions: options.sessions,
+    resolvePageTarget: options.resolvePageTarget,
     version: options.version,
     canvasesDir: join(home, ".vellum", "canvases"),
     shotsDir: controlShotsDir(home),

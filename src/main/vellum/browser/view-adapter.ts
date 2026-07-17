@@ -10,6 +10,14 @@ import type { BrowserViewAdapter, BrowserViewHandle } from "./sessions";
 
 const mainWindow = (): BrowserWindow | undefined => BrowserWindow.getAllWindows()[0];
 
+const normalizeUrl = (url: string): string => {
+  try {
+    return new URL(url).href;
+  } catch {
+    return url;
+  }
+};
+
 export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
   const view = new WebContentsView({
     webPreferences: {
@@ -21,14 +29,63 @@ export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
     },
   });
 
-  view.webContents.on("did-start-loading", () => events.onLoadStart());
-  view.webContents.on("did-finish-load", () =>
-    events.onLoadOk(view.webContents.getTitle() || undefined),
-  );
-  view.webContents.on("did-fail-load", (_e, code, description) => {
+  let expectedNavigation: { readonly url: string; readonly sessionId: string } | undefined;
+  let activeNavigation: { readonly url: string; readonly sessionId: string } | undefined;
+  let currentSessionId: string | undefined;
+
+  view.webContents.on("did-start-navigation", (details) => {
+    if (!details.isMainFrame) return;
+    const previousNavigation = activeNavigation;
+    const expected = expectedNavigation;
+    expectedNavigation = undefined;
+    const normalizedUrl = normalizeUrl(details.url);
+    const expectedSessionId = expected?.url === normalizedUrl ? expected.sessionId : undefined;
+    const sessionId = events.onNavigationStart({
+      url: normalizedUrl,
+      isSameDocument: details.isSameDocument,
+      ...(expectedSessionId === undefined ? {} : { expectedSessionId }),
+    });
+    currentSessionId = sessionId;
+    if (!details.isSameDocument && sessionId !== undefined) {
+      if (previousNavigation !== undefined) {
+        activeNavigation = undefined;
+        currentSessionId = undefined;
+        events.onNavigationAmbiguous(sessionId);
+        return;
+      }
+      activeNavigation = { url: normalizedUrl, sessionId };
+    }
+  });
+  view.webContents.on("did-redirect-navigation", (details) => {
+    if (!details.isMainFrame || activeNavigation === undefined) return;
+    const url = normalizeUrl(details.url);
+    activeNavigation = { ...activeNavigation, url };
+    events.onNavigationUrl(activeNavigation.sessionId, url);
+  });
+  view.webContents.on("did-navigate", (_event, url) => {
+    if (activeNavigation === undefined) return;
+    const normalizedUrl = normalizeUrl(url);
+    activeNavigation = { ...activeNavigation, url: normalizedUrl };
+    events.onNavigationUrl(activeNavigation.sessionId, normalizedUrl);
+  });
+  view.webContents.on("did-navigate-in-page", (_event, url, isMainFrame) => {
+    if (!isMainFrame || currentSessionId === undefined) return;
+    events.onNavigationUrl(currentSessionId, normalizeUrl(url));
+  });
+  view.webContents.on("did-finish-load", () => {
+    const active = activeNavigation;
+    if (active === undefined || normalizeUrl(view.webContents.getURL()) !== active.url) return;
+    activeNavigation = undefined;
+    events.onLoadOk(active.sessionId, view.webContents.getTitle() || undefined);
+  });
+  view.webContents.on("did-fail-load", (_e, code, description, validatedUrl, isMainFrame) => {
     // -3 (ABORTED) fires on in-page redirects/cancelled provisional loads;
     // it is not a user-visible failure.
-    if (code !== -3) events.onLoadFail(`${description || "load failed"} (${code})`);
+    if (code === -3 || !isMainFrame) return;
+    const active = activeNavigation;
+    if (active === undefined || active.url !== normalizeUrl(validatedUrl)) return;
+    activeNavigation = undefined;
+    events.onLoadFail(active.sessionId, `${description || "load failed"} (${code})`);
   });
 
   // The window this view is actually parented under — tracked locally because
@@ -41,7 +98,8 @@ export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
   let attachedWindow: BrowserWindow | undefined;
 
   const handle: BrowserViewHandle = {
-    loadUrl: (url) => {
+    loadUrl: (url, expectedSessionId) => {
+      expectedNavigation = { url: normalizeUrl(url), sessionId: expectedSessionId };
       void view.webContents.loadURL(url);
     },
     attach: (bounds) => {

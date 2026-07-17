@@ -272,12 +272,12 @@ const browserApi: VellumBrowserApi = {
   browserProfiles: () => invoke(IPC_CHANNELS.browserProfiles, IPC_TIMEOUT_MS),
   browserSurfaceConfig: () => invoke(IPC_CHANNELS.browserSurfaceConfig, IPC_TIMEOUT_MS),
   browserOpen: (input: BrowserOpenInput) => invoke(IPC_CHANNELS.browserOpen, IPC_TIMEOUT_MS, input),
-  browserClose: (nodeId) => invoke(IPC_CHANNELS.browserClose, IPC_TIMEOUT_MS, nodeId),
-  browserSessionState: (nodeId) =>
-    invoke(IPC_CHANNELS.browserSessionState, IPC_TIMEOUT_MS, nodeId),
+  browserClose: (sessionId) => invoke(IPC_CHANNELS.browserClose, IPC_TIMEOUT_MS, sessionId),
+  browserSessionState: (sessionId) =>
+    invoke(IPC_CHANNELS.browserSessionState, IPC_TIMEOUT_MS, sessionId),
   browserSessionList: () => invoke(IPC_CHANNELS.browserSessionList, IPC_TIMEOUT_MS),
-  browserSetBounds: (nodeId, bounds: BrowserSurfaceBounds) =>
-    invoke(IPC_CHANNELS.browserSetBounds, IPC_TIMEOUT_MS, nodeId, bounds),
+  browserSetBounds: (sessionId, bounds: BrowserSurfaceBounds) =>
+    invoke(IPC_CHANNELS.browserSetBounds, IPC_TIMEOUT_MS, sessionId, bounds),
   onBrowserSessionChanged: (listener) =>
     subscribe<BrowserSessionInfo>(IPC_CHANNELS.browserSessionChanged, listener),
 };
