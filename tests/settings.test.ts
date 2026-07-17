@@ -154,13 +154,39 @@ describe("settings service", () => {
     expect(await readFile(path, "utf8")).toBe("{not-json");
   });
 
-  it("doctor reports path and version when healthy", async () => {
+  it("doctor reports version when healthy without leaking absolute paths", async () => {
     const svc = await fresh();
     await run(svc.get);
     const check = await run(svc.doctor);
     expect(check.id).toBe("settings");
     expect(check.status).toBe("ok");
-    expect(check.detail).toContain(path);
     expect(check.detail).toContain("v1");
+    expect(check.detail).not.toContain(path);
+  });
+
+  it("rejects oversized settings files", async () => {
+    const svc = await fresh();
+    await writeFile(path, "x".repeat(65 * 1024), "utf8");
+    const svc2 = makeSettingsService(path);
+    const result = await runEither(svc2.get);
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.code).toBe("corrupt");
+    }
+  });
+
+  it("rejects invalid defaultCanvas names", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    const result = await runEither(svc.patch({ canvas: { defaultCanvas: "../etc" } }));
+    expect(Either.isLeft(result)).toBe(true);
+  });
+
+  it("rejects version below floor", () => {
+    const result = migrateSettingsDocument({ version: 0 });
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.code).toBe("corrupt");
+    }
   });
 });

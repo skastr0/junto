@@ -1,9 +1,10 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { Context, Effect, Either, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import {
+  SETTINGS_MAX_FILE_BYTES,
   SettingsError,
   defaultSection,
   defaultSettings,
@@ -48,6 +49,12 @@ const toIoError = (error: unknown): SettingsError =>
 const atomicWrite = async (path: string, settings: Settings): Promise<void> => {
   await mkdir(dirname(path), { recursive: true });
   const body = `${JSON.stringify(settings, null, 2)}\n`;
+  if (Buffer.byteLength(body, "utf8") > SETTINGS_MAX_FILE_BYTES) {
+    throw new SettingsError({
+      message: `settings document exceeds ${SETTINGS_MAX_FILE_BYTES} byte ceiling`,
+      code: "validation",
+    });
+  }
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
   await writeFile(tmp, body, "utf8");
   await rename(tmp, path);
@@ -56,8 +63,22 @@ const atomicWrite = async (path: string, settings: Settings): Promise<void> => {
 const loadFromDisk = async (path: string): Promise<Settings> => {
   let raw: string;
   try {
+    const info = await stat(path);
+    if (!info.isFile()) {
+      throw new SettingsError({
+        message: "settings path is not a regular file",
+        code: "corrupt",
+      });
+    }
+    if (info.size > SETTINGS_MAX_FILE_BYTES) {
+      throw new SettingsError({
+        message: `settings file exceeds ${SETTINGS_MAX_FILE_BYTES} byte ceiling`,
+        code: "corrupt",
+      });
+    }
     raw = await readFile(path, "utf8");
   } catch (error) {
+    if (error instanceof SettingsError) throw error;
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       const fresh = defaultSettings();
       await atomicWrite(path, fresh);
@@ -71,7 +92,7 @@ const loadFromDisk = async (path: string): Promise<Settings> => {
     parsed = JSON.parse(raw) as unknown;
   } catch (error) {
     throw new SettingsError({
-      message: `settings.json unreadable at ${path} — refusing to treat as empty (${
+      message: `settings.json unreadable — refusing to treat as empty (${
         error instanceof Error ? error.message : String(error)
       })`,
       code: "corrupt",
@@ -99,6 +120,8 @@ export interface SettingsServiceApi {
 export const makeSettingsService = (path: string = settingsFilePath()): SettingsServiceApi => {
   let cached: Settings | undefined;
   let inFlight: Promise<Settings> | null = null;
+  // Serialize patch/reset RMW so concurrent IPC cannot last-writer-clobber.
+  let writeChain: Promise<unknown> = Promise.resolve();
   const listeners = new Set<(settings: Settings) => void>();
 
   const notify = (settings: Settings) => {
@@ -127,6 +150,15 @@ export const makeSettingsService = (path: string = settingsFilePath()): Settings
     return settings;
   };
 
+  const withWriteLock = <A>(fn: () => Promise<A>): Promise<A> => {
+    const run = writeChain.then(fn, fn);
+    writeChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
+
   return {
     path: () => path,
     doctor: Effect.tryPromise({
@@ -137,7 +169,7 @@ export const makeSettingsService = (path: string = settingsFilePath()): Settings
             id: "settings",
             label: "User Settings",
             status: "ok" as const,
-            detail: `${path} · v${settings.version}`,
+            detail: `settings.json · v${settings.version}`,
           };
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -165,41 +197,32 @@ export const makeSettingsService = (path: string = settingsFilePath()): Settings
       catch: (error) => toIoError(error),
     }),
     patch: (input: unknown) =>
-      Effect.gen(function* () {
-        const patchEither = decodePatchInput(input);
-        if (Either.isLeft(patchEither)) {
-          return yield* patchEither.left;
-        }
-        const current = yield* Effect.tryPromise({
-          try: () => ensureLoaded(),
-          catch: (error) => toIoError(error),
-        });
-        const nextEither = applyAndValidatePatch(current, patchEither.right);
-        if (Either.isLeft(nextEither)) {
-          return yield* nextEither.left;
-        }
-        // No-op write avoidance: same JSON → skip disk + notify noise.
-        if (JSON.stringify(current) === JSON.stringify(nextEither.right)) {
-          return current;
-        }
-        return yield* Effect.tryPromise({
-          try: () => writeState(nextEither.right),
-          catch: (error) => toIoError(error),
-        });
+      Effect.tryPromise({
+        try: () =>
+          withWriteLock(async () => {
+            const patchEither = decodePatchInput(input);
+            if (Either.isLeft(patchEither)) throw patchEither.left;
+            const current = await ensureLoaded();
+            const nextEither = applyAndValidatePatch(current, patchEither.right);
+            if (Either.isLeft(nextEither)) throw nextEither.left;
+            if (JSON.stringify(current) === JSON.stringify(nextEither.right)) {
+              return current;
+            }
+            return writeState(nextEither.right);
+          }),
+        catch: (error) => toIoError(error),
       }),
     reset: (section?: SettingsSectionKey) =>
-      Effect.gen(function* () {
-        const current = yield* Effect.tryPromise({
-          try: () => ensureLoaded(),
-          catch: (error) => toIoError(error),
-        });
-        const next: Settings = section
-          ? { ...current, [section]: defaultSection(section) }
-          : defaultSettings();
-        return yield* Effect.tryPromise({
-          try: () => writeState(next),
-          catch: (error) => toIoError(error),
-        });
+      Effect.tryPromise({
+        try: () =>
+          withWriteLock(async () => {
+            const current = await ensureLoaded();
+            const next: Settings = section
+              ? { ...current, [section]: defaultSection(section) }
+              : defaultSettings();
+            return writeState(next);
+          }),
+        catch: (error) => toIoError(error),
       }),
     subscribe: (listener) => {
       listeners.add(listener);

@@ -10,6 +10,12 @@ import {
 //
 // Aggregate: whole-file consistency. Sections are value objects; version
 // ladders live in main/vellum/settings/migrate.ts.
+//
+// Invariants:
+// - Never store secrets here (full document is IPC-broadcast to all windows).
+// - BrowserPrefs (maxVisible/maxWarm) is the sole durable SoT for those limits;
+//   BrowserProfileService keeps profile identity/dirs/wipe only.
+// - Kernel arming stays in StoreService — not a preference.
 
 export const SETTINGS_VERSION = 1 as const;
 
@@ -29,9 +35,17 @@ export const AppearanceSettings = Schema.Struct({
 });
 export type AppearanceSettings = typeof AppearanceSettings.Type;
 
+// Canvas document names: empty (no preference) or the same charset canvases
+// accept — bounded so a patch cannot bloat the durable document.
+export const DefaultCanvasName = Schema.String.pipe(
+  Schema.maxLength(64),
+  Schema.pattern(/^$|^[a-z0-9][a-z0-9_-]*$/i),
+);
+export type DefaultCanvasName = typeof DefaultCanvasName.Type;
+
 export const CanvasSettings = Schema.Struct({
   // Empty string = no preference (open seed / last-used via advanced).
-  defaultCanvas: Schema.String,
+  defaultCanvas: DefaultCanvasName,
   showMinimap: Schema.Boolean,
   fitOnOpen: Schema.Boolean,
 });
@@ -78,7 +92,7 @@ export const AppearancePatch = Schema.Struct({
 export type AppearancePatch = typeof AppearancePatch.Type;
 
 export const CanvasPatch = Schema.Struct({
-  defaultCanvas: Schema.optionalWith(Schema.String, { exact: true }),
+  defaultCanvas: Schema.optionalWith(DefaultCanvasName, { exact: true }),
   showMinimap: Schema.optionalWith(Schema.Boolean, { exact: true }),
   fitOnOpen: Schema.optionalWith(Schema.Boolean, { exact: true }),
 });
@@ -217,13 +231,17 @@ export class SettingsError extends Schema.TaggedError<SettingsError>()("Settings
   code: SettingsErrorCode,
 }) {}
 
-// Wire result for IPC — mirrors browser/herdr op envelopes (ok + data | error).
+// Wire result for IPC. Same ok/code/message shape as browser/herdr ops, with a
+// monomorphic `settings` payload (always the full aggregate, never generic data).
 export interface SettingsOpResult {
   readonly ok: boolean;
   readonly settings?: Settings;
   readonly code?: SettingsErrorCode;
   readonly message?: string;
 }
+
+/** Hard ceiling for the durable settings file (prefs stay small). */
+export const SETTINGS_MAX_FILE_BYTES = 64 * 1024;
 
 export const settingsOpOk = (settings: Settings): SettingsOpResult => ({
   ok: true,

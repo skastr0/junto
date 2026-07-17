@@ -17,38 +17,35 @@ import {
 const decodeSettings = Schema.decodeUnknownEither(Settings);
 const decodeSettingsPatch = Schema.decodeUnknownEither(SettingsPatch);
 
+const SECTION_KEYS = ["appearance", "canvas", "kernel", "browser", "advanced"] as const;
+
+/** Pick only known keys from a raw section object (no untrusted key sprawl). */
+const pickKnown = (
+  base: Record<string, unknown>,
+  raw: Record<string, unknown>,
+): Record<string, unknown> => {
+  const out: Record<string, unknown> = { ...base };
+  for (const key of Object.keys(base)) {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) {
+      out[key] = raw[key];
+    }
+  }
+  return out;
+};
+
 /** Soft-heal known section shapes onto defaults before strict decode. */
 const softHeal = (raw: Record<string, unknown>): unknown => {
-  const base = defaultSettings();
-  const appearance =
-    raw.appearance && typeof raw.appearance === "object" && !Array.isArray(raw.appearance)
-      ? { ...base.appearance, ...(raw.appearance as object) }
-      : base.appearance;
-  const canvas =
-    raw.canvas && typeof raw.canvas === "object" && !Array.isArray(raw.canvas)
-      ? { ...base.canvas, ...(raw.canvas as object) }
-      : base.canvas;
-  const kernel =
-    raw.kernel && typeof raw.kernel === "object" && !Array.isArray(raw.kernel)
-      ? { ...base.kernel, ...(raw.kernel as object) }
-      : base.kernel;
-  const browser =
-    raw.browser && typeof raw.browser === "object" && !Array.isArray(raw.browser)
-      ? { ...base.browser, ...(raw.browser as object) }
-      : base.browser;
-  const advanced =
-    raw.advanced && typeof raw.advanced === "object" && !Array.isArray(raw.advanced)
-      ? { ...base.advanced, ...(raw.advanced as object) }
-      : base.advanced;
-
-  return {
-    version: SETTINGS_VERSION,
-    appearance,
-    canvas,
-    kernel,
-    browser,
-    advanced,
-  };
+  const base = defaultSettings() as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = { version: SETTINGS_VERSION };
+  for (const key of SECTION_KEYS) {
+    const sectionBase = base[key] as Record<string, unknown>;
+    const sectionRaw = raw[key];
+    out[key] =
+      sectionRaw && typeof sectionRaw === "object" && !Array.isArray(sectionRaw)
+        ? pickKnown(sectionBase, sectionRaw as Record<string, unknown>)
+        : sectionBase;
+  }
+  return out;
 };
 
 const formatParse = (error: ParseResult.ParseError): string =>
@@ -102,6 +99,16 @@ export const migrateSettingsDocument = (
       new SettingsError({
         message: `settings version ${version} is newer than supported ${SETTINGS_VERSION}`,
         code: "unsupported",
+      }),
+    );
+  }
+
+  // Floor: only known ladder versions. v1 is the sole supported floor today.
+  if (version < 1) {
+    return Either.left(
+      new SettingsError({
+        message: `settings version ${version} is below the supported floor`,
+        code: "corrupt",
       }),
     );
   }

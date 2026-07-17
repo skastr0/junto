@@ -155,12 +155,21 @@ const validateTarget = (target: ResolvedPageTarget): BrowserResultErr | undefine
  * canonical page ref is only the secondary key used for warm reuse; nodeId is
  * display metadata and is never accepted by an existing-session operation.
  */
+/** User-facing browser pool limits. Production wires this to SettingsService. */
+export type BrowserPoolLimits = {
+  readonly maxVisibleSurfaces: number;
+  readonly maxWarmSessions: number;
+};
+
 export class BrowserSessionService {
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly sessionIdByRef = new Map<string, string>();
   private readonly pendingOpenByRef = new Map<string, PendingOpen>();
   private activeOperationCount = 0;
   private sink: ((session: BrowserSessionInfo) => void) | undefined;
+  // Sole durable SoT for these numbers is Settings.browser; profiles.config
+  // remains fallback for tests that never install a limits provider.
+  private poolLimits: (() => Promise<BrowserPoolLimits>) | undefined;
 
   constructor(
     private readonly adapter: BrowserViewAdapter,
@@ -171,6 +180,20 @@ export class BrowserSessionService {
 
   setSink(sink: (session: BrowserSessionInfo) => void): void {
     this.sink = sink;
+  }
+
+  /** Install Settings (or test fake) as the pool-limits authority. */
+  setPoolLimitsProvider(provider: () => Promise<BrowserPoolLimits>): void {
+    this.poolLimits = provider;
+  }
+
+  private async resolvePoolLimits(): Promise<BrowserPoolLimits> {
+    if (this.poolLimits) return this.poolLimits();
+    const config = await Effect.runPromise(this.profiles.readConfig);
+    return {
+      maxVisibleSurfaces: config.maxVisibleSurfaces,
+      maxWarmSessions: config.maxWarmSessions,
+    };
   }
 
   private releaseOperation(
@@ -530,12 +553,12 @@ export class BrowserSessionService {
     BrowserResult<{ maxVisibleSurfaces: number; maxWarmSessions: number }>
   > {
     try {
-      const config = await Effect.runPromise(this.profiles.readConfig);
+      const limits = await this.resolvePoolLimits();
       return {
         ok: true,
         data: {
-          maxVisibleSurfaces: config.maxVisibleSurfaces,
-          maxWarmSessions: config.maxWarmSessions,
+          maxVisibleSurfaces: limits.maxVisibleSurfaces,
+          maxWarmSessions: limits.maxWarmSessions,
         },
       };
     } catch (error) {
@@ -595,11 +618,11 @@ export class BrowserSessionService {
     let maxWarmSessions: number;
     try {
       partition = await Effect.runPromise(this.profiles.partitionName(target.profile));
-      const config = await Effect.runPromise(this.profiles.readConfig);
+      const limits = await this.resolvePoolLimits();
       maxWarmSessions = Math.min(
         BROWSER_MAX_WARM_SESSIONS_HARD,
-        Number.isFinite(config.maxWarmSessions)
-          ? Math.max(1, Math.floor(config.maxWarmSessions))
+        Number.isFinite(limits.maxWarmSessions)
+          ? Math.max(1, Math.floor(limits.maxWarmSessions))
           : 1,
       );
       await Effect.runPromise(this.profiles.touchProfile(target.profile));
