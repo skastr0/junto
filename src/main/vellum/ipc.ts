@@ -43,7 +43,7 @@ const broadcast = (channel: string, payload: unknown) => {
   }
 };
 
-export const registerVellumIpc = () => {
+export const registerVellumIpc = (): void => {
   registerHerdrIpc(ipcMain, () => BrowserWindow.getAllWindows().map((w) => w.webContents));
   registerSettingsIpc(ipcMain, broadcast);
   ipcMain.handle(IPC_CHANNELS.listCanvases, () =>
