@@ -35,10 +35,10 @@ export const MemberStatus = Schema.Struct({
   kind: Schema.String,
   severity: MemberSeverity,
   // Short machine strings, worst-tier first: flag:blocker, edge:<detail>,
-  // relay, seed:<detail>, flag:attention, permission:pending, session:live,
-  // glyph:wip:<state>, flag:parked. (`seed:` is the execution-graph's
-  // manual-blocker origin — NOT the digest `seeds` section, which lists
-  // unbound entity nodes. Same word, different concept.)
+  // relay, seed:<detail>, herdr:blocked, flag:attention, permission:pending,
+  // herdr:done, session:live, herdr:working, glyph:wip:<state>, flag:parked.
+  // (`seed:` is the execution-graph's manual-blocker origin — NOT the digest
+  // `seeds` section, which lists unbound entity nodes.)
   reasons: Schema.Array(Schema.String),
 });
 export type MemberStatus = typeof MemberStatus.Type;
@@ -71,6 +71,8 @@ export interface RegionRollupInput {
   readonly snapshots?: SnapshotState;
   readonly glyphs?: GlyphView;
   readonly agentActivity?: ReadonlyMap<string, AgentActivity>;
+  // herdr agent_status by canvas node id (working|blocked|done|idle|…).
+  readonly herdrStatusByNodeId?: ReadonlyMap<string, string>;
 }
 
 const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
@@ -81,7 +83,25 @@ const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
   idle: 4,
 };
 
-const kindRank = (kind: string): number => (kind === "agent" ? 0 : kind === "project" ? 1 : 2);
+const kindRank = (kind: string): number =>
+  kind === "agent" || kind === "herdr" ? 0 : kind === "project" ? 1 : 2;
+
+// Map herdr agent_status into the ladder. Aligns with renderer herdrActivity:
+// working → work, blocked → block, done → needs attention (unseen idle),
+// settled idle invents nothing. Unknown statuses invent nothing.
+const herdrContribution = (
+  status: string | undefined,
+): { readonly blocked: boolean; readonly attention: boolean; readonly working: boolean; readonly reason?: string } => {
+  if (status === undefined || status === "") {
+    return { blocked: false, attention: false, working: false };
+  }
+  const s = status.toLowerCase();
+  if (s === "blocked") return { blocked: true, attention: false, working: false, reason: "herdr:blocked" };
+  if (s === "working") return { blocked: false, attention: false, working: true, reason: "herdr:working" };
+  // Idle+!seen in herdr — card still waves until the operator looks.
+  if (s === "done") return { blocked: false, attention: true, working: false, reason: "herdr:done" };
+  return { blocked: false, attention: false, working: false };
+};
 
 // Documented rank for mapped execution-graph reasons: edge, then relay, then
 // seed. The graph emits generation -> seeds -> relay, and relay reasons only
@@ -129,20 +149,24 @@ const deriveMember = (
   graph: ReturnType<typeof deriveExecutionGraph>,
   glyphs: GlyphView | undefined,
   agentActivity: ReadonlyMap<string, AgentActivity> | undefined,
+  herdrStatusByNodeId: ReadonlyMap<string, string> | undefined,
 ): MemberStatus => {
   const entity = node.ether?.entity;
-  const kind = entity?.kind ?? "node";
+  const kind = entity?.kind ?? (node.ether?.herdr ? "herdr" : "node");
   const flags = node.ether?.flags ?? [];
   const activity =
     entity?.kind === "agent" && entity.name !== undefined
       ? agentActivity?.get(entity.name)
       : undefined;
+  const herdr = herdrContribution(
+    node.ether?.herdr !== undefined || entity?.kind === "herdr"
+      ? herdrStatusByNodeId?.get(node.id)
+      : undefined,
+  );
 
   const reasons: string[] = [];
 
-  // blocked: manual flag, or membership in the execution-graph blocked
-  // closure (edge generation, relay, or seed — mapped in documented rank
-  // order: edge, relay, seed).
+  // blocked: manual flag, execution-graph closure, or herdr blocked.
   if (flags.includes("blocker")) reasons.push("flag:blocker");
   const graphReasons = [...(graph.reasonsByNodeId.get(node.id) ?? [])].sort(
     (a, b) => GRAPH_REASON_RANK[a.kind] - GRAPH_REASON_RANK[b.kind],
@@ -152,18 +176,23 @@ const deriveMember = (
     else if (reason.kind === "relay") reasons.push("relay");
     else reasons.push(`seed:${reason.detail}`);
   }
-  const blocked = flags.includes("blocker") || graph.blocked.has(node.id);
+  if (herdr.reason === "herdr:blocked") reasons.push(herdr.reason);
+  const blocked = flags.includes("blocker") || graph.blocked.has(node.id) || herdr.blocked;
 
-  // attention: manual flag, or a live agent waiting on a permission answer.
+  // attention: manual flag, ACP permission pending, or herdr done (unseen).
   if (flags.includes("attention")) reasons.push("flag:attention");
   if (activity?.permissionPending === true) reasons.push("permission:pending");
-  const attention = flags.includes("attention") || activity?.permissionPending === true;
+  if (herdr.reason === "herdr:done") reasons.push(herdr.reason);
+  const attention =
+    flags.includes("attention") || activity?.permissionPending === true || herdr.attention;
 
-  // working: a live ACP session on an agent, or WIP glyphs on a project.
+  // working: live ACP session, herdr working, or WIP glyphs on a project.
   if (activity?.sessionLive === true) reasons.push("session:live");
+  if (herdr.reason === "herdr:working") reasons.push(herdr.reason);
   const wipState = wipStateOf(node, glyphs);
   if (wipState !== undefined) reasons.push(`glyph:wip:${wipState}`);
-  const working = activity?.sessionLive === true || wipState !== undefined;
+  const working =
+    activity?.sessionLive === true || herdr.working || wipState !== undefined;
 
   // parked: manual flag only.
   if (flags.includes("parked")) reasons.push("flag:parked");
@@ -190,13 +219,17 @@ const regionMembers = (
   graph: ReturnType<typeof deriveExecutionGraph>,
   glyphs: GlyphView | undefined,
   agentActivity: ReadonlyMap<string, AgentActivity> | undefined,
+  herdrStatusByNodeId: ReadonlyMap<string, string> | undefined,
 ): MemberStatus[] =>
   memberIds
     .map((id) => {
       const member = nodeById.get(id);
       return member === undefined
         ? undefined
-        : { status: deriveMember(member, graph, glyphs, agentActivity), index: indexById.get(id) ?? 0 };
+        : {
+            status: deriveMember(member, graph, glyphs, agentActivity, herdrStatusByNodeId),
+            index: indexById.get(id) ?? 0,
+          };
     })
     .filter((entry): entry is { status: MemberStatus; index: number } => entry !== undefined)
     .sort(
@@ -221,7 +254,7 @@ const countBySeverity = (members: ReadonlyArray<MemberStatus>): RegionRollup["co
 // groupMembers(doc) participate — groups never contain groups, and nodes
 // outside every region are ignored.
 export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<RegionRollup> => {
-  const { doc, glyphs, agentActivity } = input;
+  const { doc, glyphs, agentActivity, herdrStatusByNodeId } = input;
   const graph = deriveExecutionGraph(doc, glyphs ?? new Map());
   const membersByRegion = groupMembers(doc);
   const indexById = new Map(doc.nodes.map((node, index) => [node.id, index] as const));
@@ -237,6 +270,7 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
       graph,
       glyphs,
       agentActivity,
+      herdrStatusByNodeId,
     );
     rollups.push({
       regionId: node.id,

@@ -82,6 +82,9 @@ export const signalMarkForMember = (member: Pick<MemberStatus, "severity" | "rea
   // Map machine reasons to short aria/tooltips without inventing severity.
   if (reason === "permission:pending") return { ...base, label: "awaiting permission", symbol: "?" };
   if (reason === "session:live") return { ...base, label: "session live" };
+  if (reason === "herdr:working") return { ...base, label: "herdr working" };
+  if (reason === "herdr:blocked") return { ...base, label: "herdr blocked" };
+  if (reason === "herdr:done") return { ...base, label: "herdr done" };
   if (reason.startsWith("glyph:wip:")) return { ...base, label: `glyph ${reason.slice("glyph:wip:".length)}` };
   if (reason.startsWith("flag:")) return { ...base, label: reason.slice("flag:".length) };
   if (reason.startsWith("edge:")) return { ...base, label: reason.slice("edge:".length) };

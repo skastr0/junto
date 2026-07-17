@@ -21,7 +21,8 @@ export const buildGlyphView = (
   fetched: ReadonlyMap<string, GlyphFetchResult>,
 ): GlyphView => {
   const view = new Map<string, ReadonlyArray<GlyphRow> | undefined>();
-  for (const project of edgeGlyphProjects(doc)) {
+  // Union of edge-criteria projects and every project entity on the canvas.
+  for (const project of canvasProjectKeys(doc)) {
     const result = fetched.get(project);
     if (!result || !result.ok || result.partial) continue;
     view.set(
@@ -37,5 +38,22 @@ export const buildGlyphView = (
   return view;
 };
 
+/** Projects referenced by edge criteria (execution-graph WIP/blocks). */
 export const projectsNeedingGlyphs = (doc: CanvasDoc): ReadonlyArray<string> =>
   Array.from(edgeGlyphProjects(doc));
+
+/**
+ * Every project entity on the canvas plus edge-criteria projects.
+ * Region rollups and digest use this so project WIP shows even when the
+ * canvas has no edges (criteria-only collection would return empty).
+ */
+export const canvasProjectKeys = (doc: CanvasDoc): ReadonlyArray<string> => {
+  const keys = new Set<string>(edgeGlyphProjects(doc));
+  for (const node of doc.nodes) {
+    const entity = node.ether?.entity;
+    if (entity?.kind === "project" && entity.name !== undefined && entity.name.length > 0) {
+      keys.add(entity.name);
+    }
+  }
+  return Array.from(keys);
+};

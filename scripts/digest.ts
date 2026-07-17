@@ -7,7 +7,7 @@ import { decodeCanvasDoc, type CanvasDoc } from "../src/shared/canvas";
 import { identityHints } from "../src/shared/connections";
 import { digestCanvas } from "../src/shared/digest";
 import type { SnapshotBundle, SnapshotState } from "../src/shared/entities";
-import { buildGlyphView, projectsNeedingGlyphs } from "../src/shared/glyph-view";
+import { buildGlyphView, canvasProjectKeys } from "../src/shared/glyph-view";
 import type { BindingHint } from "../src/shared/ipc";
 import { fetchBoothBundle } from "../src/main/vellum/adapters/booth";
 import { fetchHermesBundle } from "../src/main/vellum/adapters/hermes";
@@ -112,9 +112,9 @@ const main = async () => {
   ]);
   const snapshots: SnapshotState = { bundles: [tower, quasar, booth, hermes] };
 
-  // Live glyph rows for edge criteria (glyphs / wip). Partial/failed projects
-  // are omitted so criteria stay non-generating rather than fail-closed.
-  const needed = projectsNeedingGlyphs(doc);
+  // Live glyph rows for every project entity on the canvas (+ edge criteria).
+  // Partial/failed projects are omitted so criteria stay non-generating.
+  const needed = canvasProjectKeys(doc);
   const fetched = new Map<string, Awaited<ReturnType<typeof fetchTowerBrowse>>>();
   for (const project of needed) {
     fetched.set(project, await fetchTowerBrowse(project));

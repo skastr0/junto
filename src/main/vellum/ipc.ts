@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { IPC_CHANNELS, type BindingHint, type BoothReviewAction, type TowerEmitSignalInput } from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
 import { digestCanvas } from "@shared/digest";
-import { buildGlyphView, projectsNeedingGlyphs } from "@shared/glyph-view";
+import { buildGlyphView, canvasProjectKeys } from "@shared/glyph-view";
 import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime, chatService } from "../runtime";
 import {
@@ -76,7 +76,7 @@ export const registerVellumIpc = (): void => {
         // Glyph-aware digest: same policy as scripts/digest.ts — only complete
         // non-partial tower browse results feed criteria edges.
         const fetched = new Map<string, Awaited<ReturnType<typeof fetchTowerBrowse>>>();
-        for (const project of projectsNeedingGlyphs(result.doc)) {
+        for (const project of canvasProjectKeys(result.doc)) {
           fetched.set(project, yield* Effect.promise(() => fetchTowerBrowse(project)));
         }
         const glyphs = buildGlyphView(result.doc, fetched);

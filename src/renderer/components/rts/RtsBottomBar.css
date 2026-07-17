@@ -37,6 +37,70 @@
   overflow: hidden;
 }
 
+/* Connect picker needs room; expand only while open. */
+.rts-panel--expanded {
+  max-height: 280px;
+}
+
+.rts-panel .inspector-connect {
+  margin-top: 2px;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(237, 230, 218, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.rts-panel .inspector-connect label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(143, 163, 176, 0.9);
+}
+
+.rts-panel .inspector-connect input,
+.rts-panel .inspector-connect select {
+  width: 100%;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(237, 230, 218, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: #ede6da;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.rts-panel .inspector-connect button {
+  width: 100%;
+  padding: 5px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(232, 163, 61, 0.35);
+  background: rgba(232, 163, 61, 0.08);
+  color: #e8a33d;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.rts-panel .inspector-connect button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.rts-panel .inspector-connect__empty,
+.rts-panel .inspector-detail {
+  font-size: 10px;
+  color: rgba(138, 131, 120, 0.9);
+  margin-bottom: 6px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .rts-panel__label {
   display: flex;
   align-items: center;
@@ -111,14 +175,6 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: rgba(237, 230, 218, 0.75);
-}
-
-.rts-chip__light {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  flex-shrink: 0;
-  box-shadow: 0 0 8px currentColor;
 }
 
 /* Signal symbol — shared taxonomy mark for chips + rollcall rows. */

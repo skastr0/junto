@@ -1,20 +1,19 @@
 import { Context, Effect, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import type { GlyphRow } from "@shared/execution-graph";
-import { projectsNeedingGlyphs } from "@shared/glyph-view";
+import { canvasProjectKeys } from "@shared/glyph-view";
 import type { TowerBrowseResult, TowerGlyphRow } from "@shared/ipc";
 import { deriveRegionRollups, type AgentActivity, type RegionRollup } from "@shared/region-rollup";
 import { fetchTowerBrowse } from "./adapters/tower-browse";
 import { CanvasesService, type CanvasError } from "./canvases";
 import type { ChatService } from "./chat/service";
+import { mirrorFor } from "./herdr/mirrors";
 import { resolveGlyphCacheUpdate } from "./kernel/service";
 import { SnapshotsService } from "./snapshots";
 
 // Region severity rollups for the RTS bottom bar (shared/region-rollup.ts is
 // the contract; this is the live app-side binding). Derived per request from
-// the current document + snapshot plane + the ACP chat plane: chatService
-// fills the AgentActivity seam (sessionLive / permissionPending) that the
-// headless digest deliberately leaves empty.
+// the document + snapshots + ACP chat plane + herdr mirrors (when fresh).
 export class RegionRollupService extends Context.Tag("@vellum/RegionRollupService")<
   RegionRollupService,
   {
@@ -87,16 +86,15 @@ export const RegionRollupLive = (
             const { doc } = yield* canvases.read(canvasName);
             const state = yield* snapshots.current;
 
-            // Glyph rows come from the TTL cache; projects the cache cannot
-            // answer stay absent from the view (unavailable = derives nothing).
+            // Glyphs for every project entity on the canvas (not only edge
+            // criteria — a board with no edges still has project WIP).
             const glyphs = new Map<string, ReadonlyArray<GlyphRow>>();
-            for (const project of projectsNeedingGlyphs(doc)) {
+            for (const project of canvasProjectKeys(doc)) {
               const rows = yield* Effect.promise(() => glyphRowsFor(project));
               if (rows !== undefined) glyphs.set(project, rows.map(toGlyphRow));
             }
 
-            // AgentActivity seam, filled from the ACP chat plane. Every agent
-            // node reports its real state; absent activity derives nothing.
+            // ACP chat plane — hermes agent nodes only.
             const agentActivity = new Map<string, AgentActivity>();
             for (const node of doc.nodes) {
               const entity = node.ether?.entity;
@@ -107,7 +105,30 @@ export const RegionRollupLive = (
               });
             }
 
-            return deriveRegionRollups({ doc, snapshots: state, glyphs, agentActivity });
+            // Herdr mirrors — pure local read when fresh; no CLI fan-out.
+            // Stale/down mirrors invent nothing (absent map entry).
+            const herdrStatusByNodeId = new Map<string, string>();
+            for (const node of doc.nodes) {
+              const herdr = node.ether?.herdr;
+              if (herdr?.paneId === undefined || herdr.paneId.length === 0) continue;
+              const mirror = mirrorFor(herdr.host);
+              if (mirror === undefined || !mirror.isFresh()) continue;
+              const rec = mirror.paneRecord(herdr.paneId);
+              if (rec === undefined) continue;
+              const status =
+                (typeof rec.agent_status === "string" && rec.agent_status) ||
+                (typeof rec.agentStatus === "string" && rec.agentStatus) ||
+                undefined;
+              if (status) herdrStatusByNodeId.set(node.id, status);
+            }
+
+            return deriveRegionRollups({
+              doc,
+              snapshots: state,
+              glyphs,
+              agentActivity,
+              herdrStatusByNodeId,
+            });
           }),
       });
     }),

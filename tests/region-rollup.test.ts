@@ -465,3 +465,72 @@ describe("deriveRegionRollups — derivation edges", () => {
     );
   });
 });
+
+describe("deriveRegionRollups — herdr status", () => {
+  const herdrNode = (
+    id: string,
+    x: number,
+    y: number,
+    host: string,
+    paneId: string,
+  ): Node => ({
+    id,
+    type: "text",
+    text: "herdr",
+    x,
+    y,
+    width: 100,
+    height: 40,
+    ether: { entity: { kind: "herdr" }, herdr: { host, paneId } },
+  });
+
+  it("herdr working elevates the member and region", () => {
+    const doc: CanvasDoc = {
+      nodes: [group("r", 0, 0, 500, 500, "ops"), herdrNode("h1", 10, 10, "local", "p1")],
+      edges: [],
+    };
+    const [rollup] = deriveRegionRollups({
+      doc,
+      herdrStatusByNodeId: new Map([["h1", "working"]]),
+    });
+    expect(rollup?.severity).toBe("working");
+    expect(rollup?.members[0]).toMatchObject({
+      severity: "working",
+      kind: "herdr",
+      reasons: ["herdr:working"],
+    });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 1 });
+  });
+
+  it("herdr blocked and done map to blocked / attention", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        group("r", 0, 0, 500, 500, "ops"),
+        herdrNode("h1", 10, 10, "local", "p1"),
+        herdrNode("h2", 10, 100, "local", "p2"),
+      ],
+      edges: [],
+    };
+    const [rollup] = deriveRegionRollups({
+      doc,
+      herdrStatusByNodeId: new Map([
+        ["h1", "blocked"],
+        ["h2", "done"],
+      ]),
+    });
+    expect(rollup?.severity).toBe("blocked");
+    expect(rollup?.members.map((m) => m.severity)).toEqual(["blocked", "attention"]);
+    expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 1, working: 0 });
+  });
+
+  it("missing herdr status invents nothing; idle herdr is not elevated", () => {
+    const doc: CanvasDoc = {
+      nodes: [group("r", 0, 0, 500, 500, "ops"), herdrNode("h1", 10, 10, "local", "p1")],
+      edges: [],
+    };
+    expect(deriveRegionRollups({ doc })[0]?.severity).toBe("idle");
+    expect(
+      deriveRegionRollups({ doc, herdrStatusByNodeId: new Map([["h1", "idle"]]) })[0]?.severity,
+    ).toBe("idle");
+  });
+});

@@ -4,11 +4,11 @@ import { use$ } from "@legendapp/state/react";
 import { state$ } from "./state";
 import { kernel$ } from "./kernel-view";
 import { chatState$ } from "./chat-state";
+import { herdr$ } from "./herdr-state";
 
-// Coarse poll of window.vellum.regionRollups. Spec: poll on canvas / snapshots
-// / kernel changes and chat open/close + permission request/answer — never
-// raw onChatEvent per chunk (debounce ~300ms if chat is in the dep set),
-// never setInterval. Unknown canvas name rejects; quiet the bar.
+// Coarse poll of window.vellum.regionRollups. Poll on canvas / snapshots /
+// kernel / chat open-close+permission / herdr meta changes. Never setInterval;
+// never raw onChatEvent per chunk (chatKey is status+permission only).
 
 const DEBOUNCE_MS = 300;
 
@@ -18,24 +18,37 @@ const chatCoarseKey = (chat: Record<string, { status?: string; pendingPermission
     .sort()
     .join("|");
 
+const herdrCoarseKey = (
+  meta: Record<string, { status?: string; meta?: { agentStatus?: string } }>,
+  mirrors: Record<string, { fresh?: boolean; lastSyncAt?: number }>,
+): string => {
+  const metaPart = Object.entries(meta)
+    .map(([id, slot]) => `${id}:${slot?.status ?? ""}:${slot?.meta?.agentStatus ?? ""}`)
+    .sort()
+    .join("|");
+  const mirrorPart = Object.entries(mirrors)
+    .map(([host, m]) => `${host}:${m?.fresh ? 1 : 0}:${m?.lastSyncAt ?? 0}`)
+    .sort()
+    .join("|");
+  return `${metaPart}#${mirrorPart}`;
+};
+
 export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   const canvasName = use$(state$.canvasName);
-  // docEpoch covers structural + position-only commits (membership geometry).
   const docEpoch = use$(state$.docEpoch);
   const snapshots = use$(state$.snapshots);
   const executionRev = use$(kernel$.executionRev);
   const chat = use$(chatState$) as Record<string, { status?: string; pendingPermission?: { requestId?: string } }>;
   const chatKey = chatCoarseKey(chat ?? {});
+  const herdrMeta = use$(herdr$.metaByNodeId) as Record<string, { status?: string; meta?: { agentStatus?: string } }>;
+  const herdrMirrors = use$(herdr$.mirrorByHost) as Record<string, { fresh?: boolean; lastSyncAt?: number }>;
+  const herdrKey = herdrCoarseKey(herdrMeta ?? {}, herdrMirrors ?? {});
 
   const [rollups, setRollups] = useState<ReadonlyArray<RegionRollup>>([]);
   const genRef = useRef(0);
-  const lastOkRef = useRef<ReadonlyArray<RegionRollup>>([]);
 
   useEffect(() => {
-    if (!canvasName || !window.vellum?.regionRollups) {
-      // Canvas gone — quiet chips, but keep last-ok until a real empty canvas settles.
-      return;
-    }
+    if (!canvasName || !window.vellum?.regionRollups) return;
     const api = window.vellum;
     if (!api?.regionRollups) return;
     const gen = ++genRef.current;
@@ -44,7 +57,6 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
         .regionRollups(canvasName)
         .then((next) => {
           if (gen !== genRef.current) return;
-          lastOkRef.current = next;
           setRollups(next);
         })
         .catch(() => {
@@ -53,12 +65,10 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
         });
     }, DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [canvasName, docEpoch, snapshots, executionRev, chatKey]);
+  }, [canvasName, docEpoch, snapshots, executionRev, chatKey, herdrKey]);
 
-  // Hard reset when the canvas name clears.
   useEffect(() => {
     if (canvasName) return;
-    lastOkRef.current = [];
     setRollups([]);
   }, [canvasName]);
 
