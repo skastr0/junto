@@ -5,6 +5,7 @@ import { resolvedSpawnEnv } from "./vellum/adapters/exec";
 import { AppRuntime } from "./runtime";
 import { registerIpcHandlers } from "./ipc";
 import { warmAllHosts } from "./vellum/herdr/masters";
+import { startAllMirrors, stopAllMirrors } from "./vellum/herdr/mirrors";
 import { herdrStreams } from "./vellum/herdr/stream";
 import { browserSessions } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
@@ -196,6 +197,11 @@ if (!gotSingleInstanceLock) {
       void warmAllHosts();
     });
 
+    // Per-host herdr state mirrors: snapshot + events.subscribe so list reads
+    // answer instantly from local state. Best-effort; reads fall back to exec
+    // whenever a mirror is not fresh.
+    startAllMirrors();
+
     // Agent control plane (unix socket + token). App-hosted: exists exactly as
     // long as the runtime that owns the warm sessions does.
     try {
@@ -228,6 +234,13 @@ const detachHerdrOnQuit = (reason: string) => {
     herdrStreams.detachAllOnQuit(reason);
   } catch (error) {
     console.error(`[herdr] detach on quit failed (${reason}):`, error);
+  }
+  // Mirrors close their events connections / ssh forwards; the herdr fleet
+  // itself is untouched (read-only observers). Idempotent across signals.
+  try {
+    stopAllMirrors();
+  } catch (error) {
+    console.error(`[herdr] mirror stop on quit failed (${reason}):`, error);
   }
   // Browser product lock: quit detaches WebContentsViews only — warm sessions
   // are dropped with the process but profile partitions (cookies) are never

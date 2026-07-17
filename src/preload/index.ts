@@ -4,6 +4,7 @@ import {
   type ArmRegionResult,
   type ChassisApi,
   type ChatEvent,
+  type HerdrMirrorEvent,
   type HerdrStreamEvent,
   type HerdrStreamOpenInput,
   type BrowserOpenInput,
@@ -173,6 +174,9 @@ const herdrApi: VellumHerdrApi = {
     invoke(IPC_CHANNELS.herdrStreamScroll, IPC_TIMEOUT_MS, streamId, delta, at),
   herdrStreamClose: (streamId) => invoke(IPC_CHANNELS.herdrStreamClose, IPC_TIMEOUT_MS, streamId),
   onHerdrStreamEvent: (listener) => subscribe<HerdrStreamEvent>(IPC_CHANNELS.herdrStreamEvent, listener),
+  herdrMirrorState: () => invoke(IPC_CHANNELS.herdrMirrorState, IPC_TIMEOUT_MS),
+  onHerdrMirrorEvent: (listener) =>
+    subscribe<HerdrMirrorEvent>(IPC_CHANNELS.herdrMirrorEvent, listener),
 };
 
 const browserApi: VellumBrowserApi = {

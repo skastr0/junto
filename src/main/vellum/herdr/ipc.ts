@@ -1,5 +1,12 @@
 import type { IpcMain, WebContents } from "electron";
-import { IPC_CHANNELS, type HerdrPointerCell, type HerdrStreamOpenInput } from "@shared/ipc";
+import {
+  IPC_CHANNELS,
+  type HerdrMirrorEvent,
+  type HerdrPointerCell,
+  type HerdrStreamOpenInput,
+} from "@shared/ipc";
+import { HERDR_HOSTS } from "./hosts";
+import { mirrorFor, mirrorStates } from "./mirrors";
 import { herdrService } from "./service";
 import { herdrStreams } from "./stream";
 
@@ -17,6 +24,25 @@ export const registerHerdrIpc = (
       contents.send(IPC_CHANNELS.herdrStreamEvent, frame);
     }
   });
+
+  // Mirror change push — same sink pattern as herdrStreamEvent above. A
+  // freshness flip is pushed as kind "state"; plain data churn as "change".
+  const lastFresh = new Map<string, boolean>();
+  for (const host of HERDR_HOSTS) {
+    const mirror = mirrorFor(host.id);
+    if (!mirror) continue;
+    mirror.onChange(() => {
+      const fresh = mirror.isFresh();
+      const kind: HerdrMirrorEvent["kind"] = lastFresh.get(host.id) === fresh ? "change" : "state";
+      lastFresh.set(host.id, fresh);
+      const payload: HerdrMirrorEvent = { hostId: host.id, kind, fresh };
+      for (const contents of webContentsGetter()) {
+        contents.send(IPC_CHANNELS.herdrMirrorEvent, payload);
+      }
+    });
+  }
+
+  ipcMain.handle(IPC_CHANNELS.herdrMirrorState, () => mirrorStates());
 
   ipcMain.handle(IPC_CHANNELS.herdrHosts, () => herdrService.hosts());
 

@@ -58,6 +58,7 @@ export const IPC_CHANNELS = {
   herdrCreatePane: "vellum:herdr-create-pane",
   herdrKillPane: "vellum:herdr-kill-pane",
   herdrKillTab: "vellum:herdr-kill-tab",
+  herdrMirrorState: "vellum:herdr-mirror-state",
   herdrStreamOpen: "vellum:herdr-stream-open",
   herdrStreamInput: "vellum:herdr-stream-input",
   herdrStreamPasteImage: "vellum:herdr-stream-paste-image",
@@ -78,6 +79,7 @@ export const IPC_CHANNELS = {
   chatEvent: "vellum:chat-event",
   kernelChanged: "vellum:kernel-changed",
   herdrStreamEvent: "vellum:herdr-stream-event",
+  herdrMirrorEvent: "vellum:herdr-mirror-event",
   browserSessionChanged: "vellum:browser-session-changed",
 } as const;
 
@@ -664,6 +666,20 @@ export interface HerdrStreamEvent {
   readonly message?: string;
 }
 
+/** Main → renderer push when a host's mirror state changes. `kind: "state"`
+ * marks a freshness flip (fresh↔stale); `kind: "change"` is a data change. */
+export interface HerdrMirrorEvent {
+  readonly hostId: string;
+  readonly kind: "change" | "state";
+  readonly fresh: boolean;
+}
+
+export interface HerdrMirrorStateInfo {
+  readonly hostId: string;
+  readonly fresh: boolean;
+  readonly lastSyncAt?: number;
+}
+
 export interface VellumHerdrApi {
   readonly herdrHosts: () => Promise<ReadonlyArray<HerdrHostInfo>>;
   readonly herdrEnsureServer: (
@@ -739,6 +755,8 @@ export interface VellumHerdrApi {
   ) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly herdrStreamClose: (streamId: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly onHerdrStreamEvent: (listener: (event: HerdrStreamEvent) => void) => () => void;
+  readonly herdrMirrorState: () => Promise<ReadonlyArray<HerdrMirrorStateInfo>>;
+  readonly onHerdrMirrorEvent: (listener: (event: HerdrMirrorEvent) => void) => () => void;
 }
 
 // --- browser work surface (partitioned WebContentsView; not a corpus join) ---

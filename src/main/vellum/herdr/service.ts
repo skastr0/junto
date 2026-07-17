@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { runCli, type CliResult } from "../adapters/exec";
 import { HERDR_HOSTS, herdrArgv, isKnownHerdrHost, UnknownHerdrHostError, type HerdrHostDef } from "./hosts";
 import { withHostSlot } from "./masters";
+import type { HerdrMirrorReads } from "./mirror";
+import { mirrorFor } from "./mirrors";
 import {
   parseCliEnvelope,
   parseCreateIds,
@@ -102,8 +104,21 @@ const runEnvelope = async (
   return { ok: true, data: envelope.result };
 };
 
+/** Injectable mirror lookup (tests supply fakes; prod uses the registry). */
+export type HerdrMirrorProvider = (hostId: string) => HerdrMirrorReads | undefined;
+
 export class HerdrService {
-  constructor(private readonly runner: HerdrRunner = defaultRunner) {}
+  constructor(
+    private readonly runner: HerdrRunner = defaultRunner,
+    private readonly mirrors: HerdrMirrorProvider = mirrorFor,
+  ) {}
+
+  /** Mirror serves reads only for the default session and only while fresh. */
+  private mirrorIfFresh(hostId: string, session?: string | null): HerdrMirrorReads | undefined {
+    if (session) return undefined; // named sessions are separate servers — exec path
+    const mirror = this.mirrors(hostId);
+    return mirror?.isFresh() ? mirror : undefined;
+  }
 
   hosts(): ReadonlyArray<HerdrHostDef> {
     return HERDR_HOSTS;
@@ -115,6 +130,10 @@ export class HerdrService {
   ): Promise<HerdrResult<{ readonly running: boolean; readonly started: boolean }>> {
     const bad = requireHost(hostId);
     if (bad) return bad;
+    // A fresh mirror is itself live proof the server is running.
+    if (this.mirrorIfFresh(hostId, session)) {
+      return { ok: true, data: { running: true, started: false } };
+    }
     // status is cheap; if server is up we're done.
     let status: CliResult;
     try {
@@ -210,6 +229,11 @@ export class HerdrService {
     hostId: string,
     session?: string | null,
   ): Promise<HerdrResult<ReadonlyArray<HerdrWorkspaceRow>>> {
+    const bad = requireHost(hostId);
+    if (bad) return bad;
+    const mirror = this.mirrorIfFresh(hostId, session);
+    const mirrored = mirror?.listWorkspaces();
+    if (mirrored) return { ok: true, data: parseWorkspaceList({ workspaces: mirrored }) };
     const res = await runEnvelope(this.runner, hostId, ["workspace", "list"], session);
     if (!res.ok) return res;
     return { ok: true, data: parseWorkspaceList(res.data) };
@@ -220,6 +244,11 @@ export class HerdrService {
     session?: string | null,
     workspaceId?: string,
   ): Promise<HerdrResult<ReadonlyArray<HerdrTabRow>>> {
+    const bad = requireHost(hostId);
+    if (bad) return bad;
+    const mirror = this.mirrorIfFresh(hostId, session);
+    const mirrored = mirror?.listTabs(workspaceId);
+    if (mirrored) return { ok: true, data: parseTabList({ tabs: mirrored }) };
     const args = workspaceId
       ? (["tab", "list", "--workspace", workspaceId] as const)
       : (["tab", "list"] as const);
@@ -233,6 +262,11 @@ export class HerdrService {
     session?: string | null,
     workspaceId?: string,
   ): Promise<HerdrResult<ReadonlyArray<HerdrPaneRow>>> {
+    const bad = requireHost(hostId);
+    if (bad) return bad;
+    const mirror = this.mirrorIfFresh(hostId, session);
+    const mirrored = mirror?.listPanes(workspaceId);
+    if (mirrored) return { ok: true, data: parsePaneList({ panes: mirrored }) };
     const args = workspaceId
       ? (["pane", "list", "--workspace", workspaceId] as const)
       : (["pane", "list"] as const);
@@ -245,6 +279,11 @@ export class HerdrService {
     hostId: string,
     session?: string | null,
   ): Promise<HerdrResult<ReadonlyArray<HerdrPaneRow>>> {
+    const bad = requireHost(hostId);
+    if (bad) return bad;
+    const mirror = this.mirrorIfFresh(hostId, session);
+    const mirrored = mirror?.listAgents();
+    if (mirrored) return { ok: true, data: parsePaneList({ panes: mirrored }) };
     const res = await runEnvelope(this.runner, hostId, ["agent", "list"], session);
     if (!res.ok) return res;
     // agent list shares pane-shaped rows.
@@ -257,10 +296,19 @@ export class HerdrService {
     paneId: string,
   ): Promise<HerdrResult<HerdrPaneMeta>> {
     if (!paneId) return { ok: false, code: "invalid", message: "paneId required" };
-    const res = await runEnvelope(this.runner, hostId, ["pane", "get", paneId], session);
-    if (!res.ok) return res;
-    const pane = parsePaneGet(res.data);
-    if (!pane) return { ok: false, code: "not_found", message: `pane ${paneId} not found` };
+    const bad = requireHost(hostId);
+    if (bad) return bad;
+
+    // Mirror-served pane record drops the `pane get` round trip entirely.
+    const mirror = this.mirrorIfFresh(hostId, session);
+    const mirroredRecord = mirror?.paneRecord(paneId);
+    let pane = mirroredRecord ? parsePaneGet({ pane: mirroredRecord }) : undefined;
+    if (!pane) {
+      const res = await runEnvelope(this.runner, hostId, ["pane", "get", paneId], session);
+      if (!res.ok) return res;
+      pane = parsePaneGet(res.data);
+      if (!pane) return { ok: false, code: "not_found", message: `pane ${paneId} not found` };
+    }
 
     // Cheap preview — non-blocking failure.
     let preview: string | undefined;
