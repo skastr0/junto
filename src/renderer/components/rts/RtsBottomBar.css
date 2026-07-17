@@ -26,9 +26,9 @@
 .rts-panel {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  height: 132px;
-  max-height: 132px;
+  gap: 2px;
+  height: 104px;
+  max-height: 104px;
   border: 1px solid rgba(237, 230, 218, 0.1);
   border-radius: 8px;
   background: rgba(12, 11, 10, 0.88);
@@ -124,18 +124,20 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px 0;
+  padding: 5px 8px 0;
   font-size: 8px;
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: rgba(143, 163, 176, 0.85);
+  flex-shrink: 0;
+  line-height: 1;
 }
 
 .rts-panel__body {
   flex: 1;
   min-height: 0;
-  padding: 2px 8px 8px;
+  padding: 2px 8px 6px;
   overflow: hidden;
 }
 
@@ -241,23 +243,22 @@
   color: #ede6da;
 }
 
-/* Command shell: SC2-style portrait + key grid, fills fixed panel, no scroll. */
+/* Command shell: stacked head → accents → fixed key row. No stretch. */
 .rts-cmd-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(96px, 0.95fr);
-  gap: 8px;
-  height: 100%;
-  min-height: 0;
-  align-items: stretch;
-}
-
-.rts-cmd-portrait {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-width: 0;
+  gap: 5px;
+  height: 100%;
   min-height: 0;
-  overflow: hidden;
+  justify-content: flex-start;
+}
+
+.rts-cmd-head {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex-shrink: 0;
 }
 
 .rts-cmd__title {
@@ -267,7 +268,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.2;
+  line-height: 1.15;
 }
 
 .rts-cmd__meta {
@@ -278,28 +279,29 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.2;
 }
 
 .rts-quiet--compact {
-  padding: 6px 2px;
+  padding: 4px 2px;
   font-size: 10px;
 }
 
-/* Accent swatches — tight icon row */
+/* Accent swatches */
 .rts-cmd-accents {
   display: flex;
   flex-wrap: nowrap;
-  gap: 3px;
+  gap: 4px;
   align-items: center;
-  margin-top: 2px;
+  flex-shrink: 0;
 }
 
 .rts-swatch {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   padding: 0;
   border-radius: 999px;
-  border: 1px solid rgba(237, 230, 218, 0.18);
+  border: 1px solid rgba(237, 230, 218, 0.22);
   background: transparent;
   cursor: pointer;
   display: grid;
@@ -308,57 +310,75 @@
 }
 
 .rts-swatch span {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
   display: block;
 }
 
 .rts-swatch.is-active {
-  border-color: rgba(237, 230, 218, 0.7);
-  box-shadow: 0 0 0 1px rgba(237, 230, 218, 0.25);
+  border-color: rgba(237, 230, 218, 0.75);
+  box-shadow: 0 0 0 1px rgba(237, 230, 218, 0.2);
 }
 
 .rts-swatch:hover {
-  border-color: rgba(237, 230, 218, 0.45);
+  border-color: rgba(237, 230, 218, 0.5);
 }
 
-/* Flag keys under portrait */
-.rts-cmd-flags {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 3px;
+/* Single key row — fixed 26px keys, never stretch */
+.rts-cmd-keys {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
   margin-top: auto;
+  overflow: hidden;
 }
 
-/* Command grid — square RTS keys */
-.rts-cmd-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(2, 1fr);
-  gap: 3px;
-  min-height: 0;
-  align-content: stretch;
+.rts-cmd-keys__rule {
+  width: 1px;
+  height: 16px;
+  flex-shrink: 0;
+  background: rgba(237, 230, 218, 0.14);
+  margin: 0 2px;
 }
 
 .rts-key {
   display: grid;
   place-items: center;
-  min-height: 0;
-  aspect-ratio: 1;
-  max-height: 100%;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  max-width: 26px;
+  max-height: 26px;
   padding: 0;
   border-radius: 5px;
   border: 1px solid rgba(237, 230, 218, 0.12);
-  background: rgba(255, 255, 255, 0.035);
-  color: rgba(237, 230, 218, 0.88);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(237, 230, 218, 0.82);
   cursor: pointer;
+  flex-shrink: 0;
   transition: border-color 0.1s ease, background 0.1s ease, color 0.1s ease;
 }
 
+.rts-key__icon {
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  line-height: 0;
+}
+
+.rts-key__icon svg {
+  width: 12px;
+  height: 12px;
+}
+
 .rts-key:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(237, 230, 218, 0.28);
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(237, 230, 218, 0.3);
   color: #ede6da;
 }
 
@@ -427,32 +447,49 @@
 .rts-right {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
   min-height: 0;
+  height: 104px;
+  max-height: 104px;
 }
 
-/* Add + fit docked just above the minimap (not top-scattered). */
+/* Minimap fills the right column; tools overlay inside it. */
+.rts-minimap-slot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.rts-field-tools-slot {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 3;
+  pointer-events: auto;
+}
+
 .rts-field-tools {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   pointer-events: auto;
 }
 
 .rts-field-tools__fit {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 6px 8px;
-  border-radius: 6px;
+  gap: 4px;
+  padding: 4px 7px;
+  border-radius: 5px;
   border: 1px solid rgba(237, 230, 218, 0.13);
-  background: rgba(19, 17, 16, 0.9);
+  background: rgba(12, 11, 10, 0.88);
   color: rgba(138, 131, 120, 0.95);
-  font-size: 9px;
-  letter-spacing: 0.12em;
+  font-size: 8px;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(10px);
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
@@ -464,16 +501,17 @@
 }
 
 .rts-field-tools .node-palette__trigger {
-  padding: 6px 8px;
-  font-size: 9px;
+  padding: 4px 7px;
+  font-size: 8px;
+  background: rgba(12, 11, 10, 0.88);
 }
 
 /* Menu opens upward so it doesn't cover the minimap. */
 .rts-field-tools .node-palette--docked .node-palette__menu {
   top: auto;
-  bottom: calc(100% + 7px);
-  right: 0;
-  left: auto;
+  bottom: calc(100% + 6px);
+  right: auto;
+  left: 0;
 }
 
 .rts-notify {
@@ -499,8 +537,9 @@
 
 .rts-minimap-wrap {
   position: relative;
-  flex: 1;
-  min-height: 112px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   border: 1px solid rgba(237, 230, 218, 0.1);
   border-radius: 8px;
   background: rgba(12, 11, 10, 0.9);
