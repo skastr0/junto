@@ -22,6 +22,63 @@ type NetworkDecision =
   | { readonly kind: "resolve"; readonly hostname: string }
   | { readonly kind: "deny" };
 
+const exactOriginGrant = Symbol("vellum.browser.test-only-exact-origin");
+
+/**
+ * Opaque, test-only network capability. The production adapter never creates
+ * one. Construction accepts only the canonical origin emitted by a loopback
+ * listener bound on an ephemeral non-privileged port; no environment variable
+ * or renderer/control input is consulted.
+ */
+export interface BrowserTestOnlyExactOriginGrant {
+  readonly [exactOriginGrant]: string;
+}
+
+export const makeBrowserTestOnlyExactOriginGrant = (
+  candidate: string,
+): BrowserTestOnlyExactOriginGrant => {
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new TypeError("test browser origin must be a canonical loopback HTTP origin");
+  }
+  const port = Number(parsed.port);
+  if (
+    candidate !== parsed.origin ||
+    parsed.protocol !== "http:" ||
+    parsed.hostname !== "127.0.0.1" ||
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    parsed.pathname !== "/" ||
+    parsed.search !== "" ||
+    parsed.hash !== "" ||
+    !Number.isInteger(port) ||
+    port < 1024 ||
+    port > 65_535
+  ) {
+    throw new TypeError("test browser origin must be canonical http://127.0.0.1:<ephemeral-port>");
+  }
+  return Object.freeze({ [exactOriginGrant]: parsed.origin });
+};
+
+export const isAllowedByBrowserTestOnlyExactOriginGrant = (
+  url: string,
+  grant: BrowserTestOnlyExactOriginGrant,
+): boolean => {
+  try {
+    const parsed = new URL(url);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      parsed.username === "" &&
+      parsed.password === "" &&
+      parsed.origin === grant[exactOriginGrant]
+    );
+  } catch {
+    return false;
+  }
+};
+
 const FRAME_RESOURCE_TYPES = new Set<OnBeforeRequestListenerDetails["resourceType"]>([
   "mainFrame",
   "subFrame",
@@ -35,6 +92,7 @@ const stripIpv6Brackets = (hostname: string): string =>
 const networkDecision = (
   url: string,
   resourceType: OnBeforeRequestListenerDetails["resourceType"],
+  testOnlyGrant?: BrowserTestOnlyExactOriginGrant,
 ): NetworkDecision => {
   if (!isUtf8WithinLimit(url, BROWSER_MAX_URL_BYTES)) return { kind: "deny" };
 
@@ -62,6 +120,13 @@ const networkDecision = (
     (!isFrame && parsed.protocol !== "ws:" && parsed.protocol !== "wss:")
   ) {
     return { kind: "deny" };
+  }
+
+  if (
+    testOnlyGrant !== undefined &&
+    isAllowedByBrowserTestOnlyExactOriginGrant(browserUrl, testOnlyGrant)
+  ) {
+    return { kind: "allow" };
   }
 
   const target = classifyBrowserTarget(browserUrl);
@@ -111,44 +176,60 @@ const managedBrowserContents = new WeakSet<WebContents>();
 export const isManagedBrowserWebContents = (webContents: WebContents): boolean =>
   managedBrowserContents.has(webContents);
 
-const withDnsDeadline = async (lookup: Promise<boolean>): Promise<boolean> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<false>((resolve) => {
-    timer = setTimeout(() => resolve(false), BROWSER_DNS_POLICY_TIMEOUT_MS);
-  });
-  try {
-    return await Promise.race([lookup, deadline]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-};
-
-const resolvePublicHostname = async (
+const resolvePublicHostname = (
   state: PartitionPolicyState,
   hostname: string,
 ): Promise<boolean> => {
   const existing = state.pendingResolutions.get(hostname);
-  if (existing !== undefined) return withDnsDeadline(existing);
-  if (state.pendingResolutions.size >= BROWSER_MAX_PENDING_DNS_HOSTS) return false;
+  if (existing !== undefined) return existing;
+  if (state.pendingResolutions.size >= BROWSER_MAX_PENDING_DNS_HOSTS) {
+    return Promise.resolve(false);
+  }
 
-  const lookup = state.session
-    .resolveHost(hostname, { cacheUsage: "allowed", secureDnsPolicy: "allow" })
-    .then(
-      ({ endpoints }) =>
-        endpoints.length > 0 &&
-        endpoints.every((endpoint) => classifyIpAddress(endpoint.address) === "public"),
-      () => false,
-    );
-  state.pendingResolutions.set(hostname, lookup);
-  void lookup.finally(() => {
-    if (state.pendingResolutions.get(hostname) === lookup) {
+  let resolveBounded!: (allowed: boolean) => void;
+  const bounded = new Promise<boolean>((resolve) => {
+    resolveBounded = resolve;
+  });
+  state.pendingResolutions.set(hostname, bounded);
+
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const settle = (allowed: boolean): void => {
+    if (settled) return;
+    settled = true;
+    if (timer !== undefined) clearTimeout(timer);
+    if (state.pendingResolutions.get(hostname) === bounded) {
       state.pendingResolutions.delete(hostname);
     }
-  });
-  return withDnsDeadline(lookup);
+    resolveBounded(allowed);
+  };
+  timer = setTimeout(() => settle(false), BROWSER_DNS_POLICY_TIMEOUT_MS);
+
+  try {
+    const lookup = state.session.resolveHost(hostname, {
+      cacheUsage: "allowed",
+      secureDnsPolicy: "allow",
+    });
+    void lookup.then(
+      ({ endpoints }) =>
+        settle(
+          endpoints.length > 0 &&
+            endpoints.every(
+              (endpoint) => classifyIpAddress(endpoint.address) === "public",
+            ),
+        ),
+      () => settle(false),
+    );
+  } catch {
+    settle(false);
+  }
+  return bounded;
 };
 
-const installPartitionPolicy = (session: Session): void => {
+const installPartitionPolicy = (
+  session: Session,
+  testOnlyGrant?: BrowserTestOnlyExactOriginGrant,
+): void => {
   if (partitionPolicies.has(session)) return;
 
   let state: PartitionPolicyState;
@@ -156,7 +237,7 @@ const installPartitionPolicy = (session: Session): void => {
     details,
     callback,
   ) => {
-    const decision = networkDecision(details.url, details.resourceType);
+    const decision = networkDecision(details.url, details.resourceType, testOnlyGrant);
     if (decision.kind !== "resolve") {
       callback({ cancel: decision.kind === "deny" });
       return;
@@ -221,8 +302,11 @@ const installPartitionPolicy = (session: Session): void => {
   partitionPolicies.set(session, state);
 };
 
-export const hardenBrowserPartition = (session: Session): void => {
-  installPartitionPolicy(session);
+export const hardenBrowserPartition = (
+  session: Session,
+  testOnlyGrant?: BrowserTestOnlyExactOriginGrant,
+): void => {
+  installPartitionPolicy(session, testOnlyGrant);
 };
 
 /**
@@ -238,13 +322,20 @@ export interface BrowserWebPolicyEvents {
 export const installBrowserWebPolicy = (
   webContents: WebContents,
   events: BrowserWebPolicyEvents = {},
+  testOnlyGrant?: BrowserTestOnlyExactOriginGrant,
 ): (() => void) => {
-  hardenBrowserPartition(webContents.session);
+  hardenBrowserPartition(webContents.session, testOnlyGrant);
   managedBrowserContents.add(webContents);
   const prevent = (event: Event): void => event.preventDefault();
   const denyFrameNavigation = (
     event: Event<Electron.WebContentsWillFrameNavigateEventParams>,
   ): void => {
+    if (
+      testOnlyGrant !== undefined &&
+      isAllowedByBrowserTestOnlyExactOriginGrant(event.url, testOnlyGrant)
+    ) {
+      return;
+    }
     const decision = classifyBrowserTarget(event.url);
     if (decision.allowed) return;
     event.preventDefault();
@@ -253,6 +344,12 @@ export const installBrowserWebPolicy = (
   const denyRedirect = (
     event: Event<Electron.WebContentsWillRedirectEventParams>,
   ): void => {
+    if (
+      testOnlyGrant !== undefined &&
+      isAllowedByBrowserTestOnlyExactOriginGrant(event.url, testOnlyGrant)
+    ) {
+      return;
+    }
     const decision = classifyBrowserTarget(event.url);
     if (decision.allowed) return;
     event.preventDefault();

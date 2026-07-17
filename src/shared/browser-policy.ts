@@ -137,6 +137,7 @@ const isNonPublicIpv6 = (words: ReadonlyArray<number>): boolean =>
   hasPrefix(words, [0x3fff], 20) ||
   hasPrefix(words, [0x5f00], 16) ||
   hasPrefix(words, [0xfc00], 7) ||
+  hasPrefix(words, [0xfec0], 10) ||
   hasPrefix(words, [0xfe80], 10) ||
   hasPrefix(words, [0xff00], 8);
 

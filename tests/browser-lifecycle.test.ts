@@ -71,6 +71,7 @@ describe("browser public target policy", () => {
     "http://[::1]/",
     "http://[::ffff:127.0.0.1]/",
     "http://[fc00::1]/",
+    "http://[fec0::1]/",
     "http://[fe80::1]/",
     "http://[ff02::1]/",
     "http://[2001:db8::1]/",

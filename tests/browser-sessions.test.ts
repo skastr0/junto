@@ -209,6 +209,29 @@ describe("BrowserSessionService", () => {
     expect(views).toHaveLength(0);
   });
 
+  it("keeps private targets denied unless a constructor-injected admission grants them", async () => {
+    const loopbackTarget = target("fixture", {
+      url: "http://127.0.0.1:49152/fixture",
+    });
+    const defaults = makeDefaultService();
+    expect(await defaults.service.open(loopbackTarget)).toMatchObject({
+      ok: false,
+      code: "forbidden",
+    });
+    expect(defaults.views).toHaveLength(0);
+
+    const { adapter, views } = makeSpyAdapter();
+    const qualified = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      (url) => new URL(url).origin === "http://127.0.0.1:49152",
+    );
+    expect(await qualified.open(loopbackTarget)).toMatchObject({ ok: true });
+    expect(views[0]?.calls).toContain("load:http://127.0.0.1:49152/fixture");
+  });
+
   it("admits a target URL at N and rejects target URL/ref at N+1 before adapter creation", async () => {
     const { service, views } = makeDefaultService();
     expect(await service.open(target("url-at-cap", {

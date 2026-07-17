@@ -1,13 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   OnBeforeRequestListenerDetails,
   Session,
   WebContents,
 } from "electron";
-import { BROWSER_MAX_PENDING_DNS_HOSTS } from "../src/shared/browser-limits";
+import {
+  BROWSER_DNS_POLICY_TIMEOUT_MS,
+  BROWSER_MAX_PENDING_DNS_HOSTS,
+} from "../src/shared/browser-limits";
 import {
   installBrowserWebPolicy,
+  isAllowedByBrowserTestOnlyExactOriginGrant,
   isManagedBrowserWebContents,
+  makeBrowserTestOnlyExactOriginGrant,
 } from "../src/main/vellum/browser/web-policy";
 
 type Listener = (...args: ReadonlyArray<unknown>) => void;
@@ -36,9 +41,15 @@ class FakeSession {
   displayMedia:
     | ((request: unknown, callback: (streams: Record<string, never>) => void) => void)
     | null = null;
-  readonly resolveHost = vi.fn(async (_hostname: string) => ({
-    endpoints: [{ address: "93.184.216.34", family: "ipv4" as const }],
-  }));
+  readonly resolveHost = vi.fn(
+    async (
+      _hostname: string,
+    ): Promise<{
+      endpoints: Array<{ address: string; family: "ipv4" | "ipv6" }>;
+    }> => ({
+      endpoints: [{ address: "93.184.216.34", family: "ipv4" }],
+    }),
+  );
 
   setPermissionCheckHandler(handler: FakeSession["permissionCheck"]): void {
     this.permissionCheck = handler;
@@ -100,9 +111,14 @@ class FakeWebContents {
 const install = (
   session = new FakeSession(),
   events: Parameters<typeof installBrowserWebPolicy>[1] = {},
+  testOnlyGrant?: Parameters<typeof installBrowserWebPolicy>[2],
 ) => {
   const contents = new FakeWebContents(session);
-  const release = installBrowserWebPolicy(contents as unknown as WebContents, events);
+  const release = installBrowserWebPolicy(
+    contents as unknown as WebContents,
+    events,
+    testOnlyGrant,
+  );
   return { session, contents, release };
 };
 
@@ -121,7 +137,63 @@ const request = async (
   });
 };
 
+const dispatchRequest = (
+  session: FakeSession,
+  url: string,
+  resourceType: OnBeforeRequestListenerDetails["resourceType"] = "mainFrame",
+) => {
+  const handler = session.webRequest.handler;
+  if (handler === null) throw new Error("request policy missing");
+  const responses: Array<{ readonly cancel?: boolean }> = [];
+  handler(
+    { url, resourceType } as OnBeforeRequestListenerDetails,
+    (response) => responses.push(response),
+  );
+  return responses;
+};
+
+const flushMicrotasks = async (): Promise<void> => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
+afterEach(() => vi.useRealTimers());
+
 describe("browser partition policy", () => {
+  it("constructs only a canonical exact loopback-origin test capability", async () => {
+    const grant = makeBrowserTestOnlyExactOriginGrant("http://127.0.0.1:49152");
+    expect(
+      isAllowedByBrowserTestOnlyExactOriginGrant(
+        "http://127.0.0.1:49152/fixture?nonce=one",
+        grant,
+      ),
+    ).toBe(true);
+    for (const url of [
+      "http://127.0.0.1:49153/",
+      "http://127.0.0.2:49152/",
+      "http://user@127.0.0.1:49152/",
+      "https://127.0.0.1:49152/",
+    ]) {
+      expect(isAllowedByBrowserTestOnlyExactOriginGrant(url, grant)).toBe(false);
+    }
+
+    for (const origin of [
+      "http://127.0.0.1:49152/",
+      "http://127.0.0.1:49152/path",
+      "http://127.0.0.1:49152?query=one",
+      "http://localhost:49152",
+      "https://127.0.0.1:49152",
+      "http://user@127.0.0.1:49152",
+      "http://127.0.0.1:80",
+    ]) {
+      expect(() => makeBrowserTestOnlyExactOriginGrant(origin)).toThrow(TypeError);
+    }
+
+    const { session } = install(new FakeSession(), {}, grant);
+    expect(await request(session, "http://127.0.0.1:49152/fixture")).toBe(false);
+    expect(await request(session, "http://127.0.0.1:49153/private-sentinel")).toBe(true);
+  });
+
   it("denies every ambient permission and unmanaged popup by default", () => {
     const { session, contents } = install();
     expect(session.permissionCheck?.()).toBe(false);
@@ -168,12 +240,85 @@ describe("browser partition policy", () => {
       .mockResolvedValueOnce({
         endpoints: [{ address: "not-an-ip", family: "ipv4" as const }],
       })
+      .mockResolvedValueOnce({
+        endpoints: [{ address: "fec0::1", family: "ipv6" }],
+      })
       .mockRejectedValueOnce(new Error("dns down"));
 
     expect(await request(session, "https://empty.example.net/")).toBe(true);
     expect(await request(session, "https://mixed.example.net/")).toBe(true);
     expect(await request(session, "https://invalid.example.net/")).toBe(true);
+    expect(await request(session, "https://site-local.example.net/")).toBe(true);
     expect(await request(session, "https://failed.example.net/")).toBe(true);
+  });
+
+  it("bounds one shared DNS lookup exactly once and ignores its late settlement", async () => {
+    vi.useFakeTimers();
+    const { session } = install();
+    const settlers: Array<
+      (value: { endpoints: Array<{ address: string; family: "ipv4" }> }) => void
+    > = [];
+    session.resolveHost.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settlers.push(resolve);
+        }),
+    );
+
+    const first = dispatchRequest(session, "https://hung.example.net/a", "image");
+    expect(session.resolveHost).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(BROWSER_DNS_POLICY_TIMEOUT_MS);
+    expect(first).toEqual([{ cancel: true }]);
+
+    const replacement = dispatchRequest(session, "https://hung.example.net/b", "script");
+    expect(session.resolveHost).toHaveBeenCalledTimes(2);
+    settlers[0]?.({ endpoints: [{ address: "93.184.216.34", family: "ipv4" }] });
+    await flushMicrotasks();
+    expect(first).toEqual([{ cancel: true }]);
+
+    const deduplicated = dispatchRequest(session, "https://hung.example.net/c", "image");
+    expect(session.resolveHost).toHaveBeenCalledTimes(2);
+    settlers[1]?.({ endpoints: [{ address: "93.184.216.34", family: "ipv4" }] });
+    await flushMicrotasks();
+    expect(replacement).toEqual([{ cancel: false }]);
+    expect(deduplicated).toEqual([{ cancel: false }]);
+  });
+
+  it("releases timed-out DNS capacity for a new hostname", async () => {
+    vi.useFakeTimers();
+    const { session } = install();
+    const settlers: Array<
+      (value: { endpoints: Array<{ address: string; family: "ipv4" }> }) => void
+    > = [];
+    session.resolveHost.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settlers.push(resolve);
+        }),
+    );
+    const pending = Array.from({ length: BROWSER_MAX_PENDING_DNS_HOSTS }, (_, index) =>
+      dispatchRequest(session, `https://hung-${index}.example.net/`, "image"),
+    );
+    const excess = dispatchRequest(session, "https://excess.example.net/", "image");
+    await flushMicrotasks();
+    expect(excess).toEqual([{ cancel: true }]);
+
+    await vi.advanceTimersByTimeAsync(BROWSER_DNS_POLICY_TIMEOUT_MS);
+    expect(pending.every((responses) => responses.length === 1 && responses[0]?.cancel)).toBe(true);
+    const reused = dispatchRequest(session, "https://reused.example.net/", "image");
+    expect(session.resolveHost).toHaveBeenCalledTimes(BROWSER_MAX_PENDING_DNS_HOSTS + 1);
+    expect(reused).toEqual([]);
+    settlers.at(-1)?.({ endpoints: [{ address: "93.184.216.34", family: "ipv4" }] });
+    await flushMicrotasks();
+    expect(reused).toEqual([{ cancel: false }]);
+  });
+
+  it("fails closed when Electron resolveHost throws synchronously", async () => {
+    const { session } = install();
+    session.resolveHost.mockImplementationOnce(() => {
+      throw new Error("resolver unavailable");
+    });
+    expect(await request(session, "https://sync-throw.example.net/")).toBe(true);
   });
 
   it("deduplicates an in-flight hostname and caps unique DNS work", async () => {

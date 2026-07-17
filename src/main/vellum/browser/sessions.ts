@@ -70,6 +70,8 @@ export type BrowserViewAdapter = (
   events: BrowserViewEvents,
 ) => BrowserViewHandle;
 
+export type BrowserTargetAdmission = (url: string) => boolean;
+
 export type BrowserErrorCode =
   | "invalid"
   | "not_found"
@@ -337,7 +339,10 @@ const sameTarget = (left: ResolvedPageTarget, right: ResolvedPageTarget): boolea
   left.url === right.url &&
   left.profile === right.profile;
 
-const validateTarget = (target: ResolvedPageTarget): BrowserResultErr | undefined => {
+const validateTarget = (
+  target: ResolvedPageTarget,
+  targetAdmission: BrowserTargetAdmission,
+): BrowserResultErr | undefined => {
   if (!isUtf8WithinLimit(target.ref, BROWSER_MAX_REF_BYTES)) {
     return err("invalid", "resolved page target ref exceeds the hard limit");
   }
@@ -348,7 +353,7 @@ const validateTarget = (target: ResolvedPageTarget): BrowserResultErr | undefine
   if (!isUtf8WithinLimit(target.url, BROWSER_MAX_URL_BYTES)) {
     return err("invalid", "resolved page target URL exceeds the hard limit");
   }
-  if (!isAllowedBrowserUrl(target.url)) {
+  if (!targetAdmission(target.url)) {
     return err("forbidden", `url not allowed (http/https only): ${target.url}`);
   }
   if (!isValidProfileId(target.profile)) {
@@ -383,6 +388,7 @@ export class BrowserSessionService {
     private readonly profiles: BrowserProfileServiceApi = makeBrowserProfileService(),
     private readonly now: () => number = Date.now,
     private readonly generateSessionId: () => string = randomUUID,
+    private readonly targetAdmission: BrowserTargetAdmission = isAllowedBrowserUrl,
   ) {}
 
   setSink(sink: (session: BrowserSessionInfo) => void): void {
@@ -778,7 +784,7 @@ export class BrowserSessionService {
     target: ResolvedPageTarget,
     signal?: AbortSignal,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
-    const invalid = validateTarget(target);
+    const invalid = validateTarget(target, this.targetAdmission);
     if (invalid !== undefined) return invalid;
 
     const pending = this.pendingOpenByRef.get(target.ref);
@@ -926,7 +932,7 @@ export class BrowserSessionService {
     if (!isUtf8WithinLimit(url, BROWSER_MAX_URL_BYTES)) {
       return err("invalid", "navigation URL exceeds the hard limit");
     }
-    if (!isAllowedBrowserUrl(url)) {
+    if (!this.targetAdmission(url)) {
       return err("forbidden", `url not allowed (http/https only): ${url}`);
     }
     if (entry.navigationInFlight !== undefined) {

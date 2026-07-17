@@ -1,4 +1,6 @@
+import { isAbsolute } from "node:path";
 import { BrowserWindow, session, WebContentsView } from "electron";
+import { isAllowedBrowserUrl } from "@shared/browser";
 import {
   BROWSER_MAX_EVAL_CODE_BYTES,
   BROWSER_MAX_EVAL_RESULT_BYTES,
@@ -8,7 +10,13 @@ import {
 } from "@shared/browser-limits";
 import type { BrowserSurfaceBounds } from "@shared/ipc";
 import type { BrowserViewAdapter, BrowserViewHandle } from "./sessions";
-import { hardenBrowserPartition, installBrowserWebPolicy } from "./web-policy";
+import {
+  hardenBrowserPartition,
+  installBrowserWebPolicy,
+  isAllowedByBrowserTestOnlyExactOriginGrant,
+  makeBrowserTestOnlyExactOriginGrant,
+  type BrowserTestOnlyExactOriginGrant,
+} from "./web-policy";
 
 // The only file that touches Electron for browser sessions. Views are parented
 // under the main BrowserWindow.contentView (native layer, above the renderer)
@@ -324,9 +332,15 @@ export const buildBoundedEvalScript = (source: string): string => {
   return `(${runBoundedEvalInPage.toString()})(${JSON.stringify(source)},${BROWSER_MAX_EVAL_RESULT_BYTES},${BROWSER_MAX_EVAL_RESULT_DEPTH},${BROWSER_MAX_EVAL_RESULT_NODES})`;
 };
 
-export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
+const makeElectronViewAdapter = (
+  testOnlyGrant?: BrowserTestOnlyExactOriginGrant,
+  testOnlyDownloadPath?: string,
+): BrowserViewAdapter => (partition, events) => {
   const browserPartition = session.fromPartition(partition);
-  hardenBrowserPartition(browserPartition);
+  if (testOnlyDownloadPath !== undefined) {
+    browserPartition.setDownloadPath(testOnlyDownloadPath);
+  }
+  hardenBrowserPartition(browserPartition, testOnlyGrant);
   const view = new WebContentsView({
     webPreferences: {
       session: browserPartition,
@@ -350,16 +364,20 @@ export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
   let currentSessionId: string | undefined;
   let releaseWebPolicy: () => void;
   try {
-    releaseWebPolicy = installBrowserWebPolicy(view.webContents, {
-      onBlockedTopLevelNavigation: (reason) => {
-        const active = activeNavigation;
-        if (active === undefined) return;
-        expectedNavigation = undefined;
-        activeNavigation = undefined;
-        currentSessionId = active.sessionId;
-        events.onLoadFail(active.sessionId, `navigation blocked by browser policy (${reason})`);
+    releaseWebPolicy = installBrowserWebPolicy(
+      view.webContents,
+      {
+        onBlockedTopLevelNavigation: (reason) => {
+          const active = activeNavigation;
+          if (active === undefined) return;
+          expectedNavigation = undefined;
+          activeNavigation = undefined;
+          currentSessionId = active.sessionId;
+          events.onLoadFail(active.sessionId, `navigation blocked by browser policy (${reason})`);
+        },
       },
-    });
+      testOnlyGrant,
+    );
   } catch (error) {
     view.webContents.close();
     throw error;
@@ -502,4 +520,29 @@ export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
     },
   };
   return handle;
+};
+
+export const electronViewAdapter: BrowserViewAdapter = makeElectronViewAdapter();
+
+/**
+ * Dedicated Electron qualification seam. It is deliberately not wired into
+ * the app entrypoint: only the test main calls it, with the exact origin of a
+ * listener it just bound and an isolated download directory under probe temp.
+ */
+export const makeBrowserTestOnlyElectronHarness = (
+  exactOrigin: string,
+  downloadPath: string,
+): {
+  readonly adapter: BrowserViewAdapter;
+  readonly targetAdmission: (url: string) => boolean;
+} => {
+  if (!isAbsolute(downloadPath)) {
+    throw new TypeError("test browser download path must be absolute");
+  }
+  const grant = makeBrowserTestOnlyExactOriginGrant(exactOrigin);
+  return {
+    adapter: makeElectronViewAdapter(grant, downloadPath),
+    targetAdmission: (url) =>
+      isAllowedBrowserUrl(url) || isAllowedByBrowserTestOnlyExactOriginGrant(url, grant),
+  };
 };
