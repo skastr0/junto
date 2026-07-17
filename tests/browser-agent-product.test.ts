@@ -6,6 +6,8 @@ import {
   type BrowserAutomationProduct,
   type BrowserAutomationProductDependencies,
 } from "../src/main/vellum/browser/agent-product";
+import { BrowserCapabilityIssueDenied } from "../src/main/vellum/browser/capabilities";
+import { BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
 import { LocalMirrorTransport } from "../src/main/vellum/herdr/mirror-transport";
 
 const CONTROL_HOME = "/tmp/vellum-browser-product-test";
@@ -44,11 +46,11 @@ const herdrNode = (): CanvasNode => ({
   },
 });
 
-const pageNode = (): CanvasNode => ({
+const pageNode = (profile = "default"): CanvasNode => ({
   ...base("page-1"),
   type: "link",
   url: "https://github.com/settings/profile?private=value",
-  ether: { entity: { kind: "page" }, browser: { profile: "default" } },
+  ether: { entity: { kind: "page" }, browser: { profile } },
 });
 
 const canvas = (...nodes: ReadonlyArray<CanvasNode>): CanvasDoc => ({
@@ -93,7 +95,7 @@ class RecordingLocalTransport extends LocalMirrorTransport {
 const setup = (
   doc: CanvasDoc = canvas(agentNode(), pageNode()),
   overrides: Partial<
-    Pick<BrowserAutomationProductDependencies, "makeLocalTransport">
+    Pick<BrowserAutomationProductDependencies, "makeLocalTransport" | "profileGate">
   > = {},
 ) => {
   let automationSequence = 0;
@@ -189,6 +191,74 @@ const startedHerdrAgent = (
 });
 
 describe("browser automation production product", () => {
+  it("shares an injected gate across registry and runtime denial without cleanup collateral", async () => {
+    const profileGate = new BrowserProfileGate();
+    expect(profileGate.begin("default")).toMatchObject({ ok: true });
+    const { product, sessions, chat, herdr, dependencies } = setup(
+      canvas(agentNode(), pageNode()),
+      { profileGate },
+    );
+    const principal = product.registry.createPrincipal();
+
+    expect(() => product.registry.issue(principal, {
+      actions: ["profiles"],
+      targets: [
+        {
+          ref: PAGE_REF,
+          profile: "default",
+          exactOrigins: ["https://github.com"],
+        },
+      ],
+      ttlMs: 60_000,
+      maxUses: 1,
+      maxInFlight: 1,
+    })).toThrow(BrowserCapabilityIssueDenied);
+    await expect(product.runtime.enable({ kind: "hermes", ref: HERMES_REF })).resolves.toEqual({
+      ok: false,
+      code: "cancelled",
+    });
+
+    expect(dependencies.confirm).not.toHaveBeenCalled();
+    expect(chat.chatRestartWithLocalBrowserAuthority).not.toHaveBeenCalled();
+    expect(chat.chatRevokeLocalBrowserAuthority).not.toHaveBeenCalled();
+    expect(herdr.killPane).not.toHaveBeenCalled();
+    expect(sessions.destroyOwnerSessions).not.toHaveBeenCalled();
+    expect(product.registry.stats().activeCapabilities).toBe(0);
+  });
+
+  it("keeps an unrelated profile viable through both product authority paths", async () => {
+    const profileGate = new BrowserProfileGate();
+    expect(profileGate.begin("default")).toMatchObject({ ok: true });
+    const { product, sessions, chat, herdr, dependencies } = setup(
+      canvas(agentNode(), pageNode("work")),
+      { profileGate },
+    );
+    const principal = product.registry.createPrincipal();
+    const direct = product.registry.issue(principal, {
+      actions: ["profiles"],
+      targets: [
+        {
+          ref: PAGE_REF,
+          profile: "work",
+          exactOrigins: ["https://github.com"],
+        },
+      ],
+      ttlMs: 60_000,
+      maxUses: 1,
+      maxInFlight: 1,
+    });
+    const automated = await product.runtime.enable({ kind: "hermes", ref: HERMES_REF });
+
+    expect(direct.targets).toMatchObject([{ profile: "work" }]);
+    expect(automated).toMatchObject({ ok: true });
+    expect(dependencies.confirm).toHaveBeenCalledTimes(1);
+    expect(chat.chatRestartWithLocalBrowserAuthority).toHaveBeenCalledTimes(1);
+    expect(chat.chatRevokeLocalBrowserAuthority).not.toHaveBeenCalled();
+    expect(herdr.killPane).not.toHaveBeenCalled();
+    expect(sessions.destroyOwnerSessions).not.toHaveBeenCalled();
+    expect(product.registry.stats().activeCapabilities).toBe(2);
+  });
+
   it("uses its exposed registry and isolates ordered termination observers", async () => {
     const { product, sessions } = setup();
     const order: string[] = [];

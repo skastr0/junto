@@ -11,6 +11,7 @@ import {
 } from "./capabilities";
 import { startLocalHerdrBrowserAgent } from "./herdr-agent-delivery";
 import type { PageTargetResolver } from "./page-target";
+import { makeBrowserProfileGate, type BrowserProfileGate } from "./profile-gate";
 import type { BrowserSessionService } from "./sessions";
 import type { ChatService } from "../chat/service";
 import { LocalMirrorTransport } from "../herdr/mirror-transport";
@@ -40,6 +41,8 @@ export interface BrowserAutomationProductDependencies {
   readonly confirm: (request: BrowserAutomationConfirmation) => Promise<boolean>;
   readonly controlHome?: string;
   readonly makeAutomationId?: () => string;
+  /** Production injects the gate shared with browser session/profile lifecycle. */
+  readonly profileGate?: BrowserProfileGate;
   /** Test seam; production omits this and gets a fresh real local transport. */
   readonly makeLocalTransport?: () => LocalMirrorTransport;
 }
@@ -154,7 +157,9 @@ export const makeBrowserAutomationProduct = (
   dependencies: BrowserAutomationProductDependencies,
 ): BrowserAutomationProduct => {
   let terminationRuntime: BrowserAutomationRuntime | undefined;
+  const profileGate = dependencies.profileGate ?? makeBrowserProfileGate();
   const registry = makeBrowserCapabilityRegistry({
+    profileGate,
     onTerminate: (notice) => {
       try {
         dependencies.sessions.destroyOwnerSessions(notice.auditId, TERMINATION_REASON);
@@ -174,6 +179,7 @@ export const makeBrowserAutomationProduct = (
     resolvePageTarget: dependencies.resolvePageTarget,
     getHerdrPaneMeta: dependencies.getHerdrPaneMeta,
     confirm: dependencies.confirm,
+    profileGate,
     deliver: (delivery) =>
       delivery.plan.kind === "hermes"
         ? deliverHermes(dependencies, {
