@@ -342,8 +342,6 @@ export function App() {
         onOpen={(name) => void openCanvas(name)}
         onCreate={(name) => void createCanvas(name)}
         onDelete={(name) => void deleteCanvas(name)}
-        onUndo={undo}
-        onRedo={redo}
         onExport={() => void exportDigest()}
         onRefresh={() => void refreshSnapshots()}
       />

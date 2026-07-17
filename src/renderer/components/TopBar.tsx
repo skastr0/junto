@@ -1,6 +1,6 @@
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useRef, useState } from "react";
-import { Activity, CircleHelp, FileDown, Plus, Redo2, RefreshCw, Search, Settings2, Trash2, Undo2, X } from "lucide-react";
+import { Activity, CircleHelp, FileDown, Plus, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
 import type { EntitySource } from "@shared/entities";
 import type { CanvasSummary } from "@shared/ipc";
 import { state$ } from "../lib/state";
@@ -42,7 +42,6 @@ function HelpPopover({ onClose }: { readonly onClose: () => void }) {
     ["drag edge dot", "connect nodes (drop anywhere on a card)"],
     ["select + corners", "resize a node"],
     ["click edge", "inspect edge"],
-    ["⌘Z · ⇧⌘Z", "undo / redo"],
     ["Escape", "close overlays / clear selection"],
   ] as const;
   return <aside className="station-help-popover" role="dialog" aria-label="Interaction help">
@@ -189,12 +188,6 @@ function SearchField({ canvasName }: { readonly canvasName: string }) {
   return <label className="station-search" title="Search nodes · / or ⌘K"><Search size={14} /><input ref={inputRef} aria-label={label} value={value} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setSearch(""); inputRef.current?.blur(); } }} placeholder="search nodes" />{value ? <button type="button" className="station-search__clear" aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button> : null}</label>;
 }
 
-function HistoryButtons({ onUndo, onRedo }: { readonly onUndo: () => void; readonly onRedo: () => void }) {
-  const canUndo = use$(state$.canUndo);
-  const canRedo = use$(state$.canRedo);
-  return <div className="station-history"><button disabled={!canUndo} aria-label="Undo last change" title="undo" onClick={onUndo}><Undo2 size={13} /></button><button disabled={!canRedo} aria-label="Redo last change" title="redo" onClick={onRedo}><Redo2 size={13} /></button></div>;
-}
-
 function SaveStatus() {
   const saveState = use$(state$.saveState);
   const label = saveState === "saving" ? "saving" : saveState === "error" ? "save error" : "saved";
@@ -206,16 +199,12 @@ export function TopBar({
   onOpen,
   onCreate,
   onDelete,
-  onUndo,
-  onRedo,
   onExport,
   onRefresh,
 }: {
   readonly onOpen: (name: string) => void;
   readonly onCreate: (name: string) => void;
   readonly onDelete: (name: string) => void;
-  readonly onUndo: () => void;
-  readonly onRedo: () => void;
   readonly onExport: () => void;
   readonly onRefresh: () => void;
 }) {
@@ -244,7 +233,6 @@ export function TopBar({
     <header className="station-bar">
       <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
       <SearchField canvasName={canvasName} />
-      <HistoryButtons onUndo={onUndo} onRedo={onRedo} />
       <SaveStatus />
       <div className="station-actions relative ml-auto flex items-center gap-3"><div className="station-sources">{SOURCES.map((source) => <SourceDot key={source} source={source} active={healthOpen} onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }} />)}</div><button type="button" className="station-health-trigger" aria-label="Open connectors" aria-expanded={healthOpen} aria-haspopup="dialog" onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }}><Activity size={14} /></button><button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => { setHealthOpen(false); setHelpOpen((open) => !open); }}><CircleHelp size={14} /></button>{healthOpen ? <ConnectorsPopover onClose={() => setHealthOpen(false)} /> : null}{helpOpen ? <HelpPopover onClose={() => setHelpOpen(false)} /> : null}<button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="settings" onClick={() => { setHealthOpen(false); setHelpOpen(false); openSettings(); }}><Settings2 size={15} /></button><button className="station-icon-button" disabled={refreshing} aria-label={refreshing ? "Refreshing snapshots" : "Refresh snapshots"} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.cyan }} title={refreshing ? "refreshing snapshots" : "refresh snapshots"} onClick={onRefresh}><RefreshCw size={15} className={refreshing ? "station-spin" : ""} /></button><button className="station-digest-button inline-flex items-center gap-2" disabled={exporting} aria-label={exporting ? "Exporting digest" : "Export digest"} style={{ borderColor: "rgba(232,163,61,.35)", color: HUE.amber }} title={exporting ? "exporting digest" : "export digest"} onClick={onExport}><FileDown size={14} className={exporting ? "station-spin" : ""} /><span>{exporting ? "syncing" : "digest"}</span></button></div>
     </header>
