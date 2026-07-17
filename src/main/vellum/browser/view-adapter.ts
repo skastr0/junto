@@ -360,9 +360,20 @@ const makeElectronViewAdapter = (
       safeDialogs: true,
     },
   });
+  let terminationExpected = false;
+  let unexpectedTerminationReported = false;
+  const reportUnexpectedTermination = (): void => {
+    if (terminationExpected || unexpectedTerminationReported) return;
+    unexpectedTerminationReported = true;
+    events.onUnexpectedTermination();
+  };
   const destroyed = new Promise<void>((resolveDestroyed) => {
-    view.webContents.once("destroyed", () => resolveDestroyed());
+    view.webContents.once("destroyed", () => {
+      resolveDestroyed();
+      reportUnexpectedTermination();
+    });
   });
+  view.webContents.on("render-process-gone", reportUnexpectedTermination);
 
   let expectedNavigation: { readonly url: string; readonly sessionId: string } | undefined;
   let activeNavigation: { readonly url: string; readonly sessionId: string } | undefined;
@@ -523,7 +534,9 @@ const makeElectronViewAdapter = (
     },
     destroy: () => {
       // Runtime teardown only — the persist: partition (cookies) is on disk.
-      view.webContents.close();
+      if (terminationExpected) return;
+      terminationExpected = true;
+      if (!view.webContents.isDestroyed()) view.webContents.close();
     },
     whenDestroyed: () => destroyed,
     // Hardened automation runs in a dedicated isolated world. DOM and Web APIs

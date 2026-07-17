@@ -72,6 +72,12 @@ export interface BrowserViewEvents {
   readonly onLoadOk: (sessionId: string, title?: string) => void;
   readonly onLoadFail: (sessionId: string, message: string) => void;
   readonly onNavigationUrl: (sessionId: string, url: string) => void;
+  /**
+   * Electron reports an unplanned WebContents loss through either
+   * `render-process-gone` or `destroyed`. The adapter coalesces both signals
+   * before crossing this seam.
+   */
+  readonly onUnexpectedTermination: () => void;
 }
 
 export interface BrowserViewOptions {
@@ -129,7 +135,10 @@ type PowerfulOperationKind = "navigation" | "eval" | "screenshot";
 
 class BrowserOperationFailure extends Error {
   constructor(
-    readonly code: Extract<BrowserErrorCode, "timeout" | "cancelled" | "not_found">,
+    readonly code: Extract<
+      BrowserErrorCode,
+      "timeout" | "cancelled" | "not_found" | "failed"
+    >,
     message: string,
   ) {
     super(message);
@@ -951,6 +960,20 @@ export class BrowserSessionService {
     this.destroySession(sessionId);
   }
 
+  private viewTerminatedUnexpectedly(entry: SessionEntry): void {
+    if (!this.isCurrent(entry)) return;
+    try {
+      this.destroySession(
+        entry.sessionId,
+        new BrowserOperationFailure("failed", "browser renderer terminated unexpectedly"),
+      );
+    } catch {
+      // destroySession unregisters before invoking fallible adapter teardown.
+      // An Electron lifecycle callback must never escalate that physical
+      // cleanup failure into an uncaught main-process exception.
+    }
+  }
+
   async listProfiles(): Promise<
     BrowserResult<ReadonlyArray<{ id: string; label?: string; default?: boolean }>>
   > {
@@ -1149,6 +1172,7 @@ export class BrowserSessionService {
           onLoadFail: (sessionId, message) =>
             this.finishGeneration(entry, sessionId, { type: "load_fail", message }),
           onNavigationUrl: (sessionId, url) => this.updateGenerationUrl(entry, sessionId, url),
+          onUnexpectedTermination: () => this.viewTerminatedUnexpectedly(entry),
         },
         owner === BROWSER_UI_SESSION_OWNER || entry.currentOrigin === undefined
           ? undefined

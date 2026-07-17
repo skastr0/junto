@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:browser:electron": "bun scripts/browser-electron-containment-probe.ts",
+    "test:browser:crash-recovery": "bun scripts/browser-electron-renderer-crash-recovery-probe.ts",
     "test:browser:profile-wipe": "bun scripts/browser-electron-profile-wipe-probe.ts",
     "verify": "bun run typecheck && bun run test && electron-vite build",
     "app:build": "bash scripts/build-app.sh",

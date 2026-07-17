@@ -820,6 +820,105 @@ describe("BrowserSessionService", () => {
     await pending;
   });
 
+  it("invalidates only the crashed session, fails its operation once, and reopens its ref", async () => {
+    const hangingEvaluation = deferred<unknown>();
+    const views: Array<{
+      readonly events: BrowserViewEvents;
+      readonly destroy: ReturnType<typeof vi.fn>;
+    }> = [];
+    const adapter: BrowserViewAdapter = (_partition, events) => {
+      const index = views.length;
+      const destroy = vi.fn();
+      views.push({ events, destroy });
+      return {
+        loadUrl: (url, expectedSessionId) => {
+          events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
+          events.onLoadOk(expectedSessionId);
+        },
+        attach: () => {},
+        setBounds: () => {},
+        detach: () => {},
+        destroy,
+        executeJavaScript: () =>
+          index === 0
+            ? hangingEvaluation.promise
+            : Promise.resolve({ __vellumEval: 1, status: "ok", json: '"usable"' }),
+      };
+    };
+    const { service } = makeService(adapter);
+    const crashedTarget = target("crashed");
+    const crashed = await service.openForOwner("job-crashed", crashedTarget);
+    const sibling = await service.openForOwner("job-sibling", target("sibling"));
+    if (!crashed.ok || !sibling.ok) throw new Error("open failed");
+
+    const evaluation = service.evalForOwner(
+      "job-crashed",
+      crashed.data.sessionId,
+      "new Promise(() => {})",
+    );
+    await Promise.resolve();
+    views[0]?.events.onUnexpectedTermination();
+    views[0]?.events.onUnexpectedTermination();
+
+    await expect(evaluation).resolves.toEqual({
+      ok: false,
+      code: "failed",
+      message: "browser renderer terminated unexpectedly",
+    });
+    expect(service.stateForOwner("job-crashed", crashed.data.sessionId)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+    expect(service.stateForOwner("job-sibling", sibling.data.sessionId)).toMatchObject({
+      ok: true,
+    });
+    expect(views[0]?.destroy).toHaveBeenCalledOnce();
+    expect(views[1]?.destroy).not.toHaveBeenCalled();
+    await expect(
+      service.evalForOwner("job-sibling", sibling.data.sessionId, "document.title"),
+    ).resolves.toMatchObject({ ok: true, data: { result: "usable" } });
+
+    const reopened = await service.openForOwner("job-crashed", crashedTarget);
+    if (!reopened.ok) throw new Error("reopen failed");
+    expect(reopened.data.sessionId).not.toBe(crashed.data.sessionId);
+    expect(views).toHaveLength(3);
+    await expect(
+      service.evalForOwner("job-crashed", reopened.data.sessionId, "document.title"),
+    ).resolves.toMatchObject({ ok: true, data: { result: "usable" } });
+  });
+
+  it("settles a crashed navigation waiter exactly once with a fixed failure", async () => {
+    const { service, views } = makeDefaultService();
+    const page = target("crashed-navigation");
+    const opened = await service.openForOwner("job-navigation", page);
+    if (!opened.ok) throw new Error("open failed");
+    const terminal = service.awaitNavigationTerminalForOwner(
+      "job-navigation",
+      opened.data.sessionId,
+    );
+    const resolve = vi.fn();
+    void terminal.then(resolve);
+
+    views[0]?.events.onUnexpectedTermination();
+    views[0]?.events.onUnexpectedTermination();
+    await expect(terminal).resolves.toEqual({
+      ok: false,
+      code: "failed",
+      message: "browser renderer terminated unexpectedly",
+    });
+    await Promise.resolve();
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(views[0]?.calls.filter((call) => call === "destroy")).toHaveLength(1);
+    expect(service.stateForOwner("job-navigation", opened.data.sessionId)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+
+    const reopened = await service.openForOwner("job-navigation", page);
+    expect(reopened).toMatchObject({ ok: true, data: { sessionId: "session-2" } });
+    expect(views).toHaveLength(2);
+  });
+
   it("rejects powerful operations above the global active ceiling", async () => {
     const profileService = makeBrowserProfileService(root);
     const config = await import("node:fs/promises").then(async ({ readFile, writeFile }) => {

@@ -48,6 +48,7 @@ const electron = vi.hoisted(() => {
     }> = [];
     mainWorldEvalCalls = 0;
     closeCalls = 0;
+    destroyed = false;
 
     constructor(readonly session: FakeSession) {}
 
@@ -97,6 +98,9 @@ const electron = vi.hoisted(() => {
 
     close(): void {
       this.closeCalls += 1;
+    }
+    isDestroyed(): boolean {
+      return this.destroyed;
     }
     executeJavaScript(): Promise<unknown> {
       this.mainWorldEvalCalls += 1;
@@ -186,6 +190,7 @@ describe("electron browser view generation seam", () => {
     const completed: Array<readonly [string, string | undefined]> = [];
     const failed: Array<readonly [string, string]> = [];
     const ambiguous: string[] = [];
+    const unexpectedTerminations: number[] = [];
     let pageGeneration = 1;
     const handle = electronViewAdapter(
       "persist:test",
@@ -198,13 +203,39 @@ describe("electron browser view generation seam", () => {
         onNavigationUrl: (sessionId, url) => urls.push([sessionId, url]),
         onLoadOk: (sessionId, title) => completed.push([sessionId, title]),
         onLoadFail: (sessionId, message) => failed.push([sessionId, message]),
+        onUnexpectedTermination: () => unexpectedTerminations.push(1),
       },
       exactTopLevelOrigin === undefined ? undefined : { exactTopLevelOrigin },
     );
-    const webContents = electron.views[0]?.webContents;
+    const webContents = electron.views.at(-1)?.webContents;
     if (webContents === undefined) throw new Error("view was not created");
-    return { handle, webContents, starts, urls, completed, failed, ambiguous };
+    return {
+      handle,
+      webContents,
+      starts,
+      urls,
+      completed,
+      failed,
+      ambiguous,
+      unexpectedTerminations,
+    };
   };
+
+  it("coalesces renderer-loss signals and suppresses intentional destruction", () => {
+    const crashed = setup();
+    crashed.webContents.emit("render-process-gone", {}, { reason: "crashed", exitCode: 1 });
+    crashed.webContents.destroyed = true;
+    crashed.webContents.emit("destroyed");
+    expect(crashed.unexpectedTerminations).toEqual([1]);
+
+    const intentional = setup();
+    intentional.handle.destroy();
+    intentional.handle.destroy();
+    intentional.webContents.destroyed = true;
+    intentional.webContents.emit("destroyed");
+    expect(intentional.webContents.closeCalls).toBe(1);
+    expect(intentional.unexpectedTerminations).toEqual([]);
+  });
 
   it("normalizes a programmatic URL before matching its expected generation", () => {
     const { handle, webContents, starts, completed } = setup();
