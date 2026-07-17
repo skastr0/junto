@@ -2,12 +2,24 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { createServer, request, type Server } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Either } from "effect";
 import {
+  CONTROL_CAPABILITY_HEADER,
+  CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
   CONTROL_TOKEN_HEADER,
   controlSocketPath,
@@ -37,6 +49,7 @@ let activeProbeChild: ChildProcess | undefined;
 let activeProbeServer: Server | undefined;
 let activeSentinelServer: Server | undefined;
 let activeProbeRoot: string | undefined;
+const observedControlResponseJson: string[] = [];
 // macOS limits AF_UNIX paths to roughly 104 bytes. os.tmpdir() expands to a
 // long /var/folders path, so this hermetic probe deliberately uses /tmp.
 const PROBE_TEMP_PREFIX = "/tmp/vbe-";
@@ -57,6 +70,7 @@ interface ProbeAudit {
     readonly type: string;
   }>;
   readonly externalProtocolDispatches: ReadonlyArray<string>;
+  readonly capabilityRevoked: boolean;
   readonly ready: boolean;
 }
 
@@ -69,6 +83,7 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
     typeof value.browserWindows !== "number" ||
     !Array.isArray(value.createdWebContents) ||
     !Array.isArray(value.externalProtocolDispatches) ||
+    typeof value.capabilityRevoked !== "boolean" ||
     typeof value.ready !== "boolean"
   ) {
     throw new Error("dedicated Electron probe emitted a malformed audit");
@@ -89,8 +104,71 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
     browserWindows: value.browserWindows,
     createdWebContents,
     externalProtocolDispatches: value.externalProtocolDispatches as string[],
+    capabilityRevoked: value.capabilityRevoked,
     ready: value.ready,
   };
+};
+
+interface CapabilityHandoff {
+  readonly version: 1;
+  readonly capability: string;
+  readonly unrelatedCapability: string;
+  readonly siblingCapability: string;
+}
+
+const CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+const decodeCapabilityHandoff = (value: unknown): CapabilityHandoff => {
+  if (
+    !isRecord(value) ||
+    value.version !== 1 ||
+    typeof value.capability !== "string" ||
+    typeof value.unrelatedCapability !== "string" ||
+    typeof value.siblingCapability !== "string" ||
+    !CAPABILITY_PATTERN.test(value.capability) ||
+    !CAPABILITY_PATTERN.test(value.unrelatedCapability) ||
+    !CAPABILITY_PATTERN.test(value.siblingCapability) ||
+    new Set([
+      value.capability,
+      value.unrelatedCapability,
+      value.siblingCapability,
+    ]).size !== 3
+  ) {
+    throw new Error("dedicated Electron probe emitted a malformed capability handoff");
+  }
+  return {
+    version: 1,
+    capability: value.capability,
+    unrelatedCapability: value.unrelatedCapability,
+    siblingCapability: value.siblingCapability,
+  };
+};
+
+const waitForCapabilityHandoff = async (
+  path: string,
+  childExited: () => boolean,
+): Promise<CapabilityHandoff> => {
+  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
+  let lastError = "capability handoff not ready";
+  while (Date.now() < deadline) {
+    if (childExited()) throw new Error("Electron exited before capability handoff became ready");
+    try {
+      const [metadata, encoded] = await Promise.all([stat(path), readFile(path, "utf8")]);
+      try {
+        if ((metadata.mode & 0o777) !== 0o600 || !metadata.isFile()) {
+          throw new Error("capability handoff is not an owner-only regular file");
+        }
+        return decodeCapabilityHandoff(JSON.parse(encoded));
+      } finally {
+        await unlink(path);
+      }
+    } catch (error) {
+      if (!isRecord(error) || error.code !== "ENOENT") throw error;
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await delay(50);
+  }
+  throw new Error(`capability handoff timed out: ${lastError}`);
 };
 
 const waitForAudit = async (
@@ -103,7 +181,7 @@ const waitForAudit = async (
     try {
       const audit = decodeProbeAudit(JSON.parse(await readFile(path, "utf8")));
       if (predicate(audit)) return audit;
-      lastError = "audit predicate not yet satisfied";
+      lastError = `audit predicate not yet satisfied (${JSON.stringify(audit)})`;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
@@ -149,15 +227,21 @@ const buildDedicatedElectronEntry = async (root: string): Promise<string> => {
 const appendBounded = (current: string, chunk: Buffer): string =>
   (current + chunk.toString("utf8")).slice(-MAX_LOG_BYTES);
 
+interface ControlCallOptions {
+  readonly capability?: string;
+  readonly timeoutMs?: number;
+}
+
 const controlCall = (
   socketPath: string,
   token: string,
   routeName: ControlRouteName,
   body?: unknown,
-  timeoutMs = CONTROL_TIMEOUT_MS,
+  options: ControlCallOptions = {},
 ): Promise<ControlEnvelope<unknown>> =>
   new Promise((resolveCall, rejectCall) => {
     const route = CONTROL_ROUTES[routeName];
+    const timeoutMs = options.timeoutMs ?? CONTROL_TIMEOUT_MS;
     let settled = false;
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const settle = (result: { readonly value: ControlEnvelope<unknown> } | { readonly error: unknown }): void => {
@@ -175,6 +259,12 @@ const controlCall = (
         headers: {
           "content-type": "application/json",
           [CONTROL_TOKEN_HEADER]: token,
+          ...(options.capability === undefined
+            ? {}
+            : {
+                [CONTROL_CAPABILITY_HEADER]: options.capability,
+                [CONTROL_REQUEST_ID_HEADER]: randomUUID(),
+              }),
         },
       },
       (res) => {
@@ -182,8 +272,10 @@ const controlCall = (
         res.on("data", (chunk: Buffer) => chunks.push(chunk));
         res.on("end", () => {
           try {
+            const encoded = Buffer.concat(chunks).toString("utf8");
+            observedControlResponseJson.push(encoded);
             const decoded = decodeControlEnvelope(
-              JSON.parse(Buffer.concat(chunks).toString("utf8")),
+              JSON.parse(encoded),
             );
             if (Either.isLeft(decoded)) {
               settle({ error: new Error(decoded.left.message) });
@@ -211,6 +303,37 @@ const requireOk = (envelope: ControlEnvelope<unknown>, operation: string): unkno
   return envelope.data;
 };
 
+const requireDenied = (
+  envelope: ControlEnvelope<unknown>,
+  expectedTag: "unauthorized" | "forbidden",
+  operation: string,
+): void => {
+  if (envelope.ok || envelope.error._tag !== expectedTag) {
+    throw new Error(
+      envelope.ok
+        ? `${operation}: unexpectedly succeeded`
+        : `${operation}: expected ${expectedTag}, received ${envelope.error._tag}`,
+    );
+  }
+};
+
+const assertSecretsAbsent = (
+  secrets: ReadonlyArray<string>,
+  artifacts: ReadonlyArray<readonly [name: string, value: string]>,
+): void => {
+  for (const [name, value] of artifacts) {
+    if (secrets.some((secret) => value.includes(secret))) {
+      throw new Error(`capability bearer leaked into ${name}`);
+    }
+  }
+};
+
+const redactKnownSecrets = (value: string, secrets: ReadonlyArray<string>): string =>
+  secrets.reduce(
+    (redacted, secret) => redacted.replaceAll(secret, ""),
+    value,
+  );
+
 const waitForControl = async (
   home: string,
   childExited: () => boolean,
@@ -236,6 +359,7 @@ const waitForControl = async (
 const waitForReport = async (
   socketPath: string,
   token: string,
+  capability: string,
   sessionId: string,
 ): Promise<Record<string, unknown>> => {
   const deadline = Date.now() + PAGE_TIMEOUT_MS;
@@ -250,7 +374,7 @@ const waitForReport = async (
             if (node?.dataset.mainWorldPoisoned !== "true") return null;
             return JSON.parse(node.textContent || "null");
           })()`,
-        }),
+        }, { capability }),
         `eval ${sessionId}`,
       );
       if (isRecord(data) && isRecord(data.result)) return data.result;
@@ -265,13 +389,17 @@ const waitForReport = async (
 const waitForSessionInvalidation = async (
   socketPath: string,
   token: string,
+  capability: string,
   sessionId: string,
 ): Promise<void> => {
   const deadline = Date.now() + EVAL_INVALIDATION_TIMEOUT_MS;
   let lastError = "session still registered";
   while (Date.now() < deadline) {
     try {
-      const sessions = requireOk(await controlCall(socketPath, token, "sessions"), "sessions");
+      const sessions = requireOk(
+        await controlCall(socketPath, token, "sessions", undefined, { capability }),
+        "sessions",
+      );
       if (!Array.isArray(sessions)) throw new Error("sessions response is not an array");
       const stillRegistered = sessions.some(
         (session) => isRecord(session) && session.sessionId === sessionId,
@@ -289,12 +417,13 @@ const waitForSessionInvalidation = async (
 const assertStaleSessionRejected = async (
   socketPath: string,
   token: string,
+  capability: string,
   sessionId: string,
 ): Promise<void> => {
   const envelope = await controlCall(socketPath, token, "eval", {
     sessionId,
     code: "1",
-  });
+  }, { capability });
   if (envelope.ok || envelope.error._tag !== "not_found") {
     throw new Error(`stale session ${sessionId} was not rejected as not_found`);
   }
@@ -303,6 +432,7 @@ const assertStaleSessionRejected = async (
 const startNeverReturningEval = async (
   socketPath: string,
   token: string,
+  capability: string,
   sessionId: string,
 ): Promise<void> => {
   const envelope = await controlCall(
@@ -313,7 +443,7 @@ const startNeverReturningEval = async (
       sessionId,
       code: "(() => { for (;;) {} })()",
     },
-    EVAL_INVALIDATION_TIMEOUT_MS,
+    { capability, timeoutMs: EVAL_INVALIDATION_TIMEOUT_MS },
   );
   if (envelope.ok || envelope.error._tag !== "timeout") {
     throw new Error(
@@ -448,15 +578,286 @@ const stopChild = async (child: ChildProcess): Promise<void> => {
   }
 };
 
+const qualifyCapabilityAdmission = async (
+  socketPath: string,
+  token: string,
+  handoff: CapabilityHandoff,
+  canvasName: string,
+  pageTargets: ReadonlyArray<{ readonly nodeId: string }>,
+): Promise<void> => {
+  requireDenied(
+    await controlCall(socketPath, token, "profiles"),
+    "unauthorized",
+    "token-only protected call",
+  );
+  requireDenied(
+    await controlCall(socketPath, token, "profiles", undefined, {
+      capability: handoff.unrelatedCapability,
+    }),
+    "unauthorized",
+    "unrelated-registry capability",
+  );
+  requireDenied(
+    await controlCall(socketPath, token, "pages", undefined, {
+      capability: handoff.siblingCapability,
+    }),
+    "forbidden",
+    "wrong-action capability",
+  );
+  requireDenied(
+    await controlCall(
+      socketPath,
+      token,
+      "open",
+      { ref: formatNodeRef({ canvasName, nodeId: "personal-seed" }) },
+      { capability: handoff.siblingCapability },
+    ),
+    "forbidden",
+    "wrong-target capability",
+  );
+
+  const profiles = requireOk(
+    await controlCall(socketPath, token, "profiles", undefined, {
+      capability: handoff.capability,
+    }),
+    "profiles",
+  );
+  if (
+    !Array.isArray(profiles) ||
+    !["personal", "work"].every((id) =>
+      profiles.some((profile) => isRecord(profile) && profile.id === id),
+    )
+  ) {
+    throw new Error("full capability did not expose both scoped profiles");
+  }
+
+  const pages = requireOk(
+    await controlCall(socketPath, token, "pages", undefined, {
+      capability: handoff.capability,
+    }),
+    "pages",
+  );
+  const expectedRefs = new Set<string>(
+    pageTargets.map(({ nodeId }) => formatNodeRef({ canvasName, nodeId })),
+  );
+  if (
+    !Array.isArray(pages) ||
+    pages.length !== expectedRefs.size ||
+    pages.some((page) => !isRecord(page) || !expectedRefs.has(String(page.ref)))
+  ) {
+    throw new Error("full capability did not expose exactly the five scoped page refs");
+  }
+
+  const initialSessions = requireOk(
+    await controlCall(socketPath, token, "sessions", undefined, {
+      capability: handoff.capability,
+    }),
+    "sessions",
+  );
+  if (!Array.isArray(initialSessions) || initialSessions.length !== 0) {
+    throw new Error("new capability owner inherited browser sessions");
+  }
+};
+
+const openCapabilityPage = async (
+  socketPath: string,
+  token: string,
+  capability: string,
+  canvasName: string,
+  nodeId: string,
+): Promise<string> => {
+  const ref = formatNodeRef({ canvasName, nodeId });
+  const data = requireOk(
+    await controlCall(socketPath, token, "open", { ref }, { capability }),
+    `open ${ref}`,
+  );
+  if (!isRecord(data) || typeof data.sessionId !== "string") {
+    throw new Error(`open ${ref}: response has no sessionId`);
+  }
+  return data.sessionId;
+};
+
+const openAndQualifySiblingOwner = async (
+  socketPath: string,
+  token: string,
+  siblingCapability: string,
+  canvasName: string,
+  fixtureOrigin: string,
+  customProtocolUrl: string,
+): Promise<string> => {
+  const sessionId = await openCapabilityPage(
+    socketPath,
+    token,
+    siblingCapability,
+    canvasName,
+    "work-read",
+  );
+  const report = await waitForReport(socketPath, token, siblingCapability, sessionId);
+  assertContainment(report, fixtureOrigin, customProtocolUrl);
+  const sessions = requireOk(
+    await controlCall(socketPath, token, "sessions", undefined, {
+      capability: siblingCapability,
+    }),
+    "sibling sessions",
+  );
+  if (
+    !Array.isArray(sessions) ||
+    sessions.length !== 1 ||
+    !sessions.some((session) => isRecord(session) && session.sessionId === sessionId)
+  ) {
+    throw new Error("sibling capability did not own exactly its isolated session");
+  }
+  return sessionId;
+};
+
+const qualifyCapabilityRevocation = async (options: {
+  readonly socketPath: string;
+  readonly token: string;
+  readonly capability: string;
+  readonly siblingCapability: string;
+  readonly siblingSessionId: string;
+  readonly auditPath: string;
+  readonly revokeMarkerPath: string;
+  readonly fixtureOrigin: string;
+  readonly customProtocolUrl: string;
+  readonly legacyTcpPort: number;
+  readonly downloadsDir: string;
+  readonly privateSentinelRequests: number;
+  readonly popupRequests: number;
+}): Promise<ProbeAudit> => {
+  await writeFile(options.revokeMarkerPath, "revoke\n", {
+    encoding: "utf8",
+    flag: "wx",
+    mode: 0o600,
+  });
+  const audit = await waitForAudit(
+    options.auditPath,
+    (candidate) =>
+      candidate.capabilityRevoked &&
+      candidate.currentWebContents === candidate.baselineWebContents + 1,
+  );
+  if (audit.browserWindows !== 0) {
+    throw new Error("capability revocation created an unmanaged BrowserWindow");
+  }
+  requireDenied(
+    await controlCall(options.socketPath, options.token, "sessions", undefined, {
+      capability: options.capability,
+    }),
+    "unauthorized",
+    "revoked capability",
+  );
+  const siblingSessions = requireOk(
+    await controlCall(options.socketPath, options.token, "sessions", undefined, {
+      capability: options.siblingCapability,
+    }),
+    "sibling sessions after revocation",
+  );
+  if (
+    !Array.isArray(siblingSessions) ||
+    siblingSessions.length !== 1 ||
+    !siblingSessions.some(
+      (session) => isRecord(session) && session.sessionId === options.siblingSessionId,
+    )
+  ) {
+    throw new Error("revoking one capability destroyed a sibling owner's session");
+  }
+  const report = await waitForReport(
+    options.socketPath,
+    options.token,
+    options.siblingCapability,
+    options.siblingSessionId,
+  );
+  assertContainment(report, options.fixtureOrigin, options.customProtocolUrl);
+  if (audit.browserWindows !== 0 || audit.externalProtocolDispatches.length !== 0) {
+    throw new Error("revocation qualification left unmanaged browser authority");
+  }
+  await assertTcpControlAbsent(options.legacyTcpPort, options.token);
+  if (options.privateSentinelRequests !== 0 || options.popupRequests !== 0) {
+    throw new Error("sibling qualification escaped hostile-page containment");
+  }
+  if ((await readdir(options.downloadsDir)).length !== 0) {
+    throw new Error("sibling qualification wrote a denied download");
+  }
+  return audit;
+};
+
+const qualifyHostilePolicyAudit = async (options: {
+  readonly auditPath: string;
+  readonly privateSentinelRequests: number;
+  readonly popupRequests: number;
+  readonly downloadRequests: number;
+  readonly downloadsDir: string;
+}): Promise<void> => {
+  const audit = await waitForAudit(
+    options.auditPath,
+    (candidate) => candidate.createdWebContents.length >= 6,
+  );
+  if (
+    audit.createdWebContents.length !== 6 ||
+    audit.browserWindows !== 0 ||
+    audit.currentWebContents > 3
+  ) {
+    throw new Error(
+      `hostile popup created a transient or surviving unmanaged WebContents (${JSON.stringify(audit)})`,
+    );
+  }
+  if (audit.externalProtocolDispatches.length !== 0) {
+    throw new Error("custom protocol escaped into OS protocol dispatch");
+  }
+  if (options.privateSentinelRequests !== 0) {
+    throw new Error(
+      `private loopback sentinel received ${options.privateSentinelRequests} request(s)`,
+    );
+  }
+  if (options.popupRequests !== 0) {
+    throw new Error(`denied popup origin received ${options.popupRequests} request(s)`);
+  }
+  if (options.downloadRequests === 0) {
+    throw new Error("hostile download response did not reach the Electron download policy");
+  }
+  const downloadedFiles = await readdir(options.downloadsDir);
+  if (downloadedFiles.length !== 0) {
+    throw new Error(`denied download wrote files: ${downloadedFiles.join(", ")}`);
+  }
+};
+
+const qualifyCapabilityNonDisclosure = async (options: {
+  readonly outputCapabilityLeak: "stdout" | "stderr" | undefined;
+  readonly knownCapabilities: ReadonlyArray<string>;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly auditPath: string;
+  readonly canvasPath: string;
+  readonly electronArguments: ReadonlyArray<string>;
+}): Promise<void> => {
+  if (options.outputCapabilityLeak !== undefined) {
+    throw new Error(`capability bearer leaked into Electron ${options.outputCapabilityLeak}`);
+  }
+  const [persistedAuditJson, persistedCanvasJson] = await Promise.all([
+    readFile(options.auditPath, "utf8"),
+    readFile(options.canvasPath, "utf8"),
+  ]);
+  assertSecretsAbsent(options.knownCapabilities, [
+    ["Electron stdout", options.stdout],
+    ["Electron stderr", options.stderr],
+    ["probe audit JSON", persistedAuditJson],
+    ["canvas document", persistedCanvasJson],
+    ["Electron argv", JSON.stringify(options.electronArguments)],
+    ["control response JSON", observedControlResponseJson.join("\n")],
+  ]);
+};
+
 const main = async (): Promise<void> => {
   const root = await mkdtemp(PROBE_TEMP_PREFIX);
   activeProbeRoot = root;
   const home = join(root, "home");
   const userData = join(root, "electron-user-data");
   const browserDir = join(root, "browser");
-  const canvasesDir = join(root, "canvases");
+  const canvasesDir = join(home, ".vellum", "canvases");
   const downloadsDir = join(root, "downloads");
   const auditPath = join(root, "electron-audit.json");
+  const capabilityPath = join(root, "browser-capabilities.json");
+  const revokeMarkerPath = join(root, "revoke-capability.marker");
   const markerPath = join(root, `host-marker-${randomUUID()}`);
   const nonce = randomUUID();
   const customProtocolUrl = `vellum-probe://denied/${nonce}`;
@@ -529,25 +930,27 @@ const main = async (): Promise<void> => {
   const pageTargets = [
     { nodeId: "personal-seed", profile: "personal", url: fixtureUrl("seed") },
     { nodeId: "work-read", profile: "work", url: fixtureUrl("read") },
-    { nodeId: "filler-one", profile: "work", url: fixtureUrl("read") },
+    { nodeId: "filler-one", profile: "personal", url: fixtureUrl("read") },
     { nodeId: "filler-two", profile: "work", url: fixtureUrl("read") },
     { nodeId: "personal-restored", profile: "personal", url: fixtureUrl("read") },
   ] as const;
+  const canvasPath = join(canvasesDir, `${canvasName}.canvas`);
+  const canvasJson = JSON.stringify({
+    nodes: pageTargets.map(({ nodeId, profile, url }, index) => ({
+      id: nodeId,
+      type: "link",
+      url,
+      x: index * 420,
+      y: 0,
+      width: 400,
+      height: 300,
+      ether: { entity: { kind: "page" }, browser: { profile } },
+    })),
+    edges: [],
+  });
   await writeFile(
-    join(canvasesDir, `${canvasName}.canvas`),
-    JSON.stringify({
-      nodes: pageTargets.map(({ nodeId, profile, url }, index) => ({
-        id: nodeId,
-        type: "link",
-        url,
-        x: index * 420,
-        y: 0,
-        width: 400,
-        height: 300,
-        ether: { entity: { kind: "page" }, browser: { profile } },
-      })),
-      edges: [],
-    }),
+    canvasPath,
+    canvasJson,
     { encoding: "utf8", mode: 0o600 },
   );
 
@@ -565,17 +968,28 @@ const main = async (): Promise<void> => {
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.NODE_OPTIONS;
 
+  const electronArguments = [
+    dedicatedMainPath,
+    `--user-data-dir=${userData}`,
+    `--fixture-origin=${origin}`,
+    `--browser-root=${browserDir}`,
+    `--control-home=${home}`,
+    `--download-path=${downloadsDir}`,
+    `--audit-path=${auditPath}`,
+    `--capability-path=${capabilityPath}`,
+    `--revoke-marker-path=${revokeMarkerPath}`,
+  ];
+  if (
+    electronArguments.some((argument) =>
+      /--(?:remote-debugging|inspect|inspect-brk)(?:=|$)/.test(argument),
+    )
+  ) {
+    throw new Error("dedicated Electron entry unexpectedly enabled CDP or inspector authority");
+  }
+
   const child = spawn(
     electronPath,
-    [
-      dedicatedMainPath,
-      `--user-data-dir=${userData}`,
-      `--fixture-origin=${origin}`,
-      `--browser-root=${browserDir}`,
-      `--control-home=${home}`,
-      `--download-path=${downloadsDir}`,
-      `--audit-path=${auditPath}`,
-    ],
+    electronArguments,
     {
       cwd: repoRoot,
       env,
@@ -586,11 +1000,24 @@ const main = async (): Promise<void> => {
   let stdout = "";
   let stderr = "";
   let exited = false;
+  let knownCapabilities: string[] = [];
+  let outputCapabilityLeak: "stdout" | "stderr" | undefined;
+  const captureChildOutput = (
+    source: "stdout" | "stderr",
+    current: string,
+    chunk: Buffer,
+  ): string => {
+    const next = appendBounded(current, chunk);
+    if (knownCapabilities.some((secret) => next.includes(secret))) {
+      outputCapabilityLeak ??= source;
+    }
+    return next;
+  };
   child.stdout.on("data", (chunk: Buffer) => {
-    stdout = appendBounded(stdout, chunk);
+    stdout = captureChildOutput("stdout", stdout, chunk);
   });
   child.stderr.on("data", (chunk: Buffer) => {
-    stderr = appendBounded(stderr, chunk);
+    stderr = captureChildOutput("stderr", stderr, chunk);
   });
   child.once("exit", () => {
     exited = true;
@@ -599,6 +1026,22 @@ const main = async (): Promise<void> => {
   try {
     probeStage = "control startup";
     const { socketPath, token } = await waitForControl(home, () => exited);
+    probeStage = "capability handoff";
+    const handoff = await waitForCapabilityHandoff(capabilityPath, () => exited);
+    const { capability, siblingCapability } = handoff;
+    knownCapabilities = [
+      capability,
+      handoff.unrelatedCapability,
+      siblingCapability,
+    ];
+    if (knownCapabilities.some((secret) => stdout.includes(secret))) {
+      outputCapabilityLeak = "stdout";
+    } else if (knownCapabilities.some((secret) => stderr.includes(secret))) {
+      outputCapabilityLeak = "stderr";
+    }
+    if (!(await markerAbsent(capabilityPath))) {
+      throw new Error("parent retained the capability handoff file after reading it");
+    }
     const baselineAudit = await waitForAudit(auditPath, (audit) => audit.ready);
     if (
       baselineAudit.baselineWebContents !== 0 ||
@@ -609,17 +1052,15 @@ const main = async (): Promise<void> => {
       throw new Error("dedicated Electron entry did not start from an empty WebContents baseline");
     }
     await assertTcpControlAbsent(legacyTcpPort, token);
-    const open = async (nodeId: string): Promise<string> => {
-      const ref = formatNodeRef({ canvasName, nodeId });
-      const data = requireOk(await controlCall(socketPath, token, "open", { ref }), `open ${ref}`);
-      if (!isRecord(data) || typeof data.sessionId !== "string") {
-        throw new Error(`open ${ref}: response has no sessionId`);
-      }
-      return data.sessionId;
-    };
+
+    probeStage = "capability admission";
+    await qualifyCapabilityAdmission(socketPath, token, handoff, canvasName, pageTargets);
+
+    const open = (nodeId: string): Promise<string> =>
+      openCapabilityPage(socketPath, token, capability, canvasName, nodeId);
 
     const personalSeedSession = await open("personal-seed");
-    const personalSeed = await waitForReport(socketPath, token, personalSeedSession);
+    const personalSeed = await waitForReport(socketPath, token, capability, personalSeedSession);
     assertContainment(personalSeed, origin, customProtocolUrl);
     const afterFirstPageAudit = await waitForAudit(
       auditPath,
@@ -641,17 +1082,35 @@ const main = async (): Promise<void> => {
     if (!(await markerAbsent(markerPath))) throw new Error("hostile page wrote a host marker");
 
     const workReadSession = await open("work-read");
-    const workRead = await waitForReport(socketPath, token, workReadSession);
+    const workRead = await waitForReport(socketPath, token, capability, workReadSession);
     assertContainment(workRead, origin, customProtocolUrl);
     if (workRead.cookieValue !== null || workRead.storageValue !== null) {
       throw new Error("work profile observed personal profile state");
     }
 
-    await open("filler-one");
+    const timeoutPersonalSession = await open("filler-one");
+    const timeoutPersonal = await waitForReport(
+      socketPath,
+      token,
+      capability,
+      timeoutPersonalSession,
+    );
+    assertContainment(timeoutPersonal, origin, customProtocolUrl);
+    if (timeoutPersonal.cookieValue !== nonce || timeoutPersonal.storageValue !== nonce) {
+      throw new Error("second personal view did not observe its isolated profile state");
+    }
     const unaffectedWorkSession = await open("filler-two");
-    const unaffectedBefore = await waitForReport(socketPath, token, unaffectedWorkSession);
+    const unaffectedBefore = await waitForReport(
+      socketPath,
+      token,
+      capability,
+      unaffectedWorkSession,
+    );
     assertContainment(unaffectedBefore, origin, customProtocolUrl);
-    const sessions = requireOk(await controlCall(socketPath, token, "sessions"), "sessions");
+    const sessions = requireOk(
+      await controlCall(socketPath, token, "sessions", undefined, { capability }),
+      "sessions",
+    );
     if (!Array.isArray(sessions)) throw new Error("sessions response is not an array");
     const nodeIds = sessions
       .filter(isRecord)
@@ -661,32 +1120,45 @@ const main = async (): Promise<void> => {
       throw new Error("warm-pool pressure did not evict the original personal view");
     }
 
-    const personalRestoredSession = await open("personal-restored");
-    const personalRestored = await waitForReport(socketPath, token, personalRestoredSession);
-    assertContainment(personalRestored, origin, customProtocolUrl);
-    if (personalRestored.cookieValue !== nonce || personalRestored.storageValue !== nonce) {
-      throw new Error("personal partition state did not survive WebContents eviction");
-    }
-    if (!(await markerAbsent(markerPath))) throw new Error("hostile page wrote a host marker");
-
     probeStage = "hung eval operation deadline";
-    await startNeverReturningEval(socketPath, token, personalRestoredSession);
+    await startNeverReturningEval(socketPath, token, capability, timeoutPersonalSession);
     probeStage = "hung eval session invalidation";
-    await waitForSessionInvalidation(socketPath, token, personalRestoredSession);
+    await waitForSessionInvalidation(socketPath, token, capability, timeoutPersonalSession);
     probeStage = "stale handle rejection";
-    await assertStaleSessionRejected(socketPath, token, personalRestoredSession);
+    await assertStaleSessionRejected(socketPath, token, capability, timeoutPersonalSession);
+
+    probeStage = "owner-isolation capacity lane";
+    await startNeverReturningEval(socketPath, token, capability, workReadSession);
+    await waitForSessionInvalidation(socketPath, token, capability, workReadSession);
+
+    probeStage = "sibling owner isolation";
+    const siblingSessionId = await openAndQualifySiblingOwner(
+      socketPath,
+      token,
+      siblingCapability,
+      canvasName,
+      origin,
+      customProtocolUrl,
+    );
 
     probeStage = "unaffected work session";
-    const unaffectedAfter = await waitForReport(socketPath, token, unaffectedWorkSession);
+    const unaffectedAfter = await waitForReport(
+      socketPath,
+      token,
+      capability,
+      unaffectedWorkSession,
+    );
     assertContainment(unaffectedAfter, origin, customProtocolUrl);
-    probeStage = "same-profile reopen";
-    const reopenedPersonalSession = await open("personal-restored");
-    if (reopenedPersonalSession === personalRestoredSession) {
-      throw new Error("destroyed WebContents reused its stale session handle");
-    }
-    const reopenedPersonal = await waitForReport(socketPath, token, reopenedPersonalSession);
-    assertContainment(reopenedPersonal, origin, customProtocolUrl);
-    if (reopenedPersonal.cookieValue !== nonce || reopenedPersonal.storageValue !== nonce) {
+    probeStage = "same-profile restoration";
+    const personalRestoredSession = await open("personal-restored");
+    const personalRestored = await waitForReport(
+      socketPath,
+      token,
+      capability,
+      personalRestoredSession,
+    );
+    assertContainment(personalRestored, origin, customProtocolUrl);
+    if (personalRestored.cookieValue !== nonce || personalRestored.storageValue !== nonce) {
       throw new Error("personal profile state did not survive destructive eval timeout");
     }
     if (!(await markerAbsent(markerPath))) throw new Error("hostile page wrote a host marker");
@@ -694,35 +1166,47 @@ const main = async (): Promise<void> => {
     await assertTcpControlAbsent(legacyTcpPort, token);
 
     probeStage = "hostile web policy audit";
-    const finalAudit = await waitForAudit(
+    await qualifyHostilePolicyAudit({
       auditPath,
-      (audit) => audit.createdWebContents.length >= 6,
-    );
-    if (
-      finalAudit.createdWebContents.length !== 6 ||
-      finalAudit.browserWindows !== 0 ||
-      finalAudit.currentWebContents > 3
-    ) {
-      throw new Error(
-        `hostile popup created a transient or surviving unmanaged WebContents (${JSON.stringify(finalAudit)})`,
-      );
+      privateSentinelRequests,
+      popupRequests,
+      downloadRequests,
+      downloadsDir,
+    });
+
+    probeStage = "capability revocation";
+    await qualifyCapabilityRevocation({
+      socketPath,
+      token,
+      capability,
+      siblingCapability,
+      siblingSessionId,
+      auditPath,
+      revokeMarkerPath,
+      fixtureOrigin: origin,
+      customProtocolUrl,
+      legacyTcpPort,
+      downloadsDir,
+      privateSentinelRequests,
+      popupRequests,
+    });
+
+    probeStage = "fixture shutdown";
+    await stopChild(child);
+    if (!(await markerAbsent(socketPath))) {
+      throw new Error("browser control socket remained after Electron quit");
     }
-    if (finalAudit.externalProtocolDispatches.length !== 0) {
-      throw new Error("custom protocol escaped into OS protocol dispatch");
-    }
-    if (privateSentinelRequests !== 0) {
-      throw new Error(`private loopback sentinel received ${privateSentinelRequests} request(s)`);
-    }
-    if (popupRequests !== 0) {
-      throw new Error(`denied popup origin received ${popupRequests} request(s)`);
-    }
-    if (downloadRequests === 0) {
-      throw new Error("hostile download response did not reach the Electron download policy");
-    }
-    const downloadedFiles = await readdir(downloadsDir);
-    if (downloadedFiles.length !== 0) {
-      throw new Error(`denied download wrote files: ${downloadedFiles.join(", ")}`);
-    }
+
+    probeStage = "capability non-disclosure";
+    await qualifyCapabilityNonDisclosure({
+      outputCapabilityLeak,
+      knownCapabilities,
+      stdout,
+      stderr,
+      auditPath,
+      canvasPath,
+      electronArguments,
+    });
 
     console.log(
       JSON.stringify({
@@ -736,7 +1220,17 @@ const main = async (): Promise<void> => {
           staleSessionRejected: true,
           profileSurvivesDestructiveTimeout: true,
           unaffectedSessionRemainsUsable: true,
+          tokenOnlyAuthorityDenied: true,
+          unrelatedRegistryAuthorityDenied: true,
+          wrongActionAndTargetDenied: true,
+          fullFivePageCapabilityAdmitted: true,
+          freshRequestIdPerProtectedCall: true,
+          capabilityRevocationEnforced: true,
+          siblingOwnerSurvivesRevocation: true,
+          capabilityAbsentFromArtifactsAndLogs: true,
           tcpListenerAbsent: true,
+          cdpAuthorityAbsent: true,
+          mcpAuthorityAbsent: true,
           popupAndNewWebContentsDenied: true,
           permissionsDeniedWithoutPagePrompt: true,
           downloadBlockedWithoutFile: true,
@@ -750,9 +1244,13 @@ const main = async (): Promise<void> => {
     console.error(
       JSON.stringify({
         ok: false,
-        error: error instanceof Error ? error.message : String(error),
-        stdout,
-        stderr,
+        stage: probeStage,
+        error: redactKnownSecrets(
+          error instanceof Error ? error.message : String(error),
+          knownCapabilities,
+        ),
+        stdout: redactKnownSecrets(stdout, knownCapabilities),
+        stderr: redactKnownSecrets(stderr, knownCapabilities),
       }),
     );
     process.exitCode = 2;
