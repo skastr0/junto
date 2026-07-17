@@ -189,7 +189,7 @@ void app.whenReady().then(async () => {
   );
   capabilities = makeBrowserCapabilityRegistry({
     onTerminate: (notice) => {
-      sessions?.destroyOwnerSessions(notice.ownerId, "browser containment capability ended");
+      sessions?.destroyOwnerSessions(notice.auditId, "browser containment capability ended");
       void persistAudit();
     },
   });
