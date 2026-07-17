@@ -43,15 +43,6 @@ export interface NodeRefOpenUrlEvent {
   readonly preventDefault: () => void;
 }
 
-export const acceptNodeRefOpenUrl = (
-  event: NodeRefOpenUrlEvent,
-  uri: string,
-  ingress: NodeRefIngress,
-): Promise<NodeRefIngressResult> => {
-  event.preventDefault();
-  return ingress.accept(uri);
-};
-
 export const makeNodeRefIngress = (resolve: NodeRefIngressResolver): NodeRefIngress => {
   let revision = 0;
   let pending: NodeRefIngressTarget | undefined;
@@ -234,7 +225,12 @@ const validateDirectoryHandle = async (
   );
   try {
     const info = await handle.stat();
-    if (!info.isDirectory() || info.uid !== uid) {
+    if (
+      !info.isDirectory() ||
+      info.uid !== uid ||
+      info.dev !== pathInfo.dev ||
+      info.ino !== pathInfo.ino
+    ) {
       throw new Error("node-reference relay directory changed during validation");
     }
     if (expectedMode !== undefined && permissionMode(info.mode) !== expectedMode) {
@@ -372,6 +368,7 @@ const decodeRelay = (
   if (input.receivedAt - now > NODE_REF_RELAY_FUTURE_TOLERANCE_MS) return undefined;
   if (mtimeMs - now > NODE_REF_RELAY_FUTURE_TOLERANCE_MS) return undefined;
   if (now - input.receivedAt > NODE_REF_RELAY_TTL_MS) return undefined;
+  if (now - mtimeMs > NODE_REF_RELAY_TTL_MS) return undefined;
   const parsed = parseNodeRef(input.uri);
   if (!parsed.ok || nodeRefKey(parsed.value) !== input.uri) return undefined;
   return {

@@ -17,7 +17,7 @@ import {
   acknowledgeNodeRefRelay,
   claimLatestNodeRefRelay,
   makeNodeRefIngress,
-  publishNodeRefRelay,
+  publishNodeRefOpenUrl,
   type NodeRefRelayRecord,
 } from "./vellum/node-ref-ingress";
 import { resolveNodeRef } from "./vellum/node-ref-resolver";
@@ -143,12 +143,8 @@ const queueNodeRefPublication = (
   event: { readonly preventDefault: () => void },
   uri: string,
 ): void => {
-  event.preventDefault();
-  const publication = nodeRefPublicationTail.then(() =>
-    publishNodeRefRelay(nodeRefRelayDirectory(), uri),
-  );
-  nodeRefPublicationTail = publication.then(
-    () => undefined,
+  const publication = publishNodeRefOpenUrl(event, uri, nodeRefRelayDirectory());
+  nodeRefPublicationTail = Promise.allSettled([nodeRefPublicationTail, publication]).then(
     () => undefined,
   );
   void publication.then(
@@ -258,7 +254,9 @@ const createWindow = () => {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    void shell.openExternal(url).catch(() => {
+      console.error("[window] external URL open failed");
+    });
     return { action: "deny" };
   });
 
@@ -276,13 +274,19 @@ const createWindow = () => {
     ) {
       return;
     }
-    void acknowledgeActiveNodeRef(record).then(requestNodeRefDrain);
+    void acknowledgeActiveNodeRef(record).then(requestNodeRefDrain).catch(() => {
+      console.error("[node-ref] delivery acknowledgement callback failed");
+    });
   };
   ipcMain.on(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
   mainWindow.webContents.on("did-start-loading", () => {
     disconnect();
     const record = activeNodeRefRelay;
-    if (record !== undefined) void activateNodeRefRelay(record);
+    if (record !== undefined) {
+      void activateNodeRefRelay(record).catch(() => {
+        console.error("[node-ref] renderer reload activation failed");
+      });
+    }
   });
   mainWindow.webContents.on("did-finish-load", () => {
     disconnect();
@@ -312,9 +316,13 @@ const createWindow = () => {
   registerCrashRecovery(mainWindow);
 
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL).catch(() => {
+      console.error("[window] renderer URL load failed");
+    });
   } else {
-    void mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+    void mainWindow.loadFile(join(__dirname, "../renderer/index.html")).catch(() => {
+      console.error("[window] renderer file load failed");
+    });
   }
 
   return mainWindow;

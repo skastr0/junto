@@ -21,7 +21,6 @@ import {
   NODE_REF_RELAY_MAX_BYTES,
   NODE_REF_RELAY_MAX_RECORDS,
   NODE_REF_RELAY_TTL_MS,
-  acceptNodeRefOpenUrl,
   acknowledgeNodeRefRelay,
   claimLatestNodeRefRelay,
   makeNodeRefIngress,
@@ -115,21 +114,6 @@ afterEach(async () => {
 });
 
 describe("node-reference ingress", () => {
-  it("prevents native URL handling and admits the locator through the bounded ingress", async () => {
-    const event = { preventDefault: vi.fn() };
-    const value = ref("portfolio", "page");
-    const ingress = makeNodeRefIngress(async (candidate) => ({ key: nodeRefKey(candidate) }));
-
-    await expect(acceptNodeRefOpenUrl(event, nodeRefKey(value), ingress)).resolves.toMatchObject({
-      ok: true,
-      delivery: "queued",
-    });
-
-    expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(ingress.hasAcceptedInput()).toBe(true);
-    expect(ingress.pendingTarget()?.ref).toBe(nodeRefKey(value));
-  });
-
   it("rejects invalid input before invoking the resolver", async () => {
     const resolve = vi.fn(async (value: NodeRef) => ({ key: nodeRefKey(value) }));
     const ingress = makeNodeRefIngress(resolve);
@@ -454,6 +438,23 @@ describe("node-reference supervision relay", () => {
     await publishNodeRefRelay(expiredDirectory, canonical, 1_000);
     await expect(
       claimLatestNodeRefRelay(expiredDirectory, 1_000 + NODE_REF_RELAY_TTL_MS + 1),
+    ).resolves.toBeUndefined();
+
+    const expiredMtimeRoot = await newRoot();
+    const expiredMtimeDirectory = relayDirectory(expiredMtimeRoot);
+    await writeRelayRecord(
+      expiredMtimeDirectory,
+      "pending",
+      {
+        version: 1,
+        id: TEST_IDS[0],
+        receivedAt: 1_000 + NODE_REF_RELAY_TTL_MS + 1,
+        uri: canonical,
+      },
+      { mtime: 1_000 },
+    );
+    await expect(
+      claimLatestNodeRefRelay(expiredMtimeDirectory, 1_000 + NODE_REF_RELAY_TTL_MS + 1),
     ).resolves.toBeUndefined();
 
     const futureRoot = await newRoot();
