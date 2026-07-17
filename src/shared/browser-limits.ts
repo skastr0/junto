@@ -19,6 +19,8 @@ export const BROWSER_MAX_ACTIVE_OPERATIONS = 16;
 export const BROWSER_MAX_ACTIVE_OPERATIONS_PER_SESSION = 1;
 export const BROWSER_MAX_ACTIVE_HTTP_HANDLERS = 32;
 export const BROWSER_MAX_LIST_ROWS = 10_000;
+export const BROWSER_MAX_CANVAS_DIRECTORY_ENTRIES = 10_000;
+export const BROWSER_MAX_CANVAS_SCAN_BYTES = 64 * 1024 * 1024;
 
 // Operation deadlines. The outer control deadline exceeds every inner page
 // operation so the session service wins the race and releases its lane first.

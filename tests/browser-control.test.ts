@@ -1,6 +1,6 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Either, Schema } from "effect";
 import {
@@ -10,7 +10,24 @@ import {
   controlSocketPath,
   controlTokenPath,
   decodeControlEnvelope,
+  encodeControlEnvelope,
+  inspectControlJson,
 } from "../src/shared/browser-control";
+import {
+  BROWSER_CONTROL_MAX_RESPONSE_BYTES,
+  BROWSER_MAX_CANVAS_SOURCE_BYTES,
+  BROWSER_MAX_ERROR_BYTES,
+  BROWSER_MAX_EVAL_CODE_BYTES,
+  BROWSER_MAX_EVAL_RESULT_BYTES,
+  BROWSER_MAX_EVAL_RESULT_DEPTH,
+  BROWSER_MAX_LIST_ROWS,
+  BROWSER_MAX_METADATA_BYTES,
+  BROWSER_MAX_REF_BYTES,
+  BROWSER_MAX_SCREENSHOT_BYTES,
+  BROWSER_MAX_SESSION_ID_BYTES,
+  BROWSER_MAX_URL_BYTES,
+  utf8ByteLength,
+} from "../src/shared/browser-limits";
 import {
   dispatchControlRequest,
   listPageNodes,
@@ -49,7 +66,10 @@ const resolverFor = (
     : { ok: true, data: target };
 };
 
-const makeSpyAdapter = () => {
+const makeSpyAdapter = (options: {
+  readonly evaluate?: (code: string) => unknown | Promise<unknown>;
+  readonly capture?: () => Uint8Array | Promise<Uint8Array>;
+} = {}) => {
   const evalCalls: string[] = [];
   const adapter: BrowserViewAdapter = (_partition, events) => {
     const handle: BrowserViewHandle = {
@@ -71,10 +91,24 @@ const makeSpyAdapter = () => {
       executeJavaScript: async (code) => {
         evalCalls.push(code);
         if (code === "boom") throw new Error("eval exploded");
-        if (code === "void 0") return undefined;
-        return { title: "hello" };
+        const value = options.evaluate !== undefined
+          ? await options.evaluate(code)
+          : code === "void 0"
+            ? undefined
+            : { title: "hello" };
+        try {
+          const json = JSON.stringify(value ?? null);
+          return json === undefined
+            ? { __vellumEval: 1, status: "unsupported_result", message: "unsupported" }
+            : { __vellumEval: 1, status: "ok", json };
+        } catch {
+          return { __vellumEval: 1, status: "unsupported_result", message: "unsupported" };
+        }
       },
-      capturePagePng: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      capturePagePng: async () =>
+        options.capture === undefined
+          ? new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+          : options.capture(),
     };
     return handle;
   };
@@ -97,6 +131,64 @@ describe("browser control envelopes (pure)", () => {
     for (const bad of [null, 42, { ok: "yes" }, { ok: false, error: { message: "x" } }]) {
       expect(Either.isLeft(decodeControlEnvelope(bad))).toBe(true);
     }
+  });
+
+  it("serializes only bounded finite plain JSON and clamps UTF-8 errors", () => {
+    const normal = encodeControlEnvelope(controlOk({ result: { title: "hello", rows: [1, true, null] } }));
+    expect(JSON.parse(normal)).toEqual({
+      ok: true,
+      data: { result: { title: "hello", rows: [1, true, null] } },
+    });
+    const encodedError = encodeControlEnvelope(
+      controlErr("failed", "😀".repeat(BROWSER_MAX_ERROR_BYTES)),
+    );
+    const parsedError = JSON.parse(encodedError) as { error: { message: string } };
+    expect(utf8ByteLength(parsedError.error.message)).toBeLessThanOrEqual(BROWSER_MAX_ERROR_BYTES);
+    expect(Buffer.byteLength(encodedError)).toBeLessThanOrEqual(BROWSER_CONTROL_MAX_RESPONSE_BYTES);
+
+    const cyclic: { self?: unknown } = {};
+    cyclic.self = cyclic;
+    const accessor = Object.defineProperty({}, "secret", {
+      enumerable: true,
+      get: () => "must-not-run",
+    });
+    const symbolKey = { visible: true, [Symbol("hidden")]: "secret" };
+    const sparse = new Array(2);
+    sparse[1] = "present";
+    for (const unsupported of [
+      cyclic,
+      { result: 1n },
+      { result: undefined },
+      { result: () => 1 },
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      accessor,
+      symbolKey,
+      sparse,
+      new Date(),
+    ]) {
+      const inspected = inspectControlJson(unsupported, BROWSER_CONTROL_MAX_RESPONSE_BYTES);
+      expect(inspected.ok).toBe(false);
+      if (!inspected.ok) expect(inspected.error._tag).toBe("unsupported_result");
+    }
+
+    let deep: Record<string, unknown> = {};
+    for (let depth = 0; depth <= BROWSER_MAX_EVAL_RESULT_DEPTH; depth += 1) deep = { next: deep };
+    expect(inspectControlJson(deep, BROWSER_CONTROL_MAX_RESPONSE_BYTES)).toMatchObject({
+      ok: false,
+      error: { _tag: "result_too_large" },
+    });
+    expect(inspectControlJson("x".repeat(8), 10)).toMatchObject({ ok: true, bytes: 10 });
+    expect(inspectControlJson("x".repeat(9), 10)).toMatchObject({
+      ok: false,
+      error: { _tag: "result_too_large" },
+    });
+    expect(inspectControlJson("😀😀", 10)).toMatchObject({ ok: true, bytes: 10 });
+    expect(inspectControlJson("😀😀x", 10)).toMatchObject({
+      ok: false,
+      error: { _tag: "result_too_large" },
+    });
   });
 
   it("derives socket/token paths under ~/.vellum/browser", () => {
@@ -149,8 +241,10 @@ describe("control route handlers", () => {
     adapter: BrowserViewAdapter = makeSpyAdapter().adapter,
     resolvePageTarget: PageTargetResolver = resolverFor(),
     screenshotFiles?: {
-      readonly ensureDirectory: (path: string) => Promise<void>;
-      readonly write: (path: string, data: Uint8Array) => Promise<void>;
+      readonly ensureDirectory?: (path: string) => Promise<void>;
+      readonly makePath?: (directory: string) => string;
+      readonly writeExclusive?: (path: string, data: Uint8Array) => Promise<void>;
+      readonly remove?: (path: string) => Promise<void>;
     },
   ) => {
     const sessions = new BrowserSessionService(
@@ -172,13 +266,14 @@ describe("control route handlers", () => {
       path: string,
       body?: unknown,
       token: string | null = TOKEN,
+      signal?: AbortSignal,
     ) =>
-      dispatchControlRequest(handlers, TOKEN, {
-        method,
-        path,
-        token: token ?? undefined,
-        body,
-      });
+      dispatchControlRequest(
+        handlers,
+        TOKEN,
+        { method, path, token: token ?? undefined, body },
+        signal,
+      );
     return { call, sessions };
   };
 
@@ -258,11 +353,37 @@ describe("control route handlers", () => {
     if (!failed.envelope.ok) expect(failed.envelope.error.message).toContain("eval exploded");
   });
 
-  it("returns not_found for stale, node-id, ref, and unknown handle substitutions", async () => {
+  it("rejects unsupported and oversized eval results before the wire", async () => {
+    const cyclic: { self?: unknown } = {};
+    cyclic.self = cyclic;
+    const spy = makeSpyAdapter({
+      evaluate: (code) =>
+        code === "cyclic"
+          ? cyclic
+          : code === "bigint"
+            ? { value: 1n }
+            : "x".repeat(BROWSER_MAX_EVAL_RESULT_BYTES + 1),
+    });
+    const { call } = makeStack(spy.adapter);
+    const opened = await call("POST", "/open", { ref: REF });
+    if (!opened.envelope.ok) throw new Error("open failed");
+    const sessionId = (opened.envelope.data as { sessionId: string }).sessionId;
+    for (const code of ["cyclic", "bigint"]) {
+      expect(await call("POST", "/eval", { sessionId, code })).toMatchObject({
+        status: 422,
+        envelope: { ok: false, error: { _tag: "unsupported_result" } },
+      });
+    }
+    expect(await call("POST", "/eval", { sessionId, code: "oversized" })).toMatchObject({
+      status: 413,
+      envelope: { ok: false, error: { _tag: "result_too_large" } },
+    });
+  });
+
+  it("returns not_found for valid stale handles and bad_request for malformed substitutions", async () => {
     const { call } = makeStack();
     for (const [path, body] of [
       ["/goto", { sessionId: "n1", url: "https://x.dev" }],
-      ["/eval", { sessionId: REF, code: "1" }],
       ["/screenshot", { sessionId: "ghost" }],
       ["/close", { sessionId: "ghost" }],
     ] as const) {
@@ -270,6 +391,10 @@ describe("control route handlers", () => {
       expect(response.status).toBe(404);
       if (!response.envelope.ok) expect(response.envelope.error._tag).toBe("not_found");
     }
+    expect(await call("POST", "/eval", { sessionId: REF, code: "1" })).toMatchObject({
+      status: 400,
+      envelope: { ok: false, error: { _tag: "bad_request" } },
+    });
   });
 
   it("rejects malformed and substituted open bodies before resolution", async () => {
@@ -292,6 +417,58 @@ describe("control route handlers", () => {
     expect(resolutions).toBe(0);
   });
 
+  it("rejects oversized powerful fields and invalid session handles before dispatch", async () => {
+    let resolutions = 0;
+    const resolver: PageTargetResolver = async (ref) => {
+      resolutions += 1;
+      return resolverFor()(ref);
+    };
+    const spy = makeSpyAdapter();
+    const { call } = makeStack(spy.adapter, resolver);
+    const cases = [
+      ["/open", { ref: "x".repeat(BROWSER_MAX_REF_BYTES + 1) }],
+      ["/goto", { sessionId: "x".repeat(BROWSER_MAX_SESSION_ID_BYTES + 1), url: "https://example.com" }],
+      ["/goto", { sessionId: "session-1", url: `https://example.com/${"x".repeat(BROWSER_MAX_URL_BYTES)}` }],
+      ["/eval", { sessionId: "session-1", code: "x".repeat(BROWSER_MAX_EVAL_CODE_BYTES + 1) }],
+      ["/screenshot", { sessionId: "has space" }],
+      ["/close", { sessionId: "" }],
+    ] as const;
+    for (const [path, body] of cases) {
+      expect(await call("POST", path, body)).toMatchObject({
+        status: 400,
+        envelope: { ok: false, error: { _tag: "bad_request" } },
+      });
+    }
+    expect(resolutions).toBe(0);
+    expect(spy.evalCalls).toEqual([]);
+  });
+
+  it("propagates an aborted signal into open, goto, eval, and screenshot", async () => {
+    const aborted = new AbortController();
+    aborted.abort();
+    const unopened = makeStack();
+    expect(await unopened.call("POST", "/open", { ref: REF }, TOKEN, aborted.signal)).toMatchObject({
+      status: 408,
+      envelope: { ok: false, error: { _tag: "cancelled" } },
+    });
+    expect(unopened.sessions.list()).toMatchObject({ ok: true, data: [] });
+
+    for (const [path, bodyFor] of [
+      ["/goto", (sessionId: string) => ({ sessionId, url: "https://example.com/#next" })],
+      ["/eval", (sessionId: string) => ({ sessionId, code: "1" })],
+      ["/screenshot", (sessionId: string) => ({ sessionId })],
+    ] as const) {
+      const stack = makeStack();
+      const opened = await stack.call("POST", "/open", { ref: REF });
+      if (!opened.envelope.ok) throw new Error("open failed");
+      const sessionId = (opened.envelope.data as { sessionId: string }).sessionId;
+      expect(await stack.call("POST", path, bodyFor(sessionId), TOKEN, aborted.signal)).toMatchObject({
+        status: 408,
+        envelope: { ok: false, error: { _tag: "cancelled" } },
+      });
+    }
+  });
+
   it("enforces the URL allowlist on the document-derived target", async () => {
     const badRef = "vellum://canvas/work?node=bad";
     const { call } = makeStack(
@@ -310,14 +487,93 @@ describe("control route handlers", () => {
     if (!response.envelope.ok) expect(response.envelope.error._tag).toBe("forbidden");
   });
 
-  it("rejects relative screenshot paths", async () => {
+  it("rejects every caller-provided screenshot path", async () => {
     const { call } = makeStack();
     const opened = await call("POST", "/open", { ref: REF });
     if (!opened.envelope.ok) throw new Error("open failed");
     const sessionId = (opened.envelope.data as { sessionId: string }).sessionId;
-    const response = await call("POST", "/screenshot", { sessionId, path: "shots/x.png" });
-    expect(response.status).toBe(400);
-    if (!response.envelope.ok) expect(response.envelope.error._tag).toBe("invalid");
+    for (const path of ["shots/x.png", "/tmp/x.png"]) {
+      expect(await call("POST", "/screenshot", { sessionId, path })).toMatchObject({
+        status: 400,
+        envelope: { ok: false, error: { _tag: "bad_request" } },
+      });
+    }
+  });
+
+  it("writes random owner-only PNGs inside the server shots directory", async () => {
+    const { call } = makeStack();
+    const opened = await call("POST", "/open", { ref: REF });
+    if (!opened.envelope.ok) throw new Error("open failed");
+    const sessionId = (opened.envelope.data as { sessionId: string }).sessionId;
+    const paths: string[] = [];
+    for (let index = 0; index < 2; index += 1) {
+      const response = await call("POST", "/screenshot", { sessionId });
+      if (!response.envelope.ok) throw new Error("screenshot failed");
+      const data = response.envelope.data as { path: string; bytes: number };
+      expect(dirname(resolve(data.path))).toBe(resolve(join(root, "shots")));
+      expect(data.path).toMatch(/[0-9a-f]{48}\.png$/);
+      expect((await stat(data.path)).mode & 0o777).toBe(0o600);
+      paths.push(data.path);
+    }
+    expect(new Set(paths).size).toBe(2);
+  });
+
+  it("does not overwrite, escape, follow a shots symlink, or write oversized pixels", async () => {
+    const shotsDir = join(root, "shots");
+    await mkdir(shotsDir, { recursive: true });
+    const existing = join(shotsDir, "existing.png");
+    await writeFile(existing, "preserve-me");
+    const collision = makeStack(makeSpyAdapter().adapter, resolverFor(), { makePath: () => existing });
+    const opened = await collision.call("POST", "/open", { ref: REF });
+    if (!opened.envelope.ok) throw new Error("open failed");
+    const id = (opened.envelope.data as { sessionId: string }).sessionId;
+    expect(await collision.call("POST", "/screenshot", { sessionId: id })).toMatchObject({
+      status: 500,
+      envelope: { ok: false, error: { _tag: "failed" } },
+    });
+    expect(await readFile(existing, "utf8")).toBe("preserve-me");
+
+    let writes = 0;
+    const escaping = makeStack(makeSpyAdapter().adapter, resolverFor(), {
+      makePath: () => join(root, "outside.png"),
+      writeExclusive: async () => { writes += 1; },
+    });
+    const escapedOpen = await escaping.call("POST", "/open", { ref: REF });
+    if (!escapedOpen.envelope.ok) throw new Error("open failed");
+    const escapedId = (escapedOpen.envelope.data as { sessionId: string }).sessionId;
+    expect(await escaping.call("POST", "/screenshot", { sessionId: escapedId })).toMatchObject({
+      status: 400,
+      envelope: { ok: false, error: { _tag: "invalid" } },
+    });
+    expect(writes).toBe(0);
+
+    await rm(shotsDir, { recursive: true });
+    const outside = join(root, "outside");
+    await mkdir(outside);
+    await symlink(outside, shotsDir);
+    const linked = makeStack();
+    const linkedOpen = await linked.call("POST", "/open", { ref: REF });
+    if (!linkedOpen.envelope.ok) throw new Error("open failed");
+    const linkedId = (linkedOpen.envelope.data as { sessionId: string }).sessionId;
+    expect(await linked.call("POST", "/screenshot", { sessionId: linkedId })).toMatchObject({
+      status: 500,
+      envelope: { ok: false, error: { _tag: "failed" } },
+    });
+    expect(await readdir(outside)).toEqual([]);
+
+    await rm(shotsDir);
+    const oversized = makeStack(
+      makeSpyAdapter({ capture: () => new Uint8Array(BROWSER_MAX_SCREENSHOT_BYTES + 1) }).adapter,
+      resolverFor(),
+      { writeExclusive: async () => { writes += 1; } },
+    );
+    const oversizedOpen = await oversized.call("POST", "/open", { ref: REF });
+    if (!oversizedOpen.envelope.ok) throw new Error("open failed");
+    const oversizedId = (oversizedOpen.envelope.data as { sessionId: string }).sessionId;
+    expect(await oversized.call("POST", "/screenshot", { sessionId: oversizedId })).toMatchObject({
+      status: 413,
+      envelope: { ok: false, error: { _tag: "result_too_large" } },
+    });
   });
 
   it("does not persist screenshot bytes after the captured generation is replaced", async () => {
@@ -381,7 +637,7 @@ describe("control route handlers", () => {
         directoryStarted();
         await directoryGate;
       },
-      write: async (path) => {
+      writeExclusive: async (path) => {
         writes.push(path);
       },
     });
@@ -439,6 +695,98 @@ describe("listPageNodes", () => {
         profile: "personal",
       },
     ]);
+  });
+
+  it("bounds directory admission and aggregate canvas bytes at exact N/N+1", async () => {
+    const dir = join(root, "canvases");
+    await mkdir(dir, { recursive: true });
+    const source = JSON.stringify({
+      nodes: [{
+        id: "page",
+        type: "link",
+        url: "https://example.com",
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+        ether: { entity: { kind: "page" } },
+      }],
+      edges: [],
+    });
+    await writeFile(join(dir, "a.canvas"), source);
+    await writeFile(join(dir, "b.canvas"), source);
+    const sourceBytes = utf8ByteLength(source);
+
+    expect(await listPageNodes(dir, undefined, { maxScanBytes: sourceBytes - 1 }))
+      .toEqual([]);
+    expect(await listPageNodes(dir, undefined, { maxScanBytes: sourceBytes }))
+      .toHaveLength(1);
+    expect(await listPageNodes(dir, undefined, { maxDirectoryEntries: 1 }))
+      .toHaveLength(1);
+  });
+
+  it("caps page rows, source files, fields, and the encoded response budget", async () => {
+    const dir = join(root, "canvases");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "oversized.canvas"), Buffer.alloc(BROWSER_MAX_CANVAS_SOURCE_BYTES + 1));
+    await mkdir(join(dir, "directory.canvas"));
+    const linkedSource = join(root, "linked-source.canvas");
+    await writeFile(linkedSource, JSON.stringify({ nodes: [], edges: [] }));
+    await symlink(linkedSource, join(dir, "linked.canvas"));
+    await writeFile(
+      join(dir, "bounded.canvas"),
+      JSON.stringify({
+        nodes: [
+          {
+            id: "x".repeat(BROWSER_MAX_METADATA_BYTES + 1),
+            type: "link", url: "https://example.com", x: 0, y: 0, width: 1, height: 1,
+            ether: { entity: { kind: "page" } },
+          },
+          {
+            id: "url-too-long", type: "link",
+            url: `https://example.com/${"x".repeat(BROWSER_MAX_URL_BYTES)}`,
+            x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "page" } },
+          },
+          {
+            id: "good", type: "link", url: "https://good.example.com",
+            x: 0, y: 0, width: 1, height: 1,
+            ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
+          },
+        ],
+        edges: [],
+      }),
+    );
+    const boundedRows = await listPageNodes(dir);
+    expect(boundedRows).toEqual([{
+      ref: "vellum://canvas/bounded?node=good",
+      sessionId: null,
+      canvas: "bounded",
+      nodeId: "good",
+      url: "https://good.example.com",
+      profile: "personal",
+    }]);
+
+    await rm(join(dir, "bounded.canvas"));
+    for (let fileIndex = 0; fileIndex < 8; fileIndex += 1) {
+      await writeFile(
+        join(dir, `pages-${fileIndex}.canvas`),
+        JSON.stringify({
+          nodes: Array.from({ length: 400 }, (_, rowIndex) => ({
+            id: `p-${fileIndex}-${rowIndex}`,
+            type: "link",
+            url: `https://example.com/${"x".repeat(1_000)}-${fileIndex}-${rowIndex}`,
+            x: 0, y: rowIndex, width: 1, height: 1,
+            ether: { entity: { kind: "page" } },
+          })),
+          edges: [],
+        }),
+      );
+    }
+    const rows = await listPageNodes(dir);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThanOrEqual(BROWSER_MAX_LIST_ROWS);
+    expect(rows.length).toBeLessThan(3_200);
+    expect(JSON.parse(encodeControlEnvelope(controlOk(rows)))).toMatchObject({ ok: true });
   });
 
   it("returns empty for a missing canvases directory", async () => {

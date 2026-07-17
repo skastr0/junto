@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { chmodSync } from "node:fs";
 import { access, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +14,7 @@ import {
   controlSocketPath,
   controlTokenPath,
 } from "../src/shared/browser-control";
+import { BROWSER_CONTROL_MAX_RESPONSE_BYTES } from "../src/shared/browser-limits";
 import {
   startBrowserControlServer,
   type BrowserControlRuntime,
@@ -29,6 +32,7 @@ const repoRoot = resolve(import.meta.dirname, "..");
 const TEST_ROOT_PREFIX = "/tmp/vct-";
 const roots: string[] = [];
 const servers: BrowserControlServer[] = [];
+const rogueServers: HttpServer[] = [];
 const PAGE_REF = "vellum://canvas/work?node=cli-node";
 const resolvePageTarget: PageTargetResolver = async (ref) =>
   ref === PAGE_REF
@@ -76,6 +80,7 @@ const newRoot = async (): Promise<string> => {
 const startStack = async (
   root: string,
   runtime?: BrowserControlRuntime,
+  resolver: PageTargetResolver = resolvePageTarget,
 ): Promise<{
   readonly server: BrowserControlServer;
   readonly sessions: BrowserSessionService;
@@ -83,7 +88,7 @@ const startStack = async (
 }> => {
   const sessions = makeSessions(root);
   const server = await startBrowserControlServer(
-    { sessions, resolvePageTarget, version: "transport-test", home: root },
+    { sessions, resolvePageTarget: resolver, version: "transport-test", home: root },
     runtime,
   );
   servers.push(server);
@@ -157,11 +162,12 @@ const requestHead = (
 const runCli = (
   home: string,
   args: ReadonlyArray<string>,
+  env: Readonly<Record<string, string>> = {},
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> =>
   new Promise((resolveCli, rejectCli) => {
     const child = spawn("bun", [join(repoRoot, "scripts/browser-cli.ts"), ...args], {
       cwd: repoRoot,
-      env: { ...process.env, HOME: home },
+      env: { ...process.env, ...env, HOME: home },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -188,6 +194,7 @@ const runCli = (
 
 afterEach(async () => {
   for (const server of servers.splice(0)) server.close();
+  for (const server of rogueServers.splice(0)) server.close();
   for (const root of roots.splice(0)) {
     if (!root.startsWith(TEST_ROOT_PREFIX)) {
       throw new Error(`refusing unsafe transport-test cleanup: ${root}`);
@@ -318,6 +325,175 @@ describe("browser control Unix transport", () => {
 
     expect(statusOf(response)).toBe(431);
     expect(envelopeOf(response)).toMatchObject({ ok: false, error: { _tag: "bad_request" } });
+  });
+
+  it("bounds active handlers and the whole handler deadline", async () => {
+    const root = await newRoot();
+    const { server, token } = await startStack(root, {
+      chmodSocket: chmodSync,
+      maxActiveHandlers: 1,
+      handlerTimeoutMs: 80,
+    });
+    const held = createConnection(server.socketPath);
+    await new Promise<void>((resolveConnect, rejectConnect) => {
+      held.once("connect", resolveConnect);
+      held.once("error", rejectConnect);
+    });
+    held.write(
+      requestHead("POST", "/open", [
+        [CONTROL_TOKEN_HEADER, token],
+        ["Content-Type", "application/json"],
+        ["Content-Length", "100"],
+      ]) + "{",
+    );
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+    const exhausted = await rawExchange(server.socketPath, [
+      requestHead("GET", "/doctor", [[CONTROL_TOKEN_HEADER, token]]),
+    ]);
+    expect(statusOf(exhausted)).toBe(429);
+    expect(envelopeOf(exhausted)).toMatchObject({
+      ok: false,
+      error: { _tag: "resource_exhausted" },
+    });
+    held.destroy();
+
+    const deadlineRoot = await newRoot();
+    const neverResolve: PageTargetResolver = async () => new Promise(() => {});
+    const timed = await startStack(
+      deadlineRoot,
+      { chmodSocket: chmodSync, handlerTimeoutMs: 40 },
+      neverResolve,
+    );
+    const body = JSON.stringify({ ref: PAGE_REF });
+    const response = await rawExchange(timed.server.socketPath, [
+      requestHead("POST", "/open", [
+        [CONTROL_TOKEN_HEADER, timed.token],
+        ["Content-Type", "application/json"],
+        ["Content-Length", String(Buffer.byteLength(body))],
+      ]),
+      body,
+    ]);
+    expect(statusOf(response)).toBe(504);
+    expect(envelopeOf(response)).toMatchObject({ ok: false, error: { _tag: "timeout" } });
+  });
+
+  it("aborts an open when its authenticated client disconnects", async () => {
+    const root = await newRoot();
+    let releaseResolver!: () => void;
+    let markStarted!: () => void;
+    const gate = new Promise<void>((resolveGate) => { releaseResolver = resolveGate; });
+    const started = new Promise<void>((resolveStarted) => { markStarted = resolveStarted; });
+    const delayed: PageTargetResolver = async (ref) => {
+      markStarted();
+      await gate;
+      return resolvePageTarget(ref);
+    };
+    const { server, token, sessions } = await startStack(root, undefined, delayed);
+    const body = JSON.stringify({ ref: PAGE_REF });
+    const client = createConnection(server.socketPath);
+    await new Promise<void>((resolveConnect, rejectConnect) => {
+      client.once("connect", resolveConnect);
+      client.once("error", rejectConnect);
+    });
+    client.write(
+      requestHead("POST", "/open", [
+        [CONTROL_TOKEN_HEADER, token],
+        ["Content-Type", "application/json"],
+        ["Content-Length", String(Buffer.byteLength(body))],
+      ]) + body,
+    );
+    await started;
+    client.destroy();
+    releaseResolver();
+    await new Promise((resolveWait) => setTimeout(resolveWait, 40));
+    expect(sessions.list()).toMatchObject({ ok: true, data: [] });
+  });
+
+  it("bounds CLI response admission/accumulation and its wall-clock deadline", async () => {
+    const root = await newRoot();
+    await mkdir(controlDir(root), { recursive: true });
+    await writeFile(controlTokenPath(root), "rogue-token\n", { mode: 0o600 });
+
+    const declared = createHttpServer((_req, res) => {
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "content-length": String(BROWSER_CONTROL_MAX_RESPONSE_BYTES + 1),
+      });
+      res.end("{}");
+    });
+    rogueServers.push(declared);
+    await new Promise<void>((resolveListen, rejectListen) => {
+      declared.once("error", rejectListen);
+      declared.listen(controlSocketPath(root), resolveListen);
+    });
+    const declaredResult = await runCli(root, ["doctor", "--json"]);
+    expect(declaredResult.code).toBe(1);
+    expect(JSON.parse(declaredResult.stdout)).toMatchObject({
+      ok: false,
+      error: { _tag: "result_too_large" },
+    });
+    await new Promise<void>((resolveClose) => declared.close(() => resolveClose()));
+    rogueServers.splice(rogueServers.indexOf(declared), 1);
+
+    const streamed = createHttpServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(Buffer.alloc(BROWSER_CONTROL_MAX_RESPONSE_BYTES + 1, 0x61));
+    });
+    rogueServers.push(streamed);
+    await new Promise<void>((resolveListen, rejectListen) => {
+      streamed.once("error", rejectListen);
+      streamed.listen(controlSocketPath(root), resolveListen);
+    });
+    const streamedResult = await runCli(root, ["doctor", "--json"]);
+    expect(streamedResult.code).toBe(1);
+    expect(JSON.parse(streamedResult.stdout)).toMatchObject({
+      ok: false,
+      error: { _tag: "result_too_large" },
+    });
+    await new Promise<void>((resolveClose) => streamed.close(() => resolveClose()));
+    rogueServers.splice(rogueServers.indexOf(streamed), 1);
+
+    const hanging = createHttpServer(() => {});
+    rogueServers.push(hanging);
+    await new Promise<void>((resolveListen, rejectListen) => {
+      hanging.once("error", rejectListen);
+      hanging.listen(controlSocketPath(root), resolveListen);
+    });
+    const timedOut = await runCli(
+      root,
+      ["doctor", "--json"],
+      { VELLUM_BROWSER_REQUEST_TIMEOUT_MS: "30" },
+    );
+    expect(timedOut.code).toBe(1);
+    expect(JSON.parse(timedOut.stdout)).toMatchObject({
+      ok: false,
+      error: { _tag: "timeout" },
+    });
+  });
+
+  it("types a premature CLI response close and removes the public screenshot path", async () => {
+    const root = await newRoot();
+    await mkdir(controlDir(root), { recursive: true });
+    await writeFile(controlTokenPath(root), "rogue-token\n", { mode: 0o600 });
+    const reset = createHttpServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json", "content-length": "100" });
+      res.write("{");
+      res.socket?.destroy();
+    });
+    rogueServers.push(reset);
+    await new Promise<void>((resolveListen, rejectListen) => {
+      reset.once("error", rejectListen);
+      reset.listen(controlSocketPath(root), resolveListen);
+    });
+    const resetResult = await runCli(root, ["doctor", "--json"]);
+    expect(resetResult.code).toBe(1);
+    expect(JSON.parse(resetResult.stdout)).toMatchObject({ ok: false, error: { _tag: "failed" } });
+    await new Promise<void>((resolveClose) => reset.close(() => resolveClose()));
+    rogueServers.splice(rogueServers.indexOf(reset), 1);
+
+    const pathResult = await runCli(root, ["shot", "session-1", "--path", "/tmp/x.png"]);
+    expect(pathResult.code).toBe(2);
+    expect(pathResult.stderr).toContain("does not accept --path");
   });
 
   it("keeps the installed browser CLI compatible with under-cap chunked JSON", async () => {

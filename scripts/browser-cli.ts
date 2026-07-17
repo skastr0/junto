@@ -13,6 +13,11 @@ import {
   type ControlRouteName,
 } from "../src/shared/browser-control";
 import { Either } from "effect";
+import {
+  BROWSER_CLI_REQUEST_TIMEOUT_MS,
+  BROWSER_CONTROL_MAX_REQUEST_BODY_BYTES,
+  BROWSER_CONTROL_MAX_RESPONSE_BYTES,
+} from "../src/shared/browser-limits";
 
 // Agent CLI for the browser control plane: `bun run browser <cmd>` talks to
 // the app-hosted unix-socket server (canvas-ls precedent: plain text by
@@ -32,14 +37,23 @@ commands:
   open <vellum-ref>                resolve and open/reuse a page session
   goto <sessionId> <url>           navigate an existing session
   eval <sessionId> <code>          run JS in the page, print JSON result
-  shot <sessionId> [--path <abs.png>]      screenshot to PNG
+  shot <sessionId>                 screenshot to a server-owned PNG
   close <sessionId>                detach the surface (session stays warm)`;
 
 // Bounds the whole request/response round-trip. Without this, a hung page
 // script (executeJavaScript that never resolves — e.g. `while(true){}` run
 // through `eval`) wedges the HTTP handler forever and the CLI hangs with no
 // typed error, contradicting the runtime_down contract this file documents.
-const REQUEST_TIMEOUT_MS = 30_000;
+const requestTimeoutMs = (): number => {
+  const configured = process.env.VELLUM_BROWSER_REQUEST_TIMEOUT_MS;
+  if (configured === undefined || !/^[1-9][0-9]*$/.test(configured)) {
+    return BROWSER_CLI_REQUEST_TIMEOUT_MS;
+  }
+  const parsed = Number(configured);
+  return Number.isSafeInteger(parsed)
+    ? Math.min(parsed, BROWSER_CLI_REQUEST_TIMEOUT_MS)
+    : BROWSER_CLI_REQUEST_TIMEOUT_MS;
+};
 
 const httpOverSocket = (
   socketPath: string,
@@ -48,6 +62,37 @@ const httpOverSocket = (
   body: unknown,
 ): Promise<ControlEnvelope<unknown>> =>
   new Promise((resolve) => {
+    let encodedBody: string | undefined;
+    if (body !== undefined) {
+      try {
+        encodedBody = JSON.stringify(body);
+      } catch {
+        resolve(controlErr("bad_request", "request body is not supported by JSON"));
+        return;
+      }
+      if (encodedBody === undefined) {
+        resolve(controlErr("bad_request", "request body is not supported by JSON"));
+        return;
+      }
+      if (Buffer.byteLength(encodedBody) > BROWSER_CONTROL_MAX_REQUEST_BODY_BYTES) {
+        resolve(
+          controlErr(
+            "bad_request",
+            `request body exceeds ${BROWSER_CONTROL_MAX_REQUEST_BODY_BYTES} bytes`,
+          ),
+        );
+        return;
+      }
+    }
+
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = (envelope: ControlEnvelope<unknown>): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      resolve(envelope);
+    };
     const req = request(
       {
         socketPath,
@@ -56,37 +101,82 @@ const httpOverSocket = (
         headers: {
           "content-type": "application/json",
           [CONTROL_TOKEN_HEADER]: token,
+          ...(encodedBody === undefined
+            ? {}
+            : { "content-length": String(Buffer.byteLength(encodedBody)) }),
         },
       },
       (res) => {
         const chunks: Buffer[] = [];
-        res.on("data", (c: Buffer) => chunks.push(c));
+        let responseBytes = 0;
+        const declaredLength = res.headers["content-length"];
+        if (
+          typeof declaredLength === "string" &&
+          /^(0|[1-9][0-9]*)$/.test(declaredLength) &&
+          Number(declaredLength) > BROWSER_CONTROL_MAX_RESPONSE_BYTES
+        ) {
+          settle(
+            controlErr(
+              "result_too_large",
+              `server response exceeds ${BROWSER_CONTROL_MAX_RESPONSE_BYTES} bytes`,
+            ),
+          );
+          res.destroy();
+          req.destroy();
+          return;
+        }
+        const failIncomplete = (): void => {
+          if (!res.complete) settle(controlErr("failed", "server response closed before completion"));
+        };
+        res.once("aborted", failIncomplete);
+        res.once("error", () => settle(controlErr("failed", "server response could not be read")));
+        res.once("close", failIncomplete);
+        res.on("data", (chunk: Buffer | string) => {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          responseBytes += buffer.byteLength;
+          if (responseBytes > BROWSER_CONTROL_MAX_RESPONSE_BYTES) {
+            settle(
+              controlErr(
+                "result_too_large",
+                `server response exceeds ${BROWSER_CONTROL_MAX_RESPONSE_BYTES} bytes`,
+              ),
+            );
+            res.destroy();
+            req.destroy();
+            return;
+          }
+          chunks.push(buffer);
+        });
         res.on("end", () => {
+          if (settled) return;
           try {
             const decoded = decodeControlEnvelope(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-            resolve(
+            settle(
               Either.isLeft(decoded)
                 ? controlErr("failed", "server returned a malformed envelope")
                 : decoded.right,
             );
           } catch {
-            resolve(controlErr("failed", "server returned non-JSON"));
+            settle(controlErr("failed", "server returned non-JSON"));
           }
         });
       },
     );
-    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-      req.destroy(new Error(`request timed out after ${REQUEST_TIMEOUT_MS}ms — the app may be hung`));
-    });
+    const timeoutMs = requestTimeoutMs();
+    timer = setTimeout(() => {
+      settle(controlErr("timeout", `request timed out after ${timeoutMs}ms`));
+      req.destroy();
+    }, timeoutMs);
     req.on("error", (error: NodeJS.ErrnoException) => {
+      if (settled) return;
       // Socket missing (never started) or refusing (crashed): the app is down.
-      resolve(
+      settle(
         error.code === "ENOENT" || error.code === "ECONNREFUSED"
           ? controlErr("runtime_down", `vellum app is not running (${error.code} on ${socketPath})`)
           : controlErr("failed", error.message),
       );
     });
-    if (body !== undefined) req.write(JSON.stringify(body));
+    if (encodedBody !== undefined) req.write(encodedBody);
     req.end();
   });
 
@@ -99,11 +189,8 @@ const parseArgs = (
   argv: ReadonlyArray<string>,
 ): { call: Call; json: boolean } | { error: string } => {
   const json = argv.includes("--json");
-  const flag = (name: string): string | undefined => {
-    const i = argv.indexOf(`--${name}`);
-    return i >= 0 ? argv[i + 1] : undefined;
-  };
-  const positional = argv.filter((a, i) => !a.startsWith("--") && argv[i - 1] !== "--path");
+  if (argv.includes("--path")) return { error: "shot does not accept --path; Vellum owns screenshot destinations" };
+  const positional = argv.filter((value) => value !== "--json");
   const [cmd, a, b] = positional;
 
   switch (cmd) {
@@ -132,7 +219,7 @@ const parseArgs = (
       if (!a) return { error: "shot requires <sessionId>" };
       return {
         json,
-        call: { route: "screenshot", body: { sessionId: a, ...(flag("path") ? { path: flag("path") } : {}) } },
+        call: { route: "screenshot", body: { sessionId: a } },
       };
     case "close":
       if (!a) return { error: "close requires <sessionId>" };
