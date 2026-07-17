@@ -384,7 +384,14 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
         rows,
         takeover: true,
       });
-      if (cancelled) return;
+      // Cancel-after-open must detach control — otherwise main keeps a global
+      // takeover stream with no UI owner (VL-030).
+      if (cancelled) {
+        if (opened.ok && opened.streamId) {
+          void api.herdrStreamClose?.(opened.streamId).catch(() => undefined);
+        }
+        return;
+      }
       if (!opened.ok || !opened.streamId) {
         setStatus(opened.message ?? "stream open failed");
         setConnectionEvent(terminalOpen.nodeId, { type: "stream_drop" });

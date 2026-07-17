@@ -17,6 +17,12 @@ export interface HerdrMetaCache {
   readonly meta?: HerdrPaneInfo;
   readonly error?: string;
   readonly fetchedAt?: number;
+  /**
+   * Bumps when the operator marks the pane seen (open terminal). Concurrent
+   * refreshHerdrMeta started before the bump must not clobber idle with a
+   * stale host "done" (VL-030).
+   */
+  readonly seenGen?: number;
 }
 
 export interface HerdrTerminalOpen {
@@ -94,7 +100,7 @@ export const openHerdrTerminal = (nodeId: string, herdr: EtherHerdr, title: stri
   // done (Idle+!seen) → idle so the card stops waving before the focus round-trip.
   // Then mark seen on the host so the mirror event confirms it for the fleet.
   markHerdrPaneSeenLocal(nodeId);
-  void markHerdrPaneSeenRemote(herdr);
+  void markHerdrPaneSeenRemote(herdr, nodeId);
 };
 
 /**
@@ -193,23 +199,84 @@ export const subscribeHerdrMirror = (): (() => void) => {
 };
 
 /**
+ * Protect seen-idle against a stale host "done" when seenGen advanced mid-flight.
+ * Pure so unit tests can lock the race without React.
+ */
+export const mergeHerdrMetaAfterRefresh = (
+  previous: HerdrMetaCache | undefined,
+  startSeenGen: number,
+  remote: HerdrPaneInfo,
+): HerdrPaneInfo => {
+  const nowGen = previous?.seenGen ?? 0;
+  if (
+    nowGen > startSeenGen &&
+    previous?.meta?.agentStatus === "idle" &&
+    remote.agentStatus === "done"
+  ) {
+    return { ...remote, agentStatus: "idle" };
+  }
+  return remote;
+};
+
+/**
  * Optimistic done → idle when the operator opens a terminal (looks at the pane).
  * Herdr's agent_status is (state, seen): Idle+!seen = "done", Idle+seen = "idle".
  */
 export const markHerdrPaneSeenLocal = (nodeId: string): void => {
   const cache = herdr$.metaByNodeId[nodeId].peek();
   const meta = cache?.meta;
-  if (!meta || meta.agentStatus !== "done") return;
+  if (!meta) {
+    // No meta yet — still bump gen so the first refresh cannot paint done after open.
+    herdr$.metaByNodeId[nodeId].set({
+      status: cache?.status ?? "idle",
+      meta: cache?.meta,
+      error: cache?.error,
+      fetchedAt: Date.now(),
+      seenGen: (cache?.seenGen ?? 0) + 1,
+    });
+    return;
+  }
+  if (meta.agentStatus !== "done" && meta.agentStatus !== undefined) {
+    // Still bump gen so concurrent refresh cannot reintroduce done.
+    herdr$.metaByNodeId[nodeId].set({
+      ...cache,
+      seenGen: (cache?.seenGen ?? 0) + 1,
+      fetchedAt: Date.now(),
+    });
+    return;
+  }
   herdr$.metaByNodeId[nodeId].set({
     status: cache.status === "loading" ? "ok" : cache.status,
     meta: { ...meta, agentStatus: "idle" },
     error: cache.error,
     fetchedAt: Date.now(),
+    seenGen: (cache.seenGen ?? 0) + 1,
+  });
+};
+
+/** Apply host-confirmed agentStatus after mark-seen (agent focus). */
+export const applyHerdrPaneSeenStatus = (
+  nodeId: string,
+  agentStatus: string | undefined,
+): void => {
+  if (!agentStatus) return;
+  const cache = herdr$.metaByNodeId[nodeId].peek();
+  const meta = cache?.meta;
+  if (!meta) return;
+  herdr$.metaByNodeId[nodeId].set({
+    status: "ok",
+    meta: { ...meta, agentStatus },
+    error: undefined,
+    fetchedAt: Date.now(),
+    seenGen: (cache.seenGen ?? 0) + 1,
   });
 };
 
 /** Stock `herdr agent focus <pane>` — marks seen on the host (done → idle). */
-export const markHerdrPaneSeenRemote = async (herdr: EtherHerdr): Promise<void> => {
+export const markHerdrPaneSeenRemote = async (
+  herdr: EtherHerdr,
+  nodeId?: string,
+): Promise<void> => {
   if (!herdr.paneId) return;
   const api = getVellumApi() as
     | (ReturnType<typeof getVellumApi> & {
@@ -217,14 +284,21 @@ export const markHerdrPaneSeenRemote = async (herdr: EtherHerdr): Promise<void> 
           hostId: string,
           session: string | null | undefined,
           paneId: string,
-        ) => Promise<{ ok: boolean; data?: { agentStatus?: string }; message?: string }>;
+        ) => Promise<{
+          ok: boolean;
+          data?: { agentStatus?: string; paneId?: string };
+          message?: string;
+        }>;
       })
     | undefined;
   if (!api?.herdrMarkPaneSeen) return;
   try {
-    await api.herdrMarkPaneSeen(herdr.host, herdr.session ?? null, herdr.paneId);
+    const res = await api.herdrMarkPaneSeen(herdr.host, herdr.session ?? null, herdr.paneId);
+    if (res.ok && res.data?.agentStatus && nodeId) {
+      applyHerdrPaneSeenStatus(nodeId, res.data.agentStatus);
+    }
   } catch {
-    // Best-effort: mirror push / next meta poll will reconverge.
+    // Best-effort: mirror push (real wire) / next meta poll will reconverge.
   }
 };
 
@@ -246,6 +320,7 @@ export const refreshHerdrMeta = async (
     return;
   }
   const previous = herdr$.metaByNodeId[nodeId].peek();
+  const startSeenGen = previous?.seenGen ?? 0;
   // Stale-while-revalidate: keep status "ok" with prior meta so cards do not
   // flash the cyan loading wave on every mirror change (fleet-wide thrash).
   // Only the first fetch (no meta yet) uses "loading".
@@ -253,10 +328,12 @@ export const refreshHerdrMeta = async (
     herdr$.metaByNodeId[nodeId].set({
       status: "loading",
       meta: previous?.meta,
+      seenGen: previous?.seenGen,
     });
   }
   try {
     const result = await api.herdrGetMeta(herdr.host, herdr.session ?? null, herdr.paneId);
+    const latest = herdr$.metaByNodeId[nodeId].peek();
     if (!result.ok || !result.data) {
       const code = result.code ?? "";
       if (code === "unreachable" || code === "timeout") {
@@ -267,24 +344,29 @@ export const refreshHerdrMeta = async (
       herdr$.metaByNodeId[nodeId].set({
         status: "error",
         error: result.message ?? "meta failed",
-        meta: previous?.meta,
+        meta: latest?.meta ?? previous?.meta,
         fetchedAt: Date.now(),
+        seenGen: latest?.seenGen ?? previous?.seenGen,
       });
       return;
     }
     setConnectionEvent(nodeId, { type: "ok" });
+    const merged = mergeHerdrMetaAfterRefresh(latest, startSeenGen, result.data);
     herdr$.metaByNodeId[nodeId].set({
       status: "ok",
-      meta: result.data,
+      meta: merged,
       fetchedAt: Date.now(),
+      seenGen: latest?.seenGen ?? previous?.seenGen,
     });
   } catch (error) {
     setConnectionEvent(nodeId, { type: "host_unreachable" });
+    const latest = herdr$.metaByNodeId[nodeId].peek();
     herdr$.metaByNodeId[nodeId].set({
       status: "error",
       error: error instanceof Error ? error.message : String(error),
-      meta: previous?.meta,
+      meta: latest?.meta ?? previous?.meta,
       fetchedAt: Date.now(),
+      seenGen: latest?.seenGen ?? previous?.seenGen,
     });
   }
 };

@@ -42,8 +42,11 @@ export function HerdrCard({ node }: { readonly node: CanvasNode }) {
   }, []);
 
   // Push: a mirror "change" for this host refreshes meta the instant it lands.
+  // Mirror covers the default (null) session only — named-session cards must
+  // not fan out CLI meta on every default-session event (VL-030).
   useEffect(() => {
     if (!herdr?.host || !herdr.paneId) return;
+    if (herdr.session) return;
     const api = getVellumApi() as HerdrCardApi | undefined;
     if (!api?.onHerdrMirrorEvent) return;
     const targetHost = herdr.host;

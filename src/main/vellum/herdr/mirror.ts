@@ -10,10 +10,13 @@
  * protocol 16): result.snapshot.{workspaces,tabs,panes,agents,layouts,
  * focused_workspace_id,focused_tab_id,focused_pane_id}; rows keyed by
  * workspace_id / tab_id / pane_id; layouts keyed by workspace_id+tab_id.
+ *
+ * Event wire (same protocol): pushes are `{ event, data }` — lifecycle kinds
+ * snake_case on the wire, subscription kinds dotted; both normalize to dotted
+ * internal kinds via event-normalize.ts (VL-030).
  */
+import { normalizeHerdrEvent, type Rec } from "./event-normalize";
 import type { MirrorTransport } from "./mirror-transport";
-
-type Rec = Record<string, unknown>;
 
 const asRecord = (value: unknown): Rec | undefined =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Rec) : undefined;
@@ -24,7 +27,7 @@ const str = (value: unknown): string | undefined =>
 const recordList = (value: unknown): Rec[] =>
   Array.isArray(value) ? value.map(asRecord).filter((r): r is Rec => r !== undefined) : [];
 
-/** Unscoped lifecycle kinds (from `herdr api schema`, protocol 16). */
+/** Unscoped lifecycle kinds for events.subscribe params (dotted Subscription.type). */
 const UNSCOPED_KINDS = [
   "workspace.created",
   "workspace.updated",
@@ -276,30 +279,22 @@ export class HerdrMirror implements HerdrMirrorReads {
     return ws && tab ? `${ws}/${tab}` : undefined;
   }
 
-  /** Event body minus the routing `type` key, merged over the nested record
-   * when the event nests it (evt.workspace / evt.tab / evt.pane). */
-  private eventBody(evt: Rec, nestedKey: string): Rec {
-    const { type: _type, ...flat } = evt;
-    const nested = asRecord(evt[nestedKey]);
-    return nested ? { ...flat, ...nested } : flat;
-  }
-
   private upsert(map: Map<string, Rec>, id: string, body: Rec): void {
     const existing = map.get(id);
     map.set(id, existing ? { ...existing, ...body } : body);
   }
 
-  private applyEvent(evt: Rec): void {
+  private applyEvent(raw: Rec): void {
     if (this.stopped) return;
-    const kind = str(evt.type) ?? str(evt.kind);
-    if (!kind || !KNOWN_KINDS.has(kind)) {
+    const normalized = normalizeHerdrEvent(raw);
+    if (!normalized || !KNOWN_KINDS.has(normalized.kind)) {
       // Unknown kind: never trust a stale cache silently — self-heal.
       this.scheduleRebuild();
       return;
     }
+    const { kind, body } = normalized;
 
     if (kind.startsWith("workspace.")) {
-      const body = this.eventBody(evt, "workspace");
       const id = str(body.workspace_id);
       if (id) {
         if (kind === "workspace.closed") {
@@ -311,7 +306,6 @@ export class HerdrMirror implements HerdrMirrorReads {
         }
       }
     } else if (kind.startsWith("tab.")) {
-      const body = this.eventBody(evt, "tab");
       const id = str(body.tab_id);
       if (id) {
         if (kind === "tab.closed") {
@@ -323,7 +317,6 @@ export class HerdrMirror implements HerdrMirrorReads {
         }
       }
     } else if (kind.startsWith("pane.")) {
-      const body = this.eventBody(evt, "pane");
       const id = str(body.pane_id);
       if (id) {
         if (kind === "pane.closed" || kind === "pane.exited") {
@@ -345,7 +338,6 @@ export class HerdrMirror implements HerdrMirrorReads {
       }
       if (PANE_SET_KINDS.has(kind)) this.scheduleRebuild();
     } else if (kind === "layout.updated") {
-      const body = this.eventBody(evt, "layout");
       const key = this.layoutKey(body);
       if (key) this.layouts.set(key, body);
     }

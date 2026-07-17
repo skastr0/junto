@@ -152,16 +152,23 @@ describe("HerdrMirror", () => {
     const mirror = await startFresh(transport);
     cleanup.push(() => mirror.stop());
 
-    transport.handlers!.onEvent({ type: "workspace.created", workspace_id: "w2", label: "new" });
+    // Herdr wire: lifecycle EventEnvelope uses snake_case `event` + nested `data`.
+    transport.handlers!.onEvent({
+      event: "workspace_created",
+      data: { type: "workspace_created", workspace: { workspace_id: "w2", label: "new" } },
+    });
     expect(mirror.listWorkspaces()?.map((w) => w.workspace_id)).toEqual(["w1", "w2"]);
 
-    transport.handlers!.onEvent({ type: "tab.closed", tab_id: "w1:t1" });
+    transport.handlers!.onEvent({
+      event: "tab_closed",
+      data: { type: "tab_closed", tab_id: "w1:t1", workspace_id: "w1" },
+    });
     expect(mirror.listTabs()).toEqual([]);
 
+    // Subscription kinds stay dotted on the wire (SubscriptionEventEnvelope).
     transport.handlers!.onEvent({
-      type: "pane.agent_status_changed",
-      pane_id: "w1:p1",
-      agent_status: "working",
+      event: "pane.agent_status_changed",
+      data: { pane_id: "w1:p1", workspace_id: "w1", agent_status: "working" },
     });
     expect(mirror.paneRecord("w1:p1")?.agent_status).toBe("working");
     expect(mirror.listAgents()?.[0]?.agent_status).toBe("working");
@@ -175,7 +182,10 @@ describe("HerdrMirror", () => {
     mirror.onChange(() => {
       changes += 1;
     });
-    transport.handlers!.onEvent({ type: "workspace.renamed", workspace_id: "w1", label: "x" });
+    transport.handlers!.onEvent({
+      event: "workspace_renamed",
+      data: { type: "workspace_renamed", workspace_id: "w1", label: "x" },
+    });
     await waitFor(() => changes >= 1);
     expect(mirror.listWorkspaces()?.[0]?.label).toBe("x");
   });
@@ -196,10 +206,11 @@ describe("HerdrMirror", () => {
     transport.snapshot = next;
 
     transport.handlers!.onEvent({
-      type: "pane.created",
-      pane_id: "w1:p2",
-      workspace_id: "w1",
-      tab_id: "w1:t1",
+      event: "pane_created",
+      data: {
+        type: "pane_created",
+        pane: { pane_id: "w1:p2", workspace_id: "w1", tab_id: "w1:t1", terminal_id: "term_2" },
+      },
     });
 
     await waitFor(() => transport.subscribeCalls.length >= 2);
@@ -249,10 +260,11 @@ describe("HerdrMirror", () => {
 
     // Schedule a debounced rebuild (100ms out)…
     transport.handlers!.onEvent({
-      type: "pane.created",
-      pane_id: "w1:p2",
-      workspace_id: "w1",
-      tab_id: "w1:t1",
+      event: "pane_created",
+      data: {
+        type: "pane_created",
+        pane: { pane_id: "w1:p2", workspace_id: "w1", tab_id: "w1:t1" },
+      },
     });
     // …then the events connection drops independently before it fires.
     transport.handlers!.onClose("forward blip");
