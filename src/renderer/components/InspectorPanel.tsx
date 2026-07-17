@@ -1,13 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Copy, Crosshair, ExternalLink, Trash2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
-import { formatNodeRef } from "@shared/node-ref";
 import { deriveExecutionGraph } from "@shared/execution-graph";
-import { deleteNode, setNodeColor } from "../lib/mutations";
 import { deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../lib/edge-mutations";
-import { EdgeCriteriaEditor } from "./InspectorFields";
+import { EdgeCriteriaEditor, NodeFieldEditors } from "./InspectorFields";
 import { clearSelection, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { DIM, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
@@ -17,11 +15,11 @@ import { resolveNodeConnections } from "../../shared/connections";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
 import { getAgentAvatar, getAgentIdentity } from "../lib/agent";
 import { getVellumApi } from "../lib/vellum-api";
-import { ConnectEditor, NodeFieldEditors, NodeFlagControls } from "./InspectorFields";
 import { ProjectBrowseSection } from "./InspectorBrowse";
 import { BrowserAutomationSection } from "./BrowserAutomationSection";
 import { ChatView, InspectorTabs } from "./chat";
 import { chatState$ } from "../lib/chat-state";
+
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
   { value: "1", label: "red", hue: HUE.crimson },
   { value: "2", label: "orange", hue: HUE.orange },
@@ -35,6 +33,7 @@ function InspectorHeader({ eyebrow, title, onClose }: { readonly eyebrow: string
   return <div className="inspector-header"><div><div className="inspector-eyebrow">{eyebrow}</div><div className="inspector-title">{title}</div></div><button className="inspector-close" aria-label="Close inspector" title="close inspector" onClick={onClose}><X size={14} /></button></div>;
 }
 
+// Accent lives on edges only here — node accent/flags/actions own the RTS command bar.
 function AccentControls({ value, onChange }: { readonly value?: string; readonly onChange: (value?: string) => void }) {
   return <div className="inspector-section"><div className="inspector-section__label"><span className="inspector-color-dot" style={{ background: value ? undefined : HUE.amber }} /> accent</div><div className="inspector-colors"><button type="button" className="inspector-color-toggle inspector-color-toggle--default" aria-label="Use default accent" aria-pressed={!value} title="default accent" onClick={() => onChange()}><span /></button>{COLOR_OPTIONS.map(({ value: optionValue, label, hue }) => <button key={optionValue} type="button" className="inspector-color-toggle" aria-label={`Set ${label} accent`} aria-pressed={value === optionValue} title={`${label} accent`} style={{ color: hue, borderColor: value === optionValue ? withAlpha(hue, 0.65) : withAlpha(hue, 0.22), background: withAlpha(hue, value === optionValue ? 0.18 : 0.07) }} onClick={() => onChange(optionValue)}><span style={{ background: hue }} /></button>)}</div></div>;
 }
@@ -162,56 +161,15 @@ function AgentTabBar({ agentKey, active, onSelect }: { readonly agentKey: string
   />;
 }
 
+// Node accent / flags / focus / connect / delete / copy-ref live in the RTS
+// command bar (lower-left). This panel keeps surface-specific detail only.
 function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
-  const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
-  const [connectOpen, setConnectOpen] = useState(false);
   const [agentTab, setAgentTab] = useState("chat");
-  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
-  const [copyDetail, setCopyDetail] = useState("");
-  const copyRequest = useRef(0);
   const isEntity = Boolean(node.ether?.entity);
   const isAgent = isEntity && node.ether?.entity?.kind === "agent";
   const hermesKey = isAgent ? node.ether?.entity?.name : undefined;
   const chatTab = Boolean(hermesKey) && agentTab === "chat";
-
-  useEffect(() => {
-    copyRequest.current += 1;
-    setCopyStatus("idle");
-    setCopyDetail("");
-  }, [canvasName, node.id]);
-
-  const copyReference = async (): Promise<void> => {
-    const request = copyRequest.current + 1;
-    copyRequest.current = request;
-    const currentCanvasName = state$.canvasName.peek();
-    const currentNodeId = node.id;
-    const matches = state$.doc.peek().nodes.filter((candidate) => candidate.id === currentNodeId);
-
-    try {
-      if (state$.selectedNodeId.peek() !== currentNodeId || matches.length !== 1) {
-        throw new Error("node is no longer the current unique selection");
-      }
-      const ref = formatNodeRef({ canvasName: currentCanvasName, nodeId: currentNodeId });
-      if (typeof navigator.clipboard?.writeText !== "function") {
-        throw new Error("clipboard is unavailable");
-      }
-      await navigator.clipboard.writeText(ref);
-      if (
-        copyRequest.current !== request ||
-        state$.canvasName.peek() !== currentCanvasName ||
-        state$.selectedNodeId.peek() !== currentNodeId
-      ) {
-        return;
-      }
-      setCopyStatus("copied");
-      setCopyDetail(ref);
-    } catch (error) {
-      if (copyRequest.current !== request) return;
-      setCopyStatus("failed");
-      setCopyDetail(error instanceof Error ? error.message : String(error));
-    }
-  };
 
   return <aside className="inspector-panel">
     <InspectorHeader eyebrow={nodeTypeLabel(node)} title={nodeTitle(node)} onClose={onClose} />
@@ -228,16 +186,6 @@ function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly 
         {isAgent ? <AgentSections key={node.id} node={node} /> : null}
         <BrowserAutomationSection key={`${canvasName}:${node.id}`} canvasName={canvasName} node={node} />
         <NodeFieldEditors node={node} />
-        <AccentControls value={node.color} onChange={(color) => setNodeColor(node.id, color)} />
-        <NodeFlagControls node={node} />
-        <div className="inspector-actions">
-          <button type="button" onClick={() => { state$.searchQuery.set(""); state$.edgeFilter.set(""); state$.flagFilter.set(""); state$.focusNodeId.set(node.id); }}><Crosshair size={13} />focus node</button>
-          <button type="button" aria-live="polite" title={copyDetail || "copy stable node reference"} onClick={() => void copyReference()}><Copy size={13} />{copyStatus === "copied" ? "copied" : copyStatus === "failed" ? "copy failed" : "copy ref"}</button>
-          {node.type === "link" ? <button type="button" onClick={() => window.open(node.url, "_blank")}><ExternalLink size={13} />open link</button> : null}
-          <button type="button" onClick={() => setConnectOpen((open) => !open)}><ArrowRight size={13} />connect to…</button>
-          <button type="button" className="inspector-action--danger" onClick={() => deleteNode(node.id)}><Trash2 size={13} />delete</button>
-        </div>
-        <ConnectEditor node={node} doc={doc} open={connectOpen} onOpenChange={setConnectOpen} />
       </>}
     </div>
   </aside>;

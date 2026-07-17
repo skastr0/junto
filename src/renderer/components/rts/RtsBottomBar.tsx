@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
-import { Ban, Crosshair, Link2, Trash2 } from "lucide-react";
+import { Ban, Copy, Crosshair, ExternalLink, Link2, Trash2 } from "lucide-react";
 import type { EtherFlag } from "@shared/canvas";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
+import { formatNodeRef } from "@shared/node-ref";
 import { state$, toggleFlagFilter } from "../../lib/state";
 import { assignSlot, mergeSlotOrder, useRegionRollups } from "../../lib/region-rollups";
 import { signalMark, signalMarkForMember } from "../../lib/signal-mark";
@@ -11,6 +12,7 @@ import { makeGroupNode } from "../../lib/node-factories";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { HUE, withAlpha } from "../../lib/theme";
 import { disarmOrphan, kernel$ } from "../../lib/kernel-view";
+import { ConnectEditor } from "../InspectorFields";
 import { PulseTray } from "../PulseTray";
 import "./RtsBottomBar.css";
 
@@ -143,9 +145,70 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
     );
   }
 
+  return <NodeCommandCard nodeId={node.id} />;
+}
+
+function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
+  const doc = use$(state$.doc);
+  const canvasName = use$(state$.canvasName);
+  const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const [copyDetail, setCopyDetail] = useState("");
+  const copyRequest = useRef(0);
+
+  useEffect(() => {
+    copyRequest.current += 1;
+    setCopyStatus("idle");
+    setCopyDetail("");
+    setConnectOpen(false);
+  }, [canvasName, nodeId]);
+
+  if (!node) {
+    return (
+      <div className="rts-panel">
+        <div className="rts-panel__label">command</div>
+        <div className="rts-panel__body"><div className="rts-quiet">No selection — click a node or tap 1–9 for a region.</div></div>
+      </div>
+    );
+  }
+
   const flags = node.ether?.flags ?? [];
+
+  const copyReference = async (): Promise<void> => {
+    const request = copyRequest.current + 1;
+    copyRequest.current = request;
+    const currentCanvasName = state$.canvasName.peek();
+    const currentNodeId = node.id;
+    const matches = state$.doc.peek().nodes.filter((candidate) => candidate.id === currentNodeId);
+
+    try {
+      if (state$.selectedNodeId.peek() !== currentNodeId || matches.length !== 1) {
+        throw new Error("node is no longer the current unique selection");
+      }
+      const ref = formatNodeRef({ canvasName: currentCanvasName, nodeId: currentNodeId });
+      if (typeof navigator.clipboard?.writeText !== "function") {
+        throw new Error("clipboard is unavailable");
+      }
+      await navigator.clipboard.writeText(ref);
+      if (
+        copyRequest.current !== request ||
+        state$.canvasName.peek() !== currentCanvasName ||
+        state$.selectedNodeId.peek() !== currentNodeId
+      ) {
+        return;
+      }
+      setCopyStatus("copied");
+      setCopyDetail(ref);
+    } catch (error) {
+      if (copyRequest.current !== request) return;
+      setCopyStatus("failed");
+      setCopyDetail(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   return (
-    <div className="rts-panel">
+    <div className={`rts-panel${connectOpen ? " rts-panel--expanded" : ""}`}>
       <div className="rts-panel__label">command</div>
       <div className="rts-panel__body rts-cmd">
         <div>
@@ -202,12 +265,23 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
           <button
             type="button"
             className="rts-cmd__btn"
-            title="Select this node, then drag an edge handle to connect"
-            onClick={() => {
-              state$.selectedNodeId.set(node.id);
-              state$.selectedNodeIds.set([node.id]);
-              state$.selectedEdgeId.set("");
-            }}
+            aria-live="polite"
+            title={copyDetail || "copy stable node reference"}
+            onClick={() => void copyReference()}
+          >
+            <Copy size={12} /> {copyStatus === "copied" ? "copied" : copyStatus === "failed" ? "copy failed" : "copy ref"}
+          </button>
+          {node.type === "link" ? (
+            <button type="button" className="rts-cmd__btn" onClick={() => window.open(node.url, "_blank")}>
+              <ExternalLink size={12} /> open
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={`rts-cmd__btn${connectOpen ? " is-active" : ""}`}
+            aria-pressed={connectOpen}
+            title="Connect this node to another"
+            onClick={() => setConnectOpen((open) => !open)}
           >
             <Link2 size={12} /> connect
           </button>
@@ -215,6 +289,7 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
             <Trash2 size={12} /> delete
           </button>
         </div>
+        <ConnectEditor node={node} doc={doc} open={connectOpen} onOpenChange={setConnectOpen} />
       </div>
     </div>
   );
