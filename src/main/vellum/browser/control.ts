@@ -475,21 +475,40 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
     }
     const combined = combineAbortSignals(requestSignal, lease.signal);
     let outcome: BrowserCapabilityCompletionOutcome = "failed";
+    let removeAbortListener: (() => void) | undefined;
     try {
       if (combined.signal.aborted) {
         outcome = "cancelled";
         return controlErr("cancelled", "browser control request was cancelled");
       }
-      const envelope = await run(lease, combined.signal);
-      outcome = releaseOutcome(envelope);
-      return envelope;
-    } catch (error) {
-      if (combined.signal.aborted) {
+
+      const operation = Promise.resolve()
+        .then(() => run(lease, combined.signal))
+        .then(
+          (envelope) => ({ kind: "completed" as const, envelope }),
+          (error: unknown) => ({ kind: "failed" as const, error }),
+        );
+      const aborted = new Promise<{ readonly kind: "aborted" }>((resolveAbort) => {
+        const onAbort = (): void => resolveAbort({ kind: "aborted" });
+        combined.signal.addEventListener("abort", onAbort, { once: true });
+        removeAbortListener = () => combined.signal.removeEventListener("abort", onAbort);
+      });
+      const result = await Promise.race([operation, aborted]);
+      if (result.kind === "aborted") {
         outcome = "cancelled";
         return controlErr("cancelled", "browser control request was cancelled");
       }
-      return capabilityError(error);
+      if (result.kind === "failed") {
+        if (combined.signal.aborted) {
+          outcome = "cancelled";
+          return controlErr("cancelled", "browser control request was cancelled");
+        }
+        return capabilityError(result.error);
+      }
+      outcome = releaseOutcome(result.envelope);
+      return result.envelope;
     } finally {
+      removeAbortListener?.();
       combined.dispose();
       lease.release(outcome);
     }
@@ -1194,7 +1213,12 @@ export const startBrowserControlServer = async (
           deadlineExpired = true;
           if (!controller.signal.aborted) controller.abort();
         }, handlerTimeoutMs);
-        let releaseHandlerOnExit = true;
+        let handlerReleased = false;
+        const releaseHandler = (): void => {
+          if (handlerReleased) return;
+          handlerReleased = true;
+          activeHandlers -= 1;
+        };
 
         try {
           const operation = (async (): Promise<{
@@ -1270,18 +1294,15 @@ export const startBrowserControlServer = async (
             operation.then((reply) => ({ aborted: false as const, reply })),
             aborted,
           ]);
+          if (deadlineExpired) {
+            respond(
+              504,
+              controlErr("timeout", `browser control handler exceeded ${handlerTimeoutMs}ms`),
+              true,
+            );
+            return;
+          }
           if (outcome.aborted) {
-            releaseHandlerOnExit = false;
-            void operation.then(() => {
-              activeHandlers -= 1;
-            });
-            if (deadlineExpired) {
-              respond(
-                504,
-                controlErr("timeout", `browser control handler exceeded ${handlerTimeoutMs}ms`),
-                true,
-              );
-            }
             return;
           }
           respond(
@@ -1293,7 +1314,7 @@ export const startBrowserControlServer = async (
           clearTimeout(deadline);
           req.off("aborted", abortDisconnected);
           res.off("close", abortDisconnected);
-          if (releaseHandlerOnExit) activeHandlers -= 1;
+          releaseHandler();
         }
       })();
     },

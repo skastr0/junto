@@ -527,8 +527,47 @@ describe("browser control Unix transport", () => {
     const neverResolve: PageTargetResolver = async () => new Promise(() => {});
     const timed = await startStack(
       deadlineRoot,
-      { chmodSocket: chmodSync, handlerTimeoutMs: 40 },
+      { chmodSocket: chmodSync, maxActiveHandlers: 1, handlerTimeoutMs: 40 },
       neverResolve,
+    );
+    const body = JSON.stringify({ ref: PAGE_REF });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await rawExchange(timed.server.socketPath, [
+        requestHead("POST", "/open", [
+          ...capabilityHeaders(timed.token, timed.capability),
+          ["Content-Type", "application/json"],
+          ["Content-Length", String(Buffer.byteLength(body))],
+        ]),
+        body,
+      ]);
+      expect(statusOf(response)).toBe(504);
+      expect(envelopeOf(response)).toMatchObject({
+        ok: false,
+        error: { _tag: "timeout" },
+      });
+      expect(timed.capabilities.stats().activeLeases).toBe(0);
+
+      const doctor = await rawExchange(timed.server.socketPath, [
+        requestHead("GET", "/doctor", [[CONTROL_TOKEN_HEADER, timed.token]]),
+      ], true);
+      expect(statusOf(doctor)).toBe(200);
+    }
+  });
+
+  it("releases handler admission exactly once when a timed operation settles late", async () => {
+    const root = await newRoot();
+    let releaseResolver!: () => void;
+    const resolverGate = new Promise<void>((resolveGate) => {
+      releaseResolver = resolveGate;
+    });
+    const delayedResolver: PageTargetResolver = async (ref) => {
+      await resolverGate;
+      return resolvePageTarget(ref);
+    };
+    const timed = await startStack(
+      root,
+      { chmodSocket: chmodSync, maxActiveHandlers: 1, handlerTimeoutMs: 40 },
+      delayedResolver,
     );
     const body = JSON.stringify({ ref: PAGE_REF });
     const response = await rawExchange(timed.server.socketPath, [
@@ -540,7 +579,29 @@ describe("browser control Unix transport", () => {
       body,
     ]);
     expect(statusOf(response)).toBe(504);
-    expect(envelopeOf(response)).toMatchObject({ ok: false, error: { _tag: "timeout" } });
+    expect(timed.capabilities.stats().activeLeases).toBe(0);
+
+    releaseResolver();
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+
+    const held = createConnection(timed.server.socketPath);
+    await new Promise<void>((resolveConnect, rejectConnect) => {
+      held.once("connect", resolveConnect);
+      held.once("error", rejectConnect);
+    });
+    held.write(
+      requestHead("POST", "/open", [
+        ...capabilityHeaders(timed.token, timed.capability),
+        ["Content-Type", "application/json"],
+        ["Content-Length", "100"],
+      ]) + "{",
+    );
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+    const exhausted = await rawExchange(timed.server.socketPath, [
+      requestHead("GET", "/doctor", [[CONTROL_TOKEN_HEADER, timed.token]]),
+    ]);
+    expect(statusOf(exhausted)).toBe(429);
+    held.destroy();
   });
 
   it("aborts an open when its authenticated client disconnects", async () => {
