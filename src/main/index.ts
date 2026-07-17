@@ -40,6 +40,7 @@ import {
   type NodeRefRelayRecord,
 } from "./vellum/node-ref-ingress";
 import { resolveNodeRef } from "./vellum/node-ref-resolver";
+import { installProcessSignalTermination } from "./vellum/process-signal-termination";
 
 app.on(
   "select-client-certificate",
@@ -601,7 +602,12 @@ const detachHerdrOnQuit = (reason: string) => {
   }
 };
 
+let runtimeDetachedForQuit = false;
+
 const detachRuntimeOnQuit = (reason: string): void => {
+  if (runtimeDetachedForQuit) return;
+  runtimeDetachedForQuit = true;
+
   // Revoke authority before closing the socket or detaching browser views.
   // Registry termination destroys only automation-owner WebContentsViews;
   // profile partitions and unrelated renderer-owned views remain intact.
@@ -635,10 +641,10 @@ app.on("will-quit", () => {
   detachRuntimeOnQuit("will-quit");
 });
 
-// launchd bootout / kill send SIGTERM before exit; release control without murder.
-process.on("SIGTERM", () => {
-  detachRuntimeOnQuit("SIGTERM");
-});
-process.on("SIGINT", () => {
-  detachRuntimeOnQuit("SIGINT");
+// Registered SIGTERM/SIGINT listeners suppress Node's default process exit.
+// Detach authority first, request Electron's normal quit sequence, and retain
+// a bounded hard-exit fallback if another listener prevents that sequence.
+installProcessSignalTermination({
+  app,
+  cleanup: (signal) => detachRuntimeOnQuit(signal),
 });
