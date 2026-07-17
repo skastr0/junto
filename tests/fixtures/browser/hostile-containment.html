@@ -5,6 +5,7 @@
     <title>Vellum hostile containment fixture</title>
   </head>
   <body>
+    <script id="vellum-containment-report" type="application/json"></script>
     <script>
       (() => {
         const params = new URL(location.href).searchParams;
@@ -45,7 +46,7 @@
           .map((part) => part.trim())
           .find((part) => part.startsWith("vellum_probe="));
 
-        globalThis.__vellumContainmentProbe = {
+        const report = {
           globals: {
             require: typeof globalThis.require,
             process: typeof globalThis.process,
@@ -58,6 +59,29 @@
           cookieValue: cookie ? decodeURIComponent(cookie.slice("vellum_probe=".length)) : null,
           storageValue: localStorage.getItem("vellum-probe"),
         };
+        globalThis.__vellumContainmentProbe = report;
+        const reportNode = document.getElementById("vellum-containment-report");
+        reportNode.textContent = JSON.stringify(report);
+
+        const poisonedEval = () => {
+          throw new Error("main-world eval was invoked");
+        };
+        const poisonedStringify = () => {
+          throw new Error("main-world JSON.stringify was invoked");
+        };
+        class PoisonedTextEncoder {
+          constructor() {
+            throw new Error("main-world TextEncoder was invoked");
+          }
+        }
+        globalThis.eval = poisonedEval;
+        JSON.stringify = poisonedStringify;
+        globalThis.TextEncoder = PoisonedTextEncoder;
+        reportNode.dataset.mainWorldPoisoned = String(
+          globalThis.eval === poisonedEval &&
+            JSON.stringify === poisonedStringify &&
+            globalThis.TextEncoder === PoisonedTextEncoder,
+        );
       })();
     </script>
   </body>

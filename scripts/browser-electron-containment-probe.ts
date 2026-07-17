@@ -16,6 +16,7 @@ import {
   type ControlEnvelope,
   type ControlRouteName,
 } from "../src/shared/browser-control";
+import { BROWSER_EVAL_TIMEOUT_MS } from "../src/shared/browser-limits";
 import { formatNodeRef } from "../src/shared/node-ref";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -25,7 +26,13 @@ const mainPath = join(repoRoot, "out/main/index.js");
 const STARTUP_TIMEOUT_MS = 20_000;
 const PAGE_TIMEOUT_MS = 12_000;
 const CONTROL_TIMEOUT_MS = 5_000;
+const EVAL_INVALIDATION_TIMEOUT_MS = BROWSER_EVAL_TIMEOUT_MS + 10_000;
+const PROBE_RUNTIME_TIMEOUT_MS = 90_000;
 const MAX_LOG_BYTES = 256 * 1024;
+let probeStage = "setup";
+let activeProbeChild: ChildProcess | undefined;
+let activeProbeServer: Server | undefined;
+let activeProbeRoot: string | undefined;
 // macOS limits AF_UNIX paths to roughly 104 bytes. os.tmpdir() expands to a
 // long /var/folders path, so this hermetic probe deliberately uses /tmp.
 const PROBE_TEMP_PREFIX = "/tmp/vbe-";
@@ -44,9 +51,19 @@ const controlCall = (
   token: string,
   routeName: ControlRouteName,
   body?: unknown,
+  timeoutMs = CONTROL_TIMEOUT_MS,
 ): Promise<ControlEnvelope<unknown>> =>
   new Promise((resolveCall, rejectCall) => {
     const route = CONTROL_ROUTES[routeName];
+    let settled = false;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const settle = (result: { readonly value: ControlEnvelope<unknown> } | { readonly error: unknown }): void => {
+      if (settled) return;
+      settled = true;
+      if (deadline !== undefined) clearTimeout(deadline);
+      if ("value" in result) resolveCall(result.value);
+      else rejectCall(result.error);
+    };
     const req = request(
       {
         socketPath,
@@ -66,18 +83,22 @@ const controlCall = (
               JSON.parse(Buffer.concat(chunks).toString("utf8")),
             );
             if (Either.isLeft(decoded)) {
-              rejectCall(new Error(decoded.left.message));
+              settle({ error: new Error(decoded.left.message) });
               return;
             }
-            resolveCall(decoded.right);
+            settle({ value: decoded.right });
           } catch (error) {
-            rejectCall(error);
+            settle({ error });
           }
         });
       },
     );
-    req.setTimeout(CONTROL_TIMEOUT_MS, () => req.destroy(new Error("control request timed out")));
-    req.on("error", rejectCall);
+    deadline = setTimeout(() => {
+      const error = new Error("control request timed out");
+      req.destroy(error);
+      settle({ error });
+    }, timeoutMs);
+    req.on("error", (error) => settle({ error }));
     if (body !== undefined) req.write(JSON.stringify(body));
     req.end();
   });
@@ -121,7 +142,11 @@ const waitForReport = async (
       const data = requireOk(
         await controlCall(socketPath, token, "eval", {
           sessionId,
-          code: "globalThis.__vellumContainmentProbe ?? null",
+          code: `(() => {
+            const node = document.getElementById("vellum-containment-report");
+            if (node?.dataset.mainWorldPoisoned !== "true") return null;
+            return JSON.parse(node.textContent || "null");
+          })()`,
         }),
         `eval ${sessionId}`,
       );
@@ -132,6 +157,68 @@ const waitForReport = async (
     await delay(100);
   }
   throw new Error(`page probe timed out for ${sessionId}: ${lastError}`);
+};
+
+const waitForSessionInvalidation = async (
+  socketPath: string,
+  token: string,
+  sessionId: string,
+): Promise<void> => {
+  const deadline = Date.now() + EVAL_INVALIDATION_TIMEOUT_MS;
+  let lastError = "session still registered";
+  while (Date.now() < deadline) {
+    try {
+      const sessions = requireOk(await controlCall(socketPath, token, "sessions"), "sessions");
+      if (!Array.isArray(sessions)) throw new Error("sessions response is not an array");
+      const stillRegistered = sessions.some(
+        (session) => isRecord(session) && session.sessionId === sessionId,
+      );
+      if (!stillRegistered) return;
+      lastError = "session still registered after hung eval";
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await delay(100);
+  }
+  throw new Error(`hung eval did not invalidate ${sessionId}: ${lastError}`);
+};
+
+const assertStaleSessionRejected = async (
+  socketPath: string,
+  token: string,
+  sessionId: string,
+): Promise<void> => {
+  const envelope = await controlCall(socketPath, token, "eval", {
+    sessionId,
+    code: "1",
+  });
+  if (envelope.ok || envelope.error._tag !== "not_found") {
+    throw new Error(`stale session ${sessionId} was not rejected as not_found`);
+  }
+};
+
+const startNeverReturningEval = async (
+  socketPath: string,
+  token: string,
+  sessionId: string,
+): Promise<void> => {
+  const envelope = await controlCall(
+    socketPath,
+    token,
+    "eval",
+    {
+      sessionId,
+      code: "(() => { for (;;) {} })()",
+    },
+    EVAL_INVALIDATION_TIMEOUT_MS,
+  );
+  if (envelope.ok || envelope.error._tag !== "timeout") {
+    throw new Error(
+      envelope.ok
+        ? "never-returning eval unexpectedly completed"
+        : `never-returning eval returned ${envelope.error._tag} instead of timeout`,
+    );
+  }
 };
 
 const assertContainment = (report: Record<string, unknown>): void => {
@@ -228,6 +315,7 @@ const stopChild = async (child: ChildProcess): Promise<void> => {
 
 const main = async (): Promise<void> => {
   const root = await mkdtemp(PROBE_TEMP_PREFIX);
+  activeProbeRoot = root;
   const home = join(root, "home");
   const userData = join(root, "electron-user-data");
   const browserDir = join(root, "browser");
@@ -245,6 +333,7 @@ const main = async (): Promise<void> => {
     });
     res.end(fixture);
   });
+  activeProbeServer = server;
   await new Promise<void>((resolveListen, rejectListen) => {
     server.once("error", rejectListen);
     server.listen(0, "127.0.0.1", () => resolveListen());
@@ -301,6 +390,7 @@ const main = async (): Promise<void> => {
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  activeProbeChild = child;
   let stdout = "";
   let stderr = "";
   let exited = false;
@@ -315,6 +405,7 @@ const main = async (): Promise<void> => {
   });
 
   try {
+    probeStage = "control startup";
     const { socketPath, token } = await waitForControl(home, () => exited);
     await assertTcpControlAbsent(legacyTcpPort, token);
     const open = async (nodeId: string): Promise<string> => {
@@ -342,7 +433,9 @@ const main = async (): Promise<void> => {
     }
 
     await open("filler-one");
-    await open("filler-two");
+    const unaffectedWorkSession = await open("filler-two");
+    const unaffectedBefore = await waitForReport(socketPath, token, unaffectedWorkSession);
+    assertContainment(unaffectedBefore);
     const sessions = requireOk(await controlCall(socketPath, token, "sessions"), "sessions");
     if (!Array.isArray(sessions)) throw new Error("sessions response is not an array");
     const nodeIds = sessions
@@ -360,6 +453,30 @@ const main = async (): Promise<void> => {
     }
     if (!(await markerAbsent(markerPath))) throw new Error("hostile page wrote a host marker");
 
+    probeStage = "hung eval operation deadline";
+    await startNeverReturningEval(socketPath, token, personalRestoredSession);
+    probeStage = "hung eval session invalidation";
+    await waitForSessionInvalidation(socketPath, token, personalRestoredSession);
+    probeStage = "stale handle rejection";
+    await assertStaleSessionRejected(socketPath, token, personalRestoredSession);
+
+    probeStage = "unaffected work session";
+    const unaffectedAfter = await waitForReport(socketPath, token, unaffectedWorkSession);
+    assertContainment(unaffectedAfter);
+    probeStage = "same-profile reopen";
+    const reopenedPersonalSession = await open("personal-restored");
+    if (reopenedPersonalSession === personalRestoredSession) {
+      throw new Error("destroyed WebContents reused its stale session handle");
+    }
+    const reopenedPersonal = await waitForReport(socketPath, token, reopenedPersonalSession);
+    assertContainment(reopenedPersonal);
+    if (reopenedPersonal.cookieValue !== nonce || reopenedPersonal.storageValue !== nonce) {
+      throw new Error("personal profile state did not survive destructive eval timeout");
+    }
+    if (!(await markerAbsent(markerPath))) throw new Error("hostile page wrote a host marker");
+    probeStage = "post-timeout TCP regression";
+    await assertTcpControlAbsent(legacyTcpPort, token);
+
     console.log(
       JSON.stringify({
         ok: true,
@@ -368,6 +485,10 @@ const main = async (): Promise<void> => {
           hostWritesBlocked: true,
           profilesIsolated: true,
           partitionSurvivesEviction: true,
+          hungEvalDestroysOnlyTargetView: true,
+          staleSessionRejected: true,
+          profileSurvivesDestructiveTimeout: true,
+          unaffectedSessionRemainsUsable: true,
           tcpListenerAbsent: true,
         },
       }),
@@ -383,13 +504,54 @@ const main = async (): Promise<void> => {
     );
     process.exitCode = 2;
   } finally {
+    probeStage = "cleanup child";
     await stopChild(child);
-    await closeServer(server);
+    probeStage = "cleanup fixture server";
+    server.closeAllConnections();
+    await Promise.race([closeServer(server), delay(2_000)]);
     if (!root.startsWith(PROBE_TEMP_PREFIX)) {
       throw new Error(`refusing unsafe probe cleanup: ${root}`);
     }
     await rm(root, { recursive: true, force: true });
+    if (activeProbeChild === child) activeProbeChild = undefined;
+    if (activeProbeServer === server) activeProbeServer = undefined;
+    if (activeProbeRoot === root) activeProbeRoot = undefined;
   }
 };
 
-await main();
+const watchdog = setTimeout(() => {
+  console.error(
+    JSON.stringify({
+      ok: false,
+      error: `Electron containment probe exceeded ${PROBE_RUNTIME_TIMEOUT_MS}ms during ${probeStage}`,
+    }),
+  );
+  void (async () => {
+    const child = activeProbeChild;
+    if (child !== undefined && child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+      await Promise.race([once(child, "exit"), delay(750)]);
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    }
+    try {
+      activeProbeServer?.closeAllConnections();
+      activeProbeServer?.close();
+    } catch {
+      // Watchdog cleanup is best effort; process termination is the final bound.
+    }
+    const root = activeProbeRoot;
+    if (root !== undefined && root.startsWith(PROBE_TEMP_PREFIX)) {
+      await Promise.race([
+        rm(root, { recursive: true, force: true }).catch(() => undefined),
+        delay(1_000),
+      ]);
+    }
+    process.exit(124);
+  })();
+}, PROBE_RUNTIME_TIMEOUT_MS);
+watchdog.unref();
+try {
+  await main();
+} finally {
+  clearTimeout(watchdog);
+}
