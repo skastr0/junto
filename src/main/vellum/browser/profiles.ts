@@ -625,7 +625,7 @@ const atomicWriteConfig = async (root: string, config: BrowserConfigDisk): Promi
   }
 };
 
-const ensureProfileDirectories = async (
+const prepareProfileDirectories = async (
   root: string,
   profiles: ReadonlyArray<BrowserProfileRecord>,
 ): Promise<void> => {
@@ -713,18 +713,18 @@ export const makeBrowserProfileService = (
     const raw = await readConfigFile(canonicalRoot);
     if (raw === undefined) {
       const config = defaultConfig(now);
-      await ensureProfileDirectories(canonicalRoot, config.profiles);
+      await prepareProfileDirectories(canonicalRoot, config.profiles);
       await atomicWriteConfig(canonicalRoot, config);
       return { root: canonicalRoot, config };
     }
     const decoded = parseConfig(raw);
-    await ensureProfileDirectories(canonicalRoot, decoded.config.profiles);
+    await prepareProfileDirectories(canonicalRoot, decoded.config.profiles);
     if (decoded.migrated) await atomicWriteConfig(canonicalRoot, decoded.config);
     return { root: canonicalRoot, config: decoded.config };
   };
 
   const write = async (rootPath: string, config: BrowserConfigDisk): Promise<void> => {
-    await ensureProfileDirectories(rootPath, config.profiles);
+    await prepareProfileDirectories(rootPath, config.profiles);
     await atomicWriteConfig(rootPath, config);
   };
 
@@ -813,38 +813,49 @@ export const makeBrowserProfileService = (
 
   const initialize = effect(initializePromise);
 
-  return {
-    rootDir: () => requestedRoot,
-    doctor: Effect.promise(() =>
-      withRegistryLock(async (): Promise<ServiceCheck> => {
-        try {
-          const { config } = await load();
-          return config.phase === "ready"
-            ? {
-                id: "browser-profiles",
-                label: "Browser Profiles",
-                status: "ok" as const,
-                detail: `registry v${CONFIG_VERSION} · ${config.profiles.length} profiles`,
-              }
-            : {
-                id: "browser-profiles",
-                label: "Browser Profiles",
-                status: "error" as const,
-                detail: "profile wipe recovery required",
-              };
-        } catch (error) {
-          return {
-            id: "browser-profiles",
-            label: "Browser Profiles",
-            status: "error" as const,
-            detail:
-              error instanceof BrowserProfileError && error.code === "corrupt"
-                ? "profile registry corrupt"
-                : "profile registry unavailable",
-          };
-        }
+  const doctor = effect(() =>
+    withRegistryLock(async (): Promise<ServiceCheck> => {
+      try {
+        const { config } = await load();
+        return config.phase === "ready"
+          ? {
+              id: "browser-profiles",
+              label: "Browser Profiles",
+              status: "ok" as const,
+              detail: `registry v${CONFIG_VERSION} · ${config.profiles.length} profiles`,
+            }
+          : {
+              id: "browser-profiles",
+              label: "Browser Profiles",
+              status: "error" as const,
+              detail: "profile wipe recovery required",
+            };
+      } catch (error) {
+        return {
+          id: "browser-profiles",
+          label: "Browser Profiles",
+          status: "error" as const,
+          detail:
+            error instanceof BrowserProfileError && error.code === "corrupt"
+              ? "profile registry corrupt"
+              : "profile registry unavailable",
+        };
+      }
+    }),
+  ).pipe(
+    Effect.catchAll(() =>
+      Effect.succeed<ServiceCheck>({
+        id: "browser-profiles",
+        label: "Browser Profiles",
+        status: "error",
+        detail: "profile registry unavailable",
       }),
     ),
+  );
+
+  return {
+    rootDir: () => requestedRoot,
+    doctor,
     initialize,
     ensureDefaults: initialize,
     recoverPendingWipe: effect(() =>
@@ -1025,7 +1036,7 @@ export const BrowserProfileLive = Layer.sync(BrowserProfileService, () =>
 );
 
 /** Test helper: service rooted at an explicit directory (no home). */
-export const BrowserProfileTestLive = (root: string) =>
+export const BrowserProfileTestLive = (root: string): Layer.Layer<BrowserProfileService> =>
   Layer.succeed(BrowserProfileService, makeBrowserProfileService(root));
 
 // Re-export for callers that only need bounded path listing without Effect.
