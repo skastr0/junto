@@ -11,6 +11,7 @@ import { makeGroupNode } from "../../lib/node-factories";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { HUE } from "../../lib/theme";
 import { disarmOrphan, kernel$ } from "../../lib/kernel-view";
+import { PulseTray } from "../PulseTray";
 import "./RtsBottomBar.css";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -176,8 +177,23 @@ function RegionMiddle({
   }, [slotOrder, rollups, byId]);
 
   // Keep slot order in sync with live regions (append new, drop gone).
+  // Never write [] from a transient empty rollup payload — that would wipe
+  // the presentational 1–9 order on a failed/quiet IPC fetch.
   useEffect(() => {
-    const next = mergeSlotOrder(state$.regionSlotOrder.peek(), rollups.map((r) => r.regionId));
+    const liveIds = rollups.map((r) => r.regionId);
+    if (liveIds.length === 0) {
+      // Prefer doc group ids when rollups are empty-but-doc-has-groups
+      // (first paint before poll) — still avoid inventing wipe from fail.
+      const groups = state$.doc.peek().nodes.filter((n) => n.type === "group").map((n) => n.id);
+      if (groups.length === 0) return;
+      const next = mergeSlotOrder(state$.regionSlotOrder.peek(), groups);
+      const prev = state$.regionSlotOrder.peek();
+      if (next.length !== prev.length || next.some((id, i) => id !== prev[i])) {
+        state$.regionSlotOrder.set(next);
+      }
+      return;
+    }
+    const next = mergeSlotOrder(state$.regionSlotOrder.peek(), liveIds);
     const prev = state$.regionSlotOrder.peek();
     if (next.length !== prev.length || next.some((id, i) => id !== prev[i])) {
       state$.regionSlotOrder.set(next);
@@ -252,13 +268,15 @@ function RegionMiddle({
                 type="button"
                 className={`rts-chip${selectedNodeId === rollup.regionId ? " is-active" : ""}`}
                 draggable
+                aria-label={`Region slot ${index + 1}: ${rollup.label}, ${rollup.severity}, ${rollup.counts.total} members`}
                 onDragStart={() => { dragFrom.current = index; }}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={() => {
                   const from = dragFrom.current;
                   dragFrom.current = null;
                   if (from === null || from === index) return;
-                  const order = [...state$.regionSlotOrder.peek()];
+                  // Reorder the same merged id list the chips render from.
+                  const order = slots.map((s) => s.rollup.regionId);
                   const [moved] = order.splice(from, 1);
                   if (!moved) return;
                   order.splice(index, 0, moved);
@@ -403,9 +421,14 @@ export function RtsBottomBar({ minimap }: { readonly minimap: ReactNode }) {
   useRegionHotkeys();
   const rollups = useRegionRollups();
   const byId = useMemo(() => new Map(rollups.map((r) => [r.regionId, r])), [rollups]);
+  const severityMap = useSeverityByNodeId(rollups);
 
-  // Expose severity map for Canvas MiniMap via module-level ref-ish state.
-  severityMapRef.current = useSeverityByNodeId(rollups);
+  // Publish into state$ so MiniMap can subscribe (React data path, not a module ref).
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    for (const [id, severity] of severityMap) next[id] = severity;
+    state$.regionSeverityByNodeId.set(next);
+  }, [severityMap]);
 
   return (
     <div className="rts-bar" role="region" aria-label="RTS bottom bar">
@@ -413,14 +436,11 @@ export function RtsBottomBar({ minimap }: { readonly minimap: ReactNode }) {
       <RegionMiddle rollups={rollups} byId={byId} />
       <div className="rts-right">
         <OrphanNotices />
-        <div id="rts-pulse-slot" />
+        <div className="rts-notify rts-notify--pulse">
+          <PulseTray embedded />
+        </div>
         <MinimapChrome>{minimap}</MinimapChrome>
       </div>
     </div>
   );
 }
-
-/** Live severity map read by MiniMap nodeColor. Updated by RtsBottomBar. */
-export const severityMapRef: { current: ReadonlyMap<string, MemberSeverity> } = {
-  current: new Map(),
-};

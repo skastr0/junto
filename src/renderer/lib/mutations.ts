@@ -169,6 +169,9 @@ export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = st
   }
   state$.doc.set(next);
   if (structural) state$.docVersion.set(state$.docVersion.peek() + 1);
+  // Position-only writes still change geometric region membership — the RTS
+  // bar re-polls on docEpoch without forcing a React Flow graph rebuild.
+  state$.docEpoch.set(state$.docEpoch.peek() + 1);
   scheduleSave();
 };
 
@@ -179,12 +182,14 @@ export const loadDoc = (doc: CanvasDoc): void => {
   future.length = 0;
   state$.editNodeId.set("");
   state$.selectedNodeId.set("");
+  state$.selectedNodeIds.set([]);
   state$.selectedEdgeId.set("");
   state$.focusNodeId.set("");
   syncHistoryState();
   state$.saveState.set("saved");
   state$.doc.set(doc);
   state$.docVersion.set(state$.docVersion.peek() + 1);
+  state$.docEpoch.set(state$.docEpoch.peek() + 1);
 };
 
 // --- graph queries used by interactions -----------------------------------

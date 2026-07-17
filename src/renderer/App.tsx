@@ -14,14 +14,15 @@ import {
   undo,
 } from "./lib/mutations";
 import { startKernelBridge } from "./lib/kernel-view";
+import { startSettingsBridge, closeSettings } from "./lib/settings-state";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { DigestPanel } from "./components/DigestPanel";
-import { PulseTray } from "./components/PulseTray";
 import { CanvasChrome } from "./components/CanvasChrome";
 import { KernelStatus } from "./components/KernelStatus";
 import { InspectorPanel } from "./components/InspectorPanel";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
@@ -63,6 +64,7 @@ const resetCanvasView = (): void => {
   state$.selectedEdgeId.set("");
   state$.focusNodeId.set("");
   state$.regionSlotOrder.set([]);
+  state$.regionSeverityByNodeId.set({});
 };
 
 const canvasNavigationClock = makeNavigationClock();
@@ -269,6 +271,7 @@ export function App() {
     void reconcileDockFromLiveSessions();
 
     const stopKernel = startKernelBridge();
+    const stopSettings = startSettingsBridge();
 
     const offSnapshots = vellum.onSnapshotsChanged((state) => state$.snapshots.set(state));
     const offUsage = vellum.onUsageChanged((state) => state$.usage.set(state));
@@ -294,6 +297,7 @@ export function App() {
       offUsage();
       offCanvas();
       stopKernel();
+      stopSettings?.();
     };
   }, []);
 
@@ -302,14 +306,20 @@ export function App() {
       if (event.key === "Escape") {
         const target = event.target as HTMLElement | null;
         if (target?.closest("input, textarea, [contenteditable='true']")) return;
+        if (state$.settingsOpen.peek()) {
+          event.preventDefault();
+          closeSettings();
+          return;
+        }
         if (state$.digestOpen.peek()) {
           event.preventDefault();
           state$.digestOpen.set(false);
           return;
         }
-        if (state$.selectedNodeId.peek() || state$.selectedEdgeId.peek()) {
+        if (state$.selectedNodeId.peek() || state$.selectedEdgeId.peek() || state$.selectedNodeIds.peek().length > 0) {
           event.preventDefault();
           state$.selectedNodeId.set("");
+          state$.selectedNodeIds.set([]);
           state$.selectedEdgeId.set("");
           return;
         }
@@ -369,7 +379,8 @@ export function App() {
         <InspectorPanel />
 
         <DigestPanel />
-        <PulseTray />
+        <SettingsPanel />
+        {/* PulseTray mounts inside RtsBottomBar (right third, above minimap). */}
         <HerdrWizard />
         <HerdrTerminalModal />
         <HerdrToast />

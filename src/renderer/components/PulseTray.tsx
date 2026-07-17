@@ -16,7 +16,7 @@ type TrayToast =
   | { readonly id: string; readonly kind: "snapshot"; readonly item: PulseItem }
   | { readonly id: string; readonly kind: "kernel"; readonly record: PulseRecord };
 
-export function PulseTray() {
+export function PulseTray({ embedded = false }: { readonly embedded?: boolean } = {}) {
   const snapshots = use$(state$.snapshots);
   const prevSnapshotsRef = useRef(snapshots);
   const pulseLog = use$(kernel$.pulseLog) as ReadonlyArray<PulseRecord> | undefined;
@@ -100,12 +100,16 @@ export function PulseTray() {
   const visibleToasts = toasts.slice(0, MAX_VISIBLE_TOASTS);
   const hiddenCount = Math.max(0, toasts.length - MAX_VISIBLE_TOASTS);
 
-  // Relocated above the minimap (right third of the RTS bar) per
-  // docs/rts-bottom-bar.md — was fixed bottom-left.
+  // When embedded, lives in the RTS bar notification stack above the minimap
+  // (docs/rts-bottom-bar.md). Standalone fallback keeps absolute placement.
   return (
     <div
-      className="pulse-tray pointer-events-none absolute bottom-[168px] right-3 z-30 flex flex-col gap-1 items-end"
-      style={{ maxWidth: "280px" }}
+      className={
+        embedded
+          ? "pulse-tray pointer-events-none flex flex-col gap-1 items-stretch w-full"
+          : "pulse-tray pointer-events-none absolute bottom-[168px] right-3 z-30 flex flex-col gap-1 items-end"
+      }
+      style={{ maxWidth: embedded ? "100%" : "280px" }}
     >
       {visibleToasts.map((toast) => (
         toast.kind === "snapshot"

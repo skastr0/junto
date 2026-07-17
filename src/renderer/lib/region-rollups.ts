@@ -20,7 +20,8 @@ const chatCoarseKey = (chat: Record<string, { status?: string; pendingPermission
 
 export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   const canvasName = use$(state$.canvasName);
-  const docVersion = use$(state$.docVersion);
+  // docEpoch covers structural + position-only commits (membership geometry).
+  const docEpoch = use$(state$.docEpoch);
   const snapshots = use$(state$.snapshots);
   const executionRev = use$(kernel$.executionRev);
   const chat = use$(chatState$) as Record<string, { status?: string; pendingPermission?: { requestId?: string } }>;
@@ -28,32 +29,38 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
 
   const [rollups, setRollups] = useState<ReadonlyArray<RegionRollup>>([]);
   const genRef = useRef(0);
+  const lastOkRef = useRef<ReadonlyArray<RegionRollup>>([]);
 
   useEffect(() => {
     if (!canvasName || !window.vellum?.regionRollups) {
-      setRollups([]);
+      // Canvas gone — quiet chips, but keep last-ok until a real empty canvas settles.
       return;
     }
     const api = window.vellum;
-    if (!api?.regionRollups) {
-      setRollups([]);
-      return;
-    }
+    if (!api?.regionRollups) return;
     const gen = ++genRef.current;
     const timer = window.setTimeout(() => {
       void api
         .regionRollups(canvasName)
         .then((next) => {
           if (gen !== genRef.current) return;
+          lastOkRef.current = next;
           setRollups(next);
         })
         .catch(() => {
+          // Transient IPC / unknown name: hold last successful payload.
           if (gen !== genRef.current) return;
-          setRollups([]);
         });
     }, DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [canvasName, docVersion, snapshots, executionRev, chatKey]);
+  }, [canvasName, docEpoch, snapshots, executionRev, chatKey]);
+
+  // Hard reset when the canvas name clears.
+  useEffect(() => {
+    if (canvasName) return;
+    lastOkRef.current = [];
+    setRollups([]);
+  }, [canvasName]);
 
   return rollups;
 }

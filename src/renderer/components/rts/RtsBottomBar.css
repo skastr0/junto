@@ -255,6 +255,14 @@
   display: none;
 }
 
+.rts-notify--pulse:empty {
+  display: none;
+}
+
+.rts-notify--pulse .pulse-toast {
+  pointer-events: auto;
+}
+
 .rts-minimap-wrap {
   position: relative;
   flex: 1;
