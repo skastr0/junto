@@ -36,7 +36,9 @@ export const MemberStatus = Schema.Struct({
   severity: MemberSeverity,
   // Short machine strings, worst-tier first: flag:blocker, edge:<detail>,
   // relay, seed:<detail>, flag:attention, permission:pending, session:live,
-  // glyph:wip:<state>, flag:parked.
+  // glyph:wip:<state>, flag:parked. (`seed:` is the execution-graph's
+  // manual-blocker origin — NOT the digest `seeds` section, which lists
+  // unbound entity nodes. Same word, different concept.)
   reasons: Schema.Array(Schema.String),
 });
 export type MemberStatus = typeof MemberStatus.Type;
@@ -80,6 +82,12 @@ const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
 };
 
 const kindRank = (kind: string): number => (kind === "agent" ? 0 : kind === "project" ? 1 : 2);
+
+// Documented rank for mapped execution-graph reasons: edge, then relay, then
+// seed. The graph emits generation -> seeds -> relay, and relay reasons only
+// ever land alone, but the contract is the rank — stable-sort so the output
+// order holds even if emission order ever changes.
+const GRAPH_REASON_RANK = { edge: 0, relay: 1, seed: 2 } as const;
 
 const WIP_SET: ReadonlySet<string> = new Set(WIP_GLYPH_STATES);
 
@@ -133,9 +141,13 @@ const deriveMember = (
   const reasons: string[] = [];
 
   // blocked: manual flag, or membership in the execution-graph blocked
-  // closure (edge generation, relay, or seed — reasons map verbatim).
+  // closure (edge generation, relay, or seed — mapped in documented rank
+  // order: edge, relay, seed).
   if (flags.includes("blocker")) reasons.push("flag:blocker");
-  for (const reason of graph.reasonsByNodeId.get(node.id) ?? []) {
+  const graphReasons = [...(graph.reasonsByNodeId.get(node.id) ?? [])].sort(
+    (a, b) => GRAPH_REASON_RANK[a.kind] - GRAPH_REASON_RANK[b.kind],
+  );
+  for (const reason of graphReasons) {
     if (reason.kind === "edge") reasons.push(`edge:${reason.detail}`);
     else if (reason.kind === "relay") reasons.push("relay");
     else reasons.push(`seed:${reason.detail}`);

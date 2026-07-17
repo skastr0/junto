@@ -117,6 +117,34 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(relayed?.reasons).toEqual(["relay"]);
   });
 
+  it("graph reasons follow documented rank (edge before seed) when both apply", () => {
+    const base: CanvasDoc = {
+      nodes: [
+        group("r", 0, 0, 800, 800, "ops"),
+        taskNode("u", 10, 10, "Ops tasks", [{ id: "i1", text: "ship" }]),
+        projectNode("s", 10, 110, "Seed source", "seed-src"),
+        projectNode("t", 10, 210, "Target", "target"),
+      ],
+      edges: [
+        // generating: open checklist blocks t with an edge reason
+        { id: "e1", fromNode: "u", toNode: "t", ether: { criteria: { mode: "tasks" } } },
+        // relaying (s has no checklist -> depends): the blocker flag on s
+        // seed-hops through it, landing a seed reason on t
+        { id: "e2", fromNode: "s", toNode: "t", ether: { criteria: { mode: "tasks" } } },
+      ],
+    };
+    const flagged: CanvasDoc = {
+      ...base,
+      nodes: base.nodes.map((n) =>
+        n.id === "s" ? { ...n, ether: { ...n.ether, flags: ["blocker" as const] } } : n,
+      ),
+    };
+    const [rollup] = deriveRegionRollups({ doc: flagged });
+    const target = rollup?.members.find((member) => member.nodeId === "t");
+    expect(target?.severity).toBe("blocked");
+    expect(target?.reasons).toEqual(["edge:0/1 tasks done · open: ship", "seed:from blocker Seed source"]);
+  });
+
   it("attention via flag, and via a pending permission on a live agent", () => {
     const doc: CanvasDoc = {
       nodes: [
