@@ -4,7 +4,7 @@ import {
   constants as fsConstants,
   existsSync,
   mkdirSync,
-  readFileSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -77,20 +77,21 @@ import type { PageTargetResolver } from "./page-target";
 // access to the token file. The service has no TCP transport.
 
 // ---------------------------------------------------------------------------
-// Token: regenerate if missing, always chmod 600. Constant-time compare via
-// sha256 digests so neither content nor length leaks through timing.
+// Transport token: rotate on every app start and atomically replace any stale
+// file without following it. This is an owner-local, pre-body admission gate;
+// browser authority is independently delegated by short-lived capabilities.
 
-export const loadOrCreateToken = (tokenPath: string): string => {
-  if (existsSync(tokenPath)) {
-    chmodSync(tokenPath, 0o600);
-    const token = readFileSync(tokenPath, "utf8").trim();
-    if (token.length > 0) {
-      return token;
-    }
-  }
+export const rotateControlToken = (tokenPath: string): string => {
   const token = randomBytes(32).toString("hex");
-  writeFileSync(tokenPath, `${token}\n`, { mode: 0o600 });
-  chmodSync(tokenPath, 0o600);
+  const temporaryPath = `${tokenPath}.${randomBytes(12).toString("hex")}.tmp`;
+  try {
+    writeFileSync(temporaryPath, `${token}\n`, { flag: "wx", mode: 0o600 });
+    chmodSync(temporaryPath, 0o600);
+    renameSync(temporaryPath, tokenPath);
+    chmodSync(tokenPath, 0o600);
+  } finally {
+    if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+  }
   return token;
 };
 
@@ -338,13 +339,7 @@ export const makeControlHandlers = (deps: ControlDeps) => {
     (body: unknown, signal?: AbortSignal) => Promise<ControlEnvelope<unknown>>
   > = {
     "GET /doctor": async () => {
-      const listed = deps.sessions.list();
-      return controlOk({
-        status: "ok" as const,
-        pid: process.pid,
-        version: deps.version,
-        sessions: listed.ok ? listed.data.length : 0,
-      });
+      return controlOk({ status: "ok" as const });
     },
 
     "GET /profiles": async () => {
@@ -525,11 +520,9 @@ const readBoundedBody = (req: IncomingMessage): Promise<BodyReadResult> =>
     req.once("error", onError);
   });
 
-const bearerToken = (req: IncomingMessage): string | undefined => {
+const transportToken = (req: IncomingMessage): string | undefined => {
   const header = req.headers[CONTROL_TOKEN_HEADER];
   if (typeof header === "string" && header.length > 0) return header;
-  const auth = req.headers.authorization;
-  if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7);
   return undefined;
 };
 
@@ -602,7 +595,7 @@ export const startBrowserControlServer = async (
   chmodSync(dir, 0o700);
   await ensureScreenshotDirectory(controlShotsDir(home));
 
-  const token = loadOrCreateToken(controlTokenPath(home));
+  const token = rotateControlToken(controlTokenPath(home));
   const handlers = makeControlHandlers({
     sessions: options.sessions,
     resolvePageTarget: options.resolvePageTarget,
@@ -647,7 +640,7 @@ export const startBrowserControlServer = async (
           res.end(body);
         };
 
-        const presentedToken = bearerToken(req);
+        const presentedToken = transportToken(req);
         if (!tokenMatches(presentedToken, token)) {
           respond(401, controlErr("unauthorized", "missing or invalid token"), true);
           return;

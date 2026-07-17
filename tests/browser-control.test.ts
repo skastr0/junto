@@ -31,8 +31,8 @@ import {
 import {
   dispatchControlRequest,
   listPageNodes,
-  loadOrCreateToken,
   makeControlHandlers,
+  rotateControlToken,
   tokenMatches,
 } from "../src/main/vellum/browser/control";
 import type {
@@ -206,14 +206,29 @@ describe("token handling", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("creates owner-only token material and reuses a nonempty token", async () => {
+  it("atomically rotates owner-only transport material every app run", async () => {
     const path = join(root, "control.token");
-    const token = loadOrCreateToken(path);
-    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    const first = rotateControlToken(path);
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
     expect((await stat(path)).mode & 0o777).toBe(0o600);
-    expect(loadOrCreateToken(path)).toBe(token);
-    await writeFile(path, "");
-    expect(loadOrCreateToken(path)).toMatch(/^[0-9a-f]{64}$/);
+    const second = rotateControlToken(path);
+    expect(second).toMatch(/^[0-9a-f]{64}$/);
+    expect(second).not.toBe(first);
+    expect((await readFile(path, "utf8")).trim()).toBe(second);
+    expect((await readdir(root)).filter((name) => name.includes(".tmp"))).toEqual([]);
+  });
+
+  it("replaces a stale token symlink without following it", async () => {
+    const target = join(root, "unrelated");
+    const path = join(root, "control.token");
+    await writeFile(target, "do-not-touch");
+    await symlink(target, path);
+
+    const token = rotateControlToken(path);
+
+    expect(await readFile(target, "utf8")).toBe("do-not-touch");
+    expect((await readFile(path, "utf8")).trim()).toBe(token);
+    expect((await stat(path)).isFile()).toBe(true);
   });
 
   it("accepts only the exact token", () => {
@@ -293,7 +308,7 @@ describe("control route handlers", () => {
     if (response.envelope.ok) {
       const decoded = Schema.decodeUnknownEither(DoctorData)(response.envelope.data);
       expect(Either.isRight(decoded)).toBe(true);
-      if (Either.isRight(decoded)) expect(decoded.right.version).toBe("0.0.0-test");
+      if (Either.isRight(decoded)) expect(decoded.right).toEqual({ status: "ok" });
     }
   });
 

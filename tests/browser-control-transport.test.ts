@@ -213,7 +213,9 @@ describe("browser control Unix transport", () => {
 
     const { server, token } = await startStack(root);
 
-    expect(token).toBe("existing-token");
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    expect(token).not.toBe("existing-token");
+    expect(await readFile(controlTokenPath(root), "utf8")).toBe(`${token}\n`);
     expect(await mode(controlDir(root))).toBe(0o700);
     expect(await mode(controlShotsDir(root))).toBe(0o700);
     expect(await mode(controlTokenPath(root))).toBe(0o600);
@@ -254,6 +256,20 @@ describe("browser control Unix transport", () => {
     );
 
     expect(Date.now() - started).toBeLessThan(3_000);
+    expect(statusOf(response)).toBe(401);
+    expect(envelopeOf(response)).toMatchObject({
+      ok: false,
+      error: { _tag: "unauthorized" },
+    });
+  });
+
+  it("accepts the fixed transport header only, never generic Authorization", async () => {
+    const root = await newRoot();
+    const { server, token } = await startStack(root);
+    const response = await rawExchange(server.socketPath, [
+      requestHead("GET", "/doctor", [["Authorization", `Bearer ${token}`]]),
+    ]);
+
     expect(statusOf(response)).toBe(401);
     expect(envelopeOf(response)).toMatchObject({
       ok: false,
