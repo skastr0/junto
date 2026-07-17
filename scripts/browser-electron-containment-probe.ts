@@ -42,7 +42,7 @@ const STARTUP_TIMEOUT_MS = 20_000;
 const PAGE_TIMEOUT_MS = 12_000;
 const CONTROL_TIMEOUT_MS = 5_000;
 const EVAL_INVALIDATION_TIMEOUT_MS = BROWSER_EVAL_TIMEOUT_MS + 10_000;
-const PROBE_RUNTIME_TIMEOUT_MS = 90_000;
+const PROBE_RUNTIME_TIMEOUT_MS = 120_000;
 const MAX_LOG_BYTES = 256 * 1024;
 let probeStage = "setup";
 let activeProbeChild: ChildProcess | undefined;
@@ -71,6 +71,13 @@ interface ProbeAudit {
   }>;
   readonly externalProtocolDispatches: ReadonlyArray<string>;
   readonly capabilityRevoked: boolean;
+  readonly revokedCapabilityDestroyedSessions: number;
+  readonly expiringCapabilityExpired: boolean;
+  readonly expiringCapabilityDestroyedSessions: number;
+  readonly remoteDebuggingSwitchPresent: boolean;
+  readonly mainInspectorActive: boolean;
+  readonly managedDevToolsOpenEvents: number;
+  readonly managedDevToolsCurrentlyOpen: number;
   readonly ready: boolean;
 }
 
@@ -84,6 +91,13 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
     !Array.isArray(value.createdWebContents) ||
     !Array.isArray(value.externalProtocolDispatches) ||
     typeof value.capabilityRevoked !== "boolean" ||
+    typeof value.revokedCapabilityDestroyedSessions !== "number" ||
+    typeof value.expiringCapabilityExpired !== "boolean" ||
+    typeof value.expiringCapabilityDestroyedSessions !== "number" ||
+    typeof value.remoteDebuggingSwitchPresent !== "boolean" ||
+    typeof value.mainInspectorActive !== "boolean" ||
+    typeof value.managedDevToolsOpenEvents !== "number" ||
+    typeof value.managedDevToolsCurrentlyOpen !== "number" ||
     typeof value.ready !== "boolean"
   ) {
     throw new Error("dedicated Electron probe emitted a malformed audit");
@@ -105,13 +119,23 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
     createdWebContents,
     externalProtocolDispatches: value.externalProtocolDispatches as string[],
     capabilityRevoked: value.capabilityRevoked,
+    revokedCapabilityDestroyedSessions: value.revokedCapabilityDestroyedSessions,
+    expiringCapabilityExpired: value.expiringCapabilityExpired,
+    expiringCapabilityDestroyedSessions: value.expiringCapabilityDestroyedSessions,
+    remoteDebuggingSwitchPresent: value.remoteDebuggingSwitchPresent,
+    mainInspectorActive: value.mainInspectorActive,
+    managedDevToolsOpenEvents: value.managedDevToolsOpenEvents,
+    managedDevToolsCurrentlyOpen: value.managedDevToolsCurrentlyOpen,
     ready: value.ready,
   };
 };
 
 interface CapabilityHandoff {
-  readonly version: 1;
+  readonly version: 2;
   readonly capability: string;
+  readonly expiringCapability: string;
+  readonly expiringIssuedAt: number;
+  readonly expiringExpiresAt: number;
   readonly unrelatedCapability: string;
   readonly siblingCapability: string;
 }
@@ -121,24 +145,36 @@ const CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const decodeCapabilityHandoff = (value: unknown): CapabilityHandoff => {
   if (
     !isRecord(value) ||
-    value.version !== 1 ||
+    value.version !== 2 ||
     typeof value.capability !== "string" ||
+    typeof value.expiringCapability !== "string" ||
+    typeof value.expiringIssuedAt !== "number" ||
+    !Number.isSafeInteger(value.expiringIssuedAt) ||
+    typeof value.expiringExpiresAt !== "number" ||
+    !Number.isSafeInteger(value.expiringExpiresAt) ||
+    value.expiringExpiresAt - value.expiringIssuedAt < 1_000 ||
+    value.expiringExpiresAt - value.expiringIssuedAt > 10_000 ||
     typeof value.unrelatedCapability !== "string" ||
     typeof value.siblingCapability !== "string" ||
     !CAPABILITY_PATTERN.test(value.capability) ||
+    !CAPABILITY_PATTERN.test(value.expiringCapability) ||
     !CAPABILITY_PATTERN.test(value.unrelatedCapability) ||
     !CAPABILITY_PATTERN.test(value.siblingCapability) ||
     new Set([
       value.capability,
+      value.expiringCapability,
       value.unrelatedCapability,
       value.siblingCapability,
-    ]).size !== 3
+    ]).size !== 4
   ) {
     throw new Error("dedicated Electron probe emitted a malformed capability handoff");
   }
   return {
-    version: 1,
+    version: 2,
     capability: value.capability,
+    expiringCapability: value.expiringCapability,
+    expiringIssuedAt: value.expiringIssuedAt,
+    expiringExpiresAt: value.expiringExpiresAt,
     unrelatedCapability: value.unrelatedCapability,
     siblingCapability: value.siblingCapability,
   };
@@ -190,6 +226,21 @@ const waitForAudit = async (
   throw new Error(`Electron probe audit timed out: ${lastError}`);
 };
 
+const assertRuntimeDevToolsAbsent = (audit: ProbeAudit, stage: string): void => {
+  if (audit.remoteDebuggingSwitchPresent) {
+    throw new Error(`${stage}: Electron runtime exposed a remote-debugging switch`);
+  }
+  if (audit.mainInspectorActive) {
+    throw new Error(`${stage}: Electron main-process inspector URL was active`);
+  }
+  if (
+    audit.managedDevToolsOpenEvents !== 0 ||
+    audit.managedDevToolsCurrentlyOpen !== 0
+  ) {
+    throw new Error(`${stage}: managed browser DevTools opened`);
+  }
+};
+
 const buildDedicatedElectronEntry = async (root: string): Promise<string> => {
   const outputName = "electron-containment-main.mjs";
   const outputPath = join(root, outputName);
@@ -226,6 +277,71 @@ const buildDedicatedElectronEntry = async (root: string): Promise<string> => {
 
 const appendBounded = (current: string, chunk: Buffer): string =>
   (current + chunk.toString("utf8")).slice(-MAX_LOG_BYTES);
+
+interface ElectronLaunch {
+  readonly child: ChildProcess;
+  readonly exited: () => boolean;
+  readonly setKnownCapabilities: (capabilities: ReadonlyArray<string>) => void;
+  readonly output: () => {
+    readonly stdout: string;
+    readonly stderr: string;
+    readonly capabilityLeak: "stdout" | "stderr" | undefined;
+  };
+}
+
+const launchDedicatedElectron = (
+  electronArguments: ReadonlyArray<string>,
+  env: NodeJS.ProcessEnv,
+): ElectronLaunch => {
+  const child = spawn(
+    electronPath,
+    electronArguments,
+    {
+      cwd: repoRoot,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  activeProbeChild = child;
+  let stdout = "";
+  let stderr = "";
+  let didExit = false;
+  let knownCapabilities: ReadonlyArray<string> = [];
+  let capabilityLeak: "stdout" | "stderr" | undefined;
+  const captureChildOutput = (
+    source: "stdout" | "stderr",
+    current: string,
+    chunk: Buffer,
+  ): string => {
+    const next = appendBounded(current, chunk);
+    if (knownCapabilities.some((secret) => next.includes(secret))) {
+      capabilityLeak ??= source;
+    }
+    return next;
+  };
+  child.stdout?.on("data", (chunk: Buffer) => {
+    stdout = captureChildOutput("stdout", stdout, chunk);
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    stderr = captureChildOutput("stderr", stderr, chunk);
+  });
+  child.once("exit", () => {
+    didExit = true;
+  });
+  return {
+    child,
+    exited: () => didExit,
+    setKnownCapabilities: (capabilities) => {
+      knownCapabilities = [...capabilities];
+      if (knownCapabilities.some((secret) => stdout.includes(secret))) {
+        capabilityLeak ??= "stdout";
+      } else if (knownCapabilities.some((secret) => stderr.includes(secret))) {
+        capabilityLeak ??= "stderr";
+      }
+    },
+    output: () => ({ stdout, stderr, capabilityLeak }),
+  };
+};
 
 interface ControlCallOptions {
   readonly capability?: string;
@@ -454,6 +570,51 @@ const startNeverReturningEval = async (
   }
 };
 
+interface InFlightEval {
+  readonly result: Promise<ControlEnvelope<unknown>>;
+  readonly isSettled: () => boolean;
+}
+
+const beginNeverReturningEval = (
+  socketPath: string,
+  token: string,
+  capability: string,
+  sessionId: string,
+): InFlightEval => {
+  let settled = false;
+  const result = controlCall(
+    socketPath,
+    token,
+    "eval",
+    {
+      sessionId,
+      code: "(() => { for (;;) {} })()",
+    },
+    { capability, timeoutMs: EVAL_INVALIDATION_TIMEOUT_MS },
+  ).finally(() => {
+    settled = true;
+  });
+  return { result, isSettled: () => settled };
+};
+
+const requireInFlight = async (operation: InFlightEval, stage: string): Promise<void> => {
+  await delay(150);
+  if (operation.isSettled()) {
+    throw new Error(`${stage}: protected eval settled before lifecycle invalidation`);
+  }
+};
+
+const requireCancelled = async (operation: InFlightEval, stage: string): Promise<void> => {
+  const envelope = await operation.result;
+  if (envelope.ok || envelope.error._tag !== "cancelled") {
+    throw new Error(
+      envelope.ok
+        ? `${stage}: protected eval unexpectedly completed`
+        : `${stage}: expected cancelled, received ${envelope.error._tag}`,
+    );
+  }
+};
+
 const assertContainment = (
   report: Record<string, unknown>,
   fixtureOrigin: string,
@@ -677,6 +838,82 @@ const openCapabilityPage = async (
   return data.sessionId;
 };
 
+const qualifyCapabilityExpiry = async (options: {
+  readonly socketPath: string;
+  readonly token: string;
+  readonly handoff: CapabilityHandoff;
+  readonly canvasName: string;
+  readonly fixtureOrigin: string;
+  readonly customProtocolUrl: string;
+  readonly auditPath: string;
+}): Promise<void> => {
+  if (options.handoff.expiringExpiresAt - Date.now() < 1_000) {
+    throw new Error("short-TTL capability did not retain enough time for an in-flight use");
+  }
+  const sessionId = await openCapabilityPage(
+    options.socketPath,
+    options.token,
+    options.handoff.expiringCapability,
+    options.canvasName,
+    "personal-seed",
+  );
+  const report = await waitForReport(
+    options.socketPath,
+    options.token,
+    options.handoff.expiringCapability,
+    sessionId,
+  );
+  assertContainment(report, options.fixtureOrigin, options.customProtocolUrl);
+
+  const operation = beginNeverReturningEval(
+    options.socketPath,
+    options.token,
+    options.handoff.expiringCapability,
+    sessionId,
+  );
+  await requireInFlight(operation, "capability expiry");
+  await requireCancelled(operation, "capability expiry");
+
+  const audit = await waitForAudit(
+    options.auditPath,
+    (candidate) =>
+      candidate.expiringCapabilityExpired &&
+      candidate.currentWebContents === candidate.baselineWebContents,
+  );
+  if (
+    audit.createdWebContents.length !== 1 ||
+    !Number.isSafeInteger(audit.expiringCapabilityDestroyedSessions) ||
+    audit.expiringCapabilityDestroyedSessions < 0 ||
+    audit.expiringCapabilityDestroyedSessions > 1 ||
+    audit.browserWindows !== 0
+  ) {
+    throw new Error("capability expiry did not remove exactly its one managed session");
+  }
+  assertRuntimeDevToolsAbsent(audit, "capability expiry");
+  requireDenied(
+    await controlCall(options.socketPath, options.token, "sessions", undefined, {
+      capability: options.handoff.expiringCapability,
+    }),
+    "unauthorized",
+    "expired capability",
+  );
+  const siblingSessions = requireOk(
+    await controlCall(options.socketPath, options.token, "sessions", undefined, {
+      capability: options.handoff.siblingCapability,
+    }),
+    "sibling authority after expiry",
+  );
+  if (!Array.isArray(siblingSessions) || siblingSessions.length !== 0) {
+    throw new Error("expiring one capability contaminated a sibling owner namespace");
+  }
+  requireOk(
+    await controlCall(options.socketPath, options.token, "profiles", undefined, {
+      capability: options.handoff.capability,
+    }),
+    "primary authority after sibling expiry",
+  );
+};
+
 const openAndQualifySiblingOwner = async (
   socketPath: string,
   token: string,
@@ -714,6 +951,7 @@ const qualifyCapabilityRevocation = async (options: {
   readonly socketPath: string;
   readonly token: string;
   readonly capability: string;
+  readonly revokedSessionId: string;
   readonly siblingCapability: string;
   readonly siblingSessionId: string;
   readonly auditPath: string;
@@ -725,6 +963,13 @@ const qualifyCapabilityRevocation = async (options: {
   readonly privateSentinelRequests: number;
   readonly popupRequests: number;
 }): Promise<ProbeAudit> => {
+  const operation = beginNeverReturningEval(
+    options.socketPath,
+    options.token,
+    options.capability,
+    options.revokedSessionId,
+  );
+  await requireInFlight(operation, "explicit capability revocation");
   await writeFile(options.revokeMarkerPath, "revoke\n", {
     encoding: "utf8",
     flag: "wx",
@@ -734,11 +979,14 @@ const qualifyCapabilityRevocation = async (options: {
     options.auditPath,
     (candidate) =>
       candidate.capabilityRevoked &&
+      candidate.revokedCapabilityDestroyedSessions > 0 &&
       candidate.currentWebContents === candidate.baselineWebContents + 1,
   );
+  await requireCancelled(operation, "explicit capability revocation");
   if (audit.browserWindows !== 0) {
     throw new Error("capability revocation created an unmanaged BrowserWindow");
   }
+  assertRuntimeDevToolsAbsent(audit, "explicit capability revocation");
   requireDenied(
     await controlCall(options.socketPath, options.token, "sessions", undefined, {
       capability: options.capability,
@@ -790,10 +1038,10 @@ const qualifyHostilePolicyAudit = async (options: {
 }): Promise<void> => {
   const audit = await waitForAudit(
     options.auditPath,
-    (candidate) => candidate.createdWebContents.length >= 6,
+    (candidate) => candidate.createdWebContents.length >= 7,
   );
   if (
-    audit.createdWebContents.length !== 6 ||
+    audit.createdWebContents.length !== 7 ||
     audit.browserWindows !== 0 ||
     audit.currentWebContents > 3
   ) {
@@ -801,6 +1049,7 @@ const qualifyHostilePolicyAudit = async (options: {
       `hostile popup created a transient or surviving unmanaged WebContents (${JSON.stringify(audit)})`,
     );
   }
+  assertRuntimeDevToolsAbsent(audit, "hostile web policy audit");
   if (audit.externalProtocolDispatches.length !== 0) {
     throw new Error("custom protocol escaped into OS protocol dispatch");
   }
@@ -826,17 +1075,19 @@ const qualifyCapabilityNonDisclosure = async (options: {
   readonly knownCapabilities: ReadonlyArray<string>;
   readonly stdout: string;
   readonly stderr: string;
-  readonly auditPath: string;
+  readonly auditPaths: ReadonlyArray<string>;
   readonly canvasPath: string;
-  readonly electronArguments: ReadonlyArray<string>;
+  readonly electronArguments: ReadonlyArray<ReadonlyArray<string>>;
 }): Promise<void> => {
   if (options.outputCapabilityLeak !== undefined) {
     throw new Error(`capability bearer leaked into Electron ${options.outputCapabilityLeak}`);
   }
-  const [persistedAuditJson, persistedCanvasJson] = await Promise.all([
-    readFile(options.auditPath, "utf8"),
-    readFile(options.canvasPath, "utf8"),
-  ]);
+  const persistedAudits: string[] = [];
+  for (const path of options.auditPaths) {
+    persistedAudits.push(await readFile(path, "utf8"));
+  }
+  const persistedAuditJson = persistedAudits.join("\n");
+  const persistedCanvasJson = await readFile(options.canvasPath, "utf8");
   assertSecretsAbsent(options.knownCapabilities, [
     ["Electron stdout", options.stdout],
     ["Electron stderr", options.stderr],
@@ -855,9 +1106,12 @@ const main = async (): Promise<void> => {
   const browserDir = join(root, "browser");
   const canvasesDir = join(home, ".vellum", "canvases");
   const downloadsDir = join(root, "downloads");
-  const auditPath = join(root, "electron-audit.json");
-  const capabilityPath = join(root, "browser-capabilities.json");
-  const revokeMarkerPath = join(root, "revoke-capability.marker");
+  const auditPath = join(root, "electron-audit-launch-one.json");
+  const restartAuditPath = join(root, "electron-audit-launch-two.json");
+  const capabilityPath = join(root, "browser-capabilities-launch-one.json");
+  const restartCapabilityPath = join(root, "browser-capabilities-launch-two.json");
+  const revokeMarkerPath = join(root, "revoke-capability-launch-one.marker");
+  const restartRevokeMarkerPath = join(root, "revoke-capability-launch-two.marker");
   const markerPath = join(root, `host-marker-${randomUUID()}`);
   const nonce = randomUUID();
   const customProtocolUrl = `vellum-probe://denied/${nonce}`;
@@ -968,77 +1222,52 @@ const main = async (): Promise<void> => {
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.NODE_OPTIONS;
 
-  const electronArguments = [
-    dedicatedMainPath,
-    `--user-data-dir=${userData}`,
-    `--fixture-origin=${origin}`,
-    `--browser-root=${browserDir}`,
-    `--control-home=${home}`,
-    `--download-path=${downloadsDir}`,
-    `--audit-path=${auditPath}`,
-    `--capability-path=${capabilityPath}`,
-    `--revoke-marker-path=${revokeMarkerPath}`,
-  ];
+  const makeElectronArguments = (options: {
+    readonly auditPath: string;
+    readonly capabilityPath: string;
+    readonly revokeMarkerPath: string;
+  }): string[] => [
+      dedicatedMainPath,
+      `--user-data-dir=${userData}`,
+      `--fixture-origin=${origin}`,
+      `--browser-root=${browserDir}`,
+      `--control-home=${home}`,
+      `--download-path=${downloadsDir}`,
+      `--audit-path=${options.auditPath}`,
+      `--capability-path=${options.capabilityPath}`,
+      `--revoke-marker-path=${options.revokeMarkerPath}`,
+    ];
+  const electronArguments = makeElectronArguments({
+    auditPath,
+    capabilityPath,
+    revokeMarkerPath,
+  });
   if (
     electronArguments.some((argument) =>
-      /--(?:remote-debugging|inspect|inspect-brk)(?:=|$)/.test(argument),
+      /^--(?:remote-debugging(?:-[a-z0-9-]+)?|inspect|inspect-brk)(?:=|$)/i.test(argument),
     )
   ) {
     throw new Error("dedicated Electron entry unexpectedly enabled CDP or inspector authority");
   }
 
-  const child = spawn(
-    electronPath,
-    electronArguments,
-    {
-      cwd: repoRoot,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-  activeProbeChild = child;
-  let stdout = "";
-  let stderr = "";
-  let exited = false;
+  const firstLaunch = launchDedicatedElectron(electronArguments, env);
+  let restartLaunch: ElectronLaunch | undefined;
   let knownCapabilities: string[] = [];
-  let outputCapabilityLeak: "stdout" | "stderr" | undefined;
-  const captureChildOutput = (
-    source: "stdout" | "stderr",
-    current: string,
-    chunk: Buffer,
-  ): string => {
-    const next = appendBounded(current, chunk);
-    if (knownCapabilities.some((secret) => next.includes(secret))) {
-      outputCapabilityLeak ??= source;
-    }
-    return next;
-  };
-  child.stdout.on("data", (chunk: Buffer) => {
-    stdout = captureChildOutput("stdout", stdout, chunk);
-  });
-  child.stderr.on("data", (chunk: Buffer) => {
-    stderr = captureChildOutput("stderr", stderr, chunk);
-  });
-  child.once("exit", () => {
-    exited = true;
-  });
 
   try {
     probeStage = "control startup";
-    const { socketPath, token } = await waitForControl(home, () => exited);
+    const { socketPath, token } = await waitForControl(home, firstLaunch.exited);
     probeStage = "capability handoff";
-    const handoff = await waitForCapabilityHandoff(capabilityPath, () => exited);
+    const handoff = await waitForCapabilityHandoff(capabilityPath, firstLaunch.exited);
     const { capability, siblingCapability } = handoff;
-    knownCapabilities = [
+    const launchOneCapabilities = [
       capability,
+      handoff.expiringCapability,
       handoff.unrelatedCapability,
       siblingCapability,
     ];
-    if (knownCapabilities.some((secret) => stdout.includes(secret))) {
-      outputCapabilityLeak = "stdout";
-    } else if (knownCapabilities.some((secret) => stderr.includes(secret))) {
-      outputCapabilityLeak = "stderr";
-    }
+    knownCapabilities = [token, ...launchOneCapabilities];
+    firstLaunch.setKnownCapabilities(knownCapabilities);
     if (!(await markerAbsent(capabilityPath))) {
       throw new Error("parent retained the capability handoff file after reading it");
     }
@@ -1051,10 +1280,22 @@ const main = async (): Promise<void> => {
     ) {
       throw new Error("dedicated Electron entry did not start from an empty WebContents baseline");
     }
+    assertRuntimeDevToolsAbsent(baselineAudit, "first launch baseline");
     await assertTcpControlAbsent(legacyTcpPort, token);
 
     probeStage = "capability admission";
     await qualifyCapabilityAdmission(socketPath, token, handoff, canvasName, pageTargets);
+
+    probeStage = "short-TTL capability expiry";
+    await qualifyCapabilityExpiry({
+      socketPath,
+      token,
+      handoff,
+      canvasName,
+      fixtureOrigin: origin,
+      customProtocolUrl,
+      auditPath,
+    });
 
     const open = (nodeId: string): Promise<string> =>
       openCapabilityPage(socketPath, token, capability, canvasName, nodeId);
@@ -1064,12 +1305,12 @@ const main = async (): Promise<void> => {
     assertContainment(personalSeed, origin, customProtocolUrl);
     const afterFirstPageAudit = await waitForAudit(
       auditPath,
-      (audit) => audit.createdWebContents.length >= 1,
+      (audit) => audit.createdWebContents.length >= 2,
     );
     if (
       afterFirstPageAudit.createdWebContents.length -
         afterFirstPageAudit.baselineWebContents !==
-        1 ||
+        2 ||
       afterFirstPageAudit.currentWebContents !==
         afterFirstPageAudit.baselineWebContents + 1 ||
       afterFirstPageAudit.browserWindows !== 0
@@ -1179,6 +1420,7 @@ const main = async (): Promise<void> => {
       socketPath,
       token,
       capability,
+      revokedSessionId: personalRestoredSession,
       siblingCapability,
       siblingSessionId,
       auditPath,
@@ -1191,21 +1433,141 @@ const main = async (): Promise<void> => {
       popupRequests,
     });
 
-    probeStage = "fixture shutdown";
-    await stopChild(child);
+    probeStage = "first fixture shutdown";
+    await stopChild(firstLaunch.child);
     if (!(await markerAbsent(socketPath))) {
       throw new Error("browser control socket remained after Electron quit");
     }
 
+    probeStage = "fresh process restart";
+    const restartElectronArguments = makeElectronArguments({
+      auditPath: restartAuditPath,
+      capabilityPath: restartCapabilityPath,
+      revokeMarkerPath: restartRevokeMarkerPath,
+    });
+    if (
+      restartElectronArguments.some((argument) =>
+        /^--(?:remote-debugging(?:-[a-z0-9-]+)?|inspect|inspect-brk)(?:=|$)/i.test(argument),
+      )
+    ) {
+      throw new Error("restarted Electron entry unexpectedly enabled CDP or inspector authority");
+    }
+    restartLaunch = launchDedicatedElectron(restartElectronArguments, env);
+    const restartControl = await waitForControl(home, restartLaunch.exited);
+    if (restartControl.token === token) {
+      throw new Error("fresh Electron process reused the previous control token");
+    }
+    const restartHandoff = await waitForCapabilityHandoff(
+      restartCapabilityPath,
+      restartLaunch.exited,
+    );
+    const restartCapabilities = [
+      restartHandoff.capability,
+      restartHandoff.expiringCapability,
+      restartHandoff.unrelatedCapability,
+      restartHandoff.siblingCapability,
+    ];
+    if (restartCapabilities.some((secret) => launchOneCapabilities.includes(secret))) {
+      throw new Error("fresh Electron process reused a previous capability bearer");
+    }
+    knownCapabilities = [
+      ...knownCapabilities,
+      restartControl.token,
+      ...restartCapabilities,
+    ];
+    firstLaunch.setKnownCapabilities(knownCapabilities);
+    restartLaunch.setKnownCapabilities(knownCapabilities);
+    const restartBaseline = await waitForAudit(
+      restartAuditPath,
+      (audit) => audit.ready,
+    );
+    if (
+      restartBaseline.baselineWebContents !== 0 ||
+      restartBaseline.currentWebContents !== 0 ||
+      restartBaseline.createdWebContents.length !== 0 ||
+      restartBaseline.browserWindows !== 0
+    ) {
+      throw new Error("fresh Electron process did not start from an empty WebContents baseline");
+    }
+    assertRuntimeDevToolsAbsent(restartBaseline, "fresh process baseline");
+
+    requireDenied(
+      await controlCall(
+        restartControl.socketPath,
+        token,
+        "doctor",
+      ),
+      "unauthorized",
+      "previous launch control token",
+    );
+    for (const staleCapability of launchOneCapabilities) {
+      requireDenied(
+        await controlCall(
+          restartControl.socketPath,
+          restartControl.token,
+          "sessions",
+          undefined,
+          { capability: staleCapability },
+        ),
+        "unauthorized",
+        "previous launch capability",
+      );
+    }
+    requireDenied(
+      await controlCall(
+        restartControl.socketPath,
+        token,
+        "sessions",
+        undefined,
+        { capability: restartHandoff.siblingCapability },
+      ),
+      "unauthorized",
+      "fresh capability with previous launch token",
+    );
+
+    const restartSiblingSession = await openCapabilityPage(
+      restartControl.socketPath,
+      restartControl.token,
+      restartHandoff.siblingCapability,
+      canvasName,
+      "work-read",
+    );
+    const restartSiblingReport = await waitForReport(
+      restartControl.socketPath,
+      restartControl.token,
+      restartHandoff.siblingCapability,
+      restartSiblingSession,
+    );
+    assertContainment(restartSiblingReport, origin, customProtocolUrl);
+    const restartActiveAudit = await waitForAudit(
+      restartAuditPath,
+      (audit) =>
+        audit.createdWebContents.length === 1 &&
+        audit.currentWebContents === audit.baselineWebContents + 1,
+    );
+    if (restartActiveAudit.browserWindows !== 0) {
+      throw new Error("fresh authority created an unmanaged BrowserWindow");
+    }
+    assertRuntimeDevToolsAbsent(restartActiveAudit, "fresh authority use");
+    await assertTcpControlAbsent(legacyTcpPort, restartControl.token);
+
+    probeStage = "second fixture shutdown";
+    await stopChild(restartLaunch.child);
+    if (!(await markerAbsent(restartControl.socketPath))) {
+      throw new Error("browser control socket remained after restarted Electron quit");
+    }
+
     probeStage = "capability non-disclosure";
+    const firstOutput = firstLaunch.output();
+    const restartOutput = restartLaunch.output();
     await qualifyCapabilityNonDisclosure({
-      outputCapabilityLeak,
+      outputCapabilityLeak: firstOutput.capabilityLeak ?? restartOutput.capabilityLeak,
       knownCapabilities,
-      stdout,
-      stderr,
-      auditPath,
+      stdout: `${firstOutput.stdout}\n${restartOutput.stdout}`,
+      stderr: `${firstOutput.stderr}\n${restartOutput.stderr}`,
+      auditPaths: [auditPath, restartAuditPath],
       canvasPath,
-      electronArguments,
+      electronArguments: [electronArguments, restartElectronArguments],
     });
 
     console.log(
@@ -1225,12 +1587,18 @@ const main = async (): Promise<void> => {
           wrongActionAndTargetDenied: true,
           fullFivePageCapabilityAdmitted: true,
           freshRequestIdPerProtectedCall: true,
+          shortTtlExpiryCancelsInFlightUse: true,
+          expiryDestroysExactOwnerSessions: true,
+          siblingAuthoritySurvivesExpiry: true,
           capabilityRevocationEnforced: true,
+          explicitRevocationCancelsInFlightUse: true,
           siblingOwnerSurvivesRevocation: true,
+          freshProcessRotatesControlToken: true,
+          previousLaunchAuthorityRejected: true,
+          freshProcessAuthorityUsable: true,
           capabilityAbsentFromArtifactsAndLogs: true,
           tcpListenerAbsent: true,
-          cdpAuthorityAbsent: true,
-          mcpAuthorityAbsent: true,
+          runtimeDebugAuthorityAbsent: true,
           popupAndNewWebContentsDenied: true,
           permissionsDeniedWithoutPagePrompt: true,
           downloadBlockedWithoutFile: true,
@@ -1241,6 +1609,10 @@ const main = async (): Promise<void> => {
       }),
     );
   } catch (error) {
+    const firstOutput = firstLaunch.output();
+    const restartOutput = restartLaunch?.output();
+    const combinedStdout = [firstOutput.stdout, restartOutput?.stdout ?? ""].join("\n");
+    const combinedStderr = [firstOutput.stderr, restartOutput?.stderr ?? ""].join("\n");
     console.error(
       JSON.stringify({
         ok: false,
@@ -1249,14 +1621,15 @@ const main = async (): Promise<void> => {
           error instanceof Error ? error.message : String(error),
           knownCapabilities,
         ),
-        stdout: redactKnownSecrets(stdout, knownCapabilities),
-        stderr: redactKnownSecrets(stderr, knownCapabilities),
+        stdout: redactKnownSecrets(combinedStdout, knownCapabilities),
+        stderr: redactKnownSecrets(combinedStderr, knownCapabilities),
       }),
     );
     process.exitCode = 2;
   } finally {
-    probeStage = "cleanup child";
-    await stopChild(child);
+    probeStage = "cleanup children";
+    if (restartLaunch !== undefined) await stopChild(restartLaunch.child);
+    await stopChild(firstLaunch.child);
     probeStage = "cleanup fixture server";
     server.closeAllConnections();
     await Promise.race([closeServer(server), delay(2_000)]);
@@ -1267,7 +1640,12 @@ const main = async (): Promise<void> => {
       throw new Error(`refusing unsafe probe cleanup: ${root}`);
     }
     await rm(root, { recursive: true, force: true });
-    if (activeProbeChild === child) activeProbeChild = undefined;
+    if (
+      activeProbeChild === firstLaunch.child ||
+      activeProbeChild === restartLaunch?.child
+    ) {
+      activeProbeChild = undefined;
+    }
     if (activeProbeServer === server) activeProbeServer = undefined;
     if (activeSentinelServer === sentinelServer) activeSentinelServer = undefined;
     if (activeProbeRoot === root) activeProbeRoot = undefined;

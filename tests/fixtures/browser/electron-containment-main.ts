@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { access, mkdir, rename, writeFile } from "node:fs/promises";
+import { url as inspectorUrl } from "node:inspector";
 import { dirname, isAbsolute } from "node:path";
 import { app, BrowserWindow, webContents } from "electron";
 import { Effect } from "effect";
@@ -67,8 +68,11 @@ if (siblingCapabilityTarget === undefined) {
 }
 
 interface CapabilityHandoff {
-  readonly version: 1;
+  readonly version: 2;
   readonly capability: string;
+  readonly expiringCapability: string;
+  readonly expiringIssuedAt: number;
+  readonly expiringExpiresAt: number;
   readonly unrelatedCapability: string;
   readonly siblingCapability: string;
 }
@@ -92,6 +96,13 @@ interface ProbeAudit {
   createdWebContents: Array<{ readonly id: number; readonly type: string }>;
   externalProtocolDispatches: string[];
   capabilityRevoked: boolean;
+  revokedCapabilityDestroyedSessions: number;
+  expiringCapabilityExpired: boolean;
+  expiringCapabilityDestroyedSessions: number;
+  remoteDebuggingSwitchPresent: boolean;
+  mainInspectorActive: boolean;
+  managedDevToolsOpenEvents: number;
+  managedDevToolsCurrentlyOpen: number;
   ready: boolean;
 }
 
@@ -103,14 +114,41 @@ const audit: ProbeAudit = {
   createdWebContents: [],
   externalProtocolDispatches: [],
   capabilityRevoked: false,
+  revokedCapabilityDestroyedSessions: 0,
+  expiringCapabilityExpired: false,
+  expiringCapabilityDestroyedSessions: 0,
+  remoteDebuggingSwitchPresent: false,
+  mainInspectorActive: false,
+  managedDevToolsOpenEvents: 0,
+  managedDevToolsCurrentlyOpen: 0,
   ready: false,
 };
 let auditTail: Promise<void> = Promise.resolve();
 
 const persistAudit = (): Promise<void> => {
-  audit.currentWebContents = webContents.getAllWebContents().length;
+  const allWebContents = webContents.getAllWebContents();
+  audit.currentWebContents = allWebContents.length;
   audit.maximumWebContents = Math.max(audit.maximumWebContents, audit.currentWebContents);
   audit.browserWindows = BrowserWindow.getAllWindows().length;
+  audit.remoteDebuggingSwitchPresent =
+    process.argv.some((argument) => argument.startsWith("--remote-debugging-")) ||
+    app.commandLine.hasSwitch("remote-debugging-port") ||
+    app.commandLine.hasSwitch("remote-debugging-pipe");
+  try {
+    audit.mainInspectorActive = inspectorUrl() !== undefined;
+  } catch {
+    // A failed active check is not evidence of absence.
+    audit.mainInspectorActive = true;
+  }
+  audit.managedDevToolsCurrentlyOpen = allWebContents.filter((contents) => {
+    if (!isManagedBrowserWebContents(contents)) return false;
+    try {
+      return contents.isDevToolsOpened();
+    } catch {
+      // A failed active check is not evidence of absence.
+      return true;
+    }
+  }).length;
   const snapshot = `${JSON.stringify(audit)}\n`;
   const temporary = `${auditPath}.${randomUUID()}.tmp`;
   auditTail = auditTail.then(async () => {
@@ -123,6 +161,11 @@ const persistAudit = (): Promise<void> => {
 
 app.on("web-contents-created", (_event, contents) => {
   audit.createdWebContents.push({ id: contents.id, type: contents.getType() });
+  contents.on("devtools-opened", () => {
+    if (!isManagedBrowserWebContents(contents)) return;
+    audit.managedDevToolsOpenEvents += 1;
+    void persistAudit();
+  });
   contents.once("destroyed", () => {
     void persistAudit();
   });
@@ -154,6 +197,8 @@ let sessions: BrowserSessionService | undefined;
 let capabilities: BrowserCapabilityRegistry | undefined;
 let unrelatedCapabilities: BrowserCapabilityRegistry | undefined;
 let revocationWatcher: ReturnType<typeof setInterval> | undefined;
+let primaryCapabilityAuditId: string | undefined;
+let expiringCapabilityAuditId: string | undefined;
 
 app.on("before-quit", () => {
   if (revocationWatcher !== undefined) clearInterval(revocationWatcher);
@@ -189,7 +234,15 @@ void app.whenReady().then(async () => {
   );
   capabilities = makeBrowserCapabilityRegistry({
     onTerminate: (notice) => {
-      sessions?.destroyOwnerSessions(notice.auditId, "browser containment capability ended");
+      const destroyedSessions =
+        sessions?.destroyOwnerSessions(notice.auditId, "browser containment capability ended") ?? 0;
+      if (notice.auditId === primaryCapabilityAuditId && notice.reason === "revoked_operator") {
+        audit.revokedCapabilityDestroyedSessions = destroyedSessions;
+      }
+      if (notice.auditId === expiringCapabilityAuditId && notice.reason === "expired") {
+        audit.expiringCapabilityExpired = true;
+        audit.expiringCapabilityDestroyedSessions = destroyedSessions;
+      }
       void persistAudit();
     },
   });
@@ -203,6 +256,16 @@ void app.whenReady().then(async () => {
     maxUses: 512,
     maxInFlight: 4,
   });
+  primaryCapabilityAuditId = grant.auditId;
+  const expiringPrincipal = capabilities.createPrincipal();
+  const expiringGrant = capabilities.issue(expiringPrincipal, {
+    actions: ["open", "sessions", "eval"],
+    targets: [capabilityTargets[0]!],
+    ttlMs: 6_000,
+    maxUses: 16,
+    maxInFlight: 2,
+  });
+  expiringCapabilityAuditId = expiringGrant.auditId;
   const siblingPrincipal = capabilities.createPrincipal();
   const siblingGrant = capabilities.issue(siblingPrincipal, {
     actions: ["open", "sessions", "eval"],
@@ -228,8 +291,11 @@ void app.whenReady().then(async () => {
     home: controlHome,
   });
   await writeCapabilityHandoff({
-    version: 1,
+    version: 2,
     capability: grant.secret,
+    expiringCapability: expiringGrant.secret,
+    expiringIssuedAt: expiringGrant.issuedAt,
+    expiringExpiresAt: expiringGrant.expiresAt,
     unrelatedCapability: unrelatedGrant.secret,
     siblingCapability: siblingGrant.secret,
   });
