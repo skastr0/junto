@@ -1,16 +1,32 @@
 import { execFile } from "node:child_process";
 import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, powerMonitor, shell, type IpcMainEvent } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  powerMonitor,
+  shell,
+  type IpcMainEvent,
+} from "electron";
 import { Effect } from "effect";
 import { classifyBrowserTarget } from "@shared/browser-policy";
 import { IPC_CHANNELS, type NodeRefOpenedDelivery } from "@shared/ipc";
 import { resolvedSpawnEnv } from "./vellum/adapters/exec";
-import { AppRuntime } from "./runtime";
+import { AppRuntime, chatService } from "./runtime";
 import { registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./vellum/canvases";
+import { buildBrowserAutomationNativePrompt } from "./vellum/browser/agent-confirmation";
+import type { BrowserAutomationConfirmation } from "./vellum/browser/agent-authority";
+import { registerBrowserAgentIpc } from "./vellum/browser/agent-ipc";
+import {
+  makeBrowserAutomationProduct,
+  type BrowserAutomationProduct,
+} from "./vellum/browser/agent-product";
 import { warmAllHosts } from "./vellum/herdr/masters";
 import { startAllMirrors, stopAllMirrors } from "./vellum/herdr/mirrors";
+import { herdrService } from "./vellum/herdr/service";
 import { herdrStreams } from "./vellum/herdr/stream";
 import { browserSessions, resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
@@ -181,6 +197,10 @@ app.on("open-url", (event, uri) => {
 // listener: headless qualification must never require a network control port.
 const headless = process.argv.includes("--vellum-headless");
 
+let trustedMainWindow: BrowserWindow | undefined;
+let browserAutomationProduct: BrowserAutomationProduct | undefined;
+let browserControl: BrowserControlServer | undefined;
+
 // Bounded renderer crash recovery. A renderer that dies (GPU reset, OOM kill,
 // Chromium crash) is first reloaded in place — that recovers the common
 // transient crash without losing the main process (Effect runtime, snapshot
@@ -262,6 +282,7 @@ const createWindow = () => {
       sandbox: true,
     },
   });
+  trustedMainWindow = mainWindow;
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     const target = classifyBrowserTarget(url);
@@ -325,6 +346,7 @@ const createWindow = () => {
     });
   });
   mainWindow.on("closed", () => {
+    if (trustedMainWindow === mainWindow) trustedMainWindow = undefined;
     disconnect();
     ipcMain.removeListener(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
   });
@@ -342,6 +364,39 @@ const createWindow = () => {
   }
 
   return mainWindow;
+};
+
+const confirmBrowserAutomation = async (
+  request: BrowserAutomationConfirmation,
+): Promise<boolean> => {
+  const mainWindow = trustedMainWindow;
+  const prompt = buildBrowserAutomationNativePrompt(request);
+  if (
+    headless ||
+    prompt === undefined ||
+    mainWindow === undefined ||
+    mainWindow.isDestroyed() ||
+    mainWindow.webContents.isDestroyed()
+  ) {
+    return false;
+  }
+
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: prompt.type,
+    title: prompt.title,
+    message: prompt.message,
+    detail: prompt.detail,
+    buttons: [...prompt.buttons],
+    defaultId: prompt.defaultId,
+    cancelId: prompt.cancelId,
+    noLink: prompt.noLink,
+  });
+  return (
+    result.response === 1 &&
+    trustedMainWindow === mainWindow &&
+    !mainWindow.isDestroyed() &&
+    !mainWindow.webContents.isDestroyed()
+  );
 };
 
 // Supervision handoff — the operator contract: whenever the LaunchAgent is
@@ -434,6 +489,11 @@ if (!gotSingleInstanceLock) {
     void warmAllHosts();
     powerMonitor.on("resume", () => {
       void warmAllHosts();
+      try {
+        browserAutomationProduct?.reapAfterResume();
+      } catch {
+        console.error("[browser-automation] resume reap failed");
+      }
     });
 
     // Per-host herdr state mirrors: snapshot + events.subscribe so list reads
@@ -443,13 +503,61 @@ if (!gotSingleInstanceLock) {
 
     // Agent control plane (unix socket + token). App-hosted: exists exactly as
     // long as the runtime that owns the warm sessions does.
+    let product: BrowserAutomationProduct | undefined;
     try {
-      browserControl = await startBrowserControlServer({
+      product = makeBrowserAutomationProduct({
         sessions: browserSessions,
+        chat: chatService,
+        herdr: herdrService,
+        readCanvas: (name) =>
+          AppRuntime.runPromise(
+            Effect.flatMap(CanvasesService, (canvases) =>
+              Effect.map(canvases.read(name), (result) => result.doc),
+            ),
+          ),
+        resolvePageTarget: resolveBrowserPageTarget,
+        getHerdrPaneMeta: async (host, session, paneId) => {
+          const result = await herdrService.getPaneMeta(host, session, paneId);
+          if (!result.ok) return { ok: false as const, code: result.code };
+          const meta = result.data;
+          return {
+            ok: true as const,
+            data: {
+              paneId: meta.paneId,
+              ...(meta.workspaceId === undefined ? {} : { workspaceId: meta.workspaceId }),
+              ...(meta.tabId === undefined ? {} : { tabId: meta.tabId }),
+              ...(meta.cwd === undefined ? {} : { cwd: meta.cwd }),
+            },
+          };
+        },
+        confirm: confirmBrowserAutomation,
+      });
+      const control = await startBrowserControlServer({
+        sessions: browserSessions,
+        capabilities: product.registry,
         resolvePageTarget: resolveBrowserPageTarget,
         version: app.getVersion(),
       });
+      browserControl = control;
+      browserAutomationProduct = product;
+      registerBrowserAgentIpc(ipcMain, product.runtime, (event) => {
+        const mainWindow = trustedMainWindow;
+        return (
+          mainWindow !== undefined &&
+          !mainWindow.isDestroyed() &&
+          !mainWindow.webContents.isDestroyed() &&
+          event.sender === mainWindow.webContents
+        );
+      });
     } catch (error) {
+      product?.close();
+      browserAutomationProduct = undefined;
+      try {
+        browserControl?.close();
+      } catch {
+        // Startup is already failing closed; socket cleanup stays best-effort.
+      }
+      browserControl = undefined;
       console.error("[browser-control] failed to start:", error);
     }
 
@@ -465,10 +573,6 @@ if (!gotSingleInstanceLock) {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
-
-// Herdr product lock: quit / relaunch / launchd unload MUST detach control only.
-// Never pane close, tab close, or session stop. The fleet keeps running.
-let browserControl: BrowserControlServer | undefined;
 
 const detachHerdrOnQuit = (reason: string) => {
   try {
@@ -493,27 +597,44 @@ const detachHerdrOnQuit = (reason: string) => {
   }
 };
 
-app.on("before-quit", () => {
-  nodeRefRelayWatcher?.close();
-  nodeRefRelayWatcher = undefined;
-  detachHerdrOnQuit("before-quit");
-  // Close the control socket so the CLI reports runtime_down instead of hanging.
+const detachRuntimeOnQuit = (reason: string): void => {
+  // Revoke authority before closing the socket or detaching browser views.
+  // Registry termination destroys only automation-owner WebContentsViews;
+  // profile partitions and unrelated renderer-owned views remain intact.
+  try {
+    browserAutomationProduct?.close();
+  } catch (error) {
+    console.error(`[browser-automation] close on quit failed (${reason}):`, error);
+  }
+  browserAutomationProduct = undefined;
+
   try {
     browserControl?.close();
   } catch (error) {
-    console.error("[browser-control] close on quit failed:", error);
+    console.error(`[browser-control] close on quit failed (${reason}):`, error);
   }
+  browserControl = undefined;
+
+  // Herdr product lock: quit / relaunch / launchd unload detaches control only.
+  // Never pane close, tab close, or session stop. The fleet keeps running.
+  detachHerdrOnQuit(reason);
+};
+
+app.on("before-quit", () => {
+  nodeRefRelayWatcher?.close();
+  nodeRefRelayWatcher = undefined;
+  detachRuntimeOnQuit("before-quit");
   void AppRuntime.dispose();
 });
 
 app.on("will-quit", () => {
-  detachHerdrOnQuit("will-quit");
+  detachRuntimeOnQuit("will-quit");
 });
 
 // launchd bootout / kill send SIGTERM before exit; release control without murder.
 process.on("SIGTERM", () => {
-  detachHerdrOnQuit("SIGTERM");
+  detachRuntimeOnQuit("SIGTERM");
 });
 process.on("SIGINT", () => {
-  detachHerdrOnQuit("SIGINT");
+  detachRuntimeOnQuit("SIGINT");
 });
