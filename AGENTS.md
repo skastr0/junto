@@ -86,7 +86,7 @@ Region activation gated by three structures (`src/shared/canvas.ts`):
 
 - `src/shared/` — **frozen contracts**: `canvas.ts` (document schema), `entities.ts` (snapshots), `graph.ts` (derived), `digest.ts`, `portfolio.ts`, `svg.ts`. Change deliberately; much depends on them.
 - `src/main/vellum/` — document plane (`canvases.ts`), data plane (`snapshots.ts` + `adapters/`), IPC (`ipc.ts`).
-- `src/renderer/` — the canvas surface. **A dedicated UI agent owns this directory exclusively; backend sessions do not commit renderer files.**
+- `src/renderer/` — the canvas surface.
 - `scripts/` — the headless CLIs above.
 
 ## Discipline
@@ -97,3 +97,16 @@ Region activation gated by three structures (`src/shared/canvas.ts`):
   `docs/browser-security.md` is approved. Use synthetic accounts only. This is
   repository authorization, not runtime interception by the current app.
 - `bun run typecheck && bun run test` gate every change.
+
+## Multi-agent tree (for builders)
+
+At any time, multiple agents are working this codebase concurrently — the
+worktree is shared, and unfamiliar uncommitted changes belong to another
+agent.
+
+- Never stash, revert, delete, or "clean up" code you did not write. Assume it
+  is another agent's in-progress work and leave it alone.
+- Commit your own work aggressively: as soon as a change is done and gated,
+  stage only your own files and commit immediately. Do not leave your work
+  unstaged.
+- No conciliation or consolidation passes. Write your code, commit it, move on.
