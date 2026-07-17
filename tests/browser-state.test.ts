@@ -1,27 +1,34 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrowserOpResult, BrowserSessionInfo } from "../src/shared/ipc";
+import { formatNodeRef } from "../src/shared/node-ref";
 import {
   browser$,
   refreshBrowserSession,
   subscribeBrowserSessionEvents,
 } from "../src/renderer/lib/browser-state";
 
-const sessionOf = (nodeId: string) => browser$.sessionByNodeId[nodeId].peek();
+const sessionOf = (ref: string) => browser$.sessionByRef[ref].peek();
 
 // --- window.vellum mocked exactly like tests/chat-state.test.ts; one unique
-// nodeId per test so browser$.sessionByNodeId never bleeds between cases. ---
+// nodeId per test so browser$.sessionByRef never bleeds between cases. ---
 
 interface MockVellum {
-  browserOpen: ReturnType<typeof vi.fn>;
-  browserClose: ReturnType<typeof vi.fn>;
-  browserSessionState: ReturnType<typeof vi.fn>;
+  browserSessionList: ReturnType<typeof vi.fn>;
   onBrowserSessionChanged: ReturnType<typeof vi.fn>;
 }
 
 let idCounter = 0;
 const freshNodeId = (): string => `node-${++idCounter}`;
+const refOf = (nodeId: string, canvasName = "portfolio"): string =>
+  formatNodeRef({ canvasName, nodeId });
 
-const baseSession = (nodeId: string, overrides: Partial<BrowserSessionInfo> = {}): BrowserSessionInfo => ({
+const baseSession = (
+  ref: string,
+  nodeId: string,
+  overrides: Partial<BrowserSessionInfo> = {},
+): BrowserSessionInfo => ({
+  ref,
+  sessionId: `session-${nodeId}`,
   nodeId,
   url: "https://example.com",
   profile: "personal",
@@ -32,15 +39,7 @@ const baseSession = (nodeId: string, overrides: Partial<BrowserSessionInfo> = {}
 
 function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
   const mock: MockVellum = {
-    browserOpen: vi.fn(async (input: { nodeId: string }): Promise<BrowserOpResult<BrowserSessionInfo>> => ({
-      ok: true,
-      data: baseSession(input.nodeId, { state: "loading" }),
-    })),
-    browserClose: vi.fn(async (nodeId: string): Promise<BrowserOpResult<BrowserSessionInfo>> => ({
-      ok: true,
-      data: baseSession(nodeId, { state: "detached" }),
-    })),
-    browserSessionState: vi.fn(async (): Promise<BrowserOpResult<BrowserSessionInfo | null>> => ({ ok: true, data: null })),
+    browserSessionList: vi.fn(async (): Promise<BrowserOpResult<ReadonlyArray<BrowserSessionInfo>>> => ({ ok: true, data: [] })),
     onBrowserSessionChanged: vi.fn(() => () => undefined),
     ...overrides,
   };
@@ -50,6 +49,7 @@ function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
 
 function clearWindow(): void {
   delete (globalThis as { window?: unknown }).window;
+  browser$.sessionByRef.set({});
 }
 
 describe("subscribeBrowserSessionEvents", () => {
@@ -61,8 +61,9 @@ describe("subscribeBrowserSessionEvents", () => {
     expect(() => unsubscribe()).not.toThrow();
   });
 
-  it("routes a pushed BrowserSessionInfo into sessionByNodeId, keyed by nodeId", () => {
+  it("routes a pushed session into sessionByRef, keyed only by canonical ref", () => {
     const nodeId = freshNodeId();
+    const ref = refOf(nodeId);
     let handler: ((session: BrowserSessionInfo) => void) | undefined;
     installMockVellum({
       onBrowserSessionChanged: vi.fn((listener: (session: BrowserSessionInfo) => void) => {
@@ -72,8 +73,9 @@ describe("subscribeBrowserSessionEvents", () => {
     });
     const unsubscribe = subscribeBrowserSessionEvents();
     expect(handler).toBeTypeOf("function");
-    handler?.(baseSession(nodeId, { state: "ready", title: "Example" }));
-    expect(sessionOf(nodeId)).toMatchObject({ state: "ready", title: "Example" });
+    handler?.(baseSession(ref, nodeId, { state: "ready", title: "Example" }));
+    expect(sessionOf(ref)).toMatchObject({ state: "ready", title: "Example" });
+    expect(sessionOf(nodeId)).toBeUndefined();
     unsubscribe();
   });
 
@@ -86,7 +88,9 @@ describe("subscribeBrowserSessionEvents", () => {
     first();
   });
 
-  it("ignores a pushed session with no nodeId rather than throwing", () => {
+  it("ignores pushed sessions with malformed refs or empty handles", () => {
+    const nodeId = freshNodeId();
+    const ref = refOf(nodeId);
     let handler: ((session: BrowserSessionInfo) => void) | undefined;
     installMockVellum({
       onBrowserSessionChanged: vi.fn((listener: (session: BrowserSessionInfo) => void) => {
@@ -95,7 +99,27 @@ describe("subscribeBrowserSessionEvents", () => {
       }),
     });
     const unsubscribe = subscribeBrowserSessionEvents();
-    expect(() => handler?.({ ...baseSession("") } as BrowserSessionInfo)).not.toThrow();
+    expect(() => handler?.({ ...baseSession("", nodeId) } as BrowserSessionInfo)).not.toThrow();
+    expect(() => handler?.(baseSession(ref, nodeId, { sessionId: "" }))).not.toThrow();
+    expect(sessionOf(ref)).toBeUndefined();
+    unsubscribe();
+  });
+
+  it("retires an older pushed handle when the same ref advances", () => {
+    const nodeId = freshNodeId();
+    const ref = refOf(nodeId);
+    let handler: ((session: BrowserSessionInfo) => void) | undefined;
+    installMockVellum({
+      onBrowserSessionChanged: vi.fn((listener: (session: BrowserSessionInfo) => void) => {
+        handler = listener;
+        return () => undefined;
+      }),
+    });
+    const unsubscribe = subscribeBrowserSessionEvents();
+    handler?.(baseSession(ref, nodeId, { sessionId: "old-handle" }));
+    handler?.(baseSession(ref, nodeId, { sessionId: "new-handle" }));
+    handler?.(baseSession(ref, nodeId, { sessionId: "old-handle", state: "failed" }));
+    expect(sessionOf(ref)?.sessionId).toBe("new-handle");
     unsubscribe();
   });
 });
@@ -105,17 +129,67 @@ describe("subscribeBrowserSessionEvents", () => {
 describe("refreshBrowserSession", () => {
   afterEach(clearWindow);
 
-  it("hydrates sessionByNodeId from browserSessionState when a session exists", async () => {
+  it("hydrates by exact ref from browserSessionList, not by matching nodeId", async () => {
     const nodeId = freshNodeId();
+    const wantedRef = refOf(nodeId, "portfolio");
+    const otherRef = refOf(nodeId, "archive");
     installMockVellum({
-      browserSessionState: vi.fn(async () => ({ ok: true, data: baseSession(nodeId, { state: "failed", lastError: "boom" }) })),
+      browserSessionList: vi.fn(async () => ({
+        ok: true,
+        data: [
+          baseSession(otherRef, nodeId, { sessionId: "wrong-canvas" }),
+          baseSession(wantedRef, nodeId, { sessionId: "right-handle", state: "failed", lastError: "boom" }),
+        ],
+      })),
     });
-    await refreshBrowserSession(nodeId);
-    expect(sessionOf(nodeId)).toMatchObject({ state: "failed", lastError: "boom" });
+    await refreshBrowserSession(wantedRef);
+    expect(sessionOf(wantedRef)).toMatchObject({
+      sessionId: "right-handle",
+      state: "failed",
+      lastError: "boom",
+    });
+    expect(sessionOf(otherRef)).toBeUndefined();
+  });
+
+  it("removes a stale cached handle when the authoritative list has no exact ref", async () => {
+    const nodeId = freshNodeId();
+    const ref = refOf(nodeId);
+    browser$.sessionByRef[ref].set(baseSession(ref, nodeId, { sessionId: "stale" }));
+    installMockVellum();
+    await refreshBrowserSession(ref);
+    expect(sessionOf(ref)).toBeUndefined();
+  });
+
+  it("does not let stale hydration overwrite a newer pushed generation", async () => {
+    const nodeId = freshNodeId();
+    const ref = refOf(nodeId);
+    const oldSession = baseSession(ref, nodeId, { sessionId: "old-hydration" });
+    const newSession = baseSession(ref, nodeId, { sessionId: "new-push", state: "ready" });
+    let handler: ((session: BrowserSessionInfo) => void) | undefined;
+    let resolveList: ((result: BrowserOpResult<ReadonlyArray<BrowserSessionInfo>>) => void) | undefined;
+    const pendingList = new Promise<BrowserOpResult<ReadonlyArray<BrowserSessionInfo>>>((resolve) => {
+      resolveList = resolve;
+    });
+    installMockVellum({
+      browserSessionList: vi.fn(() => pendingList),
+      onBrowserSessionChanged: vi.fn((listener: (session: BrowserSessionInfo) => void) => {
+        handler = listener;
+        return () => undefined;
+      }),
+    });
+    const unsubscribe = subscribeBrowserSessionEvents();
+    handler?.(oldSession);
+    const hydration = refreshBrowserSession(ref);
+    handler?.(newSession);
+    handler?.({ ...oldSession, state: "failed", lastError: "late old push" });
+    resolveList?.({ ok: true, data: [oldSession] });
+    await hydration;
+    expect(sessionOf(ref)).toMatchObject({ sessionId: "new-push", state: "ready" });
+    unsubscribe();
   });
 
   it("degrades quietly when window.vellum is absent", async () => {
     clearWindow();
-    await expect(refreshBrowserSession(freshNodeId())).resolves.toBeUndefined();
+    await expect(refreshBrowserSession(refOf(freshNodeId()))).resolves.toBeUndefined();
   });
 });

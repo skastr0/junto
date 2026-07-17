@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserOpResult, BrowserSessionInfo } from "../src/shared/ipc";
+import { formatNodeRef, parseNodeRef } from "../src/shared/node-ref";
 import {
   closeSurface,
   dockBrowserSurfaces,
@@ -16,9 +17,10 @@ import {
   dock$,
   hydrateDockConfig,
   openDockBrowser,
+  reconcileDockFromLiveSessions,
   syncDockHerdrSlot,
 } from "../src/renderer/lib/dock-state";
-import { browser$ } from "../src/renderer/lib/browser-state";
+import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
 import { herdr$ } from "../src/renderer/lib/herdr-state";
 
 // --- pure registry ---------------------------------------------------------
@@ -115,9 +117,27 @@ interface MockVellum {
   browserOpen: ReturnType<typeof vi.fn>;
   browserClose: ReturnType<typeof vi.fn>;
   browserSurfaceConfig?: ReturnType<typeof vi.fn>;
+  browserSessionList?: ReturnType<typeof vi.fn>;
 }
 
-const baseSession = (nodeId: string, overrides: Partial<BrowserSessionInfo> = {}): BrowserSessionInfo => ({
+const refOf = (nodeId: string, canvasName = "portfolio"): string =>
+  formatNodeRef({ canvasName, nodeId });
+
+const payloadOf = (nodeId: string, url: string, title: string, profile = "personal") => ({
+  nodeId,
+  browser: { profile },
+  url,
+  title,
+});
+
+const baseSession = (
+  ref: string,
+  nodeId: string,
+  sessionId: string,
+  overrides: Partial<BrowserSessionInfo> = {},
+): BrowserSessionInfo => ({
+  ref,
+  sessionId,
   nodeId,
   url: "https://example.com",
   profile: "personal",
@@ -127,15 +147,21 @@ const baseSession = (nodeId: string, overrides: Partial<BrowserSessionInfo> = {}
 });
 
 function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
+  let handle = 0;
+  const sessions = new Map<string, BrowserSessionInfo>();
   const mock: MockVellum = {
-    browserOpen: vi.fn(async (input: { nodeId: string }): Promise<BrowserOpResult<BrowserSessionInfo>> => ({
-      ok: true,
-      data: baseSession(input.nodeId),
-    })),
-    browserClose: vi.fn(async (nodeId: string): Promise<BrowserOpResult<BrowserSessionInfo>> => ({
-      ok: true,
-      data: baseSession(nodeId, { state: "detached" }),
-    })),
+    browserOpen: vi.fn(async (input: { ref: string }): Promise<BrowserOpResult<BrowserSessionInfo>> => {
+      const parsed = parseNodeRef(input.ref);
+      if (!parsed.ok) return { ok: false, code: "invalid", message: "bad ref" };
+      const session = baseSession(input.ref, parsed.value.nodeId, `session-${++handle}`);
+      sessions.set(session.sessionId, session);
+      return { ok: true, data: session };
+    }),
+    browserClose: vi.fn(async (sessionId: string): Promise<BrowserOpResult<BrowserSessionInfo>> => {
+      const session = sessions.get(sessionId) ?? baseSession(refOf("closed"), "closed", sessionId);
+      return { ok: true, data: { ...session, state: "detached", attached: false } };
+    }),
+    browserSessionList: vi.fn(async () => ({ ok: true, data: [...sessions.values()] })),
     ...overrides,
   };
   (globalThis as unknown as { window: { vellum: MockVellum } }).window = { vellum: mock };
@@ -144,8 +170,9 @@ function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
 
 function resetDock(): void {
   dock$.registry.set(initialDockState());
-  dock$.browserByNodeId.set({});
+  dock$.browserByRef.set({});
   dock$.configHydrated.set(false);
+  browser$.sessionByRef.set({});
   herdr$.terminal.set(null);
 }
 
@@ -158,33 +185,104 @@ describe("dock-state", () => {
 
   it("openDockBrowser registers the slot + payload and opens the session over IPC", async () => {
     const mock = installMockVellum();
-    await openDockBrowser("n1", { profile: "personal" }, "https://example.com", "Example");
-    expect(dock$.registry.peek().surfaces).toEqual([{ id: "n1", kind: "browser" }]);
-    expect(dock$.browserByNodeId.peek()["n1"]).toMatchObject({ url: "https://example.com" });
-    expect(mock.browserOpen).toHaveBeenCalledWith({ nodeId: "n1", url: "https://example.com", profile: "personal" });
-    expect(browser$.sessionByNodeId["n1"].peek()).toMatchObject({ state: "loading" });
+    const ref = refOf("n1");
+    await openDockBrowser(ref, payloadOf("n1", "https://example.com", "Example"));
+    expect(dock$.registry.peek().surfaces).toEqual([{ id: ref, kind: "browser" }]);
+    expect(dock$.browserByRef.peek()[ref]).toMatchObject({ url: "https://example.com" });
+    expect(mock.browserOpen).toHaveBeenCalledWith({ ref });
+    expect(browser$.sessionByRef[ref].peek()).toMatchObject({
+      ref,
+      sessionId: "session-1",
+      state: "loading",
+    });
   });
 
-  it("a full dock detaches the evicted browser over IPC — session stays warm, never destroyed", async () => {
+  it("a full dock detaches the evicted browser by its exact returned handle", async () => {
     const mock = installMockVellum();
-    await openDockBrowser("n1", { profile: "personal" }, "https://a.example", "A");
-    await openDockBrowser("n2", { profile: "personal" }, "https://b.example", "B");
-    await openDockBrowser("n3", { profile: "personal" }, "https://c.example", "C");
-    expect(dock$.registry.peek().surfaces.map((s) => s.id)).toEqual(["n2", "n3"]);
-    // Detach-only: browserClose, which the session service maps to detach.
-    expect(mock.browserClose).toHaveBeenCalledWith("n1");
-    expect(dock$.browserByNodeId.peek()["n1"]).toBeUndefined();
+    const refs = [refOf("n1"), refOf("n2"), refOf("n3")];
+    await openDockBrowser(refs[0]!, payloadOf("n1", "https://a.example", "A"));
+    await openDockBrowser(refs[1]!, payloadOf("n2", "https://b.example", "B"));
+    await openDockBrowser(refs[2]!, payloadOf("n3", "https://c.example", "C"));
+    expect(dock$.registry.peek().surfaces.map((s) => s.id)).toEqual(refs.slice(1));
+    expect(mock.browserClose).toHaveBeenCalledWith("session-1");
+    expect(dock$.browserByRef.peek()[refs[0]!]).toBeUndefined();
   });
 
-  it("closeDockBrowser always issues the IPC detach, docked or not", () => {
+  it("closeDockBrowser removes UI without an identity fallback when no handle exists", () => {
     const mock = installMockVellum();
-    closeDockBrowser("ghost");
-    expect(mock.browserClose).toHaveBeenCalledWith("ghost");
+    const ref = refOf("ghost");
+    dock$.browserByRef[ref].set(payloadOf("ghost", "https://ghost.example", "Ghost"));
+    dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
+    closeDockBrowser(ref);
+    expect(dock$.registry.peek().surfaces).toEqual([]);
+    expect(dock$.browserByRef[ref].peek()).toBeUndefined();
+    expect(mock.browserClose).not.toHaveBeenCalled();
+  });
+
+  it("replaces a recreated session handle and closes only the current handle", async () => {
+    const ref = refOf("n1");
+    const oldSession = baseSession(ref, "n1", "old-handle");
+    const newSession = baseSession(ref, "n1", "new-handle");
+    const mock = installMockVellum({
+      browserOpen: vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, data: oldSession })
+        .mockResolvedValueOnce({ ok: true, data: newSession }),
+    });
+    const payload = payloadOf("n1", "https://a.example", "A");
+    await openDockBrowser(ref, payload);
+    await openDockBrowser(ref, payload);
+    expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("new-handle");
+    closeDockBrowser(ref);
+    expect(mock.browserClose).toHaveBeenLastCalledWith("new-handle");
+    expect(mock.browserClose).not.toHaveBeenCalledWith("old-handle");
+  });
+
+  it("does not let a stale open response replace a newer pushed handle", async () => {
+    const ref = refOf("n-stale-open");
+    const oldSession = baseSession(ref, "n-stale-open", "old-open");
+    const newSession = baseSession(ref, "n-stale-open", "new-push", { state: "ready" });
+    let resolveOpen: ((result: BrowserOpResult<BrowserSessionInfo>) => void) | undefined;
+    const pendingOpen = new Promise<BrowserOpResult<BrowserSessionInfo>>((resolve) => {
+      resolveOpen = resolve;
+    });
+    const mock = installMockVellum({ browserOpen: vi.fn(() => pendingOpen) });
+    dock$.configHydrated.set(true);
+    const opening = openDockBrowser(
+      ref,
+      payloadOf("n-stale-open", "https://a.example", "A"),
+    );
+    await vi.waitFor(() => expect(mock.browserOpen).toHaveBeenCalledWith({ ref }));
+    cacheBrowserSession(newSession);
+    resolveOpen?.({ ok: true, data: oldSession });
+    await opening;
+    expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("new-push");
   });
 
   it("degrades quietly when window.vellum is absent", async () => {
-    await expect(openDockBrowser("n1", { profile: "p" }, "https://a.example", "A")).resolves.toBeUndefined();
-    expect(() => closeDockBrowser("n1")).not.toThrow();
+    const ref = refOf("n1");
+    await expect(openDockBrowser(ref, payloadOf("n1", "https://a.example", "A", "p"))).resolves.toBeUndefined();
+    expect(() => closeDockBrowser(ref)).not.toThrow();
+  });
+
+  it("reconciles attached sessions by canonical ref and exact sessionId", async () => {
+    const attachedRef = refOf("attached");
+    const detachedRef = refOf("detached");
+    installMockVellum({
+      browserSessionList: vi.fn(async () => ({
+        ok: true,
+        data: [
+          baseSession(attachedRef, "attached", "attached-handle", { attached: true, state: "ready" }),
+          baseSession(detachedRef, "detached", "detached-handle", { attached: false }),
+          { ...baseSession(refOf("invalid"), "invalid", ""), attached: true },
+        ],
+      })),
+    });
+    await reconcileDockFromLiveSessions();
+    expect(dock$.registry.peek().surfaces).toEqual([{ id: attachedRef, kind: "browser" }]);
+    expect(dock$.browserByRef[attachedRef].peek()?.nodeId).toBe("attached");
+    expect(browser$.sessionByRef[attachedRef].peek()?.sessionId).toBe("attached-handle");
+    expect(dock$.browserByRef[detachedRef].peek()).toBeUndefined();
   });
 
   it("hydrateDockConfig adopts maxVisibleSurfaces from the service config (once)", async () => {
@@ -208,10 +306,11 @@ describe("dock-state", () => {
       // No browser open — terminal stays in the full-window modal, not the dock.
       expect(dock$.registry.peek().surfaces).toEqual([]);
 
-      await openDockBrowser("n1", { profile: "p" }, "https://a.example", "A");
+      const ref = refOf("n1");
+      await openDockBrowser(ref, payloadOf("n1", "https://a.example", "A", "p"));
       syncDockHerdrSlot();
       expect(dock$.registry.peek().surfaces).toEqual([
-        { id: "n1", kind: "browser" },
+        { id: ref, kind: "browser" },
         { id: HERDR_DOCK_ID, kind: "herdr" },
       ]);
       // herdr$.terminal remains the single source — exactly one terminal open.
@@ -220,7 +319,8 @@ describe("dock-state", () => {
 
     it("removes the dock slot when the terminal closes, without touching the stream", async () => {
       installMockVellum();
-      await openDockBrowser("n1", { profile: "p" }, "https://a.example", "A");
+      const ref = refOf("n1");
+      await openDockBrowser(ref, payloadOf("n1", "https://a.example", "A", "p"));
       openTerminal();
       syncDockHerdrSlot();
       expect(dock$.registry.peek().surfaces.some((s) => s.kind === "herdr")).toBe(true);
@@ -228,15 +328,16 @@ describe("dock-state", () => {
       herdr$.terminal.set(null); // closeHerdrTerminal already released the stream
       syncDockHerdrSlot();
       expect(dock$.registry.peek().surfaces.some((s) => s.kind === "herdr")).toBe(false);
-      expect(dock$.registry.peek().surfaces.map((s) => s.id)).toEqual(["n1"]);
+      expect(dock$.registry.peek().surfaces.map((s) => s.id)).toEqual([ref]);
     });
 
     it("returns the terminal to the modal when the last browser closes", async () => {
       installMockVellum();
-      await openDockBrowser("n1", { profile: "p" }, "https://a.example", "A");
+      const ref = refOf("n1");
+      await openDockBrowser(ref, payloadOf("n1", "https://a.example", "A", "p"));
       openTerminal();
       syncDockHerdrSlot();
-      closeDockBrowser("n1");
+      closeDockBrowser(ref);
       syncDockHerdrSlot();
       // Slot gone (modal takes over) but the terminal itself is still open.
       expect(dock$.registry.peek().surfaces).toEqual([]);
@@ -245,7 +346,7 @@ describe("dock-state", () => {
 
     it("docking the terminal never spawns a second herdr slot on re-sync", async () => {
       installMockVellum();
-      await openDockBrowser("n1", { profile: "p" }, "https://a.example", "A");
+      await openDockBrowser(refOf("n1"), payloadOf("n1", "https://a.example", "A", "p"));
       openTerminal();
       syncDockHerdrSlot();
       syncDockHerdrSlot();
@@ -256,16 +357,18 @@ describe("dock-state", () => {
     it("a browser landing in a full dock evicts the OLDEST slot (browser detached); the terminal keeps its single stream", async () => {
       const mock = installMockVellum();
       dock$.registry.set(initialDockState(2));
-      await openDockBrowser("n1", { profile: "p" }, "https://a.example", "A");
+      const firstRef = refOf("n1");
+      const secondRef = refOf("n2");
+      await openDockBrowser(firstRef, payloadOf("n1", "https://a.example", "A", "p"));
       openTerminal();
       syncDockHerdrSlot();
       // Dock is full at 2 (n1 + terminal); a second browser evicts oldest (n1).
-      await openDockBrowser("n2", { profile: "p" }, "https://b.example", "B");
+      await openDockBrowser(secondRef, payloadOf("n2", "https://b.example", "B", "p"));
       expect(dock$.registry.peek().surfaces).toEqual([
         { id: HERDR_DOCK_ID, kind: "herdr" },
-        { id: "n2", kind: "browser" },
+        { id: secondRef, kind: "browser" },
       ]);
-      expect(mock.browserClose).toHaveBeenCalledWith("n1");
+      expect(mock.browserClose).toHaveBeenCalledWith("session-1");
       // Terminal untouched — still exactly one control stream.
       expect(herdr$.terminal.peek()?.nodeId).toBe("h1");
     });

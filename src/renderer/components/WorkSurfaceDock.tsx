@@ -16,15 +16,20 @@ type BrowserApi = ReturnType<typeof getVellumApi> & Partial<VellumBrowserApi>;
  * above the window content at exactly this spot. ResizeObserver + rAF-throttled
  * pushes keep it glued through dock splits and window resizes.
  */
-function BrowserDockSlot({ nodeId }: { readonly nodeId: string }) {
-  const payload = use$(dock$.browserByNodeId[nodeId]);
-  const session = use$(browser$.sessionByNodeId[nodeId]);
+function BrowserDockSlot({ pageRef }: { readonly pageRef: string }) {
+  const payload = use$(dock$.browserByRef[pageRef]);
+  const session = use$(browser$.sessionByRef[pageRef]);
+  const sessionId = session?.sessionId;
   const bodyRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("attaching…");
 
   useEffect(() => {
     const el = bodyRef.current;
     if (!el) return;
+    if (!sessionId) {
+      setStatus("waiting for session…");
+      return;
+    }
     const api = getVellumApi() as BrowserApi | undefined;
     if (!api?.browserSetBounds) {
       setStatus("browser surface API unavailable");
@@ -40,7 +45,10 @@ function BrowserDockSlot({ nodeId }: { readonly nodeId: string }) {
       const rect = el.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
       setStatus("attached");
-      void api.browserSetBounds!(nodeId, {
+      // Capture the exact handle for this effect lifetime. If a session is
+      // recreated, cleanup cancels queued work and the new handle remounts the
+      // measurement effect; any already-in-flight stale call is rejected main-side.
+      void api.browserSetBounds!(sessionId, {
         x: Math.round(rect.left),
         y: Math.round(rect.top),
         width: Math.round(rect.width),
@@ -71,7 +79,7 @@ function BrowserDockSlot({ nodeId }: { readonly nodeId: string }) {
       resizeObs?.disconnect();
       if (rafId != null) cancelAnimationFrame(rafId);
     };
-  }, [nodeId]);
+  }, [pageRef, sessionId]);
 
   if (!payload) return null;
 
@@ -94,7 +102,7 @@ function BrowserDockSlot({ nodeId }: { readonly nodeId: string }) {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              closeDockBrowser(nodeId);
+              closeDockBrowser(pageRef);
             }}
           >
             Close
@@ -130,7 +138,7 @@ export function WorkSurfaceDock() {
     <aside className="work-surface-dock" aria-label="Work surface dock">
       {registry.surfaces.map((s) =>
         s.kind === "browser" ? (
-          <BrowserDockSlot key={s.id} nodeId={s.id} />
+          <BrowserDockSlot key={s.id} pageRef={s.id} />
         ) : (
           <section key={s.id} className="dock-slot dock-slot--herdr" aria-label="Herdr terminal surface">
             <HerdrTerminalPanel variant="dock" />

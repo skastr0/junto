@@ -1,7 +1,13 @@
 import { observable } from "@legendapp/state";
 import type { EtherBrowser } from "@shared/canvas";
 import type { VellumBrowserApi } from "@shared/ipc";
-import { browser$ } from "./browser-state";
+import {
+  browser$,
+  browserSessionIdForRef,
+  cacheBrowserSessionIfUnchanged,
+  isCanonicalBrowserRef,
+  isUsableBrowserSession,
+} from "./browser-state";
 import { closeHerdrTerminal, herdr$ } from "./herdr-state";
 import {
   closeSurface,
@@ -31,14 +37,20 @@ export const HERDR_DOCK_ID = "herdr-terminal";
 
 export const dock$ = observable({
   registry: initialDockState() as DockState,
-  /** browser slot id (nodeId) -> attach payload for the dock's placeholder. */
-  browserByNodeId: {} as Record<string, DockBrowserPayload>,
+  /** canonical vellum:// ref -> display payload for the dock placeholder. */
+  browserByRef: {} as Record<string, DockBrowserPayload>,
   configHydrated: false,
 });
 
 type BrowserApi = ReturnType<typeof getVellumApi> & Partial<VellumBrowserApi>;
 
 const api = (): BrowserApi | undefined => getVellumApi() as BrowserApi | undefined;
+
+const detachCurrentSession = (ref: string): void => {
+  const sessionId = browserSessionIdForRef(ref);
+  if (!sessionId) return;
+  void api()?.browserClose?.(sessionId).catch(() => undefined);
+};
 
 /** One-shot maxVisibleSurfaces hydration from BrowserProfileService config. */
 export const hydrateDockConfig = async (): Promise<void> => {
@@ -65,8 +77,8 @@ const applyTransition = (transition: DockTransition): void => {
   dock$.registry.set(transition.state);
   for (const evicted of transition.evicted) {
     if (evicted.kind === "browser") {
-      dock$.browserByNodeId[evicted.id].delete();
-      void api()?.browserClose?.(evicted.id).catch(() => undefined);
+      dock$.browserByRef[evicted.id].delete();
+      detachCurrentSession(evicted.id);
     } else {
       closeHerdrTerminal();
     }
@@ -92,19 +104,25 @@ export const reconcileDockFromLiveSessions = async (): Promise<void> => {
   reconciledLiveSessions = true;
   const a = api();
   if (!a?.browserSessionList) return;
+  const observedSessionIds = new Map(
+    Object.entries(browser$.sessionByRef.peek()).flatMap(([ref, session]) => {
+      const sessionId = isUsableBrowserSession(session) ? session.sessionId : undefined;
+      return sessionId ? [[ref, sessionId] as const] : [];
+    }),
+  );
   try {
     const result = await a.browserSessionList();
     if (!result.ok || !result.data) return;
     for (const session of result.data) {
-      if (!session.attached) continue;
-      browser$.sessionByNodeId[session.nodeId].set(session);
-      dock$.browserByNodeId[session.nodeId].set({
+      if (!session.attached || !isUsableBrowserSession(session)) continue;
+      if (!cacheBrowserSessionIfUnchanged(session, observedSessionIds.get(session.ref))) continue;
+      dock$.browserByRef[session.ref].set({
         nodeId: session.nodeId,
         browser: { profile: session.profile },
         url: session.url,
         title: session.title ?? session.url,
       });
-      applyTransition(openSurface(dock$.registry.peek(), { id: session.nodeId, kind: "browser" }));
+      applyTransition(openSurface(dock$.registry.peek(), { id: session.ref, kind: "browser" }));
     }
   } catch {
     // Best-effort — an unreconciled attached session degrades to the existing
@@ -118,11 +136,10 @@ export const reconcileDockFromLiveSessions = async (): Promise<void> => {
  * flows back on the browserSessionChanged push channel.
  */
 export const openDockBrowser = async (
-  nodeId: string,
-  browser: EtherBrowser,
-  url: string,
-  title: string,
+  ref: string,
+  payload: DockBrowserPayload,
 ): Promise<void> => {
+  if (!isCanonicalBrowserRef(ref)) return;
   // Awaited (not fire-and-forget): hydrateDockConfig no-ops instantly once
   // already hydrated, so this only ever delays the FIRST surface of a
   // session — long enough that openSurface's eviction below never runs
@@ -130,13 +147,16 @@ export const openDockBrowser = async (
   // otherwise (a same-beat second/third open would evict under the wrong
   // limit, and nothing re-admits a wrongly-evicted surface afterward).
   await hydrateDockConfig();
-  dock$.browserByNodeId[nodeId].set({ nodeId, browser, url, title });
-  applyTransition(openSurface(dock$.registry.peek(), { id: nodeId, kind: "browser" }));
+  dock$.browserByRef[ref].set(payload);
+  applyTransition(openSurface(dock$.registry.peek(), { id: ref, kind: "browser" }));
   const a = api();
   if (!a?.browserOpen) return;
+  const observedSessionId = browserSessionIdForRef(ref);
   try {
-    const result = await a.browserOpen({ nodeId, url, profile: browser.profile });
-    if (result.ok && result.data) browser$.sessionByNodeId[nodeId].set(result.data);
+    const result = await a.browserOpen({ ref });
+    if (result.ok && result.data?.ref === ref) {
+      cacheBrowserSessionIfUnchanged(result.data, observedSessionId);
+    }
   } catch {
     // Session push events (or their absence) carry the failure state.
   }
@@ -147,12 +167,12 @@ export const openDockBrowser = async (
  * session). browserClose only detaches: the warm session and its cookies
  * survive, mirroring closeHerdrTerminal's detach-first shape.
  */
-export const closeDockBrowser = (nodeId: string): void => {
-  dock$.registry.set(closeSurface(dock$.registry.peek(), nodeId).state);
-  dock$.browserByNodeId[nodeId].delete();
-  // Always issue the IPC detach — a warm-but-undocked session (opened earlier,
-  // evicted from the dock) must still detach from the card's own action.
-  void api()?.browserClose?.(nodeId).catch(() => undefined);
+export const closeDockBrowser = (ref: string): void => {
+  dock$.registry.set(closeSurface(dock$.registry.peek(), ref).state);
+  dock$.browserByRef[ref].delete();
+  // UI removal is unconditional. IPC detach is allowed only with the current
+  // opaque handle; ref/nodeId fallback would reintroduce confused-deputy risk.
+  detachCurrentSession(ref);
 };
 
 /**

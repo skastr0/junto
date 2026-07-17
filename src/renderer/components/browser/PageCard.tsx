@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
+import { formatNodeRef } from "@shared/node-ref";
 import { Globe } from "lucide-react";
 import { browserActivity } from "../../lib/activity";
 import {
@@ -10,6 +11,7 @@ import {
 } from "../../lib/browser-state";
 import { closeDockBrowser, dock$, openDockBrowser } from "../../lib/dock-state";
 import { hostOf } from "../../lib/presentation";
+import { state$ } from "../../lib/state";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 
@@ -21,9 +23,20 @@ import { ActivityMarkFromSpec } from "../ActivityMark";
 export function PageCard({ node }: { readonly node: CanvasNode }) {
   const browser = node.ether?.browser;
   const url = node.type === "link" ? node.url : "";
-  const session = use$(browser$.sessionByNodeId[node.id]);
+  const canvasName = use$(state$.canvasName);
+  const sessions = use$(browser$.sessionByRef);
   const registry = use$(dock$.registry);
-  const docked = registry.surfaces.some((s) => s.kind === "browser" && s.id === node.id);
+  const pageRef = useMemo(() => {
+    try {
+      return formatNodeRef({ canvasName, nodeId: node.id });
+    } catch {
+      return undefined;
+    }
+  }, [canvasName, node.id]);
+  const session = pageRef ? sessions[pageRef] : undefined;
+  const docked = Boolean(
+    pageRef && registry.surfaces.some((s) => s.kind === "browser" && s.id === pageRef),
+  );
   const attaching = docked && !session?.attached;
 
   useEffect(() => {
@@ -31,11 +44,11 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
   }, []);
 
   useEffect(() => {
-    if (!browser) return;
-    void refreshBrowserSession(node.id);
-  }, [node.id, browser]);
+    if (!browser || !pageRef) return;
+    void refreshBrowserSession(pageRef);
+  }, [browser, pageRef]);
 
-  if (!browser) {
+  if (!browser || !pageRef) {
     return <div className="text-xs text-slate-500">page unbound</div>;
   }
 
@@ -46,10 +59,15 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
   const activity = browserActivity({ state, attaching });
 
   const open = () => {
-    void openDockBrowser(node.id, browser, url, title ?? host);
+    void openDockBrowser(pageRef, {
+      nodeId: node.id,
+      browser,
+      url,
+      title: title ?? host,
+    });
   };
   const detach = () => {
-    closeDockBrowser(node.id);
+    closeDockBrowser(pageRef);
   };
 
   return (
