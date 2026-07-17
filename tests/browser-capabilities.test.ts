@@ -13,6 +13,7 @@ import {
   type BrowserCapabilityDependencies,
   type BrowserCapabilityGrant,
   type BrowserCapabilityIssueSpec,
+  type BrowserCapabilityProfileRevocationReason,
   type BrowserCapabilityTarget,
   type BrowserCapabilityTerminationNotice,
   type BrowserCapabilityUseTarget,
@@ -718,6 +719,138 @@ describe("browser capability lifetime and bounded state", () => {
       closeGrants.map((grant) => grant.auditId).sort(),
     );
     expect(notices.slice(2).every((notice) => notice.reason === "app_closed")).toBe(true);
+  });
+
+  it("revokes only exact-profile grants while preserving work and same-principal siblings", () => {
+    const notices: BrowserCapabilityTerminationNotice[] = [];
+    const { registry } = makeRegistry(undefined, {
+      onTerminate: (notice) => notices.push(notice),
+    });
+    const principal = registry.createPrincipal();
+    const affected = issue(registry, principal, {
+      actions: ["pages"],
+      targets: [TARGET_ONE],
+    });
+    const samePrincipalSibling = issue(registry, principal, {
+      actions: ["pages"],
+      targets: [TARGET_TWO],
+    });
+    const mixed = issue(registry, undefined, {
+      actions: ["pages"],
+      targets: [TARGET_ONE, TARGET_TWO],
+    });
+    const workOnly = issue(registry, undefined, {
+      actions: ["pages"],
+      targets: [TARGET_TWO],
+    });
+    const nearMatch = issue(registry, undefined, {
+      actions: ["pages"],
+      targets: [{
+        ref: REF_THREE,
+        profile: "personal-archive",
+        exactOrigins: ["https://archive.example.com"],
+      }],
+    });
+    const grants = [affected, samePrincipalSibling, mixed, workOnly, nearMatch];
+    const leases = grants.map((grant, index) => registry.authorize(
+      grant.secret,
+      { action: "pages" },
+      { requestId: requestId(index + 1) },
+    ));
+    const aborts = grants.map(() => 0);
+    leases.forEach((lease, index) => {
+      lease.signal.addEventListener("abort", () => {
+        aborts[index] = (aborts[index] ?? 0) + 1;
+      });
+    });
+
+    expect(registry.revokeByProfile("personal", "profile_wipe")).toBe(2);
+    expect(registry.revokeByProfile("personal", "profile_wipe")).toBe(0);
+    expect(aborts).toEqual([1, 0, 1, 0, 0]);
+    expect(leases[0]?.signal.reason).toBeInstanceOf(BrowserCapabilityLeaseAbort);
+    expect((leases[0]?.signal.reason as BrowserCapabilityLeaseAbort).reason).toBe("revoked");
+    expect(leases[2]?.signal.reason).toBeInstanceOf(BrowserCapabilityLeaseAbort);
+    leases[0]?.release();
+    leases[2]?.release();
+    expect(aborts).toEqual([1, 0, 1, 0, 0]);
+
+    expect(notices).toHaveLength(2);
+    expect(notices.map((notice) => notice.auditId).sort()).toEqual(
+      [affected.auditId, mixed.auditId].sort(),
+    );
+    expect(notices.every((notice) => notice.reason === "revoked_profile_wipe")).toBe(true);
+    expect(notices.every(Object.isFrozen)).toBe(true);
+    expect(registry.stats()).toMatchObject({ activeCapabilities: 3, activeLeases: 3 });
+    expect(registry.preflight(affected.secret, "pages")).toEqual({
+      ok: false,
+      denial: "unauthorized",
+    });
+    expect(registry.preflight(mixed.secret, "pages")).toEqual({
+      ok: false,
+      denial: "unauthorized",
+    });
+    for (const survivor of [samePrincipalSibling, workOnly, nearMatch]) {
+      expect(registry.preflight(survivor.secret, "pages")).toEqual({ ok: true });
+    }
+
+    leases[1]?.release();
+    leases[3]?.release();
+    leases[4]?.release();
+    const siblingLease = registry.authorize(
+      samePrincipalSibling.secret,
+      { action: "pages" },
+      { requestId: requestId(10), expectedPrincipal: principal },
+    );
+    siblingLease.release();
+
+    const audit = registry.auditSnapshot();
+    expect(
+      audit
+        .filter((event) => event.outcome === "revoked_profile_wipe")
+        .map((event) => event.auditId)
+        .sort(),
+    ).toEqual([affected.auditId, mixed.auditId].sort());
+    const serialized = JSON.stringify({ audit, notices });
+    for (const forbidden of [
+      ...grants.map((grant) => grant.secret),
+      "personal",
+      "work",
+      "personal-archive",
+      REF_ONE,
+      REF_TWO,
+      REF_THREE,
+      "https://example.com",
+      "https://github.com",
+      "https://www.github.com",
+      "https://archive.example.com",
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it("rejects malformed profile wipe requests without mutating authority", () => {
+    const notices: BrowserCapabilityTerminationNotice[] = [];
+    const { registry } = makeRegistry(undefined, {
+      onTerminate: (notice) => notices.push(notice),
+    });
+    const grant = issue(registry, undefined, {
+      actions: ["pages"],
+      targets: [TARGET_ONE],
+    });
+    for (const invalid of ["", "*", "Personal", "../personal", "x".repeat(64), 1, null]) {
+      expect(() => registry.revokeByProfile(
+        invalid as string,
+        "profile_wipe",
+      )).toThrowError(BrowserCapabilityStateDenied);
+    }
+    expect(() => registry.revokeByProfile(
+      "personal",
+      "operator" as BrowserCapabilityProfileRevocationReason,
+    )).toThrowError(BrowserCapabilityStateDenied);
+
+    expect(notices).toEqual([]);
+    expect(registry.stats().activeCapabilities).toBe(1);
+    expect(registry.preflight(grant.secret, "pages")).toEqual({ ok: true });
   });
 
   it("finishes teardown when the termination observer throws", () => {

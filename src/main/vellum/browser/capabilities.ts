@@ -129,6 +129,7 @@ export type BrowserCapabilityRevocationReason =
   | "job_complete"
   | "principal_closed"
   | "superseded";
+export type BrowserCapabilityProfileRevocationReason = "profile_wipe";
 export type BrowserCapabilityAbortReason = "expired" | "revoked" | "app_close";
 
 export interface BrowserCapabilityLease extends BrowserCapabilityHandle {
@@ -227,6 +228,7 @@ export type BrowserCapabilityAuditOutcome =
   | "revoked_job_complete"
   | "revoked_principal_closed"
   | "revoked_superseded"
+  | "revoked_profile_wipe"
   | "expired"
   | "exhausted"
   | "app_closed"
@@ -263,6 +265,7 @@ export type BrowserCapabilityTerminationReason = Extract<
   | "revoked_job_complete"
   | "revoked_principal_closed"
   | "revoked_superseded"
+  | "revoked_profile_wipe"
   | "expired"
   | "exhausted"
   | "app_closed"
@@ -810,6 +813,30 @@ export class BrowserCapabilityRegistry {
     if (record === undefined || record.handle !== handle) return false;
     this.#terminateRecord(record, `revoked_${reason}`, "revoked");
     return true;
+  }
+
+  /**
+   * Revoke the bounded snapshot whose immutable issued scopes include one exact profile.
+   * Returns the exact terminated-record count, bounded by configured registry capacity.
+   */
+  revokeByProfile(
+    profile: string,
+    reason: BrowserCapabilityProfileRevocationReason,
+  ): number {
+    if (
+      typeof profile !== "string" ||
+      !isValidProfileId(profile) ||
+      reason !== "profile_wipe"
+    ) {
+      throw new BrowserCapabilityStateDenied();
+    }
+    const records = [...this.#records.values()].filter((record) =>
+      record.targets.some((target) => target.profile === profile)
+    );
+    for (const record of records) {
+      this.#terminateRecord(record, "revoked_profile_wipe", "revoked");
+    }
+    return records.length;
   }
 
   revokePrincipal(
