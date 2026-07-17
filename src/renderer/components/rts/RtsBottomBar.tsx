@@ -5,11 +5,11 @@ import type { EtherFlag } from "@shared/canvas";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { state$, toggleFlagFilter } from "../../lib/state";
 import { assignSlot, mergeSlotOrder, useRegionRollups } from "../../lib/region-rollups";
-import { severityHue } from "../../lib/severity";
+import { signalMark, signalMarkForMember } from "../../lib/signal-mark";
 import { deleteNode, deleteNodes, setNodeColor, toggleFlag, addNode } from "../../lib/mutations";
 import { makeGroupNode } from "../../lib/node-factories";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
-import { HUE } from "../../lib/theme";
+import { HUE, withAlpha } from "../../lib/theme";
 import { disarmOrphan, kernel$ } from "../../lib/kernel-view";
 import { PulseTray } from "../PulseTray";
 import "./RtsBottomBar.css";
@@ -45,7 +45,7 @@ const createRegionFromIds = (ids: ReadonlyArray<string>): string | undefined => 
   return region.id;
 };
 
-function CommandCard() {
+function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup }) {
   const doc = use$(state$.doc);
   const selectedNodeId = use$(state$.selectedNodeId);
   const selectedNodeIds = use$(state$.selectedNodeIds);
@@ -62,11 +62,71 @@ function CommandCard() {
         <div className="rts-panel__body rts-cmd">
           <div className="rts-cmd__meta">{count} selected</div>
           <div className="rts-cmd__row">
-            <button type="button" className="rts-cmd__btn" onClick={() => selectedNodeIds.forEach((id) => toggleFlag(id, "blocker"))}>
+            <button type="button" className="rts-cmd__btn" aria-label="Flag selected as blocker" onClick={() => selectedNodeIds.forEach((id) => toggleFlag(id, "blocker"))}>
               <Ban size={12} /> flag blocker
             </button>
-            <button type="button" className="rts-cmd__btn rts-cmd__btn--danger" onClick={() => deleteNodes(selectedNodeIds)}>
+            <button type="button" className="rts-cmd__btn rts-cmd__btn--danger" aria-label="Delete selected" onClick={() => deleteNodes(selectedNodeIds)}>
               <Trash2 size={12} /> delete
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Region selected → tactical rollcall lives here (middle stays regions-only).
+  if (node?.type === "group" && regionRollup) {
+    const mark = signalMark(regionRollup.severity);
+    return (
+      <div className="rts-panel">
+        <div className="rts-panel__label">
+          command · region
+          <span className="rts-signal" style={{ color: mark.hue }} title={mark.label}>
+            {mark.symbol} {mark.label}
+          </span>
+        </div>
+        <div className="rts-panel__body rts-cmd">
+          <div className="rts-cmd__title" title={regionRollup.label}>{regionRollup.label}</div>
+          <div className="rts-cmd__meta">
+            {regionRollup.counts.total} ·{" "}
+            {regionRollup.counts.blocked > 0 ? <span style={{ color: HUE.crimson }}>{regionRollup.counts.blocked} blocked </span> : null}
+            {regionRollup.counts.attention > 0 ? <span style={{ color: HUE.amber }}>{regionRollup.counts.attention} attn </span> : null}
+            {regionRollup.counts.working > 0 ? <span style={{ color: HUE.cyan }}>{regionRollup.counts.working} working</span> : null}
+          </div>
+          {regionRollup.members.length === 0 ? (
+            <div className="rts-quiet">Empty region — drop nodes inside its bounds.</div>
+          ) : (
+            <div className="rts-rollcall">
+              {regionRollup.members.map((member) => {
+                const m = signalMarkForMember(member);
+                return (
+                  <button
+                    key={member.nodeId}
+                    type="button"
+                    className="rts-rollcall__row"
+                    title={m.label}
+                    aria-label={`${member.label}, ${m.label}`}
+                    onClick={() => {
+                      state$.selectedNodeId.set(member.nodeId);
+                      state$.selectedNodeIds.set([member.nodeId]);
+                      state$.selectedEdgeId.set("");
+                      state$.focusNodeId.set(member.nodeId);
+                    }}
+                  >
+                    <span className="rts-signal-mark" style={{ color: m.hue }} aria-hidden>{m.symbol}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.label}</span>
+                    <span className="rts-rollcall__kind">{member.kind}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="rts-cmd__row">
+            <button type="button" className="rts-cmd__btn" onClick={() => state$.focusNodeId.set(node.id)}>
+              <Crosshair size={12} /> focus
+            </button>
+            <button type="button" className="rts-cmd__btn rts-cmd__btn--danger" onClick={() => deleteNode(node.id)}>
+              <Trash2 size={12} /> delete region
             </button>
           </div>
         </div>
@@ -97,6 +157,7 @@ function CommandCard() {
             type="button"
             className={`rts-cmd__btn${!node.color ? " is-active" : ""}`}
             title="default accent"
+            aria-label="Use default accent"
             aria-pressed={!node.color}
             onClick={() => setNodeColor(node.id, undefined)}
           >
@@ -168,7 +229,6 @@ function RegionMiddle({
 }) {
   const selectedNodeId = use$(state$.selectedNodeId);
   const slotOrder = use$(state$.regionSlotOrder);
-  const selected = selectedNodeId ? byId.get(selectedNodeId) : undefined;
   const dragFrom = useRef<number | null>(null);
 
   const slots = useMemo(() => {
@@ -182,8 +242,6 @@ function RegionMiddle({
   useEffect(() => {
     const liveIds = rollups.map((r) => r.regionId);
     if (liveIds.length === 0) {
-      // Prefer doc group ids when rollups are empty-but-doc-has-groups
-      // (first paint before poll) — still avoid inventing wipe from fail.
       const groups = state$.doc.peek().nodes.filter((n) => n.type === "group").map((n) => n.id);
       if (groups.length === 0) return;
       const next = mergeSlotOrder(state$.regionSlotOrder.peek(), groups);
@@ -207,53 +265,7 @@ function RegionMiddle({
     state$.focusNodeId.set(regionId);
   };
 
-  if (selected) {
-    return (
-      <div className="rts-panel">
-        <div className="rts-panel__label">
-          rollcall
-          <span style={{ color: severityHue(selected.severity) }}>· {selected.label}</span>
-          <button
-            type="button"
-            className="rts-cmd__btn"
-            style={{ marginLeft: "auto", padding: "2px 6px" }}
-            onClick={() => {
-              state$.selectedNodeId.set("");
-              state$.selectedNodeIds.set([]);
-            }}
-          >
-            chips
-          </button>
-        </div>
-        <div className="rts-panel__body">
-          {selected.members.length === 0 ? (
-            <div className="rts-quiet">Empty region — drop nodes inside its bounds.</div>
-          ) : (
-            <div className="rts-rollcall">
-              {selected.members.map((member) => (
-                <button
-                  key={member.nodeId}
-                  type="button"
-                  className="rts-rollcall__row"
-                  onClick={() => {
-                    state$.selectedNodeId.set(member.nodeId);
-                    state$.selectedNodeIds.set([member.nodeId]);
-                    state$.selectedEdgeId.set("");
-                    state$.focusNodeId.set(member.nodeId);
-                  }}
-                >
-                  <span className="rts-chip__light" style={{ background: severityHue(member.severity as MemberSeverity), color: severityHue(member.severity as MemberSeverity) }} />
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.label}</span>
-                  <span className="rts-rollcall__kind">{member.kind}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
+  // Middle is the nervous system: ALWAYS region chips. Never swaps to rollcall.
   return (
     <div className="rts-panel">
       <div className="rts-panel__label">regions · 1–9</div>
@@ -262,39 +274,60 @@ function RegionMiddle({
           <div className="rts-quiet">No regions yet — group nodes, or Ctrl+1–9 on a selection.</div>
         ) : (
           <div className="rts-chips">
-            {slots.map(({ index, rollup }) => (
-              <button
-                key={rollup.regionId}
-                type="button"
-                className={`rts-chip${selectedNodeId === rollup.regionId ? " is-active" : ""}`}
-                draggable
-                aria-label={`Region slot ${index + 1}: ${rollup.label}, ${rollup.severity}, ${rollup.counts.total} members`}
-                onDragStart={() => { dragFrom.current = index; }}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => {
-                  const from = dragFrom.current;
-                  dragFrom.current = null;
-                  if (from === null || from === index) return;
-                  // Reorder the same merged id list the chips render from.
-                  const order = slots.map((s) => s.rollup.regionId);
-                  const [moved] = order.splice(from, 1);
-                  if (!moved) return;
-                  order.splice(index, 0, moved);
-                  state$.regionSlotOrder.set(order.slice(0, 9));
-                }}
-                onClick={() => jumpToRegion(rollup.regionId)}
-                title={`${rollup.label} — ${rollup.severity}`}
-              >
-                <span className="rts-chip__slot">{index + 1}</span>
-                <span className="rts-chip__light" style={{ background: severityHue(rollup.severity), color: severityHue(rollup.severity) }} />
-                <span className="rts-chip__label">{rollup.label}</span>
-                <span className="rts-chip__counts">
-                  {rollup.counts.blocked > 0 ? <span style={{ color: HUE.crimson }}><b>{rollup.counts.blocked}</b>b</span> : null}
-                  {rollup.counts.working > 0 ? <span style={{ color: HUE.cyan }}><b>{rollup.counts.working}</b>w</span> : null}
-                  <span><b>{rollup.counts.total}</b></span>
-                </span>
-              </button>
-            ))}
+            {slots.map(({ index, rollup }) => {
+              const mark = signalMark(rollup.severity);
+              const elevated = mark.kind !== "idle";
+              return (
+                <button
+                  key={rollup.regionId}
+                  type="button"
+                  className={`rts-chip${selectedNodeId === rollup.regionId ? " is-active" : ""}${elevated ? " is-hot" : ""}`}
+                  style={
+                    elevated
+                      ? {
+                          borderColor: withAlpha(mark.hue, 0.55),
+                          boxShadow: `inset 0 0 0 1px ${withAlpha(mark.hue, 0.18)}, 0 0 12px ${withAlpha(mark.hue, 0.12)}`,
+                        }
+                      : undefined
+                  }
+                  draggable
+                  aria-label={`Region slot ${index + 1}: ${rollup.label}, ${mark.label}, ${rollup.counts.total} members`}
+                  onDragStart={() => { dragFrom.current = index; }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => {
+                    const from = dragFrom.current;
+                    dragFrom.current = null;
+                    if (from === null || from === index) return;
+                    const order = slots.map((s) => s.rollup.regionId);
+                    const [moved] = order.splice(from, 1);
+                    if (!moved) return;
+                    order.splice(index, 0, moved);
+                    state$.regionSlotOrder.set(order.slice(0, 9));
+                  }}
+                  onClick={() => jumpToRegion(rollup.regionId)}
+                  title={`${rollup.label} — ${mark.label}`}
+                >
+                  <span className="rts-chip__slot" style={elevated ? { color: mark.hue, borderColor: withAlpha(mark.hue, 0.4) } : undefined}>
+                    {index + 1}
+                  </span>
+                  <span
+                    className="rts-signal-mark"
+                    style={{ color: mark.hue }}
+                    aria-hidden
+                    title={mark.label}
+                  >
+                    {elevated ? mark.symbol : "●"}
+                  </span>
+                  <span className="rts-chip__label">{rollup.label}</span>
+                  <span className="rts-chip__counts">
+                    {rollup.counts.blocked > 0 ? <span style={{ color: HUE.crimson }}><b>{rollup.counts.blocked}</b>b</span> : null}
+                    {rollup.counts.attention > 0 ? <span style={{ color: HUE.amber }}><b>{rollup.counts.attention}</b>a</span> : null}
+                    {rollup.counts.working > 0 ? <span style={{ color: HUE.cyan }}><b>{rollup.counts.working}</b>w</span> : null}
+                    <span><b>{rollup.counts.total}</b></span>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -430,9 +463,12 @@ export function RtsBottomBar({ minimap }: { readonly minimap: ReactNode }) {
     state$.regionSeverityByNodeId.set(next);
   }, [severityMap]);
 
+  const selectedNodeId = use$(state$.selectedNodeId);
+  const selectedRegion = selectedNodeId ? byId.get(selectedNodeId) : undefined;
+
   return (
     <div className="rts-bar" role="region" aria-label="RTS bottom bar">
-      <CommandCard />
+      <CommandCard regionRollup={selectedRegion} />
       <RegionMiddle rollups={rollups} byId={byId} />
       <div className="rts-right">
         <OrphanNotices />

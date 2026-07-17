@@ -1,0 +1,131 @@
+/**
+ * Shared signal taxonomy for the RTS chrome (region chips + minimap).
+ *
+ * Two layers, always:
+ *   1. Identity — node accent / kind hue (who this is)
+ *   2. Signal   — severity-driven accent + symbol (what needs attention)
+ *
+ * Severity ladder is owned by @shared/region-rollup. This module only maps
+ * that ladder (and its reason strings) into a renderable mark. It does not
+ * re-derive membership or severity.
+ */
+
+import type { MemberSeverity, MemberStatus } from "@shared/region-rollup";
+import type { CanvasNode } from "@shared/canvas";
+import type { ActivityMode, ActivityTone } from "./activity";
+import { ACTIVITY_TONE_HEX } from "./activity";
+import { accentColor, HUE } from "./theme";
+
+export type SignalKind = MemberSeverity;
+
+export interface SignalMark {
+  readonly kind: SignalKind;
+  readonly tone: ActivityTone | "violet";
+  readonly hue: string;
+  /** Single-glyph status mark — chips/minimap read, never prose. */
+  readonly symbol: string;
+  readonly label: string;
+  readonly mode: ActivityMode;
+}
+
+const MARK: Readonly<Record<SignalKind, SignalMark>> = {
+  blocked: {
+    kind: "blocked",
+    tone: "crimson",
+    hue: HUE.crimson,
+    symbol: "⊗",
+    label: "blocked",
+    mode: "wave",
+  },
+  attention: {
+    kind: "attention",
+    tone: "amber",
+    hue: HUE.amber,
+    symbol: "⚠",
+    label: "attention",
+    mode: "wave",
+  },
+  working: {
+    kind: "working",
+    tone: "cyan",
+    hue: HUE.cyan,
+    symbol: "◉",
+    label: "working",
+    mode: "wave",
+  },
+  parked: {
+    kind: "parked",
+    tone: "violet",
+    hue: HUE.violet,
+    symbol: "◌",
+    label: "parked",
+    mode: "static",
+  },
+  idle: {
+    kind: "idle",
+    tone: "steel",
+    hue: HUE.steel,
+    symbol: "·",
+    label: "idle",
+    mode: "static",
+  },
+};
+
+export const signalMark = (severity: MemberSeverity | undefined): SignalMark =>
+  MARK[severity ?? "idle"];
+
+/** Prefer a more specific label from rollup reasons when present. */
+export const signalMarkForMember = (member: Pick<MemberStatus, "severity" | "reasons">): SignalMark => {
+  const base = signalMark(member.severity);
+  const reason = member.reasons[0];
+  if (!reason) return base;
+  // Map machine reasons to short aria/tooltips without inventing severity.
+  if (reason === "permission:pending") return { ...base, label: "awaiting permission", symbol: "?" };
+  if (reason === "session:live") return { ...base, label: "session live" };
+  if (reason.startsWith("glyph:wip:")) return { ...base, label: `glyph ${reason.slice("glyph:wip:".length)}` };
+  if (reason.startsWith("flag:")) return { ...base, label: reason.slice("flag:".length) };
+  if (reason.startsWith("edge:")) return { ...base, label: reason.slice("edge:".length) };
+  if (reason === "relay") return { ...base, label: "relayed block" };
+  if (reason.startsWith("seed:")) return { ...base, label: "seed block" };
+  return base;
+};
+
+const KIND_HUE: Readonly<Record<string, string>> = {
+  project: HUE.amber,
+  agent: HUE.orange,
+  orbit: HUE.indigo,
+  plugin: HUE.violet,
+  station: HUE.cyan,
+  skill: HUE.gold,
+  watcher: HUE.amber,
+  timer: HUE.steel,
+  herdr: HUE.orange,
+  page: HUE.cyan,
+  node: HUE.steel,
+};
+
+/** Identity color for a canvas node — accent first, then entity kind. */
+export const identityHue = (node: CanvasNode | undefined): string => {
+  if (!node) return HUE.steel;
+  if (node.color) return accentColor(node.color);
+  const entity = node.ether?.entity;
+  if (entity?.kind && KIND_HUE[entity.kind]) return KIND_HUE[entity.kind]!;
+  if (node.type === "group") return "rgba(143,163,176,0.45)";
+  return HUE.amber;
+};
+
+/**
+ * Minimap fill: signal hue when elevated, identity hue when idle.
+ * Never paint elevated state as washed steel — idle is identity, not "white".
+ */
+export const minimapFill = (
+  node: CanvasNode | undefined,
+  severity: MemberSeverity | undefined,
+): string => {
+  const mark = signalMark(severity);
+  if (mark.kind !== "idle") return mark.hue;
+  return identityHue(node);
+};
+
+export const activityToneHex = (tone: ActivityTone | "violet"): string =>
+  tone === "violet" ? HUE.violet : ACTIVITY_TONE_HEX[tone];

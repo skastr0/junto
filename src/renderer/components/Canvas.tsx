@@ -29,9 +29,9 @@ import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geomet
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { makeAgentNode, makeFileNode, makeGroupNode, makeLinkNode, makePageNode, makeProjectNode, makeTasksNode, makeTextNode } from "../lib/node-factories";
 import { openHerdrWizard } from "../lib/herdr-state";
-import { accentColor, GROUND, HUE } from "../lib/theme";
-import { severityHue } from "../lib/severity";
+import { GROUND, HUE } from "../lib/theme";
 import type { MemberSeverity } from "@shared/region-rollup";
+import { minimapFill, signalMark } from "../lib/signal-mark";
 import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
@@ -631,19 +631,14 @@ function FieldControls() {
 }
 
 function RtsMinimapStack() {
-  // Subscribe so MiniMap recolors when rollups publish a new severity map.
+  // Identity hue when idle; signal hue when elevated (shared taxonomy).
   const severityByNodeId = use$(state$.regionSeverityByNodeId) as Readonly<Record<string, string>>;
   const miniMapNodeColor = useCallback((node: Node): string => {
     const data = node.data as FlowNode["data"] | undefined;
+    const canvasNode = data?.node;
     const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
-    if (severity) return severityHue(severity);
-    const flags = data?.node.ether?.flags ?? [];
-    if (flags.includes("blocker")) return HUE.crimson;
-    if (flags.includes("attention")) return HUE.amber;
-    if (flags.includes("parked")) return HUE.violet;
-    if (data?.node.type === "group") return "rgba(143,163,176,0.25)";
-    if (data?.node.color) return accentColor(data.node.color);
-    return "rgba(232,163,61,0.5)";
+    if (canvasNode) return minimapFill(canvasNode, severity);
+    return HUE.amber;
   }, [severityByNodeId]);
   return (
     <>
@@ -651,6 +646,12 @@ function RtsMinimapStack() {
         pannable
         zoomable
         nodeColor={miniMapNodeColor}
+        nodeStrokeColor={(node) => {
+          const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
+          if (severity && severity !== "idle") return signalMark(severity).hue;
+          return "rgba(12,11,10,0.85)";
+        }}
+        nodeStrokeWidth={1.5}
         maskColor="rgba(12,11,10,0.72)"
         style={{ background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }}
       />
