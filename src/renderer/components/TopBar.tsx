@@ -1,6 +1,6 @@
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useRef, useState } from "react";
-import { Activity, CircleHelp, FileDown, Plus, Redo2, RefreshCw, ScanLine, Search, Settings2, Trash2, Undo2, X } from "lucide-react";
+import { Activity, CircleHelp, FileDown, Plus, Redo2, RefreshCw, Search, Settings2, Trash2, Undo2, X } from "lucide-react";
 import type { EntitySource } from "@shared/entities";
 import type { CanvasSummary } from "@shared/ipc";
 import { state$ } from "../lib/state";
@@ -104,11 +104,20 @@ function CanvasPicker({
 
   return (
     <>
-      <div className="station-context"><ScanLine size={14} /><span className="station-context__label">active canvas</span><span className="station-context__value">{canvasName || "portfolio"}</span>{busy ? <span className="station-context__loading" role="status" aria-live="polite">opening</span> : null}</div>
-      <select className="station-select" disabled={busy} aria-busy={busy} style={{ borderColor: "rgba(237,230,218,0.16)", color: INK }} value={canvasName} onChange={(e) => onOpen(e.target.value)}>
+      <select
+        className="station-select"
+        disabled={busy}
+        aria-busy={busy}
+        aria-label="Active canvas"
+        title={busy ? "opening canvas…" : "switch canvas"}
+        style={{ borderColor: "rgba(237,230,218,0.16)", color: INK }}
+        value={canvasName}
+        onChange={(e) => onOpen(e.target.value)}
+      >
         {canvases.length === 0 ? <option value="">no canvases</option> : null}
         {canvases.map((canvas) => <option key={canvas.name} value={canvas.name} style={{ background: "#131110" }}>{canvas.name}</option>)}
       </select>
+      {busy ? <span className="station-context__loading" role="status" aria-live="polite">opening</span> : null}
       <button className="station-icon-button" disabled={busy} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="new canvas" aria-label="New canvas" onClick={() => createOpen$.set(true)}><Plus size={15} /></button>
       <button className="station-icon-button" disabled={busy || !canvasName} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.crimson }} title="delete canvas" aria-label="Delete canvas" onClick={openDelete}><Trash2 size={15} /></button>
       {createOpen ? (
@@ -226,8 +235,6 @@ export function TopBar({
   }, [healthOpen, helpOpen]);
   return (
     <header className="station-bar">
-      <div className="station-brand"><div className="station-brand__mark" aria-hidden><span /><span /><span /></div><div><div className="station-brand__name">vellum</div><div className="station-brand__sub">station / portfolio canvas</div></div></div>
-      <div className="station-bar__divider" />
       <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
       <SearchField canvasName={canvasName} />
       <HistoryButtons onUndo={onUndo} onRedo={onRedo} />
