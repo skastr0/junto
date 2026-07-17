@@ -644,8 +644,11 @@ function FieldControls() {
 }
 
 function RtsMinimapStack() {
-  // Identity hue when idle; signal hue when elevated (shared taxonomy).
+  const rf = useReactFlow<FlowNode, FlowEdge>();
   const severityByNodeId = use$(state$.regionSeverityByNodeId) as Readonly<Record<string, string>>;
+  const lastClickAt = useRef(0);
+  const lastClickPos = useRef<{ x: number; y: number } | null>(null);
+
   const miniMapNodeColor = useCallback((node: Node): string => {
     const data = node.data as FlowNode["data"] | undefined;
     const canvasNode = data?.node;
@@ -653,6 +656,39 @@ function RtsMinimapStack() {
     if (canvasNode) return minimapFill(canvasNode, severity);
     return HUE.amber;
   }, [severityByNodeId]);
+
+  // Click = pan camera to that world point; double-click = zoom in on it.
+  // Stock MiniMap onClick already yields flow coordinates.
+  const onMiniMapClick = useCallback((event: React.MouseEvent, position: { x: number; y: number }) => {
+    const now = Date.now();
+    const prev = lastClickPos.current;
+    const dt = now - lastClickAt.current;
+    const near =
+      prev !== null &&
+      Math.hypot(prev.x - position.x, prev.y - position.y) < 40;
+    const isDouble = dt > 0 && dt < 320 && near;
+    lastClickAt.current = now;
+    lastClickPos.current = position;
+
+    const zoom = rf.getZoom();
+    if (isDouble) {
+      const nextZoom = Math.min(Math.max(zoom * 1.55, 0.35), 1.6);
+      void rf.setCenter(position.x, position.y, { zoom: nextZoom, duration: 280 });
+      return;
+    }
+    void rf.setCenter(position.x, position.y, { zoom, duration: 240 });
+  }, [rf]);
+
+  const onMiniMapNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
+    // Prefer unit pick over empty-map click bubbling.
+    event.stopPropagation();
+    state$.selectedNodeId.set(node.id);
+    state$.selectedNodeIds.set([node.id]);
+    state$.selectedEdgeId.set("");
+    // Focus path = camera fit on the entity (same as command Focus / chip).
+    state$.focusNodeId.set(node.id);
+  }, []);
+
   return (
     <>
       <MiniMap
@@ -666,7 +702,10 @@ function RtsMinimapStack() {
         }}
         nodeStrokeWidth={1.5}
         maskColor="rgba(12,11,10,0.72)"
-        style={{ background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }}
+        onClick={onMiniMapClick}
+        onNodeClick={onMiniMapNodeClick}
+        ariaLabel="Strategic minimap — click to move camera, double-click to zoom, click a node to focus"
+        style={{ width: "100%", height: "100%", background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }}
       />
       <FieldControls />
     </>

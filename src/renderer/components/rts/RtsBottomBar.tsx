@@ -190,45 +190,48 @@ function RegionCommandCard({
           {mark.symbol} {mark.label}
         </span>
       </div>
-      <div className="rts-panel__body rts-cmd-shell">
-        <div className="rts-cmd-head">
-          <div className="rts-cmd__title" title={regionRollup.label}>{regionRollup.label}</div>
-          <div className="rts-cmd__meta">
-            {regionRollup.counts.total}
-            {regionRollup.counts.blocked > 0 ? <span style={{ color: HUE.crimson }}> · {regionRollup.counts.blocked}b</span> : null}
-            {regionRollup.counts.attention > 0 ? <span style={{ color: HUE.amber }}> · {regionRollup.counts.attention}a</span> : null}
-            {regionRollup.counts.working > 0 ? <span style={{ color: HUE.cyan }}> · {regionRollup.counts.working}w</span> : null}
+      {/* Two-column: identity+members left, keys right — no empty dead zone */}
+      <div className="rts-panel__body rts-cmd-shell rts-cmd-shell--region">
+        <div className="rts-cmd-region-main">
+          <div className="rts-cmd-head">
+            <div className="rts-cmd__title" title={regionRollup.label}>{regionRollup.label}</div>
+            <div className="rts-cmd__meta">
+              {regionRollup.counts.total}
+              {regionRollup.counts.blocked > 0 ? <span style={{ color: HUE.crimson }}> · {regionRollup.counts.blocked}b</span> : null}
+              {regionRollup.counts.attention > 0 ? <span style={{ color: HUE.amber }}> · {regionRollup.counts.attention}a</span> : null}
+              {regionRollup.counts.working > 0 ? <span style={{ color: HUE.cyan }}> · {regionRollup.counts.working}w</span> : null}
+            </div>
           </div>
+          {members.length > 0 ? (
+            <div className="rts-rollcall-strip" aria-label="Region members">
+              {visible.map((member) => {
+                const m = signalMarkForMember(member);
+                return (
+                  <button
+                    key={member.nodeId}
+                    type="button"
+                    className="rts-rollcall-pill"
+                    title={`${member.label} · ${m.label}`}
+                    aria-label={`${member.label}, ${m.label}`}
+                    onClick={() => {
+                      state$.selectedNodeId.set(member.nodeId);
+                      state$.selectedNodeIds.set([member.nodeId]);
+                      state$.selectedEdgeId.set("");
+                      state$.focusNodeId.set(member.nodeId);
+                    }}
+                  >
+                    <span style={{ color: m.hue }} aria-hidden>{m.symbol}</span>
+                    <span className="rts-rollcall-pill__label">{member.label}</span>
+                  </button>
+                );
+              })}
+              {extra > 0 ? <span className="rts-rollcall-more">+{extra}</span> : null}
+            </div>
+          ) : (
+            <div className="rts-quiet rts-quiet--compact">empty region</div>
+          )}
         </div>
-        {members.length > 0 ? (
-          <div className="rts-rollcall-strip" aria-label="Region members">
-            {visible.map((member) => {
-              const m = signalMarkForMember(member);
-              return (
-                <button
-                  key={member.nodeId}
-                  type="button"
-                  className="rts-rollcall-pill"
-                  title={`${member.label} · ${m.label}`}
-                  aria-label={`${member.label}, ${m.label}`}
-                  onClick={() => {
-                    state$.selectedNodeId.set(member.nodeId);
-                    state$.selectedNodeIds.set([member.nodeId]);
-                    state$.selectedEdgeId.set("");
-                    state$.focusNodeId.set(member.nodeId);
-                  }}
-                >
-                  <span style={{ color: m.hue }} aria-hidden>{m.symbol}</span>
-                  <span className="rts-rollcall-pill__label">{member.label}</span>
-                </button>
-              );
-            })}
-            {extra > 0 ? <span className="rts-rollcall-more">+{extra}</span> : null}
-          </div>
-        ) : (
-          <div className="rts-quiet rts-quiet--compact">empty region</div>
-        )}
-        <div className="rts-cmd-keys" role="toolbar" aria-label="Region actions">
+        <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Region actions">
           <CmdKey label="Focus region" onClick={() => state$.focusNodeId.set(node.id)}>
             <Crosshair size={ICON} />
           </CmdKey>
@@ -665,10 +668,10 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
         <div className="rts-notify rts-notify--pulse">
           <PulseTray embedded />
         </div>
-        {/* Tools overlay the minimap so all three panels share one baseline. */}
+        {/* Tools after minimap in DOM + high z-index so they stay clickable. */}
         <div className="rts-minimap-slot">
-          {tools ? <div className="rts-field-tools-slot">{tools}</div> : null}
           <MinimapChrome>{minimap}</MinimapChrome>
+          {tools ? <div className="rts-field-tools-slot">{tools}</div> : null}
         </div>
       </div>
     </div>

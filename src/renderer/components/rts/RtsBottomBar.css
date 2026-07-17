@@ -253,6 +253,31 @@
   justify-content: flex-start;
 }
 
+/* Region: identity+members left, action keys right (fills the panel). */
+.rts-cmd-shell--region {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 1fr;
+  gap: 6px 8px;
+  align-items: stretch;
+}
+
+.rts-cmd-region-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rts-cmd-keys--col {
+  flex-direction: column;
+  margin-top: 0;
+  align-self: center;
+  gap: 3px;
+}
+
 .rts-cmd-head {
   display: flex;
   flex-direction: column;
@@ -463,9 +488,9 @@
 
 .rts-field-tools-slot {
   position: absolute;
-  top: 6px;
-  left: 6px;
-  z-index: 3;
+  top: 5px;
+  left: 5px;
+  z-index: 40; /* above MiniMap SVG + layer toggles */
   pointer-events: auto;
 }
 
@@ -483,8 +508,8 @@
   gap: 4px;
   padding: 4px 7px;
   border-radius: 5px;
-  border: 1px solid rgba(237, 230, 218, 0.13);
-  background: rgba(12, 11, 10, 0.88);
+  border: 1px solid rgba(237, 230, 218, 0.16);
+  background: rgba(12, 11, 10, 0.94);
   color: rgba(138, 131, 120, 0.95);
   font-size: 8px;
   letter-spacing: 0.1em;
@@ -500,18 +525,26 @@
   color: #ede6da;
 }
 
+.rts-field-tools .node-palette {
+  position: relative;
+  z-index: 41;
+}
+
 .rts-field-tools .node-palette__trigger {
   padding: 4px 7px;
   font-size: 8px;
-  background: rgba(12, 11, 10, 0.88);
+  background: rgba(12, 11, 10, 0.94);
 }
 
-/* Menu opens upward so it doesn't cover the minimap. */
+/* Open the add menu UPWARD so it never covers the minimap surface. */
 .rts-field-tools .node-palette--docked .node-palette__menu {
-  top: auto;
-  bottom: calc(100% + 6px);
-  right: auto;
-  left: 0;
+  top: auto !important;
+  bottom: calc(100% + 6px) !important;
+  right: auto !important;
+  left: 0 !important;
+  z-index: 50 !important;
+  max-height: min(320px, calc(100vh - 180px));
+  overflow: auto;
 }
 
 .rts-notify {
@@ -544,6 +577,12 @@
   border-radius: 8px;
   background: rgba(12, 11, 10, 0.9);
   overflow: hidden;
+  z-index: 0;
+}
+
+/* MiniMap fills the wrap but stays under chrome tools (z-index 40). */
+.rts-minimap-wrap .react-flow__panel {
+  z-index: 1;
 }
 
 /* React Flow MiniMap + Controls live inside this wrap via CSS portal-ish positioning. */
