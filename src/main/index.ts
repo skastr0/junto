@@ -3,6 +3,7 @@ import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain, powerMonitor, shell, type IpcMainEvent } from "electron";
 import { Effect } from "effect";
+import { classifyBrowserTarget } from "@shared/browser-policy";
 import { IPC_CHANNELS, type NodeRefOpenedDelivery } from "@shared/ipc";
 import { resolvedSpawnEnv } from "./vellum/adapters/exec";
 import { AppRuntime } from "./runtime";
@@ -13,6 +14,7 @@ import { startAllMirrors, stopAllMirrors } from "./vellum/herdr/mirrors";
 import { herdrStreams } from "./vellum/herdr/stream";
 import { browserSessions, resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
+import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
 import {
   acknowledgeNodeRefRelay,
   claimLatestNodeRefRelay,
@@ -21,6 +23,15 @@ import {
   type NodeRefRelayRecord,
 } from "./vellum/node-ref-ingress";
 import { resolveNodeRef } from "./vellum/node-ref-resolver";
+
+app.on(
+  "select-client-certificate",
+  (event, webContents, _url, _certificateList, callback) => {
+    if (!isManagedBrowserWebContents(webContents)) return;
+    event.preventDefault();
+    callback();
+  },
+);
 
 const nodeRefIngress = makeNodeRefIngress((ref) =>
   AppRuntime.runPromise(
@@ -254,11 +265,17 @@ const createWindow = () => {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url).catch(() => {
-      console.error("[window] external URL open failed");
-    });
+    const target = classifyBrowserTarget(url);
+    if (target.allowed) {
+      setImmediate(() => {
+        void shell.openExternal(target.normalizedUrl).catch(() => {
+          console.error("[window] external URL open failed");
+        });
+      });
+    }
     return { action: "deny" };
   });
+  mainWindow.webContents.on("will-navigate", (event) => event.preventDefault());
 
   let disconnectNodeRefSink = (): void => undefined;
   const disconnect = (): void => {
