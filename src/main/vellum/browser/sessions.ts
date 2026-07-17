@@ -15,11 +15,19 @@ import {
   BROWSER_MAX_ACTIVE_OPERATIONS,
   BROWSER_MAX_ACTIVE_OPERATIONS_PER_SESSION,
   BROWSER_MAX_ERROR_BYTES,
+  BROWSER_MAX_EVAL_CODE_BYTES,
+  BROWSER_MAX_EVAL_RESULT_BYTES,
+  BROWSER_MAX_EVAL_RESULT_DEPTH,
+  BROWSER_MAX_EVAL_RESULT_NODES,
   BROWSER_MAX_METADATA_BYTES,
+  BROWSER_MAX_REF_BYTES,
+  BROWSER_MAX_SCREENSHOT_BYTES,
   BROWSER_MAX_TITLE_BYTES,
+  BROWSER_MAX_URL_BYTES,
   BROWSER_MAX_WARM_SESSIONS_HARD,
   BROWSER_NAVIGATION_TIMEOUT_MS,
   clampUtf8Bytes,
+  isUtf8WithinLimit,
   isValidBrowserSessionId,
 } from "@shared/browser-limits";
 import type { BrowserSessionInfo, BrowserSurfaceBounds } from "@shared/ipc";
@@ -69,7 +77,9 @@ export type BrowserErrorCode =
   | "failed"
   | "timeout"
   | "cancelled"
-  | "resource_exhausted";
+  | "resource_exhausted"
+  | "unsupported_result"
+  | "result_too_large";
 
 export interface BrowserResultOk<T> {
   readonly ok: true;
@@ -127,8 +137,199 @@ interface PendingOpen {
 const err = (code: BrowserErrorCode, message: string): BrowserResultErr => ({
   ok: false,
   code,
-  message,
+  message: clampUtf8Bytes(message, BROWSER_MAX_ERROR_BYTES),
 });
+
+type EvalJsonValidation =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly code: "unsupported_result" | "result_too_large" };
+
+const validateEvalJson = (root: unknown): EvalJsonValidation => {
+  const pending: Array<{ readonly value: unknown; readonly depth: number }> = [
+    { value: root, depth: 0 },
+  ];
+  let nodeCount = 0;
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) break;
+    nodeCount += 1;
+    if (nodeCount > BROWSER_MAX_EVAL_RESULT_NODES) {
+      return { ok: false, code: "result_too_large" };
+    }
+
+    const { value, depth } = current;
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "boolean"
+    ) {
+      continue;
+    }
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) return { ok: false, code: "unsupported_result" };
+      continue;
+    }
+    if (typeof value !== "object") {
+      return { ok: false, code: "unsupported_result" };
+    }
+    if (depth >= BROWSER_MAX_EVAL_RESULT_DEPTH) {
+      return { ok: false, code: "result_too_large" };
+    }
+
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) {
+        return { ok: false, code: "unsupported_result" };
+      }
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+      if (
+        lengthDescriptor === undefined ||
+        !("value" in lengthDescriptor) ||
+        typeof lengthDescriptor.value !== "number" ||
+        !Number.isSafeInteger(lengthDescriptor.value) ||
+        lengthDescriptor.value < 0 ||
+        lengthDescriptor.value > BROWSER_MAX_EVAL_RESULT_NODES - nodeCount
+      ) {
+        return { ok: false, code: "result_too_large" };
+      }
+      const length = lengthDescriptor.value;
+      const keys = Reflect.ownKeys(value);
+      if (keys.length !== length + 1) {
+        return { ok: false, code: "unsupported_result" };
+      }
+      for (const key of keys) {
+        if (key === "length") continue;
+        if (typeof key !== "string") return { ok: false, code: "unsupported_result" };
+        const index = Number(key);
+        if (
+          !Number.isSafeInteger(index) ||
+          index < 0 ||
+          index >= length ||
+          String(index) !== key
+        ) {
+          return { ok: false, code: "unsupported_result" };
+        }
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (
+          descriptor === undefined ||
+          descriptor.enumerable !== true ||
+          !("value" in descriptor)
+        ) {
+          return { ok: false, code: "unsupported_result" };
+        }
+        pending.push({ value: descriptor.value, depth: depth + 1 });
+      }
+      continue;
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return { ok: false, code: "unsupported_result" };
+    }
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== "string") return { ok: false, code: "unsupported_result" };
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (
+        descriptor === undefined ||
+        descriptor.enumerable !== true ||
+        !("value" in descriptor)
+      ) {
+        return { ok: false, code: "unsupported_result" };
+      }
+      pending.push({ value: descriptor.value, depth: depth + 1 });
+    }
+  }
+
+  return { ok: true };
+};
+
+const decodeEvalEnvelope = (value: unknown): BrowserResult<{ result: unknown }> => {
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return err("unsupported_result", "eval returned a malformed result envelope");
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return err("unsupported_result", "eval returned a foreign result envelope");
+    }
+
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(value);
+    if (keys.some((key) => typeof key !== "string")) {
+      return err("unsupported_result", "eval returned a malformed result envelope");
+    }
+    const readData = (key: string): unknown => {
+      const descriptor = descriptors[key];
+      if (
+        descriptor === undefined ||
+        descriptor.enumerable !== true ||
+        !("value" in descriptor)
+      ) {
+        throw new Error("malformed eval envelope");
+      }
+      return descriptor.value;
+    };
+    if (readData("__vellumEval") !== 1) {
+      return err("unsupported_result", "eval returned a foreign result envelope");
+    }
+
+    const status = readData("status");
+    if (status === "ok") {
+      if (
+        keys.length !== 3 ||
+        !keys.includes("__vellumEval") ||
+        !keys.includes("status") ||
+        !keys.includes("json")
+      ) {
+        return err("unsupported_result", "eval returned a malformed success envelope");
+      }
+      const json = readData("json");
+      if (typeof json !== "string") {
+        return err("unsupported_result", "eval returned a malformed JSON payload");
+      }
+      if (!isUtf8WithinLimit(json, BROWSER_MAX_EVAL_RESULT_BYTES)) {
+        return err("result_too_large", "eval result exceeds the hard byte limit");
+      }
+
+      let result: unknown;
+      try {
+        result = JSON.parse(json) as unknown;
+      } catch {
+        return err("unsupported_result", "eval returned invalid JSON");
+      }
+      const validation = validateEvalJson(result);
+      if (!validation.ok) {
+        return err(
+          validation.code,
+          validation.code === "result_too_large"
+            ? "eval result exceeds a hard structural limit"
+            : "eval result is not finite plain JSON",
+        );
+      }
+      return { ok: true, data: { result } };
+    }
+
+    if (status === "unsupported_result" || status === "result_too_large") {
+      if (
+        keys.length !== 3 ||
+        !keys.includes("__vellumEval") ||
+        !keys.includes("status") ||
+        !keys.includes("message")
+      ) {
+        return err("unsupported_result", "eval returned a malformed error envelope");
+      }
+      const message = readData("message");
+      if (typeof message !== "string") {
+        return err("unsupported_result", "eval returned a malformed error message");
+      }
+      return err(status, message);
+    }
+
+    return err("unsupported_result", "eval returned an unknown result status");
+  } catch {
+    return err("unsupported_result", "eval returned a malformed result envelope");
+  }
+};
 
 const sameTarget = (left: ResolvedPageTarget, right: ResolvedPageTarget): boolean =>
   left.ref === right.ref &&
@@ -137,9 +338,15 @@ const sameTarget = (left: ResolvedPageTarget, right: ResolvedPageTarget): boolea
   left.profile === right.profile;
 
 const validateTarget = (target: ResolvedPageTarget): BrowserResultErr | undefined => {
+  if (!isUtf8WithinLimit(target.ref, BROWSER_MAX_REF_BYTES)) {
+    return err("invalid", "resolved page target ref exceeds the hard limit");
+  }
   const parsed = parseNodeRef(target.ref);
   if (!parsed.ok || parsed.value.nodeId !== target.nodeId) {
     return err("invalid", "resolved page target does not match its canonical ref");
+  }
+  if (!isUtf8WithinLimit(target.url, BROWSER_MAX_URL_BYTES)) {
+    return err("invalid", "resolved page target URL exceeds the hard limit");
   }
   if (!isAllowedBrowserUrl(target.url)) {
     return err("forbidden", `url not allowed (http/https only): ${target.url}`);
@@ -716,6 +923,9 @@ export class BrowserSessionService {
   ): BrowserResult<BrowserSessionInfo> {
     const entry = this.sessions.get(sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
+    if (!isUtf8WithinLimit(url, BROWSER_MAX_URL_BYTES)) {
+      return err("invalid", "navigation URL exceeds the hard limit");
+    }
     if (!isAllowedBrowserUrl(url)) {
       return err("forbidden", `url not allowed (http/https only): ${url}`);
     }
@@ -824,6 +1034,9 @@ export class BrowserSessionService {
     if (entry.navigationInFlight !== undefined) {
       return err("invalid", "cannot evaluate while top-level navigation is in flight");
     }
+    if (!isUtf8WithinLimit(code, BROWSER_MAX_EVAL_CODE_BYTES)) {
+      return err("invalid", "eval source exceeds the hard limit");
+    }
     if (entry.view.executeJavaScript === undefined) {
       return err("failed", "adapter does not support eval");
     }
@@ -836,7 +1049,7 @@ export class BrowserSessionService {
       ...(signal !== undefined ? { signal } : {}),
       run: () => entry.view.executeJavaScript!(code),
     });
-    return executed.ok ? { ok: true, data: { result: executed.data } } : executed;
+    return executed.ok ? decodeEvalEnvelope(executed.data) : executed;
   }
 
   async screenshot(
@@ -861,6 +1074,9 @@ export class BrowserSessionService {
       run: () => entry.view.capturePagePng!(),
     });
     if (!captured.ok) return captured;
+    if (captured.data.byteLength > BROWSER_MAX_SCREENSHOT_BYTES) {
+      return err("result_too_large", "screenshot exceeds the hard result limit");
+    }
     if (captured.data.byteLength === 0) {
       return err(
         "failed",

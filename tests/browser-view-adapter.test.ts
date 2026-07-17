@@ -1,4 +1,11 @@
+import { createContext, runInContext, type Context } from "node:vm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  BROWSER_MAX_EVAL_RESULT_BYTES,
+  BROWSER_MAX_EVAL_RESULT_DEPTH,
+  BROWSER_MAX_EVAL_RESULT_NODES,
+  utf8ByteLength,
+} from "../src/shared/browser-limits";
 
 const electron = vi.hoisted(() => {
   type Listener = (...args: ReadonlyArray<unknown>) => void;
@@ -8,6 +15,12 @@ const electron = vi.hoisted(() => {
     currentUrl = "";
     title = "";
     loadError: (Error & { readonly code?: number }) | undefined;
+    readonly isolatedCalls: Array<{
+      readonly worldId: number;
+      readonly scripts: ReadonlyArray<{ readonly code: string }>;
+      readonly userGesture: boolean | undefined;
+    }> = [];
+    mainWorldEvalCalls = 0;
 
     on(event: string, listener: Listener): this {
       const listeners = this.listeners.get(event) ?? [];
@@ -36,7 +49,16 @@ const electron = vi.hoisted(() => {
 
     close(): void {}
     executeJavaScript(): Promise<unknown> {
+      this.mainWorldEvalCalls += 1;
       return Promise.resolve(null);
+    }
+    executeJavaScriptInIsolatedWorld(
+      worldId: number,
+      scripts: ReadonlyArray<{ readonly code: string }>,
+      userGesture?: boolean,
+    ): Promise<unknown> {
+      this.isolatedCalls.push({ worldId, scripts, userGesture });
+      return Promise.resolve({ __vellumEval: 1, status: "ok", json: "null" });
     }
     capturePage(): Promise<{ toPNG(): Uint8Array }> {
       return Promise.resolve({ toPNG: () => new Uint8Array([1]) });
@@ -64,7 +86,11 @@ vi.mock("electron", () => ({
   },
 }));
 
-import { electronViewAdapter } from "../src/main/vellum/browser/view-adapter";
+import {
+  BROWSER_AUTOMATION_WORLD_ID,
+  buildBoundedEvalScript,
+  electronViewAdapter,
+} from "../src/main/vellum/browser/view-adapter";
 import type { BrowserViewEvents } from "../src/main/vellum/browser/sessions";
 
 const navigation = (
@@ -77,6 +103,9 @@ const navigation = (
   frame: null,
   ...overrides,
 });
+
+const runBoundedEval = async (context: Context, source: string): Promise<unknown> =>
+  Promise.resolve(runInContext(buildBoundedEvalScript(source), context));
 
 describe("electron browser view generation seam", () => {
   beforeEach(() => {
@@ -194,5 +223,114 @@ describe("electron browser view generation seam", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(failed).toEqual([]);
+  });
+
+  it("executes automation only in the fixed non-main isolated world", async () => {
+    const { handle, webContents } = setup();
+
+    await handle.executeJavaScript?.("document.title");
+
+    expect(BROWSER_AUTOMATION_WORLD_ID).not.toBe(0);
+    expect(BROWSER_AUTOMATION_WORLD_ID).not.toBe(999);
+    expect(webContents.mainWorldEvalCalls).toBe(0);
+    expect(webContents.isolatedCalls).toHaveLength(1);
+    expect(webContents.isolatedCalls[0]).toMatchObject({
+      worldId: BROWSER_AUTOMATION_WORLD_ID,
+      userGesture: false,
+      scripts: [{ code: expect.stringContaining("document.title") }],
+    });
+  });
+});
+
+describe("isolated-world bounded eval serializer", () => {
+  const freshContext = (): Context => createContext({
+    TextEncoder,
+    document: { title: "isolated title" },
+  });
+
+  it("preserves indirect-eval completion values and awaits promises", async () => {
+    const result = await runBoundedEval(
+      freshContext(),
+      "Promise.resolve({ title: document.title, values: [1, true, null] })",
+    );
+
+    expect(result).toEqual({
+      __vellumEval: 1,
+      status: "ok",
+      json: '{"title":"isolated title","values":[1,true,null]}',
+    });
+  });
+
+  it("accepts exactly the byte cap and rejects N+1 before returning to Electron", async () => {
+    const atLimit = await runBoundedEval(
+      freshContext(),
+      `"a".repeat(${BROWSER_MAX_EVAL_RESULT_BYTES - 2})`,
+    );
+    expect(atLimit).toMatchObject({ __vellumEval: 1, status: "ok" });
+    if (
+      typeof atLimit !== "object" ||
+      atLimit === null ||
+      !("json" in atLimit) ||
+      typeof atLimit.json !== "string"
+    ) {
+      throw new Error("bounded eval did not return JSON");
+    }
+    expect(utf8ByteLength(atLimit.json)).toBe(BROWSER_MAX_EVAL_RESULT_BYTES);
+
+    expect(await runBoundedEval(
+      freshContext(),
+      `"a".repeat(${BROWSER_MAX_EVAL_RESULT_BYTES - 1})`,
+    )).toMatchObject({ __vellumEval: 1, status: "result_too_large" });
+  });
+
+  it("accepts exactly the depth cap and rejects N+1", async () => {
+    const nested = (depth: number): string =>
+      `(() => { let value = 0; for (let i = 0; i < ${depth}; i += 1) value = [value]; return value; })()`;
+
+    expect(await runBoundedEval(freshContext(), nested(BROWSER_MAX_EVAL_RESULT_DEPTH)))
+      .toMatchObject({ status: "ok" });
+    expect(await runBoundedEval(freshContext(), nested(BROWSER_MAX_EVAL_RESULT_DEPTH + 1)))
+      .toMatchObject({ status: "result_too_large" });
+  });
+
+  it("accepts exactly the node cap and rejects N+1", async () => {
+    expect(await runBoundedEval(
+      freshContext(),
+      `Array.from({ length: ${BROWSER_MAX_EVAL_RESULT_NODES - 1} }, (_, index) => index)`,
+    )).toMatchObject({ status: "ok" });
+    expect(await runBoundedEval(
+      freshContext(),
+      `Array.from({ length: ${BROWSER_MAX_EVAL_RESULT_NODES} }, (_, index) => index)`,
+    )).toMatchObject({ status: "result_too_large" });
+  });
+
+  it.each([
+    ["undefined", "undefined"],
+    ["function", "() => 1"],
+    ["symbol", "Symbol('x')"],
+    ["bigint", "1n"],
+    ["non-finite number", "Number.POSITIVE_INFINITY"],
+    ["cycle", "(() => { const value = {}; value.self = value; return value; })()"],
+    ["accessor", "Object.defineProperty({}, 'x', { enumerable: true, get: () => 1 })"],
+    ["non-plain object", "new Date()"],
+    ["throwing proxy", "new Proxy({}, { ownKeys: () => { throw new Error('trap'); } })"],
+  ])("rejects unsupported %s results", async (_label, source) => {
+    expect(await runBoundedEval(freshContext(), source))
+      .toMatchObject({ __vellumEval: 1, status: "unsupported_result" });
+  });
+
+  it("keeps serializer intrinsics pristine across hostile prior automation", async () => {
+    const context = freshContext();
+    expect(await runBoundedEval(
+      context,
+      "JSON.stringify = () => 'poison'; TextEncoder = class {}; eval = () => 'poison'; 'first'",
+    )).toEqual({ __vellumEval: 1, status: "ok", json: '"first"' });
+
+    expect(await runBoundedEval(context, "({ title: document.title })"))
+      .toEqual({
+        __vellumEval: 1,
+        status: "ok",
+        json: '{"title":"isolated title"}',
+      });
   });
 });

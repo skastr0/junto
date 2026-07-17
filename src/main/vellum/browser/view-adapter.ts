@@ -1,4 +1,9 @@
 import { BrowserWindow, WebContentsView } from "electron";
+import {
+  BROWSER_MAX_EVAL_RESULT_BYTES,
+  BROWSER_MAX_EVAL_RESULT_DEPTH,
+  BROWSER_MAX_EVAL_RESULT_NODES,
+} from "@shared/browser-limits";
 import type { BrowserSurfaceBounds } from "@shared/ipc";
 import type { BrowserViewAdapter, BrowserViewHandle } from "./sessions";
 
@@ -33,6 +38,284 @@ const isAbortedLoadError = (error: unknown): boolean => {
 
 const loadErrorMessage = (error: unknown): string =>
   error instanceof Error && error.message.length > 0 ? error.message : "load failed";
+
+export const BROWSER_AUTOMATION_WORLD_ID = 10_001;
+
+const runBoundedEvalInPage = async (
+  source: string,
+  maxBytes: number,
+  maxDepth: number,
+  maxNodes: number,
+): Promise<unknown> => {
+  // This dedicated isolated world is pristine on first use. Lock every
+  // intrinsic used below before evaluating agent source so one operation
+  // cannot poison the serializer used by this or a later operation.
+  const globalObject = globalThis;
+  const objectConstructor = Object;
+  const arrayConstructor = Array;
+  const functionConstructor = Function;
+  const numberConstructor = Number;
+  const promiseConstructor = Promise;
+  const stringConstructor = String;
+  const textEncoderConstructor = TextEncoder;
+  const weakSetConstructor = WeakSet;
+  const jsonObject = JSON;
+  const reflectObject = Reflect;
+  const indirectEval = eval;
+
+  const defineProperty = objectConstructor.defineProperty;
+  const freeze = objectConstructor.freeze;
+  const getOwnPropertyDescriptor = objectConstructor.getOwnPropertyDescriptor;
+  const getPrototypeOf = objectConstructor.getPrototypeOf;
+  const arrayIsArray = arrayConstructor.isArray;
+  const numberIsFinite = numberConstructor.isFinite;
+  const numberIsInteger = numberConstructor.isInteger;
+  const reflectOwnKeys = reflectObject.ownKeys;
+  const hasOwnProperty = objectConstructor.prototype.hasOwnProperty;
+  const hasOwn = (value: object, key: PropertyKey): boolean =>
+    hasOwnProperty.call(value, key);
+  const charCodeAt = stringConstructor.prototype.charCodeAt;
+  const fromCharCode = stringConstructor.fromCharCode;
+
+  const encoder = new textEncoderConstructor();
+  const encode = encoder.encode.bind(encoder);
+  const parts: string[] = [];
+  const pushPart = parts.push.bind(parts);
+  const joinParts = parts.join.bind(parts);
+  const seen = new weakSetConstructor<object>();
+  const seenHas = seen.has.bind(seen);
+  const seenAdd = seen.add.bind(seen);
+  const seenDelete = seen.delete.bind(seen);
+  const tooLarge = freeze({ kind: "result_too_large" });
+  const unsupported = freeze({ kind: "unsupported_result" });
+
+  try {
+    const lockedGlobals: ReadonlyArray<readonly [string, unknown]> = [
+      ["Array", arrayConstructor],
+      ["Function", functionConstructor],
+      ["JSON", jsonObject],
+      ["Number", numberConstructor],
+      ["Object", objectConstructor],
+      ["Promise", promiseConstructor],
+      ["Reflect", reflectObject],
+      ["String", stringConstructor],
+      ["TextEncoder", textEncoderConstructor],
+      ["WeakSet", weakSetConstructor],
+      ["eval", indirectEval],
+      ["globalThis", globalObject],
+    ];
+    for (const [name, value] of lockedGlobals) {
+      const descriptor = getOwnPropertyDescriptor(globalObject, name);
+      defineProperty(globalObject, name, {
+        value,
+        writable: false,
+        configurable: false,
+        enumerable: descriptor?.enumerable ?? false,
+      });
+    }
+    for (const prototype of [
+      objectConstructor.prototype,
+      arrayConstructor.prototype,
+      functionConstructor.prototype,
+      numberConstructor.prototype,
+      promiseConstructor.prototype,
+      stringConstructor.prototype,
+      textEncoderConstructor.prototype,
+      weakSetConstructor.prototype,
+    ]) {
+      freeze(prototype);
+    }
+    for (const value of [
+      objectConstructor,
+      arrayConstructor,
+      functionConstructor,
+      numberConstructor,
+      promiseConstructor,
+      stringConstructor,
+      textEncoderConstructor,
+      weakSetConstructor,
+      jsonObject,
+      reflectObject,
+      indirectEval,
+    ]) {
+      freeze(value);
+    }
+  } catch {
+    return {
+      __vellumEval: 1,
+      status: "unsupported_result",
+      message: "isolated serializer intrinsics unavailable",
+    };
+  }
+
+  // Calling through an alias makes this indirect eval: automation runs in the
+  // isolated world's global scope, not inside this wrapper's lexical scope.
+  // Await preserves expression completion values and promise completion.
+  const result = await indirectEval(source);
+  let byteCount = 0;
+  let nodeCount = 0;
+
+  const append = (part: string): void => {
+    const partBytes = encode(part).byteLength;
+    if (partBytes > maxBytes - byteCount) throw tooLarge;
+    byteCount += partBytes;
+    pushPart(part);
+  };
+
+  const appendHexEscape = (code: number): void => {
+    const hex = code.toString(16).padStart(4, "0");
+    append(`\\u${hex}`);
+  };
+
+  const appendString = (value: string): void => {
+    append('"');
+    for (let index = 0; index < value.length; index += 1) {
+      const code = charCodeAt.call(value, index);
+      if (code === 0x22) append('\\"');
+      else if (code === 0x5c) append("\\\\");
+      else if (code === 0x08) append("\\b");
+      else if (code === 0x09) append("\\t");
+      else if (code === 0x0a) append("\\n");
+      else if (code === 0x0c) append("\\f");
+      else if (code === 0x0d) append("\\r");
+      else if (code < 0x20) appendHexEscape(code);
+      else if (code >= 0xd800 && code <= 0xdbff) {
+        const next = index + 1 < value.length ? charCodeAt.call(value, index + 1) : -1;
+        if (next >= 0xdc00 && next <= 0xdfff) {
+          append(fromCharCode(code, next));
+          index += 1;
+        } else {
+          appendHexEscape(code);
+        }
+      } else if (code >= 0xdc00 && code <= 0xdfff) {
+        appendHexEscape(code);
+      } else {
+        append(fromCharCode(code));
+      }
+    }
+    append('"');
+  };
+
+  const dataDescriptorValue = (value: object, key: PropertyKey): unknown => {
+    const descriptor = getOwnPropertyDescriptor(value, key);
+    if (
+      descriptor === undefined ||
+      !hasOwn(descriptor, "value") ||
+      hasOwn(descriptor, "get") ||
+      hasOwn(descriptor, "set")
+    ) {
+      throw unsupported;
+    }
+    return descriptor.value;
+  };
+
+  const serialize = (value: unknown, depth: number): void => {
+    nodeCount += 1;
+    if (nodeCount > maxNodes) throw tooLarge;
+
+    if (value === null) {
+      append("null");
+      return;
+    }
+    if (typeof value === "string") {
+      appendString(value);
+      return;
+    }
+    if (typeof value === "boolean") {
+      append(value ? "true" : "false");
+      return;
+    }
+    if (typeof value === "number") {
+      if (!numberIsFinite(value)) throw unsupported;
+      append(jsonObject.stringify(value));
+      return;
+    }
+    if (typeof value !== "object") throw unsupported;
+    if (depth >= maxDepth) throw tooLarge;
+    if (seenHas(value)) throw unsupported;
+    seenAdd(value);
+
+    try {
+      if (arrayIsArray(value)) {
+        if (getPrototypeOf(value) !== arrayConstructor.prototype) throw unsupported;
+        const length = dataDescriptorValue(value, "length");
+        if (
+          typeof length !== "number" ||
+          !numberIsInteger(length) ||
+          length < 0 ||
+          length > maxNodes - nodeCount
+        ) {
+          throw tooLarge;
+        }
+        const keys = reflectOwnKeys(value);
+        if (keys.length !== length + 1) throw unsupported;
+        for (const key of keys) {
+          if (key === "length") continue;
+          if (typeof key !== "string") throw unsupported;
+          const index = numberConstructor(key);
+          if (
+            !numberIsInteger(index) ||
+            index < 0 ||
+            index >= length ||
+            stringConstructor(index) !== key
+          ) {
+            throw unsupported;
+          }
+        }
+
+        append("[");
+        for (let index = 0; index < length; index += 1) {
+          if (index > 0) append(",");
+          const descriptor = getOwnPropertyDescriptor(value, stringConstructor(index));
+          if (descriptor?.enumerable !== true) throw unsupported;
+          serialize(dataDescriptorValue(value, stringConstructor(index)), depth + 1);
+        }
+        append("]");
+        return;
+      }
+
+      const prototype = getPrototypeOf(value);
+      if (prototype !== objectConstructor.prototype && prototype !== null) throw unsupported;
+      const keys = reflectOwnKeys(value);
+      if (keys.length > maxNodes - nodeCount) throw tooLarge;
+      append("{");
+      for (let index = 0; index < keys.length; index += 1) {
+        const key = keys[index];
+        if (typeof key !== "string") throw unsupported;
+        const descriptor = getOwnPropertyDescriptor(value, key);
+        if (descriptor?.enumerable !== true) throw unsupported;
+        if (index > 0) append(",");
+        appendString(key);
+        append(":");
+        serialize(dataDescriptorValue(value, key), depth + 1);
+      }
+      append("}");
+    } finally {
+      seenDelete(value);
+    }
+  };
+
+  try {
+    serialize(result, 0);
+    return { __vellumEval: 1, status: "ok", json: joinParts("") };
+  } catch (error) {
+    if (error === tooLarge) {
+      return {
+        __vellumEval: 1,
+        status: "result_too_large",
+        message: "eval result exceeds a hard serialization limit",
+      };
+    }
+    return {
+      __vellumEval: 1,
+      status: "unsupported_result",
+      message: "eval result is not finite plain JSON",
+    };
+  }
+};
+
+export const buildBoundedEvalScript = (source: string): string =>
+  `(${runBoundedEvalInPage.toString()})(${JSON.stringify(source)},${BROWSER_MAX_EVAL_RESULT_BYTES},${BROWSER_MAX_EVAL_RESULT_DEPTH},${BROWSER_MAX_EVAL_RESULT_NODES})`;
 
 export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
   const view = new WebContentsView({
@@ -170,9 +453,15 @@ export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
       // Runtime teardown only — the persist: partition (cookies) is on disk.
       view.webContents.close();
     },
-    // Control-plane seams (unix-socket HttpApi). userGesture=false: agent code
-    // gets no synthetic-gesture privileges in the untrusted page.
-    executeJavaScript: (code) => view.webContents.executeJavaScript(code, false),
+    // Hardened automation runs in a dedicated isolated world. DOM and Web APIs
+    // remain available, but page main-world JavaScript globals intentionally do
+    // not. userGesture=false grants no synthetic-gesture privileges.
+    executeJavaScript: (code) =>
+      view.webContents.executeJavaScriptInIsolatedWorld(
+        BROWSER_AUTOMATION_WORLD_ID,
+        [{ code: buildBoundedEvalScript(code) }],
+        false,
+      ),
     capturePagePng: async () => {
       const image = await view.webContents.capturePage();
       return new Uint8Array(image.toPNG());

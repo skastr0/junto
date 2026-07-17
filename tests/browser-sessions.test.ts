@@ -9,8 +9,15 @@ import {
   BROWSER_EVAL_TIMEOUT_MS,
   BROWSER_MAX_ACTIVE_OPERATIONS,
   BROWSER_MAX_ERROR_BYTES,
+  BROWSER_MAX_EVAL_CODE_BYTES,
+  BROWSER_MAX_EVAL_RESULT_BYTES,
+  BROWSER_MAX_EVAL_RESULT_DEPTH,
+  BROWSER_MAX_EVAL_RESULT_NODES,
   BROWSER_MAX_METADATA_BYTES,
+  BROWSER_MAX_REF_BYTES,
+  BROWSER_MAX_SCREENSHOT_BYTES,
   BROWSER_MAX_TITLE_BYTES,
+  BROWSER_MAX_URL_BYTES,
   BROWSER_NAVIGATION_TIMEOUT_MS,
   clampUtf8Bytes,
   utf8ByteLength,
@@ -81,7 +88,14 @@ const makeSpyAdapter = () => {
         spy.destroyed = true;
         spy.calls.push("destroy");
       },
-      executeJavaScript: async (code) => ({ code }),
+      executeJavaScript: async (code) => {
+        spy.calls.push(`eval:${utf8ByteLength(code)}`);
+        return {
+          __vellumEval: 1,
+          status: "ok",
+          json: JSON.stringify({ code, nested: { values: [1, true, null] } }),
+        };
+      },
       capturePagePng: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
     };
   };
@@ -98,6 +112,12 @@ const target = (
   profile: "personal",
   ...overrides,
 });
+
+const utf8UrlAtBytes = (bytes: number): string => {
+  const prefix = "https://example.com/";
+  if (bytes < utf8ByteLength(prefix)) throw new Error("URL byte target is too small");
+  return `${prefix}${"x".repeat(bytes - utf8ByteLength(prefix))}`;
+};
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -187,6 +207,185 @@ describe("BrowserSessionService", () => {
       expect((await service.open(candidate)).ok).toBe(false);
     }
     expect(views).toHaveLength(0);
+  });
+
+  it("admits a target URL at N and rejects target URL/ref at N+1 before adapter creation", async () => {
+    const { service, views } = makeDefaultService();
+    expect(await service.open(target("url-at-cap", {
+      url: utf8UrlAtBytes(BROWSER_MAX_URL_BYTES),
+    }))).toMatchObject({ ok: true });
+    expect(views).toHaveLength(1);
+
+    expect(await service.open(target("url-over-cap", {
+      url: utf8UrlAtBytes(BROWSER_MAX_URL_BYTES + 1),
+    }))).toMatchObject({ ok: false, code: "invalid" });
+    expect(await service.open(target("ref-over-cap", {
+      ref: "x".repeat(BROWSER_MAX_REF_BYTES + 1),
+    }))).toMatchObject({ ok: false, code: "invalid" });
+    expect(views).toHaveLength(1);
+  });
+
+  it("admits goto/eval inputs at N and rejects N+1 before their adapter calls", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.open(target("operation-caps"));
+    if (!opened.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(opened.data.sessionId);
+
+    const navigated = service.goto(
+      opened.data.sessionId,
+      utf8UrlAtBytes(BROWSER_MAX_URL_BYTES),
+    );
+    if (!navigated.ok) throw new Error("goto at cap failed");
+    views[0]?.events.onLoadOk(navigated.data.sessionId);
+    const loadCalls = views[0]?.calls.filter((call) => call.startsWith("load:")).length;
+    expect(service.goto(
+      navigated.data.sessionId,
+      utf8UrlAtBytes(BROWSER_MAX_URL_BYTES + 1),
+    )).toMatchObject({ ok: false, code: "invalid" });
+    expect(views[0]?.calls.filter((call) => call.startsWith("load:")).length).toBe(loadCalls);
+
+    expect(await service.eval(
+      navigated.data.sessionId,
+      "x".repeat(BROWSER_MAX_EVAL_CODE_BYTES),
+    )).toMatchObject({ ok: true });
+    const evalCalls = views[0]?.calls.filter((call) => call.startsWith("eval:")).length;
+    expect(await service.eval(
+      navigated.data.sessionId,
+      "x".repeat(BROWSER_MAX_EVAL_CODE_BYTES + 1),
+    )).toMatchObject({ ok: false, code: "invalid" });
+    expect(views[0]?.calls.filter((call) => call.startsWith("eval:")).length).toBe(evalCalls);
+  });
+
+  it("decodes a strict success envelope containing nested objects and arrays", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.open(target("eval-json"));
+    if (!opened.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(opened.data.sessionId);
+
+    expect(await service.eval(opened.data.sessionId, "nested()"))
+      .toEqual({
+        ok: true,
+        data: {
+          result: {
+            code: "nested()",
+            nested: { values: [1, true, null] },
+          },
+        },
+      });
+  });
+
+  it("enforces the eval envelope byte cap at exactly N/N+1", async () => {
+    let json = JSON.stringify("x".repeat(BROWSER_MAX_EVAL_RESULT_BYTES - 2));
+    const adapter: BrowserViewAdapter = (_partition, events) => ({
+      loadUrl: (_url, expectedSessionId) => events.onLoadOk(expectedSessionId),
+      attach: () => {},
+      setBounds: () => {},
+      detach: () => {},
+      destroy: () => {},
+      executeJavaScript: async () => ({ __vellumEval: 1, status: "ok", json }),
+    });
+    const { service } = makeService(adapter);
+    const opened = await service.open(target("result-bytes"));
+    if (!opened.ok) throw new Error("open failed");
+
+    expect(utf8ByteLength(json)).toBe(BROWSER_MAX_EVAL_RESULT_BYTES);
+    expect(await service.eval(opened.data.sessionId, "atCap()"))
+      .toMatchObject({ ok: true });
+    json = JSON.stringify("x".repeat(BROWSER_MAX_EVAL_RESULT_BYTES - 1));
+    expect(utf8ByteLength(json)).toBe(BROWSER_MAX_EVAL_RESULT_BYTES + 1);
+    expect(await service.eval(opened.data.sessionId, "overCap()"))
+      .toMatchObject({ ok: false, code: "result_too_large" });
+  });
+
+  it("independently rechecks eval result depth, node count, and finite numbers", async () => {
+    let json = "null";
+    const adapter: BrowserViewAdapter = (_partition, events) => ({
+      loadUrl: (_url, expectedSessionId) => events.onLoadOk(expectedSessionId),
+      attach: () => {},
+      setBounds: () => {},
+      detach: () => {},
+      destroy: () => {},
+      executeJavaScript: async () => ({ __vellumEval: 1, status: "ok", json }),
+    });
+    const { service } = makeService(adapter);
+    const opened = await service.open(target("result-shape"));
+    if (!opened.ok) throw new Error("open failed");
+
+    json = `${"[".repeat(BROWSER_MAX_EVAL_RESULT_DEPTH)}0${"]".repeat(BROWSER_MAX_EVAL_RESULT_DEPTH)}`;
+    expect(await service.eval(opened.data.sessionId, "depthN()"))
+      .toMatchObject({ ok: true });
+    json = `[${json}]`;
+    expect(await service.eval(opened.data.sessionId, "depthNPlusOne()"))
+      .toMatchObject({ ok: false, code: "result_too_large" });
+
+    json = `[${Array.from(
+      { length: BROWSER_MAX_EVAL_RESULT_NODES - 1 },
+      () => "0",
+    ).join(",")}]`;
+    expect(await service.eval(opened.data.sessionId, "nodesN()"))
+      .toMatchObject({ ok: true });
+    json = `${json.slice(0, -1)},0]`;
+    expect(await service.eval(opened.data.sessionId, "nodesNPlusOne()"))
+      .toMatchObject({ ok: false, code: "result_too_large" });
+
+    json = "1e400";
+    expect(await service.eval(opened.data.sessionId, "infinite()"))
+      .toMatchObject({ ok: false, code: "unsupported_result" });
+  });
+
+  it("rejects malformed/foreign envelopes and preserves typed bounded failures", async () => {
+    let response: unknown = { result: "raw" };
+    const adapter: BrowserViewAdapter = (_partition, events) => ({
+      loadUrl: (_url, expectedSessionId) => events.onLoadOk(expectedSessionId),
+      attach: () => {},
+      setBounds: () => {},
+      detach: () => {},
+      destroy: () => {},
+      executeJavaScript: async () => response,
+    });
+    const { service } = makeService(adapter);
+    const opened = await service.open(target("result-envelope"));
+    if (!opened.ok) throw new Error("open failed");
+
+    expect(await service.eval(opened.data.sessionId, "raw()"))
+      .toMatchObject({ ok: false, code: "unsupported_result" });
+    response = { __vellumEval: 1, status: "ok", json: "null", extra: true };
+    expect(await service.eval(opened.data.sessionId, "extra()"))
+      .toMatchObject({ ok: false, code: "unsupported_result" });
+    response = {
+      __vellumEval: 1,
+      status: "result_too_large",
+      message: "x".repeat(BROWSER_MAX_ERROR_BYTES + 1),
+    };
+    const typed = await service.eval(opened.data.sessionId, "large()" );
+    expect(typed).toMatchObject({ ok: false, code: "result_too_large" });
+    if (!typed.ok) expect(utf8ByteLength(typed.message)).toBe(BROWSER_MAX_ERROR_BYTES);
+  });
+
+  it("caps screenshot bytes immediately after capture at N/N+1", async () => {
+    let bytes = BROWSER_MAX_SCREENSHOT_BYTES;
+    let captures = 0;
+    const adapter: BrowserViewAdapter = (_partition, events) => ({
+      loadUrl: (_url, expectedSessionId) => events.onLoadOk(expectedSessionId),
+      attach: () => {},
+      setBounds: () => {},
+      detach: () => {},
+      destroy: () => {},
+      capturePagePng: async () => {
+        captures += 1;
+        return new Uint8Array(bytes);
+      },
+    });
+    const { service } = makeService(adapter);
+    const opened = await service.open(target("screenshot-cap"));
+    if (!opened.ok) throw new Error("open failed");
+
+    expect(await service.screenshot(opened.data.sessionId))
+      .toMatchObject({ ok: true });
+    bytes += 1;
+    expect(await service.screenshot(opened.data.sessionId))
+      .toMatchObject({ ok: false, code: "result_too_large" });
+    expect(captures).toBe(2);
   });
 
   it("rejects a profile absent from the profile registry", async () => {
