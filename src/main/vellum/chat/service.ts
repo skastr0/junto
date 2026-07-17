@@ -9,7 +9,7 @@ import {
   type LocalBrowserChildEnvironmentInput,
   type SpawnFn,
 } from "./acp-client";
-import { buildAcpSpawnTarget, resolveSessionCwd } from "./spawn";
+import { buildAcpSpawnTarget, resolveSessionCwd, type AcpSpawnTarget } from "./spawn";
 
 // One live ACP session per agent node ("<host>:<profile>"). ChatService owns
 // spawn/initialize/session lifecycle and the ACP <-> ChatEvent projection;
@@ -118,6 +118,75 @@ export class ChatService {
     if (session === undefined) return;
     if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
     session.client.close();
+  }
+
+  private makeSession(
+    agentKey: string,
+    target: AcpSpawnTarget,
+    generation: number,
+    environmentOverlay?: AcpChildEnvironmentOverlay,
+  ): AgentSession {
+    let session: AgentSession;
+    const client = new AcpClient(
+      target,
+      {
+        onNotification: (method, params) =>
+          this.handleNotification(agentKey, session, method, params),
+        onAgentRequest: (method, id, params) =>
+          this.handleAgentRequest(agentKey, session, method, id, params),
+        onLifecycle: (event) => this.handleLifecycle(agentKey, session, event),
+      },
+      this.spawnFn,
+      environmentOverlay,
+    );
+    session = {
+      client,
+      generation,
+      sessionId: "",
+      models: [],
+      promptInFlight: false,
+      pendingPermissions: new Map(),
+    };
+    return session;
+  }
+
+  private abandonSession(agentKey: string, session: AgentSession): void {
+    if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
+    session.client.close();
+  }
+
+  private supersededOpen(
+    agentKey: string,
+    session: AgentSession,
+  ): ChatOpenResult | undefined {
+    if (this.isCurrent(agentKey, session)) return undefined;
+    this.abandonSession(agentKey, session);
+    return { ok: false, error: "chat open superseded" };
+  }
+
+  private async tryResumeSession(
+    agentKey: string,
+    session: AgentSession,
+    resumeSessionId: string,
+    cwd: string,
+    authSuffix: string,
+  ): Promise<ChatOpenResult | undefined> {
+    try {
+      const result = await session.client.request<SessionResultShape | null>("session/load", {
+        sessionId: resumeSessionId,
+        cwd,
+        mcpServers: [],
+      });
+      const superseded = this.supersededOpen(agentKey, session);
+      if (superseded !== undefined) return superseded;
+      if (result === null) return undefined;
+      session.sessionId = resumeSessionId;
+      session.models = toModelChoices(result);
+      return { ok: true, sessionId: resumeSessionId, resumed: true, models: session.models };
+    } catch (error) {
+      this.abandonSession(agentKey, session);
+      return { ok: false, error: `resume failed: ${describeError(error)}${authSuffix}` };
+    }
   }
 
   private beginOpen(
@@ -253,25 +322,7 @@ export class ChatService {
       return { ok: false, error: "chat open superseded" };
     }
 
-    const session: AgentSession = {
-      client: new AcpClient(
-        target,
-        {
-          onNotification: (method, params) =>
-            this.handleNotification(agentKey, session, method, params),
-          onAgentRequest: (method, id, params) =>
-            this.handleAgentRequest(agentKey, session, method, id, params),
-          onLifecycle: (event) => this.handleLifecycle(agentKey, session, event),
-        },
-        this.spawnFn,
-        environmentOverlay,
-      ),
-      generation,
-      sessionId: "",
-      models: [],
-      promptInFlight: false,
-      pendingPermissions: new Map(),
-    };
+    const session = this.makeSession(agentKey, target, generation, environmentOverlay);
     this.sessions.set(agentKey, session);
 
     // Populated once initialize succeeds; describeAuthMethods("") is a no-op
@@ -279,51 +330,33 @@ export class ChatService {
     let authSuffix = "";
     try {
       const init = await session.client.start();
-      if (!this.isCurrent(agentKey, session)) {
-        session.client.close();
-        return { ok: false, error: "chat open superseded" };
-      }
+      const supersededAfterStart = this.supersededOpen(agentKey, session);
+      if (supersededAfterStart !== undefined) return supersededAfterStart;
       authSuffix = describeAuthMethods(init.authMethods);
       const cwd = resolveSessionCwd(target.host);
 
       if (resumeSessionId) {
-        try {
-          const result = await session.client.request<SessionResultShape | null>("session/load", {
-            sessionId: resumeSessionId,
-            cwd,
-            mcpServers: [],
-          });
-          if (!this.isCurrent(agentKey, session)) {
-            session.client.close();
-            return { ok: false, error: "chat open superseded" };
-          }
-          if (result) {
-            session.sessionId = resumeSessionId;
-            session.models = toModelChoices(result);
-            return { ok: true, sessionId: resumeSessionId, resumed: true, models: session.models };
-          }
-          // session/load answered but the session no longer exists on the
-          // agent side — fall through to a fresh session/new below rather
-          // than hard-failing chatOpen.
-        } catch (err) {
-          if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
-          session.client.close();
-          return { ok: false, error: `resume failed: ${describeError(err)}${authSuffix}` };
-        }
+        const resumed = await this.tryResumeSession(
+          agentKey,
+          session,
+          resumeSessionId,
+          cwd,
+          authSuffix,
+        );
+        // A null session/load result means the session no longer exists on
+        // the agent side, so fall through to a fresh session/new.
+        if (resumed !== undefined) return resumed;
       }
 
       const created = await session.client.request<SessionResultShape>("session/new", { cwd, mcpServers: [] });
-      if (!this.isCurrent(agentKey, session)) {
-        session.client.close();
-        return { ok: false, error: "chat open superseded" };
-      }
+      const supersededAfterCreate = this.supersededOpen(agentKey, session);
+      if (supersededAfterCreate !== undefined) return supersededAfterCreate;
       if (!created.sessionId) throw new Error("session/new returned no sessionId");
       session.sessionId = created.sessionId;
       session.models = toModelChoices(created);
       return { ok: true, sessionId: session.sessionId, resumed: false, models: session.models };
     } catch (err) {
-      if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
-      session.client.close();
+      this.abandonSession(agentKey, session);
       return { ok: false, error: `${describeError(err)}${authSuffix}` };
     }
   }

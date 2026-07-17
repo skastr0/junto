@@ -146,6 +146,14 @@ describe("AcpClient.start", () => {
     })).toThrow("bounded absolute path");
     expect(() => makeLocalBrowserChildEnvironment({
       capability: Buffer.alloc(32, 0xa1).toString("base64url"),
+      home: "/tmp/vellum\tbrowser",
+    })).toThrow("bounded absolute path");
+    expect(() => makeLocalBrowserChildEnvironment({
+      capability: Buffer.alloc(32, 0xa1).toString("base64url"),
+      home: "/tmp/vellum\u007fbrowser",
+    })).toThrow("bounded absolute path");
+    expect(() => makeLocalBrowserChildEnvironment({
+      capability: Buffer.alloc(32, 0xa1).toString("base64url"),
       home: `/${"x".repeat(4_097)}`,
     })).toThrow("bounded absolute path");
   });

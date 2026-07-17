@@ -133,7 +133,7 @@ export const makeLocalBrowserChildEnvironment = (
     typeof input.home !== "string" ||
     !isAbsolute(input.home) ||
     Buffer.byteLength(input.home, "utf8") > BROWSER_HOME_MAX_BYTES ||
-    /[\0\r\n]/u.test(input.home)
+    /[\u0000-\u001f\u007f]/u.test(input.home)
   ) {
     throw new TypeError("browser home must be a bounded absolute path");
   }
