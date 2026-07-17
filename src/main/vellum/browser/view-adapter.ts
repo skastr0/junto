@@ -18,6 +18,22 @@ const normalizeUrl = (url: string): string => {
   }
 };
 
+const isAbortedLoadError = (error: unknown): boolean => {
+  if (typeof error !== "object" || error === null) return false;
+  const code = "code" in error ? error.code : undefined;
+  const errno = "errno" in error ? error.errno : undefined;
+  const message = "message" in error ? error.message : undefined;
+  return (
+    code === -3 ||
+    errno === -3 ||
+    code === "ERR_ABORTED" ||
+    (typeof message === "string" && message.includes("ERR_ABORTED"))
+  );
+};
+
+const loadErrorMessage = (error: unknown): string =>
+  error instanceof Error && error.message.length > 0 ? error.message : "load failed";
+
 export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
   const view = new WebContentsView({
     webPreferences: {
@@ -99,8 +115,30 @@ export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
 
   const handle: BrowserViewHandle = {
     loadUrl: (url, expectedSessionId) => {
-      expectedNavigation = { url: normalizeUrl(url), sessionId: expectedSessionId };
-      void view.webContents.loadURL(url);
+      const pending = { url: normalizeUrl(url), sessionId: expectedSessionId };
+      expectedNavigation = pending;
+
+      const handleRejection = (error: unknown): void => {
+        if (isAbortedLoadError(error)) {
+          if (expectedNavigation === pending) expectedNavigation = undefined;
+          return;
+        }
+
+        const isExpected = expectedNavigation === pending;
+        const isActive = activeNavigation?.sessionId === pending.sessionId;
+        if (!isExpected && !isActive) return;
+        if (isExpected) expectedNavigation = undefined;
+        if (isActive) activeNavigation = undefined;
+        if (currentSessionId === pending.sessionId) currentSessionId = undefined;
+        events.onLoadFail(pending.sessionId, loadErrorMessage(error));
+      };
+
+      try {
+        return view.webContents.loadURL(url).catch(handleRejection);
+      } catch (error) {
+        handleRejection(error);
+        return Promise.resolve();
+      }
     },
     attach: (bounds) => {
       const win = mainWindow();

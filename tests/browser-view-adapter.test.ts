@@ -7,6 +7,7 @@ const electron = vi.hoisted(() => {
     readonly listeners = new Map<string, Listener[]>();
     currentUrl = "";
     title = "";
+    loadError: (Error & { readonly code?: number }) | undefined;
 
     on(event: string, listener: Listener): this {
       const listeners = this.listeners.get(event) ?? [];
@@ -20,7 +21,9 @@ const electron = vi.hoisted(() => {
     }
 
     loadURL(_url: string): Promise<void> {
-      return Promise.resolve();
+      return this.loadError === undefined
+        ? Promise.resolve()
+        : Promise.reject(this.loadError);
     }
 
     getURL(): string {
@@ -170,5 +173,26 @@ describe("electron browser view generation seam", () => {
       1,
     );
     expect(urls).toContainEqual(["session-1", "https://example.com/#section"]);
+  });
+
+  it("turns a rejected programmatic load into a terminal session failure", async () => {
+    const { handle, webContents, failed } = setup();
+    webContents.loadError = new Error("network unavailable");
+
+    handle.loadUrl("https://example.com/", "session-1");
+
+    await vi.waitFor(() => {
+      expect(failed).toEqual([["session-1", "network unavailable"]]);
+    });
+  });
+
+  it("absorbs Electron's aborted-load rejection without failing the session", async () => {
+    const { handle, webContents, failed } = setup();
+    webContents.loadError = Object.assign(new Error("ERR_ABORTED"), { code: -3 });
+
+    handle.loadUrl("https://example.com/", "session-1");
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(failed).toEqual([]);
   });
 });

@@ -3,8 +3,13 @@ import { Effect } from "effect";
 import {
   IPC_CHANNELS,
   type BrowserOpenInput,
-  type BrowserSurfaceBounds,
 } from "@shared/ipc";
+import {
+  BROWSER_MAX_REF_BYTES,
+  isUtf8WithinLimit,
+  parseBrowserSessionId,
+  parseBrowserSurfaceBounds,
+} from "@shared/browser-limits";
 import { BrowserSessionService } from "./sessions";
 import { electronViewAdapter } from "./view-adapter";
 import { AppRuntime } from "../../runtime";
@@ -21,9 +26,25 @@ export const resolveBrowserPageTarget: PageTargetResolver = (ref) =>
     ),
   );
 
+const invalidArguments = (message = "unexpected arguments") => ({
+  ok: false as const,
+  code: "invalid" as const,
+  message,
+});
+
+const isBrowserOpenInput = (input: unknown): input is BrowserOpenInput =>
+  typeof input === "object" &&
+  input !== null &&
+  "ref" in input &&
+  Object.keys(input).join(",") === "ref" &&
+  typeof input.ref === "string" &&
+  input.ref.length > 0 &&
+  isUtf8WithinLimit(input.ref, BROWSER_MAX_REF_BYTES);
+
 export const registerBrowserIpc = (
   ipcMain: IpcMain,
   webContentsGetter: () => Iterable<WebContents>,
+  pageTargetResolver: PageTargetResolver = resolveBrowserPageTarget,
 ): void => {
   browserSessions.setSink((session) => {
     for (const contents of webContentsGetter()) {
@@ -31,36 +52,50 @@ export const registerBrowserIpc = (
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.browserProfiles, () => browserSessions.listProfiles());
+  ipcMain.handle(IPC_CHANNELS.browserProfiles, (_e, ...args: ReadonlyArray<unknown>) =>
+    args.length === 0 ? browserSessions.listProfiles() : invalidArguments(),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.browserSurfaceConfig, () => browserSessions.surfaceConfig());
+  ipcMain.handle(IPC_CHANNELS.browserSurfaceConfig, (_e, ...args: ReadonlyArray<unknown>) =>
+    args.length === 0 ? browserSessions.surfaceConfig() : invalidArguments(),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.browserOpen, async (_e, input: BrowserOpenInput) => {
-    if (
-      typeof input !== "object" ||
-      input === null ||
-      Object.keys(input).join(",") !== "ref" ||
-      typeof input.ref !== "string"
-    ) {
-      return { ok: false as const, code: "invalid" as const, message: "canonical page ref required" };
+  ipcMain.handle(IPC_CHANNELS.browserOpen, async (_e, ...args: ReadonlyArray<unknown>) => {
+    if (args.length !== 1) return invalidArguments();
+    const input = args[0];
+    if (!isBrowserOpenInput(input)) {
+      return invalidArguments("canonical bounded page ref required");
     }
-    const target = await resolveBrowserPageTarget(input.ref);
+    const target = await pageTargetResolver(input.ref);
     return target.ok ? browserSessions.open(target.data) : target;
   });
 
-  ipcMain.handle(IPC_CHANNELS.browserClose, (_e, sessionId: string) =>
-    browserSessions.close(sessionId),
-  );
+  ipcMain.handle(IPC_CHANNELS.browserClose, (_e, ...args: ReadonlyArray<unknown>) => {
+    if (args.length !== 1) return invalidArguments();
+    const parsed = parseBrowserSessionId(args[0]);
+    return parsed.ok ? browserSessions.close(parsed.value) : parsed;
+  });
 
-  ipcMain.handle(IPC_CHANNELS.browserSessionState, (_e, sessionId: string) =>
-    browserSessions.state(sessionId),
-  );
+  ipcMain.handle(IPC_CHANNELS.browserSessionState, (_e, ...args: ReadonlyArray<unknown>) => {
+    if (args.length !== 1) return invalidArguments();
+    const parsed = parseBrowserSessionId(args[0]);
+    return parsed.ok ? browserSessions.state(parsed.value) : parsed;
+  });
 
-  ipcMain.handle(IPC_CHANNELS.browserSessionList, () => browserSessions.list());
+  ipcMain.handle(IPC_CHANNELS.browserSessionList, (_e, ...args: ReadonlyArray<unknown>) =>
+    args.length === 0 ? browserSessions.list() : invalidArguments(),
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.browserSetBounds,
-    (_e, sessionId: string, bounds: BrowserSurfaceBounds) =>
-      browserSessions.setBounds(sessionId, bounds),
+    (_e, ...args: ReadonlyArray<unknown>) => {
+      if (args.length !== 2) return invalidArguments();
+      const parsedSessionId = parseBrowserSessionId(args[0]);
+      if (!parsedSessionId.ok) return parsedSessionId;
+      const parsedBounds = parseBrowserSurfaceBounds(args[1]);
+      return parsedBounds.ok
+        ? browserSessions.setBounds(parsedSessionId.value, parsedBounds.value)
+        : parsedBounds;
+    },
   );
 };
