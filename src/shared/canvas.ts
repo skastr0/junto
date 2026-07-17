@@ -108,6 +108,30 @@ export const EtherView = Schema.Struct({
 });
 export type EtherView = typeof EtherView.Type;
 
+// Spawn defaults for work-surface nodes created *inside* a region.
+// Applied only at create time (stamp source) — never a live parent scope.
+// Herdr stops before pane: pane is the instance; host/session/workspace are the place.
+// Page stamps start url + browser profile name only (cookies stay runtime).
+export const EtherRegionHerdrDefaults = Schema.Struct({
+  host: Schema.String,
+  session: Schema.optionalWith(Schema.NullOr(Schema.String), { exact: true }),
+  workspaceId: Schema.optionalWith(Schema.String, { exact: true }),
+  tabId: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type EtherRegionHerdrDefaults = typeof EtherRegionHerdrDefaults.Type;
+
+export const EtherRegionPageDefaults = Schema.Struct({
+  url: Schema.optionalWith(Schema.String, { exact: true }),
+  profile: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type EtherRegionPageDefaults = typeof EtherRegionPageDefaults.Type;
+
+export const EtherRegionDefaults = Schema.Struct({
+  herdr: Schema.optionalWith(EtherRegionHerdrDefaults, { exact: true }),
+  page: Schema.optionalWith(EtherRegionPageDefaults, { exact: true }),
+});
+export type EtherRegionDefaults = typeof EtherRegionDefaults.Type;
+
 // Region behavior (group nodes only). `hold: true` makes the region a
 // structural container: nodes spatially inside it travel with it when it
 // moves. `instruction` is the region's pulse briefing: when the region
@@ -117,9 +141,12 @@ export type EtherView = typeof EtherView.Type;
 // ARMING deliberately does NOT live in the document: definitions travel with
 // the file; the switch that lets a pulse spend real agent turns exists only
 // in the running app, flipped by a human.
+// `defaults` is a create-time stamp source for herdr/page nodes placed inside
+// the region — bag-atomic (innermost region with a bag for that kind wins).
 export const EtherRegion = Schema.Struct({
   hold: Schema.optionalWith(Schema.Boolean, { exact: true }),
   instruction: Schema.optionalWith(Schema.String, { exact: true }),
+  defaults: Schema.optionalWith(EtherRegionDefaults, { exact: true }),
 });
 export type EtherRegion = typeof EtherRegion.Type;
 
