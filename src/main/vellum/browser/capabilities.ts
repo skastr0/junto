@@ -140,6 +140,7 @@ export interface BrowserCapabilityLease extends BrowserCapabilityHandle {
   readonly signal: AbortSignal;
   readonly checkTarget: (target: BrowserCapabilityUseTarget) => BrowserCapabilityUseTarget;
   readonly boundGeneration: (ref: NodeRefKey) => string | undefined;
+  readonly boundGenerationInScope: (ref: NodeRefKey) => string | undefined;
   readonly bindGeneration: (ref: NodeRefKey, generation: string) => void;
   readonly rollGeneration: (
     ref: NodeRefKey,
@@ -785,6 +786,8 @@ export class BrowserCapabilityRegistry {
       checkTarget: (target: BrowserCapabilityUseTarget) =>
         this.#checkLeaseTarget(record, leaseRecord, target),
       boundGeneration: (ref: NodeRefKey) => this.#boundGeneration(record, leaseRecord, ref),
+      boundGenerationInScope: (ref: NodeRefKey) =>
+        this.#boundGenerationInScope(record, leaseRecord, ref),
       bindGeneration: (ref: NodeRefKey, generation: string) =>
         this.#bindGeneration(record, leaseRecord, ref, generation),
       rollGeneration: (ref: NodeRefKey, expectedGeneration: string, nextGeneration: string) =>
@@ -967,6 +970,18 @@ export class BrowserCapabilityRegistry {
     return record.generations.get(ref);
   }
 
+  #boundGenerationInScope(
+    record: CapabilityRecord,
+    lease: LeaseRecord,
+    ref: NodeRefKey,
+  ): string | undefined {
+    if (lease.action !== "open" && !LIST_ACTIONS.has(lease.action)) {
+      throw new BrowserCapabilityStateDenied();
+    }
+    this.#assertLeaseScope(record, lease, ref);
+    return record.generations.get(ref);
+  }
+
   #bindGeneration(
     record: CapabilityRecord,
     lease: LeaseRecord,
@@ -1029,10 +1044,18 @@ export class BrowserCapabilityRegistry {
     lease: LeaseRecord,
     ref: NodeRefKey,
   ): void {
+    this.#assertLeaseScope(record, lease, ref);
+    if (lease.target?.ref !== ref) throw new BrowserCapabilityStateDenied();
+  }
+
+  #assertLeaseScope(
+    record: CapabilityRecord,
+    lease: LeaseRecord,
+    ref: NodeRefKey,
+  ): void {
     if (
       lease.settled ||
       this.#records.get(record.digest) !== record ||
-      lease.target?.ref !== ref ||
       !record.targetsByRef.has(ref)
     ) {
       throw new BrowserCapabilityStateDenied();

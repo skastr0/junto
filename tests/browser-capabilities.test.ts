@@ -20,6 +20,7 @@ import {
 
 const REF_ONE = "vellum://canvas/work?node=n1";
 const REF_TWO = "vellum://canvas/work?node=n2";
+const REF_THREE = "vellum://canvas/work?node=n3";
 const TARGET_ONE: BrowserCapabilityTarget = {
   ref: REF_ONE,
   profile: "personal",
@@ -420,6 +421,89 @@ describe("browser capability admission and exact scope", () => {
     expect(
       registry.auditSnapshot().filter((event) => event.kind === "generation")[0]?.generationTag,
     ).toMatch(/^g_[A-Za-z0-9_-]{22}$/);
+  });
+
+  it("lets active open and list leases read generations only for their immutable scope", () => {
+    const { registry } = makeRegistry();
+    const grant = issue(registry, undefined, {
+      actions: ["open", "pages"],
+      targets: [TARGET_ONE, TARGET_TWO],
+      maxUses: 6,
+    });
+    const open = registry.authorize(
+      grant.secret,
+      { action: "open" },
+      { requestId: requestId(1) },
+    );
+    expect(open.target).toBeUndefined();
+    expect(open.boundGenerationInScope(REF_ONE)).toBeUndefined();
+    open.checkTarget(useTarget());
+    open.bindGeneration(REF_ONE, "generation-1");
+    open.release();
+
+    const pages = registry.authorize(
+      grant.secret,
+      { action: "pages" },
+      { requestId: requestId(2) },
+    );
+    expect(pages.target).toBeUndefined();
+    expect(pages.boundGenerationInScope(REF_ONE)).toBe("generation-1");
+    expect(pages.boundGenerationInScope(REF_TWO)).toBeUndefined();
+    expect(() => pages.boundGenerationInScope(REF_THREE)).toThrowError(
+      BrowserCapabilityStateDenied,
+    );
+    expect(() => pages.boundGeneration(REF_ONE)).toThrowError(BrowserCapabilityStateDenied);
+    expect(() => pages.bindGeneration(REF_TWO, "generation-2")).toThrowError(
+      BrowserCapabilityStateDenied,
+    );
+
+    pages.release();
+    expect(() => pages.boundGenerationInScope(REF_ONE)).toThrowError(
+      BrowserCapabilityStateDenied,
+    );
+  });
+
+  it("denies list generation reads after expiry", () => {
+    const { registry, runtime } = makeRegistry();
+    const grant = issue(registry, undefined, {
+      actions: ["pages"],
+      targets: [TARGET_ONE],
+      ttlMs: 100,
+      maxUses: 2,
+    });
+    const pages = registry.authorize(
+      grant.secret,
+      { action: "pages" },
+      { requestId: requestId(1) },
+    );
+    expect(pages.boundGenerationInScope(REF_ONE)).toBeUndefined();
+
+    runtime.advanceWallWhileSuspended(100);
+    expect(() => pages.boundGenerationInScope(REF_ONE)).toThrowError(
+      BrowserCapabilityStateDenied,
+    );
+    expect(pages.signal.aborted).toBe(true);
+  });
+
+  it("denies list generation reads after revocation", () => {
+    const { registry } = makeRegistry();
+    const grant = issue(registry, undefined, {
+      actions: ["pages"],
+      targets: [TARGET_ONE],
+      maxUses: 2,
+    });
+    const pages = registry.authorize(
+      grant.secret,
+      { action: "pages" },
+      { requestId: requestId(1) },
+    );
+    expect(pages.boundGenerationInScope(REF_ONE)).toBeUndefined();
+
+    expect(registry.revoke(grant.handle)).toBe(true);
+    expect(() => pages.boundGenerationInScope(REF_ONE)).toThrowError(
+      BrowserCapabilityStateDenied,
+    );
+    expect(pages.signal.aborted).toBe(true);
   });
 
   it("rejects bounded duplicate request ids without consuming another use", () => {
