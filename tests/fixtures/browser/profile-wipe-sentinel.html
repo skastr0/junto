@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vellum profile wipe sentinel</title>
+  </head>
+  <body>
+    <output id="vellum-profile-wipe-report" aria-live="polite"></output>
+    <script>
+      (() => {
+        "use strict";
+
+        const reportNode = document.getElementById("vellum-profile-wipe-report");
+        const parameters = new URLSearchParams(location.search);
+        const mode = parameters.get("mode");
+        const profile = parameters.get("profile");
+        const allowedModes = new Set(["seed", "read", "blank"]);
+        const allowedProfiles = new Set(["personal", "work"]);
+        const cookieName = "vellum_profile_wipe_cookie";
+        const localStorageKey = "vellum-profile-wipe-local";
+        const databaseName = "vellum-profile-wipe-indexed-db";
+        const databaseStore = "sentinels";
+        const databaseKey = "value";
+        const cacheName = "vellum-profile-wipe-cache";
+        const cacheRequest = "/profile-wipe/cache-sentinel";
+        const workerScope = `${location.origin}/profile-wipe/`;
+
+        const publish = (payload) => {
+          reportNode.textContent = JSON.stringify(payload);
+          reportNode.dataset.ready = "true";
+        };
+
+        const status = (actual, expected) =>
+          actual === null || actual === undefined
+            ? "absent"
+            : actual === expected
+              ? "match"
+              : "mismatch";
+
+        const cookieValue = () => {
+          const prefix = `${cookieName}=`;
+          const entry = document.cookie
+            .split(";")
+            .map((part) => part.trim())
+            .find((part) => part.startsWith(prefix));
+          return entry === undefined ? null : decodeURIComponent(entry.slice(prefix.length));
+        };
+
+        const databaseExists = async () => {
+          const databases = await indexedDB.databases();
+          return databases.some((database) => database.name === databaseName);
+        };
+
+        const openDatabase = () =>
+          new Promise((resolve, reject) => {
+            const request = indexedDB.open(databaseName, 1);
+            request.onupgradeneeded = () => {
+              if (!request.result.objectStoreNames.contains(databaseStore)) {
+                request.result.createObjectStore(databaseStore);
+              }
+            };
+            request.onerror = () => reject(new Error("indexed_db_open_failed"));
+            request.onsuccess = () => resolve(request.result);
+          });
+
+        const writeDatabase = async (value) => {
+          const database = await openDatabase();
+          try {
+            await new Promise((resolve, reject) => {
+              const transaction = database.transaction(databaseStore, "readwrite");
+              transaction.objectStore(databaseStore).put(value, databaseKey);
+              transaction.oncomplete = () => resolve();
+              transaction.onerror = () => reject(new Error("indexed_db_write_failed"));
+              transaction.onabort = () => reject(new Error("indexed_db_write_failed"));
+            });
+          } finally {
+            database.close();
+          }
+        };
+
+        const readDatabase = async () => {
+          if (!(await databaseExists())) return null;
+          const database = await openDatabase();
+          try {
+            return await new Promise((resolve, reject) => {
+              const transaction = database.transaction(databaseStore, "readonly");
+              const request = transaction.objectStore(databaseStore).get(databaseKey);
+              request.onsuccess = () => resolve(request.result ?? null);
+              request.onerror = () => reject(new Error("indexed_db_read_failed"));
+            });
+          } finally {
+            database.close();
+          }
+        };
+
+        const activeWorker = async () => {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          const registration = registrations.find((candidate) => candidate.scope === workerScope);
+          return registration?.active ?? registration?.waiting ?? registration?.installing ?? null;
+        };
+
+        const waitForWorker = async (worker) => {
+          if (worker.state === "activated") return worker;
+          await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error("worker_activation_timeout")), 5_000);
+            const changed = () => {
+              if (worker.state === "activated") {
+                clearTimeout(timeout);
+                worker.removeEventListener("statechange", changed);
+                resolve();
+              }
+            };
+            worker.addEventListener("statechange", changed);
+            changed();
+          });
+          return worker;
+        };
+
+        const readWorker = async () => {
+          const worker = await activeWorker();
+          if (worker === null) return null;
+          await waitForWorker(worker);
+          return await new Promise((resolve, reject) => {
+            const channel = new MessageChannel();
+            const timeout = setTimeout(() => reject(new Error("worker_read_timeout")), 5_000);
+            channel.port1.onmessage = (event) => {
+              clearTimeout(timeout);
+              resolve(typeof event.data === "string" ? event.data : null);
+            };
+            worker.postMessage("read", [channel.port2]);
+          });
+        };
+
+        const seed = async (expected) => {
+          document.cookie = `${cookieName}=${encodeURIComponent(expected.cookie)}; Path=/profile-wipe; Max-Age=86400; SameSite=Lax`;
+          localStorage.setItem(localStorageKey, expected.localStorage);
+          await writeDatabase(expected.indexedDb);
+          const cache = await caches.open(cacheName);
+          await cache.put(cacheRequest, new Response(expected.cacheStorage));
+          const registration = await navigator.serviceWorker.register(
+            `/profile-wipe/sw.js?profile=${encodeURIComponent(profile)}`,
+            { scope: "/profile-wipe/", updateViaCache: "none" },
+          );
+          const worker = registration.installing ?? registration.waiting ?? registration.active;
+          if (worker === null) throw new Error("worker_registration_failed");
+          await waitForWorker(worker);
+        };
+
+        const readAll = async () => {
+          let cookie;
+          let local;
+          let indexed;
+          let cached;
+          let worker;
+          try {
+            cookie = cookieValue();
+          } catch {
+            throw new Error("cookie_read_failed");
+          }
+          try {
+            local = localStorage.getItem(localStorageKey);
+          } catch {
+            throw new Error("local_storage_read_failed");
+          }
+          try {
+            indexed = await readDatabase();
+          } catch {
+            throw new Error("indexed_db_read_failed");
+          }
+          try {
+            const cache = (await caches.has(cacheName)) ? await caches.open(cacheName) : null;
+            const response = cache === null ? null : await cache.match(cacheRequest);
+            cached = response === undefined || response === null ? null : await response.text();
+          } catch {
+            throw new Error("cache_storage_read_failed");
+          }
+          try {
+            worker = await readWorker();
+          } catch {
+            throw new Error("service_worker_read_failed");
+          }
+          return {
+            cookie,
+            localStorage: local,
+            indexedDb: indexed,
+            cacheStorage: cached,
+            serviceWorker: worker,
+          };
+        };
+
+        const main = async () => {
+          if (!allowedModes.has(mode) || !allowedProfiles.has(profile)) {
+            publish({ ready: true, error: "invalid_probe_input" });
+            return;
+          }
+          const response = await fetch(
+            `/profile-wipe/expected?profile=${encodeURIComponent(profile)}`,
+            { cache: "no-store", credentials: "same-origin" },
+          );
+          if (!response.ok) throw new Error("expected_values_unavailable");
+          const expected = await response.json();
+          if (mode === "seed") await seed(expected);
+          const actual = await readAll();
+          publish({
+            ready: true,
+            cookie: status(actual.cookie, expected.cookie),
+            localStorage: status(actual.localStorage, expected.localStorage),
+            indexedDb: status(actual.indexedDb, expected.indexedDb),
+            cacheStorage: status(actual.cacheStorage, expected.cacheStorage),
+            serviceWorker: status(actual.serviceWorker, expected.serviceWorker),
+          });
+        };
+
+        void main().catch((error) => {
+          const failure =
+            error instanceof Error && /^[a-z0-9_]+$/.test(error.message)
+              ? error.message
+              : "storage_probe_failed";
+          publish({ ready: true, error: failure });
+        });
+      })();
+    </script>
+  </body>
+</html>

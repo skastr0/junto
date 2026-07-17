@@ -1,0 +1,665 @@
+#!/usr/bin/env bun
+import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { once } from "node:events";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { createServer, type Server, type ServerResponse } from "node:http";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { browserProfileQuarantinePath } from "../src/main/vellum/browser/profile-storage";
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const fixturePath = join(repoRoot, "tests/fixtures/browser/profile-wipe-sentinel.html");
+const testMainEntryPath = join(
+  repoRoot,
+  "tests/fixtures/browser/electron-profile-wipe-main.ts",
+);
+const electronPath = join(repoRoot, "node_modules/.bin/electron");
+const PROBE_TEMP_PREFIX = "/tmp/vpw-";
+const MAX_LOG_BYTES = 128 * 1024;
+const LAUNCH_TIMEOUT_MS = 60_000;
+const PROBE_TIMEOUT_MS = 190_000;
+const PHASE_B_EXIT = 86;
+const DISK_MARKER_NAME = ".vellum-profile-wipe-sentinel";
+const storageKeys = [
+  "cookie",
+  "localStorage",
+  "indexedDb",
+  "cacheStorage",
+  "serviceWorker",
+] as const;
+
+type Profile = "personal" | "work";
+type StorageKey = (typeof storageKeys)[number];
+type SentinelSet = Readonly<Record<StorageKey, string>>;
+
+interface PendingWipe {
+  readonly wipeId: string;
+  readonly storagePath: string;
+  readonly stage: string;
+}
+
+interface LaunchResult {
+  readonly exitCode: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly arguments: ReadonlyArray<string>;
+}
+
+let probeStage = "setup";
+let activeChild: ChildProcess | undefined;
+let activeServer: Server | undefined;
+let activeRoot: string | undefined;
+
+function ensure(condition: unknown, code: string): asserts condition {
+  if (!condition) throw new Error(code);
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const appendBounded = (current: string, chunk: Buffer): string =>
+  (current + chunk.toString("utf8")).slice(-MAX_LOG_BYTES);
+
+const makeSentinels = (): SentinelSet =>
+  Object.freeze(
+    Object.fromEntries(storageKeys.map((key) => [key, randomBytes(32).toString("base64url")])),
+  ) as SentinelSet;
+
+const allSentinels = (
+  sentinels: Readonly<Record<Profile, SentinelSet>>,
+): ReadonlyArray<string> => [
+  ...storageKeys.map((key) => sentinels.personal[key]),
+  ...storageKeys.map((key) => sentinels.work[key]),
+];
+
+const respond = (
+  response: ServerResponse,
+  status: number,
+  contentType: string,
+  body: string,
+  extraHeaders: Readonly<Record<string, string>> = {},
+): void => {
+  response.writeHead(status, {
+    "content-type": contentType,
+    "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store, max-age=0",
+    pragma: "no-cache",
+    expires: "0",
+    "x-content-type-options": "nosniff",
+    ...extraHeaders,
+  });
+  response.end(body);
+};
+
+const decodeProfile = (value: string | null): Profile | undefined =>
+  value === "personal" || value === "work" ? value : undefined;
+
+const startFixtureServer = async (
+  fixture: string,
+  sentinels: Readonly<Record<Profile, SentinelSet>>,
+): Promise<{ readonly server: Server; readonly origin: string }> => {
+  const server = createServer((request, response) => {
+    try {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      if (request.method !== "GET") {
+        respond(response, 405, "text/plain; charset=utf-8", "method not allowed\n");
+        return;
+      }
+      if (url.pathname === "/profile-wipe/fixture.html") {
+        respond(response, 200, "text/html; charset=utf-8", fixture);
+        return;
+      }
+      if (url.pathname === "/profile-wipe/expected") {
+        const profile = decodeProfile(url.searchParams.get("profile"));
+        if (profile === undefined) {
+          respond(response, 404, "application/json; charset=utf-8", "{}\n");
+          return;
+        }
+        respond(
+          response,
+          200,
+          "application/json; charset=utf-8",
+          `${JSON.stringify(sentinels[profile])}\n`,
+        );
+        return;
+      }
+      if (url.pathname === "/profile-wipe/sw.js") {
+        const profile = decodeProfile(url.searchParams.get("profile"));
+        if (profile === undefined) {
+          respond(response, 404, "text/javascript; charset=utf-8", "void 0;\n");
+          return;
+        }
+        const workerBody = `"use strict";
+const sentinel = ${JSON.stringify(sentinels[profile].serviceWorker)};
+self.addEventListener("message", (event) => {
+  if (event.data === "read" && event.ports[0]) event.ports[0].postMessage(sentinel);
+});
+`;
+        respond(response, 200, "text/javascript; charset=utf-8", workerBody, {
+          "service-worker-allowed": "/profile-wipe/",
+        });
+        return;
+      }
+      respond(response, 404, "text/plain; charset=utf-8", "not found\n");
+    } catch {
+      respond(response, 500, "text/plain; charset=utf-8", "fixture failure\n");
+    }
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  ensure(address !== null && typeof address === "object", "fixture_listener_invalid");
+  return { server, origin: `http://127.0.0.1:${address.port}` };
+};
+
+const closeServer = (server: Server): Promise<void> =>
+  new Promise((resolveClose) => server.close(() => resolveClose()));
+
+const buildDedicatedElectronEntry = async (root: string): Promise<{
+  readonly path: string;
+  readonly stdout: string;
+  readonly stderr: string;
+}> => {
+  const outputPath = join(root, "electron-profile-wipe-main.mjs");
+  const build = spawn(
+    process.execPath,
+    [
+      "build",
+      testMainEntryPath,
+      "--target=node",
+      "--format=esm",
+      "--external=electron",
+      `--outfile=${outputPath}`,
+      "--sourcemap=none",
+    ],
+    {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let stdout = "";
+  let stderr = "";
+  build.stdout.on("data", (chunk: Buffer) => {
+    stdout = appendBounded(stdout, chunk);
+  });
+  build.stderr.on("data", (chunk: Buffer) => {
+    stderr = appendBounded(stderr, chunk);
+  });
+  const [exitCode, signal] = (await once(build, "close")) as [
+    number | null,
+    NodeJS.Signals | null,
+  ];
+  ensure(exitCode === 0 && signal === null, "electron_fixture_build_failed");
+  await access(outputPath);
+  return { path: outputPath, stdout, stderr };
+};
+
+const stopChild = async (child: ChildProcess): Promise<void> => {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill("SIGTERM");
+  await Promise.race([
+    once(child, "close"),
+    new Promise((resolveDelay) => setTimeout(resolveDelay, 2_000)),
+  ]);
+  if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+};
+
+const launchElectron = async (options: {
+  readonly phase: "A" | "B" | "C";
+  readonly entryPath: string;
+  readonly origin: string;
+  readonly root: string;
+  readonly userData: string;
+  readonly browserRoot: string;
+  readonly downloads: string;
+  readonly reportPath: string;
+  readonly markerInputPath: string;
+}): Promise<LaunchResult> => {
+  const args = [
+    options.entryPath,
+    `--user-data-dir=${options.userData}`,
+    `--phase=${options.phase}`,
+    `--fixture-origin=${options.origin}`,
+    `--browser-root=${options.browserRoot}`,
+    `--download-path=${options.downloads}`,
+    `--report-path=${options.reportPath}`,
+    `--marker-input-path=${options.markerInputPath}`,
+  ];
+  ensure(
+    !args.some((argument) => /--(?:remote-debugging|inspect|inspect-brk)(?:=|$)/.test(argument)),
+    "debug_authority_enabled",
+  );
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HOME: join(options.root, "home"),
+    VELLUM_BROWSER_DIR: options.browserRoot,
+  };
+  delete env.ELECTRON_RENDERER_URL;
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.NODE_OPTIONS;
+  const child = spawn(electronPath, args, {
+    cwd: repoRoot,
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  activeChild = child;
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout = appendBounded(stdout, chunk);
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr = appendBounded(stderr, chunk);
+  });
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const closed = once(child, "close") as Promise<[number | null, NodeJS.Signals | null]>;
+    const expired = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => reject(new Error("electron_launch_timeout")), LAUNCH_TIMEOUT_MS);
+    });
+    const [exitCode, signal] = await Promise.race([closed, expired]);
+    return { exitCode, signal, stdout, stderr, arguments: args };
+  } catch (error) {
+    await stopChild(child);
+    throw error;
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+    if (activeChild === child) activeChild = undefined;
+  }
+};
+
+const assertExit = (
+  result: LaunchResult,
+  expectedCode: number,
+  phase: string,
+): void => {
+  ensure(result.exitCode === expectedCode && result.signal === null, `${phase}_exit_invalid`);
+};
+
+const readReport = async (
+  path: string,
+  phase: "A" | "B" | "C",
+  expected: Readonly<Record<string, string | number>>,
+): Promise<{ readonly encoded: string; readonly value: Record<string, unknown> }> => {
+  const [metadata, encoded] = await Promise.all([stat(path), readFile(path, "utf8")]);
+  ensure(metadata.isFile() && (metadata.mode & 0o777) === 0o600, `${phase}_report_mode_invalid`);
+  const value = JSON.parse(encoded) as unknown;
+  ensure(isRecord(value) && value.version === 1 && value.phase === phase, `${phase}_report_invalid`);
+  if (value.result === "failed") {
+    ensure(typeof value.failure === "string", `${phase}_child_failed`);
+    throw new Error(`${phase}_child_${value.failure}`);
+  }
+  for (const [key, expectedValue] of Object.entries(expected)) {
+    ensure(value[key] === expectedValue, `${phase}_report_assertion_failed`);
+  }
+  ensure(
+    Object.values(value).every((entry) => typeof entry === "string" || typeof entry === "number"),
+    `${phase}_report_not_enum_only`,
+  );
+  return { encoded, value };
+};
+
+const decodePending = (encoded: string): PendingWipe => {
+  const value = JSON.parse(encoded) as unknown;
+  ensure(isRecord(value) && value.phase === "wipe_pending", "pending_config_invalid");
+  const pending = value.pendingWipe;
+  ensure(isRecord(pending), "pending_config_invalid");
+  ensure(
+    typeof pending.wipeId === "string" &&
+      typeof pending.storagePath === "string" &&
+      isAbsolute(pending.storagePath) &&
+      typeof pending.stage === "string",
+    "pending_config_invalid",
+  );
+  return {
+    wipeId: pending.wipeId,
+    storagePath: pending.storagePath,
+    stage: pending.stage,
+  };
+};
+
+const assertOwnerOnly = async (path: string, kind: "file" | "directory"): Promise<void> => {
+  const metadata = await stat(path);
+  const expectedKind = kind === "file" ? metadata.isFile() : metadata.isDirectory();
+  const ownedByProcess =
+    typeof process.getuid !== "function" || metadata.uid === process.getuid();
+  ensure(expectedKind && ownedByProcess && (metadata.mode & 0o077) === 0, "owner_mode_invalid");
+};
+
+const pathExists = async (path: string): Promise<boolean> => {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return false;
+    throw error;
+  }
+};
+
+const findDiskMarkers = async (root: string): Promise<ReadonlyArray<string>> => {
+  const found: string[] = [];
+  const pending = [root];
+  let entriesSeen = 0;
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    ensure(directory !== undefined, "marker_walk_invalid");
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      entriesSeen += 1;
+      ensure(entriesSeen <= 100_000, "marker_walk_limit");
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) pending.push(path);
+      else if (entry.isFile() && entry.name === DISK_MARKER_NAME) found.push(path);
+    }
+  }
+  return Object.freeze(found.sort());
+};
+
+const assertAbsent = (
+  prohibited: ReadonlyArray<string>,
+  artifacts: ReadonlyArray<readonly [string, string]>,
+): void => {
+  for (const [name, artifact] of artifacts) {
+    ensure(
+      prohibited.every((value) => value.length === 0 || !artifact.includes(value)),
+      `public_artifact_leak_${name}`,
+    );
+  }
+};
+
+const publicLaunchArtifacts = (
+  phase: string,
+  launch: LaunchResult,
+  report: string,
+): ReadonlyArray<readonly [string, string]> => [
+  [`${phase}_stdout`, launch.stdout],
+  [`${phase}_stderr`, launch.stderr],
+  [`${phase}_arguments`, JSON.stringify(launch.arguments)],
+  [`${phase}_report`, report],
+];
+
+const main = async (): Promise<void> => {
+  const sentinels = Object.freeze({
+    personal: makeSentinels(),
+    work: makeSentinels(),
+  });
+  const diskMarkers = Object.freeze({
+    personal: randomBytes(32).toString("base64url"),
+    work: randomBytes(32).toString("base64url"),
+  });
+  const secrets = [...allSentinels(sentinels), diskMarkers.personal, diskMarkers.work];
+  ensure(new Set(secrets).size === secrets.length, "sentinels_not_unique");
+  const root = await mkdtemp(PROBE_TEMP_PREFIX);
+  activeRoot = root;
+  const home = join(root, "home");
+  const userData = join(root, "electron");
+  const browserRoot = join(root, "browser");
+  const downloads = join(root, "downloads");
+  const reports = {
+    A: join(root, "reports", "phase-a.json"),
+    B: join(root, "reports", "phase-b.json"),
+    C: join(root, "reports", "phase-c.json"),
+  } as const;
+  const markerInputPath = join(root, "private", "disk-markers.json");
+  await Promise.all([
+    mkdir(home, { recursive: true, mode: 0o700 }),
+    mkdir(userData, { recursive: true, mode: 0o700 }),
+    mkdir(browserRoot, { recursive: true, mode: 0o700 }),
+    mkdir(downloads, { recursive: true, mode: 0o700 }),
+    mkdir(dirname(markerInputPath), { recursive: true, mode: 0o700 }),
+  ]);
+  await writeFile(markerInputPath, `${JSON.stringify(diskMarkers)}\n`, {
+    encoding: "utf8",
+    flag: "wx",
+    mode: 0o600,
+  });
+  await assertOwnerOnly(markerInputPath, "file");
+
+  const fixture = await readFile(fixturePath, "utf8");
+  const mainSource = await readFile(testMainEntryPath, "utf8");
+  ensure(!mainSource.includes(".markCreated("), "manual_gate_mutation_present");
+  const fixtureServer = await startFixtureServer(fixture, sentinels);
+  activeServer = fixtureServer.server;
+  try {
+    probeStage = "build";
+    const built = await buildDedicatedElectronEntry(root);
+    assertAbsent(secrets, [
+      ["build_stdout", built.stdout],
+      ["build_stderr", built.stderr],
+    ]);
+
+    probeStage = "launch_A";
+    const launchA = await launchElectron({
+      phase: "A",
+      entryPath: built.path,
+      origin: fixtureServer.origin,
+      root,
+      userData,
+      browserRoot,
+      downloads,
+      reportPath: reports.A,
+      markerInputPath,
+    });
+    assertExit(launchA, 0, "phase_A");
+    const reportA = await readReport(reports.A, "A", {
+      fiveBackendsPersonalAutomation: "match",
+      fiveBackendsPersonalUi: "match",
+      fiveBackendsWork: "match",
+      wipeReceipt: "restart_required",
+      personalUi: "quiesced",
+      personalAutomation: "quiesced",
+      personalCapability: "revoked_profile_wipe",
+      workSession: "survived",
+      workCapability: "active",
+      workStorage: "match",
+      diskMarkersBoth: "seeded",
+      personalGate: "quiescing",
+      workGate: "open",
+      pendingStage: "restart_delete_pending",
+      targetMode: "owner_only",
+    });
+    const configPath = join(browserRoot, "config.json");
+    const pendingAEncoded = await readFile(configPath, "utf8");
+    const pending = decodePending(pendingAEncoded);
+    ensure(pending.stage === "restart_delete_pending", "phase_A_journal_stage_invalid");
+    const quarantine = browserProfileQuarantinePath(pending.storagePath, pending.wipeId);
+    ensure(quarantine !== undefined, "quarantine_path_invalid");
+    ensure(await pathExists(pending.storagePath), "phase_A_target_missing");
+    ensure(!(await pathExists(quarantine)), "phase_A_quarantine_premature");
+    await assertOwnerOnly(pending.storagePath, "directory");
+    const targetMarker = join(pending.storagePath, DISK_MARKER_NAME);
+    ensure(
+      (await readFile(targetMarker, "utf8")) === diskMarkers.personal,
+      "phase_A_target_marker_invalid",
+    );
+    await assertOwnerOnly(targetMarker, "file");
+    const markersAfterA = await findDiskMarkers(userData);
+    ensure(markersAfterA.length === 2, "phase_A_marker_count_invalid");
+    const markerValuesAfterA = await Promise.all(
+      markersAfterA.map((path) => readFile(path, "utf8")),
+    );
+    ensure(
+      new Set(markerValuesAfterA).size === 2 &&
+        markerValuesAfterA.includes(diskMarkers.personal) &&
+        markerValuesAfterA.includes(diskMarkers.work),
+      "phase_A_marker_contents_invalid",
+    );
+    await assertOwnerOnly(configPath, "file");
+    assertAbsent(secrets, [["phase_A_pending_config", pendingAEncoded]]);
+    const prohibited = [...secrets, pending.storagePath, quarantine];
+    assertAbsent(prohibited, publicLaunchArtifacts("phase_A", launchA, reportA.encoded));
+
+    probeStage = "launch_B";
+    const launchB = await launchElectron({
+      phase: "B",
+      entryPath: built.path,
+      origin: fixtureServer.origin,
+      root,
+      userData,
+      browserRoot,
+      downloads,
+      reportPath: reports.B,
+      markerInputPath,
+    });
+    assertExit(launchB, PHASE_B_EXIT, "phase_B");
+    const reportB = await readReport(reports.B, "B", {
+      failpoint: "armed_after_quarantine_rename",
+      recovery: "armed",
+      sessionConstruction: "none",
+      sessionControl: "none",
+      capabilityControl: "none",
+      pendingStage: "restart_delete_pending",
+      exit: "from_failpoint",
+    });
+    ensure(!(await pathExists(pending.storagePath)), "phase_B_target_survived");
+    ensure(await pathExists(quarantine), "phase_B_quarantine_missing");
+    await assertOwnerOnly(quarantine, "directory");
+    const quarantinedMarker = join(quarantine, DISK_MARKER_NAME);
+    ensure(
+      (await readFile(quarantinedMarker, "utf8")) === diskMarkers.personal,
+      "phase_B_quarantine_marker_invalid",
+    );
+    await assertOwnerOnly(quarantinedMarker, "file");
+    const pendingBEncoded = await readFile(configPath, "utf8");
+    const pendingB = decodePending(pendingBEncoded);
+    ensure(
+      pendingB.storagePath === pending.storagePath && pendingB.wipeId === pending.wipeId,
+      "phase_B_journal_changed",
+    );
+    assertAbsent(secrets, [["phase_B_pending_config", pendingBEncoded]]);
+    assertAbsent(prohibited, publicLaunchArtifacts("phase_B", launchB, reportB.encoded));
+
+    probeStage = "launch_C";
+    const launchC = await launchElectron({
+      phase: "C",
+      entryPath: built.path,
+      origin: fixtureServer.origin,
+      root,
+      userData,
+      browserRoot,
+      downloads,
+      reportPath: reports.C,
+      markerInputPath,
+    });
+    const reportC = await readReport(reports.C, "C", {
+      startupOrder: "recovery_before_session",
+      firstRecovery: "complete",
+      secondRecovery: "idempotent",
+      sessionConstructionBeforeRecovery: "none",
+      sessionControlBeforeRecovery: "none",
+      capabilityControlBeforeRecovery: "none",
+      recoveredTarget: "absent_before_recreate",
+      recoveredQuarantine: "absent",
+      deletedGate: "observed",
+      recreation: "profile_service",
+      manualGateMutation: "none",
+      recreatedGate: "open",
+      fiveBackendsPersonal: "absent",
+      fiveBackendsWork: "match",
+      personalDiskMarker: "absent",
+      workDiskMarker: "match",
+      finalConfig: "ready_without_journal",
+      browserRootMode: "owner_only",
+      configMode: "owner_only",
+    });
+    assertExit(launchC, 0, "phase_C");
+    ensure(!(await pathExists(quarantine)), "phase_C_quarantine_survived");
+    ensure(
+      !(await pathExists(join(pending.storagePath, DISK_MARKER_NAME))),
+      "phase_C_personal_marker_survived",
+    );
+    const markersAfterC = await findDiskMarkers(userData);
+    ensure(markersAfterC.length === 1, "phase_C_marker_count_invalid");
+    ensure(
+      (await readFile(markersAfterC[0]!, "utf8")) === diskMarkers.work,
+      "phase_C_work_marker_invalid",
+    );
+    await assertOwnerOnly(markersAfterC[0]!, "file");
+    const finalConfigEncoded = await readFile(configPath, "utf8");
+    const finalConfig = JSON.parse(finalConfigEncoded) as unknown;
+    ensure(isRecord(finalConfig) && finalConfig.phase === "ready", "final_config_invalid");
+    ensure(finalConfig.pendingWipe === undefined, "final_config_journal_present");
+    const finalProfiles = finalConfig.profiles;
+    ensure(Array.isArray(finalProfiles), "final_profiles_invalid");
+    ensure(
+      ["personal", "work"].every((profile) =>
+        finalProfiles.some((entry: unknown) => isRecord(entry) && entry.id === profile),
+      ),
+      "final_profiles_missing",
+    );
+    await assertOwnerOnly(browserRoot, "directory");
+    await assertOwnerOnly(configPath, "file");
+    assertAbsent(prohibited, [
+      ...publicLaunchArtifacts("phase_C", launchC, reportC.encoded),
+      ["final_config", finalConfigEncoded],
+    ]);
+
+    const success = JSON.stringify({
+      ok: true,
+      assertions: {
+        threeFreshElectronLaunches: true,
+        fiveBackendsSeededInBothProfiles: true,
+        liveWipeRestartRequired: true,
+        profileWideUiAndAutomationQuiesced: true,
+        profileCapabilityRevoked: true,
+        siblingSessionCapabilityAndStorageSurvived: true,
+        crashAfterDurableQuarantineRename: true,
+        coldRecoveryConstructedNoSession: true,
+        coldRecoveryResumedBeforeActivation: true,
+        coldRecoveryIdempotent: true,
+        recreationUsedProfileService: true,
+        recreatedPersonalProfileBlankAcrossFiveBackends: true,
+        workProfilePreservedAcrossFiveBackends: true,
+        ownerOnlyModes: true,
+        publicArtifactsContainNoSentinelsOrStoragePaths: true,
+      },
+    });
+    assertAbsent(prohibited, [["success_output", success]]);
+    console.log(success);
+  } finally {
+    fixtureServer.server.closeAllConnections();
+    await closeServer(fixtureServer.server);
+    if (activeServer === fixtureServer.server) activeServer = undefined;
+    ensure(root.startsWith(PROBE_TEMP_PREFIX), "unsafe_probe_cleanup_refused");
+    await rm(root, { recursive: true, force: true });
+    if (activeRoot === root) activeRoot = undefined;
+  }
+};
+
+const watchdog = setTimeout(() => {
+  console.error(JSON.stringify({ ok: false, stage: probeStage, error: "probe_timeout" }));
+  void (async () => {
+    if (activeChild !== undefined) await stopChild(activeChild);
+    activeServer?.closeAllConnections();
+    activeServer?.close();
+    if (activeRoot !== undefined && activeRoot.startsWith(PROBE_TEMP_PREFIX)) {
+      await rm(activeRoot, { recursive: true, force: true }).catch(() => undefined);
+    }
+    process.exit(124);
+  })();
+}, PROBE_TIMEOUT_MS);
+watchdog.unref();
+
+try {
+  await main();
+} catch (error: unknown) {
+  const failure =
+    error instanceof Error && /^[A-Za-z0-9_]+$/.test(error.message)
+      ? error.message
+      : "profile_wipe_probe_failed";
+  console.error(JSON.stringify({ ok: false, stage: probeStage, error: failure }));
+  process.exitCode = 2;
+} finally {
+  clearTimeout(watchdog);
+}
