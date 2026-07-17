@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
-import { Ban, Copy, Crosshair, ExternalLink, Link2, Trash2 } from "lucide-react";
-import type { EtherFlag } from "@shared/canvas";
+import {
+  AlertTriangle,
+  Ban,
+  CircleDot,
+  Copy,
+  Crosshair,
+  ExternalLink,
+  Link2,
+  PauseCircle,
+  Pencil,
+  Trash2,
+} from "lucide-react";
+import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { state$, toggleFlagFilter } from "../../lib/state";
@@ -25,11 +36,52 @@ const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: str
   { value: "6", label: "violet", hue: HUE.violet },
 ];
 
-const FLAG_OPTIONS: ReadonlyArray<{ readonly flag: EtherFlag; readonly hue: string }> = [
-  { flag: "blocker", hue: HUE.crimson },
-  { flag: "attention", hue: HUE.amber },
-  { flag: "parked", hue: HUE.violet },
+const FLAG_ICONS: ReadonlyArray<{
+  readonly flag: EtherFlag;
+  readonly hue: string;
+  readonly icon: ReactNode;
+  readonly label: string;
+}> = [
+  { flag: "blocker", hue: HUE.crimson, icon: <Ban size={14} />, label: "blocker" },
+  { flag: "attention", hue: HUE.amber, icon: <AlertTriangle size={14} />, label: "attention" },
+  { flag: "parked", hue: HUE.violet, icon: <PauseCircle size={14} />, label: "parked" },
 ];
+
+/** Square RTS key — icon only, hotkey-feel. */
+function CmdKey({
+  label,
+  title,
+  active,
+  danger,
+  disabled,
+  style,
+  onClick,
+  children,
+}: {
+  readonly label: string;
+  readonly title?: string;
+  readonly active?: boolean;
+  readonly danger?: boolean;
+  readonly disabled?: boolean;
+  readonly style?: React.CSSProperties;
+  readonly onClick?: () => void;
+  readonly children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={`rts-key${active ? " is-active" : ""}${danger ? " is-danger" : ""}`}
+      aria-label={label}
+      aria-pressed={active}
+      title={title ?? label}
+      disabled={disabled}
+      style={style}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
 
 const isTextEditing = (target: EventTarget | null): boolean =>
   target instanceof Element && Boolean(target.closest("input, textarea, [contenteditable='true']"));
@@ -57,56 +109,104 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
     : undefined;
 
   if (multi) {
-    const count = selectedNodeIds.length;
     return (
-      <div className="rts-panel">
-        <div className="rts-panel__label">command</div>
-        <div className="rts-panel__body rts-cmd">
-          <div className="rts-cmd__meta">{count} selected</div>
-          <div className="rts-cmd__row">
-            <button type="button" className="rts-cmd__btn" aria-label="Flag selected as blocker" onClick={() => selectedNodeIds.forEach((id) => toggleFlag(id, "blocker"))}>
-              <Ban size={12} /> flag blocker
-            </button>
-            <button type="button" className="rts-cmd__btn rts-cmd__btn--danger" aria-label="Delete selected" onClick={() => deleteNodes(selectedNodeIds)}>
-              <Trash2 size={12} /> delete
-            </button>
+      <div className="rts-panel rts-panel--cmd">
+        <div className="rts-panel__label">command · multi</div>
+        <div className="rts-panel__body rts-cmd-shell">
+          <div className="rts-cmd-portrait">
+            <div className="rts-cmd__meta">{selectedNodeIds.length} selected</div>
+            <div className="rts-cmd__title">selection</div>
+          </div>
+          <div className="rts-cmd-grid" role="toolbar" aria-label="Multi-select actions">
+            <CmdKey
+              label="Flag blocker"
+              onClick={() => selectedNodeIds.forEach((id) => toggleFlag(id, "blocker"))}
+              style={{ color: HUE.crimson }}
+            >
+              <Ban size={15} />
+            </CmdKey>
+            <CmdKey
+              label="Flag attention"
+              onClick={() => selectedNodeIds.forEach((id) => toggleFlag(id, "attention"))}
+              style={{ color: HUE.amber }}
+            >
+              <AlertTriangle size={15} />
+            </CmdKey>
+            <CmdKey
+              label="Flag parked"
+              onClick={() => selectedNodeIds.forEach((id) => toggleFlag(id, "parked"))}
+              style={{ color: HUE.violet }}
+            >
+              <PauseCircle size={15} />
+            </CmdKey>
+            <CmdKey label="Delete selection" danger onClick={() => deleteNodes(selectedNodeIds)}>
+              <Trash2 size={15} />
+            </CmdKey>
           </div>
         </div>
       </div>
     );
   }
 
-  // Region selected → tactical rollcall lives here (middle stays regions-only).
   if (node?.type === "group" && regionRollup) {
-    const mark = signalMark(regionRollup.severity);
+    return <RegionCommandCard node={node} regionRollup={regionRollup} />;
+  }
+
+  if (!node) {
     return (
-      <div className="rts-panel">
-        <div className="rts-panel__label">
-          command · region
-          <span className="rts-signal" style={{ color: mark.hue }} title={mark.label}>
-            {mark.symbol} {mark.label}
-          </span>
+      <div className="rts-panel rts-panel--cmd">
+        <div className="rts-panel__label">command</div>
+        <div className="rts-panel__body">
+          <div className="rts-quiet rts-quiet--compact">No selection · click a node or tap 1–9</div>
         </div>
-        <div className="rts-panel__body rts-cmd">
+      </div>
+    );
+  }
+
+  return <NodeCommandCard nodeId={node.id} />;
+}
+
+const ROLLCALL_VISIBLE = 4;
+
+function RegionCommandCard({
+  node,
+  regionRollup,
+}: {
+  readonly node: CanvasNode;
+  readonly regionRollup: RegionRollup;
+}) {
+  const mark = signalMark(regionRollup.severity);
+  const members = regionRollup.members;
+  const visible = members.slice(0, ROLLCALL_VISIBLE);
+  const extra = members.length - visible.length;
+
+  return (
+    <div className="rts-panel rts-panel--cmd">
+      <div className="rts-panel__label">
+        command · region
+        <span className="rts-signal" style={{ color: mark.hue }} title={mark.label}>
+          {mark.symbol} {mark.label}
+        </span>
+      </div>
+      <div className="rts-panel__body rts-cmd-shell">
+        <div className="rts-cmd-portrait">
           <div className="rts-cmd__title" title={regionRollup.label}>{regionRollup.label}</div>
           <div className="rts-cmd__meta">
-            {regionRollup.counts.total} ·{" "}
-            {regionRollup.counts.blocked > 0 ? <span style={{ color: HUE.crimson }}>{regionRollup.counts.blocked} blocked </span> : null}
-            {regionRollup.counts.attention > 0 ? <span style={{ color: HUE.amber }}>{regionRollup.counts.attention} attn </span> : null}
-            {regionRollup.counts.working > 0 ? <span style={{ color: HUE.cyan }}>{regionRollup.counts.working} working</span> : null}
+            {regionRollup.counts.total}
+            {regionRollup.counts.blocked > 0 ? <span style={{ color: HUE.crimson }}> · {regionRollup.counts.blocked}b</span> : null}
+            {regionRollup.counts.attention > 0 ? <span style={{ color: HUE.amber }}> · {regionRollup.counts.attention}a</span> : null}
+            {regionRollup.counts.working > 0 ? <span style={{ color: HUE.cyan }}> · {regionRollup.counts.working}w</span> : null}
           </div>
-          {regionRollup.members.length === 0 ? (
-            <div className="rts-quiet">Empty region — drop nodes inside its bounds.</div>
-          ) : (
-            <div className="rts-rollcall">
-              {regionRollup.members.map((member) => {
+          {members.length > 0 ? (
+            <div className="rts-rollcall-strip" aria-label="Region members">
+              {visible.map((member) => {
                 const m = signalMarkForMember(member);
                 return (
                   <button
                     key={member.nodeId}
                     type="button"
-                    className="rts-rollcall__row"
-                    title={m.label}
+                    className="rts-rollcall-pill"
+                    title={`${member.label} · ${m.label}`}
                     aria-label={`${member.label}, ${m.label}`}
                     onClick={() => {
                       state$.selectedNodeId.set(member.nodeId);
@@ -115,37 +215,31 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
                       state$.focusNodeId.set(member.nodeId);
                     }}
                   >
-                    <span className="rts-signal-mark" style={{ color: m.hue }} aria-hidden>{m.symbol}</span>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.label}</span>
-                    <span className="rts-rollcall__kind">{member.kind}</span>
+                    <span style={{ color: m.hue }} aria-hidden>{m.symbol}</span>
+                    <span className="rts-rollcall-pill__label">{member.label}</span>
                   </button>
                 );
               })}
+              {extra > 0 ? <span className="rts-rollcall-more">+{extra}</span> : null}
             </div>
+          ) : (
+            <div className="rts-quiet rts-quiet--compact">empty region</div>
           )}
-          <div className="rts-cmd__row">
-            <button type="button" className="rts-cmd__btn" onClick={() => state$.focusNodeId.set(node.id)}>
-              <Crosshair size={12} /> focus
-            </button>
-            <button type="button" className="rts-cmd__btn rts-cmd__btn--danger" onClick={() => deleteNode(node.id)}>
-              <Trash2 size={12} /> delete region
-            </button>
-          </div>
+        </div>
+        <div className="rts-cmd-grid" role="toolbar" aria-label="Region actions">
+          <CmdKey label="Focus region" onClick={() => state$.focusNodeId.set(node.id)}>
+            <Crosshair size={15} />
+          </CmdKey>
+          <CmdKey label="Edit region name" onClick={() => state$.editNodeId.set(node.id)}>
+            <Pencil size={15} />
+          </CmdKey>
+          <CmdKey label="Delete region" danger onClick={() => deleteNode(node.id)}>
+            <Trash2 size={15} />
+          </CmdKey>
         </div>
       </div>
-    );
-  }
-
-  if (!node) {
-    return (
-      <div className="rts-panel">
-        <div className="rts-panel__label">command</div>
-        <div className="rts-panel__body"><div className="rts-quiet">No selection — click a node or tap 1–9 for a region.</div></div>
-      </div>
-    );
-  }
-
-  return <NodeCommandCard nodeId={node.id} />;
+    </div>
+  );
 }
 
 function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
@@ -166,14 +260,17 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
 
   if (!node) {
     return (
-      <div className="rts-panel">
+      <div className="rts-panel rts-panel--cmd">
         <div className="rts-panel__label">command</div>
-        <div className="rts-panel__body"><div className="rts-quiet">No selection — click a node or tap 1–9 for a region.</div></div>
+        <div className="rts-panel__body">
+          <div className="rts-quiet rts-quiet--compact">No selection · click a node or tap 1–9</div>
+        </div>
       </div>
     );
   }
 
   const flags = node.ether?.flags ?? [];
+  const isLink = node.type === "link";
 
   const copyReference = async (): Promise<void> => {
     const request = copyRequest.current + 1;
@@ -208,88 +305,103 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   };
 
   return (
-    <div className={`rts-panel${connectOpen ? " rts-panel--expanded" : ""}`}>
+    <div className="rts-panel rts-panel--cmd">
       <div className="rts-panel__label">command</div>
-      <div className="rts-panel__body rts-cmd">
-        <div>
+      <div className="rts-panel__body rts-cmd-shell">
+        {/* Portrait column — identity + accent + flags */}
+        <div className="rts-cmd-portrait">
           <div className="rts-cmd__meta">{nodeTypeLabel(node)}</div>
           <div className="rts-cmd__title" title={nodeTitle(node)}>{nodeTitle(node)}</div>
-        </div>
-        <div className="rts-cmd__row" aria-label="Accent color">
-          <button
-            type="button"
-            className={`rts-cmd__btn${!node.color ? " is-active" : ""}`}
-            title="default accent"
-            aria-label="Use default accent"
-            aria-pressed={!node.color}
-            onClick={() => setNodeColor(node.id, undefined)}
-          >
-            <span className="rts-cmd__swatch" style={{ background: HUE.amber }} />
-          </button>
-          {COLOR_OPTIONS.map(({ value, label, hue }) => (
+          <div className="rts-cmd-accents" aria-label="Accent color">
             <button
-              key={value}
               type="button"
-              className={`rts-cmd__btn${node.color === value ? " is-active" : ""}`}
-              title={`${label} accent`}
-              aria-label={`Set ${label} accent`}
-              aria-pressed={node.color === value}
-              style={{ color: hue }}
-              onClick={() => setNodeColor(node.id, value)}
+              className={`rts-swatch${!node.color ? " is-active" : ""}`}
+              title="default accent"
+              aria-label="Use default accent"
+              aria-pressed={!node.color}
+              onClick={() => setNodeColor(node.id, undefined)}
             >
-              <span className="rts-cmd__swatch" style={{ background: hue }} />
+              <span style={{ background: HUE.amber }} />
             </button>
-          ))}
-        </div>
-        <div className="rts-cmd__row" aria-label="Flags">
-          {FLAG_OPTIONS.map(({ flag, hue }) => {
-            const active = flags.includes(flag);
-            return (
+            {COLOR_OPTIONS.map(({ value, label, hue }) => (
               <button
-                key={flag}
+                key={value}
                 type="button"
-                className={`rts-cmd__btn${active ? " is-active" : ""}`}
-                style={{ color: active ? hue : undefined }}
-                aria-pressed={active}
-                onClick={() => toggleFlag(node.id, flag)}
+                className={`rts-swatch${node.color === value ? " is-active" : ""}`}
+                title={`${label} accent`}
+                aria-label={`Set ${label} accent`}
+                aria-pressed={node.color === value}
+                onClick={() => setNodeColor(node.id, value)}
               >
-                {flag}
+                <span style={{ background: hue }} />
               </button>
-            );
-          })}
+            ))}
+          </div>
+          <div className="rts-cmd-flags" aria-label="Flags">
+            {FLAG_ICONS.map(({ flag, hue, icon, label }) => {
+              const active = flags.includes(flag);
+              return (
+                <CmdKey
+                  key={flag}
+                  label={active ? `Clear ${label}` : `Flag ${label}`}
+                  active={active}
+                  style={{ color: active ? hue : undefined }}
+                  onClick={() => toggleFlag(node.id, flag)}
+                >
+                  {icon}
+                </CmdKey>
+              );
+            })}
+          </div>
         </div>
-        <div className="rts-cmd__row">
-          <button type="button" className="rts-cmd__btn" onClick={() => state$.focusNodeId.set(node.id)}>
-            <Crosshair size={12} /> focus
-          </button>
-          <button
-            type="button"
-            className="rts-cmd__btn"
-            aria-live="polite"
-            title={copyDetail || "copy stable node reference"}
-            onClick={() => void copyReference()}
-          >
-            <Copy size={12} /> {copyStatus === "copied" ? "copied" : copyStatus === "failed" ? "copy failed" : "copy ref"}
-          </button>
-          {node.type === "link" ? (
-            <button type="button" className="rts-cmd__btn" onClick={() => window.open(node.url, "_blank")}>
-              <ExternalLink size={12} /> open
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className={`rts-cmd__btn${connectOpen ? " is-active" : ""}`}
-            aria-pressed={connectOpen}
-            title="Connect this node to another"
+
+        {/* Command grid — SC2-style square keys */}
+        <div className="rts-cmd-grid" role="toolbar" aria-label="Node actions">
+          <CmdKey label="Focus" onClick={() => state$.focusNodeId.set(node.id)}>
+            <Crosshair size={15} />
+          </CmdKey>
+          <CmdKey label="Edit" onClick={() => state$.editNodeId.set(node.id)}>
+            <Pencil size={15} />
+          </CmdKey>
+          <CmdKey
+            label={connectOpen ? "Close connect" : "Connect"}
+            active={connectOpen}
             onClick={() => setConnectOpen((open) => !open)}
           >
-            <Link2 size={12} /> connect
-          </button>
-          <button type="button" className="rts-cmd__btn rts-cmd__btn--danger" onClick={() => deleteNode(node.id)}>
-            <Trash2 size={12} /> delete
-          </button>
+            <Link2 size={15} />
+          </CmdKey>
+          <CmdKey
+            label={copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy reference"}
+            title={copyDetail || "copy stable node reference"}
+            active={copyStatus === "copied"}
+            onClick={() => void copyReference()}
+          >
+            <Copy size={15} />
+          </CmdKey>
+          {isLink ? (
+            <CmdKey label="Open link" onClick={() => window.open(node.url, "_blank")}>
+              <ExternalLink size={15} />
+            </CmdKey>
+          ) : (
+            <CmdKey label="Select only this node" onClick={() => {
+              state$.selectedNodeId.set(node.id);
+              state$.selectedNodeIds.set([node.id]);
+              state$.selectedEdgeId.set("");
+            }}>
+              <CircleDot size={15} />
+            </CmdKey>
+          )}
+          <CmdKey label="Delete" danger onClick={() => deleteNode(node.id)}>
+            <Trash2 size={15} />
+          </CmdKey>
         </div>
-        <ConnectEditor node={node} doc={doc} open={connectOpen} onOpenChange={setConnectOpen} />
+
+        {/* Connect pops above the panel — never grows the bar or scrolls it. */}
+        {connectOpen ? (
+          <div className="rts-cmd-pop">
+            <ConnectEditor node={node} doc={doc} open={connectOpen} onOpenChange={setConnectOpen} />
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -414,7 +526,7 @@ function MinimapChrome({ children }: { readonly children: ReactNode }) {
   const flagFilter = use$(state$.flagFilter);
   const doc = use$(state$.doc);
   const nodes = doc.nodes.filter((node) => node.type !== "group");
-  const counts = FLAG_OPTIONS.reduce((acc, { flag }) => {
+  const counts = FLAG_ICONS.reduce((acc, { flag }) => {
     acc[flag] = nodes.filter((node) => node.ether?.flags?.includes(flag)).length;
     return acc;
   }, { blocker: 0, attention: 0, parked: 0 } as Record<EtherFlag, number>);
@@ -423,7 +535,7 @@ function MinimapChrome({ children }: { readonly children: ReactNode }) {
     <div className="rts-minimap-wrap">
       {children}
       <div className="rts-layer-toggles" aria-label="Flag layer toggles">
-        {FLAG_OPTIONS.map(({ flag, hue }) =>
+        {FLAG_ICONS.map(({ flag, hue, label }) =>
           counts[flag] > 0 ? (
             <button
               key={flag}
@@ -433,7 +545,7 @@ function MinimapChrome({ children }: { readonly children: ReactNode }) {
               aria-pressed={flagFilter === flag}
               onClick={() => toggleFlagFilter(flag)}
             >
-              {counts[flag]} {flag}
+              {counts[flag]} {label}
             </button>
           ) : null,
         )}

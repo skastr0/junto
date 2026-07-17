@@ -12,7 +12,7 @@
   width: 100%;
   z-index: 25;
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.4fr) minmax(200px, 0.9fr);
+  grid-template-columns: minmax(240px, 1.05fr) minmax(220px, 1.35fr) minmax(200px, 0.9fr);
   gap: 8px;
   padding: 8px 10px 10px;
   pointer-events: none;
@@ -26,31 +26,50 @@
 .rts-panel {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-height: 112px;
-  max-height: 148px;
+  gap: 4px;
+  height: 132px;
+  max-height: 132px;
   border: 1px solid rgba(237, 230, 218, 0.1);
   border-radius: 8px;
   background: rgba(12, 11, 10, 0.88);
   backdrop-filter: blur(12px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  overflow: hidden; /* never scroll the bar panels */
+}
+
+/* Command card: fixed height, no scroll; connect pops above. */
+.rts-panel--cmd {
+  position: relative;
+  overflow: visible;
+}
+
+.rts-panel--cmd .rts-panel__body {
   overflow: hidden;
 }
 
-/* Connect picker needs room; expand only while open. */
-.rts-panel--expanded {
-  max-height: 280px;
+.rts-cmd-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 40;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(237, 230, 218, 0.14);
+  background: rgba(12, 11, 10, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  max-height: 220px;
+  overflow: auto;
 }
 
-.rts-panel .inspector-connect {
-  margin-top: 2px;
-  padding: 6px;
-  border-radius: 6px;
-  border: 1px solid rgba(237, 230, 218, 0.1);
-  background: rgba(255, 255, 255, 0.03);
+.rts-cmd-pop .inspector-connect {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
-.rts-panel .inspector-connect label {
+.rts-cmd-pop .inspector-connect label {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -61,8 +80,8 @@
   color: rgba(143, 163, 176, 0.9);
 }
 
-.rts-panel .inspector-connect input,
-.rts-panel .inspector-connect select {
+.rts-cmd-pop .inspector-connect input,
+.rts-cmd-pop .inspector-connect select {
   width: 100%;
   padding: 4px 6px;
   border-radius: 4px;
@@ -74,7 +93,7 @@
   letter-spacing: normal;
 }
 
-.rts-panel .inspector-connect button {
+.rts-cmd-pop .inspector-connect button {
   width: 100%;
   padding: 5px 7px;
   border-radius: 4px;
@@ -87,13 +106,13 @@
   cursor: pointer;
 }
 
-.rts-panel .inspector-connect button:disabled {
+.rts-cmd-pop .inspector-connect button:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
 
-.rts-panel .inspector-connect__empty,
-.rts-panel .inspector-detail {
+.rts-cmd-pop .inspector-connect__empty,
+.rts-cmd-pop .inspector-detail {
   font-size: 10px;
   color: rgba(138, 131, 120, 0.9);
   margin-bottom: 6px;
@@ -116,8 +135,8 @@
 .rts-panel__body {
   flex: 1;
   min-height: 0;
-  padding: 4px 8px 8px;
-  overflow: auto;
+  padding: 2px 8px 8px;
+  overflow: hidden;
 }
 
 .rts-quiet {
@@ -222,99 +241,187 @@
   color: #ede6da;
 }
 
-.rts-rollcall {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.rts-rollcall__row {
+/* Command shell: SC2-style portrait + key grid, fills fixed panel, no scroll. */
+.rts-cmd-shell {
   display: grid;
-  grid-template-columns: 8px 1fr auto;
+  grid-template-columns: minmax(0, 1.15fr) minmax(96px, 0.95fr);
   gap: 8px;
-  align-items: center;
-  width: 100%;
-  padding: 4px 6px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: #ede6da;
-  font-size: 11px;
-  text-align: left;
-  cursor: pointer;
+  height: 100%;
+  min-height: 0;
+  align-items: stretch;
 }
 
-.rts-rollcall__row:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.rts-rollcall__kind {
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(143, 163, 176, 0.9);
-}
-
-.rts-cmd {
+.rts-cmd-portrait {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .rts-cmd__title {
   font-size: 12px;
+  font-weight: 600;
   color: #ede6da;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.rts-cmd__meta {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(143, 163, 176, 0.9);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.rts-cmd__meta {
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(143, 163, 176, 0.9);
+.rts-quiet--compact {
+  padding: 6px 2px;
+  font-size: 10px;
 }
 
-.rts-cmd__row {
+/* Accent swatches — tight icon row */
+.rts-cmd-accents {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 3px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.rts-swatch {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(237, 230, 218, 0.18);
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.rts-swatch span {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: block;
+}
+
+.rts-swatch.is-active {
+  border-color: rgba(237, 230, 218, 0.7);
+  box-shadow: 0 0 0 1px rgba(237, 230, 218, 0.25);
+}
+
+.rts-swatch:hover {
+  border-color: rgba(237, 230, 218, 0.45);
+}
+
+/* Flag keys under portrait */
+.rts-cmd-flags {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  margin-top: auto;
+}
+
+/* Command grid — square RTS keys */
+.rts-cmd-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 3px;
+  min-height: 0;
+  align-content: stretch;
+}
+
+.rts-key {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  aspect-ratio: 1;
+  max-height: 100%;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid rgba(237, 230, 218, 0.12);
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(237, 230, 218, 0.88);
+  cursor: pointer;
+  transition: border-color 0.1s ease, background 0.1s ease, color 0.1s ease;
+}
+
+.rts-key:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(237, 230, 218, 0.28);
+  color: #ede6da;
+}
+
+.rts-key.is-active {
+  border-color: currentColor;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.rts-key.is-danger:hover:not(:disabled) {
+  color: #e5484d;
+  border-color: rgba(229, 72, 77, 0.5);
+  background: rgba(229, 72, 77, 0.1);
+}
+
+.rts-key:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Region member strip — max N pills, no vertical scroll */
+.rts-rollcall-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+  max-height: 44px;
+  overflow: hidden;
 }
 
-.rts-cmd__btn {
+.rts-rollcall-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 7px;
+  gap: 3px;
+  max-width: 88px;
+  padding: 2px 5px;
   border-radius: 4px;
-  border: 1px solid rgba(237, 230, 218, 0.12);
+  border: 1px solid rgba(237, 230, 218, 0.1);
   background: rgba(255, 255, 255, 0.03);
-  color: rgba(237, 230, 218, 0.88);
-  font-size: 10px;
+  color: #ede6da;
+  font-size: 9px;
   cursor: pointer;
 }
 
-.rts-cmd__btn:hover {
+.rts-rollcall-pill:hover {
   background: rgba(255, 255, 255, 0.07);
 }
 
-.rts-cmd__btn.is-active {
-  border-color: currentColor;
-  background: rgba(255, 255, 255, 0.08);
+.rts-rollcall-pill__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.rts-cmd__btn--danger:hover {
-  color: #e5484d;
-  border-color: rgba(229, 72, 77, 0.45);
+.rts-rollcall-more {
+  font-size: 9px;
+  color: rgba(143, 163, 176, 0.9);
+  align-self: center;
+  padding: 0 2px;
 }
 
-.rts-cmd__swatch {
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(0, 0, 0, 0.35);
+/* Regions/minimap panels still clip; only command pops above. */
+.rts-panel:not(.rts-panel--cmd) .rts-panel__body {
+  overflow: hidden;
 }
 
 .rts-right {
