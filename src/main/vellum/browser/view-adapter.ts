@@ -1,4 +1,4 @@
-import { BrowserWindow, WebContentsView } from "electron";
+import { BrowserWindow, session, WebContentsView } from "electron";
 import {
   BROWSER_MAX_EVAL_CODE_BYTES,
   BROWSER_MAX_EVAL_RESULT_BYTES,
@@ -8,6 +8,7 @@ import {
 } from "@shared/browser-limits";
 import type { BrowserSurfaceBounds } from "@shared/ipc";
 import type { BrowserViewAdapter, BrowserViewHandle } from "./sessions";
+import { hardenBrowserPartition, installBrowserWebPolicy } from "./web-policy";
 
 // The only file that touches Electron for browser sessions. Views are parented
 // under the main BrowserWindow.contentView (native layer, above the renderer)
@@ -324,19 +325,46 @@ export const buildBoundedEvalScript = (source: string): string => {
 };
 
 export const electronViewAdapter: BrowserViewAdapter = (partition, events) => {
+  const browserPartition = session.fromPartition(partition);
+  hardenBrowserPartition(browserPartition);
   const view = new WebContentsView({
     webPreferences: {
-      partition,
+      session: browserPartition,
       // Page content is untrusted web — fully sandboxed, no preload, no node.
       sandbox: true,
       nodeIntegration: false,
+      nodeIntegrationInSubFrames: false,
+      nodeIntegrationInWorker: false,
       contextIsolation: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
+      experimentalFeatures: false,
+      navigateOnDragDrop: false,
+      safeDialogs: true,
     },
   });
 
   let expectedNavigation: { readonly url: string; readonly sessionId: string } | undefined;
   let activeNavigation: { readonly url: string; readonly sessionId: string } | undefined;
   let currentSessionId: string | undefined;
+  let releaseWebPolicy: () => void;
+  try {
+    releaseWebPolicy = installBrowserWebPolicy(view.webContents, {
+      onBlockedTopLevelNavigation: (reason) => {
+        const active = activeNavigation;
+        if (active === undefined) return;
+        expectedNavigation = undefined;
+        activeNavigation = undefined;
+        currentSessionId = active.sessionId;
+        events.onLoadFail(active.sessionId, `navigation blocked by browser policy (${reason})`);
+      },
+    });
+  } catch (error) {
+    view.webContents.close();
+    throw error;
+  }
+  view.webContents.once("destroyed", releaseWebPolicy);
 
   view.webContents.on("did-start-navigation", (details) => {
     if (!details.isMainFrame) return;

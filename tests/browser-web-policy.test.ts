@@ -1,0 +1,311 @@
+import { describe, expect, it, vi } from "vitest";
+import type {
+  OnBeforeRequestListenerDetails,
+  Session,
+  WebContents,
+} from "electron";
+import { BROWSER_MAX_PENDING_DNS_HOSTS } from "../src/shared/browser-limits";
+import {
+  installBrowserWebPolicy,
+  isManagedBrowserWebContents,
+} from "../src/main/vellum/browser/web-policy";
+
+type Listener = (...args: ReadonlyArray<unknown>) => void;
+type BeforeRequest = (
+  details: OnBeforeRequestListenerDetails,
+  callback: (response: { readonly cancel?: boolean }) => void,
+) => void;
+
+const event = () => ({ preventDefault: vi.fn() });
+
+class FakeSession {
+  readonly listeners = new Map<string, Listener[]>();
+  readonly webRequest = {
+    handler: null as BeforeRequest | null,
+    calls: [] as ReadonlyArray<BeforeRequest | null>,
+    onBeforeRequest: (handler: BeforeRequest | null): void => {
+      this.webRequest.handler = handler;
+      this.webRequest.calls = [...this.webRequest.calls, handler];
+    },
+  };
+  permissionCheck: ((...args: ReadonlyArray<unknown>) => boolean) | null = null;
+  permissionRequest:
+    | ((webContents: unknown, permission: unknown, callback: (allowed: boolean) => void) => void)
+    | null = null;
+  devicePermission: ((...args: ReadonlyArray<unknown>) => boolean) | null = null;
+  displayMedia:
+    | ((request: unknown, callback: (streams: Record<string, never>) => void) => void)
+    | null = null;
+  readonly resolveHost = vi.fn(async (_hostname: string) => ({
+    endpoints: [{ address: "93.184.216.34", family: "ipv4" as const }],
+  }));
+
+  setPermissionCheckHandler(handler: FakeSession["permissionCheck"]): void {
+    this.permissionCheck = handler;
+  }
+  setPermissionRequestHandler(handler: FakeSession["permissionRequest"]): void {
+    this.permissionRequest = handler;
+  }
+  setDevicePermissionHandler(handler: FakeSession["devicePermission"]): void {
+    this.devicePermission = handler;
+  }
+  setDisplayMediaRequestHandler(handler: FakeSession["displayMedia"]): void {
+    this.displayMedia = handler;
+  }
+  on(name: string, listener: Listener): this {
+    this.listeners.set(name, [...(this.listeners.get(name) ?? []), listener]);
+    return this;
+  }
+  off(name: string, listener: Listener): this {
+    this.listeners.set(
+      name,
+      (this.listeners.get(name) ?? []).filter((candidate) => candidate !== listener),
+    );
+    return this;
+  }
+  emit(name: string, ...args: ReadonlyArray<unknown>): void {
+    for (const listener of this.listeners.get(name) ?? []) listener(...args);
+  }
+}
+
+class FakeWebContents {
+  readonly listeners = new Map<string, Listener[]>();
+  windowOpenHandler: ((details: unknown) => { readonly action: string }) | undefined;
+  webRtcPolicy: string | undefined;
+
+  constructor(readonly session: FakeSession) {}
+
+  setWindowOpenHandler(handler: (details: unknown) => { readonly action: string }): void {
+    this.windowOpenHandler = handler;
+  }
+  setWebRTCIPHandlingPolicy(policy: string): void {
+    this.webRtcPolicy = policy;
+  }
+  on(name: string, listener: Listener): this {
+    this.listeners.set(name, [...(this.listeners.get(name) ?? []), listener]);
+    return this;
+  }
+  off(name: string, listener: Listener): this {
+    this.listeners.set(
+      name,
+      (this.listeners.get(name) ?? []).filter((candidate) => candidate !== listener),
+    );
+    return this;
+  }
+  emit(name: string, ...args: ReadonlyArray<unknown>): void {
+    for (const listener of this.listeners.get(name) ?? []) listener(...args);
+  }
+}
+
+const install = (
+  session = new FakeSession(),
+  events: Parameters<typeof installBrowserWebPolicy>[1] = {},
+) => {
+  const contents = new FakeWebContents(session);
+  const release = installBrowserWebPolicy(contents as unknown as WebContents, events);
+  return { session, contents, release };
+};
+
+const request = async (
+  session: FakeSession,
+  url: string,
+  resourceType: OnBeforeRequestListenerDetails["resourceType"] = "mainFrame",
+): Promise<boolean> => {
+  const handler = session.webRequest.handler;
+  if (handler === null) throw new Error("request policy missing");
+  return new Promise((resolve) => {
+    handler(
+      { url, resourceType } as OnBeforeRequestListenerDetails,
+      ({ cancel }) => resolve(cancel === true),
+    );
+  });
+};
+
+describe("browser partition policy", () => {
+  it("denies every ambient permission and unmanaged popup by default", () => {
+    const { session, contents } = install();
+    expect(session.permissionCheck?.()).toBe(false);
+    expect(session.devicePermission?.()).toBe(false);
+    const permissionResult = vi.fn();
+    session.permissionRequest?.(contents, "media", permissionResult);
+    expect(permissionResult).toHaveBeenCalledWith(false);
+    const displayResult = vi.fn();
+    session.displayMedia?.({}, displayResult);
+    expect(displayResult).toHaveBeenCalledWith({});
+    expect(contents.windowOpenHandler?.({})).toEqual({ action: "deny" });
+    expect(contents.webRtcPolicy).toBe("default_public_interface_only");
+  });
+
+  it("admits only public resolved network targets", async () => {
+    const { session } = install();
+    expect(await request(session, "https://1.1.1.1/")).toBe(false);
+    expect(await request(session, "https://example.com/")).toBe(false);
+    expect(session.resolveHost).toHaveBeenCalledWith("example.com", {
+      cacheUsage: "allowed",
+      secureDnsPolicy: "allow",
+    });
+    expect(await request(session, "wss://example.com/socket", "webSocket")).toBe(false);
+
+    expect(await request(session, "http://127.0.0.1/")).toBe(true);
+    expect(await request(session, "http://169.254.169.254/")).toBe(true);
+    expect(await request(session, "https://user:secret@example.com/")).toBe(true);
+    expect(await request(session, "file:///etc/passwd")).toBe(true);
+    expect(await request(session, "custom://escape", "other")).toBe(true);
+    expect(await request(session, "blob:https://example.com/id", "mainFrame")).toBe(true);
+    expect(await request(session, "blob:https://example.com/id", "image")).toBe(false);
+  });
+
+  it("fails closed on empty, mixed-private, invalid, and failed DNS results", async () => {
+    const { session } = install();
+    session.resolveHost
+      .mockResolvedValueOnce({ endpoints: [] })
+      .mockResolvedValueOnce({
+        endpoints: [
+          { address: "93.184.216.34", family: "ipv4" as const },
+          { address: "10.0.0.1", family: "ipv4" as const },
+        ],
+      })
+      .mockResolvedValueOnce({
+        endpoints: [{ address: "not-an-ip", family: "ipv4" as const }],
+      })
+      .mockRejectedValueOnce(new Error("dns down"));
+
+    expect(await request(session, "https://empty.example.net/")).toBe(true);
+    expect(await request(session, "https://mixed.example.net/")).toBe(true);
+    expect(await request(session, "https://invalid.example.net/")).toBe(true);
+    expect(await request(session, "https://failed.example.net/")).toBe(true);
+  });
+
+  it("deduplicates an in-flight hostname and caps unique DNS work", async () => {
+    const { session } = install();
+    const settlers = new Map<
+      string,
+      (value: { endpoints: Array<{ address: string; family: "ipv4" }> }) => void
+    >();
+    session.resolveHost.mockImplementation(
+      (hostname) =>
+        new Promise((resolve) => {
+          settlers.set(hostname, resolve);
+        }),
+    );
+
+    const first = request(session, "https://same.example.net/a", "image");
+    const second = request(session, "https://same.example.net/b", "script");
+    expect(session.resolveHost).toHaveBeenCalledTimes(1);
+
+    const distinct = Array.from({ length: BROWSER_MAX_PENDING_DNS_HOSTS - 1 }, (_, index) =>
+      request(session, `https://host-${index}.example.net/`, "image"),
+    );
+    const excess = request(session, "https://excess.example.net/", "image");
+    expect(await excess).toBe(true);
+
+    for (const settle of settlers.values()) {
+      settle({ endpoints: [{ address: "93.184.216.34", family: "ipv4" }] });
+    }
+    expect(await first).toBe(false);
+    expect(await second).toBe(false);
+    expect(await Promise.all(distinct)).toEqual(
+      Array.from({ length: BROWSER_MAX_PENDING_DNS_HOSTS - 1 }, () => false),
+    );
+  });
+
+  it("cancels downloads and every device selection surface", () => {
+    const { session, contents } = install();
+    const download = event();
+    session.emit("will-download", download);
+    expect(download.preventDefault).toHaveBeenCalledOnce();
+
+    const fileSystem = event();
+    const fileSystemResult = vi.fn();
+    session.emit("file-system-access-restricted", fileSystem, {}, fileSystemResult);
+    expect(fileSystem.preventDefault).toHaveBeenCalledOnce();
+    expect(fileSystemResult).toHaveBeenCalledWith("deny");
+
+    const hid = event();
+    const hidResult = vi.fn();
+    session.emit("select-hid-device", hid, {}, hidResult);
+    expect(hid.preventDefault).toHaveBeenCalledOnce();
+    expect(hidResult).toHaveBeenCalledWith();
+
+    const serial = event();
+    const serialResult = vi.fn();
+    session.emit("select-serial-port", serial, [], contents, serialResult);
+    expect(serial.preventDefault).toHaveBeenCalledOnce();
+    expect(serialResult).toHaveBeenCalledWith("");
+
+    const usb = event();
+    const usbResult = vi.fn();
+    session.emit("select-usb-device", usb, {}, usbResult);
+    expect(usb.preventDefault).toHaveBeenCalledOnce();
+    expect(usbResult).toHaveBeenCalledWith();
+
+    const bluetooth = event();
+    const bluetoothResult = vi.fn();
+    contents.emit("select-bluetooth-device", bluetooth, [], bluetoothResult);
+    expect(bluetooth.preventDefault).toHaveBeenCalledOnce();
+    expect(bluetoothResult).toHaveBeenCalledWith("");
+  });
+
+  it("blocks privileged frame navigation, webviews, page resize, and unload traps", () => {
+    const blockedTopLevel = vi.fn();
+    const { contents } = install(new FakeSession(), {
+      onBlockedTopLevelNavigation: blockedTopLevel,
+    });
+    const publicNavigation = {
+      ...event(),
+      url: "https://example.com/",
+      isMainFrame: true,
+    };
+    contents.emit("will-frame-navigate", publicNavigation);
+    expect(publicNavigation.preventDefault).not.toHaveBeenCalled();
+
+    for (const url of ["file:///etc/passwd", "http://127.0.0.1/", "custom://escape"]) {
+      const navigation = { ...event(), url, isMainFrame: true };
+      contents.emit("will-frame-navigate", navigation);
+      expect(navigation.preventDefault).toHaveBeenCalledOnce();
+    }
+    expect(blockedTopLevel).toHaveBeenCalledTimes(3);
+
+    const redirect = {
+      ...event(),
+      url: "http://169.254.169.254/latest/meta-data",
+      isMainFrame: true,
+    };
+    contents.emit("will-redirect", redirect);
+    expect(redirect.preventDefault).toHaveBeenCalledOnce();
+    expect(blockedTopLevel).toHaveBeenLastCalledWith("non_public_ip");
+
+    for (const name of ["will-attach-webview", "content-bounds-updated", "will-prevent-unload"]) {
+      const blocked = event();
+      contents.emit(name, blocked);
+      expect(blocked.preventDefault).toHaveBeenCalledOnce();
+    }
+
+    const child = { destroy: vi.fn() };
+    contents.emit("did-create-window", child);
+    expect(child.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("installs once per partition and remains hardened after every view releases", () => {
+    const session = new FakeSession();
+    const first = install(session);
+    const second = install(session);
+    expect(session.webRequest.calls).toHaveLength(1);
+    expect(isManagedBrowserWebContents(first.contents as unknown as WebContents)).toBe(true);
+
+    first.release();
+    expect(session.webRequest.handler).not.toBeNull();
+    expect(session.permissionCheck).not.toBeNull();
+    expect(isManagedBrowserWebContents(first.contents as unknown as WebContents)).toBe(false);
+
+    second.release();
+    expect(session.webRequest.handler).not.toBeNull();
+    expect(session.permissionCheck?.()).toBe(false);
+    expect(session.permissionRequest).not.toBeNull();
+    expect(session.devicePermission?.()).toBe(false);
+    expect(session.displayMedia).not.toBeNull();
+    expect(session.listeners.get("will-download")).toHaveLength(1);
+    expect(first.contents.listeners.get("will-frame-navigate")).toEqual([]);
+    expect(second.contents.listeners.get("will-frame-navigate")).toEqual([]);
+  });
+});

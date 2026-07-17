@@ -22,6 +22,8 @@ export type BrowserTargetDecision =
       readonly reason: BrowserTargetRejection;
     };
 
+export type IpAddressScope = "public" | "non_public" | "invalid";
+
 const deny = (reason: BrowserTargetRejection): BrowserTargetDecision => ({
   allowed: false,
   reason,
@@ -137,6 +139,15 @@ const isNonPublicIpv6 = (words: ReadonlyArray<number>): boolean =>
   hasPrefix(words, [0xfc00], 7) ||
   hasPrefix(words, [0xfe80], 10) ||
   hasPrefix(words, [0xff00], 8);
+
+/** Classify a resolver endpoint without accepting hostnames or legacy IP syntax. */
+export const classifyIpAddress = (address: string): IpAddressScope => {
+  const ipv4 = parseCanonicalIpv4(address);
+  if (ipv4 !== undefined) return isNonPublicIpv4(ipv4) ? "non_public" : "public";
+  const ipv6 = parseIpv6(`[${address}]`);
+  if (ipv6 !== undefined) return isNonPublicIpv6(ipv6) ? "non_public" : "public";
+  return "invalid";
+};
 
 const LOCAL_DNS_SUFFIXES = [
   "localhost",

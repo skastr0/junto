@@ -21,6 +21,7 @@ export const BROWSER_MAX_ACTIVE_HTTP_HANDLERS = 32;
 export const BROWSER_MAX_LIST_ROWS = 10_000;
 export const BROWSER_MAX_CANVAS_DIRECTORY_ENTRIES = 10_000;
 export const BROWSER_MAX_CANVAS_SCAN_BYTES = 64 * 1024 * 1024;
+export const BROWSER_MAX_PENDING_DNS_HOSTS = 32;
 
 // Operation deadlines. The outer control deadline exceeds every inner page
 // operation so the session service wins the race and releases its lane first.
@@ -29,6 +30,7 @@ export const BROWSER_EVAL_TIMEOUT_MS = 30_000;
 export const BROWSER_CAPTURE_TIMEOUT_MS = 15_000;
 export const BROWSER_CONTROL_HANDLER_TIMEOUT_MS = 35_000;
 export const BROWSER_CLI_REQUEST_TIMEOUT_MS = 40_000;
+export const BROWSER_DNS_POLICY_TIMEOUT_MS = 5_000;
 
 // Transport admission and response limits.
 export const BROWSER_CONTROL_MAX_HEADER_BYTES = 16 * 1024;

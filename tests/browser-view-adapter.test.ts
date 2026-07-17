@@ -11,6 +11,31 @@ import {
 const electron = vi.hoisted(() => {
   type Listener = (...args: ReadonlyArray<unknown>) => void;
 
+  class FakeSession {
+    readonly listeners = new Map<string, Listener[]>();
+    readonly webRequest = { onBeforeRequest: vi.fn() };
+    readonly setPermissionCheckHandler = vi.fn();
+    readonly setPermissionRequestHandler = vi.fn();
+    readonly setDevicePermissionHandler = vi.fn();
+    readonly setDisplayMediaRequestHandler = vi.fn();
+    resolveHost(): Promise<{ endpoints: ReadonlyArray<{ address: string }> }> {
+      return Promise.resolve({ endpoints: [{ address: "93.184.216.34" }] });
+    }
+    on(event: string, listener: Listener): this {
+      const listeners = this.listeners.get(event) ?? [];
+      listeners.push(listener);
+      this.listeners.set(event, listeners);
+      return this;
+    }
+    off(event: string, listener: Listener): this {
+      this.listeners.set(
+        event,
+        (this.listeners.get(event) ?? []).filter((candidate) => candidate !== listener),
+      );
+      return this;
+    }
+  }
+
   class FakeWebContents {
     readonly listeners = new Map<string, Listener[]>();
     currentUrl = "";
@@ -23,10 +48,24 @@ const electron = vi.hoisted(() => {
     }> = [];
     mainWorldEvalCalls = 0;
 
+    constructor(readonly session: FakeSession) {}
+
     on(event: string, listener: Listener): this {
       const listeners = this.listeners.get(event) ?? [];
       listeners.push(listener);
       this.listeners.set(event, listeners);
+      return this;
+    }
+
+    once(event: string, listener: Listener): this {
+      return this.on(event, listener);
+    }
+
+    off(event: string, listener: Listener): this {
+      this.listeners.set(
+        event,
+        (this.listeners.get(event) ?? []).filter((candidate) => candidate !== listener),
+      );
       return this;
     }
 
@@ -48,6 +87,9 @@ const electron = vi.hoisted(() => {
       return this.title;
     }
 
+    setWindowOpenHandler(): void {}
+    setWebRTCIPHandlingPolicy(): void {}
+
     close(): void {}
     executeJavaScript(): Promise<unknown> {
       this.mainWorldEvalCalls += 1;
@@ -67,22 +109,38 @@ const electron = vi.hoisted(() => {
   }
 
   class FakeWebContentsView {
-    readonly webContents = new FakeWebContents();
+    readonly webContents: FakeWebContents;
+    constructor(session: FakeSession) {
+      this.webContents = new FakeWebContents(session);
+    }
     setBounds(): void {}
   }
 
   return {
     views: [] as FakeWebContentsView[],
+    options: [] as unknown[],
+    sessions: new Map<string, FakeSession>(),
+    FakeSession,
     FakeWebContentsView,
   };
 });
 
 vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
+  session: {
+    fromPartition: (partition: string) => {
+      const existing = electron.sessions.get(partition);
+      if (existing !== undefined) return existing;
+      const created = new electron.FakeSession();
+      electron.sessions.set(partition, created);
+      return created;
+    },
+  },
   WebContentsView: class extends electron.FakeWebContentsView {
-    constructor() {
-      super();
+    constructor(options: { readonly webPreferences?: { readonly session?: unknown } }) {
+      super(options.webPreferences?.session as never);
       electron.views.push(this);
+      electron.options.push(options);
     }
   },
 }));
@@ -111,6 +169,8 @@ const runBoundedEval = async (context: Context, source: string): Promise<unknown
 describe("electron browser view generation seam", () => {
   beforeEach(() => {
     electron.views.length = 0;
+    electron.options.length = 0;
+    electron.sessions.clear();
   });
 
   const setup = () => {
@@ -166,6 +226,22 @@ describe("electron browser view generation seam", () => {
     expect(starts).toHaveLength(1);
     expect(urls).toContainEqual(["session-1", "https://example.com/final"]);
     expect(completed).toEqual([["session-1", undefined]]);
+  });
+
+  it("terminates an active generation when policy blocks its redirect", () => {
+    const { handle, webContents, failed } = setup();
+    handle.loadUrl("https://example.com/start", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    const redirect = {
+      ...navigation("http://127.0.0.1/private"),
+      preventDefault: vi.fn(),
+    };
+    webContents.emit("will-redirect", redirect);
+
+    expect(redirect.preventDefault).toHaveBeenCalledOnce();
+    expect(failed).toEqual([
+      ["session-1", "navigation blocked by browser policy (non_public_ip)"],
+    ]);
   });
 
   it("fails closed when main-frame navigations overlap without a correlation id", () => {
@@ -239,6 +315,26 @@ describe("electron browser view generation seam", () => {
       worldId: BROWSER_AUTOMATION_WORLD_ID,
       userGesture: false,
       scripts: [{ code: expect.stringContaining("document.title") }],
+    });
+  });
+
+  it("constructs every browser view with explicit hostile-web preferences", () => {
+    setup();
+    expect(electron.options[0]).toEqual({
+      webPreferences: {
+        session: electron.views[0]?.webContents.session,
+        sandbox: true,
+        nodeIntegration: false,
+        nodeIntegrationInSubFrames: false,
+        nodeIntegrationInWorker: false,
+        contextIsolation: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        webviewTag: false,
+        experimentalFeatures: false,
+        navigateOnDragDrop: false,
+        safeDialogs: true,
+      },
     });
   });
 
