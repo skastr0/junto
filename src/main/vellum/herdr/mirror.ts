@@ -189,7 +189,11 @@ export class HerdrMirror implements HerdrMirrorReads {
       this.lastSyncAt = Date.now();
       this.emitChange();
       return true;
-    } catch {
+    } catch (error) {
+      // Log the first failure of a streak only — backoff retries stay quiet.
+      if (this.backoffIdx === 0) {
+        console.error(`[herdr-mirror] ${this.hostId} bootstrap failed:`, error);
+      }
       this.eventsLive = false;
       return false;
     }
