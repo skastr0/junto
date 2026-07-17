@@ -126,6 +126,8 @@ export function HerdrWizard() {
   const [seedApplied, setSeedApplied] = useState(false);
 
   const stillOpen = (): boolean => isHerdrWizardEpochCurrent(epochRef.current);
+  // Re-run bootstrap when epoch bumps while open (re-open without close).
+  const wizardEpoch = use$(herdr$.wizardEpoch);
 
   useEffect(() => {
     if (!open) return;
@@ -133,6 +135,7 @@ export function HerdrWizard() {
     subscribeHerdrBrowseInvalidation();
     epochRef.current = herdr$.wizardEpoch.peek();
     stepTokenRef.current = 0;
+    pickGuardRef.current = initialHerdrPickGuard;
     setStep("host");
     setError("");
     setFilter("");
@@ -142,6 +145,10 @@ export function HerdrWizard() {
     setTabId("");
     setCreateCwd("");
     setCreateLabel("");
+    // Critical: successful create closes the wizard while creating=true; the
+    // component stays mounted (return null when !open). Without this reset the
+    // next open leaves "create tab/pane" permanently disabled.
+    setCreating(false);
     setSeedApplied(false);
     setLoading(true);
 
@@ -184,7 +191,7 @@ export function HerdrWizard() {
     };
 
     void run();
-  }, [open]);
+  }, [open, wizardEpoch]);
 
   /** Escape hatch: drop region seed and restart full wizard at host. */
   const ignoreRegionDefaults = () => {
@@ -412,14 +419,17 @@ export function HerdrWizard() {
 
   const createAtStep = async () => {
     const a = api();
-    if (!a || !stillOpen()) return;
+    if (!stillOpen()) return;
+    if (!a?.herdrCreateTab) {
+      setError("herdr API unavailable");
+      return;
+    }
     setCreating(true);
     setError("");
     try {
       if (step === "workspace") {
         if (!createCwd.trim()) {
           setError("cwd required to create workspace");
-          setCreating(false);
           return;
         }
         const res = await a.herdrCreateWorkspace(hostId, session, {
@@ -429,7 +439,6 @@ export function HerdrWizard() {
         if (!stillOpen()) return;
         if (!res.ok || !res.data) {
           setError(res.message ?? "create workspace failed");
-          setCreating(false);
           return;
         }
         if (res.data.paneId) {
@@ -443,16 +452,18 @@ export function HerdrWizard() {
             label: createLabel.trim() || undefined,
             onDelete: "detach",
           });
-          if (stillOpen()) setCreating(false);
           return;
         }
         // Just mutated this host — drop stale lists so the child step re-reads.
         invalidateHerdrBrowse(hostId);
-        setCreating(false);
         pickWorkspace(res.data.workspaceId);
         return;
       }
       if (step === "tab") {
+        if (!workspaceId.trim()) {
+          setError("workspace required to create tab — pick a space first");
+          return;
+        }
         const res = await a.herdrCreateTab(hostId, session, {
           workspaceId,
           label: createLabel.trim() || undefined,
@@ -460,7 +471,6 @@ export function HerdrWizard() {
         if (!stillOpen()) return;
         if (!res.ok || !res.data) {
           setError(res.message ?? "create tab failed");
-          setCreating(false);
           return;
         }
         if (res.data.paneId) {
@@ -473,16 +483,18 @@ export function HerdrWizard() {
             terminalId: res.data.terminalId,
             onDelete: "detach",
           });
-          if (stillOpen()) setCreating(false);
           return;
         }
         invalidateHerdrBrowse(hostId);
-        setCreating(false);
         pickTab(res.data.tabId);
         return;
       }
       if (step === "pane") {
         const basePane = panes[0]?.paneId;
+        if (!basePane) {
+          setError("no pane to split from — wait for the list or pick a tab with panes");
+          return;
+        }
         const res = await a.herdrCreatePane(hostId, session, {
           paneId: basePane,
           direction: "right",
@@ -491,7 +503,6 @@ export function HerdrWizard() {
         if (!stillOpen()) return;
         if (!res.ok || !res.data) {
           setError(res.message ?? "create pane failed");
-          setCreating(false);
           return;
         }
         placeNode({
@@ -504,8 +515,12 @@ export function HerdrWizard() {
           onDelete: "detach",
         });
       }
+    } catch (e) {
+      if (stillOpen()) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      if (stillOpen()) setCreating(false);
+      // Always clear — placeNode closes the wizard (stillOpen=false) and the
+      // component stays mounted; a gated clear leaves create permanently disabled.
+      setCreating(false);
     }
   };
 
