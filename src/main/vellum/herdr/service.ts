@@ -343,8 +343,9 @@ export class HerdrService {
   /**
    * Mark a pane "seen" so herdr transitions agent_status done → idle
    * (Idle+!seen → Idle+seen). Stock CLI: `herdr agent focus <pane_id>`.
-   * Fire-and-forget safe — never required for control attach. Emits
-   * pane.agent_status_changed so the mirror (and cards) follow.
+   * Fire-and-forget safe — never required for control attach. Host surfaces
+   * status via subscription poll; mirror applyEvent (wire-normalized) patches
+   * agent_status for cards (VL-030).
    */
   async markPaneSeen(
     hostId: string,
