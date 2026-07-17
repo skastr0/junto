@@ -1,11 +1,10 @@
 import { use$ } from "@legendapp/state/react";
-import { CircleDot, Link2, MousePointer2, Plus } from "lucide-react";
-import type { EtherEdgeKind, EtherFlag } from "@shared/canvas";
+import { Plus } from "lucide-react";
+import type { EtherEdgeKind } from "@shared/canvas";
 import { deriveExecutionGraph } from "@shared/execution-graph";
 import { searchText } from "../lib/presentation";
-import { clearGraphFilters, state$, toggleFlagFilter } from "../lib/state";
+import { clearGraphFilters, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
-import { HUE } from "../lib/theme";
 import { UsageHud } from "./UsageHud";
 
 function CanvasReadout({ name, countLabel, edges, regions }: { readonly name: string; readonly countLabel: string; readonly edges: number; readonly regions: number }) {
@@ -25,42 +24,9 @@ function CanvasReadout({ name, countLabel, edges, regions }: { readonly name: st
   );
 }
 
-const EDGE_ITEMS: ReadonlyArray<{ readonly kind: EtherEdgeKind; readonly label: string; readonly lineClass: string }> = [
-  { kind: "depends", label: "depends", lineClass: "field-legend__line--amber" },
-  { kind: "blocks", label: "blocks", lineClass: "field-legend__line--crimson" },
-  { kind: "relates", label: "relates", lineClass: "field-legend__line--steel" },
-];
-
-function EdgeLegend() {
-  const edgeFilter = use$(state$.edgeFilter);
-  const toggleFilter = (kind: EtherEdgeKind) => {
-    state$.edgeFilter.set(edgeFilter === kind ? "" : kind);
-    state$.selectedEdgeId.set("");
-  };
-  return (
-    <div className="field-legend pointer-events-auto absolute bottom-5 left-5 z-20 hidden items-center gap-3 md:flex">
-      <span className="field-legend__title"><CircleDot size={12} /> graph key</span>
-      {EDGE_ITEMS.map(({ kind, label, lineClass }) => <button key={kind} type="button" className={`field-legend__item field-legend__item--button${edgeFilter === kind ? " is-active" : ""}`} aria-label={`Show ${label} edges`} aria-pressed={edgeFilter === kind} title={`filter ${label} edges`} onClick={() => toggleFilter(kind)}><i className={`field-legend__line ${lineClass}`} />{label}</button>)}
-      {edgeFilter ? <button type="button" className="field-legend__clear" aria-label="Show all edges" onClick={() => { state$.edgeFilter.set(""); state$.selectedEdgeId.set(""); }}>all</button> : null}
-    </div>
-  );
-}
-
-const FLAG_ITEMS: ReadonlyArray<{ readonly flag: EtherFlag; readonly label: string; readonly hue: string }> = [
-  { flag: "blocker", label: "blocker", hue: HUE.crimson },
-  { flag: "attention", label: "attention", hue: HUE.amber },
-  { flag: "parked", label: "parked", hue: HUE.violet },
-];
-
-function CanvasHint({ counts }: { readonly counts: Readonly<Record<EtherFlag, number>> }) {
-  const flagFilter = use$(state$.flagFilter);
-  return (
-    <div className="field-hint pointer-events-auto absolute bottom-5 left-1/2 z-20 hidden -translate-x-1/2 items-center gap-2 md:flex">
-      <MousePointer2 size={12} /><span>double-click add · drag to move</span><Link2 size={12} /><span className="field-hint__secondary">drag an edge dot to connect</span>
-      <div className="field-hint__filters">{FLAG_ITEMS.map(({ flag, label, hue }) => counts[flag] > 0 ? <button key={flag} type="button" className={`field-hint__flag${flagFilter === flag ? " is-active" : ""}`} aria-label={`Show ${label} nodes`} aria-pressed={flagFilter === flag} style={{ color: hue }} onClick={() => toggleFlagFilter(flag)}>{counts[flag]} {label}</button> : null)}{flagFilter ? <button type="button" className="field-hint__clear" aria-label="Show all flags" onClick={() => { state$.flagFilter.set(""); state$.selectedNodeId.set(""); state$.selectedEdgeId.set(""); }}>all</button> : null}</div>
-    </div>
-  );
-}
+// EdgeLegend + CanvasHint (double-click helper + bottom flag filters) removed
+// per docs/rts-bottom-bar.md — flag filters live on the minimap chrome; the
+// double-click gesture stays, the on-screen hint goes.
 
 type EmptyReason = "search" | "flag" | "empty";
 
@@ -96,7 +62,6 @@ export function CanvasChrome() {
   const edgeFilter = use$(state$.edgeFilter);
   const flagFilter = use$(state$.flagFilter);
   const query = searchQuery.trim().toLowerCase();
-  const flagCounts = FLAG_ITEMS.reduce((counts, { flag }) => { counts[flag] = nodes.filter((node) => node.ether?.flags?.includes(flag)).length; return counts; }, { blocker: 0, attention: 0, parked: 0 } as Record<EtherFlag, number>);
   const filteredNodes = flagFilter ? nodes.filter((node) => node.ether?.flags?.includes(flagFilter)) : nodes;
   const visibleCount = query ? filteredNodes.filter((node) => searchText(node).includes(query)).length : filteredNodes.length;
   const countLabel = query ? `${visibleCount.toString().padStart(2, "0")} / ${nodes.length.toString().padStart(2, "0")}` : visibleCount.toString().padStart(2, "0");
@@ -128,8 +93,6 @@ export function CanvasChrome() {
         <UsageHud />
         <CanvasReadout name={name} countLabel={countLabel} edges={visibleEdges} regions={regions.length} />
       </div>
-      <EdgeLegend />
-      <CanvasHint counts={flagCounts} />
       <FilterTray />
       <CanvasEmpty reason={emptyReason} searchQuery={searchQuery} filterLabel={filterLabel} hasNodes={nodes.length > 0} />
     </>

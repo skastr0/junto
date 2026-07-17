@@ -8,7 +8,7 @@ import { deriveExecutionGraph } from "@shared/execution-graph";
 import { deleteNode, setNodeColor } from "../lib/mutations";
 import { deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../lib/edge-mutations";
 import { EdgeCriteriaEditor } from "./InspectorFields";
-import { state$ } from "../lib/state";
+import { clearSelection, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { DIM, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
 import { ActivityMarkFromSpec } from "./ActivityMark";
@@ -347,7 +347,7 @@ export function InspectorPanel() {
   const nodeId = use$(state$.selectedNodeId);
   const edgeId = use$(state$.selectedEdgeId);
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
-  const onClose = () => { state$.selectedNodeId.set(""); state$.selectedEdgeId.set(""); };
+  const onClose = () => { clearSelection(); };
   if (node) return <NodeInspector node={node} onClose={onClose} />;
   if (edgeId) return <EdgeInspector onClose={onClose} />;
   return null;

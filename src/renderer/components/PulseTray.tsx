@@ -100,10 +100,12 @@ export function PulseTray() {
   const visibleToasts = toasts.slice(0, MAX_VISIBLE_TOASTS);
   const hiddenCount = Math.max(0, toasts.length - MAX_VISIBLE_TOASTS);
 
+  // Relocated above the minimap (right third of the RTS bar) per
+  // docs/rts-bottom-bar.md — was fixed bottom-left.
   return (
     <div
-      className="pulse-tray fixed bottom-0 left-0 z-30 flex flex-col gap-1 p-3 pointer-events-none"
-      style={{ maxWidth: "300px" }}
+      className="pulse-tray pointer-events-none absolute bottom-[168px] right-3 z-30 flex flex-col gap-1 items-end"
+      style={{ maxWidth: "280px" }}
     >
       {visibleToasts.map((toast) => (
         toast.kind === "snapshot"

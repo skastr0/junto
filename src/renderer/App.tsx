@@ -59,8 +59,10 @@ const resetCanvasView = (): void => {
   state$.flagFilter.set("");
   state$.digestOpen.set(false);
   state$.selectedNodeId.set("");
+  state$.selectedNodeIds.set([]);
   state$.selectedEdgeId.set("");
   state$.focusNodeId.set("");
+  state$.regionSlotOrder.set([]);
 };
 
 const canvasNavigationClock = makeNavigationClock();

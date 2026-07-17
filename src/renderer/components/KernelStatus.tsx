@@ -1,5 +1,5 @@
 import { use$ } from "@legendapp/state/react";
-import { disarmOrphan, kernel$ } from "../lib/kernel-view";
+import { kernel$ } from "../lib/kernel-view";
 import { HUE, INK, withAlpha } from "../lib/theme";
 
 // The durable-intent surfaces the kernel refuses to hide. `fault` — persisted
@@ -22,39 +22,10 @@ function FaultBanner({ fault }: { readonly fault: string }) {
   );
 }
 
-function OrphanList({ keys }: { readonly keys: ReadonlyArray<string> }) {
-  return (
-    <div className="kernel-orphans field-readout pointer-events-auto absolute bottom-5 right-5 z-20 hidden w-[260px] flex-col gap-1.5 md:flex">
-      <div className="field-readout__eyebrow" style={{ color: withAlpha(HUE.amber, 0.75) }}>
-        <span className="field-readout__signal" style={{ background: HUE.amber, boxShadow: `0 0 10px ${withAlpha(HUE.amber, 0.6)}` }} />
-        armed · orphaned
-      </div>
-      <div className="field-readout__rule" />
-      {keys.map((key) => (
-        <div key={key} className="flex items-center justify-between gap-2">
-          <span className="truncate text-[9px] uppercase tracking-[0.12em]" style={{ color: withAlpha(HUE.amber, 0.7) }} title={key}>{key}</span>
-          <button
-            type="button"
-            aria-label={`Disarm orphaned ${key}`}
-            title="disarm — canvas or region is gone"
-            className="shrink-0 rounded-sm border px-1.5 py-0.5 text-[8px] uppercase tracking-[0.14em] transition hover:bg-white/5"
-            style={{ color: withAlpha(HUE.amber, 0.9), borderColor: withAlpha(HUE.amber, 0.4), background: "rgba(255,255,255,.02)" }}
-            onClick={() => void disarmOrphan(key)}
-          >disarm</button>
-        </div>
-      ))}
-    </div>
-  );
-}
+// Orphan list relocated into the RTS bar notification stack (RtsBottomBar).
+// Fault banner stays top — it is LOUD by invariant.
 
 export function KernelStatus() {
   const fault = use$(kernel$.fault);
-  const orphaned = use$(kernel$.orphaned) as ReadonlyArray<string> | undefined;
-  const orphans = orphaned ?? [];
-  return (
-    <>
-      {fault ? <FaultBanner fault={fault} /> : null}
-      {orphans.length > 0 ? <OrphanList keys={orphans} /> : null}
-    </>
-  );
+  return <>{fault ? <FaultBanner fault={fault} /> : null}</>;
 }

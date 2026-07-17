@@ -30,11 +30,15 @@ import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { makeAgentNode, makeFileNode, makeGroupNode, makeLinkNode, makePageNode, makeProjectNode, makeTasksNode, makeTextNode } from "../lib/node-factories";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { accentColor, GROUND, HUE } from "../lib/theme";
+import { severityHue } from "../lib/severity";
 import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
+import { RtsBottomBar, severityMapRef } from "./rts/RtsBottomBar";
 
 const miniMapNodeColor = (node: Node): string => {
   const data = node.data as FlowNode["data"] | undefined;
+  const severity = severityMapRef.current.get(node.id);
+  if (severity) return severityHue(severity);
   const flags = data?.node.ether?.flags ?? [];
   if (flags.includes("blocker")) return HUE.crimson;
   if (flags.includes("attention")) return HUE.amber;
@@ -242,6 +246,8 @@ function useCanvasInteractions(rf: CanvasFlow, setNodes: ReturnType<typeof useNo
     // click is the explicit deselection gesture; do not erase an inspector
     // selection from an internal remount event.
     if (selectedNodes.length === 0 && selectedEdges.length === 0) return;
+    // Mirror the full RF set for Ctrl+N / command card multi-actions.
+    state$.selectedNodeIds.set(selectedNodes.map((node) => node.id));
     // A rubber-band multi-selection has no single inspector subject; keep the
     // inspector closed and let React Flow own the selection set.
     if (selectedNodes.length > 1) {
@@ -255,6 +261,7 @@ function useCanvasInteractions(rf: CanvasFlow, setNodes: ReturnType<typeof useNo
   const onPaneClick = useCallback((event: React.MouseEvent) => {
     if (event.detail === 1) {
       state$.selectedNodeId.set("");
+      state$.selectedNodeIds.set([]);
       state$.selectedEdgeId.set("");
       return;
     }
@@ -624,7 +631,28 @@ function FitAllPanel() {
 
 function FieldControls() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
-  return <Controls showFitView={false} showInteractive={false} aria-label="Canvas controls" style={{ marginBottom: 64 }}><ControlButton aria-label="Fit readable view" title="fit readable view" onClick={() => fitReadableField(rf)}><ScanLine size={14} /></ControlButton></Controls>;
+  return (
+    <Controls showFitView={false} showInteractive={false} aria-label="Canvas controls">
+      <ControlButton aria-label="Fit readable view" title="fit readable view" onClick={() => fitReadableField(rf)}>
+        <ScanLine size={14} />
+      </ControlButton>
+    </Controls>
+  );
+}
+
+function RtsMinimapStack() {
+  return (
+    <>
+      <MiniMap
+        pannable
+        zoomable
+        nodeColor={miniMapNodeColor}
+        maskColor="rgba(12,11,10,0.72)"
+        style={{ background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }}
+      />
+      <FieldControls />
+    </>
+  );
 }
 
 function useCanvasGraph() {
@@ -698,8 +726,10 @@ function CanvasGraph() {
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
       <AddNodePanel />
       <FitAllPanel />
-      <MiniMap pannable zoomable nodeColor={miniMapNodeColor} maskColor="rgba(12,11,10,0.72)" style={{ background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }} />
-      <FieldControls />
+      {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
+      <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>
+        <RtsBottomBar minimap={<RtsMinimapStack />} />
+      </Panel>
     </ReactFlow>
     {ctxMenu ? <ContextAddMenu at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
     {multiMenu ? <MultiSelectMenu at={multiMenu} onClose={() => setMultiMenu(null)} /> : null}

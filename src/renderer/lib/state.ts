@@ -20,8 +20,14 @@ export const state$ = observable({
   flagFilter: "" as EtherFlag | "",
   editNodeId: "",
   selectedNodeId: "",
+  // React Flow multi-select set, mirrored so hotkeys (Ctrl+1–9) and the
+  // command card can read it. Presentational; never persisted.
+  selectedNodeIds: [] as ReadonlyArray<string>,
   selectedEdgeId: "",
   focusNodeId: "",
+  // Presentational hotbar order of region (group) ids for slots 1–9.
+  // App-local only — never written into the .canvas document.
+  regionSlotOrder: [] as ReadonlyArray<string>,
   doc: EMPTY_DOC as CanvasDoc,
   // Incremented on every structural change (add/remove/edit/flag) and on
   // external reload — NOT on drag, which RF already reflects.
@@ -45,6 +51,7 @@ export const toggleFlagFilter = (flag: EtherFlag): void => {
   const current = state$.flagFilter.peek();
   state$.flagFilter.set(current === flag ? "" : flag);
   state$.selectedNodeId.set("");
+  state$.selectedNodeIds.set([]);
   state$.selectedEdgeId.set("");
 };
 
@@ -52,5 +59,13 @@ export const clearGraphFilters = (): void => {
   state$.edgeFilter.set("");
   state$.flagFilter.set("");
   state$.selectedNodeId.set("");
+  state$.selectedNodeIds.set([]);
+  state$.selectedEdgeId.set("");
+};
+
+/** Clear canvas selection (node + multi + edge). */
+export const clearSelection = (): void => {
+  state$.selectedNodeId.set("");
+  state$.selectedNodeIds.set([]);
   state$.selectedEdgeId.set("");
 };
