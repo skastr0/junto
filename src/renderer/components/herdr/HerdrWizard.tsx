@@ -11,10 +11,11 @@ import type {
 import { makeHerdrNode } from "../../lib/node-factories";
 import { addNode } from "../../lib/mutations";
 import { closeHerdrWizard, herdr$, setHerdrToast } from "../../lib/herdr-state";
+import { bootstrapHerdrWizard, type HerdrWizardApi, type HerdrWizardStep } from "../../lib/herdr-wizard-seed";
 import { getVellumApi } from "../../lib/vellum-api";
 import { HUE } from "../../lib/theme";
 
-type Step = "host" | "session" | "workspace" | "tab" | "pane";
+type Step = HerdrWizardStep;
 
 const api = () =>
   getVellumApi() as
@@ -108,6 +109,21 @@ export function HerdrWizard() {
     setSeedApplied(false);
     setBusy(true);
 
+    const applySnapshot = (snap: Awaited<ReturnType<typeof bootstrapHerdrWizard>>) => {
+      setHosts(snap.hosts);
+      setSessions(snap.sessions);
+      setWorkspaces(snap.workspaces);
+      setTabs(snap.tabs);
+      setPanes(snap.panes);
+      setHostId(snap.hostId);
+      setSession(snap.session);
+      setWorkspaceId(snap.workspaceId);
+      setTabId(snap.tabId);
+      setStep(snap.step);
+      setSeedApplied(snap.seedApplied);
+      if (snap.error) setError(snap.error);
+    };
+
     const run = async () => {
       const a = api();
       if (!a?.herdrHosts) {
@@ -118,108 +134,11 @@ export function HerdrWizard() {
         return;
       }
       try {
-        const hostList = await a.herdrHosts();
-        if (cancelled) return;
-        setHosts(hostList);
-
-        const regionSeed = herdr$.wizardSeed.peek();
-        if (!regionSeed?.host?.trim()) {
-          setBusy(false);
-          return;
-        }
-
-        // Stamp region defaults: advance past every fully-specified layer.
-        // Fail-loud on ensure/list errors — surface message, stay at broken step.
-        const host = regionSeed.host.trim();
-        const ensuredHost = await a.herdrEnsureServer(host, null);
-        if (cancelled) return;
-        if (!ensuredHost.ok) {
-          setError(ensuredHost.message ?? `region host unavailable: ${host}`);
-          setBusy(false);
-          return;
-        }
-        setHostId(host);
-        const sessList = await a.herdrListSessions(host);
-        if (cancelled) return;
-        setSessions(sessList.ok ? sessList.data ?? [] : []);
-        setSeedApplied(true);
-
-        if (regionSeed.session === undefined) {
-          setStep("session");
-          setBusy(false);
-          return;
-        }
-
-        const sess = regionSeed.session;
-        const ensuredSess = await a.herdrEnsureServer(host, sess);
-        if (cancelled) return;
-        if (!ensuredSess.ok) {
-          setError(ensuredSess.message ?? "region session unavailable");
-          setStep("session");
-          setBusy(false);
-          return;
-        }
-        setSession(sess);
-        const wsList = await a.herdrListWorkspaces(host, sess);
-        if (cancelled) return;
-        if (!wsList.ok) {
-          setError(wsList.message ?? "list workspaces failed");
-          setStep("workspace");
-          setBusy(false);
-          return;
-        }
-        setWorkspaces(wsList.data ?? []);
-
-        if (!regionSeed.workspaceId?.trim()) {
-          setStep("workspace");
-          setBusy(false);
-          return;
-        }
-
-        const ws = regionSeed.workspaceId.trim();
-        // Fail-loud: workspace id must still exist on the host (not invented).
-        if (!(wsList.data ?? []).some((w) => w.workspaceId === ws)) {
-          setError(`region workspace missing on host: ${ws}`);
-          setStep("workspace");
-          setBusy(false);
-          return;
-        }
-        setWorkspaceId(ws);
-        const tabList = await a.herdrListTabs(host, sess, ws);
-        if (cancelled) return;
-        if (!tabList.ok) {
-          setError(tabList.message ?? "list tabs failed");
-          setStep("tab");
-          setBusy(false);
-          return;
-        }
-        setTabs(tabList.data ?? []);
-
-        if (!regionSeed.tabId?.trim()) {
-          setStep("tab");
-          setBusy(false);
-          return;
-        }
-
-        const tab = regionSeed.tabId.trim();
-        if (!(tabList.data ?? []).some((t) => t.tabId === tab)) {
-          setError(`region tab missing: ${tab}`);
-          setStep("tab");
-          setBusy(false);
-          return;
-        }
-        setTabId(tab);
-        const paneList = await a.herdrListPanes(host, sess, ws);
-        if (cancelled) return;
-        if (!paneList.ok) {
-          setError(paneList.message ?? "list panes failed");
-          setStep("pane");
-          setBusy(false);
-          return;
-        }
-        const scoped = (paneList.data ?? []).filter((p) => !p.tabId || p.tabId === tab);
-        setPanes(scoped.length > 0 ? scoped : paneList.data ?? []);
-        setStep("pane");
+        const snap = await bootstrapHerdrWizard(
+          a as HerdrWizardApi,
+          herdr$.wizardSeed.peek(),
+        );
+        if (!cancelled) applySnapshot(snap);
       } catch (e) {
         if (!cancelled) setError(String(e));
       } finally {

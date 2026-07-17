@@ -57,13 +57,19 @@ export const findContainingRegion = (
   y: number,
 ): GroupNode | undefined => findInnermostGroup(doc, x, y, () => true);
 
-const hasHerdrDefaults = (group: GroupNode): boolean =>
-  Boolean(group.ether?.region?.defaults?.herdr?.host?.trim());
+/** True when the region bag has a non-empty herdr host string. */
+const regionHasHerdrHost = (group: GroupNode): boolean => {
+  const host = group.ether?.region?.defaults?.herdr?.host;
+  return typeof host === "string" && host.trim().length > 0;
+};
 
-const hasPageDefaults = (group: GroupNode): boolean => {
+/** True when the region bag has a non-empty page url or profile. */
+const regionHasPageSpawnFields = (group: GroupNode): boolean => {
   const page = group.ether?.region?.defaults?.page;
   if (!page) return false;
-  return Boolean(page.url?.trim() || page.profile?.trim());
+  const url = page.url?.trim() ?? "";
+  const profile = page.profile?.trim() ?? "";
+  return url.length > 0 || profile.length > 0;
 };
 
 /**
@@ -76,7 +82,7 @@ export const resolveHerdrSpawnDefaults = (
   x: number,
   y: number,
 ): EtherRegionHerdrDefaults | undefined => {
-  const region = findInnermostGroup(doc, x, y, hasHerdrDefaults);
+  const region = findInnermostGroup(doc, x, y, regionHasHerdrHost);
   const herdr = region?.ether?.region?.defaults?.herdr;
   if (!herdr?.host?.trim()) return undefined;
   const host = herdr.host.trim();
@@ -100,7 +106,7 @@ export const resolvePageSpawnDefaults = (
   x: number,
   y: number,
 ): EtherRegionPageDefaults | undefined => {
-  const region = findInnermostGroup(doc, x, y, hasPageDefaults);
+  const region = findInnermostGroup(doc, x, y, regionHasPageSpawnFields);
   const page = region?.ether?.region?.defaults?.page;
   if (!page) return undefined;
   const url = page.url?.trim();
