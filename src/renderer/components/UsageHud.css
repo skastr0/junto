@@ -1,12 +1,14 @@
 /* Compact usage rail — component-scoped (do not land in styles.css). */
 
+/* Rail and hover popup share one width so the bar never bleeds wider. */
 .usage-hud {
+  --usage-hud-width: min(280px, calc(100vw - 24px));
   pointer-events: auto;
   position: relative;
   display: flex;
   flex-direction: column;
-  width: max-content;
-  max-width: min(420px, calc(100vw - 24px));
+  width: var(--usage-hud-width);
+  max-width: var(--usage-hud-width);
   color: #ede6da;
 }
 
@@ -16,7 +18,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  width: max-content;
+  box-sizing: border-box;
+  width: 100%;
   max-width: 100%;
   margin: 0;
   border: 0;
@@ -89,14 +92,15 @@
   );
 }
 
-/* Overlay — does not reflow the canvas readout */
+/* Overlay — same width as rail; does not reflow the canvas readout */
 .usage-hud__tooltip {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
   z-index: 40;
-  min-width: 200px;
-  max-width: min(320px, 70vw);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
   border: 1px solid rgba(237, 230, 218, 0.12);
   border-radius: 8px;
   background: rgba(14, 12, 11, 0.97);
