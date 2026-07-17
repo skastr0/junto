@@ -26,6 +26,7 @@ import { searchText, toFlow } from "../lib/convert";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, deleteEdges } from "../lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geometry";
+import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { makeAgentNode, makeFileNode, makeGroupNode, makeLinkNode, makePageNode, makeProjectNode, makeTasksNode, makeTextNode } from "../lib/node-factories";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { accentColor, GROUND, HUE } from "../lib/theme";
@@ -361,8 +362,21 @@ const makeAddActions = (
     dismiss();
   },
   addPage: () => {
-    const position = positionFor({ width: 260, height: 110 });
-    const node = makePageNode(position.x, position.y, "https://example.com");
+    const size = { width: 260, height: 110 };
+    const position = positionFor(size);
+    // Create-time stamp from containing region defaults (center-in-region).
+    // Escape hatch: place outside the region, or edit url/profile after create.
+    const seed = resolvePageSpawnDefaults(
+      state$.doc.peek(),
+      position.x + size.width / 2,
+      position.y + size.height / 2,
+    );
+    const node = makePageNode(
+      position.x,
+      position.y,
+      seed?.url?.trim() || "https://example.com",
+      seed?.profile ? { profile: seed.profile } : undefined,
+    );
     addNode(node);
     dismiss();
   },

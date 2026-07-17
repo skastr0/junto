@@ -1,5 +1,5 @@
 import { observable } from "@legendapp/state";
-import type { EtherHerdr } from "@shared/canvas";
+import type { EtherHerdr, EtherRegionHerdrDefaults } from "@shared/canvas";
 import {
   initialHerdrConnection,
   reduceHerdrConnection,
@@ -7,7 +7,9 @@ import {
   type HerdrConnectionMachine,
   type HerdrConnectionState,
 } from "@shared/herdr";
+import { resolveHerdrSpawnDefaults } from "@shared/region-defaults";
 import type { HerdrPaneInfo } from "@shared/ipc";
+import { state$ } from "./state";
 import { getVellumApi } from "./vellum-api";
 
 export interface HerdrMetaCache {
@@ -27,6 +29,8 @@ export interface HerdrTerminalOpen {
 export const herdr$ = observable({
   wizardOpen: false,
   wizardAnchor: { x: 0, y: 0 } as { readonly x: number; readonly y: number },
+  /** Create-time seed from containing region defaults (stamp only; not live). */
+  wizardSeed: null as EtherRegionHerdrDefaults | null,
   terminal: null as HerdrTerminalOpen | null,
   /** nodeId → meta hydration */
   metaByNodeId: {} as Record<string, HerdrMetaCache>,
@@ -34,6 +38,10 @@ export const herdr$ = observable({
   connectionByNodeId: {} as Record<string, HerdrConnectionMachine>,
   toast: "" as string,
 });
+
+// Default herdr card size — seed resolves against the card center so membership
+// matches geometry.containedNodeIds (center-in-region).
+const HERDR_NODE_SIZE = { width: 260, height: 110 } as const;
 
 export const openHerdrWizard = (anchor: { readonly x: number; readonly y: number }): void => {
   // One interactive surface at a time — null terminal UI immediately, release stream async.
@@ -46,11 +54,16 @@ export const openHerdrWizard = (anchor: { readonly x: number; readonly y: number
   }
   herdr$.terminal.set(null);
   herdr$.wizardAnchor.set(anchor);
+  const cx = anchor.x + HERDR_NODE_SIZE.width / 2;
+  const cy = anchor.y + HERDR_NODE_SIZE.height / 2;
+  const seed = resolveHerdrSpawnDefaults(state$.doc.peek(), cx, cy) ?? null;
+  herdr$.wizardSeed.set(seed);
   herdr$.wizardOpen.set(true);
 };
 
 export const closeHerdrWizard = (): void => {
   herdr$.wizardOpen.set(false);
+  herdr$.wizardSeed.set(null);
 };
 
 export const openHerdrTerminal = (nodeId: string, herdr: EtherHerdr, title: string): void => {

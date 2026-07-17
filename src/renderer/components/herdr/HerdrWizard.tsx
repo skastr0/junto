@@ -74,6 +74,7 @@ const api = () =>
 export function HerdrWizard() {
   const open = use$(herdr$.wizardOpen);
   const anchor = use$(herdr$.wizardAnchor);
+  const seed = use$(herdr$.wizardSeed);
   const [step, setStep] = useState<Step>("host");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -89,9 +90,12 @@ export function HerdrWizard() {
   const [tabId, setTabId] = useState("");
   const [createCwd, setCreateCwd] = useState("");
   const [createLabel, setCreateLabel] = useState("");
+  /** True when region defaults pre-filled layers (escape: ignore region defaults). */
+  const [seedApplied, setSeedApplied] = useState(false);
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     setStep("host");
     setError("");
     setFilter("");
@@ -99,13 +103,151 @@ export function HerdrWizard() {
     setSession(null);
     setWorkspaceId("");
     setTabId("");
-    const a = api();
-    if (!a?.herdrHosts) {
-      setError("herdr API unavailable");
-      return;
-    }
-    void a.herdrHosts().then(setHosts).catch((e) => setError(String(e)));
+    setCreateCwd("");
+    setCreateLabel("");
+    setSeedApplied(false);
+    setBusy(true);
+
+    const run = async () => {
+      const a = api();
+      if (!a?.herdrHosts) {
+        if (!cancelled) {
+          setError("herdr API unavailable");
+          setBusy(false);
+        }
+        return;
+      }
+      try {
+        const hostList = await a.herdrHosts();
+        if (cancelled) return;
+        setHosts(hostList);
+
+        const regionSeed = herdr$.wizardSeed.peek();
+        if (!regionSeed?.host?.trim()) {
+          setBusy(false);
+          return;
+        }
+
+        // Stamp region defaults: advance past every fully-specified layer.
+        // Fail-loud on ensure/list errors — surface message, stay at broken step.
+        const host = regionSeed.host.trim();
+        const ensuredHost = await a.herdrEnsureServer(host, null);
+        if (cancelled) return;
+        if (!ensuredHost.ok) {
+          setError(ensuredHost.message ?? `region host unavailable: ${host}`);
+          setBusy(false);
+          return;
+        }
+        setHostId(host);
+        const sessList = await a.herdrListSessions(host);
+        if (cancelled) return;
+        setSessions(sessList.ok ? sessList.data ?? [] : []);
+        setSeedApplied(true);
+
+        if (regionSeed.session === undefined) {
+          setStep("session");
+          setBusy(false);
+          return;
+        }
+
+        const sess = regionSeed.session;
+        const ensuredSess = await a.herdrEnsureServer(host, sess);
+        if (cancelled) return;
+        if (!ensuredSess.ok) {
+          setError(ensuredSess.message ?? "region session unavailable");
+          setStep("session");
+          setBusy(false);
+          return;
+        }
+        setSession(sess);
+        const wsList = await a.herdrListWorkspaces(host, sess);
+        if (cancelled) return;
+        if (!wsList.ok) {
+          setError(wsList.message ?? "list workspaces failed");
+          setStep("workspace");
+          setBusy(false);
+          return;
+        }
+        setWorkspaces(wsList.data ?? []);
+
+        if (!regionSeed.workspaceId?.trim()) {
+          setStep("workspace");
+          setBusy(false);
+          return;
+        }
+
+        const ws = regionSeed.workspaceId.trim();
+        // Fail-loud: workspace id must still exist on the host (not invented).
+        if (!(wsList.data ?? []).some((w) => w.workspaceId === ws)) {
+          setError(`region workspace missing on host: ${ws}`);
+          setStep("workspace");
+          setBusy(false);
+          return;
+        }
+        setWorkspaceId(ws);
+        const tabList = await a.herdrListTabs(host, sess, ws);
+        if (cancelled) return;
+        if (!tabList.ok) {
+          setError(tabList.message ?? "list tabs failed");
+          setStep("tab");
+          setBusy(false);
+          return;
+        }
+        setTabs(tabList.data ?? []);
+
+        if (!regionSeed.tabId?.trim()) {
+          setStep("tab");
+          setBusy(false);
+          return;
+        }
+
+        const tab = regionSeed.tabId.trim();
+        if (!(tabList.data ?? []).some((t) => t.tabId === tab)) {
+          setError(`region tab missing: ${tab}`);
+          setStep("tab");
+          setBusy(false);
+          return;
+        }
+        setTabId(tab);
+        const paneList = await a.herdrListPanes(host, sess, ws);
+        if (cancelled) return;
+        if (!paneList.ok) {
+          setError(paneList.message ?? "list panes failed");
+          setStep("pane");
+          setBusy(false);
+          return;
+        }
+        const scoped = (paneList.data ?? []).filter((p) => !p.tabId || p.tabId === tab);
+        setPanes(scoped.length > 0 ? scoped : paneList.data ?? []);
+        setStep("pane");
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
+
+  /** Escape hatch: drop region seed and restart full wizard at host. */
+  const ignoreRegionDefaults = () => {
+    herdr$.wizardSeed.set(null);
+    setSeedApplied(false);
+    setStep("host");
+    setError("");
+    setFilter("");
+    setHostId("");
+    setSession(null);
+    setWorkspaceId("");
+    setTabId("");
+    setWorkspaces([]);
+    setTabs([]);
+    setPanes([]);
+  };
 
   const needle = filter.trim().toLowerCase();
 
@@ -378,14 +520,33 @@ export function HerdrWizard() {
               {step === "tab" && "Tab"}
               {step === "pane" && "Pane"}
             </div>
+            {seedApplied && seed?.host ? (
+              <div className="mt-0.5 text-[10px] text-slate-500">
+                region · {[seed.host, seed.session === null ? "default" : seed.session, seed.workspaceId, seed.tabId]
+                  .filter((part) => part != null && part !== "")
+                  .join(" · ")}
+              </div>
+            ) : null}
           </div>
-          <button
-            type="button"
-            className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-white/10 hover:text-[#EDE6DA]"
-            onClick={() => closeHerdrWizard()}
-          >
-            cancel
-          </button>
+          <div className="flex items-center gap-1">
+            {seedApplied ? (
+              <button
+                type="button"
+                className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-white/10 hover:text-[#EDE6DA]"
+                onClick={ignoreRegionDefaults}
+                title="Ignore region defaults and pick host/session freely"
+              >
+                override
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-white/10 hover:text-[#EDE6DA]"
+              onClick={() => closeHerdrWizard()}
+            >
+              cancel
+            </button>
+          </div>
         </div>
         <div className="space-y-2 px-4 py-3">
           <input
