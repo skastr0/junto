@@ -31,6 +31,7 @@ import { registerChatIpc } from "./chat/ipc";
 import { registerHerdrIpc } from "./herdr/ipc";
 import type { PulseRegionOptions } from "./kernel/service";
 import { KernelService } from "./kernel/service";
+import { RegionRollupService } from "./region-rollup";
 import { SnapshotsService } from "./snapshots";
 
 const broadcast = (channel: string, payload: unknown) => {
@@ -202,6 +203,12 @@ export const registerVellumIpc = () => {
     IPC_CHANNELS.pulseRegion,
     (_event, canvasName: string, regionId: string, opts?: PulseRegionOptions) =>
       AppRuntime.runPromise(Effect.flatMap(KernelService, (kernel) => kernel.pulseRegion(canvasName, regionId, opts))),
+  );
+
+  // Region rollups for the bottom bar: derived per call from the current
+  // document + snapshots + the chat plane's session/permission state.
+  ipcMain.handle(IPC_CHANNELS.regionRollups, (_event, name: string) =>
+    AppRuntime.runPromise(Effect.flatMap(RegionRollupService, (service) => service.rollups(name))),
   );
 
   // Wire pushes and background loops once at startup.

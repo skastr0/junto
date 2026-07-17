@@ -3,6 +3,7 @@ import type { DirectoryEntry, DoctorReport, FolderSnapshot, ServiceCheck } from 
 import type { CanvasDoc } from "./canvas";
 import type { SnapshotState } from "./entities";
 import type { NodeRefKey } from "./node-ref";
+import type { RegionRollup } from "./region-rollup";
 
 export const IPC_CHANNELS = {
   doctor: "chassis:doctor",
@@ -45,6 +46,7 @@ export const IPC_CHANNELS = {
   getKernelState: "vellum:get-kernel-state",
   armRegion: "vellum:arm-region",
   pulseRegion: "vellum:pulse-region",
+  regionRollups: "vellum:region-rollups",
   // herdr work surface
   herdrHosts: "vellum:herdr-hosts",
   herdrEnsureServer: "vellum:herdr-ensure-server",
@@ -584,6 +586,9 @@ export interface VellumApi {
   readonly getKernelState: () => Promise<KernelSnapshot>;
   readonly armRegion: (canvasName: string, regionId: string, armed: boolean) => Promise<ArmRegionResult>;
   readonly pulseRegion: (canvasName: string, regionId: string, opts?: unknown) => Promise<void>;
+  // Region severity rollups for the bottom bar, derived live per call from
+  // the document + snapshots + ACP chat activity (shared/region-rollup.ts).
+  readonly regionRollups: (name: string) => Promise<ReadonlyArray<RegionRollup>>;
   readonly onNodeRefOpened: (
     listener: (event: NodeRefOpenedEvent) => void | Promise<void>,
   ) => () => void;
@@ -810,9 +815,7 @@ export interface BrowserOpResult<T = unknown> {
 }
 
 export interface BrowserOpenInput {
-  readonly nodeId: string;
-  readonly url: string;
-  readonly profile: string;
+  readonly ref: NodeRefKey;
 }
 
 /** Renderer-measured DOM rect where the native view should sit (CSS px). */
@@ -824,6 +827,8 @@ export interface BrowserSurfaceBounds {
 }
 
 export interface BrowserSessionInfo {
+  readonly sessionId: string;
+  readonly ref: NodeRefKey;
   readonly nodeId: string;
   readonly url: string;
   readonly profile: string;
@@ -843,11 +848,11 @@ export interface VellumBrowserApi {
   readonly browserProfiles: () => Promise<BrowserOpResult<ReadonlyArray<BrowserProfileInfo>>>;
   readonly browserSurfaceConfig: () => Promise<BrowserOpResult<BrowserSurfaceConfigInfo>>;
   readonly browserOpen: (input: BrowserOpenInput) => Promise<BrowserOpResult<BrowserSessionInfo>>;
-  readonly browserClose: (nodeId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
-  readonly browserSessionState: (nodeId: string) => Promise<BrowserOpResult<BrowserSessionInfo | null>>;
+  readonly browserClose: (sessionId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  readonly browserSessionState: (sessionId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
   readonly browserSessionList: () => Promise<BrowserOpResult<ReadonlyArray<BrowserSessionInfo>>>;
   readonly browserSetBounds: (
-    nodeId: string,
+    sessionId: string,
     bounds: BrowserSurfaceBounds,
   ) => Promise<BrowserOpResult<BrowserSessionInfo>>;
   readonly onBrowserSessionChanged: (

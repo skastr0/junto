@@ -201,6 +201,8 @@ const vellumApi: VellumApi = {
     invoke<ArmRegionResult>(IPC_CHANNELS.armRegion, IPC_TIMEOUT_MS, canvasName, regionId, armed),
   pulseRegion: (canvasName, regionId, opts) =>
     invoke<void>(IPC_CHANNELS.pulseRegion, IPC_TIMEOUT_MS, canvasName, regionId, opts),
+  regionRollups: (name) =>
+    invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
   onNodeRefOpened,
   onCanvasChanged: (listener) => subscribe<string>(IPC_CHANNELS.canvasChanged, listener),
   onSnapshotsChanged: (listener) =>

@@ -64,6 +64,13 @@ export class ChatService {
     return session !== undefined && !session.client.closed && session.sessionId !== "";
   }
 
+  // True while an ACP permission request from this agent awaits a human
+  // answer — feeds the region rollup's attention tier.
+  hasPendingPermission(agentKey: string): boolean {
+    const session = this.sessions.get(agentKey);
+    return session !== undefined && session.pendingPermissions.size > 0;
+  }
+
   private emit(agentKey: string, kind: string, payload: unknown): void {
     this.eventSink?.({ agentKey, kind, payload });
   }
