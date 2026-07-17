@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IpcMain } from "electron";
 import { IPC_CHANNELS, type BrowserSessionInfo } from "../src/shared/ipc";
 import { BROWSER_MAX_REF_BYTES } from "../src/shared/browser-limits";
-import { browserSessions, registerBrowserIpc } from "../src/main/vellum/browser/ipc";
+import { registerBrowserIpc } from "../src/main/vellum/browser/ipc";
+import {
+  BrowserSessionService,
+  type BrowserViewAdapter,
+} from "../src/main/vellum/browser/sessions";
 
 type InvokeHandler = (event: unknown, ...args: ReadonlyArray<unknown>) => unknown;
 const PAGE_REF = "vellum://canvas/work?node=page-1";
@@ -19,6 +23,7 @@ const session = (): BrowserSessionInfo => ({
 
 describe("browser IPC bounds ingress", () => {
   const handlers = new Map<string, InvokeHandler>();
+  let browserSessions: BrowserSessionService;
   const resolvePageTarget = vi.fn(async (_ref: unknown) => ({
     ok: false as const,
     code: "not_found" as const,
@@ -29,12 +34,16 @@ describe("browser IPC bounds ingress", () => {
     vi.restoreAllMocks();
     handlers.clear();
     resolvePageTarget.mockClear();
+    const viewAdapter: BrowserViewAdapter = () => {
+      throw new Error("invalid IPC input constructed a browser view");
+    };
+    browserSessions = new BrowserSessionService(viewAdapter);
     const ipcMain = {
       handle: vi.fn((channel: string, handler: InvokeHandler) => {
         handlers.set(channel, handler);
       }),
     } as unknown as IpcMain;
-    registerBrowserIpc(ipcMain, () => [], resolvePageTarget);
+    registerBrowserIpc(ipcMain, browserSessions, () => [], resolvePageTarget);
   });
 
   const invoke = (channel: string, ...args: ReadonlyArray<unknown>): unknown => {

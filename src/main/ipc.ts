@@ -6,7 +6,12 @@ import { FolderService } from "./services/folder";
 import { PrismService } from "./services/prism";
 import { StoreService } from "./services/store";
 import { AppRuntime, buildDoctorReport } from "./runtime";
-import { registerVellumIpc } from "./vellum/ipc";
+import type { BrowserSessionService } from "./vellum/browser/sessions";
+import { registerVellumBrowserIpc, registerVellumIpc } from "./vellum/ipc";
+
+export const registerBrowserIpcHandlers = (sessions: BrowserSessionService): void => {
+  registerVellumBrowserIpc(sessions);
+};
 
 export const registerIpcHandlers = () => {
   registerVellumIpc();

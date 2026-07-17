@@ -26,6 +26,7 @@ import {
 } from "./adapters/tower-browse";
 import { startBoothAttention } from "./booth-attention";
 import { registerBrowserIpc } from "./browser/ipc";
+import type { BrowserSessionService } from "./browser/sessions";
 import { CanvasesService } from "./canvases";
 import { registerChatIpc } from "./chat/ipc";
 import { registerHerdrIpc } from "./herdr/ipc";
@@ -44,7 +45,6 @@ const broadcast = (channel: string, payload: unknown) => {
 
 export const registerVellumIpc = () => {
   registerHerdrIpc(ipcMain, () => BrowserWindow.getAllWindows().map((w) => w.webContents));
-  registerBrowserIpc(ipcMain, () => BrowserWindow.getAllWindows().map((w) => w.webContents));
   registerSettingsIpc(ipcMain, broadcast);
   ipcMain.handle(IPC_CHANNELS.listCanvases, () =>
     AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.list)),
@@ -248,5 +248,14 @@ export const registerVellumIpc = () => {
       usage.start();
       kernel.start();
     }),
+  );
+};
+
+/** Browser-only IPC is installed after cold profile recovery succeeds. */
+export const registerVellumBrowserIpc = (sessions: BrowserSessionService): void => {
+  registerBrowserIpc(
+    ipcMain,
+    sessions,
+    () => BrowserWindow.getAllWindows().map((window) => window.webContents),
   );
 };

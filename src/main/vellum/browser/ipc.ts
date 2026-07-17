@@ -10,29 +10,11 @@ import {
   parseBrowserSessionId,
   parseBrowserSurfaceBounds,
 } from "@shared/browser-limits";
-import { BrowserSessionService } from "./sessions";
-import { electronViewAdapter } from "./view-adapter";
+import type { BrowserSessionService } from "./sessions";
 import { AppRuntime } from "../../runtime";
 import { CanvasesService } from "../canvases";
 import { SettingsService } from "../settings/service";
 import { makePageTargetResolver, type PageTargetResolver } from "./page-target";
-
-/** Singleton used by IPC + quit hooks (tests construct their own with a spy adapter). */
-export const browserSessions = new BrowserSessionService(electronViewAdapter);
-
-// Settings.browser is the sole durable SoT for pool limits (review dual-source fix).
-browserSessions.setPoolLimitsProvider(() =>
-  AppRuntime.runPromise(
-    Effect.gen(function* () {
-      const settings = yield* SettingsService;
-      const doc = yield* settings.get;
-      return {
-        maxVisibleSurfaces: doc.browser.maxVisibleSurfaces,
-        maxWarmSessions: doc.browser.maxWarmSessions,
-      };
-    }),
-  ),
-);
 
 export const resolveBrowserPageTarget: PageTargetResolver = (ref) =>
   AppRuntime.runPromise(
@@ -58,9 +40,24 @@ const isBrowserOpenInput = (input: unknown): input is BrowserOpenInput =>
 
 export const registerBrowserIpc = (
   ipcMain: IpcMain,
+  browserSessions: BrowserSessionService,
   webContentsGetter: () => Iterable<WebContents>,
   pageTargetResolver: PageTargetResolver = resolveBrowserPageTarget,
 ): void => {
+  // Settings.browser is the sole durable SoT for pool limits. Installation is
+  // intentionally delayed until cold profile recovery admits browser IPC.
+  browserSessions.setPoolLimitsProvider(() =>
+    AppRuntime.runPromise(
+      Effect.gen(function* () {
+        const settings = yield* SettingsService;
+        const doc = yield* settings.get;
+        return {
+          maxVisibleSurfaces: doc.browser.maxVisibleSurfaces,
+          maxWarmSessions: doc.browser.maxWarmSessions,
+        };
+      }),
+    ),
+  );
   browserSessions.setSink((session) => {
     for (const contents of webContentsGetter()) {
       contents.send(IPC_CHANNELS.browserSessionChanged, session);

@@ -15,20 +15,21 @@ import { classifyBrowserTarget } from "@shared/browser-policy";
 import { IPC_CHANNELS, type NodeRefOpenedDelivery } from "@shared/ipc";
 import { resolvedSpawnEnv } from "./vellum/adapters/exec";
 import { AppRuntime, chatService } from "./runtime";
-import { registerIpcHandlers } from "./ipc";
+import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./vellum/canvases";
 import { buildBrowserAutomationNativePrompt } from "./vellum/browser/agent-confirmation";
 import type { BrowserAutomationConfirmation } from "./vellum/browser/agent-authority";
 import { registerBrowserAgentIpc } from "./vellum/browser/agent-ipc";
 import {
-  makeBrowserAutomationProduct,
-  type BrowserAutomationProduct,
-} from "./vellum/browser/agent-product";
+  BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE,
+  startBrowserComposition,
+  type BrowserComposition,
+} from "./vellum/browser/composition";
 import { warmAllHosts } from "./vellum/herdr/masters";
 import { startAllMirrors, stopAllMirrors } from "./vellum/herdr/mirrors";
 import { herdrService } from "./vellum/herdr/service";
 import { herdrStreams } from "./vellum/herdr/stream";
-import { browserSessions, resolveBrowserPageTarget } from "./vellum/browser/ipc";
+import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
 import {
@@ -198,7 +199,7 @@ app.on("open-url", (event, uri) => {
 const headless = process.argv.includes("--vellum-headless");
 
 let trustedMainWindow: BrowserWindow | undefined;
-let browserAutomationProduct: BrowserAutomationProduct | undefined;
+let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
 
 // Bounded renderer crash recovery. A renderer that dies (GPU reset, OOM kill,
@@ -490,7 +491,7 @@ if (!gotSingleInstanceLock) {
     powerMonitor.on("resume", () => {
       void warmAllHosts();
       try {
-        browserAutomationProduct?.reapAfterResume();
+        browserComposition?.automation.reapAfterResume();
       } catch {
         console.error("[browser-automation] resume reap failed");
       }
@@ -501,64 +502,67 @@ if (!gotSingleInstanceLock) {
     // whenever a mirror is not fresh.
     startAllMirrors();
 
-    // Agent control plane (unix socket + token). App-hosted: exists exactly as
-    // long as the runtime that owns the warm sessions does.
-    let product: BrowserAutomationProduct | undefined;
+    // Browser authority stays private until cold profile recovery completes.
+    // The activation callback is the only place browser IPC, agent IPC, or
+    // the local control socket can become reachable.
     try {
-      product = makeBrowserAutomationProduct({
-        sessions: browserSessions,
-        chat: chatService,
-        herdr: herdrService,
-        readCanvas: (name) =>
-          AppRuntime.runPromise(
-            Effect.flatMap(CanvasesService, (canvases) =>
-              Effect.map(canvases.read(name), (result) => result.doc),
+      browserComposition = await startBrowserComposition(
+        {
+          chat: chatService,
+          herdr: herdrService,
+          readCanvas: (name) =>
+            AppRuntime.runPromise(
+              Effect.flatMap(CanvasesService, (canvases) =>
+                Effect.map(canvases.read(name), (result) => result.doc),
+              ),
             ),
-          ),
-        resolvePageTarget: resolveBrowserPageTarget,
-        getHerdrPaneMeta: async (host, session, paneId) => {
-          const result = await herdrService.getPaneMeta(host, session, paneId);
-          if (!result.ok) return { ok: false as const, code: result.code };
-          const meta = result.data;
-          return {
-            ok: true as const,
-            data: {
-              paneId: meta.paneId,
-              ...(meta.workspaceId === undefined ? {} : { workspaceId: meta.workspaceId }),
-              ...(meta.tabId === undefined ? {} : { tabId: meta.tabId }),
-              ...(meta.cwd === undefined ? {} : { cwd: meta.cwd }),
-            },
-          };
+          resolvePageTarget: resolveBrowserPageTarget,
+          getHerdrPaneMeta: async (host, session, paneId) => {
+            const result = await herdrService.getPaneMeta(host, session, paneId);
+            if (!result.ok) return { ok: false, code: result.code };
+            const meta = result.data;
+            return {
+              ok: true,
+              data: {
+                paneId: meta.paneId,
+                ...(meta.workspaceId === undefined ? {} : { workspaceId: meta.workspaceId }),
+                ...(meta.tabId === undefined ? {} : { tabId: meta.tabId }),
+                ...(meta.cwd === undefined ? {} : { cwd: meta.cwd }),
+              },
+            };
+          },
+          confirm: confirmBrowserAutomation,
         },
-        confirm: confirmBrowserAutomation,
-      });
-      const control = await startBrowserControlServer({
-        sessions: browserSessions,
-        capabilities: product.registry,
-        resolvePageTarget: resolveBrowserPageTarget,
-        version: app.getVersion(),
-      });
-      browserControl = control;
-      browserAutomationProduct = product;
-      registerBrowserAgentIpc(ipcMain, product.runtime, (event) => {
-        const mainWindow = trustedMainWindow;
-        return (
-          mainWindow !== undefined &&
-          !mainWindow.isDestroyed() &&
-          !mainWindow.webContents.isDestroyed() &&
-          event.sender === mainWindow.webContents
-        );
-      });
-    } catch (error) {
-      product?.close();
-      browserAutomationProduct = undefined;
+        async (composition) => {
+          browserControl = await startBrowserControlServer({
+            sessions: composition.sessions,
+            capabilities: composition.automation.registry,
+            resolvePageTarget: resolveBrowserPageTarget,
+            version: app.getVersion(),
+          });
+          registerBrowserAgentIpc(ipcMain, composition.automation.runtime, (event) => {
+            const mainWindow = trustedMainWindow;
+            return (
+              mainWindow !== undefined &&
+              !mainWindow.isDestroyed() &&
+              !mainWindow.webContents.isDestroyed() &&
+              event.sender === mainWindow.webContents
+            );
+          });
+          registerBrowserIpcHandlers(composition.sessions);
+        },
+      );
+    } catch {
+      browserComposition = undefined;
       try {
         browserControl?.close();
       } catch {
         // Startup is already failing closed; socket cleanup stays best-effort.
       }
       browserControl = undefined;
-      console.error("[browser-control] failed to start:", error);
+      console.error(BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE);
+      app.exit(1);
+      return;
     }
 
     if (!headless) createWindow();
@@ -591,7 +595,7 @@ const detachHerdrOnQuit = (reason: string) => {
   // are dropped with the process but profile partitions (cookies) are never
   // wiped and no session is explicitly destroyed.
   try {
-    browserSessions.detachAllOnQuit(reason);
+    browserComposition?.sessions.detachAllOnQuit(reason);
   } catch (error) {
     console.error(`[browser] detach on quit failed (${reason}):`, error);
   }
@@ -602,11 +606,10 @@ const detachRuntimeOnQuit = (reason: string): void => {
   // Registry termination destroys only automation-owner WebContentsViews;
   // profile partitions and unrelated renderer-owned views remain intact.
   try {
-    browserAutomationProduct?.close();
+    browserComposition?.automation.close();
   } catch (error) {
     console.error(`[browser-automation] close on quit failed (${reason}):`, error);
   }
-  browserAutomationProduct = undefined;
 
   try {
     browserControl?.close();
@@ -618,6 +621,7 @@ const detachRuntimeOnQuit = (reason: string): void => {
   // Herdr product lock: quit / relaunch / launchd unload detaches control only.
   // Never pane close, tab close, or session stop. The fleet keeps running.
   detachHerdrOnQuit(reason);
+  browserComposition = undefined;
 };
 
 app.on("before-quit", () => {
