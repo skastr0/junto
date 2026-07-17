@@ -79,7 +79,8 @@ const subscribe = <T>(channel: string, listener: (payload: T) => void) => {
 };
 
 let pendingNodeRefOpened: NodeRefOpenedDelivery | undefined;
-let nodeRefOpenedListener: ((event: NodeRefOpenedEvent) => void) | undefined;
+let nodeRefOpenedListener: ((event: NodeRefOpenedEvent) => void | Promise<void>) | undefined;
+let nodeRefOpenedRevision = 0;
 
 const DELIVERY_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -107,22 +108,35 @@ const decodeNodeRefOpened = (payload: unknown): NodeRefOpenedDelivery | undefine
   };
 };
 
-const deliverNodeRefOpened = (delivery: NodeRefOpenedDelivery): void => {
+const startNodeRefOpened = async (
+  delivery: NodeRefOpenedDelivery,
+  revision: number,
+): Promise<void> => {
   const listener = nodeRefOpenedListener;
   if (listener === undefined) {
-    pendingNodeRefOpened = delivery;
+    if (revision === nodeRefOpenedRevision) pendingNodeRefOpened = delivery;
     return;
   }
   try {
-    listener({
+    await listener({
       ref: delivery.ref,
       canvasName: delivery.canvasName,
       nodeId: delivery.nodeId,
     });
-    ipcRenderer.send(IPC_CHANNELS.nodeRefOpenedAck, delivery.deliveryId);
+    if (revision === nodeRefOpenedRevision) {
+      ipcRenderer.send(IPC_CHANNELS.nodeRefOpenedAck, delivery.deliveryId);
+    }
   } catch {
-    pendingNodeRefOpened = delivery;
+    if (revision === nodeRefOpenedRevision) pendingNodeRefOpened = delivery;
   }
+};
+
+const deliverNodeRefOpened = (delivery: NodeRefOpenedDelivery): void => {
+  const revision = ++nodeRefOpenedRevision;
+  pendingNodeRefOpened = delivery;
+  if (nodeRefOpenedListener === undefined) return;
+  pendingNodeRefOpened = undefined;
+  void startNodeRefOpened(delivery, revision);
 };
 
 ipcRenderer.on(IPC_CHANNELS.nodeRefOpened, (_event, payload: unknown) => {
@@ -130,12 +144,14 @@ ipcRenderer.on(IPC_CHANNELS.nodeRefOpened, (_event, payload: unknown) => {
   if (decoded !== undefined) deliverNodeRefOpened(decoded);
 });
 
-const onNodeRefOpened = (listener: (event: NodeRefOpenedEvent) => void): (() => void) => {
+const onNodeRefOpened = (
+  listener: (event: NodeRefOpenedEvent) => void | Promise<void>,
+): (() => void) => {
   nodeRefOpenedListener = listener;
   const queued = pendingNodeRefOpened;
   if (queued !== undefined) {
     pendingNodeRefOpened = undefined;
-    deliverNodeRefOpened(queued);
+    void startNodeRefOpened(queued, nodeRefOpenedRevision);
   }
   return () => {
     if (nodeRefOpenedListener === listener) nodeRefOpenedListener = undefined;

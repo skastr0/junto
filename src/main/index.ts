@@ -1,14 +1,173 @@
 import { execFile } from "node:child_process";
+import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
-import { app, BrowserWindow, powerMonitor, shell } from "electron";
+import { app, BrowserWindow, ipcMain, powerMonitor, shell, type IpcMainEvent } from "electron";
+import { Effect } from "effect";
+import { IPC_CHANNELS, type NodeRefOpenedDelivery } from "@shared/ipc";
 import { resolvedSpawnEnv } from "./vellum/adapters/exec";
 import { AppRuntime } from "./runtime";
 import { registerIpcHandlers } from "./ipc";
+import { CanvasesService } from "./vellum/canvases";
 import { warmAllHosts } from "./vellum/herdr/masters";
 import { startAllMirrors, stopAllMirrors } from "./vellum/herdr/mirrors";
 import { herdrStreams } from "./vellum/herdr/stream";
 import { browserSessions } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
+import {
+  acknowledgeNodeRefRelay,
+  claimLatestNodeRefRelay,
+  makeNodeRefIngress,
+  publishNodeRefRelay,
+  type NodeRefRelayRecord,
+} from "./vellum/node-ref-ingress";
+import { resolveNodeRef } from "./vellum/node-ref-resolver";
+
+const nodeRefIngress = makeNodeRefIngress((ref) =>
+  AppRuntime.runPromise(
+    Effect.flatMap(CanvasesService, (canvases) => resolveNodeRef(canvases, ref)),
+  ),
+);
+
+const nodeRefRelayDirectory = (): string =>
+  join(app.getPath("userData"), "runtime", "open-url");
+
+let nodeRefOwnerReady = false;
+let nodeRefDrainRequested = false;
+let nodeRefDrainRunning: Promise<void> | undefined;
+let nodeRefRelayWatcher: FSWatcher | undefined;
+let activeNodeRefRelay: NodeRefRelayRecord | undefined;
+let activeNodeRefNeedsRetry = false;
+let nodeRefPublicationTail: Promise<void> = Promise.resolve();
+
+const reportNodeRefResult = (result: Awaited<ReturnType<typeof nodeRefIngress.accept>>): void => {
+  if (!result.ok && result.code !== "superseded") {
+    console.error(`[node-ref] locator rejected (${result.code})`);
+  }
+};
+
+const flushNodeRefPublications = async (): Promise<void> => {
+  for (;;) {
+    const observed = nodeRefPublicationTail;
+    await observed;
+    if (observed === nodeRefPublicationTail) return;
+  }
+};
+
+const acknowledgeActiveNodeRef = async (record: NodeRefRelayRecord): Promise<void> => {
+  if (activeNodeRefRelay?.id !== record.id) return;
+  try {
+    const removed = await acknowledgeNodeRefRelay(nodeRefRelayDirectory(), record.id);
+    if (!removed || activeNodeRefRelay?.id !== record.id) return;
+    activeNodeRefRelay = undefined;
+    activeNodeRefNeedsRetry = false;
+  } catch {
+    console.error("[node-ref] durable delivery acknowledgement failed");
+  }
+};
+
+const activateNodeRefRelay = async (record: NodeRefRelayRecord): Promise<void> => {
+  const result = await nodeRefIngress.accept(record.uri);
+  if (activeNodeRefRelay?.id !== record.id) return;
+  if (result.ok) {
+    activeNodeRefNeedsRetry = false;
+    return;
+  }
+  if (result.code === "superseded") return;
+  reportNodeRefResult(result);
+  if (result.code === "invalid") {
+    await acknowledgeActiveNodeRef(record);
+    return;
+  }
+  // A canvas read can recover without changing the durable locator. Missing
+  // or concurrently edited documents therefore retry on the next owner wake
+  // and expire under the relay TTL instead of being silently lost.
+  activeNodeRefNeedsRetry = true;
+};
+
+const startNodeRefRelayWatcher = (): void => {
+  if (nodeRefRelayWatcher !== undefined) return;
+  try {
+    const watcher = watch(nodeRefRelayDirectory(), { persistent: false }, () => {
+      requestNodeRefDrain();
+    });
+    watcher.on("error", () => {
+      if (nodeRefRelayWatcher === watcher) nodeRefRelayWatcher = undefined;
+      watcher.close();
+      console.error("[node-ref] durable relay watcher stopped");
+    });
+    nodeRefRelayWatcher = watcher;
+    // The watch is now armed; one final scan closes the scan-before-watch
+    // startup race. Subsequent record renames wake the serialized drain.
+    nodeRefDrainRequested = true;
+  } catch {
+    console.error("[node-ref] durable relay watcher unavailable");
+  }
+};
+
+const drainNodeRefRelays = async (): Promise<void> => {
+  do {
+    nodeRefDrainRequested = false;
+    let newest: NodeRefRelayRecord | undefined;
+    try {
+      newest = await claimLatestNodeRefRelay(nodeRefRelayDirectory());
+      startNodeRefRelayWatcher();
+    } catch {
+      console.error("[node-ref] durable relay drain failed");
+      return;
+    }
+    if (newest === undefined) continue;
+    if (activeNodeRefRelay?.id !== newest.id) {
+      activeNodeRefRelay = newest;
+      activeNodeRefNeedsRetry = false;
+      await activateNodeRefRelay(newest);
+    } else if (activeNodeRefNeedsRetry) {
+      await activateNodeRefRelay(newest);
+    }
+  } while (nodeRefDrainRequested);
+};
+
+function requestNodeRefDrain(): void {
+  nodeRefDrainRequested = true;
+  if (!nodeRefOwnerReady || nodeRefDrainRunning !== undefined) return;
+  const run = drainNodeRefRelays().catch(() => {
+    console.error("[node-ref] durable relay activation failed");
+  });
+  nodeRefDrainRunning = run.finally(() => {
+    nodeRefDrainRunning = undefined;
+    if (nodeRefDrainRequested) requestNodeRefDrain();
+  });
+  void nodeRefDrainRunning;
+}
+
+const queueNodeRefPublication = (
+  event: { readonly preventDefault: () => void },
+  uri: string,
+): void => {
+  event.preventDefault();
+  const publication = nodeRefPublicationTail.then(() =>
+    publishNodeRefRelay(nodeRefRelayDirectory(), uri),
+  );
+  nodeRefPublicationTail = publication.then(
+    () => undefined,
+    () => undefined,
+  );
+  void publication.then(
+    (result) => {
+      if (result.kind === "invalid") {
+        console.error(`[node-ref] locator rejected (${result.code})`);
+        return;
+      }
+      requestNodeRefDrain();
+    },
+    () => console.error("[node-ref] durable locator publication failed"),
+  );
+};
+
+// macOS may emit this before ready. Prevent native handling synchronously,
+// then durably publish canonical syntax before any launchd handoff.
+app.on("open-url", (event, uri) => {
+  queueNodeRefPublication(event, uri);
+});
 
 // Dev-only: expose the Chrome DevTools Protocol so agents can drive the app
 // end to end (screenshot, click, evaluate) over CDP. Never in packaged builds.
@@ -103,6 +262,53 @@ const createWindow = () => {
     return { action: "deny" };
   });
 
+  let disconnectNodeRefSink = (): void => undefined;
+  const disconnect = (): void => {
+    disconnectNodeRefSink();
+    disconnectNodeRefSink = () => undefined;
+  };
+  const acknowledgeDelivery = (event: IpcMainEvent, deliveryId: unknown): void => {
+    const record = activeNodeRefRelay;
+    if (
+      event.sender !== mainWindow.webContents ||
+      typeof deliveryId !== "string" ||
+      record?.id !== deliveryId
+    ) {
+      return;
+    }
+    void acknowledgeActiveNodeRef(record).then(requestNodeRefDrain);
+  };
+  ipcMain.on(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
+  mainWindow.webContents.on("did-start-loading", () => {
+    disconnect();
+    const record = activeNodeRefRelay;
+    if (record !== undefined) void activateNodeRefRelay(record);
+  });
+  mainWindow.webContents.on("did-finish-load", () => {
+    disconnect();
+    disconnectNodeRefSink = nodeRefIngress.connect((target) => {
+      if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+        throw new Error("renderer unavailable");
+      }
+      const record = activeNodeRefRelay;
+      if (record === undefined || record.uri !== target.ref) {
+        throw new Error("durable delivery unavailable");
+      }
+      const payload: NodeRefOpenedDelivery = {
+        ...target,
+        deliveryId: record.id,
+      };
+      mainWindow.webContents.send(IPC_CHANNELS.nodeRefOpened, payload);
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    });
+  });
+  mainWindow.on("closed", () => {
+    disconnect();
+    ipcMain.removeListener(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
+  });
+
   registerCrashRecovery(mainWindow);
 
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
@@ -146,15 +352,21 @@ const ensureSupervised = async (): Promise<boolean> => {
   if (!print.ok) return true; // no LaunchAgent — standalone launch is legitimate
   const pidMatch = print.stdout.match(/\bpid = (\d+)/);
   if (pidMatch && Number(pidMatch[1]) === process.pid) return true; // we ARE supervised
+  // Valid locators were published in the early event handler. A storage
+  // failure drops only that locator; it never weakens launchd ownership or
+  // prevents the app itself from starting.
+  await flushNodeRefPublications();
   // Hand off: release the lock so the kickstarted instance can take it.
   app.releaseSingleInstanceLock();
   const kick = await launchctl(["kickstart", target]);
   if (kick.ok) {
+    await flushNodeRefPublications();
     app.exit(0);
     return false;
   }
   // Kickstart failed (odd job state) — reclaim the lock and run unsupervised
-  // rather than leaving the operator with nothing; say so loudly.
+  // rather than leaving the operator with nothing. Durable relay records stay
+  // intact for whichever process owns the lock.
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return false;
@@ -172,6 +384,7 @@ if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   app.on("second-instance", () => {
+    requestNodeRefDrain();
     const [existing] = BrowserWindow.getAllWindows();
     if (!existing) return;
     if (existing.isMinimized()) existing.restore();
@@ -181,6 +394,8 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     if (!(await ensureSupervised())) return;
+    nodeRefOwnerReady = true;
+    requestNodeRefDrain();
 
     // Warm the resolved spawn environment (login-shell PATH + static floor) so
     // process.env.PATH is fixed before any adapter/service spawns a CLI. Never
@@ -216,6 +431,7 @@ if (!gotSingleInstanceLock) {
     createWindow();
 
     app.on("activate", () => {
+      requestNodeRefDrain();
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
   });
@@ -253,6 +469,8 @@ const detachHerdrOnQuit = (reason: string) => {
 };
 
 app.on("before-quit", () => {
+  nodeRefRelayWatcher?.close();
+  nodeRefRelayWatcher = undefined;
   detachHerdrOnQuit("before-quit");
   // Close the control socket so the CLI reports runtime_down instead of hanging.
   try {

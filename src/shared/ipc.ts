@@ -584,7 +584,9 @@ export interface VellumApi {
   readonly getKernelState: () => Promise<KernelSnapshot>;
   readonly armRegion: (canvasName: string, regionId: string, armed: boolean) => Promise<ArmRegionResult>;
   readonly pulseRegion: (canvasName: string, regionId: string, opts?: unknown) => Promise<void>;
-  readonly onNodeRefOpened: (listener: (event: NodeRefOpenedEvent) => void) => () => void;
+  readonly onNodeRefOpened: (
+    listener: (event: NodeRefOpenedEvent) => void | Promise<void>,
+  ) => () => void;
   readonly onCanvasChanged: (listener: (name: string) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
