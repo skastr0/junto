@@ -18,6 +18,7 @@ import {
   type BrowserCapabilityTerminationNotice,
   type BrowserCapabilityUseTarget,
 } from "../src/main/vellum/browser/capabilities";
+import { BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
 
 const REF_ONE = "vellum://canvas/work?node=n1";
 const REF_TWO = "vellum://canvas/work?node=n2";
@@ -62,6 +63,10 @@ class ManualCapabilityRuntime {
     },
   };
 
+  get randomCalls(): number {
+    return this.#randomSequence;
+  }
+
   advanceBoth(milliseconds: number): void {
     this.wall += milliseconds;
     this.monotonic += milliseconds;
@@ -93,6 +98,7 @@ const makeRegistry = (
     readonly maxCapabilities?: number;
     readonly maxCapabilitiesPerPrincipal?: number;
     readonly auditCapacity?: number;
+    readonly profileGate?: BrowserProfileGate;
     readonly onTerminate?: (notice: BrowserCapabilityTerminationNotice) => void;
   } = {},
 ): { readonly registry: BrowserCapabilityRegistry; readonly runtime: ManualCapabilityRuntime } => ({
@@ -130,6 +136,16 @@ const captureDenial = (operation: () => unknown): BrowserCapabilityDenied => {
     return error as BrowserCapabilityDenied;
   }
   throw new Error("expected capability denial");
+};
+
+const captureIssueDenial = (operation: () => unknown): BrowserCapabilityIssueDenied => {
+  try {
+    operation();
+  } catch (error) {
+    expect(error).toBeInstanceOf(BrowserCapabilityIssueDenied);
+    return error as BrowserCapabilityIssueDenied;
+  }
+  throw new Error("expected capability issuance denial");
 };
 
 describe("browser capability issuance", () => {
@@ -213,6 +229,62 @@ describe("browser capability issuance", () => {
 
     const otherRegistry = makeRegistry().registry;
     expect(() => otherRegistry.issue(principal, base)).toThrowError(BrowserCapabilityIssueDenied);
+  });
+
+  it("gates every target profile atomically before minting or mutating registry state", () => {
+    const profileGate = new BrowserProfileGate();
+    const notices: BrowserCapabilityTerminationNotice[] = [];
+    const { registry, runtime } = makeRegistry(undefined, {
+      profileGate,
+      onTerminate: (notice) => notices.push(notice),
+    });
+    const principal = registry.createPrincipal();
+    const blocked = profileGate.begin(TARGET_ONE.profile);
+    expect(blocked.ok).toBe(true);
+    if (!blocked.ok) throw new Error("expected profile block");
+
+    const snapshotState = () => ({
+      randomCalls: runtime.randomCalls,
+      timers: [...runtime.timers.entries()],
+      stats: registry.stats(),
+      audit: registry.auditSnapshot(),
+      notices: [...notices],
+    });
+    const beforeQuiescingDenial = snapshotState();
+    const quiescingDenial = captureIssueDenial(() =>
+      issue(registry, principal, {
+        actions: ["open"],
+        targets: [TARGET_TWO, TARGET_ONE],
+      }),
+    );
+    expect(quiescingDenial.reason).toBe("invalid");
+    expect(quiescingDenial.message).toBe("browser capability issuance denied");
+    expect(JSON.stringify(quiescingDenial)).not.toContain(TARGET_ONE.profile);
+    expect(snapshotState()).toEqual(beforeQuiescingDenial);
+
+    const unrelatedGrant = issue(registry, principal, {
+      actions: ["open"],
+      targets: [TARGET_TWO],
+    });
+    expect(unrelatedGrant.auditId).toMatch(/_4$/);
+    expect(profileGate.commitDeleted(blocked.data)).toBe(true);
+
+    const beforeDeletedDenial = snapshotState();
+    const deletedDenial = captureIssueDenial(() =>
+      issue(registry, principal, {
+        actions: ["open"],
+        targets: [TARGET_ONE],
+      }),
+    );
+    expect(deletedDenial.reason).toBe("invalid");
+    expect(snapshotState()).toEqual(beforeDeletedDenial);
+
+    expect(profileGate.markCreated(TARGET_ONE.profile)).toMatchObject({ ok: true });
+    const recreatedGrant = issue(registry, principal, {
+      actions: ["open"],
+      targets: [TARGET_ONE, TARGET_TWO],
+    });
+    expect(recreatedGrant.auditId).toMatch(/_5$/);
   });
 });
 

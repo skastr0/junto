@@ -15,6 +15,7 @@ import {
 } from "@shared/browser-limits";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
+import { makeBrowserProfileGate, type BrowserProfileGate } from "./profile-gate";
 
 export const BROWSER_CAPABILITY_ACTIONS = [
   "profiles",
@@ -290,6 +291,7 @@ export interface BrowserCapabilityRegistryOptions {
   readonly maxCapabilitiesPerPrincipal?: number;
   readonly auditCapacity?: number;
   readonly dependencies?: Partial<BrowserCapabilityDependencies>;
+  readonly profileGate?: BrowserProfileGate;
   readonly onTerminate?: (notice: BrowserCapabilityTerminationNotice) => void;
 }
 
@@ -498,6 +500,7 @@ export class BrowserCapabilityRegistry {
   readonly #maxCapabilitiesPerPrincipal: number;
   readonly #auditCapacity: number;
   readonly #dependencies: BrowserCapabilityDependencies;
+  readonly #profileGate: BrowserProfileGate;
   readonly #onTerminate: (notice: BrowserCapabilityTerminationNotice) => void;
   readonly #auditKey: Uint8Array;
   readonly #principals = new WeakMap<BrowserAutomationPrincipal, PrincipalRecord>();
@@ -528,6 +531,7 @@ export class BrowserCapabilityRegistry {
       ...defaultDependencies,
       ...options.dependencies,
     };
+    this.#profileGate = options.profileGate ?? makeBrowserProfileGate();
     if (options.onTerminate !== undefined && typeof options.onTerminate !== "function") {
       throw new BrowserCapabilityIssueDenied("invalid");
     }
@@ -558,7 +562,6 @@ export class BrowserCapabilityRegistry {
     spec: BrowserCapabilityIssueSpec,
   ): BrowserCapabilityGrant {
     if (this.#closed) throw new BrowserCapabilityIssueDenied("closed");
-    this.reapExpired();
     const principalRecord = this.#principals.get(principal);
     if (principalRecord === undefined) throw new BrowserCapabilityIssueDenied("invalid");
 
@@ -573,6 +576,13 @@ export class BrowserCapabilityRegistry {
     ) {
       throw new BrowserCapabilityIssueDenied("invalid");
     }
+    for (const profile of new Set(targets.map((target) => target.profile))) {
+      if (this.#profileGate.snapshot(profile) === undefined) {
+        throw new BrowserCapabilityIssueDenied("invalid");
+      }
+    }
+
+    this.reapExpired();
     if (
       this.#records.size >= this.#maxCapabilities ||
       principalRecord.liveCapabilities >= this.#maxCapabilitiesPerPrincipal
