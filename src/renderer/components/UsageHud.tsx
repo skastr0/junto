@@ -5,6 +5,7 @@ import { worstWindow } from "@shared/usage";
 import { state$ } from "../lib/state";
 import { HUE } from "../lib/theme";
 import { FocusSurface } from "./FocusSurface";
+import { HarnessMark } from "./herdr/HarnessMark";
 import "./UsageHud.css";
 
 // Compact provider-usage rail: one [glyph|bar] cell per quota. No chrome
@@ -60,16 +61,14 @@ const providerLabel = (quota: ProviderQuota): string => {
   return quota.provider;
 };
 
-const glyph = (quota: ProviderQuota): string => {
-  const name = quota.provider.trim();
-  return name.length > 0 ? name[0]!.toUpperCase() : "?";
-};
-
 function Cell({ quota }: { readonly quota: ProviderQuota }) {
+  // Brand mark from harness-icons (same registry as herdr cards). Unknown
+  // codexbar providers fall back to a monogram inside HarnessMark.
+  const mark = <HarnessMark agent={quota.provider} size={12} />;
   if (quota.status === "error") {
     return (
       <span className="usage-hud__cell is-error" title={`${quota.provider}: error`}>
-        <span className="usage-hud__glyph">{glyph(quota)}</span>
+        {mark}
         <span className="usage-hud__bar" />
       </span>
     );
@@ -79,7 +78,7 @@ function Cell({ quota }: { readonly quota: ProviderQuota }) {
   const hue = usageHue(used);
   return (
     <span className="usage-hud__cell" title={`${quota.provider} ${formatPercent(used)}`}>
-      <span className="usage-hud__glyph">{glyph(quota)}</span>
+      {mark}
       <span className="usage-hud__bar">
         <i style={{ width: `${Math.min(100, Math.max(0, used))}%`, background: hue }} />
       </span>

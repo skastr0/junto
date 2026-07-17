@@ -46,19 +46,6 @@
   min-width: 0;
 }
 
-.usage-hud__glyph {
-  flex: 0 0 auto;
-  width: 11px;
-  color: #8a8378;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 0;
-  line-height: 1;
-  text-align: center;
-  text-transform: uppercase;
-}
-
 .usage-hud__bar {
   position: relative;
   display: block;
@@ -76,10 +63,6 @@
   height: 100%;
   border-radius: inherit;
   transition: width 160ms ease-out;
-}
-
-.usage-hud__cell.is-error .usage-hud__glyph {
-  color: #e5484d;
 }
 
 .usage-hud__cell.is-error .usage-hud__bar {
