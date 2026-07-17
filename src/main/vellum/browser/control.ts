@@ -77,7 +77,6 @@ import {
   BrowserCapabilityDenied,
   BrowserCapabilityRegistry,
   BrowserCapabilityStateDenied,
-  makeBrowserCapabilityRegistry,
   type BrowserCapabilityAction,
   type BrowserCapabilityCompletionOutcome,
   type BrowserCapabilityLease,
@@ -1062,12 +1061,14 @@ const parseContentLength = (
 
 /**
  * Start the owner-local control plane. Idempotent per app run; call close() on
- * quit. Startup resolves only after the Unix socket has owner-only permissions.
+ * quit. The caller owns the capability registry so issuance and enforcement
+ * cannot accidentally diverge. Startup resolves only after the Unix socket has
+ * owner-only permissions.
  */
 export const startBrowserControlServer = async (
   options: {
     readonly sessions: BrowserSessionService;
-    readonly capabilities?: BrowserCapabilityRegistry;
+    readonly capabilities: BrowserCapabilityRegistry;
     readonly resolvePageTarget: PageTargetResolver;
     readonly version: string;
     readonly home?: string;
@@ -1081,11 +1082,9 @@ export const startBrowserControlServer = async (
   await ensureScreenshotDirectory(controlShotsDir(home));
 
   const token = rotateControlToken(controlTokenPath(home));
-  const capabilities = options.capabilities ?? makeBrowserCapabilityRegistry();
-  const ownsCapabilities = options.capabilities === undefined;
   const handlers = makeControlHandlers({
     sessions: options.sessions,
-    capabilities,
+    capabilities: options.capabilities,
     resolvePageTarget: options.resolvePageTarget,
     version: options.version,
     canvasesDir: join(home, ".vellum", "canvases"),
@@ -1341,7 +1340,6 @@ export const startBrowserControlServer = async (
     socketPath,
     close: () => {
       server.close();
-      if (ownsCapabilities) capabilities.close();
       try {
         unlinkSocket(socketPath);
       } catch {

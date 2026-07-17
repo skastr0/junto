@@ -94,6 +94,7 @@ const startStack = async (
 ): Promise<{
   readonly server: BrowserControlServer;
   readonly sessions: BrowserSessionService;
+  readonly capabilities: BrowserCapabilityRegistry;
   readonly token: string;
   readonly capability: string;
   readonly ownerId: string;
@@ -127,6 +128,7 @@ const startStack = async (
   return {
     server,
     sessions,
+    capabilities,
     token: (await readFile(controlTokenPath(root), "utf8")).trim(),
     capability: grant.secret,
     ownerId: grant.ownerId,
@@ -266,8 +268,19 @@ describe("browser control Unix transport", () => {
     expect(await mode(server.socketPath)).toBe(0o600);
   });
 
+  it("leaves the shared capability registry under caller lifecycle ownership", async () => {
+    const root = await newRoot();
+    const { server, capabilities } = await startStack(root);
+
+    server.close();
+
+    expect(capabilities.stats().closed).toBe(false);
+  });
+
   it("fails startup closed when the live socket cannot be made owner-only", async () => {
     const root = await newRoot();
+    const capabilities = makeBrowserCapabilityRegistry();
+    capabilityRegistries.push(capabilities);
     const runtime: BrowserControlRuntime = {
       chmodSocket: () => {
         throw new Error("injected chmod failure");
@@ -276,7 +289,13 @@ describe("browser control Unix transport", () => {
 
     await expect(
       startBrowserControlServer(
-        { sessions: makeSessions(root), resolvePageTarget, version: "transport-test", home: root },
+        {
+          sessions: makeSessions(root),
+          capabilities,
+          resolvePageTarget,
+          version: "transport-test",
+          home: root,
+        },
         runtime,
       ),
     ).rejects.toThrow("injected chmod failure");
