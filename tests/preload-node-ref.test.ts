@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { NodeRefOpenedDelivery, NodeRefOpenedEvent, VellumApi } from "../src/shared/ipc";
+import type {
+  NodeRefOpenedDelivery,
+  NodeRefOpenedEvent,
+  VellumApi,
+  VellumBrowserAutomationApi,
+} from "../src/shared/ipc";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { formatNodeRef } from "../src/shared/node-ref";
 
@@ -7,6 +12,7 @@ const electron = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, payload: unknown) => void>(),
   exposed: new Map<string, unknown>(),
   sent: [] as Array<ReadonlyArray<unknown>>,
+  invoked: [] as Array<ReadonlyArray<unknown>>,
 }));
 
 vi.mock("electron", () => ({
@@ -14,7 +20,10 @@ vi.mock("electron", () => ({
     exposeInMainWorld: (name: string, value: unknown) => electron.exposed.set(name, value),
   },
   ipcRenderer: {
-    invoke: vi.fn(),
+    invoke: (...args: ReadonlyArray<unknown>) => {
+      electron.invoked.push(args);
+      return Promise.resolve(undefined);
+    },
     on: (channel: string, listener: (event: unknown, payload: unknown) => void) => {
       electron.handlers.set(channel, listener);
     },
@@ -40,9 +49,11 @@ const delivery = (nodeId: string, deliveryId: string): NodeRefOpenedDelivery => 
   deliveryId,
 });
 
-const loadPreload = async (): Promise<VellumApi> => {
+const loadPreload = async (): Promise<VellumApi & VellumBrowserAutomationApi> => {
   await import("../src/preload/index");
-  const api = electron.exposed.get("vellum") as VellumApi | undefined;
+  const api = electron.exposed.get("vellum") as
+    | (VellumApi & VellumBrowserAutomationApi)
+    | undefined;
   if (api === undefined) throw new Error("preload did not expose Vellum API");
   return api;
 };
@@ -62,6 +73,7 @@ beforeEach(() => {
   electron.handlers.clear();
   electron.exposed.clear();
   electron.sent.length = 0;
+  electron.invoked.length = 0;
 });
 
 describe("preload node-reference delivery", () => {
@@ -131,5 +143,25 @@ describe("preload node-reference delivery", () => {
     expect(listener).toHaveBeenCalledOnce();
     expect(listener.mock.calls[0]?.[0]).toMatchObject({ nodeId: "page" });
     expect(electron.sent).toEqual([[IPC_CHANNELS.nodeRefOpenedAck, valid.deliveryId]]);
+  });
+});
+
+describe("preload browser automation bridge", () => {
+  it("exposes only enable, list, and revoke request arguments", async () => {
+    const api = await loadPreload();
+    const ref = formatNodeRef({ canvasName: "portfolio", nodeId: "page" });
+    const automationId = "00000000-0000-4000-8000-000000000001";
+
+    await api.browserAutomationEnable({ kind: "hermes", ref });
+    await api.browserAutomationEnable({ kind: "herdr", ref, agent: "codex" });
+    await api.browserAutomationList();
+    await api.browserAutomationRevoke(automationId);
+
+    expect(electron.invoked).toEqual([
+      [IPC_CHANNELS.browserAutomationEnable, { kind: "hermes", ref }],
+      [IPC_CHANNELS.browserAutomationEnable, { kind: "herdr", ref, agent: "codex" }],
+      [IPC_CHANNELS.browserAutomationList],
+      [IPC_CHANNELS.browserAutomationRevoke, automationId],
+    ]);
   });
 });
