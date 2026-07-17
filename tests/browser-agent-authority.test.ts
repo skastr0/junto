@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  BROWSER_AGENT_AUTHORITY_MAX_ACTIVE,
   BROWSER_AGENT_AUTHORITY_MAX_TARGETS,
   BROWSER_AGENT_AUTHORITY_MAX_USES,
   BROWSER_AGENT_AUTHORITY_TTL_MS,
@@ -23,9 +24,19 @@ const PAGE = (nodeId = "n1", url = "https://example.com/inbox"): ResolvedPageTar
 
 const SUBJECT = { id: "local:default", kind: "hermes" as const, label: "Hermes default" };
 
+const deferred = <T>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
 const setup = (options?: {
   readonly approve?: boolean;
+  readonly confirm?: (confirmation: BrowserAutomationConfirmation) => Promise<boolean>;
   readonly deliver?: (delivery: BrowserAutomationDelivery) => Promise<unknown>;
+  readonly makeGrantId?: () => string;
 }) => {
   let authority: BrowserAgentAuthority | undefined;
   const notices: BrowserCapabilityTerminationNotice[] = [];
@@ -40,10 +51,10 @@ const setup = (options?: {
   const cleanup = vi.fn();
   authority = new BrowserAgentAuthority(registry, {
     controlHome: "/Users/tester",
-    makeGrantId: () => "grant-1",
+    makeGrantId: options?.makeGrantId ?? (() => "grant-1"),
     confirm: async (request) => {
       confirmations.push(request);
-      return options?.approve ?? true;
+      return options?.confirm?.(request) ?? options?.approve ?? true;
     },
     deliver: async (delivery) => {
       deliveries.push(delivery);
@@ -175,6 +186,117 @@ describe("BrowserAgentAuthority", () => {
       code: "invalid",
     });
     expect(registry.stats().activeCapabilities).toBe(1);
+  });
+
+  it("reserves one subject across confirmation, mint, and delivery", async () => {
+    const confirmation = deferred<boolean>();
+    const delivery = deferred<void>();
+    const confirm = vi.fn(() => confirmation.promise);
+    const deliver = vi.fn(() => delivery.promise);
+    const { authority, registry } = setup({ confirm, deliver });
+    const mint = vi.spyOn(registry, "issue");
+
+    const first = authority.issue(SUBJECT, [PAGE()]);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    await expect(authority.issue(SUBJECT, [PAGE()])).resolves.toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(mint).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
+
+    confirmation.resolve(true);
+    await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(1));
+    expect(mint).toHaveBeenCalledTimes(1);
+    await expect(authority.issue(SUBJECT, [PAGE()])).resolves.toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(mint).toHaveBeenCalledTimes(1);
+    expect(deliver).toHaveBeenCalledTimes(1);
+
+    delivery.resolve();
+    await expect(first).resolves.toMatchObject({ ok: true });
+  });
+
+  it("releases the subject reservation after confirmation cancellation", async () => {
+    let confirmationAttempt = 0;
+    const { authority, registry, confirmations, deliveries } = setup({
+      confirm: async () => {
+        confirmationAttempt += 1;
+        return confirmationAttempt > 1;
+      },
+    });
+    const mint = vi.spyOn(registry, "issue");
+
+    await expect(authority.issue(SUBJECT, [PAGE()])).resolves.toMatchObject({
+      ok: false,
+      code: "cancelled",
+    });
+    await expect(authority.issue(SUBJECT, [PAGE()])).resolves.toMatchObject({ ok: true });
+
+    expect(confirmations).toHaveLength(2);
+    expect(mint).toHaveBeenCalledTimes(1);
+    expect(deliveries).toHaveLength(1);
+  });
+
+  it("releases the subject reservation after delivery failure", async () => {
+    let deliveryAttempt = 0;
+    const { authority, registry, confirmations, deliveries } = setup({
+      deliver: async () => {
+        deliveryAttempt += 1;
+        if (deliveryAttempt === 1) throw new Error("delivery failed");
+      },
+    });
+    const mint = vi.spyOn(registry, "issue");
+
+    await expect(authority.issue(SUBJECT, [PAGE()])).resolves.toMatchObject({
+      ok: false,
+      code: "delivery_failed",
+    });
+    await expect(authority.issue(SUBJECT, [PAGE()])).resolves.toMatchObject({ ok: true });
+
+    expect(confirmations).toHaveLength(2);
+    expect(mint).toHaveBeenCalledTimes(2);
+    expect(deliveries).toHaveLength(2);
+    expect(registry.stats().activeCapabilities).toBe(1);
+  });
+
+  it("bounds pending reservations and prevents mint after close", async () => {
+    const gates: Array<ReturnType<typeof deferred<boolean>>> = [];
+    const confirm = vi.fn(() => {
+      const gate = deferred<boolean>();
+      gates.push(gate);
+      return gate.promise;
+    });
+    const deliver = vi.fn(async () => undefined);
+    const { authority, registry } = setup({ confirm, deliver });
+    const mint = vi.spyOn(registry, "issue");
+    const pending = Array.from({ length: BROWSER_AGENT_AUTHORITY_MAX_ACTIVE }, (_, index) =>
+      authority.issue(
+        { ...SUBJECT, id: `subject-${index}`, label: `Subject ${index}` },
+        [PAGE(`n${index}`)],
+      ),
+    );
+
+    expect(confirm).toHaveBeenCalledTimes(BROWSER_AGENT_AUTHORITY_MAX_ACTIVE);
+    await expect(
+      authority.issue(
+        { ...SUBJECT, id: "subject-overflow", label: "Subject overflow" },
+        [PAGE("overflow")],
+      ),
+    ).resolves.toMatchObject({ ok: false, code: "capacity" });
+    expect(confirm).toHaveBeenCalledTimes(BROWSER_AGENT_AUTHORITY_MAX_ACTIVE);
+
+    expect(authority.close()).toBe(0);
+    for (const gate of gates) gate.resolve(true);
+    const results = await Promise.all(pending);
+    expect(results.every((result) => !result.ok && result.code === "closed")).toBe(true);
+    expect(mint).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
+    expect(registry.stats().activeCapabilities).toBe(0);
   });
 
   it("revokes, removes, and cleans up exactly once through registry lifecycle", async () => {

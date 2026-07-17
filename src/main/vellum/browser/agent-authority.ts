@@ -201,6 +201,7 @@ export class BrowserAgentAuthority {
   readonly #makeGrantId: () => string;
   readonly #active = new Map<string, ActiveGrant>();
   readonly #activeBySubject = new Map<string, string>();
+  readonly #pendingBySubject = new Map<string, symbol>();
   #closed = false;
 
   constructor(
@@ -219,17 +220,33 @@ export class BrowserAgentAuthority {
   ): Promise<BrowserAutomationAuthorityResult<BrowserAutomationGrantSummary>> {
     if (this.#closed) return fail("closed", "browser authority is closed");
     if (!validSubject(subjectInput)) return fail("invalid", "browser authority subject is invalid");
-    if (this.#active.size >= BROWSER_AGENT_AUTHORITY_MAX_ACTIVE) {
-      return fail("capacity", "browser authority capacity reached");
-    }
     const subject = immutableSubject(subjectInput);
     const subjectKey = `${subject.kind}\u0000${subject.id}`;
-    if (this.#activeBySubject.has(subjectKey)) {
+    if (this.#activeBySubject.has(subjectKey) || this.#pendingBySubject.has(subjectKey)) {
       return fail("invalid", "browser automation is already active for this subject");
     }
     const targets = normalizeTargets(resolvedTargets);
     if (targets === undefined) return fail("invalid", "browser authority targets are invalid");
+    if (this.#active.size + this.#pendingBySubject.size >= BROWSER_AGENT_AUTHORITY_MAX_ACTIVE) {
+      return fail("capacity", "browser authority capacity reached");
+    }
 
+    const reservation = Symbol(subjectKey);
+    this.#pendingBySubject.set(subjectKey, reservation);
+    try {
+      return await this.#issueReserved(subject, subjectKey, targets);
+    } finally {
+      if (this.#pendingBySubject.get(subjectKey) === reservation) {
+        this.#pendingBySubject.delete(subjectKey);
+      }
+    }
+  }
+
+  async #issueReserved(
+    subject: BrowserAutomationSubject,
+    subjectKey: string,
+    targets: ReadonlyArray<BrowserCapabilityTarget>,
+  ): Promise<BrowserAutomationAuthorityResult<BrowserAutomationGrantSummary>> {
     const confirmation: BrowserAutomationConfirmation = Object.freeze({
       subject,
       targetCount: targets.length,
@@ -356,6 +373,7 @@ export class BrowserAgentAuthority {
   close(): number {
     if (this.#closed) return 0;
     this.#closed = true;
+    this.#pendingBySubject.clear();
     return this.registry.close();
   }
 
