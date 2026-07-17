@@ -381,6 +381,17 @@ describe("browser control Unix transport", () => {
       requestHead("GET", "/nested/../doctor", [[CONTROL_TOKEN_HEADER, token]]),
     ]);
     expect(statusOf(normalizedAlias)).toBe(404);
+
+    const sentinel = Buffer.alloc(32, 0xd7).toString("base64url");
+    const unknown = await rawExchange(server.socketPath, [
+      requestHead("GET", `/missing/${sentinel}`, [[CONTROL_TOKEN_HEADER, token]]),
+    ]);
+    expect(statusOf(unknown)).toBe(404);
+    expect(envelopeOf(unknown)).toEqual({
+      ok: false,
+      error: { _tag: "bad_request", message: "unknown route" },
+    });
+    expect(unknown).not.toContain(sentinel);
   });
 
   it("accepts the fixed transport header only, never generic Authorization", async () => {

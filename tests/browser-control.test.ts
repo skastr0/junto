@@ -332,7 +332,16 @@ describe("control route handlers", () => {
       expect(response.status).toBe(401);
       if (!response.envelope.ok) expect(response.envelope.error._tag).toBe("unauthorized");
     }
-    expect((await call("GET", "/nope")).status).toBe(404);
+    const sentinel = Buffer.alloc(32, 0xd7).toString("base64url");
+    const unknown = await call("GET", `/missing/${sentinel}`);
+    expect(unknown).toEqual({
+      status: 404,
+      envelope: {
+        ok: false,
+        error: { _tag: "bad_request", message: "unknown route" },
+      },
+    });
+    expect(JSON.stringify(unknown)).not.toContain(sentinel);
   });
 
   it("reports doctor data through the shared schema", async () => {

@@ -904,7 +904,7 @@ export const dispatchControlRequest = async (
   if (!handler) {
     return {
       status: 404,
-      envelope: controlErr("bad_request", `unknown route ${request.method} ${request.path}`),
+      envelope: controlErr("bad_request", "unknown route"),
     };
   }
   let authorization: ControlAuthorization | undefined;
@@ -1147,11 +1147,7 @@ export const startBrowserControlServer = async (
         const method = req.method ?? "GET";
         const handler = handlers[`${method} ${rawTarget}`];
         if (handler === undefined) {
-          respond(
-            404,
-            controlErr("bad_request", `unknown route ${method} ${rawTarget}`),
-            true,
-          );
+          respond(404, controlErr("bad_request", "unknown route"), true);
           return;
         }
         const presentedCapability = fixedHeader(req, CONTROL_CAPABILITY_HEADER);
