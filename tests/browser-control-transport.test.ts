@@ -97,7 +97,7 @@ const startStack = async (
   readonly capabilities: BrowserCapabilityRegistry;
   readonly token: string;
   readonly capability: string;
-  readonly ownerId: string;
+  readonly auditId: string;
 }> => {
   const sessions = makeSessions(root);
   const capabilities = makeBrowserCapabilityRegistry();
@@ -131,7 +131,7 @@ const startStack = async (
     capabilities,
     token: (await readFile(controlTokenPath(root), "utf8")).trim(),
     capability: grant.secret,
-    ownerId: grant.ownerId,
+    auditId: grant.auditId,
   };
 };
 
@@ -429,7 +429,7 @@ describe("browser control Unix transport", () => {
 
   it("rejects a declared oversize body without waiting for body completion", async () => {
     const root = await newRoot();
-    const { server, token, capability, ownerId, sessions } = await startStack(root);
+    const { server, token, capability, auditId, sessions } = await startStack(root);
     const response = await rawExchange(
       server.socketPath,
       [
@@ -443,12 +443,12 @@ describe("browser control Unix transport", () => {
     );
 
     expect(statusOf(response)).toBe(413);
-    expect(sessions.listForOwner(ownerId)).toMatchObject({ ok: true, data: [] });
+    expect(sessions.listForOwner(auditId)).toMatchObject({ ok: true, data: [] });
   });
 
   it("rejects a streamed oversize body before dispatch", async () => {
     const root = await newRoot();
-    const { server, token, capability, ownerId, sessions } = await startStack(root);
+    const { server, token, capability, auditId, sessions } = await startStack(root);
     const chunk = Buffer.alloc(CONTROL_MAX_BODY_BYTES + 1, 0x61);
     const response = await rawExchange(server.socketPath, [
       requestHead("POST", "/open", [
@@ -463,7 +463,7 @@ describe("browser control Unix transport", () => {
 
     expect(statusOf(response)).toBe(413);
     expect(envelopeOf(response)).toMatchObject({ ok: false, error: { _tag: "bad_request" } });
-    expect(sessions.listForOwner(ownerId)).toMatchObject({ ok: true, data: [] });
+    expect(sessions.listForOwner(auditId)).toMatchObject({ ok: true, data: [] });
   });
 
   it("returns a typed bad request for authenticated malformed JSON", async () => {
@@ -554,7 +554,7 @@ describe("browser control Unix transport", () => {
       await gate;
       return resolvePageTarget(ref);
     };
-    const { server, token, capability, ownerId, sessions } = await startStack(root, undefined, delayed);
+    const { server, token, capability, auditId, sessions } = await startStack(root, undefined, delayed);
     const body = JSON.stringify({ ref: PAGE_REF });
     const client = createConnection(server.socketPath);
     await new Promise<void>((resolveConnect, rejectConnect) => {
@@ -572,7 +572,7 @@ describe("browser control Unix transport", () => {
     client.destroy();
     releaseResolver();
     await new Promise((resolveWait) => setTimeout(resolveWait, 40));
-    expect(sessions.listForOwner(ownerId)).toMatchObject({ ok: true, data: [] });
+    expect(sessions.listForOwner(auditId)).toMatchObject({ ok: true, data: [] });
   });
 
   it("bounds CLI response admission/accumulation and its wall-clock deadline", async () => {
@@ -664,7 +664,7 @@ describe("browser control Unix transport", () => {
 
   it("keeps the installed browser CLI compatible with under-cap chunked JSON", async () => {
     const root = await newRoot();
-    const { sessions, capability, ownerId } = await startStack(root);
+    const { sessions, capability, auditId } = await startStack(root);
     const result = await runCli(root, [
       "open",
       PAGE_REF,
@@ -677,7 +677,7 @@ describe("browser control Unix transport", () => {
       data: { ref: PAGE_REF, nodeId: "cli-node", url: "https://example.com/" },
     });
     const sessionId = (JSON.parse(result.stdout) as { data: { sessionId: string } }).data.sessionId;
-    expect(sessions.stateForOwner(ownerId, sessionId)).toMatchObject({
+    expect(sessions.stateForOwner(auditId, sessionId)).toMatchObject({
       ok: true,
       data: { ref: PAGE_REF, nodeId: "cli-node" },
     });

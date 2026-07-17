@@ -277,7 +277,11 @@ describe("control route handlers", () => {
       Date.now,
       () => `session-${++sessionCounter}`,
     );
-    const capabilities = makeBrowserCapabilityRegistry();
+    const capabilities = makeBrowserCapabilityRegistry({
+      onTerminate: (notice) => {
+        sessions.destroyOwnerSessions(notice.auditId, "browser authority ended");
+      },
+    });
     capabilityRegistries.push(capabilities);
     const principal = capabilities.createPrincipal();
     const grant = capabilities.issue(principal, {
@@ -322,7 +326,7 @@ describe("control route handlers", () => {
         },
         signal,
       );
-    return { call, sessions, capabilities, grant };
+    return { call, sessions, capabilities, principal, grant };
   };
 
   it("authenticates every route and rejects unknown routes", async () => {
@@ -434,6 +438,68 @@ describe("control route handlers", () => {
     );
   });
 
+  it("isolates sibling capability namespaces within one principal", async () => {
+    const { call, sessions, capabilities, principal, grant } = makeStack();
+    const sibling = capabilities.issue(principal, {
+      actions: BROWSER_CAPABILITY_ACTIONS,
+      targets: [{
+        ref: REF,
+        profile: DEFAULT_TARGET.profile,
+        exactOrigins: [new URL(DEFAULT_TARGET.url).origin],
+      }],
+      ttlMs: 60_000,
+      maxUses: 16,
+      maxInFlight: 2,
+    });
+    expect(sibling.ownerId).toBe(grant.ownerId);
+    expect(sibling.auditId).not.toBe(grant.auditId);
+
+    const first = await call("POST", "/open", { ref: REF });
+    const second = await call(
+      "POST",
+      "/open",
+      { ref: REF },
+      TOKEN,
+      undefined,
+      sibling.secret,
+    );
+    expect(first).toMatchObject({ status: 200, envelope: { ok: true } });
+    expect(second).toMatchObject({ status: 200, envelope: { ok: true } });
+    if (!first.envelope.ok || !second.envelope.ok) throw new Error("open failed");
+    const firstSessionId = (first.envelope.data as { sessionId: string }).sessionId;
+    const secondSessionId = (second.envelope.data as { sessionId: string }).sessionId;
+    expect(secondSessionId).not.toBe(firstSessionId);
+    expect(sessions.listForOwner(grant.auditId)).toMatchObject({
+      ok: true,
+      data: [{ sessionId: firstSessionId }],
+    });
+    expect(sessions.listForOwner(sibling.auditId)).toMatchObject({
+      ok: true,
+      data: [{ sessionId: secondSessionId }],
+    });
+    expect(sessions.listForOwner(grant.ownerId)).toMatchObject({ ok: true, data: [] });
+
+    expect(capabilities.revoke(grant.handle, "operator")).toBe(true);
+    expect(sessions.listForOwner(grant.auditId)).toMatchObject({ ok: true, data: [] });
+    expect(sessions.listForOwner(sibling.auditId)).toMatchObject({
+      ok: true,
+      data: [{ sessionId: secondSessionId }],
+    });
+    expect(
+      await call(
+        "POST",
+        "/eval",
+        { sessionId: secondSessionId, code: "document.title" },
+        TOKEN,
+        undefined,
+        sibling.secret,
+      ),
+    ).toMatchObject({
+      status: 200,
+      envelope: { ok: true, data: { result: { title: "hello" } } },
+    });
+  });
+
   it("lists only bound owner generations and rebinds a closed warm session", async () => {
     const canvasesDir = join(root, "canvases");
     await mkdir(canvasesDir, { recursive: true });
@@ -487,7 +553,7 @@ describe("control route handlers", () => {
       status: 200,
       envelope: { ok: true },
     });
-    expect(sessions.stateForOwner(grant.ownerId, sessionId)).toMatchObject({
+    expect(sessions.stateForOwner(grant.auditId, sessionId)).toMatchObject({
       ok: true,
       data: { state: "detached" },
     });
@@ -533,7 +599,7 @@ describe("control route handlers", () => {
       status: 403,
       envelope: { ok: false, error: { _tag: "forbidden" } },
     });
-    expect(sessions.listForOwner(grant.ownerId)).toMatchObject({ ok: true, data: [] });
+    expect(sessions.listForOwner(grant.auditId)).toMatchObject({ ok: true, data: [] });
   });
 
   it("opens by canonical ref then uses the returned generation handle", async () => {

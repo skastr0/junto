@@ -219,11 +219,11 @@ describe("browser automation production product", () => {
 
     expect(product.registry.revoke(grant.handle, "operator")).toBe(true);
     expect(order).toEqual([
-      `sessions:${principal.ownerId}`,
+      `sessions:${grant.auditId}`,
       `runtime:${principal.ownerId}`,
     ]);
     expect(sessions.destroyOwnerSessions).toHaveBeenCalledWith(
-      principal.ownerId,
+      grant.auditId,
       "browser authority ended",
     );
     expect(handleTermination).toHaveBeenCalledWith(
@@ -255,10 +255,60 @@ describe("browser automation production product", () => {
     });
     expect(() => product.registry.revoke(secondGrant.handle, "operator")).not.toThrow();
     expect(order.slice(-2)).toEqual([
-      `sessions:${secondPrincipal.ownerId}`,
+      `sessions:${secondGrant.auditId}`,
       `runtime:${secondPrincipal.ownerId}`,
     ]);
     expect(product.registry.stats().activeCapabilities).toBe(0);
+  });
+
+  it("tears down only the revoked grant namespace when one principal has siblings", () => {
+    const { product, sessions } = setup();
+    const principal = product.registry.createPrincipal();
+    const issue = () => product.registry.issue(principal, {
+      actions: ["profiles"],
+      targets: [
+        {
+          ref: PAGE_REF,
+          profile: "default",
+          exactOrigins: ["https://github.com"],
+        },
+      ],
+      ttlMs: 60_000,
+      maxUses: 2,
+      maxInFlight: 1,
+    });
+    const first = issue();
+    const sibling = issue();
+    expect(first.ownerId).toBe(sibling.ownerId);
+    expect(first.auditId).not.toBe(sibling.auditId);
+
+    expect(product.registry.revoke(first.handle, "operator")).toBe(true);
+    expect(sessions.destroyOwnerSessions).toHaveBeenCalledExactlyOnceWith(
+      first.auditId,
+      "browser authority ended",
+    );
+    expect(sessions.destroyOwnerSessions).not.toHaveBeenCalledWith(
+      sibling.auditId,
+      expect.anything(),
+    );
+    expect(sessions.destroyOwnerSessions).not.toHaveBeenCalledWith(
+      principal.ownerId,
+      expect.anything(),
+    );
+    expect(product.registry.stats().activeCapabilities).toBe(1);
+
+    const siblingLease = product.registry.authorize(
+      sibling.secret,
+      { action: "profiles" },
+      { requestId: "a".repeat(32) },
+    );
+    siblingLease.release();
+    expect(product.registry.revoke(sibling.handle, "operator")).toBe(true);
+    expect(sessions.destroyOwnerSessions).toHaveBeenNthCalledWith(
+      2,
+      sibling.auditId,
+      "browser authority ended",
+    );
   });
 
   it("revokes failed or rejected Hermes delivery and returns only a fixed public failure", async () => {

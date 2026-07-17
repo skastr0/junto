@@ -586,11 +586,11 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
     }),
 
     "GET /sessions": withoutBody("sessions", async (lease, signal) => {
-      const result = deps.sessions.listForOwner(lease.ownerId);
+      const result = deps.sessions.listForOwner(lease.auditId);
       if (!result.ok) return fromResult(result);
       const filtered = result.data.filter((session) => {
         if (signal.aborted) return false;
-        const scoped = targetForSession(lease.ownerId, session.sessionId);
+        const scoped = targetForSession(lease.auditId, session.sessionId);
         return scoped.ok &&
           scopeAllows(lease.scope, scoped.target) &&
           lease.boundGenerationInScope(scoped.target.ref) === scoped.snapshot.generation;
@@ -605,7 +605,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         deps.canvasesDir,
         deps.sessions,
         {},
-        lease.ownerId,
+        lease.auditId,
       );
       const filtered: PageNodeRow[] = [];
       for (const row of rows) {
@@ -617,7 +617,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         if (target === undefined || !scopeAllows(lease.scope, target)) continue;
         let sessionId: string | null = null;
         if (row.sessionId !== null) {
-          const current = targetForSession(lease.ownerId, row.sessionId);
+          const current = targetForSession(lease.auditId, row.sessionId);
           if (
             current.ok &&
             current.snapshot.ref === resolved.data.ref &&
@@ -657,19 +657,19 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
           : { ...target, generation: admittedGeneration },
       );
 
-      const opened = await deps.sessions.openForOwner(lease.ownerId, resolved.data, signal);
+      const opened = await deps.sessions.openForOwner(lease.auditId, resolved.data, signal);
       if (!opened.ok) {
-        deps.sessions.destroyOwnerSessions(lease.ownerId, "browser open failed closed");
+        deps.sessions.destroyOwnerSessions(lease.auditId, "browser open failed closed");
         return fromResult(opened);
       }
       const failOpen = <A>(envelope: ControlEnvelope<A>): ControlEnvelope<A> => {
-        deps.sessions.destroyOwnerSessions(lease.ownerId, "browser open authorization failed");
+        deps.sessions.destroyOwnerSessions(lease.auditId, "browser open authorization failed");
         return envelope;
       };
 
       try {
         const terminal = await deps.sessions.awaitNavigationTerminalForOwner(
-          lease.ownerId,
+          lease.auditId,
           opened.data.sessionId,
           signal,
         );
@@ -683,7 +683,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
           return failOpen(capabilityDenied("forbidden"));
         }
         const current = deps.sessions.authorizationSnapshotForOwner(
-          lease.ownerId,
+          lease.auditId,
           terminal.data.sessionId,
         );
         if (
@@ -702,7 +702,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
           return failOpen(capabilityDenied("forbidden"));
         }
         const finalState = deps.sessions.authorizationSnapshotForOwner(
-          lease.ownerId,
+          lease.auditId,
           current.data.generation,
         );
         return finalState.ok &&
@@ -714,13 +714,13 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
           ? controlOk(terminal.data)
           : failOpen(capabilityDenied("forbidden"));
       } catch (error) {
-        deps.sessions.destroyOwnerSessions(lease.ownerId, "browser open authorization failed");
+        deps.sessions.destroyOwnerSessions(lease.auditId, "browser open authorization failed");
         throw error;
       }
     }),
 
     "POST /goto": withBody("goto", GotoRequest, ["sessionId", "url"], async (input, lease, signal) => {
-      const scoped = targetForSession(lease.ownerId, input.sessionId, [input.url]);
+      const scoped = targetForSession(lease.auditId, input.sessionId, [input.url]);
       if (!scoped.ok) return scoped.envelope;
       lease.checkTarget(scoped.target);
       if (lease.boundGeneration(scoped.target.ref) !== scoped.snapshot.generation) {
@@ -729,7 +729,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       const destinationOrigin = exactHttpOrigin(input.url);
       if (destinationOrigin === undefined) return capabilityDenied("forbidden");
 
-      const navigated = deps.sessions.gotoForOwner(lease.ownerId, input.sessionId, input.url, signal);
+      const navigated = deps.sessions.gotoForOwner(lease.auditId, input.sessionId, input.url, signal);
       if (!navigated.ok) return fromResult(navigated);
       if (navigated.data.sessionId !== scoped.snapshot.generation) {
         lease.rollGeneration(
@@ -739,13 +739,13 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         );
       }
       const terminal = await deps.sessions.awaitNavigationTerminalForOwner(
-        lease.ownerId,
+        lease.auditId,
         navigated.data.sessionId,
         signal,
       );
       if (!terminal.ok) return fromResult(terminal);
       const current = deps.sessions.authorizationSnapshotForOwner(
-        lease.ownerId,
+        lease.auditId,
         terminal.data.sessionId,
       );
       return current.ok &&
@@ -759,15 +759,15 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
     }),
 
     "POST /eval": withBody("eval", EvalRequest, ["sessionId", "code"], async (input, lease, signal) => {
-      const scoped = targetForSession(lease.ownerId, input.sessionId);
+      const scoped = targetForSession(lease.auditId, input.sessionId);
       if (!scoped.ok) return scoped.envelope;
       lease.checkTarget(scoped.target);
       if (lease.boundGeneration(scoped.target.ref) !== scoped.snapshot.generation) {
         return capabilityDenied("forbidden");
       }
-      const result = await deps.sessions.evalForOwner(lease.ownerId, input.sessionId, input.code, signal);
+      const result = await deps.sessions.evalForOwner(lease.auditId, input.sessionId, input.code, signal);
       if (!result.ok) return fromResult(result);
-      const current = targetForSession(lease.ownerId, input.sessionId);
+      const current = targetForSession(lease.auditId, input.sessionId);
       if (
         !current.ok ||
         current.snapshot.navigationInFlight ||
@@ -786,13 +786,13 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
     }),
 
     "POST /screenshot": withBody("screenshot", ScreenshotRequest, ["sessionId"], async (input, lease, signal) => {
-      const scoped = targetForSession(lease.ownerId, input.sessionId);
+      const scoped = targetForSession(lease.auditId, input.sessionId);
       if (!scoped.ok) return scoped.envelope;
       lease.checkTarget(scoped.target);
       if (lease.boundGeneration(scoped.target.ref) !== scoped.snapshot.generation) {
         return capabilityDenied("forbidden");
       }
-      const shot = await deps.sessions.screenshotForOwner(lease.ownerId, input.sessionId, signal);
+      const shot = await deps.sessions.screenshotForOwner(lease.auditId, input.sessionId, signal);
       if (!shot.ok) return fromResult(shot);
       if (shot.data.png.byteLength > BROWSER_MAX_SCREENSHOT_BYTES) {
         return controlErr(
@@ -800,7 +800,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
           `screenshot exceeds ${BROWSER_MAX_SCREENSHOT_BYTES} bytes`,
         );
       }
-      const current = targetForSession(lease.ownerId, input.sessionId);
+      const current = targetForSession(lease.auditId, input.sessionId);
       if (!current.ok) return current.envelope;
       if (
         current.snapshot.navigationInFlight ||
@@ -820,7 +820,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       let wrote = false;
       try {
         await screenshotFiles.ensureDirectory(resolvedShotsDir);
-        const writable = targetForSession(lease.ownerId, input.sessionId);
+        const writable = targetForSession(lease.auditId, input.sessionId);
         if (!writable.ok) return writable.envelope;
         if (writable.snapshot.generation !== scoped.snapshot.generation) {
           return capabilityDenied("forbidden");
@@ -829,7 +829,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         if (signal?.aborted) return controlErr("cancelled", "screenshot request was cancelled");
         await screenshotFiles.writeExclusive(path, shot.data.png);
         wrote = true;
-        const stillCurrent = targetForSession(lease.ownerId, input.sessionId);
+        const stillCurrent = targetForSession(lease.auditId, input.sessionId);
         if (
           signal?.aborted ||
           !stillCurrent.ok ||
@@ -850,15 +850,15 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
     }),
 
     "POST /close": withBody("close", CloseRequest, ["sessionId"], async (input, lease) => {
-      const scoped = targetForSession(lease.ownerId, input.sessionId);
+      const scoped = targetForSession(lease.auditId, input.sessionId);
       if (!scoped.ok) return scoped.envelope;
       lease.checkTarget(scoped.target);
       if (lease.boundGeneration(scoped.target.ref) !== scoped.snapshot.generation) {
         return capabilityDenied("forbidden");
       }
-      const closed = deps.sessions.closeForOwner(lease.ownerId, input.sessionId);
+      const closed = deps.sessions.closeForOwner(lease.auditId, input.sessionId);
       if (!closed.ok) return fromResult(closed);
-      const current = targetForSession(lease.ownerId, input.sessionId);
+      const current = targetForSession(lease.auditId, input.sessionId);
       if (!current.ok || current.snapshot.generation !== scoped.snapshot.generation) {
         return capabilityDenied("forbidden");
       }

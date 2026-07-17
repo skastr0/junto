@@ -157,7 +157,7 @@ export const makeBrowserAutomationProduct = (
   const registry = makeBrowserCapabilityRegistry({
     onTerminate: (notice) => {
       try {
-        dependencies.sessions.destroyOwnerSessions(notice.ownerId, TERMINATION_REASON);
+        dependencies.sessions.destroyOwnerSessions(notice.auditId, TERMINATION_REASON);
       } catch {
         // Browser-owner teardown cannot suppress authority cleanup.
       }
