@@ -9,6 +9,8 @@ import { ChatService } from "./vellum/chat/service";
 import { KernelLive, KernelService } from "./vellum/kernel/service";
 import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
 import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
+import { UsageLive } from "./vellum/usage/live";
+import { UsageService } from "./vellum/usage/usage-service";
 
 // One shared ACP-session manager for the whole app: pulse-driven turns
 // (KernelService, below) and user-driven turns (registerChatIpc, wired in
@@ -24,11 +26,21 @@ export const chatService = new ChatService();
 // inputs memoized: the SAME CanvasesService instance the rest of the app
 // uses, not a second independent one with its own file watcher and own-write
 // tracking).
+// UsageLive is already composed (UsageServiceLive + CodexBarSourcesLive) so
+// it can sit in BaseLayer as one self-contained member.
 // Tower/quasar SDK clients (TowerSdkLive/QuasarSdkLive) deliberately do NOT
 // live in this layer — see adapters/sdk-runtime.ts for why (a dedicated
 // small runtime avoids a circular-dependency cluster between this file and
 // the adapters that would otherwise need it).
-const BaseLayer = Layer.mergeAll(StoreLive, FolderLive, PrismLive, CodexLive, CanvasesLive, SnapshotsLive);
+const BaseLayer = Layer.mergeAll(
+  StoreLive,
+  FolderLive,
+  PrismLive,
+  CodexLive,
+  CanvasesLive,
+  SnapshotsLive,
+  UsageLive,
+);
 
 export const RootLayer = Layer.provideMerge(
   Layer.mergeAll(KernelLive(chatService), RegionRollupLive(chatService)),
@@ -46,10 +58,21 @@ export const buildDoctorReport = Effect.gen(function* () {
   const snapshots = yield* SnapshotsService;
   const kernel = yield* KernelService;
   const regionRollup = yield* RegionRollupService;
+  const usage = yield* UsageService;
 
   const station = yield* prism.stationInfo;
   const serviceResults = yield* Effect.all(
-    [store.doctor, folder.doctor, prism.doctor, codex.doctor, canvases.doctor, snapshots.doctor, kernel.doctor, regionRollup.doctor],
+    [
+      store.doctor,
+      folder.doctor,
+      prism.doctor,
+      codex.doctor,
+      canvases.doctor,
+      snapshots.doctor,
+      kernel.doctor,
+      regionRollup.doctor,
+      usage.doctor,
+    ],
     { concurrency: "unbounded" },
   );
 
