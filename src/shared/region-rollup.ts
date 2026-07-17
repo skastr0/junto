@@ -169,6 +169,42 @@ const deriveMember = (
   return { nodeId: node.id, label: titleOf(node), kind, severity, reasons };
 };
 
+// A region's members, sorted for the rollcall: severity rank (blocked ->
+// idle), then kind rank (agent, project, rest), then document order.
+const regionMembers = (
+  memberIds: ReadonlyArray<string>,
+  nodeById: ReadonlyMap<string, CanvasNode>,
+  indexById: ReadonlyMap<string, number>,
+  graph: ReturnType<typeof deriveExecutionGraph>,
+  glyphs: GlyphView | undefined,
+  agentActivity: ReadonlyMap<string, AgentActivity> | undefined,
+): MemberStatus[] =>
+  memberIds
+    .map((id) => {
+      const member = nodeById.get(id);
+      return member === undefined
+        ? undefined
+        : { status: deriveMember(member, graph, glyphs, agentActivity), index: indexById.get(id) ?? 0 };
+    })
+    .filter((entry): entry is { status: MemberStatus; index: number } => entry !== undefined)
+    .sort(
+      (a, b) =>
+        SEVERITY_RANK[a.status.severity] - SEVERITY_RANK[b.status.severity] ||
+        kindRank(a.status.kind) - kindRank(b.status.kind) ||
+        a.index - b.index,
+    )
+    .map((entry) => entry.status);
+
+const countBySeverity = (members: ReadonlyArray<MemberStatus>): RegionRollup["counts"] => {
+  const counts = { total: members.length, blocked: 0, attention: 0, working: 0 };
+  for (const member of members) {
+    if (member.severity === "blocked") counts.blocked += 1;
+    else if (member.severity === "attention") counts.attention += 1;
+    else if (member.severity === "working") counts.working += 1;
+  }
+  return counts;
+};
+
 // One rollup per group node, in document order. Only members per
 // groupMembers(doc) participate — groups never contain groups, and nodes
 // outside every region are ignored.
@@ -182,35 +218,19 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
   const rollups: RegionRollup[] = [];
   for (const node of doc.nodes) {
     if (!isGroup(node)) continue;
-
-    const members = (membersByRegion.get(node.id) ?? [])
-      .map((id) => {
-        const member = nodeById.get(id);
-        return member === undefined
-          ? undefined
-          : { status: deriveMember(member, graph, glyphs, agentActivity), index: indexById.get(id) ?? 0 };
-      })
-      .filter((entry): entry is { status: MemberStatus; index: number } => entry !== undefined)
-      .sort(
-        (a, b) =>
-          SEVERITY_RANK[a.status.severity] - SEVERITY_RANK[b.status.severity] ||
-          kindRank(a.status.kind) - kindRank(b.status.kind) ||
-          a.index - b.index,
-      )
-      .map((entry) => entry.status);
-
-    const counts = { total: members.length, blocked: 0, attention: 0, working: 0 };
-    for (const member of members) {
-      if (member.severity === "blocked") counts.blocked += 1;
-      else if (member.severity === "attention") counts.attention += 1;
-      else if (member.severity === "working") counts.working += 1;
-    }
-
+    const members = regionMembers(
+      membersByRegion.get(node.id) ?? [],
+      nodeById,
+      indexById,
+      graph,
+      glyphs,
+      agentActivity,
+    );
     rollups.push({
       regionId: node.id,
       label: regionLabel(node),
       severity: members[0]?.severity ?? "idle",
-      counts,
+      counts: countBySeverity(members),
       members,
     });
   }
