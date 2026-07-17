@@ -7,6 +7,7 @@ import { state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
 import { HUE, INK, SOURCE_HUE } from "../lib/theme";
+import { UsageHud } from "./UsageHud";
 
 const SOURCES: ReadonlyArray<EntitySource> = ["tower", "quasar", "booth", "hermes"];
 
@@ -231,6 +232,7 @@ export function TopBar({
   }, [healthOpen, helpOpen]);
   return (
     <header className="station-bar">
+      <UsageHud />
       <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
       <SearchField canvasName={canvasName} />
       <SaveStatus />

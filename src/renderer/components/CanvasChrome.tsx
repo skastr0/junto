@@ -2,13 +2,10 @@ import { use$ } from "@legendapp/state/react";
 import { Plus } from "lucide-react";
 import { searchText } from "../lib/presentation";
 import { clearGraphFilters, state$ } from "../lib/state";
-import { UsageHud } from "./UsageHud";
 
-// EdgeLegend + CanvasHint (double-click helper + bottom flag filters) removed
-// per docs/rts-bottom-bar.md — flag filters live on the minimap chrome; the
-// double-click gesture stays, the on-screen hint goes.
-// CanvasReadout (name + node/edge/region counts) removed — pure noise; counts
-// are already available via digest/CLI when needed.
+// EdgeLegend + CanvasHint removed per docs/rts-bottom-bar.md.
+// CanvasReadout removed — pure noise.
+// UsageHud (codexbar) lives in the station TopBar — left of the canvas switcher.
 
 type EmptyReason = "search" | "flag" | "empty";
 
@@ -53,9 +50,6 @@ export function CanvasChrome() {
 
   return (
     <>
-      <div className="pointer-events-none absolute left-5 top-5 z-20 hidden flex-col gap-2 md:flex">
-        <UsageHud />
-      </div>
       <FilterTray />
       <CanvasEmpty reason={emptyReason} searchQuery={searchQuery} filterLabel={filterLabel} hasNodes={nodes.length > 0} />
     </>

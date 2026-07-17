@@ -349,7 +349,8 @@ body {
 .station-bar input,
 .station-bar select,
 .station-bar label,
-.station-bar aside {
+.station-bar aside,
+.station-bar .usage-hud {
   -webkit-app-region: no-drag;
 }
 

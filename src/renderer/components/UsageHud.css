@@ -1,40 +1,45 @@
-/* Compact usage rail — component-scoped (do not land in styles.css). */
+/* Compact usage rail — component-scoped (do not land in styles.css).
+   Sits in the station TopBar (codexbar), filling the old brand slot. */
 
-/* Rail and hover popup share one width so the bar never bleeds wider. */
 .usage-hud {
-  --usage-hud-width: min(280px, calc(100vw - 24px));
+  --usage-hud-width: min(320px, 28vw);
   pointer-events: auto;
   position: relative;
   display: flex;
   flex-direction: column;
+  flex: 0 1 var(--usage-hud-width);
   width: var(--usage-hud-width);
-  max-width: var(--usage-hud-width);
+  max-width: min(360px, 36vw);
+  min-width: 120px;
   color: #ede6da;
+  -webkit-app-region: no-drag;
 }
 
-/* Flat rail: no pressure border, no card chrome. */
+/* Bar-native rail: matches station control height, no floating card. */
 .usage-hud__rail {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
+  height: 34px;
   margin: 0;
-  border: 0;
-  border-radius: 6px;
-  background: rgba(12, 11, 10, 0.55);
-  backdrop-filter: blur(10px);
-  padding: 4px 5px;
+  border: 1px solid rgba(237, 230, 218, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0 8px;
   color: inherit;
   cursor: pointer;
   text-align: left;
+  overflow: hidden;
 }
 
 .usage-hud__rail:hover,
 .usage-hud__rail:focus-visible {
-  background: rgba(19, 17, 16, 0.82);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(237, 230, 218, 0.2);
   outline: none;
 }
 
@@ -75,12 +80,12 @@
   );
 }
 
-/* Overlay — same width as rail; does not reflow the canvas readout */
+/* Overlay — drops under the station bar */
 .usage-hud__tooltip {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   left: 0;
-  z-index: 40;
+  z-index: 80;
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
