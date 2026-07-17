@@ -132,16 +132,15 @@ function CanvasPicker({
       {createOpen ? (
         <div className="canvas-dialog-backdrop" role="presentation" onMouseDown={closeCreate}>
           <form className="canvas-dialog" role="dialog" aria-modal="true" aria-labelledby="canvas-dialog-title" onSubmit={submitCreate} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") closeCreate(); }}>
-            <div className="canvas-dialog__eyebrow">station / new surface</div>
-            <h2 id="canvas-dialog-title">Create canvas</h2>
-            <p>Give this field a name. You can switch between canvases from the station bar.</p>
+            <h2 id="canvas-dialog-title">New canvas</h2>
+            <p>Choose a short name for this canvas.</p>
             <label className="canvas-dialog__field">
-              <span>canvas name</span>
-              <input autoFocus aria-label="Canvas name" value={createName} onChange={(event) => createName$.set(event.target.value)} placeholder="e.g. research" />
+              <span>name</span>
+              <input autoFocus aria-label="Canvas name" value={createName} onChange={(event) => createName$.set(event.target.value)} placeholder="research" />
             </label>
             <div className="canvas-dialog__actions">
               <button type="button" className="canvas-dialog__cancel" onClick={closeCreate}>cancel</button>
-              <button type="submit" className="canvas-dialog__submit" disabled={!createName.trim()}>create canvas</button>
+              <button type="submit" className="canvas-dialog__submit" disabled={!createName.trim()}>create</button>
             </div>
           </form>
         </div>
@@ -149,12 +148,11 @@ function CanvasPicker({
       {deleteOpen && deleteTarget ? (
         <div className="canvas-dialog-backdrop" role="presentation" onMouseDown={closeDelete}>
           <form className="canvas-dialog" role="dialog" aria-modal="true" aria-labelledby="canvas-delete-title" onSubmit={submitDelete} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") closeDelete(); }}>
-            <div className="canvas-dialog__eyebrow">station / remove surface</div>
             <h2 id="canvas-delete-title">Delete canvas</h2>
-            <p>Permanently remove <strong style={{ color: INK }}>{deleteTarget}</strong> and its digest/svg sidecars. This cannot be undone from the station.</p>
+            <p>Permanently delete <strong style={{ color: INK }}>{deleteTarget}</strong>? This cannot be undone.</p>
             <div className="canvas-dialog__actions">
               <button type="button" className="canvas-dialog__cancel" autoFocus onClick={closeDelete}>cancel</button>
-              <button type="submit" className="canvas-dialog__danger">delete canvas</button>
+              <button type="submit" className="canvas-dialog__danger">delete</button>
             </div>
           </form>
         </div>
