@@ -1,32 +1,14 @@
 import { use$ } from "@legendapp/state/react";
 import { Plus } from "lucide-react";
-import type { EtherEdgeKind } from "@shared/canvas";
-import { deriveExecutionGraph } from "@shared/execution-graph";
 import { searchText } from "../lib/presentation";
 import { clearGraphFilters, state$ } from "../lib/state";
-import { kernel$ } from "../lib/kernel-view";
 import { UsageHud } from "./UsageHud";
-
-function CanvasReadout({ name, countLabel, edges, regions }: { readonly name: string; readonly countLabel: string; readonly edges: number; readonly regions: number }) {
-  // Absolute positioning lives on the shared top-left stack in CanvasChrome
-  // so UsageHud can sit above this readout without fighting its own offsets.
-  return (
-    <div className="field-readout pointer-events-none w-[230px]">
-      <div className="field-readout__eyebrow"><span className="field-readout__signal" />canvas</div>
-      <div className="field-readout__title">{name || "portfolio"}</div>
-      <div className="field-readout__rule" />
-      <div className="field-readout__stats">
-        <span><strong>{countLabel}</strong> nodes</span>
-        <span><strong>{edges.toString().padStart(2, "0")}</strong> edges</span>
-        <span><strong>{regions.toString().padStart(2, "0")}</strong> regions</span>
-      </div>
-    </div>
-  );
-}
 
 // EdgeLegend + CanvasHint (double-click helper + bottom flag filters) removed
 // per docs/rts-bottom-bar.md — flag filters live on the minimap chrome; the
 // double-click gesture stays, the on-screen hint goes.
+// CanvasReadout (name + node/edge/region counts) removed — pure noise; counts
+// are already available via digest/CLI when needed.
 
 type EmptyReason = "search" | "flag" | "empty";
 
@@ -54,30 +36,12 @@ function FilterTray() {
 
 export function CanvasChrome() {
   const doc = use$(state$.doc);
-  const name = use$(state$.canvasName);
   const searchQuery = use$(state$.searchQuery);
-  const execution = use$(kernel$.execution);
   const nodes = doc.nodes.filter((node) => node.type !== "group");
-  const regions = doc.nodes.filter((node) => node.type === "group");
-  const edgeFilter = use$(state$.edgeFilter);
   const flagFilter = use$(state$.flagFilter);
   const query = searchQuery.trim().toLowerCase();
   const filteredNodes = flagFilter ? nodes.filter((node) => node.ether?.flags?.includes(flagFilter)) : nodes;
   const visibleCount = query ? filteredNodes.filter((node) => searchText(node).includes(query)).length : filteredNodes.length;
-  const countLabel = query ? `${visibleCount.toString().padStart(2, "0")} / ${nodes.length.toString().padStart(2, "0")}` : visibleCount.toString().padStart(2, "0");
-  const visibleIds = new Set(filteredNodes.map((node) => node.id));
-  // Same phase source as canvas paint: kernel overlay, else cold derive.
-  const coldPhases = execution ? null : deriveExecutionGraph(doc).phaseByEdgeId;
-  const phaseOf = (edgeId: string): EtherEdgeKind =>
-    (execution?.phaseByEdgeId?.[edgeId] as EtherEdgeKind | undefined) ??
-    coldPhases?.get(edgeId) ??
-    "relates";
-  const visibleEdges = doc.edges.filter(
-    (edge) =>
-      visibleIds.has(edge.fromNode) &&
-      visibleIds.has(edge.toNode) &&
-      (!edgeFilter || phaseOf(edge.id) === edgeFilter),
-  ).length;
   const emptyReason: EmptyReason | undefined = query && visibleCount === 0
     ? "search"
     : flagFilter && filteredNodes.length === 0
@@ -91,7 +55,6 @@ export function CanvasChrome() {
     <>
       <div className="pointer-events-none absolute left-5 top-5 z-20 hidden flex-col gap-2 md:flex">
         <UsageHud />
-        <CanvasReadout name={name} countLabel={countLabel} edges={visibleEdges} regions={regions.length} />
       </div>
       <FilterTray />
       <CanvasEmpty reason={emptyReason} searchQuery={searchQuery} filterLabel={filterLabel} hasNodes={nodes.length > 0} />
