@@ -1,4 +1,4 @@
-import { GradientSpin } from "gradient-spin";
+import { GradientSpin, type SpinPattern } from "gradient-spin";
 import {
   ACTIVITY_TONE_HEX,
   houseGradientStops,
@@ -27,6 +27,8 @@ export type ActivityMarkProps = {
   readonly label: string;
   readonly size?: ActivitySize;
   readonly className?: string;
+  /** Wavefront shape when mode=wave. Default "snake" (house established). */
+  readonly pattern?: SpinPattern;
   /** When false, never animate (caller may also pass mode=static). */
   readonly active?: boolean;
 };
@@ -45,6 +47,7 @@ export function ActivityMarkFromSpec({
     <ActivityMark
       mode={spec.mode}
       tone={spec.tone}
+      pattern={spec.pattern}
       label={spec.label}
       size={size}
       className={className}
@@ -54,7 +57,7 @@ export function ActivityMarkFromSpec({
 
 /**
  * Canvas activity indicator.
- * wave  → monochrome gradient-spin snake trail (package demo knobs)
+ * wave  → monochrome gradient-spin trail (pattern per spec, snake by default)
  * static → single filled dot of the same tone
  * No visible text — label is aria-only.
  *
@@ -69,6 +72,7 @@ export function ActivityMark({
   label,
   size = "node",
   className,
+  pattern = "snake",
   active = true,
 }: ActivityMarkProps) {
   const hex = ACTIVITY_TONE_HEX[tone];
@@ -122,7 +126,7 @@ export function ActivityMark({
     >
       <GradientSpin
         gradient={[...houseGradientStops(tone)]}
-        pattern="snake"
+        pattern={pattern}
         rows={dims.rows}
         cols={dims.cols}
         cellSize={dims.cellSize}

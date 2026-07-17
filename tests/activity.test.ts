@@ -30,15 +30,36 @@ describe("houseGradientStops", () => {
 });
 
 describe("herdrActivity", () => {
-  it("waves on working and blocked; static on idle/done", () => {
+  it("waves on working, blocked, and idle; static on done", () => {
     expect(herdrActivity({ agentStatus: "working" })).toEqual({
       mode: "wave",
       tone: "amber",
+      pattern: "snake",
       label: "working",
     });
-    expect(herdrActivity({ agentStatus: "blocked" }).mode).toBe("wave");
-    expect(herdrActivity({ agentStatus: "idle" })).toMatchObject({ mode: "static", tone: "green" });
-    expect(herdrActivity({ agentStatus: "done" }).tone).toBe("green");
+    expect(herdrActivity({ agentStatus: "blocked" })).toMatchObject({
+      mode: "wave",
+      tone: "crimson",
+      pattern: "arrow-up",
+    });
+    expect(herdrActivity({ agentStatus: "idle" })).toMatchObject({
+      mode: "wave",
+      tone: "cyan",
+      pattern: "ripple",
+    });
+    expect(herdrActivity({ agentStatus: "done" })).toMatchObject({ mode: "static", tone: "green" });
+  });
+
+  it("gives each wave state a distinct (tone, pattern) pair", () => {
+    const waves = [
+      herdrActivity({ metaStatus: "loading" }),
+      herdrActivity({ agentStatus: "working" }),
+      herdrActivity({ agentStatus: "blocked" }),
+      herdrActivity({ agentStatus: "idle", connState: "degraded" }),
+      herdrActivity({ agentStatus: "idle" }),
+    ];
+    const keys = waves.map((s) => `${s.tone}:${s.pattern}`);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 
   it("meta loading beats agent idle", () => {
@@ -48,8 +69,11 @@ describe("herdrActivity", () => {
     });
   });
 
-  it("degraded connection waves when agent settled", () => {
-    expect(herdrActivity({ agentStatus: "idle", connState: "degraded" }).mode).toBe("wave");
+  it("degraded connection waves steel when agent settled", () => {
+    expect(herdrActivity({ agentStatus: "idle", connState: "degraded" })).toMatchObject({
+      mode: "wave",
+      tone: "steel",
+    });
   });
 });
 

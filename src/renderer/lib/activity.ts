@@ -5,6 +5,7 @@
  * Visible status labels are forbidden; aria/title carry the word.
  */
 
+import type { SpinPattern } from "gradient-spin";
 import { HUE } from "./theme";
 
 export type ActivityTone = "amber" | "cyan" | "green" | "crimson" | "steel";
@@ -14,6 +15,8 @@ export type ActivitySize = "node" | "inline";
 export interface ActivitySpec {
   readonly mode: ActivityMode;
   readonly tone: ActivityTone;
+  /** Wavefront shape when mode is "wave" (gradient-spin). Default at the mark: "snake". */
+  readonly pattern?: SpinPattern;
   /** Accessible name only — never rendered as chrome text. */
   readonly label: string;
 }
@@ -85,8 +88,12 @@ export type HerdrConnState =
   | string;
 
 /**
- * Precedence: meta loading (cyan wave) → agent working/blocked (amber/crimson wave)
- * → connection degraded (amber wave) → settled static.
+ * Precedence: meta loading (cyan diagonal) → agent working/blocked (amber snake /
+ * crimson arrow) → connection degraded (steel diagonal) → done (green static)
+ * → lost/failed (crimson static) → idle (cyan ripple — waiting on you)
+ * → unknown (green static "connected").
+ * Each wave state owns a distinct (tone, pattern) pair so states read apart
+ * by shape, not just color.
  */
 export function herdrActivity(input: {
   readonly agentStatus?: HerdrAgentStatus | null;
@@ -94,17 +101,17 @@ export function herdrActivity(input: {
   readonly connState?: HerdrConnState | null;
 }): ActivitySpec {
   if (input.metaStatus === "loading") {
-    return { mode: "wave", tone: "cyan", label: "loading meta" };
+    return { mode: "wave", tone: "cyan", pattern: "diagonal", label: "loading meta" };
   }
   const agent = input.agentStatus ?? "unknown";
   if (agent === "working") {
-    return { mode: "wave", tone: "amber", label: "working" };
+    return { mode: "wave", tone: "amber", pattern: "snake", label: "working" };
   }
   if (agent === "blocked") {
-    return { mode: "wave", tone: "crimson", label: "blocked" };
+    return { mode: "wave", tone: "crimson", pattern: "arrow-up", label: "blocked" };
   }
   if (input.connState === "degraded") {
-    return { mode: "wave", tone: "amber", label: "degraded" };
+    return { mode: "wave", tone: "steel", pattern: "diagonal", label: "degraded" };
   }
   if (agent === "done") {
     return { mode: "static", tone: "green", label: "done" };
@@ -112,9 +119,14 @@ export function herdrActivity(input: {
   if (input.connState === "lost" || input.connState === "failed" || input.metaStatus === "error") {
     return { mode: "static", tone: "crimson", label: input.metaStatus === "error" ? "error" : String(input.connState) };
   }
-  // Quiet healthy card: green static (connected + idle/unknown).
-  if (agent === "idle" || agent === "unknown" || !agent) {
-    return { mode: "static", tone: "green", label: agent === "idle" ? "idle" : "connected" };
+  // Idle mirrors herdr's sidebar "waiting on you" cue: animated cyan ripple,
+  // clearly distinct from done's settled green dot.
+  if (agent === "idle") {
+    return { mode: "wave", tone: "cyan", pattern: "ripple", label: "idle" };
+  }
+  // Quiet healthy card: green static (connected, no agent report).
+  if (agent === "unknown" || !agent) {
+    return { mode: "static", tone: "green", label: "connected" };
   }
   return { mode: "static", tone: "steel", label: agent };
 }
