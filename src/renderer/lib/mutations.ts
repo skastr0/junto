@@ -2,11 +2,13 @@ import type {
   CanvasDoc,
   CanvasNode,
   EtherFlag,
+  EtherRegionDefaults,
   EtherTimer,
   EtherView,
   EtherWatch,
   NodeSide,
 } from "@shared/canvas";
+import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import type { BindingHint } from "@shared/ipc";
 import { state$ } from "./state";
 
@@ -443,6 +445,30 @@ export const setRegionHold = (id: string, hold: boolean): void => {
       if (n.id !== id) return n;
       const currentRegion = n.ether?.region ?? {};
       const nextRegion = hold ? { ...currentRegion, hold: true } : without(currentRegion, "hold");
+      if (Object.keys(nextRegion).length > 0) {
+        return { ...n, ether: { ...(n.ether ?? {}), region: nextRegion } };
+      }
+      if (!n.ether) return n;
+      const nextEther = without(n.ether, "region");
+      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
+    }),
+  });
+};
+
+// Region spawn defaults (group nodes only). Create-time stamp source for
+// herdr/page nodes placed inside the region — never live rebind.
+// Merges into ether.region so hold + instruction survive. Empty bags strip.
+export const setRegionDefaults = (id: string, defaults: EtherRegionDefaults | undefined): void => {
+  const doc = state$.doc.peek();
+  const cleaned = stripEmptyRegionDefaults(defaults);
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id) return n;
+      const currentRegion = n.ether?.region ?? {};
+      const nextRegion = cleaned
+        ? { ...currentRegion, defaults: cleaned }
+        : without(currentRegion, "defaults");
       if (Object.keys(nextRegion).length > 0) {
         return { ...n, ether: { ...(n.ether ?? {}), region: nextRegion } };
       }

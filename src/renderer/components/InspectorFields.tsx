@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { Flag, SlidersHorizontal } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { ulid } from "ulid";
-import type { CanvasDoc, CanvasNode, EdgeCriteria, EtherFlag, EtherView, EtherWatch } from "@shared/canvas";
+import type { CanvasDoc, CanvasNode, EdgeCriteria, EtherFlag, EtherRegionDefaults, EtherView, EtherWatch } from "@shared/canvas";
 import { towerProjectKey } from "@shared/execution-graph";
 import { findEntity } from "@shared/entities";
 import { addEdge, setEdgeCriteria } from "../lib/edge-mutations";
-import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTasks, setNodeTimer, setNodeView, setNodeWatch, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTasks, setNodeTimer, setNodeView, setNodeWatch, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { fetchTowerBrowse, glyphStateHue, orbitOptions, TOWER_STATES } from "../lib/browse";
 import { state$ } from "../lib/state";
 import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
@@ -58,6 +58,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     {node.type === "file" ? <div className="inspector-section"><div className="inspector-section__label">file reference</div><div className="inspector-file-fields"><label><span>path</span><input aria-label="File path" value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setFileDraft(fileValue); event.currentTarget.blur(); } }} /></label><label><span>subpath</span><input aria-label="File subpath" value={subpathDraft} placeholder="#section or block" onChange={(event) => setSubpathDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setSubpathDraft(subpathValue); event.currentTarget.blur(); } }} /></label></div></div> : null}
     {node.type === "group" ? <div className="inspector-section"><div className="inspector-section__label">background</div><div className="inspector-background"><input aria-label="Region background source" value={backgroundDraft} placeholder="image URL or file path" onChange={(event) => setBackgroundDraft(event.target.value)} onBlur={() => commitBackground()} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitBackground(); event.currentTarget.blur(); } if (event.key === "Escape") { setBackgroundDraft(backgroundValue); event.currentTarget.blur(); } }} /><label><span>fit</span><select aria-label="Region background fit" value={backgroundStyleDraft} onChange={(event) => { const style = event.target.value as "cover" | "ratio" | "repeat"; setBackgroundStyleDraft(style); commitBackground(backgroundDraft, style); }}><option value="cover">cover</option><option value="ratio">contain</option><option value="repeat">repeat</option></select></label></div></div> : null}
     {node.type === "group" ? <RegionHoldControl node={node} /> : null}
+    {node.type === "group" ? <RegionDefaultsControl node={node} /> : null}
     <KernelFieldEditors node={node} />
     {node.ether?.entity?.kind === "project" ? <ViewSliceFields node={node} /> : null}
   </>;
@@ -407,6 +408,105 @@ function RegionHoldControl({ node }: { readonly node: CanvasNode }) {
         style={{ color: hold ? HUE.amber : "#68604a", borderColor: hold ? withAlpha(HUE.amber, 0.5) : "rgba(237,230,218,.12)", background: hold ? withAlpha(HUE.amber, 0.1) : "rgba(255,255,255,.02)" }}
         onClick={() => setRegionHold(node.id, !hold)}
       >hold contents</button>
+    </div>
+  </div>;
+}
+
+// Create-time stamp source for herdr/page nodes placed inside this region.
+// Not live rebind — node ether wins after create. Clear empties the bag.
+function RegionDefaultsControl({ node }: { readonly node: CanvasNode }) {
+  const stored = node.ether?.region?.defaults;
+  const [host, setHost] = useState(stored?.herdr?.host ?? "");
+  const [session, setSession] = useState(
+    stored?.herdr?.session === null ? "default" : (stored?.herdr?.session ?? ""),
+  );
+  const [workspaceId, setWorkspaceId] = useState(stored?.herdr?.workspaceId ?? "");
+  const [tabId, setTabId] = useState(stored?.herdr?.tabId ?? "");
+  const [pageUrl, setPageUrl] = useState(stored?.page?.url ?? "");
+  const [pageProfile, setPageProfile] = useState(stored?.page?.profile ?? "");
+
+  useEffect(() => {
+    setHost(stored?.herdr?.host ?? "");
+    setSession(stored?.herdr?.session === null ? "default" : (stored?.herdr?.session ?? ""));
+    setWorkspaceId(stored?.herdr?.workspaceId ?? "");
+    setTabId(stored?.herdr?.tabId ?? "");
+    setPageUrl(stored?.page?.url ?? "");
+    setPageProfile(stored?.page?.profile ?? "");
+  }, [node.id, stored?.herdr?.host, stored?.herdr?.session, stored?.herdr?.workspaceId, stored?.herdr?.tabId, stored?.page?.url, stored?.page?.profile]);
+
+  const commit = () => {
+    const hostTrim = host.trim();
+    const sessionTrim = session.trim();
+    // "default" / empty → null unnamed session when host is set; blank session with no host → omit.
+    let sessionValue: string | null | undefined;
+    if (hostTrim) {
+      if (!sessionTrim || sessionTrim === "default") sessionValue = null;
+      else sessionValue = sessionTrim;
+    }
+    const next: EtherRegionDefaults = {
+      ...(hostTrim
+        ? {
+            herdr: {
+              host: hostTrim,
+              session: sessionValue ?? null,
+              ...(workspaceId.trim() ? { workspaceId: workspaceId.trim() } : {}),
+              ...(tabId.trim() ? { tabId: tabId.trim() } : {}),
+            },
+          }
+        : {}),
+      ...(pageUrl.trim() || pageProfile.trim()
+        ? {
+            page: {
+              ...(pageUrl.trim() ? { url: pageUrl.trim() } : {}),
+              ...(pageProfile.trim() ? { profile: pageProfile.trim() } : {}),
+            },
+          }
+        : {}),
+    };
+    setRegionDefaults(node.id, Object.keys(next).length > 0 ? next : undefined);
+  };
+
+  const clearAll = () => {
+    setHost("");
+    setSession("");
+    setWorkspaceId("");
+    setTabId("");
+    setPageUrl("");
+    setPageProfile("");
+    setRegionDefaults(node.id, undefined);
+  };
+
+  const onEnter = commitOnEnter(commit);
+
+  return <div className="inspector-section">
+    <div className="inspector-section__label">spawn defaults</div>
+    <div className="inspector-detail mb-1">Stamped onto new herdr/page nodes inside this region. Not live rebind — edit a node after create to override.</div>
+    <label className="inspector-editor">
+      <span>herdr host</span>
+      <input aria-label="Region herdr host default" value={host} placeholder="local · mac-mini" onChange={(e) => setHost(e.target.value)} onBlur={commit} onKeyDown={onEnter} />
+    </label>
+    <label className="inspector-editor">
+      <span>herdr session</span>
+      <input aria-label="Region herdr session default" value={session} placeholder="default (unnamed)" onChange={(e) => setSession(e.target.value)} onBlur={commit} onKeyDown={onEnter} />
+    </label>
+    <label className="inspector-editor">
+      <span>herdr workspace id</span>
+      <input aria-label="Region herdr workspace default" value={workspaceId} placeholder="workspace id from herdr" onChange={(e) => setWorkspaceId(e.target.value)} onBlur={commit} onKeyDown={onEnter} />
+    </label>
+    <label className="inspector-editor">
+      <span>herdr tab id</span>
+      <input aria-label="Region herdr tab default" value={tabId} placeholder="optional tab id" onChange={(e) => setTabId(e.target.value)} onBlur={commit} onKeyDown={onEnter} />
+    </label>
+    <label className="inspector-editor">
+      <span>page url</span>
+      <input aria-label="Region page url default" value={pageUrl} placeholder="https://…" onChange={(e) => setPageUrl(e.target.value)} onBlur={commit} onKeyDown={onEnter} />
+    </label>
+    <label className="inspector-editor">
+      <span>page profile</span>
+      <input aria-label="Region page profile default" value={pageProfile} placeholder="personal" onChange={(e) => setPageProfile(e.target.value)} onBlur={commit} onKeyDown={onEnter} />
+    </label>
+    <div className="inspector-flags mt-1">
+      <button type="button" className="inspector-flag-toggle" onClick={clearAll}>clear defaults</button>
     </div>
   </div>;
 }
