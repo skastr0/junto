@@ -75,10 +75,8 @@ rest of the filesystem.
 The current source must not be interpreted as qualified for primary credentials:
 
 - `src/main/vellum/browser/control.ts` uses a persistent bearer for the complete
-  control surface and still contains an optional TCP path.
-- The same control path buffers request bodies without a hard admission bound and
-  does not bind authority to a principal, job, target, action, origin, profile,
-  expiry, or revocation generation.
+  control surface and does not bind authority to a principal, job, target,
+  action, origin, profile, expiry, or revocation generation.
 - `src/shared/browser-control.ts` accepts unbounded strings for powerful requests,
   including raw evaluation and screenshot destinations.
 - `src/shared/browser.ts` permits every syntactically valid HTTP(S) target,

@@ -9,7 +9,10 @@ import { Either, Schema } from "effect";
 import { decodeCanvasDoc } from "@shared/canvas";
 import {
   CONTROL_ROUTES,
-  CONTROL_TCP_ENV,
+  CONTROL_HEADERS_TIMEOUT_MS,
+  CONTROL_MAX_BODY_BYTES,
+  CONTROL_MAX_HEADER_BYTES,
+  CONTROL_REQUEST_TIMEOUT_MS,
   CONTROL_TOKEN_HEADER,
   controlDir,
   controlErr,
@@ -34,8 +37,7 @@ import { BrowserSessionService } from "./sessions";
 // main process and calling the warm-session service directly. Security model:
 // filesystem (socket + token file are chmod 600 in the user's home) plus a
 // bearer token on EVERY request — so a same-host process still needs read
-// access to the token file. No LAN exposure by default: a TCP bind happens
-// only when VELLUM_CONTROL_TCP is set explicitly, and the token stays required.
+// access to the token file. The service has no TCP transport.
 
 // ---------------------------------------------------------------------------
 // Token: regenerate if missing, always chmod 600. Constant-time compare via
@@ -43,9 +45,9 @@ import { BrowserSessionService } from "./sessions";
 
 export const loadOrCreateToken = (tokenPath: string): string => {
   if (existsSync(tokenPath)) {
+    chmodSync(tokenPath, 0o600);
     const token = readFileSync(tokenPath, "utf8").trim();
     if (token.length > 0) {
-      chmodSync(tokenPath, 0o600);
       return token;
     }
   }
@@ -251,20 +253,69 @@ export const dispatchControlRequest = async (
 // ---------------------------------------------------------------------------
 // HTTP hosting
 
-const readBody = (req: IncomingMessage): Promise<unknown> =>
-  new Promise((resolve) => {
+type BodyReadResult =
+  | { readonly ok: true; readonly body: unknown }
+  | { readonly ok: false; readonly status: 400 | 408 | 413; readonly message: string };
+
+const readBoundedBody = (req: IncomingMessage): Promise<BodyReadResult> =>
+  new Promise((resolveBody) => {
     const chunks: Buffer[] = [];
-    req.on("data", (c: Buffer) => chunks.push(c));
-    req.on("end", () => {
-      const raw = Buffer.concat(chunks).toString("utf8");
-      if (raw.length === 0) return resolve(undefined);
-      try {
-        resolve(JSON.parse(raw));
-      } catch {
-        resolve(Symbol.for("vellum.control.badJson"));
+    let bytes = 0;
+    let settled = false;
+
+    const settle = (result: BodyReadResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      req.off("data", onData);
+      req.off("end", onEnd);
+      req.off("aborted", onAborted);
+      req.off("error", onError);
+      resolveBody(result);
+    };
+    const onData = (chunk: Buffer | string): void => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bytes += buffer.byteLength;
+      if (bytes > CONTROL_MAX_BODY_BYTES) {
+        req.pause();
+        settle({
+          ok: false,
+          status: 413,
+          message: `request body exceeds ${CONTROL_MAX_BODY_BYTES} bytes`,
+        });
+        return;
       }
-    });
-    req.on("error", () => resolve(undefined));
+      chunks.push(buffer);
+    };
+    const onEnd = (): void => {
+      const raw = Buffer.concat(chunks).toString("utf8");
+      if (raw.length === 0) {
+        settle({ ok: true, body: undefined });
+        return;
+      }
+      try {
+        settle({ ok: true, body: JSON.parse(raw) });
+      } catch {
+        settle({ ok: false, status: 400, message: "body is not valid JSON" });
+      }
+    };
+    const onAborted = (): void =>
+      settle({ ok: false, status: 400, message: "request body was aborted" });
+    const onError = (): void =>
+      settle({ ok: false, status: 400, message: "request body could not be read" });
+    const timer = setTimeout(() => {
+      req.pause();
+      settle({
+        ok: false,
+        status: 408,
+        message: `request body was not received within ${CONTROL_REQUEST_TIMEOUT_MS}ms`,
+      });
+    }, CONTROL_REQUEST_TIMEOUT_MS);
+
+    req.on("data", onData);
+    req.once("end", onEnd);
+    req.once("aborted", onAborted);
+    req.once("error", onError);
   });
 
 const bearerToken = (req: IncomingMessage): string | undefined => {
@@ -280,21 +331,65 @@ export interface BrowserControlServer {
   close(): void;
 }
 
+export interface BrowserControlRuntime {
+  readonly chmodSocket: (path: string, mode: number) => void;
+}
+
+const defaultControlRuntime: BrowserControlRuntime = {
+  chmodSocket: chmodSync,
+};
+
+const closeServer = (server: Server): Promise<void> =>
+  new Promise((resolveClose) => {
+    if (!server.listening) {
+      resolveClose();
+      return;
+    }
+    server.close(() => resolveClose());
+  });
+
+const unlinkSocket = (socketPath: string): void => {
+  if (existsSync(socketPath)) unlinkSync(socketPath);
+};
+
+const listenOnSocket = (server: Server, socketPath: string): Promise<void> =>
+  new Promise((resolveListen, rejectListen) => {
+    const onError = (error: Error): void => rejectListen(error);
+    server.once("error", onError);
+    server.listen({ path: socketPath, readableAll: false, writableAll: false }, () => {
+      server.off("error", onError);
+      resolveListen();
+    });
+  });
+
+const parseContentLength = (
+  req: IncomingMessage,
+): { readonly ok: true; readonly value: number | undefined } | { readonly ok: false } => {
+  const header = req.headers["content-length"];
+  if (header === undefined) return { ok: true, value: undefined };
+  if (Array.isArray(header) || !/^(0|[1-9][0-9]*)$/.test(header)) return { ok: false };
+  const value = Number(header);
+  return Number.isSafeInteger(value) ? { ok: true, value } : { ok: false };
+};
+
 /**
- * Start the control plane. Idempotent per app run; call close() on quit.
- * Unix socket only by default; VELLUM_CONTROL_TCP="host:port" adds an explicit
- * TCP bind (token still enforced on every request).
+ * Start the owner-local control plane. Idempotent per app run; call close() on
+ * quit. Startup resolves only after the Unix socket has owner-only permissions.
  */
-export const startBrowserControlServer = (options: {
-  readonly sessions: BrowserSessionService;
-  readonly version: string;
-  readonly home?: string;
-  readonly env?: Record<string, string | undefined>;
-}): BrowserControlServer => {
+export const startBrowserControlServer = async (
+  options: {
+    readonly sessions: BrowserSessionService;
+    readonly version: string;
+    readonly home?: string;
+  },
+  runtime: BrowserControlRuntime = defaultControlRuntime,
+): Promise<BrowserControlServer> => {
   const home = options.home ?? homedir();
   const dir = controlDir(home);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  mkdirSync(controlShotsDir(home), { recursive: true });
+  chmodSync(dir, 0o700);
+  mkdirSync(controlShotsDir(home), { recursive: true, mode: 0o700 });
+  chmodSync(controlShotsDir(home), 0o700);
 
   const token = loadOrCreateToken(controlTokenPath(home));
   const handlers = makeControlHandlers({
@@ -304,76 +399,128 @@ export const startBrowserControlServer = (options: {
     shotsDir: controlShotsDir(home),
   });
 
-  const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    void (async () => {
-      const body = await readBody(req);
-      const respond = (status: number, envelope: ControlEnvelope<unknown>): void => {
-        res.writeHead(status, { "content-type": "application/json" });
-        res.end(JSON.stringify(envelope));
-      };
-      if (body === Symbol.for("vellum.control.badJson")) {
-        return respond(400, controlErr("bad_request", "body is not valid JSON"));
-      }
-      try {
-        const url = new URL(req.url ?? "/", "http://control.local");
-        const { status, envelope } = await dispatchControlRequest(handlers, token, {
-          method: req.method ?? "GET",
-          path: url.pathname,
-          token: bearerToken(req),
-          body,
-        });
-        respond(status, envelope);
-      } catch (error) {
-        respond(
-          500,
-          controlErr("failed", error instanceof Error ? error.message : String(error)),
-        );
-      }
-    })();
+  const server: Server = createServer(
+    { maxHeaderSize: CONTROL_MAX_HEADER_BYTES },
+    (req: IncomingMessage, res: ServerResponse) => {
+      void (async () => {
+        const respond = (
+          status: number,
+          envelope: ControlEnvelope<unknown>,
+          closeConnection = false,
+        ): void => {
+          if (res.headersSent || res.destroyed) return;
+          const body = JSON.stringify(envelope);
+          res.writeHead(status, {
+            "content-type": "application/json",
+            "content-length": String(Buffer.byteLength(body)),
+            ...(closeConnection ? { connection: "close" } : {}),
+          });
+          if (closeConnection) {
+            res.once("finish", () => req.socket.destroy());
+          }
+          res.end(body);
+        };
+
+        const presentedToken = bearerToken(req);
+        if (!tokenMatches(presentedToken, token)) {
+          respond(401, controlErr("unauthorized", "missing or invalid token"), true);
+          return;
+        }
+
+        try {
+          const url = new URL(req.url ?? "/", "http://control.local");
+          const method = req.method ?? "GET";
+          if (handlers[`${method} ${url.pathname}`] === undefined) {
+            respond(
+              404,
+              controlErr("bad_request", `unknown route ${method} ${url.pathname}`),
+              true,
+            );
+            return;
+          }
+
+          const declaredLength = parseContentLength(req);
+          if (!declaredLength.ok) {
+            respond(400, controlErr("bad_request", "invalid Content-Length header"), true);
+            return;
+          }
+          if (
+            declaredLength.value !== undefined &&
+            declaredLength.value > CONTROL_MAX_BODY_BYTES
+          ) {
+            respond(
+              413,
+              controlErr("bad_request", `request body exceeds ${CONTROL_MAX_BODY_BYTES} bytes`),
+              true,
+            );
+            return;
+          }
+
+          const body = await readBoundedBody(req);
+          if (!body.ok) {
+            respond(body.status, controlErr("bad_request", body.message), true);
+            return;
+          }
+          const { status, envelope } = await dispatchControlRequest(handlers, token, {
+            method,
+            path: url.pathname,
+            token: presentedToken,
+            body: body.body,
+          });
+          respond(status, envelope);
+        } catch (error) {
+          respond(
+            500,
+            controlErr("failed", error instanceof Error ? error.message : String(error)),
+          );
+        }
+      })();
+    },
+  );
+  server.headersTimeout = CONTROL_HEADERS_TIMEOUT_MS;
+  server.requestTimeout = CONTROL_REQUEST_TIMEOUT_MS;
+  server.on("clientError", (error: Error & { code?: string }, socket) => {
+    if (!socket.writable) return;
+    const status =
+      error.code === "HPE_HEADER_OVERFLOW"
+        ? 431
+        : error.code === "ERR_HTTP_REQUEST_TIMEOUT"
+          ? 408
+          : 400;
+    const envelope = controlErr(
+      "bad_request",
+      status === 431 ? "request headers exceed the admission limit" : "malformed request",
+    );
+    const body = JSON.stringify(envelope);
+    socket.end(
+      `HTTP/1.1 ${status} ${status === 431 ? "Request Header Fields Too Large" : "Bad Request"}\r\n` +
+        "Content-Type: application/json\r\n" +
+        "Connection: close\r\n" +
+        `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+    );
   });
 
   // Stale socket from a crashed run blocks listen — remove before binding.
   const socketPath = controlSocketPath(home);
+  unlinkSocket(socketPath);
+  await listenOnSocket(server, socketPath);
   try {
-    if (existsSync(socketPath)) unlinkSync(socketPath);
+    runtime.chmodSocket(socketPath, 0o600);
   } catch (error) {
-    console.error("[browser-control] failed to clear stale socket:", error);
+    await closeServer(server);
+    unlinkSocket(socketPath);
+    throw error;
   }
-  server.listen(socketPath, () => {
-    // Socket perms: owner-only, same posture as the token file.
-    try {
-      chmodSync(socketPath, 0o600);
-    } catch {
-      // best-effort; the token gate still holds
-    }
-  });
   server.on("error", (error) => {
     console.error("[browser-control] server error:", error);
   });
-
-  // Explicit LAN/TCP opt-in only — never bound by default.
-  const tcp = (options.env ?? process.env)[CONTROL_TCP_ENV];
-  let tcpServer: Server | undefined;
-  if (tcp) {
-    const [host, portRaw] = tcp.includes(":") ? [tcp.slice(0, tcp.lastIndexOf(":")), tcp.slice(tcp.lastIndexOf(":") + 1)] : ["127.0.0.1", tcp];
-    const port = Number(portRaw);
-    if (Number.isInteger(port) && port > 0) {
-      tcpServer = createServer(server.listeners("request")[0] as (req: IncomingMessage, res: ServerResponse) => void);
-      tcpServer.listen(port, host || "127.0.0.1");
-      tcpServer.on("error", (error) => console.error("[browser-control] tcp error:", error));
-      console.log(`[browser-control] explicit TCP bind on ${host || "127.0.0.1"}:${port} (token required)`);
-    } else {
-      console.error(`[browser-control] ignoring invalid ${CONTROL_TCP_ENV}=${tcp}`);
-    }
-  }
 
   return {
     socketPath,
     close: () => {
       server.close();
-      tcpServer?.close();
       try {
-        if (existsSync(socketPath)) unlinkSync(socketPath);
+        unlinkSocket(socketPath);
       } catch {
         // socket file may already be gone
       }

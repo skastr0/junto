@@ -3,9 +3,9 @@ import { Either, Schema } from "effect";
 // Browser control-plane protocol: the wire contract between the Electron-hosted
 // HTTP server (main/vellum/browser/control.ts) and the agent CLI
 // (scripts/browser-cli.ts). Pure module — no Node imports — so both ends and
-// tests share one source of truth. Transport is a local unix domain socket by
-// default (never a LAN bind without an explicit opt-in) and every request
-// carries a bearer token; this file only knows shapes and paths-as-strings.
+// tests share one source of truth. Transport is a local Unix domain socket only
+// and every request carries a bearer token; this file only knows shapes,
+// admission bounds, and paths-as-strings.
 
 // ---------------------------------------------------------------------------
 // Paths (functions of the home dir so the module stays platform-pure)
@@ -15,8 +15,10 @@ export const controlSocketPath = (home: string): string => `${controlDir(home)}/
 export const controlTokenPath = (home: string): string => `${controlDir(home)}/control.token`;
 export const controlShotsDir = (home: string): string => `${controlDir(home)}/shots`;
 
-/** Env var that (explicitly) enables a TCP bind, e.g. "127.0.0.1:9224". Token still required. */
-export const CONTROL_TCP_ENV = "VELLUM_CONTROL_TCP";
+export const CONTROL_MAX_HEADER_BYTES = 16 * 1024;
+export const CONTROL_HEADERS_TIMEOUT_MS = 5_000;
+export const CONTROL_REQUEST_TIMEOUT_MS = 10_000;
+export const CONTROL_MAX_BODY_BYTES = 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Error envelope — Effect Schema TaggedError style: every failure is a struct

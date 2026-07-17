@@ -165,6 +165,56 @@ const markerAbsent = async (path: string): Promise<boolean> => {
 const closeServer = (server: Server): Promise<void> =>
   new Promise((resolveClose) => server.close(() => resolveClose()));
 
+const reserveLoopbackPort = async (): Promise<number> => {
+  const server = createServer();
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once("error", rejectListen);
+    server.listen(0, "127.0.0.1", () => resolveListen());
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    await closeServer(server);
+    throw new Error("TCP regression probe has no port");
+  }
+  await closeServer(server);
+  return address.port;
+};
+
+const assertTcpControlAbsent = (
+  port: number,
+  token: string,
+): Promise<void> =>
+  new Promise((resolveAbsent, rejectAbsent) => {
+    let settled = false;
+    const settle = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      if (error === undefined) resolveAbsent();
+      else rejectAbsent(error);
+    };
+    const req = request(
+      {
+        host: "127.0.0.1",
+        port,
+        method: "GET",
+        path: CONTROL_ROUTES.doctor.path,
+        headers: { [CONTROL_TOKEN_HEADER]: token },
+      },
+      (res) => {
+        res.resume();
+        settle(new Error(`legacy VELLUM_CONTROL_TCP opened 127.0.0.1:${port}`));
+      },
+    );
+    req.setTimeout(1_000, () => {
+      req.destroy(new Error("TCP regression probe timed out instead of refusing"));
+    });
+    req.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ECONNREFUSED") settle();
+      else settle(error);
+    });
+    req.end();
+  });
+
 const stopChild = async (child: ChildProcess): Promise<void> => {
   if (child.exitCode !== null || child.signalCode !== null) return;
   child.kill("SIGTERM");
@@ -183,6 +233,7 @@ const main = async (): Promise<void> => {
   const canvasesDir = join(root, "canvases");
   const markerPath = join(root, `host-marker-${randomUUID()}`);
   const nonce = randomUUID();
+  const legacyTcpPort = await reserveLoopbackPort();
   await Promise.all([home, userData, browserDir, canvasesDir].map((path) => mkdir(path, { recursive: true })));
 
   const fixture = await readFile(fixturePath);
@@ -213,8 +264,8 @@ const main = async (): Promise<void> => {
     HOME: home,
     VELLUM_BROWSER_DIR: browserDir,
     VELLUM_CANVASES_DIR: canvasesDir,
+    VELLUM_CONTROL_TCP: `127.0.0.1:${legacyTcpPort}`,
   };
-  delete env.VELLUM_CONTROL_TCP;
   delete env.ELECTRON_RENDERER_URL;
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.NODE_OPTIONS;
@@ -239,6 +290,7 @@ const main = async (): Promise<void> => {
 
   try {
     const { socketPath, token } = await waitForControl(home, () => exited);
+    await assertTcpControlAbsent(legacyTcpPort, token);
     const open = async (nodeId: string, profile: string, url: string): Promise<void> => {
       requireOk(await controlCall(socketPath, token, "open", { nodeId, profile, url }), `open ${nodeId}`);
     };
@@ -285,6 +337,7 @@ const main = async (): Promise<void> => {
           hostWritesBlocked: true,
           profilesIsolated: true,
           partitionSurvivesEviction: true,
+          tcpListenerAbsent: true,
         },
       }),
     );

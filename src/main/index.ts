@@ -199,7 +199,7 @@ if (!gotSingleInstanceLock) {
     // Agent control plane (unix socket + token). App-hosted: exists exactly as
     // long as the runtime that owns the warm sessions does.
     try {
-      browserControl = startBrowserControlServer({
+      browserControl = await startBrowserControlServer({
         sessions: browserSessions,
         version: app.getVersion(),
       });
