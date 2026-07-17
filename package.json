@@ -14,6 +14,7 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:browser:electron": "electron-vite build && bun scripts/browser-electron-containment-probe.ts",
     "verify": "bun run typecheck && bun run test && electron-vite build",
     "app:build": "bash scripts/build-app.sh",
     "app:build:fast": "bash scripts/build-app.sh --fast",

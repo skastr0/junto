@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vellum hostile containment fixture</title>
+  </head>
+  <body>
+    <script>
+      (() => {
+        const params = new URL(location.href).searchParams;
+        const marker = params.get("marker") || "";
+        const nonce = params.get("nonce") || "";
+        const mode = params.get("mode") || "read";
+        const writes = [];
+
+        const attempt = (name, operation) => {
+          try {
+            operation();
+            writes.push({ name, succeeded: true });
+          } catch (error) {
+            writes.push({
+              name,
+              succeeded: false,
+              error: error instanceof Error ? error.name : typeof error,
+            });
+          }
+        };
+
+        attempt("require", () => {
+          const fs = globalThis.require("node:fs");
+          fs.writeFileSync(marker, "require escaped the sandbox");
+        });
+        attempt("process.getBuiltinModule", () => {
+          const fs = globalThis.process.getBuiltinModule("node:fs");
+          fs.writeFileSync(marker, "process escaped the sandbox");
+        });
+
+        if (mode === "seed") {
+          document.cookie = `vellum_probe=${encodeURIComponent(nonce)}; Path=/; SameSite=Lax`;
+          localStorage.setItem("vellum-probe", nonce);
+        }
+
+        const cookie = document.cookie
+          .split(";")
+          .map((part) => part.trim())
+          .find((part) => part.startsWith("vellum_probe="));
+
+        globalThis.__vellumContainmentProbe = {
+          globals: {
+            require: typeof globalThis.require,
+            process: typeof globalThis.process,
+            Buffer: typeof globalThis.Buffer,
+            module: typeof globalThis.module,
+            vellum: typeof globalThis.vellum,
+            chassis: typeof globalThis.chassis,
+          },
+          writeAttempts: writes,
+          cookieValue: cookie ? decodeURIComponent(cookie.slice("vellum_probe=".length)) : null,
+          storageValue: localStorage.getItem("vellum-probe"),
+        };
+      })();
+    </script>
+  </body>
+</html>
