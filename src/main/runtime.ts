@@ -8,6 +8,7 @@ import { CanvasesLive, CanvasesService } from "./vellum/canvases";
 import { ChatService } from "./vellum/chat/service";
 import { KernelLive, KernelService } from "./vellum/kernel/service";
 import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
+import { SettingsLive, SettingsService } from "./vellum/settings/service";
 import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
 import { UsageLive } from "./vellum/usage/live";
 import { UsageService } from "./vellum/usage/usage-service";
@@ -40,6 +41,7 @@ const BaseLayer = Layer.mergeAll(
   CanvasesLive,
   SnapshotsLive,
   UsageLive,
+  SettingsLive,
 );
 
 export const RootLayer = Layer.provideMerge(
@@ -59,6 +61,7 @@ export const buildDoctorReport = Effect.gen(function* () {
   const kernel = yield* KernelService;
   const regionRollup = yield* RegionRollupService;
   const usage = yield* UsageService;
+  const settings = yield* SettingsService;
 
   const station = yield* prism.stationInfo;
   const serviceResults = yield* Effect.all(
@@ -72,6 +75,7 @@ export const buildDoctorReport = Effect.gen(function* () {
       kernel.doctor,
       regionRollup.doctor,
       usage.doctor,
+      settings.doctor,
     ],
     { concurrency: "unbounded" },
   );

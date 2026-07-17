@@ -32,6 +32,7 @@ import { registerHerdrIpc } from "./herdr/ipc";
 import type { PulseRegionOptions } from "./kernel/service";
 import { KernelService } from "./kernel/service";
 import { RegionRollupService } from "./region-rollup";
+import { registerSettingsIpc } from "./settings/ipc";
 import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
 
@@ -44,6 +45,7 @@ const broadcast = (channel: string, payload: unknown) => {
 export const registerVellumIpc = () => {
   registerHerdrIpc(ipcMain, () => BrowserWindow.getAllWindows().map((w) => w.webContents));
   registerBrowserIpc(ipcMain, () => BrowserWindow.getAllWindows().map((w) => w.webContents));
+  registerSettingsIpc(ipcMain, broadcast);
   ipcMain.handle(IPC_CHANNELS.listCanvases, () =>
     AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.list)),
   );

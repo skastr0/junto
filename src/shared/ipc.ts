@@ -4,6 +4,12 @@ import type { CanvasDoc } from "./canvas";
 import type { SnapshotState } from "./entities";
 import type { NodeRefKey } from "./node-ref";
 import type { RegionRollup } from "./region-rollup";
+import type {
+  Settings,
+  SettingsOpResult,
+  SettingsPatch,
+  SettingsSectionKey,
+} from "./settings";
 import type { UsageState } from "./usage";
 
 export const IPC_CHANNELS = {
@@ -81,12 +87,17 @@ export const IPC_CHANNELS = {
   browserSessionList: "vellum:browser-session-list",
   browserSetBounds: "vellum:browser-set-bounds",
   browserSurfaceConfig: "vellum:browser-surface-config",
+  // user settings plane (schema document under ~/.vellum/settings.json)
+  settingsGet: "vellum:settings-get",
+  settingsPatch: "vellum:settings-patch",
+  settingsReset: "vellum:settings-reset",
   // main -> renderer pushes
   nodeRefOpened: "vellum:node-ref-opened",
   nodeRefOpenedAck: "vellum:node-ref-opened-ack",
   canvasChanged: "vellum:canvas-changed",
   snapshotsChanged: "vellum:snapshots-changed",
   usageChanged: "vellum:usage-changed",
+  settingsChanged: "vellum:settings-changed",
   chatEvent: "vellum:chat-event",
   kernelChanged: "vellum:kernel-changed",
   herdrStreamEvent: "vellum:herdr-stream-event",
@@ -604,6 +615,11 @@ export interface VellumApi {
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onUsageChanged: (listener: (state: UsageState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
+  // User settings document (Effect Schema aggregate; main owns the file).
+  readonly settingsGet: () => Promise<SettingsOpResult>;
+  readonly settingsPatch: (patch: SettingsPatch) => Promise<SettingsOpResult>;
+  readonly settingsReset: (section?: SettingsSectionKey) => Promise<SettingsOpResult>;
+  readonly onSettingsChanged: (listener: (settings: Settings) => void) => () => void;
 }
 
 // The attached-chat surface is declared separately and merged into the
@@ -646,17 +662,43 @@ export interface HerdrTabInfo {
   readonly agentStatus?: string;
 }
 
+export interface HerdrAgentSessionInfo {
+  readonly agent?: string;
+  readonly kind?: string;
+  readonly source?: string;
+  readonly value?: string;
+}
+
+export interface HerdrPaneScrollInfo {
+  readonly offsetFromBottom?: number;
+  readonly maxOffsetFromBottom?: number;
+  readonly viewportRows?: number;
+}
+
+export interface HerdrProcessInfo {
+  readonly name?: string;
+  readonly cmdline?: string;
+  readonly pid?: number;
+}
+
 export interface HerdrPaneInfo {
   readonly paneId: string;
   readonly workspaceId?: string;
   readonly tabId?: string;
   readonly terminalId?: string;
   readonly cwd?: string;
+  readonly foregroundCwd?: string;
   readonly agent?: string;
   readonly agentStatus?: string;
+  readonly agentSession?: HerdrAgentSessionInfo;
   readonly label?: string;
   readonly focused?: boolean;
   readonly preview?: string;
+  readonly revision?: number;
+  readonly scroll?: HerdrPaneScrollInfo;
+  readonly workspaceLabel?: string;
+  readonly tabLabel?: string;
+  readonly processes?: ReadonlyArray<HerdrProcessInfo>;
 }
 
 export interface HerdrStreamOpenInput {

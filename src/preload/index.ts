@@ -19,6 +19,7 @@ import {
   type NodeRefOpenedEvent,
 } from "@shared/ipc";
 import type { SnapshotState } from "@shared/entities";
+import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
 
@@ -213,6 +214,12 @@ const vellumApi: VellumApi = {
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
   onUsageChanged: (listener) => subscribe<UsageState>(IPC_CHANNELS.usageChanged, listener),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),
+  settingsGet: () => invoke<SettingsOpResult>(IPC_CHANNELS.settingsGet, IPC_TIMEOUT_MS),
+  settingsPatch: (patch: SettingsPatch) =>
+    invoke<SettingsOpResult>(IPC_CHANNELS.settingsPatch, IPC_TIMEOUT_MS, patch),
+  settingsReset: (section?: SettingsSectionKey) =>
+    invoke<SettingsOpResult>(IPC_CHANNELS.settingsReset, IPC_TIMEOUT_MS, section),
+  onSettingsChanged: (listener) => subscribe<Settings>(IPC_CHANNELS.settingsChanged, listener),
 };
 
 const chatApi: VellumChatApi = {
