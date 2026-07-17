@@ -32,17 +32,65 @@ describe("browser profile id validation", () => {
   });
 });
 
-describe("browser URL scheme allowlist", () => {
-  it("allows http and https", () => {
+describe("browser public target policy", () => {
+  it("allows canonical public web targets", () => {
     expect(isAllowedBrowserUrl("https://example.com")).toBe(true);
-    expect(isAllowedBrowserUrl("http://localhost:3000/x")).toBe(true);
+    expect(isAllowedBrowserUrl("http://one.one.one.one/x")).toBe(true);
+    expect(isAllowedBrowserUrl("https://1.1.1.1/dns-query")).toBe(true);
+    expect(isAllowedBrowserUrl("https://[2606:4700:4700::1111]/dns-query")).toBe(true);
   });
 
-  it("rejects non-web schemes and garbage", () => {
+  it("rejects non-web schemes, URL credentials, and garbage", () => {
     expect(isAllowedBrowserUrl("file:///etc/passwd")).toBe(false);
     expect(isAllowedBrowserUrl("javascript:alert(1)")).toBe(false);
     expect(isAllowedBrowserUrl("data:text/html,hi")).toBe(false);
+    expect(isAllowedBrowserUrl("https://user:secret@example.com/")).toBe(false);
+    expect(isAllowedBrowserUrl("https://@example.com/")).toBe(false);
     expect(isAllowedBrowserUrl("not a url")).toBe(false);
+  });
+
+  it.each([
+    "http://localhost/",
+    "http://LOCALHOST./",
+    "http://app.localhost/",
+    "http://printer.local/",
+    "http://router.internal/",
+    "http://machine/",
+    "http://0.0.0.0/",
+    "http://10.2.3.4/",
+    "http://100.64.0.1/",
+    "http://127.0.0.1/",
+    "http://169.254.169.254/",
+    "http://172.16.0.1/",
+    "http://192.168.1.1/",
+    "http://192.88.99.1/",
+    "http://198.18.0.1/",
+    "http://224.0.0.1/",
+    "http://255.255.255.255/",
+    "http://[::]/",
+    "http://[::1]/",
+    "http://[::ffff:127.0.0.1]/",
+    "http://[fc00::1]/",
+    "http://[fe80::1]/",
+    "http://[ff02::1]/",
+    "http://[2001:db8::1]/",
+    "http://[64:ff9b:1::1]/",
+    "http://[2001:2::1]/",
+    "http://[2001:20::1]/",
+  ])("rejects local or non-public target %s", (url) => {
+    expect(isAllowedBrowserUrl(url)).toBe(false);
+  });
+
+  it.each([
+    "http://127.1/",
+    "http://0177.0.0.1/",
+    "http://0x7f000001/",
+    "http://2130706433/",
+    "http://1.1.1.1./",
+    "http://example.com./",
+    "http://exa_mple.com/",
+  ])("rejects ambiguous host spelling %s", (url) => {
+    expect(isAllowedBrowserUrl(url)).toBe(false);
   });
 });
 

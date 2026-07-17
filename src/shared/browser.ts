@@ -3,6 +3,7 @@
 // No Node, no Electron — unit-tested and shared by main + renderer + CLI.
 
 import { BROWSER_MAX_WARM_SESSIONS_HARD } from "./browser-limits";
+import { isAllowedBrowserTarget } from "./browser-policy";
 
 export const DEFAULT_BROWSER_PROFILES = ["personal", "work"] as const;
 export type DefaultBrowserProfile = (typeof DEFAULT_BROWSER_PROFILES)[number];
@@ -140,15 +141,5 @@ export const warmPoolEvictions = (
 export const partitionNameForProfile = (profileId: string): string =>
   `persist:vellum-profile-${profileId}`;
 
-/**
- * v1 scheme allowlist: http(s) only.
- * Rejects file:, javascript:, data:, and unparseable strings.
- */
-export const isAllowedBrowserUrl = (url: string): boolean => {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-};
+/** Public top-level browser target admission; retained as the lifecycle API. */
+export const isAllowedBrowserUrl = isAllowedBrowserTarget;
