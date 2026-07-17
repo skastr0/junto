@@ -50,8 +50,8 @@ describe("herdr control protocol field names", () => {
   });
 
 
-  it("clipboardImage stages on host then pastes path via stock terminal.input", () => {
-    const methodStart = streamSrc.indexOf("clipboardImage(");
+  it("pasteImage stages on host then pastes path via stock terminal.input", () => {
+    const methodStart = streamSrc.indexOf("pasteImage(");
     expect(methodStart).toBeGreaterThan(-1);
     const method = streamSrc.slice(methodStart, streamSrc.indexOf("resize(", methodStart));
     // Stock herdr only — never invent control commands.

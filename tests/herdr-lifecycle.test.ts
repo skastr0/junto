@@ -61,7 +61,7 @@ describe("herdr ipc channels", () => {
   it("declares stream event channel and control channels", () => {
     expect(IPC_CHANNELS.herdrStreamEvent).toBe("vellum:herdr-stream-event");
     expect(IPC_CHANNELS.herdrStreamOpen).toBe("vellum:herdr-stream-open");
-    expect(IPC_CHANNELS.herdrStreamClipboardImage).toBe("vellum:herdr-stream-clipboard-image");
+    expect(IPC_CHANNELS.herdrStreamPasteImage).toBe("vellum:herdr-stream-paste-image");
     expect(IPC_CHANNELS.herdrHosts).toBe("vellum:herdr-hosts");
     expect(IPC_CHANNELS.herdrGetMeta).toBe("vellum:herdr-get-meta");
   });

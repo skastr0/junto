@@ -61,11 +61,21 @@ const shellSingleQuote = (value: string): string => `'${value.replace(/'/g, `'\\
 const uniqueName = (extension: string): string =>
   `vellum-clip-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}.${extension}`;
 
-const runSsh = (
+export type RunSshResult = { readonly ok: true } | { readonly ok: false; readonly error: string };
+
+/** Injectable ssh runner for remote staging (tests mock this; prod uses real spawn). */
+export type RunSsh = (
   target: string,
   remoteCommand: string,
   stdin?: Buffer,
-): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: string }> =>
+) => Promise<RunSshResult>;
+
+export type StageImageDeps = {
+  readonly runSsh?: RunSsh;
+};
+
+/** Default production ssh: BatchMode + keepalives, binary stdin for cat writes. */
+export const defaultRunSsh: RunSsh = (target, remoteCommand, stdin) =>
   new Promise((resolve) => {
     const child = spawn(
       "ssh",
@@ -111,11 +121,14 @@ const runSsh = (
  * Write image bytes onto the host that owns the herdr pane.
  * local: $TMPDIR/vellum-herdr-images-<uid>/file
  * remote: /tmp/vellum-herdr-images/file via ssh + cat (binary stdin)
+ *
+ * Pass `deps.runSsh` in tests to mock remote mkdir/write without real ssh.
  */
 export const stageImageOnHost = async (
   hostId: string,
   extension: string,
   dataBase64: string,
+  deps: StageImageDeps = {},
 ): Promise<StageImageResult> => {
   if (!isKnownHerdrHost(hostId) || hostId.startsWith("-")) {
     return { ok: false, error: new UnknownHerdrHostError(hostId).message };
@@ -152,6 +165,8 @@ export const stageImageOnHost = async (
   if (!sshTarget || sshTarget.startsWith("-")) {
     return { ok: false, error: new UnknownHerdrHostError(hostId).message };
   }
+
+  const runSsh = deps.runSsh ?? defaultRunSsh;
 
   // Fixed remote dir under /tmp - path is fully controlled (no user input).
   const remoteDir = "/tmp/vellum-herdr-images";

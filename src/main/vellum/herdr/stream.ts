@@ -199,7 +199,7 @@ export class HerdrStreamManager {
    *   2. paste the absolute path via stock `terminal.input` (bracketed paste)
    * No herdr protocol extensions.
    */
-  async clipboardImage(
+  async pasteImage(
     streamId: string,
     extension: string,
     dataBase64: string,

@@ -60,7 +60,7 @@ export const IPC_CHANNELS = {
   herdrKillTab: "vellum:herdr-kill-tab",
   herdrStreamOpen: "vellum:herdr-stream-open",
   herdrStreamInput: "vellum:herdr-stream-input",
-  herdrStreamClipboardImage: "vellum:herdr-stream-clipboard-image",
+  herdrStreamPasteImage: "vellum:herdr-stream-paste-image",
   herdrStreamResize: "vellum:herdr-stream-resize",
   herdrStreamScroll: "vellum:herdr-stream-scroll",
   herdrStreamClose: "vellum:herdr-stream-close",
@@ -726,7 +726,7 @@ export interface VellumHerdrApi {
    * then paste the absolute path via stock `terminal.input`. No herdr forks.
    * `dataBase64` is raw image bytes (not a data URL). Cap 16 MiB.
    */
-  readonly herdrStreamClipboardImage: (
+  readonly herdrStreamPasteImage: (
     streamId: string,
     extension: string,
     dataBase64: string,

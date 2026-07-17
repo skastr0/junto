@@ -90,7 +90,7 @@ type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
     takeover?: boolean;
   }) => Promise<{ ok: boolean; streamId?: string; message?: string }>;
   herdrStreamInput: (streamId: string, data: string) => Promise<{ ok?: boolean; error?: string }>;
-  herdrStreamClipboardImage: (
+  herdrStreamPasteImage: (
     streamId: string,
     extension: string,
     dataBase64: string,
@@ -183,13 +183,13 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
     ) => {
       const id = streamIdRef.current;
       const api = apiRef.current;
-      if (!id || !api?.herdrStreamClipboardImage) {
+      if (!id || !api?.herdrStreamPasteImage) {
         setStatus("image paste dropped · stream not ready");
         return;
       }
       setStatus(`pasting image (${image.byteLength} B)…`);
       void api
-        .herdrStreamClipboardImage(id, image.extension, image.dataBase64)
+        .herdrStreamPasteImage(id, image.extension, image.dataBase64)
         .then((res) => {
           if (res && res.ok === false && res.error) {
             setStatus(`image paste failed: ${res.error}`);
@@ -483,7 +483,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       e.preventDefault();
       e.stopPropagation();
       const id = streamIdRef.current;
-      if (!id || !api.herdrStreamClipboardImage) {
+      if (!id || !api.herdrStreamPasteImage) {
         setStatus("image drop dropped · stream not ready");
         return;
       }
@@ -499,7 +499,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
         }
         setStatus(`pasting image (${image.byteLength} B)…`);
         try {
-          const res = await api.herdrStreamClipboardImage(id, image.extension, image.dataBase64);
+          const res = await api.herdrStreamPasteImage(id, image.extension, image.dataBase64);
           if (res && res.ok === false && res.error) {
             setStatus(`image drop failed: ${res.error}`);
             return;

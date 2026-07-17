@@ -110,9 +110,9 @@ export const registerHerdrIpc = (
 
 
   ipcMain.handle(
-    IPC_CHANNELS.herdrStreamClipboardImage,
+    IPC_CHANNELS.herdrStreamPasteImage,
     (_e, streamId: string, extension: string, dataBase64: string) =>
-      herdrStreams.clipboardImage(streamId, extension, dataBase64),
+      herdrStreams.pasteImage(streamId, extension, dataBase64),
   );
 
   ipcMain.handle(
