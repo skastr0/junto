@@ -11,6 +11,7 @@ import {
   CONTROL_CAPABILITY_ENV,
   CONTROL_HOME_ENV,
 } from "../src/shared/browser-control";
+import { BROWSER_AUTOMATION_HERDR_AGENTS } from "../src/shared/ipc";
 
 const CAPABILITY = "c".repeat(43);
 
@@ -88,6 +89,10 @@ const expectDeliveryError = async (
 };
 
 describe("local Herdr browser-agent delivery", () => {
+  it("uses the shared IPC allowlist as the exact launch contract", () => {
+    expect(SUPPORTED_HERDR_BROWSER_AGENTS).toBe(BROWSER_AUTOMATION_HERDR_AGENTS);
+  });
+
   it.each(SUPPORTED_HERDR_BROWSER_AGENTS)(
     "maps the fixed %s allowlist entry to an exact stock agent.start request",
     async (agent) => {

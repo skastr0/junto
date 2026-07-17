@@ -10,6 +10,10 @@ import {
   isUtf8WithinLimit,
   isValidBrowserSessionId,
 } from "../../../shared/browser-limits";
+import {
+  BROWSER_AUTOMATION_HERDR_AGENTS,
+  type BrowserAutomationHerdrAgent,
+} from "../../../shared/ipc";
 import { LocalMirrorTransport } from "../herdr/mirror-transport";
 
 const HERDR_AGENT_START_TIMEOUT_MS = 15_000;
@@ -22,13 +26,14 @@ const SUPPORTED_AGENTS = Object.freeze({
   hermes: Object.freeze({ name: "hermes", executable: "hermes" }),
   kimi: Object.freeze({ name: "kimi", executable: "kimi" }),
   opencode: Object.freeze({ name: "opencode", executable: "opencode" }),
-} as const);
+} as const satisfies Record<
+  BrowserAutomationHerdrAgent,
+  { readonly name: string; readonly executable: string }
+>);
 
-export type SupportedHerdrBrowserAgent = keyof typeof SUPPORTED_AGENTS;
+export type SupportedHerdrBrowserAgent = BrowserAutomationHerdrAgent;
 
-export const SUPPORTED_HERDR_BROWSER_AGENTS = Object.freeze(
-  Object.keys(SUPPORTED_AGENTS) as SupportedHerdrBrowserAgent[],
-);
+export const SUPPORTED_HERDR_BROWSER_AGENTS = BROWSER_AUTOMATION_HERDR_AGENTS;
 
 export interface LocalHerdrBrowserAgentStart {
   readonly agent: SupportedHerdrBrowserAgent;
