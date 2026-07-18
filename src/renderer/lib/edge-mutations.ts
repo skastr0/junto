@@ -122,3 +122,130 @@ export const addEdge = (params: {
   state$.error.set("");
   commitDoc({ ...doc, edges: [...doc.edges, edge] });
 };
+
+// --- multi-source → one target (RTS-006) ------------------------------------
+// Pure plan + one commit mutator. Soft relates by default (tasks still auto-bind
+// via inferEdgeCriteria, matching single-edge connect). Direction is always
+// source → target (fromNode → toNode), same as addEdge / Inspector connect.
+
+export type EdgeBatchSkipReason =
+  | "self"
+  | "duplicate"
+  | "missing-source"
+  | "group-source"
+  | "invalid-target";
+
+export type EdgeBatchCandidate = {
+  readonly fromNode: string;
+  readonly toNode: string;
+  readonly criteria?: EdgeCriteria;
+};
+
+export type EdgeBatchPlan = {
+  readonly toAdd: ReadonlyArray<EdgeBatchCandidate>;
+  readonly skipped: ReadonlyArray<{ readonly source: string; readonly reason: EdgeBatchSkipReason }>;
+};
+
+/**
+ * Pure planner: given selected source ids and a target, compute which soft
+ * relates edges to create. Does not touch state, ids, or the document.
+ * - Skips self, groups-as-sources, missing sources, duplicates (existing or
+ *   within the batch).
+ * - Invalid target (missing / group) skips every source with `invalid-target`.
+ * - Criteria: optional override per batch; else inferred per source (tasks →
+ *   tasks criteria; otherwise none = soft relates).
+ */
+export const planConnectToTarget = (
+  sourceIds: ReadonlyArray<string>,
+  targetId: string,
+  nodes: ReadonlyArray<CanvasNode>,
+  edges: ReadonlyArray<CanvasEdge>,
+  criteriaOverride?: EdgeCriteria,
+): EdgeBatchPlan => {
+  const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
+  const target = nodeById.get(targetId);
+  if (!target || target.type === "group") {
+    return {
+      toAdd: [],
+      skipped: sourceIds.map((source) => ({ source, reason: "invalid-target" as const })),
+    };
+  }
+
+  const existing = new Set(edges.map((edge) => `${edge.fromNode}->${edge.toNode}`));
+  const planned = new Set<string>();
+  const toAdd: EdgeBatchCandidate[] = [];
+  const skipped: Array<{ source: string; reason: EdgeBatchSkipReason }> = [];
+
+  for (const sourceId of sourceIds) {
+    if (sourceId === targetId) {
+      skipped.push({ source: sourceId, reason: "self" });
+      continue;
+    }
+    const source = nodeById.get(sourceId);
+    if (!source) {
+      skipped.push({ source: sourceId, reason: "missing-source" });
+      continue;
+    }
+    if (source.type === "group") {
+      skipped.push({ source: sourceId, reason: "group-source" });
+      continue;
+    }
+    const key = `${sourceId}->${targetId}`;
+    if (existing.has(key) || planned.has(key)) {
+      skipped.push({ source: sourceId, reason: "duplicate" });
+      continue;
+    }
+    planned.add(key);
+    const criteria = criteriaOverride ?? inferEdgeCriteria(source);
+    toAdd.push({
+      fromNode: sourceId,
+      toNode: targetId,
+      ...(criteria ? { criteria } : {}),
+    });
+  }
+
+  return { toAdd, skipped };
+};
+
+/**
+ * Commit edges from each valid selected source → target in one document write.
+ * Soft relates default; preserves selection when `keepSelection` (shift-RMB
+ * multi-target convenience). Returns the plan for callers/tests.
+ */
+export const connectAllToTarget = (
+  sourceIds: ReadonlyArray<string>,
+  targetId: string,
+  options?: { readonly keepSelection?: boolean; readonly criteria?: EdgeCriteria },
+): EdgeBatchPlan => {
+  const doc = state$.doc.peek();
+  const plan = planConnectToTarget(sourceIds, targetId, doc.nodes, doc.edges, options?.criteria);
+  if (plan.toAdd.length === 0) {
+    const reasons = new Set(plan.skipped.map((item) => item.reason));
+    if (reasons.has("invalid-target")) {
+      state$.error.set("Cannot connect to that target.");
+    } else if (reasons.size === 1 && reasons.has("self")) {
+      state$.error.set("A node cannot connect to itself.");
+    } else if (reasons.has("duplicate") && plan.skipped.length === sourceIds.length) {
+      state$.error.set("That relation already exists.");
+    } else if (plan.skipped.length > 0) {
+      state$.error.set("No new relations to create.");
+    }
+    return plan;
+  }
+
+  const newEdges: CanvasEdge[] = plan.toAdd.map((candidate) => ({
+    id: `edge-${ulid()}`,
+    fromNode: candidate.fromNode,
+    toNode: candidate.toNode,
+    ...(candidate.criteria ? { ether: { criteria: candidate.criteria } } : {}),
+  }));
+
+  if (!options?.keepSelection) {
+    state$.selectedNodeId.set("");
+    state$.selectedNodeIds.set([]);
+    state$.selectedEdgeId.set(newEdges[newEdges.length - 1]?.id ?? "");
+  }
+  state$.error.set("");
+  commitDoc({ ...doc, edges: [...doc.edges, ...newEdges] });
+  return plan;
+};

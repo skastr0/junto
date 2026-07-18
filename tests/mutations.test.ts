@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
 import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, renameGroup, setNodeColor, setNodeView, setRegionDefaults, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
-import { addEdge, deleteEdges, editEdgeLabel, inferEdgeCriteria, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
+import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
 
@@ -147,6 +147,131 @@ describe("renderer graph mutations", () => {
 
     expect(state$.doc.peek().edges).toHaveLength(0);
     expect(state$.error.peek()).toBe("A node cannot connect to itself.");
+  });
+
+  describe("planConnectToTarget (pure edge-batch helper, RTS-006)", () => {
+    const batchNodes: CanvasDoc["nodes"] = [
+      { id: "a", type: "text", text: "A", x: 0, y: 0, width: 200, height: 80 },
+      { id: "b", type: "text", text: "B", x: 100, y: 0, width: 200, height: 80 },
+      { id: "c", type: "text", text: "C", x: 200, y: 0, width: 200, height: 80 },
+      { id: "region", type: "group", label: "R", x: 0, y: 100, width: 400, height: 200 },
+      {
+        id: "tasks",
+        type: "text",
+        text: "ops",
+        x: 0,
+        y: 400,
+        width: 200,
+        height: 80,
+        ether: {
+          entity: { kind: "task" },
+          tasks: { items: [{ id: "i1", text: "ship", done: false }] },
+        },
+      },
+    ];
+
+    it("plans soft relates from each source to the target", () => {
+      const plan = planConnectToTarget(["a", "b"], "c", batchNodes, []);
+      expect(plan.toAdd).toEqual([
+        { fromNode: "a", toNode: "c" },
+        { fromNode: "b", toNode: "c" },
+      ]);
+      expect(plan.skipped).toEqual([]);
+      // Soft relates: no criteria key on candidates
+      for (const candidate of plan.toAdd) {
+        expect(Object.hasOwn(candidate, "criteria")).toBe(false);
+      }
+    });
+
+    it("skips self, duplicates, groups, and missing sources", () => {
+      const plan = planConnectToTarget(
+        ["a", "a", "c", "region", "missing", "b"],
+        "c",
+        batchNodes,
+        [{ id: "e1", fromNode: "b", toNode: "c" }],
+      );
+      expect(plan.toAdd).toEqual([{ fromNode: "a", toNode: "c" }]);
+      expect(plan.skipped).toEqual([
+        { source: "a", reason: "duplicate" },
+        { source: "c", reason: "self" },
+        { source: "region", reason: "group-source" },
+        { source: "missing", reason: "missing-source" },
+        { source: "b", reason: "duplicate" },
+      ]);
+    });
+
+    it("rejects group targets and missing targets for every source", () => {
+      expect(planConnectToTarget(["a", "b"], "region", batchNodes, []).skipped).toEqual([
+        { source: "a", reason: "invalid-target" },
+        { source: "b", reason: "invalid-target" },
+      ]);
+      expect(planConnectToTarget(["a"], "gone", batchNodes, []).toAdd).toEqual([]);
+    });
+
+    it("infers tasks criteria per source when connecting a tasks node", () => {
+      const plan = planConnectToTarget(["tasks", "a"], "c", batchNodes, []);
+      expect(plan.toAdd).toEqual([
+        { fromNode: "tasks", toNode: "c", criteria: { mode: "tasks" } },
+        { fromNode: "a", toNode: "c" },
+      ]);
+    });
+
+    it("does not mutate inputs", () => {
+      const sources = ["a", "b"] as const;
+      const edges: CanvasDoc["edges"] = [];
+      const plan = planConnectToTarget(sources, "c", batchNodes, edges);
+      expect(plan.toAdd).toHaveLength(2);
+      expect(edges).toHaveLength(0);
+      expect(sources).toEqual(["a", "b"]);
+    });
+  });
+
+  it("connectAllToTarget commits multi-source soft relates in one write", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        { id: "a", type: "text", text: "A", x: 0, y: 0, width: 200, height: 80 },
+        { id: "b", type: "text", text: "B", x: 100, y: 0, width: 200, height: 80 },
+        { id: "c", type: "text", text: "C", x: 200, y: 0, width: 200, height: 80 },
+      ],
+      edges: [],
+    });
+
+    const plan = connectAllToTarget(["a", "b"], "c");
+    expect(plan.toAdd).toHaveLength(2);
+    const next = state$.doc.peek().edges;
+    expect(next).toHaveLength(2);
+    expect(next.map((edge) => ({ from: edge.fromNode, to: edge.toNode }))).toEqual([
+      { from: "a", to: "c" },
+      { from: "b", to: "c" },
+    ]);
+    for (const edge of next) {
+      expect(edge.ether?.criteria).toBeUndefined();
+    }
+    expect(state$.selectedNodeId.peek()).toBe("");
+    expect(state$.selectedEdgeId.peek()).toBe(next[1]?.id);
+    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+  });
+
+  it("connectAllToTarget keepSelection leaves multi-select intact", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        { id: "a", type: "text", text: "A", x: 0, y: 0, width: 200, height: 80 },
+        { id: "t1", type: "text", text: "T1", x: 100, y: 0, width: 200, height: 80 },
+        { id: "t2", type: "text", text: "T2", x: 200, y: 0, width: 200, height: 80 },
+      ],
+      edges: [],
+    });
+    state$.selectedNodeId.set("a");
+    state$.selectedNodeIds.set(["a"]);
+
+    connectAllToTarget(["a"], "t1", { keepSelection: true });
+    expect(state$.selectedNodeId.peek()).toBe("a");
+    expect(state$.selectedNodeIds.peek()).toEqual(["a"]);
+    connectAllToTarget(["a"], "t2", { keepSelection: true });
+    expect(state$.doc.peek().edges).toHaveLength(2);
+    expect(state$.selectedNodeIds.peek()).toEqual(["a"]);
   });
 
   it("requires confirmation before deleting signals and connected relations", () => {

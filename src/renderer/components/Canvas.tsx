@@ -24,8 +24,9 @@ import { state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { searchText, toFlow } from "../lib/convert";
+import { nodeTitle } from "../lib/presentation";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
-import { addEdge, deleteEdges } from "../lib/edge-mutations";
+import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { makeAgentNode, makeFileNode, makeGroupNode, makeLinkNode, makePageNode, makeProjectNode, makeTasksNode, makeTextNode } from "../lib/node-factories";
@@ -666,6 +667,55 @@ function MultiSelectMenu({ at, onClose }: { readonly at: { x: number; y: number 
   );
 }
 
+// Multi-select (or single source) + RMB on a non-selected target: offer
+// "Connect all → target". Soft relates; direction selected → target.
+function TargetConnectMenu({
+  at,
+  targetId,
+  sourceIds,
+  onClose,
+}: {
+  readonly at: { x: number; y: number };
+  readonly targetId: string;
+  readonly sourceIds: ReadonlyArray<string>;
+  readonly onClose: () => void;
+}) {
+  useMenuDismiss(true, onClose);
+  const target = state$.doc.peek().nodes.find((node) => node.id === targetId);
+  const title = target ? nodeTitle(target) : targetId;
+  const count = sourceIds.length;
+  const label = count === 1 ? "Connect → target" : "Connect all → target";
+
+  return (
+    <div className="node-palette node-palette--context" style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 120), zIndex: 40 }}>
+      <div className="node-palette__menu">
+        <button
+          aria-label={`${label}: ${count} source${count === 1 ? "" : "s"} to ${title}`}
+          onClick={() => {
+            connectAllToTarget(sourceIds, targetId);
+            onClose();
+          }}
+        >
+          <Link2 size={14} />
+          <span>
+            <strong>{label}</strong>
+            <small>{count} → {title}</small>
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Selected RF nodes that can act as edge sources (non-group, not the target). */
+const connectableSourceIds = (
+  nodes: ReadonlyArray<CanvasNodeRef>,
+  targetId: string,
+): string[] =>
+  nodes
+    .filter((node) => node.selected && node.id !== targetId && node.type !== "group")
+    .map((node) => node.id);
+
 function FieldControls() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   return (
@@ -777,47 +827,85 @@ function CanvasGraph() {
   const connecting = useConnection((connection) => connection.inProgress);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);
-  // The two context menus are mutually exclusive — opening one always closes
-  // the other first.
+  const [connectMenu, setConnectMenu] = useState<{
+    readonly x: number;
+    readonly y: number;
+    readonly targetId: string;
+    readonly sourceIds: ReadonlyArray<string>;
+  } | null>(null);
+  // Context menus are mutually exclusive — opening one always closes the rest.
+  const closeMenus = useCallback(() => {
+    setCtxMenu(null);
+    setMultiMenu(null);
+    setConnectMenu(null);
+  }, []);
   const openContextMenu = useCallback((at: { x: number; y: number }) => {
     setMultiMenu(null);
+    setConnectMenu(null);
     setCtxMenu(at);
   }, []);
   const openMultiMenu = useCallback((at: { x: number; y: number }) => {
     setCtxMenu(null);
+    setConnectMenu(null);
     setMultiMenu(at);
+  }, []);
+  const openConnectMenu = useCallback((
+    at: { x: number; y: number },
+    targetId: string,
+    sourceIds: ReadonlyArray<string>,
+  ) => {
+    setCtxMenu(null);
+    setMultiMenu(null);
+    setConnectMenu({ ...at, targetId, sourceIds });
   }, []);
   const onPaneContextMenu = useCallback((event: React.MouseEvent | MouseEvent) => {
     event.preventDefault();
     openContextMenu({ x: event.clientX, y: event.clientY });
   }, [openContextMenu]);
-  // A region visually reads as empty space — right-clicking inside one offers
-  // the same picker, creating the node at that spot (inside the region). A
-  // right-click on a node that is part of a live multi-selection instead
-  // opens the bulk action menu.
+  // Region → add menu (empty-space read). Multi-selection on a selected node →
+  // bulk actions. Selection + RMB on a *different* non-group node → connect
+  // all selected sources → that target. Shift+RMB keeps selection so one
+  // source can fan out to multiple targets without a menu each time.
   const onNodeContextMenu = useCallback((event: React.MouseEvent, node: FlowNode) => {
-    const selectedCount = rf.getNodes().filter((n) => n.selected).length;
+    const live = rf.getNodes();
+    const selectedCount = live.filter((n) => n.selected).length;
+    const isGroup = node.data?.node.type === "group" || node.type === "group";
+
+    if (selectedCount >= 1 && !node.selected && !isGroup) {
+      const sourceIds = connectableSourceIds(live, node.id);
+      if (sourceIds.length > 0) {
+        event.preventDefault();
+        // Shift+RMB: immediate connect, keep selection for multi-target fan-out.
+        if (event.shiftKey) {
+          connectAllToTarget(sourceIds, node.id, { keepSelection: true });
+          closeMenus();
+          return;
+        }
+        openConnectMenu({ x: event.clientX, y: event.clientY }, node.id, sourceIds);
+        return;
+      }
+    }
+
     if (selectedCount > 1 && node.selected) {
       event.preventDefault();
       openMultiMenu({ x: event.clientX, y: event.clientY });
       return;
     }
-    if (node.data?.node.type !== "group") return;
+    if (!isGroup) return;
     event.preventDefault();
     openContextMenu({ x: event.clientX, y: event.clientY });
-  }, [rf, openContextMenu, openMultiMenu]);
+  }, [rf, openContextMenu, openMultiMenu, openConnectMenu, closeMenus]);
   // Right-click on the rubber-band selection itself (not a single node).
   const onSelectionContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
     openMultiMenu({ x: event.clientX, y: event.clientY });
   }, [openMultiMenu]);
   const onPaneClick = useCallback((event: React.MouseEvent) => {
-    setCtxMenu(null);
-    setMultiMenu(null);
+    closeMenus();
     interactions.onPaneClick(event);
-  }, [interactions.onPaneClick]);
+  }, [interactions.onPaneClick, closeMenus]);
   return <>
-    <ReactFlow className={connecting ? "is-connecting" : undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} onPaneClick={onPaneClick} onPaneContextMenu={onPaneContextMenu} onNodeContextMenu={onNodeContextMenu} onSelectionContextMenu={onSelectionContextMenu} onMoveStart={() => { setCtxMenu(null); setMultiMenu(null); }} connectionMode={ConnectionMode.Loose} connectionRadius={42} panOnScroll panOnScrollSpeed={1.2} panOnDrag={[1]} selectionOnDrag selectionMode={SelectionMode.Partial} zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.15} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
+    <ReactFlow className={connecting ? "is-connecting" : undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} onPaneClick={onPaneClick} onPaneContextMenu={onPaneContextMenu} onNodeContextMenu={onNodeContextMenu} onSelectionContextMenu={onSelectionContextMenu} onMoveStart={closeMenus} connectionMode={ConnectionMode.Loose} connectionRadius={42} panOnScroll panOnScrollSpeed={1.2} panOnDrag={[1]} selectionOnDrag selectionMode={SelectionMode.Partial} zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.15} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>
@@ -826,6 +914,14 @@ function CanvasGraph() {
     </ReactFlow>
     {ctxMenu ? <ContextAddMenu at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
     {multiMenu ? <MultiSelectMenu at={multiMenu} onClose={() => setMultiMenu(null)} /> : null}
+    {connectMenu ? (
+      <TargetConnectMenu
+        at={{ x: connectMenu.x, y: connectMenu.y }}
+        targetId={connectMenu.targetId}
+        sourceIds={connectMenu.sourceIds}
+        onClose={() => setConnectMenu(null)}
+      />
+    ) : null}
   </>;
 }
 
