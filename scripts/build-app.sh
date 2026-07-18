@@ -55,6 +55,61 @@ build_browser_cli() {
   mv "$stage" "$BROWSER_CLI_OUT"
 }
 
+verify_browser_cli_dead_runtime() {
+  local probe_root control_root output status case_name stage_socket expected
+  probe_root="$(mktemp -d /tmp/vellum-browser-cli-dead.XXXXXX)"
+  control_root="$probe_root/.vellum/browser"
+  stage_socket="$control_root/stage.sock"
+  expected='{"ok":false,"error":{"_tag":"runtime_down","message":"vellum app is not running"}}'
+  mkdir -p "$control_root"
+  chmod 0700 "$probe_root" "$probe_root/.vellum" "$control_root"
+  printf '%s\n' 'retained-transport-token' > "$control_root/control.token"
+  chmod 0600 "$control_root/control.token"
+
+  for case_name in absent stale; do
+    if [[ "$case_name" == "stale" ]]; then
+      VELLUM_STALE_STAGE="$stage_socket" \
+        VELLUM_STALE_TARGET="$control_root/control.sock" \
+        bun -e '
+          import { rename } from "node:fs/promises";
+          import { createServer } from "node:net";
+          const stage = process.env.VELLUM_STALE_STAGE;
+          const target = process.env.VELLUM_STALE_TARGET;
+          if (!stage || !target) process.exit(2);
+          const server = createServer();
+          await new Promise((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(stage, resolve);
+          });
+          await rename(stage, target);
+          await new Promise((resolve) => server.close(resolve));
+        '
+      [[ -S "$control_root/control.sock" ]] || {
+        err "standalone browser CLI stale-socket fixture failed"
+        return 1
+      }
+    fi
+
+    set +e
+    output="$(env -u VELLUM_BROWSER_CAPABILITY \
+      HOME="$probe_root" \
+      VELLUM_BROWSER_HOME="$probe_root" \
+      "$BROWSER_CLI_OUT" doctor --json 2>&1)"
+    status=$?
+    set -e
+
+    if [[ "$status" -ne 1 || "$output" != "$expected" ]]; then
+      rm -f "$control_root/control.sock" "$control_root/control.token"
+      rmdir "$control_root" "$probe_root/.vellum" "$probe_root" 2>/dev/null || true
+      err "standalone browser CLI failed the $case_name dead-runtime contract"
+      return 1
+    fi
+  done
+
+  rm -f "$control_root/control.sock" "$control_root/control.token"
+  rmdir "$control_root" "$probe_root/.vellum" "$probe_root"
+}
+
 if [[ ! -d node_modules/electron-builder ]]; then
   err "electron-builder missing — run: bun install"
   exit 1
@@ -72,6 +127,8 @@ fi
 log "electron-vite build → out/ …"
 bunx electron-vite build
 build_browser_cli
+log "standalone browser CLI dead-runtime contract …"
+verify_browser_cli_dead_runtime
 
 if [[ "$COMPILE_ONLY" -eq 1 ]]; then
   log "compile-only done (out/ + dist/vellum-browser). Skip packaging."

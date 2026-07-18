@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server } from "node:http";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -62,6 +63,19 @@ const startRogueControl = async (
     server.once("error", rejectListen);
     server.listen(controlSocketPath(root), resolveListen);
   });
+};
+
+const leaveStaleControlSocket = async (root: string): Promise<void> => {
+  const stage = join(controlDir(root), "stage.sock");
+  const target = controlSocketPath(root);
+  const server = createNetServer();
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once("error", rejectListen);
+    server.listen(stage, resolveListen);
+  });
+  await rename(stage, target);
+  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  expect((await lstat(target)).isSocket()).toBe(true);
 };
 
 const runCli = (
@@ -223,6 +237,39 @@ describe("packaged browser CLI contract", () => {
     expect(JSON.parse(result.stdout)).toMatchObject({
       ok: false,
       error: { _tag: "runtime_down" },
+    });
+  });
+
+  it("reports runtime_down when a retained token outlives the removed socket", async () => {
+    const root = await newRoot();
+    const result = await runCli(["doctor", "--json"], { home: root });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).not.toContain(controlSocketPath(root));
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: false,
+      error: {
+        _tag: "runtime_down",
+        message: "vellum app is not running",
+      },
+    });
+  });
+
+  it("reports runtime_down when a crashed runtime leaves a stale socket inode", async () => {
+    const root = await newRoot();
+    await leaveStaleControlSocket(root);
+    const result = await runCli(["doctor", "--json"], { home: root });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).not.toContain(controlSocketPath(root));
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: false,
+      error: {
+        _tag: "runtime_down",
+        message: "vellum app is not running",
+      },
     });
   });
 });

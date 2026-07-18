@@ -68,6 +68,13 @@ const requestTimeoutMs = (): number => {
     : BROWSER_CLI_REQUEST_TIMEOUT_MS;
 };
 
+const isRuntimeDownTransportError = (error: NodeJS.ErrnoException): boolean =>
+  error.code === "ENOENT" ||
+  error.code === "ECONNREFUSED" ||
+  // Bun reports both an absent Unix socket and a retained socket inode with
+  // no listener using this runtime-specific code, including in compiled CLIs.
+  error.code === "FailedToOpenSocket";
+
 const httpOverSocket = (
   socketPath: string,
   route: { method: string; path: string },
@@ -192,11 +199,14 @@ const httpOverSocket = (
     }, timeoutMs);
     req.on("error", (error: NodeJS.ErrnoException) => {
       if (settled) return;
-      // Socket missing (never started) or refusing (crashed): the app is down.
+      // Bun's ClientRequest assigns an already-open Unix socket and does not
+      // emit its `connect` event to this listener. The transport code is the
+      // stable discriminator: absent/stale endpoints mean the runtime is down;
+      // a reset after acceptance means the server failed mid-response.
       settle(
-        error.code === "ENOENT" || error.code === "ECONNREFUSED"
-          ? controlErr("runtime_down", `vellum app is not running (${error.code} on ${socketPath})`)
-          : controlErr("failed", error.message),
+        isRuntimeDownTransportError(error)
+          ? controlErr("runtime_down", "vellum app is not running")
+          : controlErr("failed", "browser control request failed"),
       );
     });
     if (encodedBody !== undefined) req.write(encodedBody);
