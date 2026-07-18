@@ -1,13 +1,31 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { AgentIdentity } from "@shared/ipc";
+import {
+  hermesKeyFor,
+  hostHasCapability,
+  type RemoteHost,
+} from "@shared/remote-hosts";
 import type { CliResult } from "./exec";
 import {
   parseAgentKey,
   type HermesHostId,
   type HermesProfileName,
 } from "../hermes/domain";
+import {
+  findHostByHermesId,
+  subscribeHostsSnapshot,
+} from "../hosts/snapshot";
 
 // Hermes fleet identity, avatar, and messaging adapter. Agent keys are
 // "<host>:<profile>" where host is a registry hermes id (local, or a remote
@@ -175,6 +193,8 @@ const fetchRemoteIdentityBatch = async (
 // ---------------------------------------------------------------------------
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const AVATAR_CACHE_DIR = join(homedir(), ".vellum", "cache", "avatars");
+const LOCAL_AUTHORITY = "local";
 
 // A failed fetch (ssh down, tailnet blip) must never be cached as if it were
 // a legitimate empty result — that poisons every profile on the host for the
@@ -187,41 +207,139 @@ const FAILURE_RETRY_MS = 30 * 1000;
 
 interface HostCacheEntry {
   readonly fetchedAt: number;
+  readonly authority: string;
   readonly identities: Map<string, AgentIdentity>;
 }
 
+interface HostFetchEntry {
+  readonly authority: string;
+  readonly generation: number;
+  readonly promise: Promise<Map<string, AgentIdentity>>;
+}
+
 const hostCache = new Map<HermesHostId, HostCacheEntry>();
-const hostFetchInFlight = new Map<HermesHostId, Promise<Map<string, AgentIdentity>>>();
+const hostFetchInFlight = new Map<HermesHostId, HostFetchEntry>();
+const hostGenerations = new Map<HermesHostId, number>();
+
+const remoteAuthoritySignature = (host: RemoteHost): string | undefined => {
+  if (
+    host.kind !== "remote" ||
+    !host.endpoint ||
+    !hostHasCapability(host, "hermes")
+  ) {
+    return undefined;
+  }
+  return JSON.stringify({
+    id: host.id,
+    hermesId: hermesKeyFor(host),
+    endpoint: host.endpoint,
+  });
+};
+
+/**
+ * Resolve the exact current routing authority for a Hermes agent-key host.
+ * Local identity is intentionally filesystem-owned and does not depend on
+ * the remote-host registry. Every remote read must pass this boundary before
+ * touching either memory or disk cache state.
+ */
+const currentHostAuthority = (host: HermesHostId): string | undefined => {
+  if (host === "local") return LOCAL_AUTHORITY;
+  const registered = findHostByHermesId(host);
+  if (!registered || hermesKeyFor(registered) !== host) return undefined;
+  return remoteAuthoritySignature(registered);
+};
+
+const generationFor = (host: HermesHostId): number => hostGenerations.get(host) ?? 0;
+
+const avatarHostCacheDir = (host: HermesHostId): string =>
+  join(AVATAR_CACHE_DIR, Buffer.from(host, "utf8").toString("base64url"));
+
+/**
+ * Clear every cache surface owned by one canonical Hermes host key.
+ * Incrementing the generation also revokes results already in flight: those
+ * promises may finish at the transport layer, but cannot populate a cache or
+ * return their old-endpoint value to the original caller.
+ */
+export const invalidateHermesIdentityHost = (host: HermesHostId): void => {
+  hostGenerations.set(host, generationFor(host) + 1);
+  hostCache.delete(host);
+  hostFetchInFlight.delete(host);
+  try {
+    rmSync(avatarHostCacheDir(host), { recursive: true, force: true });
+  } catch {
+    // Disk cache invalidation is best-effort; generation still revokes reads.
+  }
+};
+
+const remoteAuthorities = (
+  hosts: ReadonlyArray<RemoteHost>,
+): Map<HermesHostId, string> => {
+  const authorities = new Map<HermesHostId, string>();
+  for (const host of hosts) {
+    const authority = remoteAuthoritySignature(host);
+    if (authority !== undefined) authorities.set(hermesKeyFor(host), authority);
+  }
+  return authorities;
+};
+
+// Host settings are a live routing authority. Invalidate both sides of any
+// canonical-key or endpoint change synchronously with the snapshot publish,
+// before another renderer request can observe an old cache entry.
+subscribeHostsSnapshot((hosts, previous) => {
+  const before = remoteAuthorities(previous);
+  const after = remoteAuthorities(hosts);
+  for (const key of new Set([...before.keys(), ...after.keys()])) {
+    if (before.get(key) !== after.get(key)) invalidateHermesIdentityHost(key);
+  }
+});
 
 const fetchHostBatch = (
   operations: HermesIdentityOperations,
   host: HermesHostId,
+  authority: string,
 ): Promise<Map<string, AgentIdentity>> => {
   const inFlight = hostFetchInFlight.get(host);
-  if (inFlight) return inFlight;
+  const generation = generationFor(host);
+  if (
+    inFlight &&
+    inFlight.authority === authority &&
+    inFlight.generation === generation
+  ) {
+    return inFlight.promise;
+  }
 
   const run = host === "local"
     ? fetchLocalIdentityBatch
     : () => fetchRemoteIdentityBatch(operations, host);
   const promise = run()
     .then((identities) => {
+      if (
+        generationFor(host) !== generation ||
+        currentHostAuthority(host) !== authority
+      ) {
+        return new Map<string, AgentIdentity>();
+      }
       if (identities === undefined) {
         const previous = hostCache.get(host);
-        if (!previous) {
+        if (!previous || previous.authority !== authority) {
           hostCache.set(host, {
             fetchedAt: Date.now() - CACHE_TTL_MS + FAILURE_RETRY_MS,
+            authority,
             identities: new Map(),
           });
+          return new Map<string, AgentIdentity>();
         }
-        return previous?.identities ?? new Map();
+        return previous.identities;
       }
-      hostCache.set(host, { fetchedAt: Date.now(), identities });
+      hostCache.set(host, { fetchedAt: Date.now(), authority, identities });
       return identities;
     })
     .finally(() => {
-      hostFetchInFlight.delete(host);
+      if (hostFetchInFlight.get(host)?.promise === promise) {
+        hostFetchInFlight.delete(host);
+      }
     });
-  hostFetchInFlight.set(host, promise);
+  hostFetchInFlight.set(host, { authority, generation, promise });
   return promise;
 };
 
@@ -232,12 +350,26 @@ export const fetchAgentIdentity = async (
   const parsed = parseAgentKey(key);
   if (!parsed) return null;
 
-  const cached = hostCache.get(parsed.host);
-  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-    return cached.identities.get(parsed.profile) ?? null;
+  const authority = currentHostAuthority(parsed.host);
+  if (authority === undefined) {
+    invalidateHermesIdentityHost(parsed.host);
+    return null;
   }
 
-  const identities = await fetchHostBatch(operations, parsed.host);
+  const cached = hostCache.get(parsed.host);
+  if (
+    cached &&
+    cached.authority === authority &&
+    Date.now() - cached.fetchedAt < CACHE_TTL_MS
+  ) {
+    return cached.identities.get(parsed.profile) ?? null;
+  }
+  if (cached && cached.authority !== authority) {
+    invalidateHermesIdentityHost(parsed.host);
+  }
+
+  const identities = await fetchHostBatch(operations, parsed.host, authority);
+  if (currentHostAuthority(parsed.host) !== authority) return null;
   return identities.get(parsed.profile) ?? null;
 };
 
@@ -247,10 +379,20 @@ export const fetchAgentIdentity = async (
 // ---------------------------------------------------------------------------
 
 const MAX_AVATAR_BYTES = 4 * 1024 * 1024;
-const AVATAR_CACHE_DIR = join(homedir(), ".vellum", "cache", "avatars");
 
-const avatarDiskPath = (host: HermesHostId, profile: string): string =>
-  join(AVATAR_CACHE_DIR, `${host}-${profile}.png`);
+const authorityCacheKey = (authority: string): string =>
+  createHash("sha256").update(authority).digest("hex").slice(0, 16);
+
+const avatarDiskPath = (
+  host: HermesHostId,
+  profile: string,
+  authority: string,
+  generation: number,
+): string =>
+  join(
+    avatarHostCacheDir(host),
+    `${encodeURIComponent(profile)}-${authorityCacheKey(authority)}-g${generation}.png`,
+  );
 
 const toDataUri = (buf: Buffer): string => `data:image/png;base64,${buf.toString("base64")}`;
 
@@ -286,11 +428,32 @@ export const fetchAgentAvatar = async (
   const parsed = parseAgentKey(key);
   if (!parsed) return null;
 
-  const diskPath = avatarDiskPath(parsed.host, parsed.profile);
+  const authority = currentHostAuthority(parsed.host);
+  if (authority === undefined) {
+    invalidateHermesIdentityHost(parsed.host);
+    return null;
+  }
+  const generation = generationFor(parsed.host);
+  const diskPath = avatarDiskPath(
+    parsed.host,
+    parsed.profile,
+    authority,
+    generation,
+  );
   if (existsSync(diskPath)) {
     try {
+      const ageMs = Date.now() - statSync(diskPath).mtimeMs;
       const cached = readFileSync(diskPath);
-      if (cached.length <= MAX_AVATAR_BYTES) return toDataUri(cached);
+      if (
+        // Filesystems can timestamp a just-written file fractionally ahead of
+        // Date.now()'s millisecond clock. Accept only that bounded skew; a
+        // materially future-dated file still misses the cache.
+        ageMs >= -1_000 &&
+        ageMs < CACHE_TTL_MS &&
+        cached.length <= MAX_AVATAR_BYTES
+      ) {
+        return toDataUri(cached);
+      }
     } catch {
       // fall through to refetch
     }
@@ -300,6 +463,12 @@ export const fetchAgentAvatar = async (
     parsed.host === "local"
       ? readLocalAvatarBuffer(parsed.profile)
       : await fetchRemoteAvatarBuffer(operations, parsed.host, parsed.profile);
+  if (
+    generationFor(parsed.host) !== generation ||
+    currentHostAuthority(parsed.host) !== authority
+  ) {
+    return null;
+  }
   if (!buf || buf.length === 0 || buf.length > MAX_AVATAR_BYTES) return null;
 
   try {

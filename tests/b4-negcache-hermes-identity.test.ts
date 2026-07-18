@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 
 const runCliMock = vi.fn();
 const operations = {
@@ -12,6 +13,17 @@ const operations = {
 // test (a cached remote-a entry, a failure sentinel) leaks into the next.
 const loadAdapter = async () => {
   vi.resetModules();
+  const { setHostsSnapshot } = await import("../src/main/vellum/hosts/snapshot");
+  setHostsSnapshot([
+    ...defaultRemoteHostsDocument().hosts,
+    {
+      id: "remote-a",
+      label: "remote-a",
+      kind: "remote",
+      endpoint: "remote-a",
+      capabilities: ["hermes"],
+    },
+  ]);
   return import("../src/main/vellum/adapters/hermes-identity");
 };
 
@@ -28,6 +40,10 @@ const scriptOutput = (rows: ReadonlyArray<[string, string, string, string, strin
 
 beforeEach(() => {
   runCliMock.mockReset();
+  vi.useRealTimers();
+});
+
+afterEach(() => {
   vi.useRealTimers();
 });
 
