@@ -7,6 +7,7 @@ import {
   Copy,
   Crosshair,
   ExternalLink,
+  HardHat,
   Link2,
   PauseCircle,
   Pencil,
@@ -27,7 +28,14 @@ import { signalMark, signalMarkForMember } from "../../lib/signal-mark";
 import { deleteNode, deleteNodes, setNodeColor, toggleFlag, addNode } from "../../lib/mutations";
 import { makeGroupNode } from "../../lib/node-factories";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
-import { openHerdrTerminal } from "../../lib/herdr-state";
+import { herdr$, openHerdrTerminal } from "../../lib/herdr-state";
+import {
+  deriveIdleHerdrQueue,
+  nextIdleHerdrNodeId,
+  type IdleHerdrEntry,
+  type IdleHerdrInput,
+} from "../../lib/idle-herdr-queue";
+import { playAlert } from "../../lib/sfx";
 import { HUE, withAlpha } from "../../lib/theme";
 import { disarmOrphan, kernel$ } from "../../lib/kernel-view";
 import { ConnectEditor } from "../InspectorFields";
@@ -435,12 +443,92 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   );
 }
 
+/** Build pure queue inputs from canvas nodes + herdr meta (v1: done only). */
+const collectIdleHerdrInputs = (
+  nodes: ReadonlyArray<CanvasNode>,
+  metaByNodeId: Record<
+    string,
+    { meta?: { agentStatus?: string }; pendingSeen?: boolean } | undefined
+  >,
+): ReadonlyArray<IdleHerdrInput> => {
+  const out: IdleHerdrInput[] = [];
+  for (const node of nodes) {
+    const isHerdr =
+      node.ether?.herdr !== undefined || node.ether?.entity?.kind === "herdr";
+    if (!isHerdr) continue;
+    const cache = metaByNodeId[node.id];
+    out.push({
+      nodeId: node.id,
+      isHerdr: true,
+      agentStatus: cache?.meta?.agentStatus,
+      pendingSeen: cache?.pendingSeen === true,
+      // ACP permission is hermes-plane; herdr PTY has no chat binding in v1.
+      permissionPending: false,
+    });
+  }
+  return out;
+};
+
+const focusNode = (nodeId: string): void => {
+  state$.selectedNodeId.set(nodeId);
+  state$.selectedNodeIds.set([nodeId]);
+  state$.selectedEdgeId.set("");
+  state$.focusNodeId.set(nodeId);
+};
+
+const cycleIdleHerdr = (queue: ReadonlyArray<IdleHerdrEntry>): void => {
+  if (queue.length === 0) return;
+  const current =
+    state$.focusNodeId.peek() ||
+    state$.selectedNodeId.peek() ||
+    undefined;
+  const next = nextIdleHerdrNodeId(queue, current);
+  if (!next) return;
+  focusNode(next);
+  playAlert("cycle");
+};
+
+function useIdleHerdrQueue(): ReadonlyArray<IdleHerdrEntry> {
+  const doc = use$(state$.doc);
+  const metaByNodeId = use$(herdr$.metaByNodeId) as Record<
+    string,
+    { meta?: { agentStatus?: string }; pendingSeen?: boolean } | undefined
+  >;
+  return useMemo(
+    () => deriveIdleHerdrQueue(collectIdleHerdrInputs(doc.nodes, metaByNodeId ?? {})),
+    // metaByNodeId is an observable object; re-read when identity/content changes via use$
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [doc.nodes, metaByNodeId],
+  );
+}
+
+/** SC2 idle-worker badge — count of needs-you herdr nodes; click cycles focus. */
+function IdleHerdrButton({ queue }: { readonly queue: ReadonlyArray<IdleHerdrEntry> }) {
+  const count = queue.length;
+  if (count === 0) return null;
+  return (
+    <button
+      type="button"
+      className="rts-idle-herdr"
+      style={{ color: HUE.amber, borderColor: withAlpha(HUE.amber, 0.45) }}
+      title={`Idle herdr · ${count} need you · F1 or .`}
+      aria-label={`Idle herdr: ${count} need you. Cycle focus. Hotkey F1 or period.`}
+      onClick={() => cycleIdleHerdr(queue)}
+    >
+      <HardHat size={11} aria-hidden />
+      <span className="rts-idle-herdr__count">{count}</span>
+    </button>
+  );
+}
+
 function RegionMiddle({
   rollups,
   byId,
+  idleQueue,
 }: {
   readonly rollups: ReadonlyArray<RegionRollup>;
   readonly byId: ReadonlyMap<string, RegionRollup>;
+  readonly idleQueue: ReadonlyArray<IdleHerdrEntry>;
 }) {
   const selectedNodeId = use$(state$.selectedNodeId);
   const slotOrder = use$(state$.regionSlotOrder);
@@ -471,16 +559,16 @@ function RegionMiddle({
   }, [rollups]);
 
   const jumpToRegion = (regionId: string) => {
-    state$.selectedNodeId.set(regionId);
-    state$.selectedNodeIds.set([regionId]);
-    state$.selectedEdgeId.set("");
-    state$.focusNodeId.set(regionId);
+    focusNode(regionId);
   };
 
   // Middle is the nervous system: ALWAYS region chips. Never swaps to rollcall.
   return (
     <div className="rts-panel">
-      <div className="rts-panel__label">regions · 1–9</div>
+      <div className="rts-panel__label">
+        regions · 1–9
+        <IdleHerdrButton queue={idleQueue} />
+      </div>
       <div className="rts-panel__body">
         {slots.length === 0 ? (
           <div className="rts-quiet">No regions yet — group nodes, or Ctrl+1–9 on a selection.</div>
@@ -600,11 +688,30 @@ function OrphanNotices() {
   );
 }
 
-function useRegionHotkeys(): void {
+function useRegionHotkeys(idleQueue: ReadonlyArray<IdleHerdrEntry>): void {
+  // Keep latest queue without rebinding the listener every meta tick.
+  const idleQueueRef = useRef(idleQueue);
+  idleQueueRef.current = idleQueue;
+
   useEffect(() => {
     let retap: RegionRetapMemory | null = null;
     const onKey = (event: KeyboardEvent) => {
       if (isTextEditing(event.target)) return;
+
+      // SC2 idle-worker: F1 (and `.`) cycles needs-you herdr nodes.
+      if (
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        (event.key === "F1" || event.key === ".")
+      ) {
+        const queue = idleQueueRef.current;
+        if (queue.length === 0) return;
+        event.preventDefault();
+        cycleIdleHerdr(queue);
+        return;
+      }
+
       const digit = event.key >= "1" && event.key <= "9" ? Number(event.key) : null;
       if (digit === null) return;
       const slotIndex = digit - 1;
@@ -624,9 +731,7 @@ function useRegionHotkeys(): void {
         const regionId = selectedRegion ?? createRegionFromIds(ids);
         if (!regionId) return;
         state$.regionSlotOrder.set(assignSlot(order, regionId, slotIndex));
-        state$.selectedNodeId.set(regionId);
-        state$.selectedNodeIds.set([regionId]);
-        state$.focusNodeId.set(regionId);
+        focusNode(regionId);
         retap = null;
         return;
       }
@@ -652,18 +757,12 @@ function useRegionHotkeys(): void {
       if (verdict.kind === "select-member") {
         const memberId = memberIds[verdict.index];
         if (memberId) {
-          state$.selectedNodeId.set(memberId);
-          state$.selectedNodeIds.set([memberId]);
-          state$.selectedEdgeId.set("");
-          state$.focusNodeId.set(memberId);
+          focusNode(memberId);
           return;
         }
       }
 
-      state$.selectedNodeId.set(regionId);
-      state$.selectedNodeIds.set([regionId]);
-      state$.selectedEdgeId.set("");
-      state$.focusNodeId.set(regionId);
+      focusNode(regionId);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -691,7 +790,8 @@ const severityRank = (s: MemberSeverity): number =>
   s === "blocked" ? 0 : s === "attention" ? 1 : s === "working" ? 2 : s === "parked" ? 3 : 4;
 
 export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; readonly tools?: ReactNode }) {
-  useRegionHotkeys();
+  const idleQueue = useIdleHerdrQueue();
+  useRegionHotkeys(idleQueue);
   const rollups = useRegionRollups();
   const byId = useMemo(() => new Map(rollups.map((r) => [r.regionId, r])), [rollups]);
   const severityMap = useSeverityByNodeId(rollups);
@@ -709,7 +809,7 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
   return (
     <div className="rts-bar" role="region" aria-label="RTS bottom bar">
       <CommandCard regionRollup={selectedRegion} />
-      <RegionMiddle rollups={rollups} byId={byId} />
+      <RegionMiddle rollups={rollups} byId={byId} idleQueue={idleQueue} />
       <div className="rts-right">
         <OrphanNotices />
         <div className="rts-notify rts-notify--pulse">
