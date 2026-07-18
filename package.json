@@ -103,6 +103,7 @@
     ],
     "mac": {
       "target": "dir",
+      "minimumSystemVersion": "13.0",
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
       "identity": "Example Maintainer (EXAMP12345)",

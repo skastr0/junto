@@ -6,9 +6,11 @@ import {
   EXPECTED_JIT_MACHO_PATHS,
   MACOS_RUNTIME_POLICY,
   isMachOMagic,
+  parseMachOMinimumSystemVersions,
   validateEntitlementProfile,
   validateMacOSRuntimePolicy,
   validateMachOInventory,
+  validateMachOMinimumSystemVersions,
 } from "../scripts/audit-packaged-app";
 import { signingProfileForPath } from "../scripts/electron-builder-sign.mjs";
 
@@ -101,6 +103,45 @@ describe("macOS packaged runtime policy", () => {
     expect(isMachOMagic(Buffer.from("7b226f6b", "hex"))).toBe(false);
     expect(isMachOMagic(Buffer.alloc(3))).toBe(false);
   });
+
+  it("parses modern and legacy minimum versions from multi-slice otool output", () => {
+    const output = `
+/tmp/Vellum Helper (Renderer) (architecture arm64):
+Load command 9
+      cmd LC_BUILD_VERSION
+  cmdsize 32
+ platform 1
+    minos 12.10
+      sdk 15.2
+/tmp/Vellum Helper (Renderer) (architecture x86_64):
+Load command 8
+      cmd LC_VERSION_MIN_MACOSX
+  cmdsize 16
+  version 13.0
+      sdk 15.2
+`;
+    expect(parseMachOMinimumSystemVersions(output)).toEqual(["12.10", "13.0"]);
+    expect(
+      validateMachOMinimumSystemVersions(
+        parseMachOMinimumSystemVersions(output),
+        "13.0",
+        "Contents/Frameworks/Vellum Helper (Renderer).app/Contents/MacOS/Vellum Helper (Renderer)",
+      ),
+    ).toBe("13.0");
+  });
+
+  it("rejects any Mach-O slice newer than the declared app minimum", () => {
+    expect(() =>
+      validateMachOMinimumSystemVersions(
+        ["12.6", "13.0.1"],
+        "13.0",
+        "Contents/Resources/bin/vellum-browser",
+      ),
+    ).toThrow(/minos=13\.0\.1 declared=13\.0/u);
+    expect(() => parseMachOMinimumSystemVersions("no load commands")).toThrow(
+      /missing a macOS minimum system version/u,
+    );
+  });
 });
 
 describe("electron-builder role-specific signing", () => {
@@ -150,6 +191,7 @@ describe("electron-builder role-specific signing", () => {
     };
     expect(packageJson.devDependencies["@electron/osx-sign"]).toBe("1.3.3");
     expect(packageJson.build.mac).toMatchObject({
+      minimumSystemVersion: "13.0",
       sign: "./scripts/electron-builder-sign.mjs",
       entitlements: "build/entitlements.mac.plist",
       entitlementsInherit: "build/entitlements.mac.inherit.plist",

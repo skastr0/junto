@@ -173,6 +173,7 @@ describe("ASAR integrity audit", () => {
   const plist = {
     CFBundleIdentifier: "skastr0.vellum",
     CFBundleExecutable: "Vellum",
+    LSMinimumSystemVersion: "13.0",
     ElectronAsarIntegrity: {
       "Resources/app.asar": {
         algorithm: "SHA256",
@@ -186,6 +187,21 @@ describe("ASAR integrity audit", () => {
       algorithm: "SHA256",
       hash,
     });
+  });
+
+  it("requires Info.plist to declare the policy minimum system version", () => {
+    expect(() =>
+      validateInfoPlist(
+        { ...plist, LSMinimumSystemVersion: "12.0" },
+        hash,
+      ),
+    ).toThrow(/minimum system version mismatch/u);
+    expect(() =>
+      validateInfoPlist(
+        { ...plist, LSMinimumSystemVersion: undefined },
+        hash,
+      ),
+    ).toThrow(/minimum system version mismatch/u);
   });
 
   it("hashes the raw ASAR header string rather than whole archive bytes", () => {
@@ -230,6 +246,7 @@ describe("electron-builder fitness", () => {
         forceCodeSigning: boolean;
         mac: {
           identity: string;
+          minimumSystemVersion: string;
           hardenedRuntime: boolean;
           strictVerify: boolean;
         };
@@ -240,6 +257,7 @@ describe("electron-builder fitness", () => {
       forceCodeSigning: true,
       mac: {
         identity: PACKAGE_SECURITY_POLICY.builderIdentity,
+        minimumSystemVersion: PACKAGE_SECURITY_POLICY.minimumSystemVersion,
         hardenedRuntime: true,
         strictVerify: true,
       },

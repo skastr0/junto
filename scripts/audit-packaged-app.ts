@@ -39,6 +39,7 @@ export type FuseName = (typeof FUSE_NAMES)[number];
 export interface PackageSecurityPolicy {
   readonly bundleIdentifier: string;
   readonly productName: string;
+  readonly minimumSystemVersion: string;
   readonly teamIdentifier: string;
   readonly builderIdentity: string;
   readonly signingIdentity: string;
@@ -78,6 +79,7 @@ interface AsarIntegrityEntry {
 interface PackageInfoPlist {
   readonly CFBundleIdentifier?: unknown;
   readonly CFBundleExecutable?: unknown;
+  readonly LSMinimumSystemVersion?: unknown;
   readonly ElectronAsarIntegrity?: unknown;
 }
 
@@ -86,9 +88,11 @@ export interface PackageAuditReceipt {
   readonly bundleIdentifier: string;
   readonly teamIdentifier: string;
   readonly runtimeVersion: string;
+  readonly minimumSystemVersion: string;
   readonly fuses: Readonly<Record<FuseName, "Enabled" | "Disabled">>;
   readonly machO: {
     readonly count: number;
+    readonly maxMinOS: string;
     readonly jitPaths: ReadonlyArray<string>;
     readonly emptyEntitlementsCount: number;
     readonly forbiddenEntitlementsCount: 0;
@@ -116,6 +120,29 @@ const MAC_O_MAGICS = new Set([
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+const MACOS_VERSION_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*))?$/u;
+
+const macOSVersionParts = (value: string): readonly [number, number, number] => {
+  if (Buffer.byteLength(value) > 32 || !MACOS_VERSION_PATTERN.test(value)) {
+    throw new Error(`invalid macOS version ${value}`);
+  }
+  const parts = value.split(".").map(Number);
+  if (parts.some((part) => !Number.isSafeInteger(part))) {
+    throw new Error(`invalid macOS version ${value}`);
+  }
+  return [parts[0], parts[1], parts[2] ?? 0];
+};
+
+export const compareMacOSVersions = (left: string, right: string): number => {
+  const leftParts = macOSVersionParts(left);
+  const rightParts = macOSVersionParts(right);
+  for (let index = 0; index < leftParts.length; index += 1) {
+    const comparison = leftParts[index] - rightParts[index];
+    if (comparison !== 0) return comparison;
+  }
+  return 0;
+};
+
 const libraryFuseNames = (): ReadonlyArray<string> =>
   Object.keys(FuseV1Options)
     .filter((name) => Number.isNaN(Number(name)))
@@ -134,6 +161,7 @@ export const validatePackageSecurityPolicy = (
   for (const field of [
     "bundleIdentifier",
     "productName",
+    "minimumSystemVersion",
     "teamIdentifier",
     "builderIdentity",
     "signingIdentity",
@@ -141,6 +169,13 @@ export const validatePackageSecurityPolicy = (
     if (typeof value[field] !== "string" || value[field].length === 0) {
       throw new Error(`package security policy ${field} must be non-empty`);
     }
+  }
+  try {
+    macOSVersionParts(value.minimumSystemVersion as string);
+  } catch {
+    throw new Error(
+      "package security policy minimumSystemVersion must be a canonical macOS version",
+    );
   }
 
   const expectedNames = libraryFuseNames();
@@ -429,6 +464,11 @@ export const validateInfoPlist = (
   if (plist.CFBundleExecutable !== policy.productName) {
     throw new Error("Info.plist executable does not match policy");
   }
+  if (plist.LSMinimumSystemVersion !== policy.minimumSystemVersion) {
+    throw new Error(
+      `Info.plist minimum system version mismatch: got ${String(plist.LSMinimumSystemVersion)} want ${policy.minimumSystemVersion}`,
+    );
+  }
   if (!isRecord(plist.ElectronAsarIntegrity)) {
     throw new Error("Info.plist is missing ElectronAsarIntegrity");
   }
@@ -580,6 +620,68 @@ export const validateMachOInventory = (
   }
 };
 
+export const parseMachOMinimumSystemVersions = (
+  output: string,
+): ReadonlyArray<string> => {
+  const versions: string[] = [];
+  let pendingCommand: "build" | "legacy" | undefined;
+
+  for (const rawLine of output.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (line === "cmd LC_BUILD_VERSION") {
+      pendingCommand = "build";
+      continue;
+    }
+    if (line === "cmd LC_VERSION_MIN_MACOSX") {
+      pendingCommand = "legacy";
+      continue;
+    }
+    if (line.startsWith("cmd ")) {
+      pendingCommand = undefined;
+      continue;
+    }
+
+    const match =
+      pendingCommand === "build"
+        ? line.match(/^minos\s+(\S+)$/u)
+        : pendingCommand === "legacy"
+          ? line.match(/^version\s+(\S+)$/u)
+          : null;
+    if (match === null) continue;
+    macOSVersionParts(match[1]);
+    versions.push(match[1]);
+    pendingCommand = undefined;
+  }
+
+  if (versions.length === 0) {
+    throw new Error("otool output is missing a macOS minimum system version");
+  }
+  return versions;
+};
+
+export const validateMachOMinimumSystemVersions = (
+  versions: ReadonlyArray<string>,
+  declaredMinimumSystemVersion: string,
+  relativePath = "Mach-O",
+): string => {
+  macOSVersionParts(declaredMinimumSystemVersion);
+  if (versions.length === 0) {
+    throw new Error(`${relativePath} has no macOS minimum system version`);
+  }
+
+  let maximum = versions[0];
+  for (const version of versions) {
+    macOSVersionParts(version);
+    if (compareMacOSVersions(version, declaredMinimumSystemVersion) > 0) {
+      throw new Error(
+        `packaged Mach-O minimum system version exceeds app declaration: path=${relativePath} minos=${version} declared=${declaredMinimumSystemVersion}`,
+      );
+    }
+    if (compareMacOSVersions(version, maximum) > 0) maximum = version;
+  }
+  return maximum;
+};
+
 export const validateEntitlementProfile = (
   actual: unknown,
   profile: RuntimeEntitlementProfile,
@@ -623,11 +725,13 @@ const readSignedEntitlements = (filePath: string): unknown => {
 
 const auditMachOObjects = async (
   appPath: string,
+  declaredMinimumSystemVersion: string,
   policy: MacOSRuntimePolicy = MACOS_RUNTIME_POLICY,
 ): Promise<PackageAuditReceipt["machO"]> => {
   const actualPaths = await enumerateMachOPaths(appPath);
   validateMachOInventory(actualPaths, policy);
   const entries = new Map(policy.machO.map((entry) => [entry.path, entry]));
+  let maxMinOS: string | undefined;
 
   for (const relativePath of actualPaths) {
     const expected = entries.get(relativePath);
@@ -635,6 +739,19 @@ const auditMachOObjects = async (
       throw new Error("packaged Mach-O path has no signing policy");
     }
     const filePath = path.join(appPath, ...relativePath.split("/"));
+    const objectMaxMinOS = validateMachOMinimumSystemVersions(
+      parseMachOMinimumSystemVersions(
+        runFixedCommand("/usr/bin/otool", ["-m", "-l", filePath]),
+      ),
+      declaredMinimumSystemVersion,
+      relativePath,
+    );
+    if (
+      maxMinOS === undefined ||
+      compareMacOSVersions(objectMaxMinOS, maxMinOS) > 0
+    ) {
+      maxMinOS = objectMaxMinOS;
+    }
     const metadata = parseCodesignMetadata(
       runFixedCommand("/usr/bin/codesign", ["-d", "--verbose=4", filePath]),
     );
@@ -646,8 +763,12 @@ const auditMachOObjects = async (
     .filter((entry) => entry.profile === "jit")
     .map((entry) => entry.path)
     .sort();
+  if (maxMinOS === undefined) {
+    throw new Error("packaged Mach-O inventory is empty");
+  }
   return {
     count: actualPaths.length,
+    maxMinOS,
     jitPaths,
     emptyEntitlementsCount: actualPaths.length - jitPaths.length,
     forbiddenEntitlementsCount: 0,
@@ -720,12 +841,16 @@ export const auditPackagedApp = async (
   );
 
   const fuses = validateFuseWire(await getCurrentFuseWire(appPath), policy);
-  const machO = await auditMachOObjects(appPath);
+  const machO = await auditMachOObjects(
+    appPath,
+    policy.minimumSystemVersion,
+  );
   return {
     appPath,
     bundleIdentifier: codesign.identifier,
     teamIdentifier: codesign.teamIdentifier,
     runtimeVersion: codesign.runtimeVersion,
+    minimumSystemVersion: policy.minimumSystemVersion,
     fuses,
     machO,
   };
