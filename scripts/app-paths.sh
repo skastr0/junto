@@ -59,21 +59,29 @@ unload_launchd() {
     launchd_loaded || return 0
     sleep 0.5
   done
-  err "warning: $LABEL still draining after 15s — install may race"
+  err "$LABEL still loaded after 15s; refusing to replace the app"
+  return 1
+}
+
+vellum_processes_running() {
+  pgrep -xq "$PRODUCT_NAME" 2>/dev/null ||
+    pgrep -f "${APP_DST}/" >/dev/null 2>&1
 }
 
 # Soft-quit any unsupervised Dock/Finder instances (not launchd — use unload).
 quit_running_app() {
-  if pgrep -xq "$PRODUCT_NAME" 2>/dev/null || pgrep -f "/Applications/${PRODUCT_NAME}.app/Contents/MacOS/${PRODUCT_NAME}" >/dev/null 2>&1; then
+  if vellum_processes_running; then
     log "quitting running ${PRODUCT_NAME} (osascript) …"
     osascript -e "tell application \"${PRODUCT_NAME}\" to quit" 2>/dev/null || true
     local i
     for i in $(seq 1 20); do
-      pgrep -f "/Applications/${PRODUCT_NAME}.app/Contents/MacOS/${PRODUCT_NAME}" >/dev/null 2>&1 || return 0
+      vellum_processes_running || return 0
       sleep 0.5
     done
-    err "warning: ${PRODUCT_NAME} still running — will overwrite app bundle anyway"
+    err "${PRODUCT_NAME} processes remain after 10s; refusing to replace the app"
+    return 1
   fi
+  return 0
 }
 
 # Validate a .app bundle looks installable.

@@ -93,6 +93,23 @@ install_browser_cli() {
   log "browser commands → $BIN_DIR/{vellum,vellum-browser}"
 }
 
+audit_app_bundle() {
+  local app="$1"
+  bun "$SCRIPT_DIR/audit-packaged-app.ts" "$app"
+}
+
+app_cdhash() {
+  local app="$1"
+  local metadata hash
+  metadata="$(/usr/bin/codesign -d --verbose=4 "$app" 2>&1)"
+  hash="$(printf '%s\n' "$metadata" | sed -n 's/^CDHash=//p')"
+  if [[ ! "$hash" =~ ^[0-9A-Fa-f]{40,64}$ ]]; then
+    err "invalid or ambiguous CDHash for $app"
+    return 1
+  fi
+  printf '%s' "$hash"
+}
+
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   build_flags=()
   [[ "$FAST" -eq 1 ]] && build_flags+=(--fast)
@@ -100,33 +117,103 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
   bash "$SCRIPT_DIR/build-app.sh" "${build_flags[@]+"${build_flags[@]}"}"
 fi
 
-APP_SRC="$(detect_app_src)"
 assert_app_bundle "$APP_SRC"
+
+log "auditing candidate → $APP_SRC"
+audit_app_bundle "$APP_SRC"
+CANDIDATE_CDHASH="$(app_cdhash "$APP_SRC")"
+
+HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-browser"
+preflight_cli_link "$BIN_DIR/vellum" "$HELPER_TARGET"
+preflight_cli_link "$BIN_DIR/vellum-browser" "$HELPER_TARGET"
+
+mkdir -p "$(dirname "$APP_DST")"
+STAGE="${APP_DST}.new.$$"
+BACKUP="${APP_DST}.previous.$$"
+REJECTED="${APP_DST}.rejected.$$"
+HAD_PREVIOUS=0
+REPLACEMENT_ACTIVE=0
+INSTALL_COMPLETE=0
+
+rollback_previous_app() {
+  if [[ -e "$APP_DST" ]]; then
+    mv "$APP_DST" "$REJECTED" || return 1
+  fi
+  if [[ "$HAD_PREVIOUS" -eq 1 && -e "$BACKUP" ]]; then
+    if ! mv "$BACKUP" "$APP_DST"; then
+      if [[ -e "$REJECTED" && ! -e "$APP_DST" ]]; then
+        mv "$REJECTED" "$APP_DST" || true
+      fi
+      return 1
+    fi
+  fi
+  rm -rf "$REJECTED"
+  REPLACEMENT_ACTIVE=0
+}
+
+cleanup_install() {
+  local status=$?
+  trap - EXIT
+  set +e
+  if [[ "$status" -ne 0 && "$REPLACEMENT_ACTIVE" -eq 1 ]]; then
+    rollback_previous_app || err "failed to restore the previous app"
+  fi
+  rm -rf "$STAGE"
+  if [[ "$INSTALL_COMPLETE" -eq 1 ]]; then
+    rm -rf "$BACKUP" "$REJECTED"
+  fi
+  exit "$status"
+}
+trap cleanup_install EXIT
+
+if [[ -e "$STAGE" || -e "$BACKUP" || -e "$REJECTED" ]]; then
+  err "refusing to reuse an existing install transaction path"
+  exit 1
+fi
+
+log "staging → $STAGE"
+ditto --rsrc "$APP_SRC" "$STAGE"
+assert_app_bundle "$STAGE"
+log "auditing staged copy"
+audit_app_bundle "$STAGE"
+STAGED_CDHASH="$(app_cdhash "$STAGE")"
+if [[ "$STAGED_CDHASH" != "$CANDIDATE_CDHASH" ]]; then
+  err "staged app CDHash does not match the audited candidate"
+  exit 1
+fi
 
 # Detach before binary swap: launchd unload + soft quit so before-quit runs
 # and herdrStreams.detachAllOnQuit releases control (panes stay alive).
 unload_launchd
 quit_running_app
+if launchd_loaded || vellum_processes_running; then
+  err "Vellum did not quiesce; refusing to replace the app"
+  exit 1
+fi
 # Brief settle so control clients exit and release PTYs.
 sleep 0.5
 
 log "installing → $APP_DST"
-# ditto preserves resource forks / codesign attributes better than cp -R
-mkdir -p "$(dirname "$APP_DST")"
-if [[ -d "$APP_DST" ]]; then
-  # Replace in place via staging to avoid a half-deleted Applications entry.
-  STAGE="${APP_DST}.new.$$"
-  rm -rf "$STAGE"
-  ditto --rsrc "$APP_SRC" "$STAGE"
-  rm -rf "$APP_DST"
-  mv "$STAGE" "$APP_DST"
-else
-  ditto --rsrc "$APP_SRC" "$APP_DST"
+if [[ -e "$APP_DST" ]]; then
+  mv "$APP_DST" "$BACKUP"
+  HAD_PREVIOUS=1
 fi
+REPLACEMENT_ACTIVE=1
+mv "$STAGE" "$APP_DST"
 
 assert_app_bundle "$APP_DST"
+log "auditing installed copy"
+audit_app_bundle "$APP_DST"
+INSTALLED_CDHASH="$(app_cdhash "$APP_DST")"
+if [[ "$INSTALLED_CDHASH" != "$CANDIDATE_CDHASH" ]]; then
+  err "installed app CDHash does not match the audited candidate"
+  exit 1
+fi
 install_browser_cli
+INSTALL_COMPLETE=1
+REPLACEMENT_ACTIVE=0
 log "installed $APP_DST"
+log "installed CDHash $INSTALLED_CDHASH"
 
 if [[ "$SUPERVISED" -eq 1 ]]; then
   log "loading LaunchAgent (supervised) …"
