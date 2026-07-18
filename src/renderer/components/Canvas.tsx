@@ -705,7 +705,11 @@ function RtsMinimapStack() {
         onClick={onMiniMapClick}
         onNodeClick={onMiniMapNodeClick}
         ariaLabel="Strategic minimap — click to move camera, double-click to zoom, click a node to focus"
-        style={{ width: "100%", height: "100%", background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }}
+        // Never put width/height: "100%" here. xyflow reads style.width/height as
+        // *numbers* for viewScale + mask path math (`M${x}h${w}v${h}…`). A percent
+        // string → NaN → console spam on every pan/scroll. Size the panel via
+        // .rts-minimap-wrap CSS (100% inset); math falls back to 200×150 defaults.
+        style={{ background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }}
       />
       <FieldControls />
     </>
