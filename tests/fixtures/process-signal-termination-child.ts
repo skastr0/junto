@@ -7,6 +7,7 @@ const { installProcessSignalTermination } = (await import(
 )) as typeof SignalTerminationModule;
 
 const mode = process.argv[2] === "fallback" ? "fallback" : "normal";
+const keepAlive = setInterval(() => undefined, 1_000);
 
 installProcessSignalTermination({
   app: {
@@ -23,10 +24,13 @@ installProcessSignalTermination({
     },
   },
   cleanup: (signal) => {
+    // Match packaged quit: adapter/Chromium teardown removes the final
+    // Node-referenced handle before Electron's native loop has necessarily
+    // completed. The mandatory app.exit fallback must remain runnable.
+    clearInterval(keepAlive);
     process.stdout.write(`cleanup:${signal}\n`);
   },
   exitGraceMs: 80,
 });
 
 process.stdout.write("ready\n");
-setInterval(() => undefined, 1_000);

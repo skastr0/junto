@@ -64,7 +64,9 @@ export const installProcessSignalTermination = (
         exitTimer = undefined;
         options.app.exit(0);
       }, exitGraceMs);
-      exitTimer.unref?.();
+      // This is the mandatory bound on an Electron native loop that ignores
+      // app.quit(). Keep it referenced even after cleanup removes the final
+      // adapter/Chromium Node handle, otherwise libuv may never drive it.
 
       try {
         options.app.quit();

@@ -67,7 +67,7 @@ describe("process signal termination", () => {
     });
   });
 
-  it("uses the bounded app.exit fallback when quit never completes", async () => {
+  it("keeps the app.exit fallback live after cleanup removes the final handle", async () => {
     const result = await runSignalChild("fallback");
 
     expect(result).toEqual({
