@@ -44,4 +44,51 @@ export const demoCamera = {
     if (!rfInstance) return;
     void rfInstance.setCenter(x, y, { zoom, duration: durationMs }).catch(() => undefined);
   },
+  /** Animated node moves. React Flow is the source of truth DURING the tween
+   * (per-frame rf.setNodes); `onDone` fires once with the final moves so the
+   * caller can reconcile the document exactly once. No-op before mount. */
+  tweenNodes: (
+    moves: ReadonlyArray<{ readonly id: string; readonly x: number; readonly y: number }>,
+    durationMs: number,
+    easing: "linear" | "in-out",
+    onDone: (moves: ReadonlyArray<{ readonly id: string; readonly x: number; readonly y: number }>) => void,
+  ): void => {
+    const rf = rfInstance;
+    if (!rf || moves.length === 0) {
+      onDone(moves);
+      return;
+    }
+    const starts = new Map<string, { readonly x: number; readonly y: number }>();
+    for (const move of moves) {
+      const node = rf.getNode(move.id);
+      if (node) starts.set(move.id, { x: node.position.x, y: node.position.y });
+    }
+    const ease = (t: number): number =>
+      easing === "linear" ? t : t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const t0 = performance.now();
+    const frame = (): void => {
+      const t = durationMs <= 0 ? 1 : Math.min(1, (performance.now() - t0) / durationMs);
+      const k = ease(t);
+      const at = new Map(
+        moves.map((move) => {
+          const start = starts.get(move.id);
+          return [
+            move.id,
+            start
+              ? { x: start.x + (move.x - start.x) * k, y: start.y + (move.y - start.y) * k }
+              : { x: move.x, y: move.y },
+          ] as const;
+        }),
+      );
+      rf.setNodes((nodes) =>
+        nodes.map((node) => {
+          const next = at.get(node.id);
+          return next ? { ...node, position: next } : node;
+        }),
+      );
+      if (t < 1) requestAnimationFrame(frame);
+      else onDone(moves);
+    };
+    requestAnimationFrame(frame);
+  },
 };

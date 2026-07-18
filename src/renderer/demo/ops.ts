@@ -2,6 +2,9 @@ import { observable } from "@legendapp/state";
 import type { CanvasDoc, CanvasNode, EtherFlag } from "@shared/canvas";
 import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
 import { beatMs } from "@shared/demo";
+import { formatNodeRef } from "@shared/node-ref";
+import { cycleAlertFocus } from "../lib/alert-attention";
+import { closeHerdrTerminal, openHerdrTerminal } from "../lib/herdr-state";
 import { commitDoc } from "../lib/mutations";
 import { state$ } from "../lib/state";
 import { playAlert } from "../lib/sfx";
@@ -97,6 +100,59 @@ export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
       case "camera-center":
         demoCamera.center(op.x, op.y, op.zoom, op.durationBeats * beatMs(scenario.bpm));
         break;
+      case "tween-nodes":
+        demoCamera.tweenNodes(
+          op.moves,
+          op.durationBeats * beatMs(scenario.bpm),
+          op.easing ?? "in-out",
+          (moves) => {
+            // Reconcile the document once at tween end. Position-only write:
+            // React Flow already sits at the final frame, so no rebuild.
+            const byId = new Map(moves.map((move) => [move.id, move]));
+            const doc = state$.doc.peek();
+            commitDoc(
+              {
+                ...doc,
+                nodes: doc.nodes.map((node) => {
+                  const move = byId.get(node.id);
+                  return move ? { ...node, x: Math.round(move.x), y: Math.round(move.y) } : node;
+                }),
+              },
+              false,
+              false,
+            );
+          },
+        );
+        break;
+      case "alert-cycle":
+        cycleAlertFocus();
+        break;
+      case "open-terminal": {
+        const node = state$.doc.peek().nodes.find((candidate) => candidate.id === op.nodeId);
+        const herdr = node?.ether?.herdr;
+        if (!node || !herdr) break;
+        const title =
+          ("text" in node && typeof node.text === "string" && node.text.trim()) ||
+          herdr.label?.trim() ||
+          "herdr";
+        openHerdrTerminal(node.id, herdr, title);
+        break;
+      }
+      case "close-terminal":
+        closeHerdrTerminal();
+        break;
+      case "page-open": {
+        try {
+          const ref = formatNodeRef({
+            canvasName: state$.canvasName.peek(),
+            nodeId: op.nodeId,
+          });
+          void window.vellum?.browserOpen({ ref }).catch(() => undefined);
+        } catch {
+          // Invalid canvas name / node id — surface nothing mid-take.
+        }
+        break;
+      }
       default:
         // add-nodes / add-edges / remove-nodes / flag already applied above.
         break;

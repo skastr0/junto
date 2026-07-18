@@ -97,7 +97,24 @@ export type DemoOp =
       readonly durationBeats: number;
     }
   | { readonly kind: "sfx"; readonly id: string }
-  | { readonly kind: "hud"; readonly show: boolean };
+  | { readonly kind: "hud"; readonly show: boolean }
+  | {
+      /** Animated position moves (React Flow is driven directly during the
+       * tween; the document reconciles once at the end). */
+      readonly kind: "tween-nodes";
+      readonly moves: ReadonlyArray<{ readonly id: string; readonly x: number; readonly y: number }>;
+      readonly durationBeats: number;
+      readonly easing?: "linear" | "in-out";
+    }
+  /** Product Space-cycle: jump camera to the next alerted node (plays its own sfx). */
+  | { readonly kind: "alert-cycle" }
+  /** Opens the herdr terminal modal on a node. CAMEO ONLY: the stream path
+   * execs the real herdr binary, so use exclusively on nodes bound to REAL
+   * panes — never on scripted/synthetic ones. */
+  | { readonly kind: "open-terminal"; readonly nodeId: string }
+  | { readonly kind: "close-terminal" }
+  /** Opens the real browser surface (WebContentsView) for a page node. */
+  | { readonly kind: "page-open"; readonly nodeId: string };
 
 // --- EDL (edit decision list) ------------------------------------------------
 // The conductor logs every executed op with planned vs actual time so post

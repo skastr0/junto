@@ -52,6 +52,16 @@ const opTag = (op: DemoOp): string => {
       return `sfx:${op.id}`;
     case "hud":
       return `hud:${op.show ? "on" : "off"}`;
+    case "tween-nodes":
+      return `tween-nodes:${op.moves.length}`;
+    case "alert-cycle":
+      return "alert-cycle";
+    case "open-terminal":
+      return `open-terminal:${op.nodeId}`;
+    case "close-terminal":
+      return "close-terminal";
+    case "page-open":
+      return `page-open:${op.nodeId}`;
   }
 };
 
