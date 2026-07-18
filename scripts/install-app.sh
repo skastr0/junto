@@ -128,7 +128,8 @@ preflight_cli_link "$BIN_DIR/vellum" "$HELPER_TARGET"
 preflight_cli_link "$BIN_DIR/vellum-browser" "$HELPER_TARGET"
 
 mkdir -p "$(dirname "$APP_DST")"
-STAGE="${APP_DST}.new.$$"
+STAGE_ROOT="${APP_DST}.new.$$"
+STAGE="$STAGE_ROOT/$(basename "$APP_DST")"
 BACKUP="${APP_DST}.previous.$$"
 REJECTED="${APP_DST}.rejected.$$"
 HAD_PREVIOUS=0
@@ -158,7 +159,7 @@ cleanup_install() {
   if [[ "$status" -ne 0 && "$REPLACEMENT_ACTIVE" -eq 1 ]]; then
     rollback_previous_app || err "failed to restore the previous app"
   fi
-  rm -rf "$STAGE"
+  rm -rf "$STAGE_ROOT"
   if [[ "$INSTALL_COMPLETE" -eq 1 ]]; then
     rm -rf "$BACKUP" "$REJECTED"
   fi
@@ -166,12 +167,13 @@ cleanup_install() {
 }
 trap cleanup_install EXIT
 
-if [[ -e "$STAGE" || -e "$BACKUP" || -e "$REJECTED" ]]; then
+if [[ -e "$STAGE_ROOT" || -e "$BACKUP" || -e "$REJECTED" ]]; then
   err "refusing to reuse an existing install transaction path"
   exit 1
 fi
 
 log "staging → $STAGE"
+mkdir -p "$STAGE_ROOT"
 ditto --rsrc "$APP_SRC" "$STAGE"
 assert_app_bundle "$STAGE"
 log "auditing staged copy"

@@ -49,6 +49,12 @@ describe("hardened app installer", () => {
   });
 
   it("uses same-filesystem rollback and verifies copy identity by CDHash", () => {
+    expect(install).toContain('STAGE_ROOT="${APP_DST}.new.$$"');
+    expect(install).toContain('STAGE="$STAGE_ROOT/$(basename "$APP_DST")"');
+    expect(position(install, 'mkdir -p "$STAGE_ROOT"')).toBeLessThan(
+      position(install, 'ditto --rsrc "$APP_SRC" "$STAGE"'),
+    );
+    expect(install).toContain('rm -rf "$STAGE_ROOT"');
     expect(install).toContain('BACKUP="${APP_DST}.previous.$$"');
     expect(install).toContain('mv "$APP_DST" "$BACKUP"');
     expect(install).toContain("rollback_previous_app");
