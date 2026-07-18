@@ -28,7 +28,7 @@ export const HostLabel = Schema.String.pipe(
 );
 export type HostLabel = typeof HostLabel.Type;
 
-/** SSH config Host alias or user@host[:port]-style endpoint. */
+/** SSH config alias, user@host, or IPv6 literal. Custom ports belong in ~/.ssh/config. */
 export const HostEndpoint = Schema.String.pipe(
   Schema.minLength(1),
   Schema.maxLength(255),

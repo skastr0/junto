@@ -33,12 +33,21 @@ import { primeHostsSnapshot } from "./vellum/hosts/snapshot";
 // live in this layer — see adapters/sdk-runtime.ts for why (a dedicated
 // small runtime avoids a circular-dependency cluster between this file and
 // the adapters that would otherwise need it).
-const ProductTransportsLive = Layer.provideMerge(
-  Layer.mergeAll(HerdrTransportLive, HermesTransportLive, HostsServiceLive),
+const HostsWithSshLive = Layer.provideMerge(
+  HostsServiceLive,
   SshTransportLive,
 );
 
-const ProductPlanesLive = Layer.provideMerge(
+// HostsServiceLive loads the durable registry while acquiring HostsWithSshLive.
+// Making that complete input feed the host-aware transports is the boot-order
+// barrier: no Herdr/Hermes plane can construct before synchronous routing has
+// the persisted host inventory.
+const ProductTransportsLive = Layer.provideMerge(
+  Layer.mergeAll(HerdrTransportLive, HermesTransportLive),
+  HostsWithSshLive,
+);
+
+export const ProductPlanesLive = Layer.provideMerge(
   Layer.mergeAll(HerdrPlaneLive, HermesPlaneLive),
   ProductTransportsLive,
 );

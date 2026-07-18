@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { isIP } from "node:net";
 import { Either, Schema } from "effect";
 import {
   REMOTE_HOSTS_VERSION,
@@ -16,6 +17,20 @@ import {
 
 const decodeDocument = Schema.decodeUnknownEither(RemoteHostsDocument);
 const MAX_BYTES = 64 * 1024;
+
+const isSupportedSshDestination = (endpoint: string): boolean => {
+  const at = endpoint.indexOf("@");
+  if (at !== endpoint.lastIndexOf("@")) return false;
+  const user = at >= 0 ? endpoint.slice(0, at) : undefined;
+  const destination = at >= 0 ? endpoint.slice(at + 1) : endpoint;
+  if (!destination || (at >= 0 && !user) || user?.includes(":")) return false;
+  if (!destination.includes(":")) return true;
+
+  // macOS OpenSSH accepts raw IPv6 (including a scope id) but treats brackets
+  // as hostname text. It also does not interpret host:port as destination+port.
+  if (destination.startsWith("[") || destination.endsWith("]")) return false;
+  return isIP(destination) === 6;
+};
 
 export const remoteHostsFilePath = (): string =>
   process.env.VELLUM_HOSTS_PATH || join(homedir(), ".vellum", "hosts.json");
@@ -40,6 +55,11 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
       throw new RemoteHostsError(
         "validation",
         `remote host ${host.id} requires endpoint`,
+      );
+    } else if (!isSupportedSshDestination(host.endpoint)) {
+      throw new RemoteHostsError(
+        "validation",
+        `remote host ${host.id} endpoint must be an SSH config alias, user@host, or IPv6 literal; configure custom ports in ~/.ssh/config`,
       );
     }
 
@@ -241,10 +261,21 @@ export const makeHostsRegistry = (
         cached = next;
         return next.hosts;
       }),
-    reload: async () => {
-      cached = undefined;
-      return (await ensure()).hosts;
-    },
+    reload: () =>
+      withWrite(async () => {
+        // A reload is an ordered disk boundary, not merely a cache clear. Wait
+        // for an earlier initial read, then force a fresh read after all prior
+        // writes so callers cannot publish an older routing snapshot.
+        if (inFlight) {
+          try {
+            await inFlight;
+          } catch {
+            // The fresh read below is the retry and owns the surfaced error.
+          }
+        }
+        cached = undefined;
+        return (await ensure()).hosts;
+      }),
   };
 };
 

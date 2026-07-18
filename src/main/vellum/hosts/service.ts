@@ -1,6 +1,7 @@
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import {
+  defaultRemoteHostsDocument,
   RemoteHost,
   RemoteHostsError,
   type RemoteHost as RemoteHostT,
@@ -44,16 +45,29 @@ const asRemoteHostsError = (error: unknown): RemoteHostsError =>
         error instanceof Error ? error.message : String(error),
       );
 
+const loadHostsIntoRoutingSnapshot = (
+  load: () => Promise<ReadonlyArray<RemoteHostT>>,
+): Effect.Effect<ReadonlyArray<RemoteHostT>, RemoteHostsError> =>
+  Effect.tryPromise({
+    try: load,
+    catch: asRemoteHostsError,
+  }).pipe(
+    Effect.tap((hosts) =>
+      Effect.sync(() => {
+        setHostsSnapshot(hosts);
+      }),
+    ),
+  );
+
 export const makeHostsService = (
   registry: HostsRegistry,
   ssh: Context.Tag.Service<typeof SshTransport>,
 ): Context.Tag.Service<typeof HostsService> => ({
   path: () => registry.path(),
   doctor: runRemoteHostsDoctor(registry, ssh),
-  list: Effect.tryPromise({
-    try: () => registry.list(),
-    catch: asRemoteHostsError,
-  }),
+  // Listing is the explicit durable reload boundary used by Settings and IPC.
+  // Keep the synchronous routing snapshot in the same successful operation.
+  list: loadHostsIntoRoutingSnapshot(() => registry.reload()),
   get: (id) =>
     Effect.tryPromise({
       try: () => registry.get(id),
@@ -105,6 +119,20 @@ export const HostsServiceLive = Layer.effect(
   HostsService,
   Effect.gen(function* () {
     const ssh = yield* SshTransport;
-    return makeHostsService(getDefaultHostsRegistry(), ssh);
+    const registry = getDefaultHostsRegistry();
+    // Layer acquisition is the normal-boot barrier: the persisted document is
+    // visible to synchronous Herdr/Hermes routing before this layer can feed
+    // either transport or plane.
+    yield* loadHostsIntoRoutingSnapshot(() => registry.reload()).pipe(
+      Effect.catchAll(() =>
+        Effect.sync(() => {
+          // An invalid/unreadable user registry must not brick the local app.
+          // Keep the file untouched; list and Doctor retry it and surface the
+          // exact error, while synchronous product routing fails closed to local.
+          setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+        }),
+      ),
+    );
+    return makeHostsService(registry, ssh);
   }),
 );

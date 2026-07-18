@@ -9,11 +9,41 @@ import { getDefaultHostsRegistry } from "./registry";
 
 /** Process-local snapshot so herdr/hermes hot paths stay sync. */
 let snapshot: ReadonlyArray<RemoteHost> = defaultRemoteHostsDocument().hosts;
+const listeners = new Set<(
+  hosts: ReadonlyArray<RemoteHost>,
+  previous: ReadonlyArray<RemoteHost>,
+) => void>();
+
+const sameHosts = (
+  left: ReadonlyArray<RemoteHost>,
+  right: ReadonlyArray<RemoteHost>,
+): boolean => JSON.stringify(left) === JSON.stringify(right);
 
 export const hostsSnapshot = (): ReadonlyArray<RemoteHost> => snapshot;
 
 export const setHostsSnapshot = (hosts: ReadonlyArray<RemoteHost>): void => {
+  const previous = snapshot;
   snapshot = hosts;
+  if (sameHosts(previous, hosts)) return;
+  for (const listener of listeners) {
+    try {
+      listener(hosts, previous);
+    } catch {
+      // A durable mutation has already committed. Keep notifying independent
+      // consumers and never echo host data or endpoint-bearing exceptions.
+      console.warn("[vellum:hosts] routing snapshot listener failed");
+    }
+  }
+};
+
+export const subscribeHostsSnapshot = (
+  listener: (
+    hosts: ReadonlyArray<RemoteHost>,
+    previous: ReadonlyArray<RemoteHost>,
+  ) => void,
+): (() => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 };
 
 export const hostsWithCapability = (
@@ -44,7 +74,7 @@ export const sshEndpointForHermesId = (hermesId: string): string | undefined => 
 
 /** Load durable registry into the sync snapshot (boot + after mutations). */
 export const primeHostsSnapshot = async (): Promise<ReadonlyArray<RemoteHost>> => {
-  const hosts = await getDefaultHostsRegistry().list();
-  snapshot = hosts;
+  const hosts = await getDefaultHostsRegistry().reload();
+  setHostsSnapshot(hosts);
   return hosts;
 };

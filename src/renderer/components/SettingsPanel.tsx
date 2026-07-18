@@ -555,8 +555,9 @@ function HostsSection() {
     <div className="settings-section">
       <p className="settings-note">
         Remote hosts are user-authored — nothing is hard-coded for a particular machine.
-        Use an SSH config <code>Host</code> alias or <code>user@hostname</code>. Agent keys for
-        Hermes use the host id (or optional hermes id).
+        Use an SSH config <code>Host</code> alias, <code>user@hostname</code>, or an IPv6
+        literal. Configure custom ports in <code>~/.ssh/config</code>. Agent keys for Hermes
+        use the host id (or optional hermes id).
       </p>
 
       {loading ? (
@@ -638,7 +639,7 @@ function HostsSection() {
             onChange={(event) => setDraft((d) => ({ ...d, label: event.target.value }))}
           />
         </FieldRow>
-        <FieldRow label="SSH endpoint" hint="SSH config Host alias or user@host">
+        <FieldRow label="SSH endpoint" hint="alias, user@host, or IPv6; ports via ~/.ssh/config">
           <input
             type="text"
             value={draft.endpoint}

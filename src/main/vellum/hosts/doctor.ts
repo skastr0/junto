@@ -8,7 +8,7 @@ import {
   hostHasCapability,
   type RemoteHost,
 } from "@shared/remote-hosts";
-import { runCli } from "../adapters/exec";
+import { runCli, type CliResult } from "../adapters/exec";
 import {
   makeRemoteCommand,
   parseSshEndpoint,
@@ -23,8 +23,18 @@ import type { HostsRegistry } from "./registry";
 const openSshClientPath = (): string =>
   process.env.VELLUM_SSH_EXECUTABLE || ["", "usr", "bin", "ssh"].join("/");
 const PROBE_TIMEOUT_MS = 10_000;
+const HOST_PROBE_TOTAL_TIMEOUT_MS = 20_000;
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
+export type HostCliRunner = (
+  command: string,
+  args: ReadonlyArray<string>,
+  timeoutMs?: number,
+) => Promise<CliResult>;
+
+const binaryVersionArgs = (
+  binary: "herdr" | "hermes",
+): ReadonlyArray<string> => binary === "herdr" ? ["--version"] : ["version"];
 
 const classifySshFailure = (message: string): string => {
   if (/Permission denied|publickey|Authentication failed/i.test(message)) {
@@ -62,8 +72,9 @@ const describeSshError = (error: SshError): string => {
 
 const localBinary = async (
   binary: "herdr" | "hermes",
+  run: HostCliRunner,
 ): Promise<{ ok: boolean; detail: string }> => {
-  const result = await runCli(binary, ["version"], 5_000).catch((error) => ({
+  const result = await run(binary, binaryVersionArgs(binary), 5_000).catch((error) => ({
     ok: false as const,
     stdout: "",
     error: error instanceof Error ? error.message : String(error),
@@ -89,7 +100,7 @@ const remoteBinary = (
 ): Effect.Effect<{ ok: boolean; detail: string }> =>
   parseSshEndpoint(endpoint).pipe(
     Effect.flatMap((parsed) =>
-      makeRemoteCommand(binary, ["version"]).pipe(
+      makeRemoteCommand(binary, binaryVersionArgs(binary)).pipe(
         Effect.flatMap((command) =>
           ssh.run(oneShot(parsed, command, { budget: "status" })),
         ),
@@ -179,9 +190,30 @@ const probeSshHost = (
     ),
   );
 
+const boundedProbeSshHost = (
+  ssh: Ssh,
+  host: RemoteHost,
+): Effect.Effect<{
+  readonly status: "ok" | "warning" | "error";
+  readonly detail: string;
+}> =>
+  probeSshHost(ssh, host).pipe(
+    Effect.timeoutFail({
+      duration: HOST_PROBE_TOTAL_TIMEOUT_MS,
+      onTimeout: () => new Error("remote host doctor deadline exceeded"),
+    }),
+    Effect.catchAll(() =>
+      Effect.succeed({
+        status: "error" as const,
+        detail: `${host.label}: probe timed out after ${HOST_PROBE_TOTAL_TIMEOUT_MS}ms`,
+      }),
+    ),
+  );
+
 export const runRemoteHostsDoctor = (
   registry: HostsRegistry,
   ssh: Ssh,
+  run: HostCliRunner = runCli,
 ): Effect.Effect<ServiceCheck> =>
   Effect.gen(function* () {
     const clientPath = openSshClientPath();
@@ -218,12 +250,12 @@ export const runRemoteHostsDoctor = (
     const local = hosts.find((host) => host.kind === "local");
     if (local) {
       if (hostHasCapability(local, "herdr")) {
-        const herdr = yield* Effect.promise(() => localBinary("herdr"));
+        const herdr = yield* Effect.promise(() => localBinary("herdr", run));
         lines.push(`local: ${herdr.detail}`);
         if (!herdr.ok) raise("warning");
       }
       if (hostHasCapability(local, "hermes")) {
-        const hermes = yield* Effect.promise(() => localBinary("hermes"));
+        const hermes = yield* Effect.promise(() => localBinary("hermes", run));
         lines.push(`local: ${hermes.detail}`);
         if (!hermes.ok) raise("warning");
       }
@@ -233,8 +265,12 @@ export const runRemoteHostsDoctor = (
     if (sshHosts.length === 0) {
       lines.push("no remote ssh hosts configured");
     } else {
-      for (const host of sshHosts) {
-        const result = yield* probeSshHost(ssh, host);
+      const results = yield* Effect.forEach(
+        sshHosts,
+        (host) => boundedProbeSshHost(ssh, host),
+        { concurrency: "unbounded" },
+      );
+      for (const result of results) {
         lines.push(result.detail);
         raise(result.status);
       }
@@ -271,25 +307,23 @@ export const runRemoteHostsDoctor = (
 export const testHostConnection = (
   ssh: Ssh,
   host: RemoteHost,
+  run: HostCliRunner = runCli,
 ): Effect.Effect<{
   readonly ok: boolean;
   readonly detail: string;
 }> =>
   host.kind === "local"
     ? Effect.gen(function* () {
-        const parts: string[] = [];
+        const probes: Array<{ readonly ok: boolean; readonly detail: string }> = [];
         if (hostHasCapability(host, "herdr")) {
-          parts.push((yield* Effect.promise(() => localBinary("herdr"))).detail);
+          probes.push(yield* Effect.promise(() => localBinary("herdr", run)));
         }
         if (hostHasCapability(host, "hermes")) {
-          parts.push((yield* Effect.promise(() => localBinary("hermes"))).detail);
+          probes.push(yield* Effect.promise(() => localBinary("hermes", run)));
         }
-        const failed = parts.some((part) =>
-          /missing |not found|ENOENT/i.test(part),
-        );
         return {
-          ok: !failed,
-          detail: parts.join(" · ") || "local host ready",
+          ok: probes.every((probe) => probe.ok),
+          detail: probes.map((probe) => probe.detail).join(" · ") || "local host ready",
         };
       })
     : probeSshHost(ssh, host).pipe(

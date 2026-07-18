@@ -1,11 +1,30 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import {
   HerdrObservePool,
   type ObserveChildLike,
   type ObserveSpawnFn,
 } from "../src/main/vellum/herdr/observe-pool";
 import { HerdrStreamManager, type HerdrStreamFrame } from "../src/main/vellum/herdr/stream";
+import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
+
+beforeEach(() => {
+  setHostsSnapshot([
+    ...defaultRemoteHostsDocument().hosts,
+    {
+      id: "remote-a",
+      label: "Test remote",
+      kind: "remote",
+      endpoint: "remote-a",
+      capabilities: ["herdr"],
+    },
+  ]);
+});
+
+afterEach(() => {
+  setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+});
 
 class FakeChild extends EventEmitter {
   readonly stdout = Object.assign(new EventEmitter(), {

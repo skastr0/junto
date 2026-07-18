@@ -1,8 +1,11 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { Effect } from "effect";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultRemoteHostsDocument, hermesKeyFor } from "../src/shared/remote-hosts";
+import { ProductPlanesLive } from "../src/main/runtime";
+import { HostsService } from "../src/main/vellum/hosts/service";
 import {
   makeHostsRegistry,
   resetDefaultHostsRegistryForTests,
@@ -11,8 +14,12 @@ import {
   findHostByHermesId,
   hostsWithCapability,
   setHostsSnapshot,
+  subscribeHostsSnapshot,
 } from "../src/main/vellum/hosts/snapshot";
 import { isKnownHerdrHost, listHerdrHosts } from "../src/main/vellum/herdr/hosts";
+import { HerdrPlane } from "../src/main/vellum/herdr/plane";
+import { HerdrMirrorRegistry } from "../src/main/vellum/herdr/mirrors";
+import type { MirrorTransport } from "../src/main/vellum/herdr/mirror-transport";
 import { acpVerboseLogging } from "../src/main/vellum/chat/acp-client";
 
 const dirs: string[] = [];
@@ -23,6 +30,7 @@ afterEach(async () => {
   setHostsSnapshot(defaultRemoteHostsDocument().hosts);
   delete process.env.VELLUM_ACP_VERBOSE;
   delete process.env.VELLUM_DEBUG;
+  delete process.env.VELLUM_HOSTS_PATH;
 });
 
 describe("remote hosts registry", () => {
@@ -71,6 +79,265 @@ describe("remote hosts registry", () => {
     expect(hostsWithCapability("herdr").map((h) => h.id)).toEqual(["local", "fleet-1"]);
     expect(listHerdrHosts().map((h) => h.id)).toEqual(["local", "fleet-1"]);
     expect(isKnownHerdrHost("studio")).toBe(false);
+  });
+
+  it("loads persisted hosts before the first normal-boot route and keeps list reload coherent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-boot-"));
+    dirs.push(root);
+    const path = join(root, "hosts.json");
+    process.env.VELLUM_HOSTS_PATH = path;
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        version: 1,
+        hosts: [
+          ...defaultRemoteHostsDocument().hosts,
+          {
+            id: "studio",
+            label: "Studio",
+            kind: "remote",
+            endpoint: "studio-ssh",
+            capabilities: ["herdr", "hermes"],
+          },
+        ],
+      })}\n`,
+      "utf8",
+    );
+    resetDefaultHostsRegistryForTests();
+    setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+
+    const observed = await Effect.runPromise(
+      Effect.gen(function* () {
+        // Yielding the plane is the normal boot construction boundary. The
+        // first synchronous route below must already see the durable host.
+        const herdr = yield* HerdrPlane;
+        const hosts = yield* HostsService;
+        const firstRoute = herdr.mirrors.mirrorFor("studio") !== undefined;
+
+        yield* Effect.promise(() =>
+          writeFile(
+            path,
+            `${JSON.stringify({
+              version: 1,
+              hosts: [
+                ...defaultRemoteHostsDocument().hosts,
+                {
+                  id: "render",
+                  label: "Render",
+                  kind: "remote",
+                  endpoint: "render-ssh",
+                  capabilities: ["herdr"],
+                },
+              ],
+            })}\n`,
+            "utf8",
+          ),
+        );
+        const reloaded = yield* hosts.list;
+
+        return {
+          firstRoute,
+          reloadedIds: reloaded.map((host) => host.id),
+          oldRoute: isKnownHerdrHost("studio"),
+          newRoute: herdr.mirrors.mirrorFor("render") !== undefined,
+        };
+      }).pipe(Effect.provide(ProductPlanesLive), Effect.scoped),
+    );
+
+    expect(observed).toEqual({
+      firstRoute: true,
+      reloadedIds: ["local", "render"],
+      oldRoute: false,
+      newRoute: true,
+    });
+  });
+
+  it("boots local-only on an invalid durable registry while list and Doctor surface the error", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-invalid-boot-"));
+    dirs.push(root);
+    const path = join(root, "hosts.json");
+    const invalid = '{"version":1,"hosts":[';
+    process.env.VELLUM_HOSTS_PATH = path;
+    await writeFile(path, invalid, "utf8");
+    resetDefaultHostsRegistryForTests();
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      {
+        id: "stale",
+        label: "Stale route",
+        kind: "remote",
+        endpoint: "stale-ssh",
+        capabilities: ["herdr"],
+      },
+    ]);
+
+    const observed = await Effect.runPromise(
+      Effect.gen(function* () {
+        const herdr = yield* HerdrPlane;
+        const hosts = yield* HostsService;
+        const listError = yield* hosts.list.pipe(
+          Effect.match({
+            onFailure: (error) => error.message,
+            onSuccess: () => "unexpected success",
+          }),
+        );
+        const doctor = yield* hosts.doctor;
+        return {
+          localOnly: listHerdrHosts().map((host) => host.id),
+          staleRoute: herdr.mirrors.mirrorFor("stale") !== undefined,
+          listError,
+          doctor,
+        };
+      }).pipe(Effect.provide(ProductPlanesLive), Effect.scoped),
+    );
+
+    expect(observed.localOnly).toEqual(["local"]);
+    expect(observed.staleRoute).toBe(false);
+    expect(observed.listError).toContain("hosts.json unreadable");
+    expect(observed.doctor).toMatchObject({
+      status: "error",
+      detail: expect.stringContaining("hosts.json unreadable"),
+    });
+    expect(await readFile(path, "utf8")).toBe(invalid);
+  });
+
+  it("isolates snapshot listener failures without exposing endpoint data", () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    let reconciliations = 0;
+    const unsubscribeBroken = subscribeHostsSnapshot(() => {
+      throw new Error("secret-user@private-endpoint");
+    });
+    const unsubscribeHealthy = subscribeHostsSnapshot(() => {
+      reconciliations += 1;
+    });
+
+    try {
+      expect(() =>
+        setHostsSnapshot([
+          ...defaultRemoteHostsDocument().hosts,
+          {
+            id: "studio",
+            label: "Studio",
+            kind: "remote",
+            endpoint: "studio-ssh",
+            capabilities: ["herdr"],
+          },
+        ])
+      ).not.toThrow();
+      expect(reconciliations).toBe(1);
+      expect(warning).toHaveBeenCalledWith(
+        "[vellum:hosts] routing snapshot listener failed",
+      );
+      expect(JSON.stringify(warning.mock.calls)).not.toContain("private-endpoint");
+    } finally {
+      unsubscribeBroken();
+      unsubscribeHealthy();
+      warning.mockRestore();
+    }
+  });
+
+  it("restarts live Herdr mirrors on add, endpoint edit, and removal", () => {
+    setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+    const started: string[] = [];
+    const disposed: string[] = [];
+    const mirrors = new HerdrMirrorRegistry((hostId): MirrorTransport => ({
+      request: async () => {
+        started.push(hostId);
+        return { snapshot: {} };
+      },
+      openEvents: async () => () => undefined,
+      dispose: () => {
+        disposed.push(hostId);
+      },
+    }));
+
+    try {
+      mirrors.startAll();
+      expect(started).toEqual(["local"]);
+
+      const withStudio = [
+        ...defaultRemoteHostsDocument().hosts,
+        {
+          id: "studio",
+          label: "Studio",
+          kind: "remote" as const,
+          endpoint: "studio-a",
+          capabilities: ["herdr" as const],
+        },
+      ];
+      setHostsSnapshot(withStudio);
+      expect(started).toEqual(["local", "local", "studio"]);
+      expect(disposed).toEqual(["local"]);
+
+      // A semantically identical list refresh must not flap live mirrors.
+      setHostsSnapshot(withStudio.map((host) => ({ ...host })));
+      expect(started).toHaveLength(3);
+
+      setHostsSnapshot(withStudio.map((host) =>
+        host.id === "studio" ? { ...host, endpoint: "studio-b" } : host,
+      ));
+      expect(started.slice(-2)).toEqual(["local", "studio"]);
+      expect(disposed.slice(-2)).toEqual(["local", "studio"]);
+
+      setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+      expect(started.at(-1)).toBe("local");
+      expect(disposed.at(-1)).toBe("studio");
+      expect(mirrors.mirrorFor("studio")).toBeUndefined();
+    } finally {
+      mirrors.stopAll();
+    }
+  });
+
+  it("rejects malformed/host:port endpoints while preserving direct IPv6 destinations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-endpoint-"));
+    dirs.push(root);
+    const registry = makeHostsRegistry(join(root, "hosts.json"));
+
+    await expect(registry.upsert({
+      id: "wrong-port",
+      label: "Wrong port",
+      kind: "remote",
+      endpoint: "example.com:2222",
+      capabilities: ["herdr"],
+    })).rejects.toMatchObject({
+      code: "validation",
+      message: expect.stringContaining("custom ports in ~/.ssh/config"),
+    });
+
+    await expect(registry.upsert({
+      id: "empty-user",
+      label: "Empty user",
+      kind: "remote",
+      endpoint: "@example.com",
+      capabilities: ["herdr"],
+    })).rejects.toMatchObject({ code: "validation" });
+
+    await expect(registry.upsert({
+      id: "bracketed-ipv6",
+      label: "Bracketed IPv6",
+      kind: "remote",
+      endpoint: "ops@[2001:db8::10]",
+      capabilities: ["hermes"],
+    })).rejects.toMatchObject({ code: "validation" });
+
+    const ipv6 = await registry.upsert({
+      id: "ipv6",
+      label: "IPv6",
+      kind: "remote",
+      endpoint: "ops@2001:db8::10",
+      capabilities: ["hermes"],
+    });
+    expect(ipv6.find((host) => host.id === "ipv6")?.endpoint).toBe("ops@2001:db8::10");
+
+    const scopedIpv6 = await registry.upsert({
+      id: "scoped-ipv6",
+      label: "Scoped IPv6",
+      kind: "remote",
+      endpoint: "ops@fe80::1%lo0",
+      capabilities: ["herdr"],
+    });
+    expect(scopedIpv6.find((host) => host.id === "scoped-ipv6")?.endpoint)
+      .toBe("ops@fe80::1%lo0");
   });
 });
 

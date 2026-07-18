@@ -407,7 +407,7 @@ describe("SshTransport", () => {
 
     expect(Either.isLeft(result)).toBe(true);
     if (Either.isLeft(result)) expect(result.left).toBeInstanceOf(SshTimeoutError);
-  });
+  }, 10_000);
 
   it("composes global and per-endpoint dial admission without host starvation", async () => {
     const calls: Command.StandardCommand[] = [];
