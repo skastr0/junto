@@ -1,0 +1,26 @@
+[
+  {
+    "id": "blocked",
+    "text": "short hard low UI alert thunk for a blocked dependency, dry game interface sound, mono, no reverb tail, no music, no voice, clean and impactful, half second"
+  },
+  {
+    "id": "permission",
+    "text": "short bright two-tone UI chime for permission needed, clean game interface, mono, no reverb tail, no music, no voice, urgent but polite, half second"
+  },
+  {
+    "id": "herdr-done",
+    "text": "soft resolve UI chime when an agent finishes work and needs attention, clean game interface, mono, gentle, no reverb tail, no music, no voice, half second"
+  },
+  {
+    "id": "booth-review",
+    "text": "short paper-like review tick for a draft ready to review, clean UI notification, mono, crisp, no reverb tail, no music, no voice, half second"
+  },
+  {
+    "id": "orphan",
+    "text": "dry grit click for an orphaned arm warning, clean UI error tick, mono, no reverb tail, no music, no voice, half second"
+  },
+  {
+    "id": "cycle",
+    "text": "almost silent soft UI tick for cycling between alerts, very quiet, clean game interface, mono, no reverb, no music, no voice, half second"
+  }
+]
