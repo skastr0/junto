@@ -26,13 +26,14 @@ afterEach(async () => {
 });
 
 describe("remote hosts registry", () => {
-  it("seeds local + remote-a defaults when the file is missing", async () => {
+  it("seeds only local when the file is missing (no product remote hardcoding)", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-"));
     dirs.push(root);
     const path = join(root, "hosts.json");
     const registry = makeHostsRegistry(path);
     const hosts = await registry.list();
-    expect(hosts.map((host) => host.id)).toEqual(["local", "remote-a"]);
+    expect(hosts.map((host) => host.id)).toEqual(["local"]);
+    expect(hosts.every((host) => host.kind === "local" || host.endpoint)).toBe(true);
     const raw = await readFile(path, "utf8");
     expect(JSON.parse(raw).version).toBe(1);
   });
@@ -52,13 +53,23 @@ describe("remote hosts registry", () => {
     await expect(registry.remove("local")).rejects.toMatchObject({ code: "conflict" });
   });
 
-  it("maps hermes alias remote-a for the default remote host", () => {
-    setHostsSnapshot(defaultRemoteHostsDocument().hosts);
-    const host = findHostByHermesId("remote-a");
-    expect(host?.id).toBe("remote-a");
-    expect(hermesKeyFor(host!)).toBe("remote-a");
-    expect(hostsWithCapability("herdr").map((h) => h.id)).toEqual(["local", "remote-a"]);
-    expect(listHerdrHosts().map((h) => h.id)).toEqual(["local", "remote-a"]);
+  it("resolves optional hermesId aliases without product-specific defaults", () => {
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      {
+        id: "fleet-1",
+        label: "Fleet One",
+        kind: "remote",
+        endpoint: "fleet-1",
+        capabilities: ["herdr", "hermes"],
+        hermesId: "f1",
+      },
+    ]);
+    const host = findHostByHermesId("f1");
+    expect(host?.id).toBe("fleet-1");
+    expect(hermesKeyFor(host!)).toBe("f1");
+    expect(hostsWithCapability("herdr").map((h) => h.id)).toEqual(["local", "fleet-1"]);
+    expect(listHerdrHosts().map((h) => h.id)).toEqual(["local", "fleet-1"]);
     expect(isKnownHerdrHost("studio")).toBe(false);
   });
 });

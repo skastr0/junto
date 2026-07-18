@@ -1,5 +1,5 @@
 // Herdr hosts resolve from the durable remote-host registry (~/.vellum/hosts.json).
-// Defaults seed local + remote-a so existing fleets keep working without config.
+// Only local is seeded; remotes are user-authored via Settings → Hosts.
 
 import {
   findHostById,

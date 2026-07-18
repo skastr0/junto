@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const runCliMock = vi.fn();
 const operations = {
-  identityBatch: () => runCliMock(),
+  identityBatch: (_host?: string) => runCliMock(),
   avatar: vi.fn(),
   message: vi.fn(),
 };

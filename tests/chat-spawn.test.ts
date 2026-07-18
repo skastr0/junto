@@ -32,7 +32,12 @@ describe("buildAcpSpawnTarget", () => {
   });
 
   it("rejects an invalid agent key instead of building a target", () => {
-    expect(buildAcpSpawnTarget("windows:profile-13")).toBeUndefined();
+    // Well-formed remote keys are accepted here; registry membership is
+    // enforced when the host is resolved for SSH.
+    expect(buildAcpSpawnTarget("fleet-1:profile-13")).toEqual({
+      host: "fleet-1",
+      profile: "profile-13",
+    });
     expect(buildAcpSpawnTarget("local")).toBeUndefined();
     expect(buildAcpSpawnTarget("remote-a:foo; rm -rf")).toBeUndefined();
   });

@@ -7,6 +7,8 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseHermesProfileName } from "../src/main/vellum/hermes/domain";
 import { HermesTransport, HermesTransportLive } from "../src/main/vellum/hermes/transport";
+import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
+import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import {
   parseRemoteUnixSocketPath,
   parseSshEndpoint,
@@ -166,6 +168,16 @@ describe("SSH policy surface", () => {
   });
 
   it("renders Hermes operations through shared one-shots and isolated ACP streams", async () => {
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      {
+        id: "studio",
+        label: "studio",
+        kind: "remote",
+        endpoint: "studio",
+        capabilities: ["hermes"],
+      },
+    ]);
     const calls: Command.StandardCommand[] = [];
     const sshLayer = await recordingLayer(calls);
     const layer = Layer.provideMerge(HermesTransportLive, sshLayer);
@@ -175,9 +187,9 @@ describe("SSH policy surface", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const hermes = yield* HermesTransport;
-          yield* hermes.profiles("remote-a");
-          yield* hermes.avatar(profile);
-          yield* hermes.connectAcp(profile, (_lease, confirm) =>
+          yield* hermes.profiles("studio");
+          yield* hermes.avatar("studio", profile);
+          yield* hermes.connectAcp("studio", profile, (_lease, confirm) =>
             Effect.succeed(confirm("ready")),
           );
         }),

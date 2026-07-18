@@ -103,6 +103,7 @@ class EffectAcpChild extends EventEmitter implements AcpChildLike {
     private readonly runPromise: RunPromise,
     private readonly owner: Scope.Scope,
     private readonly transport: Context.Tag.Service<typeof HermesTransport>,
+    private readonly host: string,
     private readonly profile: HermesProfileName,
   ) {
     super();
@@ -133,6 +134,7 @@ class EffectAcpChild extends EventEmitter implements AcpChildLike {
 
       await this.runPromise(
         this.transport.connectAcp(
+          this.host,
           this.profile,
           (lease, confirm) =>
             Effect.gen(this, function* () {
@@ -260,8 +262,8 @@ export const HermesPlaneLive = Layer.scoped(
     const operations: HermesIdentityOperations & HermesFleetOperations = {
       profiles: (host) => runOwned(transport.profiles(host)),
       version: (host) => runOwned(transport.version(host)),
-      identityBatch: () => runOwned(transport.identityBatch),
-      avatar: (profile) => runOwned(transport.avatar(profile)),
+      identityBatch: (host) => runOwned(transport.identityBatch(host)),
+      avatar: (host, profile) => runOwned(transport.avatar(host, profile)),
     };
 
     const localChildren = new Set<ChildProcessWithoutNullStreams>();
@@ -270,11 +272,19 @@ export const HermesPlaneLive = Layer.scoped(
       target: AcpSpawnTarget,
       options?: { readonly environmentOverlay?: AcpChildEnvironmentOverlay },
     ): AcpChildLike => {
-      if (target.host === "remote-a") {
+      // Local = direct hermes child. Any other host id is treated as remote
+      // (must exist in the host registry with kind=remote).
+      if (target.host !== "local") {
         if (options?.environmentOverlay !== undefined) {
           throw new Error("ACP child environment overlays are local-only");
         }
-        return new EffectAcpChild(runPromise, owner, transport, target.profile);
+        return new EffectAcpChild(
+          runPromise,
+          owner,
+          transport,
+          target.host,
+          target.profile,
+        );
       }
 
       const env = options?.environmentOverlay === undefined

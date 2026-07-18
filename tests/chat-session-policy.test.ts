@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatService } from "../src/main/vellum/chat/service";
 import type { AcpChildLike, SpawnFn } from "../src/main/vellum/chat/acp-client";
+import type { ChatEvent } from "../src/shared/ipc";
 
 const makeChild = (): AcpChildLike => {
   const child = new EventEmitter() as AcpChildLike & EventEmitter;
@@ -48,6 +49,8 @@ describe("ChatService remote session policy", () => {
     };
 
     const close = vi.fn();
+    const events: ChatEvent[] = [];
+    service.setEventSink((event) => events.push(event));
     anyService.sessions.set("remote-a:a", {
       host: "remote-a",
       sessionId: "s-a",
@@ -75,6 +78,11 @@ describe("ChatService remote session policy", () => {
     expect(anyService.sessions.has("remote-a:a")).toBe(false);
     expect(anyService.sessions.has("remote-a:b")).toBe(true);
     expect(close).toHaveBeenCalled();
+    expect(events).toContainEqual({
+      agentKey: "remote-a:a",
+      kind: "status",
+      payload: { status: "closed", text: "remote chat closed after 1000ms idle" },
+    });
     service.closeAll();
   });
 
@@ -92,6 +100,8 @@ describe("ChatService remote session policy", () => {
     };
 
     const close = vi.fn();
+    const events: ChatEvent[] = [];
+    service.setEventSink((event) => events.push(event));
     anyService.sessions.set("remote-a:old", {
       host: "remote-a",
       sessionId: "s-old",
@@ -111,6 +121,38 @@ describe("ChatService remote session policy", () => {
     expect(err).toBeUndefined();
     expect(anyService.sessions.has("remote-a:old")).toBe(false);
     expect(close).toHaveBeenCalled();
+    expect(events).toContainEqual({
+      agentKey: "remote-a:old",
+      kind: "status",
+      payload: {
+        status: "closed",
+        text: "remote chat closed to enforce the remote-a session ceiling (1)",
+      },
+    });
+    service.closeAll();
+  });
+
+  it("counts an in-flight remote handshake before admitting another child", async () => {
+    process.env.VELLUM_ACP_MAX_REMOTE_SESSIONS_PER_HOST = "1";
+    process.env.VELLUM_ACP_IDLE_MS = "0";
+    const children: AcpChildLike[] = [];
+    const service = new ChatService(() => {
+      const child = makeChild();
+      children.push(child);
+      return child;
+    });
+    service.stopIdleSweep();
+
+    // The first child deliberately never answers initialize, keeping its
+    // session in the registered handshaking state.
+    void service.chatOpen("studio:first");
+    expect(children).toHaveLength(1);
+
+    await expect(service.chatOpen("studio:second")).resolves.toEqual({
+      ok: false,
+      error: "remote ACP session ceiling reached for host studio (1 live; all busy) — close a chat or wait for a turn to finish",
+    });
+    expect(children).toHaveLength(1);
     service.closeAll();
   });
 });

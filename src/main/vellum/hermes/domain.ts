@@ -5,8 +5,8 @@ export type HermesProfileName = string & {
 };
 
 /**
- * Hermes host ids are open strings from the remote-host registry.
- * Legacy agent keys use hermesId (e.g. remote-a for host id remote-a).
+ * Hermes host ids are open strings from the remote-host registry
+ * (`local`, or a remote host's hermesId / id).
  */
 export type HermesHostId = string;
 

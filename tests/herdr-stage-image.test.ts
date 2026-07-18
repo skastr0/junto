@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { readFileSync, rmSync } from "node:fs";
 import type { StageRemoteImage } from "../src/main/vellum/herdr/stage-image";
 import {
@@ -8,6 +8,8 @@ import {
   stageImageOnHost,
   VELLUM_CLIPBOARD_IMAGE_MAX_BYTES,
 } from "../src/main/vellum/herdr/stage-image";
+import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
+import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 
 describe("herdr stage-image (vellum-owned)", () => {
   it("normalizes and rejects extensions", () => {
@@ -54,9 +56,22 @@ describe("herdr stage-image (vellum-owned)", () => {
     expect(res.ok).toBe(false);
   });
 
-  describe("remote remote-a via scoped staging transport", () => {
+  describe("remote host via scoped staging transport", () => {
     const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
     const b64 = bytes.toString("base64");
+
+    beforeAll(() => {
+      setHostsSnapshot([
+        ...defaultRemoteHostsDocument().hosts,
+        {
+          id: "studio",
+          label: "studio",
+          kind: "remote",
+          endpoint: "studio",
+          capabilities: ["herdr"],
+        },
+      ]);
+    });
 
     it("passes a generated name and bytes to the product transport", async () => {
       const calls: Array<{ name: string; bytes: Uint8Array }> = [];
@@ -65,7 +80,7 @@ describe("herdr stage-image (vellum-owned)", () => {
         return `/tmp/vellum-herdr-images/${name}`;
       };
 
-      const staged = await stageImageOnHost("remote-a", "png", b64, { stageRemote });
+      const staged = await stageImageOnHost("studio", "png", b64, { stageRemote });
       expect(staged.ok).toBe(true);
       if (!staged.ok) return;
 
@@ -81,7 +96,7 @@ describe("herdr stage-image (vellum-owned)", () => {
         throw new Error("disk full");
       };
 
-      const res = await stageImageOnHost("remote-a", "png", b64, { stageRemote });
+      const res = await stageImageOnHost("studio", "png", b64, { stageRemote });
       expect(res.ok).toBe(false);
       if (res.ok) return;
       expect(res.error).toMatch(/disk full/);

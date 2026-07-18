@@ -483,7 +483,7 @@ function RegionDefaultsControl({ node }: { readonly node: CanvasNode }) {
     <div className="inspector-detail mb-1">Stamped onto new herdr/page nodes inside this region. Not live rebind — edit a node after create to override.</div>
     <label className="inspector-editor">
       <span>herdr host</span>
-      <input aria-label="Region herdr host default" value={host} placeholder="local · mac-mini" onChange={(e) => setHost(e.target.value)} onBlur={commit} onKeyDown={onEnter} />
+      <input aria-label="Region herdr host default" value={host} placeholder="local · host id from Settings → Hosts" onChange={(e) => setHost(e.target.value)} onBlur={commit} onKeyDown={onEnter} />
     </label>
     <label className="inspector-editor">
       <span>herdr session</span>

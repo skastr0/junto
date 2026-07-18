@@ -10,8 +10,8 @@ import {
 } from "../hermes/domain";
 
 // Hermes fleet identity, avatar, and messaging adapter. Agent keys are
-// "<host>:<profile>", host in {local, remote-a} — matching the key shape
-// already used by adapters/hermes.ts's snapshot entities.
+// "<host>:<profile>" where host is a registry hermes id (local, or a remote
+// host's hermesId / id from ~/.vellum/hosts.json).
 //
 // SECURITY: only ever reads/forwards displayName, matrixUserId,
 // homeRoomName, and hasAvatar. MATRIX_ACCESS_TOKEN, MATRIX_DEVICE_ID,
@@ -20,8 +20,11 @@ import {
 // into an object, logged, or forwarded across IPC.
 
 export interface HermesIdentityOperations {
-  readonly identityBatch: () => Promise<CliResult>;
-  readonly avatar: (profile: HermesProfileName) => Promise<CliResult>;
+  readonly identityBatch: (host: HermesHostId) => Promise<CliResult>;
+  readonly avatar: (
+    host: HermesHostId,
+    profile: HermesProfileName,
+  ) => Promise<CliResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,8 +44,7 @@ export const readDisplayNameFromContent = (content: string): string | undefined 
 };
 
 // identity-brief.md lives at <dir>/assets/identity-brief.md on some profiles
-// and directly at <dir>/identity-brief.md on others (verified live on both
-// the local and remote-a profile trees) — try both, first match wins.
+// and directly at <dir>/identity-brief.md on others — try both, first match.
 const readDisplayName = (dir: string): string | undefined => {
   for (const candidate of [join(dir, "assets", "identity-brief.md"), join(dir, "identity-brief.md")]) {
     if (!existsSync(candidate)) continue;
@@ -135,14 +137,20 @@ export const parseIdentityBatchLine = (
   };
 };
 
-export const parseIdentityBatchOutput = (stdout: string): Map<string, AgentIdentity> => {
+export const parseIdentityBatchOutput = (
+  stdout: string,
+  hostKey: string,
+): Map<string, AgentIdentity> => {
   const identities = new Map<string, AgentIdentity>();
   for (const rawLine of stdout.split("\n")) {
     const line = rawLine.trimEnd();
     if (line.length === 0) continue;
     const parsed = parseIdentityBatchLine(line);
     if (!parsed) continue;
-    identities.set(parsed.profile, { key: `remote-a:${parsed.profile}`, ...parsed.identity });
+    identities.set(parsed.profile, {
+      key: `${hostKey}:${parsed.profile}`,
+      ...parsed.identity,
+    });
   }
   return identities;
 };
@@ -153,10 +161,11 @@ export const parseIdentityBatchOutput = (stdout: string): Map<string, AgentIdent
 // caching a transient failure as a legitimate empty result.
 const fetchRemoteIdentityBatch = async (
   operations: HermesIdentityOperations,
+  host: HermesHostId,
 ): Promise<Map<string, AgentIdentity> | undefined> => {
-  const result = await operations.identityBatch();
+  const result = await operations.identityBatch(host);
   if (!result.ok) return undefined;
-  return parseIdentityBatchOutput(result.stdout);
+  return parseIdentityBatchOutput(result.stdout, host);
 };
 
 // ---------------------------------------------------------------------------
@@ -193,7 +202,7 @@ const fetchHostBatch = (
 
   const run = host === "local"
     ? fetchLocalIdentityBatch
-    : () => fetchRemoteIdentityBatch(operations);
+    : () => fetchRemoteIdentityBatch(operations, host);
   const promise = run()
     .then((identities) => {
       if (identities === undefined) {
@@ -257,9 +266,10 @@ const readLocalAvatarBuffer = (profile: string): Buffer | undefined => {
 
 const fetchRemoteAvatarBuffer = async (
   operations: HermesIdentityOperations,
+  host: HermesHostId,
   profile: HermesProfileName,
 ): Promise<Buffer | undefined> => {
-  const result = await operations.avatar(profile);
+  const result = await operations.avatar(host, profile);
   if (!result.ok) return undefined;
   try {
     const buf = Buffer.from(result.stdout.replace(/\s+/g, ""), "base64");
@@ -289,7 +299,7 @@ export const fetchAgentAvatar = async (
   const buf =
     parsed.host === "local"
       ? readLocalAvatarBuffer(parsed.profile)
-      : await fetchRemoteAvatarBuffer(operations, parsed.profile);
+      : await fetchRemoteAvatarBuffer(operations, parsed.host, parsed.profile);
   if (!buf || buf.length === 0 || buf.length > MAX_AVATAR_BYTES) return null;
 
   try {

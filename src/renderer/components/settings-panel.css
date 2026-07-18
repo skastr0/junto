@@ -187,6 +187,84 @@
   color: #ede6da;
   font-size: 12px;
 }
+.settings-success {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(90, 170, 110, 0.35);
+  background: rgba(90, 170, 110, 0.1);
+  color: #ede6da;
+  font-size: 12px;
+}
+
+.settings-host-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-host-card {
+  border: 1px solid rgba(237, 230, 218, 0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.settings-host-card__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-host-card__meta {
+  font-size: 11px;
+  color: #8a8378;
+}
+.settings-host-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.settings-host-card__danger {
+  color: #e07a7a !important;
+}
+.settings-host-card__test {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: #8fa3b0;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.settings-host-form {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(237, 230, 218, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.settings-host-form__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ede6da;
+}
+.settings-host-form__actions {
+  display: flex;
+  gap: 8px;
+}
+.settings-host-caps {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: #ede6da;
+}
+.settings-host-caps label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .settings-foot {
   margin: 16px 0 0;
   font-size: 11px;

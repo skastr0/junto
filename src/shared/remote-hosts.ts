@@ -1,8 +1,9 @@
 import { Schema } from "effect";
 
 // Durable remote-host registry under ~/.vellum/hosts.json.
-// The document is the product surface for multi-host fleets; source constants
-// only seed defaults so existing local + remote-a setups keep working.
+// The document is the product surface for multi-host fleets. Source only seeds
+// the immutable local host — remote machines are user-authored, never product
+// constants.
 
 export const REMOTE_HOSTS_VERSION = 1 as const;
 
@@ -37,8 +38,7 @@ export type HostEndpoint = typeof HostEndpoint.Type;
 
 /**
  * Optional alternate id used in hermes agent keys (`<hermesId>:<profile>`).
- * Defaults to stripping hyphens from `id` for the legacy remote-a → remote-a
- * mapping when omitted at write time.
+ * When omitted, agent keys use `id` as written (no silent rewrite).
  */
 export const HermesHostKey = Schema.String.pipe(
   Schema.minLength(1),
@@ -66,6 +66,7 @@ export const RemoteHostsDocument = Schema.Struct({
 });
 export type RemoteHostsDocument = typeof RemoteHostsDocument.Type;
 
+/** Only local is seeded. Remote hosts are added via Settings / hosts API. */
 export const defaultRemoteHostsDocument = (): RemoteHostsDocument => ({
   version: REMOTE_HOSTS_VERSION,
   hosts: [
@@ -74,15 +75,6 @@ export const defaultRemoteHostsDocument = (): RemoteHostsDocument => ({
       label: "local",
       kind: "local",
       capabilities: ["herdr", "hermes"],
-    },
-    {
-      id: "remote-a",
-      label: "remote-a",
-      kind: "remote",
-      endpoint: "remote-a",
-      capabilities: ["herdr", "hermes"],
-      // Hermes agent keys historically used remote-a (no hyphen).
-      hermesId: "remote-a",
     },
   ],
 });
@@ -93,7 +85,7 @@ export const hostHasCapability = (
 ): boolean => host.capabilities.includes(capability);
 
 export const hermesKeyFor = (host: RemoteHost): string =>
-  host.hermesId ?? host.id.replace(/-/g, "");
+  host.hermesId ?? host.id;
 
 export const isLocalHost = (host: RemoteHost): boolean => host.kind === "local";
 

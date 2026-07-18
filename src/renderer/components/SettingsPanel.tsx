@@ -2,7 +2,12 @@ import { use$ } from "@legendapp/state/react";
 import { RotateCcw, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { BrowserProfileInfo, VellumBrowserApi } from "@shared/ipc";
+import type {
+  BrowserProfileInfo,
+  HostsOpResult,
+  HostsTestResult,
+  VellumBrowserApi,
+} from "@shared/ipc";
 import type { SettingsSectionKey } from "@shared/settings";
 import { state$ } from "../lib/state";
 import { closeSettings, patchSettings, resetSettings } from "../lib/settings-state";
@@ -17,14 +22,36 @@ import { DIM, HUE, INK } from "../lib/theme";
 import { getVellumApi } from "../lib/vellum-api";
 import "./settings-panel.css";
 
-const SECTIONS: ReadonlyArray<{ key: SettingsSectionKey; label: string; blurb: string }> = [
+/** Settings sections: prefs sections + hosts (hosts is not a SettingsSectionKey). */
+type PanelSection = SettingsSectionKey | "hosts";
+
+const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
   { key: "appearance", label: "Appearance", blurb: "theme, density, motion" },
   { key: "canvas", label: "Canvas", blurb: "defaults for the portfolio field" },
+  { key: "hosts", label: "Hosts", blurb: "local + remote SSH fleet" },
   { key: "audio", label: "Audio", blurb: "RTS alert SFX mute and levels" },
   { key: "kernel", label: "Kernel", blurb: "pulse retention and debug" },
   { key: "browser", label: "Browser", blurb: "surface and warm-session limits" },
   { key: "advanced", label: "Advanced", blurb: "startup and recovery prefs" },
 ];
+
+type HostRow = NonNullable<HostsOpResult["hosts"]>[number];
+
+const emptyHostDraft = (): {
+  id: string;
+  label: string;
+  endpoint: string;
+  herdr: boolean;
+  hermes: boolean;
+  hermesId: string;
+} => ({
+  id: "",
+  label: "",
+  endpoint: "",
+  herdr: true,
+  hermes: true,
+  hermesId: "",
+});
 
 function FieldRow({
   label,
@@ -361,6 +388,332 @@ function AdvancedSection() {
   );
 }
 
+function HostsSection() {
+  const [hosts, setHosts] = useState<ReadonlyArray<HostRow>>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{
+    readonly kind: "success" | "error";
+    readonly message: string;
+  }>();
+  const [draft, setDraft] = useState(emptyHostDraft);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [testDetail, setTestDetail] = useState<Record<string, string>>({});
+
+  const load = useCallback(async () => {
+    const api = getVellumApi();
+    if (!api?.hostsList) {
+      setLoading(false);
+      setNotice({ kind: "error", message: "Hosts API unavailable." });
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await api.hostsList();
+      if (result.ok && result.hosts) {
+        setHosts(result.hosts);
+        setNotice(undefined);
+      } else {
+        setNotice({ kind: "error", message: result.message ?? "Could not load hosts." });
+      }
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const beginEdit = (host: HostRow) => {
+    if (host.kind === "local") return;
+    setEditingId(host.id);
+    setDraft({
+      id: host.id,
+      label: host.label,
+      endpoint: host.endpoint ?? "",
+      herdr: host.capabilities.includes("herdr"),
+      hermes: host.capabilities.includes("hermes"),
+      hermesId: host.hermesId ?? "",
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setDraft(emptyHostDraft());
+  };
+
+  const saveHost = async () => {
+    const api = getVellumApi();
+    if (!api?.hostsUpsert) {
+      setNotice({ kind: "error", message: "Hosts API unavailable." });
+      return;
+    }
+    const id = draft.id.trim();
+    const label = draft.label.trim() || id;
+    const endpoint = draft.endpoint.trim();
+    if (!id || !endpoint) {
+      setNotice({ kind: "error", message: "Host id and SSH endpoint are required." });
+      return;
+    }
+    if (!draft.herdr && !draft.hermes) {
+      setNotice({ kind: "error", message: "Enable at least one capability (Herdr or Hermes)." });
+      return;
+    }
+    if (id === "local") {
+      setNotice({ kind: "error", message: "Id \"local\" is reserved." });
+      return;
+    }
+    const capabilities: Array<"herdr" | "hermes"> = [];
+    if (draft.herdr) capabilities.push("herdr");
+    if (draft.hermes) capabilities.push("hermes");
+
+    setBusy(true);
+    try {
+      const result = await api.hostsUpsert({
+        id,
+        label,
+        kind: "remote",
+        endpoint,
+        capabilities,
+        ...(draft.hermesId.trim() ? { hermesId: draft.hermesId.trim() } : {}),
+      });
+      if (result.ok && result.hosts) {
+        setHosts(result.hosts);
+        setNotice({
+          kind: "success",
+          message: editingId ? `Updated ${id}.` : `Added ${id}.`,
+        });
+        cancelEdit();
+      } else {
+        setNotice({ kind: "error", message: result.message ?? "Save failed." });
+      }
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeHost = async (id: string) => {
+    const api = getVellumApi();
+    if (!api?.hostsRemove) return;
+    if (!window.confirm(`Remove remote host “${id}”?`)) return;
+    setBusy(true);
+    try {
+      const result = await api.hostsRemove(id);
+      if (result.ok && result.hosts) {
+        setHosts(result.hosts);
+        setNotice({ kind: "success", message: `Removed ${id}.` });
+        if (editingId === id) cancelEdit();
+      } else {
+        setNotice({ kind: "error", message: result.message ?? "Remove failed." });
+      }
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const testHost = async (id: string) => {
+    const api = getVellumApi();
+    if (!api?.hostsTest) return;
+    setBusy(true);
+    setTestDetail((prev) => ({ ...prev, [id]: "testing…" }));
+    try {
+      const result: HostsTestResult = await api.hostsTest(id);
+      setTestDetail((prev) => ({
+        ...prev,
+        [id]: result.detail || (result.ok ? "ok" : result.message ?? "failed"),
+      }));
+      setNotice({
+        kind: result.ok ? "success" : "error",
+        message: result.ok ? `${id}: connection ok` : `${id}: ${result.detail || result.message}`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setTestDetail((prev) => ({ ...prev, [id]: message }));
+      setNotice({ kind: "error", message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="settings-section">
+      <p className="settings-note">
+        Remote hosts are user-authored — nothing is hard-coded for a particular machine.
+        Use an SSH config <code>Host</code> alias or <code>user@hostname</code>. Agent keys for
+        Hermes use the host id (or optional hermes id).
+      </p>
+
+      {loading ? (
+        <p className="settings-note">Loading hosts…</p>
+      ) : (
+        <ul className="settings-host-list" aria-label="Configured hosts">
+          {hosts.map((host) => (
+            <li key={host.id} className="settings-host-card">
+              <div className="settings-host-card__head">
+                <strong>{host.label}</strong>
+                <span className="settings-host-card__meta">
+                  {host.kind === "local" ? "local" : host.endpoint}
+                  {" · "}
+                  {host.capabilities.join(", ")}
+                  {host.hermesId ? ` · hermes ${host.hermesId}` : ""}
+                </span>
+              </div>
+              <div className="settings-host-card__actions">
+                <button
+                  type="button"
+                  className="settings-panel__ghost"
+                  disabled={busy}
+                  onClick={() => void testHost(host.id)}
+                >
+                  test
+                </button>
+                {host.kind === "remote" ? (
+                  <>
+                    <button
+                      type="button"
+                      className="settings-panel__ghost"
+                      disabled={busy}
+                      onClick={() => beginEdit(host)}
+                    >
+                      edit
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-panel__ghost settings-host-card__danger"
+                      disabled={busy}
+                      onClick={() => void removeHost(host.id)}
+                    >
+                      remove
+                    </button>
+                  </>
+                ) : null}
+              </div>
+              {testDetail[host.id] ? (
+                <p className="settings-host-card__test" role="status">
+                  {testDetail[host.id]}
+                </p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="settings-host-form" aria-label={editingId ? "Edit host" : "Add remote host"}>
+        <h3 className="settings-host-form__title">
+          {editingId ? `Edit ${editingId}` : "Add remote host"}
+        </h3>
+        <FieldRow label="Host id" hint="stable product id (not a leading dash)">
+          <input
+            type="text"
+            value={draft.id}
+            disabled={busy || editingId !== null}
+            placeholder="e.g. studio"
+            aria-label="Host id"
+            onChange={(event) => setDraft((d) => ({ ...d, id: event.target.value }))}
+          />
+        </FieldRow>
+        <FieldRow label="Display name" hint="shown in UI chrome">
+          <input
+            type="text"
+            value={draft.label}
+            disabled={busy}
+            placeholder="optional — defaults to id"
+            aria-label="Display name"
+            onChange={(event) => setDraft((d) => ({ ...d, label: event.target.value }))}
+          />
+        </FieldRow>
+        <FieldRow label="SSH endpoint" hint="SSH config Host alias or user@host">
+          <input
+            type="text"
+            value={draft.endpoint}
+            disabled={busy}
+            placeholder="e.g. studio or ops@10.0.0.5"
+            aria-label="SSH endpoint"
+            onChange={(event) => setDraft((d) => ({ ...d, endpoint: event.target.value }))}
+          />
+        </FieldRow>
+        <FieldRow label="Capabilities" hint="which product surfaces use this host">
+          <span className="settings-host-caps">
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.herdr}
+                disabled={busy}
+                aria-label="Herdr capability"
+                onChange={(event) => setDraft((d) => ({ ...d, herdr: event.target.checked }))}
+              />
+              Herdr
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.hermes}
+                disabled={busy}
+                aria-label="Hermes capability"
+                onChange={(event) => setDraft((d) => ({ ...d, hermes: event.target.checked }))}
+              />
+              Hermes
+            </label>
+          </span>
+        </FieldRow>
+        <FieldRow
+          label="Hermes agent-key id"
+          hint="optional override for agent keys (defaults to host id)"
+        >
+          <input
+            type="text"
+            value={draft.hermesId}
+            disabled={busy || !draft.hermes}
+            placeholder="optional"
+            aria-label="Hermes agent-key id"
+            onChange={(event) => setDraft((d) => ({ ...d, hermesId: event.target.value }))}
+          />
+        </FieldRow>
+        <div className="settings-host-form__actions">
+          <button
+            type="button"
+            className="settings-panel__ghost"
+            disabled={busy}
+            onClick={() => void saveHost()}
+          >
+            {editingId ? "Save changes" : "Add host"}
+          </button>
+          {editingId ? (
+            <button type="button" className="settings-panel__ghost" disabled={busy} onClick={cancelEdit}>
+              cancel
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {notice ? (
+        <p
+          className={notice.kind === "error" ? "settings-error" : "settings-success"}
+          role={notice.kind === "error" ? "alert" : "status"}
+        >
+          {notice.message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function AudioSection() {
   const audio = use$(state$.settings.audio);
   return (
@@ -452,12 +805,14 @@ function AudioSection() {
   );
 }
 
-function SectionBody({ section }: { readonly section: SettingsSectionKey }) {
+function SectionBody({ section }: { readonly section: PanelSection }) {
   switch (section) {
     case "appearance":
       return <AppearanceSection />;
     case "canvas":
       return <CanvasSection />;
+    case "hosts":
+      return <HostsSection />;
     case "audio":
       return <AudioSection />;
     case "kernel":
@@ -474,7 +829,7 @@ export function SettingsPanel() {
   const loading = use$(state$.settingsLoading);
   const error = use$(state$.settingsError);
   const version = use$(state$.settings.version);
-  const [section, setSection] = useState<SettingsSectionKey>("appearance");
+  const [section, setSection] = useState<PanelSection>("appearance");
 
   useEffect(() => {
     if (!open) return;
@@ -511,16 +866,18 @@ export function SettingsPanel() {
             </div>
           </div>
           <div className="settings-panel__header-actions">
-            <button
-              type="button"
-              className="settings-panel__ghost"
-              title={`Reset ${meta.label} to defaults`}
-              aria-label={`Reset ${meta.label}`}
-              onClick={() => void resetSettings(section)}
-            >
-              <RotateCcw size={14} />
-              <span>reset section</span>
-            </button>
+            {section !== "hosts" ? (
+              <button
+                type="button"
+                className="settings-panel__ghost"
+                title={`Reset ${meta.label} to defaults`}
+                aria-label={`Reset ${meta.label}`}
+                onClick={() => void resetSettings(section)}
+              >
+                <RotateCcw size={14} />
+                <span>reset section</span>
+              </button>
+            ) : null}
             <button
               type="button"
               className="settings-panel__close"

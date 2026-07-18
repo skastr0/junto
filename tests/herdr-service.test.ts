@@ -15,13 +15,13 @@ const ok = (stdout: string): CliResult => ({ ok: true, stdout });
 const fail = (error: string): CliResult => ({ ok: false, stdout: "", error });
 
 describe("herdr hosts", () => {
-  it("exposes local + remote-a default hosts from the registry", () => {
-    expect(listHerdrHosts().map((h) => h.id)).toEqual(["local", "remote-a"]);
+  it("exposes local from the default registry (remotes are user-authored)", () => {
+    expect(listHerdrHosts().map((h) => h.id)).toContain("local");
+    expect(listHerdrHosts().every((h) => h.id.length > 0)).toBe(true);
   });
 
   it("recognizes only registry herdr hosts", () => {
     expect(isKnownHerdrHost("local")).toBe(true);
-    expect(isKnownHerdrHost("remote-a")).toBe(true);
     expect(isKnownHerdrHost("evil-host")).toBe(false);
     expect(isKnownHerdrHost("-oProxyCommand=x")).toBe(false);
   });
@@ -350,9 +350,21 @@ describe("HerdrService with mock runner", () => {
   });
 
   it("maps unreachable host failures", async () => {
+    const { setHostsSnapshot } = await import("../src/main/vellum/hosts/snapshot");
+    const { defaultRemoteHostsDocument } = await import("../src/shared/remote-hosts");
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      {
+        id: "studio",
+        label: "studio",
+        kind: "remote",
+        endpoint: "studio",
+        capabilities: ["herdr"],
+      },
+    ]);
     const runner: HerdrRunner = async () => fail("ssh: ConnectTimeout");
     const svc = new HerdrService(runner);
-    const res = await svc.listWorkspaces("remote-a");
+    const res = await svc.listWorkspaces("studio");
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.code).toBe("timeout");
   });

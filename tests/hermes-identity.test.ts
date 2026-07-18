@@ -20,8 +20,9 @@ describe("parseAgentKey", () => {
     expect(parseAgentKey("local:default")).toEqual({ host: "local", profile: "default" });
   });
 
-  it("rejects an unknown host", () => {
-    expect(parseAgentKey("windows:profile-13")).toBeUndefined();
+  it("accepts any well-formed host id (membership is registry-checked at use)", () => {
+    expect(parseAgentKey("windows:profile-13")).toEqual({ host: "windows", profile: "profile-13" });
+    expect(parseAgentKey("fleet-1:agent")).toEqual({ host: "fleet-1", profile: "agent" });
   });
 
   it("rejects a missing profile segment", () => {
@@ -126,10 +127,10 @@ describe("parseIdentityBatchOutput", () => {
       "profile-14\t\t\t\tfalse",
     ].join("\n");
 
-    const identities = parseIdentityBatchOutput(stdout);
+    const identities = parseIdentityBatchOutput(stdout, "fleet-1");
     expect(identities.size).toBe(3);
     expect(identities.get("profile-13")).toEqual({
-      key: "remote-a:profile-13",
+      key: "fleet-1:profile-13",
       displayName: "PROFILE-13",
       matrixUserId: "@profile-13:remote-a.ts.net",
       homeRoomName: "PROFILE-13 — Repositories",
