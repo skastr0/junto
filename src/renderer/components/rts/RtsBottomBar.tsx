@@ -13,10 +13,16 @@ import {
   Trash2,
 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
+import { groupMembers } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { state$, toggleFlagFilter } from "../../lib/state";
 import { assignSlot, mergeSlotOrder, useRegionRollups } from "../../lib/region-rollups";
+import {
+  membersInDocumentOrder,
+  regionDigitVerdict,
+  type RegionRetapMemory,
+} from "../../lib/region-retap";
 import { signalMark, signalMarkForMember } from "../../lib/signal-mark";
 import { deleteNode, deleteNodes, setNodeColor, toggleFlag, addNode } from "../../lib/mutations";
 import { makeGroupNode } from "../../lib/node-factories";
@@ -596,14 +602,16 @@ function OrphanNotices() {
 
 function useRegionHotkeys(): void {
   useEffect(() => {
+    let retap: RegionRetapMemory | null = null;
     const onKey = (event: KeyboardEvent) => {
       if (isTextEditing(event.target)) return;
       const digit = event.key >= "1" && event.key <= "9" ? Number(event.key) : null;
       if (digit === null) return;
       const slotIndex = digit - 1;
+      const doc = state$.doc.peek();
       const order = mergeSlotOrder(
         state$.regionSlotOrder.peek(),
-        state$.doc.peek().nodes.filter((n) => n.type === "group").map((n) => n.id),
+        doc.nodes.filter((n) => n.type === "group").map((n) => n.id),
       );
 
       if (event.metaKey || event.ctrlKey) {
@@ -612,13 +620,14 @@ function useRegionHotkeys(): void {
         const single = state$.selectedNodeId.peek();
         const ids = selection.length > 0 ? selection : single ? [single] : [];
         // Prefer assigning an already-selected region into the slot.
-        const selectedRegion = ids.find((id) => state$.doc.peek().nodes.some((n) => n.id === id && n.type === "group"));
+        const selectedRegion = ids.find((id) => doc.nodes.some((n) => n.id === id && n.type === "group"));
         const regionId = selectedRegion ?? createRegionFromIds(ids);
         if (!regionId) return;
         state$.regionSlotOrder.set(assignSlot(order, regionId, slotIndex));
         state$.selectedNodeId.set(regionId);
         state$.selectedNodeIds.set([regionId]);
         state$.focusNodeId.set(regionId);
+        retap = null;
         return;
       }
 
@@ -626,6 +635,31 @@ function useRegionHotkeys(): void {
       const regionId = order[slotIndex];
       if (!regionId) return;
       event.preventDefault();
+
+      // Membership matches region rollups (groupMembers); cycle in document order.
+      const memberIds = membersInDocumentOrder(
+        groupMembers(doc).get(regionId) ?? [],
+        doc.nodes.map((n) => n.id),
+      );
+      const { verdict, memory } = regionDigitVerdict(
+        retap,
+        slotIndex,
+        performance.now(),
+        memberIds.length,
+      );
+      retap = memory;
+
+      if (verdict.kind === "select-member") {
+        const memberId = memberIds[verdict.index];
+        if (memberId) {
+          state$.selectedNodeId.set(memberId);
+          state$.selectedNodeIds.set([memberId]);
+          state$.selectedEdgeId.set("");
+          state$.focusNodeId.set(memberId);
+          return;
+        }
+      }
+
       state$.selectedNodeId.set(regionId);
       state$.selectedNodeIds.set([regionId]);
       state$.selectedEdgeId.set("");
