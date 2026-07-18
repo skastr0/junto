@@ -42,4 +42,36 @@ describe("ProcessSpawnerLive", () => {
 
     expect(result).toEqual({ code: 0, stdout: "effect-process-ok" });
   });
+
+  it("terminates a responsive owned process without waiting through the grace period", async () => {
+    const startedAt = Date.now();
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* (yield* ProcessSpawner).start(Command.make("/bin/cat"));
+          yield* Effect.sleep(20);
+        }),
+      ).pipe(Effect.provide(SpawnerLive)),
+    );
+
+    expect(Date.now() - startedAt).toBeLessThan(1_500);
+  });
+
+  it("escalates from SIGTERM to SIGKILL after a bounded grace period", async () => {
+    const startedAt = Date.now();
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* (yield* ProcessSpawner).start(
+            Command.make("/bin/sh", "-c", "trap '' TERM; while :; do sleep 1; done"),
+          );
+          yield* Effect.sleep(50);
+        }),
+      ).pipe(Effect.provide(SpawnerLive)),
+    );
+    const elapsed = Date.now() - startedAt;
+
+    expect(elapsed).toBeGreaterThanOrEqual(1_500);
+    expect(elapsed).toBeLessThan(4_500);
+  });
 });

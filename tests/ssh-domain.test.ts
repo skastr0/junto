@@ -2,8 +2,10 @@ import { Effect, Either } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   makeRemoteCommand,
+  makeRemoteStdin,
   parseSshEndpoint,
-  parseUnixSocketPath,
+  parseRemoteUnixSocketPath,
+  oneShot,
   type OneShotProgram,
   type ScopedStreamProgram,
 } from "../src/main/vellum/ssh";
@@ -25,11 +27,33 @@ describe("SSH domain", () => {
     expect(Either.isLeft(result)).toBe(true);
   });
 
-  it("bounds Unix socket paths by encoded bytes", async () => {
-    const overLimit = `/${"é".repeat(52)}`;
-    const result = await Effect.runPromise(Effect.either(parseUnixSocketPath(overLimit)));
+  it("bounds the complete remote command below the local argv ceiling", async () => {
+    const result = await Effect.runPromise(
+      Effect.either(makeRemoteCommand("herdr", ["a".repeat(64 * 1024), "b".repeat(64 * 1024)])),
+    );
 
     expect(Either.isLeft(result)).toBe(true);
+  });
+
+  it("bounds Unix socket paths by encoded bytes", async () => {
+    const overLimit = `/${"é".repeat(52)}`;
+    const result = await Effect.runPromise(Effect.either(parseRemoteUnixSocketPath(overLimit)));
+
+    expect(Either.isLeft(result)).toBe(true);
+  });
+
+  it("rejects OpenSSH forwarding metacharacters in remote socket paths", async () => {
+    for (const path of [
+      "/tmp/a:b.sock",
+      "/tmp/%h.sock",
+      "/tmp/a\\b.sock",
+      "/tmp/a\nsock",
+    ]) {
+      const result = await Effect.runPromise(
+        Effect.either(parseRemoteUnixSocketPath(path)),
+      );
+      expect(Either.isLeft(result)).toBe(true);
+    }
   });
 
   it("keeps one-shot and scoped-stream programs nominally disjoint", () => {
@@ -38,5 +62,18 @@ describe("SSH domain", () => {
     // @ts-expect-error SSH programs are opaque and cannot be forged by callers.
     const forged: OneShotProgram = {};
     expect(forged).toEqual({});
+  });
+
+  it("requires opaque commands and stdin at every operation boundary", async () => {
+    const endpoint = await Effect.runPromise(parseSshEndpoint("remote-a"));
+    const input = await Effect.runPromise(makeRemoteStdin("sensitive body"));
+
+    // @ts-expect-error raw shell text cannot be used as a remote command.
+    const rawProgram: OneShotProgram = oneShot(endpoint, "rm -rf /tmp/example");
+    // @ts-expect-error remote stdin cannot be structurally forged.
+    const forgedInput: typeof input = {};
+
+    expect(rawProgram).toBeDefined();
+    expect(forgedInput).toEqual({});
   });
 });

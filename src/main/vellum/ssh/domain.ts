@@ -55,7 +55,6 @@ export class SshExitError extends Schema.TaggedError<SshExitError>()("SshExitErr
   endpoint: Schema.String,
   operation: Schema.String,
   code: Schema.Number,
-  stderr: Schema.String,
 }) {}
 
 export class SshForwardError extends Schema.TaggedError<SshForwardError>()("SshForwardError", {
@@ -98,6 +97,12 @@ const commandParts = new WeakMap<RemoteCommand, RemoteCommandParts>();
 const validRemoteArg = (arg: string): boolean =>
   !arg.includes("\u0000") && Buffer.byteLength(arg, "utf8") <= 64 * 1024;
 
+const remoteCommandBytes = (executable: string, args: ReadonlyArray<string>): number =>
+  [executable, ...args].reduce(
+    (total, token) => total + Buffer.byteLength(token, "utf8") + 1,
+    0,
+  );
+
 export const makeRemoteCommand = (
   executable: string,
   args: ReadonlyArray<string> = [],
@@ -110,7 +115,11 @@ export const makeRemoteCommand = (
       new SshInputError({ message: "remote executable must be a bounded option-safe token" }),
     );
   }
-  if (args.length > 256 || args.some((arg) => !validRemoteArg(arg))) {
+  if (
+    args.length > 256 ||
+    args.some((arg) => !validRemoteArg(arg)) ||
+    remoteCommandBytes(executable, args) > 128 * 1024
+  ) {
     return Effect.fail(
       new SshInputError({ message: "remote command arguments exceed the SSH command boundary" }),
     );
@@ -131,26 +140,64 @@ export const inspectRemoteCommand = (command: RemoteCommand): RemoteCommandParts
   return parts;
 };
 
-export const UnixSocketPath = Schema.String.pipe(
+const REMOTE_SOCKET_PATTERN = /^\/[A-Za-z0-9._+@/-]+$/u;
+
+export const RemoteUnixSocketPath = Schema.String.pipe(
   Schema.minLength(1),
   Schema.filter(
     (value) =>
       value.startsWith("/") &&
-      !value.includes("\u0000") &&
+      REMOTE_SOCKET_PATTERN.test(value) &&
       Buffer.byteLength(value, "utf8") <= 103,
     {
-    message: () => "Unix socket path must be absolute and fit the Unix-domain path limit",
+      message: () =>
+        "Remote Unix socket path must be absolute, bounded, and safe for OpenSSH forwarding",
     },
   ),
-  Schema.brand("UnixSocketPath"),
+  Schema.brand("RemoteUnixSocketPath"),
 );
-export type UnixSocketPath = typeof UnixSocketPath.Type;
+export type RemoteUnixSocketPath = typeof RemoteUnixSocketPath.Type;
 
-export const parseUnixSocketPath = (
+export const parseRemoteUnixSocketPath = (
   input: unknown,
-): Effect.Effect<UnixSocketPath, SshInputError> =>
-  Schema.decodeUnknown(UnixSocketPath)(input).pipe(
+): Effect.Effect<RemoteUnixSocketPath, SshInputError> =>
+  Schema.decodeUnknown(RemoteUnixSocketPath)(input).pipe(
     Effect.mapError(() =>
-      new SshInputError({ message: "Unix socket path must be absolute and at most 103 UTF-8 bytes" }),
+      new SshInputError({
+        message:
+          "Remote Unix socket path must be absolute, at most 103 UTF-8 bytes, and contain only forwarding-safe characters",
+      }),
     ),
   );
+
+const RemoteStdinTypeId: unique symbol = Symbol("@vellum/ssh/RemoteStdin");
+
+export interface RemoteStdin {
+  readonly [RemoteStdinTypeId]: typeof RemoteStdinTypeId;
+}
+
+const remoteInputs = new WeakMap<RemoteStdin, Uint8Array>();
+const MAX_REMOTE_STDIN_BYTES = 16 * 1024 * 1024;
+
+export const makeRemoteStdin = (
+  input: string | Uint8Array,
+): Effect.Effect<RemoteStdin, SshInputError> => {
+  const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
+  if (bytes.byteLength > MAX_REMOTE_STDIN_BYTES) {
+    return Effect.fail(
+      new SshInputError({ message: "remote stdin exceeds the 16 MiB operation boundary" }),
+    );
+  }
+  const value = Object.freeze({
+    [RemoteStdinTypeId]: RemoteStdinTypeId,
+  }) as RemoteStdin;
+  remoteInputs.set(value, Uint8Array.from(bytes));
+  return Effect.succeed(value);
+};
+
+/** @internal SSH policy compiler only. */
+export const inspectRemoteStdin = (input: RemoteStdin): Uint8Array => {
+  const bytes = remoteInputs.get(input);
+  if (!bytes) throw new TypeError("RemoteStdin was not created by makeRemoteStdin");
+  return Uint8Array.from(bytes);
+};

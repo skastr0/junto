@@ -1,9 +1,10 @@
 export {
   SshEndpoint,
-  UnixSocketPath,
+  RemoteUnixSocketPath,
   makeRemoteCommand,
+  makeRemoteStdin,
   parseSshEndpoint,
-  parseUnixSocketPath,
+  parseRemoteUnixSocketPath,
   SshExitError,
   SshForwardError,
   SshInputError,
@@ -13,6 +14,7 @@ export {
   SshSpawnError,
   SshTimeoutError,
   type RemoteCommand,
+  type RemoteStdin,
   type SshError,
 } from "./domain";
 export {
@@ -20,6 +22,7 @@ export {
   dedicatedStream,
   homeDirectoryLookup,
   oneShot,
+  oneShotWithStdin,
   sharedStream,
   unixForward,
   type DaemonHandoffProgram,
@@ -32,6 +35,7 @@ export {
 export {
   SshTransport,
   type ConfirmSshReady,
+  type LocalForwardSocket,
   type SshCommandResult,
   type SshForwardLease,
   type SshLease,

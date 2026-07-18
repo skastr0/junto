@@ -1,12 +1,17 @@
 import * as FileSystem from "@effect/platform/FileSystem";
+import type * as Command from "@effect/platform/Command";
+import { randomUUID } from "node:crypto";
 import {
   Context,
+  Deferred,
   Effect,
   ExecutionStrategy,
   Exit,
   Layer,
+  Option,
+  Queue,
+  Ref,
   Scope,
-  Sink,
   Stream,
 } from "effect";
 import type { SshEndpoint, SshError } from "./domain";
@@ -25,17 +30,13 @@ import type {
   OneShotProgram,
   ScopedStreamProgram,
 } from "./program";
-import {
-  compileMasterExit,
-  compileMasterWarm,
-  compileProgram,
-  inspectProgram,
-} from "./program";
+import { createSshProgramCompiler } from "./program";
 import { ProcessFailure, ProcessSpawner, type ProcessHandle } from "./process-spawner";
 
 const STDOUT_LIMIT_BYTES = 8 * 1024 * 1024;
 const STDERR_LIMIT_BYTES = 256 * 1024;
-const STDERR_ERROR_BYTES = 4 * 1024;
+const INPUT_CHUNK_LIMIT_BYTES = 1024 * 1024;
+const INPUT_QUEUE_CAPACITY = 64;
 const FORWARD_POLL_MS = 40;
 
 export interface SshCommandResult {
@@ -44,15 +45,21 @@ export interface SshCommandResult {
 }
 
 export interface SshLease {
-  readonly stdin: Sink.Sink<void, Uint8Array, never, SshError>;
+  readonly write: (bytes: Uint8Array) => Effect.Effect<void, SshError>;
+  readonly closeInput: Effect.Effect<void, SshError>;
   readonly stdout: Stream.Stream<Uint8Array, SshError>;
   readonly stderr: Stream.Stream<Uint8Array, SshError>;
   readonly exitCode: Effect.Effect<number, SshError>;
   readonly close: Effect.Effect<void>;
 }
 
+declare const LocalForwardSocketTypeId: unique symbol;
+export type LocalForwardSocket = string & {
+  readonly [LocalForwardSocketTypeId]: typeof LocalForwardSocketTypeId;
+};
+
 export interface SshForwardLease {
-  readonly localSocket: string;
+  readonly localSocket: LocalForwardSocket;
   readonly close: Effect.Effect<void>;
   readonly exitCode: Effect.Effect<number, SshError>;
 }
@@ -73,8 +80,10 @@ export class SshTransport extends Context.Tag("@vellum/SshTransport")<
     readonly connect: <A, E, R>(
       program: ScopedStreamProgram,
       awaitReady: (lease: SshLease, confirm: ConfirmSshReady) => Effect.Effect<SshReady<A>, E, R>,
-    ) => Effect.Effect<A, SshError | E, R>;
-    readonly forward: (program: ForwardProgram) => Effect.Effect<SshForwardLease, SshError>;
+    ) => Effect.Effect<A, SshError | E, R | Scope.Scope>;
+    readonly forward: (
+      program: ForwardProgram,
+    ) => Effect.Effect<SshForwardLease, SshError, Scope.Scope>;
     readonly handoff: <A, E, R>(
       program: DaemonHandoffProgram,
       awaitReady: (confirm: ConfirmSshReady) => Effect.Effect<SshReady<A>, E, R>,
@@ -87,13 +96,33 @@ export class SshTransportConfig extends Context.Tag("@vellum/ssh/SshTransportCon
   SshTransportConfig,
   {
     readonly controlDir: string;
+    readonly envExecutable: string;
+    readonly sshExecutable: string;
+    readonly environment: Readonly<Record<string, string>>;
     readonly maxConcurrentDials: number;
+    readonly maxConcurrentDialsPerEndpoint: number;
   }
 >() {}
 
 interface Collected {
   readonly chunks: ReadonlyArray<Uint8Array>;
   readonly bytes: number;
+}
+
+interface InputChunk {
+  readonly _tag: "Chunk";
+  readonly bytes: Uint8Array;
+}
+
+interface InputEnd {
+  readonly _tag: "End";
+}
+
+type InputMessage = InputChunk | InputEnd;
+
+interface InternalLease extends SshLease {
+  readonly isRunning: Effect.Effect<boolean, SshError>;
+  readonly scope: Scope.CloseableScope;
 }
 
 const asText = (collected: Collected): string =>
@@ -117,7 +146,7 @@ const collectBounded = (
             limitBytes,
           }),
         )
-      : Effect.succeed({ chunks: [...state.chunks, chunk], bytes });
+      : Effect.succeed({ chunks: [...state.chunks, Uint8Array.from(chunk)], bytes });
   }).pipe(
     Effect.mapError((error) =>
       error instanceof ProcessFailure
@@ -126,20 +155,6 @@ const collectBounded = (
     ),
   );
 
-const truncateUtf8 = (value: string, maxBytes: number): string => {
-  const bytes = Buffer.from(value, "utf8");
-  return bytes.byteLength <= maxBytes ? value : bytes.subarray(0, maxBytes).toString("utf8");
-};
-
-const operationName = (tag: ReturnType<typeof inspectProgram>["_tag"]): string => {
-  switch (tag) {
-    case "OneShot": return "one-shot";
-    case "Stream": return "stream";
-    case "Forward": return "forward";
-    case "DaemonHandoff": return "daemon-handoff";
-  }
-};
-
 export const SshTransportLayer = Layer.scoped(
   SshTransport,
   Effect.gen(function* () {
@@ -147,7 +162,9 @@ export const SshTransportLayer = Layer.scoped(
     const fs = yield* FileSystem.FileSystem;
     const config = yield* SshTransportConfig;
     const owner = yield* Scope.Scope;
+    const compiler = createSshProgramCompiler(config);
     const dialPermits = yield* Effect.makeSemaphore(config.maxConcurrentDials);
+    const endpointPermits = new Map<string, Effect.Semaphore>();
     const warmLocks = new Map<string, Effect.Semaphore>();
     const masters = new Map<string, SshEndpoint>();
 
@@ -156,8 +173,11 @@ export const SshTransportLayer = Layer.scoped(
       value,
     });
 
-    const ioError = (endpoint: SshEndpoint, operation: string) =>
-      new SshIoError({ endpoint, operation, message: "SSH process I/O failed" });
+    const ioError = (endpoint: SshEndpoint, operation: string, message = "SSH process I/O failed") =>
+      new SshIoError({ endpoint, operation, message });
+
+    const forwardError = (endpoint: SshEndpoint, message: string) =>
+      new SshForwardError({ endpoint, message });
 
     const ensureControlDir = (endpoint: SshEndpoint): Effect.Effect<void, SshSetupError> =>
       fs.makeDirectory(config.controlDir, { recursive: true, mode: 0o700 }).pipe(
@@ -170,13 +190,25 @@ export const SshTransportLayer = Layer.scoped(
         ),
       );
 
-    const withDial = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
-      dialPermits.withPermits(1)(effect);
+    const semaphoreFor = (endpoint: SshEndpoint): Effect.Semaphore => {
+      const key = String(endpoint);
+      const existing = endpointPermits.get(key);
+      if (existing) return existing;
+      const created = Effect.unsafeMakeSemaphore(config.maxConcurrentDialsPerEndpoint);
+      endpointPermits.set(key, created);
+      return created;
+    };
+
+    const withDial = <A, E, R>(
+      endpoint: SshEndpoint,
+      effect: Effect.Effect<A, E, R>,
+    ): Effect.Effect<A, E, R> =>
+      semaphoreFor(endpoint).withPermits(1)(dialPermits.withPermits(1)(effect));
 
     const acquire = (
       endpoint: SshEndpoint,
       operation: string,
-      command: Parameters<Context.Tag.Service<typeof ProcessSpawner>["start"]>[0],
+      command: Command.Command,
     ): Effect.Effect<ProcessHandle, SshSpawnError, Scope.Scope> =>
       spawner.start(command).pipe(
         Effect.mapError(() =>
@@ -187,8 +219,8 @@ export const SshTransportLayer = Layer.scoped(
     const runProcess = (
       endpoint: SshEndpoint,
       operation: string,
-      command: Parameters<Context.Tag.Service<typeof ProcessSpawner>["start"]>[0],
-      stdin?: Uint8Array,
+      command: Command.Command,
+      input?: Uint8Array,
     ): Effect.Effect<{ readonly result: SshCommandResult; readonly code: number }, SshError> =>
       Effect.scoped(
         Effect.gen(function* () {
@@ -196,7 +228,7 @@ export const SshTransportLayer = Layer.scoped(
           const completed = yield* Effect.all(
             {
               input: Stream.run(
-                stdin === undefined ? Stream.empty : Stream.make(stdin),
+                input === undefined ? Stream.empty : Stream.make(Uint8Array.from(input)),
                 process.stdin,
               ).pipe(Effect.mapError(() => ioError(endpoint, operation))),
               stdout: collectBounded(
@@ -227,22 +259,15 @@ export const SshTransportLayer = Layer.scoped(
     const runChecked = (
       endpoint: SshEndpoint,
       operation: string,
-      command: Parameters<Context.Tag.Service<typeof ProcessSpawner>["start"]>[0],
+      command: Command.Command,
       timeoutMs: number,
-      stdin?: Uint8Array,
+      input?: Uint8Array,
     ): Effect.Effect<SshCommandResult, SshError> =>
-      runProcess(endpoint, operation, command, stdin).pipe(
+      runProcess(endpoint, operation, command, input).pipe(
         Effect.flatMap(({ result, code }) =>
           code === 0
             ? Effect.succeed(result)
-            : Effect.fail(
-                new SshExitError({
-                  endpoint,
-                  operation,
-                  code,
-                  stderr: truncateUtf8(result.stderr, STDERR_ERROR_BYTES),
-                }),
-              ),
+            : Effect.fail(new SshExitError({ endpoint, operation, code })),
         ),
         Effect.timeoutFail({
           duration: timeoutMs,
@@ -250,207 +275,344 @@ export const SshTransportLayer = Layer.scoped(
         }),
       );
 
-    const leaseFor = (
-      endpoint: SshEndpoint,
-      operation: string,
-      process: ProcessHandle,
-      child: Scope.CloseableScope,
-    ): SshLease => ({
-      stdin: process.stdin.pipe(Sink.mapError(() => ioError(endpoint, operation))),
-      stdout: process.stdout.pipe(Stream.mapError(() => ioError(endpoint, operation))),
-      stderr: process.stderr.pipe(Stream.mapError(() => ioError(endpoint, operation))),
-      exitCode: process.exitCode.pipe(Effect.mapError(() => ioError(endpoint, operation))),
-      close: Scope.close(child, Exit.void).pipe(Effect.ignore),
-    });
-
     const openLease = (
       endpoint: SshEndpoint,
       operation: string,
-      command: Parameters<Context.Tag.Service<typeof ProcessSpawner>["start"]>[0],
-    ): Effect.Effect<SshLease, SshSpawnError> =>
+      command: Command.Command,
+    ): Effect.Effect<InternalLease, SshSpawnError, Scope.Scope> =>
       Effect.gen(function* () {
-        const child = yield* Scope.fork(owner, ExecutionStrategy.sequential);
+        const caller = yield* Scope.Scope;
+        const child = yield* Scope.fork(caller, ExecutionStrategy.sequential);
         const process = yield* acquire(endpoint, operation, command).pipe(
           Scope.extend(child),
           Effect.catchAll((error) =>
-            Scope.close(child, Exit.fail(error)).pipe(
-              Effect.zipRight(Effect.fail(error)),
-            ),
+            Scope.close(child, Exit.fail(error)).pipe(Effect.zipRight(Effect.fail(error))),
           ),
         );
-        return leaseFor(endpoint, operation, process, child);
+        const queue = yield* Queue.bounded<InputMessage>(INPUT_QUEUE_CAPACITY);
+        const inputDone = yield* Deferred.make<void, SshError>();
+        const inputOpen = yield* Ref.make(true);
+        const inputLock = yield* Effect.makeSemaphore(1);
+        const mappedInput = Stream.fromQueue(queue).pipe(
+          Stream.takeUntil((message) => message._tag === "End"),
+          Stream.filterMap((message) =>
+            message._tag === "Chunk" ? Option.some(message.bytes) : Option.none(),
+          ),
+        );
+        const pump = Stream.run(mappedInput, process.stdin).pipe(
+          Effect.mapError(() => ioError(endpoint, operation)),
+          Effect.exit,
+          Effect.flatMap((exit) => Deferred.done(inputDone, exit)),
+          Effect.ignore,
+        );
+        yield* Effect.forkIn(pump, child);
+        yield* Scope.addFinalizer(child, Queue.shutdown(queue));
+
+        const inputUnavailable: Effect.Effect<never, SshError> = Deferred.await(inputDone).pipe(
+          Effect.flatMap(() =>
+            Effect.fail(ioError(endpoint, operation, "SSH process input is already closed")),
+          ),
+        );
+        const offer = (message: InputMessage): Effect.Effect<void, SshError> =>
+          Effect.raceFirst(
+            Queue.offer(queue, message).pipe(Effect.asVoid),
+            inputUnavailable,
+          );
+        const write = (bytes: Uint8Array): Effect.Effect<void, SshError> =>
+          inputLock.withPermits(1)(
+            Effect.gen(function* () {
+              if (bytes.byteLength > INPUT_CHUNK_LIMIT_BYTES) {
+                return yield* Effect.fail(
+                  ioError(endpoint, operation, "SSH input chunk exceeds the 1 MiB write boundary"),
+                );
+              }
+              if (!(yield* Ref.get(inputOpen))) {
+                return yield* Effect.fail(
+                  ioError(endpoint, operation, "SSH process input is already closed"),
+                );
+              }
+              yield* offer({ _tag: "Chunk", bytes: Uint8Array.from(bytes) });
+            }),
+          );
+        const closeInput = inputLock.withPermits(1)(
+          Ref.getAndSet(inputOpen, false).pipe(
+            Effect.flatMap((wasOpen) => wasOpen ? offer({ _tag: "End" }) : Effect.void),
+          ),
+        ).pipe(Effect.zipRight(Deferred.await(inputDone)));
+
+        return {
+          write,
+          closeInput,
+          stdout: process.stdout.pipe(Stream.mapError(() => ioError(endpoint, operation))),
+          stderr: process.stderr.pipe(Stream.mapError(() => ioError(endpoint, operation))),
+          exitCode: process.exitCode.pipe(Effect.mapError(() => ioError(endpoint, operation))),
+          isRunning: process.isRunning.pipe(Effect.mapError(() => ioError(endpoint, operation))),
+          close: Scope.close(child, Exit.void).pipe(Effect.ignore),
+          scope: child,
+        };
       });
 
     const rememberMaster = (endpoint: SshEndpoint): void => {
-      masters.set(endpoint, endpoint);
+      masters.set(String(endpoint), endpoint);
     };
 
-    const run = (program: OneShotProgram): Effect.Effect<SshCommandResult, SshError> => {
-      const payload = inspectProgram(program);
-      if (payload._tag !== "OneShot") {
-        return Effect.die(new TypeError("SshTransport.run received a non-one-shot program"));
-      }
-      const operation = operationName(payload._tag);
-      return withDial(
-        ensureControlDir(payload.endpoint).pipe(
-          Effect.tap(() => Effect.sync(() => rememberMaster(payload.endpoint))),
-          Effect.zipRight(
-            runChecked(
-              payload.endpoint,
-              operation,
-              compileProgram(payload, config.controlDir),
-              payload.timeoutMs,
-              payload.stdin,
-            ),
-          ),
-        ),
-      );
-    };
-
-    const connect: Context.Tag.Service<typeof SshTransport>["connect"] = (program, awaitReady) => {
-      const payload = inspectProgram(program);
-      if (payload._tag !== "Stream") {
-        return Effect.die(new TypeError("SshTransport.connect received a non-stream program"));
-      }
-      const operation = operationName(payload._tag);
-      const setup = payload.connection === "shared"
-        ? ensureControlDir(payload.endpoint).pipe(
-            Effect.tap(() => Effect.sync(() => rememberMaster(payload.endpoint))),
-          )
-        : Effect.void;
-      return withDial(
-        setup.pipe(
-          Effect.zipRight(openLease(payload.endpoint, operation, compileProgram(payload, config.controlDir))),
-          Effect.flatMap((lease) =>
-            awaitReady(lease, confirm).pipe(
-              Effect.timeoutFail({
-                duration: payload.readinessTimeoutMs,
-                onTimeout: () =>
-                  new SshTimeoutError({
-                    endpoint: payload.endpoint,
-                    operation,
-                    timeoutMs: payload.readinessTimeoutMs,
-                  }),
-              }),
-              Effect.onError(() => lease.close),
-            ),
-          ),
-          Effect.map((ready) => ready.value),
-        ),
-      );
-    };
-
-    const forward = (program: ForwardProgram): Effect.Effect<SshForwardLease, SshError> => {
-      const payload = inspectProgram(program);
-      if (payload._tag !== "Forward") {
-        return Effect.die(new TypeError("SshTransport.forward received a non-forward program"));
-      }
-      const operation = operationName(payload._tag);
-      return withDial(
-        openLease(payload.endpoint, operation, compileProgram(payload, config.controlDir)).pipe(
-          Effect.flatMap((lease) => {
-            const waitForSocket: Effect.Effect<void, SshError> = Effect.suspend(() =>
-              fs.exists(payload.localSocket).pipe(
-                Effect.mapError(() =>
-                  new SshForwardError({
-                    endpoint: payload.endpoint,
-                    message: "forward socket readiness check failed",
-                  }),
-                ),
-                Effect.flatMap((exists) =>
-                  exists
-                    ? Effect.void
-                    : Effect.raceFirst(
-                        lease.exitCode.pipe(
-                          Effect.flatMap((code) =>
-                            Effect.fail(
-                              new SshForwardError({
-                                endpoint: payload.endpoint,
-                                message: `SSH forward exited before readiness (${code})`,
-                              }),
-                            ),
-                          ),
-                        ),
-                        Effect.sleep(FORWARD_POLL_MS).pipe(Effect.zipRight(waitForSocket)),
-                      ),
+    const run = (program: OneShotProgram): Effect.Effect<SshCommandResult, SshError> =>
+      Effect.try({
+        try: () => compiler.oneShot(program),
+        catch: () => new SshSetupError({
+          endpoint: "invalid-program",
+          message: "SSH operation was not created by the policy surface",
+        }),
+      }).pipe(
+        Effect.flatMap((compiled) =>
+          withDial(
+            compiled.endpoint,
+            ensureControlDir(compiled.endpoint).pipe(
+              Effect.tap(() => Effect.sync(() => rememberMaster(compiled.endpoint))),
+              Effect.zipRight(
+                runChecked(
+                  compiled.endpoint,
+                  "one-shot",
+                  compiled.command,
+                  compiled.timeoutMs,
+                  compiled.input,
                 ),
               ),
-            );
-            return waitForSocket.pipe(
-              Effect.timeoutFail({
-                duration: payload.readinessTimeoutMs,
-                onTimeout: () =>
-                  new SshTimeoutError({
-                    endpoint: payload.endpoint,
-                    operation,
-                    timeoutMs: payload.readinessTimeoutMs,
-                  }),
-              }),
-              Effect.onError(() => lease.close),
-              Effect.as({
-                localSocket: payload.localSocket,
-                close: lease.close,
-                exitCode: lease.exitCode,
-              }),
-            );
-          }),
+            ),
+          ),
         ),
       );
-    };
 
-    const handoff: Context.Tag.Service<typeof SshTransport>["handoff"] = (program, awaitReady) => {
-      const payload = inspectProgram(program);
-      if (payload._tag !== "DaemonHandoff") {
-        return Effect.die(new TypeError("SshTransport.handoff received a non-daemon program"));
-      }
-      const operation = operationName(payload._tag);
-      return withDial(
-        Effect.gen(function* () {
-          yield* ensureControlDir(payload.endpoint);
-          rememberMaster(payload.endpoint);
-          const result = yield* runChecked(
-            payload.endpoint,
-            operation,
-            compileProgram(payload, config.controlDir),
-            payload.readinessTimeoutMs,
-          );
-          if (!/^\d+$/u.test(result.stdout.trim())) {
-            return yield* Effect.fail(
-              new SshIoError({
-                endpoint: payload.endpoint,
-                operation,
-                message: "remote daemon handoff did not return a process receipt",
+    const connect: Context.Tag.Service<typeof SshTransport>["connect"] = (program, awaitReady) =>
+      Effect.try({
+        try: () => compiler.stream(program),
+        catch: () => new SshSetupError({
+          endpoint: "invalid-program",
+          message: "SSH operation was not created by the policy surface",
+        }),
+      }).pipe(
+        Effect.flatMap((compiled) => {
+          const setup = compiled.connection === "shared"
+            ? ensureControlDir(compiled.endpoint).pipe(
+                Effect.tap(() => Effect.sync(() => rememberMaster(compiled.endpoint))),
+              )
+            : Effect.void;
+          return withDial(
+            compiled.endpoint,
+            setup.pipe(
+              Effect.zipRight(openLease(compiled.endpoint, "stream", compiled.command)),
+              Effect.flatMap((lease) => {
+                const exited: Effect.Effect<never, SshError> = lease.exitCode.pipe(
+                  Effect.flatMap((code) =>
+                    Effect.fail(new SshExitError({
+                      endpoint: compiled.endpoint,
+                      operation: "stream",
+                      code,
+                    })),
+                  ),
+                );
+                return Effect.raceFirst(awaitReady(lease, confirm), exited).pipe(
+                  Effect.timeoutFail({
+                    duration: compiled.readinessTimeoutMs,
+                    onTimeout: () =>
+                      new SshTimeoutError({
+                        endpoint: compiled.endpoint,
+                        operation: "stream",
+                        timeoutMs: compiled.readinessTimeoutMs,
+                      }),
+                  }),
+                  Effect.flatMap((ready) =>
+                    lease.isRunning.pipe(
+                      Effect.flatMap((running) =>
+                        running
+                          ? Effect.succeed(ready.value)
+                          : Effect.fail(new SshIoError({
+                              endpoint: compiled.endpoint,
+                              operation: "stream",
+                              message: "SSH stream exited during readiness confirmation",
+                            })),
+                      ),
+                    ),
+                  ),
+                  Effect.onError(() => lease.close),
+                );
               }),
-            );
-          }
-          const ready = yield* awaitReady(confirm).pipe(
-            Effect.timeoutFail({
-              duration: payload.readinessTimeoutMs,
-              onTimeout: () =>
-                new SshTimeoutError({
-                  endpoint: payload.endpoint,
-                  operation,
-                  timeoutMs: payload.readinessTimeoutMs,
-                }),
-            }),
+            ),
           );
-          return ready.value;
         }),
       );
-    };
+
+    const forward: Context.Tag.Service<typeof SshTransport>["forward"] = (program) =>
+      Effect.gen(function* () {
+        const compiled = yield* Effect.try({
+          try: () => compiler.forward(program, randomUUID().replaceAll("-", "")),
+          catch: () => new SshSetupError({
+            endpoint: "invalid-program",
+            message: "SSH forward operation or owned socket path is invalid",
+          }),
+        });
+        return yield* withDial(
+          compiled.endpoint,
+          Effect.gen(function* () {
+            yield* ensureControlDir(compiled.endpoint);
+            yield* fs.remove(compiled.localSocket, { force: true }).pipe(Effect.ignore);
+            yield* fs.remove(compiled.controlSocket, { force: true }).pipe(Effect.ignore);
+            const master = yield* openLease(compiled.endpoint, "forward-master", compiled.master);
+            const cleanup = Effect.gen(function* () {
+              yield* runChecked(
+                compiled.endpoint,
+                "forward-cancel",
+                compiled.cancel,
+                2_000,
+              ).pipe(Effect.interruptible, Effect.ignore);
+              yield* runChecked(
+                compiled.endpoint,
+                "forward-exit",
+                compiled.exit,
+                2_000,
+              ).pipe(Effect.interruptible, Effect.ignore);
+              yield* fs.remove(compiled.localSocket, { force: true }).pipe(Effect.ignore);
+              yield* fs.remove(compiled.controlSocket, { force: true }).pipe(Effect.ignore);
+            });
+            yield* Scope.addFinalizer(master.scope, cleanup);
+            yield* Effect.forkIn(Stream.runDrain(master.stdout).pipe(Effect.ignore), master.scope);
+            yield* Effect.forkIn(Stream.runDrain(master.stderr).pipe(Effect.ignore), master.scope);
+
+            const masterExited: Effect.Effect<never, SshError> = master.exitCode.pipe(
+              Effect.matchEffect({
+                onFailure: () => Effect.fail(
+                  forwardError(compiled.endpoint, "SSH forward master failed before readiness"),
+                ),
+                onSuccess: (code) => Effect.fail(
+                  forwardError(
+                    compiled.endpoint,
+                    `SSH forward master exited before readiness (${code})`,
+                  ),
+                ),
+              }),
+            );
+            const waitForControl: Effect.Effect<void, SshError> = Effect.suspend(() =>
+              Effect.raceFirst(
+                runChecked(
+                  compiled.endpoint,
+                  "forward-check",
+                  compiled.check,
+                  1_000,
+                ).pipe(
+                  Effect.asVoid,
+                  Effect.catchAll(() =>
+                    Effect.sleep(FORWARD_POLL_MS).pipe(Effect.zipRight(waitForControl)),
+                  ),
+                ),
+                masterExited,
+              ),
+            );
+            const socketExists = fs.exists(compiled.localSocket).pipe(
+              Effect.mapError(() =>
+                forwardError(compiled.endpoint, "forward socket readiness check failed"),
+              ),
+            );
+            const waitForSocket: Effect.Effect<void, SshError> = Effect.suspend(() =>
+              Effect.raceFirst(
+                socketExists.pipe(
+                  Effect.flatMap((exists) =>
+                    exists
+                      ? Effect.void
+                      : Effect.sleep(FORWARD_POLL_MS).pipe(Effect.zipRight(waitForSocket)),
+                  ),
+                ),
+                masterExited,
+              ),
+            );
+            const setup = waitForControl.pipe(
+              Effect.zipRight(
+                runChecked(
+                  compiled.endpoint,
+                  "forward-request",
+                  compiled.request,
+                  4_000,
+                ),
+              ),
+              Effect.zipRight(waitForSocket),
+              Effect.timeoutFail({
+                duration: compiled.readinessTimeoutMs,
+                onTimeout: () => new SshTimeoutError({
+                  endpoint: compiled.endpoint,
+                  operation: "forward",
+                  timeoutMs: compiled.readinessTimeoutMs,
+                }),
+              }),
+              Effect.onError(() => master.close),
+            );
+            yield* setup;
+            return {
+              localSocket: compiled.localSocket as LocalForwardSocket,
+              close: master.close,
+              exitCode: master.exitCode,
+            };
+          }),
+        );
+      });
+
+    const handoff: Context.Tag.Service<typeof SshTransport>["handoff"] = (program, awaitReady) =>
+      Effect.try({
+        try: () => compiler.daemonHandoff(program),
+        catch: () => new SshSetupError({
+          endpoint: "invalid-program",
+          message: "SSH operation was not created by the policy surface",
+        }),
+      }).pipe(
+        Effect.flatMap((compiled) =>
+          withDial(
+            compiled.endpoint,
+            Effect.gen(function* () {
+              yield* ensureControlDir(compiled.endpoint);
+              rememberMaster(compiled.endpoint);
+              const result = yield* runChecked(
+                compiled.endpoint,
+                "daemon-handoff",
+                compiled.command,
+                compiled.readinessTimeoutMs,
+              );
+              if (!/^\d+$/u.test(result.stdout.trim())) {
+                return yield* Effect.fail(
+                  new SshIoError({
+                    endpoint: compiled.endpoint,
+                    operation: "daemon-handoff",
+                    message: "remote daemon handoff did not return a process receipt",
+                  }),
+                );
+              }
+              const ready = yield* awaitReady(confirm).pipe(
+                Effect.timeoutFail({
+                  duration: compiled.readinessTimeoutMs,
+                  onTimeout: () =>
+                    new SshTimeoutError({
+                      endpoint: compiled.endpoint,
+                      operation: "daemon-handoff",
+                      timeoutMs: compiled.readinessTimeoutMs,
+                    }),
+                }),
+              );
+              return ready.value;
+            }),
+          ),
+        ),
+      );
 
     const warm = (endpoint: SshEndpoint): Effect.Effect<void, SshError> => {
-      let lock = warmLocks.get(endpoint);
+      let lock = warmLocks.get(String(endpoint));
       if (!lock) {
         lock = Effect.unsafeMakeSemaphore(1);
-        warmLocks.set(endpoint, lock);
+        warmLocks.set(String(endpoint), lock);
       }
       return lock.withPermits(1)(
         withDial(
+          endpoint,
           ensureControlDir(endpoint).pipe(
             Effect.tap(() => Effect.sync(() => rememberMaster(endpoint))),
             Effect.zipRight(
-              runChecked(endpoint, "master-warm", compileMasterWarm(endpoint, config.controlDir), 8_000),
+              runChecked(endpoint, "master-warm", compiler.masterWarm(endpoint), 8_000),
             ),
             Effect.asVoid,
           ),
@@ -467,9 +629,9 @@ export const SshTransportLayer = Layer.scoped(
             runChecked(
               endpoint,
               "master-exit",
-              compileMasterExit(endpoint, config.controlDir),
+              compiler.masterExit(endpoint),
               4_000,
-            ).pipe(Effect.ignore),
+            ).pipe(Effect.interruptible, Effect.ignore),
           { concurrency: 4, discard: true },
         ),
       ),
