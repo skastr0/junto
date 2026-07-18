@@ -28,6 +28,8 @@ import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { TooltipLayer } from "./components/TooltipLayer";
+import { DemoCameraBridge } from "./demo/camera-bridge";
+import { DemoLayer } from "./demo/demo-layer";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 import {
   makeNavigationClock,
@@ -378,6 +380,7 @@ export function App() {
 
         <ReactFlowProvider>
           <Canvas />
+          <DemoCameraBridge />
         </ReactFlowProvider>
         <CanvasChrome />
         <KernelStatus />
@@ -389,6 +392,7 @@ export function App() {
         <HerdrWizard />
         <HerdrTerminalModal />
         <HerdrToast />
+        <DemoLayer />
         </div>
         <WorkSurfaceDock />
       </div>
