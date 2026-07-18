@@ -229,6 +229,8 @@ const BASE_OPTIONS = [
   "-o", "ForwardAgent=no",
   "-o", "ForwardX11=no",
   "-o", "PermitLocalCommand=no",
+  "-o", "ForkAfterAuthentication=no",
+  "-o", "StdinNull=no",
 ] as const;
 
 const CONTROL_SOCKET_VERSION = "cm-v1-%C";
@@ -323,6 +325,8 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
     ssh([
       "-F", "none",
       "-o", "BatchMode=yes",
+      "-o", "ForkAfterAuthentication=no",
+      "-o", "StdinNull=no",
       "-S", controlSocket,
       ...args,
       "placeholder",

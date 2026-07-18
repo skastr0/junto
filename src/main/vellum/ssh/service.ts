@@ -302,8 +302,15 @@ export const SshTransportLayer = Layer.scoped(
         const pump = Stream.run(mappedInput, process.stdin).pipe(
           Effect.mapError(() => ioError(endpoint, operation)),
           Effect.exit,
-          Effect.flatMap((exit) => Deferred.done(inputDone, exit)),
-          Effect.ignore,
+          Effect.flatMap((exit) =>
+            Effect.uninterruptible(
+              Ref.set(inputOpen, false).pipe(
+                Effect.zipRight(Queue.shutdown(queue)),
+                Effect.zipRight(Deferred.done(inputDone, exit)),
+                Effect.asVoid,
+              ),
+            ),
+          ),
         );
         yield* Effect.forkIn(pump, child);
         yield* Scope.addFinalizer(child, Queue.shutdown(queue));
@@ -315,7 +322,9 @@ export const SshTransportLayer = Layer.scoped(
         );
         const offer = (message: InputMessage): Effect.Effect<void, SshError> =>
           Effect.raceFirst(
-            Queue.offer(queue, message).pipe(Effect.asVoid),
+            Queue.offer(queue, message).pipe(
+              Effect.flatMap((accepted) => accepted ? Effect.void : inputUnavailable),
+            ),
             inputUnavailable,
           );
         const write = (bytes: Uint8Array): Effect.Effect<void, SshError> =>

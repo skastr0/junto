@@ -1,14 +1,18 @@
 import { Effect, Either } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
-  makeRemoteCommand,
-  makeRemoteStdin,
   parseSshEndpoint,
   parseRemoteUnixSocketPath,
-  oneShot,
   type OneShotProgram,
   type ScopedStreamProgram,
 } from "../src/main/vellum/ssh";
+import {
+  makeRemoteCommand,
+  makeRemoteStdin,
+} from "../src/main/vellum/ssh/domain";
+import {
+  oneShot,
+} from "../src/main/vellum/ssh/program";
 
 describe("SSH domain", () => {
   it("accepts option-safe SSH aliases and rejects option injection", async () => {
@@ -75,5 +79,18 @@ describe("SSH domain", () => {
 
     expect(rawProgram).toBeDefined();
     expect(forgedInput).toEqual({});
+  });
+
+  it("does not expose generic remote command or transport-topology constructors", () => {
+    type PublicSsh = typeof import("../src/main/vellum/ssh");
+    type HasGenericCommand = "makeRemoteCommand" extends keyof PublicSsh ? true : false;
+    type HasGenericStdin = "makeRemoteStdin" extends keyof PublicSsh ? true : false;
+    type HasOneShot = "oneShot" extends keyof PublicSsh ? true : false;
+    type HasDedicatedStream = "dedicatedStream" extends keyof PublicSsh ? true : false;
+
+    expectTypeOf<HasGenericCommand>().toEqualTypeOf<false>();
+    expectTypeOf<HasGenericStdin>().toEqualTypeOf<false>();
+    expectTypeOf<HasOneShot>().toEqualTypeOf<false>();
+    expectTypeOf<HasDedicatedStream>().toEqualTypeOf<false>();
   });
 });

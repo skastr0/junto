@@ -17,12 +17,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  daemonHandoff,
-  dedicatedStream,
-  makeRemoteCommand,
-  makeRemoteStdin,
-  oneShot,
-  oneShotWithStdin,
   parseSshEndpoint,
   SshExitError,
   SshIoError,
@@ -31,7 +25,18 @@ import {
   SshTransport,
 } from "../src/main/vellum/ssh";
 import {
+  makeRemoteCommand,
+  makeRemoteStdin,
+} from "../src/main/vellum/ssh/domain";
+import {
+  daemonHandoff,
+  dedicatedStream,
+  oneShot,
+  oneShotWithStdin,
+} from "../src/main/vellum/ssh/program";
+import {
   ProcessSpawner,
+  ProcessFailure,
   type ProcessHandle,
 } from "../src/main/vellum/ssh/process-spawner";
 import { SshTransportConfig, SshTransportLayer } from "../src/main/vellum/ssh/service";
@@ -41,7 +46,7 @@ interface FakeResult {
   readonly stderr?: Uint8Array;
   readonly code?: number;
   readonly running?: boolean;
-  readonly stdin?: Sink.Sink<void, Uint8Array, never, never>;
+  readonly stdin?: Sink.Sink<void, Uint8Array, never, ProcessFailure>;
 }
 
 interface FakeProcess {
@@ -268,6 +273,40 @@ describe("SshTransport", () => {
     expect(Buffer.concat(received.map((chunk) => Buffer.from(chunk))).toString("utf8"))
       .toBe("firstsecond");
     expect(releases.some((command) => remoteText(command).includes("hermes"))).toBe(true);
+  });
+
+  it("rejects writes after the process input pump fails", async () => {
+    const calls: Command.StandardCommand[] = [];
+    const releases: Command.StandardCommand[] = [];
+    const layer = await testLayer(
+      (command) => remoteText(command).includes("hermes")
+        ? { running: true, stdin: Sink.fail(new ProcessFailure()) }
+        : {},
+      calls,
+      releases,
+    );
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const endpoint = yield* parseSshEndpoint("remote-a");
+            const remote = yield* makeRemoteCommand("hermes", ["acp"]);
+            return yield* (yield* SshTransport).connect(
+              dedicatedStream(endpoint, remote),
+              (lease, confirm) =>
+                Effect.sleep(10).pipe(
+                  Effect.zipRight(lease.write(encoder.encode("discarded"))),
+                  Effect.as(confirm("ready")),
+                ),
+            );
+          }),
+        ).pipe(Effect.provide(layer)),
+      ),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) expect(result.left).toBeInstanceOf(SshIoError);
   });
 
   it("rejects readiness when the stream exits first or is closed by the callback", async () => {

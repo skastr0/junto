@@ -6,15 +6,17 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  daemonHandoff,
-  dedicatedStream,
-  makeRemoteCommand,
-  oneShot,
   parseRemoteUnixSocketPath,
   parseSshEndpoint,
   SshTransport,
-  unixForward,
 } from "../src/main/vellum/ssh";
+import { makeRemoteCommand } from "../src/main/vellum/ssh/domain";
+import {
+  daemonHandoff,
+  dedicatedStream,
+  oneShot,
+  unixForward,
+} from "../src/main/vellum/ssh/program";
 import {
   ProcessSpawner,
   type ProcessHandle,
@@ -119,12 +121,16 @@ describe("SSH policy surface", () => {
     expect(compiled?.args).not.toContain(expect.stringContaining("APP_SECRET="));
     const args = sshArgs(compiled!);
     expect(args).toContain("BatchMode=yes");
+    expect(args).toContain("ConnectTimeout=6");
     expect(args).toContain("ConnectionAttempts=1");
     expect(args).toContain("ServerAliveInterval=15");
+    expect(args).toContain("ServerAliveCountMax=3");
     expect(args).toContain("RequestTTY=no");
     expect(args).toContain("ForwardAgent=no");
     expect(args).toContain("ForwardX11=no");
     expect(args).toContain("PermitLocalCommand=no");
+    expect(args).toContain("ForkAfterAuthentication=no");
+    expect(args).toContain("StdinNull=no");
     expect(args).toContain("ClearAllForwardings=yes");
     expect(args).toContain("ControlMaster=auto");
     expect(args.some((arg) => arg.includes("/cm-v1-%C"))).toBe(true);
@@ -183,12 +189,16 @@ describe("SSH policy surface", () => {
     const masterArgs = sshArgs(master!);
     expect(masterArgs).toContain("ClearAllForwardings=yes");
     expect(masterArgs).toContain("StreamLocalBindUnlink=yes");
+    expect(masterArgs).toContain("ForkAfterAuthentication=no");
+    expect(masterArgs).toContain("StdinNull=no");
     expect(masterArgs).not.toContain("-L");
     const requestArgs = sshArgs(request!);
     expect(requestArgs).toContain("-F");
     expect(requestArgs[requestArgs.indexOf("-F") + 1]).toBe("none");
     expect(requestArgs).toContain("-L");
     expect(requestArgs).not.toContain("ClearAllForwardings=yes");
+    expect(requestArgs).toContain("ForkAfterAuthentication=no");
+    expect(requestArgs).toContain("StdinNull=no");
     expect(requestArgs[requestArgs.indexOf("-L") + 1]).toMatch(
       /\/control\/f-[a-f0-9]{32}:\/Users\/ops\/\.herdr\/herdr\.sock/u,
     );
