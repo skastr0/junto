@@ -7,6 +7,10 @@ import {
   loadDoc,
   prepareCanvasRemoval,
 } from "../src/renderer/lib/mutations";
+import {
+  flushCanvasEdits,
+  registerCanvasDraftCommit,
+} from "../src/renderer/lib/canvas-editor-flush";
 import { state$ } from "../src/renderer/lib/state";
 
 const revisions = new Map<string, number>();
@@ -90,6 +94,20 @@ describe("renderer canvas save durability", () => {
 
     expect(writeCanvas).toHaveBeenCalledOnce();
     expect(writeCanvas).toHaveBeenCalledWith("alpha", doc("before-quit"), "alpha-r1");
+  });
+
+  it("commits an editor-local draft before acknowledging the quit boundary", async () => {
+    const unregister = registerCanvasDraftCommit(() => commitDoc(doc("live-modal-draft")));
+    try {
+      expect(writeCanvas).not.toHaveBeenCalled();
+
+      await flushCanvasEdits();
+
+      expect(writeCanvas).toHaveBeenCalledOnce();
+      expect(writeCanvas).toHaveBeenCalledWith("alpha", doc("live-modal-draft"), "alpha-r1");
+    } finally {
+      unregister();
+    }
   });
 
   it("preserves both versions by moving the local edit to a recovery canvas after a disk conflict", async () => {

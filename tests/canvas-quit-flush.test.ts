@@ -17,6 +17,26 @@ describe("canvas quit durability wiring", () => {
       .toBeLessThan(block.indexOf("disposeRuntime()"));
   });
 
+  it("never lets the signal fallback bypass an incomplete canvas flush", () => {
+    const start = source.indexOf("installProcessSignalTermination({");
+    const block = source.slice(start, source.indexOf("});", start) + 3);
+
+    expect(block).toContain("beginSignalCanvasFlush()");
+    expect(block).toContain("allowForceExit: () => signalCanvasFlushDurable");
+  });
+
+  it("keys fallback authorization to each signal flush, independent of hung disposal", () => {
+    const start = source.indexOf("const beginSignalCanvasFlush");
+    const end = source.indexOf('app.on("before-quit"', start);
+    const block = source.slice(start, end);
+
+    expect(block.indexOf("signalCanvasFlushDurable = false"))
+      .toBeLessThan(block.indexOf("requestCanvasFlush(mainWindow)"));
+    expect(block.indexOf("signalCanvasFlushDurable = true"))
+      .toBeGreaterThan(block.indexOf("requestCanvasFlush(mainWindow)"));
+    expect(block).not.toContain("disposeRuntime");
+  });
+
   it("blocks window teardown until a canvas flush acknowledgement arrives", () => {
     const start = source.indexOf('mainWindow.on("close"');
     const end = source.indexOf('mainWindow.webContents.setWindowOpenHandler', start);
@@ -26,5 +46,15 @@ describe("canvas quit durability wiring", () => {
     expect(block).toContain("requestCanvasFlush(mainWindow)");
     expect(block.indexOf("requestCanvasFlush(mainWindow)"))
       .toBeLessThan(block.indexOf("mainWindow.close()"));
+  });
+
+  it("never dereferences destroyed WebContents from the BrowserWindow closed event", () => {
+    const start = source.indexOf('mainWindow.on("closed"');
+    const end = source.indexOf("registerCrashRecovery(mainWindow)", start);
+    const block = source.slice(start, end);
+
+    expect(source).toContain("const mainWebContentsId = mainWindow.webContents.id");
+    expect(block).toContain("pendingCanvasFlushes.get(mainWebContentsId)");
+    expect(block).not.toContain("mainWindow.webContents");
   });
 });

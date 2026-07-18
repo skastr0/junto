@@ -99,11 +99,15 @@ const without = <T extends object, K extends keyof T>(value: T, key: K): Omit<T,
   return rest;
 };
 
-// Pure doc transform mirroring renderer/lib/mutations.ts's toggleFlag,
-// specialized to the kernel's flag-mirror use: an unrecognized flag value
-// never mutates the document (reject illegitimate input rather than
-// silently coercing it).
-const toggleFlagInDoc = (doc: CanvasDoc, nodeId: string, flag: string): CanvasDoc => {
+// Pure, idempotent transform for the kernel's flag mirror. Explicit desired
+// state is required because CanvasesService.mutate may reapply the transform
+// after observing a newer direct-file revision.
+const setFlagInDoc = (
+  doc: CanvasDoc,
+  nodeId: string,
+  flag: string,
+  enabled: boolean,
+): CanvasDoc => {
   if (!KNOWN_FLAGS.has(flag)) return doc;
   const etherFlag = flag as EtherFlag;
   return {
@@ -112,7 +116,8 @@ const toggleFlagInDoc = (doc: CanvasDoc, nodeId: string, flag: string): CanvasDo
       if (node.id !== nodeId) return node;
       const flags = node.ether?.flags ?? [];
       const has = flags.includes(etherFlag);
-      const nextFlags = has ? flags.filter((f) => f !== etherFlag) : [...flags, etherFlag];
+      if (has === enabled) return node;
+      const nextFlags = enabled ? [...flags, etherFlag] : flags.filter((f) => f !== etherFlag);
       if (nextFlags.length > 0) {
         return { ...node, ether: { ...(node.ether ?? {}), flags: nextFlags } };
       }
@@ -289,13 +294,13 @@ const makeKernelService = (
   // --- flag mirror: CanvasesService.mutate, routed by (canvasName, nodeId).
   // The evaluator that fires a flag write always knows which canvas the node
   // came from (evaluation iterates per-doc), so cycle.ts threads canvasName
-  // through FlagWriterDeps.toggleFlag directly — no node->canvas reverse
+  // through FlagWriterDeps.setFlag directly — no node->canvas reverse
   // index, and therefore no cross-canvas collision to disambiguate. JSON
   // Canvas node ids are document-local by spec; the same id on two canvases
   // now routes to the right document instead of being safe-dropped.
   __setFlagWriterForTest({
-    toggleFlag: (canvasName, nodeId, flag) => {
-      void Effect.runPromise(canvases.mutate(canvasName, (doc) => toggleFlagInDoc(doc, nodeId, flag)))
+    setFlag: (canvasName, nodeId, flag, enabled) => {
+      void Effect.runPromise(canvases.mutate(canvasName, (doc) => setFlagInDoc(doc, nodeId, flag, enabled)))
         .then(() => Effect.runPromise(Effect.either(canvases.read(canvasName))))
         .then((result) => {
           if (result._tag === "Right") docs.set(canvasName, result.right.doc);

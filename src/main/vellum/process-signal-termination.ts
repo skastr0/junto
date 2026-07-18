@@ -17,6 +17,12 @@ export interface ProcessSignalTerminationOptions {
   readonly cleanup: (signal: ProcessTerminationSignal) => void;
   readonly processTarget?: SignalTerminationProcess;
   readonly exitGraceMs?: number;
+  /**
+   * `app.exit()` bypasses Electron's quit events. The fallback may therefore
+   * fire only after the caller's durability/teardown boundary is complete.
+   * Defaults to true for callers without a separate boundary.
+   */
+  readonly allowForceExit?: () => boolean;
 }
 
 export interface ProcessSignalTermination {
@@ -53,6 +59,25 @@ export const installProcessSignalTermination = (
     exitTimer = undefined;
   };
 
+  const forceExitWhenSafe = (): void => {
+    exitTimer = undefined;
+    if (disposed) return;
+    let allowed = false;
+    try {
+      allowed = options.allowForceExit?.() ?? true;
+    } catch {
+      // A broken safety predicate can never authorize a bypass exit.
+    }
+    if (allowed) {
+      options.app.exit(0);
+      return;
+    }
+    // Keep the fallback live, but never let its time budget outrank the
+    // caller's durability boundary. Once that boundary completes, the next
+    // bounded tick can terminate a native loop that ignored app.quit().
+    exitTimer = setTimeout(forceExitWhenSafe, exitGraceMs);
+  };
+
   const requestTermination = (signal: ProcessTerminationSignal): void => {
     if (disposed || terminationRequested) return;
     terminationRequested = true;
@@ -60,10 +85,7 @@ export const installProcessSignalTermination = (
     try {
       options.cleanup(signal);
     } finally {
-      exitTimer = setTimeout(() => {
-        exitTimer = undefined;
-        options.app.exit(0);
-      }, exitGraceMs);
+      exitTimer = setTimeout(forceExitWhenSafe, exitGraceMs);
       // This is the mandatory bound on an Electron native loop that ignores
       // app.quit(). Keep it referenced even after cleanup removes the final
       // adapter/Chromium Node handle, otherwise libuv may never drive it.
@@ -71,8 +93,8 @@ export const installProcessSignalTermination = (
       try {
         options.app.quit();
       } catch {
-        clearExitTimer();
-        options.app.exit(0);
+        // The referenced fallback remains responsible for exit. In
+        // particular, do not bypass a durability gate because app.quit threw.
       }
     }
   };

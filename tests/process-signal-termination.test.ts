@@ -1,6 +1,12 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { installProcessSignalTermination } from "../src/main/vellum/process-signal-termination";
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 interface SignalChildResult {
   readonly code: number | null;
@@ -87,5 +93,42 @@ describe("process signal termination", () => {
       stdout: "ready\ncleanup:SIGINT\nquit\n",
       forced: false,
     });
+  });
+
+  it("never bypasses an incomplete durability boundary, then forces only after it is safe", async () => {
+    vi.useFakeTimers();
+    const listeners = new Map<string, () => void>();
+    const processTarget = {
+      on: vi.fn((signal: "SIGINT" | "SIGTERM", listener: () => void) => {
+        listeners.set(signal, listener);
+      }),
+      off: vi.fn((signal: "SIGINT" | "SIGTERM") => {
+        listeners.delete(signal);
+      }),
+    };
+    const quit = vi.fn();
+    const exit = vi.fn();
+    const cleanup = vi.fn();
+    let durable = false;
+    const installed = installProcessSignalTermination({
+      app: { quit, exit },
+      cleanup,
+      processTarget,
+      exitGraceMs: 10,
+      allowForceExit: () => durable,
+    });
+
+    listeners.get("SIGTERM")?.();
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(quit).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(30);
+    expect(exit).not.toHaveBeenCalled();
+
+    durable = true;
+    await vi.advanceTimersByTimeAsync(10);
+    expect(exit).toHaveBeenCalledOnce();
+    expect(exit).toHaveBeenCalledWith(0);
+    installed.dispose();
   });
 });

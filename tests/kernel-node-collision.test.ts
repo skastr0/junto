@@ -47,13 +47,15 @@ const docWithWatcher = (nodeId: string): CanvasDoc => ({
 });
 
 describe("flag-mirror routing by (canvasName, nodeId)", () => {
-  const writes: Array<{ canvasName: string; nodeId: string; flag: string }> = [];
+  const writes: Array<{ canvasName: string; nodeId: string; flag: string; enabled: boolean }> = [];
 
   beforeEach(() => {
     resetWatcherMemory();
     writes.length = 0;
     const capture: FlagWriterDeps = {
-      toggleFlag: (canvasName, nodeId, flag) => void writes.push({ canvasName, nodeId, flag }),
+      setFlag: (canvasName, nodeId, flag, enabled) => {
+        writes.push({ canvasName, nodeId, flag, enabled });
+      },
     };
     __setFlagWriterForTest(capture);
     __setSnapshotsForTest(snapshotsWithStat("signals", 3)); // below 10 -> pending
@@ -75,8 +77,8 @@ describe("flag-mirror routing by (canvasName, nodeId)", () => {
 
     // Both canvases got their own write for the same node id — the old
     // collision-exclusion would have produced ZERO writes here.
-    expect(writes).toContainEqual({ canvasName: "canvas-a", nodeId: "shared-node", flag: "blocker" });
-    expect(writes).toContainEqual({ canvasName: "canvas-b", nodeId: "shared-node", flag: "blocker" });
+    expect(writes).toContainEqual({ canvasName: "canvas-a", nodeId: "shared-node", flag: "blocker", enabled: true });
+    expect(writes).toContainEqual({ canvasName: "canvas-b", nodeId: "shared-node", flag: "blocker", enabled: true });
     expect(writes).toHaveLength(2);
   });
 
@@ -90,8 +92,8 @@ describe("flag-mirror routing by (canvasName, nodeId)", () => {
 
     await runEvaluationCycle();
 
-    expect(writes).toContainEqual({ canvasName: "canvas-a", nodeId: "shared-node", flag: "blocker" });
-    expect(writes).toContainEqual({ canvasName: "canvas-b", nodeId: "only-b", flag: "blocker" });
+    expect(writes).toContainEqual({ canvasName: "canvas-a", nodeId: "shared-node", flag: "blocker", enabled: true });
+    expect(writes).toContainEqual({ canvasName: "canvas-b", nodeId: "only-b", flag: "blocker", enabled: true });
     expect(writes).toHaveLength(2);
   });
 });

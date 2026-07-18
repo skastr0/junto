@@ -138,7 +138,12 @@ export interface FlagWriterDeps {
   // JSON Canvas node ids are document-local: the same id can legitimately exist
   // on two canvases. The evaluator always knows which canvas a fired node came
   // from, so it routes the write by (canvasName, nodeId) directly.
-  readonly toggleFlag: (canvasName: string, nodeId: string, flag: string) => void;
+  readonly setFlag: (
+    canvasName: string,
+    nodeId: string,
+    flag: string,
+    enabled: boolean,
+  ) => void;
 }
 
 // Level-driven mirror of derived edge phase into ether.kind for criteria
@@ -437,7 +442,7 @@ const applyFlagOnUnsatisfied = (canvasName: string, doc: CanvasDoc, nodeId: stri
   if (!node) return;
   const hasFlag = node.ether?.flags?.includes("blocker") ?? false;
   if (flagShouldToggle(hasFlag, status)) {
-    flagWriterDeps.toggleFlag(canvasName, nodeId, "blocker");
+    flagWriterDeps.setFlag(canvasName, nodeId, "blocker", status === "pending");
   }
 };
 

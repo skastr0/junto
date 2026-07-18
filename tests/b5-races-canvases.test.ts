@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -122,6 +123,33 @@ describe("canvases.ts write() — same-name concurrency", () => {
     const preserved = await runtime.runPromise(canvases.read(name));
     expect(textOf(preserved.doc)).toBe("write-2");
     expect(preserved.revision).not.toBe(stale.revision);
+  });
+
+  it("reapplies an idempotent mutation over a direct-file edit instead of overwriting it", async () => {
+    const name = "mutate-external-conflict";
+    await runtime.runPromise(canvases.write(name, docFor(20)));
+    const initial = await runtime.runPromise(canvases.read(name));
+    let injectedExternalWrite = false;
+
+    await runtime.runPromise(
+      canvases.mutate(name, (current) => {
+        if (!injectedExternalWrite) {
+          injectedExternalWrite = true;
+          writeFileSync(initial.path, serializeCanvas(docFor(21)), "utf8");
+        }
+        return {
+          ...current,
+          nodes: current.nodes.map((node) => ({
+            ...node,
+            ether: { ...(node.ether ?? {}), flags: ["attention"] },
+          })),
+        };
+      }),
+    );
+
+    const result = await runtime.runPromise(canvases.read(name));
+    expect(textOf(result.doc)).toBe("write-21");
+    expect(result.doc.nodes[0]?.ether?.flags).toEqual(["attention"]);
   });
 
   it("reports a genuine external write immediately after an own write", async () => {

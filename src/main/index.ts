@@ -363,6 +363,10 @@ const createWindow = () => {
     },
   });
   trustedMainWindow = mainWindow;
+  // BrowserWindow's `closed` event fires after its native object and
+  // WebContents have been destroyed. Capture the routing identity while it is
+  // live; dereferencing mainWindow.webContents inside `closed` throws.
+  const mainWebContentsId = mainWindow.webContents.id;
 
   let closeAfterCanvasFlush = false;
   let closeFlush: Promise<void> | undefined;
@@ -444,10 +448,10 @@ const createWindow = () => {
     });
   });
   mainWindow.on("closed", () => {
-    const pending = pendingCanvasFlushes.get(mainWindow.webContents.id);
+    const pending = pendingCanvasFlushes.get(mainWebContentsId);
     if (pending !== undefined) {
       clearTimeout(pending.timer);
-      pendingCanvasFlushes.delete(mainWindow.webContents.id);
+      pendingCanvasFlushes.delete(mainWebContentsId);
       pending.reject(new Error("renderer closed before canvas flush completed"));
     }
     if (trustedMainWindow === mainWindow) trustedMainWindow = undefined;
@@ -770,6 +774,31 @@ const exitAfterDetach = (exitCode: number, reason: string): void => {
 };
 
 let quitPreparation: Promise<void> | undefined;
+let signalCanvasFlushDurable = false;
+
+const beginSignalCanvasFlush = (): void => {
+  // Authorization belongs to this signal attempt, never to an earlier normal
+  // quit. A second signal after the app remained open must prove current
+  // renderer state durable again.
+  signalCanvasFlushDurable = false;
+  const mainWindow = trustedMainWindow;
+  let flush: Promise<void>;
+  try {
+    flush = mainWindow === undefined || mainWindow.isDestroyed()
+      ? Promise.resolve()
+      : requestCanvasFlush(mainWindow);
+  } catch (error) {
+    console.error("[canvas] signal flush could not start:", error);
+    return;
+  }
+  void flush
+    .then(() => {
+      signalCanvasFlushDurable = true;
+    })
+    .catch((error) => {
+      console.error("[canvas] signal flush blocked:", error);
+    });
+};
 
 app.on("before-quit", (event) => {
   if (runtimeDisposed) return;
@@ -809,5 +838,13 @@ app.on("will-quit", () => {
 // a bounded hard-exit fallback if another listener prevents that sequence.
 installProcessSignalTermination({
   app,
-  cleanup: (signal) => detachRuntimeOnQuit(signal),
+  cleanup: (signal) => {
+    beginSignalCanvasFlush();
+    detachRuntimeOnQuit(signal);
+  },
+  // app.exit bypasses before-quit. A signal may force the native loop only
+  // after the renderer has acknowledged a durable canvas flush. Runtime
+  // disposal may itself hang; once the document is safe, the bounded fallback
+  // can still terminate that native/service teardown stall.
+  allowForceExit: () => signalCanvasFlushDurable,
 });

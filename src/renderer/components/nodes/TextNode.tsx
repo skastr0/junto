@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
@@ -7,6 +7,7 @@ import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import type { FlowNode } from "../../lib/convert";
 import { getAgentAvatar, getAgentIdentity } from "../../lib/agent";
+import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
 import { boothPendingReview, entityReadout } from "../../lib/entity-readout";
 import { editText, setNodeTasks } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
@@ -281,6 +282,13 @@ function NoteEditModal({
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+
+  useLayoutEffect(
+    () => registerCanvasDraftCommit(() => commitRef.current()),
+    [],
+  );
 
   useEffect(() => {
     textareaRef.current?.focus();

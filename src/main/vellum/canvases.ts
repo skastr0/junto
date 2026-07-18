@@ -33,10 +33,9 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       doc: CanvasDoc,
       expectedRevision?: string,
     ) => Effect.Effect<CanvasWriteResult, CanvasError>;
-    // Atomic read-modify-write under the same per-canvas mutex as write():
-    // rereads the file, applies fn, validates + writes the result. Used by
-    // the kernel's flag mirror so a racing user write and a kernel flag
-    // write serialize instead of one clobbering the other's tmp file.
+    // Retrying optimistic read-modify-write under the same per-canvas mutex
+    // as write(). fn must be a pure/idempotent document transform because an
+    // external direct-file write can make mutate re-read and reapply it.
     readonly mutate: (
       name: string,
       fn: (doc: CanvasDoc) => CanvasDoc,
@@ -69,6 +68,7 @@ const canvasFileName = (name: string) => `${name}.canvas`;
 const canvasPath = (name: string) => join(canvasesDir(), canvasFileName(name));
 
 const WATCH_DEBOUNCE_MS = 300;
+const MAX_MUTATE_REVISION_RETRIES = 8;
 
 const NAME_PATTERN = /^[a-z0-9-]+$/;
 
@@ -235,37 +235,59 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       catch: toCanvasError,
     });
 
-  // Same mutex key as write() (canvasFileName(name)), so a racing user
-  // writeCanvas either lands first (mutate rereads it, applies fn on top) or
-  // second (clobbers fn's result — self-healed next cycle, since callers
-  // like the kernel's flag mirror are level-driven and idempotent). The
-  // reread happens INSIDE the mutex so it can never race write()'s own
-  // read-less overwrite.
+  // Same mutex key as write() (canvasFileName(name)), so in-process writes
+  // serialize. Direct file writers do not share that mutex: detect their
+  // revision immediately before rename and reapply the idempotent transform
+  // to the newest document. As with write(), the final read-to-rename window
+  // cannot be a true portable filesystem compare-and-swap.
   const mutate = (name: string, fn: (doc: CanvasDoc) => CanvasDoc): Effect.Effect<void, CanvasError> =>
     Effect.tryPromise({
       try: () =>
         withCanvasMutex(canvasFileName(name), async () => {
-          const current = await readAndDecode(name);
-          const next = fn(current.doc);
-
-          const decoded = decodeCanvasDoc(next);
-          if (Either.isLeft(decoded)) {
-            throw new CanvasError({
-              message: `cannot mutate ${canvasFileName(name)}: ${decoded.left.message}`,
-            });
-          }
-
-          const serialized = serializeCanvas(applyMirrorLaw(decoded.right));
-          const revision = revisionOf(serialized);
-
           await mkdir(canvasesDir(), { recursive: true });
           const path = canvasPath(name);
-          const tmpPath = `${path}.${randomUUID()}.tmp`;
-          await writeFile(tmpPath, serialized, "utf8");
-          await rename(tmpPath, path);
+          for (let attempt = 0; attempt < MAX_MUTATE_REVISION_RETRIES; attempt += 1) {
+            const current = await readAndDecode(name);
+            const next = fn(current.doc);
 
-          ownWrites.set(canvasFileName(name), revision);
-          for (const listener of listeners) listener(name);
+            const decoded = decodeCanvasDoc(next);
+            if (Either.isLeft(decoded)) {
+              throw new CanvasError({
+                message: `cannot mutate ${canvasFileName(name)}: ${decoded.left.message}`,
+              });
+            }
+
+            const serialized = serializeCanvas(applyMirrorLaw(decoded.right));
+            const revision = revisionOf(serialized);
+            const tmpPath = `${path}.${randomUUID()}.tmp`;
+            await writeFile(tmpPath, serialized, "utf8");
+
+            let observedRevision: string | undefined;
+            try {
+              observedRevision = revisionOf(await readFile(path, "utf8"));
+            } catch {
+              observedRevision = undefined;
+            }
+            if (observedRevision !== current.revision) {
+              await rm(tmpPath, { force: true });
+              continue;
+            }
+
+            try {
+              await rename(tmpPath, path);
+            } catch (error) {
+              await rm(tmpPath, { force: true });
+              throw error;
+            }
+
+            ownWrites.set(canvasFileName(name), revision);
+            for (const listener of listeners) listener(name);
+            return;
+          }
+
+          throw new CanvasError({
+            message: `${canvasFileName(name)} kept changing on disk; mutation was not applied`,
+          });
         }),
       catch: toCanvasError,
     });

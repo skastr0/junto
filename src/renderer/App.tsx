@@ -7,7 +7,6 @@ import { state$ } from "./lib/state";
 import {
   acceptCanvasRevision,
   clearAbandonedCanvas,
-  flushPendingCanvasSave,
   getCanvasRevision,
   hasPendingCanvasChanges,
   loadDoc,
@@ -16,6 +15,8 @@ import {
   retrySave,
   undo,
 } from "./lib/mutations";
+import { flushCanvasEdits } from "./lib/canvas-editor-flush";
+import { makeCanvasExternalReloadCoordinator } from "./lib/canvas-external-reload";
 import { startKernelBridge } from "./lib/kernel-view";
 import { startSettingsBridge, closeSettings } from "./lib/settings-state";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
@@ -82,7 +83,7 @@ const openCanvas = async (name: string) => {
   let request: number | undefined;
   state$.canvasLoading.set(true);
   try {
-    await flushPendingCanvasSave();
+    await flushCanvasEdits();
     request = canvasNavigationClock.begin();
     const result = await window.vellum.readCanvas(name);
     if (!canvasNavigationClock.isCurrent(request)) return;
@@ -125,12 +126,29 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
   },
 });
 
+const externalCanvasReload = makeCanvasExternalReloadCoordinator({
+  flushLocalEdits: flushCanvasEdits,
+  readCanvas: async (name) => {
+    const vellum = window.vellum;
+    if (!vellum) throw new Error("Electron preload bridge is not available.");
+    return vellum.readCanvas(name);
+  },
+  currentCanvasName: () => state$.canvasName.peek(),
+  currentDoc: () => state$.doc.peek(),
+  currentDocEpoch: () => state$.docEpoch.peek(),
+  currentRevision: getCanvasRevision,
+  hasPendingChanges: hasPendingCanvasChanges,
+  acceptRevision: acceptCanvasRevision,
+  apply: (result) => loadDoc(result.doc, result.revision, result.name),
+  onFailure: setError,
+});
+
 const createCanvas = async (name: string) => {
   if (!window.vellum) return;
   let request: number | undefined;
   state$.canvasLoading.set(true);
   try {
-    await flushPendingCanvasSave();
+    await flushCanvasEdits();
     request = canvasNavigationClock.begin();
     const result = await window.vellum.createCanvas(name);
     clearAbandonedCanvas(result.name);
@@ -156,7 +174,7 @@ const deleteCanvas = async (name: string) => {
   state$.canvasLoading.set(true);
   try {
     const wasOpen = state$.canvasName.peek() === name;
-    await flushPendingCanvasSave();
+    await flushCanvasEdits();
     // Mark the name abandoned after its last pending edit is durable so the
     // delete wins over any already-returning watcher echo.
     await prepareCanvasRemoval(name);
@@ -250,7 +268,7 @@ export function App() {
     const offNodeRef = vellum.onNodeRefOpened(async (event) => {
       state$.canvasLoading.set(true);
       try {
-        await flushPendingCanvasSave();
+        await flushCanvasEdits();
         return await nodeRefNavigation.navigate(event);
       } catch (error) {
         state$.canvasLoading.set(false);
@@ -304,39 +322,11 @@ export function App() {
     const offSnapshots = vellum.onSnapshotsChanged((state) => state$.snapshots.set(state));
     const offCanvas = vellum.onCanvasChanged((name) => {
       if (name !== state$.canvasName.peek()) return;
-      void (async () => {
-        try {
-          // A direct-file write racing a local edit is resolved by the main
-          // process revision boundary. A stale revision preserves the external
-          // original and durably rebinds the local document to a recovery
-          // canvas before navigation/quit may continue.
-          if (hasPendingCanvasChanges(name)) await flushPendingCanvasSave();
-          // A stale-revision flush may preserve the local edit by rebinding it
-          // to a recovery canvas. Do not apply the original canvas's external
-          // snapshot over that newly durable recovery document.
-          if (name !== state$.canvasName.peek()) return;
-          const result = await vellum.readCanvas(name);
-          if (name !== state$.canvasName.peek()) return;
-          // The user may edit while readCanvas is in flight. Never replace
-          // that newer local state with the just-read disk snapshot.
-          if (hasPendingCanvasChanges(name)) {
-            await flushPendingCanvasSave();
-            return;
-          }
-          if (result.revision === getCanvasRevision(name)) return;
-          if (JSON.stringify(result.doc) === JSON.stringify(state$.doc.peek())) {
-            acceptCanvasRevision(name, result.revision);
-            return;
-          }
-          loadDoc(result.doc, result.revision, result.name);
-        } catch (error) {
-          setError(error);
-        }
-      })();
+      void externalCanvasReload.changed(name);
     });
 
     const offCanvasFlush = vellum.onCanvasFlushRequested(async () => {
-      await flushPendingCanvasSave();
+      await flushCanvasEdits();
     });
 
     return () => {
