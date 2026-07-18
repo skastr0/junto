@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RegionRollup } from "@shared/region-rollup";
+import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { deriveRegionRollups } from "@shared/region-rollup";
 import { use$ } from "@legendapp/state/react";
 import { state$ } from "./state";
@@ -7,15 +7,19 @@ import { kernel$ } from "./kernel-view";
 import { chatState$ } from "./chat-state";
 import { herdr$ } from "./herdr-state";
 
-// Coarse poll of window.vellum.regionRollups. Poll on canvas / snapshots /
-// kernel / chat open-close+permission / herdr meta changes. Never setInterval;
-// never raw onChatEvent per chunk (chatKey is status+permission only).
-//
-// CRITICAL: chips must still render when IPC is down. Cold derive from the
-// document always provides region shells (idle severities); live IPC overlays
-// herdr/glyph/activity when it succeeds.
+// Coarse poll of window.vellum.regionRollups for glyph/graph enrichment.
+// Client always re-derives with herdr$ meta + chat activity so chips match
+// HerdrCard/inspector (same status source). Live IPC never blanks herdr.
 
 const DEBOUNCE_MS = 300;
+
+const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
+  blocked: 0,
+  attention: 1,
+  working: 2,
+  parked: 3,
+  idle: 4,
+};
 
 const chatCoarseKey = (chat: Record<string, { status?: string; pendingPermission?: { requestId?: string } }>): string =>
   Object.entries(chat)
@@ -38,24 +42,73 @@ const herdrCoarseKey = (
   return `${metaPart}#${mirrorPart}`;
 };
 
-/** Merge live rollups over cold shells by regionId (live wins). */
-const mergeRollups = (
-  cold: ReadonlyArray<RegionRollup>,
+/**
+ * Per-region, per-member: keep the worse severity between `client` (herdr/chat)
+ * and `live` (main IPC, glyphs/graph). Region severity/counts recomputed.
+ */
+const fuseWorst = (
+  client: ReadonlyArray<RegionRollup>,
   live: ReadonlyArray<RegionRollup>,
 ): ReadonlyArray<RegionRollup> => {
-  if (live.length === 0) return cold;
-  if (cold.length === 0) return live;
+  if (live.length === 0) return client;
+  if (client.length === 0) return live;
+
   const liveById = new Map(live.map((r) => [r.regionId, r] as const));
-  const seen = new Set<string>();
+  const clientById = new Map(client.map((r) => [r.regionId, r] as const));
+  const ids = new Set([...liveById.keys(), ...clientById.keys()]);
+
   const out: RegionRollup[] = [];
-  for (const shell of cold) {
-    const hit = liveById.get(shell.regionId);
-    out.push(hit ?? shell);
-    seen.add(shell.regionId);
+  for (const id of ids) {
+    const a = clientById.get(id);
+    const b = liveById.get(id);
+    if (!a) {
+      out.push(b!);
+      continue;
+    }
+    if (!b) {
+      out.push(a);
+      continue;
+    }
+    const bMembers = new Map(b.members.map((m) => [m.nodeId, m] as const));
+    const members = a.members.map((am) => {
+      const bm = bMembers.get(am.nodeId);
+      if (!bm) return am;
+      return SEVERITY_RANK[am.severity] <= SEVERITY_RANK[bm.severity] ? am : bm;
+    });
+    // Members only on live (shouldn't happen often) — append.
+    const aIds = new Set(a.members.map((m) => m.nodeId));
+    for (const bm of b.members) {
+      if (!aIds.has(bm.nodeId)) members.push(bm);
+    }
+    members.sort(
+      (x, y) =>
+        SEVERITY_RANK[x.severity] - SEVERITY_RANK[y.severity] ||
+        x.label.localeCompare(y.label),
+    );
+    const counts = { total: members.length, blocked: 0, attention: 0, working: 0 };
+    for (const m of members) {
+      if (m.severity === "blocked") counts.blocked += 1;
+      else if (m.severity === "attention") counts.attention += 1;
+      else if (m.severity === "working") counts.working += 1;
+    }
+    out.push({
+      regionId: a.regionId,
+      label: a.label || b.label,
+      severity: members[0]?.severity ?? "idle",
+      counts,
+      members,
+    });
   }
-  for (const r of live) {
-    if (!seen.has(r.regionId)) out.push(r);
-  }
+  // Preserve document order from client (cold shell order).
+  const order = client.map((r) => r.regionId);
+  out.sort((x, y) => {
+    const ix = order.indexOf(x.regionId);
+    const iy = order.indexOf(y.regionId);
+    if (ix === -1 && iy === -1) return 0;
+    if (ix === -1) return 1;
+    if (iy === -1) return -1;
+    return ix - iy;
+  });
   return out;
 };
 
@@ -66,18 +119,51 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   const docEpoch = use$(state$.docEpoch);
   const snapshots = use$(state$.snapshots);
   const executionRev = use$(kernel$.executionRev);
-  const chat = use$(chatState$) as Record<string, { status?: string; pendingPermission?: { requestId?: string } }>;
+  const chat = use$(chatState$) as Record<
+    string,
+    { status?: string; pendingPermission?: { requestId?: string }; turnBusy?: boolean }
+  >;
   const chatKey = chatCoarseKey(chat ?? {});
-  const herdrMeta = use$(herdr$.metaByNodeId) as Record<string, { status?: string; meta?: { agentStatus?: string } }>;
+  const herdrMeta = use$(herdr$.metaByNodeId) as Record<
+    string,
+    { status?: string; meta?: { agentStatus?: string } }
+  >;
   const herdrMirrors = use$(herdr$.mirrorByHost) as Record<string, { fresh?: boolean; lastSyncAt?: number }>;
   const herdrKey = herdrCoarseKey(herdrMeta ?? {}, herdrMirrors ?? {});
 
-  // Cold shell from the open document — always available offline / IPC-fail.
-  const cold = useMemo(
-    () => deriveRegionRollups({ doc }),
-    // docVersion + docEpoch cover structural + position membership.
+  // Same herdr status the cards/inspector show.
+  const herdrStatusByNodeId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const [nodeId, cache] of Object.entries(herdrMeta ?? {})) {
+      const status = cache?.meta?.agentStatus;
+      if (status) m.set(nodeId, status);
+    }
+    return m;
+  }, [herdrMeta, herdrKey]);
+
+  // ACP chat plane for hermes agent nodes (keyed by agent key).
+  const agentActivity = useMemo(() => {
+    const m = new Map<string, { sessionLive?: boolean; permissionPending?: boolean }>();
+    for (const [key, slot] of Object.entries(chat ?? {})) {
+      m.set(key, {
+        sessionLive: slot.status === "live" || slot.status === "connecting" || slot.turnBusy === true,
+        permissionPending: slot.pendingPermission !== undefined,
+      });
+    }
+    return m;
+  }, [chat, chatKey]);
+
+  // Client derive — always has herdr/chat/flags; no IPC required for those.
+  const client = useMemo(
+    () =>
+      deriveRegionRollups({
+        doc,
+        herdrStatusByNodeId,
+        agentActivity,
+      }),
+    // docVersion/docEpoch bound doc identity; herdr/chat via maps above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [docVersion, docEpoch, canvasName],
+    [docVersion, docEpoch, canvasName, herdrStatusByNodeId, agentActivity],
   );
 
   const [live, setLive] = useState<ReadonlyArray<RegionRollup>>([]);
@@ -102,7 +188,6 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
           setLive(next);
         })
         .catch(() => {
-          // Keep previous live if any; cold shell still paints chips.
           if (gen !== genRef.current) return;
         });
     }, DEBOUNCE_MS);
@@ -114,7 +199,8 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     setLive([]);
   }, [canvasName]);
 
-  return useMemo(() => mergeRollups(cold, live), [cold, live]);
+  // Fuse: live can win on glyph/graph; client always contributes herdr/chat.
+  return useMemo(() => fuseWorst(client, live), [client, live]);
 }
 
 /** Merge live region ids into a presentational 1–9 slot order. */

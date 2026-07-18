@@ -105,15 +105,17 @@ export const RegionRollupLive = (
               });
             }
 
-            // Herdr mirrors — pure local read when fresh; no CLI fan-out.
-            // Stale/down mirrors invent nothing (absent map entry).
+            // Herdr mirrors — last-known agent_status from pane OR agents map.
+            // Uses lookupPane (bootstrapped, not only eventsLive) so rollups
+            // match card meta while the event stream reconnects. Never CLI
+            // fan-out. Absent/unbootstrapped invents nothing.
             const herdrStatusByNodeId = new Map<string, string>();
             for (const node of doc.nodes) {
               const herdr = node.ether?.herdr;
               if (herdr?.paneId === undefined || herdr.paneId.length === 0) continue;
               const mirror = mirrorFor(herdr.host);
-              if (mirror === undefined || !mirror.isFresh()) continue;
-              const rec = mirror.paneRecord(herdr.paneId);
+              if (mirror === undefined) continue;
+              const rec = mirror.lookupPane(herdr.paneId);
               if (rec === undefined) continue;
               const status =
                 (typeof rec.agent_status === "string" && rec.agent_status) ||

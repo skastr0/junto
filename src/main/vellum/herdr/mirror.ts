@@ -74,6 +74,12 @@ export interface HerdrMirrorReads {
   listPanes(workspaceId?: string): ReadonlyArray<Rec> | undefined;
   listAgents(): ReadonlyArray<Rec> | undefined;
   paneRecord(paneId: string): Rec | undefined;
+  /**
+   * Last-known pane/agent row if we have ever bootstrapped. Unlike paneRecord,
+   * does not require eventsLive — rollups can use agent_status while the
+   * event stream is reconnecting (cards already do via getPaneMeta fallback).
+   */
+  lookupPane(paneId: string): Rec | undefined;
 }
 
 export interface HerdrMirrorOpts {
@@ -380,6 +386,19 @@ export class HerdrMirror implements HerdrMirrorReads {
 
   paneRecord(paneId: string): Rec | undefined {
     return this.isFresh() ? this.panes.get(paneId) : undefined;
+  }
+
+  lookupPane(paneId: string): Rec | undefined {
+    if (!this.bootstrapped || this.stopped) return undefined;
+    // Agents map often carries agent_status after snapshot; panes get it on
+    // agent_status_changed. Prefer whichever has a status, else any row.
+    const pane = this.panes.get(paneId);
+    const agent = this.agents.get(paneId);
+    const paneStatus = pane ? str(pane.agent_status) ?? str(pane.agentStatus) : undefined;
+    const agentStatus = agent ? str(agent.agent_status) ?? str(agent.agentStatus) : undefined;
+    if (agentStatus && !paneStatus) return agent;
+    if (pane) return pane;
+    return agent;
   }
 
   focused(): {

@@ -355,6 +355,13 @@ class FakeMirror implements HerdrMirrorReads {
   paneRecord(paneId: string) {
     return this.fresh ? this.data.panes.find((p) => p.pane_id === paneId) : undefined;
   }
+  lookupPane(paneId: string) {
+    // Rollup path: bootstrapped last-known, not gated on eventsLive/fresh.
+    return (
+      this.data.panes.find((p) => p.pane_id === paneId) ??
+      this.data.agents.find((a) => a.pane_id === paneId)
+    );
+  }
 }
 
 const okCli = (payload: unknown): CliResult => ({ ok: true, stdout: JSON.stringify(payload) });
