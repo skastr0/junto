@@ -1,15 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearsPendingSeen,
+  herdr$,
   herdrMetaPaintEqual,
   mergeHerdrMetaAfterRefresh,
   nextPendingSeen,
+  refreshHerdrMeta,
   type HerdrMetaCache,
 } from "../src/renderer/lib/herdr-state";
+import type { EtherHerdr } from "../src/shared/canvas";
 import type { HerdrPaneInfo } from "../src/shared/ipc";
 
 const pane = (agentStatus: string, extra?: Partial<HerdrPaneInfo>): HerdrPaneInfo =>
   ({ paneId: "w1:p1", agentStatus, ...extra }) as HerdrPaneInfo;
+
+const herdrOf = (paneId = "w1:p1"): EtherHerdr =>
+  ({ host: "local", paneId, terminalId: "term_1" }) as EtherHerdr;
 
 describe("mergeHerdrMetaAfterRefresh", () => {
   it("protects optimistic idle when seenGen advanced and remote still says done", () => {
@@ -55,6 +61,17 @@ describe("mergeHerdrMetaAfterRefresh", () => {
     expect(merged.agentStatus).toBe("idle");
   });
 
+  it("does not demote working|blocked to idle under pendingSeen + remote done", () => {
+    const previous: HerdrMetaCache = {
+      status: "ok",
+      meta: pane("working"),
+      seenGen: 1,
+      pendingSeen: true,
+    };
+    const merged = mergeHerdrMetaAfterRefresh(previous, 1, pane("done"));
+    expect(merged.agentStatus).toBe("working");
+  });
+
   it("sticky-keeps prior agentStatus when remote omits it", () => {
     const previous: HerdrMetaCache = {
       status: "ok",
@@ -65,6 +82,16 @@ describe("mergeHerdrMetaAfterRefresh", () => {
     const merged = mergeHerdrMetaAfterRefresh(previous, 0, remote);
     expect(merged.agentStatus).toBe("idle");
     expect(merged.cwd).toBe("/proj");
+  });
+
+  it("sticky-keeps prior preview when remote omits it", () => {
+    const previous: HerdrMetaCache = {
+      status: "ok",
+      meta: pane("idle", { preview: "last line" }),
+      seenGen: 0,
+    };
+    const merged = mergeHerdrMetaAfterRefresh(previous, 0, pane("idle"));
+    expect(merged.preview).toBe("last line");
   });
 
   it("accepts explicit remote unknown (does not sticky over a real host value)", () => {
@@ -129,5 +156,76 @@ describe("nextPendingSeen composition", () => {
     expect(nextPendingSeen(true, "done")).toBe(true);
     expect(nextPendingSeen(true, "unknown")).toBe(true);
     expect(nextPendingSeen(true, undefined)).toBe(true);
+  });
+});
+
+describe("refreshHerdrMeta coalesce", () => {
+  afterEach(() => {
+    delete (globalThis as { window?: unknown }).window;
+    herdr$.metaByNodeId.set({});
+  });
+
+  it("actually calls herdrGetMeta (slot registered before async body)", async () => {
+    const getMeta = vi.fn(async () => ({
+      ok: true as const,
+      data: pane("working", { agent: "codex", cwd: "/proj" }),
+    }));
+    (globalThis as unknown as { window: { vellum: { herdrGetMeta: typeof getMeta } } }).window = {
+      vellum: { herdrGetMeta: getMeta },
+    };
+    const nodeId = "n-coalesce-1";
+    await refreshHerdrMeta(nodeId, herdrOf());
+    expect(getMeta).toHaveBeenCalledTimes(1);
+    expect(herdr$.metaByNodeId[nodeId].peek()?.meta?.agentStatus).toBe("working");
+  });
+
+  it("coalesces concurrent calls into one in-flight fetch + one rerun", async () => {
+    let resolveFirst!: (v: { ok: true; data: HerdrPaneInfo }) => void;
+    let calls = 0;
+    const getMeta = vi.fn(
+      () =>
+        new Promise<{ ok: true; data: HerdrPaneInfo }>((resolve) => {
+          calls += 1;
+          if (calls === 1) {
+            resolveFirst = resolve;
+          } else {
+            resolve({ ok: true, data: pane("idle", { agent: "codex" }) });
+          }
+        }),
+    );
+    (globalThis as unknown as { window: { vellum: { herdrGetMeta: typeof getMeta } } }).window = {
+      vellum: { herdrGetMeta: getMeta },
+    };
+    const nodeId = "n-coalesce-2";
+    const a = refreshHerdrMeta(nodeId, herdrOf());
+    const b = refreshHerdrMeta(nodeId, herdrOf());
+    // First still in-flight; second only sets rerun.
+    expect(getMeta).toHaveBeenCalledTimes(1);
+    resolveFirst!({ ok: true, data: pane("working", { agent: "codex" }) });
+    await Promise.all([a, b]);
+    // Rerun after first completes.
+    expect(getMeta).toHaveBeenCalledTimes(2);
+    expect(herdr$.metaByNodeId[nodeId].peek()?.meta?.agentStatus).toBe("idle");
+  });
+
+  it("holds pendingSeen across remote done through the real refresh path", async () => {
+    const getMeta = vi.fn(async () => ({
+      ok: true as const,
+      data: pane("done", { agent: "codex" }),
+    }));
+    (globalThis as unknown as { window: { vellum: { herdrGetMeta: typeof getMeta } } }).window = {
+      vellum: { herdrGetMeta: getMeta },
+    };
+    const nodeId = "n-pending-1";
+    herdr$.metaByNodeId[nodeId].set({
+      status: "ok",
+      meta: pane("idle", { agent: "codex" }),
+      seenGen: 1,
+      pendingSeen: true,
+    });
+    await refreshHerdrMeta(nodeId, herdrOf());
+    const cache = herdr$.metaByNodeId[nodeId].peek();
+    expect(cache?.meta?.agentStatus).toBe("idle");
+    expect(cache?.pendingSeen).toBe(true);
   });
 });

@@ -73,6 +73,13 @@ const HERDR_NODE_SIZE = { width: 260, height: 110 } as const;
 export const isHerdrWizardEpochCurrent = (epoch: number): boolean =>
   herdr$.wizardOpen.peek() && herdr$.wizardEpoch.peek() === epoch;
 
+/** Drop open-path pendingSeen so host truth can reconverge after the look ends. */
+const releasePendingSeen = (nodeId: string): void => {
+  const cache = herdr$.metaByNodeId[nodeId].peek();
+  if (!cache?.pendingSeen) return;
+  herdr$.metaByNodeId[nodeId].set({ ...cache, pendingSeen: false, fetchedAt: Date.now() });
+};
+
 export const openHerdrWizard = (anchor: { readonly x: number; readonly y: number }): void => {
   // One interactive surface at a time — null terminal UI immediately, release stream async.
   const open = herdr$.terminal.peek();
@@ -82,6 +89,7 @@ export const openHerdrWizard = (anchor: { readonly x: number; readonly y: number
       | undefined;
     void api?.herdrStreamClose?.(open.streamId);
   }
+  if (open?.nodeId) releasePendingSeen(open.nodeId);
   herdr$.terminal.set(null);
   herdr$.wizardAnchor.set(anchor);
   const cx = anchor.x + HERDR_NODE_SIZE.width / 2;
@@ -120,6 +128,9 @@ export const closeHerdrTerminal = (): void => {
   const streamId = terminal.streamId;
   // UI first — operator must never be trapped in the modal.
   herdr$.terminal.set(null);
+  // Drop the open-path latch: if host still says done (focus failed), the card
+  // must re-converge to host truth after close instead of staying quiet forever.
+  releasePendingSeen(terminal.nodeId);
   if (!streamId) return;
   const api = getVellumApi() as
     | (ReturnType<typeof getVellumApi> & {
@@ -236,12 +247,21 @@ export const mergeHerdrMetaAfterRefresh = (
 
   const midFlightDoneClobber =
     nowGen > startSeenGen && prior?.agentStatus === "idle" && remote.agentStatus === "done";
-  const pendingSeenDoneClobber =
-    previous?.pendingSeen === true && remote.agentStatus === "done";
-
-  if (midFlightDoneClobber || pendingSeenDoneClobber) {
+  // pendingSeen + remote done:
+  // - prior idle/unknown → force idle (protect open race)
+  // - prior working|blocked → keep prior (do not demote live work, do not accept done)
+  if (remote.agentStatus === "done" && previous?.pendingSeen === true) {
+    if (prior?.agentStatus === "working" || prior?.agentStatus === "blocked") {
+      agentStatus = prior.agentStatus;
+    } else {
+      agentStatus = "idle";
+    }
+  } else if (midFlightDoneClobber) {
     agentStatus = "idle";
   }
+
+  // Sticky preview: mirror meta has no preview; don't wipe an exec-path line.
+  const preview = remote.preview ?? prior?.preview;
 
   return {
     ...remote,
@@ -251,6 +271,7 @@ export const mergeHerdrMetaAfterRefresh = (
     ...(label !== undefined ? { label } : {}),
     ...(workspaceLabel !== undefined ? { workspaceLabel } : {}),
     ...(tabLabel !== undefined ? { tabLabel } : {}),
+    ...(preview !== undefined ? { preview } : {}),
   };
 };
 
@@ -388,11 +409,19 @@ export const markHerdrPaneSeenRemote = async (
 };
 
 /** Coalesce concurrent refreshHerdrMeta for the same node (last-writer thrash). */
-const metaRefreshInFlight = new Map<
-  string,
-  { rerun: boolean; herdr: EtherHerdr; promise: Promise<void> }
->();
+type MetaRefreshSlot = {
+  rerun: boolean;
+  herdr: EtherHerdr;
+  promise: Promise<void>;
+};
+const metaRefreshInFlight = new Map<string, MetaRefreshSlot>();
 
+/**
+ * Register the in-flight slot BEFORE starting the async loop. Starting first
+ * then Map.set left a zombie: the async body ran sync until await, saw no
+ * slot, returned, then set installed a resolved promise — every later refresh
+ * hit existing and never called refreshHerdrMetaOnce again (swarm residual).
+ */
 export const refreshHerdrMeta = async (
   nodeId: string,
   herdr: EtherHerdr,
@@ -404,19 +433,24 @@ export const refreshHerdrMeta = async (
     return existing.promise;
   }
 
-  const run = async (): Promise<void> => {
-    const slot = metaRefreshInFlight.get(nodeId);
-    if (!slot) return;
-    do {
-      slot.rerun = false;
-      await refreshHerdrMetaOnce(nodeId, slot.herdr);
-    } while (slot.rerun);
-    metaRefreshInFlight.delete(nodeId);
+  const slot: MetaRefreshSlot = {
+    rerun: false,
+    herdr,
+    // filled immediately below so concurrent callers can await the same work
+    promise: Promise.resolve(),
   };
-
-  const promise = run();
-  metaRefreshInFlight.set(nodeId, { rerun: false, herdr, promise });
-  return promise;
+  metaRefreshInFlight.set(nodeId, slot);
+  slot.promise = (async () => {
+    try {
+      do {
+        slot.rerun = false;
+        await refreshHerdrMetaOnce(nodeId, slot.herdr);
+      } while (slot.rerun);
+    } finally {
+      metaRefreshInFlight.delete(nodeId);
+    }
+  })();
+  return slot.promise;
 };
 
 const refreshHerdrMetaOnce = async (
