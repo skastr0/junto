@@ -9,6 +9,7 @@ import {
   type HerdrStreamOpenInput,
   type BrowserAutomationEnableInput,
   type BrowserOpenInput,
+  type BrowserProfileWipeInput,
   type BrowserSessionInfo,
   type BrowserSurfaceBounds,
   type CanvasFlushRequest,
@@ -276,6 +277,10 @@ const vellumApi: VellumApi = {
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
   onUsageChanged: (listener) => subscribe<UsageState>(IPC_CHANNELS.usageChanged, listener),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),
+  hostsList: () => invoke(IPC_CHANNELS.hostsList, IPC_TIMEOUT_MS),
+  hostsUpsert: (host: unknown) => invoke(IPC_CHANNELS.hostsUpsert, IPC_TIMEOUT_MS, host),
+  hostsRemove: (id: string) => invoke(IPC_CHANNELS.hostsRemove, IPC_TIMEOUT_MS, id),
+  hostsTest: (id: string) => invoke(IPC_CHANNELS.hostsTest, IPC_TIMEOUT_MS, id),
   settingsGet: () => invoke<SettingsOpResult>(IPC_CHANNELS.settingsGet, IPC_TIMEOUT_MS),
   settingsPatch: (patch: SettingsPatch) =>
     invoke<SettingsOpResult>(IPC_CHANNELS.settingsPatch, IPC_TIMEOUT_MS, patch),
@@ -349,6 +354,9 @@ const browserApi: VellumBrowserApi = {
   browserSurfaceConfig: () => invoke(IPC_CHANNELS.browserSurfaceConfig, IPC_TIMEOUT_MS),
   browserOpen: (input: BrowserOpenInput) => invoke(IPC_CHANNELS.browserOpen, IPC_TIMEOUT_MS, input),
   browserClose: (sessionId) => invoke(IPC_CHANNELS.browserClose, IPC_TIMEOUT_MS, sessionId),
+  browserStop: (sessionId) => invoke(IPC_CHANNELS.browserStop, IPC_TIMEOUT_MS, sessionId),
+  browserWipeProfile: (input: BrowserProfileWipeInput) =>
+    invoke(IPC_CHANNELS.browserWipeProfile, IPC_TIMEOUT_MS, input),
   browserSessionState: (sessionId) =>
     invoke(IPC_CHANNELS.browserSessionState, IPC_TIMEOUT_MS, sessionId),
   browserSessionList: () => invoke(IPC_CHANNELS.browserSessionList, IPC_TIMEOUT_MS),

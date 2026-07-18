@@ -60,7 +60,7 @@ describe("herdr stage-image (vellum-owned)", () => {
 
     it("passes a generated name and bytes to the product transport", async () => {
       const calls: Array<{ name: string; bytes: Uint8Array }> = [];
-      const stageRemote: StageRemoteImage = async (name, input) => {
+      const stageRemote: StageRemoteImage = async (_hostId, name, input) => {
         calls.push({ name, bytes: Uint8Array.from(input) });
         return `/tmp/vellum-herdr-images/${name}`;
       };

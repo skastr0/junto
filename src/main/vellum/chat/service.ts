@@ -26,6 +26,8 @@ import { buildAcpSpawnTarget, resolveSessionCwd, type AcpSpawnTarget } from "./s
 interface AgentSession {
   readonly client: AcpClient;
   readonly generation: number;
+  /** Hermes host id from the agent key (local | configured remote). */
+  readonly host: string;
   sessionId: string;
   models: ReadonlyArray<ChatModelChoice>;
   promptInFlight: boolean;
@@ -33,7 +35,25 @@ interface AgentSession {
   // requestId (stringified JSON-RPC id) -> the original id, so a later
   // chatPermission call can echo it back to the agent unchanged.
   readonly pendingPermissions: Map<string, JsonRpcId>;
+  /** Last user-facing activity (open / prompt / permission). Idle eviction uses this. */
+  lastActivityAt: number;
 }
+
+// Per-host ceiling for remote (SSH-backed) ACP sessions. Local is uncapped
+// by this policy — local children do not hold a ControlMaster TCP mux.
+const maxRemoteSessionsPerHost = (): number => {
+  const raw = Number(process.env.VELLUM_ACP_MAX_REMOTE_SESSIONS_PER_HOST ?? "8");
+  return Number.isFinite(raw) && raw >= 1 ? Math.min(Math.floor(raw), 64) : 8;
+};
+
+// Idle sessions with no in-flight turn and no pending permission are closed.
+// Active turns are never evicted. 0 disables idle eviction.
+const idleEvictMs = (): number => {
+  const raw = Number(process.env.VELLUM_ACP_IDLE_MS ?? String(15 * 60_000));
+  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 15 * 60_000;
+};
+
+const isRemoteHost = (host: string): boolean => host !== "local";
 
 interface OpenInFlight {
   readonly generation: number;
@@ -75,11 +95,86 @@ export class ChatService {
   private readonly authorityRestartInFlight = new Map<string, Promise<ChatOpenResult>>();
   private readonly generations = new Map<string, number>();
   private eventSink: ((event: ChatEvent) => void) | undefined;
+  private idleTimer: ReturnType<typeof setInterval> | undefined;
 
-  constructor(private readonly spawnFn: SpawnFn) {}
+  constructor(private readonly spawnFn: SpawnFn) {
+    // Sweep idle remote sessions on a fixed interval. Unref so the timer
+    // alone cannot keep the process alive during headless tests / quit.
+    const period = Math.min(Math.max(idleEvictMs() || 60_000, 15_000), 60_000);
+    this.idleTimer = setInterval(() => this.evictIdleSessions(), period);
+    this.idleTimer.unref?.();
+  }
 
   setEventSink(sink: (event: ChatEvent) => void): void {
     this.eventSink = sink;
+  }
+
+  /** Test / shutdown seam. */
+  stopIdleSweep(): void {
+    if (this.idleTimer !== undefined) {
+      clearInterval(this.idleTimer);
+      this.idleTimer = undefined;
+    }
+  }
+
+  private touch(session: AgentSession): void {
+    session.lastActivityAt = Date.now();
+  }
+
+  private sessionIsBusy(session: AgentSession): boolean {
+    return session.promptInFlight || session.pendingPermissions.size > 0;
+  }
+
+  /**
+   * Close idle remote sessions. Never evicts local sessions, active turns,
+   * or sessions awaiting a permission answer.
+   */
+  evictIdleSessions(now = Date.now()): ReadonlyArray<string> {
+    const idleMs = idleEvictMs();
+    if (idleMs <= 0) return [];
+    const closed: string[] = [];
+    for (const [agentKey, session] of this.sessions) {
+      if (!isRemoteHost(session.host)) continue;
+      if (this.sessionIsBusy(session)) continue;
+      if (session.sessionId === "") continue; // still handshaking
+      if (now - session.lastActivityAt < idleMs) continue;
+      this.nextGeneration(agentKey);
+      this.closeCurrent(agentKey);
+      closed.push(agentKey);
+      this.emit(agentKey, "session.idle_evicted", { idleMs });
+    }
+    return closed;
+  }
+
+  /**
+   * Enforce per-host remote ceiling before opening another SSH-backed ACP.
+   * Prefer closing the least-recently-touched idle session; refuse if every
+   * slot is busy.
+   */
+  private enforceRemoteCeiling(host: string, openingKey: string): string | undefined {
+    if (!isRemoteHost(host)) return undefined;
+    const ceiling = maxRemoteSessionsPerHost();
+    const peers = [...this.sessions.entries()].filter(
+      ([key, session]) =>
+        key !== openingKey &&
+        session.host === host &&
+        !session.client.closed &&
+        session.sessionId !== "",
+    );
+    if (peers.length < ceiling) return undefined;
+
+    const idlePeers = peers
+      .filter(([, session]) => !this.sessionIsBusy(session))
+      .sort((a, b) => a[1].lastActivityAt - b[1].lastActivityAt);
+    const victim = idlePeers[0];
+    if (victim) {
+      const [agentKey] = victim;
+      this.nextGeneration(agentKey);
+      this.closeCurrent(agentKey);
+      this.emit(agentKey, "session.ceiling_evicted", { host, ceiling });
+      return undefined;
+    }
+    return `remote ACP session ceiling reached for host ${host} (${ceiling} live; all busy) — close a chat or wait for a turn to finish`;
   }
 
   // Mirrors the fast-path guard in chatOpen: a session counts as "live" only
@@ -148,11 +243,13 @@ export class ChatService {
     session = {
       client,
       generation,
+      host: target.host,
       sessionId: "",
       models: [],
       promptInFlight: false,
       replyChunks: [],
       pendingPermissions: new Map(),
+      lastActivityAt: Date.now(),
     };
     return session;
   }
@@ -189,6 +286,7 @@ export class ChatService {
       if (result === null) return undefined;
       session.sessionId = resumeSessionId;
       session.models = toModelChoices(result);
+      this.touch(session);
       return { ok: true, sessionId: resumeSessionId, resumed: true, models: session.models };
     } catch (error) {
       this.abandonSession(agentKey, session);
@@ -335,6 +433,11 @@ export class ChatService {
       return { ok: false, error: "chat open superseded" };
     }
 
+    // Sweep before counting so idle slots free up for a new open.
+    this.evictIdleSessions();
+    const ceilingError = this.enforceRemoteCeiling(target.host, agentKey);
+    if (ceilingError !== undefined) return { ok: false, error: ceilingError };
+
     const session = this.makeSession(agentKey, target, generation, environmentOverlay);
     this.sessions.set(agentKey, session);
 
@@ -367,6 +470,7 @@ export class ChatService {
       if (!created.sessionId) throw new Error("session/new returned no sessionId");
       session.sessionId = created.sessionId;
       session.models = toModelChoices(created);
+      this.touch(session);
       return { ok: true, sessionId: session.sessionId, resumed: false, models: session.models };
     } catch (err) {
       this.abandonSession(agentKey, session);
@@ -397,11 +501,13 @@ export class ChatService {
 
     session.promptInFlight = true;
     session.replyChunks = [];
+    this.touch(session);
     try {
       const result = await session.client.request<{ stopReason?: string }>("session/prompt", {
         sessionId: session.sessionId,
         prompt: blocks,
       });
+      this.touch(session);
       return {
         turn: { ok: true, stopReason: result.stopReason },
         reply: session.replyChunks.join(""),
@@ -438,6 +544,7 @@ export class ChatService {
     if (id === undefined) return { ok: false };
     session.pendingPermissions.delete(requestId);
     session.client.respond(id, { outcome: { outcome: "selected", optionId } });
+    this.touch(session);
     return { ok: true };
   }
 
@@ -462,6 +569,7 @@ export class ChatService {
   }
 
   closeAll(): void {
+    this.stopIdleSweep();
     const keys = new Set([
       ...this.sessions.keys(),
       ...this.openInFlight.keys(),
@@ -507,6 +615,7 @@ export class ChatService {
     if (method === "session/request_permission") {
       const requestId = String(id);
       session.pendingPermissions.set(requestId, id);
+      this.touch(session);
       this.emit(agentKey, "permission_request", { requestId, ...(params as object) });
       return;
     }

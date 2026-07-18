@@ -7,8 +7,8 @@ import type { AcpSpawnTarget } from "./spawn";
 // respondError/close.
 //
 // PROVEN WIRE FACTS (live spike against hermes 0.16.0):
-//   transport: ndjson over stdio; stderr is logging noise, forwarded to
-//   console.debug, never parsed.
+//   transport: ndjson over stdio; stderr is logging noise — never parsed.
+//   Raw stderr/non-JSON lines are gated (see acpVerboseLogging); default off.
 //   initialize -> {protocolVersion, agentCapabilities, authMethods}.
 //   Agent -> client REQUESTS (session/request_permission, ...) arrive as
 //   ndjson lines with both `id` and `method` — distinct from notifications
@@ -96,6 +96,12 @@ export interface AcpChildEnvironmentOverlay {
 export interface AcpSpawnOptions {
   readonly environmentOverlay?: AcpChildEnvironmentOverlay;
 }
+
+/** True when ACP may log raw stderr / non-JSON lines (sensitive material risk). */
+export const acpVerboseLogging = (): boolean => {
+  const value = process.env.VELLUM_ACP_VERBOSE ?? process.env.VELLUM_DEBUG ?? "";
+  return value === "1" || value.toLowerCase() === "true";
+};
 
 export type SpawnFn = (
   target: AcpSpawnTarget,
@@ -378,6 +384,9 @@ export class AcpClient {
   }
 
   private onStderr(chunk: string): void {
+    // Privacy: remote tools may print secrets/tokens on stderr. Default is
+    // silent; opt in with VELLUM_ACP_VERBOSE=1 or VELLUM_DEBUG=1.
+    if (!acpVerboseLogging()) return;
     for (const line of chunk.split("\n")) {
       if (line.trim().length > 0) {
         console.debug(`[acp:${this.target.host}:${this.target.profile}]`, line);
@@ -390,7 +399,9 @@ export class AcpClient {
     try {
       msg = JSON.parse(line) as InboundMessage;
     } catch {
-      console.debug("[acp] non-JSON line from child, skipping:", line.slice(0, 200));
+      if (acpVerboseLogging()) {
+        console.debug("[acp] non-JSON line from child, skipping:", line.slice(0, 200));
+      }
       return;
     }
     if (typeof msg !== "object" || msg === null) return;

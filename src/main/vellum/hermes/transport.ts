@@ -2,10 +2,16 @@ import { Context, Effect, Layer, Scope } from "effect";
 import type { CliResult } from "../adapters/exec";
 import { runCli } from "../adapters/exec";
 import {
+  findHostByHermesId,
+  hostsWithCapability,
+  sshEndpointForHermesId,
+} from "../hosts/snapshot";
+import {
   makeRemoteCommand,
   parseSshEndpoint,
+  SshInputError,
+  type SshEndpoint,
   type SshError,
-  type SshInputError,
 } from "../ssh/domain";
 import {
   dedicatedStream,
@@ -23,8 +29,6 @@ import {
   type HermesHostId,
   type HermesProfileName,
 } from "./domain";
-
-const REMOTE_ENDPOINT = "remote-a";
 
 // Closed scripts are product policy, not caller-provided shell. Dynamic
 // values cross the boundary as positional arguments after domain parsing.
@@ -85,11 +89,34 @@ const describeSshFailure = (error: SshError | SshInputError): string => {
   }
 };
 
+const resolveHermesEndpoint = (
+  hermesId: HermesHostId,
+): Effect.Effect<SshEndpoint, SshInputError> => {
+  const endpoint = sshEndpointForHermesId(hermesId);
+  if (!endpoint) {
+    return Effect.fail(
+      new SshInputError({
+        message: `hermes host ${hermesId} is not a configured ssh endpoint`,
+      }),
+    );
+  }
+  return parseSshEndpoint(endpoint);
+};
+
+/** Primary remote hermes host (first remote host with hermes capability). */
+const primaryRemoteHermesId = (): string | undefined => {
+  const remotes = hostsWithCapability("hermes").filter((host) => host.kind === "remote");
+  const first = remotes[0];
+  if (!first) return undefined;
+  return first.hermesId ?? first.id.replace(/-/g, "");
+};
+
 export class HermesTransport extends Context.Tag("@vellum/HermesTransport")<
   HermesTransport,
   {
     readonly profiles: (host: HermesHostId) => Effect.Effect<CliResult>;
     readonly version: (host: HermesHostId) => Effect.Effect<CliResult>;
+    /** Identity batch on the primary remote hermes host (legacy single-remote API). */
     readonly identityBatch: Effect.Effect<CliResult>;
     readonly avatar: (profile: HermesProfileName) => Effect.Effect<CliResult>;
     readonly connectAcp: <A, E, R>(
@@ -106,7 +133,6 @@ export const HermesTransportLive = Layer.effect(
   HermesTransport,
   Effect.gen(function* () {
     const ssh = yield* SshTransport;
-    const endpoint = yield* parseSshEndpoint(REMOTE_ENDPOINT).pipe(Effect.orDie);
 
     const local = (
       args: ReadonlyArray<string>,
@@ -122,7 +148,8 @@ export const HermesTransportLive = Layer.effect(
         ),
       );
 
-    const remote = (
+    const remoteOn = (
+      endpoint: SshEndpoint,
       executable: string,
       args: ReadonlyArray<string>,
       budget: OneShotBudget,
@@ -144,29 +171,87 @@ export const HermesTransportLive = Layer.effect(
       args: ReadonlyArray<string>,
       budget: OneShotBudget,
       localTimeoutMs: number,
-    ): Effect.Effect<CliResult> =>
-      host === "local"
-        ? local(args, localTimeoutMs)
-        : remote("hermes", args, budget);
+    ): Effect.Effect<CliResult> => {
+      if (host === "local") return local(args, localTimeoutMs);
+      // Accept product id or hermes alias (remote-a vs remote-a).
+      const resolved =
+        findHostByHermesId(host) ??
+        hostsWithCapability("hermes").find((entry) => entry.id === host);
+      if (!resolved || resolved.kind !== "remote" || !resolved.endpoint) {
+        return Effect.succeed({
+          ok: false,
+          stdout: "",
+          error: `unknown hermes host: ${host}`,
+        });
+      }
+      return parseSshEndpoint(resolved.endpoint).pipe(
+        Effect.flatMap((endpoint) => remoteOn(endpoint, "hermes", args, budget)),
+        Effect.catchAll((error) =>
+          Effect.succeed({
+            ok: false,
+            stdout: "",
+            error: describeSshFailure(error),
+          }),
+        ),
+      );
+    };
 
-    const connectAcp: Context.Tag.Service<typeof HermesTransport>["connectAcp"] =
-      (profile, awaitReady) =>
-        makeRemoteCommand("hermes", commandArgs(profile, ["acp"])).pipe(
-          Effect.flatMap((command) =>
-            ssh.connect(dedicatedStream(endpoint, command, "agent"), awaitReady),
-          ),
+    const withPrimaryRemote = (
+      executable: string,
+      args: ReadonlyArray<string>,
+      budget: OneShotBudget,
+    ): Effect.Effect<CliResult> => {
+      const hermesId = primaryRemoteHermesId();
+      if (!hermesId) {
+        return Effect.succeed({
+          ok: false,
+          stdout: "",
+          error: "no remote hermes host configured",
+        });
+      }
+      return resolveHermesEndpoint(hermesId).pipe(
+        Effect.flatMap((endpoint) => remoteOn(endpoint, executable, args, budget)),
+        Effect.catchAll((error) =>
+          Effect.succeed({
+            ok: false,
+            stdout: "",
+            error: describeSshFailure(error),
+          }),
+        ),
+      );
+    };
+
+    const connectAcp: Context.Tag.Service<typeof HermesTransport>["connectAcp"] = (
+      profile,
+      awaitReady,
+    ) => {
+      const hermesId = primaryRemoteHermesId();
+      if (!hermesId) {
+        return Effect.fail(
+          new SshInputError({ message: "no remote hermes host configured for ACP" }),
         );
+      }
+      return resolveHermesEndpoint(hermesId).pipe(
+        Effect.flatMap((endpoint) =>
+          makeRemoteCommand("hermes", commandArgs(profile, ["acp"])).pipe(
+            Effect.flatMap((command) =>
+              ssh.connect(dedicatedStream(endpoint, command, "agent"), awaitReady),
+            ),
+          ),
+        ),
+      );
+    };
 
     return HermesTransport.of({
       profiles: (host) => onHost(host, ["profile", "list"], "standard", 12_000),
       version: (host) => onHost(host, ["version"], "standard", 12_000),
-      identityBatch: remote(
+      identityBatch: withPrimaryRemote(
         "/bin/sh",
         ["-c", REMOTE_IDENTITY_SCRIPT, "vellum-hermes-identity"],
         "bulk",
       ),
       avatar: (profile) =>
-        remote(
+        withPrimaryRemote(
           "/bin/sh",
           ["-c", REMOTE_AVATAR_SCRIPT, "vellum-hermes-avatar", profile],
           "bulk",

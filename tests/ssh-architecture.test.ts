@@ -29,13 +29,18 @@ describe("SSH architecture", () => {
       /\bcommand\s*:\s*["'`](?:\/[^"'`]+\/)?ssh["'`]/u,
       /\b(?:ControlMaster|ControlPath|ControlPersist|ServerAliveInterval|ServerAliveCountMax)=/u,
     ];
+    const allowedBinaryMentions = new Set([
+      "scripts/packaged-runtime-smoke.ts",
+      // Doctor only checks executability of the OpenSSH client path; spawn stays in kernel.
+      "src/main/vellum/hosts/doctor.ts",
+    ]);
     const violations = files.flatMap((path) => {
       const name = display(path);
       if (name.startsWith("src/main/vellum/ssh/")) return [];
       const source = readFileSync(path, "utf8");
       const shellInvocation = extname(path) === ".sh" &&
         /(?:^|[\n;&|()])\s*(?:\/\S+\/)?ssh(?:\s|\\)/u.test(source);
-      const binaryIndirection = name !== "scripts/packaged-runtime-smoke.ts" &&
+      const binaryIndirection = !allowedBinaryMentions.has(name) &&
         /["'`](?:\/[^"'`]+\/)?ssh["'`]/u.test(source);
       return shellInvocation || binaryIndirection || forbidden.some((pattern) => pattern.test(source))
         ? [name]
@@ -49,14 +54,30 @@ describe("SSH architecture", () => {
     const renderers = new Set([
       "src/main/vellum/herdr/transport.ts",
       "src/main/vellum/hermes/transport.ts",
+      "src/main/vellum/hosts/doctor.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
     const violations = files.flatMap((path) => {
       const name = display(path);
-      if (name.startsWith("src/main/vellum/ssh/") || renderers.has(name)) return [];
+      // hosts/doctor is a policy renderer (warm + home + closed binary probes).
+      if (
+        name.startsWith("src/main/vellum/ssh/") ||
+        renderers.has(name) ||
+        name === "src/main/vellum/hosts/doctor.ts"
+      ) {
+        return [];
+      }
       return privateImport.test(readFileSync(path, "utf8")) ? [name] : [];
     });
 
     expect(violations).toEqual([]);
+  });
+
+  it("does not dispose shared ControlMaster sockets with -O exit", () => {
+    // Shared masters are process-global (ControlPersist=600). A headless CLI
+    // and the GUI share the same ControlPath; exit-on-dispose races them.
+    const service = readFileSync(join(root, "src/main/vellum/ssh/service.ts"), "utf8");
+    expect(service).not.toMatch(/master-exit|masterExit\(/u);
+    expect(service).toMatch(/ControlPersist=600|do not track or -O exit/iu);
   });
 });

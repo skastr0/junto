@@ -15,7 +15,9 @@ import { SettingsLive, SettingsService } from "./vellum/settings/service";
 import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
 import { UsageLive } from "./vellum/usage/live";
 import { UsageService } from "./vellum/usage/usage-service";
+import { HostsService, HostsServiceLive } from "./vellum/hosts";
 import { SshTransportLive } from "./vellum/ssh";
+import { primeHostsSnapshot } from "./vellum/hosts/snapshot";
 
 // KernelLive requires CanvasesService/SnapshotsService/StoreService;
 // RegionRollupLive requires CanvasesService/SnapshotsService.
@@ -32,7 +34,7 @@ import { SshTransportLive } from "./vellum/ssh";
 // small runtime avoids a circular-dependency cluster between this file and
 // the adapters that would otherwise need it).
 const ProductTransportsLive = Layer.provideMerge(
-  Layer.mergeAll(HerdrTransportLive, HermesTransportLive),
+  Layer.mergeAll(HerdrTransportLive, HermesTransportLive, HostsServiceLive),
   SshTransportLive,
 );
 
@@ -70,6 +72,12 @@ export const RootLayer = Layer.provideMerge(
 export const AppRuntime = ManagedRuntime.make(RootLayer);
 
 export const buildDoctorReport = Effect.gen(function* () {
+  // Ensure registry snapshot is current before host-aware doctor / transports.
+  yield* Effect.tryPromise({
+    try: () => primeHostsSnapshot(),
+    catch: () => undefined,
+  }).pipe(Effect.ignore);
+
   const store = yield* StoreService;
   const folder = yield* FolderService;
   const prism = yield* PrismService;
@@ -80,6 +88,7 @@ export const buildDoctorReport = Effect.gen(function* () {
   const regionRollup = yield* RegionRollupService;
   const usage = yield* UsageService;
   const settings = yield* SettingsService;
+  const hosts = yield* HostsService;
 
   const station = yield* prism.stationInfo;
   const serviceResults = yield* Effect.all(
@@ -94,6 +103,7 @@ export const buildDoctorReport = Effect.gen(function* () {
       regionRollup.doctor,
       usage.doctor,
       settings.doctor,
+      hosts.doctor,
     ],
     { concurrency: "unbounded" },
   );

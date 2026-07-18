@@ -1,4 +1,10 @@
-// P0 herdr hosts. Easy to extend — discovery is deliberately out of scope.
+// Herdr hosts resolve from the durable remote-host registry (~/.vellum/hosts.json).
+// Defaults seed local + remote-a so existing fleets keep working without config.
+
+import {
+  findHostById,
+  hostsWithCapability,
+} from "../hosts/snapshot";
 
 export interface HerdrHostDef {
   /** Stable product id used in ether.herdr.host and IPC. */
@@ -7,20 +13,37 @@ export interface HerdrHostDef {
   readonly label: string;
 }
 
-export type HerdrHostId = "local" | "remote-a";
+/** Host ids are open strings; membership is validated against the registry. */
+export type HerdrHostId = string;
 
-export const HERDR_HOSTS: ReadonlyArray<HerdrHostDef & { readonly id: HerdrHostId }> = [
-  { id: "local", label: "local" },
-  { id: "remote-a", label: "remote-a" },
-] as const;
+export const listHerdrHosts = (): ReadonlyArray<HerdrHostDef> =>
+  hostsWithCapability("herdr").map((host) => ({
+    id: host.id,
+    label: host.label,
+  }));
 
-export const isKnownHerdrHost = (id: string): boolean =>
-  HERDR_HOSTS.some((host) => host.id === id);
+/** @deprecated Use listHerdrHosts() — alias kept for gradual call-site migration. */
+export const HERDR_HOSTS = {
+  get current(): ReadonlyArray<HerdrHostDef> {
+    return listHerdrHosts();
+  },
+};
+
+export const isKnownHerdrHost = (id: string): boolean => {
+  if (id.startsWith("-")) return false;
+  const host = findHostById(id);
+  return host !== undefined && host.capabilities.includes("herdr");
+};
 
 export class UnknownHerdrHostError extends Error {
   readonly code = "invalid" as const;
   constructor(hostId: string) {
-    super(`unknown herdr host: ${hostId} (P0: local | remote-a)`);
+    const known = listHerdrHosts()
+      .map((host) => host.id)
+      .join(" | ");
+    super(
+      `unknown herdr host: ${hostId}${known ? ` (known: ${known})` : ""}`,
+    );
     this.name = "UnknownHerdrHostError";
   }
 }

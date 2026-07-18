@@ -34,12 +34,16 @@ import { registerHerdrIpc } from "./herdr/ipc";
 import type { PulseRegionOptions } from "./kernel/service";
 import { KernelService } from "./kernel/service";
 import { RegionRollupService } from "./region-rollup";
+import { registerHostsIpc } from "./hosts/ipc";
 import { registerSettingsIpc } from "./settings/ipc";
 import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
 
 const broadcast = (channel: string, payload: unknown) => {
   for (const window of BrowserWindow.getAllWindows()) {
+    // Guard: close/reopen races can leave a BrowserWindow whose webContents
+    // is already destroyed (Object has been destroyed in main).
+    if (window.isDestroyed() || window.webContents.isDestroyed()) continue;
     window.webContents.send(channel, payload);
   }
 };
@@ -47,6 +51,7 @@ const broadcast = (channel: string, payload: unknown) => {
 export const registerVellumIpc = (): void => {
   registerHerdrIpc(ipcMain, () => BrowserWindow.getAllWindows().map((w) => w.webContents));
   registerSettingsIpc(ipcMain, broadcast);
+  registerHostsIpc(ipcMain);
   ipcMain.handle(IPC_CHANNELS.listCanvases, () =>
     AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.list)),
   );
@@ -101,9 +106,12 @@ export const registerVellumIpc = (): void => {
           const snapshots = yield* SnapshotsService;
           // Fresh full-corpus pull (no hints = base project lists from each source).
           const state = yield* snapshots.refresh([]);
-          const existing = yield* canvases.read(name);
-          const merged = mergePortfolioInto(existing.doc, state, { all: options?.all ?? false });
-          yield* canvases.write(name, merged);
+          // mergePortfolioInto is idempotent. Run it through the retrying
+          // document mutation boundary so a direct-file edit during refresh
+          // is merged into, never overwritten by a stale pre-refresh read.
+          yield* canvases.mutate(name, (doc) =>
+            mergePortfolioInto(doc, state, { all: options?.all ?? false }),
+          );
           return yield* canvases.read(name);
         }),
       ),

@@ -4,7 +4,11 @@ export type HermesProfileName = string & {
   readonly [HermesProfileNameTypeId]: typeof HermesProfileNameTypeId;
 };
 
-export type HermesHostId = "local" | "remote-a";
+/**
+ * Hermes host ids are open strings from the remote-host registry.
+ * Legacy agent keys use hermesId (e.g. remote-a for host id remote-a).
+ */
+export type HermesHostId = string;
 
 export interface ParsedAgentKey {
   readonly host: HermesHostId;
@@ -14,14 +18,17 @@ export interface ParsedAgentKey {
 const PROFILE_NAME_RE = /^[A-Za-z0-9_-]+$/;
 
 export const parseHermesProfileName = (value: string): HermesProfileName | undefined =>
-  PROFILE_NAME_RE.test(value) ? value as HermesProfileName : undefined;
+  PROFILE_NAME_RE.test(value) ? (value as HermesProfileName) : undefined;
 
 export const parseAgentKey = (key: string): ParsedAgentKey | undefined => {
   const separator = key.indexOf(":");
   if (separator <= 0) return undefined;
 
   const host = key.slice(0, separator);
-  if (host !== "local" && host !== "remote-a") return undefined;
+  // Validate host shape (not leading dash / empty); membership is checked
+  // against the registry at call sites that need a live host.
+  if (!host || host.startsWith("-") || host.length > 64) return undefined;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(host)) return undefined;
 
   const profile = parseHermesProfileName(key.slice(separator + 1));
   return profile === undefined ? undefined : { host, profile };

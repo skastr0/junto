@@ -161,12 +161,14 @@ export const SshTransportLayer = Layer.scoped(
     const spawner = yield* ProcessSpawner;
     const fs = yield* FileSystem.FileSystem;
     const config = yield* SshTransportConfig;
-    const owner = yield* Scope.Scope;
     const compiler = createSshProgramCompiler(config);
     const dialPermits = yield* Effect.makeSemaphore(config.maxConcurrentDials);
     const endpointPermits = new Map<string, Effect.Semaphore>();
     const warmLocks = new Map<string, Effect.Semaphore>();
-    const masters = new Map<string, SshEndpoint>();
+    // Shared ControlMaster sockets are intentionally process-global under
+    // ControlPersist=600. Do not track or -O exit them on dispose: GUI and
+    // headless CLIs share the same ControlPath, so a short-lived runtime
+    // exiting would tear down the long-lived master's mux.
 
     const confirm: ConfirmSshReady = <A>(value: A): SshReady<A> => ({
       [ReadyTypeId]: ReadyTypeId,
@@ -361,10 +363,6 @@ export const SshTransportLayer = Layer.scoped(
         };
       });
 
-    const rememberMaster = (endpoint: SshEndpoint): void => {
-      masters.set(String(endpoint), endpoint);
-    };
-
     const run = (program: OneShotProgram): Effect.Effect<SshCommandResult, SshError> =>
       Effect.try({
         try: () => compiler.oneShot(program),
@@ -377,7 +375,6 @@ export const SshTransportLayer = Layer.scoped(
           withDial(
             compiled.endpoint,
             ensureControlDir(compiled.endpoint).pipe(
-              Effect.tap(() => Effect.sync(() => rememberMaster(compiled.endpoint))),
               Effect.zipRight(
                 runChecked(
                   compiled.endpoint,
@@ -402,9 +399,7 @@ export const SshTransportLayer = Layer.scoped(
       }).pipe(
         Effect.flatMap((compiled) => {
           const setup = compiled.connection === "shared"
-            ? ensureControlDir(compiled.endpoint).pipe(
-                Effect.tap(() => Effect.sync(() => rememberMaster(compiled.endpoint))),
-              )
+            ? ensureControlDir(compiled.endpoint)
             : Effect.void;
           return withDial(
             compiled.endpoint,
@@ -576,7 +571,6 @@ export const SshTransportLayer = Layer.scoped(
             compiled.endpoint,
             Effect.gen(function* () {
               yield* ensureControlDir(compiled.endpoint);
-              rememberMaster(compiled.endpoint);
               const result = yield* runChecked(
                 compiled.endpoint,
                 "daemon-handoff",
@@ -619,7 +613,6 @@ export const SshTransportLayer = Layer.scoped(
         withDial(
           endpoint,
           ensureControlDir(endpoint).pipe(
-            Effect.tap(() => Effect.sync(() => rememberMaster(endpoint))),
             Effect.zipRight(
               runChecked(endpoint, "master-warm", compiler.masterWarm(endpoint), 8_000),
             ),
@@ -628,23 +621,6 @@ export const SshTransportLayer = Layer.scoped(
         ),
       );
     };
-
-    yield* Scope.addFinalizer(
-      owner,
-      Effect.suspend(() =>
-        Effect.forEach(
-          [...masters.values()],
-          (endpoint) =>
-            runChecked(
-              endpoint,
-              "master-exit",
-              compiler.masterExit(endpoint),
-              4_000,
-            ).pipe(Effect.interruptible, Effect.ignore),
-          { concurrency: 4, discard: true },
-        ),
-      ),
-    );
 
     return SshTransport.of({ run, connect, forward, handoff, warm });
   }),

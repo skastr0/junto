@@ -1,5 +1,5 @@
 import type { CliResult } from "../adapters/exec";
-import { HERDR_HOSTS, isKnownHerdrHost, UnknownHerdrHostError, type HerdrHostDef } from "./hosts";
+import { isKnownHerdrHost, listHerdrHosts, UnknownHerdrHostError, type HerdrHostDef } from "./hosts";
 import type { HerdrMirrorReads } from "./mirror";
 import {
   parseCliEnvelope,
@@ -140,7 +140,7 @@ export class HerdrService {
   }
 
   hosts(): ReadonlyArray<HerdrHostDef> {
-    return HERDR_HOSTS;
+    return listHerdrHosts();
   }
 
   async ensureServer(

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CliResult } from "../src/main/vellum/adapters/exec";
-import { HERDR_HOSTS, isKnownHerdrHost } from "../src/main/vellum/herdr/hosts";
+import { isKnownHerdrHost, listHerdrHosts } from "../src/main/vellum/herdr/hosts";
 import {
   parseCliEnvelope,
   parseCreateIds,
@@ -15,11 +15,11 @@ const ok = (stdout: string): CliResult => ({ ok: true, stdout });
 const fail = (error: string): CliResult => ({ ok: false, stdout: "", error });
 
 describe("herdr hosts", () => {
-  it("exposes local + remote-a P0 hosts", () => {
-    expect(HERDR_HOSTS.map((h) => h.id)).toEqual(["local", "remote-a"]);
+  it("exposes local + remote-a default hosts from the registry", () => {
+    expect(listHerdrHosts().map((h) => h.id)).toEqual(["local", "remote-a"]);
   });
 
-  it("recognizes only the fixed product host inventory", () => {
+  it("recognizes only registry herdr hosts", () => {
     expect(isKnownHerdrHost("local")).toBe(true);
     expect(isKnownHerdrHost("remote-a")).toBe(true);
     expect(isKnownHerdrHost("evil-host")).toBe(false);

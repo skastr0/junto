@@ -8,7 +8,7 @@ import {
   type HerdrStreamOpenInput,
 } from "@shared/ipc";
 import { AppRuntime } from "../../runtime";
-import { HERDR_HOSTS } from "./hosts";
+import { listHerdrHosts } from "./hosts";
 import { HerdrPlane } from "./plane";
 
 const toOp = <T>(result: { ok: true; data: T } | { ok: false; code: string; message: string }) => {
@@ -34,7 +34,7 @@ export const registerHerdrIpc = (
 
     // Mirror change push — a freshness flip is "state"; data churn is "change".
     const lastFresh = new Map<string, boolean>();
-    for (const host of HERDR_HOSTS) {
+    for (const host of listHerdrHosts()) {
       const mirror = plane.mirrors.mirrorFor(host.id);
       if (!mirror) continue;
       mirror.onChange(() => {

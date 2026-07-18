@@ -58,7 +58,11 @@ export const pastePathPayload = (absolutePath: string): string =>
 const uniqueName = (extension: string): string =>
   `vellum-clip-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}.${extension}`;
 
-export type StageRemoteImage = (remoteName: string, bytes: Uint8Array) => Promise<string>;
+export type StageRemoteImage = (
+  hostId: string,
+  remoteName: string,
+  bytes: Uint8Array,
+) => Promise<string>;
 
 export type StageImageDeps = {
   readonly stageRemote?: StageRemoteImage;
@@ -112,7 +116,7 @@ export const stageImageOnHost = async (
     return { ok: false, error: "remote image staging transport is unavailable" };
   }
   try {
-    const path = await deps.stageRemote(name, decoded.bytes);
+    const path = await deps.stageRemote(hostId, name, decoded.bytes);
     return {
       ok: true,
       path,

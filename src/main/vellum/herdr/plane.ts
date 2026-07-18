@@ -13,12 +13,13 @@ import {
 } from "effect";
 import type { CliResult } from "../adapters/exec";
 import { resolvedSpawnEnvSync } from "../adapters/exec";
+import { isDemoMode } from "../demo/mode";
+import { scriptedTransportFor } from "../demo/service";
 import {
   makeScopedPromiseRunner,
   type SshLease,
 } from "../ssh";
 import {
-  HERDR_HOSTS,
   isKnownHerdrHost,
   type HerdrHostId,
 } from "./hosts";
@@ -242,7 +243,7 @@ export const HerdrPlaneLive = Layer.scoped(
 
       try {
         await runOwned(
-          transport.handoffServer(session, (confirm) =>
+          transport.handoffServer(known, session, (confirm) =>
             awaitServer(known, session).pipe(
               Effect.flatMap((ready) =>
                 ready
@@ -262,10 +263,16 @@ export const HerdrPlaneLive = Layer.scoped(
       }
     };
 
-    const openMirrorForward = async () => {
+    const openMirrorForward = async (hostId: string) => {
+      const known = asHostId(hostId);
+      if (!known || known === "local") {
+        throw new Error(`mirror forward requires an ssh herdr host (got ${hostId})`);
+      }
       const scope = await runPromise(Scope.fork(owner, ExecutionStrategy.sequential));
       try {
-        const lease = await runPromise(transport.forwardMirror.pipe(Scope.extend(scope)));
+        const lease = await runPromise(
+          transport.forwardMirror(known).pipe(Scope.extend(scope)),
+        );
         return {
           localSocket: String(lease.localSocket),
           closed: runPromise(lease.exitCode).then(() => undefined, () => undefined),
@@ -277,10 +284,15 @@ export const HerdrPlaneLive = Layer.scoped(
       }
     };
 
+    // Demo mode (--vellum-demo): mirrors read from the scripted in-memory
+    // transport so the conductor can drive pane state; real transports never
+    // construct. Inert otherwise.
     const mirrors = new HerdrMirrorRegistry((hostId) =>
-      hostId === "local"
-        ? new LocalMirrorTransport()
-        : new RemoteMirrorTransport(hostId, openMirrorForward),
+      isDemoMode()
+        ? scriptedTransportFor(hostId)
+        : hostId === "local"
+          ? new LocalMirrorTransport()
+          : new RemoteMirrorTransport(hostId, () => openMirrorForward(hostId)),
     );
 
     const spawnHerdr: HerdrSpawnFn = (hostId, args, session) => {
@@ -299,7 +311,8 @@ export const HerdrPlaneLive = Layer.scoped(
     const streams = new HerdrStreamManager(
       observePool,
       spawnHerdr,
-      (remoteName, bytes) => runOwned(transport.stageImage(remoteName, bytes)),
+      (hostId, remoteName, bytes) =>
+        runOwned(transport.stageImage(hostId, remoteName, bytes)),
     );
     const service = new HerdrService(
       runner,

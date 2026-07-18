@@ -1,4 +1,14 @@
-import type { BrowserSessionState } from "./browser";
+import type {
+  BrowserProfileWipeInput,
+  BrowserProfileWipeReceipt,
+  BrowserSessionState,
+  BrowserStopReceipt,
+} from "./browser";
+export type {
+  BrowserProfileWipeInput,
+  BrowserProfileWipeReceipt,
+  BrowserStopReceipt,
+} from "./browser";
 import type { DirectoryEntry, DoctorReport, FolderSnapshot, ServiceCheck } from "./contracts";
 import type { CanvasDoc } from "./canvas";
 import type {
@@ -92,6 +102,8 @@ export const IPC_CHANNELS = {
   browserProfiles: "vellum:browser-profiles",
   browserOpen: "vellum:browser-open",
   browserClose: "vellum:browser-close",
+  browserStop: "vellum:browser-stop",
+  browserWipeProfile: "vellum:browser-wipe-profile",
   browserSessionState: "vellum:browser-session-state",
   browserSessionList: "vellum:browser-session-list",
   browserSetBounds: "vellum:browser-set-bounds",
@@ -108,6 +120,11 @@ export const IPC_CHANNELS = {
   settingsGet: "vellum:settings-get",
   settingsPatch: "vellum:settings-patch",
   settingsReset: "vellum:settings-reset",
+  // remote host registry (~/.vellum/hosts.json)
+  hostsList: "vellum:hosts-list",
+  hostsUpsert: "vellum:hosts-upsert",
+  hostsRemove: "vellum:hosts-remove",
+  hostsTest: "vellum:hosts-test",
   // main -> renderer pushes
   nodeRefOpened: "vellum:node-ref-opened",
   nodeRefOpenedAck: "vellum:node-ref-opened-ack",
@@ -660,6 +677,32 @@ export interface VellumApi {
   readonly settingsPatch: (patch: SettingsPatch) => Promise<SettingsOpResult>;
   readonly settingsReset: (section?: SettingsSectionKey) => Promise<SettingsOpResult>;
   readonly onSettingsChanged: (listener: (settings: Settings) => void) => () => void;
+  // Remote host registry (SSH fleet surface).
+  readonly hostsList: () => Promise<HostsOpResult>;
+  readonly hostsUpsert: (host: unknown) => Promise<HostsOpResult>;
+  readonly hostsRemove: (id: string) => Promise<HostsOpResult>;
+  readonly hostsTest: (id: string) => Promise<HostsTestResult>;
+}
+
+export interface HostsOpResult {
+  readonly ok: boolean;
+  readonly hosts?: ReadonlyArray<{
+    readonly id: string;
+    readonly label: string;
+    readonly kind: "local" | "remote";
+    readonly endpoint?: string;
+    readonly capabilities: ReadonlyArray<"herdr" | "hermes">;
+    readonly hermesId?: string;
+  }>;
+  readonly code?: string;
+  readonly message?: string;
+}
+
+export interface HostsTestResult {
+  readonly ok: boolean;
+  readonly detail: string;
+  readonly code?: string;
+  readonly message?: string;
 }
 
 // The attached-chat surface is declared separately and merged into the
@@ -956,6 +999,10 @@ export interface VellumBrowserApi {
   readonly browserSurfaceConfig: () => Promise<BrowserOpResult<BrowserSurfaceConfigInfo>>;
   readonly browserOpen: (input: BrowserOpenInput) => Promise<BrowserOpResult<BrowserSessionInfo>>;
   readonly browserClose: (sessionId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  readonly browserStop: (sessionId: string) => Promise<BrowserOpResult<BrowserStopReceipt>>;
+  readonly browserWipeProfile: (
+    input: BrowserProfileWipeInput,
+  ) => Promise<BrowserOpResult<BrowserProfileWipeReceipt>>;
   readonly browserSessionState: (sessionId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
   readonly browserSessionList: () => Promise<BrowserOpResult<ReadonlyArray<BrowserSessionInfo>>>;
   readonly browserSetBounds: (

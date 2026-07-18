@@ -1,11 +1,13 @@
 import type { Entity, SnapshotBundle } from "@shared/entities";
-import type { CliResult } from "./exec";
+import { hermesKeyFor, hostHasCapability } from "@shared/remote-hosts";
 import type { HermesHostId } from "../hermes/domain";
+import { hostsSnapshot } from "../hosts/snapshot";
+import type { CliResult } from "./exec";
 
 // The Hermes fleet adapter: each profile on each host is one agent node.
-// Hosts are enumerated locally (no ssh) and on the remote-a (over the tailnet
-// via ssh). A host that is unreachable contributes nothing rather than failing
-// the whole bundle. `hermes profile list` has no --json, so its table is
+// Hosts come from the durable remote-host registry (~/.vellum/hosts.json).
+// A host that is unreachable contributes nothing rather than failing the
+// whole bundle. `hermes profile list` has no --json, so its table is
 // parsed; `hermes version` gives a host-level version applied to that host's
 // agents.
 
@@ -19,16 +21,13 @@ export interface HermesFleetOperations {
   readonly version: (host: HermesHostId) => Promise<CliResult>;
 }
 
-const HOSTS: ReadonlyArray<HermesHost> = [
-  {
-    id: "local",
-    label: "dev-laptop",
-  },
-  {
-    id: "remote-a",
-    label: "remote-a",
-  },
-];
+const listHermesHosts = (): ReadonlyArray<HermesHost> =>
+  hostsSnapshot()
+    .filter((host) => hostHasCapability(host, "hermes"))
+    .map((host) => ({
+      id: (host.kind === "local" ? "local" : hermesKeyFor(host)) as HermesHostId,
+      label: host.label,
+    }));
 
 // "Hermes Agent v0.16.0 (2026.6.5) · upstream a72bb037" -> "v0.16.0"
 export const parseVersion = (stdout: string): string | undefined => {
@@ -99,8 +98,9 @@ export const fetchHermesBundle = async (
   operations: HermesFleetOperations,
 ): Promise<SnapshotBundle> => {
   const fetchedAt = new Date().toISOString();
+  const hosts = listHermesHosts();
   const perHost = await Promise.all(
-    HOSTS.map((host) =>
+    hosts.map((host) =>
       fetchHost(operations, host).catch(() => [] as ReadonlyArray<Entity>),
     ),
   );
@@ -113,7 +113,7 @@ export const fetchHermesBundle = async (
       source: "hermes",
       fetchedAt,
       ok: false,
-      error: "no hermes hosts reachable (local + remote-a)",
+      error: `no hermes hosts reachable (${hosts.map((h) => h.id).join(" + ") || "none configured"})`,
       entities: [],
     };
   }

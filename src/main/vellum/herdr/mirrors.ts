@@ -1,4 +1,4 @@
-import { HERDR_HOSTS, isKnownHerdrHost } from "./hosts";
+import { isKnownHerdrHost, listHerdrHosts } from "./hosts";
 import { HerdrMirror } from "./mirror";
 import type { MirrorTransport } from "./mirror-transport";
 
@@ -24,7 +24,7 @@ export class HerdrMirrorRegistry {
   }
 
   startAll(): void {
-    for (const host of HERDR_HOSTS) this.mirrorFor(host.id)?.start();
+    for (const host of listHerdrHosts()) this.mirrorFor(host.id)?.start();
   }
 
   stopAll(): void {
@@ -39,7 +39,7 @@ export class HerdrMirrorRegistry {
   }
 
   states(): ReadonlyArray<HerdrMirrorHostState> {
-    return HERDR_HOSTS.map((host) => {
+    return listHerdrHosts().map((host) => {
       const mirror = this.registry.get(host.id);
       return {
         hostId: host.id,
