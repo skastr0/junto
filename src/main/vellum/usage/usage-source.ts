@@ -9,7 +9,12 @@ export interface UsageSource {
   readonly id: string;
   // Cheap presence probe (CLI on PATH, credentials resolvable).
   readonly detect: Effect.Effect<boolean>;
+  // Primary fetch — must return ASAP so the HUD can paint. Expensive
+  // enrichment (e.g. multi-account codex) belongs in `enrich`, not here.
   readonly fetch: Effect.Effect<UsageSnapshot>;
+  // Optional second stage after primary is committed. Return undefined to
+  // leave the primary snapshot alone.
+  readonly enrich?: Effect.Effect<UsageSnapshot | undefined>;
 }
 
 // Registry Tag: the composition root contributes the set of sources the

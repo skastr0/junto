@@ -237,22 +237,16 @@ export function App() {
       return nodeRefNavigation.navigate(event);
     });
 
-    // Usage: subscribe BEFORE any read/refresh so a concurrent main-process
-    // poll completion cannot land as a lost push. Re-hydrate on every mount
-    // (HMR / StrictMode remount) — getUsage is cheap (in-memory); refresh is
-    // fire-and-forget so a slow codexbar never blocks canvas boot.
+    // Usage: subscribe first so no push is lost. getUsage is instant (main
+    // already holds last-good cache + kicks primary poll on start). Do NOT
+    // await refreshUsage here — that was waiting 30–60s on codexbar and made
+    // the HUD feel deferred. Main `usage.start()` polls immediately.
     const offUsage = vellum.onUsageChanged((state) => state$.usage.set(state));
     void vellum
       .getUsage()
       .then((usage) => state$.usage.set(usage))
       .catch(() => {
-        // Fail open: keep empty until a push or refresh lands.
-      });
-    void vellum
-      .refreshUsage()
-      .then((usage) => state$.usage.set(usage))
-      .catch(() => {
-        // Main still polls on its own cadence; a timed-out IPC is not fatal.
+        // Fail open: keep empty until a push lands.
       });
 
     const boot = async () => {

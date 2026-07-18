@@ -206,28 +206,35 @@ const parseUsageStdout = (
   return { ok: true, quotas: parseCodexbarPayload(parsed, fetchedAt) };
 };
 
-// Total by construction: runCli never rejects, every branch returns an
-// envelope, and the outer try/catch guards only against a parser defect.
+// Last primary (enabled-providers) quotas — enrich re-merges multi-account
+// codex on top without re-running the full multi-provider poll.
+let lastPrimaryQuotas: ReadonlyArray<ProviderQuota> = [];
+let cliPresent: boolean | undefined;
+
+const detectCli = async (): Promise<boolean> => {
+  if (cliPresent !== undefined) return cliPresent;
+  const detected = await runCli("codexbar", ["--version"], DETECT_TIMEOUT_MS);
+  cliPresent = detected.ok;
+  return cliPresent;
+};
+
+// Primary path only: one `usage --json` call. Multi-account is `enrich` so the
+// HUD can paint as soon as the first payload lands instead of waiting on a
+// second slow all-accounts fan-out.
 const fetchCodexbar = async (): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
-    const detected = await runCli("codexbar", ["--version"], DETECT_TIMEOUT_MS);
-    if (!detected.ok) {
+    if (!(await detectCli())) {
       return buildCodexbarSnapshot(fetchedAt, {
         kind: "unavailable",
         reason: "cli-missing",
-        error: detected.error ?? "codexbar CLI not found on PATH",
+        error: "codexbar CLI not found on PATH",
       });
     }
 
-    // Parallel: full enabled set + every visible Codex account.
     // codexbar often exits 1 when *some* providers error while still printing
-    // a full JSON array on stdout — recover from stdout before treating as hard fail.
-    const [enabledResult, codexAccountsResult] = await Promise.all([
-      runCli("codexbar", ["usage", "--json"], FETCH_TIMEOUT_MS),
-      runCli("codexbar", ["usage", "--json", "--provider", "codex", "--all-accounts"], FETCH_TIMEOUT_MS),
-    ]);
-
+    // a full JSON array on stdout — recover from stdout before hard-fail.
+    const enabledResult = await runCli("codexbar", ["usage", "--json"], FETCH_TIMEOUT_MS);
     const enabledParsed = enabledResult.stdout.trim()
       ? parseUsageStdout(enabledResult.stdout, fetchedAt)
       : null;
@@ -246,19 +253,10 @@ const fetchCodexbar = async (): Promise<UsageSnapshot> => {
       });
     }
 
-    // Codex all-accounts is best-effort: recover quotas from stdout even when
-    // the process exits non-zero; otherwise keep the single active codex row.
-    let codexAccounts: ReadonlyArray<ProviderQuota> = [];
-    if (codexAccountsResult.stdout.trim()) {
-      const codexParsed = parseUsageStdout(codexAccountsResult.stdout, fetchedAt);
-      if (codexParsed.ok) {
-        codexAccounts = codexParsed.quotas.filter((quota) => quota.provider.toLowerCase() === "codex");
-      }
-    }
-
+    lastPrimaryQuotas = enabledParsed.quotas;
     return buildCodexbarSnapshot(fetchedAt, {
       kind: "ok",
-      quotas: mergeCodexAllAccounts(enabledParsed.quotas, codexAccounts),
+      quotas: enabledParsed.quotas,
     });
   } catch (error) {
     return buildCodexbarSnapshot(fetchedAt, {
@@ -269,10 +267,37 @@ const fetchCodexbar = async (): Promise<UsageSnapshot> => {
   }
 };
 
+// Second stage: every managed Codex account. Best-effort; never undoes a good
+// primary paint if this call fails or is empty.
+const enrichCodexbar = async (): Promise<UsageSnapshot | undefined> => {
+  if (lastPrimaryQuotas.length === 0) return undefined;
+  const fetchedAt = new Date().toISOString();
+  try {
+    if (!(await detectCli())) return undefined;
+    const result = await runCli(
+      "codexbar",
+      ["usage", "--json", "--provider", "codex", "--all-accounts"],
+      FETCH_TIMEOUT_MS,
+    );
+    if (!result.stdout.trim()) return undefined;
+    const parsed = parseUsageStdout(result.stdout, fetchedAt);
+    if (!parsed.ok) return undefined;
+    const codexAccounts = parsed.quotas.filter((quota) => quota.provider.toLowerCase() === "codex");
+    if (codexAccounts.length === 0) return undefined;
+    return buildCodexbarSnapshot(fetchedAt, {
+      kind: "ok",
+      quotas: mergeCodexAllAccounts(lastPrimaryQuotas, codexAccounts),
+    });
+  } catch {
+    return undefined;
+  }
+};
+
 export const codexbarSource: UsageSource = {
   id: "codexbar",
-  detect: Effect.promise(async () => (await runCli("codexbar", ["--version"], DETECT_TIMEOUT_MS)).ok),
+  detect: Effect.promise(detectCli),
   fetch: Effect.promise(fetchCodexbar),
+  enrich: Effect.promise(enrichCodexbar),
 };
 
 // Registry contribution. The composition root (live.ts) merges this with the
