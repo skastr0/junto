@@ -300,6 +300,9 @@ export const mergeHerdrMetaAfterRefresh = (
 
   // Sticky preview: mirror meta has no preview; don't wipe an exec-path line.
   const preview = remote.preview ?? prior?.preview;
+  // Sticky focus: remote omitting focused (partial rows / exec holes) must not
+  // clear a known prior — that flipped inspector FOCUSED yes|no on every poll.
+  const focused = remote.focused !== undefined ? remote.focused : prior?.focused;
 
   return {
     ...remote,
@@ -310,6 +313,7 @@ export const mergeHerdrMetaAfterRefresh = (
     ...(workspaceLabel !== undefined ? { workspaceLabel } : {}),
     ...(tabLabel !== undefined ? { tabLabel } : {}),
     ...(preview !== undefined ? { preview } : {}),
+    ...(focused !== undefined ? { focused } : {}),
   };
 };
 

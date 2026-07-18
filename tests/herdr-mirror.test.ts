@@ -138,6 +138,9 @@ describe("HerdrMirror", () => {
     expect(mirror.listPanes()?.map((p) => p.pane_id)).toEqual(["w1:p1"]);
     expect(mirror.listAgents()?.length).toBe(1);
     expect(mirror.paneRecord("w1:p1")?.terminal_id).toBe("term_1");
+    // Fixture ships pane.focused:false while focused_pane_id=w1:p1 — normalize.
+    expect(mirror.focused().paneId).toBe("w1:p1");
+    expect(mirror.paneRecord("w1:p1")?.focused).toBe(true);
     expect(mirror.lastSyncAt).toBeTypeOf("number");
 
     // subscriptions: all unscoped kinds + agent_status scoped per known pane
@@ -188,6 +191,43 @@ describe("HerdrMirror", () => {
     });
     await waitFor(() => changes >= 1);
     expect(mirror.listWorkspaces()?.[0]?.label).toBe("x");
+  });
+
+  it("pane.focused updates focused() and normalizes row flags", async () => {
+    const transport = new FakeTransport();
+    // Two-pane snapshot so focus can move off p1 onto p2.
+    transport.snapshot = {
+      snapshot: {
+        ...snapshotFixture().snapshot,
+        panes: [
+          { ...snapshotFixture().snapshot.panes[0]!, pane_id: "w1:p1", focused: true },
+          {
+            pane_id: "w1:p2",
+            workspace_id: "w1",
+            tab_id: "w1:t1",
+            terminal_id: "term_2",
+            cwd: "/other",
+            agent: "amp",
+            agent_status: "idle",
+            focused: false,
+            revision: 0,
+          },
+        ],
+        focused_pane_id: "w1:p1",
+      },
+    };
+    const mirror = await startFresh(transport);
+    cleanup.push(() => mirror.stop());
+    expect(mirror.paneRecord("w1:p1")?.focused).toBe(true);
+    expect(mirror.paneRecord("w1:p2")?.focused).toBe(false);
+
+    transport.handlers!.onEvent({
+      event: "pane.focused",
+      data: { pane_id: "w1:p2", workspace_id: "w1", tab_id: "w1:t1" },
+    });
+    expect(mirror.focused().paneId).toBe("w1:p2");
+    expect(mirror.paneRecord("w1:p1")?.focused).toBe(false);
+    expect(mirror.paneRecord("w1:p2")?.focused).toBe(true);
   });
 
   it("pane.scroll_changed does not upsert or emitChange", async () => {
@@ -362,6 +402,13 @@ class FakeMirror implements HerdrMirrorReads {
       this.data.agents.find((a) => a.pane_id === paneId)
     );
   }
+  focused() {
+    return {
+      workspaceId: this.data.focused_workspace_id as string | undefined,
+      tabId: this.data.focused_tab_id as string | undefined,
+      paneId: this.data.focused_pane_id as string | undefined,
+    };
+  }
 }
 
 const okCli = (payload: unknown): CliResult => ({ ok: true, stdout: JSON.stringify(payload) });
@@ -461,6 +508,18 @@ describe("HerdrService mirror integration", () => {
     // for every card on every agent_status_changed.
     expect(meta.ok && meta.data.preview).toBeUndefined();
     expect(calls).toEqual([]);
+  });
+
+  it("getPaneMeta derives focused from focused_pane_id, not the stale row flag", async () => {
+    // Fixture: pane row focused:false while focused_pane_id === w1:p1 (live herdr shape).
+    const runner: HerdrRunner = async () => {
+      throw new Error("no exec on fresh mirror");
+    };
+    const svc = new HerdrService(runner, () => new FakeMirror());
+    const meta = await svc.getPaneMeta("local", null, "w1:p1");
+    expect(meta.ok).toBe(true);
+    if (!meta.ok) return;
+    expect(meta.data.focused).toBe(true);
   });
 
   it("getPaneMeta falls back to pane get when the mirror misses the pane", async () => {

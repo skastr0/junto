@@ -80,6 +80,16 @@ export interface HerdrMirrorReads {
    * event stream is reconnecting (cards already do via getPaneMeta fallback).
    */
   lookupPane(paneId: string): Rec | undefined;
+  /**
+   * Canonical focus pointers from snapshot / *.focused events. Per-row
+   * `focused` booleans on pane records are often stale or incoherent with
+   * focused_pane_id (live herdr snapshots do this) — prefer this.
+   */
+  focused(): {
+    readonly workspaceId?: string;
+    readonly tabId?: string;
+    readonly paneId?: string;
+  };
 }
 
 export interface HerdrMirrorOpts {
@@ -276,6 +286,10 @@ export class HerdrMirror implements HerdrMirrorReads {
     this.focusedWorkspaceId = str(snapshot.focused_workspace_id);
     this.focusedTabId = str(snapshot.focused_tab_id);
     this.focusedPaneId = str(snapshot.focused_pane_id);
+    // Snapshot pane rows often disagree with focused_pane_id (live herdr
+    // 0.7.x ships focused:false on the focused pane). Normalize row flags to
+    // the canonical pointer so list/meta consumers do not thrash yes|no.
+    this.syncPaneFocusedFlags(this.focusedPaneId);
     this.bootstrapped = true;
   }
 
@@ -334,6 +348,7 @@ export class HerdrMirror implements HerdrMirrorReads {
           this.agents.delete(id);
         } else if (kind === "pane.focused") {
           this.focusedPaneId = id;
+          this.syncPaneFocusedFlags(id);
         } else if (kind === "pane.agent_status_changed") {
           const status = str(body.agent_status) ?? str(body.status);
           const patch = status ? { ...body, agent_status: status } : body;
@@ -411,6 +426,20 @@ export class HerdrMirror implements HerdrMirrorReads {
       tabId: this.focusedTabId,
       paneId: this.focusedPaneId,
     };
+  }
+
+  /** Align every pane/agent row's `focused` boolean with the focused pane id. */
+  private syncPaneFocusedFlags(focusedPaneId: string | undefined): void {
+    for (const [id, row] of this.panes) {
+      const next = id === focusedPaneId;
+      if (row.focused === next) continue;
+      this.panes.set(id, { ...row, focused: next });
+    }
+    for (const [id, row] of this.agents) {
+      const next = id === focusedPaneId;
+      if (row.focused === next) continue;
+      this.agents.set(id, { ...row, focused: next });
+    }
   }
 
   // --- change push (coalesced) -----------------------------------------------

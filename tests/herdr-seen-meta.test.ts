@@ -138,6 +138,29 @@ describe("herdrMetaPaintEqual", () => {
   });
 });
 
+describe("mergeHerdrMetaAfterRefresh focused stickiness", () => {
+  it("keeps prior focused when remote omits it", () => {
+    const previous: HerdrMetaCache = {
+      status: "ok",
+      meta: pane("idle", { focused: true }),
+      seenGen: 0,
+    };
+    const remote = pane("idle"); // no focused field
+    const merged = mergeHerdrMetaAfterRefresh(previous, 0, remote);
+    expect(merged.focused).toBe(true);
+  });
+
+  it("accepts explicit remote focused false", () => {
+    const previous: HerdrMetaCache = {
+      status: "ok",
+      meta: pane("idle", { focused: true }),
+      seenGen: 0,
+    };
+    const merged = mergeHerdrMetaAfterRefresh(previous, 0, pane("idle", { focused: false }));
+    expect(merged.focused).toBe(false);
+  });
+});
+
 describe("nextPendingSeen composition", () => {
   it("keeps pendingSeen across remote done (protect cycle)", () => {
     const previous: HerdrMetaCache = {

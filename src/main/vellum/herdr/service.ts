@@ -315,6 +315,14 @@ export class HerdrService {
       if (!pane) return { ok: false, code: "not_found", message: `pane ${paneId} not found` };
     }
 
+    // Canonical focus is focused_pane_id / pane.focused events — not the per-row
+    // `focused` boolean, which live herdr snapshots leave incoherent (row can be
+    // focused:false while focused_pane_id points at it). Serving the row flag
+    // thrashed inspector FOCUSED yes|no whenever mirror/exec paths alternated.
+    const focusedFromMirror = mirror?.focused().paneId;
+    const focused =
+      focusedFromMirror !== undefined ? focusedFromMirror === paneId : pane.focused;
+
     // Human labels for the breadcrumb — best-effort, never blocks meta.
     // Goes through the mirror-aware list methods: a fresh mirror serves them
     // from memory, so this stays inside the no-exec discipline.
@@ -339,7 +347,7 @@ export class HerdrService {
     // re-refreshing on every agent_status_changed must not fan out N herdr
     // CLI calls (fleet flash + host burn).
     if (mirroredRecord) {
-      return { ok: true, data: { ...pane, workspaceLabel, tabLabel } };
+      return { ok: true, data: { ...pane, focused, workspaceLabel, tabLabel } };
     }
 
     // Exec fallback: cheap preview — non-blocking failure.
@@ -377,7 +385,10 @@ export class HerdrService {
       if (parsed.length > 0) processes = parsed;
     }
 
-    return { ok: true, data: { ...pane, preview, workspaceLabel, tabLabel, processes } };
+    return {
+      ok: true,
+      data: { ...pane, focused, preview, workspaceLabel, tabLabel, processes },
+    };
   }
 
   /**
