@@ -756,7 +756,7 @@ body {
 
 /* Element resets live in the base layer so Tailwind utilities (utilities
    layer, later in the cascade) can always override them. An UNLAYERED element
-   selector here would silently defeat every text-*/flex utility on every
+   selector here would silently defeat every text and flex utility on every
    button in the app — that was the "gigantic labels" bug. */
 @layer base {
   button {
