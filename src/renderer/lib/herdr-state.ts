@@ -191,6 +191,10 @@ type HerdrMirrorApi = ReturnType<typeof getVellumApi> & {
 
 let mirrorUnsub: (() => void) | undefined;
 
+/** Card-level refresh hooks — fanned out from the single IPC subscription so
+ * N herdr cards do not each call ipcRenderer.on (MaxListenersExceededWarning). */
+const mirrorChangeListeners = new Set<(event: HerdrMirrorEvent) => void>();
+
 /**
  * One app-wide subscription feeding herdr$.mirrorByHost. Idempotent — every
  * card mount may call it; only the first attaches (browser-state precedent).
@@ -212,12 +216,28 @@ export const subscribeHerdrMirror = (): (() => void) => {
   }
   const unsubscribe = api.onHerdrMirrorEvent((event) => {
     herdr$.mirrorByHost[event.hostId].set({ fresh: event.fresh, lastSyncAt: Date.now() });
+    for (const listener of mirrorChangeListeners) {
+      try {
+        listener(event);
+      } catch {
+        // card listeners must not break the shared bus
+      }
+    }
   });
   mirrorUnsub = () => {
     unsubscribe();
     mirrorUnsub = undefined;
   };
   return mirrorUnsub;
+};
+
+/** Subscribe to mirror push events without an extra ipcRenderer listener. */
+export const onHerdrMirrorChange = (listener: (event: HerdrMirrorEvent) => void): (() => void) => {
+  subscribeHerdrMirror();
+  mirrorChangeListeners.add(listener);
+  return () => {
+    mirrorChangeListeners.delete(listener);
+  };
 };
 
 const CONFIRMED_AFTER_SEEN = new Set(["idle", "working", "blocked"]);

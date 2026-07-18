@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode, EtherHerdr } from "@shared/canvas";
-import type { HerdrMirrorEvent, HerdrObserveTouchInput } from "@shared/ipc";
+import type { HerdrObserveTouchInput } from "@shared/ipc";
 import { herdrActivity } from "../../lib/activity";
 import {
   connectionStateOf,
   herdr$,
+  onHerdrMirrorChange,
   openHerdrTerminal,
   refreshHerdrMeta,
   subscribeHerdrMirror,
@@ -19,7 +20,6 @@ import { HarnessMark } from "./HarnessMark";
 
 type HerdrCardApi = ReturnType<typeof getVellumApi> & {
   herdrObserveTouch?: (input: HerdrObserveTouchInput) => Promise<{ readonly pooled: boolean }>;
-  onHerdrMirrorEvent?: (listener: (event: HerdrMirrorEvent) => void) => () => void;
 };
 
 // Pre-warm the observe pool at most once per 30s per terminal on hover intent.
@@ -137,10 +137,8 @@ export function HerdrCard({
   useEffect(() => {
     if (!herdr?.host || !herdr.paneId) return;
     if (herdr.session) return;
-    const api = getVellumApi() as HerdrCardApi | undefined;
-    if (!api?.onHerdrMirrorEvent) return;
     const targetHost = herdr.host;
-    return api.onHerdrMirrorEvent((event) => {
+    return onHerdrMirrorChange((event) => {
       if (event.hostId === targetHost && event.kind === "change") {
         void refreshHerdrMeta(node.id, herdr);
       }
