@@ -6,7 +6,9 @@ import {
   EXPECTED_JIT_MACHO_PATHS,
   MACOS_RUNTIME_POLICY,
   isMachOMagic,
-  parseMachOMinimumSystemVersions,
+  parseMachOArchitectures,
+  parseMachOSliceMinimumSystemVersion,
+  readMachOMinimumSystemVersions,
   validateEntitlementProfile,
   validateMacOSRuntimePolicy,
   validateMachOInventory,
@@ -104,33 +106,74 @@ describe("macOS packaged runtime policy", () => {
     expect(isMachOMagic(Buffer.alloc(3))).toBe(false);
   });
 
-  it("parses modern and legacy minimum versions from multi-slice otool output", () => {
-    const output = `
-/tmp/Vellum Helper (Renderer) (architecture arm64):
+  it("parses exactly one macOS deployment declaration per Mach-O slice", () => {
+    const modern = `
 Load command 9
       cmd LC_BUILD_VERSION
   cmdsize 32
  platform 1
     minos 12.10
       sdk 15.2
-/tmp/Vellum Helper (Renderer) (architecture x86_64):
+`;
+    const legacy = `
 Load command 8
       cmd LC_VERSION_MIN_MACOSX
   cmdsize 16
   version 13.0
       sdk 15.2
 `;
-    expect(parseMachOMinimumSystemVersions(output)).toEqual(["12.10", "13.0"]);
+    expect(parseMachOArchitectures("arm64 x86_64\n")).toEqual([
+      "arm64",
+      "x86_64",
+    ]);
+    expect(parseMachOSliceMinimumSystemVersion(modern, "arm64")).toBe("12.10");
+    expect(parseMachOSliceMinimumSystemVersion(legacy, "x86_64")).toBe("13.0");
     expect(
       validateMachOMinimumSystemVersions(
-        parseMachOMinimumSystemVersions(output),
+        [
+          parseMachOSliceMinimumSystemVersion(modern, "arm64"),
+          parseMachOSliceMinimumSystemVersion(legacy, "x86_64"),
+        ],
         "13.0",
         "Contents/Frameworks/Vellum Helper (Renderer).app/Contents/MacOS/Vellum Helper (Renderer)",
       ),
     ).toBe("13.0");
   });
 
-  it("rejects any Mach-O slice newer than the declared app minimum", () => {
+  it("rejects non-macOS, duplicate, missing, and too-new slice declarations", () => {
+    const ios = `
+Load command 9
+      cmd LC_BUILD_VERSION
+  cmdsize 32
+ platform 2
+    minos 13.0
+      sdk 15.2
+`;
+    const duplicate = `
+Load command 8
+      cmd LC_VERSION_MIN_MACOSX
+  cmdsize 16
+  version 12.0
+      sdk 15.2
+Load command 9
+      cmd LC_BUILD_VERSION
+  cmdsize 32
+ platform 1
+    minos 13.0
+      sdk 15.2
+`;
+    expect(() => parseMachOSliceMinimumSystemVersion(ios, "arm64")).toThrow(
+      /must target macOS platform 1/u,
+    );
+    expect(() => parseMachOSliceMinimumSystemVersion(duplicate, "arm64")).toThrow(
+      /exactly one macOS deployment declaration/u,
+    );
+    expect(() =>
+      parseMachOSliceMinimumSystemVersion(
+        "Load command 0\n      cmd LC_SEGMENT_64\n",
+        "arm64",
+      ),
+    ).toThrow(/exactly one macOS deployment declaration/u);
     expect(() =>
       validateMachOMinimumSystemVersions(
         ["12.6", "13.0.1"],
@@ -138,9 +181,49 @@ Load command 8
         "Contents/Resources/bin/vellum-browser",
       ),
     ).toThrow(/minos=13\.0\.1 declared=13\.0/u);
-    expect(() => parseMachOMinimumSystemVersions("no load commands")).toThrow(
-      /missing a macOS minimum system version/u,
+    expect(() => parseMachOArchitectures("arm64 arm64")).toThrow(
+      /invalid or duplicate/u,
     );
+  });
+
+  it("queries every fat slice independently using fixed lipo and otool argv", () => {
+    const helperPath =
+      "/tmp/Vellum.app/Contents/Frameworks/Vellum Helper (Renderer).app/Contents/MacOS/Vellum Helper (Renderer)";
+    const calls: Array<{
+      readonly executable: string;
+      readonly args: ReadonlyArray<string>;
+    }> = [];
+    const modern = `
+Load command 9
+      cmd LC_BUILD_VERSION
+  cmdsize 32
+ platform 1
+    minos 13.0
+`;
+    const runCommand = (
+      executable: string,
+      args: ReadonlyArray<string>,
+    ): string => {
+      calls.push({ executable, args });
+      if (executable === "/usr/bin/lipo") return "arm64 x86_64\n";
+      if (args[1] === "arm64") return modern;
+      return "Load command 0\n      cmd LC_SEGMENT_64\n";
+    };
+
+    expect(() =>
+      readMachOMinimumSystemVersions(helperPath, runCommand),
+    ).toThrow(/architecture x86_64 must contain exactly one/u);
+    expect(calls).toEqual([
+      { executable: "/usr/bin/lipo", args: ["-archs", helperPath] },
+      {
+        executable: "/usr/bin/otool",
+        args: ["-arch", "arm64", "-m", "-l", helperPath],
+      },
+      {
+        executable: "/usr/bin/otool",
+        args: ["-arch", "x86_64", "-m", "-l", helperPath],
+      },
+    ]);
   });
 });
 

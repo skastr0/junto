@@ -620,43 +620,127 @@ export const validateMachOInventory = (
   }
 };
 
-export const parseMachOMinimumSystemVersions = (
-  output: string,
-): ReadonlyArray<string> => {
-  const versions: string[] = [];
-  let pendingCommand: "build" | "legacy" | undefined;
+export const parseMachOArchitectures = (output: string): ReadonlyArray<string> => {
+  const trimmed = output.trim();
+  if (trimmed.length === 0) {
+    throw new Error("lipo output is missing Mach-O architectures");
+  }
+  const architectures = trimmed.split(/\s+/u);
+  if (
+    architectures.length > 32 ||
+    architectures.some(
+      (architecture) =>
+        architecture.length > 64 || !/^[a-z0-9_]+$/iu.test(architecture),
+    ) ||
+    new Set(architectures).size !== architectures.length
+  ) {
+    throw new Error("lipo output has invalid or duplicate Mach-O architectures");
+  }
+  return architectures;
+};
+
+interface MachOLoadCommand {
+  readonly name: string;
+  readonly fields: ReadonlyArray<string>;
+}
+
+const parseMachOLoadCommands = (output: string): ReadonlyArray<MachOLoadCommand> => {
+  const commands: MachOLoadCommand[] = [];
+  let fields: string[] | undefined;
+
+  const finishCommand = (): void => {
+    if (fields === undefined) return;
+    const names = fields
+      .map((line) => line.match(/^cmd\s+(\S+)$/u)?.[1])
+      .filter((name): name is string => name !== undefined);
+    if (names.length !== 1) {
+      throw new Error("otool load command must contain exactly one cmd field");
+    }
+    commands.push({ name: names[0], fields });
+  };
 
   for (const rawLine of output.split(/\r?\n/u)) {
     const line = rawLine.trim();
-    if (line === "cmd LC_BUILD_VERSION") {
-      pendingCommand = "build";
-      continue;
+    if (/^Load command \d+$/u.test(line)) {
+      finishCommand();
+      fields = [];
+    } else if (fields !== undefined) {
+      fields.push(line);
     }
-    if (line === "cmd LC_VERSION_MIN_MACOSX") {
-      pendingCommand = "legacy";
-      continue;
-    }
-    if (line.startsWith("cmd ")) {
-      pendingCommand = undefined;
-      continue;
-    }
+  }
+  finishCommand();
+  return commands;
+};
 
-    const match =
-      pendingCommand === "build"
-        ? line.match(/^minos\s+(\S+)$/u)
-        : pendingCommand === "legacy"
-          ? line.match(/^version\s+(\S+)$/u)
-          : null;
-    if (match === null) continue;
-    macOSVersionParts(match[1]);
-    versions.push(match[1]);
-    pendingCommand = undefined;
+const requireSingleLoadCommandField = (
+  command: MachOLoadCommand,
+  field: "platform" | "minos" | "version",
+): string => {
+  const values = command.fields
+    .map((line) => line.match(new RegExp(`^${field}\\s+(\\S+)$`, "u"))?.[1])
+    .filter((value): value is string => value !== undefined);
+  if (values.length !== 1) {
+    throw new Error(
+      `${command.name} must contain exactly one ${field} field`,
+    );
+  }
+  return values[0];
+};
+
+export const parseMachOSliceMinimumSystemVersion = (
+  output: string,
+  sliceLabel = "Mach-O slice",
+): string => {
+  const deploymentCommands = parseMachOLoadCommands(output).filter(
+    (command) =>
+      command.name === "LC_BUILD_VERSION" ||
+      command.name === "LC_VERSION_MIN_MACOSX",
+  );
+  if (deploymentCommands.length !== 1) {
+    throw new Error(
+      `${sliceLabel} must contain exactly one macOS deployment declaration`,
+    );
   }
 
-  if (versions.length === 0) {
-    throw new Error("otool output is missing a macOS minimum system version");
+  const command = deploymentCommands[0];
+  const version =
+    command.name === "LC_BUILD_VERSION"
+      ? requireSingleLoadCommandField(command, "minos")
+      : requireSingleLoadCommandField(command, "version");
+  if (
+    command.name === "LC_BUILD_VERSION" &&
+    requireSingleLoadCommandField(command, "platform") !== "1"
+  ) {
+    throw new Error(`${sliceLabel} LC_BUILD_VERSION must target macOS platform 1`);
   }
-  return versions;
+  macOSVersionParts(version);
+  return version;
+};
+
+type FixedCommandRunner = (
+  executable: string,
+  args: ReadonlyArray<string>,
+) => string;
+
+export const readMachOMinimumSystemVersions = (
+  filePath: string,
+  runCommand: FixedCommandRunner = runFixedCommand,
+): ReadonlyArray<string> => {
+  const architectures = parseMachOArchitectures(
+    runCommand("/usr/bin/lipo", ["-archs", filePath]),
+  );
+  return architectures.map((architecture) =>
+    parseMachOSliceMinimumSystemVersion(
+      runCommand("/usr/bin/otool", [
+        "-arch",
+        architecture,
+        "-m",
+        "-l",
+        filePath,
+      ]),
+      `${filePath} architecture ${architecture}`,
+    ),
+  );
 };
 
 export const validateMachOMinimumSystemVersions = (
@@ -740,9 +824,7 @@ const auditMachOObjects = async (
     }
     const filePath = path.join(appPath, ...relativePath.split("/"));
     const objectMaxMinOS = validateMachOMinimumSystemVersions(
-      parseMachOMinimumSystemVersions(
-        runFixedCommand("/usr/bin/otool", ["-m", "-l", filePath]),
-      ),
+      readMachOMinimumSystemVersions(filePath),
       declaredMinimumSystemVersion,
       relativePath,
     );
