@@ -594,7 +594,7 @@ function OrphanNotices() {
   );
 }
 
-export function useRegionHotkeys(): void {
+function useRegionHotkeys(): void {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (isTextEditing(event.target)) return;
@@ -637,7 +637,7 @@ export function useRegionHotkeys(): void {
 }
 
 /** Severity index for minimap nodeColor — built from latest rollups. */
-export function useSeverityByNodeId(rollups: ReadonlyArray<RegionRollup>): ReadonlyMap<string, MemberSeverity> {
+function useSeverityByNodeId(rollups: ReadonlyArray<RegionRollup>): ReadonlyMap<string, MemberSeverity> {
   return useMemo(() => {
     const map = new Map<string, MemberSeverity>();
     for (const rollup of rollups) {
