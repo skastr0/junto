@@ -315,9 +315,19 @@ export class RemoteMirrorTransport implements MirrorTransport {
       // absent — fine
     }
 
+    // Dedicated -N -L process — do NOT ride ControlMaster.
+    // Verified: with ControlMaster=auto + an existing master, `ssh -N -L
+    // local.sock:remote.sock host` exits 0 (mux client hands the forward
+    // request to the master) but never binds the local unix socket file when
+    // the master was started without that -L. Poll then times out as
+    // "ssh forward to <host> did not come up". ControlMaster=no keeps a
+    // long-lived ssh that owns the bind (CLI herdr execs still use CM).
     const child = this.spawnFn("ssh", [
       ...BASE_SSH_ARGS,
-      ...controlArgs(),
+      "-o",
+      "ControlMaster=no",
+      "-o",
+      "ControlPath=none",
       "-N",
       "-L",
       `${this.localSock}:${this.remoteHome}/.config/herdr/herdr.sock`,

@@ -695,6 +695,10 @@ describe("RemoteMirrorTransport", () => {
     expect(execCalls[0]!.join(" ")).toContain('printf %s "$HOME"');
     expect(spawnCalls.length).toBe(1);
     expect(spawnCalls[0]).toContain("-N");
+    // Must not mux onto ControlMaster — mux accepts -L unix with exit 0 but
+    // never binds the local sock when the master was started without that -L.
+    expect(spawnCalls[0]).toContain("ControlMaster=no");
+    expect(spawnCalls[0]).not.toContain("ControlMaster=auto");
     expect(spawnCalls[0]).toContain(`${localSock}:/Users/remote/.config/herdr/herdr.sock`);
     expect(spawnCalls[0]!.at(-1)).toBe("remote-a");
 
