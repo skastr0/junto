@@ -62,6 +62,10 @@ import {
   TRUSTED_RENDERER_URL,
 } from "./vellum/trusted-renderer-protocol";
 
+// Browser sessions must resolve and connect directly. An inherited system
+// proxy can perform independent DNS resolution and bypass Vellum's URL/DNS
+// preflight on fleet machines.
+app.commandLine.appendSwitch("no-proxy-server");
 registerTrustedRendererScheme(protocol);
 
 app.on(

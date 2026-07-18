@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { access, mkdir, rename, writeFile } from "node:fs/promises";
 import { url as inspectorUrl } from "node:inspector";
 import { dirname, isAbsolute } from "node:path";
-import { app, BrowserWindow, webContents } from "electron";
+import { app, BrowserWindow, session, webContents } from "electron";
 import { Effect } from "effect";
 import { CanvasesLive, CanvasesService } from "../../../src/main/vellum/canvases";
 import {
@@ -17,6 +17,9 @@ import { BrowserSessionService } from "../../../src/main/vellum/browser/sessions
 import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/vellum/browser/view-adapter";
 import { isManagedBrowserWebContents } from "../../../src/main/vellum/browser/web-policy";
 import { formatNodeRef } from "../../../src/shared/node-ref";
+import { partitionNameForProfile } from "../../../src/shared/browser";
+
+app.commandLine.appendSwitch("no-proxy-server");
 
 const requiredArgument = (name: string): string => {
   const prefix = `--${name}=`;
@@ -103,6 +106,8 @@ interface ProbeAudit {
   mainInspectorActive: boolean;
   managedDevToolsOpenEvents: number;
   managedDevToolsCurrentlyOpen: number;
+  defaultProxyResolution: string;
+  profileProxyResolution: string;
   ready: boolean;
 }
 
@@ -121,6 +126,8 @@ const audit: ProbeAudit = {
   mainInspectorActive: false,
   managedDevToolsOpenEvents: 0,
   managedDevToolsCurrentlyOpen: 0,
+  defaultProxyResolution: "",
+  profileProxyResolution: "",
   ready: false,
 };
 let auditTail: Promise<void> = Promise.resolve();
@@ -214,6 +221,11 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 }
 
 void app.whenReady().then(async () => {
+  const proxyProbeUrl = "https://vellum-direct-network-probe.invalid/";
+  [audit.defaultProxyResolution, audit.profileProxyResolution] = await Promise.all([
+    session.defaultSession.resolveProxy(proxyProbeUrl),
+    session.fromPartition(partitionNameForProfile("personal")).resolveProxy(proxyProbeUrl),
+  ]);
   await mkdir(downloadPath, { recursive: true });
   audit.baselineWebContents = webContents.getAllWebContents().length;
   audit.currentWebContents = audit.baselineWebContents;

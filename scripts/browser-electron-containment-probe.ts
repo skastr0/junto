@@ -78,6 +78,8 @@ interface ProbeAudit {
   readonly mainInspectorActive: boolean;
   readonly managedDevToolsOpenEvents: number;
   readonly managedDevToolsCurrentlyOpen: number;
+  readonly defaultProxyResolution: string;
+  readonly profileProxyResolution: string;
   readonly ready: boolean;
 }
 
@@ -98,6 +100,8 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
     typeof value.mainInspectorActive !== "boolean" ||
     typeof value.managedDevToolsOpenEvents !== "number" ||
     typeof value.managedDevToolsCurrentlyOpen !== "number" ||
+    typeof value.defaultProxyResolution !== "string" ||
+    typeof value.profileProxyResolution !== "string" ||
     typeof value.ready !== "boolean"
   ) {
     throw new Error("dedicated Electron probe emitted a malformed audit");
@@ -126,6 +130,8 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
     mainInspectorActive: value.mainInspectorActive,
     managedDevToolsOpenEvents: value.managedDevToolsOpenEvents,
     managedDevToolsCurrentlyOpen: value.managedDevToolsCurrentlyOpen,
+    defaultProxyResolution: value.defaultProxyResolution,
+    profileProxyResolution: value.profileProxyResolution,
     ready: value.ready,
   };
 };
@@ -226,7 +232,19 @@ const waitForAudit = async (
   throw new Error(`Electron probe audit timed out: ${lastError}`);
 };
 
+const assertDirectProxyResolution = (audit: ProbeAudit): void => {
+  if (
+    audit.defaultProxyResolution !== "DIRECT" ||
+    audit.profileProxyResolution !== "DIRECT"
+  ) {
+    throw new Error(
+      `browser sessions did not force direct networking (${audit.defaultProxyResolution}, ${audit.profileProxyResolution})`,
+    );
+  }
+};
+
 const assertRuntimeDevToolsAbsent = (audit: ProbeAudit, stage: string): void => {
+  assertDirectProxyResolution(audit);
   if (audit.remoteDebuggingSwitchPresent) {
     throw new Error(`${stage}: Electron runtime exposed a remote-debugging switch`);
   }
@@ -295,7 +313,7 @@ const launchDedicatedElectron = (
 ): ElectronLaunch => {
   const child = spawn(
     electronPath,
-    electronArguments,
+    [electronArguments[0]!, "--proxy-server=http://127.0.0.1:9", ...electronArguments.slice(1)],
     {
       cwd: repoRoot,
       env,
