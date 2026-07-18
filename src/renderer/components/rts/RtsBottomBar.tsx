@@ -3,20 +3,28 @@ import { use$ } from "@legendapp/state/react";
 import {
   AlertTriangle,
   Ban,
+  CheckCheck,
   CircleDot,
   Copy,
   Crosshair,
   ExternalLink,
   HardHat,
+  Hash,
   Link2,
+  ListTree,
   PauseCircle,
   Pencil,
+  Search,
+  Shield,
+  SquareX,
   Trash2,
+  Zap,
 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { groupMembers } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
+import { connectionKey, resolveNodeConnections } from "../../../shared/connections";
 import { state$, toggleFlagFilter } from "../../lib/state";
 import { assignSlot, mergeSlotOrder, useRegionRollups } from "../../lib/region-rollups";
 import {
@@ -28,20 +36,36 @@ import { signalMark, signalMarkForMember } from "../../lib/signal-mark";
 import { deleteNode, deleteNodes, setNodeColor, toggleFlag, addNode } from "../../lib/mutations";
 import { makeGroupNode } from "../../lib/node-factories";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
-import { herdr$, openHerdrTerminal } from "../../lib/herdr-state";
+import {
+  herdr$,
+  markHerdrPaneSeenLocal,
+  markHerdrPaneSeenRemote,
+  openHerdrTerminal,
+} from "../../lib/herdr-state";
+import { killHerdrPane } from "../../lib/herdr-actions";
 import {
   deriveIdleHerdrQueue,
   nextIdleHerdrNodeId,
   type IdleHerdrEntry,
   type IdleHerdrInput,
 } from "../../lib/idle-herdr-queue";
+import {
+  commandSelectionKind,
+  primaryCommandActions,
+  regionSlotCueLabel,
+  slotIndexOf,
+  type PrimaryCommandAction,
+} from "../../lib/command-card";
 import { playAlert } from "../../lib/sfx";
 import { HUE, withAlpha } from "../../lib/theme";
-import { disarmOrphan, kernel$ } from "../../lib/kernel-view";
+import { armRegion, disarmOrphan, kernel$, pulseRegion } from "../../lib/kernel-view";
 import { useAlertAttention } from "../../lib/alert-attention";
+import { fetchBoothDrafts, orderDrafts } from "../../lib/booth-browse";
 import { ConnectEditor } from "../InspectorFields";
 import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
 import { PulseTray } from "../PulseTray";
+import { DetailModal } from "../DetailModal";
+import { DraftDetailBody } from "../BoothBrowse";
 import "./RtsBottomBar.css";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -198,6 +222,84 @@ function RegionCommandCard({
   const members = regionRollup.members;
   const visible = members.slice(0, ROLLCALL_VISIBLE);
   const extra = members.length - visible.length;
+  const armed = Boolean(use$(kernel$.armed[node.id]));
+  const slotOrder = use$(state$.regionSlotOrder);
+  const slot = slotIndexOf(slotOrder, node.id);
+  const [armBusy, setArmBusy] = useState(false);
+
+  const primary = primaryCommandActions("region");
+
+  const toggleArm = () => {
+    if (armBusy) return;
+    setArmBusy(true);
+    void armRegion(node.id, !armed)
+      .catch(() => undefined)
+      .finally(() => setArmBusy(false));
+  };
+
+  const runPulse = () => {
+    void pulseRegion(node.id).catch(() => undefined);
+  };
+
+  const assignToFirstFree = () => {
+    const order = mergeSlotOrder(
+      state$.regionSlotOrder.peek(),
+      state$.doc.peek().nodes.filter((n) => n.type === "group").map((n) => n.id),
+    );
+    if (slotIndexOf(order, node.id) !== null) {
+      // Already slotted — keep order; chip already shows the index.
+      return;
+    }
+    // First free index 0–8, else append (assignSlot clamps to 0–8).
+    let target = Math.min(order.length, 8);
+    for (let i = 0; i < 9; i++) {
+      if (!order[i]) {
+        target = i;
+        break;
+      }
+    }
+    state$.regionSlotOrder.set(assignSlot(order, node.id, target));
+  };
+
+  const primaryKey = (action: PrimaryCommandAction) => {
+    switch (action) {
+      case "arm-region":
+        return (
+          <CmdKey
+            key={action}
+            label={armed ? "Disarm region" : "Arm region"}
+            title={armed ? "armed — click to disarm" : "disarmed — click to arm (real agent turns)"}
+            active={armed}
+            style={{ color: armed ? HUE.amber : undefined }}
+            disabled={armBusy}
+            onClick={toggleArm}
+          >
+            <Shield size={ICON} />
+          </CmdKey>
+        );
+      case "pulse-region":
+        return (
+          <CmdKey key={action} label="Pulse region" title="pulse now" onClick={runPulse}>
+            <Zap size={ICON} />
+          </CmdKey>
+        );
+      case "slot-cue":
+        return (
+          <CmdKey
+            key={action}
+            label={regionSlotCueLabel(slot)}
+            title={slot !== null ? `hotkey slot ${slot + 1}` : "assign to next free slot (or Ctrl+1–9)"}
+            active={slot !== null}
+            style={slot !== null ? { color: HUE.cyan } : undefined}
+            onClick={assignToFirstFree}
+          >
+            <Hash size={ICON} />
+          </CmdKey>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="rts-panel rts-panel--cmd">
@@ -217,6 +319,8 @@ function RegionCommandCard({
               {regionRollup.counts.blocked > 0 ? <span style={{ color: HUE.crimson }}> · {regionRollup.counts.blocked}b</span> : null}
               {regionRollup.counts.attention > 0 ? <span style={{ color: HUE.amber }}> · {regionRollup.counts.attention}a</span> : null}
               {regionRollup.counts.working > 0 ? <span style={{ color: HUE.cyan }}> · {regionRollup.counts.working}w</span> : null}
+              {armed ? <span style={{ color: HUE.amber }}> · armed</span> : null}
+              {slot !== null ? <span style={{ color: HUE.cyan }}> · #{slot + 1}</span> : null}
             </div>
           </div>
           {members.length > 0 ? (
@@ -249,6 +353,8 @@ function RegionCommandCard({
           )}
         </div>
         <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Region actions">
+          {primary.map(primaryKey)}
+          <span className="rts-cmd-keys__rule" aria-hidden />
           <CmdKey label="Focus region" onClick={() => state$.focusNodeId.set(node.id)}>
             <Crosshair size={ICON} />
           </CmdKey>
@@ -264,21 +370,40 @@ function RegionCommandCard({
   );
 }
 
+const KILL_ARM_MS = 3000;
+
 function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
+  const snapshots = use$(state$.snapshots);
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+  const herdrMeta = use$(herdr$.metaByNodeId[nodeId]);
   const [connectOpen, setConnectOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [copyDetail, setCopyDetail] = useState("");
+  const [killArmed, setKillArmed] = useState(false);
+  const [reviewDraft, setReviewDraft] = useState<{ readonly id: string; readonly projectKey: string } | null>(null);
   const copyRequest = useRef(0);
+  const killTimer = useRef<number | null>(null);
 
   useEffect(() => {
     copyRequest.current += 1;
     setCopyStatus("idle");
     setCopyDetail("");
     setConnectOpen(false);
+    setKillArmed(false);
+    setReviewDraft(null);
+    if (killTimer.current !== null) {
+      window.clearTimeout(killTimer.current);
+      killTimer.current = null;
+    }
   }, [canvasName, nodeId]);
+
+  useEffect(() => {
+    return () => {
+      if (killTimer.current !== null) window.clearTimeout(killTimer.current);
+    };
+  }, []);
 
   if (!node) {
     return (
@@ -292,9 +417,30 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   }
 
   const flags = node.ether?.flags ?? [];
-  const isLink = node.type === "link";
   const herdr = node.ether?.herdr;
-  const isHerdr = Boolean(herdr);
+  const connections = resolveNodeConnections(node.ether?.entity, snapshots);
+  const towerKey = connectionKey(connections, "tower");
+  const boothKey = connectionKey(connections, "booth");
+  const kind = commandSelectionKind(node, { hasBooth: Boolean(boothKey) });
+  const agentStatus = herdrMeta?.meta?.agentStatus;
+  const canMarkSeen = Boolean(herdr?.paneId) && agentStatus === "done";
+  const canKill = Boolean(herdr?.paneId);
+  const primary = primaryCommandActions(kind, {
+    canMarkSeen,
+    canKill,
+    canBrowse: Boolean(towerKey) || kind === "project" || kind === "booth",
+    canReview: Boolean(boothKey),
+  });
+
+  const metaLine = (() => {
+    if (kind === "herdr" && herdr) {
+      const status = agentStatus ? ` · ${agentStatus}` : "";
+      return `herdr · ${herdr.host}${status}`;
+    }
+    if (kind === "booth") return boothKey ? `booth · ${boothKey}` : "booth";
+    if (kind === "project") return towerKey ? `project · ${towerKey}` : nodeTypeLabel(node);
+    return nodeTypeLabel(node);
+  })();
 
   const copyReference = async (): Promise<void> => {
     const request = copyRequest.current + 1;
@@ -328,12 +474,126 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     }
   };
 
+  const fireKill = () => {
+    if (!herdr) return;
+    if (!killArmed) {
+      setKillArmed(true);
+      if (killTimer.current !== null) window.clearTimeout(killTimer.current);
+      killTimer.current = window.setTimeout(() => {
+        killTimer.current = null;
+        setKillArmed(false);
+      }, KILL_ARM_MS);
+      return;
+    }
+    if (killTimer.current !== null) {
+      window.clearTimeout(killTimer.current);
+      killTimer.current = null;
+    }
+    setKillArmed(false);
+    void killHerdrPane(node.id, herdr);
+  };
+
+  const openReviewQueue = () => {
+    if (!boothKey) return;
+    void fetchBoothDrafts(boothKey).then((result) => {
+      if (!result.ok || result.drafts.length === 0) return;
+      const ordered = orderDrafts(result.drafts);
+      const ready = ordered.find((d) => d.status === "ready_for_review") ?? ordered[0];
+      if (!ready) return;
+      setReviewDraft({ id: ready.id, projectKey: boothKey });
+    });
+  };
+
+  const renderPrimary = (action: PrimaryCommandAction) => {
+    switch (action) {
+      case "open-terminal":
+        return herdr ? (
+          <CmdKey
+            key={action}
+            label="Open work surface"
+            title={`open · ${herdr.host}`}
+            style={{ color: HUE.cyan }}
+            onClick={() => openHerdrTerminal(node.id, herdr, nodeTitle(node))}
+          >
+            <OpenHerdrMark size={ICON} />
+          </CmdKey>
+        ) : null;
+      case "mark-seen":
+        return herdr ? (
+          <CmdKey
+            key={action}
+            label="Mark seen"
+            title="mark pane seen (done → idle)"
+            style={{ color: HUE.amber }}
+            onClick={() => {
+              markHerdrPaneSeenLocal(node.id, herdr);
+              void markHerdrPaneSeenRemote(herdr, node.id);
+            }}
+          >
+            <CheckCheck size={ICON} />
+          </CmdKey>
+        ) : null;
+      case "kill-pane":
+        return herdr ? (
+          <CmdKey
+            key={action}
+            label={killArmed ? "Confirm kill pane" : "Kill pane"}
+            title={killArmed ? "click again to kill pane" : "arm kill pane (3s)"}
+            danger
+            active={killArmed}
+            style={killArmed ? { color: HUE.crimson } : undefined}
+            onClick={fireKill}
+          >
+            <SquareX size={ICON} />
+          </CmdKey>
+        ) : null;
+      case "browse-glyphs":
+        return (
+          <CmdKey
+            key={action}
+            label="Browse glyphs"
+            title="focus node — inspector browse"
+            style={{ color: HUE.cyan }}
+            onClick={() => {
+              state$.selectedNodeId.set(node.id);
+              state$.selectedNodeIds.set([node.id]);
+              state$.selectedEdgeId.set("");
+              state$.focusNodeId.set(node.id);
+            }}
+          >
+            <Search size={ICON} />
+          </CmdKey>
+        );
+      case "review-drafts":
+        return (
+          <CmdKey
+            key={action}
+            label="Review drafts"
+            title={boothKey ? "open next draft in review queue" : "no booth binding"}
+            style={{ color: HUE.violet }}
+            disabled={!boothKey}
+            onClick={openReviewQueue}
+          >
+            <ListTree size={ICON} />
+          </CmdKey>
+        );
+      case "open-link":
+        return node.type === "link" ? (
+          <CmdKey key={action} label="Open link" onClick={() => window.open(node.url, "_blank")}>
+            <ExternalLink size={ICON} />
+          </CmdKey>
+        ) : null;
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="rts-panel rts-panel--cmd">
-      <div className="rts-panel__label">command</div>
+      <div className="rts-panel__label">command · {kind}</div>
       <div className="rts-panel__body rts-cmd-shell">
         <div className="rts-cmd-head">
-          <div className="rts-cmd__meta">{nodeTypeLabel(node)}</div>
+          <div className="rts-cmd__meta">{metaLine}</div>
           <div className="rts-cmd__title" title={nodeTitle(node)}>{nodeTitle(node)}</div>
         </div>
 
@@ -363,7 +623,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
           ))}
         </div>
 
-        {/* Single key row: flags + actions, all same 26px size */}
+        {/* Flags + kind primary + shared utilities — no SC2 letter grid */}
         <div className="rts-cmd-keys" role="toolbar" aria-label="Node actions">
           {FLAG_META.map(({ flag, hue, label, Icon }) => {
             const active = flags.includes(flag);
@@ -380,6 +640,8 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
             );
           })}
           <span className="rts-cmd-keys__rule" aria-hidden />
+          {primary.map(renderPrimary)}
+          {primary.length > 0 ? <span className="rts-cmd-keys__rule" aria-hidden /> : null}
           <CmdKey label="Focus" onClick={() => state$.focusNodeId.set(node.id)}>
             <Crosshair size={ICON} />
           </CmdKey>
@@ -401,23 +663,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
           >
             <Copy size={ICON} />
           </CmdKey>
-          {isLink ? (
-            <CmdKey label="Open link" onClick={() => window.open(node.url, "_blank")}>
-              <ExternalLink size={ICON} />
-            </CmdKey>
-          ) : isHerdr && herdr ? (
-            <CmdKey
-              label="Open work surface"
-              title="open work surface"
-              style={{ color: HUE.cyan }}
-              onClick={() => {
-                const title = nodeTitle(node);
-                openHerdrTerminal(node.id, herdr, title);
-              }}
-            >
-              <OpenHerdrMark size={ICON} />
-            </CmdKey>
-          ) : (
+          {kind === "default" ? (
             <CmdKey
               label="Select only this node"
               onClick={() => {
@@ -428,7 +674,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
             >
               <CircleDot size={ICON} />
             </CmdKey>
-          )}
+          ) : null}
           <CmdKey label="Delete" danger onClick={() => deleteNode(node.id)}>
             <Trash2 size={ICON} />
           </CmdKey>
@@ -440,6 +686,11 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
           </div>
         ) : null}
       </div>
+      {reviewDraft ? (
+        <DetailModal onClose={() => setReviewDraft(null)}>
+          <DraftDetailBody draftId={reviewDraft.id} projectKey={reviewDraft.projectKey} />
+        </DetailModal>
+      ) : null}
     </div>
   );
 }
