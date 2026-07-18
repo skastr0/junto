@@ -85,11 +85,8 @@ bunx electron-builder --dir --mac
 APP_SRC="$(detect_app_src)"
 assert_app_bundle "$APP_SRC"
 
-PACKAGED_BROWSER_CLI="$APP_SRC/Contents/Resources/bin/vellum-browser"
-if [[ ! -x "$PACKAGED_BROWSER_CLI" ]]; then
-  err "packaged browser CLI missing or not executable: $PACKAGED_BROWSER_CLI"
-  exit 1
-fi
+log "package security audit (signature + ASAR + Electron fuses) …"
+bun "$SCRIPT_DIR/audit-packaged-app.ts" "$APP_SRC"
 
 log "built $(basename "$APP_SRC")"
 log "  path: $APP_SRC"
