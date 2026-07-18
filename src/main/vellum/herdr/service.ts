@@ -9,10 +9,12 @@ import {
   parseCreateIds,
   parsePaneGet,
   parsePaneList,
+  parseProcessInfo,
   parseSessionList,
   parseTabList,
   parseWorkspaceList,
   type HerdrPaneRow,
+  type HerdrProcessInfo,
   type HerdrSessionRow,
   type HerdrTabRow,
   type HerdrWorkspaceRow,
@@ -41,6 +43,9 @@ export type HerdrResult<T> = HerdrResultOk<T> | HerdrResultErr;
 
 export interface HerdrPaneMeta extends HerdrPaneRow {
   readonly preview?: string;
+  readonly workspaceLabel?: string;
+  readonly tabLabel?: string;
+  readonly processes?: ReadonlyArray<HerdrProcessInfo>;
 }
 
 export type HerdrRunner = (
@@ -310,11 +315,31 @@ export class HerdrService {
       if (!pane) return { ok: false, code: "not_found", message: `pane ${paneId} not found` };
     }
 
+    // Human labels for the breadcrumb — best-effort, never blocks meta.
+    // Goes through the mirror-aware list methods: a fresh mirror serves them
+    // from memory, so this stays inside the no-exec discipline.
+    let workspaceLabel: string | undefined;
+    let tabLabel: string | undefined;
+    if (pane.workspaceId) {
+      const workspaces = await this.listWorkspaces(hostId, session);
+      if (workspaces.ok) {
+        workspaceLabel = workspaces.data.find(
+          (workspace) => workspace.workspaceId === pane.workspaceId,
+        )?.label;
+      }
+      if (pane.tabId) {
+        const tabs = await this.listTabs(hostId, session, pane.workspaceId);
+        if (tabs.ok) {
+          tabLabel = tabs.data.find((tab) => tab.tabId === pane.tabId)?.label;
+        }
+      }
+    }
+
     // Fresh mirror path is pure local memory — no pane read execs. N cards
     // re-refreshing on every agent_status_changed must not fan out N herdr
     // CLI calls (fleet flash + host burn).
     if (mirroredRecord) {
-      return { ok: true, data: { ...pane } };
+      return { ok: true, data: { ...pane, workspaceLabel, tabLabel } };
     }
 
     // Exec fallback: cheap preview — non-blocking failure.
@@ -337,7 +362,22 @@ export class HerdrService {
       if (line) preview = line.slice(0, 160);
     }
 
-    return { ok: true, data: { ...pane, preview } };
+    // Foreground processes ride the exec path only — the mirror cannot serve
+    // them, and the fresh-mirror path stays exec-free.
+    let processes: ReadonlyArray<HerdrProcessInfo> | undefined;
+    const processInfo = await runEnvelope(
+      this.runner,
+      hostId,
+      ["pane", "process-info", "--pane", paneId],
+      session,
+      6_000,
+    );
+    if (processInfo.ok) {
+      const parsed = parseProcessInfo(processInfo.data).slice(0, 3);
+      if (parsed.length > 0) processes = parsed;
+    }
+
+    return { ok: true, data: { ...pane, preview, workspaceLabel, tabLabel, processes } };
   }
 
   /**

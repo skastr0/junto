@@ -79,16 +79,39 @@ export interface HerdrTabRow {
   readonly agentStatus?: string;
 }
 
+export interface HerdrAgentSession {
+  readonly agent?: string;
+  readonly kind?: string;
+  readonly source?: string;
+  readonly value?: string;
+}
+
+export interface HerdrPaneScroll {
+  readonly offsetFromBottom?: number;
+  readonly maxOffsetFromBottom?: number;
+  readonly viewportRows?: number;
+}
+
 export interface HerdrPaneRow {
   readonly paneId: string;
   readonly workspaceId?: string;
   readonly tabId?: string;
   readonly terminalId?: string;
   readonly cwd?: string;
+  readonly foregroundCwd?: string;
   readonly agent?: string;
   readonly agentStatus?: string;
+  readonly agentSession?: HerdrAgentSession;
   readonly label?: string;
   readonly focused?: boolean;
+  readonly revision?: number;
+  readonly scroll?: HerdrPaneScroll;
+}
+
+export interface HerdrProcessInfo {
+  readonly name?: string;
+  readonly cmdline?: string;
+  readonly pid?: number;
 }
 
 export const parseSessionList = (result: unknown): ReadonlyArray<HerdrSessionRow> => {
@@ -152,6 +175,31 @@ export const parseTabList = (result: unknown): ReadonlyArray<HerdrTabRow> => {
     .filter((row): row is HerdrTabRow => row !== null);
 };
 
+const num = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const parseAgentSession = (value: unknown): HerdrAgentSession | undefined => {
+  const r = asRecord(value);
+  if (!r) return undefined;
+  const session: HerdrAgentSession = {
+    agent: str(r.agent),
+    kind: str(r.kind),
+    source: str(r.source),
+    value: str(r.value),
+  };
+  return session.agent || session.kind || session.source || session.value ? session : undefined;
+};
+
+const parseScroll = (value: unknown): HerdrPaneScroll | undefined => {
+  const r = asRecord(value);
+  if (!r) return undefined;
+  return {
+    offsetFromBottom: num(r.offset_from_bottom) ?? num(r.offsetFromBottom),
+    maxOffsetFromBottom: num(r.max_offset_from_bottom) ?? num(r.maxOffsetFromBottom),
+    viewportRows: num(r.viewport_rows) ?? num(r.viewportRows),
+  };
+};
+
 export const parsePaneList = (result: unknown): ReadonlyArray<HerdrPaneRow> => {
   const root = asRecord(result);
   const panes = (root?.panes ?? result) as unknown;
@@ -168,13 +216,35 @@ export const parsePaneList = (result: unknown): ReadonlyArray<HerdrPaneRow> => {
         tabId: str(r.tab_id) ?? str(r.tabId),
         terminalId: str(r.terminal_id) ?? str(r.terminalId),
         cwd: str(r.cwd) ?? str(r.foreground_cwd),
+        foregroundCwd: str(r.foreground_cwd) ?? str(r.foregroundCwd),
         agent: str(r.agent),
         agentStatus: str(r.agent_status) ?? str(r.agentStatus),
+        agentSession: parseAgentSession(r.agent_session ?? r.agentSession),
         label: str(r.label),
         focused: typeof r.focused === "boolean" ? r.focused : undefined,
+        revision: num(r.revision),
+        scroll: parseScroll(r.scroll),
       };
     })
     .filter((row): row is HerdrPaneRow => row !== null);
+};
+
+export const parseProcessInfo = (result: unknown): ReadonlyArray<HerdrProcessInfo> => {
+  const root = asRecord(result);
+  const info = asRecord(root?.process_info ?? root?.processInfo);
+  const processes = info?.foreground_processes;
+  const list = Array.isArray(processes) ? processes : [];
+  return list
+    .map((row): HerdrProcessInfo | null => {
+      const r = asRecord(row);
+      if (!r) return null;
+      return {
+        name: str(r.name),
+        cmdline: str(r.cmdline),
+        pid: num(r.pid),
+      };
+    })
+    .filter((row): row is HerdrProcessInfo => row !== null);
 };
 
 export const parsePaneGet = (result: unknown): HerdrPaneRow | undefined => {

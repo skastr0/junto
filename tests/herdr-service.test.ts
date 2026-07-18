@@ -6,6 +6,7 @@ import {
   parseCliEnvelope,
   parseCreateIds,
   parsePaneList,
+  parseProcessInfo,
   parseSessionList,
   parseWorkspaceList,
 } from "../src/main/vellum/herdr/parse";
@@ -124,6 +125,78 @@ describe("herdr parse", () => {
       terminalId: "term_x",
     });
   });
+
+  it("parses agent session, foreground cwd, scroll, and revision", () => {
+    expect(
+      parsePaneList({
+        panes: [
+          {
+            pane_id: "wN:p5",
+            workspace_id: "wN",
+            tab_id: "wN:t4",
+            terminal_id: "term_1",
+            cwd: "/proj",
+            foreground_cwd: "/proj/sub",
+            agent: "claude",
+            agent_status: "idle",
+            agent_session: {
+              agent: "claude",
+              kind: "id",
+              source: "herdr:claude",
+              value: "23910b7d-f4b4",
+            },
+            focused: false,
+            revision: 3,
+            scroll: {
+              max_offset_from_bottom: 723,
+              offset_from_bottom: 12,
+              viewport_rows: 73,
+            },
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        paneId: "wN:p5",
+        workspaceId: "wN",
+        tabId: "wN:t4",
+        terminalId: "term_1",
+        cwd: "/proj",
+        foregroundCwd: "/proj/sub",
+        agent: "claude",
+        agentStatus: "idle",
+        agentSession: {
+          agent: "claude",
+          kind: "id",
+          source: "herdr:claude",
+          value: "23910b7d-f4b4",
+        },
+        focused: false,
+        revision: 3,
+        scroll: { maxOffsetFromBottom: 723, offsetFromBottom: 12, viewportRows: 73 },
+      },
+    ]);
+  });
+
+  it("parses foreground process info", () => {
+    expect(
+      parseProcessInfo({
+        process_info: {
+          pane_id: "wN:p5",
+          shell_pid: 32962,
+          foreground_processes: [
+            { name: "claude", cmdline: "claude", pid: 33060 },
+            { cmdline: "raindrop workshop mcp", pid: 33073 },
+            "garbage",
+          ],
+        },
+      }),
+    ).toEqual([
+      { name: "claude", cmdline: "claude", pid: 33060 },
+      { cmdline: "raindrop workshop mcp", pid: 33073 },
+    ]);
+    expect(parseProcessInfo({})).toEqual([]);
+  });
 });
 
 describe("HerdrService with mock runner", () => {
@@ -197,6 +270,110 @@ describe("HerdrService with mock runner", () => {
     expect(meta.ok && meta.data.agentStatus).toBe("idle");
     expect(meta.ok && meta.data.preview).toBe("ready.");
     expect(calls.length).toBeGreaterThan(0);
+  });
+
+  it("enriches pane meta with labels, agent session, and processes", async () => {
+    const runner: HerdrRunner = async (_host, args) => {
+      if (args[0] === "pane" && args[1] === "get") {
+        return ok(
+          JSON.stringify({
+            id: "cli:pane:get",
+            result: {
+              pane: {
+                pane_id: "w1:p1",
+                workspace_id: "w1",
+                tab_id: "w1:t4",
+                terminal_id: "term_1",
+                cwd: "/proj",
+                foreground_cwd: "/proj/sub",
+                agent: "claude",
+                agent_status: "idle",
+                agent_session: { agent: "claude", kind: "id", source: "herdr:claude", value: "abc-123" },
+                revision: 2,
+                scroll: { max_offset_from_bottom: 10, offset_from_bottom: 0, viewport_rows: 40 },
+              },
+              type: "pane_info",
+            },
+          }),
+        );
+      }
+      if (args[0] === "pane" && args[1] === "read") {
+        return ok(JSON.stringify({ id: "r", result: { text: "ready.\n" } }));
+      }
+      if (args[0] === "workspace" && args[1] === "list") {
+        return ok(
+          JSON.stringify({
+            id: "cli:workspace:list",
+            result: { workspaces: [{ workspace_id: "w1", label: "api-work" }] },
+          }),
+        );
+      }
+      if (args[0] === "tab" && args[1] === "list") {
+        return ok(
+          JSON.stringify({
+            id: "cli:tab:list",
+            result: { tabs: [{ tab_id: "w1:t4", workspace_id: "w1", label: "editor" }] },
+          }),
+        );
+      }
+      if (args[0] === "pane" && args[1] === "process-info") {
+        return ok(
+          JSON.stringify({
+            id: "cli:pane:process_info",
+            result: {
+              process_info: {
+                pane_id: "w1:p1",
+                foreground_processes: [{ name: "claude", cmdline: "claude", pid: 33060 }],
+              },
+            },
+          }),
+        );
+      }
+      return fail("unexpected");
+    };
+
+    const svc = new HerdrService(runner);
+    const meta = await svc.getPaneMeta("local", null, "w1:p1");
+    expect(meta.ok).toBe(true);
+    if (meta.ok) {
+      expect(meta.data.workspaceLabel).toBe("api-work");
+      expect(meta.data.tabLabel).toBe("editor");
+      expect(meta.data.agentSession?.value).toBe("abc-123");
+      expect(meta.data.foregroundCwd).toBe("/proj/sub");
+      expect(meta.data.revision).toBe(2);
+      expect(meta.data.scroll?.maxOffsetFromBottom).toBe(10);
+      expect(meta.data.processes).toEqual([{ name: "claude", cmdline: "claude", pid: 33060 }]);
+      expect(meta.data.preview).toBe("ready.");
+    }
+  });
+
+  it("still returns meta when enrichments fail", async () => {
+    const runner: HerdrRunner = async (_host, args) => {
+      if (args[0] === "pane" && args[1] === "get") {
+        return ok(
+          JSON.stringify({
+            id: "cli:pane:get",
+            result: {
+              pane: { pane_id: "w1:p1", workspace_id: "w1", tab_id: "w1:t4", cwd: "/proj" },
+              type: "pane_info",
+            },
+          }),
+        );
+      }
+      // read / workspace list / tab list / process-info all fail.
+      return fail("boom");
+    };
+
+    const svc = new HerdrService(runner);
+    const meta = await svc.getPaneMeta("local", null, "w1:p1");
+    expect(meta.ok).toBe(true);
+    if (meta.ok) {
+      expect(meta.data.cwd).toBe("/proj");
+      expect(meta.data.workspaceLabel).toBeUndefined();
+      expect(meta.data.tabLabel).toBeUndefined();
+      expect(meta.data.processes).toBeUndefined();
+      expect(meta.data.preview).toBeUndefined();
+    }
   });
 
   it("maps unreachable host failures", async () => {
