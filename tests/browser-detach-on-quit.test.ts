@@ -15,9 +15,11 @@ describe("browser detach-on-quit product lock", () => {
   const adapterSrc = readFileSync(join(root, "src/main/vellum/browser/view-adapter.ts"), "utf8");
 
   it("main process quit path detaches browser sessions", () => {
-    expect(indexSrc).toMatch(/browserSessions\.detachAllOnQuit/);
+    expect(indexSrc).toMatch(/browserComposition\?\.sessions\.detachAllOnQuit/);
     // registered inside the same quit fan-out as herdr (before-quit/will-quit/SIGTERM)
-    expect(indexSrc).toMatch(/detachHerdrOnQuit[\s\S]*browserSessions\.detachAllOnQuit/);
+    expect(indexSrc).toMatch(
+      /detachHerdrOnQuit[\s\S]*browserComposition\?\.sessions\.detachAllOnQuit/,
+    );
   });
 
   it("detachAllOnQuit never destroys sessions or wipes profiles", () => {
