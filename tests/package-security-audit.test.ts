@@ -43,7 +43,7 @@ const exactFuseWire = (): FuseConfig<FuseState> => {
 };
 
 describe("packaged app security policy", () => {
-  it("pins every Electron 43 fuse and the temporary file privilege exception", () => {
+  it("pins every Electron 43 fuse with file protocol privileges disabled", () => {
     expect(FUSE_NAMES).toHaveLength(9);
     expect(PACKAGE_SECURITY_POLICY.fuses).toEqual({
       RunAsNode: false,
@@ -53,7 +53,7 @@ describe("packaged app security policy", () => {
       EnableEmbeddedAsarIntegrityValidation: true,
       OnlyLoadAppFromAsar: true,
       LoadBrowserProcessSpecificV8Snapshot: false,
-      GrantFileProtocolExtraPrivileges: true,
+      GrantFileProtocolExtraPrivileges: false,
       WasmTrapHandlers: true,
     });
   });
@@ -142,7 +142,7 @@ describe("Electron fuse audit", () => {
       EnableEmbeddedAsarIntegrityValidation: "Enabled",
       OnlyLoadAppFromAsar: "Enabled",
       LoadBrowserProcessSpecificV8Snapshot: "Disabled",
-      GrantFileProtocolExtraPrivileges: "Enabled",
+      GrantFileProtocolExtraPrivileges: "Disabled",
       WasmTrapHandlers: "Enabled",
     });
   });

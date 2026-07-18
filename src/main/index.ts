@@ -7,6 +7,8 @@ import {
   dialog,
   ipcMain,
   powerMonitor,
+  protocol,
+  session,
   shell,
   type IpcMainEvent,
 } from "electron";
@@ -41,6 +43,14 @@ import {
 } from "./vellum/node-ref-ingress";
 import { resolveNodeRef } from "./vellum/node-ref-resolver";
 import { installProcessSignalTermination } from "./vellum/process-signal-termination";
+import {
+  installTrustedRendererPermissionPolicy,
+  installTrustedRendererProtocol,
+  registerTrustedRendererScheme,
+  TRUSTED_RENDERER_URL,
+} from "./vellum/trusted-renderer-protocol";
+
+registerTrustedRendererScheme(protocol);
 
 app.on(
   "select-client-certificate",
@@ -360,8 +370,10 @@ const createWindow = () => {
       console.error("[window] renderer URL load failed");
     });
   } else {
-    void mainWindow.loadFile(join(__dirname, "../renderer/index.html")).catch(() => {
-      console.error("[window] renderer file load failed");
+    void mainWindow.loadURL(TRUSTED_RENDERER_URL).catch(() => {
+      console.error("[window] trusted renderer load failed");
+      if (!mainWindow.isDestroyed()) mainWindow.destroy();
+      app.exit(1);
     });
   }
 
@@ -473,8 +485,27 @@ if (!gotSingleInstanceLock) {
     existing.focus();
   });
 
-  app.whenReady().then(async () => {
+  void app.whenReady().then(async () => {
     if (!(await ensureSupervised())) return;
+
+    try {
+      if (app.isPackaged) {
+        await installTrustedRendererProtocol(
+          session.defaultSession.protocol,
+          join(__dirname, "../renderer"),
+        );
+      }
+      installTrustedRendererPermissionPolicy(
+        session.defaultSession,
+        () => trustedMainWindow,
+        app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL,
+      );
+    } catch {
+      console.error("[window] trusted renderer protocol setup failed");
+      app.exit(1);
+      return;
+    }
+
     nodeRefOwnerReady = true;
     requestNodeRefDrain();
 
@@ -572,7 +603,11 @@ if (!gotSingleInstanceLock) {
       requestNodeRefDrain();
       if (!headless && BrowserWindow.getAllWindows().length === 0) createWindow();
     });
-  });
+  })
+    .catch(() => {
+      console.error("[startup] initialization failed");
+      app.exit(1);
+    });
 }
 
 app.on("window-all-closed", () => {
