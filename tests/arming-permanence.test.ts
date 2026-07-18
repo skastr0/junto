@@ -57,6 +57,28 @@ describe("StoreService — corrupt is loud, missing is empty", () => {
     });
     expect(readFileSync(storeFile(), "utf8")).toBe(corrupt);
   });
+
+  it("serializes overlapping kernel debug and arming writes without losing unrelated keys", async () => {
+    const entries = [
+      ["kernel.debug", { pulseLog: [{ kind: "manual" }] }],
+      ["kernel.armed", { "ether::r1": true }],
+      ...Array.from({ length: 32 }, (_, index) => [`concurrency.probe.${index}`, index] as const),
+    ] as const;
+
+    await runStore((store) =>
+      Effect.all(
+        entries.map(([key, value]) => store.set(key, value)),
+        { concurrency: "unbounded" },
+      ),
+    );
+
+    const persisted = JSON.parse(readFileSync(storeFile(), "utf8")) as Record<string, unknown>;
+    expect(persisted["kernel.debug"]).toEqual({ pulseLog: [{ kind: "manual" }] });
+    expect(persisted["kernel.armed"]).toEqual({ "ether::r1": true });
+    for (let index = 0; index < 32; index += 1) {
+      expect(persisted[`concurrency.probe.${index}`]).toBe(index);
+    }
+  });
 });
 
 describe("computeOrphanedArming — intent surfaced, never dropped", () => {
