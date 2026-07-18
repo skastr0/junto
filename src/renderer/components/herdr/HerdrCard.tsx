@@ -1,6 +1,7 @@
-import { useEffect, useRef, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode } from "@shared/canvas";
+import { SquareTerminal } from "lucide-react";
+import type { CanvasNode, EtherHerdr } from "@shared/canvas";
 import type { HerdrMirrorEvent, HerdrObserveTouchInput } from "@shared/ipc";
 import { herdrActivity } from "../../lib/activity";
 import {
@@ -10,10 +11,12 @@ import {
   refreshHerdrMeta,
   subscribeHerdrMirror,
 } from "../../lib/herdr-state";
-import { killHerdrPane, killHerdrTab, recreateHerdrPane } from "../../lib/herdr-actions";
+import { harnessDisplayName } from "../../lib/harness-icons";
+import { editText } from "../../lib/mutations";
 import { getVellumApi } from "../../lib/vellum-api";
-import { DIM, INK } from "../../lib/theme";
+import { DIM, HUE, INK, accentColor, withAlpha } from "../../lib/theme";
 import { ActivityMarkFromSpec } from "../ActivityMark";
+import { HarnessMark } from "./HarnessMark";
 
 type HerdrCardApi = ReturnType<typeof getVellumApi> & {
   herdrObserveTouch?: (input: HerdrObserveTouchInput) => Promise<{ readonly pooled: boolean }>;
@@ -25,7 +28,94 @@ const PREWARM_THROTTLE_MS = 30_000;
 // Coalesce pointerdown+click (and rapid double-press) into one open.
 const OPEN_GUARD_MS = 700;
 
-export function HerdrCard({ node }: { readonly node: CanvasNode }) {
+// Basename of a cwd for the hero fallback / bottom line ("/a/b/" → "b").
+const cwdBaseOf = (cwd: string | undefined): string | undefined => {
+  if (!cwd) return undefined;
+  return cwd.replace(/\/+$/, "").split("/").pop() ?? undefined;
+};
+
+// Placeholder/auto-derived first lines carry no identity — the hero falls back
+// to live meta for these. An explicit (operator-typed) label always wins.
+const isAutoDerivedLabel = (
+  label: string,
+  herdr: EtherHerdr,
+  liveAgent: string | undefined,
+): boolean => {
+  const trimmed = label.trim();
+  if (!trimmed || trimmed.toLowerCase() === "herdr") return true;
+  const paneId = herdr.paneId;
+  if (!paneId) return false;
+  if (trimmed === paneId || trimmed === `${herdr.host} · ${paneId}`) return true;
+  if (liveAgent && trimmed === `${liveAgent} · ${paneId}`) return true;
+  if (herdr.label && trimmed === `${herdr.label} · ${paneId}`) return true;
+  return false;
+};
+
+// First-line rename for the hero: auto-focus+select, Enter/blur commits via
+// editText (parent preserves lines below the first), Escape discards. The
+// fired ref coalesces Enter→blur and Escape→blur into one finish.
+function RenameInput({
+  initial,
+  onCommit,
+  onDone,
+}: {
+  readonly initial: string;
+  readonly onCommit: (firstLine: string) => void;
+  readonly onDone: () => void;
+}) {
+  const [value, setValue] = useState(initial);
+  const firedRef = useRef(false);
+
+  const finish = (commit: boolean) => {
+    if (firedRef.current) return;
+    firedRef.current = true;
+    const next = value.trim();
+    if (commit && next && next !== initial) onCommit(next);
+    onDone();
+  };
+
+  return (
+    <input
+      ref={(el) => {
+        el?.focus();
+        el?.select();
+      }}
+      aria-label="Rename agent node"
+      className="nodrag nopan nowheel w-full truncate bg-transparent text-left text-[14px] font-semibold leading-snug outline-none"
+      style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => finish(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          finish(true);
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          finish(false);
+        }
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+    />
+  );
+}
+
+export function HerdrCard({
+  node,
+  selected,
+  renaming,
+  onRequestRename,
+  onRenameDone,
+}: {
+  readonly node: CanvasNode;
+  readonly selected: boolean;
+  readonly renaming: boolean;
+  readonly onRequestRename: () => void;
+  readonly onRenameDone: () => void;
+}) {
   const herdr = node.ether?.herdr;
   const metaCache = use$(herdr$.metaByNodeId[node.id]);
   const conn = use$(herdr$.connectionByNodeId[node.id]);
@@ -77,6 +167,7 @@ export function HerdrCard({ node }: { readonly node: CanvasNode }) {
   const agent = meta?.agent ?? herdr.label;
   const agentStatus = meta?.agentStatus;
   const cwd = meta?.cwd;
+  const cwdBase = cwdBaseOf(cwd);
   const preview = meta?.preview;
   const connState = conn?.state ?? connectionStateOf(node.id);
   const activity = herdrActivity({
@@ -85,18 +176,71 @@ export function HerdrCard({ node }: { readonly node: CanvasNode }) {
     connState,
   });
 
+  // Hero: explicit label wins; placeholder/auto-derived labels fall back to
+  // live identity (workspace label → cwd basename → harness display name).
+  const hero = isAutoDerivedLabel(rawName, herdr, meta?.agent)
+    ? (meta?.workspaceLabel ?? cwdBase ?? harnessDisplayName(agent))
+    : rawName;
+
+  const statusWord = agentStatus ?? "unknown";
+  const statusTone =
+    agentStatus === "working"
+      ? HUE.amber
+      : agentStatus === "idle"
+        ? HUE.steel
+        : agentStatus === "blocked"
+          ? HUE.crimson
+          : agentStatus === "done" || agentStatus === "complete" || agentStatus === "completed"
+            ? accentColor("4")
+            : DIM;
+
+  const tabShort = herdr.tabId ? herdr.tabId.split(":").pop() : undefined;
+  const crumbs = [
+    herdr.host,
+    herdr.session ?? undefined,
+    meta?.workspaceLabel ?? herdr.workspaceId,
+    meta?.tabLabel ?? tabShort,
+  ].filter((s): s is string => Boolean(s));
+  const crumbTitle = [herdr.host, herdr.session ?? undefined, herdr.workspaceId, herdr.tabId]
+    .filter((s): s is string => Boolean(s))
+    .join(" › ");
+
+  const bottomFallback = preview ?? herdr.paneId ?? "no meta yet";
+  const bottomTitle = cwd ? (preview ? `${cwd} — ${preview}` : cwd) : bottomFallback;
+
   const open = () => {
     openHerdrTerminal(node.id, herdr, rawName);
   };
 
-  // Open on press (pointerdown) with an onClick fallback for keyboard; the guard
-  // coalesces the pointerdown+click pair into a single open.
-  const guardedOpen = (e: SyntheticEvent) => {
-    e.stopPropagation();
+  // Time-based coalescing shared by every open trigger: pointerdown+click
+  // (and rapid double-press) collapse into a single open().
+  const timeGuardedOpen = () => {
     const now = Date.now();
     if (now - openGuardRef.current < OPEN_GUARD_MS) return;
     openGuardRef.current = now;
     open();
+  };
+
+  // Open on press (pointerdown) with an onClick fallback for keyboard. Once the
+  // card is selected the press is inert — double-click renames, the ghost
+  // button opens.
+  const guardedOpen = (e: SyntheticEvent) => {
+    e.stopPropagation();
+    if (selected) return;
+    timeGuardedOpen();
+  };
+
+  // Ghost open button: same coalescing guard as the hero, but never suppressed
+  // by selection — it is the open path while the card is selected.
+  const ghostGuardedOpen = (e: SyntheticEvent) => {
+    e.stopPropagation();
+    timeGuardedOpen();
+  };
+
+  const commitRename = (firstLine: string) => {
+    if (node.type !== "text") return;
+    const rest = node.text.split("\n").slice(1).join("\n");
+    editText(node.id, rest ? `${firstLine}\n${rest}` : firstLine);
   };
 
   // Intent pre-warm: hovering the card pre-opens a read-only frame stream so
@@ -120,92 +264,79 @@ export function HerdrCard({ node }: { readonly node: CanvasNode }) {
 
   return (
     <div
-      className="flex h-full w-full flex-col justify-between overflow-hidden"
+      className="group flex h-full w-full flex-col justify-between overflow-hidden"
       onPointerEnter={preWarm}
     >
       <div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
-            herdr
-          </span>
-          <ActivityMarkFromSpec
-            spec={
-              metaCache?.error
-                ? { ...activity, label: metaCache.error }
-                : activity
-            }
-          />
+        <div className="flex items-center gap-2">
+          <HarnessMark agent={agent} size={28} focused={meta?.focused === true} />
+          <div className="min-w-0 flex-1">
+            {renaming ? (
+              <RenameInput initial={rawName} onCommit={commitRename} onDone={onRenameDone} />
+            ) : (
+              <button
+                type="button"
+                className="nodrag nopan w-full truncate text-left text-[14px] font-semibold leading-snug"
+                style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
+                title={selected ? "double-click to rename" : "open terminal"}
+                onPointerDown={guardedOpen}
+                onClick={guardedOpen}
+                onDoubleClick={(event) => {
+                  if (!selected) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onRequestRename();
+                }}
+              >
+                {hero}
+              </button>
+            )}
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="truncate" style={{ color: INK }}>
+                {harnessDisplayName(agent)}
+              </span>
+              <span
+                className={`shrink-0 rounded-full ${agentStatus === "working" ? "vellum-herdr-working-dot" : ""}`}
+                style={{ width: 5, height: 5, background: statusTone }}
+              />
+              <span className="truncate" style={{ color: DIM }}>
+                {statusWord}
+              </span>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              aria-label="open terminal"
+              title="open terminal"
+              className="nodrag nopan grid size-[22px] place-items-center rounded text-cyan-300/60 opacity-0 transition hover:bg-white/10 hover:text-cyan-200 group-hover:opacity-100"
+              onPointerDown={ghostGuardedOpen}
+              onClick={ghostGuardedOpen}
+            >
+              <SquareTerminal size={12} />
+            </button>
+            <ActivityMarkFromSpec
+              spec={
+                metaCache?.error
+                  ? { ...activity, label: metaCache.error }
+                  : activity
+              }
+            />
+          </div>
         </div>
-        <button
-          type="button"
-          className="nodrag nopan mt-1 w-full truncate text-left text-[14px] font-semibold leading-snug"
-          style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
-          title="Open terminal"
-          onPointerDown={guardedOpen}
-          onClick={guardedOpen}
-        >
-          {rawName}
-        </button>
-        <div className="mt-0.5 text-[10px] tabular-nums" style={{ color: DIM }}>
-          {herdr.host}
-          {herdr.session ? ` · ${herdr.session}` : ""}
-          {herdr.workspaceId ? ` · ${herdr.workspaceId}` : ""}
-          {herdr.tabId ? `/${herdr.tabId.split(":").pop()}` : ""}
+        <div className="mt-0.5 truncate text-[10px] tabular-nums" style={{ color: DIM }} title={crumbTitle}>
+          {crumbs.join(" › ")}
         </div>
       </div>
-      <div className="space-y-1">
-        {agent ? (
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-[11px] text-[#EDE6DA]">{agent}</span>
-          </div>
-        ) : null}
-        <div className="line-clamp-1 text-[10px]" style={{ color: DIM }} title={cwd ?? preview ?? ""}>
-          {cwd || preview || herdr.paneId || "no meta yet"}
-        </div>
-        <div className="nodrag nopan flex flex-wrap gap-1 pt-0.5">
-          <button
-            type="button"
-            className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-slate-300 hover:bg-white/10"
-            onPointerDown={guardedOpen}
-            onClick={guardedOpen}
-          >
-            open
-          </button>
-          <button
-            type="button"
-            className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-slate-300 hover:bg-white/10"
-            onClick={(e) => {
-              e.stopPropagation();
-              void killHerdrPane(node.id, herdr);
-            }}
-          >
-            kill pane
-          </button>
-          {herdr.tabId ? (
-            <button
-              type="button"
-              className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-slate-300 hover:bg-white/10"
-              onClick={(e) => {
-                e.stopPropagation();
-                void killHerdrTab(node.id, herdr);
-              }}
-            >
-              kill tab
-            </button>
-          ) : null}
-          {(connState === "lost" || connState === "failed") && (
-            <button
-              type="button"
-              className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-amber-200 hover:bg-white/10"
-              onClick={(e) => {
-                e.stopPropagation();
-                void recreateHerdrPane(node.id, herdr);
-              }}
-            >
-              recreate
-            </button>
-          )}
-        </div>
+      <div className="line-clamp-1 text-[10px]" style={{ color: DIM }} title={bottomTitle}>
+        {cwd ? (
+          <>
+            <span style={{ color: withAlpha(INK, 0.6) }}>{cwdBase}</span>
+            {preview ? <span style={{ color: DIM }}>{` — ${preview}`}</span> : null}
+          </>
+        ) : (
+          bottomFallback
+        )}
       </div>
     </div>
   );

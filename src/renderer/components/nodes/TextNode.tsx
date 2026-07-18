@@ -16,8 +16,10 @@ import { chatState$, initialAgentChatState } from "../../lib/chat-state";
 import { accentColor, INK, DIM, HUE, SOURCE_HUE, withAlpha } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
+import { openHerdrTerminal } from "../../lib/herdr-state";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
+import { HerdrToolbarActions } from "../herdr/HerdrToolbarActions";
 import { NodeShell } from "./NodeShell";
 
 // Re-renders every intervalMs so relative-time copy ("fired 2m ago", "next
@@ -261,9 +263,9 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
   );
 }
 
-// Freeform note body: one ink tone, one typeface — markdown is structure,
-// not a shade ladder. Entity cards keep their own compact presentation.
-const NOTE_FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+// Freeform note body: instrument mono for body; condensed display for heads
+// (CSS). Markdown is structure only — no wiki/chips/shorthand leak.
+const NOTE_FONT = "ui-monospace, SFMono-Regular, Menlo, monospace";
 const NOTE_MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 
 function NoteEditModal({
@@ -345,8 +347,10 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const node = data.node;
   const text = node.type === "text" ? node.text : "";
   const isFreeNote = !node.ether?.entity;
+  const isHerdr = node.ether?.entity?.kind === "herdr";
   const editNodeId = use$(state$.editNodeId);
   const [editing, setEditing] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [draft, setDraft] = useState(text);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -364,9 +368,10 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     if (editNodeId !== node.id) return;
     setDraft(text);
     if (isFreeNote) setMaximized(true);
+    else if (isHerdr) setRenaming(true);
     else setEditing(true);
     state$.editNodeId.set("");
-  }, [editNodeId, node.id, isFreeNote, text]);
+  }, [editNodeId, node.id, isFreeNote, isHerdr, text]);
 
   const commit = () => {
     setEditing(false);
@@ -392,13 +397,21 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     setMaximized(true);
   };
 
+  const herdrBinding = isHerdr ? node.ether?.herdr : undefined;
+  const title = text.split("\n")[0] ?? "herdr";
+  const openHerdr = () => {
+    if (herdrBinding) openHerdrTerminal(node.id, herdrBinding, title);
+  };
+
   return (
     <NodeShell
       node={node}
       selected={selected}
       blocked={data.blocked}
-      onEdit={openInline}
+      onEdit={isHerdr ? () => setRenaming(true) : openInline}
       onMaximize={isFreeNote ? openMaximized : undefined}
+      inlineEdit={!isHerdr}
+      toolbarExtras={isHerdr ? <HerdrToolbarActions node={node} /> : undefined}
     >
       {maximized ? (
         <NoteEditModal
@@ -408,7 +421,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           onDiscard={discard}
         />
       ) : null}
-      {editing && !maximized ? (
+      {editing && !maximized && !isHerdr ? (
         <textarea
           ref={ref}
           autoFocus
@@ -435,20 +448,34 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           onDoubleClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            // herdr: double-click opens the live terminal, never inline text.
+            if (isHerdr) {
+              openHerdr();
+              return;
+            }
             openInline();
           }}
         >
           {node.ether.entity.kind === "watcher" ? <WatcherCard node={node} />
             : node.ether.entity.kind === "timer" ? <TimerCard node={node} />
               : node.ether.entity.kind === "task" ? <TasksCard node={node} />
-                : node.ether.entity.kind === "herdr" ? <HerdrCard node={node} />
+                : node.ether.entity.kind === "herdr" ? (
+                  <HerdrCard
+                    node={node}
+                    selected={selected}
+                    renaming={renaming}
+                    onRequestRename={() => setRenaming(true)}
+                    onRenameDone={() => setRenaming(false)}
+                  />
+                )
                 : <EntityCard node={node} kind={node.ether.entity.kind} />}
         </div>
       ) : (
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           className="note-surface nopan h-full w-full cursor-text overflow-hidden border-0 bg-transparent p-0 text-left items-stretch justify-start"
-          style={{ fontFamily: NOTE_FONT, color: INK }}
+          style={{ fontFamily: NOTE_FONT }}
           onClick={(event) => {
             if (!selected) return;
             event.stopPropagation();
@@ -459,9 +486,17 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             event.stopPropagation();
             openInline();
           }}
+          onKeyDown={(event) => {
+            if (!selected) return;
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              event.stopPropagation();
+              openInline();
+            }
+          }}
         >
           <NoteMarkdown source={text} />
-        </button>
+        </div>
       )}
     </NodeShell>
   );

@@ -19,6 +19,8 @@ import { ProjectBrowseSection } from "./InspectorBrowse";
 import { BrowserAutomationSection } from "./BrowserAutomationSection";
 import { ChatView, InspectorTabs } from "./chat";
 import { chatState$ } from "../lib/chat-state";
+import { connectionStateOf, herdr$, refreshHerdrMeta } from "../lib/herdr-state";
+import { HarnessMark } from "./herdr/HarnessMark";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
   { value: "1", label: "red", hue: HUE.crimson },
@@ -58,6 +60,81 @@ function LiveReadout({ node }: { readonly node: CanvasNode }) {
         <span style={{ color: ok ? SOURCE_HUE[connection.source] : DIM }}>{ok ? "fresh" : "stale"}</span>
       </div>;
     })}</div>
+  </div>;
+}
+
+// The herdr surface, inspector-sized: binding ids straight from the document
+// (always available), enriched meta from the herdr meta cache when loaded.
+// Full values ride in `title` — rows truncate visually.
+function HerdrSections({ node }: { readonly node: CanvasNode }) {
+  const herdr = node.ether?.herdr;
+  const metaCache = use$(herdr$.metaByNodeId[node.id]);
+  const conn = use$(herdr$.connectionByNodeId[node.id]);
+  if (!herdr) return null;
+  const meta = metaCache?.meta;
+  const connState = conn?.state ?? connectionStateOf(node.id);
+  const reconnects = conn?.reconnectAttempts ?? 0;
+
+  const row = (label: string, value?: string, full?: string) =>
+    value ? (
+      <div className="inspector-binding" key={label} title={full ?? value}>
+        <span className="inspector-binding__source">{label}</span>
+        <span>{value}</span>
+      </div>
+    ) : null;
+
+  const workspaceId = herdr.workspaceId ?? meta?.workspaceId;
+  const tabId = herdr.tabId ?? meta?.tabId;
+  const agent = meta?.agent
+    ? meta.agentStatus
+      ? `${meta.agent} · ${meta.agentStatus}`
+      : meta.agent
+    : undefined;
+
+  return <div className="inspector-section">
+    <div className="inspector-section__label">herdr surface</div>
+    <div className="inspector-bindings mt-2">
+      {row("host", herdr.host)}
+      {row("session", herdr.session ?? undefined)}
+      {row("workspace", meta?.workspaceLabel && workspaceId ? `${meta.workspaceLabel} · ${workspaceId}` : (meta?.workspaceLabel ?? workspaceId))}
+      {row("tab", meta?.tabLabel && tabId ? `${meta.tabLabel} · ${tabId}` : (meta?.tabLabel ?? tabId))}
+      {row("pane", herdr.paneId ?? meta?.paneId)}
+      {row("terminal", herdr.terminalId ?? meta?.terminalId)}
+      {agent ? (
+        <div className="inspector-binding" key="agent" title={agent} style={{ alignItems: "center" }}>
+          <span className="inspector-binding__source">agent</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <HarnessMark agent={meta?.agent} size={20} focused={meta?.focused === true} />
+            <span className="truncate">{agent}</span>
+          </span>
+        </div>
+      ) : null}
+      {row("agent session", meta?.agentSession?.value)}
+      {row("cwd", meta?.cwd)}
+      {row("fg cwd", meta?.foregroundCwd)}
+      {row("focused", meta?.focused === undefined ? undefined : meta.focused ? "yes" : "no")}
+      {row("connection", reconnects > 0 ? `${connState} · ${reconnects} reconnect${reconnects === 1 ? "" : "s"}` : connState)}
+      {(meta?.processes ?? []).map((proc, i) =>
+        row(`process ${i + 1}`, proc.name ?? proc.cmdline, proc.cmdline ?? proc.name),
+      )}
+      {row("preview", meta?.preview)}
+    </div>
+    <div className="mt-2 flex items-center gap-2">
+      <button
+        type="button"
+        className="rounded-md border px-2 py-1 text-[9px] uppercase tracking-[.12em] transition hover:bg-white/5"
+        style={{ borderColor: "rgba(237,230,218,.14)", color: DIM }}
+        onClick={() => void refreshHerdrMeta(node.id, herdr)}
+      >
+        refresh
+      </button>
+      {metaCache?.status === "loading" ? (
+        <span className="text-[9px]" style={{ color: DIM }}>loading…</span>
+      ) : null}
+    </div>
+    {metaCache?.status === "error" && metaCache.error ? (
+      <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.75) }}>{metaCache.error}</div>
+    ) : null}
   </div>;
 }
 
@@ -181,7 +258,7 @@ function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly 
         </div>
       ) : <>
         {!isEntity ? <div className="inspector-detail">{nodeDetail(node) || "No description recorded."}</div> : null}
-        {isEntity ? <LiveReadout node={node} /> : null}
+        {isEntity && node.ether?.entity?.kind === "herdr" ? <HerdrSections key={node.id} node={node} /> : isEntity ? <LiveReadout node={node} /> : null}
         {isEntity && node.ether?.entity?.kind === "project" ? <ProjectBrowseSection key={node.id} node={node} /> : null}
         {isAgent ? <AgentSections key={node.id} node={node} /> : null}
         <BrowserAutomationSection key={`${canvasName}:${node.id}`} canvasName={canvasName} node={node} />

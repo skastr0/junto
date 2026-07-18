@@ -22,11 +22,13 @@ function NodeActions({
   selected,
   onEdit,
   onMaximize,
+  toolbarExtras,
 }: {
   readonly node: CanvasNode;
   readonly selected: boolean;
   readonly onEdit?: () => void;
   readonly onMaximize?: () => void;
+  readonly toolbarExtras?: ReactNode;
 }) {
   const isBlocker = node.ether?.flags?.includes("blocker") ?? false;
   return (
@@ -60,6 +62,7 @@ function NodeActions({
             <Maximize2 size={14} />
           </button>
         ) : null}
+        {toolbarExtras}
         <button
           aria-label={isBlocker ? "Clear blocker flag" : "Flag blocker"}
           className="nodrag nopan grid size-7 place-items-center rounded text-[11px] transition hover:bg-white/10"
@@ -97,6 +100,10 @@ export function NodeShell({
   onEdit,
   onMaximize,
   onOpen,
+  openIcon,
+  openTitle,
+  toolbarExtras,
+  inlineEdit = true,
   children,
 }: {
   readonly node: CanvasNode;
@@ -105,6 +112,13 @@ export function NodeShell({
   readonly onEdit?: () => void;
   readonly onMaximize?: () => void;
   readonly onOpen?: () => void;
+  readonly openIcon?: ReactNode;
+  readonly openTitle?: string;
+  readonly toolbarExtras?: ReactNode;
+  // Set false when the card body owns its edit gesture (herdr renames inline)
+  // so the corner pencil can't collide with card chrome. The NodeActions
+  // toolbar pencil still appears — it shares the same onEdit.
+  readonly inlineEdit?: boolean;
   readonly children: ReactNode;
 }) {
   const flags = node.ether?.flags ?? [];
@@ -145,7 +159,7 @@ export function NodeShell({
         lineClassName="vellum-resize-line"
         onResizeEnd={(_event, params) => resizeNode(node.id, params)}
       />
-      {onEdit ? (
+      {onEdit && inlineEdit ? (
         <button
           className="vellum-node__edit nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-slate-400 transition hover:bg-white/10 hover:text-[#EDE6DA]"
           aria-label="Edit item"
@@ -162,19 +176,19 @@ export function NodeShell({
       {onOpen ? (
         <button
           className="vellum-node__open nodrag nopan absolute right-10 top-2 z-10 grid size-6 place-items-center rounded text-cyan-300/70 transition hover:bg-white/10 hover:text-cyan-200"
-          aria-label="Open external link"
-          title="open external link"
+          aria-label={openTitle ?? "Open external link"}
+          title={openTitle ?? "open external link"}
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
             onOpen();
           }}
         >
-          <ExternalLink size={12} />
+          {openIcon ?? <ExternalLink size={12} />}
         </button>
       ) : null}
       <ConnectionHandles />
-      <NodeActions node={node} selected={selected} onEdit={onEdit} onMaximize={onMaximize} />
+      <NodeActions node={node} selected={selected} onEdit={onEdit} onMaximize={onMaximize} toolbarExtras={toolbarExtras} />
       {flags.length > 0 ? (
         <div className="vellum-node__flag-rail">
           {flags.map((flag) => (
