@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Background,
   BackgroundVariant,
@@ -525,12 +526,34 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
 }
 
 // Docked above the bottom-right minimap with fit-all — not scattered top chrome.
+// Menu portals to body: .rts-right overflow:hidden would clip an absolute popover.
 function CanvasFieldTools() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const [open, setOpen] = useState(false);
   const [picker, setPicker] = useState<AddPicker>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [menuBox, setMenuBox] = useState<{ left: number; bottom: number } | null>(null);
   const dismiss = useCallback(() => { setPicker(null); setOpen(false); }, []);
   useMenuDismiss(open, dismiss);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuBox(null);
+      return;
+    }
+    const place = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      // Anchor above the trigger; keep 190px menu on-screen horizontally.
+      setMenuBox({
+        left: Math.min(Math.max(8, rect.left), window.innerWidth - 198),
+        bottom: Math.max(8, window.innerHeight - rect.top + 6),
+      });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open, picker]);
 
   // A non-overlapping slot near the viewport center for a node of the given size.
   const nextPosition = (size: { width: number; height: number }) => {
@@ -551,6 +574,7 @@ function CanvasFieldTools() {
     <div className="rts-field-tools" aria-label="Canvas field tools">
       <div className="node-palette node-palette--docked">
         <button
+          ref={triggerRef}
           type="button"
           className="node-palette__trigger"
           aria-label="Add canvas item"
@@ -559,7 +583,17 @@ function CanvasFieldTools() {
         >
           <Plus size={12} /><span>add item</span>
         </button>
-        {open ? <AddMenu picker={picker} setPicker={setPicker} actions={actions} /> : null}
+        {open && menuBox
+          ? createPortal(
+              <div
+                className="node-palette node-palette--context"
+                style={{ position: "fixed", left: menuBox.left, bottom: menuBox.bottom, zIndex: 60 }}
+              >
+                <AddMenu picker={picker} setPicker={setPicker} actions={actions} />
+              </div>,
+              document.body,
+            )
+          : null}
       </div>
       <button
         type="button"

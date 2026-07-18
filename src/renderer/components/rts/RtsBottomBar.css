@@ -544,16 +544,8 @@
   background: rgba(12, 11, 10, 0.94);
 }
 
-/* Open the add menu UPWARD so it never covers the minimap surface. */
-.rts-field-tools .node-palette--docked .node-palette__menu {
-  top: auto !important;
-  bottom: calc(100% + 6px) !important;
-  right: auto !important;
-  left: 0 !important;
-  z-index: 50 !important;
-  max-height: min(320px, calc(100vh - 180px));
-  overflow: auto;
-}
+/* Docked add-menu portals to document.body (fixed) — absolute popovers are
+   clipped by .rts-right { overflow: hidden }. Placement lives in CanvasFieldTools. */
 
 .rts-notify {
   display: flex;
