@@ -141,7 +141,10 @@ export class ChatService {
       this.nextGeneration(agentKey);
       this.closeCurrent(agentKey);
       closed.push(agentKey);
-      this.emit(agentKey, "session.idle_evicted", { idleMs });
+      this.emit(agentKey, "status", {
+        status: "closed",
+        text: `remote chat closed after ${idleMs}ms idle`,
+      });
     }
     return closed;
   }
@@ -158,20 +161,24 @@ export class ChatService {
       ([key, session]) =>
         key !== openingKey &&
         session.host === host &&
-        !session.client.closed &&
-        session.sessionId !== "",
+        !session.client.closed,
     );
     if (peers.length < ceiling) return undefined;
 
     const idlePeers = peers
-      .filter(([, session]) => !this.sessionIsBusy(session))
+      // A handshaking session already owns a child/SSH stream but is not safe
+      // to evict until its open settles. It counts toward the ceiling as busy.
+      .filter(([, session]) => session.sessionId !== "" && !this.sessionIsBusy(session))
       .sort((a, b) => a[1].lastActivityAt - b[1].lastActivityAt);
     const victim = idlePeers[0];
     if (victim) {
       const [agentKey] = victim;
       this.nextGeneration(agentKey);
       this.closeCurrent(agentKey);
-      this.emit(agentKey, "session.ceiling_evicted", { host, ceiling });
+      this.emit(agentKey, "status", {
+        status: "closed",
+        text: `remote chat closed to enforce the ${host} session ceiling (${ceiling})`,
+      });
       return undefined;
     }
     return `remote ACP session ceiling reached for host ${host} (${ceiling} live; all busy) — close a chat or wait for a turn to finish`;
@@ -326,6 +333,7 @@ export class ChatService {
     if (authorityRestart !== undefined) return authorityRestart;
     const existing = this.sessions.get(agentKey);
     if (existing && !existing.client.closed && existing.sessionId !== "") {
+      this.touch(existing);
       return { ok: true, sessionId: existing.sessionId, resumed: false, models: existing.models };
     }
 
@@ -551,8 +559,10 @@ export class ChatService {
   async chatSetModel(agentKey: string, modelId: string): Promise<{ ok: boolean; error?: string }> {
     const session = this.sessions.get(agentKey);
     if (!session || session.client.closed) return { ok: false, error: "chat session not open" };
+    this.touch(session);
     try {
       await session.client.request("session/set_model", { modelId, sessionId: session.sessionId });
+      this.touch(session);
       return { ok: true };
     } catch (err) {
       if (err instanceof AcpRpcError && err.code === -32601) {
