@@ -1,0 +1,45 @@
+import * as Command from "@effect/platform/Command";
+import * as NodeCommandExecutor from "@effect/platform-node/NodeCommandExecutor";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import { Effect, Layer, Stream } from "effect";
+import { describe, expect, it } from "vitest";
+import { ProcessSpawner, ProcessSpawnerLive } from "../src/main/vellum/ssh/process-spawner";
+
+const NodeExecutorLive = NodeCommandExecutor.layer.pipe(
+  Layer.provide(NodeFileSystem.layer),
+);
+
+const SpawnerLive = ProcessSpawnerLive.pipe(
+  Layer.provide(NodeExecutorLive),
+);
+
+describe("ProcessSpawnerLive", () => {
+  it("runs through the official scoped Node command executor", async () => {
+    const result = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const process = yield* (yield* ProcessSpawner).start(
+            Command.make("/usr/bin/printf", "effect-process-ok"),
+          );
+          const completed = yield* Effect.all(
+            {
+              input: Stream.run(Stream.empty, process.stdin),
+              stdout: Stream.runCollect(process.stdout),
+              stderr: Stream.runDrain(process.stderr),
+              code: process.exitCode,
+            },
+            { concurrency: "unbounded" },
+          );
+          return {
+            code: completed.code,
+            stdout: Buffer.concat(
+              [...completed.stdout].map((chunk) => Buffer.from(chunk)),
+            ).toString("utf8"),
+          };
+        }),
+      ).pipe(Effect.provide(SpawnerLive)),
+    );
+
+    expect(result).toEqual({ code: 0, stdout: "effect-process-ok" });
+  });
+});
