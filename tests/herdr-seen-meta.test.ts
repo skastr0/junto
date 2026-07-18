@@ -3,6 +3,7 @@ import {
   clearsPendingSeen,
   herdrMetaPaintEqual,
   mergeHerdrMetaAfterRefresh,
+  nextPendingSeen,
   type HerdrMetaCache,
 } from "../src/renderer/lib/herdr-state";
 import type { HerdrPaneInfo } from "../src/shared/ipc";
@@ -97,5 +98,36 @@ describe("herdrMetaPaintEqual", () => {
 
   it("is false when agentStatus differs", () => {
     expect(herdrMetaPaintEqual(pane("idle"), pane("done"))).toBe(false);
+  });
+});
+
+describe("nextPendingSeen composition", () => {
+  it("keeps pendingSeen across remote done (protect cycle)", () => {
+    const previous: HerdrMetaCache = {
+      status: "ok",
+      meta: pane("idle"),
+      seenGen: 1,
+      pendingSeen: true,
+    };
+    const remote = pane("done");
+    const merged = mergeHerdrMetaAfterRefresh(previous, 1, remote);
+    expect(merged.agentStatus).toBe("idle");
+    // Gate must still hold — second remote done would still protect.
+    expect(nextPendingSeen(previous.pendingSeen, remote.agentStatus)).toBe(true);
+    const still = mergeHerdrMetaAfterRefresh(
+      { ...previous, meta: merged, pendingSeen: true },
+      1,
+      pane("done"),
+    );
+    expect(still.agentStatus).toBe("idle");
+  });
+
+  it("clears pendingSeen only when remote is idle|working|blocked", () => {
+    expect(nextPendingSeen(true, "idle")).toBe(false);
+    expect(nextPendingSeen(true, "working")).toBe(false);
+    expect(nextPendingSeen(true, "blocked")).toBe(false);
+    expect(nextPendingSeen(true, "done")).toBe(true);
+    expect(nextPendingSeen(true, "unknown")).toBe(true);
+    expect(nextPendingSeen(true, undefined)).toBe(true);
   });
 });

@@ -317,6 +317,10 @@ export class HerdrMirror implements HerdrMirrorReads {
         }
       }
     } else if (kind.startsWith("pane.")) {
+      // scroll_changed is known but has no mirrored state — must return before
+      // the pane umbrella upsert/emit (startsWith("pane.") would otherwise
+      // swallow it into a thrashy no-op write).
+      if (kind === "pane.scroll_changed") return;
       const id = str(body.pane_id);
       if (id) {
         if (kind === "pane.closed" || kind === "pane.exited") {
@@ -340,9 +344,8 @@ export class HerdrMirror implements HerdrMirrorReads {
     } else if (kind === "layout.updated") {
       const key = this.layoutKey(body);
       if (key) this.layouts.set(key, body);
-    } else if (kind === "pane.scroll_changed" || kind.startsWith("worktree.")) {
-      // Known, no mirrored state — do not emitChange (was N meta IPC / card
-      // thrash on every scroll tick with zero state delta).
+    } else if (kind.startsWith("worktree.")) {
+      // Known, no mirrored state — no emitChange.
       return;
     }
 

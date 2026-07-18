@@ -258,6 +258,18 @@ export const mergeHerdrMetaAfterRefresh = (
 export const clearsPendingSeen = (agentStatus: string | undefined): boolean =>
   agentStatus !== undefined && CONFIRMED_AFTER_SEEN.has(agentStatus);
 
+/**
+ * pendingSeen latch across a refresh: clear only when *remote* reports
+ * idle|working|blocked. Client-forced/sticky idle must not drop the gate.
+ */
+export const nextPendingSeen = (
+  previousPending: boolean | undefined,
+  remoteAgentStatus: string | undefined,
+): boolean | undefined => {
+  if (!previousPending) return previousPending;
+  return clearsPendingSeen(remoteAgentStatus) ? false : true;
+};
+
 /** True when two pane metas paint the same card identity/status (skip re-set thrash). */
 export const herdrMetaPaintEqual = (
   a: HerdrPaneInfo | undefined,
@@ -331,12 +343,16 @@ export const applyHerdrPaneSeenStatus = (
   const cache = herdr$.metaByNodeId[nodeId].peek();
   const meta = cache?.meta;
   if (!meta) return;
+  // While pendingSeen, refuse host "done" — focus can race before seen sticks.
+  const nextStatus =
+    cache.pendingSeen && agentStatus === "done" ? "idle" : agentStatus;
   herdr$.metaByNodeId[nodeId].set({
     status: "ok",
-    meta: { ...meta, agentStatus },
+    meta: { ...meta, agentStatus: nextStatus },
     error: undefined,
     fetchedAt: Date.now(),
     seenGen: (cache.seenGen ?? 0) + 1,
+    // Clear only on host-reported idle|working|blocked — never on forced idle.
     pendingSeen: clearsPendingSeen(agentStatus) ? false : cache.pendingSeen,
   });
 };
@@ -372,7 +388,10 @@ export const markHerdrPaneSeenRemote = async (
 };
 
 /** Coalesce concurrent refreshHerdrMeta for the same node (last-writer thrash). */
-const metaRefreshInFlight = new Map<string, { rerun: boolean; promise: Promise<void> }>();
+const metaRefreshInFlight = new Map<
+  string,
+  { rerun: boolean; herdr: EtherHerdr; promise: Promise<void> }
+>();
 
 export const refreshHerdrMeta = async (
   nodeId: string,
@@ -381,6 +400,7 @@ export const refreshHerdrMeta = async (
   const existing = metaRefreshInFlight.get(nodeId);
   if (existing) {
     existing.rerun = true;
+    existing.herdr = herdr; // rebind: loop must use latest host/pane/session
     return existing.promise;
   }
 
@@ -389,13 +409,13 @@ export const refreshHerdrMeta = async (
     if (!slot) return;
     do {
       slot.rerun = false;
-      await refreshHerdrMetaOnce(nodeId, herdr);
+      await refreshHerdrMetaOnce(nodeId, slot.herdr);
     } while (slot.rerun);
     metaRefreshInFlight.delete(nodeId);
   };
 
   const promise = run();
-  metaRefreshInFlight.set(nodeId, { rerun: false, promise });
+  metaRefreshInFlight.set(nodeId, { rerun: false, herdr, promise });
   return promise;
 };
 
@@ -451,11 +471,13 @@ const refreshHerdrMetaOnce = async (
     }
     setConnectionEvent(nodeId, { type: "ok" });
     const merged = mergeHerdrMetaAfterRefresh(latest, startSeenGen, result.data);
-    const nextPending = latest?.pendingSeen
-      ? clearsPendingSeen(merged.agentStatus)
-        ? false
-        : true
-      : latest?.pendingSeen ?? previous?.pendingSeen;
+    // Clear pendingSeen only on host-reported idle|working|blocked — never on
+    // client-forced or sticky-filled idle (would drop the gate after one protect
+    // cycle and re-paint remote done on the next refresh).
+    const nextPending = nextPendingSeen(
+      latest?.pendingSeen ?? previous?.pendingSeen,
+      result.data.agentStatus,
+    );
     // Skip observable set when paint-relevant fields are unchanged — fleet
     // mirror change storms must not re-render every card every tick.
     if (

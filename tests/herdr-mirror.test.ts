@@ -190,6 +190,30 @@ describe("HerdrMirror", () => {
     expect(mirror.listWorkspaces()?.[0]?.label).toBe("x");
   });
 
+  it("pane.scroll_changed does not upsert or emitChange", async () => {
+    const transport = new FakeTransport();
+    const mirror = await startFresh(transport);
+    cleanup.push(() => mirror.stop());
+    let changes = 0;
+    mirror.onChange(() => {
+      changes += 1;
+    });
+    const before = mirror.paneRecord("w1:p1");
+    transport.handlers!.onEvent({
+      event: "pane.scroll_changed",
+      data: {
+        pane_id: "w1:p1",
+        scroll: { offset_from_bottom: 12 },
+        noise: "must-not-merge",
+      },
+    });
+    // Coalesce window would fire within ~100ms if emitChange ran.
+    await sleep(50);
+    expect(changes).toBe(0);
+    expect(mirror.paneRecord("w1:p1")).toEqual(before);
+    expect(mirror.paneRecord("w1:p1")?.noise).toBeUndefined();
+  });
+
   it("pane.created triggers a debounced resubscribe including the new pane id", async () => {
     const transport = new FakeTransport();
     const mirror = await startFresh(transport);
