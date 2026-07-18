@@ -22,6 +22,35 @@ export const ALERT_KINDS = [
 
 export type AlertKind = (typeof ALERT_KINDS)[number];
 
+/**
+ * Cycle order priority — lower first.
+ * Permission/blocked need you now; herdr-done is "waiting on review";
+ * booth is project-level; orphans are structural.
+ */
+export const ALERT_KIND_PRIORITY: Readonly<Record<AlertKind, number>> = {
+  permission: 0,
+  blocked: 1,
+  "herdr-done": 2,
+  "booth-review": 3,
+  orphan: 4,
+};
+
+export const ALERT_KIND_LABEL: Readonly<Record<AlertKind, string>> = {
+  permission: "permission",
+  blocked: "blocked",
+  "herdr-done": "herdr done",
+  "booth-review": "booth review",
+  orphan: "orphan",
+};
+
+const compareAlertItems = (a: AlertItem, b: AlertItem): number => {
+  const pr = ALERT_KIND_PRIORITY[a.kind] - ALERT_KIND_PRIORITY[b.kind];
+  if (pr !== 0) return pr;
+  // Within a kind: newest rise first (higher `at`), then stable id.
+  if (a.at !== b.at) return b.at - a.at;
+  return a.id.localeCompare(b.id);
+};
+
 /** Stable queue entry — one per subject (member, agent, project, orphan key). */
 export interface AlertItem {
   readonly id: string;
@@ -148,7 +177,8 @@ export const observeSignals = (
     quiet.push(toItem(signal, now, prevById.get(signal.id)));
   }
 
-  const ordered = [...priorStable, ...quiet, ...risen];
+  // Severity order, not collection order — Space should feel intentional.
+  const ordered = [...priorStable, ...quiet, ...risen].sort(compareAlertItems);
 
   const cycleIndex =
     ordered.length === 0
@@ -168,9 +198,12 @@ export const observeSignals = (
   };
 };
 
+const hasFocusTarget = (item: AlertItem | undefined): boolean =>
+  Boolean(item?.nodeId?.trim());
+
 /**
- * Advance to the next alert (wrap). Empty queue → no-op.
- * Returns the focused item so the wire can set state$.focusNodeId + select.
+ * Advance to the next *focusable* alert (wrap). Skips items with no nodeId
+ * so Space never "ticks" into a dead slot. Empty / all-unfocusable → no-op.
  */
 export const cycleNext = (
   queue: AlertQueue,
@@ -178,12 +211,19 @@ export const cycleNext = (
   if (queue.items.length === 0) {
     return { queue, item: undefined };
   }
-  const nextIndex = (queue.cycleIndex + 1) % queue.items.length;
-  const item = queue.items[nextIndex];
-  return {
-    queue: { ...queue, cycleIndex: nextIndex },
-    item,
-  };
+  const n = queue.items.length;
+  let idx = queue.cycleIndex;
+  for (let step = 0; step < n; step += 1) {
+    idx = (idx + 1) % n;
+    const item = queue.items[idx];
+    if (hasFocusTarget(item)) {
+      return {
+        queue: { ...queue, cycleIndex: idx },
+        item,
+      };
+    }
+  }
+  return { queue, item: undefined };
 };
 
 /** Focus target for camera/selection — wire may enrich nodeId before enqueue. */

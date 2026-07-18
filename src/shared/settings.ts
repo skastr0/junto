@@ -71,6 +71,33 @@ export const AdvancedSettings = Schema.Struct({
 });
 export type AdvancedSettings = typeof AdvancedSettings.Type;
 
+// RTS UI SFX — per-clip enable + volume under a master mute/gain.
+// Clip keys are camelCase; renderer maps alert ids (herdr-done → herdrDone).
+const unitInterval = Schema.Number.pipe(Schema.between(0, 1));
+
+export const SfxClipPrefs = Schema.Struct({
+  enabled: Schema.Boolean,
+  volume: unitInterval,
+});
+export type SfxClipPrefs = typeof SfxClipPrefs.Type;
+
+export const SfxClipsSettings = Schema.Struct({
+  blocked: SfxClipPrefs,
+  permission: SfxClipPrefs,
+  herdrDone: SfxClipPrefs,
+  boothReview: SfxClipPrefs,
+  orphan: SfxClipPrefs,
+  cycle: SfxClipPrefs,
+});
+export type SfxClipsSettings = typeof SfxClipsSettings.Type;
+
+export const AudioSettings = Schema.Struct({
+  muted: Schema.Boolean,
+  masterVolume: unitInterval,
+  clips: SfxClipsSettings,
+});
+export type AudioSettings = typeof AudioSettings.Type;
+
 export const Settings = Schema.Struct({
   version: Schema.Literal(SETTINGS_VERSION),
   appearance: AppearanceSettings,
@@ -78,6 +105,7 @@ export const Settings = Schema.Struct({
   kernel: KernelSettings,
   browser: BrowserPrefs,
   advanced: AdvancedSettings,
+  audio: AudioSettings,
 });
 export type Settings = typeof Settings.Type;
 
@@ -121,12 +149,36 @@ export const AdvancedPatch = Schema.Struct({
 });
 export type AdvancedPatch = typeof AdvancedPatch.Type;
 
+export const SfxClipPatch = Schema.Struct({
+  enabled: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  volume: Schema.optionalWith(unitInterval, { exact: true }),
+});
+export type SfxClipPatch = typeof SfxClipPatch.Type;
+
+export const SfxClipsPatch = Schema.Struct({
+  blocked: Schema.optionalWith(SfxClipPatch, { exact: true }),
+  permission: Schema.optionalWith(SfxClipPatch, { exact: true }),
+  herdrDone: Schema.optionalWith(SfxClipPatch, { exact: true }),
+  boothReview: Schema.optionalWith(SfxClipPatch, { exact: true }),
+  orphan: Schema.optionalWith(SfxClipPatch, { exact: true }),
+  cycle: Schema.optionalWith(SfxClipPatch, { exact: true }),
+});
+export type SfxClipsPatch = typeof SfxClipsPatch.Type;
+
+export const AudioPatch = Schema.Struct({
+  muted: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  masterVolume: Schema.optionalWith(unitInterval, { exact: true }),
+  clips: Schema.optionalWith(SfxClipsPatch, { exact: true }),
+});
+export type AudioPatch = typeof AudioPatch.Type;
+
 export const SettingsPatch = Schema.Struct({
   appearance: Schema.optionalWith(AppearancePatch, { exact: true }),
   canvas: Schema.optionalWith(CanvasPatch, { exact: true }),
   kernel: Schema.optionalWith(KernelPatch, { exact: true }),
   browser: Schema.optionalWith(BrowserPatch, { exact: true }),
   advanced: Schema.optionalWith(AdvancedPatch, { exact: true }),
+  audio: Schema.optionalWith(AudioPatch, { exact: true }),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 
@@ -136,6 +188,7 @@ export const SettingsSectionKey = Schema.Literal(
   "kernel",
   "browser",
   "advanced",
+  "audio",
 );
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
@@ -165,6 +218,24 @@ export const defaultAdvanced = (): AdvancedSettings => ({
   openLastCanvas: true,
 });
 
+const defaultClip = (volume: number): SfxClipPrefs => ({ enabled: true, volume });
+
+export const defaultSfxClips = (): SfxClipsSettings => ({
+  blocked: defaultClip(0.55),
+  permission: defaultClip(0.55),
+  herdrDone: defaultClip(0.5),
+  boothReview: defaultClip(0.5),
+  orphan: defaultClip(0.5),
+  // Cycle is navigation chrome — keep quiet by default.
+  cycle: defaultClip(0.18),
+});
+
+export const defaultAudio = (): AudioSettings => ({
+  muted: false,
+  masterVolume: 0.7,
+  clips: defaultSfxClips(),
+});
+
 export const defaultSettings = (): Settings => ({
   version: SETTINGS_VERSION,
   appearance: defaultAppearance(),
@@ -172,6 +243,7 @@ export const defaultSettings = (): Settings => ({
   kernel: defaultKernel(),
   browser: defaultBrowser(),
   advanced: defaultAdvanced(),
+  audio: defaultAudio(),
 });
 
 export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectionKey] => {
@@ -186,6 +258,8 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultBrowser();
     case "advanced":
       return defaultAdvanced();
+    case "audio":
+      return defaultAudio();
   }
 };
 
@@ -219,6 +293,26 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
   }
   if (patch.advanced) {
     next = { ...next, advanced: mergeSection(next.advanced, patch.advanced) };
+  }
+  if (patch.audio) {
+    const audioPatch = patch.audio;
+    let audio = next.audio;
+    if (audioPatch.muted !== undefined || audioPatch.masterVolume !== undefined) {
+      audio = mergeSection(audio, {
+        muted: audioPatch.muted,
+        masterVolume: audioPatch.masterVolume,
+      });
+    }
+    if (audioPatch.clips) {
+      let clips = audio.clips;
+      for (const key of Object.keys(audioPatch.clips) as Array<keyof SfxClipsSettings>) {
+        const clipPatch = audioPatch.clips[key];
+        if (!clipPatch) continue;
+        clips = { ...clips, [key]: mergeSection(clips[key], clipPatch) };
+      }
+      audio = { ...audio, clips };
+    }
+    next = { ...next, audio };
   }
   return next;
 };

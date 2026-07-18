@@ -17,7 +17,7 @@ import {
 const decodeSettings = Schema.decodeUnknownEither(Settings);
 const decodeSettingsPatch = Schema.decodeUnknownEither(SettingsPatch);
 
-const SECTION_KEYS = ["appearance", "canvas", "kernel", "browser", "advanced"] as const;
+const SECTION_KEYS = ["appearance", "canvas", "kernel", "browser", "advanced", "audio"] as const;
 
 /** Pick only known keys from a raw section object (no untrusted key sprawl). */
 const pickKnown = (
@@ -33,6 +33,31 @@ const pickKnown = (
   return out;
 };
 
+/** Nested soft-heal for audio.clips — each clip is its own small value object. */
+const softHealAudio = (
+  sectionBase: Record<string, unknown>,
+  sectionRaw: Record<string, unknown>,
+): Record<string, unknown> => {
+  const healed = pickKnown(sectionBase, sectionRaw);
+  const clipsBase = sectionBase.clips;
+  if (!clipsBase || typeof clipsBase !== "object" || Array.isArray(clipsBase)) return healed;
+  const clipsRaw = sectionRaw.clips;
+  const clipsOut: Record<string, unknown> = {};
+  for (const [clipKey, clipBase] of Object.entries(clipsBase as Record<string, unknown>)) {
+    if (!clipBase || typeof clipBase !== "object" || Array.isArray(clipBase)) continue;
+    const clipRaw =
+      clipsRaw && typeof clipsRaw === "object" && !Array.isArray(clipsRaw)
+        ? (clipsRaw as Record<string, unknown>)[clipKey]
+        : undefined;
+    clipsOut[clipKey] =
+      clipRaw && typeof clipRaw === "object" && !Array.isArray(clipRaw)
+        ? pickKnown(clipBase as Record<string, unknown>, clipRaw as Record<string, unknown>)
+        : clipBase;
+  }
+  healed.clips = clipsOut;
+  return healed;
+};
+
 /** Soft-heal known section shapes onto defaults before strict decode. */
 const softHeal = (raw: Record<string, unknown>): unknown => {
   const base = defaultSettings() as unknown as Record<string, unknown>;
@@ -40,10 +65,14 @@ const softHeal = (raw: Record<string, unknown>): unknown => {
   for (const key of SECTION_KEYS) {
     const sectionBase = base[key] as Record<string, unknown>;
     const sectionRaw = raw[key];
+    if (!(sectionRaw && typeof sectionRaw === "object" && !Array.isArray(sectionRaw))) {
+      out[key] = sectionBase;
+      continue;
+    }
     out[key] =
-      sectionRaw && typeof sectionRaw === "object" && !Array.isArray(sectionRaw)
-        ? pickKnown(sectionBase, sectionRaw as Record<string, unknown>)
-        : sectionBase;
+      key === "audio"
+        ? softHealAudio(sectionBase, sectionRaw as Record<string, unknown>)
+        : pickKnown(sectionBase, sectionRaw as Record<string, unknown>);
   }
   return out;
 };

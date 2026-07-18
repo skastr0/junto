@@ -1,7 +1,7 @@
 [
   {
     "id": "blocked",
-    "text": "short hard low UI alert thunk for a blocked dependency, dry game interface sound, mono, no reverb tail, no music, no voice, clean and impactful, half second"
+    "text": "UI game interface alert: deep muted bass thump, dry wooden knock, short 200ms, low frequency only, no metallic ring, no reverb, no music, no voice, clean interface blocked warning, soft impact like a distant factory door latch"
   },
   {
     "id": "permission",
@@ -9,7 +9,7 @@
   },
   {
     "id": "herdr-done",
-    "text": "soft resolve UI chime when an agent finishes work and needs attention, clean game interface, mono, gentle, no reverb tail, no music, no voice, half second"
+    "text": "UI game interface success chime: two soft ascending sine blips, gentle and warm, short 300ms, medium pitch, dry no reverb tail, no music, no voice, pleasant agent finished notification, clean digital interface"
   },
   {
     "id": "booth-review",
@@ -21,6 +21,6 @@
   },
   {
     "id": "cycle",
-    "text": "almost silent soft UI tick for cycling between alerts, very quiet, clean game interface, mono, no reverb, no music, no voice, half second"
+    "text": "UI game interface navigation tick: extremely quiet soft click, barely audible dry tick like a tiny switch, 80ms feel, very low volume character, no reverb, no music, no voice, subtle focus change"
   }
 ]

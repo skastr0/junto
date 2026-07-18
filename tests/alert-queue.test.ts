@@ -150,6 +150,46 @@ describe("alert-queue", () => {
     });
   });
 
+  describe("priority order", () => {
+    it("orders permission before blocked before herdr before booth before orphan", () => {
+      let q = emptyAlertQueue();
+      q = observeSignals(q, [], 1).queue;
+      const { queue } = observeSignals(
+        q,
+        [
+          sig({ id: alertId.orphan("c::r"), kind: "orphan", subjectKey: "c::r", nodeId: "r" }),
+          sig({ id: alertId.boothReview("p"), kind: "booth-review", subjectKey: "p", level: 1, nodeId: "p" }),
+          sig({ id: alertId.herdrDone("h"), kind: "herdr-done", subjectKey: "h", nodeId: "h" }),
+          sig({ id: alertId.blocked("b"), kind: "blocked", subjectKey: "b", nodeId: "b" }),
+          sig({ id: alertId.permission("a"), kind: "permission", subjectKey: "a", nodeId: "a" }),
+        ],
+        2,
+      );
+      expect(queue.items.map((i) => i.kind)).toEqual([
+        "permission",
+        "blocked",
+        "herdr-done",
+        "booth-review",
+        "orphan",
+      ]);
+    });
+
+    it("cycleNext skips unfocusable items", () => {
+      let q = emptyAlertQueue();
+      q = observeSignals(q, [], 1).queue;
+      q = observeSignals(
+        q,
+        [
+          sig({ id: alertId.blocked("ghost"), kind: "blocked", subjectKey: "ghost" }), // no nodeId
+          sig({ id: alertId.blocked("real"), kind: "blocked", subjectKey: "real", nodeId: "real" }),
+        ],
+        2,
+      ).queue;
+      const step = cycleNext(q);
+      expect(step.item?.nodeId).toBe("real");
+    });
+  });
+
   describe("cycleNext", () => {
     const seeded = (): AlertQueue => {
       let q = emptyAlertQueue();

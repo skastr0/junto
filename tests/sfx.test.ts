@@ -1,19 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { defaultAudio, defaultSettings } from "@shared/settings";
 import {
   ALERT_SFX_IDS,
-  getSfxVolume,
-  isSfxMuted,
   playAlert,
-  setSfxMuted,
-  setSfxVolume,
+  resolveSfxGain,
+  sfxIdToClipKey,
   sfxUrl,
-  toggleSfxMuted,
 } from "@renderer/lib/sfx";
+import { state$ } from "@renderer/lib/state";
 
 describe("sfx catalog", () => {
   afterEach(() => {
-    setSfxMuted(false);
-    setSfxVolume(0.55);
+    state$.settings.set(defaultSettings());
     vi.restoreAllMocks();
   });
 
@@ -21,10 +19,11 @@ describe("sfx catalog", () => {
     expect(ALERT_SFX_IDS).toHaveLength(6);
     for (const id of ALERT_SFX_IDS) {
       expect(sfxUrl(id)).toMatch(/\.mp3/);
+      expect(sfxIdToClipKey(id)).toBeTruthy();
     }
   });
 
-  it("mutes without throwing and skips Audio construction", () => {
+  it("master mute skips Audio construction", () => {
     const audioSpy = vi.fn();
     vi.stubGlobal(
       "Audio",
@@ -38,14 +37,48 @@ describe("sfx catalog", () => {
         set volume(_v: number) {}
       },
     );
-    setSfxMuted(true);
-    expect(isSfxMuted()).toBe(true);
+    state$.settings.audio.set({ ...defaultAudio(), muted: true });
     playAlert("blocked");
     expect(audioSpy).not.toHaveBeenCalled();
-    toggleSfxMuted();
-    expect(isSfxMuted()).toBe(false);
+    state$.settings.audio.set(defaultAudio());
     playAlert("blocked");
     expect(audioSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("per-clip disable skips Audio", () => {
+    const audioSpy = vi.fn();
+    vi.stubGlobal(
+      "Audio",
+      class {
+        constructor() {
+          audioSpy();
+        }
+        play() {
+          return Promise.resolve();
+        }
+        set volume(_v: number) {}
+      },
+    );
+    const audio = defaultAudio();
+    state$.settings.audio.set({
+      ...audio,
+      clips: { ...audio.clips, cycle: { enabled: false, volume: 0.5 } },
+    });
+    playAlert("cycle");
+    expect(audioSpy).not.toHaveBeenCalled();
+    playAlert("blocked");
+    expect(audioSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolveSfxGain multiplies master × clip", () => {
+    const audio = defaultAudio();
+    const next = {
+      ...audio,
+      masterVolume: 0.5,
+      clips: { ...audio.clips, cycle: { enabled: true, volume: 0.2 } },
+    };
+    expect(resolveSfxGain("cycle", next)).toBeCloseTo(0.1, 5);
+    expect(resolveSfxGain("cycle", { ...next, muted: true })).toBeNull();
   });
 
   it("ignores unknown ids", () => {
@@ -64,12 +97,5 @@ describe("sfx catalog", () => {
     );
     playAlert("not-a-real-id");
     expect(audioSpy).not.toHaveBeenCalled();
-  });
-
-  it("clamps volume", () => {
-    setSfxVolume(2);
-    expect(getSfxVolume()).toBe(1);
-    setSfxVolume(-1);
-    expect(getSfxVolume()).toBe(0);
   });
 });

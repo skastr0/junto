@@ -44,5 +44,6 @@ Promote only after listening at system volume — reject outliers, re-roll that 
 
 ## Runtime
 
-`src/renderer/lib/sfx.ts` — `playAlert(id)`, session mute via `setSfxMuted`.
-No settings schema yet; mute is session-local.
+`src/renderer/lib/sfx.ts` — `playAlert(id)` reads **settings.audio**
+(master mute/volume + per-clip enable/volume). Defaults: cycle at 18%, others
+~50–55%. Configure under **Settings → Audio**.

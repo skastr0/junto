@@ -240,25 +240,27 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
     observeAlertSignals(signals);
   }, [rollups]);
 
-  // Hotkey: Space or backtick, never while text-editing / key-repeat thrash.
+  // Hotkey: Space or backtick. Capture phase so Space isn't eaten by focused
+  // RF nodes / RTS buttons (those match [role=button] and previously no-op'd).
   useEffect(() => {
+    const isCycleKey = (event: KeyboardEvent): boolean =>
+      event.key === " " ||
+      event.key === "Spacebar" ||
+      event.code === "Space" ||
+      event.key === "`" ||
+      event.code === "Backquote";
+
     const onKey = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || event.repeat) return;
+      if (event.repeat) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key !== " " && event.key !== "`") return;
+      if (!isCycleKey(event)) return;
       if (isTextEditing(event.target)) return;
-      // Don't steal Space when a button/role receives it for activation.
-      if (
-        event.target instanceof Element &&
-        event.target.closest("button, [role='button'], a, select, summary")
-      ) {
-        return;
-      }
       if (queue.items.length === 0) return;
       event.preventDefault();
+      event.stopPropagation();
       cycleAlertFocus();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 }
