@@ -255,6 +255,12 @@ const defaultSpawn: MirrorSpawn = (command, argv) =>
  * Forward death clears the ready handle so the next use respawns — the
  * mirror's own reconnect/backoff drives the retry cadence (its events
  * connection dies with the forward, firing onClose).
+ *
+ * Stale-path hazard (seen in prod): if the local socket file is unlinked
+ * while `ssh -N -L` is still alive, the process keeps the inode but
+ * `net.connect(path)` fails ENOENT forever — Node never emits exit/error, so
+ * a cached `ready` promise would retry the dead path. ensureLiveForward()
+ * re-checks existsSync; ENOENT on use drops the forward and respawns.
  */
 export class RemoteMirrorTransport implements MirrorTransport {
   private forward?: ChildProcess;
@@ -280,15 +286,60 @@ export class RemoteMirrorTransport implements MirrorTransport {
     this.spawnFn = deps?.spawnFn ?? defaultSpawn;
   }
 
+  /** Kill the current forward child without clearing `ready` (startForward is
+   * already the in-flight ready promise and must not re-enter). */
+  private killForwardChild(child?: ChildProcess): void {
+    const target = child ?? this.forward;
+    if (this.forward === target) this.forward = undefined;
+    if (!target) return;
+    try {
+      target.kill();
+    } catch {
+      // already gone
+    }
+  }
+
+  /** Drop one observed forward generation so the next ensureForward respawns.
+   * A concurrent caller may already have installed its replacement; never
+   * clear or kill that newer generation. */
+  private invalidateForward(expectedReady: Promise<LocalMirrorTransport>): void {
+    if (this.ready !== expectedReady) return;
+    const target = this.forward;
+    this.forward = undefined;
+    this.ready = undefined;
+    if (!target) return;
+    try {
+      target.kill();
+    } catch {
+      // already gone
+    }
+  }
+
   private ensureForward(): Promise<LocalMirrorTransport> {
     if (this.disposed) return Promise.reject(new Error("transport disposed"));
     if (!this.ready) {
-      this.ready = this.startForward().catch((err) => {
-        this.ready = undefined;
-        throw err;
+      const ready = this.startForward();
+      this.ready = ready;
+      void ready.catch(() => {
+        if (this.ready === ready) this.ready = undefined;
       });
     }
     return this.ready;
+  }
+
+  /** ready resolves only after bind; if the path later vanishes under a live
+   * ssh, drop and respawn before handing the path to net.connect. */
+  private async ensureLiveForward(): Promise<{
+    readonly local: LocalMirrorTransport;
+    readonly ready: Promise<LocalMirrorTransport>;
+  }> {
+    const ready = this.ensureForward();
+    const local = await ready;
+    if (this.disposed) throw new Error("transport disposed");
+    if (existsSync(this.localSock)) return { local, ready };
+    this.invalidateForward(ready);
+    const replacement = this.ensureForward();
+    return { local: await replacement, ready: replacement };
   }
 
   private async startForward(): Promise<LocalMirrorTransport> {
@@ -307,6 +358,11 @@ export class RemoteMirrorTransport implements MirrorTransport {
       this.remoteHome = home;
     }
 
+    // Replace any prior forward before rebinding the path — unlinking alone
+    // leaves a live ssh holding a nameless inode (connect ENOENT forever).
+    // Do not clear `ready` here: we are inside the current ready promise.
+    this.killForwardChild();
+
     await mkdir(herdrControlDir(), { recursive: true, mode: 0o700 });
     // ssh -L refuses to bind if the local socket file already exists.
     try {
@@ -322,12 +378,16 @@ export class RemoteMirrorTransport implements MirrorTransport {
     // the master was started without that -L. Poll then times out as
     // "ssh forward to <host> did not come up". ControlMaster=no keeps a
     // long-lived ssh that owns the bind (CLI herdr execs still use CM).
+    // ExitOnForwardFailure: if the local bind fails, ssh exits so invalidate
+    // clears ready instead of leaving a zombie -N with no socket path.
     const child = this.spawnFn("ssh", [
       ...BASE_SSH_ARGS,
       "-o",
       "ControlMaster=no",
       "-o",
       "ControlPath=none",
+      "-o",
+      "ExitOnForwardFailure=yes",
       "-N",
       "-L",
       `${this.localSock}:${this.remoteHome}/.config/herdr/herdr.sock`,
@@ -346,12 +406,7 @@ export class RemoteMirrorTransport implements MirrorTransport {
     const deadline = Date.now() + FORWARD_POLL_CAP_MS;
     while (!existsSync(this.localSock)) {
       if (this.disposed || child.exitCode !== null || Date.now() > deadline) {
-        try {
-          child.kill();
-        } catch {
-          // already gone
-        }
-        invalidate();
+        this.killForwardChild(child);
         throw new Error(`ssh forward to ${this.hostId} did not come up`);
       }
       await sleep(FORWARD_POLL_STEP_MS);
@@ -359,18 +414,38 @@ export class RemoteMirrorTransport implements MirrorTransport {
     return new LocalMirrorTransport(this.localSock);
   }
 
-  async request(method: string, params: unknown, timeoutMs?: number): Promise<unknown> {
-    const local = await this.ensureForward();
-    return local.request(method, params, timeoutMs);
+  /** True when the unix-socket path is gone (or never bound). */
+  private isStaleSockError(err: unknown): boolean {
+    if (!err || typeof err !== "object") return false;
+    const e = err as { code?: string; message?: string };
+    return e.code === "ENOENT" || (typeof e.message === "string" && /\bENOENT\b/.test(e.message));
   }
 
-  async openEvents(
+  private async withForward<T>(op: (local: LocalMirrorTransport) => Promise<T>): Promise<T> {
+    const current = await this.ensureLiveForward();
+    try {
+      return await op(current.local);
+    } catch (err) {
+      // Path vanished under a live forward — drop and retry once on a fresh bind.
+      if (!this.disposed && this.isStaleSockError(err)) {
+        this.invalidateForward(current.ready);
+        const retry = await this.ensureLiveForward();
+        return op(retry.local);
+      }
+      throw err;
+    }
+  }
+
+  request(method: string, params: unknown, timeoutMs?: number): Promise<unknown> {
+    return this.withForward((local) => local.request(method, params, timeoutMs));
+  }
+
+  openEvents(
     subscriptions: ReadonlyArray<Record<string, unknown>>,
     onEvent: (evt: Record<string, unknown>) => void,
     onClose: (reason: string) => void,
   ): Promise<() => void> {
-    const local = await this.ensureForward();
-    return local.openEvents(subscriptions, onEvent, onClose);
+    return this.withForward((local) => local.openEvents(subscriptions, onEvent, onClose));
   }
 
   dispose(): void {

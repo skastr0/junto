@@ -738,6 +738,40 @@ describe("RemoteMirrorTransport", () => {
     expect(spawnCalls.length).toBe(2);
   });
 
+  it("unlinked socket under a live forward respawns instead of looping ENOENT", async () => {
+    const localSock = join(tmpdir(), `vmr-stale-${process.pid}-${Date.now()}.sock`);
+    const { transport, spawnCalls, children } = makeHarness(localSock);
+
+    await transport.request("session.snapshot", {});
+    expect(spawnCalls.length).toBe(1);
+    expect(spawnCalls[0]).toContain("ExitOnForwardFailure=yes");
+
+    // Prod failure mode: path unlinked while ssh -N still alive (no exit event).
+    unlinkSync(localSock);
+    expect(children[0]!.exitCode).toBeNull();
+
+    await transport.request("session.snapshot", {});
+    expect(spawnCalls.length).toBe(2);
+    expect(children[0]!.killed).toBe(true);
+  });
+
+  it("coalesces concurrent stale-socket recovery into one replacement forward", async () => {
+    const localSock = join(tmpdir(), `vmr-stale-race-${process.pid}-${Date.now()}.sock`);
+    const { transport, spawnCalls, children } = makeHarness(localSock);
+
+    await transport.request("session.snapshot", {});
+    unlinkSync(localSock);
+
+    const results = await Promise.all([
+      transport.request("session.snapshot", {}),
+      transport.request("session.snapshot", {}),
+    ]);
+
+    expect(results).toEqual([{ via: "forward" }, { via: "forward" }]);
+    expect(spawnCalls.length).toBe(2);
+    expect(children[0]!.killed).toBe(true);
+  });
+
   it("dispose kills the forward and refuses further requests", async () => {
     const localSock = join(tmpdir(), `vmr4-${process.pid}-${Date.now()}.sock`);
     const { transport, children } = makeHarness(localSock);
