@@ -1,0 +1,19 @@
+{
+  "_note": "fuses.LoadBrowserProcessSpecificV8Snapshot must stay false until the package also ships v8_context_snapshot.browser.*.bin (custom per-process snapshot build). True with the stock Electron distribution is fatal at launch: Error loading V8 startup snapshot file.",
+  "bundleIdentifier": "skastr0.vellum",
+  "productName": "Vellum",
+  "teamIdentifier": "EXAMP12345",
+  "builderIdentity": "Example Maintainer (EXAMP12345)",
+  "signingIdentity": "Developer ID Application: Example Maintainer (EXAMP12345)",
+  "fuses": {
+    "RunAsNode": false,
+    "EnableCookieEncryption": true,
+    "EnableNodeOptionsEnvironmentVariable": false,
+    "EnableNodeCliInspectArguments": false,
+    "EnableEmbeddedAsarIntegrityValidation": true,
+    "OnlyLoadAppFromAsar": true,
+    "LoadBrowserProcessSpecificV8Snapshot": false,
+    "GrantFileProtocolExtraPrivileges": true,
+    "WasmTrapHandlers": true
+  }
+}
