@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { assignSlot, mergeSlotOrder } from "../src/renderer/lib/region-rollups";
+import { deriveRegionRollups } from "../src/shared/region-rollup";
+import type { CanvasDoc } from "../src/shared/canvas";
 
 describe("mergeSlotOrder", () => {
   it("keeps presentational order and appends new regions", () => {
@@ -14,6 +16,10 @@ describe("mergeSlotOrder", () => {
     const live = Array.from({ length: 12 }, (_, i) => `r${i}`);
     expect(mergeSlotOrder([], live)).toHaveLength(9);
   });
+
+  it("empty live list yields empty order (caller must fall back to cold rollups)", () => {
+    expect(mergeSlotOrder(["a", "b"], [])).toEqual([]);
+  });
 });
 
 describe("assignSlot", () => {
@@ -23,5 +29,21 @@ describe("assignSlot", () => {
 
   it("moves an existing region without duplicating", () => {
     expect(assignSlot(["a", "b", "c"], "c", 0)).toEqual(["c", "a", "b"]);
+  });
+});
+
+describe("cold rollup shell", () => {
+  it("deriveRegionRollups without live inputs still lists every group", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        { id: "r1", type: "group", label: "Tower", x: 0, y: 0, width: 200, height: 200 },
+        { id: "r2", type: "group", label: "Booth", x: 300, y: 0, width: 200, height: 200 },
+        { id: "n1", type: "text", text: "note", x: 10, y: 10, width: 80, height: 40 },
+      ],
+      edges: [],
+    };
+    const rollups = deriveRegionRollups({ doc });
+    expect(rollups.map((r) => r.label)).toEqual(["Tower", "Booth"]);
+    expect(rollups.every((r) => r.severity === "idle")).toBe(true);
   });
 });

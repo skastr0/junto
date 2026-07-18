@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RegionRollup } from "@shared/region-rollup";
+import { deriveRegionRollups } from "@shared/region-rollup";
 import { use$ } from "@legendapp/state/react";
 import { state$ } from "./state";
 import { kernel$ } from "./kernel-view";
@@ -9,6 +10,10 @@ import { herdr$ } from "./herdr-state";
 // Coarse poll of window.vellum.regionRollups. Poll on canvas / snapshots /
 // kernel / chat open-close+permission / herdr meta changes. Never setInterval;
 // never raw onChatEvent per chunk (chatKey is status+permission only).
+//
+// CRITICAL: chips must still render when IPC is down. Cold derive from the
+// document always provides region shells (idle severities); live IPC overlays
+// herdr/glyph/activity when it succeeds.
 
 const DEBOUNCE_MS = 300;
 
@@ -33,8 +38,31 @@ const herdrCoarseKey = (
   return `${metaPart}#${mirrorPart}`;
 };
 
+/** Merge live rollups over cold shells by regionId (live wins). */
+const mergeRollups = (
+  cold: ReadonlyArray<RegionRollup>,
+  live: ReadonlyArray<RegionRollup>,
+): ReadonlyArray<RegionRollup> => {
+  if (live.length === 0) return cold;
+  if (cold.length === 0) return live;
+  const liveById = new Map(live.map((r) => [r.regionId, r] as const));
+  const seen = new Set<string>();
+  const out: RegionRollup[] = [];
+  for (const shell of cold) {
+    const hit = liveById.get(shell.regionId);
+    out.push(hit ?? shell);
+    seen.add(shell.regionId);
+  }
+  for (const r of live) {
+    if (!seen.has(r.regionId)) out.push(r);
+  }
+  return out;
+};
+
 export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   const canvasName = use$(state$.canvasName);
+  const doc = use$(state$.doc);
+  const docVersion = use$(state$.docVersion);
   const docEpoch = use$(state$.docEpoch);
   const snapshots = use$(state$.snapshots);
   const executionRev = use$(kernel$.executionRev);
@@ -44,23 +72,37 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   const herdrMirrors = use$(herdr$.mirrorByHost) as Record<string, { fresh?: boolean; lastSyncAt?: number }>;
   const herdrKey = herdrCoarseKey(herdrMeta ?? {}, herdrMirrors ?? {});
 
-  const [rollups, setRollups] = useState<ReadonlyArray<RegionRollup>>([]);
+  // Cold shell from the open document — always available offline / IPC-fail.
+  const cold = useMemo(
+    () => deriveRegionRollups({ doc }),
+    // docVersion + docEpoch cover structural + position membership.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [docVersion, docEpoch, canvasName],
+  );
+
+  const [live, setLive] = useState<ReadonlyArray<RegionRollup>>([]);
   const genRef = useRef(0);
 
   useEffect(() => {
-    if (!canvasName || !window.vellum?.regionRollups) return;
+    if (!canvasName || !window.vellum?.regionRollups) {
+      setLive([]);
+      return;
+    }
     const api = window.vellum;
-    if (!api?.regionRollups) return;
+    if (!api?.regionRollups) {
+      setLive([]);
+      return;
+    }
     const gen = ++genRef.current;
     const timer = window.setTimeout(() => {
       void api
         .regionRollups(canvasName)
         .then((next) => {
           if (gen !== genRef.current) return;
-          setRollups(next);
+          setLive(next);
         })
         .catch(() => {
-          // Transient IPC / unknown name: hold last successful payload.
+          // Keep previous live if any; cold shell still paints chips.
           if (gen !== genRef.current) return;
         });
     }, DEBOUNCE_MS);
@@ -69,10 +111,10 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
 
   useEffect(() => {
     if (canvasName) return;
-    setRollups([]);
+    setLive([]);
   }, [canvasName]);
 
-  return rollups;
+  return useMemo(() => mergeRollups(cold, live), [cold, live]);
 }
 
 /** Merge live region ids into a presentational 1–9 slot order. */

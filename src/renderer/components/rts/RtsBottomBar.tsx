@@ -424,26 +424,23 @@ function RegionMiddle({
   const slotOrder = use$(state$.regionSlotOrder);
   const dragFrom = useRef<number | null>(null);
 
+  // Chips from rollups (cold shell always includes every group on the open
+  // document — never gate the middle bar on IPC alone).
   const slots = useMemo(() => {
     const ids = mergeSlotOrder(slotOrder, rollups.map((r) => r.regionId));
-    return ids.map((id, index) => ({ index, rollup: byId.get(id) })).filter((s): s is { index: number; rollup: RegionRollup } => s.rollup !== undefined);
+    return ids
+      .map((id, index) => {
+        const rollup = byId.get(id);
+        return rollup ? { index, rollup } : undefined;
+      })
+      .filter((s): s is { index: number; rollup: RegionRollup } => s !== undefined)
+      .slice(0, 9);
   }, [slotOrder, rollups, byId]);
 
-  // Keep slot order in sync with live regions (append new, drop gone).
-  // Never write [] from a transient empty rollup payload — that would wipe
-  // the presentational 1–9 order on a failed/quiet IPC fetch.
+  // Keep slot order in sync with rollup region ids (presentational only).
   useEffect(() => {
     const liveIds = rollups.map((r) => r.regionId);
-    if (liveIds.length === 0) {
-      const groups = state$.doc.peek().nodes.filter((n) => n.type === "group").map((n) => n.id);
-      if (groups.length === 0) return;
-      const next = mergeSlotOrder(state$.regionSlotOrder.peek(), groups);
-      const prev = state$.regionSlotOrder.peek();
-      if (next.length !== prev.length || next.some((id, i) => id !== prev[i])) {
-        state$.regionSlotOrder.set(next);
-      }
-      return;
-    }
+    if (liveIds.length === 0) return;
     const next = mergeSlotOrder(state$.regionSlotOrder.peek(), liveIds);
     const prev = state$.regionSlotOrder.peek();
     if (next.length !== prev.length || next.some((id, i) => id !== prev[i])) {
