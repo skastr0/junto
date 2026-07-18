@@ -24,6 +24,7 @@ import {
 } from "../src/shared/browser-limits";
 import type { ResolvedPageTarget } from "../src/main/vellum/browser/page-target";
 import {
+  BrowserProfileError,
   makeBrowserProfileService,
   type BrowserProfileServiceApi,
 } from "../src/main/vellum/browser/profiles";
@@ -83,7 +84,7 @@ interface SpyView {
   destroyed: boolean;
 }
 
-const makeSpyAdapter = (acknowledgeDestroy = true) => {
+const makeSpyAdapter = (acknowledgeDestroy = true, throwAfterDestroy = false) => {
   const views: SpyView[] = [];
   const adapter: BrowserViewAdapter = (partition, events, options) => {
     let resolveDestroyed!: () => void;
@@ -110,6 +111,7 @@ const makeSpyAdapter = (acknowledgeDestroy = true) => {
         spy.destroyed = true;
         spy.calls.push("destroy");
         if (acknowledgeDestroy) spy.resolveDestroyed();
+        if (throwAfterDestroy) throw new Error("adapter teardown failed after destruction");
       },
       whenDestroyed: () => spy.destroyedPromise,
       executeJavaScript: async (code) => {
@@ -505,6 +507,160 @@ describe("BrowserSessionService", () => {
     expect(reopened).toMatchObject({ ok: true, data: { sessionId: first.data.sessionId } });
     expect(views).toHaveLength(1);
     expect(views[0]?.destroyed).toBe(false);
+  });
+
+  it("stops one page idempotently, destroys its view, and preserves profile and sibling sessions", async () => {
+    const { service, views } = makeDefaultService();
+    service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 2, maxWarmSessions: 8 }));
+    const stoppedPage = target("stop-me");
+    const siblingPage = target("keep-me");
+    const stopped = await service.open(stoppedPage);
+    const sibling = await service.open(siblingPage);
+    if (!stopped.ok || !sibling.ok) throw new Error("open failed");
+
+    expect(await service.stop(stopped.data.sessionId)).toEqual({
+      ok: true,
+      data: {
+        sessionId: stopped.data.sessionId,
+        ref: stoppedPage.ref,
+        profile: "personal",
+        stopped: true,
+        alreadyStopped: false,
+      },
+    });
+    expect(views[0]?.calls.filter((call) => call === "destroy")).toHaveLength(1);
+    expect(views[1]?.calls.filter((call) => call === "destroy")).toHaveLength(0);
+    expect(service.state(stopped.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
+    expect(service.state(sibling.data.sessionId)).toMatchObject({ ok: true });
+
+    expect(await service.stop(stopped.data.sessionId)).toMatchObject({
+      ok: true,
+      data: { alreadyStopped: true },
+    });
+    expect(views[0]?.calls.filter((call) => call === "destroy")).toHaveLength(1);
+    expect(await service.stop("never-existed")).toMatchObject({ ok: false, code: "not_found" });
+
+    const reopened = await service.open(stoppedPage);
+    expect(reopened).toMatchObject({
+      ok: true,
+      data: { profile: "personal", sessionId: "session-3" },
+    });
+    expect(views[2]?.partition).toBe("persist:vellum-profile-personal");
+  });
+
+  it("coalesces concurrent Stop Page calls onto one physical destruction acknowledgement", async () => {
+    const { adapter, views } = makeSpyAdapter(false);
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+    );
+    const opened = await service.open(target("concurrent-stop"));
+    if (!opened.ok) throw new Error("open failed");
+
+    const first = service.stop(opened.data.sessionId);
+    const second = service.stop(opened.data.sessionId);
+    expect(views[0]?.calls.filter((call) => call === "destroy")).toHaveLength(1);
+    views[0]?.resolveDestroyed();
+
+    await expect(first).resolves.toMatchObject({
+      ok: true,
+      data: { alreadyStopped: false },
+    });
+    await expect(second).resolves.toMatchObject({
+      ok: true,
+      data: { alreadyStopped: true },
+    });
+    expect(views[0]?.calls.filter((call) => call === "destroy")).toHaveLength(1);
+  });
+
+  it("treats physical destruction acknowledgement as authoritative after adapter teardown throws", async () => {
+    const { adapter, views } = makeSpyAdapter(true, true);
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+    );
+    const opened = await service.open(target("acknowledged-stop"));
+    if (!opened.ok) throw new Error("open failed");
+
+    expect(await service.stop(opened.data.sessionId)).toMatchObject({
+      ok: true,
+      data: { alreadyStopped: false },
+    });
+    expect(views[0]?.calls.filter((call) => call === "destroy")).toHaveLength(1);
+    expect(service.state(opened.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
+  });
+
+  it("retries a timed-out Stop Page after late physical acknowledgement without reusing its authority", async () => {
+    const { adapter, views } = makeSpyAdapter(false);
+    const candidates = ["failed-stop-id", "failed-stop-id", "replacement-id"];
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => candidates.shift() ?? `fallback-${++idCounter}`,
+      undefined,
+      undefined,
+      5,
+    );
+    const opened = await service.open(target("failed-stop"));
+    if (!opened.ok) throw new Error("open failed");
+
+    expect(await service.stop(opened.data.sessionId)).toMatchObject({
+      ok: false,
+      code: "timeout",
+    });
+    views[0]?.resolveDestroyed();
+    expect(await service.stop(opened.data.sessionId)).toMatchObject({
+      ok: true,
+      data: { alreadyStopped: true },
+    });
+    expect(views[0]?.calls.filter((call) => call === "destroy")).toHaveLength(1);
+    expect(await service.open(target("replacement"))).toMatchObject({
+      ok: true,
+      data: { sessionId: "replacement-id" },
+    });
+  });
+
+  it("carries an unacknowledged Stop Page view into a profile-wipe quiescence barrier", async () => {
+    const { adapter, views } = makeSpyAdapter(false);
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      5,
+    );
+    const opened = await service.open(target("stop-then-wipe"));
+    if (!opened.ok) throw new Error("open failed");
+    expect(await service.stop(opened.data.sessionId)).toMatchObject({
+      ok: false,
+      code: "timeout",
+    });
+
+    const quiescence = service.beginProfileQuiescence("personal", "wipe after stop timeout");
+    if (!quiescence.ok) throw new Error("quiescence failed");
+    let settled = false;
+    void quiescence.data.completion.then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(settled).toBe(false);
+
+    views[0]?.resolveDestroyed();
+    await expect(quiescence.data.completion).resolves.toEqual({
+      ok: true,
+      data: {
+        pendingOpensInvalidated: 0,
+        sessionsDestroyed: 0,
+        viewsDestroyed: 1,
+      },
+    });
   });
 
   it("keys warm reuse and pending coalescing by owner plus canonical ref", async () => {
@@ -1721,5 +1877,42 @@ describe("BrowserSessionService", () => {
       ok: false,
       code: "failed",
     });
+  });
+
+  it("exposes typed profile-wipe recovery receipts and preserves domain failures", async () => {
+    const base = makeBrowserProfileService(root);
+    let outcome: "complete" | "restart_required" = "complete";
+    const profiles: BrowserProfileServiceApi = {
+      ...base,
+      wipeProfile: () => Effect.succeed({ status: outcome }),
+    };
+    const { adapter } = makeSpyAdapter();
+    const service = new BrowserSessionService(adapter, profiles);
+
+    expect(await service.wipeProfile("personal")).toEqual({
+      ok: true,
+      data: { profileId: "personal", status: "complete", recovery: "complete" },
+    });
+    outcome = "restart_required";
+    expect(await service.wipeProfile("personal")).toEqual({
+      ok: true,
+      data: {
+        profileId: "personal",
+        status: "restart_required",
+        recovery: "pending_restart",
+      },
+    });
+
+    const denied: BrowserProfileServiceApi = {
+      ...base,
+      wipeProfile: () => Effect.fail(new BrowserProfileError({
+        code: "forbidden",
+        message: "cannot wipe the last browser profile",
+      })),
+    };
+    expect(await new BrowserSessionService(adapter, denied).wipeProfile("personal"))
+      .toMatchObject({ ok: false, code: "forbidden" });
+    expect(await service.wipeProfile("../escape"))
+      .toMatchObject({ ok: false, code: "invalid" });
   });
 });

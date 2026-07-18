@@ -15,6 +15,7 @@
         const parameters = new URLSearchParams(location.search);
         const mode = parameters.get("mode");
         const profile = parameters.get("profile");
+        const pulse = parameters.get("pulse");
         const allowedModes = new Set(["seed", "read", "blank"]);
         const allowedProfiles = new Set(["personal", "work"]);
         const cookieName = "vellum_profile_wipe_cookie";
@@ -193,6 +194,15 @@
           if (!allowedModes.has(mode) || !allowedProfiles.has(profile)) {
             publish({ ready: true, error: "invalid_probe_input" });
             return;
+          }
+          if (pulse !== null) {
+            if (!/^[a-z0-9-]{1,32}$/.test(pulse)) throw new Error("pulse_token_invalid");
+            setInterval(() => {
+              void fetch(`/profile-wipe/pulse?token=${encodeURIComponent(pulse)}`, {
+                cache: "no-store",
+                credentials: "same-origin",
+              }).catch(() => undefined);
+            }, 40);
           }
           const response = await fetch(
             `/profile-wipe/expected?profile=${encodeURIComponent(profile)}`,

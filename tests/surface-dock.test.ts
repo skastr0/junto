@@ -18,6 +18,7 @@ import {
   hydrateDockConfig,
   openDockBrowser,
   reconcileDockFromLiveSessions,
+  stopDockBrowser,
   syncDockHerdrSlot,
 } from "../src/renderer/lib/dock-state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
@@ -116,6 +117,7 @@ describe("surface-registry (pure)", () => {
 interface MockVellum {
   browserOpen: ReturnType<typeof vi.fn>;
   browserClose: ReturnType<typeof vi.fn>;
+  browserStop: ReturnType<typeof vi.fn>;
   browserSurfaceConfig?: ReturnType<typeof vi.fn>;
   browserSessionList?: ReturnType<typeof vi.fn>;
 }
@@ -161,6 +163,16 @@ function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
       const session = sessions.get(sessionId) ?? baseSession(refOf("closed"), "closed", sessionId);
       return { ok: true, data: { ...session, state: "detached", attached: false } };
     }),
+    browserStop: vi.fn(async (sessionId: string) => ({
+      ok: true,
+      data: {
+        sessionId,
+        ref: sessions.get(sessionId)?.ref ?? refOf("stopped"),
+        profile: sessions.get(sessionId)?.profile ?? "personal",
+        stopped: true as const,
+        alreadyStopped: false,
+      },
+    })),
     browserSessionList: vi.fn(async () => ({ ok: true, data: [...sessions.values()] })),
     ...overrides,
   };
@@ -171,6 +183,7 @@ function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
 function resetDock(): void {
   dock$.registry.set(initialDockState());
   dock$.browserByRef.set({});
+  dock$.stopErrorByRef.set({});
   dock$.configHydrated.set(false);
   browser$.sessionByRef.set({});
   herdr$.terminal.set(null);
@@ -236,6 +249,127 @@ describe("dock-state", () => {
     closeDockBrowser(ref);
     expect(mock.browserClose).toHaveBeenLastCalledWith("new-handle");
     expect(mock.browserClose).not.toHaveBeenCalledWith("old-handle");
+  });
+
+  it("Stop Page destroys the exact current handle and clears UI state without detaching", async () => {
+    const mock = installMockVellum();
+    const ref = refOf("stop-page");
+    await openDockBrowser(ref, payloadOf("stop-page", "https://stop.example", "Stop"));
+
+    await stopDockBrowser(ref);
+
+    expect(mock.browserStop).toHaveBeenCalledOnce();
+    expect(mock.browserStop).toHaveBeenCalledWith("session-1");
+    expect(mock.browserClose).not.toHaveBeenCalled();
+    expect(dock$.registry.peek().surfaces).toEqual([]);
+    expect(dock$.browserByRef[ref].peek()).toBeUndefined();
+    expect(browser$.sessionByRef[ref].peek()).toBeUndefined();
+  });
+
+  it("keeps a replacement runtime visible when it arrives before the stopped handle completes", async () => {
+    let finishStop!: (result: { readonly ok: true; readonly data: unknown }) => void;
+    const pendingStop = new Promise<{ readonly ok: true; readonly data: unknown }>((resolve) => {
+      finishStop = resolve;
+    });
+    const mock = installMockVellum({ browserStop: vi.fn(() => pendingStop) });
+    const ref = refOf("stop-race");
+    await openDockBrowser(ref, payloadOf("stop-race", "https://stop.example", "Stop"));
+
+    const stopping = stopDockBrowser(ref);
+    await vi.waitFor(() => expect(mock.browserStop).toHaveBeenCalledWith("session-1"));
+    cacheBrowserSession(baseSession(ref, "stop-race", "replacement-handle"));
+    finishStop({ ok: true, data: {} });
+
+    await expect(stopping).resolves.toBe(false);
+    expect(mock.browserStop).toHaveBeenCalledTimes(1);
+    expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("replacement-handle");
+    expect(dock$.registry.peek().surfaces).toEqual([{ id: ref, kind: "browser" }]);
+    expect(dock$.stopErrorByRef[ref].peek()).toBe(
+      "Page runtime changed while stopping; retry Stop Page.",
+    );
+  });
+
+  it("Stop Page fails closed and keeps the surface discoverable when main rejects it", async () => {
+    const mock = installMockVellum({
+      browserStop: vi.fn(async () => ({
+        ok: false,
+        code: "failed",
+        message: "physical teardown not acknowledged",
+      })),
+    });
+    const ref = refOf("stop-failed");
+    await openDockBrowser(ref, payloadOf("stop-failed", "https://stop.example", "Stop"));
+
+    await stopDockBrowser(ref);
+
+    expect(mock.browserStop).toHaveBeenCalledWith("session-1");
+    expect(dock$.registry.peek().surfaces).toEqual([{ id: ref, kind: "browser" }]);
+    expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("session-1");
+    expect(dock$.stopErrorByRef[ref].peek()).toBe("physical teardown not acknowledged");
+  });
+
+  it("treats authoritative session-list absence as already stopped", async () => {
+    const mock = installMockVellum({
+      browserSessionList: vi.fn(async () => ({ ok: true, data: [] })),
+    });
+    const ref = refOf("already-stopped");
+    dock$.browserByRef[ref].set(payloadOf("already-stopped", "https://stop.example", "Stop"));
+    dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
+
+    await expect(stopDockBrowser(ref)).resolves.toBe(true);
+
+    expect(mock.browserSessionList).toHaveBeenCalledOnce();
+    expect(mock.browserStop).not.toHaveBeenCalled();
+    expect(dock$.registry.peek().surfaces).toEqual([]);
+    expect(dock$.browserByRef[ref].peek()).toBeUndefined();
+  });
+
+  it("clears a stale cached handle when Stop Page returns not_found and the session list proves absence", async () => {
+    const mock = installMockVellum({
+      browserStop: vi.fn(async () => ({
+        ok: false,
+        code: "not_found",
+        message: "no session",
+      })),
+      browserSessionList: vi.fn(async () => ({ ok: true, data: [] })),
+    });
+    const ref = refOf("stale-stopped");
+    dock$.browserByRef[ref].set(payloadOf("stale-stopped", "https://stop.example", "Stop"));
+    dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
+    cacheBrowserSession(baseSession(ref, "stale-stopped", "stale-handle"));
+
+    await expect(stopDockBrowser(ref)).resolves.toBe(true);
+
+    expect(mock.browserStop).toHaveBeenCalledWith("stale-handle");
+    expect(mock.browserSessionList).toHaveBeenCalledOnce();
+    expect(dock$.registry.peek().surfaces).toEqual([]);
+    expect(browser$.sessionByRef[ref].peek()).toBeUndefined();
+  });
+
+  it("never redirects a stale Stop Page request onto a replacement runtime without a retry", async () => {
+    const ref = refOf("replaced-runtime");
+    const replacement = baseSession(ref, "replaced-runtime", "replacement-handle");
+    const mock = installMockVellum({
+      browserStop: vi.fn(async () => ({
+        ok: false,
+        code: "not_found",
+        message: "no session",
+      })),
+      browserSessionList: vi.fn(async () => ({ ok: true, data: [replacement] })),
+    });
+    dock$.browserByRef[ref].set(payloadOf("replaced-runtime", "https://stop.example", "Stop"));
+    dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
+    cacheBrowserSession(baseSession(ref, "replaced-runtime", "stale-handle"));
+
+    await expect(stopDockBrowser(ref)).resolves.toBe(false);
+
+    expect(mock.browserStop).toHaveBeenCalledTimes(1);
+    expect(mock.browserStop).toHaveBeenCalledWith("stale-handle");
+    expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("replacement-handle");
+    expect(dock$.registry.peek().surfaces).toEqual([{ id: ref, kind: "browser" }]);
+    expect(dock$.stopErrorByRef[ref].peek()).toBe(
+      "Page runtime changed while stopping; retry Stop Page.",
+    );
   });
 
   it("does not let a stale open response replace a newer pushed handle", async () => {

@@ -112,7 +112,7 @@ const issue = (
   overrides: Partial<BrowserCapabilityIssueSpec> = {},
 ): BrowserCapabilityGrant =>
   registry.issue(principal, {
-    actions: ["profiles", "pages", "sessions", "open", "goto", "eval", "screenshot", "close"],
+    actions: ["profiles", "pages", "sessions", "open", "goto", "eval", "screenshot", "close", "stop"],
     targets: [TARGET_ONE, TARGET_TWO],
     ttlMs: 1_000,
     maxUses: 32,

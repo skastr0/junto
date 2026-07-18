@@ -36,7 +36,10 @@ describe("browser detach-on-quit product lock", () => {
 
   it("session destroy is warm-pool eviction only and never touches partitions", () => {
     expect(sessionsSrc).toMatch(/private destroySession/);
-    expect(sessionsSrc).not.toMatch(/wipeProfile/);
+    const destroyStart = sessionsSrc.indexOf("private destroySession(");
+    const destroyEnd = sessionsSrc.indexOf("/** Quit detaches", destroyStart);
+    const destroyBlock = sessionsSrc.slice(destroyStart, destroyEnd);
+    expect(destroyBlock).not.toMatch(/wipeProfile|clearStorageData|clearCache/);
     // adapter destroy closes the runtime webContents only — no partition APIs
     expect(adapterSrc).toMatch(/webContents\.close\(\)/);
     expect(adapterSrc).not.toMatch(/clearStorageData|clearCache|session\.defaultSession/);

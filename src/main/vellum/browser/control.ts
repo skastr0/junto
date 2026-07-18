@@ -48,6 +48,7 @@ import {
   GotoRequest,
   OpenRequest,
   ScreenshotRequest,
+  StopRequest,
   type ControlEnvelope,
   type ControlErrorTag,
   type PageNodeRow,
@@ -69,7 +70,7 @@ import {
   isValidBrowserSessionId,
   utf8ByteLength,
 } from "@shared/browser-limits";
-import type { BrowserResult } from "./sessions";
+import type { BrowserResult, BrowserSessionAuthorizationSnapshot } from "./sessions";
 import { BROWSER_UI_SESSION_OWNER, BrowserSessionService } from "./sessions";
 import type { PageTargetResolver } from "./page-target";
 import type { ResolvedPageTarget } from "./page-target";
@@ -885,6 +886,42 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       lease.unbindGeneration(scoped.target.ref, scoped.snapshot.generation);
       return controlOk(closed.data);
     }),
+
+    "POST /stop": withBody("stop", StopRequest, ["sessionId"], async (input, lease) => {
+      const live = targetForSession(lease.auditId, input.sessionId);
+      let snapshot: BrowserSessionAuthorizationSnapshot;
+      if (live.ok) {
+        snapshot = live.snapshot;
+      } else {
+        const stopped = deps.sessions.stoppedAuthorizationSnapshotForOwner(
+          lease.auditId,
+          input.sessionId,
+        );
+        if (!stopped.ok) return live.envelope;
+        snapshot = stopped.data;
+      }
+      if (snapshot.origin === undefined) return capabilityDenied("forbidden");
+      const exact = exactOrigins([snapshot.origin]);
+      if (exact === undefined) return capabilityDenied("forbidden");
+      const target: BrowserCapabilityUseTarget = {
+        ref: snapshot.ref,
+        profile: snapshot.profile,
+        exactOrigins: exact,
+        ...(live.ok ? { generation: snapshot.generation } : {}),
+      };
+      lease.checkTarget(target);
+      const boundGeneration = lease.boundGeneration(snapshot.ref);
+      if (live.ok && boundGeneration !== snapshot.generation) {
+        return capabilityDenied("forbidden");
+      }
+      const result = await deps.sessions.stopForOwner(lease.auditId, input.sessionId);
+      if (!result.ok) return fromResult(result);
+      if (boundGeneration === snapshot.generation) {
+        lease.unbindGeneration(snapshot.ref, snapshot.generation);
+      }
+      return controlOk(result.data);
+    }),
+
   };
 
   return handlers;

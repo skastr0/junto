@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IpcMain } from "electron";
 import { IPC_CHANNELS, type BrowserSessionInfo } from "../src/shared/ipc";
 import { BROWSER_MAX_REF_BYTES } from "../src/shared/browser-limits";
-import { registerBrowserIpc } from "../src/main/vellum/browser/ipc";
+import {
+  browserProfileWipeDialogOptions,
+  registerBrowserIpc,
+} from "../src/main/vellum/browser/ipc";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
@@ -29,11 +32,14 @@ describe("browser IPC bounds ingress", () => {
     code: "not_found" as const,
     message: "test resolver",
   }));
+  const confirmProfileWipe = vi.fn(async () => false);
 
   beforeEach(() => {
     vi.restoreAllMocks();
     handlers.clear();
     resolvePageTarget.mockClear();
+    confirmProfileWipe.mockReset();
+    confirmProfileWipe.mockResolvedValue(false);
     const viewAdapter: BrowserViewAdapter = () => {
       throw new Error("invalid IPC input constructed a browser view");
     };
@@ -43,7 +49,13 @@ describe("browser IPC bounds ingress", () => {
         handlers.set(channel, handler);
       }),
     } as unknown as IpcMain;
-    registerBrowserIpc(ipcMain, browserSessions, () => [], resolvePageTarget);
+    registerBrowserIpc(
+      ipcMain,
+      browserSessions,
+      () => [],
+      resolvePageTarget,
+      confirmProfileWipe,
+    );
   });
 
   const invoke = (channel: string, ...args: ReadonlyArray<unknown>): unknown => {
@@ -51,6 +63,16 @@ describe("browser IPC bounds ingress", () => {
     if (handler === undefined) throw new Error(`${channel} handler not registered`);
     return handler({}, ...args);
   };
+
+  it("binds native destructive confirmation to the exact selected profile", () => {
+    expect(browserProfileWipeDialogOptions("personal")).toMatchObject({
+      type: "warning",
+      message: "Wipe browser profile “personal”?",
+      buttons: ["Cancel", "Wipe personal"],
+      defaultId: 0,
+      cancelId: 0,
+    });
+  });
 
   it("rejects surplus profile arguments before reading profile state", async () => {
     const listProfiles = vi.spyOn(browserSessions, "listProfiles");
@@ -118,17 +140,106 @@ describe("browser IPC bounds ingress", () => {
   it.each([
     [IPC_CHANNELS.browserClose, "close", []],
     [IPC_CHANNELS.browserClose, "close", ["session-1", "surplus"]],
+    [IPC_CHANNELS.browserStop, "stop", []],
+    [IPC_CHANNELS.browserStop, "stop", ["session-1", "surplus"]],
     [IPC_CHANNELS.browserSessionState, "state", []],
     [IPC_CHANNELS.browserSessionState, "state", ["session-1", "surplus"]],
   ])("rejects %s %s invalid arity before session access", async (channel, method, args) => {
     const sessionMethod = method === "close"
       ? vi.spyOn(browserSessions, "close")
-      : vi.spyOn(browserSessions, "state");
+      : method === "stop"
+        ? vi.spyOn(browserSessions, "stop")
+        : vi.spyOn(browserSessions, "state");
 
     const result = await invoke(channel, ...args);
 
     expect(result).toMatchObject({ ok: false, code: "invalid" });
     expect(sessionMethod).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "   ", null, 42, "path/id"])(
+    "rejects malformed Stop Page session id %j before the service is called",
+    async (sessionId) => {
+      const stop = vi.spyOn(browserSessions, "stop");
+
+      const result = await invoke(IPC_CHANNELS.browserStop, sessionId);
+
+      expect(result).toMatchObject({ ok: false, code: "invalid" });
+      expect(stop).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["non-object", "personal"],
+    ["missing confirmation", { profileId: "personal" }],
+    ["mismatched confirmation", { profileId: "personal", confirmation: "work" }],
+    ["invalid profile", { profileId: "../personal", confirmation: "../personal" }],
+    ["extra field", { profileId: "personal", confirmation: "personal", force: true }],
+  ])("fails closed for %s profile-wipe input", async (_label, input) => {
+    const wipeProfile = vi.spyOn(browserSessions, "wipeProfile");
+
+    const result = input === undefined
+      ? await invoke(IPC_CHANNELS.browserWipeProfile)
+      : await invoke(IPC_CHANNELS.browserWipeProfile, input);
+
+    expect(result).toMatchObject({ ok: false, code: "invalid" });
+    expect(wipeProfile).not.toHaveBeenCalled();
+    expect(confirmProfileWipe).not.toHaveBeenCalled();
+  });
+
+  it("requires main-owned operator presence after exact renderer confirmation", async () => {
+    const wipeProfile = vi.spyOn(browserSessions, "wipeProfile");
+
+    const result = await invoke(IPC_CHANNELS.browserWipeProfile, {
+      profileId: "personal",
+      confirmation: "personal",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "cancelled",
+      message: "browser profile wipe cancelled",
+    });
+    expect(confirmProfileWipe).toHaveBeenCalledOnce();
+    expect(confirmProfileWipe).toHaveBeenCalledWith(expect.anything(), "personal");
+    expect(wipeProfile).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the native confirmation gate itself fails", async () => {
+    confirmProfileWipe.mockRejectedValueOnce(new Error("dialog unavailable"));
+    const wipeProfile = vi.spyOn(browserSessions, "wipeProfile");
+
+    const result = await invoke(IPC_CHANNELS.browserWipeProfile, {
+      profileId: "work",
+      confirmation: "work",
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "cancelled" });
+    expect(wipeProfile).not.toHaveBeenCalled();
+  });
+
+  it("passes an exact confirmed profile wipe to the service unchanged", async () => {
+    const expected = {
+      ok: true as const,
+      data: {
+        profileId: "personal",
+        status: "complete" as const,
+        recovery: "complete" as const,
+      },
+    };
+    confirmProfileWipe.mockResolvedValueOnce(true);
+    const wipeProfile = vi.spyOn(browserSessions, "wipeProfile").mockResolvedValue(expected);
+
+    const result = await invoke(IPC_CHANNELS.browserWipeProfile, {
+      profileId: "personal",
+      confirmation: "personal",
+    });
+
+    expect(result).toBe(expected);
+    expect(wipeProfile).toHaveBeenCalledOnce();
+    expect(wipeProfile).toHaveBeenCalledWith("personal");
   });
 
   it.each([

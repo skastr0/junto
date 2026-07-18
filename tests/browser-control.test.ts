@@ -74,9 +74,16 @@ const resolverFor = (
 const makeSpyAdapter = (options: {
   readonly evaluate?: (code: string) => unknown | Promise<unknown>;
   readonly capture?: () => Uint8Array | Promise<Uint8Array>;
+  readonly acknowledgeDestroy?: boolean;
 } = {}) => {
   const evalCalls: string[] = [];
+  const destroyCalls: string[] = [];
+  const destroyResolvers: Array<() => void> = [];
   const adapter: BrowserViewAdapter = (_partition, events) => {
+    let resolveDestroyed!: () => void;
+    const destroyed = new Promise<void>((resolve) => {
+      resolveDestroyed = resolve;
+    });
     const handle: BrowserViewHandle = {
       loadUrl: (url, expectedSessionId) => {
         const sessionId = events.onNavigationStart({
@@ -92,7 +99,11 @@ const makeSpyAdapter = (options: {
       attach: () => {},
       setBounds: () => {},
       detach: () => {},
-      destroy: () => {},
+      destroy: () => {
+        destroyCalls.push("destroy");
+        if (options.acknowledgeDestroy !== false) resolveDestroyed();
+      },
+      whenDestroyed: () => destroyed,
       executeJavaScript: async (code) => {
         evalCalls.push(code);
         if (code === "boom") throw new Error("eval exploded");
@@ -115,9 +126,15 @@ const makeSpyAdapter = (options: {
           ? new Uint8Array([0x89, 0x50, 0x4e, 0x47])
           : options.capture(),
     };
+    destroyResolvers.push(resolveDestroyed);
     return handle;
   };
-  return { adapter, evalCalls };
+  return {
+    adapter,
+    evalCalls,
+    destroyCalls,
+    resolveDestroyed: (index = 0): void => destroyResolvers[index]?.(),
+  };
 };
 
 describe("browser control envelopes (pure)", () => {
@@ -270,12 +287,16 @@ describe("control route handlers", () => {
       readonly writeExclusive?: (path: string, data: Uint8Array) => Promise<void>;
       readonly remove?: (path: string) => Promise<void>;
     },
+    viewDestroyTimeoutMs?: number,
   ) => {
     const sessions = new BrowserSessionService(
       adapter,
       makeBrowserProfileService(join(root, "browser")),
       Date.now,
       () => `session-${++sessionCounter}`,
+      undefined,
+      undefined,
+      viewDestroyTimeoutMs,
     );
     const capabilities = makeBrowserCapabilityRegistry({
       onTerminate: (notice) => {
@@ -584,6 +605,61 @@ describe("control route handlers", () => {
     });
   });
 
+  it("stops a capability-scoped page, removes it from discovery, and remains idempotent", async () => {
+    const spy = makeSpyAdapter();
+    const { call, sessions, grant } = makeStack(spy.adapter);
+    const opened = await call("POST", "/open", { ref: REF });
+    if (!opened.envelope.ok) throw new Error("open failed");
+    const sessionId = (opened.envelope.data as { sessionId: string }).sessionId;
+
+    expect(await call("POST", "/stop", { sessionId })).toMatchObject({
+      status: 200,
+      envelope: {
+        ok: true,
+        data: { sessionId, stopped: true, alreadyStopped: false },
+      },
+    });
+    expect(spy.destroyCalls).toEqual(["destroy"]);
+    expect(sessions.listForOwner(grant.auditId)).toMatchObject({ ok: true, data: [] });
+    expect(await call("GET", "/sessions")).toMatchObject({
+      status: 200,
+      envelope: { ok: true, data: [] },
+    });
+    expect(await call("POST", "/eval", { sessionId, code: "1" })).toMatchObject({
+      status: 404,
+      envelope: { ok: false, error: { _tag: "not_found" } },
+    });
+
+    expect(await call("POST", "/stop", { sessionId })).toMatchObject({
+      status: 200,
+      envelope: { ok: true, data: { alreadyStopped: true } },
+    });
+    expect(spy.destroyCalls).toEqual(["destroy"]);
+  });
+
+  it("unbinds the stopped generation after a late acknowledgement retry so the page can reopen", async () => {
+    const spy = makeSpyAdapter({ acknowledgeDestroy: false });
+    const { call } = makeStack(spy.adapter, resolverFor(), undefined, 5);
+    const opened = await call("POST", "/open", { ref: REF });
+    if (!opened.envelope.ok) throw new Error("open failed");
+    const sessionId = (opened.envelope.data as { sessionId: string }).sessionId;
+
+    expect(await call("POST", "/stop", { sessionId })).toMatchObject({
+      status: 504,
+      envelope: { ok: false, error: { _tag: "timeout" } },
+    });
+    spy.resolveDestroyed();
+    expect(await call("POST", "/stop", { sessionId })).toMatchObject({
+      status: 200,
+      envelope: { ok: true, data: { alreadyStopped: true } },
+    });
+    expect(await call("POST", "/open", { ref: REF })).toMatchObject({
+      status: 200,
+      envelope: { ok: true },
+    });
+    expect(spy.destroyCalls).toEqual(["destroy"]);
+  });
+
   it("destroys owner sessions when the canonical target changes during open", async () => {
     let resolutions = 0;
     const resolver: PageTargetResolver = async (ref) => {
@@ -691,6 +767,7 @@ describe("control route handlers", () => {
       ["/goto", { sessionId: "n1", url: "https://x.dev" }],
       ["/screenshot", { sessionId: "ghost" }],
       ["/close", { sessionId: "ghost" }],
+      ["/stop", { sessionId: "ghost" }],
     ] as const) {
       const response = await call("POST", path, body);
       expect(response.status).toBe(404);
@@ -753,6 +830,7 @@ describe("control route handlers", () => {
       ["/eval", { sessionId: "session-1", code: "x".repeat(BROWSER_MAX_EVAL_CODE_BYTES + 1) }],
       ["/screenshot", { sessionId: "has space" }],
       ["/close", { sessionId: "" }],
+      ["/stop", { sessionId: "" }],
     ] as const;
     for (const [path, body] of cases) {
       expect(await call("POST", path, body)).toMatchObject({

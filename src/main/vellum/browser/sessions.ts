@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import {
   initialBrowserSession,
   isAllowedBrowserUrl,
@@ -7,7 +7,9 @@ import {
   isWarmBrowserSession,
   reduceBrowserSession,
   warmPoolEvictions,
+  type BrowserProfileWipeReceipt,
   type BrowserSessionMachine,
+  type BrowserStopReceipt,
 } from "@shared/browser";
 import {
   BROWSER_CAPTURE_TIMEOUT_MS,
@@ -201,6 +203,15 @@ interface NavigationWaiter {
   readonly signal?: AbortSignal;
   abortListener: (() => void) | undefined;
   readonly resolve: (result: BrowserResult<BrowserSessionInfo>) => void;
+}
+
+interface BrowserStopRecord {
+  readonly owner: string;
+  readonly snapshot: BrowserSessionAuthorizationSnapshot;
+  readonly receipt: BrowserStopReceipt;
+  readonly acknowledgement: Promise<void> | undefined;
+  completion: Promise<BrowserResult<BrowserStopReceipt>> | undefined;
+  lastResult: BrowserResult<BrowserStopReceipt> | undefined;
 }
 
 /** Main-process-only view used by capability authorization. */
@@ -478,10 +489,13 @@ export type BrowserPoolLimits = {
 };
 
 export class BrowserSessionService {
+  private static readonly MAX_STOP_RECEIPTS = 1_024;
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly sessionIdByOwnerRef = new Map<string, Map<string, string>>();
   private readonly pendingOpenByOwnerRef = new Map<string, Map<string, PendingOpen>>();
   private readonly ownerEpochs = new Map<string, number>();
+  private readonly pendingStops = new Map<string, BrowserStopRecord>();
+  private readonly stoppedSessions = new Map<string, BrowserStopRecord>();
   private activeOperationCount = 0;
   private sink: ((session: BrowserSessionInfo) => void) | undefined;
   private readonly viewDestroyTimeoutMs: number;
@@ -756,6 +770,18 @@ export class BrowserSessionService {
     };
   }
 
+  private authorizationSnapshot(entry: SessionEntry): BrowserSessionAuthorizationSnapshot {
+    return {
+      owner: entry.owner,
+      sessionId: entry.sessionId,
+      generation: entry.sessionId,
+      ref: entry.ref,
+      profile: entry.profile,
+      ...(entry.currentOrigin !== undefined ? { origin: entry.currentOrigin } : {}),
+      navigationInFlight: entry.navigationInFlight === entry.sessionId,
+    };
+  }
+
   private entryForOwner(owner: string, sessionId: string): SessionEntry | undefined {
     const entry = this.sessions.get(sessionId);
     return entry !== undefined && entry.owner === owner && this.isCurrent(entry)
@@ -871,7 +897,12 @@ export class BrowserSessionService {
       } catch (error) {
         return err("failed", error instanceof Error ? error.message : String(error));
       }
-      if (isValidBrowserSessionId(candidate) && !this.sessions.has(candidate)) {
+      if (
+        isValidBrowserSessionId(candidate) &&
+        !this.sessions.has(candidate) &&
+        !this.pendingStops.has(candidate) &&
+        !this.stoppedSessions.has(candidate)
+      ) {
         return { ok: true, data: candidate };
       }
     }
@@ -989,6 +1020,42 @@ export class BrowserSessionService {
       };
     } catch (error) {
       return err("failed", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async wipeProfile(profileId: string): Promise<BrowserResult<BrowserProfileWipeReceipt>> {
+    if (!isValidProfileId(profileId)) return err("invalid", "invalid browser profile id");
+    try {
+      const outcome = await Effect.runPromise(Effect.either(this.profiles.wipeProfile(profileId)));
+      if (Either.isLeft(outcome)) {
+        const error = outcome.left;
+        const code = error.code === "invalid" || error.code === "not_found" || error.code === "forbidden"
+          ? error.code
+          : error.code === "pending_wipe"
+            ? "resource_exhausted"
+            : "failed";
+        return err(code, error.message);
+      }
+      const receipt = outcome.right;
+      return receipt.status === "complete"
+        ? {
+            ok: true,
+            data: Object.freeze({
+              profileId,
+              status: "complete",
+              recovery: "complete",
+            }),
+          }
+        : {
+            ok: true,
+            data: Object.freeze({
+              profileId,
+              status: "restart_required",
+              recovery: "pending_restart",
+            }),
+          };
+    } catch {
+      return err("failed", "browser profile wipe failed");
     }
   }
 
@@ -1347,6 +1414,131 @@ export class BrowserSessionService {
     }
   }
 
+  /**
+   * Explicitly terminate one page runtime. The persistent profile partition is
+   * never touched; completion is returned only after physical view teardown is
+   * acknowledged. Concurrent and repeated calls share one bounded receipt.
+   */
+  async stop(sessionId: string): Promise<BrowserResult<BrowserStopReceipt>> {
+    return this.stopForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+  }
+
+  async stopForOwner(
+    owner: string,
+    sessionId: string,
+  ): Promise<BrowserResult<BrowserStopReceipt>> {
+    const pending = this.pendingStops.get(sessionId);
+    if (pending !== undefined) {
+      if (pending.owner !== owner) return err("not_found", `no session for ${sessionId}`);
+      const completion = pending.completion;
+      if (completion === undefined) return err("failed", "browser stop state is unavailable");
+      return this.repeatStopResult(await completion);
+    }
+    const completed = this.stoppedSessions.get(sessionId);
+    if (completed !== undefined) {
+      if (completed.owner !== owner) return err("not_found", `no session for ${sessionId}`);
+      if (completed.lastResult?.ok === true) {
+        return this.repeatStopResult(completed.lastResult);
+      }
+      // A timed-out acknowledgement remains live. Re-waiting permits a later
+      // physical WebContents destruction to become authoritative without ever
+      // reusing the retired opaque session id.
+      return this.runStopAttempt(completed, true);
+    }
+
+    const entry = this.entryForOwner(owner, sessionId);
+    if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
+    const snapshot = this.authorizationSnapshot(entry);
+    const receipt: BrowserStopReceipt = Object.freeze({
+      sessionId,
+      ref: entry.ref,
+      profile: entry.profile,
+      stopped: true,
+      alreadyStopped: false,
+    });
+    let acknowledgement: Promise<void> | undefined;
+    try {
+      const observed = entry.view.whenDestroyed?.();
+      if (observed !== undefined) acknowledgement = Promise.resolve(observed);
+    } catch {
+      acknowledgement = undefined;
+    }
+    const record: BrowserStopRecord = {
+      owner,
+      snapshot,
+      receipt,
+      acknowledgement,
+      completion: undefined,
+      lastResult: undefined,
+    };
+    return this.runStopAttempt(record, false, entry);
+  }
+
+  private async runStopAttempt(
+    record: BrowserStopRecord,
+    repeated: boolean,
+    entry?: SessionEntry,
+  ): Promise<BrowserResult<BrowserStopReceipt>> {
+    const completion = this.stopEntry(record, entry);
+    record.completion = completion;
+    this.pendingStops.set(record.receipt.sessionId, record);
+    const result = await completion;
+    if (this.pendingStops.get(record.receipt.sessionId) === record) {
+      this.pendingStops.delete(record.receipt.sessionId);
+    }
+    record.completion = undefined;
+    record.lastResult = result;
+    // Retire the authority even while teardown is unacknowledged: the logical
+    // session is gone, but its still-live acknowledgement can make a retry
+    // authoritative after physical destruction occurs.
+    this.rememberStoppedSession(record);
+    return repeated ? this.repeatStopResult(result) : result;
+  }
+
+  private async stopEntry(
+    record: BrowserStopRecord,
+    entry?: SessionEntry,
+  ): Promise<BrowserResult<BrowserStopReceipt>> {
+    if (entry !== undefined) {
+      try {
+        this.destroySession(entry.sessionId);
+      } catch {
+        // The adapter's physical destruction acknowledgement is authoritative.
+        // Reducer/detach teardown may throw after destroy() has already closed
+        // the WebContents, so those errors cannot override a positive receipt.
+      }
+    }
+    const destroyed = await this.awaitProfileViewDestruction(
+      record.acknowledgement === undefined ? [] : [record.acknowledgement],
+      0,
+      Object.freeze({ pendingOpensInvalidated: 0, sessionsDestroyed: 1, viewsDestroyed: 1 }),
+    );
+    return destroyed.ok
+      ? { ok: true, data: record.receipt }
+      : destroyed;
+  }
+
+  private repeatStopResult(
+    result: BrowserResult<BrowserStopReceipt>,
+  ): BrowserResult<BrowserStopReceipt> {
+    return result.ok
+      ? {
+          ok: true,
+          data: Object.freeze({ ...result.data, alreadyStopped: true }),
+        }
+      : result;
+  }
+
+  private rememberStoppedSession(record: BrowserStopRecord): void {
+    this.stoppedSessions.delete(record.receipt.sessionId);
+    this.stoppedSessions.set(record.receipt.sessionId, record);
+    while (this.stoppedSessions.size > BrowserSessionService.MAX_STOP_RECEIPTS) {
+      const oldest = this.stoppedSessions.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.stoppedSessions.delete(oldest);
+    }
+  }
+
   async eval(
     sessionId: string,
     code: string,
@@ -1469,18 +1661,17 @@ export class BrowserSessionService {
   ): BrowserResult<BrowserSessionAuthorizationSnapshot> {
     const entry = this.entryForOwner(owner, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
-    return {
-      ok: true,
-      data: {
-        owner,
-        sessionId: entry.sessionId,
-        generation: entry.sessionId,
-        ref: entry.ref,
-        profile: entry.profile,
-        ...(entry.currentOrigin !== undefined ? { origin: entry.currentOrigin } : {}),
-        navigationInFlight: entry.navigationInFlight === entry.sessionId,
-      },
-    };
+    return { ok: true, data: this.authorizationSnapshot(entry) };
+  }
+
+  stoppedAuthorizationSnapshotForOwner(
+    owner: string,
+    sessionId: string,
+  ): BrowserResult<BrowserSessionAuthorizationSnapshot> {
+    const record = this.pendingStops.get(sessionId) ?? this.stoppedSessions.get(sessionId);
+    return record !== undefined && record.owner === owner
+      ? { ok: true, data: record.snapshot }
+      : err("not_found", `no stopped session for ${sessionId}`);
   }
 
   awaitNavigationTerminalForOwner(
@@ -1574,6 +1765,18 @@ export class BrowserSessionService {
     const entries = [...this.sessions.values()].filter(
       (entry) => entry.profile === profile && this.isCurrent(entry),
     );
+    const lingeringStopsBySessionId = new Map<string, BrowserStopRecord>();
+    for (const record of this.stoppedSessions.values()) {
+      if (record.receipt.profile === profile && record.lastResult?.ok !== true) {
+        lingeringStopsBySessionId.set(record.receipt.sessionId, record);
+      }
+    }
+    for (const record of this.pendingStops.values()) {
+      if (record.receipt.profile === profile) {
+        lingeringStopsBySessionId.set(record.receipt.sessionId, record);
+      }
+    }
+    const lingeringStops = [...lingeringStopsBySessionId.values()];
     const acknowledgements: Promise<void>[] = [];
     let teardownFailures = 0;
     const failure = new BrowserOperationFailure(
@@ -1599,13 +1802,22 @@ export class BrowserSessionService {
       }
     }
 
+    // Stop Page unregisters logical authority before awaiting Electron's
+    // physical `destroyed` event. A profile wipe begun during that bounded
+    // wait must inherit the same acknowledgement; otherwise disk deletion
+    // could race a still-live WebContents that no longer appears in sessions.
+    for (const record of lingeringStops) {
+      if (record.acknowledgement === undefined) teardownFailures += 1;
+      else acknowledgements.push(record.acknowledgement);
+    }
+
     const completion = this.awaitProfileViewDestruction(
       acknowledgements,
       teardownFailures,
       Object.freeze({
         pendingOpensInvalidated,
         sessionsDestroyed: entries.length,
-        viewsDestroyed: entries.length,
+        viewsDestroyed: entries.length + lingeringStops.length,
       }),
     );
     return {

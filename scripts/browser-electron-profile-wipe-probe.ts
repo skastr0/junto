@@ -109,6 +109,7 @@ const startFixtureServer = async (
   fixture: string,
   sentinels: Readonly<Record<Profile, SentinelSet>>,
 ): Promise<{ readonly server: Server; readonly origin: string }> => {
+  const pulseCounts = new Map<string, number>();
   const server = createServer((request, response) => {
     try {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -149,6 +150,30 @@ self.addEventListener("message", (event) => {
         respond(response, 200, "text/javascript; charset=utf-8", workerBody, {
           "service-worker-allowed": "/profile-wipe/",
         });
+        return;
+      }
+      if (url.pathname === "/profile-wipe/pulse") {
+        const token = url.searchParams.get("token");
+        if (token === null || !/^[a-z0-9-]{1,32}$/.test(token)) {
+          respond(response, 404, "text/plain; charset=utf-8", "not found\n");
+          return;
+        }
+        pulseCounts.set(token, (pulseCounts.get(token) ?? 0) + 1);
+        respond(response, 200, "text/plain; charset=utf-8", "ok\n");
+        return;
+      }
+      if (url.pathname === "/profile-wipe/pulse-count") {
+        const token = url.searchParams.get("token");
+        if (token === null || !/^[a-z0-9-]{1,32}$/.test(token)) {
+          respond(response, 404, "application/json; charset=utf-8", "{}\n");
+          return;
+        }
+        respond(
+          response,
+          200,
+          "application/json; charset=utf-8",
+          `${JSON.stringify({ count: pulseCounts.get(token) ?? 0 })}\n`,
+        );
         return;
       }
       respond(response, 404, "text/plain; charset=utf-8", "not found\n");
@@ -451,11 +476,15 @@ const main = async (): Promise<void> => {
       reportPath: reports.A,
       markerInputPath,
     });
-    assertExit(launchA, 0, "phase_A");
     const reportA = await readReport(reports.A, "A", {
       fiveBackendsPersonalAutomation: "match",
       fiveBackendsPersonalUi: "match",
       fiveBackendsWork: "match",
+      stopPageRuntime: "destroyed",
+      stopPagePulse: "halted",
+      stopPageStorage: "match",
+      stopPageSibling: "survived",
+      wipeReachability: "session_service",
       wipeReceipt: "restart_required",
       personalUi: "quiesced",
       personalAutomation: "quiesced",
@@ -469,6 +498,7 @@ const main = async (): Promise<void> => {
       pendingStage: "restart_delete_pending",
       targetMode: "owner_only",
     });
+    assertExit(launchA, 0, "phase_A");
     const configPath = join(browserRoot, "config.json");
     const pendingAEncoded = await readFile(configPath, "utf8");
     const pending = decodePending(pendingAEncoded);
@@ -610,6 +640,11 @@ const main = async (): Promise<void> => {
       assertions: {
         threeFreshElectronLaunches: true,
         fiveBackendsSeededInBothProfiles: true,
+        stopPageDestroyedWebContents: true,
+        stopPageHaltedPageJavascript: true,
+        stopPagePreservedFiveStorageBackends: true,
+        stopPagePreservedSiblingSession: true,
+        profileWipeReachableThroughSessionService: true,
         liveWipeRestartRequired: true,
         profileWideUiAndAutomationQuiesced: true,
         profileCapabilityRevoked: true,

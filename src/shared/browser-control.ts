@@ -289,6 +289,11 @@ export const CloseRequest = Schema.Struct({
 });
 export type CloseRequest = typeof CloseRequest.Type;
 
+export const StopRequest = Schema.Struct({
+  sessionId: SessionId,
+});
+export type StopRequest = typeof StopRequest.Type;
+
 // ---------------------------------------------------------------------------
 // Responses (data half of the envelope)
 
@@ -353,6 +358,7 @@ export const CONTROL_ROUTES = {
   eval: { method: "POST", path: "/eval" },
   screenshot: { method: "POST", path: "/screenshot" },
   close: { method: "POST", path: "/close" },
+  stop: { method: "POST", path: "/stop" },
 } as const;
 export type ControlRouteName = keyof typeof CONTROL_ROUTES;
 

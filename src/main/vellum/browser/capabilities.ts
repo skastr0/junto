@@ -26,6 +26,7 @@ export const BROWSER_CAPABILITY_ACTIONS = [
   "eval",
   "screenshot",
   "close",
+  "stop",
 ] as const;
 export type BrowserCapabilityAction = (typeof BROWSER_CAPABILITY_ACTIONS)[number];
 
@@ -951,8 +952,11 @@ export class BrowserCapabilityRegistry {
       return undefined;
     }
     const currentGeneration = record.generations.get(target.ref);
+    if (action === "stop" && target.generation === undefined) return target;
     if (currentGeneration === undefined) {
-      if (action !== "open" || target.generation !== undefined) return undefined;
+      if ((action !== "open" && action !== "stop") || target.generation !== undefined) {
+        return undefined;
+      }
     } else if (target.generation !== currentGeneration) {
       return undefined;
     }
@@ -1066,7 +1070,7 @@ export class BrowserCapabilityRegistry {
   ): void {
     this.#assertLeaseTarget(record, lease, ref);
     if (
-      lease.action !== "close" ||
+      (lease.action !== "close" && lease.action !== "stop") ||
       !isValidBrowserSessionId(expectedGeneration) ||
       record.generations.get(ref) !== expectedGeneration
     ) {

@@ -25,6 +25,7 @@ interface SeenRequest {
   readonly method: string | undefined;
   readonly url: string | undefined;
   readonly headers: IncomingMessage["headers"];
+  readonly body: unknown;
 }
 
 const newRoot = async (): Promise<string> => {
@@ -40,9 +41,21 @@ const startRogueControl = async (
   seen: SeenRequest[],
 ): Promise<void> => {
   const server = createServer((req, res) => {
-    seen.push({ method: req.method, url: req.url, headers: req.headers });
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, data: req.url === "/doctor" ? { status: "ok" } : [] }));
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer | string) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    req.on("end", () => {
+      const encoded = Buffer.concat(chunks).toString("utf8");
+      seen.push({
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body: encoded.length === 0 ? undefined : JSON.parse(encoded),
+      });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, data: req.url === "/doctor" ? { status: "ok" } : [] }));
+    });
   });
   servers.push(server);
   await new Promise<void>((resolveListen, rejectListen) => {
@@ -145,6 +158,28 @@ describe("packaged browser CLI contract", () => {
     expect(seen[0]?.url).toBe("/profiles");
     expect(seen[0]?.headers[CONTROL_CAPABILITY_HEADER]).toBe(capability);
     expect(seen[0]?.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");
+  });
+
+  it("exposes protected Stop Page without exposing profile wipe on the agent CLI", async () => {
+    const root = await newRoot();
+    const seen: SeenRequest[] = [];
+    await startRogueControl(root, seen);
+
+    const stop = await runCli(["stop", "session-1", "--json"], {
+      home: root,
+      capability,
+    });
+    const wipe = await runCli(["wipe-profile", "personal", "--json"], { home: root });
+
+    expect(stop.code, stop.stderr).toBe(0);
+    expect(wipe.code).toBe(2);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      method: "POST",
+      url: "/stop",
+      body: { sessionId: "session-1" },
+    });
+    expect(seen[0]?.headers[CONTROL_CAPABILITY_HEADER]).toBe(capability);
   });
 
   it("rejects missing, malformed, and non-absolute authority inputs without disclosure", async () => {

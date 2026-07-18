@@ -50,7 +50,8 @@ commands:
   goto <sessionId> <url>           navigate an existing session
   eval <sessionId> <code>          run JS in the page, print JSON result
   shot <sessionId>                 screenshot to a server-owned PNG
-  close <sessionId>                detach the surface (session stays warm)`;
+  close <sessionId>                detach the surface (session stays warm)
+  stop <sessionId>                 destroy the page runtime (profile stays)`;
 
 // Bounds the whole request/response round-trip. Without this, a hung page
 // script (executeJavaScript that never resolves — e.g. `while(true){}` run
@@ -248,8 +249,11 @@ const parseArgs = (
         call: { route: "screenshot", body: { sessionId: a } },
       };
     case "close":
-      if (!a) return { error: "close requires <sessionId>" };
+      if (!a || b) return { error: "close requires exactly one <sessionId>" };
       return { json, call: { route: "close", body: { sessionId: a } } };
+    case "stop":
+      if (!a || b) return { error: "stop requires exactly one <sessionId>" };
+      return { json, call: { route: "stop", body: { sessionId: a } } };
     default:
       return { error: usage };
   }

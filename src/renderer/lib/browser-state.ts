@@ -78,7 +78,7 @@ export const cacheBrowserSessionIfUnchanged = (
   return cacheBrowserSession(session);
 };
 
-const clearBrowserSessionIfUnchanged = (
+export const clearBrowserSessionIfUnchanged = (
   ref: string,
   observedSessionId: string | undefined,
 ): boolean => {

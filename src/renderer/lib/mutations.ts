@@ -8,6 +8,7 @@ import type {
   EtherWatch,
   NodeSide,
 } from "@shared/canvas";
+import { resolveBrowserOnDelete } from "@shared/canvas";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import type { BindingHint } from "@shared/ipc";
 import { formatNodeRef } from "@shared/node-ref";
@@ -378,19 +379,87 @@ export const redo = (): void => {
 };
 
 export const deleteNode = (id: string): void => {
-  deleteNodes([id]);
+  deleteNodesInternal([id]);
 };
 
-export const deleteNodes = (ids: ReadonlyArray<string>): void => {
+interface ConfirmedPageStops {
+  readonly canvasName: string;
+  readonly docEpoch: number;
+  readonly refs: ReadonlySet<string>;
+}
+
+const deleteNodesInternal = (
+  ids: ReadonlyArray<string>,
+  confirmedPageStops?: ConfirmedPageStops,
+): void => {
   const removed = new Set(ids);
   if (removed.size === 0) return;
+  const canvasName = state$.canvasName.peek();
+  const docEpoch = state$.docEpoch.peek();
+  if (
+    confirmedPageStops !== undefined &&
+    (confirmedPageStops.canvasName !== canvasName || confirmedPageStops.docEpoch !== docEpoch)
+  ) {
+    state$.error.set("Canvas changed before Stop Page completed; no nodes were deleted.");
+    return;
+  }
   const doc = state$.doc.peek();
   const existingNodes = doc.nodes.filter((node) => removed.has(node.id));
   if (existingNodes.length === 0) return;
   const connectedEdges = doc.edges.filter((edge) => removed.has(edge.fromNode) || removed.has(edge.toNode)).length;
   const nodeLabel = existingNodes.length === 1 ? "this node" : `${existingNodes.length} nodes`;
   const relationLabel = connectedEdges === 0 ? "" : ` Connected edges (${connectedEdges}) will also be removed.`;
-  if (!confirmDestructive(`Delete ${nodeLabel}?${relationLabel}`)) return;
+  if (
+    confirmedPageStops === undefined &&
+    !confirmDestructive(`Delete ${nodeLabel}?${relationLabel}`)
+  ) return;
+
+  // Page nodes follow their explicit document policy. Detach remains the
+  // default; kill-session routes through the same exact-handle Stop Page API.
+  const pageActions: Array<{ readonly ref: string; readonly stop: boolean }> = [];
+  for (const node of existingNodes) {
+    if (node.ether?.entity?.kind !== "page") continue;
+    try {
+      pageActions.push({
+        ref: formatNodeRef({ canvasName, nodeId: node.id }),
+        stop: resolveBrowserOnDelete(node.ether.browser) === "kill-session",
+      });
+    } catch {
+      // Invalid document identity has no safe automation fallback. The node
+      // still deletes; only browser detach is skipped.
+    }
+  }
+
+  const pendingStops = pageActions.filter(
+    (action) => action.stop && !confirmedPageStops?.refs.has(action.ref),
+  );
+  if (pendingStops.length > 0) {
+    void import("./dock-state")
+      .then(async ({ stopDockBrowser }) => {
+        const results = await Promise.all(
+          pendingStops.map(async (action) => ({
+            ref: action.ref,
+            stopped: await stopDockBrowser(action.ref),
+          })),
+        );
+        if (!results.every((result) => result.stopped)) {
+          state$.error.set("Stop Page failed; the page node was not deleted.");
+          return;
+        }
+        deleteNodesInternal(ids, {
+          canvasName,
+          docEpoch,
+          refs: new Set([
+            ...(confirmedPageStops?.refs ?? []),
+            ...results.map((result) => result.ref),
+          ]),
+        });
+      })
+      .catch(() => {
+        state$.error.set("Stop Page is unavailable; the page node was not deleted.");
+      });
+    return;
+  }
 
   // Herdr default is detach-only (never session stop). Kill-pane onDelete
   // is handled async without blocking other non-herdr deletions.
@@ -403,24 +472,11 @@ export const deleteNodes = (ids: ReadonlyArray<string>): void => {
     });
   }
 
-  // Page (browser) nodes: detach the dock slot and native view by canonical
-  // ref. This doesn't own doc removal and never destroys the warm session
-  // (product lock: profile/cookies survive), so the node still falls through
-  // to the synchronous commitDoc below.
-  const pageRefs: string[] = [];
-  const canvasName = state$.canvasName.peek();
-  for (const node of existingNodes) {
-    if (node.ether?.entity?.kind !== "page") continue;
-    try {
-      pageRefs.push(formatNodeRef({ canvasName, nodeId: node.id }));
-    } catch {
-      // Invalid document identity has no safe automation fallback. The node
-      // still deletes; only browser detach is skipped.
-    }
-  }
-  if (pageRefs.length > 0) {
+  if (pageActions.length > 0) {
     void import("./dock-state").then(({ closeDockBrowser }) => {
-      for (const ref of pageRefs) closeDockBrowser(ref);
+      for (const action of pageActions) {
+        if (!action.stop) closeDockBrowser(action.ref);
+      }
     });
   }
 
@@ -438,6 +494,11 @@ export const deleteNodes = (ids: ReadonlyArray<string>): void => {
     nodes: doc.nodes.filter((n) => !nonHerdr.has(n.id)),
     edges: doc.edges.filter((e) => !nonHerdr.has(e.fromNode) && !nonHerdr.has(e.toNode)),
   });
+};
+
+/** Public deletion entrypoint; Stop Page completion state is module-private. */
+export const deleteNodes = (ids: ReadonlyArray<string>): void => {
+  deleteNodesInternal(ids);
 };
 
 export const editText = (id: string, text: string): void => {

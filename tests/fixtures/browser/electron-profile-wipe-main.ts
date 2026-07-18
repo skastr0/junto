@@ -167,12 +167,42 @@ const target = (
   nodeId: string,
   profile: "personal" | "work",
   mode: "seed" | "read" | "blank",
+  pulse?: string,
 ): ResolvedPageTarget => ({
   ref: formatNodeRef({ canvasName: "browser-profile-wipe", nodeId }),
   nodeId,
-  url: `${exactOrigin}/profile-wipe/fixture.html?mode=${mode}&profile=${profile}`,
+  url: `${exactOrigin}/profile-wipe/fixture.html?mode=${mode}&profile=${profile}${
+    pulse === undefined ? "" : `&pulse=${encodeURIComponent(pulse)}`
+  }`,
   profile,
 });
+
+const readPulseCount = async (token: string): Promise<number> => {
+  const response = await fetch(
+    `${exactOrigin}/profile-wipe/pulse-count?token=${encodeURIComponent(token)}`,
+    { cache: "no-store" },
+  );
+  ensure(response.ok, "pulse_count_unavailable");
+  const value = await response.json() as unknown;
+  ensure(
+    isRecord(value) &&
+      typeof value.count === "number" &&
+      Number.isSafeInteger(value.count) &&
+      value.count >= 0,
+    "pulse_count_invalid",
+  );
+  return value.count;
+};
+
+const waitForPulseCount = async (token: string, minimum: number): Promise<number> => {
+  const deadline = Date.now() + REPORT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const count = await readPulseCount(token);
+    if (count >= minimum) return count;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+  throw new Error("pulse_count_timeout");
+};
 
 const requireResult = <A>(result: BrowserResult<A>, code: string): A => {
   ensure(result.ok, code);
@@ -310,7 +340,9 @@ const runPhaseA = async (): Promise<void> => {
   );
 
   const personalSeed = target("personal-automation-seed", "personal", "seed");
-  const personalRead = target("personal-ui-read", "personal", "read");
+  const stopPulse = "stop-page-runtime";
+  const personalRead = target("personal-ui-read", "personal", "read", stopPulse);
+  const personalAfterStop = target("personal-ui-after-stop", "personal", "read");
   const workSeed = target("work-automation-seed", "work", "seed");
   const personalPrincipal = capabilities.createPrincipal();
   const workPrincipal = capabilities.createPrincipal();
@@ -339,13 +371,50 @@ const runPhaseA = async (): Promise<void> => {
   ensure(allStorage(personalAutomation.report, "match"), "personal_seed_failed");
   ensure(allStorage(personalUi.report, "match"), "personal_cross_owner_failed");
   ensure(allStorage(workAutomation.report, "match"), "work_seed_failed");
+  const pulseBeforeStop = await waitForPulseCount(stopPulse, 3);
+  const stopReceipt = requireResult(
+    await sessions.stop(personalUi.sessionId),
+    "stop_page_failed",
+  );
+  ensure(
+    stopReceipt.stopped &&
+      !stopReceipt.alreadyStopped &&
+      stopReceipt.profile === "personal" &&
+      stopReceipt.sessionId === personalUi.sessionId,
+    "stop_page_receipt_invalid",
+  );
+  ensure(
+    !sessions.state(personalUi.sessionId).ok,
+    "stopped_page_still_discoverable",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const pulseSettled = await readPulseCount(stopPulse);
+  ensure(pulseSettled >= pulseBeforeStop, "stop_page_pulse_regressed");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  ensure(
+    (await readPulseCount(stopPulse)) === pulseSettled,
+    "stopped_page_javascript_continued",
+  );
+  const personalStorageAfterStop = await openAndRead(
+    sessions,
+    BROWSER_UI_SESSION_OWNER,
+    personalAfterStop,
+  );
+  ensure(allStorage(personalStorageAfterStop.report, "match"), "stop_page_storage_changed");
+  ensure(
+    sessions.stateForOwner(workPrincipal.ownerId, workAutomation.sessionId).ok,
+    "stop_page_sibling_destroyed",
+  );
   await flushProfile("personal");
   await flushProfile("work");
   const diskMarkers = await readDiskMarkers();
   const personalStorageRoot = await writeDiskMarker("personal", diskMarkers.personal);
   await writeDiskMarker("work", diskMarkers.work);
 
-  const receipt = await Effect.runPromise(profiles.wipeProfile("personal"));
+  const receipt = requireResult(
+    await sessions.wipeProfile("personal"),
+    "session_service_wipe_failed",
+  );
   ensure(receipt.status === "restart_required", "restart_required_expected");
   const personalOwnerSessions = requireResult(
     sessions.listForOwner(personalPrincipal.ownerId),
@@ -401,6 +470,11 @@ const runPhaseA = async (): Promise<void> => {
     fiveBackendsPersonalAutomation: "match",
     fiveBackendsPersonalUi: "match",
     fiveBackendsWork: "match",
+    stopPageRuntime: "destroyed",
+    stopPagePulse: "halted",
+    stopPageStorage: "match",
+    stopPageSibling: "survived",
+    wipeReachability: "session_service",
     wipeReceipt: "restart_required",
     personalUi: "quiesced",
     personalAutomation: "quiesced",

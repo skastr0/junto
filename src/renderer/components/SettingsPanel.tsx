@@ -1,7 +1,8 @@
 import { use$ } from "@legendapp/state/react";
 import { RotateCcw, Settings2, X } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import type { BrowserProfileInfo, VellumBrowserApi } from "@shared/ipc";
 import type { SettingsSectionKey } from "@shared/settings";
 import { state$ } from "../lib/state";
 import { closeSettings, patchSettings, resetSettings } from "../lib/settings-state";
@@ -13,6 +14,7 @@ import {
   type AlertSfxId,
 } from "../lib/sfx";
 import { DIM, HUE, INK } from "../lib/theme";
+import { getVellumApi } from "../lib/vellum-api";
 import "./settings-panel.css";
 
 const SECTIONS: ReadonlyArray<{ key: SettingsSectionKey; label: string; blurb: string }> = [
@@ -163,6 +165,77 @@ function KernelSection() {
 
 function BrowserSection() {
   const browser = use$(state$.settings.browser);
+  const [profiles, setProfiles] = useState<ReadonlyArray<BrowserProfileInfo>>([]);
+  const [profilesLoading, setProfilesLoading] = useState(true);
+  const [selectedProfile, setSelectedProfile] = useState<string>();
+  const [confirmation, setConfirmation] = useState("");
+  const [wipeBusy, setWipeBusy] = useState(false);
+  const [wipeNotice, setWipeNotice] = useState<{
+    readonly kind: "success" | "error";
+    readonly message: string;
+  }>();
+  type BrowserApi = ReturnType<typeof getVellumApi> & Partial<VellumBrowserApi>;
+
+  const loadProfiles = useCallback(async () => {
+    const api = getVellumApi() as BrowserApi | undefined;
+    if (!api?.browserProfiles) {
+      setProfilesLoading(false);
+      setWipeNotice({ kind: "error", message: "Browser profile API unavailable." });
+      return;
+    }
+    setProfilesLoading(true);
+    try {
+      const result = await api.browserProfiles();
+      if (result.ok && result.data) {
+        setProfiles(result.data);
+      } else {
+        setWipeNotice({ kind: "error", message: result.message ?? "Could not read profiles." });
+      }
+    } catch {
+      setWipeNotice({ kind: "error", message: "Could not read profiles." });
+    } finally {
+      setProfilesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadProfiles();
+  }, [loadProfiles]);
+
+  const wipeSelectedProfile = async () => {
+    if (!selectedProfile || confirmation !== selectedProfile || wipeBusy) return;
+    const api = getVellumApi() as BrowserApi | undefined;
+    if (!api?.browserWipeProfile) {
+      setWipeNotice({ kind: "error", message: "Browser profile wipe API unavailable." });
+      return;
+    }
+    setWipeBusy(true);
+    setWipeNotice(undefined);
+    try {
+      const result = await api.browserWipeProfile({
+        profileId: selectedProfile,
+        confirmation,
+      });
+      if (!result.ok || !result.data) {
+        setWipeNotice({ kind: "error", message: result.message ?? "Profile wipe failed." });
+        return;
+      }
+      setWipeNotice({
+        kind: "success",
+        message: result.data.recovery === "complete"
+          ? `Profile ${result.data.profileId} wiped. Storage removal is complete.`
+          : `Profile ${result.data.profileId} is isolated. Restart Vellum to finish disk removal.`,
+      });
+      setSelectedProfile(undefined);
+      setConfirmation("");
+      if (result.data.recovery === "complete") await loadProfiles();
+    } catch {
+      setWipeNotice({ kind: "error", message: "Profile wipe failed." });
+    } finally {
+      setWipeBusy(false);
+    }
+  };
+
   return (
     <div className="settings-section">
       <FieldRow label="Max visible surfaces" hint="dock slots (hard ceiling 8)">
@@ -193,9 +266,79 @@ function BrowserSection() {
           }}
         />
       </FieldRow>
-      <p className="settings-note">
-        Profile registry (personal/work partitions) stays under browser profiles — not here.
-      </p>
+      <div className="settings-profile-list" aria-label="Browser profiles">
+        <div className="settings-profile-list__head">
+          <span>Profiles</span>
+          <span>Wiping removes cookies, site storage, and sessions for one profile.</span>
+        </div>
+        {profilesLoading ? <p className="settings-note">loading profiles…</p> : null}
+        {!profilesLoading && profiles.length === 0 ? (
+          <p className="settings-note">No browser profiles available.</p>
+        ) : null}
+        {profiles.map((profile) => (
+          <div key={profile.id} className="settings-profile-row">
+            <span>
+              <strong>{profile.label ?? profile.id}</strong>
+              <small>{profile.id}{profile.default ? " · default" : ""}</small>
+            </span>
+            <button
+              type="button"
+              className="settings-profile-wipe"
+              disabled={profiles.length <= 1 || wipeBusy}
+              onClick={() => {
+                setSelectedProfile(profile.id);
+                setConfirmation("");
+                setWipeNotice(undefined);
+              }}
+            >
+              wipe…
+            </button>
+          </div>
+        ))}
+      </div>
+      {selectedProfile ? (
+        <div className="settings-wipe-confirm" role="group" aria-label={`Confirm wipe ${selectedProfile}`}>
+          <strong>Wipe profile {selectedProfile}</strong>
+          <p>Type <code>{selectedProfile}</code> to confirm. This cannot be undone.</p>
+          <input
+            type="text"
+            value={confirmation}
+            autoComplete="off"
+            spellCheck={false}
+            aria-label={`Type ${selectedProfile} to confirm profile wipe`}
+            onChange={(event) => setConfirmation(event.target.value)}
+          />
+          <div>
+            <button
+              type="button"
+              className="settings-profile-wipe settings-profile-wipe--confirm"
+              disabled={confirmation !== selectedProfile || wipeBusy}
+              onClick={() => void wipeSelectedProfile()}
+            >
+              {wipeBusy ? "wiping…" : "Wipe profile"}
+            </button>
+            <button
+              type="button"
+              className="settings-profile-cancel"
+              disabled={wipeBusy}
+              onClick={() => {
+                setSelectedProfile(undefined);
+                setConfirmation("");
+              }}
+            >
+              cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {wipeNotice ? (
+        <p
+          className={wipeNotice.kind === "error" ? "settings-error" : "settings-success"}
+          role={wipeNotice.kind === "error" ? "alert" : "status"}
+        >
+          {wipeNotice.message}
+        </p>
+      ) : null}
     </div>
   );
 }

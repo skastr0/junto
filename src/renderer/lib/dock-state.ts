@@ -5,6 +5,7 @@ import {
   browser$,
   browserSessionIdForRef,
   cacheBrowserSessionIfUnchanged,
+  clearBrowserSessionIfUnchanged,
   isCanonicalBrowserRef,
   isUsableBrowserSession,
 } from "./browser-state";
@@ -39,6 +40,8 @@ export const dock$ = observable({
   registry: initialDockState() as DockState,
   /** canonical vellum:// ref -> display payload for the dock placeholder. */
   browserByRef: {} as Record<string, DockBrowserPayload>,
+  /** Explicit Stop Page failures stay visible until retry/open succeeds. */
+  stopErrorByRef: {} as Record<string, string>,
   configHydrated: false,
 });
 
@@ -50,6 +53,13 @@ const detachCurrentSession = (ref: string): void => {
   const sessionId = browserSessionIdForRef(ref);
   if (!sessionId) return;
   void api()?.browserClose?.(sessionId).catch(() => undefined);
+};
+
+const clearStoppedSurface = (ref: string, observedSessionId: string | undefined): boolean => {
+  if (!clearBrowserSessionIfUnchanged(ref, observedSessionId)) return false;
+  dock$.registry.set(closeSurface(dock$.registry.peek(), ref).state);
+  dock$.browserByRef[ref].delete();
+  return true;
 };
 
 /** One-shot maxVisibleSurfaces hydration from BrowserProfileService config. */
@@ -140,6 +150,7 @@ export const openDockBrowser = async (
   payload: DockBrowserPayload,
 ): Promise<void> => {
   if (!isCanonicalBrowserRef(ref)) return;
+  dock$.stopErrorByRef[ref].delete();
   // Awaited (not fire-and-forget): hydrateDockConfig no-ops instantly once
   // already hydrated, so this only ever delays the FIRST surface of a
   // session — long enough that openSurface's eviction below never runs
@@ -173,6 +184,77 @@ export const closeDockBrowser = (ref: string): void => {
   // UI removal is unconditional. IPC detach is allowed only with the current
   // opaque handle; ref/nodeId fallback would reintroduce confused-deputy risk.
   detachCurrentSession(ref);
+};
+
+/**
+ * Explicitly stop one page runtime by exact opaque handle. The surface remains
+ * visible on failure and is removed only after authoritative destruction (or
+ * authoritative absence); the profile partition and sibling pages stay.
+ */
+export const stopDockBrowser = async (ref: string): Promise<boolean> => {
+  dock$.stopErrorByRef[ref].delete();
+  const a = api();
+  if (!a?.browserStop) {
+    dock$.stopErrorByRef[ref].set("Stop Page is unavailable.");
+    return false;
+  }
+  let sessionId = browserSessionIdForRef(ref);
+  if (!sessionId) {
+    if (!a.browserSessionList) {
+      dock$.stopErrorByRef[ref].set("Could not verify whether this page is still running.");
+      return false;
+    }
+    try {
+      const listed = await a.browserSessionList();
+      if (!listed.ok || !listed.data) {
+        dock$.stopErrorByRef[ref].set(listed.message ?? "Could not verify whether this page is still running.");
+        return false;
+      }
+      const live = listed.data.find(
+        (candidate) => isUsableBrowserSession(candidate) && candidate.ref === ref,
+      );
+      sessionId = live?.sessionId;
+      if (live) cacheBrowserSessionIfUnchanged(live, undefined);
+      if (!sessionId) {
+        if (clearStoppedSurface(ref, undefined)) return true;
+        dock$.stopErrorByRef[ref].set("Page runtime changed while stopping; retry Stop Page.");
+        return false;
+      }
+    } catch {
+      dock$.stopErrorByRef[ref].set("Could not verify whether this page is still running.");
+      return false;
+    }
+  }
+  try {
+    const result = await a.browserStop(sessionId);
+    if (result.ok) {
+      if (clearStoppedSurface(ref, sessionId)) return true;
+      dock$.stopErrorByRef[ref].set("Page runtime changed while stopping; retry Stop Page.");
+      return false;
+    }
+    if (result.code === "not_found" && a.browserSessionList) {
+      const listed = await a.browserSessionList();
+      if (listed.ok && listed.data) {
+        const live = listed.data.find(
+          (candidate) => isUsableBrowserSession(candidate) && candidate.ref === ref,
+        );
+        if (!live) {
+          if (clearStoppedSurface(ref, sessionId)) return true;
+          dock$.stopErrorByRef[ref].set("Page runtime changed while stopping; retry Stop Page.");
+          return false;
+        }
+        if (live.sessionId !== sessionId) {
+          cacheBrowserSessionIfUnchanged(live, sessionId);
+          dock$.stopErrorByRef[ref].set("Page runtime changed while stopping; retry Stop Page.");
+          return false;
+        }
+      }
+    }
+    dock$.stopErrorByRef[ref].set(result.message ?? "Stop Page failed.");
+  } catch {
+    dock$.stopErrorByRef[ref].set("Stop Page failed.");
+  }
+  return false;
 };
 
 /**

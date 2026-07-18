@@ -9,7 +9,7 @@ import {
   subscribeBrowserSessionEvents,
   browser$,
 } from "../../lib/browser-state";
-import { closeDockBrowser, dock$, openDockBrowser } from "../../lib/dock-state";
+import { closeDockBrowser, dock$, openDockBrowser, stopDockBrowser } from "../../lib/dock-state";
 import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
@@ -26,6 +26,7 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
   const canvasName = use$(state$.canvasName);
   const sessions = use$(browser$.sessionByRef);
   const registry = use$(dock$.registry);
+  const stopErrors = use$(dock$.stopErrorByRef);
   const pageRef = useMemo(() => {
     try {
       return formatNodeRef({ canvasName, nodeId: node.id });
@@ -38,6 +39,7 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
     pageRef && registry.surfaces.some((s) => s.kind === "browser" && s.id === pageRef),
   );
   const attaching = docked && !session?.attached;
+  const stopError = pageRef ? stopErrors[pageRef] : undefined;
 
   useEffect(() => {
     subscribeBrowserSessionEvents();
@@ -68,6 +70,9 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
   };
   const detach = () => {
     closeDockBrowser(pageRef);
+  };
+  const stop = () => {
+    void stopDockBrowser(pageRef);
   };
 
   return (
@@ -133,9 +138,27 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
             detach
           </button>
         ) : null}
-        {session?.lastError ? (
-          <span className="truncate text-[9px]" style={{ color: HUE.crimson }} title={session.lastError}>
-            {session.lastError}
+        {warm ? (
+          <button
+            type="button"
+            className="rounded border border-red-400/20 px-1.5 py-0.5 text-[9px] text-red-200 hover:bg-red-400/10"
+            title="Destroy this page runtime; profile cookies remain"
+            onClick={(e) => {
+              e.stopPropagation();
+              stop();
+            }}
+          >
+            stop page
+          </button>
+        ) : null}
+        {stopError || session?.lastError ? (
+          <span
+            className="truncate text-[9px]"
+            style={{ color: HUE.crimson }}
+            title={stopError ?? session?.lastError}
+            role={stopError ? "alert" : undefined}
+          >
+            {stopError ?? session?.lastError}
           </span>
         ) : null}
       </div>

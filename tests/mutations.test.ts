@@ -1,13 +1,26 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
 import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, renameGroup, setNodeColor, setNodeView, setRegionDefaults, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
+import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
+import { dock$ } from "../src/renderer/lib/dock-state";
+import { formatNodeRef } from "../src/shared/node-ref";
+
+const browserStop = vi.fn(async (): Promise<{
+  readonly ok: boolean;
+  readonly code?: string;
+  readonly message?: string;
+}> => ({ ok: true }));
 
 const runtimeWindow = {
-  vellum: { writeCanvas: async () => ({ revision: "test-revision" }) },
+  vellum: {
+    writeCanvas: async () => ({ revision: "test-revision" }),
+    browserStop,
+    browserSessionList: async () => ({ ok: true, data: [] }),
+  },
   setTimeout: globalThis.setTimeout,
   confirm: () => true,
 };
@@ -25,8 +38,189 @@ describe("renderer graph mutations", () => {
   afterEach(() => {
     runtimeWindow.confirm = () => true;
     state$.error.set("");
+    browserStop.mockReset();
+    browserStop.mockResolvedValue({ ok: true });
+    browser$.sessionByRef.set({});
+    dock$.stopErrorByRef.set({});
     clearGraphFilters();
     loadDoc({ nodes: [], edges: [] });
+  });
+
+  it("keeps a kill-session page node visible when Stop Page fails", async () => {
+    state$.canvasName.set("mutation-test");
+    const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });
+    loadDoc({
+      nodes: [{
+        id: "page",
+        type: "link",
+        url: "https://example.com",
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 180,
+        ether: {
+          entity: { kind: "page" },
+          browser: { profile: "personal", onDelete: "kill-session" },
+        },
+      }],
+      edges: [],
+    });
+    cacheBrowserSession({
+      sessionId: "page-session",
+      ref,
+      nodeId: "page",
+      url: "https://example.com",
+      profile: "personal",
+      state: "ready",
+      attached: false,
+    });
+    browserStop.mockResolvedValueOnce({
+      ok: false,
+      code: "failed",
+      message: "physical teardown not acknowledged",
+    });
+
+    deleteNode("page");
+
+    await vi.waitFor(() => expect(browserStop).toHaveBeenCalledWith("page-session"));
+    expect(state$.doc.peek().nodes.map((node) => node.id)).toEqual(["page"]);
+    expect(state$.error.peek()).toBe("Stop Page failed; the page node was not deleted.");
+    expect(dock$.stopErrorByRef[ref].peek()).toBe("physical teardown not acknowledged");
+  });
+
+  it("deletes a kill-session page node only after Stop Page succeeds", async () => {
+    state$.canvasName.set("mutation-test");
+    const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });
+    loadDoc({
+      nodes: [{
+        id: "page",
+        type: "link",
+        url: "https://example.com",
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 180,
+        ether: {
+          entity: { kind: "page" },
+          browser: { profile: "personal", onDelete: "kill-session" },
+        },
+      }],
+      edges: [],
+    });
+    cacheBrowserSession({
+      sessionId: "page-session",
+      ref,
+      nodeId: "page",
+      url: "https://example.com",
+      profile: "personal",
+      state: "ready",
+      attached: false,
+    });
+
+    deleteNode("page");
+
+    await vi.waitFor(() => expect(state$.doc.peek().nodes).toHaveLength(0));
+    expect(browserStop).toHaveBeenCalledWith("page-session");
+  });
+
+  it("keeps a kill-session node after failure and deletes it only when Stop Page retry succeeds", async () => {
+    state$.canvasName.set("mutation-test");
+    const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });
+    loadDoc({
+      nodes: [{
+        id: "page",
+        type: "link",
+        url: "https://example.com",
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 180,
+        ether: {
+          entity: { kind: "page" },
+          browser: { profile: "personal", onDelete: "kill-session" },
+        },
+      }],
+      edges: [],
+    });
+    cacheBrowserSession({
+      sessionId: "page-session",
+      ref,
+      nodeId: "page",
+      url: "https://example.com",
+      profile: "personal",
+      state: "ready",
+      attached: false,
+    });
+    browserStop
+      .mockResolvedValueOnce({ ok: false, code: "timeout", message: "still stopping" })
+      .mockResolvedValueOnce({ ok: true });
+
+    deleteNode("page");
+    await vi.waitFor(() => expect(browserStop).toHaveBeenCalledTimes(1));
+    expect(state$.doc.peek().nodes.map((node) => node.id)).toEqual(["page"]);
+
+    deleteNode("page");
+    await vi.waitFor(() => expect(state$.doc.peek().nodes).toHaveLength(0));
+    expect(browserStop).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not delete a replacement document node that reuses the id while Stop Page is pending", async () => {
+    state$.canvasName.set("mutation-test");
+    const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });
+    loadDoc({
+      nodes: [{
+        id: "page",
+        type: "link",
+        url: "https://old.example.com",
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 180,
+        ether: {
+          entity: { kind: "page" },
+          browser: { profile: "personal", onDelete: "kill-session" },
+        },
+      }],
+      edges: [],
+    });
+    cacheBrowserSession({
+      sessionId: "page-session",
+      ref,
+      nodeId: "page",
+      url: "https://old.example.com",
+      profile: "personal",
+      state: "ready",
+      attached: false,
+    });
+    let finishStop!: (result: { readonly ok: boolean }) => void;
+    browserStop.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finishStop = resolve;
+      }),
+    );
+
+    deleteNode("page");
+    await vi.waitFor(() => expect(browserStop).toHaveBeenCalledTimes(1));
+    loadDoc({
+      nodes: [{
+        id: "page",
+        type: "link",
+        url: "https://replacement.example.com",
+        x: 10,
+        y: 10,
+        width: 320,
+        height: 180,
+      }],
+      edges: [],
+    });
+    finishStop({ ok: true });
+
+    await vi.waitFor(() => expect(state$.error.peek()).toBe(
+      "Canvas changed before Stop Page completed; no nodes were deleted.",
+    ));
+    expect(state$.doc.peek().nodes).toMatchObject([
+      { id: "page", url: "https://replacement.example.com" },
+    ]);
   });
 
   it("creates schema-valid soft edges without criteria", () => {

@@ -192,6 +192,99 @@
   font-size: 11px;
 }
 
+.settings-profile-list {
+  margin-top: 4px;
+  border-top: 1px solid rgba(237, 230, 218, 0.1);
+  padding-top: 12px;
+}
+.settings-profile-list__head,
+.settings-profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings-profile-list__head {
+  margin-bottom: 8px;
+  color: #ede6da;
+  font-size: 13px;
+}
+.settings-profile-list__head span:last-child {
+  color: #8a8378;
+  font-size: 10px;
+  text-align: right;
+}
+.settings-profile-row {
+  min-height: 44px;
+  border-top: 1px solid rgba(237, 230, 218, 0.07);
+}
+.settings-profile-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-profile-row small {
+  color: #8a8378;
+  font-size: 10px;
+}
+.settings-profile-wipe,
+.settings-profile-cancel {
+  border: 1px solid rgba(229, 72, 77, 0.28);
+  border-radius: 7px;
+  background: transparent;
+  color: #f0a3a6;
+  padding: 5px 9px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.settings-profile-wipe:disabled,
+.settings-profile-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+.settings-profile-wipe--confirm:not(:disabled) {
+  background: rgba(229, 72, 77, 0.14);
+}
+.settings-profile-cancel {
+  margin-left: 8px;
+  border-color: rgba(237, 230, 218, 0.14);
+  color: #8fa3b0;
+}
+.settings-wipe-confirm {
+  padding: 10px;
+  border: 1px solid rgba(229, 72, 77, 0.3);
+  border-radius: 9px;
+  background: rgba(229, 72, 77, 0.07);
+}
+.settings-wipe-confirm strong,
+.settings-wipe-confirm p {
+  display: block;
+  margin: 0 0 7px;
+  font-size: 12px;
+}
+.settings-wipe-confirm p {
+  color: #b9afa1;
+  font-size: 11px;
+}
+.settings-wipe-confirm input {
+  width: 100%;
+  margin-bottom: 9px;
+  border: 1px solid rgba(229, 72, 77, 0.35);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #ede6da;
+  padding: 7px 9px;
+}
+.settings-success {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(80, 200, 150, 0.28);
+  border-radius: 8px;
+  background: rgba(80, 200, 150, 0.08);
+  color: #b9e3d2;
+  font-size: 11px;
+}
+
 .settings-sfx-controls {
   display: inline-flex;
   align-items: center;

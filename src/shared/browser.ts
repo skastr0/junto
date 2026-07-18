@@ -21,6 +21,34 @@ export type BrowserSessionState =
   | "detached"
   | "destroyed";
 
+/** Receipt for an explicit Stop Page operation. Profile storage is untouched. */
+export interface BrowserStopReceipt {
+  readonly sessionId: string;
+  readonly ref: string;
+  readonly profile: string;
+  readonly stopped: true;
+  readonly alreadyStopped: boolean;
+}
+
+/** Exact-confirmation request accepted by destructive profile-wipe surfaces. */
+export interface BrowserProfileWipeInput {
+  readonly profileId: string;
+  readonly confirmation: string;
+}
+
+/** Durable wipe outcome, including whether cold-start recovery remains pending. */
+export type BrowserProfileWipeReceipt =
+  | {
+      readonly profileId: string;
+      readonly status: "complete";
+      readonly recovery: "complete";
+    }
+  | {
+      readonly profileId: string;
+      readonly status: "restart_required";
+      readonly recovery: "pending_restart";
+    };
+
 export type BrowserSessionEvent =
   | { readonly type: "open" }
   | { readonly type: "load_start" }

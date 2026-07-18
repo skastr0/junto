@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { VellumBrowserApi } from "@shared/ipc";
 import { browser$ } from "../lib/browser-state";
-import { closeDockBrowser, dock$, syncDockHerdrSlot } from "../lib/dock-state";
+import { closeDockBrowser, dock$, stopDockBrowser, syncDockHerdrSlot } from "../lib/dock-state";
 import { herdr$ } from "../lib/herdr-state";
 import { getVellumApi } from "../lib/vellum-api";
 import { HerdrTerminalPanel } from "./herdr/HerdrTerminalModal";
@@ -19,6 +19,7 @@ type BrowserApi = ReturnType<typeof getVellumApi> & Partial<VellumBrowserApi>;
 function BrowserDockSlot({ pageRef }: { readonly pageRef: string }) {
   const payload = use$(dock$.browserByRef[pageRef]);
   const session = use$(browser$.sessionByRef[pageRef]);
+  const stopError = use$(dock$.stopErrorByRef[pageRef]);
   const sessionId = session?.sessionId;
   const bodyRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("attaching…");
@@ -94,8 +95,21 @@ function BrowserDockSlot({ pageRef }: { readonly pageRef: string }) {
             {" · "}
             {session?.state ?? status}
           </div>
+          {stopError ? <div className="browser-modal-status text-red-300" role="alert">{stopError}</div> : null}
         </div>
         <div className="browser-modal-actions">
+          <button
+            type="button"
+            className="browser-modal-btn"
+            title="Destroy this page runtime; profile cookies remain"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void stopDockBrowser(pageRef);
+            }}
+          >
+            Stop Page
+          </button>
           <button
             type="button"
             className="browser-modal-btn browser-modal-btn--primary"
