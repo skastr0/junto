@@ -177,7 +177,10 @@ const runOwnedFile = (
             : signal !== null
               ? `adapter command terminated by ${signal}`
               : `adapter command exited with code ${String(code)}`);
-      settle({ ok: false, stdout: "", error });
+      // Keep stdout on failure: tools like `codexbar usage --json` often exit
+      // non-zero when a single provider errors while still emitting a useful
+      // JSON payload on stdout. Callers decide whether to recover from it.
+      settle({ ok: false, stdout, error });
     });
   });
 };

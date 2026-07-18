@@ -208,17 +208,31 @@ export function UsageHud() {
   const [hover, setHover] = useState(false);
 
   const rows = useMemo(() => visibleQuotas(state), [state]);
-  // Settled empty (cli missing / all sources down): hide. While still
-  // waiting for the first codexbar poll (~15–40s), show a quiet loading rail
-  // so the top-bar slot does not appear "broken" in dev.
-  const settledEmpty =
-    state.snapshots.length > 0 &&
-    state.snapshots.every((snapshot) => !snapshot.ok || snapshot.quotas.length === 0);
-  if (settledEmpty) return null;
-  if (rows.length === 0) {
+  // First poll in flight: quiet loading rail (do not leave a hole in the bar).
+  if (state.snapshots.length === 0) {
     return (
       <div className="usage-hud" title="Loading provider limits…">
         <div className="usage-hud__rail usage-hud__rail--loading" aria-busy="true" aria-label="Loading provider limits" />
+      </div>
+    );
+  }
+  // Settled but no usable quotas: show a compact failure chip (never silent hide —
+  // that made a working codexbar look like the feature was missing).
+  if (rows.length === 0) {
+    const failed = state.snapshots.find((snapshot) => !snapshot.ok);
+    const detail =
+      failed?.reason === "cli-missing"
+        ? "codexbar missing"
+        : failed?.reason === "parse-error"
+          ? "usage parse error"
+          : failed?.error
+            ? failed.error.slice(0, 48)
+            : "no provider quotas";
+    return (
+      <div className="usage-hud" title={failed?.error ?? detail}>
+        <button type="button" className="usage-hud__rail usage-hud__rail--error" aria-label={`Provider limits: ${detail}`}>
+          <span className="usage-hud__error-label">{detail}</span>
+        </button>
       </div>
     );
   }

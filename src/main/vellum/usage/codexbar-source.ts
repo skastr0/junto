@@ -221,31 +221,35 @@ const fetchCodexbar = async (): Promise<UsageSnapshot> => {
     }
 
     // Parallel: full enabled set + every visible Codex account.
+    // codexbar often exits 1 when *some* providers error while still printing
+    // a full JSON array on stdout — recover from stdout before treating as hard fail.
     const [enabledResult, codexAccountsResult] = await Promise.all([
       runCli("codexbar", ["usage", "--json"], FETCH_TIMEOUT_MS),
       runCli("codexbar", ["usage", "--json", "--provider", "codex", "--all-accounts"], FETCH_TIMEOUT_MS),
     ]);
 
-    if (!enabledResult.ok) {
+    const enabledParsed = enabledResult.stdout.trim()
+      ? parseUsageStdout(enabledResult.stdout, fetchedAt)
+      : null;
+    if (!enabledParsed || !enabledParsed.ok) {
       return buildCodexbarSnapshot(fetchedAt, {
         kind: "unavailable",
-        reason: "cli-error",
-        error: enabledResult.error ?? "codexbar usage failed",
-      });
-    }
-    const enabledParsed = parseUsageStdout(enabledResult.stdout, fetchedAt);
-    if (!enabledParsed.ok) {
-      return buildCodexbarSnapshot(fetchedAt, {
-        kind: "unavailable",
-        reason: enabledParsed.reason,
-        error: enabledParsed.error,
+        reason: enabledResult.stdout.trim()
+          ? (enabledParsed && !enabledParsed.ok ? enabledParsed.reason : "parse-error")
+          : enabledResult.ok
+            ? "parse-error"
+            : "cli-error",
+        error:
+          (enabledParsed && !enabledParsed.ok ? enabledParsed.error : undefined) ??
+          enabledResult.error ??
+          "codexbar usage failed",
       });
     }
 
-    // Codex all-accounts is best-effort: if it fails, keep the single active
-    // codex row from the multi-provider payload rather than hiding the HUD.
+    // Codex all-accounts is best-effort: recover quotas from stdout even when
+    // the process exits non-zero; otherwise keep the single active codex row.
     let codexAccounts: ReadonlyArray<ProviderQuota> = [];
-    if (codexAccountsResult.ok) {
+    if (codexAccountsResult.stdout.trim()) {
       const codexParsed = parseUsageStdout(codexAccountsResult.stdout, fetchedAt);
       if (codexParsed.ok) {
         codexAccounts = codexParsed.quotas.filter((quota) => quota.provider.toLowerCase() === "codex");

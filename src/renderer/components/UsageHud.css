@@ -55,6 +55,21 @@
   animation: usage-hud-shimmer 1.2s ease-in-out infinite;
 }
 
+.usage-hud__rail--error {
+  border-color: rgba(229, 72, 77, 0.35);
+  color: #e5484d;
+  cursor: default;
+}
+
+.usage-hud__error-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 @keyframes usage-hud-shimmer {
   0% {
     background-position: 100% 0;
