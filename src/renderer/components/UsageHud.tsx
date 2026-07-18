@@ -8,9 +8,10 @@ import { FocusSurface } from "./FocusSurface";
 import { HarnessMark } from "./herdr/HarnessMark";
 import "./UsageHud.css";
 
-// Compact provider-usage rail: one [glyph|bar] cell per quota. No chrome
-// labels, no pressure border. Hover = minimal provider · limit · %;
-// click = document FocusSurface detail. Fail-open when nothing ok.
+// Compact provider-usage rail: one [glyph|bar] cell per quota.
+// Always paints: last-good (possibly stale) when live is slow/fails;
+// loading only before any last-good exists; error chip only when live
+// failed and we have never had quotas. Never hide the top-bar slot.
 
 const EMPTY_USAGE: UsageState = { snapshots: [] };
 
@@ -208,28 +209,26 @@ export function UsageHud() {
   const [hover, setHover] = useState(false);
 
   const rows = useMemo(() => visibleQuotas(state), [state]);
-  // First poll in flight: quiet loading rail (do not leave a hole in the bar).
-  if (state.snapshots.length === 0) {
-    return (
-      <div className="usage-hud" title="Loading provider limits…">
-        <div className="usage-hud__rail usage-hud__rail--loading" aria-busy="true" aria-label="Loading provider limits" />
-      </div>
-    );
-  }
-  // Settled but no usable quotas: show a compact failure chip (never silent hide —
-  // that made a working codexbar look like the feature was missing).
+  const stale = state.stale === true;
+
+  // Never had quotas: loading (first boot) or hard error after a failed live.
   if (rows.length === 0) {
+    if (state.snapshots.length === 0) {
+      return (
+        <div className="usage-hud" title="Loading provider limits…">
+          <div className="usage-hud__rail usage-hud__rail--loading" aria-busy="true" aria-label="Loading provider limits" />
+        </div>
+      );
+    }
     const failed = state.snapshots.find((snapshot) => !snapshot.ok);
     const detail =
       failed?.reason === "cli-missing"
         ? "codexbar missing"
         : failed?.reason === "parse-error"
           ? "usage parse error"
-          : failed?.error
-            ? failed.error.slice(0, 48)
-            : "no provider quotas";
+          : (state.lastError ?? failed?.error)?.slice(0, 48) ?? "no provider quotas";
     return (
-      <div className="usage-hud" title={failed?.error ?? detail}>
+      <div className="usage-hud" title={state.lastError ?? failed?.error ?? detail}>
         <button type="button" className="usage-hud__rail usage-hud__rail--error" aria-label={`Provider limits: ${detail}`}>
           <span className="usage-hud__error-label">{detail}</span>
         </button>
@@ -237,20 +236,26 @@ export function UsageHud() {
     );
   }
 
+  const staleTitle = stale
+    ? `Last-good limits${state.lastLiveAt ? ` · ${state.lastLiveAt.slice(0, 16).replace("T", " ")}` : ""}${state.lastError ? ` · ${state.lastError}` : ""}`
+    : "Provider limits";
+
   return (
     <>
       <div
-        className="usage-hud"
+        className={`usage-hud${stale ? " is-stale" : ""}`}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
       >
         <button
           type="button"
           className="usage-hud__rail"
-          aria-label="Provider limits"
+          aria-label={stale ? "Provider limits (stale)" : "Provider limits"}
           aria-expanded={open}
+          title={staleTitle}
           onClick={() => setOpen(true)}
         >
+          {stale ? <span className="usage-hud__stale-dot" aria-hidden title="stale" /> : null}
           {rows.map(({ quota, snapshot, index }) => (
             <Cell key={rowKey(snapshot, quota, index)} quota={quota} />
           ))}

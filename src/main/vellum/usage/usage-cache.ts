@@ -1,11 +1,11 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { UsageState } from "@shared/usage";
+import { hasUsageQuotas, type UsageState } from "@shared/usage";
 
-// Last-good usage snapshot for instant HUD paint on app start. The first
-// live codexbar poll can take tens of seconds; without this the top bar
-// sits empty until vendors answer.
+// Disk last-good for the usage plane. Codexbar live polls are slow (vendor
+// web); cold start must still paint the HUD from this file. Never read
+// CodexBar.app private Application Support — only our own normalized state.
 
 const CACHE_DIR = join(homedir(), ".vellum", "cache");
 const CACHE_PATH = join(CACHE_DIR, "usage-state.json");
@@ -19,11 +19,13 @@ export const readUsageCache = (): UsageState | undefined => {
     const raw = readFileSync(CACHE_PATH, "utf8");
     const parsed = JSON.parse(raw) as UsageState;
     if (!parsed || !Array.isArray(parsed.snapshots)) return undefined;
-    // Only restore a useful paint — empty or all-failed caches are noise.
-    const hasQuotas = parsed.snapshots.some(
-      (snapshot) => snapshot.ok && Array.isArray(snapshot.quotas) && snapshot.quotas.length > 0,
-    );
-    return hasQuotas ? parsed : undefined;
+    if (!hasUsageQuotas(parsed)) return undefined;
+    // Always surface as stale until a live poll replaces it this session.
+    return {
+      snapshots: parsed.snapshots,
+      stale: true,
+      ...(parsed.lastLiveAt !== undefined ? { lastLiveAt: parsed.lastLiveAt } : {}),
+    };
   } catch {
     return undefined;
   }
@@ -31,13 +33,19 @@ export const readUsageCache = (): UsageState | undefined => {
 
 export const writeUsageCache = (state: UsageState): void => {
   if (skipDisk()) return;
-  const hasQuotas = state.snapshots.some(
-    (snapshot) => snapshot.ok && Array.isArray(snapshot.quotas) && snapshot.quotas.length > 0,
-  );
-  if (!hasQuotas) return;
+  // Only persist paint-worthy state — never clobber last-good with a fail envelope.
+  if (!hasUsageQuotas(state)) return;
   try {
     mkdirSync(CACHE_DIR, { recursive: true });
-    writeFileSync(CACHE_PATH, JSON.stringify(state), "utf8");
+    writeFileSync(
+      CACHE_PATH,
+      JSON.stringify({
+        snapshots: state.snapshots,
+        lastLiveAt: state.lastLiveAt ?? new Date().toISOString(),
+        stale: true,
+      } satisfies UsageState),
+      "utf8",
+    );
   } catch {
     // Cache is best-effort — never fail a poll on disk errors.
   }

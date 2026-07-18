@@ -4,7 +4,9 @@ import { Schema } from "effect";
 // UsageSources (codexbar CLI first). A separate bounded context from the
 // entity snapshot plane — quotas never bind to canvas nodes. Envelope
 // semantics mirror entities.ts: a down source degrades to ok:false with a
-// reason, never a throw, and the renderer simply hides the surface.
+// reason, never a throw. The HUD always paints: last-good (possibly stale)
+// when live is slow or fails; only a quiet loading/error chip when no
+// last-good exists yet.
 
 export const UsageWindowLabel = Schema.Literal("primary", "secondary", "tertiary", "extra");
 export type UsageWindowLabel = typeof UsageWindowLabel.Type;
@@ -63,8 +65,19 @@ export type UsageSnapshot = typeof UsageSnapshot.Type;
 
 export const UsageState = Schema.Struct({
   snapshots: Schema.Array(UsageSnapshot),
+  // True when `snapshots` are last-good (disk or prior poll) and the latest
+  // live refresh has not replaced them with a fresher successful payload.
+  stale: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  // ISO time of the last successful live commit that carried quotas.
+  lastLiveAt: Schema.optionalWith(Schema.String, { exact: true }),
+  // Last live failure message (kept while showing stale quotas).
+  lastError: Schema.optionalWith(Schema.String, { exact: true }),
 });
 export type UsageState = typeof UsageState.Type;
+
+/** True when any snapshot carries at least one provider quota row. */
+export const hasUsageQuotas = (state: UsageState): boolean =>
+  state.snapshots.some((snapshot) => snapshot.ok && snapshot.quotas.length > 0);
 
 // The window closest to exhaustion drives every aggregate readout (HUD fill,
 // hue). Error quotas and windowless entries have no pressure and rank last.

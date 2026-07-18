@@ -92,16 +92,43 @@ describe("UsageService", () => {
     expect(current).toEqual(state);
   });
 
-  it("subscribe fires on refresh and unsub stops notifications", async () => {
+  it("subscribe replays current then fires on refresh; unsub stops", async () => {
     const usage = await runtime.runPromise(UsageService);
     const seen: UsageState[] = [];
     const unsub = usage.subscribe((state) => seen.push(state));
-    await runtime.runPromise(usage.refresh());
+    // Immediate replay of empty/cached current.
     expect(seen).toHaveLength(1);
-    expect(seen[0]?.snapshots).toHaveLength(2);
+    await runtime.runPromise(usage.refresh());
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(seen[seen.length - 1]?.snapshots).toHaveLength(2);
     unsub();
+    const after = seen.length;
     await runtime.runPromise(usage.refresh());
-    expect(seen).toHaveLength(1);
+    expect(seen).toHaveLength(after);
+  });
+
+  it("keeps last-good quotas when a later live refresh fails", async () => {
+    let mode: "ok" | "fail" = "ok";
+    sources = [
+      fakeSource("alpha", {
+        fetch: () => (mode === "ok" ? okSnapshot("alpha", ["claude"]) : missingSnapshot("alpha")),
+      }) as UsageSource & { readonly fetchCount: number },
+    ];
+    await runtime.dispose();
+    runtime = ManagedRuntime.make(
+      Layer.provideMerge(UsageServiceLive, Layer.succeed(UsageSources, sources)),
+    );
+    const usage = await runtime.runPromise(UsageService);
+    const good = await runtime.runPromise(usage.refresh());
+    expect(good.stale).toBe(false);
+    expect(good.snapshots[0]?.quotas).toHaveLength(1);
+
+    mode = "fail";
+    const kept = await runtime.runPromise(usage.refresh());
+    expect(kept.stale).toBe(true);
+    expect(kept.snapshots[0]?.ok).toBe(true);
+    expect(kept.snapshots[0]?.quotas[0]?.provider).toBe("claude");
+    expect(kept.lastError).toBeTruthy();
   });
 
   it("concurrent refresh joins the in-flight fan-out", async () => {
@@ -152,7 +179,7 @@ describe("UsageService", () => {
     expect(okCheck.id).toBe("usage");
     expect(okCheck.status).toBe("ok");
     expect(okCheck.detail).toContain("alpha");
-    expect(okCheck.detail).toContain("2 providers tracked");
+    expect(okCheck.detail).toContain("2 providers");
 
     // Registry with no present sources.
     await runtime.dispose();

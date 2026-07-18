@@ -70,6 +70,21 @@
   text-transform: uppercase;
 }
 
+/* Last-good while live poll is pending or failed — keep the rail, signal age. */
+.usage-hud.is-stale .usage-hud__rail {
+  border-color: rgba(232, 163, 61, 0.28);
+}
+
+.usage-hud__stale-dot {
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #e8a33d;
+  box-shadow: 0 0 6px rgba(232, 163, 61, 0.55);
+  opacity: 0.9;
+}
+
 @keyframes usage-hud-shimmer {
   0% {
     background-position: 100% 0;
