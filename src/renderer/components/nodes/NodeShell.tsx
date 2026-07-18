@@ -1,10 +1,13 @@
 import type { ReactNode } from "react";
 import { Handle, NodeResizer, NodeToolbar, Position } from "@xyflow/react";
+import { use$ } from "@legendapp/state/react";
 import { Ban, ExternalLink, Maximize2, Pencil, Trash2 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
 import { resizeNode } from "../../lib/geometry";
 import { deleteNode, toggleFlag } from "../../lib/mutations";
+import { herdr$ } from "../../lib/herdr-state";
+import { isHerdrCanvasNode, nodeBlockPresentation } from "../../lib/node-block-state";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
 const FLAG_HUES: Record<EtherFlag, string> = {
@@ -23,14 +26,27 @@ function NodeActions({
   onEdit,
   onMaximize,
   toolbarExtras,
+  flagBlocker,
+  liveHerdrBlocked,
 }: {
   readonly node: CanvasNode;
   readonly selected: boolean;
   readonly onEdit?: () => void;
   readonly onMaximize?: () => void;
   readonly toolbarExtras?: ReactNode;
+  /** Document ether.flags includes blocker. */
+  readonly flagBlocker: boolean;
+  /** Live herdr agent_status blocked — not a document flag. */
+  readonly liveHerdrBlocked: boolean;
 }) {
-  const isBlocker = node.ether?.flags?.includes("blocker") ?? false;
+  // Toolbar toggle only mutates the document flag. Live herdr blocked paints
+  // crimson but clear still means "clear flag" (or no-op if flag absent).
+  const chromeBlocker = flagBlocker || liveHerdrBlocked;
+  const title = flagBlocker
+    ? "clear blocker flag"
+    : liveHerdrBlocked
+      ? "herdr blocked (live) — flag to pin"
+      : "flag blocker";
   return (
     <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
       <div className="nodrag nopan flex items-center gap-1 rounded-md border border-white/10 bg-[#131110] px-1 py-1 shadow-lg shadow-black/40">
@@ -64,10 +80,10 @@ function NodeActions({
         ) : null}
         {toolbarExtras}
         <button
-          aria-label={isBlocker ? "Clear blocker flag" : "Flag blocker"}
+          aria-label={flagBlocker ? "Clear blocker flag" : "Flag blocker"}
           className="nodrag nopan grid size-7 place-items-center rounded text-[11px] transition hover:bg-white/10"
-          style={{ color: isBlocker ? HUE.crimson : HUE.steel }}
-          title={isBlocker ? "clear blocker" : "flag blocker"}
+          style={{ color: chromeBlocker ? HUE.crimson : HUE.steel }}
+          title={title}
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -121,13 +137,26 @@ export function NodeShell({
   readonly inlineEdit?: boolean;
   readonly children: ReactNode;
 }) {
-  const flags = node.ether?.flags ?? [];
-  const isBlocker = flags.includes("blocker");
-  const primaryFlag: EtherFlag | undefined = isBlocker ? "blocker" : flags.includes("attention") ? "attention" : flags.includes("parked") ? "parked" : undefined;
+  // Live herdr meta: agent_status blocked paints shell chrome without a doc flag.
+  const herdrMeta = use$(herdr$.metaByNodeId[node.id]);
+  const herdrAgentStatus = isHerdrCanvasNode(node) ? herdrMeta?.meta?.agentStatus : undefined;
+  const { isBlocker, shellBlocked, liveHerdrBlocked, flags } = nodeBlockPresentation({
+    node,
+    graphBlocked: blocked,
+    herdrAgentStatus,
+  });
+  const flagBlocker = flags.includes("blocker");
+  const primaryFlag: EtherFlag | undefined = isBlocker
+    ? "blocker"
+    : flags.includes("attention")
+      ? "attention"
+      : flags.includes("parked")
+        ? "parked"
+        : undefined;
   const primaryHue = primaryFlag ? FLAG_HUES[primaryFlag] : undefined;
   const accent = accentColor(node.color);
   const border = isBlocker ? HUE.crimson : primaryHue ? withAlpha(primaryHue, 0.52) : borderColor(node.color, selected);
-  const background = blocked
+  const background = shellBlocked
     ? `linear-gradient(135deg, ${withAlpha(HUE.crimson, 0.12)}, rgba(18,15,13,0.92))`
     : primaryFlag === "attention"
       ? `linear-gradient(135deg, ${withAlpha(HUE.amber, 0.09)}, rgba(14,13,12,0.96))`
@@ -136,14 +165,18 @@ export function NodeShell({
         : "linear-gradient(135deg, rgba(30,25,20,0.94), rgba(14,13,12,0.96))";
   const shadow = selected
     ? `0 0 0 1px ${withAlpha(accent, 0.25)}, 0 12px 30px rgba(0,0,0,0.22)`
-    : primaryFlag === "attention"
-      ? `0 0 0 1px ${withAlpha(HUE.amber, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
-      : primaryFlag === "parked"
-        ? `0 0 0 1px ${withAlpha(HUE.violet, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
-        : "0 10px 28px rgba(0,0,0,0.18)";
+    : isBlocker
+      ? `0 0 0 1px ${withAlpha(HUE.crimson, 0.18)}, 0 10px 28px rgba(0,0,0,0.18)`
+      : primaryFlag === "attention"
+        ? `0 0 0 1px ${withAlpha(HUE.amber, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
+        : primaryFlag === "parked"
+          ? `0 0 0 1px ${withAlpha(HUE.violet, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
+          : "0 10px 28px rgba(0,0,0,0.18)";
   return (
     <div
       className={`vellum-node group relative flex h-full w-full flex-col overflow-visible rounded-[10px] px-3.5 py-3 ${isBlocker ? "vellum-blocker" : ""}`}
+      data-blocked={shellBlocked ? "true" : undefined}
+      data-herdr-blocked={liveHerdrBlocked ? "true" : undefined}
       style={{
         border: `1px solid ${selected ? withAlpha(isBlocker ? HUE.crimson : accent, 0.75) : border}`,
         background,
@@ -188,9 +221,31 @@ export function NodeShell({
         </button>
       ) : null}
       <ConnectionHandles />
-      <NodeActions node={node} selected={selected} onEdit={onEdit} onMaximize={onMaximize} toolbarExtras={toolbarExtras} />
-      {flags.length > 0 ? (
+      <NodeActions
+        node={node}
+        selected={selected}
+        onEdit={onEdit}
+        onMaximize={onMaximize}
+        toolbarExtras={toolbarExtras}
+        flagBlocker={flagBlocker}
+        liveHerdrBlocked={liveHerdrBlocked}
+      />
+      {flags.length > 0 || liveHerdrBlocked ? (
         <div className="vellum-node__flag-rail">
+          {liveHerdrBlocked && !flagBlocker ? (
+            <span
+              key="herdr-blocked"
+              className="vellum-node__flag"
+              title="herdr blocked (live)"
+              style={{
+                color: FLAG_HUES.blocker,
+                borderColor: withAlpha(FLAG_HUES.blocker, 0.36),
+                background: withAlpha(FLAG_HUES.blocker, 0.09),
+              }}
+            >
+              blocker
+            </span>
+          ) : null}
           {flags.map((flag) => (
             <span
               key={flag}
