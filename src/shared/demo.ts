@@ -49,6 +49,9 @@ export interface DemoCommandResult {
 
 export interface DemoStateInfo {
   readonly active: boolean;
+  /** VELLUM_DEMO_AUTOROLL=1 — the take starts itself shortly after mount
+   * (headless/scripted capture; also dodges any pre-mount beat-0 race). */
+  readonly autoroll?: boolean;
 }
 
 // --- scenario ---------------------------------------------------------------

@@ -11,7 +11,10 @@ import { isDemoMode } from "./mode";
 import { applyDemoCommand, writeDemoEdl } from "./service";
 
 export const registerDemoIpcHandlers = (): void => {
-  ipcMain.handle(IPC_CHANNELS.demoState, () => ({ active: isDemoMode() }));
+  ipcMain.handle(IPC_CHANNELS.demoState, () => ({
+    active: isDemoMode(),
+    autoroll: isDemoMode() && process.env.VELLUM_DEMO_AUTOROLL === "1",
+  }));
 
   ipcMain.handle(IPC_CHANNELS.demoCommand, (_event, command: DemoCommand) => {
     if (!isDemoMode()) return { ok: false, error: "demo mode off" };

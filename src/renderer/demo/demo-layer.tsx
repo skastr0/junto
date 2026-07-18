@@ -20,14 +20,24 @@ export function DemoLayer() {
     const api = window.vellum;
     if (!api) return;
     let cancelled = false;
+    let rollTimer: number | undefined;
     void api
       .demoState()
       .then((info) => {
-        if (!cancelled && info.active) setActive(true);
+        if (cancelled || !info.active) return;
+        setActive(true);
+        if (info.autoroll) {
+          // Delay past first paint so the camera bridge is mounted before beat 0.
+          rollTimer = window.setTimeout(() => {
+            const scenario = scenariosById[TRAILER_SCENARIO_ID];
+            if (scenario && !demo$.running.peek()) startTake(scenario);
+          }, 2_000);
+        }
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
+      if (rollTimer !== undefined) window.clearTimeout(rollTimer);
     };
   }, []);
 
