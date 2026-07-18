@@ -5,7 +5,7 @@ import { access, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "no
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CONTROL_CAPABILITY_ENV,
   CONTROL_CAPABILITY_HEADER,
@@ -608,14 +608,26 @@ describe("browser control Unix transport", () => {
     const root = await newRoot();
     let releaseResolver!: () => void;
     let markStarted!: () => void;
+    let markResolverSettled!: () => void;
     const gate = new Promise<void>((resolveGate) => { releaseResolver = resolveGate; });
     const started = new Promise<void>((resolveStarted) => { markStarted = resolveStarted; });
+    const resolverSettled = new Promise<void>((resolveSettled) => {
+      markResolverSettled = resolveSettled;
+    });
     const delayed: PageTargetResolver = async (ref) => {
       markStarted();
       await gate;
-      return resolvePageTarget(ref);
+      try {
+        return await resolvePageTarget(ref);
+      } finally {
+        markResolverSettled();
+      }
     };
-    const { server, token, capability, auditId, sessions } = await startStack(root, undefined, delayed);
+    const { server, token, capability, auditId, sessions, capabilities } = await startStack(
+      root,
+      undefined,
+      delayed,
+    );
     const body = JSON.stringify({ ref: PAGE_REF });
     const client = createConnection(server.socketPath);
     await new Promise<void>((resolveConnect, rejectConnect) => {
@@ -630,10 +642,23 @@ describe("browser control Unix transport", () => {
       ]) + body,
     );
     await started;
+    expect(capabilities.stats().activeLeases).toBe(1);
     client.destroy();
+    await vi.waitFor(
+      () => expect(capabilities.stats().activeLeases).toBe(0),
+      { timeout: 3_000, interval: 5 },
+    );
+    expect(capabilities.auditSnapshot()).toContainEqual(expect.objectContaining({
+      auditId,
+      kind: "completion",
+      outcome: "cancelled",
+      action: "open",
+    }));
     releaseResolver();
-    await new Promise((resolveWait) => setTimeout(resolveWait, 40));
+    await resolverSettled;
+    await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
     expect(sessions.listForOwner(auditId)).toMatchObject({ ok: true, data: [] });
+    await expect(access(join(root, "profiles"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("bounds CLI response admission/accumulation and its wall-clock deadline", async () => {
