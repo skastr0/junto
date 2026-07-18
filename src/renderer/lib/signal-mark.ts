@@ -8,12 +8,15 @@
  * Severity ladder is owned by @shared/region-rollup. This module only maps
  * that ladder (and its reason strings) into a renderable mark. It does not
  * re-derive membership or severity.
+ *
+ * Tones for blocked/attention/working/idle must match SEVERITY_TONE in
+ * activity.ts so HerdrCard spinners, chips, and minimap never disagree.
  */
 
 import type { MemberSeverity, MemberStatus } from "@shared/region-rollup";
 import type { CanvasNode } from "@shared/canvas";
 import type { ActivityMode, ActivityTone } from "./activity";
-import { ACTIVITY_TONE_HEX } from "./activity";
+import { ACTIVITY_TONE_HEX, SEVERITY_TONE } from "./activity";
 import { accentColor, HUE } from "./theme";
 
 export type SignalKind = MemberSeverity;
@@ -31,24 +34,24 @@ export interface SignalMark {
 const MARK: Readonly<Record<SignalKind, SignalMark>> = {
   blocked: {
     kind: "blocked",
-    tone: "crimson",
-    hue: HUE.crimson,
+    tone: SEVERITY_TONE.blocked,
+    hue: ACTIVITY_TONE_HEX[SEVERITY_TONE.blocked],
     symbol: "⊗",
     label: "blocked",
     mode: "wave",
   },
   attention: {
     kind: "attention",
-    tone: "amber",
-    hue: HUE.amber,
+    tone: SEVERITY_TONE.attention,
+    hue: ACTIVITY_TONE_HEX[SEVERITY_TONE.attention],
     symbol: "⚠",
     label: "attention",
     mode: "wave",
   },
   working: {
     kind: "working",
-    tone: "cyan",
-    hue: HUE.cyan,
+    tone: SEVERITY_TONE.working,
+    hue: ACTIVITY_TONE_HEX[SEVERITY_TONE.working],
     symbol: "◉",
     label: "working",
     mode: "wave",
@@ -63,8 +66,8 @@ const MARK: Readonly<Record<SignalKind, SignalMark>> = {
   },
   idle: {
     kind: "idle",
-    tone: "steel",
-    hue: HUE.steel,
+    tone: SEVERITY_TONE.idle,
+    hue: ACTIVITY_TONE_HEX[SEVERITY_TONE.idle],
     symbol: "·",
     label: "idle",
     mode: "static",

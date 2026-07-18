@@ -30,10 +30,11 @@ describe("houseGradientStops", () => {
 });
 
 describe("herdrActivity", () => {
-  it("maps herdr seen/unseen: working/blocked/done wave; idle static", () => {
+  it("maps herdr seen/unseen with RTS severity tones (cyan/amber/crimson)", () => {
+    // working → cyan (same as chips/minimap); pattern snake
     expect(herdrActivity({ agentStatus: "working" })).toEqual({
       mode: "wave",
-      tone: "amber",
+      tone: "cyan",
       pattern: "snake",
       label: "working",
     });
@@ -42,7 +43,7 @@ describe("herdrActivity", () => {
       tone: "crimson",
       pattern: "arrow-up",
     });
-    // done = Idle+!seen → attention until the operator looks
+    // done = Idle+!seen → attention amber until the operator looks
     expect(herdrActivity({ agentStatus: "done" })).toMatchObject({
       mode: "wave",
       tone: "amber",
@@ -68,10 +69,11 @@ describe("herdrActivity", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("meta loading beats agent idle", () => {
+  it("meta loading beats agent idle (cyan diagonal, not working snake)", () => {
     expect(herdrActivity({ agentStatus: "idle", metaStatus: "loading" })).toMatchObject({
       mode: "wave",
       tone: "cyan",
+      pattern: "diagonal",
     });
   });
 
@@ -82,12 +84,20 @@ describe("herdrActivity", () => {
     });
   });
 
-  it("done (unseen) beats degraded so attention stays visible", () => {
+  it("done (unseen) beats degraded so attention amber stays visible", () => {
     expect(herdrActivity({ agentStatus: "done", connState: "degraded" })).toMatchObject({
       mode: "wave",
       tone: "amber",
       pattern: "ripple",
     });
+  });
+
+  it("working cyan and done amber never share a tone", () => {
+    const work = herdrActivity({ agentStatus: "working" });
+    const done = herdrActivity({ agentStatus: "done" });
+    expect(work.tone).toBe("cyan");
+    expect(done.tone).toBe("amber");
+    expect(work.tone).not.toBe(done.tone);
   });
 });
 
@@ -128,6 +138,14 @@ describe("chatActivity + toolActivity + loadingActivity", () => {
     ).toBe("wave");
   });
 
+  it("uses severity tones: work=cyan, attention=amber, blocked=crimson", () => {
+    expect(chatActivity({ status: "connecting" }).tone).toBe("cyan");
+    expect(chatActivity({ status: "live", sending: true }).tone).toBe("cyan");
+    expect(chatActivity({ status: "live", tools: [{ status: "in_progress" }] }).tone).toBe("cyan");
+    expect(chatActivity({ status: "live", pendingPermission: true }).tone).toBe("amber");
+    expect(chatActivity({ status: "error" }).tone).toBe("crimson");
+  });
+
   it("static live quiet / error / closed", () => {
     expect(chatActivity({ status: "live" })).toMatchObject({ mode: "static", tone: "green" });
     expect(chatActivity({ status: "error" }).tone).toBe("crimson");
@@ -135,13 +153,13 @@ describe("chatActivity + toolActivity + loadingActivity", () => {
   });
 
   it("tool rows", () => {
-    expect(toolActivity("in_progress").mode).toBe("wave");
+    expect(toolActivity("in_progress")).toMatchObject({ mode: "wave", tone: "cyan" });
     expect(toolActivity("completed").tone).toBe("green");
     expect(toolActivity("failed").tone).toBe("crimson");
   });
 
   it("loading line", () => {
-    expect(loadingActivity(true).mode).toBe("wave");
+    expect(loadingActivity(true)).toMatchObject({ mode: "wave", tone: "cyan" });
     expect(loadingActivity(false).mode).toBe("static");
   });
 });

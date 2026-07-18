@@ -118,6 +118,9 @@ export function ActivityMark({
     );
   }
 
+  // Key remounts the spin when severity color or pattern changes so gradient
+  // cells never keep a previous tone (working cyan → attention amber must
+  // flip clean, not leave a muddy mid-trail).
   return (
     <span
       className={className}
@@ -125,6 +128,7 @@ export function ActivityMark({
       title={label}
     >
       <GradientSpin
+        key={`${tone}:${pattern}`}
         gradient={[...houseGradientStops(tone)]}
         pattern={pattern}
         rows={dims.rows}
