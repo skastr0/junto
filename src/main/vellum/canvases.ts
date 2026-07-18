@@ -202,9 +202,12 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           // share one tmp file.
           const tmpPath = `${path}.${randomUUID()}.tmp`;
           await writeFile(tmpPath, serialized, "utf8");
-          // Recheck immediately before replacement. Direct file writers do
-          // not share our mutex; this closes the meaningful stale-read window
-          // without inventing a second document format or merge protocol.
+          // Recheck immediately before replacement. This rejects when an
+          // external document differs at either revision read, and rename
+          // guarantees the installed file is complete. It is not an atomic
+          // filesystem compare-and-swap: direct writers do not share our
+          // mutex, so a write in the final read-to-rename interval can still
+          // be replaced. Node's portable rename API has no conditional form.
           if (expectedRevision !== undefined) {
             let currentRevision: string | undefined;
             try {

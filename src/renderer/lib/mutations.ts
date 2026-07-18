@@ -42,6 +42,9 @@ const revisionsByName = new Map<string, string>();
 // Names we intentionally discarded (delete). flushSave refuses to write them
 // until clearAbandonedCanvas (open/create of that name).
 const abandonedNames = new Set<string>();
+const REVISION_CONFLICT_MARKER = ".canvas changed on disk; reload before saving";
+const MAX_RECOVERY_NAME_ATTEMPTS = 32;
+let recoveryNameSequence = 0;
 
 const roundNode = (n: CanvasNode): CanvasNode => ({
   ...n,
@@ -75,6 +78,102 @@ export const roundDoc = (doc: CanvasDoc): CanvasDoc => stripUndefined({
   edges: doc.edges,
 });
 
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const isRevisionConflict = (error: unknown): boolean =>
+  messageOf(error).includes(REVISION_CONFLICT_MARKER);
+
+const nextRecoveryName = (): string => {
+  recoveryNameSequence += 1;
+  // Fixed-width prefix keeps the filename safely below common NAME_MAX even
+  // when the conflicted source name itself is already near that limit.
+  return `recovery-${Date.now().toString(36)}-${recoveryNameSequence.toString(36)}`;
+};
+
+// A stale disk revision is the one save failure we can resolve without
+// choosing a winner: keep the external original untouched and make the newest
+// local snapshot durable under a new canonical canvas name. Only after that
+// write resolves do we rebind the renderer, so navigation/quit cannot mistake
+// an in-memory copy for a durable recovery.
+const recoverRevisionConflict = async (failed: PendingCanvasSave): Promise<void> => {
+  const api = window.vellum;
+  if (!api) throw new Error("Electron preload bridge is not available.");
+
+  const snapshot = pendingSave?.name === failed.name ? pendingSave : failed;
+  let created: Awaited<ReturnType<typeof api.createCanvas>> | undefined;
+
+  for (let attempt = 0; attempt < MAX_RECOVERY_NAME_ATTEMPTS; attempt += 1) {
+    const candidate = nextRecoveryName();
+    try {
+      created = await api.createCanvas(candidate);
+      break;
+    } catch (error) {
+      if (!messageOf(error).includes("already exists")) throw error;
+    }
+  }
+  if (!created) throw new Error(`could not allocate a recovery canvas for ${failed.name}.canvas`);
+
+  const recovered = await api.writeCanvas(created.name, snapshot.doc, created.revision);
+  revisionsByName.set(created.name, recovered.revision);
+  abandonedNames.delete(created.name);
+
+  // Edits can arrive while the recovery write is in flight. The recovered
+  // snapshot is already durable; rebind any newer queued snapshot so the save
+  // pump applies it on top of the recovery revision rather than retrying the
+  // conflicted original forever.
+  if (pendingSave?.name === failed.name) {
+    pendingSave = pendingSave === snapshot
+      ? null
+      : { name: created.name, doc: pendingSave.doc };
+  }
+
+  if (state$.canvasName.peek() === failed.name) {
+    state$.canvasName.set(created.name);
+  }
+
+  // Recovery durability must not depend on list refresh. Refresh is only the
+  // UI coherence step and may fail independently after the new file exists.
+  await api.listCanvases()
+    .then((canvases) => state$.canvases.set(canvases))
+    .catch(() => undefined);
+
+  state$.saveState.set(pendingSave?.name === created.name ? "saving" : "saved");
+  state$.error.set(
+    `${failed.name}.canvas changed on disk; the external version was preserved and your local edit was saved as ${created.name}.canvas`,
+  );
+};
+
+const handleSaveFailure = async (
+  name: string,
+  request: PendingCanvasSave,
+  error: unknown,
+): Promise<void> => {
+  if (abandonedNames.has(name)) {
+    state$.saveState.set("saved");
+    return;
+  }
+
+  let failure = error;
+  if (isRevisionConflict(error)) {
+    try {
+      await recoverRevisionConflict(request);
+      return;
+    } catch (recoveryError) {
+      failure = new Error(
+        `${messageOf(error)}; recovery copy failed: ${messageOf(recoveryError)}`,
+      );
+    }
+  }
+
+  // Keep the newest local snapshot retryable. If no newer request exists,
+  // restore the exact request that failed its optimistic disk boundary.
+  if (pendingSave === null || pendingSave.name !== name) pendingSave = request;
+  state$.saveState.set("error");
+  state$.error.set(messageOf(failure));
+  throw failure;
+};
+
 const runSave = async (request: PendingCanvasSave): Promise<void> => {
   const { name, doc } = request;
   const api = window.vellum;
@@ -103,16 +202,7 @@ const runSave = async (request: PendingCanvasSave): Promise<void> => {
       }
       state$.error.set("");
     } catch (error) {
-      if (abandonedNames.has(name)) {
-        state$.saveState.set("saved");
-        return;
-      }
-      // Keep the newest local snapshot retryable. If no newer request exists,
-      // restore the exact request that failed its optimistic disk boundary.
-      if (pendingSave === null || pendingSave.name !== name) pendingSave = request;
-      state$.saveState.set("error");
-      state$.error.set(error instanceof Error ? error.message : String(error));
-      throw error;
+      await handleSaveFailure(name, request, error);
     }
   })();
 

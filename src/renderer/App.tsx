@@ -307,10 +307,16 @@ export function App() {
       void (async () => {
         try {
           // A direct-file write racing a local edit is resolved by the main
-          // process revision boundary. Failure leaves the local document in
-          // memory, keeps the save retryable, and blocks navigation/quit.
+          // process revision boundary. A stale revision preserves the external
+          // original and durably rebinds the local document to a recovery
+          // canvas before navigation/quit may continue.
           if (hasPendingCanvasChanges(name)) await flushPendingCanvasSave();
+          // A stale-revision flush may preserve the local edit by rebinding it
+          // to a recovery canvas. Do not apply the original canvas's external
+          // snapshot over that newly durable recovery document.
+          if (name !== state$.canvasName.peek()) return;
           const result = await vellum.readCanvas(name);
+          if (name !== state$.canvasName.peek()) return;
           // The user may edit while readCanvas is in flight. Never replace
           // that newer local state with the just-read disk snapshot.
           if (hasPendingCanvasChanges(name)) {
