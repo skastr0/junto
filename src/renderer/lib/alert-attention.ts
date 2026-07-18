@@ -216,14 +216,34 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
 
     return () => {
       for (const off of offs) off();
+      // Full unmount of RTS chrome only. Must NOT run when `rollups` identity
+      // changes — parent re-creates the array every fuse and a wipe re-baselines
+      // the queue so Space goes dead after the rise you just heard.
       resetAlertQueue();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rollups via ref; see comment above
+  }, []);
+
+  // Re-observe when rollups change without tearing down subscriptions/baseline.
+  useEffect(() => {
+    const signals = collectAlertSignals({
+      doc: state$.doc.peek(),
+      rollups: rollupsRef.current,
+      chat: chatState$.peek() as Record<string, { pendingPermission?: { requestId?: string } } | undefined>,
+      herdrMeta: herdr$.metaByNodeId.peek() as Record<
+        string,
+        { meta?: { agentStatus?: string } } | undefined
+      >,
+      snapshots: state$.snapshots.peek(),
+      orphans: (kernel$.orphaned.peek() as ReadonlyArray<string> | undefined) ?? [],
+    });
+    observeAlertSignals(signals);
   }, [rollups]);
 
-  // Hotkey: Space or backtick, never while text-editing.
+  // Hotkey: Space or backtick, never while text-editing / key-repeat thrash.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || event.repeat) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key !== " " && event.key !== "`") return;
       if (isTextEditing(event.target)) return;
