@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "profiles": {
+    "none": {},
+    "jit": {
+      "com.apple.security.cs.allow-jit": true
+    }
+  },
+  "machO": [
+    {
+      "path": "Contents/MacOS/Vellum",
+      "identifier": "skastr0.vellum",
+      "profile": "jit"
+    },
+    {
+      "path": "Contents/Resources/bin/vellum-browser",
+      "identifier": "vellum-browser",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/msgpackr-extract/build/Release/extract.node",
+      "identifier": "extract",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/@msgpackr-extract/msgpackr-extract-darwin-arm64/node.napi.glibc.node",
+      "identifier": "node.napi.glibc",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework",
+      "identifier": "com.github.Electron.framework",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libEGL.dylib",
+      "identifier": "libEGL",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libvk_swiftshader.dylib",
+      "identifier": "libvk_swiftshader",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libGLESv2.dylib",
+      "identifier": "libGLESv2",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libffmpeg.dylib",
+      "identifier": "libffmpeg",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Helpers/chrome_crashpad_handler",
+      "identifier": "chrome_crashpad_handler",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/ReactiveObjC.framework/Versions/A/ReactiveObjC",
+      "identifier": "com.electron.reactive",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt",
+      "identifier": "ShipIt",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Squirrel.framework/Versions/A/Squirrel",
+      "identifier": "com.github.Squirrel",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Mantle.framework/Versions/A/Mantle",
+      "identifier": "com.electron.mantle",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Vellum Helper (Renderer).app/Contents/MacOS/Vellum Helper (Renderer)",
+      "identifier": "skastr0.vellum.helper.Renderer",
+      "profile": "jit"
+    },
+    {
+      "path": "Contents/Frameworks/Vellum Helper (GPU).app/Contents/MacOS/Vellum Helper (GPU)",
+      "identifier": "skastr0.vellum.helper.GPU",
+      "profile": "jit"
+    },
+    {
+      "path": "Contents/Frameworks/Vellum Helper (Plugin).app/Contents/MacOS/Vellum Helper (Plugin)",
+      "identifier": "skastr0.vellum.helper.Plugin",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Vellum Helper.app/Contents/MacOS/Vellum Helper",
+      "identifier": "skastr0.vellum.helper",
+      "profile": "jit"
+    }
+  ]
+}

@@ -3,7 +3,7 @@
 #
 #   scripts/build-app.sh              typecheck + Electron + standalone browser CLI + package
 #   scripts/build-app.sh --fast       skip typecheck (package only; still compiles both)
-#   scripts/build-app.sh --verify     typecheck + unit tests + compile both + package
+#   scripts/build-app.sh --verify     typecheck + unit tests + compile + package + runtime smoke
 #   scripts/build-app.sh --compile-only   compile Electron + browser CLI, no .app
 #
 # Safe: never writes to /Applications. Never kills herdr sessions.
@@ -87,6 +87,11 @@ assert_app_bundle "$APP_SRC"
 
 log "package security audit (signature + ASAR + Electron fuses) …"
 bun "$SCRIPT_DIR/audit-packaged-app.ts" "$APP_SRC"
+
+if [[ "$VERIFY" -eq 1 ]]; then
+  log "packaged runtime smoke (isolated HOME + UDS doctor + no TCP/debug) …"
+  bun "$SCRIPT_DIR/packaged-runtime-smoke.ts" "$APP_SRC"
+fi
 
 log "built $(basename "$APP_SRC")"
 log "  path: $APP_SRC"

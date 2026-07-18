@@ -57,6 +57,7 @@
   "devDependencies": {
     "@electron/asar": "^3.4.1",
     "@electron/fuses": "^2.1.3",
+    "@electron/osx-sign": "1.3.3",
     "@tailwindcss/vite": "^4.1.17",
     "@types/node": "^25.0.0",
     "@types/react": "^19.2.0",
@@ -103,7 +104,11 @@
       "icon": "build/icon.icns",
       "identity": "Example Maintainer (EXAMP12345)",
       "hardenedRuntime": true,
-      "strictVerify": true
+      "strictVerify": true,
+      "sign": "./scripts/electron-builder-sign.mjs",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "preAutoEntitlements": false
     }
   }
 }

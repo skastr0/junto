@@ -1,7 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { access, stat } from "node:fs/promises";
+import {
+  access,
+  lstat,
+  open,
+  readdir,
+  realpath,
+  stat,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getRawHeader } from "@electron/asar";
@@ -13,6 +20,7 @@ import {
   type FuseConfig,
 } from "@electron/fuses";
 import rawPolicy from "./package-security-policy.json";
+import rawRuntimePolicy from "./macos-runtime-policy.json";
 
 export const FUSE_NAMES = [
   "RunAsNode",
@@ -46,6 +54,22 @@ export interface CodesignMetadata {
   readonly signature: string | undefined;
 }
 
+export type RuntimeEntitlementProfile = "none" | "jit";
+
+export interface MachORuntimePolicyEntry {
+  readonly path: string;
+  readonly identifier: string;
+  readonly profile: RuntimeEntitlementProfile;
+}
+
+export interface MacOSRuntimePolicy {
+  readonly version: 1;
+  readonly profiles: Readonly<
+    Record<RuntimeEntitlementProfile, Readonly<Record<string, true>>>
+  >;
+  readonly machO: ReadonlyArray<MachORuntimePolicyEntry>;
+}
+
 interface AsarIntegrityEntry {
   readonly algorithm: string;
   readonly hash: string;
@@ -63,7 +87,31 @@ export interface PackageAuditReceipt {
   readonly teamIdentifier: string;
   readonly runtimeVersion: string;
   readonly fuses: Readonly<Record<FuseName, "Enabled" | "Disabled">>;
+  readonly machO: {
+    readonly count: number;
+    readonly jitPaths: ReadonlyArray<string>;
+    readonly emptyEntitlementsCount: number;
+    readonly forbiddenEntitlementsCount: 0;
+  };
 }
+
+export const EXPECTED_JIT_MACHO_PATHS = [
+  "Contents/MacOS/Vellum",
+  "Contents/Frameworks/Vellum Helper (Renderer).app/Contents/MacOS/Vellum Helper (Renderer)",
+  "Contents/Frameworks/Vellum Helper (GPU).app/Contents/MacOS/Vellum Helper (GPU)",
+  "Contents/Frameworks/Vellum Helper.app/Contents/MacOS/Vellum Helper",
+] as const;
+
+const MAC_O_MAGICS = new Set([
+  "feedface",
+  "cefaedfe",
+  "feedfacf",
+  "cffaedfe",
+  "cafebabe",
+  "bebafeca",
+  "cafebabf",
+  "bfbafeca",
+]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -127,6 +175,98 @@ export const validatePackageSecurityPolicy = (
 
 export const PACKAGE_SECURITY_POLICY = validatePackageSecurityPolicy(rawPolicy);
 
+const exactRecordKeys = (
+  value: Record<string, unknown>,
+  expected: ReadonlyArray<string>,
+): boolean => {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return (
+    actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index])
+  );
+};
+
+const isCanonicalBundlePath = (value: string): boolean =>
+  value.length > 0 &&
+  Buffer.byteLength(value) <= 4_096 &&
+  !/[\u0000-\u001f\u007f\\]/u.test(value) &&
+  !path.posix.isAbsolute(value) &&
+  value.startsWith("Contents/") &&
+  path.posix.normalize(value) === value;
+
+export const validateMacOSRuntimePolicy = (
+  value: unknown,
+): MacOSRuntimePolicy => {
+  if (
+    !isRecord(value) ||
+    !exactRecordKeys(value, ["version", "profiles", "machO"]) ||
+    value.version !== 1 ||
+    !isRecord(value.profiles) ||
+    !exactRecordKeys(value.profiles, ["none", "jit"]) ||
+    !isRecord(value.profiles.none) ||
+    !isRecord(value.profiles.jit) ||
+    !Array.isArray(value.machO)
+  ) {
+    throw new Error("macOS runtime policy has an invalid top-level shape");
+  }
+  if (
+    !exactRecordKeys(value.profiles.none, []) ||
+    !exactRecordKeys(value.profiles.jit, ["com.apple.security.cs.allow-jit"]) ||
+    value.profiles.jit["com.apple.security.cs.allow-jit"] !== true
+  ) {
+    throw new Error("macOS runtime policy must expose only empty and allow-jit profiles");
+  }
+  if (value.machO.length !== 18) {
+    throw new Error(
+      `macOS runtime policy must name exactly 18 Mach-O objects, got ${value.machO.length}`,
+    );
+  }
+
+  const seenPaths = new Set<string>();
+  const jitPaths: string[] = [];
+  for (const candidate of value.machO) {
+    if (
+      !isRecord(candidate) ||
+      !exactRecordKeys(candidate, ["path", "identifier", "profile"]) ||
+      typeof candidate.path !== "string" ||
+      !isCanonicalBundlePath(candidate.path) ||
+      typeof candidate.identifier !== "string" ||
+      candidate.identifier.length === 0 ||
+      Buffer.byteLength(candidate.identifier) > 256 ||
+      /[\u0000-\u001f\u007f]/u.test(candidate.identifier) ||
+      (candidate.profile !== "none" && candidate.profile !== "jit") ||
+      seenPaths.has(candidate.path)
+    ) {
+      throw new Error("macOS runtime policy has an invalid or duplicate Mach-O entry");
+    }
+    seenPaths.add(candidate.path);
+    if (candidate.profile === "jit") jitPaths.push(candidate.path);
+  }
+
+  const expectedJit = [...EXPECTED_JIT_MACHO_PATHS].sort();
+  const actualJit = jitPaths.sort();
+  if (
+    actualJit.length !== expectedJit.length ||
+    actualJit.some((entry, index) => entry !== expectedJit[index])
+  ) {
+    throw new Error(
+      `macOS runtime policy JIT roles mismatch: got ${actualJit.join(",")} want ${expectedJit.join(",")}`,
+    );
+  }
+
+  const browserCli = value.machO.find(
+    (entry) => isRecord(entry) && entry.path === "Contents/Resources/bin/vellum-browser",
+  );
+  if (browserCli?.profile !== "none") {
+    throw new Error("packaged vellum-browser must have the empty entitlement profile");
+  }
+
+  return value as unknown as MacOSRuntimePolicy;
+};
+
+export const MACOS_RUNTIME_POLICY = validateMacOSRuntimePolicy(rawRuntimePolicy);
+
 const requireSingleCodesignValue = (
   lines: ReadonlyArray<string>,
   prefix: string,
@@ -187,9 +327,17 @@ export const validateCodesignMetadata = (
   metadata: CodesignMetadata,
   policy: PackageSecurityPolicy = PACKAGE_SECURITY_POLICY,
 ): void => {
-  if (metadata.identifier !== policy.bundleIdentifier) {
+  validateMachOCodesignMetadata(metadata, policy.bundleIdentifier, policy);
+};
+
+export const validateMachOCodesignMetadata = (
+  metadata: CodesignMetadata,
+  expectedIdentifier: string,
+  policy: PackageSecurityPolicy = PACKAGE_SECURITY_POLICY,
+): void => {
+  if (metadata.identifier !== expectedIdentifier) {
     throw new Error(
-      `signed bundle identifier mismatch: got ${metadata.identifier} want ${policy.bundleIdentifier}`,
+      `signed identifier mismatch: got ${metadata.identifier} want ${expectedIdentifier}`,
     );
   }
   if (metadata.teamIdentifier !== policy.teamIdentifier) {
@@ -211,9 +359,19 @@ export const validateCodesignMetadata = (
       `packaged app has invalid Runtime Version metadata: ${metadata.runtimeVersion}`,
     );
   }
-  if (!metadata.authorities.includes(policy.signingIdentity)) {
+  const expectedAuthorities = [
+    policy.signingIdentity,
+    "Developer ID Certification Authority",
+    "Apple Root CA",
+  ];
+  if (
+    metadata.authorities.length !== expectedAuthorities.length ||
+    metadata.authorities.some(
+      (authority, index) => authority !== expectedAuthorities[index],
+    )
+  ) {
     throw new Error(
-      `packaged app is not signed by the required identity ${policy.signingIdentity}`,
+      `signed authority chain mismatch: got ${metadata.authorities.join(" -> ")} want ${expectedAuthorities.join(" -> ")}`,
     );
   }
 };
@@ -313,6 +471,32 @@ const runFixedCommand = (
   return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
 };
 
+const runFixedCommandWithInput = (
+  executable: string,
+  args: ReadonlyArray<string>,
+  input?: string,
+): { readonly stdout: string; readonly stderr: string } => {
+  const result = spawnSync(executable, args, {
+    encoding: "utf8",
+    timeout: 60_000,
+    maxBuffer: 1024 * 1024,
+    shell: false,
+    ...(input === undefined ? {} : { input }),
+  });
+  if (result.error !== undefined) {
+    throw new Error(`${path.basename(executable)} failed: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const detail = `${result.stderr ?? ""}\n${result.stdout ?? ""}`
+      .trim()
+      .slice(0, 2_000);
+    throw new Error(
+      `${path.basename(executable)} exited ${String(result.status)}${detail.length > 0 ? `: ${detail}` : ""}`,
+    );
+  }
+  return { stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+};
+
 export const hashAsarHeaderString = (headerString: string): string =>
   createHash("sha256").update(headerString).digest("hex");
 
@@ -326,6 +510,148 @@ const requireRegularFile = async (filePath: string): Promise<void> => {
 const requireExecutable = async (filePath: string): Promise<void> => {
   await requireRegularFile(filePath);
   await access(filePath, fsConstants.X_OK);
+};
+
+export const isMachOMagic = (bytes: Uint8Array): boolean =>
+  bytes.byteLength >= 4 &&
+  MAC_O_MAGICS.has(Buffer.from(bytes.subarray(0, 4)).toString("hex"));
+
+const pathIsWithin = (root: string, candidate: string): boolean => {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === "" ||
+    (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  );
+};
+
+export const enumerateMachOPaths = async (
+  requestedAppPath: string,
+): Promise<ReadonlyArray<string>> => {
+  const root = await realpath(requestedAppPath);
+  const discovered: string[] = [];
+
+  const walk = async (directory: string): Promise<void> => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const absolutePath = path.join(directory, entry.name);
+      const metadata = await lstat(absolutePath);
+      if (metadata.isSymbolicLink()) {
+        const target = await realpath(absolutePath);
+        if (!pathIsWithin(root, target)) {
+          throw new Error("packaged app contains a symlink that escapes the bundle");
+        }
+        continue;
+      }
+      if (metadata.isDirectory()) {
+        await walk(absolutePath);
+        continue;
+      }
+      if (!metadata.isFile() || metadata.size < 4) continue;
+      const handle = await open(absolutePath, "r");
+      try {
+        const magic = Buffer.allocUnsafe(4);
+        const { bytesRead } = await handle.read(magic, 0, 4, 0);
+        if (bytesRead === 4 && isMachOMagic(magic)) {
+          discovered.push(path.relative(root, absolutePath).split(path.sep).join("/"));
+        }
+      } finally {
+        await handle.close();
+      }
+    }
+  };
+
+  await walk(root);
+  return discovered.sort();
+};
+
+export const validateMachOInventory = (
+  actualPaths: ReadonlyArray<string>,
+  policy: MacOSRuntimePolicy = MACOS_RUNTIME_POLICY,
+): void => {
+  const expected = policy.machO.map((entry) => entry.path).sort();
+  const actual = [...actualPaths].sort();
+  const missing = expected.filter((entry) => !actual.includes(entry));
+  const extra = actual.filter((entry) => !expected.includes(entry));
+  if (missing.length > 0 || extra.length > 0 || new Set(actual).size !== actual.length) {
+    throw new Error(
+      `packaged Mach-O inventory mismatch: missing=${missing.join(",") || "none"} extra=${extra.join(",") || "none"}`,
+    );
+  }
+};
+
+export const validateEntitlementProfile = (
+  actual: unknown,
+  profile: RuntimeEntitlementProfile,
+  policy: MacOSRuntimePolicy = MACOS_RUNTIME_POLICY,
+): void => {
+  if (!isRecord(actual)) {
+    throw new Error("signed entitlements must decode to an object");
+  }
+  const expected = policy.profiles[profile];
+  if (!exactRecordKeys(actual, Object.keys(expected))) {
+    throw new Error(
+      `signed entitlement keys mismatch for ${profile}: got ${Object.keys(actual).sort().join(",") || "none"}`,
+    );
+  }
+  for (const [key, value] of Object.entries(expected)) {
+    if (actual[key] !== value) {
+      throw new Error(`signed entitlement ${key} has the wrong value`);
+    }
+  }
+};
+
+const readSignedEntitlements = (filePath: string): unknown => {
+  const { stdout } = runFixedCommandWithInput("/usr/bin/codesign", [
+    "-d",
+    "--entitlements",
+    ":-",
+    filePath,
+  ]);
+  if (stdout.trim().length === 0) return {};
+  const converted = runFixedCommandWithInput(
+    "/usr/bin/plutil",
+    ["-convert", "json", "-o", "-", "-"],
+    stdout,
+  ).stdout;
+  try {
+    return JSON.parse(converted);
+  } catch {
+    throw new Error("plutil returned invalid JSON for signed entitlements");
+  }
+};
+
+const auditMachOObjects = async (
+  appPath: string,
+  policy: MacOSRuntimePolicy = MACOS_RUNTIME_POLICY,
+): Promise<PackageAuditReceipt["machO"]> => {
+  const actualPaths = await enumerateMachOPaths(appPath);
+  validateMachOInventory(actualPaths, policy);
+  const entries = new Map(policy.machO.map((entry) => [entry.path, entry]));
+
+  for (const relativePath of actualPaths) {
+    const expected = entries.get(relativePath);
+    if (expected === undefined) {
+      throw new Error("packaged Mach-O path has no signing policy");
+    }
+    const filePath = path.join(appPath, ...relativePath.split("/"));
+    const metadata = parseCodesignMetadata(
+      runFixedCommand("/usr/bin/codesign", ["-d", "--verbose=4", filePath]),
+    );
+    validateMachOCodesignMetadata(metadata, expected.identifier);
+    validateEntitlementProfile(readSignedEntitlements(filePath), expected.profile, policy);
+  }
+
+  const jitPaths = policy.machO
+    .filter((entry) => entry.profile === "jit")
+    .map((entry) => entry.path)
+    .sort();
+  return {
+    count: actualPaths.length,
+    jitPaths,
+    emptyEntitlementsCount: actualPaths.length - jitPaths.length,
+    forbiddenEntitlementsCount: 0,
+  };
 };
 
 export const auditPackagedApp = async (
@@ -394,12 +720,14 @@ export const auditPackagedApp = async (
   );
 
   const fuses = validateFuseWire(await getCurrentFuseWire(appPath), policy);
+  const machO = await auditMachOObjects(appPath);
   return {
     appPath,
     bundleIdentifier: codesign.identifier,
     teamIdentifier: codesign.teamIdentifier,
     runtimeVersion: codesign.runtimeVersion,
     fuses,
+    machO,
   };
 };
 
