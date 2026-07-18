@@ -105,9 +105,6 @@ Techniques baked in: dim+blur backdrop, titlebar-aware padding, enter animation 
 
 - Adapters are read-only. The document is the only thing the user (or an agent) mutates.
 - Board/source IDs and tokens never leak into committed source.
-- Primary Gmail and GitHub credentials are blocked until the canonical gate in
-  `docs/browser-security.md` is approved. Use synthetic accounts only. This is
-  repository authorization, not runtime interception by the current app.
 - `bun run typecheck && bun run test` gate every change.
 
 ## Multi-agent tree (for builders)

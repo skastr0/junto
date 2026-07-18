@@ -42,16 +42,6 @@ bun run verify   # typecheck + tests + vite compile
 
 First launch seeds a starter portfolio canvas.
 
-## Browser credential safety
-
-Primary Gmail and GitHub credentials are blocked until Vellum's browser
-hardening and packaged qualification gates are approved. Use synthetic accounts
-only. The canonical decision and evidence requirements live in
-[`docs/browser-security.md`](docs/browser-security.md).
-
-This repository gate is not a runtime interception guarantee: the current app
-does not yet prevent a human from typing credentials into a page.
-
 ## Package & install (macOS)
 
 ```bash
