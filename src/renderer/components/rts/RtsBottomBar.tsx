@@ -38,6 +38,7 @@ import {
 import { playAlert } from "../../lib/sfx";
 import { HUE, withAlpha } from "../../lib/theme";
 import { disarmOrphan, kernel$ } from "../../lib/kernel-view";
+import { useAlertAttention } from "../../lib/alert-attention";
 import { ConnectEditor } from "../InspectorFields";
 import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
 import { PulseTray } from "../PulseTray";
@@ -793,6 +794,7 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
   const idleQueue = useIdleHerdrQueue();
   useRegionHotkeys(idleQueue);
   const rollups = useRegionRollups();
+  useAlertAttention(rollups);
   const byId = useMemo(() => new Map(rollups.map((r) => [r.regionId, r])), [rollups]);
   const severityMap = useSeverityByNodeId(rollups);
 
