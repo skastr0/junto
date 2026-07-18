@@ -1,7 +1,9 @@
 import * as Command from "@effect/platform/Command";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import {
+  Clock,
   Deferred,
+  Duration,
   Effect,
   Either,
   Fiber,
@@ -9,8 +11,6 @@ import {
   Scope,
   Sink,
   Stream,
-  TestClock,
-  TestContext,
 } from "effect";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -393,21 +393,48 @@ describe("SshTransport", () => {
       releases,
     );
     const result = await Effect.runPromise(
-      TestClock.adjustWith(
-        Effect.gen(function* () {
+      Effect.gen(function* () {
+        const fireTimeout = yield* Deferred.make<void>();
+        let observedTimeoutMs: number | undefined;
+        const clock: Clock.Clock = {
+          [Clock.ClockTypeId]: Clock.ClockTypeId,
+          unsafeCurrentTimeMillis: () => 0,
+          currentTimeMillis: Effect.succeed(0),
+          unsafeCurrentTimeNanos: () => 0n,
+          currentTimeNanos: Effect.succeed(0n),
+          sleep: (duration) =>
+            Effect.sync(() => {
+              observedTimeoutMs = Duration.toMillis(duration);
+            }).pipe(Effect.zipRight(Deferred.await(fireTimeout))),
+        };
+        const operation = Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
           const remote = yield* makeRemoteCommand("never");
           return yield* (yield* SshTransport).run(
             oneShot(endpoint, remote, { budget: "short" }),
           );
-        }).pipe(Effect.provide(layer), Effect.either),
-        "7 seconds",
-      ).pipe(Effect.provide(TestContext.TestContext)),
+        }).pipe(
+          Effect.provide(layer),
+          Effect.withClock(clock),
+          Effect.either,
+        );
+        const fiber = yield* Effect.fork(operation);
+        while (!calls.some((command) => remoteText(command).includes("never"))) {
+          yield* Effect.yieldNow();
+        }
+        yield* Deferred.succeed(fireTimeout, undefined);
+        return { result: yield* Fiber.join(fiber), observedTimeoutMs };
+      }),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) expect(result.left).toBeInstanceOf(SshTimeoutError);
-  }, 10_000);
+    expect(result.observedTimeoutMs).toBe(6_000);
+    expect(Either.isLeft(result.result)).toBe(true);
+    if (Either.isLeft(result.result)) {
+      expect(result.result.left).toBeInstanceOf(SshTimeoutError);
+      expect((result.result.left as SshTimeoutError).timeoutMs).toBe(6_000);
+    }
+    expect(releases.some((command) => remoteText(command).includes("never"))).toBe(true);
+  });
 
   it("composes global and per-endpoint dial admission without host starvation", async () => {
     const calls: Command.StandardCommand[] = [];
