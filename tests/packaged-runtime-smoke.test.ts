@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  DARWIN_UNIX_SOCKET_PATH_MAX_BYTES,
+  assertDarwinUnixSocketPathFits,
   assertNoLiveVellumRuntime,
   assertNoTcpListeners,
+  boundedProcessKind,
   descendantRows,
   hasDebugAuthority,
   modeString,
   parseDoctorReceipt,
   parseProcessRows,
   processRoles,
+  survivingProcessRows,
 } from "../scripts/packaged-runtime-smoke";
 
 const processFixture = `
@@ -33,13 +37,39 @@ describe("packaged runtime smoke process qualification", () => {
     ]);
   });
 
+  it("pins descendant identity so a reused PID cannot become a false survivor", () => {
+    const original = parseProcessRows(processFixture);
+    const current = [
+      { ...original[0] },
+      { pid: original[1].pid, ppid: 1, command: "/usr/bin/unrelated-reused-pid" },
+    ];
+    expect(survivingProcessRows(original, current)).toEqual([original[0]]);
+  });
+
+  it("reports only an allowlisted kind for a surviving codexbar adapter", () => {
+    expect(
+      boundedProcessKind(
+        "/private/tool/codexbar usage --json --provider secret-provider-material",
+      ),
+    ).toBe("codexbar");
+  });
+
   it("rejects live Vellum and debugger/CDP authority", () => {
-    expect(() => assertNoLiveVellumRuntime(parseProcessRows(processFixture))).toThrow(
-      /already running/u,
-    );
+    expect(() =>
+      assertNoLiveVellumRuntime(parseProcessRows(processFixture), ["/release/Vellum.app"]),
+    ).toThrow(/already running/u);
     expect(() =>
       assertNoLiveVellumRuntime([
         { pid: 1, ppid: 0, command: "/Applications/Other.app/Contents/MacOS/Other" },
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      assertNoLiveVellumRuntime([
+        {
+          pid: 2,
+          ppid: 1,
+          command: "/usr/bin/codesign -d /Applications/Vellum.app/Contents/MacOS/Vellum",
+        },
       ]),
     ).not.toThrow();
     expect(
@@ -80,5 +110,19 @@ describe("packaged runtime smoke receipts", () => {
     expect(() => assertNoTcpListeners(1, "")).not.toThrow();
     expect(() => assertNoTcpListeners(0, "COMMAND PID ...")).toThrow(/TCP listener/u);
     expect(() => assertNoTcpListeners(2, "")).toThrow(/TCP listener/u);
+  });
+
+  it("fails before launch when an isolated Unix socket exceeds Darwin sun_path", () => {
+    const exact = `/${"a".repeat(DARWIN_UNIX_SOCKET_PATH_MAX_BYTES - 1)}`;
+    const tooLong = `${exact}a`;
+    expect(Buffer.byteLength(exact)).toBe(DARWIN_UNIX_SOCKET_PATH_MAX_BYTES);
+    expect(Buffer.byteLength(tooLong)).toBe(DARWIN_UNIX_SOCKET_PATH_MAX_BYTES + 1);
+    expect(() => assertDarwinUnixSocketPathFits(exact)).not.toThrow();
+    expect(() => assertDarwinUnixSocketPathFits(tooLong)).toThrow(/Darwin 103-byte limit/u);
+    expect(() =>
+      assertDarwinUnixSocketPathFits(
+        "/private/tmp/vellum-smoke-XXXXXX/home/.vellum/browser/control.sock",
+      ),
+    ).not.toThrow();
   });
 });

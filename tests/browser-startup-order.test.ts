@@ -56,8 +56,12 @@ describe("browser startup recovery gate", () => {
       ready.indexOf("if (!headless) createWindow()"),
     );
     expect(failure).toContain("BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE");
-    expect(failure).toContain("app.exit(1)");
-    expect(failure).toMatch(/app\.exit\(1\);\s*return;/);
+    expect(failure).toContain(
+      'exitAfterDetach(1, "browser-composition-startup-failure")',
+    );
+    expect(failure).toMatch(
+      /exitAfterDetach\(1, "browser-composition-startup-failure"\);\s*return;/,
+    );
     expect(failure).not.toContain("createWindow(");
   });
 });

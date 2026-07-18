@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -17,12 +17,170 @@ const MAX_BUFFER = 16 * 1024 * 1024;
 // stall the whole spawn plane — on timeout we fall back to the static merge,
 // which alone resolves every reference CLI (proven under a hostile env).
 const LOGIN_SHELL_TIMEOUT_MS = 4_000;
+const ADAPTER_QUIESCING_ERROR = "adapter process plane is shutting down";
+
+interface OwnedAdapterChild {
+  readonly child: ChildProcessWithoutNullStreams;
+  readonly processGroupId?: number;
+}
+
+const ownedAdapterChildren = new Set<OwnedAdapterChild>();
+let adapterProcessesQuiescing = false;
 
 export interface CliResult {
   readonly ok: boolean;
   readonly stdout: string;
   readonly error?: string;
 }
+
+const signalOwnedAdapterChild = (
+  owned: OwnedAdapterChild,
+  signal: NodeJS.Signals,
+): void => {
+  if (owned.processGroupId !== undefined) {
+    try {
+      process.kill(-owned.processGroupId, signal);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+      // Fall back to the direct child if group signalling is unavailable.
+    }
+  }
+
+  if (owned.child.exitCode !== null || owned.child.signalCode !== null) return;
+  try {
+    owned.child.kill(signal);
+  } catch {
+    // The owned child may have exited between the liveness check and signal.
+  }
+};
+
+/**
+ * Monotonically close the read-only adapter process plane during app quit.
+ *
+ * Each adapter command owns a distinct POSIX process group, so signalling it
+ * cannot touch the intentionally persistent Herdr server/session plane. The
+ * registry stores child handles and group ids only — never argv, which may
+ * contain user prompt material for Hermes calls.
+ */
+export const terminateAdapterChildrenOnQuit = (): void => {
+  if (adapterProcessesQuiescing) return;
+  adapterProcessesQuiescing = true;
+  for (const owned of ownedAdapterChildren) {
+    signalOwnedAdapterChild(owned, "SIGTERM");
+  }
+};
+
+const runOwnedFile = (
+  command: string,
+  args: ReadonlyArray<string>,
+  options: {
+    readonly timeoutMs: number;
+    readonly maxBuffer: number;
+    readonly env?: NodeJS.ProcessEnv;
+  },
+): Promise<CliResult> => {
+  if (adapterProcessesQuiescing) {
+    return Promise.resolve({ ok: false, stdout: "", error: ADAPTER_QUIESCING_ERROR });
+  }
+
+  return new Promise((resolve) => {
+    // No await occurs between this final gate and registration, closing the
+    // late-spawn race with terminateAdapterChildrenOnQuit().
+    if (adapterProcessesQuiescing) {
+      resolve({ ok: false, stdout: "", error: ADAPTER_QUIESCING_ERROR });
+      return;
+    }
+
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(command, [...args], {
+        detached: process.platform !== "win32",
+        ...(options.env === undefined ? {} : { env: options.env }),
+      });
+    } catch (error) {
+      resolve({
+        ok: false,
+        stdout: "",
+        error: error instanceof Error ? error.message : "adapter command spawn failed",
+      });
+      return;
+    }
+
+    child.stdin.end();
+    const owned: OwnedAdapterChild = {
+      child,
+      ...(process.platform !== "win32" && child.pid !== undefined
+        ? { processGroupId: child.pid }
+        : {}),
+    };
+    ownedAdapterChildren.add(owned);
+
+    let stdout = "";
+    let stderr = "";
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let settled = false;
+    let timedOut = false;
+    let bufferExceeded = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      signalOwnedAdapterChild(owned, "SIGKILL");
+    }, options.timeoutMs);
+    timer.unref?.();
+
+    const settle = (result: CliResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      // A one-shot adapter command never owns a persistent descendant. Reap
+      // anything that outlived its group leader before forgetting the group.
+      signalOwnedAdapterChild(owned, "SIGTERM");
+      ownedAdapterChildren.delete(owned);
+      resolve(result);
+    };
+
+    const append = (target: "stdout" | "stderr", chunk: unknown): void => {
+      if (bufferExceeded) return;
+      const text = String(chunk);
+      const bytes = Buffer.byteLength(text);
+      if (target === "stdout") {
+        stdoutBytes += bytes;
+        if (stdoutBytes <= options.maxBuffer) stdout += text;
+      } else {
+        stderrBytes += bytes;
+        if (stderrBytes <= options.maxBuffer) stderr += text;
+      }
+      if (stdoutBytes <= options.maxBuffer && stderrBytes <= options.maxBuffer) return;
+      bufferExceeded = true;
+      signalOwnedAdapterChild(owned, "SIGKILL");
+    };
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: unknown) => append("stdout", chunk));
+    child.stderr.on("data", (chunk: unknown) => append("stderr", chunk));
+    child.once("error", (error) => {
+      settle({ ok: false, stdout: "", error: error.message });
+    });
+    child.once("close", (code, signal) => {
+      if (code === 0 && signal === null && !timedOut && !bufferExceeded) {
+        settle({ ok: true, stdout });
+        return;
+      }
+      const error = stderr.trim() ||
+        (timedOut
+          ? `adapter command timed out after ${options.timeoutMs}ms`
+          : bufferExceeded
+            ? "adapter command exceeded the output limit"
+            : signal !== null
+              ? `adapter command terminated by ${signal}`
+              : `adapter command exited with code ${String(code)}`);
+      settle({ ok: false, stdout: "", error });
+    });
+  });
+};
 
 // Well-known install roots, in priority order. This is the guaranteed floor:
 // under a packaged/launchd/Finder launch the process inherits launchd's
@@ -80,19 +238,13 @@ export const mergePath = (inputs: {
 const queryLoginShellPath = (): Promise<string | undefined> =>
   new Promise((resolve) => {
     const shell = process.env.SHELL || "/bin/zsh";
-    execFile(
-      shell,
-      ["-lc", "echo $PATH"],
-      { timeout: LOGIN_SHELL_TIMEOUT_MS },
-      (error, stdout) => {
-        if (error) {
-          resolve(undefined);
-          return;
-        }
-        const line = stdout.toString().trim();
-        resolve(line || undefined);
-      },
-    );
+    void runOwnedFile(shell, ["-lc", "echo $PATH"], {
+      timeoutMs: LOGIN_SHELL_TIMEOUT_MS,
+      maxBuffer: 64 * 1024,
+    }).then((result) => {
+      const line = result.ok ? result.stdout.trim() : "";
+      resolve(line || undefined);
+    });
   });
 
 let resolvedEnvPromise: Promise<NodeJS.ProcessEnv> | undefined;
@@ -148,21 +300,10 @@ export const runCli = async (
   // pathological case it rejects, fall back to the sync static merge so the
   // call still degrades to an {ok:false} result on ENOENT rather than throwing.
   const env = await resolvedSpawnEnv().catch(() => resolvedSpawnEnvSync());
-  return new Promise((resolve) => {
-    execFile(
-      command,
-      args as string[],
-      { timeout: timeoutMs, env, maxBuffer: MAX_BUFFER },
-      (error, stdout, stderr) => {
-        if (error) {
-          const message = stderr?.toString().trim() || error.message;
-          resolve({ ok: false, stdout: "", error: message });
-          return;
-        }
-        resolve({ ok: true, stdout: stdout.toString() });
-      },
-    );
-  });
+  if (adapterProcessesQuiescing) {
+    return { ok: false, stdout: "", error: ADAPTER_QUIESCING_ERROR };
+  }
+  return runOwnedFile(command, args, { timeoutMs, env, maxBuffer: MAX_BUFFER });
 };
 
 export const parseJson = <T>(text: string): T | undefined => {

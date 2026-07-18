@@ -15,7 +15,10 @@ import {
 import { Effect } from "effect";
 import { classifyBrowserTarget } from "@shared/browser-policy";
 import { IPC_CHANNELS, type NodeRefOpenedDelivery } from "@shared/ipc";
-import { resolvedSpawnEnv } from "./vellum/adapters/exec";
+import {
+  resolvedSpawnEnv,
+  terminateAdapterChildrenOnQuit,
+} from "./vellum/adapters/exec";
 import { AppRuntime, chatService } from "./runtime";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./vellum/canvases";
@@ -259,7 +262,7 @@ const registerCrashRecovery = (mainWindow: BrowserWindow) => {
       relaunchCount += 1;
       console.error(`[renderer:gone] reloads exhausted — full relaunch ${relaunchCount}/${MAX_RECOVERIES}`);
       app.relaunch();
-      app.exit(0);
+      exitAfterDetach(0, "renderer-relaunch");
       return;
     }
 
@@ -373,7 +376,7 @@ const createWindow = () => {
     void mainWindow.loadURL(TRUSTED_RENDERER_URL).catch(() => {
       console.error("[window] trusted renderer load failed");
       if (!mainWindow.isDestroyed()) mainWindow.destroy();
-      app.exit(1);
+      exitAfterDetach(1, "renderer-load-failure");
     });
   }
 
@@ -454,7 +457,7 @@ const ensureSupervised = async (): Promise<boolean> => {
   const kick = await launchctl(["kickstart", target]);
   if (kick.ok) {
     await flushNodeRefPublications();
-    app.exit(0);
+    exitAfterDetach(0, "launchd-handoff");
     return false;
   }
   // Kickstart failed (odd job state) — reclaim the lock and run unsupervised
@@ -502,7 +505,7 @@ if (!gotSingleInstanceLock) {
       );
     } catch {
       console.error("[window] trusted renderer protocol setup failed");
-      app.exit(1);
+      exitAfterDetach(1, "trusted-renderer-startup-failure");
       return;
     }
 
@@ -593,7 +596,7 @@ if (!gotSingleInstanceLock) {
       }
       browserControl = undefined;
       console.error(BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE);
-      app.exit(1);
+      exitAfterDetach(1, "browser-composition-startup-failure");
       return;
     }
 
@@ -606,7 +609,7 @@ if (!gotSingleInstanceLock) {
   })
     .catch(() => {
       console.error("[startup] initialization failed");
-      app.exit(1);
+      exitAfterDetach(1, "startup-failure");
     });
 }
 
@@ -643,6 +646,11 @@ const detachRuntimeOnQuit = (reason: string): void => {
   if (runtimeDetachedForQuit) return;
   runtimeDetachedForQuit = true;
 
+  // Stop the read-only adapter plane first. Its one-shot CLI groups are
+  // Vellum-owned and must never outlive the app; Herdr sessions use a separate
+  // explicitly detached server plane and remain untouched below.
+  terminateAdapterChildrenOnQuit();
+
   // Revoke authority before closing the socket or detaching browser views.
   // Registry termination destroys only automation-owner WebContentsViews;
   // profile partitions and unrelated renderer-owned views remain intact.
@@ -663,6 +671,13 @@ const detachRuntimeOnQuit = (reason: string): void => {
   // Never pane close, tab close, or session stop. The fleet keeps running.
   detachHerdrOnQuit(reason);
   browserComposition = undefined;
+};
+
+// Electron app.exit() bypasses before-quit and will-quit. Every direct exit
+// therefore routes through the same authority/process teardown explicitly.
+const exitAfterDetach = (exitCode: number, reason: string): void => {
+  detachRuntimeOnQuit(reason);
+  app.exit(exitCode);
 };
 
 app.on("before-quit", () => {

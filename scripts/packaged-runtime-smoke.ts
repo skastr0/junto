@@ -11,7 +11,7 @@ import {
   rm,
   stat,
 } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -25,6 +25,8 @@ const STARTUP_TIMEOUT_MS = 25_000;
 const SHUTDOWN_TIMEOUT_MS = 7_000;
 const CHILD_OUTPUT_LIMIT_BYTES = 64 * 1024;
 const REQUIRED_PROCESS_ROLES = ["gpu-process", "main", "renderer", "utility"] as const;
+// Darwin's sockaddr_un.sun_path is 104 bytes including the trailing NUL.
+export const DARWIN_UNIX_SOCKET_PATH_MAX_BYTES = 103;
 
 const currentUid = (): number => {
   if (process.getuid === undefined) {
@@ -77,6 +79,14 @@ export const descendantRows = (
   return rows.filter((row) => descendants.has(row.pid));
 };
 
+export const survivingProcessRows = (
+  original: ReadonlyArray<ProcessRow>,
+  current: ReadonlyArray<ProcessRow>,
+): ReadonlyArray<ProcessRow> => {
+  const originalCommands = new Map(original.map((row) => [row.pid, row.command]));
+  return current.filter((row) => originalCommands.get(row.pid) === row.command);
+};
+
 const processRole = (row: ProcessRow, rootPid: number): string | undefined => {
   if (row.pid === rootPid) return "main";
   const match = row.command.match(/(?:^|\s)--type=([^\s]+)/u);
@@ -84,6 +94,28 @@ const processRole = (row: ProcessRow, rootPid: number): string | undefined => {
   return match[1] === "gpu-process" || match[1] === "renderer" || match[1] === "utility"
     ? match[1]
     : undefined;
+};
+
+export const boundedProcessKind = (command: string): string => {
+  for (const kind of [
+    "codexbar",
+    "grok",
+    "hermes",
+    "herdr",
+    "zsh",
+    "bash",
+    "ssh",
+    "launchctl",
+    "tower",
+    "quasar",
+    "prism",
+    "bun",
+    "node",
+    "git",
+  ]) {
+    if (command.toLowerCase().includes(kind)) return kind;
+  }
+  return "other";
 };
 
 export const processRoles = (
@@ -101,11 +133,13 @@ export const hasDebugAuthority = (rows: ReadonlyArray<ProcessRow>): boolean =>
     ),
   );
 
-export const assertNoLiveVellumRuntime = (rows: ReadonlyArray<ProcessRow>): void => {
+export const assertNoLiveVellumRuntime = (
+  rows: ReadonlyArray<ProcessRow>,
+  bundleRoots: ReadonlyArray<string> = ["/Applications/Vellum.app"],
+): void => {
+  const prefixes = bundleRoots.map((root) => `${root}/Contents/`);
   const running = rows.some((row) =>
-    /\/Vellum(?: Helper(?: \((?:Renderer|GPU|Plugin)\))?)?\.app\/Contents\//u.test(
-      row.command,
-    ),
+    prefixes.some((prefix) => row.command.startsWith(prefix)),
   );
   if (running) {
     throw new Error("a Vellum runtime is already running; close it before packaged smoke");
@@ -143,6 +177,15 @@ export const parseDoctorReceipt = (output: string): DoctorReceipt => {
 
 export const modeString = (mode: number): string =>
   (mode & 0o777).toString(8).padStart(4, "0");
+
+export const assertDarwinUnixSocketPathFits = (socketPath: string): void => {
+  const bytes = Buffer.byteLength(socketPath);
+  if (bytes > DARWIN_UNIX_SOCKET_PATH_MAX_BYTES) {
+    throw new Error(
+      `isolated control socket path exceeds the Darwin ${DARWIN_UNIX_SOCKET_PATH_MAX_BYTES}-byte limit`,
+    );
+  }
+};
 
 export const assertNoTcpListeners = (
   status: number | null,
@@ -189,8 +232,11 @@ const currentProcessRows = (): ReadonlyArray<ProcessRow> => {
   return parseProcessRows(result.stdout);
 };
 
-const preflightRuntime = (): void => {
-  assertNoLiveVellumRuntime(currentProcessRows());
+const preflightRuntime = (requestedAppPath: string): void => {
+  assertNoLiveVellumRuntime(currentProcessRows(), [
+    "/Applications/Vellum.app",
+    requestedAppPath,
+  ]);
   const launchAgent = runFixed("/bin/launchctl", [
     "print",
     `gui/${String(currentUid())}/skastr0.vellum`,
@@ -260,6 +306,7 @@ const delay = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const waitUntil = async (
+  stage: "control startup" | "process roles" | "shutdown cleanup",
   timeoutMs: number,
   check: () => boolean | Promise<boolean>,
 ): Promise<void> => {
@@ -268,16 +315,7 @@ const waitUntil = async (
     if (await check()) return;
     await delay(100);
   }
-  throw new Error("packaged runtime smoke timed out");
-};
-
-const processAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
+  throw new Error(`packaged runtime smoke timed out during ${stage}`);
 };
 
 const pathExists = async (targetPath: string): Promise<boolean> =>
@@ -341,16 +379,16 @@ const waitForExit = (
 
 const terminateSpawnedRuntime = async (
   child: ChildProcessWithoutNullStreams,
-  knownPids: ReadonlyArray<number>,
+  knownRows: ReadonlyArray<ProcessRow>,
 ): Promise<void> => {
   if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
   try {
     await waitForExit(child, SHUTDOWN_TIMEOUT_MS);
   } catch {
-    for (const pid of knownPids) {
-      if (!processAlive(pid)) continue;
+    const survivors = survivingProcessRows(knownRows, currentProcessRows());
+    for (const row of survivors) {
       try {
-        process.kill(pid, "SIGKILL");
+        process.kill(row.pid, "SIGKILL");
       } catch {
         // The bounded canary process may have exited between the liveness check and kill.
       }
@@ -405,12 +443,11 @@ export const smokePackagedRuntime = async (
   if (process.platform !== "darwin") {
     throw new Error("packaged runtime smoke is supported only on macOS");
   }
-  preflightRuntime();
-
   const appPath = await realpath(path.resolve(requestedAppPath));
   if (path.basename(appPath) !== "Vellum.app") {
     throw new Error("packaged runtime smoke requires Vellum.app");
   }
+  preflightRuntime(appPath);
   const executable = path.join(appPath, "Contents", "MacOS", "Vellum");
   const browserCli = path.join(appPath, "Contents", "Resources", "bin", "vellum-browser");
   await Promise.all([stat(executable), stat(browserCli)]);
@@ -428,13 +465,18 @@ export const smokePackagedRuntime = async (
     }))
     .filter((watcher): watcher is FSWatcher => watcher !== undefined);
 
-  const tempRoot = await mkdtemp(path.join(tmpdir(), "vellum-packaged-smoke-"));
+  // `os.tmpdir()` expands to a long /var/folders/... path on macOS and can
+  // overflow sockaddr_un before the browser control server binds. Canonical
+  // /private/tmp keeps the isolated, random root well inside the kernel limit.
+  const shortTempParent = await realpath("/tmp");
+  const tempRoot = await mkdtemp(path.join(shortTempParent, "vellum-smoke-"));
   await chmod(tempRoot, 0o700);
   const isolatedHome = path.join(tempRoot, "home");
   const userData = path.join(tempRoot, "user-data");
   const canvases = path.join(tempRoot, "canvases");
   const isolatedTmp = path.join(tempRoot, "tmp");
   const cache = path.join(tempRoot, "cache");
+  assertDarwinUnixSocketPathFits(controlSocketPath(isolatedHome));
   await Promise.all(
     [isolatedHome, userData, canvases, isolatedTmp, cache].map(ensureDirectory),
   );
@@ -452,7 +494,7 @@ export const smokePackagedRuntime = async (
   };
 
   let child: ChildProcessWithoutNullStreams | undefined;
-  let knownPids: number[] = [];
+  let knownRows: ReadonlyArray<ProcessRow> = [];
   let success: Omit<PackagedRuntimeSmokeReceipt, "tempRootRemoved"> | undefined;
   const watchdog = setTimeout(() => {
     if (child !== undefined && child.exitCode === null && child.signalCode === null) {
@@ -474,7 +516,7 @@ export const smokePackagedRuntime = async (
     const rootPid = spawned.pid;
     const controlHome = isolatedHome;
 
-    await waitUntil(STARTUP_TIMEOUT_MS, async () => {
+    await waitUntil("control startup", STARTUP_TIMEOUT_MS, async () => {
       if (spawned.exitCode !== null || spawned.signalCode !== null) {
         const [registryCreated, tokenCreated, socketCreated] = await Promise.all([
           pathExists(path.join(controlDir(controlHome), "config.json")),
@@ -513,7 +555,7 @@ export const smokePackagedRuntime = async (
     parseDoctorReceipt(doctor.stdout.trim());
 
     let runtimeRows: ReadonlyArray<ProcessRow> = [];
-    await waitUntil(STARTUP_TIMEOUT_MS, () => {
+    await waitUntil("process roles", STARTUP_TIMEOUT_MS, () => {
       runtimeRows = descendantRows(rootPid, currentProcessRows());
       const roles = processRoles(rootPid, runtimeRows);
       return REQUIRED_PROCESS_ROLES.every((role) => roles.includes(role));
@@ -521,7 +563,8 @@ export const smokePackagedRuntime = async (
     if (hasDebugAuthority(runtimeRows)) {
       throw new Error("packaged Vellum descendants exposed debugger authority");
     }
-    knownPids = runtimeRows.map((row) => row.pid);
+    knownRows = runtimeRows;
+    const knownPids = knownRows.map((row) => row.pid);
 
     const listeners = runFixed("/usr/sbin/lsof", [
       "-nP",
@@ -541,13 +584,35 @@ export const smokePackagedRuntime = async (
     if (exited.code !== 0 || exited.signal !== null) {
       throw new Error("packaged Vellum did not complete its normal SIGTERM contract");
     }
-    await waitUntil(SHUTDOWN_TIMEOUT_MS, async () => {
-      const socketGone = await lstat(controlSocketPath(controlHome)).then(
-        () => false,
-        (error: NodeJS.ErrnoException) => error.code === "ENOENT",
+    let shutdownSocketGone = false;
+    let shutdownAliveCount = knownRows.length;
+    let shutdownSurvivorKinds: ReadonlyArray<string> = [];
+    try {
+      await waitUntil("shutdown cleanup", SHUTDOWN_TIMEOUT_MS, async () => {
+        shutdownSocketGone = await lstat(controlSocketPath(controlHome)).then(
+          () => false,
+          (error: NodeJS.ErrnoException) => error.code === "ENOENT",
+        );
+        const survivors = survivingProcessRows(
+          knownRows,
+          currentProcessRows(),
+        );
+        shutdownAliveCount = survivors.length;
+        shutdownSurvivorKinds = survivors.map((row) =>
+          row.pid === rootPid
+            ? "main"
+            : processRole(row, rootPid) ??
+              (row.command.includes("chrome_crashpad_handler")
+                ? "crashpad"
+                : boundedProcessKind(row.command)),
+        );
+        return shutdownSocketGone && shutdownAliveCount === 0;
+      });
+    } catch {
+      throw new Error(
+        `packaged runtime shutdown cleanup failed (socketGone=${String(shutdownSocketGone)}, aliveDescendants=${shutdownAliveCount}, survivorKinds=${shutdownSurvivorKinds.join(",") || "none"})`,
       );
-      return socketGone && knownPids.every((pid) => !processAlive(pid));
-    });
+    }
 
     await delay(150);
     const afterSnapshots = await Promise.all(realRoots.map(snapshotTree));
@@ -574,7 +639,7 @@ export const smokePackagedRuntime = async (
   } finally {
     clearTimeout(watchdog);
     for (const watcher of watchers) watcher.close();
-    if (child !== undefined) await terminateSpawnedRuntime(child, knownPids);
+    if (child !== undefined) await terminateSpawnedRuntime(child, knownRows);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 2 });
   }
 
