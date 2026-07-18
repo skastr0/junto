@@ -74,14 +74,14 @@ export interface AcpClientHandlers {
 // The minimal shape of a child process this client needs — satisfied by
 // node:child_process's ChildProcessWithoutNullStreams, and by the fake
 // EventEmitter-based child the unit tests inject in its place.
-export interface AcpChildLike {
+export type AcpChildLike = {
   readonly stdin: { write(chunk: string): boolean };
   readonly stdout: NodeJS.EventEmitter;
   readonly stderr: NodeJS.EventEmitter;
   on(event: "error", listener: (err: Error) => void): unknown;
   on(event: "exit", listener: (code: number | null) => void): unknown;
   kill(signal?: NodeJS.Signals): unknown;
-}
+};
 
 export interface LocalBrowserChildEnvironmentInput {
   readonly capability: string;

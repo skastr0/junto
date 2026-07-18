@@ -519,7 +519,7 @@ if (!gotSingleInstanceLock) {
     // Warm the resolved spawn environment (login-shell PATH + static floor) so
     // process.env.PATH is fixed before any adapter/service spawns a CLI. Never
     // rejects; adapters also await it lazily, so this is belt-and-suspenders.
-    void resolvedSpawnEnv();
+    await resolvedSpawnEnv();
 
     registerIpcHandlers();
     registerDemoIpcHandlers();
@@ -530,7 +530,9 @@ if (!gotSingleInstanceLock) {
     ]);
     await AppRuntime.runPromise(herdr.start);
     powerMonitor.on("resume", () => {
-      void AppRuntime.runPromise(Effect.flatMap(HerdrPlane, (plane) => plane.warm));
+      void AppRuntime.runPromise(Effect.flatMap(HerdrPlane, (plane) => plane.warm)).catch(() => {
+        console.error("[herdr] resume warm failed");
+      });
       try {
         browserComposition?.automation.reapAfterResume();
       } catch {
