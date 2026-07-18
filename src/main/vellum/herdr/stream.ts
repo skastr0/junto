@@ -1,9 +1,7 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { HerdrPointerCell } from "@shared/ipc";
-import { herdrArgv, isKnownHerdrHost, UnknownHerdrHostError } from "./hosts";
+import { isKnownHerdrHost } from "./hosts";
 import { feedNdjson } from "./ndjson";
-import { herdrObservePool, type HerdrObservePool } from "./observe-pool";
-import { pastePathPayload, stageImageOnHost } from "./stage-image";
+import { pastePathPayload, stageImageOnHost, type StageRemoteImage } from "./stage-image";
 
 export interface HerdrStreamFrame {
   readonly streamId: string;
@@ -25,7 +23,7 @@ interface ActiveStream {
   readonly hostId: string;
   readonly session?: string | null;
   readonly terminalId: string;
-  readonly child: ChildProcessWithoutNullStreams;
+  readonly child: HerdrProcessLike;
   readonly openedAt: number;
   /** Last known geometry — reused when handing the terminal back to the observe pool. */
   cols: number;
@@ -33,6 +31,27 @@ interface ActiveStream {
   /** First live control frame clears the pool's retention for this terminal. */
   firstFrameSeen: boolean;
 }
+
+export interface HerdrProcessLike {
+  readonly stdin: { write(chunk: string): boolean };
+  readonly stdout: {
+    setEncoding(encoding: string): unknown;
+    on(event: "data", listener: (chunk: string) => void): unknown;
+  };
+  readonly stderr: {
+    setEncoding(encoding: string): unknown;
+    on(event: "data", listener: (chunk: string) => void): unknown;
+  };
+  kill(signal?: NodeJS.Signals): unknown;
+  on(event: "close", listener: (code: number | null) => void): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
+}
+
+export type HerdrSpawnFn = (
+  hostId: string,
+  args: ReadonlyArray<string>,
+  session?: string | null,
+) => HerdrProcessLike;
 
 /** Observe-pool hooks the stream manager drives (injectable for tests). */
 export interface ObservePoolHooks {
@@ -71,8 +90,9 @@ export class HerdrStreamManager {
   private shutDown = false;
 
   constructor(
-    private readonly pool: ObservePoolHooks = herdrObservePool as HerdrObservePool,
-    private readonly spawnFn: typeof spawn = spawn,
+    private readonly pool: ObservePoolHooks,
+    private readonly spawnFn: HerdrSpawnFn,
+    private readonly stageRemote: StageRemoteImage,
   ) {}
 
   setSink(sink: StreamSink | undefined): void {
@@ -117,30 +137,13 @@ export class HerdrStreamManager {
       "--rows",
       String(Math.max(5, Math.floor(input.rows || 24))),
     ];
-    let command: string;
-    let argv: string[];
-    try {
-      ({ command, argv } = herdrArgv(input.hostId, args, input.session));
-    } catch (error) {
-      const message =
-        error instanceof UnknownHerdrHostError
-          ? error.message
-          : error instanceof Error
-            ? error.message
-            : String(error);
-      return { ok: false, message };
-    }
-
     // Capture retained observe frames BEFORE the observe child is killed —
     // the renderer paints these synchronously while live frames spin up.
     const retained = this.pool.retainedFrames(input.terminalId);
 
-    let child: ChildProcessWithoutNullStreams;
+    let child: HerdrProcessLike;
     try {
-      child = this.spawnFn(command, argv, {
-        stdio: ["pipe", "pipe", "pipe"],
-        env: process.env,
-      }) as ChildProcessWithoutNullStreams;
+      child = this.spawnFn(input.hostId, args, input.session);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, message: `failed to spawn control stream: ${message}` };
@@ -247,7 +250,9 @@ export class HerdrStreamManager {
     if (!opened.ok) return opened;
     // Capture host before await — stream may detach during remote stage.
     const hostId = opened.stream.hostId;
-    const staged = await stageImageOnHost(hostId, extension, dataBase64);
+    const staged = await stageImageOnHost(hostId, extension, dataBase64, {
+      stageRemote: this.stageRemote,
+    });
     if (!staged.ok) return { ok: false, error: staged.error };
     // Re-bind after stage: close/takeover must not write a stale stdin.
     const live = this.require(streamId);
@@ -479,5 +484,3 @@ export class HerdrStreamManager {
     this.sink?.(frame);
   }
 }
-
-export const herdrStreams = new HerdrStreamManager();

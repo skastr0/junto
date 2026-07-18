@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, rmSync } from "node:fs";
-import type { RunSsh } from "../src/main/vellum/herdr/stage-image";
+import type { StageRemoteImage } from "../src/main/vellum/herdr/stage-image";
 import {
   decodeClipboardImageBase64,
   normalizeImageExtension,
@@ -54,64 +54,37 @@ describe("herdr stage-image (vellum-owned)", () => {
     expect(res.ok).toBe(false);
   });
 
-  describe("remote remote-a via mocked runSsh", () => {
+  describe("remote remote-a via scoped staging transport", () => {
     const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
     const b64 = bytes.toString("base64");
 
-    it("mkdir then write success → path under /tmp/vellum-herdr-images/", async () => {
-      const calls: Array<{ target: string; cmd: string; stdin?: Buffer }> = [];
-      const runSsh: RunSsh = async (target, remoteCommand, stdin) => {
-        calls.push({ target, cmd: remoteCommand, stdin });
-        return { ok: true };
+    it("passes a generated name and bytes to the product transport", async () => {
+      const calls: Array<{ name: string; bytes: Uint8Array }> = [];
+      const stageRemote: StageRemoteImage = async (name, input) => {
+        calls.push({ name, bytes: Uint8Array.from(input) });
+        return `/tmp/vellum-herdr-images/${name}`;
       };
 
-      const staged = await stageImageOnHost("remote-a", "png", b64, { runSsh });
+      const staged = await stageImageOnHost("remote-a", "png", b64, { stageRemote });
       expect(staged.ok).toBe(true);
       if (!staged.ok) return;
 
       expect(staged.path).toMatch(/^\/tmp\/vellum-herdr-images\/vellum-clip-.+\.png$/);
       expect(staged.byteLength).toBe(bytes.byteLength);
-      expect(calls).toHaveLength(2);
-      expect(calls[0]?.target).toBe("remote-a");
-      expect(calls[0]?.cmd).toMatch(/mkdir -p '\/tmp\/vellum-herdr-images'/);
-      expect(calls[0]?.cmd).toMatch(/chmod 700 '\/tmp\/vellum-herdr-images'/);
-      expect(calls[0]?.stdin).toBeUndefined();
-      expect(calls[1]?.target).toBe("remote-a");
-      expect(calls[1]?.cmd).toContain(`cat > '${staged.path}'`);
-      expect(calls[1]?.cmd).toContain(`chmod 600 '${staged.path}'`);
-      expect(calls[1]?.stdin).toEqual(bytes);
-    });
-
-    it("mkdir fail short-circuits (no write)", async () => {
-      const calls: string[] = [];
-      const runSsh: RunSsh = async (_t, cmd) => {
-        calls.push(cmd);
-        return { ok: false, error: "permission denied" };
-      };
-
-      const res = await stageImageOnHost("remote-a", "png", b64, { runSsh });
-      expect(res.ok).toBe(false);
-      if (res.ok) return;
-      expect(res.error).toMatch(/remote mkdir failed/);
-      expect(res.error).toMatch(/permission denied/);
       expect(calls).toHaveLength(1);
-      expect(calls[0]).toMatch(/mkdir -p/);
+      expect(calls[0]?.name).toMatch(/^vellum-clip-.+\.png$/);
+      expect(Buffer.from(calls[0]?.bytes ?? [])).toEqual(bytes);
     });
 
-    it("write fail after mkdir success", async () => {
-      let n = 0;
-      const runSsh: RunSsh = async () => {
-        n += 1;
-        if (n === 1) return { ok: true };
-        return { ok: false, error: "disk full" };
+    it("surfaces a remote staging failure", async () => {
+      const stageRemote: StageRemoteImage = async () => {
+        throw new Error("disk full");
       };
 
-      const res = await stageImageOnHost("remote-a", "png", b64, { runSsh });
+      const res = await stageImageOnHost("remote-a", "png", b64, { stageRemote });
       expect(res.ok).toBe(false);
       if (res.ok) return;
-      expect(res.error).toMatch(/remote write failed/);
       expect(res.error).toMatch(/disk full/);
-      expect(n).toBe(2);
     });
   });
 });

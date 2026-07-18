@@ -1,9 +1,6 @@
-import { spawn } from "node:child_process";
-import { runCli, type CliResult } from "../adapters/exec";
-import { HERDR_HOSTS, herdrArgv, isKnownHerdrHost, UnknownHerdrHostError, type HerdrHostDef } from "./hosts";
-import { withHostSlot } from "./masters";
+import type { CliResult } from "../adapters/exec";
+import { HERDR_HOSTS, isKnownHerdrHost, UnknownHerdrHostError, type HerdrHostDef } from "./hosts";
 import type { HerdrMirrorReads } from "./mirror";
-import { mirrorFor } from "./mirrors";
 import {
   parseCliEnvelope,
   parseCreateIds,
@@ -55,10 +52,16 @@ export type HerdrRunner = (
   timeoutMs?: number,
 ) => Promise<CliResult>;
 
-const defaultRunner: HerdrRunner = async (hostId, args, session, timeoutMs = 12_000) => {
-  const { command, argv } = herdrArgv(hostId, args, session);
-  return withHostSlot(hostId, () => runCli(command, argv, timeoutMs));
-};
+export type HerdrServerStarter = (
+  hostId: string,
+  session?: string | null,
+) => Promise<CliResult>;
+
+const unavailableServerStarter: HerdrServerStarter = async () => ({
+  ok: false,
+  stdout: "",
+  error: "herdr server starter is not configured",
+});
 
 const mapCliFailure = (result: CliResult, hostId: string): HerdrResultErr => {
   const err = result.error ?? "herdr command failed";
@@ -114,8 +117,9 @@ export type HerdrMirrorProvider = (hostId: string) => HerdrMirrorReads | undefin
 
 export class HerdrService {
   constructor(
-    private readonly runner: HerdrRunner = defaultRunner,
-    private readonly mirrors: HerdrMirrorProvider = mirrorFor,
+    private readonly runner: HerdrRunner,
+    private readonly mirrors: HerdrMirrorProvider = () => undefined,
+    private readonly startServer: HerdrServerStarter = unavailableServerStarter,
   ) {}
 
   /** Mirror serves list/record reads only for the default session and only while fresh. */
@@ -176,51 +180,16 @@ export class HerdrService {
       return mapCliFailure(status, hostId);
     }
 
-    // Spawn headless server (detached). API CLI does not autostart.
-    let command: string;
-    let argv: string[];
+    // The injected starter owns local detach or remote SSH daemon handoff and
+    // returns only after the same bounded status probe accepts.
     try {
-      ({ command, argv } = herdrArgv(hostId, ["server"], session));
-    } catch (error) {
-      if (error instanceof UnknownHerdrHostError) {
-        return { ok: false, code: "invalid", message: error.message };
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      return { ok: false, code: "failed", message };
-    }
-    try {
-      const child = spawn(command, argv, {
-        detached: true,
-        stdio: "ignore",
-        env: process.env,
-      });
-      child.unref();
+      const started = await this.startServer(hostId, session);
+      if (!started.ok) return mapCliFailure(started, hostId);
+      return { ok: true, data: { running: true, started: true } };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, code: "failed", message: `failed to spawn herdr server on ${hostId}: ${message}` };
     }
-
-    // Poll until status accepts (bounded).
-    for (let i = 0; i < 12; i++) {
-      await new Promise((r) => setTimeout(r, 250));
-      const poll = await this.runner(hostId, ["status", "--json"], session, 6_000);
-      if (!poll.ok) continue;
-      try {
-        const parsed = JSON.parse(poll.stdout.trim()) as {
-          server?: { running?: boolean; status?: string };
-        };
-        if (parsed.server?.running === true || parsed.server?.status === "running") {
-          return { ok: true, data: { running: true, started: true } };
-        }
-      } catch {
-        // continue
-      }
-    }
-    return {
-      ok: false,
-      code: "timeout",
-      message: `herdr server on ${hostId} did not become ready`,
-    };
   }
 
   async listSessions(hostId: string): Promise<HerdrResult<ReadonlyArray<HerdrSessionRow>>> {
@@ -544,6 +513,3 @@ const asArray = (data: unknown, key: string): unknown[] => {
   }
   return [];
 };
-
-/** Singleton used by IPC (tests construct their own with a mock runner). */
-export const herdrService = new HerdrService();

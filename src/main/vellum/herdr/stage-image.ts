@@ -2,14 +2,11 @@
  * Stage clipboard/dropped image bytes on the herdr host, then paste the path
  * via stock `terminal.input`. No herdr protocol extensions.
  */
-import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { controlArgs } from "./control-path";
-import { isKnownHerdrHost, sshTargetForHost, UnknownHerdrHostError } from "./hosts";
-import { withHostSlot } from "./masters";
+import { isKnownHerdrHost, UnknownHerdrHostError } from "./hosts";
 
 /** Match common agent clipboard-image caps (16 MiB). */
 export const VELLUM_CLIPBOARD_IMAGE_MAX_BYTES = 16 * 1024 * 1024;
@@ -58,74 +55,21 @@ export const decodeClipboardImageBase64 = (
 export const pastePathPayload = (absolutePath: string): string =>
   `\x1b[200~${absolutePath}\x1b[201~`;
 
-const shellSingleQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
-
 const uniqueName = (extension: string): string =>
   `vellum-clip-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}.${extension}`;
 
-export type RunSshResult = { readonly ok: true } | { readonly ok: false; readonly error: string };
-
-/** Injectable ssh runner for remote staging (tests mock this; prod uses real spawn). */
-export type RunSsh = (
-  target: string,
-  remoteCommand: string,
-  stdin?: Buffer,
-) => Promise<RunSshResult>;
+export type StageRemoteImage = (remoteName: string, bytes: Uint8Array) => Promise<string>;
 
 export type StageImageDeps = {
-  readonly runSsh?: RunSsh;
+  readonly stageRemote?: StageRemoteImage;
 };
-
-/** Default production ssh: BatchMode + keepalives, binary stdin for cat writes. */
-export const defaultRunSsh: RunSsh = (target, remoteCommand, stdin) =>
-  new Promise((resolve) => {
-    const child = spawn(
-      "ssh",
-      [
-        "-o",
-        "ConnectTimeout=6",
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ServerAliveInterval=30",
-        "-o",
-        "ServerAliveCountMax=3",
-        ...controlArgs(),
-        target,
-        remoteCommand,
-      ],
-      { stdio: ["pipe", "pipe", "pipe"] },
-    );
-    let stderr = "";
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on("error", (err) => {
-      resolve({ ok: false, error: err.message });
-    });
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve({ ok: true });
-        return;
-      }
-      resolve({
-        ok: false,
-        error: (stderr.trim() || `ssh exited ${code ?? "null"}`).slice(0, 300),
-      });
-    });
-    if (stdin) {
-      child.stdin.write(stdin);
-    }
-    child.stdin.end();
-  });
 
 /**
  * Write image bytes onto the host that owns the herdr pane.
  * local: $TMPDIR/vellum-herdr-images-<uid>/file
  * remote: /tmp/vellum-herdr-images/file via ssh + cat (binary stdin)
  *
- * Pass `deps.runSsh` in tests to mock remote mkdir/write without real ssh.
+ * The remote implementation is supplied by the scoped Herdr transport layer.
  */
 export const stageImageOnHost = async (
   hostId: string,
@@ -164,41 +108,21 @@ export const stageImageOnHost = async (
     }
   }
 
-  const sshTarget = sshTargetForHost(hostId);
-  if (!sshTarget || sshTarget.startsWith("-")) {
-    return { ok: false, error: new UnknownHerdrHostError(hostId).message };
+  if (!deps.stageRemote) {
+    return { ok: false, error: "remote image staging transport is unavailable" };
   }
-
-  const runSsh = deps.runSsh ?? defaultRunSsh;
-
-  // Fixed remote dir under /tmp - path is fully controlled (no user input).
-  const remoteDir = "/tmp/vellum-herdr-images";
-  const remotePath = `${remoteDir}/${name}`;
-  // Same per-host budget as every other remote exec (withHostSlot) — paste
-  // is 2 sequential ssh round trips and must not bypass sshd MaxSessions.
-  const mkdirRes = await withHostSlot(hostId, () =>
-    runSsh(
-      sshTarget,
-      `mkdir -p ${shellSingleQuote(remoteDir)} && chmod 700 ${shellSingleQuote(remoteDir)}`,
-    ),
-  );
-  if (!mkdirRes.ok) {
-    return { ok: false, error: `remote mkdir failed: ${mkdirRes.error}` };
+  try {
+    const path = await deps.stageRemote(name, decoded.bytes);
+    return {
+      ok: true,
+      path,
+      extension: decoded.extension,
+      byteLength: decoded.bytes.byteLength,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
-  const writeRes = await withHostSlot(hostId, () =>
-    runSsh(
-      sshTarget,
-      `cat > ${shellSingleQuote(remotePath)} && chmod 600 ${shellSingleQuote(remotePath)}`,
-      decoded.bytes,
-    ),
-  );
-  if (!writeRes.ok) {
-    return { ok: false, error: `remote write failed: ${writeRes.error}` };
-  }
-  return {
-    ok: true,
-    path: remotePath,
-    extension: decoded.extension,
-    byteLength: decoded.bytes.byteLength,
-  };
 };

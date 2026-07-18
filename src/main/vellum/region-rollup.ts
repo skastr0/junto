@@ -7,7 +7,7 @@ import { deriveRegionRollups, type AgentActivity, type RegionRollup } from "@sha
 import { fetchTowerBrowse } from "./adapters/tower-browse";
 import { CanvasesService, type CanvasError } from "./canvases";
 import type { ChatService } from "./chat/service";
-import { mirrorFor } from "./herdr/mirrors";
+import { HerdrPlane } from "./herdr/plane";
 import { resolveGlyphCacheUpdate } from "./kernel/service";
 import { SnapshotsService } from "./snapshots";
 
@@ -39,12 +39,13 @@ export type GlyphBrowseFetcher = (project: string) => Promise<TowerBrowseResult>
 export const RegionRollupLive = (
   chatService: ChatService,
   fetchBrowse: GlyphBrowseFetcher = fetchTowerBrowse,
-): Layer.Layer<RegionRollupService, never, CanvasesService | SnapshotsService> =>
+): Layer.Layer<RegionRollupService, never, CanvasesService | SnapshotsService | HerdrPlane> =>
   Layer.effect(
     RegionRollupService,
     Effect.gen(function* () {
       const canvases = yield* CanvasesService;
       const snapshots = yield* SnapshotsService;
+      const herdrPlane = yield* HerdrPlane;
 
       const glyphCache = new Map<
         string,
@@ -113,7 +114,7 @@ export const RegionRollupLive = (
             for (const node of doc.nodes) {
               const herdr = node.ether?.herdr;
               if (herdr?.paneId === undefined || herdr.paneId.length === 0) continue;
-              const mirror = mirrorFor(herdr.host);
+              const mirror = herdrPlane.mirrors.mirrorFor(herdr.host);
               if (mirror === undefined) continue;
               const rec = mirror.lookupPane(herdr.paneId);
               if (rec === undefined) continue;

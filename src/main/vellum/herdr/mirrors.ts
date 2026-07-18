@@ -1,44 +1,6 @@
-/**
- * Registry of per-host herdr mirrors (default session only). Construction is
- * lazy and side-effect free — nothing connects or spawns until start(). An
- * un-started mirror reports isFresh() === false, so callers (HerdrService)
- * simply fall back to the exec path.
- */
-import { HERDR_HOSTS, isKnownHerdrHost, sshTargetForHost } from "./hosts";
+import { HERDR_HOSTS, isKnownHerdrHost } from "./hosts";
 import { HerdrMirror } from "./mirror";
-import { LocalMirrorTransport, RemoteMirrorTransport } from "./mirror-transport";
-
-const registry = new Map<string, HerdrMirror>();
-
-export const mirrorFor = (hostId: string): HerdrMirror | undefined => {
-  if (!isKnownHerdrHost(hostId)) return undefined;
-  let mirror = registry.get(hostId);
-  if (!mirror) {
-    const transport = sshTargetForHost(hostId)
-      ? new RemoteMirrorTransport(hostId)
-      : new LocalMirrorTransport();
-    mirror = new HerdrMirror(hostId, transport);
-    registry.set(hostId, mirror);
-  }
-  return mirror;
-};
-
-/** Start every known host's mirror (app-ready hook, after warmAllHosts). */
-export const startAllMirrors = (): void => {
-  for (const host of HERDR_HOSTS) mirrorFor(host.id)?.start();
-};
-
-/** Stop and drop every mirror (app quit). Idempotent. */
-export const stopAllMirrors = (): void => {
-  for (const mirror of registry.values()) {
-    try {
-      mirror.stop();
-    } catch {
-      // quit path never throws
-    }
-  }
-  registry.clear();
-};
+import type { MirrorTransport } from "./mirror-transport";
 
 export interface HerdrMirrorHostState {
   readonly hostId: string;
@@ -46,12 +8,44 @@ export interface HerdrMirrorHostState {
   readonly lastSyncAt?: number;
 }
 
-export const mirrorStates = (): ReadonlyArray<HerdrMirrorHostState> =>
-  HERDR_HOSTS.map((host) => {
-    const mirror = registry.get(host.id);
-    return {
-      hostId: host.id,
-      fresh: mirror?.isFresh() ?? false,
-      lastSyncAt: mirror?.lastSyncAt,
-    };
-  });
+export class HerdrMirrorRegistry {
+  private readonly registry = new Map<string, HerdrMirror>();
+
+  constructor(private readonly makeTransport: (hostId: string) => MirrorTransport) {}
+
+  mirrorFor(hostId: string): HerdrMirror | undefined {
+    if (!isKnownHerdrHost(hostId)) return undefined;
+    let mirror = this.registry.get(hostId);
+    if (!mirror) {
+      mirror = new HerdrMirror(hostId, this.makeTransport(hostId));
+      this.registry.set(hostId, mirror);
+    }
+    return mirror;
+  }
+
+  startAll(): void {
+    for (const host of HERDR_HOSTS) this.mirrorFor(host.id)?.start();
+  }
+
+  stopAll(): void {
+    for (const mirror of this.registry.values()) {
+      try {
+        mirror.stop();
+      } catch {
+        // Runtime shutdown is best effort and idempotent.
+      }
+    }
+    this.registry.clear();
+  }
+
+  states(): ReadonlyArray<HerdrMirrorHostState> {
+    return HERDR_HOSTS.map((host) => {
+      const mirror = this.registry.get(host.id);
+      return {
+        hostId: host.id,
+        fresh: mirror?.isFresh() ?? false,
+        lastSyncAt: mirror?.lastSyncAt,
+      };
+    });
+  }
+}

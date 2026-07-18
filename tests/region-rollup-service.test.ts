@@ -6,6 +6,11 @@ import type { TowerBrowseResult } from "../src/shared/ipc";
 import { CanvasesService, CanvasError } from "../src/main/vellum/canvases";
 import type { AcpChildLike, JsonRpcId, SpawnFn } from "../src/main/vellum/chat/acp-client";
 import { ChatService } from "../src/main/vellum/chat/service";
+import { HerdrPlane } from "../src/main/vellum/herdr/plane";
+import type { HerdrMirrorRegistry } from "../src/main/vellum/herdr/mirrors";
+import type { HerdrObservePool } from "../src/main/vellum/herdr/observe-pool";
+import type { HerdrService } from "../src/main/vellum/herdr/service";
+import type { HerdrStreamManager } from "../src/main/vellum/herdr/stream";
 import {
   RegionRollupLive,
   RegionRollupService,
@@ -136,13 +141,28 @@ const fakeSnapshots = Layer.succeed(
   }),
 );
 
+const fakeHerdr = Layer.succeed(
+  HerdrPlane,
+  HerdrPlane.of({
+    service: {} as HerdrService,
+    mirrors: { mirrorFor: () => undefined } as unknown as HerdrMirrorRegistry,
+    observePool: {} as HerdrObservePool,
+    streams: {} as HerdrStreamManager,
+    start: Effect.void,
+    warm: Effect.void,
+  }),
+);
+
 const makeRuntime = (
   chatService: ChatService,
   docs: ReadonlyMap<string, CanvasDoc>,
   fetchBrowse: GlyphBrowseFetcher,
 ) =>
   ManagedRuntime.make(
-    Layer.provide(RegionRollupLive(chatService, fetchBrowse), Layer.mergeAll(fakeCanvases(docs), fakeSnapshots)),
+    Layer.provide(
+      RegionRollupLive(chatService, fetchBrowse),
+      Layer.mergeAll(fakeCanvases(docs), fakeSnapshots, fakeHerdr),
+    ),
   );
 
 const rollups = (runtime: ReturnType<typeof makeRuntime>, canvasName: string) =>

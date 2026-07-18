@@ -1,7 +1,5 @@
 // P0 herdr hosts. Easy to extend — discovery is deliberately out of scope.
 
-import { controlArgs } from "./control-path";
-
 export interface HerdrHostDef {
   /** Stable product id used in ether.herdr.host and IPC. */
   readonly id: string;
@@ -9,19 +7,15 @@ export interface HerdrHostDef {
   readonly label: string;
 }
 
-export const HERDR_HOSTS: ReadonlyArray<HerdrHostDef> = [
+export type HerdrHostId = "local" | "remote-a";
+
+export const HERDR_HOSTS: ReadonlyArray<HerdrHostDef & { readonly id: HerdrHostId }> = [
   { id: "local", label: "local" },
   { id: "remote-a", label: "remote-a" },
 ] as const;
 
 export const isKnownHerdrHost = (id: string): boolean =>
   HERDR_HOSTS.some((host) => host.id === id);
-
-/** Fixed ssh target for a known remote host id (never pass free hostId to ssh). */
-export const sshTargetForHost = (hostId: string): string | undefined => {
-  if (hostId === "remote-a") return "remote-a";
-  return undefined;
-};
 
 export class UnknownHerdrHostError extends Error {
   readonly code = "invalid" as const;
@@ -30,43 +24,3 @@ export class UnknownHerdrHostError extends Error {
     this.name = "UnknownHerdrHostError";
   }
 }
-
-/** Build argv that runs `herdr …` on the given host (ssh-wrapped for remotes). */
-export const herdrArgv = (
-  hostId: string,
-  args: ReadonlyArray<string>,
-  session?: string | null,
-): { readonly command: string; readonly argv: string[] } => {
-  if (!isKnownHerdrHost(hostId) || hostId.startsWith("-")) {
-    throw new UnknownHerdrHostError(hostId);
-  }
-  const sessionArgs = session ? (["--session", session] as const) : ([] as const);
-  const herdrArgs = [...sessionArgs, ...args];
-  if (hostId === "local") {
-    return { command: "herdr", argv: [...herdrArgs] };
-  }
-  const sshTarget = sshTargetForHost(hostId);
-  if (!sshTarget || sshTarget.startsWith("-")) {
-    throw new UnknownHerdrHostError(hostId);
-  }
-  // Remote: ssh BatchMode + keepalives (mirror ACP spawn posture for long streams),
-  // plus ControlMaster reuse — warmHost() (masters.ts) opens the socket ahead of
-  // time; this call rides it when warm, falls back to a fresh handshake when not.
-  return {
-    command: "ssh",
-    argv: [
-      "-o",
-      "ConnectTimeout=6",
-      "-o",
-      "BatchMode=yes",
-      "-o",
-      "ServerAliveInterval=30",
-      "-o",
-      "ServerAliveCountMax=3",
-      ...controlArgs(),
-      sshTarget,
-      "herdr",
-      ...herdrArgs,
-    ],
-  };
-};

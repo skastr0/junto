@@ -36,10 +36,7 @@ import {
   startBrowserComposition,
   type BrowserComposition,
 } from "./vellum/browser/composition";
-import { warmAllHosts } from "./vellum/herdr/masters";
-import { startAllMirrors, stopAllMirrors } from "./vellum/herdr/mirrors";
-import { herdrService } from "./vellum/herdr/service";
-import { herdrStreams } from "./vellum/herdr/stream";
+import { HerdrPlane } from "./vellum/herdr/plane";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
@@ -526,23 +523,16 @@ if (!gotSingleInstanceLock) {
     registerIpcHandlers();
     registerDemoIpcHandlers();
 
-    // Warm the herdr ControlMaster sockets so the first real remote op rides
-    // an already-open ssh connection instead of paying a fresh handshake.
-    // Best-effort (masters.ts swallows failures) — never blocks startup.
-    void warmAllHosts();
+    const herdr = await AppRuntime.runPromise(HerdrPlane);
+    await AppRuntime.runPromise(herdr.start);
     powerMonitor.on("resume", () => {
-      void warmAllHosts();
+      void AppRuntime.runPromise(Effect.flatMap(HerdrPlane, (plane) => plane.warm));
       try {
         browserComposition?.automation.reapAfterResume();
       } catch {
         console.error("[browser-automation] resume reap failed");
       }
     });
-
-    // Per-host herdr state mirrors: snapshot + events.subscribe so list reads
-    // answer instantly from local state. Best-effort; reads fall back to exec
-    // whenever a mirror is not fresh.
-    startAllMirrors();
 
     // Browser authority stays private until cold profile recovery completes.
     // The activation callback is the only place browser IPC, agent IPC, or
@@ -551,7 +541,7 @@ if (!gotSingleInstanceLock) {
       browserComposition = await startBrowserComposition(
         {
           chat: chatService,
-          herdr: herdrService,
+          herdr: herdr.service,
           readCanvas: (name) =>
             AppRuntime.runPromise(
               Effect.flatMap(CanvasesService, (canvases) =>
@@ -560,7 +550,7 @@ if (!gotSingleInstanceLock) {
             ),
           resolvePageTarget: resolveBrowserPageTarget,
           getHerdrPaneMeta: async (host, session, paneId) => {
-            const result = await herdrService.getPaneMeta(host, session, paneId);
+            const result = await herdr.service.getPaneMeta(host, session, paneId);
             if (!result.ok) return { ok: false, code: result.code };
             const meta = result.data;
             return {
@@ -624,19 +614,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-const detachHerdrOnQuit = (reason: string) => {
-  try {
-    herdrStreams.detachAllOnQuit(reason);
-  } catch (error) {
-    console.error(`[herdr] detach on quit failed (${reason}):`, error);
-  }
-  // Mirrors close their events connections / ssh forwards; the herdr fleet
-  // itself is untouched (read-only observers). Idempotent across signals.
-  try {
-    stopAllMirrors();
-  } catch (error) {
-    console.error(`[herdr] mirror stop on quit failed (${reason}):`, error);
-  }
+const detachBrowserOnQuit = (reason: string) => {
   // Browser product lock: quit detaches WebContentsViews only — warm sessions
   // are dropped with the process but profile partitions (cookies) are never
   // wiped and no session is explicitly destroyed.
@@ -674,24 +652,42 @@ const detachRuntimeOnQuit = (reason: string): void => {
   }
   browserControl = undefined;
 
-  // Herdr product lock: quit / relaunch / launchd unload detaches control only.
-  // Never pane close, tab close, or session stop. The fleet keeps running.
-  detachHerdrOnQuit(reason);
+  // Herdr control/observe/forward children are owned by AppRuntime's scoped
+  // layer; disposing it detaches clients without touching remote panes.
+  detachBrowserOnQuit(reason);
   browserComposition = undefined;
+};
+
+let runtimeDispose: Promise<void> | undefined;
+let runtimeDisposed = false;
+
+const disposeRuntime = (): Promise<void> => {
+  runtimeDispose ??= AppRuntime.dispose().catch((error) => {
+    console.error("[runtime] dispose failed:", error);
+  });
+  return runtimeDispose;
 };
 
 // Electron app.exit() bypasses before-quit and will-quit. Every direct exit
 // therefore routes through the same authority/process teardown explicitly.
 const exitAfterDetach = (exitCode: number, reason: string): void => {
   detachRuntimeOnQuit(reason);
-  app.exit(exitCode);
+  void disposeRuntime().finally(() => {
+    runtimeDisposed = true;
+    app.exit(exitCode);
+  });
 };
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
   nodeRefRelayWatcher?.close();
   nodeRefRelayWatcher = undefined;
   detachRuntimeOnQuit("before-quit");
-  void AppRuntime.dispose();
+  if (runtimeDisposed) return;
+  event.preventDefault();
+  void disposeRuntime().finally(() => {
+    runtimeDisposed = true;
+    app.quit();
+  });
 });
 
 app.on("will-quit", () => {

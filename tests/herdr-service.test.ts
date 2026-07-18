@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CliResult } from "../src/main/vellum/adapters/exec";
-import { controlArgs } from "../src/main/vellum/herdr/control-path";
-import { herdrArgv, HERDR_HOSTS } from "../src/main/vellum/herdr/hosts";
+import { HERDR_HOSTS, isKnownHerdrHost } from "../src/main/vellum/herdr/hosts";
 import {
   parseCliEnvelope,
   parseCreateIds,
@@ -20,41 +19,15 @@ describe("herdr hosts", () => {
     expect(HERDR_HOSTS.map((h) => h.id)).toEqual(["local", "remote-a"]);
   });
 
-  it("builds local argv without ssh", () => {
-    const { command, argv } = herdrArgv("local", ["pane", "list"]);
-    expect(command).toBe("herdr");
-    expect(argv).toEqual(["pane", "list"]);
-  });
-
-  it("wraps remote in ssh BatchMode with keepalives + ControlMaster reuse", () => {
-    const { command, argv } = herdrArgv("remote-a", ["workspace", "list"], "ops");
-    expect(command).toBe("ssh");
-    expect(argv).toEqual([
-      "-o",
-      "ConnectTimeout=6",
-      "-o",
-      "BatchMode=yes",
-      "-o",
-      "ServerAliveInterval=30",
-      "-o",
-      "ServerAliveCountMax=3",
-      ...controlArgs(),
-      "remote-a",
-      "herdr",
-      "--session",
-      "ops",
-      "workspace",
-      "list",
-    ]);
-  });
-
-  it("rejects unknown or option-shaped hosts", () => {
-    expect(() => herdrArgv("evil-host", ["status"])).toThrow(/unknown herdr host/);
-    expect(() => herdrArgv("-oProxyCommand=x", ["status"])).toThrow(/unknown herdr host/);
+  it("recognizes only the fixed product host inventory", () => {
+    expect(isKnownHerdrHost("local")).toBe(true);
+    expect(isKnownHerdrHost("remote-a")).toBe(true);
+    expect(isKnownHerdrHost("evil-host")).toBe(false);
+    expect(isKnownHerdrHost("-oProxyCommand=x")).toBe(false);
   });
 });
 
-// Note: isKnownHerdrHost is enforced at herdrArgv + HerdrService + stream open.
+// Note: isKnownHerdrHost is enforced at HerdrService + stream open.
 
 describe("herdr parse", () => {
   it("parses envelope result and error", () => {

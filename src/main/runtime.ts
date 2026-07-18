@@ -6,12 +6,15 @@ import { PrismLive, PrismService } from "./services/prism";
 import { StoreLive, StoreService } from "./services/store";
 import { CanvasesLive, CanvasesService } from "./vellum/canvases";
 import { ChatService } from "./vellum/chat/service";
+import { HerdrPlaneLive } from "./vellum/herdr/plane";
+import { HerdrTransportLive } from "./vellum/herdr/transport";
 import { KernelLive, KernelService } from "./vellum/kernel/service";
 import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
 import { SettingsLive, SettingsService } from "./vellum/settings/service";
 import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
 import { UsageLive } from "./vellum/usage/live";
 import { UsageService } from "./vellum/usage/usage-service";
+import { SshTransportLive } from "./vellum/ssh";
 
 // One shared ACP-session manager for the whole app: pulse-driven turns
 // (KernelService, below) and user-driven turns (registerChatIpc, wired in
@@ -42,6 +45,10 @@ const BaseLayer = Layer.mergeAll(
   SnapshotsLive,
   UsageLive,
   SettingsLive,
+  Layer.provideMerge(
+    HerdrPlaneLive,
+    Layer.provideMerge(HerdrTransportLive, SshTransportLive),
+  ),
 );
 
 export const RootLayer = Layer.provideMerge(

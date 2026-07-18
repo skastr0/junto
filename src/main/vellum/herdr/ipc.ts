@@ -1,4 +1,5 @@
 import type { IpcMain, WebContents } from "electron";
+import { Context, Effect } from "effect";
 import {
   IPC_CHANNELS,
   type HerdrMirrorEvent,
@@ -6,90 +7,94 @@ import {
   type HerdrPointerCell,
   type HerdrStreamOpenInput,
 } from "@shared/ipc";
+import { AppRuntime } from "../../runtime";
 import { HERDR_HOSTS } from "./hosts";
-import { mirrorFor, mirrorStates } from "./mirrors";
-import { herdrObservePool } from "./observe-pool";
-import { herdrService } from "./service";
-import { herdrStreams } from "./stream";
+import { HerdrPlane } from "./plane";
 
 const toOp = <T>(result: { ok: true; data: T } | { ok: false; code: string; message: string }) => {
   if (result.ok) return { ok: true as const, data: result.data };
   return { ok: false as const, code: result.code, message: result.message };
 };
 
+const withPlane = <A>(run: (plane: Context.Tag.Service<typeof HerdrPlane>) => A | PromiseLike<A>) =>
+  AppRuntime.runPromise(
+    Effect.flatMap(HerdrPlane, (plane) => Effect.promise(() => Promise.resolve(run(plane)))),
+  );
+
 export const registerHerdrIpc = (
   ipcMain: IpcMain,
   webContentsGetter: () => Iterable<WebContents>,
 ): void => {
-  herdrStreams.setSink((frame) => {
-    for (const contents of webContentsGetter()) {
-      contents.send(IPC_CHANNELS.herdrStreamEvent, frame);
+  void withPlane((plane) => {
+    plane.streams.setSink((frame) => {
+      for (const contents of webContentsGetter()) {
+        contents.send(IPC_CHANNELS.herdrStreamEvent, frame);
+      }
+    });
+
+    // Mirror change push — a freshness flip is "state"; data churn is "change".
+    const lastFresh = new Map<string, boolean>();
+    for (const host of HERDR_HOSTS) {
+      const mirror = plane.mirrors.mirrorFor(host.id);
+      if (!mirror) continue;
+      mirror.onChange(() => {
+        const fresh = mirror.isFresh();
+        const kind: HerdrMirrorEvent["kind"] = lastFresh.get(host.id) === fresh ? "change" : "state";
+        lastFresh.set(host.id, fresh);
+        const payload: HerdrMirrorEvent = { hostId: host.id, kind, fresh };
+        for (const contents of webContentsGetter()) {
+          contents.send(IPC_CHANNELS.herdrMirrorEvent, payload);
+        }
+      });
     }
   });
 
-  // Mirror change push — same sink pattern as herdrStreamEvent above. A
-  // freshness flip is pushed as kind "state"; plain data churn as "change".
-  const lastFresh = new Map<string, boolean>();
-  for (const host of HERDR_HOSTS) {
-    const mirror = mirrorFor(host.id);
-    if (!mirror) continue;
-    mirror.onChange(() => {
-      const fresh = mirror.isFresh();
-      const kind: HerdrMirrorEvent["kind"] = lastFresh.get(host.id) === fresh ? "change" : "state";
-      lastFresh.set(host.id, fresh);
-      const payload: HerdrMirrorEvent = { hostId: host.id, kind, fresh };
-      for (const contents of webContentsGetter()) {
-        contents.send(IPC_CHANNELS.herdrMirrorEvent, payload);
-      }
-    });
-  }
+  ipcMain.handle(IPC_CHANNELS.herdrMirrorState, () => withPlane((plane) => plane.mirrors.states()));
 
-  ipcMain.handle(IPC_CHANNELS.herdrMirrorState, () => mirrorStates());
-
-  ipcMain.handle(IPC_CHANNELS.herdrHosts, () => herdrService.hosts());
+  ipcMain.handle(IPC_CHANNELS.herdrHosts, () => withPlane((plane) => plane.service.hosts()));
 
   ipcMain.handle(IPC_CHANNELS.herdrEnsureServer, (_e, hostId: string, session?: string | null) =>
-    herdrService.ensureServer(hostId, session).then(toOp),
+    withPlane((plane) => plane.service.ensureServer(hostId, session).then(toOp)),
   );
 
   ipcMain.handle(IPC_CHANNELS.herdrListSessions, (_e, hostId: string) =>
-    herdrService.listSessions(hostId).then(toOp),
+    withPlane((plane) => plane.service.listSessions(hostId).then(toOp)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.herdrListWorkspaces,
     (_e, hostId: string, session?: string | null) =>
-      herdrService.listWorkspaces(hostId, session).then(toOp),
+      withPlane((plane) => plane.service.listWorkspaces(hostId, session).then(toOp)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.herdrListTabs,
     (_e, hostId: string, session?: string | null, workspaceId?: string) =>
-      herdrService.listTabs(hostId, session, workspaceId).then(toOp),
+      withPlane((plane) => plane.service.listTabs(hostId, session, workspaceId).then(toOp)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.herdrListPanes,
     (_e, hostId: string, session?: string | null, workspaceId?: string) =>
-      herdrService.listPanes(hostId, session, workspaceId).then(toOp),
+      withPlane((plane) => plane.service.listPanes(hostId, session, workspaceId).then(toOp)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.herdrListAgents,
     (_e, hostId: string, session?: string | null) =>
-      herdrService.listAgents(hostId, session).then(toOp),
+      withPlane((plane) => plane.service.listAgents(hostId, session).then(toOp)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.herdrGetMeta,
     (_e, hostId: string, session: string | null | undefined, paneId: string) =>
-      herdrService.getPaneMeta(hostId, session, paneId).then(toOp),
+      withPlane((plane) => plane.service.getPaneMeta(hostId, session, paneId).then(toOp)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.herdrMarkPaneSeen,
     (_e, hostId: string, session: string | null | undefined, paneId: string) =>
-      herdrService.markPaneSeen(hostId, session, paneId).then(toOp),
+      withPlane((plane) => plane.service.markPaneSeen(hostId, session, paneId).then(toOp)),
   );
 
   ipcMain.handle(
@@ -99,7 +104,7 @@ export const registerHerdrIpc = (
       hostId: string,
       session: string | null | undefined,
       input: { readonly cwd: string; readonly label?: string },
-    ) => herdrService.createWorkspace(hostId, session, input).then(toOp),
+    ) => withPlane((plane) => plane.service.createWorkspace(hostId, session, input).then(toOp)),
   );
 
   ipcMain.handle(
@@ -109,7 +114,7 @@ export const registerHerdrIpc = (
       hostId: string,
       session: string | null | undefined,
       input: { readonly workspaceId: string; readonly label?: string },
-    ) => herdrService.createTab(hostId, session, input).then(toOp),
+    ) => withPlane((plane) => plane.service.createTab(hostId, session, input).then(toOp)),
   );
 
   ipcMain.handle(
@@ -119,56 +124,57 @@ export const registerHerdrIpc = (
       hostId: string,
       session: string | null | undefined,
       input: { readonly paneId?: string; readonly direction?: "right" | "down"; readonly cwd?: string },
-    ) => herdrService.createPane(hostId, session, input).then(toOp),
+    ) => withPlane((plane) => plane.service.createPane(hostId, session, input).then(toOp)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.herdrKillPane,
     (_e, hostId: string, session: string | null | undefined, paneId: string) =>
-      herdrService.killPane(hostId, session, paneId).then(toOp),
+      withPlane((plane) => plane.service.killPane(hostId, session, paneId).then(toOp)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.herdrKillTab,
     (_e, hostId: string, session: string | null | undefined, tabId: string) =>
-      herdrService.killTab(hostId, session, tabId).then(toOp),
+      withPlane((plane) => plane.service.killTab(hostId, session, tabId).then(toOp)),
   );
 
   ipcMain.handle(IPC_CHANNELS.herdrStreamOpen, (_e, input: HerdrStreamOpenInput) =>
-    herdrStreams.open(input),
+    withPlane((plane) => plane.streams.open(input)),
   );
 
   ipcMain.handle(IPC_CHANNELS.herdrStreamInput, (_e, streamId: string, dataBase64: string) =>
-    herdrStreams.input(streamId, dataBase64),
+    withPlane((plane) => plane.streams.input(streamId, dataBase64)),
   );
 
 
   ipcMain.handle(
     IPC_CHANNELS.herdrStreamPasteImage,
     (_e, streamId: string, extension: string, dataBase64: string) =>
-      herdrStreams.pasteImage(streamId, extension, dataBase64),
+      withPlane((plane) => plane.streams.pasteImage(streamId, extension, dataBase64)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.herdrStreamResize,
-    (_e, streamId: string, cols: number, rows: number) => herdrStreams.resize(streamId, cols, rows),
+    (_e, streamId: string, cols: number, rows: number) =>
+      withPlane((plane) => plane.streams.resize(streamId, cols, rows)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.herdrStreamScroll,
     (_e, streamId: string, delta: number, at?: HerdrPointerCell) =>
-      herdrStreams.scroll(streamId, delta, at),
+      withPlane((plane) => plane.streams.scroll(streamId, delta, at)),
   );
 
   ipcMain.handle(IPC_CHANNELS.herdrStreamClose, (_e, streamId: string) =>
-    herdrStreams.close(streamId),
+    withPlane((plane) => plane.streams.close(streamId)),
   );
 
   ipcMain.handle(IPC_CHANNELS.herdrObserveTouch, (_e, input: HerdrObserveTouchInput) =>
-    herdrObservePool.ensureObserve(input),
+    withPlane((plane) => plane.observePool.ensureObserve(input)),
   );
 
   ipcMain.handle(IPC_CHANNELS.herdrObserveRetained, (_e, terminalId: string) =>
-    herdrObservePool.retainedFrames(terminalId),
+    withPlane((plane) => plane.observePool.retainedFrames(terminalId)),
   );
 };

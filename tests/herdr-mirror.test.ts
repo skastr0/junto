@@ -1,9 +1,7 @@
-import type { ChildProcess } from "node:child_process";
-import { EventEmitter } from "node:events";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { unlinkSync, writeFileSync } from "node:fs";
+import { unlinkSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CliResult } from "../src/main/vellum/adapters/exec";
 import { HerdrMirror, type HerdrMirrorReads } from "../src/main/vellum/herdr/mirror";
@@ -721,40 +719,24 @@ describe("LocalMirrorTransport", () => {
   });
 });
 
-// --- remote transport (fake ssh forward, real local socket) -------------------
+// --- remote transport (fake Effect lease, real local socket) -----------------
 
-class FakeForward extends EventEmitter {
-  exitCode: number | null = null;
-  killed = false;
-  kill(): boolean {
-    if (this.exitCode === null) {
-      this.killed = true;
-      this.exitCode = 0;
-      this.emit("exit", 0);
-    }
-    return true;
-  }
+interface FakeForward {
+  readonly localSocket: string;
+  readonly closed: Promise<void>;
+  killed: boolean;
+  close(): void;
+  die(): void;
 }
 
 describe("RemoteMirrorTransport", () => {
-  const okHome = (stdout: string): CliResult => ({ ok: true, stdout });
-
-  /** Fake `ssh -N -L`: serves session.snapshot on a real unix socket at the
-   * forward's local path, exactly like the real forward would. */
-  const makeHarness = (localSock: string, home = "/Users/remote") => {
-    const execCalls: string[][] = [];
-    const spawnCalls: string[][] = [];
+  /** Fake scoped forward lease serving a real Unix socket. */
+  const makeHarness = (localSock: string) => {
+    let openCalls = 0;
     const children: FakeForward[] = [];
     const servers: Server[] = [];
-    const transport = new RemoteMirrorTransport("remote-a", {
-      exec: async (_cmd, argv) => {
-        execCalls.push([...argv]);
-        return okHome(home);
-      },
-      spawnFn: (_cmd, argv) => {
-        spawnCalls.push([...argv]);
-        const child = new FakeForward();
-        children.push(child);
+    const transport = new RemoteMirrorTransport("remote-a", async () => {
+        openCalls += 1;
         const server = createServer((sock) => {
           let buf = "";
           sock.on("data", (chunk) => {
@@ -767,10 +749,29 @@ describe("RemoteMirrorTransport", () => {
           });
         });
         servers.push(server);
-        server.listen(localSock);
-        return child as unknown as ChildProcess;
-      },
-      localSockPath: localSock,
+        await new Promise<void>((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(localSock, resolve);
+        });
+        let resolveClosed!: () => void;
+        const closed = new Promise<void>((resolve) => { resolveClosed = resolve; });
+        const child: FakeForward = {
+          localSocket: localSock,
+          closed,
+          killed: false,
+          close() {
+            if (this.killed) return;
+            this.killed = true;
+            server.close();
+            resolveClosed();
+          },
+          die() {
+            server.close();
+            resolveClosed();
+          },
+        };
+        children.push(child);
+        return child;
     });
     cleanup.push(() => {
       transport.dispose();
@@ -781,84 +782,50 @@ describe("RemoteMirrorTransport", () => {
         // gone
       }
     });
-    return { transport, execCalls, spawnCalls, children };
+    return { transport, openCount: () => openCalls, children };
   };
 
-  it("resolves $HOME once, pre-unlinks a stale socket, spawns -N -L, and serves requests", async () => {
+  it("serves requests and reuses one live scoped forward", async () => {
     const localSock = join(tmpdir(), `vmr-${process.pid}-${Date.now()}.sock`);
-    writeFileSync(localSock, ""); // stale leftover — ssh -L would refuse to bind
-    const { transport, execCalls, spawnCalls } = makeHarness(localSock);
+    const { transport, openCount } = makeHarness(localSock);
 
     const res = await transport.request("session.snapshot", {});
     expect(res).toEqual({ via: "forward" });
-
-    expect(execCalls.length).toBe(1);
-    expect(execCalls[0]!.join(" ")).toContain('printf %s "$HOME"');
-    expect(spawnCalls.length).toBe(1);
-    expect(spawnCalls[0]).toContain("-N");
-    // Must not mux onto ControlMaster — mux accepts -L unix with exit 0 but
-    // never binds the local sock when the master was started without that -L.
-    expect(spawnCalls[0]).toContain("ControlMaster=no");
-    expect(spawnCalls[0]).not.toContain("ControlMaster=auto");
-    expect(spawnCalls[0]).toContain(`${localSock}:/Users/remote/.config/herdr/herdr.sock`);
-    expect(spawnCalls[0]!.at(-1)).toBe("remote-a");
-
-    // Second request reuses the live forward and the cached $HOME.
+    expect(openCount()).toBe(1);
     await transport.request("session.snapshot", {});
-    expect(execCalls.length).toBe(1);
-    expect(spawnCalls.length).toBe(1);
-  });
-
-  it("rejects when remote $HOME cannot be resolved", async () => {
-    const localSock = join(tmpdir(), `vmr2-${process.pid}-${Date.now()}.sock`);
-    const transport = new RemoteMirrorTransport("remote-a", {
-      exec: async () => ({ ok: false, stdout: "", error: "ssh down" }),
-      spawnFn: () => {
-        throw new Error("must not spawn without $HOME");
-      },
-      localSockPath: localSock,
-    });
-    cleanup.push(() => transport.dispose());
-    await expect(transport.request("session.snapshot", {})).rejects.toThrow(
-      /failed to resolve remote \$HOME/,
-    );
+    expect(openCount()).toBe(1);
   });
 
   it("forward death invalidates the handle; the next request respawns", async () => {
     const localSock = join(tmpdir(), `vmr3-${process.pid}-${Date.now()}.sock`);
-    const { transport, spawnCalls, children } = makeHarness(localSock);
+    const { transport, openCount, children } = makeHarness(localSock);
 
     await transport.request("session.snapshot", {});
-    expect(spawnCalls.length).toBe(1);
+    expect(openCount()).toBe(1);
 
-    children[0]!.exitCode = 1;
-    children[0]!.emit("exit", 1);
-    unlinkSync(localSock); // forward death takes its socket with it
+    children[0]!.die();
 
     await transport.request("session.snapshot", {});
-    expect(spawnCalls.length).toBe(2);
+    expect(openCount()).toBe(2);
   });
 
   it("unlinked socket under a live forward respawns instead of looping ENOENT", async () => {
     const localSock = join(tmpdir(), `vmr-stale-${process.pid}-${Date.now()}.sock`);
-    const { transport, spawnCalls, children } = makeHarness(localSock);
+    const { transport, openCount, children } = makeHarness(localSock);
 
     await transport.request("session.snapshot", {});
-    expect(spawnCalls.length).toBe(1);
-    expect(spawnCalls[0]).toContain("ExitOnForwardFailure=yes");
+    expect(openCount()).toBe(1);
 
     // Prod failure mode: path unlinked while ssh -N still alive (no exit event).
     unlinkSync(localSock);
-    expect(children[0]!.exitCode).toBeNull();
-
     await transport.request("session.snapshot", {});
-    expect(spawnCalls.length).toBe(2);
+    expect(openCount()).toBe(2);
     expect(children[0]!.killed).toBe(true);
   });
 
   it("coalesces concurrent stale-socket recovery into one replacement forward", async () => {
     const localSock = join(tmpdir(), `vmr-stale-race-${process.pid}-${Date.now()}.sock`);
-    const { transport, spawnCalls, children } = makeHarness(localSock);
+    const { transport, openCount, children } = makeHarness(localSock);
 
     await transport.request("session.snapshot", {});
     unlinkSync(localSock);
@@ -869,7 +836,7 @@ describe("RemoteMirrorTransport", () => {
     ]);
 
     expect(results).toEqual([{ via: "forward" }, { via: "forward" }]);
-    expect(spawnCalls.length).toBe(2);
+    expect(openCount()).toBe(2);
     expect(children[0]!.killed).toBe(true);
   });
 

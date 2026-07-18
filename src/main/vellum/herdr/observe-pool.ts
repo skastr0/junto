@@ -1,6 +1,5 @@
-import { spawn } from "node:child_process";
-import { herdrArgv } from "./hosts";
 import { feedNdjson } from "./ndjson";
+import { isKnownHerdrHost } from "./hosts";
 
 /**
  * LRU pool of read-only `herdr terminal session observe` children with
@@ -13,11 +12,9 @@ import { feedNdjson } from "./ndjson";
  * [full, ...deltas] buffer is handed to the renderer when a control stream
  * opens (instant paint before live frames arrive).
  *
- * Channel budget per host: 1 control + <=5 observe (maxPerHost) long-lived
- * channels; short execs are capped at 3 by withHostSlot elsewhere. Total <=9
- * under sshd MaxSessions=10. Observe children deliberately do NOT go through
- * withHostSlot — they are long-lived streams, not ops; the per-host cap here
- * is the enforcement.
+ * Channel budget per host: 1 control + <=5 observe long-lived channels.
+ * Short operations use the transport's independent per-host dial admission;
+ * observe capacity remains explicit here because these leases are long-lived.
  */
 
 /** Minimal structural child shape so tests can inject EventEmitter fakes. */
@@ -27,12 +24,14 @@ export interface ObserveChildLike {
     on(event: "data", listener: (chunk: string) => void): unknown;
   };
   kill(signal?: NodeJS.Signals): unknown;
-  on(event: "close" | "error", listener: (...args: never[]) => void): unknown;
+  on(event: "close", listener: (code: number | null) => void): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
 }
 
 export type ObserveSpawnFn = (
-  command: string,
-  argv: ReadonlyArray<string>,
+  hostId: string,
+  args: ReadonlyArray<string>,
+  session?: string | null,
 ) => ObserveChildLike;
 
 export interface ObserveInput {
@@ -59,13 +58,6 @@ interface ObserveEntry {
   buffer: string;
 }
 
-const defaultSpawn: ObserveSpawnFn = (command, argv) =>
-  spawn(command, [...argv], {
-    // Observers never write — no stdin.
-    stdio: ["ignore", "pipe", "ignore"],
-    env: process.env,
-  }) as unknown as ObserveChildLike;
-
 export class HerdrObservePool {
   private readonly maxGlobal: number;
   private readonly maxPerHost: number;
@@ -90,12 +82,15 @@ export class HerdrObservePool {
     // Beyond this, the least-recently-touched dead entry is dropped outright
     // — otherwise every terminal ever touched pins up to maxDeltaBytes forever.
     this.maxEntries = Math.max(opts?.maxEntries ?? 3 * this.maxGlobal, this.maxGlobal);
-    this.spawnFn = opts?.spawnFn ?? defaultSpawn;
+    if (!opts?.spawnFn) throw new TypeError("HerdrObservePool requires a scoped process factory");
+    this.spawnFn = opts.spawnFn;
   }
 
   /** Pool an observe stream for the terminal (LRU-touch if already live). */
   ensureObserve(input: ObserveInput): { readonly pooled: boolean } {
-    if (this.shutDown || !input.terminalId) return { pooled: false };
+    if (this.shutDown || !input.terminalId || !isKnownHerdrHost(input.hostId)) {
+      return { pooled: false };
+    }
     const existing = this.entries.get(input.terminalId);
     if (existing?.live) {
       existing.touched = ++this.touchSeq;
@@ -234,16 +229,9 @@ export class HerdrObservePool {
       "--rows",
       String(Math.max(5, Math.floor(entry.rows || 24))),
     ];
-    let command: string;
-    let argv: string[];
-    try {
-      ({ command, argv } = herdrArgv(entry.hostId, args, entry.session));
-    } catch {
-      return false;
-    }
     let child: ObserveChildLike;
     try {
-      child = this.spawnFn(command, argv);
+      child = this.spawnFn(entry.hostId, args, entry.session);
     } catch {
       return false;
     }
@@ -312,5 +300,3 @@ export class HerdrObservePool {
     }
   }
 }
-
-export const herdrObservePool = new HerdrObservePool();

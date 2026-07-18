@@ -1,5 +1,4 @@
 import { EventEmitter } from "node:events";
-import type { spawn } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
   HerdrObservePool,
@@ -30,16 +29,17 @@ class FakeChild extends EventEmitter {
 }
 
 interface SpawnCall {
-  readonly command: string;
-  readonly argv: ReadonlyArray<string>;
+  readonly hostId: string;
+  readonly args: ReadonlyArray<string>;
+  readonly session?: string | null;
   readonly child: FakeChild;
 }
 
 const makeSpawner = (): { calls: SpawnCall[]; spawnFn: ObserveSpawnFn } => {
   const calls: SpawnCall[] = [];
-  const spawnFn: ObserveSpawnFn = (command, argv) => {
+  const spawnFn: ObserveSpawnFn = (hostId, args, session) => {
     const child = new FakeChild();
-    calls.push({ command, argv, child });
+    calls.push({ hostId, args, session, child });
     return child as unknown as ObserveChildLike;
   };
   return { calls, spawnFn };
@@ -53,7 +53,7 @@ const touch = (
   pool.ensureObserve({ hostId, terminalId, cols: 80, rows: 24 });
 
 const observedTerminal = (call: SpawnCall): string => {
-  const argv = [...call.argv];
+  const argv = [...call.args];
   return argv[argv.indexOf("observe") + 1]!;
 };
 
@@ -193,21 +193,20 @@ describe("HerdrObservePool lifecycle", () => {
   });
 });
 
-describe("HerdrObservePool argv", () => {
-  it("remote observe rides ssh via herdrArgv; local runs bare herdr", () => {
+describe("HerdrObservePool process intent", () => {
+  it("passes typed host, session, and herdr args to the scoped factory", () => {
     const { calls, spawnFn } = makeSpawner();
     const pool = new HerdrObservePool({ spawnFn });
     pool.ensureObserve({ hostId: "remote-a", session: "ops", terminalId: "tr", cols: 100, rows: 30 });
     const remote = calls[0]!;
-    expect(remote.command).toBe("ssh");
-    expect(remote.argv).toContain("remote-a");
-    expect(remote.argv).toContain("herdr");
-    expect(remote.argv.join(" ")).toContain("--session ops terminal session observe tr --cols 100 --rows 30");
+    expect(remote.hostId).toBe("remote-a");
+    expect(remote.session).toBe("ops");
+    expect(remote.args.join(" ")).toBe("terminal session observe tr --cols 100 --rows 30");
 
     pool.ensureObserve({ hostId: "local", terminalId: "tl", cols: 80, rows: 24 });
     const local = calls[1]!;
-    expect(local.command).toBe("herdr");
-    expect(local.argv).toEqual(["terminal", "session", "observe", "tl", "--cols", "80", "--rows", "24"]);
+    expect(local.hostId).toBe("local");
+    expect(local.args).toEqual(["terminal", "session", "observe", "tl", "--cols", "80", "--rows", "24"]);
 
     expect(pool.ensureObserve({ hostId: "evil-host", terminalId: "tx", cols: 80, rows: 24 })).toEqual({
       pooled: false,
@@ -218,12 +217,12 @@ describe("HerdrObservePool argv", () => {
 describe("control stream ↔ observe pool handoff", () => {
   const makeStreams = (pool: HerdrObservePool) => {
     const controlChildren: FakeChild[] = [];
-    const controlSpawn = ((_cmd: string, _argv: string[]) => {
+    const controlSpawn = (() => {
       const child = new FakeChild();
       controlChildren.push(child);
       return child;
-    }) as unknown as typeof spawn;
-    const streams = new HerdrStreamManager(pool, controlSpawn);
+    });
+    const streams = new HerdrStreamManager(pool, controlSpawn, async (name) => `/tmp/${name}`);
     const events: HerdrStreamFrame[] = [];
     streams.setSink((f) => events.push(f));
     return { streams, controlChildren, events };
@@ -258,10 +257,10 @@ describe("control stream ↔ observe pool handoff", () => {
 
     streams.close(opened.streamId);
     expect(calls.length).toBe(1);
-    expect(calls[0]!.command).toBe("herdr");
-    expect(calls[0]!.argv).toContain("observe");
+    expect(calls[0]!.hostId).toBe("local");
+    expect(calls[0]!.args).toContain("observe");
     expect(observedTerminal(calls[0]!)).toBe("t1");
-    expect(calls[0]!.argv.join(" ")).toContain("--cols 120 --rows 40");
+    expect(calls[0]!.args.join(" ")).toContain("--cols 120 --rows 40");
     expect(pool.entryState("t1")?.live).toBe(true);
   });
 
