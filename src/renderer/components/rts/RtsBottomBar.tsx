@@ -21,9 +21,11 @@ import { signalMark, signalMarkForMember } from "../../lib/signal-mark";
 import { deleteNode, deleteNodes, setNodeColor, toggleFlag, addNode } from "../../lib/mutations";
 import { makeGroupNode } from "../../lib/node-factories";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
+import { openHerdrTerminal } from "../../lib/herdr-state";
 import { HUE, withAlpha } from "../../lib/theme";
 import { disarmOrphan, kernel$ } from "../../lib/kernel-view";
 import { ConnectEditor } from "../InspectorFields";
+import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
 import { PulseTray } from "../PulseTray";
 import "./RtsBottomBar.css";
 
@@ -276,6 +278,8 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
 
   const flags = node.ether?.flags ?? [];
   const isLink = node.type === "link";
+  const herdr = node.ether?.herdr;
+  const isHerdr = Boolean(herdr);
 
   const copyReference = async (): Promise<void> => {
     const request = copyRequest.current + 1;
@@ -385,6 +389,18 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
           {isLink ? (
             <CmdKey label="Open link" onClick={() => window.open(node.url, "_blank")}>
               <ExternalLink size={ICON} />
+            </CmdKey>
+          ) : isHerdr && herdr ? (
+            <CmdKey
+              label="Open work surface"
+              title="open work surface"
+              style={{ color: HUE.cyan }}
+              onClick={() => {
+                const title = nodeTitle(node);
+                openHerdrTerminal(node.id, herdr, title);
+              }}
+            >
+              <OpenHerdrMark size={ICON} />
             </CmdKey>
           ) : (
             <CmdKey

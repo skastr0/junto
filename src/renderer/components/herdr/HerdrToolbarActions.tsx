@@ -2,17 +2,18 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { PanelTopClose, RotateCw, SquareX } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
-import { connectionStateOf, herdr$ } from "../../lib/herdr-state";
+import { connectionStateOf, herdr$, openHerdrTerminal } from "../../lib/herdr-state";
 import { killHerdrPane, killHerdrTab, recreateHerdrPane } from "../../lib/herdr-actions";
 import { HUE } from "../../lib/theme";
+import { OpenHerdrMark } from "./OpenHerdrMark";
 
 const ARM_MS = 3000;
 
 type HerdrAction = "kill-pane" | "kill-tab" | "recreate";
 
-// Destructive herdr actions live in the floating selection toolbar, never on
-// the card body. Every action is a two-click arm: first click arms (crimson,
-// ~3s window), second click executes. No modal.
+// Selection-toolbar herdr actions. Open is one-click (double-click on the card
+// already does the same). Destructive actions stay two-click arm: first arms
+// (crimson, ~3s), second executes. Never on the card body.
 export function HerdrToolbarActions({ node }: { readonly node: CanvasNode }) {
   const herdr = node.ether?.herdr;
   const conn = use$(herdr$.connectionByNodeId[node.id]);
@@ -28,6 +29,7 @@ export function HerdrToolbarActions({ node }: { readonly node: CanvasNode }) {
   if (!herdr) return null;
 
   const connState = conn?.state ?? connectionStateOf(node.id);
+  const title = (node.type === "text" ? node.text : "").split("\n")[0] || "herdr";
 
   const disarm = () => {
     if (armTimer.current !== null) {
@@ -76,6 +78,19 @@ export function HerdrToolbarActions({ node }: { readonly node: CanvasNode }) {
 
   return (
     <>
+      <button
+        aria-label="Open work surface"
+        className="nodrag nopan grid size-7 place-items-center rounded text-[11px] transition hover:bg-white/10"
+        style={{ color: HUE.cyan }}
+        title="open work surface"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openHerdrTerminal(node.id, herdr, title);
+        }}
+      >
+        <OpenHerdrMark size={14} />
+      </button>
       {actionButton("kill-pane", "kill pane", <SquareX size={14} />)}
       {herdr.tabId ? actionButton("kill-tab", "kill tab", <PanelTopClose size={14} />) : null}
       {connState === "lost" || connState === "failed"

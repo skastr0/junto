@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { use$ } from "@legendapp/state/react";
-import { SquareTerminal } from "lucide-react";
 import type { CanvasNode, EtherHerdr } from "@shared/canvas";
 import type { HerdrMirrorEvent, HerdrObserveTouchInput } from "@shared/ipc";
 import { herdrActivity } from "../../lib/activity";
@@ -221,13 +220,6 @@ export function HerdrCard({
     timeGuardedOpen();
   };
 
-  // Ghost open button: same coalescing guard as the hero, but never suppressed
-  // by selection — it is the open path while the card is selected.
-  const ghostGuardedOpen = (e: SyntheticEvent) => {
-    e.stopPropagation();
-    timeGuardedOpen();
-  };
-
   const commitRename = (firstLine: string) => {
     if (node.type !== "text") return;
     const rest = node.text.split("\n").slice(1).join("\n");
@@ -286,25 +278,13 @@ export function HerdrCard({
               {harnessDisplayName(agent)}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              aria-label="open terminal"
-              title="open terminal"
-              className="nodrag nopan grid size-[22px] place-items-center rounded text-cyan-300/60 opacity-0 transition hover:bg-white/10 hover:text-cyan-200 group-hover:opacity-100"
-              onPointerDown={ghostGuardedOpen}
-              onClick={ghostGuardedOpen}
-            >
-              <SquareTerminal size={12} />
-            </button>
-            <ActivityMarkFromSpec
-              spec={
-                metaCache?.error
-                  ? { ...activity, label: metaCache.error }
-                  : activity
-              }
-            />
-          </div>
+          <ActivityMarkFromSpec
+            spec={
+              metaCache?.error
+                ? { ...activity, label: metaCache.error }
+                : activity
+            }
+          />
         </div>
         <div className="mt-0.5 truncate text-[10px] tabular-nums" style={{ color: DIM }} title={crumbTitle}>
           {crumbs.join(" › ")}
