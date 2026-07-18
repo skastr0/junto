@@ -27,6 +27,7 @@ import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
+import { TooltipLayer } from "./components/TooltipLayer";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 import {
   makeNavigationClock,
@@ -391,6 +392,7 @@ export function App() {
         </div>
         <WorkSurfaceDock />
       </div>
+      <TooltipLayer />
     </div>
   );
 }
