@@ -4,6 +4,7 @@ import type {
   VellumBrowserApi,
   VellumBrowserAutomationApi,
   VellumChatApi,
+  VellumDemoApi,
   VellumHerdrApi,
 } from "@shared/ipc";
 
@@ -14,7 +15,8 @@ declare global {
       VellumChatApi &
       VellumHerdrApi &
       VellumBrowserApi &
-      VellumBrowserAutomationApi;
+      VellumBrowserAutomationApi &
+      VellumDemoApi;
   }
 }
 

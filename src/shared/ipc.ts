@@ -1,6 +1,13 @@
 import type { BrowserSessionState } from "./browser";
 import type { DirectoryEntry, DoctorReport, FolderSnapshot, ServiceCheck } from "./contracts";
 import type { CanvasDoc } from "./canvas";
+import type {
+  DemoCommand,
+  DemoCommandResult,
+  DemoEdl,
+  DemoStateInfo,
+  DemoWriteEdlResult,
+} from "./demo";
 import type { SnapshotState } from "./entities";
 import type { NodeRefKey } from "./node-ref";
 import type { RegionRollup } from "./region-rollup";
@@ -93,6 +100,10 @@ export const IPC_CHANNELS = {
   browserAutomationEnable: "vellum:browser-automation-enable",
   browserAutomationList: "vellum:browser-automation-list",
   browserAutomationRevoke: "vellum:browser-automation-revoke",
+  // demo/scripting engine (--vellum-demo only; inert otherwise)
+  demoState: "vellum:demo-state",
+  demoCommand: "vellum:demo-command",
+  demoWriteEdl: "vellum:demo-write-edl",
   // user settings plane (schema document under ~/.vellum/settings.json)
   settingsGet: "vellum:settings-get",
   settingsPatch: "vellum:settings-patch",
@@ -860,6 +871,16 @@ export interface VellumHerdrApi {
   readonly onHerdrStreamEvent: (listener: (event: HerdrStreamEvent) => void) => () => void;
   readonly herdrMirrorState: () => Promise<ReadonlyArray<HerdrMirrorStateInfo>>;
   readonly onHerdrMirrorEvent: (listener: (event: HerdrMirrorEvent) => void) => () => void;
+}
+
+// --- demo/scripting engine (--vellum-demo only) ------------------------------
+// Outside demo mode: demoState answers { active: false } and the other two
+// answer ok:false — handlers are always registered, behavior is flag-gated.
+
+export interface VellumDemoApi {
+  readonly demoState: () => Promise<DemoStateInfo>;
+  readonly demoCommand: (command: DemoCommand) => Promise<DemoCommandResult>;
+  readonly demoWriteEdl: (edl: DemoEdl) => Promise<DemoWriteEdlResult>;
 }
 
 // --- browser work surface (partitioned WebContentsView; not a corpus join) ---

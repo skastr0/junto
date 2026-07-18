@@ -15,6 +15,7 @@ import {
   type VellumBrowserApi,
   type VellumBrowserAutomationApi,
   type VellumChatApi,
+  type VellumDemoApi,
   type VellumHerdrApi,
   type KernelSnapshot,
   type NodeRefOpenedDelivery,
@@ -302,6 +303,12 @@ const browserApi: VellumBrowserApi = {
     subscribe<BrowserSessionInfo>(IPC_CHANNELS.browserSessionChanged, listener),
 };
 
+const demoApi: VellumDemoApi = {
+  demoState: () => invoke(IPC_CHANNELS.demoState, IPC_TIMEOUT_MS),
+  demoCommand: (command) => invoke(IPC_CHANNELS.demoCommand, IPC_TIMEOUT_MS, command),
+  demoWriteEdl: (edl) => invoke(IPC_CHANNELS.demoWriteEdl, IPC_TIMEOUT_MS, edl),
+};
+
 const browserAutomationApi: VellumBrowserAutomationApi = {
   browserAutomationEnable: (input: BrowserAutomationEnableInput) =>
     invoke(IPC_CHANNELS.browserAutomationEnable, IPC_TIMEOUT_MS, input),
@@ -318,4 +325,5 @@ contextBridge.exposeInMainWorld("vellum", {
   ...herdrApi,
   ...browserApi,
   ...browserAutomationApi,
+  ...demoApi,
 });
