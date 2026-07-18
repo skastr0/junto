@@ -1,0 +1,191 @@
+{
+  "version": "v2",
+  "meta": {
+    "name": "Vellum Factory Familiars — avatar library v1",
+    "tags": ["vellum", "agent-avatar", "factory-familiar", "codex", "text-free"]
+  },
+  "steps": [
+    {
+      "id": "brisk",
+      "uses": "codex.text-to-image.v1",
+      "timeout_ms": 300000,
+      "with": {
+        "model_ref": "gpt-5.5",
+        "prompt": "Create one square character avatar for Vellum's Factory Familiars library. Brisk is a tiny non-humanoid workshop familiar: a lively pet-like mechanical creature with a clear head-and-body silhouette, a compact wedge-shaped graphite body leaning eagerly forward, two short swept-back copper ear vanes, four small planted feet, and a jaunty orange tail fin. Its face has two warm expressive optical eyes, one slightly larger than the other, focused ahead with confident curiosity; no mouth or eyebrows. It should feel alive, companionable, and ready to dart after an interesting signal—not like a camera, appliance, or abstract device. Tactile stop-motion maquette photographed like a treasured 1970s laboratory prototype: painted cast metal, smoked glass, tiny screws, restrained edge wear, hand-built precision. Warm near-black deep-field studio ground, orange as the single identity hue, rare pinprick cyan calibration light only. Center the full silhouette inside the circular-crop safe area; subject fills about 76 percent of the frame; oversized face and eyes, unmistakable creature silhouette and gaze at 20 pixels; three-quarter portrait, quiet museum lighting, shallow depth of field but crisp eyes. Endearing and quirky, but restrained rather than sugary. No logo, letters, numbers, circuit-board pattern, humanoid robot, android, human hands, clothing, literal dog or fox, toy franchise, Pixar style, steampunk clutter, glossy plastic, neon rainbow, scenery, extra character, or border.",
+        "aspect_ratio": "1:1",
+        "size": "1024x1024",
+        "quality": "high",
+        "style": "tactile stop-motion workshop automaton portrait, warm deep-field technical, orange signal"
+      }
+    },
+    {
+      "id": "fizz",
+      "uses": "codex.text-to-image.v1",
+      "timeout_ms": 300000,
+      "with": {
+        "model_ref": "gpt-5.5",
+        "prompt": "Create one square character avatar for Vellum's Factory Familiars library. Fizz is a tiny non-humanoid workshop familiar: a curious pet-like mechanical creature with an asymmetrical round graphite body, a distinct small face, two mismatched violet glass eyes, three delicate sensor-bead feelers, two tiny forepaws, and one springy filament tail curling upward. It crouches with its head cocked sharply sideways as if it just heard an impossible idea. The mismatched eyes and alert pose feel inventive, improvisational, surprising, and unmistakably alive; no mouth or eyebrows. It must read as an odd little companion, not a signal sampler, camera, appliance, or abstract orb. Tactile stop-motion maquette photographed like a treasured 1970s laboratory prototype: painted cast metal, smoked glass, tiny screws, restrained edge wear, hand-built precision. Warm near-black deep-field studio ground, violet as the single identity hue, rare pinprick cyan calibration light only. Center the full silhouette inside the circular-crop safe area; subject fills about 76 percent of the frame; oversized face and eyes, unmistakable creature silhouette and gaze at 20 pixels; three-quarter portrait, quiet museum lighting, shallow depth of field but crisp eyes. Endearing and peculiar, but restrained rather than sugary. No logo, letters, numbers, circuit-board pattern, humanoid robot, android, human hands, clothing, literal animal, toy franchise, Pixar style, steampunk clutter, glossy plastic, neon rainbow, scenery, extra character, or border.",
+        "aspect_ratio": "1:1",
+        "size": "1024x1024",
+        "quality": "high",
+        "style": "tactile stop-motion workshop automaton portrait, warm deep-field technical, violet signal"
+      }
+    },
+    {
+      "id": "plumb",
+      "uses": "codex.text-to-image.v1",
+      "timeout_ms": 300000,
+      "with": {
+        "model_ref": "gpt-5.5",
+        "prompt": "Create one square character avatar for Vellum's Factory Familiars library. Plumb is a tiny non-humanoid workshop familiar: a calm pet-like mechanical creature with a broad low graphite shell, a small head emerging from beneath it, four symmetric teal-footed paws, and a brass plumb bead hanging like a gentle chest charm. Its face has two level teal glass eyes, soft and steady, looking directly toward the viewer; no mouth or eyebrows. Its low settled posture feels patient, dependable, balanced, and difficult to disturb, like a companion that will sit beside a task all night. It must read as a living shell-backed entity, not a level, appliance, tank, or abstract device. Tactile stop-motion maquette photographed like a treasured 1970s laboratory prototype: painted cast metal, smoked glass, tiny screws, restrained edge wear, hand-built precision. Warm near-black deep-field studio ground, teal as the single identity hue, rare pinprick cyan calibration light only. Center the full silhouette inside the circular-crop safe area; subject fills about 76 percent of the frame; oversized face and eyes, unmistakable creature silhouette and gaze at 20 pixels; near-front portrait, quiet museum lighting, shallow depth of field but crisp eyes. Gentle and endearing, but restrained rather than sugary. No logo, letters, numbers, circuit-board pattern, humanoid robot, android, human hands, clothing, literal turtle, toy franchise, Pixar style, steampunk clutter, glossy plastic, neon rainbow, scenery, extra character, or border.",
+        "aspect_ratio": "1:1",
+        "size": "1024x1024",
+        "quality": "high",
+        "style": "tactile stop-motion workshop automaton portrait, warm deep-field technical, teal signal"
+      }
+    },
+    {
+      "id": "folio",
+      "uses": "codex.text-to-image.v1",
+      "timeout_ms": 300000,
+      "with": {
+        "model_ref": "gpt-5.5",
+        "prompt": "Create one square character avatar for Vellum's Factory Familiars library. Folio is a tiny non-humanoid workshop familiar: a quiet pet-like mechanical creature whose rounded body is made from overlapping vellum-colored metal plates, with a distinct face framed by two small page-tab ears, two deep warm-gold glass eyes, tucked plate-like winglets, and delicate little feet. It sits upright with its head turned slightly back toward the viewer, attentive and reflective as if remembering where something precious was placed; no mouth or eyebrows. Patina gathers in protected seams. It must feel alive, companionable, observant, and careful with history—not like a card index, book, camera, or storage device. Tactile stop-motion maquette photographed like a treasured 1970s laboratory prototype: painted cast metal, smoked glass, tiny screws, restrained edge wear, hand-built precision. Warm near-black deep-field studio ground, gold as the single identity hue, rare pinprick cyan calibration light only. Center the full silhouette inside the circular-crop safe area; subject fills about 76 percent of the frame; oversized face and eyes, unmistakable creature silhouette and gaze at 20 pixels; three-quarter portrait, quiet museum lighting, shallow depth of field but crisp eyes. Wise and endearing, but restrained rather than sugary. No logo, letters, numbers, circuit-board pattern, humanoid robot, android, human hands, clothing, literal owl, book illustration, toy franchise, Pixar style, steampunk clutter, glossy plastic, neon rainbow, scenery, extra character, or border.",
+        "aspect_ratio": "1:1",
+        "size": "1024x1024",
+        "quality": "high",
+        "style": "tactile stop-motion workshop automaton portrait, warm deep-field technical, archival gold signal"
+      }
+    },
+    {
+      "id": "rivet",
+      "uses": "codex.text-to-image.v1",
+      "timeout_ms": 300000,
+      "with": {
+        "model_ref": "gpt-5.5",
+        "prompt": "Create one square character avatar for Vellum's Factory Familiars library. Rivet is a tiny non-humanoid workshop familiar: a stout pet-like mechanical creature with a barrel-shaped graphite body, a broad low head, two compact folded ear plates, four sturdy little feet, and a short handle-like tail. Its face has two bright amber furnace-glass eyes set inside a clamping collar, narrowed only by its determined forward posture; no mouth or eyebrows. One rivet has been visibly and lovingly replaced in a different metal. It plants itself squarely as if determined to finish carrying a favorite object home. It must feel alive, loyal, durable, and industrious—not like a furnace, tool, appliance, or abstract cylinder. Tactile stop-motion maquette photographed like a treasured 1970s laboratory prototype: painted cast metal, smoked glass, tiny screws, restrained edge wear, hand-built precision. Warm near-black deep-field studio ground, amber as the single identity hue, rare pinprick cyan calibration light only. Center the full silhouette inside the circular-crop safe area; subject fills about 76 percent of the frame; oversized face and eyes, unmistakable creature silhouette and gaze at 20 pixels; three-quarter portrait, quiet museum lighting, shallow depth of field but crisp eyes. Stout and lovable, but restrained rather than sugary. No logo, letters, numbers, circuit-board pattern, humanoid robot, android, human hands, clothing, literal bulldog or beetle, toy franchise, Pixar style, steampunk clutter, glossy plastic, neon rainbow, scenery, extra character, or border.",
+        "aspect_ratio": "1:1",
+        "size": "1024x1024",
+        "quality": "high",
+        "style": "tactile stop-motion workshop automaton portrait, warm deep-field technical, amber signal"
+      }
+    },
+    {
+      "id": "vector",
+      "uses": "codex.text-to-image.v1",
+      "timeout_ms": 300000,
+      "with": {
+        "model_ref": "gpt-5.5",
+        "prompt": "Create one square character avatar for Vellum's Factory Familiars library. Vector is a tiny non-humanoid workshop familiar: a slender pet-like mechanical creature with a narrow indigo body, a clear head-and-neck silhouette, two tall compass-needle ears, three fine trajectory whiskers, delicate tripod-like feet, and a translucent directional fin sweeping behind it like a tail. Its face has two small indigo bearing-glass eyes looking together toward a distant point outside the frame; no mouth or eyebrows. Its upright listening pose feels far-seeing, intentional, composed, and gently alert. It must read as a living long-eared entity, not a compass, antenna, camera, or abstract tower. Tactile stop-motion maquette photographed like a treasured 1970s laboratory prototype: painted cast metal, smoked glass, tiny screws, restrained edge wear, hand-built precision. Warm near-black deep-field studio ground, indigo as the single identity hue, rare pinprick cyan calibration light only. Center the full silhouette inside the circular-crop safe area; subject fills about 76 percent of the frame; oversized face and eyes, unmistakable creature silhouette and gaze at 20 pixels; three-quarter portrait, quiet museum lighting, shallow depth of field but crisp eyes. Elegant and endearing, but restrained rather than sugary. No logo, letters, numbers, circuit-board pattern, humanoid robot, android, human hands, clothing, literal hare or deer, toy franchise, Pixar style, steampunk clutter, glossy plastic, neon rainbow, scenery, extra character, or border.",
+        "aspect_ratio": "1:1",
+        "size": "1024x1024",
+        "quality": "high",
+        "style": "tactile stop-motion workshop automaton portrait, warm deep-field technical, indigo signal"
+      }
+    },
+    {
+      "id": "gauge",
+      "uses": "codex.text-to-image.v1",
+      "timeout_ms": 300000,
+      "with": {
+        "model_ref": "gpt-5.5",
+        "prompt": "Create one square character avatar for Vellum's Factory Familiars library. Gauge is a tiny non-humanoid workshop familiar: a compact pet-like mechanical creature with an octagonal steel head, a smaller rounded body beneath it, two precise cyan glass eyes protected by separate half-rings, two tiny side fins like ears, and four neat pointed feet. A fine reference line crosses only one eye. It leans back slightly and studies the viewer with a skeptical head tilt, exacting but fair; no mouth or eyebrows. It must feel like a conscious, discerning little companion—not a gauge, camera, security device, or abstract steel box. Tactile stop-motion maquette photographed like a treasured 1970s laboratory prototype: painted cast metal, smoked glass, tiny screws, restrained edge wear, hand-built precision. Warm near-black deep-field studio ground, cyan as the single identity hue with no competing accent. Center the full silhouette inside the circular-crop safe area; subject fills about 76 percent of the frame; oversized face and eyes, unmistakable creature silhouette and gaze at 20 pixels; three-quarter portrait, quiet museum lighting, shallow depth of field but crisp eyes. Quirky and endearing, but restrained rather than sugary. No logo, letters, numbers, circuit-board pattern, humanoid robot, android, human hands, clothing, literal owl or cat, toy franchise, Pixar style, steampunk clutter, glossy plastic, neon rainbow, scenery, extra character, or border.",
+        "aspect_ratio": "1:1",
+        "size": "1024x1024",
+        "quality": "high",
+        "style": "tactile stop-motion workshop automaton portrait, warm deep-field technical, cyan signal"
+      }
+    },
+    {
+      "id": "relay",
+      "uses": "codex.text-to-image.v1",
+      "timeout_ms": 300000,
+      "with": {
+        "model_ref": "gpt-5.5",
+        "prompt": "Create one square character avatar for Vellum's Factory Familiars library. Relay is a tiny non-humanoid workshop familiar: a sociable pet-like mechanical creature with two overlapping rounded graphite body lobes joined by a visible brass hinge, one coherent face with two rose-glass eyes at slightly different heights, four nimble feet, two soft loop-shaped ear wires, and a short luminous cable tail. A bridge filament carries rose light between the body lobes like a heartbeat. It leans toward the viewer with an open, attentive head tilt, adaptive and eager to connect; no mouth or eyebrows. It must clearly be one living companion, not two characters, paired speakers, binoculars, or an abstract coordination device. Tactile stop-motion maquette photographed like a treasured 1970s laboratory prototype: painted cast metal, smoked glass, tiny screws, restrained edge wear, hand-built precision. Warm near-black deep-field studio ground, rose as the single identity hue, rare pinprick cyan calibration light only. Center the full silhouette inside the circular-crop safe area; subject fills about 76 percent of the frame; oversized face and eyes, unmistakable creature silhouette and gaze at 20 pixels; near-front portrait, quiet museum lighting, shallow depth of field but crisp eyes. Friendly and endearing, but restrained rather than sugary. No logo, letters, numbers, circuit-board pattern, humanoid robot, android, human hands, clothing, literal animal, toy franchise, Pixar style, steampunk clutter, glossy plastic, neon rainbow, scenery, extra character, or border.",
+        "aspect_ratio": "1:1",
+        "size": "1024x1024",
+        "quality": "high",
+        "style": "tactile stop-motion workshop automaton portrait, warm deep-field technical, rose signal"
+      }
+    },
+    {
+      "id": "ward",
+      "uses": "codex.text-to-image.v1",
+      "timeout_ms": 300000,
+      "with": {
+        "model_ref": "gpt-5.5",
+        "prompt": "Create one square character avatar for Vellum's Factory Familiars library. Ward is a tiny non-humanoid workshop familiar: a protective pet-like mechanical creature with a heavy arched steel shell, a small rounded head peeking from beneath the front rim, two luminous blue-white eyes, four deeply planted feet, and three anchored fasteners visible along its back. The shell shelters the face like a hood but does not hide its gentle gaze. It stands slightly in front of the viewer, vigilant, principled, courageous, and restrained rather than aggressive; no mouth or eyebrows. It must feel like a loyal living guardian one could trust, not a bunker, helmet, shield, weapon, or abstract boundary device. Tactile stop-motion maquette photographed like a treasured 1970s laboratory prototype: painted cast metal, smoked glass, tiny screws, restrained edge wear, hand-built precision. Warm near-black deep-field studio ground, steel-blue as the single identity hue, rare pinprick cyan calibration light only. Center the full silhouette inside the circular-crop safe area; subject fills about 76 percent of the frame; oversized face and eyes, unmistakable creature silhouette and gaze at 20 pixels; near-front portrait, quiet museum lighting, shallow depth of field but crisp eyes. Protective and lovable, but restrained rather than sugary. No logo, letters, numbers, circuit-board pattern, humanoid robot, android, soldier, weapon, human hands, clothing, literal armadillo or bear, toy franchise, Pixar style, steampunk clutter, glossy plastic, neon rainbow, scenery, extra character, or border.",
+        "aspect_ratio": "1:1",
+        "size": "1024x1024",
+        "quality": "high",
+        "style": "tactile stop-motion workshop automaton portrait, warm deep-field technical, steel-blue signal"
+      }
+    },
+    {
+      "id": "patch",
+      "uses": "codex.text-to-image.v1",
+      "timeout_ms": 300000,
+      "with": {
+        "model_ref": "gpt-5.5",
+        "prompt": "Create one square character avatar for Vellum's Factory Familiars library. Patch is a tiny non-humanoid workshop familiar: a cheerful pet-like mechanical creature with a squat irregular graphite body assembled from three beautifully mismatched panels, a distinct round head, two bright lime-green loupe eyes, one floppy panel-ear, four eager little feet, and a tiny fold-out screwdriver tucked along its wagging cable tail. A neat repair seam crosses its shoulder. It leans forward with an inquisitive head tilt, practical, resourceful, broad-minded, and visibly delighted by solvable problems; no mouth or eyebrows. It must read as a scrappy living companion, not a toolbox, camera, appliance, or pile of parts. Tactile stop-motion maquette photographed like a treasured 1970s laboratory prototype: painted cast metal, smoked glass, tiny screws, restrained edge wear, hand-built precision. Warm near-black deep-field studio ground, lime as the single identity hue, rare pinprick cyan calibration light only. Center the full silhouette inside the circular-crop safe area; subject fills about 76 percent of the frame; oversized face and eyes, unmistakable creature silhouette and gaze at 20 pixels; three-quarter portrait, quiet museum lighting, shallow depth of field but crisp eyes. Cheerful and lovable, but restrained rather than sugary. No logo, letters, numbers, circuit-board pattern, humanoid robot, android, human hands, clothing, literal puppy, toy franchise, Pixar style, steampunk clutter, junkyard clutter, glossy plastic, neon rainbow, scenery, extra character, or border.",
+        "aspect_ratio": "1:1",
+        "size": "1024x1024",
+        "quality": "high",
+        "style": "tactile stop-motion workshop automaton portrait, warm deep-field technical, lime signal"
+      }
+    },
+    {
+      "id": "mote",
+      "uses": "codex.text-to-image.v1",
+      "timeout_ms": 300000,
+      "with": {
+        "model_ref": "gpt-5.5",
+        "prompt": "Create one square character avatar for Vellum's Factory Familiars library. Mote is a tiny non-humanoid workshop familiar: an uncanny but pet-like mechanical creature with a dark teardrop body suspended lightly inside one incomplete violet bearing ring, a small distinct face with two large smoky-violet eyes that catch impossible reflected points, two very fine feeler ears aimed in different directions, and three delicate feet barely touching the ground. The incomplete ring curves behind it like a protective tail. It gazes slightly past the viewer with an inward, perceptive stillness, imaginative and strange without becoming mystical; no mouth or eyebrows. It must feel like a shy living entity one wants to approach carefully, not a pendant, lens, gyroscope, or abstract anomaly device. Tactile stop-motion maquette photographed like a treasured 1970s laboratory prototype: painted cast metal, smoked glass, tiny screws, restrained edge wear, hand-built precision. Warm near-black deep-field studio ground, violet as the single identity hue, rare pinprick cyan calibration light only. Center the full silhouette inside the circular-crop safe area; subject fills about 76 percent of the frame; oversized face and eyes, unmistakable creature silhouette and gaze at 20 pixels; three-quarter portrait, quiet museum lighting, shallow depth of field but crisp eyes. Shy and endearing with a trace of uncanniness, but restrained rather than sugary. No logo, letters, numbers, circuit-board pattern, humanoid robot, android, wizard, occult symbol, human hands, clothing, literal cat or moth, toy franchise, Pixar style, steampunk clutter, glossy plastic, neon rainbow, scenery, extra character, or border.",
+        "aspect_ratio": "1:1",
+        "size": "1024x1024",
+        "quality": "high",
+        "style": "tactile stop-motion workshop automaton portrait, warm deep-field technical, violet anomaly signal"
+      }
+    },
+    {
+      "id": "still",
+      "uses": "codex.text-to-image.v1",
+      "timeout_ms": 300000,
+      "with": {
+        "model_ref": "gpt-5.5",
+        "prompt": "Create one square character avatar for Vellum's Factory Familiars library. Still is a tiny non-humanoid workshop familiar: a serene pet-like mechanical creature with a smooth low amber-black body, a softly separated head, two narrow half-lidded amber glass eyes, four evenly worn rounded feet, and a small flywheel visible through glass in its side like a slow breathing rhythm. Its chin rests close to its front feet and its compact tail curls against the body. The settled pose feels steady, self-contained, unhurried, safe to sit beside, and quietly enduring; no mouth or eyebrows. It must read as a sleepy living companion, not a containment vessel, engine, speaker, or abstract appliance. Tactile stop-motion maquette photographed like a treasured 1970s laboratory prototype: painted cast metal, smoked glass, tiny screws, restrained edge wear, hand-built precision. Warm near-black deep-field studio ground, amber as the single identity hue, rare pinprick cyan calibration light only. Center the full silhouette inside the circular-crop safe area; subject fills about 76 percent of the frame; oversized face and eyes, unmistakable creature silhouette and gaze at 20 pixels; near-front portrait, quiet museum lighting, shallow depth of field but crisp eyes. Comforting and endearing, but restrained rather than sugary. No logo, letters, numbers, circuit-board pattern, humanoid robot, android, human hands, clothing, literal seal or turtle, toy franchise, Pixar style, steampunk clutter, glossy plastic, neon rainbow, scenery, extra character, or border.",
+        "aspect_ratio": "1:1",
+        "size": "1024x1024",
+        "quality": "high",
+        "style": "tactile stop-motion workshop automaton portrait, warm deep-field technical, amber continuity signal"
+      }
+    },
+    { "id": "gate_brisk", "uses": "core.eval.dimension.v1", "depends_on": ["brisk"], "with": { "inputs": [{ "from_step": "brisk", "output": "image" }], "min_width": 900, "min_height": 900, "on_fail": "halt" } },
+    { "id": "gate_fizz", "uses": "core.eval.dimension.v1", "depends_on": ["fizz"], "with": { "inputs": [{ "from_step": "fizz", "output": "image" }], "min_width": 900, "min_height": 900, "on_fail": "halt" } },
+    { "id": "gate_plumb", "uses": "core.eval.dimension.v1", "depends_on": ["plumb"], "with": { "inputs": [{ "from_step": "plumb", "output": "image" }], "min_width": 900, "min_height": 900, "on_fail": "halt" } },
+    { "id": "gate_folio", "uses": "core.eval.dimension.v1", "depends_on": ["folio"], "with": { "inputs": [{ "from_step": "folio", "output": "image" }], "min_width": 900, "min_height": 900, "on_fail": "halt" } },
+    { "id": "gate_rivet", "uses": "core.eval.dimension.v1", "depends_on": ["rivet"], "with": { "inputs": [{ "from_step": "rivet", "output": "image" }], "min_width": 900, "min_height": 900, "on_fail": "halt" } },
+    { "id": "gate_vector", "uses": "core.eval.dimension.v1", "depends_on": ["vector"], "with": { "inputs": [{ "from_step": "vector", "output": "image" }], "min_width": 900, "min_height": 900, "on_fail": "halt" } },
+    { "id": "gate_gauge", "uses": "core.eval.dimension.v1", "depends_on": ["gauge"], "with": { "inputs": [{ "from_step": "gauge", "output": "image" }], "min_width": 900, "min_height": 900, "on_fail": "halt" } },
+    { "id": "gate_relay", "uses": "core.eval.dimension.v1", "depends_on": ["relay"], "with": { "inputs": [{ "from_step": "relay", "output": "image" }], "min_width": 900, "min_height": 900, "on_fail": "halt" } },
+    { "id": "gate_ward", "uses": "core.eval.dimension.v1", "depends_on": ["ward"], "with": { "inputs": [{ "from_step": "ward", "output": "image" }], "min_width": 900, "min_height": 900, "on_fail": "halt" } },
+    { "id": "gate_patch", "uses": "core.eval.dimension.v1", "depends_on": ["patch"], "with": { "inputs": [{ "from_step": "patch", "output": "image" }], "min_width": 900, "min_height": 900, "on_fail": "halt" } },
+    { "id": "gate_mote", "uses": "core.eval.dimension.v1", "depends_on": ["mote"], "with": { "inputs": [{ "from_step": "mote", "output": "image" }], "min_width": 900, "min_height": 900, "on_fail": "halt" } },
+    { "id": "gate_still", "uses": "core.eval.dimension.v1", "depends_on": ["still"], "with": { "inputs": [{ "from_step": "still", "output": "image" }], "min_width": 900, "min_height": 900, "on_fail": "halt" } }
+  ],
+  "outputs": {
+    "brisk": { "from_step": "brisk", "output": "image" },
+    "fizz": { "from_step": "fizz", "output": "image" },
+    "plumb": { "from_step": "plumb", "output": "image" },
+    "folio": { "from_step": "folio", "output": "image" },
+    "rivet": { "from_step": "rivet", "output": "image" },
+    "vector": { "from_step": "vector", "output": "image" },
+    "gauge": { "from_step": "gauge", "output": "image" },
+    "relay": { "from_step": "relay", "output": "image" },
+    "ward": { "from_step": "ward", "output": "image" },
+    "patch": { "from_step": "patch", "output": "image" },
+    "mote": { "from_step": "mote", "output": "image" },
+    "still": { "from_step": "still", "output": "image" }
+  }
+}
