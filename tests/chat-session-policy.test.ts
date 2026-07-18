@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatService } from "../src/main/vellum/chat/service";
 import type { AcpChildLike, SpawnFn } from "../src/main/vellum/chat/acp-client";
 import type { ChatEvent } from "../src/shared/ipc";
+import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
+import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 
 const makeChild = (): AcpChildLike => {
   const child = new EventEmitter() as AcpChildLike & EventEmitter;
@@ -20,6 +22,7 @@ const spawnFn: SpawnFn = () => makeChild();
 afterEach(() => {
   delete process.env.VELLUM_ACP_MAX_REMOTE_SESSIONS_PER_HOST;
   delete process.env.VELLUM_ACP_IDLE_MS;
+  setHostsSnapshot(defaultRemoteHostsDocument().hosts);
 });
 
 describe("ChatService remote session policy", () => {
@@ -153,6 +156,77 @@ describe("ChatService remote session policy", () => {
       error: "remote ACP session ceiling reached for host studio (1 live; all busy) — close a chat or wait for a turn to finish",
     });
     expect(children).toHaveLength(1);
+    service.closeAll();
+  });
+
+  it("closes live ACP sessions when their canonical remote route changes", () => {
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      {
+        id: "studio-product",
+        hermesId: "studio",
+        label: "Studio",
+        kind: "remote",
+        endpoint: "studio-old",
+        capabilities: ["hermes"],
+      },
+    ]);
+    const service = new ChatService(spawnFn);
+    service.stopIdleSweep();
+    const anyService = service as unknown as {
+      sessions: Map<string, unknown>;
+      generations: Map<string, number>;
+    };
+    const close = vi.fn();
+    const events: ChatEvent[] = [];
+    service.setEventSink((event) => events.push(event));
+    anyService.sessions.set("studio:agent", {
+      host: "studio",
+      sessionId: "session",
+      promptInFlight: false,
+      pendingPermissions: new Map(),
+      lastActivityAt: Date.now(),
+      client: { closed: false, close },
+      generation: 1,
+    });
+    anyService.generations.set("studio:agent", 1);
+
+    // Presentation-only edits preserve the exact transport route.
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      {
+        id: "studio-product",
+        hermesId: "studio",
+        label: "Renamed Studio",
+        kind: "remote",
+        endpoint: "studio-old",
+        capabilities: ["hermes"],
+      },
+    ]);
+    expect(close).not.toHaveBeenCalled();
+
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      {
+        id: "studio-product",
+        hermesId: "studio",
+        label: "Renamed Studio",
+        kind: "remote",
+        endpoint: "studio-new",
+        capabilities: ["hermes"],
+      },
+    ]);
+
+    expect(close).toHaveBeenCalledOnce();
+    expect(anyService.sessions.has("studio:agent")).toBe(false);
+    expect(events).toContainEqual({
+      agentKey: "studio:agent",
+      kind: "status",
+      payload: {
+        status: "closed",
+        text: "remote chat closed because host studio routing changed",
+      },
+    });
     service.closeAll();
   });
 });

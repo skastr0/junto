@@ -5,8 +5,9 @@ export type HermesProfileName = string & {
 };
 
 /**
- * Hermes host ids are open strings from the remote-host registry
- * (`local`, or a remote host's hermesId / id).
+ * Hermes host ids are canonical agent-key strings from the remote-host
+ * registry (`local`, or exactly hermesKeyFor(host)). Product ids are not an
+ * alternate route when a remote declares a distinct hermesId.
  */
 export type HermesHostId = string;
 

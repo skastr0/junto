@@ -6,6 +6,8 @@ import type {
   ChatTurnResult,
 } from "@shared/ipc";
 import { Context } from "effect";
+import { hermesKeyFor, hostHasCapability, type RemoteHost } from "@shared/remote-hosts";
+import { subscribeHostsSnapshot } from "../hosts/snapshot";
 import {
   AcpClient,
   AcpRpcError,
@@ -55,6 +57,20 @@ const idleEvictMs = (): number => {
 
 const isRemoteHost = (host: string): boolean => host !== "local";
 
+const remoteHermesRoutes = (
+  hosts: ReadonlyArray<RemoteHost>,
+): ReadonlyMap<string, string> =>
+  new Map(
+    hosts
+      .filter(
+        (host) =>
+          host.kind === "remote" &&
+          host.endpoint !== undefined &&
+          hostHasCapability(host, "hermes"),
+      )
+      .map((host) => [hermesKeyFor(host), host.endpoint!] as const),
+  );
+
 interface OpenInFlight {
   readonly generation: number;
   readonly promise: Promise<ChatOpenResult>;
@@ -96,6 +112,7 @@ export class ChatService {
   private readonly generations = new Map<string, number>();
   private eventSink: ((event: ChatEvent) => void) | undefined;
   private idleTimer: ReturnType<typeof setInterval> | undefined;
+  private unsubscribeHostsSnapshot: (() => void) | undefined;
 
   constructor(private readonly spawnFn: SpawnFn) {
     // Sweep idle remote sessions on a fixed interval. Unref so the timer
@@ -103,6 +120,9 @@ export class ChatService {
     const period = Math.min(Math.max(idleEvictMs() || 60_000, 15_000), 60_000);
     this.idleTimer = setInterval(() => this.evictIdleSessions(), period);
     this.idleTimer.unref?.();
+    this.unsubscribeHostsSnapshot = subscribeHostsSnapshot((hosts, previous) => {
+      this.reconcileRemoteHostRoutes(hosts, previous);
+    });
   }
 
   setEventSink(sink: (event: ChatEvent) => void): void {
@@ -119,6 +139,28 @@ export class ChatService {
 
   private touch(session: AgentSession): void {
     session.lastActivityAt = Date.now();
+  }
+
+  private reconcileRemoteHostRoutes(
+    hosts: ReadonlyArray<RemoteHost>,
+    previous: ReadonlyArray<RemoteHost>,
+  ): void {
+    const nextRoutes = remoteHermesRoutes(hosts);
+    const previousRoutes = remoteHermesRoutes(previous);
+    const changedHosts = new Set<string>();
+    for (const host of new Set([...previousRoutes.keys(), ...nextRoutes.keys()])) {
+      if (previousRoutes.get(host) !== nextRoutes.get(host)) changedHosts.add(host);
+    }
+
+    for (const [agentKey, session] of this.sessions) {
+      if (!isRemoteHost(session.host) || !changedHosts.has(session.host)) continue;
+      this.nextGeneration(agentKey);
+      this.closeCurrent(agentKey);
+      this.emit(agentKey, "status", {
+        status: "closed",
+        text: `remote chat closed because host ${session.host} routing changed`,
+      });
+    }
   }
 
   private sessionIsBusy(session: AgentSession): boolean {
@@ -580,6 +622,8 @@ export class ChatService {
 
   closeAll(): void {
     this.stopIdleSweep();
+    this.unsubscribeHostsSnapshot?.();
+    this.unsubscribeHostsSnapshot = undefined;
     const keys = new Set([
       ...this.sessions.keys(),
       ...this.openInFlight.keys(),

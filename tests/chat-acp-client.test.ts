@@ -41,6 +41,8 @@ const clients: AcpClient[] = [];
 
 afterEach(() => {
   for (const client of clients.splice(0)) client.close();
+  delete process.env.VELLUM_ACP_VERBOSE;
+  delete process.env.VELLUM_DEBUG;
   vi.useRealTimers();
 });
 
@@ -274,12 +276,23 @@ describe("agent -> client requests and notifications", () => {
     expect(onNotification).not.toHaveBeenCalled();
   });
 
-  it("forwards stderr to console.debug and never treats it as protocol input", async () => {
+  it("keeps stderr private by default and never treats it as protocol input", async () => {
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const onNotification = vi.fn();
     const { child } = await startedClient({ onNotification, onAgentRequest: vi.fn(), onLifecycle: vi.fn() });
     child.stderr.emit("data", "some log line\n");
-    expect(debugSpy).toHaveBeenCalled();
+    expect(debugSpy).not.toHaveBeenCalled();
+    expect(onNotification).not.toHaveBeenCalled();
+    debugSpy.mockRestore();
+  });
+
+  it("forwards stderr only under the explicit verbose diagnostic opt-in", async () => {
+    process.env.VELLUM_ACP_VERBOSE = "1";
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const onNotification = vi.fn();
+    const { child } = await startedClient({ onNotification, onAgentRequest: vi.fn(), onLifecycle: vi.fn() });
+    child.stderr.emit("data", "diagnostic line\n");
+    expect(debugSpy).toHaveBeenCalledWith("[acp:local:default]", "diagnostic line");
     expect(onNotification).not.toHaveBeenCalled();
     debugSpy.mockRestore();
   });

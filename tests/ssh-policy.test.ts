@@ -6,7 +6,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseHermesProfileName } from "../src/main/vellum/hermes/domain";
-import { HermesTransport, HermesTransportLive } from "../src/main/vellum/hermes/transport";
+import {
+  HermesTransport,
+  HermesTransportLive,
+  resolveHermesRemoteHost,
+} from "../src/main/vellum/hermes/transport";
 import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import {
@@ -31,6 +35,7 @@ const encoder = new TextEncoder();
 const temporaryDirs: string[] = [];
 
 afterEach(async () => {
+  setHostsSnapshot(defaultRemoteHostsDocument().hosts);
   await Promise.all(temporaryDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -205,6 +210,23 @@ describe("SSH policy surface", () => {
     expect(avatar?.at(-1)).toContain("'profile-13'");
     expect(acp).toContain("ControlMaster=no");
     expect(acp).toContain("ControlPath=none");
+  });
+
+  it("admits only the canonical hermesId when it differs from the product host id", () => {
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      {
+        id: "studio",
+        hermesId: "fleet-a",
+        label: "studio",
+        kind: "remote",
+        endpoint: "studio",
+        capabilities: ["hermes"],
+      },
+    ]);
+
+    expect(resolveHermesRemoteHost("fleet-a")?.id).toBe("studio");
+    expect(resolveHermesRemoteHost("studio")).toBeUndefined();
   });
 
   it("creates Unix forwarding through a dedicated owned mux generation", async () => {
