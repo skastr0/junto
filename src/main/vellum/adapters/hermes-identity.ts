@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -194,6 +194,10 @@ const fetchRemoteIdentityBatch = async (
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const AVATAR_CACHE_DIR = join(homedir(), ".vellum", "cache", "avatars");
+// Disk entries accelerate repeat reads within one app process only. A fresh
+// namespace on restart prevents an undeletable pre-removal avatar from ever
+// becoming authoritative when the same route is later re-added.
+const AVATAR_PROCESS_NAMESPACE = randomUUID();
 const LOCAL_AUTHORITY = "local";
 
 // A failed fetch (ssh down, tailnet blip) must never be cached as if it were
@@ -391,7 +395,7 @@ const avatarDiskPath = (
 ): string =>
   join(
     avatarHostCacheDir(host),
-    `${encodeURIComponent(profile)}-${authorityCacheKey(authority)}-g${generation}.png`,
+    `${encodeURIComponent(profile)}-${authorityCacheKey(authority)}-${AVATAR_PROCESS_NAMESPACE}-g${generation}.png`,
   );
 
 const toDataUri = (buf: Buffer): string => `data:image/png;base64,${buf.toString("base64")}`;

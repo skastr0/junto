@@ -219,6 +219,37 @@ describe("Hermes identity cache authority", () => {
     expect(avatar).toHaveBeenCalledTimes(2);
   });
 
+  it("does not reuse an undeletable pre-removal avatar after a process restart", async () => {
+    setHostsSnapshot(snapshotWith(host("studio-a")));
+    const avatar = vi
+      .fn<() => Promise<CliResult>>()
+      .mockResolvedValueOnce(avatarResult("pre-removal-avatar"))
+      .mockResolvedValueOnce(avatarResult("post-restart-avatar"));
+    const operations: HermesIdentityOperations = {
+      identityBatch: vi.fn(),
+      avatar,
+    };
+
+    await expect(fetchAgentAvatar(operations, "studio-canonical:agent")).resolves.toBe(
+      avatarUri("pre-removal-avatar"),
+    );
+    mockFs.failRmSync = true;
+    setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+
+    // Reload both publisher and adapter to model a new main process. The
+    // surviving cache file is fresh and has the same route/generation, so the
+    // process namespace is the only acceptable reason it cannot be reused.
+    vi.resetModules();
+    const restartedSnapshot = await import("../src/main/vellum/hosts/snapshot");
+    const restartedAdapter = await import("../src/main/vellum/adapters/hermes-identity");
+    restartedSnapshot.setHostsSnapshot(snapshotWith(host("studio-a")));
+
+    await expect(
+      restartedAdapter.fetchAgentAvatar(operations, "studio-canonical:agent"),
+    ).resolves.toBe(avatarUri("post-restart-avatar"));
+    expect(avatar).toHaveBeenCalledTimes(2);
+  });
+
   it("refetches a persistent avatar cache entry after the identity-cache TTL", async () => {
     setHostsSnapshot(snapshotWith(host("studio-a")));
     const avatar = vi
