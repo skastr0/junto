@@ -25,6 +25,7 @@ import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { searchText, toFlow } from "../lib/convert";
 import { nodeTitle } from "../lib/presentation";
+import { anyPrivateSourceEnabled } from "../lib/source-capabilities";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geometry";
@@ -449,7 +450,9 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
       { key: "tasks", label: "tasks", sub: "local checklist · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", onSelect: () => actions.addTasks() },
       { key: "herdr", label: "herdr", sub: "work surface · attach live pane", icon: <Terminal size={14} />, ariaLabel: "Add herdr work surface", onSelect: () => actions.addHerdr() },
       { key: "page", label: "page", sub: "work surface · browser session", icon: <Globe size={14} />, ariaLabel: "Add browser page work surface", onSelect: () => actions.addPage() },
-      { key: "project", label: "project", sub: "bound live readout", icon: <Boxes size={14} />, ariaLabel: "Add project", onSelect: () => setPicker("project") },
+      ...(anyPrivateSourceEnabled(snapshots)
+        ? [{ key: "project", label: "project", sub: "bound live readout", icon: <Boxes size={14} />, ariaLabel: "Add project", onSelect: () => setPicker("project") }]
+        : []),
       { key: "agent", label: "agent", sub: "hermes profile", icon: <Bot size={14} />, ariaLabel: "Add agent", onSelect: () => setPicker("agent") },
     ]
     : picker === "project"

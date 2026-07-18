@@ -1,15 +1,19 @@
 import { Context, Effect, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import type { SnapshotBundle, SnapshotState } from "@shared/entities";
+import type { SnapshotBundle, SnapshotState, SourceCapabilities } from "@shared/entities";
 import type { BindingHint } from "@shared/ipc";
 import { fetchBoothBundle } from "./adapters/booth";
 import { fetchQuasarBundle } from "./adapters/quasar";
 import { fetchTowerBundle } from "./adapters/tower";
 import { HermesPlane } from "./hermes/plane";
+import { detectSourceCapabilities } from "./source-capabilities";
 
-// The read-only data plane. Adapters shell out to reference CLIs and
-// normalize into SnapshotBundles. refresh never fails: a broken adapter
-// yields a bundle with ok:false and an error string, nothing more.
+// The read-only data plane. Adapters talk to each source (tower/quasar/booth
+// through their SDK HTTP clients, hermes via CLI) and normalize into
+// SnapshotBundles. refresh never fails: a broken adapter yields a bundle
+// with ok:false and an error string, nothing more. A source whose config is
+// absent (source-capabilities.ts) is never fetched at all; the detected
+// capabilities ride SnapshotState so the renderer can fall back to nothing.
 export class SnapshotsService extends Context.Tag("@vellum/SnapshotsService")<
   SnapshotsService,
   {
@@ -52,6 +56,16 @@ const guarded = async (
   }
 };
 
+// An unconfigured source reports one stable ok:false bundle; paired with the
+// capability bit it renders as nothing, not as an error badge.
+const notConfigured = (source: SnapshotBundle["source"]): SnapshotBundle => ({
+  source,
+  fetchedAt: new Date().toISOString(),
+  ok: false,
+  error: "not configured",
+  entities: [],
+});
+
 // A canonical, order-independent key for a hint set: used to decide whether
 // an in-flight refresh already covers what a new call is asking for.
 const hintsKeySet = (hints: ReadonlyArray<BindingHint> | undefined): ReadonlySet<string> =>
@@ -73,6 +87,7 @@ const isSubsumedBy = (
 
 export const makeSnapshotsLive = (
   fetchHermesBundle: () => Promise<SnapshotBundle>,
+  detect: () => SourceCapabilities = detectSourceCapabilities,
 ) => Layer.sync(SnapshotsService, () => {
   let state: SnapshotState = emptyState;
   let lastHints: ReadonlyArray<BindingHint> | undefined;
@@ -97,18 +112,19 @@ export const makeSnapshotsLive = (
     hints: ReadonlyArray<BindingHint> | undefined,
     sequence: number,
   ): Promise<SnapshotState> => {
+    const capabilities = detect();
     const [tower, quasar, booth, hermes] = await Promise.all([
-      guarded("tower", () => fetchTowerBundle()),
-      guarded("quasar", () => fetchQuasarBundle(hintsFor(hints, "quasar"))),
+      capabilities.tower ? guarded("tower", () => fetchTowerBundle()) : notConfigured("tower"),
+      capabilities.quasar ? guarded("quasar", () => fetchQuasarBundle(hintsFor(hints, "quasar"))) : notConfigured("quasar"),
       // booth ignores hints by design: every project is enriched each poll,
       // which is what lets the renderer resolve booth implicitly via tower.
-      guarded("booth", () => fetchBoothBundle()),
+      capabilities.booth ? guarded("booth", () => fetchBoothBundle()) : notConfigured("booth"),
       guarded("hermes", () => fetchHermesBundle()),
     ]);
 
     if (sequence >= lastCommittedSequence) {
       lastCommittedSequence = sequence;
-      state = { bundles: [tower, quasar, booth, hermes] };
+      state = { bundles: [tower, quasar, booth, hermes], capabilities };
       for (const listener of listeners) listener(state);
     }
 

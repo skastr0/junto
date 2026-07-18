@@ -30,8 +30,20 @@ export const SnapshotBundle = Schema.Struct({
 });
 export type SnapshotBundle = typeof SnapshotBundle.Type;
 
+// Which private sources this station is configured for (an env var or the
+// SDK's config file present — detected main-side, never stored in documents).
+// Absent on states produced before detection ran; consumers treat absence as
+// "all enabled".
+export const SourceCapabilities = Schema.Struct({
+  tower: Schema.Boolean,
+  quasar: Schema.Boolean,
+  booth: Schema.Boolean,
+});
+export type SourceCapabilities = typeof SourceCapabilities.Type;
+
 export const SnapshotState = Schema.Struct({
   bundles: Schema.Array(SnapshotBundle),
+  capabilities: Schema.optionalWith(SourceCapabilities, { exact: true }),
 });
 export type SnapshotState = typeof SnapshotState.Type;
 

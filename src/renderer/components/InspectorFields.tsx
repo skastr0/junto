@@ -9,6 +9,7 @@ import { addEdge, setEdgeCriteria } from "../lib/edge-mutations";
 import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTasks, setNodeTimer, setNodeView, setNodeWatch, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { fetchTowerBrowse, glyphStateHue, orbitOptions, TOWER_STATES } from "../lib/browse";
 import { state$ } from "../lib/state";
+import { sourceEnabled } from "../lib/source-capabilities";
 import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
@@ -675,12 +676,15 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
   readonly onValue: (value: string) => void;
   readonly onCommit: () => void;
 }) {
+  // Unconfigured sources drop out of the picker; an authored value stays
+  // visible regardless so existing documents never render a blank select.
+  const snapshots = use$(state$.snapshots);
   const onEnter = commitOnEnter(onCommit);
   return <>
     <label className="inspector-editor">
       <span>source</span>
       <select aria-label="Watcher stat source" value={source} onChange={(event) => onSourceChange(event.target.value as NonNullable<EtherWatch["source"]>)}>
-        {STAT_SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+        {STAT_SOURCE_OPTIONS.filter((s) => s === source || sourceEnabled(snapshots, s)).map((s) => <option key={s} value={s}>{s}</option>)}
       </select>
     </label>
     <label className="inspector-editor">
@@ -708,12 +712,15 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
 // node changes — split out of WatcherEditor so the component body reads as
 // "options + commit", not a wall of useState declarations.
 function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, towerKey: string | undefined) {
-  const [kind, setKind] = useState<EtherWatch["kind"]>(watch?.kind ?? "glyphs_done");
+  // Fresh watchers on a station without tower default to the shape that can
+  // actually evaluate there; authored values always win.
+  const towerOn = sourceEnabled(use$(state$.snapshots), "tower");
+  const [kind, setKind] = useState<EtherWatch["kind"]>(watch?.kind ?? (towerOn ? "glyphs_done" : "stat_threshold"));
   const [project, setProject] = useState(watch?.project ?? towerKey ?? "");
   const [orbit, setOrbit] = useState(watch?.orbit ?? "");
   const [glyphIdsText, setGlyphIdsText] = useState((watch?.glyphIds ?? []).join(", "));
   const [stateName, setStateName] = useState(watch?.state ?? "committed");
-  const [source, setSource] = useState<NonNullable<EtherWatch["source"]>>(watch?.source ?? "tower");
+  const [source, setSource] = useState<NonNullable<EtherWatch["source"]>>(watch?.source ?? (towerOn ? "tower" : "hermes"));
   const [key, setKey] = useState(watch?.key ?? "");
   const [stat, setStat] = useState(watch?.stat ?? "");
   const [op, setOp] = useState<NonNullable<EtherWatch["op"]>>(watch?.op ?? "gt");
@@ -721,12 +728,12 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, towerKey: 
   const [flagOnUnsatisfied, setFlagOnUnsatisfied] = useState(Boolean(watch?.flagOnUnsatisfied));
 
   useEffect(() => {
-    setKind(watch?.kind ?? "glyphs_done");
+    setKind(watch?.kind ?? (towerOn ? "glyphs_done" : "stat_threshold"));
     setProject(watch?.project ?? towerKey ?? "");
     setOrbit(watch?.orbit ?? "");
     setGlyphIdsText((watch?.glyphIds ?? []).join(", "));
     setStateName(watch?.state ?? "committed");
-    setSource(watch?.source ?? "tower");
+    setSource(watch?.source ?? (towerOn ? "tower" : "hermes"));
     setKey(watch?.key ?? "");
     setStat(watch?.stat ?? "");
     setOp(watch?.op ?? "gt");
@@ -749,6 +756,9 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, towerKey: 
 function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   const watch = node.ether?.watch;
   const towerKey = towerProjectKey(node);
+  // Glyph-rule kinds are tower semantics: offer them only where tower is
+  // configured (an authored kind stays visible regardless).
+  const towerOn = sourceEnabled(use$(state$.snapshots), "tower");
   const {
     kind, setKind, project, setProject, orbit, setOrbit, glyphIdsText, setGlyphIdsText,
     stateName, setStateName, source, setSource, key, setKey, stat, setStat, op, setOp,
@@ -793,7 +803,7 @@ function WatcherEditor({ node }: { readonly node: CanvasNode }) {
     <label className="inspector-editor">
       <span>kind</span>
       <select aria-label="Watcher kind" value={kind} onChange={(event) => { const next = event.target.value as EtherWatch["kind"]; setKind(next); commit({ kind: next }); }}>
-        {WATCH_KIND_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        {WATCH_KIND_OPTIONS.filter((option) => option.value === kind || option.value === "stat_threshold" || towerOn).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     </label>
     {kind !== "stat_threshold" ? (

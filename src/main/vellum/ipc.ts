@@ -24,6 +24,7 @@ import {
   fetchTowerSignalRead,
 } from "./adapters/tower-browse";
 import { startBoothAttention } from "./booth-attention";
+import { detectSourceCapabilities } from "./source-capabilities";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { CanvasesService } from "./canvases";
@@ -255,8 +256,9 @@ export const registerVellumIpc = (): void => {
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
       usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
       // Booth review attention: native notification on a rising pending
-      // count, off the same poll — window-optional by construction.
-      startBoothAttention(snapshots.subscribe);
+      // count, off the same poll — window-optional by construction. Never
+      // wired on a station that isn't configured for booth.
+      if (detectSourceCapabilities().booth) startBoothAttention(snapshots.subscribe);
       // A kernel flag mutate() is an "own write" CanvasesService suppresses
       // from the normal file-watch broadcast above — this is the explicit
       // push that keeps an open renderer's doc coherent with a kernel write.

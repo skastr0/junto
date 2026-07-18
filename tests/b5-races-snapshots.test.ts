@@ -54,7 +54,11 @@ beforeEach(() => {
   mockFetchQuasar.mockReset().mockResolvedValue(bundle("quasar", "q"));
   mockFetchBooth.mockReset().mockResolvedValue(bundle("booth", "b"));
   mockFetchHermes.mockReset().mockResolvedValue(bundle("hermes", "h"));
-  runtime = ManagedRuntime.make(makeSnapshotsLive(() => mockFetchHermes()));
+  // Capabilities pinned on: these tests exercise the fan-out itself and must
+  // not depend on which source config files exist on the host machine.
+  runtime = ManagedRuntime.make(
+    makeSnapshotsLive(() => mockFetchHermes(), () => ({ tower: true, quasar: true, booth: true })),
+  );
 });
 
 afterEach(async () => {

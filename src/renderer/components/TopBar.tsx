@@ -6,6 +6,7 @@ import type { CanvasSummary } from "@shared/ipc";
 import { state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
+import { sourceEnabled } from "../lib/source-capabilities";
 import { HUE, INK, SOURCE_HUE } from "../lib/theme";
 import { UsageHud } from "./UsageHud";
 
@@ -13,6 +14,7 @@ const SOURCES: ReadonlyArray<EntitySource> = ["tower", "quasar", "booth", "herme
 
 function SourceDot({ source, active, onClick }: { readonly source: EntitySource; readonly active: boolean; readonly onClick: () => void }) {
   const snapshots = use$(state$.snapshots);
+  if (!sourceEnabled(snapshots, source)) return null;
   const bundle = snapshots.bundles.find((b) => b.source === source);
   const ok = bundle?.ok ?? false;
   const hue = ok ? SOURCE_HUE[source] : HUE.crimson;
@@ -26,7 +28,7 @@ function ConnectorsPopover({ onClose }: { readonly onClose: () => void }) {
   const snapshots = use$(state$.snapshots);
   return <aside className="station-health-popover" role="dialog" aria-label="Connectors">
     <div className="station-health-popover__header"><div><div className="station-health-popover__eyebrow">adapter plane</div><strong>connectors</strong></div><button type="button" aria-label="Close connectors" onClick={onClose}>×</button></div>
-    <div className="station-health-popover__list">{SOURCES.map((source) => {
+    <div className="station-health-popover__list">{SOURCES.filter((source) => sourceEnabled(snapshots, source)).map((source) => {
       const bundle = snapshots.bundles.find((item) => item.source === source);
       const ok = bundle?.ok ?? false;
       const fetched = bundle ? new Date(bundle.fetchedAt).toLocaleTimeString() : "never";
