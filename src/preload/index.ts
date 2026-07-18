@@ -37,6 +37,11 @@ import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
 // before the renderer's own timeout would fire.
 const IPC_TIMEOUT_MS = 45_000;
 
+// Dual codexbar fan-out (enabled providers + codex --all-accounts) can take
+// well over 45s when vendor web endpoints are slow. getUsage stays on the
+// default ceiling — it only reads in-memory state.
+const USAGE_REFRESH_TIMEOUT_MS = 120_000;
+
 // agentMessage fires a real (up to 180s) hermes turn; give it headroom above
 // that instead of sharing the default 45s ceiling every other channel uses.
 const AGENT_MESSAGE_TIMEOUT_MS = 200_000;
@@ -173,9 +178,8 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.generatePortfolio, IPC_TIMEOUT_MS, name, options),
   getSnapshots: () => invoke(IPC_CHANNELS.getSnapshots, IPC_TIMEOUT_MS),
   refreshSnapshots: (hints) => invoke(IPC_CHANNELS.refreshSnapshots, IPC_TIMEOUT_MS, hints),
-  // codexbar usage --json can take ~15-20s; IPC_TIMEOUT_MS (45s) is the ceiling.
   getUsage: () => invoke(IPC_CHANNELS.getUsage, IPC_TIMEOUT_MS),
-  refreshUsage: () => invoke(IPC_CHANNELS.refreshUsage, IPC_TIMEOUT_MS),
+  refreshUsage: () => invoke(IPC_CHANNELS.refreshUsage, USAGE_REFRESH_TIMEOUT_MS),
   towerBrowse: (projectKey) => invoke(IPC_CHANNELS.towerBrowse, IPC_TIMEOUT_MS, projectKey),
   towerSearch: (query, projectKey) =>
     invoke(IPC_CHANNELS.towerSearch, IPC_TIMEOUT_MS, query, projectKey),

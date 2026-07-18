@@ -208,7 +208,20 @@ export function UsageHud() {
   const [hover, setHover] = useState(false);
 
   const rows = useMemo(() => visibleQuotas(state), [state]);
-  if (rows.length === 0) return null;
+  // Settled empty (cli missing / all sources down): hide. While still
+  // waiting for the first codexbar poll (~15–40s), show a quiet loading rail
+  // so the top-bar slot does not appear "broken" in dev.
+  const settledEmpty =
+    state.snapshots.length > 0 &&
+    state.snapshots.every((snapshot) => !snapshot.ok || snapshot.quotas.length === 0);
+  if (settledEmpty) return null;
+  if (rows.length === 0) {
+    return (
+      <div className="usage-hud" title="Loading provider limits…">
+        <div className="usage-hud__rail usage-hud__rail--loading" aria-busy="true" aria-label="Loading provider limits" />
+      </div>
+    );
+  }
 
   return (
     <>

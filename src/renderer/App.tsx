@@ -237,14 +237,27 @@ export function App() {
       return nodeRefNavigation.navigate(event);
     });
 
+    // Usage: subscribe BEFORE any read/refresh so a concurrent main-process
+    // poll completion cannot land as a lost push. Re-hydrate on every mount
+    // (HMR / StrictMode remount) — getUsage is cheap (in-memory); refresh is
+    // fire-and-forget so a slow codexbar never blocks canvas boot.
+    const offUsage = vellum.onUsageChanged((state) => state$.usage.set(state));
+    void vellum
+      .getUsage()
+      .then((usage) => state$.usage.set(usage))
+      .catch(() => {
+        // Fail open: keep empty until a push or refresh lands.
+      });
+    void vellum
+      .refreshUsage()
+      .then((usage) => state$.usage.set(usage))
+      .catch(() => {
+        // Main still polls on its own cadence; a timed-out IPC is not fatal.
+      });
+
     const boot = async () => {
       try {
         state$.snapshots.set(await vellum.getSnapshots());
-        try {
-          state$.usage.set(await vellum.getUsage());
-        } catch {
-          // Fail open: usage HUD stays hidden until a successful push.
-        }
         const list = await vellum.listCanvases();
         state$.canvases.set(list);
         if (!nodeRefNavigation.hasReceived()) {
@@ -274,7 +287,6 @@ export function App() {
     const stopSettings = startSettingsBridge();
 
     const offSnapshots = vellum.onSnapshotsChanged((state) => state$.snapshots.set(state));
-    const offUsage = vellum.onUsageChanged((state) => state$.usage.set(state));
     const offCanvas = vellum.onCanvasChanged((name) => {
       // Ignore the echo of our own recent write; only reload true external edits.
       if (name !== state$.canvasName.peek()) return;
