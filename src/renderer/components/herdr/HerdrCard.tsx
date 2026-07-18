@@ -9,6 +9,7 @@ import {
   onHerdrMirrorChange,
   openHerdrTerminal,
   refreshHerdrMeta,
+  scheduleRefreshHerdrMeta,
   subscribeHerdrMirror,
 } from "../../lib/herdr-state";
 import { harnessDisplayName } from "../../lib/harness-icons";
@@ -140,7 +141,9 @@ export function HerdrCard({
     const targetHost = herdr.host;
     return onHerdrMirrorChange((event) => {
       if (event.hostId === targetHost && event.kind === "change") {
-        void refreshHerdrMeta(node.id, herdr);
+        // Debounce: focus/status flaps can emit many change events per second;
+        // immediate refresh was the FOCUSED/PROCESS inspector thrash pump.
+        scheduleRefreshHerdrMeta(node.id, herdr);
       }
     });
   }, [node.id, herdr?.host, herdr?.paneId, herdr?.session, herdr?.terminalId]);

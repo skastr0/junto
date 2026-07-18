@@ -118,11 +118,21 @@ export class HerdrService {
     private readonly mirrors: HerdrMirrorProvider = mirrorFor,
   ) {}
 
-  /** Mirror serves reads only for the default session and only while fresh. */
+  /** Mirror serves list/record reads only for the default session and only while fresh. */
   private mirrorIfFresh(hostId: string, session?: string | null): HerdrMirrorReads | undefined {
     if (session) return undefined; // named sessions are separate servers — exec path
     const mirror = this.mirrors(hostId);
     return mirror?.isFresh() ? mirror : undefined;
+  }
+
+  /**
+   * Default-session mirror even when eventsLive is false. Focus pointers and
+   * last-known rows survive the reconnect window; only isFresh() list reads
+   * must not be served stale. Named sessions stay exec-only.
+   */
+  private mirrorIfKnown(hostId: string, session?: string | null): HerdrMirrorReads | undefined {
+    if (session) return undefined;
+    return this.mirrors(hostId);
   }
 
   hosts(): ReadonlyArray<HerdrHostDef> {
@@ -305,7 +315,10 @@ export class HerdrService {
     if (bad) return bad;
 
     // Mirror-served pane record drops the `pane get` round trip entirely.
+    // List/record reads require isFresh(); focus pointer uses last-known
+    // (mirrorIfKnown) so reconnect windows do not reintroduce row-flag thrash.
     const mirror = this.mirrorIfFresh(hostId, session);
+    const known = this.mirrorIfKnown(hostId, session);
     const mirroredRecord = mirror?.paneRecord(paneId);
     let pane = mirroredRecord ? parsePaneGet({ pane: mirroredRecord }) : undefined;
     if (!pane) {
@@ -316,10 +329,10 @@ export class HerdrService {
     }
 
     // Canonical focus is focused_pane_id / pane.focused events — not the per-row
-    // `focused` boolean, which live herdr snapshots leave incoherent (row can be
-    // focused:false while focused_pane_id points at it). Serving the row flag
-    // thrashed inspector FOCUSED yes|no whenever mirror/exec paths alternated.
-    const focusedFromMirror = mirror?.focused().paneId;
+    // `focused` boolean (live herdr ships them incoherent). Prefer last-known
+    // pointer even while eventsLive is false; only fall back to the row flag
+    // when we have never bootstrapped a mirror for this host/session.
+    const focusedFromMirror = known?.focused().paneId;
     const focused =
       focusedFromMirror !== undefined ? focusedFromMirror === paneId : pane.focused;
 
@@ -370,8 +383,9 @@ export class HerdrService {
       if (line) preview = line.slice(0, 160);
     }
 
-    // Foreground processes ride the exec path only — the mirror cannot serve
-    // them, and the fresh-mirror path stays exec-free.
+    // Foreground processes: exec-only and expensive. Mirror path never has
+    // them; client merge sticky-keeps the last list so inspector PROCESS does
+    // not flash empty on every fresh-mirror tick after a stale exec.
     let processes: ReadonlyArray<HerdrProcessInfo> | undefined;
     const processInfo = await runEnvelope(
       this.runner,

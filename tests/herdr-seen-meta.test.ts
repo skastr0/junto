@@ -159,6 +159,20 @@ describe("mergeHerdrMetaAfterRefresh focused stickiness", () => {
     const merged = mergeHerdrMetaAfterRefresh(previous, 0, pane("idle", { focused: false }));
     expect(merged.focused).toBe(false);
   });
+
+  it("keeps prior processes when mirror path omits them", () => {
+    const previous: HerdrMetaCache = {
+      status: "ok",
+      meta: pane("working", {
+        focused: true,
+        processes: [{ name: "amp", cmdline: "amp --local" }],
+      }),
+      seenGen: 0,
+    };
+    const merged = mergeHerdrMetaAfterRefresh(previous, 0, pane("working", { focused: true }));
+    expect(merged.processes).toEqual([{ name: "amp", cmdline: "amp --local" }]);
+    expect(herdrMetaPaintEqual(previous.meta, merged)).toBe(true);
+  });
 });
 
 describe("nextPendingSeen composition", () => {

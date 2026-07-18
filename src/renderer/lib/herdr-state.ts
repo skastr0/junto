@@ -298,11 +298,14 @@ export const mergeHerdrMetaAfterRefresh = (
     agentStatus = "idle";
   }
 
-  // Sticky preview: mirror meta has no preview; don't wipe an exec-path line.
+  // Sticky presentation fields: mirror meta is intentionally sparse (no
+  // preview / processes / sometimes no focused). Never wipe a known prior just
+  // because this hop took the pure-local mirror path — that is the FOCUSED +
+  // PROCESS yes↔empty thrash when isFresh flaps.
   const preview = remote.preview ?? prior?.preview;
-  // Sticky focus: remote omitting focused (partial rows / exec holes) must not
-  // clear a known prior — that flipped inspector FOCUSED yes|no on every poll.
+  const foregroundCwd = remote.foregroundCwd ?? prior?.foregroundCwd;
   const focused = remote.focused !== undefined ? remote.focused : prior?.focused;
+  const processes = remote.processes ?? prior?.processes;
 
   return {
     ...remote,
@@ -313,7 +316,10 @@ export const mergeHerdrMetaAfterRefresh = (
     ...(workspaceLabel !== undefined ? { workspaceLabel } : {}),
     ...(tabLabel !== undefined ? { tabLabel } : {}),
     ...(preview !== undefined ? { preview } : {}),
+    ...(foregroundCwd !== undefined ? { foregroundCwd } : {}),
     ...(focused !== undefined ? { focused } : {}),
+    // Explicit empty remote list still wins (operator-visible process exit).
+    ...(processes !== undefined ? { processes } : {}),
   };
 };
 
@@ -333,7 +339,16 @@ export const nextPendingSeen = (
   return clearsPendingSeen(remoteAgentStatus) ? false : true;
 };
 
-/** True when two pane metas paint the same card identity/status (skip re-set thrash). */
+const processesPaintKey = (
+  processes: HerdrPaneInfo["processes"],
+): string => {
+  if (!processes || processes.length === 0) return "";
+  return processes
+    .map((p) => `${p.name ?? ""}\0${p.cmdline ?? ""}\0${p.pid ?? ""}`)
+    .join("\n");
+};
+
+/** True when two pane metas paint the same card/inspector chrome (skip re-set thrash). */
 export const herdrMetaPaintEqual = (
   a: HerdrPaneInfo | undefined,
   b: HerdrPaneInfo | undefined,
@@ -345,11 +360,13 @@ export const herdrMetaPaintEqual = (
     a.agentStatus === b.agentStatus &&
     a.agent === b.agent &&
     a.cwd === b.cwd &&
+    a.foregroundCwd === b.foregroundCwd &&
     a.focused === b.focused &&
     a.workspaceLabel === b.workspaceLabel &&
     a.tabLabel === b.tabLabel &&
     a.preview === b.preview &&
-    a.terminalId === b.terminalId
+    a.terminalId === b.terminalId &&
+    processesPaintKey(a.processes) === processesPaintKey(b.processes)
   );
 };
 
@@ -457,6 +474,26 @@ type MetaRefreshSlot = {
   promise: Promise<void>;
 };
 const metaRefreshInFlight = new Map<string, MetaRefreshSlot>();
+
+/** Debounce mirror-driven refresh storms (focus/status flaps can emit many/sec). */
+const META_REFRESH_DEBOUNCE_MS = 280;
+const metaRefreshDebounce = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Schedule a meta refresh that collapses mirror event bursts into one fetch.
+ * Immediate path (mount / manual refresh) should call refreshHerdrMeta.
+ */
+export const scheduleRefreshHerdrMeta = (nodeId: string, herdr: EtherHerdr): void => {
+  const prior = metaRefreshDebounce.get(nodeId);
+  if (prior !== undefined) clearTimeout(prior);
+  metaRefreshDebounce.set(
+    nodeId,
+    setTimeout(() => {
+      metaRefreshDebounce.delete(nodeId);
+      void refreshHerdrMeta(nodeId, herdr);
+    }, META_REFRESH_DEBOUNCE_MS),
+  );
+};
 
 /**
  * Register the in-flight slot BEFORE starting the async loop. Starting first

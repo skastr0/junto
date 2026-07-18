@@ -522,6 +522,48 @@ describe("HerdrService mirror integration", () => {
     expect(meta.data.focused).toBe(true);
   });
 
+  it("getPaneMeta keeps focus pointer while mirror is stale (exec body, known focus)", async () => {
+    // Reconnect window: isFresh false → pane get exec (row focused:false), but
+    // focused_pane_id still points at w1:p1. Must not thrash FOCUSED to no.
+    const calls: string[][] = [];
+    const runner: HerdrRunner = async (_h, args) => {
+      calls.push([...args]);
+      if (args[0] === "pane" && args[1] === "get") {
+        return okCli({
+          id: "g",
+          result: {
+            pane: {
+              pane_id: "w1:p1",
+              cwd: "/proj",
+              agent: "amp",
+              agent_status: "working",
+              focused: false,
+            },
+          },
+        });
+      }
+      if (args[0] === "pane" && args[1] === "read") {
+        return okCli({ id: "r", result: { text: "line" } });
+      }
+      if (args[0] === "pane" && args[1] === "process-info") {
+        return okCli({
+          id: "p",
+          result: { process_info: { foreground_processes: [{ name: "amp" }] } },
+        });
+      }
+      return okCli({ id: "x", result: {} });
+    };
+    const stale = new FakeMirror();
+    stale.fresh = false;
+    const svc = new HerdrService(runner, () => stale);
+    const meta = await svc.getPaneMeta("local", null, "w1:p1");
+    expect(meta.ok).toBe(true);
+    if (!meta.ok) return;
+    expect(meta.data.focused).toBe(true);
+    expect(meta.data.processes?.[0]?.name).toBe("amp");
+    expect(calls.some((c) => c[0] === "pane" && c[1] === "get")).toBe(true);
+  });
+
   it("getPaneMeta falls back to pane get when the mirror misses the pane", async () => {
     const calls: string[][] = [];
     const runner: HerdrRunner = async (_h, args) => {
