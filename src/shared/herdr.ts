@@ -39,10 +39,17 @@ export const reduceHerdrConnection = (
   switch (event.type) {
     case "ok":
     case "reconnected":
+      // Identity-stable: every meta refresh used to emit {type:"ok"} and mint a
+      // new machine object → every herdr card re-rendered on every host mirror
+      // tick even when already connected (visible thrash on quiet cards).
+      if (machine.state === "connected" && machine.reconnectAttempts === 0) {
+        return machine;
+      }
       return { ...machine, state: "connected", reconnectAttempts: 0 };
     case "stream_drop":
     case "host_unreachable":
       if (machine.state === "lost" || machine.state === "failed") return machine;
+      if (machine.state === "degraded") return machine;
       return { ...machine, state: "degraded" };
     case "reconnect_start": {
       if (machine.state === "lost" || machine.state === "failed") return machine;
@@ -54,9 +61,11 @@ export const reduceHerdrConnection = (
     }
     case "reconnect_exhausted":
     case "manual_fail":
+      if (machine.state === "failed") return machine;
       return { ...machine, state: "failed" };
     case "pane_missing":
     case "pane_closed":
+      if (machine.state === "lost" && machine.reconnectAttempts === 0) return machine;
       return { ...machine, state: "lost", reconnectAttempts: 0 };
     default:
       return machine;

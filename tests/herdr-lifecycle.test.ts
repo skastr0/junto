@@ -55,6 +55,19 @@ describe("herdr connection state machine", () => {
     expect(m.state).toBe("connected");
     expect(m.reconnectAttempts).toBe(0);
   });
+
+  it("ok is identity-stable when already connected (no thrash object)", () => {
+    const m = initialHerdrConnection();
+    const next = reduceHerdrConnection(m, { type: "ok" });
+    expect(next).toBe(m);
+    // after degrade, ok must mint a new connected machine
+    const degraded = reduceHerdrConnection(m, { type: "host_unreachable" });
+    expect(degraded).not.toBe(m);
+    const recovered = reduceHerdrConnection(degraded, { type: "ok" });
+    expect(recovered.state).toBe("connected");
+    expect(recovered).not.toBe(degraded);
+    expect(reduceHerdrConnection(recovered, { type: "ok" })).toBe(recovered);
+  });
 });
 
 describe("herdr ipc channels", () => {

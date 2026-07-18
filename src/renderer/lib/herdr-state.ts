@@ -157,8 +157,12 @@ export const setConnectionEvent = (
   event: Parameters<typeof reduceHerdrConnection>[1],
 ): HerdrConnectionState => {
   ensureConnection(nodeId);
-  const next = reduceHerdrConnection(herdr$.connectionByNodeId[nodeId].peek()!, event);
-  herdr$.connectionByNodeId[nodeId].set(next);
+  const prev = herdr$.connectionByNodeId[nodeId].peek()!;
+  const next = reduceHerdrConnection(prev, event);
+  // Skip legend set when reduce returned the same reference (no transition).
+  if (next !== prev) {
+    herdr$.connectionByNodeId[nodeId].set(next);
+  }
   return next.state;
 };
 
@@ -237,8 +241,22 @@ export const mergeHerdrMetaAfterRefresh = (
   const nowGen = previous?.seenGen ?? 0;
   const prior = previous?.meta;
 
-  // Sticky: only fill holes — explicit remote values (including "unknown") win.
-  let agentStatus = remote.agentStatus ?? prior?.agentStatus;
+  // Sticky: fill holes. Explicit remote "unknown" does NOT clobber a stronger
+  // prior (idle|working|blocked|done) — host blips of unknown were flashing the
+  // activity mark green↔steel on quiet cards (Amp/nodeavatar thrash).
+  const priorStatus = prior?.agentStatus;
+  const remoteStatus = remote.agentStatus;
+  const stronger =
+    priorStatus === "idle" ||
+    priorStatus === "working" ||
+    priorStatus === "blocked" ||
+    priorStatus === "done";
+  let agentStatus =
+    remoteStatus === undefined
+      ? priorStatus
+      : remoteStatus === "unknown" && stronger
+        ? priorStatus
+        : remoteStatus;
   const agent = remote.agent ?? prior?.agent;
   const cwd = remote.cwd ?? prior?.cwd;
   const label = remote.label ?? prior?.label;

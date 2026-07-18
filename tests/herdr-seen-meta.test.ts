@@ -94,10 +94,20 @@ describe("mergeHerdrMetaAfterRefresh", () => {
     expect(merged.preview).toBe("last line");
   });
 
-  it("accepts explicit remote unknown (does not sticky over a real host value)", () => {
+  it("holds stronger prior over remote unknown blips (no green↔steel thrash)", () => {
     const previous: HerdrMetaCache = {
       status: "ok",
       meta: pane("idle"),
+      seenGen: 0,
+    };
+    const merged = mergeHerdrMetaAfterRefresh(previous, 0, pane("unknown"));
+    expect(merged.agentStatus).toBe("idle");
+  });
+
+  it("accepts first remote unknown when there is no stronger prior", () => {
+    const previous: HerdrMetaCache = {
+      status: "ok",
+      meta: { paneId: "w1:p1" } as HerdrPaneInfo,
       seenGen: 0,
     };
     const merged = mergeHerdrMetaAfterRefresh(previous, 0, pane("unknown"));
