@@ -1,3 +1,8 @@
+// Side-effect only: in demo mode, defaults VELLUM_CANVASES_DIR before
+// canvases.ts (imported below, transitively) ever reads it. Must stay the
+// first import in this file — see the module's own header for why.
+import "./vellum/demo/canvases-env";
+
 import { execFile } from "node:child_process";
 import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
@@ -22,6 +27,7 @@ import {
 import { AppRuntime, chatService } from "./runtime";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./vellum/canvases";
+import { registerDemoIpcHandlers } from "./vellum/demo/ipc";
 import { buildBrowserAutomationNativePrompt } from "./vellum/browser/agent-confirmation";
 import type { BrowserAutomationConfirmation } from "./vellum/browser/agent-authority";
 import { registerBrowserAgentIpc } from "./vellum/browser/agent-ipc";
@@ -518,6 +524,7 @@ if (!gotSingleInstanceLock) {
     void resolvedSpawnEnv();
 
     registerIpcHandlers();
+    registerDemoIpcHandlers();
 
     // Warm the herdr ControlMaster sockets so the first real remote op rides
     // an already-open ssh connection instead of paying a fresh handshake.
