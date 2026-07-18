@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, ManagedRuntime } from "effect";
@@ -33,6 +33,7 @@ vi.mock("@shared/seed", () => import("../src/shared/seed"));
 
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import type { CanvasDoc } from "../src/shared/canvas";
+import { serializeCanvas } from "../src/shared/canvas";
 
 const runtime = ManagedRuntime.make(CanvasesLive);
 let canvases: Context.Tag.Service<typeof CanvasesService>;
@@ -105,5 +106,41 @@ describe("canvases.ts write() — same-name concurrency", () => {
     const readB = await runtime.runPromise(canvases.read("race-b"));
     expect(textOf(readA.doc)).toMatch(/^write-10\d\d$/);
     expect(textOf(readB.doc)).toMatch(/^write-20\d\d$/);
+  });
+
+  it("rejects a stale renderer revision without overwriting the external document", async () => {
+    const name = "revision-conflict";
+    await runtime.runPromise(canvases.write(name, docFor(1)));
+    const stale = await runtime.runPromise(canvases.read(name));
+    const external = docFor(2);
+    await writeFile(stale.path, serializeCanvas(external), "utf8");
+
+    await expect(
+      runtime.runPromise(canvases.write(name, docFor(3), stale.revision)),
+    ).rejects.toThrow("changed on disk");
+
+    const preserved = await runtime.runPromise(canvases.read(name));
+    expect(textOf(preserved.doc)).toBe("write-2");
+    expect(preserved.revision).not.toBe(stale.revision);
+  });
+
+  it("reports a genuine external write immediately after an own write", async () => {
+    const name = "watch-near-own-write";
+    const notifications: string[] = [];
+    const unsubscribe = canvases.subscribeChanges((changed) => notifications.push(changed));
+    canvases.start();
+
+    try {
+      await runtime.runPromise(canvases.write(name, docFor(10)));
+      const current = await runtime.runPromise(canvases.read(name));
+      await writeFile(current.path, serializeCanvas(docFor(11)), "utf8");
+      await new Promise((resolve) => setTimeout(resolve, 700));
+
+      expect(notifications.filter((changed) => changed === name)).toHaveLength(2);
+      const external = await runtime.runPromise(canvases.read(name));
+      expect(textOf(external.doc)).toBe("write-11");
+    } finally {
+      unsubscribe();
+    }
   });
 });

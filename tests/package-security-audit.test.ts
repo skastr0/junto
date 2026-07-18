@@ -226,6 +226,7 @@ describe("electron-builder fitness", () => {
     ) as {
       build: {
         afterPack: string;
+        files: string[];
         forceCodeSigning: boolean;
         mac: {
           identity: string;
@@ -243,6 +244,25 @@ describe("electron-builder fitness", () => {
         strictVerify: true,
       },
     });
+    expect(
+      packageJson.build.files.filter((entry) =>
+        entry.includes("node_modules/@parcel/watcher"),
+      ),
+    ).toEqual([
+      "!node_modules/@parcel/watcher{,/**/*}",
+      "!node_modules/@parcel/watcher-*{,/**/*}",
+    ]);
+
+    const sshFileSystemLayer = await readFile(
+      new URL("../src/main/vellum/ssh/live.ts", import.meta.url),
+      "utf8",
+    );
+    expect(sshFileSystemLayer).toContain(
+      'from "@effect/platform-node/NodeFileSystem"',
+    );
+    expect(sshFileSystemLayer).not.toMatch(
+      /NodeFileSystem\/ParcelWatcher|@parcel\/watcher/u,
+    );
 
     const buildScript = await readFile(
       new URL("../scripts/build-app.sh", import.meta.url),

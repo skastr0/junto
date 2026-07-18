@@ -111,6 +111,8 @@ export const IPC_CHANNELS = {
   // main -> renderer pushes
   nodeRefOpened: "vellum:node-ref-opened",
   nodeRefOpenedAck: "vellum:node-ref-opened-ack",
+  canvasFlushRequested: "vellum:canvas-flush-requested",
+  canvasFlushComplete: "vellum:canvas-flush-complete",
   canvasChanged: "vellum:canvas-changed",
   snapshotsChanged: "vellum:snapshots-changed",
   usageChanged: "vellum:usage-changed",
@@ -140,6 +142,21 @@ export interface CanvasReadResult {
   readonly name: string;
   readonly path: string;
   readonly doc: CanvasDoc;
+  /** SHA-256 identity of the exact file bytes read from disk. */
+  readonly revision: string;
+}
+
+export interface CanvasWriteResult {
+  /** SHA-256 identity of the exact file bytes committed to disk. */
+  readonly revision: string;
+}
+
+export interface CanvasFlushRequest {
+  readonly requestId: string;
+}
+
+export interface CanvasFlushResult extends CanvasFlushRequest {
+  readonly ok: boolean;
 }
 
 export interface DigestResult {
@@ -580,7 +597,11 @@ export interface ChatApi {
 export interface VellumApi {
   readonly listCanvases: () => Promise<ReadonlyArray<CanvasSummary>>;
   readonly readCanvas: (name: string) => Promise<CanvasReadResult>;
-  readonly writeCanvas: (name: string, doc: CanvasDoc) => Promise<void>;
+  readonly writeCanvas: (
+    name: string,
+    doc: CanvasDoc,
+    expectedRevision?: string,
+  ) => Promise<CanvasWriteResult>;
   readonly createCanvas: (name: string) => Promise<CanvasReadResult>;
   readonly deleteCanvas: (name: string) => Promise<{ name: string }>;
   readonly exportDigest: (name: string) => Promise<DigestResult>;
@@ -628,6 +649,8 @@ export interface VellumApi {
   readonly onNodeRefOpened: (
     listener: (event: NodeRefOpenedEvent) => void | Promise<void>,
   ) => () => void;
+  /** Main-process close gate: resolves only after pending canvas writes settle. */
+  readonly onCanvasFlushRequested: (listener: () => void | Promise<void>) => () => void;
   readonly onCanvasChanged: (listener: (name: string) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onUsageChanged: (listener: (state: UsageState) => void) => () => void;

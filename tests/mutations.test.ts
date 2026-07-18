@@ -7,7 +7,7 @@ import { containedNodeIds, findOpenPosition, resizeNode, syncPositions } from ".
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
 
 const runtimeWindow = {
-  vellum: { writeCanvas: async () => undefined },
+  vellum: { writeCanvas: async () => ({ revision: "test-revision" }) },
   setTimeout: globalThis.setTimeout,
   confirm: () => true,
 };

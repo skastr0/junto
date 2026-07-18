@@ -4,6 +4,7 @@
 import "./vellum/demo/canvases-env";
 
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import {
@@ -19,7 +20,11 @@ import {
 } from "electron";
 import { Effect } from "effect";
 import { classifyBrowserTarget } from "@shared/browser-policy";
-import { IPC_CHANNELS, type NodeRefOpenedDelivery } from "@shared/ipc";
+import {
+  IPC_CHANNELS,
+  type CanvasFlushResult,
+  type NodeRefOpenedDelivery,
+} from "@shared/ipc";
 import {
   resolvedSpawnEnv,
   terminateAdapterChildrenOnQuit,
@@ -219,6 +224,62 @@ const headless = process.argv.includes("--vellum-headless");
 let trustedMainWindow: BrowserWindow | undefined;
 let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
+let closeWindowsWithoutCanvasFlush = false;
+
+const CANVAS_FLUSH_TIMEOUT_MS = 45_000;
+const pendingCanvasFlushes = new Map<
+  number,
+  {
+    readonly requestId: string;
+    readonly promise: Promise<void>;
+    readonly resolve: () => void;
+    readonly reject: (error: Error) => void;
+    readonly timer: ReturnType<typeof setTimeout>;
+  }
+>();
+
+const decodeCanvasFlushResult = (payload: unknown): CanvasFlushResult | undefined => {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return undefined;
+  if (Object.keys(payload).sort().join(",") !== "ok,requestId") return undefined;
+  if (!("requestId" in payload) || typeof payload.requestId !== "string") return undefined;
+  if (!("ok" in payload) || typeof payload.ok !== "boolean") return undefined;
+  return { requestId: payload.requestId, ok: payload.ok };
+};
+
+const requestCanvasFlush = (mainWindow: BrowserWindow): Promise<void> => {
+  if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return Promise.resolve();
+  const webContentsId = mainWindow.webContents.id;
+  const existing = pendingCanvasFlushes.get(webContentsId);
+  if (existing !== undefined) return existing.promise;
+
+  const requestId = randomUUID();
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  const timer = setTimeout(() => {
+    const pending = pendingCanvasFlushes.get(webContentsId);
+    if (pending?.requestId !== requestId) return;
+    pendingCanvasFlushes.delete(webContentsId);
+    reject(new Error("renderer canvas flush timed out"));
+  }, CANVAS_FLUSH_TIMEOUT_MS);
+  pendingCanvasFlushes.set(webContentsId, { requestId, promise, resolve, reject, timer });
+  mainWindow.webContents.send(IPC_CHANNELS.canvasFlushRequested, { requestId });
+  return promise;
+};
+
+ipcMain.on(IPC_CHANNELS.canvasFlushComplete, (event, payload: unknown) => {
+  const result = decodeCanvasFlushResult(payload);
+  if (result === undefined) return;
+  const pending = pendingCanvasFlushes.get(event.sender.id);
+  if (pending === undefined || pending.requestId !== result.requestId) return;
+  clearTimeout(pending.timer);
+  pendingCanvasFlushes.delete(event.sender.id);
+  if (result.ok) pending.resolve();
+  else pending.reject(new Error("renderer rejected close because canvas save failed"));
+});
 
 // Bounded renderer crash recovery. A renderer that dies (GPU reset, OOM kill,
 // Chromium crash) is first reloaded in place — that recovers the common
@@ -303,6 +364,24 @@ const createWindow = () => {
   });
   trustedMainWindow = mainWindow;
 
+  let closeAfterCanvasFlush = false;
+  let closeFlush: Promise<void> | undefined;
+  mainWindow.on("close", (event) => {
+    if (closeWindowsWithoutCanvasFlush || closeAfterCanvasFlush) return;
+    event.preventDefault();
+    closeFlush ??= requestCanvasFlush(mainWindow)
+      .then(() => {
+        closeAfterCanvasFlush = true;
+        mainWindow.close();
+      })
+      .catch((error) => {
+        console.error("[canvas] window close blocked:", error);
+      })
+      .finally(() => {
+        closeFlush = undefined;
+      });
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     const target = classifyBrowserTarget(url);
     if (target.allowed) {
@@ -365,6 +444,12 @@ const createWindow = () => {
     });
   });
   mainWindow.on("closed", () => {
+    const pending = pendingCanvasFlushes.get(mainWindow.webContents.id);
+    if (pending !== undefined) {
+      clearTimeout(pending.timer);
+      pendingCanvasFlushes.delete(mainWindow.webContents.id);
+      pending.reject(new Error("renderer closed before canvas flush completed"));
+    }
     if (trustedMainWindow === mainWindow) trustedMainWindow = undefined;
     disconnect();
     ipcMain.removeListener(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
@@ -684,16 +769,35 @@ const exitAfterDetach = (exitCode: number, reason: string): void => {
   });
 };
 
+let quitPreparation: Promise<void> | undefined;
+
 app.on("before-quit", (event) => {
-  nodeRefRelayWatcher?.close();
-  nodeRefRelayWatcher = undefined;
-  detachRuntimeOnQuit("before-quit");
   if (runtimeDisposed) return;
   event.preventDefault();
-  void disposeRuntime().finally(() => {
-    runtimeDisposed = true;
-    app.quit();
-  });
+  if (quitPreparation !== undefined) return;
+
+  const mainWindow = trustedMainWindow;
+  const flush =
+    mainWindow === undefined || mainWindow.isDestroyed()
+      ? Promise.resolve()
+      : requestCanvasFlush(mainWindow);
+
+  quitPreparation = flush
+    .then(() => {
+      nodeRefRelayWatcher?.close();
+      nodeRefRelayWatcher = undefined;
+      detachRuntimeOnQuit("before-quit");
+      return disposeRuntime();
+    })
+    .then(() => {
+      runtimeDisposed = true;
+      closeWindowsWithoutCanvasFlush = true;
+      app.quit();
+    })
+    .catch((error) => {
+      quitPreparation = undefined;
+      console.error("[canvas] quit blocked:", error);
+    });
 });
 
 app.on("will-quit", () => {

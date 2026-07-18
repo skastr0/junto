@@ -84,7 +84,9 @@
     "files": [
       "out/**",
       "station/**",
-      "package.json"
+      "package.json",
+      "!node_modules/@parcel/watcher{,/**/*}",
+      "!node_modules/@parcel/watcher-*{,/**/*}"
     ],
     "extraResources": [
       {

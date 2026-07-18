@@ -55,8 +55,12 @@ export const registerVellumIpc = (): void => {
     AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.read(name))),
   );
 
-  ipcMain.handle(IPC_CHANNELS.writeCanvas, (_event, name: string, doc: CanvasDoc) =>
-    AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.write(name, doc))),
+  ipcMain.handle(IPC_CHANNELS.writeCanvas, (_event, name: string, doc: CanvasDoc, expectedRevision?: string) =>
+    AppRuntime.runPromise(
+      Effect.flatMap(CanvasesService, (canvases) =>
+        canvases.write(name, doc, expectedRevision),
+      ),
+    ),
   );
 
   ipcMain.handle(IPC_CHANNELS.createCanvas, (_event, name: string) =>

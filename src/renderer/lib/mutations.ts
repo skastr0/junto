@@ -13,14 +13,6 @@ import type { BindingHint } from "@shared/ipc";
 import { formatNodeRef } from "@shared/node-ref";
 import { state$ } from "./state";
 
-// --- external-write guard -------------------------------------------------
-// The main-process watcher reports external edits. We stamp our own writes so
-// the change push can be ignored for a beat and we don't reload our own save.
-// prepareCanvasRemoval also stamps this so a delete's own subscribe notify is
-// not treated as an external edit (which would re-read a now-missing file).
-let lastWriteAt = 0;
-export const getLastWriteAt = (): number => lastWriteAt;
-
 const past: CanvasDoc[] = [];
 const future: CanvasDoc[] = [];
 
@@ -34,10 +26,19 @@ const confirmDestructive = (message: string): boolean =>
 
 // --- save pipeline --------------------------------------------------------
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
-// In-flight write IPC (at most one logical flush at a time). Removal awaits
-// this so a write that already passed the abandon gate still finishes before
-// delete, and delete wins on disk.
-let inFlightSave: Promise<void> | null = null;
+interface PendingCanvasSave {
+  readonly name: string;
+  readonly doc: CanvasDoc;
+}
+
+// Every scheduled save owns an immutable name+document snapshot. Disk
+// revisions are tracked per canvas and supplied as an optimistic write
+// boundary; a newer direct-file edit therefore fails visibly instead of being
+// overwritten. One pump serializes local writes so a newer local edit can use
+// the revision produced by the prior local write.
+let pendingSave: PendingCanvasSave | null = null;
+let inFlightSave: { readonly name: string; readonly promise: Promise<void> } | null = null;
+const revisionsByName = new Map<string, string>();
 // Names we intentionally discarded (delete). flushSave refuses to write them
 // until clearAbandonedCanvas (open/create of that name).
 const abandonedNames = new Set<string>();
@@ -74,51 +75,82 @@ export const roundDoc = (doc: CanvasDoc): CanvasDoc => stripUndefined({
   edges: doc.edges,
 });
 
-const flushSave = async () => {
-  const name = state$.canvasName.peek();
+const runSave = async (request: PendingCanvasSave): Promise<void> => {
+  const { name, doc } = request;
   const api = window.vellum;
-  if (!name || !api) return;
+  if (!api) throw new Error("Electron preload bridge is not available.");
   if (abandonedNames.has(name)) return;
 
   const run = (async () => {
     state$.saveState.set("saving");
-    const doc = roundDoc(state$.doc.peek());
     // Re-check immediately before IPC: prepareCanvasRemoval may have abandoned
-    // this name after we entered flushSave.
+    // this name after the request entered the pump.
     if (abandonedNames.has(name)) {
       state$.saveState.set("saved");
       return;
     }
     try {
-      await api.writeCanvas(name, doc);
+      const result = await api.writeCanvas(name, doc, revisionsByName.get(name));
       if (abandonedNames.has(name)) {
         // Write may have recreated a just-deleted file; the removal path
         // awaits this promise then deletes, so delete still wins on disk.
         state$.saveState.set("saved");
         return;
       }
-      // Stamp after IPC returns: the watcher can report the atomic rename after
-      // the main-process write completes, so the suppression window must begin
-      // at the boundary where the renderer knows the write is durable.
-      lastWriteAt = Date.now();
-      state$.saveState.set("saved");
+      revisionsByName.set(name, result.revision);
+      if (pendingSave === null && state$.canvasName.peek() === name) {
+        state$.saveState.set("saved");
+      }
       state$.error.set("");
     } catch (error) {
       if (abandonedNames.has(name)) {
         state$.saveState.set("saved");
         return;
       }
+      // Keep the newest local snapshot retryable. If no newer request exists,
+      // restore the exact request that failed its optimistic disk boundary.
+      if (pendingSave === null || pendingSave.name !== name) pendingSave = request;
       state$.saveState.set("error");
       state$.error.set(error instanceof Error ? error.message : String(error));
+      throw error;
     }
   })();
 
-  inFlightSave = run;
+  inFlightSave = { name, promise: run };
   try {
     await run;
   } finally {
-    if (inFlightSave === run) inFlightSave = null;
+    if (inFlightSave?.promise === run) inFlightSave = null;
   }
+};
+
+/** Flushes every locally queued canvas snapshot before navigation or close. */
+export const flushPendingCanvasSave = async (): Promise<void> => {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+
+  while (true) {
+    if (inFlightSave) {
+      await inFlightSave.promise;
+      continue;
+    }
+    const request = pendingSave;
+    if (request === null) return;
+    pendingSave = null;
+    await runSave(request);
+  }
+};
+
+export const hasPendingCanvasChanges = (name: string): boolean =>
+  pendingSave?.name === name || inFlightSave?.name === name;
+
+export const getCanvasRevision = (name: string): string | undefined =>
+  revisionsByName.get(name);
+
+export const acceptCanvasRevision = (name: string, revision: string): void => {
+  revisionsByName.set(name, revision);
 };
 
 export const retrySave = (): void => {
@@ -127,15 +159,18 @@ export const retrySave = (): void => {
     saveTimer = null;
   }
   state$.error.set("");
-  void flushSave().catch(() => undefined);
+  void flushPendingCanvasSave().catch(() => undefined);
 };
 
 export const scheduleSave = (): void => {
   if (saveTimer) clearTimeout(saveTimer);
+  const name = state$.canvasName.peek();
+  if (!name || !window.vellum || abandonedNames.has(name)) return;
+  pendingSave = { name, doc: roundDoc(state$.doc.peek()) };
   state$.saveState.set("saving");
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    void flushSave().catch(() => undefined);
+    void flushPendingCanvasSave().catch(() => undefined);
   }, 500);
 };
 
@@ -144,14 +179,16 @@ export const scheduleSave = (): void => {
 // delete's own canvasChanged notify is ignored, and wait out any in-flight
 // write so remove() can run after (delete wins if write already recreated).
 export const prepareCanvasRemoval = async (name: string): Promise<void> => {
-  if (saveTimer) {
+  if (saveTimer && pendingSave?.name === name) {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
   abandonedNames.add(name);
-  lastWriteAt = Date.now();
+  if (pendingSave?.name === name) pendingSave = null;
   state$.saveState.set("saved");
-  if (inFlightSave) await inFlightSave.catch(() => undefined);
+  if (inFlightSave?.name === name) await inFlightSave.promise.catch(() => undefined);
+  if (pendingSave?.name === name) pendingSave = null;
+  revisionsByName.delete(name);
 };
 
 // After a successful open/create of `name`, allow saves again.
@@ -177,7 +214,14 @@ export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = st
 
 // Replace the document from an authoritative source (open / external reload).
 // Always structural; never triggers a save (it mirrors what's already on disk).
-export const loadDoc = (doc: CanvasDoc): void => {
+export const loadDoc = (doc: CanvasDoc, revision?: string, name = state$.canvasName.peek()): void => {
+  if (pendingSave?.name === name) pendingSave = null;
+  if (saveTimer && pendingSave === null) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  if (revision === undefined) revisionsByName.delete(name);
+  else revisionsByName.set(name, revision);
   past.length = 0;
   future.length = 0;
   state$.editNodeId.set("");

@@ -1,14 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearAbandonedCanvas,
-  getLastWriteAt,
   prepareCanvasRemoval,
   scheduleSave,
 } from "../src/renderer/lib/mutations";
 import { state$ } from "../src/renderer/lib/state";
 import type { CanvasDoc } from "../src/shared/canvas";
 
-const writeCanvas = vi.fn(async (_name: string, _doc: CanvasDoc) => undefined);
+const writeCanvas = vi.fn(async (_name: string, _doc: CanvasDoc) => ({ revision: "next" }));
 
 const runtimeWindow = {
   vellum: { writeCanvas },
@@ -23,7 +22,7 @@ const emptyDoc: CanvasDoc = { nodes: [], edges: [] };
 describe("prepareCanvasRemoval vs pending save", () => {
   beforeEach(() => {
     writeCanvas.mockClear();
-    writeCanvas.mockImplementation(async () => undefined);
+    writeCanvas.mockImplementation(async () => ({ revision: "next" }));
     state$.canvasName.set("doomed");
     state$.doc.set(emptyDoc);
     state$.error.set("");
@@ -41,9 +40,7 @@ describe("prepareCanvasRemoval vs pending save", () => {
     scheduleSave();
     expect(state$.saveState.peek()).toBe("saving");
 
-    const stampedBefore = getLastWriteAt();
     await prepareCanvasRemoval("doomed");
-    expect(getLastWriteAt()).toBeGreaterThanOrEqual(stampedBefore);
     expect(state$.saveState.peek()).toBe("saved");
 
     // Let the original 500ms timer elapse if it were still armed.
@@ -58,6 +55,7 @@ describe("prepareCanvasRemoval vs pending save", () => {
     });
     writeCanvas.mockImplementation(async () => {
       await gate;
+      return { revision: "next" };
     });
 
     scheduleSave();

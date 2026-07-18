@@ -1,12 +1,12 @@
 import { mkdirSync, watch as watchDir } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import { applyMirrorLaw, decodeCanvasDoc, serializeCanvas, type CanvasDoc } from "@shared/canvas";
-import type { CanvasReadResult, CanvasSummary } from "@shared/ipc";
+import type { CanvasReadResult, CanvasSummary, CanvasWriteResult } from "@shared/ipc";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 
 export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
@@ -28,7 +28,11 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError>;
     readonly read: (name: string) => Effect.Effect<CanvasReadResult, CanvasError>;
-    readonly write: (name: string, doc: CanvasDoc) => Effect.Effect<void, CanvasError>;
+    readonly write: (
+      name: string,
+      doc: CanvasDoc,
+      expectedRevision?: string,
+    ) => Effect.Effect<CanvasWriteResult, CanvasError>;
     // Atomic read-modify-write under the same per-canvas mutex as write():
     // rereads the file, applies fn, validates + writes the result. Used by
     // the kernel's flag mirror so a racing user write and a kernel flag
@@ -64,16 +68,16 @@ const toCanvasError = (error: unknown): CanvasError =>
 const canvasFileName = (name: string) => `${name}.canvas`;
 const canvasPath = (name: string) => join(canvasesDir(), canvasFileName(name));
 
-// Own-write suppression window: an fs.watch event arriving within this
-// window of a write we made ourselves is an echo, not an external edit.
-const OWN_WRITE_SUPPRESS_MS = 1500;
 const WATCH_DEBOUNCE_MS = 300;
 
 const NAME_PATTERN = /^[a-z0-9-]+$/;
 
 export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const listeners = new Set<(name: string) => void>();
-  const ownWrites = new Map<string, number>();
+  // Exact content identity, rather than a time window. A near-immediate
+  // external write differs from this identity and must never be swallowed as
+  // an echo of our own atomic rename. null represents an own deletion.
+  const ownWrites = new Map<string, string | null>();
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let watcher: ReturnType<typeof watchDir> | null = null;
 
@@ -117,9 +121,14 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     catch: toCanvasError,
   });
 
+  const revisionOf = (raw: string): string =>
+    createHash("sha256").update(raw, "utf8").digest("hex");
+
   // Shared by read() and mutate(): parse + decode the file on disk. Thrown
   // errors are CanvasError already, so callers can let them propagate as-is.
-  const readAndDecode = async (name: string): Promise<CanvasDoc> => {
+  const readAndDecode = async (
+    name: string,
+  ): Promise<{ readonly doc: CanvasDoc; readonly revision: string }> => {
     const raw = await readFile(canvasPath(name), "utf8");
 
     let parsed: unknown;
@@ -140,19 +149,26 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       });
     }
 
-    return decoded.right;
+    return { doc: decoded.right, revision: revisionOf(raw) };
   };
 
   const read = (name: string): Effect.Effect<CanvasReadResult, CanvasError> =>
     Effect.tryPromise({
-      try: async () => ({ name, path: canvasPath(name), doc: await readAndDecode(name) }),
+      try: async () => {
+        const result = await readAndDecode(name);
+        return { name, path: canvasPath(name), ...result };
+      },
       catch: toCanvasError,
     });
 
   // Validates, applies the mirror law, serializes canonically, and writes
   // atomically (tmp file + rename). Records the write so start()'s watcher
   // can suppress the echo it will otherwise see.
-  const write = (name: string, doc: CanvasDoc): Effect.Effect<void, CanvasError> =>
+  const write = (
+    name: string,
+    doc: CanvasDoc,
+    expectedRevision?: string,
+  ): Effect.Effect<CanvasWriteResult, CanvasError> =>
     Effect.tryPromise({
       try: () =>
         withCanvasMutex(canvasFileName(name), async () => {
@@ -164,22 +180,54 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           }
 
           const serialized = serializeCanvas(applyMirrorLaw(decoded.right));
+          const revision = revisionOf(serialized);
 
           await mkdir(canvasesDir(), { recursive: true });
           const path = canvasPath(name);
+          if (expectedRevision !== undefined) {
+            let currentRevision: string | undefined;
+            try {
+              currentRevision = revisionOf(await readFile(path, "utf8"));
+            } catch {
+              currentRevision = undefined;
+            }
+            if (currentRevision !== expectedRevision) {
+              throw new CanvasError({
+                message: `${canvasFileName(name)} changed on disk; reload before saving`,
+              });
+            }
+          }
           // Unique per write so two overlapping writers (even outside the
           // mutex above, e.g. a separate OS process like populate.ts) never
           // share one tmp file.
           const tmpPath = `${path}.${randomUUID()}.tmp`;
           await writeFile(tmpPath, serialized, "utf8");
+          // Recheck immediately before replacement. Direct file writers do
+          // not share our mutex; this closes the meaningful stale-read window
+          // without inventing a second document format or merge protocol.
+          if (expectedRevision !== undefined) {
+            let currentRevision: string | undefined;
+            try {
+              currentRevision = revisionOf(await readFile(path, "utf8"));
+            } catch {
+              currentRevision = undefined;
+            }
+            if (currentRevision !== expectedRevision) {
+              await rm(tmpPath, { force: true });
+              throw new CanvasError({
+                message: `${canvasFileName(name)} changed on disk; reload before saving`,
+              });
+            }
+          }
           await rename(tmpPath, path);
 
           // Suppress fs.watch echo, then notify subscribers ourselves so the
           // kernel rehydrates immediately. Without this, own-write suppression
           // leaves kernel docs stale after normal UI writeCanvas (tasks done,
           // criteria edits) and live phase/blocked paint lies.
-          ownWrites.set(canvasFileName(name), Date.now());
+          ownWrites.set(canvasFileName(name), revision);
           for (const listener of listeners) listener(name);
+          return { revision };
         }),
       catch: toCanvasError,
     });
@@ -195,7 +243,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       try: () =>
         withCanvasMutex(canvasFileName(name), async () => {
           const current = await readAndDecode(name);
-          const next = fn(current);
+          const next = fn(current.doc);
 
           const decoded = decodeCanvasDoc(next);
           if (Either.isLeft(decoded)) {
@@ -205,6 +253,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           }
 
           const serialized = serializeCanvas(applyMirrorLaw(decoded.right));
+          const revision = revisionOf(serialized);
 
           await mkdir(canvasesDir(), { recursive: true });
           const path = canvasPath(name);
@@ -212,7 +261,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           await writeFile(tmpPath, serialized, "utf8");
           await rename(tmpPath, path);
 
-          ownWrites.set(canvasFileName(name), Date.now());
+          ownWrites.set(canvasFileName(name), revision);
           for (const listener of listeners) listener(name);
         }),
       catch: toCanvasError,
@@ -287,7 +336,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             // Suppress the fs.watch echo of our own unlink, then notify
             // subscribers ourselves so kernel resync drops the doc even when
             // watch is down or the delete event is coalesced away.
-            ownWrites.set(canvasFileName(sanitized), Date.now());
+            ownWrites.set(canvasFileName(sanitized), null);
             for (const listener of listeners) listener(sanitized);
           }),
         catch: toCanvasError,
@@ -337,12 +386,21 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
         const existingTimer = debounceTimers.get(fileName);
         if (existingTimer) clearTimeout(existingTimer);
 
-        const timer = setTimeout(() => {
+        const timer = setTimeout(async () => {
           debounceTimers.delete(fileName);
 
-          const lastOwnWrite = ownWrites.get(fileName);
-          if (lastOwnWrite !== undefined && Date.now() - lastOwnWrite < OWN_WRITE_SUPPRESS_MS) {
-            return;
+          const expectedOwnRevision = ownWrites.get(fileName);
+          if (ownWrites.has(fileName)) {
+            let actualRevision: string | null;
+            try {
+              actualRevision = revisionOf(
+                await readFile(join(canvasesDir(), fileName), "utf8"),
+              );
+            } catch {
+              actualRevision = null;
+            }
+            ownWrites.delete(fileName);
+            if (actualRevision === expectedOwnRevision) return;
           }
 
           const name = basename(fileName, ".canvas");
@@ -351,6 +409,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
 
         debounceTimers.set(fileName, timer);
       });
+      watcher.unref();
     } catch {
       // Watching is best-effort for the POC: a failure here should not
       // block the rest of the service.

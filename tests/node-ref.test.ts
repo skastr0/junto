@@ -49,7 +49,12 @@ const reader = (
       const doc = docs[name];
       return doc === undefined
         ? Effect.fail(new CanvasError({ message: `${name}.canvas does not exist` }))
-        : Effect.succeed({ name, path: `/canvases/${name}.canvas`, doc });
+        : Effect.succeed({
+          name,
+          path: `/canvases/${name}.canvas`,
+          doc,
+          revision: `${name}-r1`,
+        });
     },
   };
 };

@@ -35,7 +35,7 @@ const reader = (docs: Readonly<Record<string, CanvasDoc>>): CanvasNodeReader => 
     const doc = docs[name];
     return doc === undefined
       ? Effect.fail(new CanvasError({ message: "missing" }))
-      : Effect.succeed({ name, path: `/canvases/${name}.canvas`, doc });
+      : Effect.succeed({ name, path: `/canvases/${name}.canvas`, doc, revision: `${name}-r1` });
   },
 });
 

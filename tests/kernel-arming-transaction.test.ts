@@ -19,7 +19,12 @@ const ARMED_STORE_KEY = "kernel.armed";
 const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
 
 const check = (id: string) => ({ id, label: id, status: "ok" as const, detail: "" });
-const emptyDoc = (name: string) => ({ name, path: "", doc: { nodes: [], edges: [] } });
+const emptyDoc = (name: string) => ({
+  name,
+  path: "",
+  doc: { nodes: [], edges: [] },
+  revision: `${name}-r1`,
+});
 
 const fakeCanvases = Layer.succeed(
   CanvasesService,
@@ -27,7 +32,7 @@ const fakeCanvases = Layer.succeed(
     doctor: Effect.succeed(check("canvases")),
     list: Effect.succeed([]),
     read: (name: string) => Effect.succeed(emptyDoc(name)),
-    write: () => Effect.void,
+    write: () => Effect.succeed({ revision: "written-r1" }),
     mutate: () => Effect.void,
     create: (name: string) => Effect.succeed(emptyDoc(name)),
     remove: (name: string) => Effect.succeed({ name }),

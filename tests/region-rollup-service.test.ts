@@ -118,12 +118,17 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       read: (name: string) => {
         const doc = docs.get(name);
         return doc !== undefined
-          ? Effect.succeed({ name, path: "", doc })
+          ? Effect.succeed({ name, path: "", doc, revision: `${name}-r1` })
           : Effect.fail(new CanvasError({ message: `canvas "${name}" does not exist` }));
       },
-      write: () => Effect.void,
+      write: () => Effect.succeed({ revision: "written-r1" }),
       mutate: () => Effect.void,
-      create: (name: string) => Effect.succeed({ name, path: "", doc: { nodes: [], edges: [] } }),
+      create: (name: string) => Effect.succeed({
+        name,
+        path: "",
+        doc: { nodes: [], edges: [] },
+        revision: `${name}-r1`,
+      }),
       remove: (name: string) => Effect.succeed({ name }),
       ensureSeed: Effect.void,
       writeSidecar: () => Effect.succeed(""),

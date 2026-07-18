@@ -64,6 +64,12 @@ const emit = (payload: unknown): void => {
   listener({}, payload);
 };
 
+const emitCanvasFlush = (payload: unknown): void => {
+  const listener = electron.handlers.get(IPC_CHANNELS.canvasFlushRequested);
+  if (listener === undefined) throw new Error("preload did not register canvas flush ingress");
+  listener({}, payload);
+};
+
 const settle = async (): Promise<void> => {
   await new Promise<void>((resolve) => setImmediate(resolve));
 };
@@ -143,6 +149,42 @@ describe("preload node-reference delivery", () => {
     expect(listener).toHaveBeenCalledOnce();
     expect(listener.mock.calls[0]?.[0]).toMatchObject({ nodeId: "page" });
     expect(electron.sent).toEqual([[IPC_CHANNELS.nodeRefOpenedAck, valid.deliveryId]]);
+  });
+});
+
+describe("preload canvas close gate", () => {
+  it("acknowledges close only after the renderer save flush resolves", async () => {
+    const api = await loadPreload();
+    const flushed = deferred();
+    api.onCanvasFlushRequested(() => flushed.promise);
+
+    emitCanvasFlush({ requestId: "00000000-0000-4000-8000-000000000010" });
+    expect(electron.sent).toEqual([]);
+
+    flushed.resolve();
+    await settle();
+    expect(electron.sent).toEqual([
+      [
+        IPC_CHANNELS.canvasFlushComplete,
+        { requestId: "00000000-0000-4000-8000-000000000010", ok: true },
+      ],
+    ]);
+  });
+
+  it("rejects close when the renderer save flush fails", async () => {
+    const api = await loadPreload();
+    api.onCanvasFlushRequested(async () => {
+      throw new Error("revision conflict");
+    });
+
+    emitCanvasFlush({ requestId: "00000000-0000-4000-8000-000000000011" });
+    await settle();
+    expect(electron.sent).toEqual([
+      [
+        IPC_CHANNELS.canvasFlushComplete,
+        { requestId: "00000000-0000-4000-8000-000000000011", ok: false },
+      ],
+    ]);
   });
 });
 

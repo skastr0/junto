@@ -11,6 +11,7 @@ import {
   type BrowserOpenInput,
   type BrowserSessionInfo,
   type BrowserSurfaceBounds,
+  type CanvasFlushRequest,
   type VellumApi,
   type VellumBrowserApi,
   type VellumBrowserAutomationApi,
@@ -168,10 +169,63 @@ const onNodeRefOpened = (
   };
 };
 
+let canvasFlushListener: (() => void | Promise<void>) | undefined;
+let pendingCanvasFlush: CanvasFlushRequest | undefined;
+
+const decodeCanvasFlushRequest = (payload: unknown): CanvasFlushRequest | undefined => {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return undefined;
+  if (Object.keys(payload).join(",") !== "requestId") return undefined;
+  if (!("requestId" in payload) || typeof payload.requestId !== "string") return undefined;
+  if (!DELIVERY_ID_PATTERN.test(payload.requestId)) return undefined;
+  return { requestId: payload.requestId };
+};
+
+const deliverCanvasFlush = async (request: CanvasFlushRequest): Promise<void> => {
+  const listener = canvasFlushListener;
+  if (listener === undefined) {
+    pendingCanvasFlush = request;
+    return;
+  }
+  let ok = false;
+  try {
+    await listener();
+    ok = true;
+  } catch {
+    // Main receives ok:false and keeps the window/app alive. The renderer's
+    // save pipeline already owns the user-visible error detail.
+  } finally {
+    ipcRenderer.send(IPC_CHANNELS.canvasFlushComplete, { requestId: request.requestId, ok });
+  }
+};
+
+ipcRenderer.on(IPC_CHANNELS.canvasFlushRequested, (_event, payload: unknown) => {
+  const request = decodeCanvasFlushRequest(payload);
+  if (request === undefined) return;
+  pendingCanvasFlush = request;
+  if (canvasFlushListener === undefined) return;
+  pendingCanvasFlush = undefined;
+  void deliverCanvasFlush(request);
+});
+
+const onCanvasFlushRequested = (
+  listener: () => void | Promise<void>,
+): (() => void) => {
+  canvasFlushListener = listener;
+  const pending = pendingCanvasFlush;
+  if (pending !== undefined) {
+    pendingCanvasFlush = undefined;
+    void deliverCanvasFlush(pending);
+  }
+  return () => {
+    if (canvasFlushListener === listener) canvasFlushListener = undefined;
+  };
+};
+
 const vellumApi: VellumApi = {
   listCanvases: () => invoke(IPC_CHANNELS.listCanvases, IPC_TIMEOUT_MS),
   readCanvas: (name) => invoke(IPC_CHANNELS.readCanvas, IPC_TIMEOUT_MS, name),
-  writeCanvas: (name, doc) => invoke(IPC_CHANNELS.writeCanvas, IPC_TIMEOUT_MS, name, doc),
+  writeCanvas: (name, doc, expectedRevision) =>
+    invoke(IPC_CHANNELS.writeCanvas, IPC_TIMEOUT_MS, name, doc, expectedRevision),
   createCanvas: (name) => invoke(IPC_CHANNELS.createCanvas, IPC_TIMEOUT_MS, name),
   deleteCanvas: (name) => invoke(IPC_CHANNELS.deleteCanvas, IPC_TIMEOUT_MS, name),
   exportDigest: (name) => invoke(IPC_CHANNELS.exportDigest, IPC_TIMEOUT_MS, name),
@@ -216,6 +270,7 @@ const vellumApi: VellumApi = {
   regionRollups: (name) =>
     invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
   onNodeRefOpened,
+  onCanvasFlushRequested,
   onCanvasChanged: (listener) => subscribe<string>(IPC_CHANNELS.canvasChanged, listener),
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
