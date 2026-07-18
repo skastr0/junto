@@ -14,7 +14,7 @@ import {
 import { harnessDisplayName } from "../../lib/harness-icons";
 import { editText } from "../../lib/mutations";
 import { getVellumApi } from "../../lib/vellum-api";
-import { DIM, HUE, INK, accentColor, withAlpha } from "../../lib/theme";
+import { DIM, INK, withAlpha } from "../../lib/theme";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HarnessMark } from "./HarnessMark";
 
@@ -131,9 +131,10 @@ export function HerdrCard({
     subscribeHerdrMirror();
   }, []);
 
-  // Push: a mirror "change" for this host refreshes meta the instant it lands.
-  // Mirror covers the default (null) session only — named-session cards must
-  // not fan out CLI meta on every default-session event (VL-030).
+  // Push: default-session cards only. Mirror is default-session; named sessions
+  // are separate servers and must not fan out CLI meta on default events (VL-030).
+  const pushDriven = Boolean(herdr?.host && herdr.paneId && !herdr.session && fresh);
+
   useEffect(() => {
     if (!herdr?.host || !herdr.paneId) return;
     if (herdr.session) return;
@@ -147,17 +148,18 @@ export function HerdrCard({
     });
   }, [node.id, herdr?.host, herdr?.paneId, herdr?.session, herdr?.terminalId]);
 
-  // Poll only as a fallback while the mirror is stale — a fresh host is
-  // push-driven, so drop the 12s interval entirely.
+  // Poll when not push-driven: named-session cards always poll (their host
+  // `fresh` is the *default* mirror and is not their data path). Default-session
+  // cards poll only while the host mirror is stale.
   useEffect(() => {
     if (!herdr?.paneId) return;
     void refreshHerdrMeta(node.id, herdr);
-    if (fresh) return;
+    if (pushDriven) return;
     const timer = window.setInterval(() => {
       void refreshHerdrMeta(node.id, herdr);
     }, 12_000);
     return () => window.clearInterval(timer);
-  }, [node.id, herdr?.host, herdr?.paneId, herdr?.session, herdr?.terminalId, fresh]);
+  }, [node.id, herdr?.host, herdr?.paneId, herdr?.session, herdr?.terminalId, pushDriven]);
 
   if (!herdr) {
     return <div className="text-xs text-slate-500">herdr unbound</div>;
@@ -178,21 +180,10 @@ export function HerdrCard({
 
   // Hero: explicit label wins; placeholder/auto-derived labels fall back to
   // live identity (workspace label → cwd basename → harness display name).
+  // Status chrome is ActivityMark only — no agentStatus text labels.
   const hero = isAutoDerivedLabel(rawName, herdr, meta?.agent)
     ? (meta?.workspaceLabel ?? cwdBase ?? harnessDisplayName(agent))
     : rawName;
-
-  const statusWord = agentStatus ?? "unknown";
-  const statusTone =
-    agentStatus === "working"
-      ? HUE.amber
-      : agentStatus === "idle"
-        ? HUE.steel
-        : agentStatus === "blocked"
-          ? HUE.crimson
-          : agentStatus === "done" || agentStatus === "complete" || agentStatus === "completed"
-            ? accentColor("4")
-            : DIM;
 
   const tabShort = herdr.tabId ? herdr.tabId.split(":").pop() : undefined;
   const crumbs = [
@@ -291,17 +282,8 @@ export function HerdrCard({
                 {hero}
               </button>
             )}
-            <div className="flex items-center gap-1.5 text-[11px]">
-              <span className="truncate" style={{ color: INK }}>
-                {harnessDisplayName(agent)}
-              </span>
-              <span
-                className={`shrink-0 rounded-full ${agentStatus === "working" ? "vellum-herdr-working-dot" : ""}`}
-                style={{ width: 5, height: 5, background: statusTone }}
-              />
-              <span className="truncate" style={{ color: DIM }}>
-                {statusWord}
-              </span>
+            <div className="truncate text-[11px]" style={{ color: DIM }}>
+              {harnessDisplayName(agent)}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">

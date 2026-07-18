@@ -340,8 +340,11 @@ export class HerdrMirror implements HerdrMirrorReads {
     } else if (kind === "layout.updated") {
       const key = this.layoutKey(body);
       if (key) this.layouts.set(key, body);
+    } else if (kind === "pane.scroll_changed" || kind.startsWith("worktree.")) {
+      // Known, no mirrored state — do not emitChange (was N meta IPC / card
+      // thrash on every scroll tick with zero state delta).
+      return;
     }
-    // worktree.* / pane.scroll_changed: known, no mirrored state — ignore.
 
     this.emitChange();
   }

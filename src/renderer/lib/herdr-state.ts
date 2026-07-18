@@ -23,6 +23,13 @@ export interface HerdrMetaCache {
    * stale host "done" (VL-030).
    */
   readonly seenGen?: number;
+  /**
+   * True from local mark-seen until the host confirms a non-done status
+   * (idle|working|blocked). While set, remote "done" cannot re-paint attention
+   * — closes the post-open race where a refresh *starts after* open and would
+   * otherwise pass the mid-flight seenGen gate (VL-030 residual).
+   */
+  readonly pendingSeen?: boolean;
 }
 
 export interface HerdrTerminalOpen {
@@ -99,7 +106,7 @@ export const openHerdrTerminal = (nodeId: string, herdr: EtherHerdr, title: stri
   // Opening the terminal is "looking at" the pane. Optimistically clear herdr's
   // done (Idle+!seen) → idle so the card stops waving before the focus round-trip.
   // Then mark seen on the host so the mirror event confirms it for the fleet.
-  markHerdrPaneSeenLocal(nodeId);
+  markHerdrPaneSeenLocal(nodeId, herdr);
   void markHerdrPaneSeenRemote(herdr, nodeId);
 };
 
@@ -198,9 +205,18 @@ export const subscribeHerdrMirror = (): (() => void) => {
   return mirrorUnsub;
 };
 
+const CONFIRMED_AFTER_SEEN = new Set(["idle", "working", "blocked"]);
+
 /**
- * Protect seen-idle against a stale host "done" when seenGen advanced mid-flight.
- * Pure so unit tests can lock the race without React.
+ * Merge remote pane meta onto local cache.
+ * Pure so unit tests can lock races without React.
+ *
+ * Holds:
+ * - mid-flight seenGen race: refresh started before open cannot re-paint done
+ * - pendingSeen: refresh started *after* open also cannot re-paint done until
+ *   the host confirms idle|working|blocked
+ * - sticky identity: remote omitting agentStatus/agent/cwd does not wipe a
+ *   known prior value (avoids unknown-flash on partial mirror rows)
  */
 export const mergeHerdrMetaAfterRefresh = (
   previous: HerdrMetaCache | undefined,
@@ -208,49 +224,101 @@ export const mergeHerdrMetaAfterRefresh = (
   remote: HerdrPaneInfo,
 ): HerdrPaneInfo => {
   const nowGen = previous?.seenGen ?? 0;
-  if (
-    nowGen > startSeenGen &&
-    previous?.meta?.agentStatus === "idle" &&
-    remote.agentStatus === "done"
-  ) {
-    return { ...remote, agentStatus: "idle" };
+  const prior = previous?.meta;
+
+  // Sticky: only fill holes — explicit remote values (including "unknown") win.
+  let agentStatus = remote.agentStatus ?? prior?.agentStatus;
+  const agent = remote.agent ?? prior?.agent;
+  const cwd = remote.cwd ?? prior?.cwd;
+  const label = remote.label ?? prior?.label;
+  const workspaceLabel = remote.workspaceLabel ?? prior?.workspaceLabel;
+  const tabLabel = remote.tabLabel ?? prior?.tabLabel;
+
+  const midFlightDoneClobber =
+    nowGen > startSeenGen && prior?.agentStatus === "idle" && remote.agentStatus === "done";
+  const pendingSeenDoneClobber =
+    previous?.pendingSeen === true && remote.agentStatus === "done";
+
+  if (midFlightDoneClobber || pendingSeenDoneClobber) {
+    agentStatus = "idle";
   }
-  return remote;
+
+  return {
+    ...remote,
+    ...(agent !== undefined ? { agent } : {}),
+    ...(agentStatus !== undefined ? { agentStatus } : {}),
+    ...(cwd !== undefined ? { cwd } : {}),
+    ...(label !== undefined ? { label } : {}),
+    ...(workspaceLabel !== undefined ? { workspaceLabel } : {}),
+    ...(tabLabel !== undefined ? { tabLabel } : {}),
+  };
+};
+
+/** Whether pendingSeen should clear given a host-reported status. */
+export const clearsPendingSeen = (agentStatus: string | undefined): boolean =>
+  agentStatus !== undefined && CONFIRMED_AFTER_SEEN.has(agentStatus);
+
+/** True when two pane metas paint the same card identity/status (skip re-set thrash). */
+export const herdrMetaPaintEqual = (
+  a: HerdrPaneInfo | undefined,
+  b: HerdrPaneInfo | undefined,
+): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.paneId === b.paneId &&
+    a.agentStatus === b.agentStatus &&
+    a.agent === b.agent &&
+    a.cwd === b.cwd &&
+    a.focused === b.focused &&
+    a.workspaceLabel === b.workspaceLabel &&
+    a.tabLabel === b.tabLabel &&
+    a.preview === b.preview &&
+    a.terminalId === b.terminalId
+  );
 };
 
 /**
  * Optimistic done → idle when the operator opens a terminal (looks at the pane).
  * Herdr's agent_status is (state, seen): Idle+!seen = "done", Idle+seen = "idle".
+ * Seeds idle + pendingSeen even when meta has not hydrated yet.
  */
-export const markHerdrPaneSeenLocal = (nodeId: string): void => {
+export const markHerdrPaneSeenLocal = (nodeId: string, herdr?: EtherHerdr): void => {
   const cache = herdr$.metaByNodeId[nodeId].peek();
   const meta = cache?.meta;
+  const seenGen = (cache?.seenGen ?? 0) + 1;
+  const now = Date.now();
+
   if (!meta) {
-    // No meta yet — still bump gen so the first refresh cannot paint done after open.
+    // Seed a minimal idle row so the card cannot first-paint as done after open.
+    const seeded: HerdrPaneInfo | undefined = herdr?.paneId
+      ? {
+          paneId: herdr.paneId,
+          terminalId: herdr.terminalId,
+          workspaceId: herdr.workspaceId,
+          tabId: herdr.tabId,
+          agent: herdr.label,
+          agentStatus: "idle",
+        }
+      : undefined;
     herdr$.metaByNodeId[nodeId].set({
-      status: cache?.status ?? "idle",
-      meta: cache?.meta,
+      status: seeded ? "ok" : (cache?.status ?? "idle"),
+      meta: seeded,
       error: cache?.error,
-      fetchedAt: Date.now(),
-      seenGen: (cache?.seenGen ?? 0) + 1,
+      fetchedAt: now,
+      seenGen,
+      pendingSeen: true,
     });
     return;
   }
-  if (meta.agentStatus !== "done" && meta.agentStatus !== undefined) {
-    // Still bump gen so concurrent refresh cannot reintroduce done.
-    herdr$.metaByNodeId[nodeId].set({
-      ...cache,
-      seenGen: (cache?.seenGen ?? 0) + 1,
-      fetchedAt: Date.now(),
-    });
-    return;
-  }
+
   herdr$.metaByNodeId[nodeId].set({
     status: cache.status === "loading" ? "ok" : cache.status,
-    meta: { ...meta, agentStatus: "idle" },
+    meta: { ...meta, agentStatus: meta.agentStatus === "working" || meta.agentStatus === "blocked" ? meta.agentStatus : "idle" },
     error: cache.error,
-    fetchedAt: Date.now(),
-    seenGen: (cache.seenGen ?? 0) + 1,
+    fetchedAt: now,
+    seenGen,
+    pendingSeen: true,
   });
 };
 
@@ -269,6 +337,7 @@ export const applyHerdrPaneSeenStatus = (
     error: undefined,
     fetchedAt: Date.now(),
     seenGen: (cache.seenGen ?? 0) + 1,
+    pendingSeen: clearsPendingSeen(agentStatus) ? false : cache.pendingSeen,
   });
 };
 
@@ -302,7 +371,35 @@ export const markHerdrPaneSeenRemote = async (
   }
 };
 
+/** Coalesce concurrent refreshHerdrMeta for the same node (last-writer thrash). */
+const metaRefreshInFlight = new Map<string, { rerun: boolean; promise: Promise<void> }>();
+
 export const refreshHerdrMeta = async (
+  nodeId: string,
+  herdr: EtherHerdr,
+): Promise<void> => {
+  const existing = metaRefreshInFlight.get(nodeId);
+  if (existing) {
+    existing.rerun = true;
+    return existing.promise;
+  }
+
+  const run = async (): Promise<void> => {
+    const slot = metaRefreshInFlight.get(nodeId);
+    if (!slot) return;
+    do {
+      slot.rerun = false;
+      await refreshHerdrMetaOnce(nodeId, herdr);
+    } while (slot.rerun);
+    metaRefreshInFlight.delete(nodeId);
+  };
+
+  const promise = run();
+  metaRefreshInFlight.set(nodeId, { rerun: false, promise });
+  return promise;
+};
+
+const refreshHerdrMetaOnce = async (
   nodeId: string,
   herdr: EtherHerdr,
 ): Promise<void> => {
@@ -329,6 +426,7 @@ export const refreshHerdrMeta = async (
       status: "loading",
       meta: previous?.meta,
       seenGen: previous?.seenGen,
+      pendingSeen: previous?.pendingSeen,
     });
   }
   try {
@@ -347,16 +445,32 @@ export const refreshHerdrMeta = async (
         meta: latest?.meta ?? previous?.meta,
         fetchedAt: Date.now(),
         seenGen: latest?.seenGen ?? previous?.seenGen,
+        pendingSeen: latest?.pendingSeen ?? previous?.pendingSeen,
       });
       return;
     }
     setConnectionEvent(nodeId, { type: "ok" });
     const merged = mergeHerdrMetaAfterRefresh(latest, startSeenGen, result.data);
+    const nextPending = latest?.pendingSeen
+      ? clearsPendingSeen(merged.agentStatus)
+        ? false
+        : true
+      : latest?.pendingSeen ?? previous?.pendingSeen;
+    // Skip observable set when paint-relevant fields are unchanged — fleet
+    // mirror change storms must not re-render every card every tick.
+    if (
+      latest?.status === "ok" &&
+      herdrMetaPaintEqual(latest.meta, merged) &&
+      (latest.pendingSeen ?? false) === (nextPending ?? false)
+    ) {
+      return;
+    }
     herdr$.metaByNodeId[nodeId].set({
       status: "ok",
       meta: merged,
       fetchedAt: Date.now(),
       seenGen: latest?.seenGen ?? previous?.seenGen,
+      pendingSeen: nextPending,
     });
   } catch (error) {
     setConnectionEvent(nodeId, { type: "host_unreachable" });
@@ -367,6 +481,7 @@ export const refreshHerdrMeta = async (
       meta: latest?.meta ?? previous?.meta,
       fetchedAt: Date.now(),
       seenGen: latest?.seenGen ?? previous?.seenGen,
+      pendingSeen: latest?.pendingSeen ?? previous?.pendingSeen,
     });
   }
 };
