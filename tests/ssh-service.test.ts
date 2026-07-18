@@ -393,18 +393,15 @@ describe("SshTransport", () => {
       releases,
     );
     const result = await Effect.runPromise(
-      Effect.scoped(
+      TestClock.adjustWith(
         Effect.gen(function* () {
-          const fiber = yield* Effect.fork(
-            Effect.gen(function* () {
-              const endpoint = yield* parseSshEndpoint("remote-a");
-              const remote = yield* makeRemoteCommand("never");
-              return yield* (yield* SshTransport).run(oneShot(endpoint, remote, { budget: "short" }));
-            }).pipe(Effect.provide(layer), Effect.either),
+          const endpoint = yield* parseSshEndpoint("remote-a");
+          const remote = yield* makeRemoteCommand("never");
+          return yield* (yield* SshTransport).run(
+            oneShot(endpoint, remote, { budget: "short" }),
           );
-          yield* TestClock.adjust("7 seconds");
-          return yield* Fiber.join(fiber);
-        }),
+        }).pipe(Effect.provide(layer), Effect.either),
+        "7 seconds",
       ).pipe(Effect.provide(TestContext.TestContext)),
     );
 

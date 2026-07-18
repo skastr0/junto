@@ -62,10 +62,14 @@ describe("ProcessSpawnerLive", () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          yield* (yield* ProcessSpawner).start(
-            Command.make("/bin/sh", "-c", "trap '' TERM; while :; do sleep 1; done"),
+          const child = yield* (yield* ProcessSpawner).start(
+            Command.make(
+              "/bin/sh",
+              "-c",
+              "trap '' TERM; printf ready; while :; do sleep 1; done",
+            ),
           );
-          yield* Effect.sleep(50);
+          yield* Stream.runHead(child.stdout);
         }),
       ).pipe(Effect.provide(SpawnerLive)),
     );

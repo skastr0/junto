@@ -5,7 +5,8 @@ import { FolderLive, FolderService } from "./services/folder";
 import { PrismLive, PrismService } from "./services/prism";
 import { StoreLive, StoreService } from "./services/store";
 import { CanvasesLive, CanvasesService } from "./vellum/canvases";
-import { ChatService } from "./vellum/chat/service";
+import { ChatServiceFromHermesLive, HermesPlaneLive } from "./vellum/hermes/plane";
+import { HermesTransportLive } from "./vellum/hermes/transport";
 import { HerdrPlaneLive } from "./vellum/herdr/plane";
 import { HerdrTransportLive } from "./vellum/herdr/transport";
 import { KernelLive, KernelService } from "./vellum/kernel/service";
@@ -15,12 +16,6 @@ import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
 import { UsageLive } from "./vellum/usage/live";
 import { UsageService } from "./vellum/usage/usage-service";
 import { SshTransportLive } from "./vellum/ssh";
-
-// One shared ACP-session manager for the whole app: pulse-driven turns
-// (KernelService, below) and user-driven turns (registerChatIpc, wired in
-// vellum/ipc.ts) reuse the same live sessions per agent rather than racing
-// two independent ChatService instances (kernel-design.md §2.3).
-export const chatService = new ChatService();
 
 // KernelLive requires CanvasesService/SnapshotsService/StoreService;
 // RegionRollupLive requires CanvasesService/SnapshotsService.
@@ -36,23 +31,39 @@ export const chatService = new ChatService();
 // live in this layer — see adapters/sdk-runtime.ts for why (a dedicated
 // small runtime avoids a circular-dependency cluster between this file and
 // the adapters that would otherwise need it).
+const ProductTransportsLive = Layer.provideMerge(
+  Layer.mergeAll(HerdrTransportLive, HermesTransportLive),
+  SshTransportLive,
+);
+
+const ProductPlanesLive = Layer.provideMerge(
+  Layer.mergeAll(HerdrPlaneLive, HermesPlaneLive),
+  ProductTransportsLive,
+);
+
+const ProductPlanesWithChatLive = Layer.provideMerge(
+  ChatServiceFromHermesLive,
+  ProductPlanesLive,
+);
+
+const SnapshotsWithProductsLive = Layer.provideMerge(
+  SnapshotsLive,
+  ProductPlanesWithChatLive,
+);
+
 const BaseLayer = Layer.mergeAll(
   StoreLive,
   FolderLive,
   PrismLive,
   CodexLive,
   CanvasesLive,
-  SnapshotsLive,
+  SnapshotsWithProductsLive,
   UsageLive,
   SettingsLive,
-  Layer.provideMerge(
-    HerdrPlaneLive,
-    Layer.provideMerge(HerdrTransportLive, SshTransportLive),
-  ),
 );
 
 export const RootLayer = Layer.provideMerge(
-  Layer.mergeAll(KernelLive(chatService), RegionRollupLive(chatService)),
+  Layer.mergeAll(KernelLive, RegionRollupLive),
   BaseLayer,
 );
 

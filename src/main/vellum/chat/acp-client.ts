@@ -1,6 +1,4 @@
-import { spawn as spawnProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { isAbsolute } from "node:path";
-import { resolvedSpawnEnvSync } from "../adapters/exec";
 import type { AcpSpawnTarget } from "./spawn";
 
 // One long-lived `hermes acp` (or ssh-wrapped remote) child process, speaking
@@ -143,23 +141,9 @@ export const makeLocalBrowserChildEnvironment = (
   });
 };
 
-// Resolved (login-shell-probed, PATH-floored) env, same one every other
-// spawn call-site in this app uses — a packaged/launchd launch otherwise
-// inherits launchd's minimal PATH and `hermes`/`ssh` ENOENT. Sync accessor
-// because SpawnFn itself is synchronous; src/main/index.ts primes the cache
-// with `void resolvedSpawnEnv()` at startup, so this is warm by the time a
-// chat is actually opened.
-const defaultSpawn: SpawnFn = (target, options) =>
-  spawnProcess(target.command, [...target.argv], {
-    stdio: ["pipe", "pipe", "pipe"],
-    env:
-      options?.environmentOverlay === undefined
-        ? resolvedSpawnEnvSync()
-        : { ...resolvedSpawnEnvSync(), ...options.environmentOverlay },
-  }) as ChildProcessWithoutNullStreams;
-
 const INIT_TIMEOUT_MS = 20_000;
 const PROTOCOL_VERSION = 1;
+const MAX_INBOUND_FRAME_BYTES = 1024 * 1024;
 
 // Grace window between SIGTERM and a SIGKILL escalation for a child that
 // ignores (or is too wedged to process) the polite signal. Shared by close()
@@ -211,7 +195,7 @@ export class AcpClient {
   constructor(
     private readonly target: AcpSpawnTarget,
     private readonly handlers: AcpClientHandlers,
-    private readonly spawnFn: SpawnFn = defaultSpawn,
+    private readonly spawnFn: SpawnFn,
     environmentOverlay?: AcpChildEnvironmentOverlay,
   ) {
     this.environmentOverlay =
@@ -282,7 +266,7 @@ export class AcpClient {
 
     const message = `ACP request '${method}' timed out after ${timeoutMs}ms`;
     return this.withTimeout(raw, timeoutMs, message).catch((err: unknown) => {
-      if (err instanceof Error && err.message === message) this.handleRequestTimeout(message);
+      if (err instanceof Error && err.message === message) this.handleFatalFailure(message);
       throw err;
     });
   }
@@ -312,7 +296,7 @@ export class AcpClient {
 
   // Sends SIGTERM, then escalates to SIGKILL if the child hasn't exited
   // within SIGTERM_GRACE_MS. Shared by close() and a post-handshake request
-  // timeout (handleRequestTimeout) — both need the same hard-kill guarantee
+  // timeout (handleFatalFailure) — both need the same hard-kill guarantee
   // for a child that ignores or is too wedged to process the polite signal.
   private killChild(child: AcpChildLike): void {
     try {
@@ -335,15 +319,15 @@ export class AcpClient {
     (timer as unknown as { unref?: () => void }).unref?.();
   }
 
-  // A post-handshake request that never gets a reply means the whole child
-  // is presumed wedged, not just that one call — tear the client down the
+  // A fatal transport condition (timeout or oversized inbound frame) means
+  // the whole child is unusable — tear the client down the
   // same way an unexpected exit would (kill the child, notify onLifecycle)
   // so ChatService deletes the session and its own promptInFlight/
   // openInFlight bookkeeping clears via its existing finally()/catch,
   // instead of latching "turn in flight" or a live-but-empty session
-  // forever. Idempotent — a second timeout (or a concurrent close()) after
+  // forever. Idempotent — a second failure (or a concurrent close()) after
   // teardown has already started is a no-op.
-  private handleRequestTimeout(message: string): void {
+  private handleFatalFailure(message: string): void {
     if (this.closedFlag) return;
     this.closedFlag = true;
     this.rejectAllPending(new Error(message));
@@ -379,15 +363,25 @@ export class AcpClient {
     this.buffer += chunk;
     let idx: number;
     while ((idx = this.buffer.indexOf("\n")) >= 0) {
-      const line = this.buffer.slice(0, idx).trim();
+      const rawLine = this.buffer.slice(0, idx);
       this.buffer = this.buffer.slice(idx + 1);
+      if (Buffer.byteLength(rawLine, "utf8") > MAX_INBOUND_FRAME_BYTES) {
+        this.handleFatalFailure("ACP inbound frame exceeded the 1 MiB limit");
+        return;
+      }
+      const line = rawLine.trim();
       if (line.length > 0) this.handleLine(line);
+    }
+    if (Buffer.byteLength(this.buffer, "utf8") > MAX_INBOUND_FRAME_BYTES) {
+      this.handleFatalFailure("ACP inbound frame exceeded the 1 MiB limit");
     }
   }
 
   private onStderr(chunk: string): void {
     for (const line of chunk.split("\n")) {
-      if (line.trim().length > 0) console.debug(`[acp:${this.target.command}]`, line);
+      if (line.trim().length > 0) {
+        console.debug(`[acp:${this.target.host}:${this.target.profile}]`, line);
+      }
     }
   }
 

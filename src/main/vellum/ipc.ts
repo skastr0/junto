@@ -5,14 +5,13 @@ import type { CanvasDoc } from "@shared/canvas";
 import { digestCanvas } from "@shared/digest";
 import { buildGlyphView, canvasProjectKeys } from "@shared/glyph-view";
 import { mergePortfolioInto } from "@shared/portfolio";
-import { AppRuntime, chatService } from "../runtime";
+import { AppRuntime } from "../runtime";
 import {
   fetchBoothDraftRead,
   fetchBoothDrafts,
   fetchBoothRequests,
   fetchBoothReview,
 } from "./adapters/booth-controls";
-import { fetchAgentAvatar, fetchAgentIdentity, fetchAgentMessage } from "./adapters/hermes-identity";
 import { fetchQuasarSearch, fetchQuasarSessionDetail, fetchQuasarSessionList } from "./adapters/quasar";
 import {
   fetchTowerBrowse,
@@ -29,6 +28,8 @@ import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { CanvasesService } from "./canvases";
 import { registerChatIpc } from "./chat/ipc";
+import { ChatServiceContext } from "./chat/service";
+import { HermesPlane } from "./hermes/plane";
 import { registerHerdrIpc } from "./herdr/ipc";
 import type { PulseRegionOptions } from "./kernel/service";
 import { KernelService } from "./kernel/service";
@@ -187,18 +188,26 @@ export const registerVellumIpc = (): void => {
     fetchQuasarSessionDetail(sessionId),
   );
 
-  ipcMain.handle(IPC_CHANNELS.agentIdentity, (_event, key: string) => fetchAgentIdentity(key));
+  ipcMain.handle(IPC_CHANNELS.agentIdentity, (_event, key: string) =>
+    AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentIdentity(key)),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.agentAvatar, (_event, key: string) => fetchAgentAvatar(key));
+  ipcMain.handle(IPC_CHANNELS.agentAvatar, (_event, key: string) =>
+    AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentAvatar(key)),
+  );
 
   ipcMain.handle(IPC_CHANNELS.agentMessage, (_event, key: string, text: string) =>
-    fetchAgentMessage(key, text),
+    AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentMessage(key, text)),
   );
 
   // The attached-chat plane (hermes ACP sessions per agent node). Shares its
   // ChatService instance with KernelService below — a pulse-driven turn and
   // a human reuse the same live ACP session per agent.
-  registerChatIpc(ipcMain, () => BrowserWindow.getAllWindows().map((window) => window.webContents), chatService);
+  void registerChatIpc(
+    ipcMain,
+    () => BrowserWindow.getAllWindows().map((window) => window.webContents),
+    AppRuntime.runPromise(ChatServiceContext),
+  );
 
   // The kernel plane: watcher/timer evaluation over every hydrated canvas,
   // running continuously in main regardless of window state.

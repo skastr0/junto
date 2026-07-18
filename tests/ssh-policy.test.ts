@@ -5,6 +5,8 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseHermesProfileName } from "../src/main/vellum/hermes/domain";
+import { HermesTransport, HermesTransportLive } from "../src/main/vellum/hermes/transport";
 import {
   parseRemoteUnixSocketPath,
   parseSshEndpoint,
@@ -71,7 +73,7 @@ const recordingLayer = async (calls: Command.StandardCommand[]) => {
           }
           const remoteText = args.at(-1) ?? "";
           return handle({
-            running: isMaster || (!args.includes("-O") && remoteText.includes("hermes")),
+            running: isMaster || args.includes("ControlMaster=no"),
             stdout: remoteText.includes("nohup") ? encoder.encode("4242\n") : undefined,
           });
         }),
@@ -161,6 +163,36 @@ describe("SSH policy surface", () => {
     expect(args).toContain("ControlMaster=no");
     expect(args).toContain("ControlPath=none");
     expect(args).not.toContain("ControlMaster=auto");
+  });
+
+  it("renders Hermes operations through shared one-shots and isolated ACP streams", async () => {
+    const calls: Command.StandardCommand[] = [];
+    const sshLayer = await recordingLayer(calls);
+    const layer = Layer.provideMerge(HermesTransportLive, sshLayer);
+    const profile = parseHermesProfileName("profile-13")!;
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const hermes = yield* HermesTransport;
+          yield* hermes.profiles("remote-a");
+          yield* hermes.avatar(profile);
+          yield* hermes.connectAcp(profile, (_lease, confirm) =>
+            Effect.succeed(confirm("ready")),
+          );
+        }),
+      ).pipe(Effect.provide(layer)),
+    );
+
+    const remoteCalls = calls.map(sshArgs).filter((args) => !args.includes("-O"));
+    const profiles = remoteCalls.find((args) => args.at(-1)?.includes("'profile' 'list'"));
+    const avatar = remoteCalls.find((args) => args.at(-1)?.includes("vellum-hermes-avatar"));
+    const acp = remoteCalls.find((args) => args.at(-1)?.includes("'acp'"));
+
+    expect(profiles).toContain("ControlMaster=auto");
+    expect(avatar?.at(-1)).toContain("'profile-13'");
+    expect(acp).toContain("ControlMaster=no");
+    expect(acp).toContain("ControlPath=none");
   });
 
   it("creates Unix forwarding through a dedicated owned mux generation", async () => {

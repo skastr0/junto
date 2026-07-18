@@ -24,7 +24,7 @@ import {
   resolvedSpawnEnv,
   terminateAdapterChildrenOnQuit,
 } from "./vellum/adapters/exec";
-import { AppRuntime, chatService } from "./runtime";
+import { AppRuntime } from "./runtime";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./vellum/canvases";
 import { registerDemoIpcHandlers } from "./vellum/demo/ipc";
@@ -37,6 +37,7 @@ import {
   type BrowserComposition,
 } from "./vellum/browser/composition";
 import { HerdrPlane } from "./vellum/herdr/plane";
+import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
@@ -523,7 +524,10 @@ if (!gotSingleInstanceLock) {
     registerIpcHandlers();
     registerDemoIpcHandlers();
 
-    const herdr = await AppRuntime.runPromise(HerdrPlane);
+    const [herdr, chat] = await Promise.all([
+      AppRuntime.runPromise(HerdrPlane),
+      AppRuntime.runPromise(ChatServiceContext),
+    ]);
     await AppRuntime.runPromise(herdr.start);
     powerMonitor.on("resume", () => {
       void AppRuntime.runPromise(Effect.flatMap(HerdrPlane, (plane) => plane.warm));
@@ -540,7 +544,7 @@ if (!gotSingleInstanceLock) {
     try {
       browserComposition = await startBrowserComposition(
         {
-          chat: chatService,
+          chat,
           herdr: herdr.service,
           readCanvas: (name) =>
             AppRuntime.runPromise(

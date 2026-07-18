@@ -13,7 +13,10 @@ import {
 } from "effect";
 import type { CliResult } from "../adapters/exec";
 import { resolvedSpawnEnvSync } from "../adapters/exec";
-import type { SshLease } from "../ssh/service";
+import {
+  makeScopedPromiseRunner,
+  type SshLease,
+} from "../ssh";
 import {
   HERDR_HOSTS,
   isKnownHerdrHost,
@@ -195,11 +198,12 @@ export const HerdrPlaneLive = Layer.scoped(
     const owner = yield* Scope.Scope;
     const runtime = yield* Effect.runtime<never>();
     const runPromise: RunPromise = (effect) => Runtime.runPromise(runtime)(effect);
+    const runOwned = makeScopedPromiseRunner(runtime, owner);
 
     const runner: HerdrRunner = async (hostId, args, session, timeoutMs = 12_000) => {
       const known = asHostId(hostId);
       if (!known) return { ok: false, stdout: "", error: `unknown herdr host: ${hostId}` };
-      return runPromise(transport.run(known, args, session, timeoutMs));
+      return runOwned(transport.run(known, args, session, timeoutMs));
     };
 
     const awaitServer = (hostId: HerdrHostId, session?: string | null) =>
@@ -223,7 +227,7 @@ export const HerdrPlaneLive = Layer.scoped(
             env: resolvedSpawnEnvSync(),
           });
           child.unref();
-          const ready = await runPromise(awaitServer(known, session));
+          const ready = await runOwned(awaitServer(known, session));
           return ready
             ? { ok: true, stdout: "" }
             : { ok: false, stdout: "", error: "herdr server did not become ready" };
@@ -237,7 +241,7 @@ export const HerdrPlaneLive = Layer.scoped(
       }
 
       try {
-        await runPromise(
+        await runOwned(
           transport.handoffServer(session, (confirm) =>
             awaitServer(known, session).pipe(
               Effect.flatMap((ready) =>
@@ -295,7 +299,7 @@ export const HerdrPlaneLive = Layer.scoped(
     const streams = new HerdrStreamManager(
       observePool,
       spawnHerdr,
-      (remoteName, bytes) => runPromise(transport.stageImage(remoteName, bytes)),
+      (remoteName, bytes) => runOwned(transport.stageImage(remoteName, bytes)),
     );
     const service = new HerdrService(
       runner,

@@ -26,7 +26,7 @@ import type {
 } from "@shared/ipc";
 import { fetchTowerBrowse } from "../adapters/tower-browse";
 import { CanvasesService } from "../canvases";
-import type { ChatService } from "../chat/service";
+import { ChatServiceContext, type ChatService } from "../chat/service";
 import { SnapshotsService } from "../snapshots";
 import { StoreService } from "../../services/store";
 import {
@@ -521,19 +521,13 @@ const makeKernelService = (
   });
 };
 
-// A layer factory (not a bare Layer) because the shared ChatService instance
-// must be constructed once, ahead of time, and passed in — the same instance
-// registerChatIpc wires up for user-driven turns, so a pulse-driven turn and
-// a human reuse one live ACP session per agent (kernel-design.md §2.3).
-export const KernelLive = (
-  chatService: ChatService,
-): Layer.Layer<KernelService, never, CanvasesService | SnapshotsService | StoreService> =>
-  Layer.effect(
-    KernelService,
-    Effect.gen(function* () {
-      const canvases = yield* CanvasesService;
-      const snapshots = yield* SnapshotsService;
-      const store = yield* StoreService;
-      return makeKernelService(canvases, snapshots, store, chatService);
-    }),
-  );
+export const KernelLive = Layer.effect(
+  KernelService,
+  Effect.gen(function* () {
+    const canvases = yield* CanvasesService;
+    const snapshots = yield* SnapshotsService;
+    const store = yield* StoreService;
+    const chat = yield* ChatServiceContext;
+    return makeKernelService(canvases, snapshots, store, chat);
+  }),
+);

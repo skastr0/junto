@@ -33,7 +33,7 @@ vi.mock("../src/main/vellum/adapters/hermes", () => ({
   fetchHermesBundle: () => mockFetchHermes(),
 }));
 
-import { SnapshotsLive, SnapshotsService } from "../src/main/vellum/snapshots";
+import { makeSnapshotsLive, SnapshotsService } from "../src/main/vellum/snapshots";
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -54,7 +54,7 @@ beforeEach(() => {
   mockFetchQuasar.mockReset().mockResolvedValue(bundle("quasar", "q"));
   mockFetchBooth.mockReset().mockResolvedValue(bundle("booth", "b"));
   mockFetchHermes.mockReset().mockResolvedValue(bundle("hermes", "h"));
-  runtime = ManagedRuntime.make(SnapshotsLive);
+  runtime = ManagedRuntime.make(makeSnapshotsLive(() => mockFetchHermes()));
 });
 
 afterEach(async () => {

@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Either } from "effect";
+import { Either, ManagedRuntime } from "effect";
 import {
   applyMirrorLaw,
   decodeCanvasDoc,
@@ -14,9 +14,10 @@ import type { BindingHint } from "../src/shared/ipc";
 import type { SnapshotBundle, SnapshotState } from "../src/shared/entities";
 import { mergePortfolioInto, mergeProjects } from "../src/shared/portfolio";
 import { fetchBoothBundle } from "../src/main/vellum/adapters/booth";
-import { fetchHermesBundle } from "../src/main/vellum/adapters/hermes";
 import { fetchQuasarBundle } from "../src/main/vellum/adapters/quasar";
 import { fetchTowerBundle } from "../src/main/vellum/adapters/tower";
+import { HermesStandaloneLive } from "../src/main/vellum/hermes/live";
+import { HermesPlane } from "../src/main/vellum/hermes/plane";
 
 // Headless populate: `bun run populate [name]` fetches the live tower/quasar/
 // booth corpus and merges one bound project node per real project onto
@@ -27,6 +28,9 @@ import { fetchTowerBundle } from "../src/main/vellum/adapters/tower";
 
 const canvasesDir = () => join(homedir(), ".vellum", "canvases");
 const canvasPath = (name: string) => join(canvasesDir(), `${name}.canvas`);
+const hermesRuntime = ManagedRuntime.make(HermesStandaloneLive);
+
+class PopulateExit extends Error {}
 
 const guarded = async (
   source: SnapshotBundle["source"],
@@ -64,11 +68,12 @@ const main = async () => {
 
   // Full corpus: no hints needed — we want every project, not per-key detail.
   const hints: ReadonlyArray<BindingHint> = [];
+  const hermesPlane = await hermesRuntime.runPromise(HermesPlane);
   const [tower, quasar, booth, hermes] = await Promise.all([
     guarded("tower", () => fetchTowerBundle()),
     guarded("quasar", () => fetchQuasarBundle(hints.map((h) => h.key))),
     guarded("booth", () => fetchBoothBundle()),
-    guarded("hermes", () => fetchHermesBundle()),
+    guarded("hermes", hermesPlane.fetchBundle),
   ]);
   const state: SnapshotState = { bundles: [tower, quasar, booth, hermes] };
 
@@ -84,8 +89,7 @@ const main = async () => {
 
   const validated = decodeCanvasDoc(merged);
   if (Either.isLeft(validated)) {
-    console.error(`populate: generated doc failed validation: ${validated.left.message}`);
-    process.exit(1);
+    throw new PopulateExit(`generated doc failed validation: ${validated.left.message}`);
   }
 
   const serialized = serializeCanvas(applyMirrorLaw(validated.right));
@@ -104,4 +108,15 @@ const main = async () => {
   );
 };
 
-void main();
+try {
+  await main();
+} catch (error) {
+  if (error instanceof PopulateExit) {
+    console.error(`populate: ${error.message}`);
+    process.exitCode = 1;
+  } else {
+    throw error;
+  }
+} finally {
+  await hermesRuntime.dispose();
+}

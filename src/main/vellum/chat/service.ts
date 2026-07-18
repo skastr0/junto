@@ -1,4 +1,11 @@
-import type { ChatEvent, ChatModelChoice, ChatOpenResult, ChatTurnResult } from "@shared/ipc";
+import type {
+  AgentReply,
+  ChatEvent,
+  ChatModelChoice,
+  ChatOpenResult,
+  ChatTurnResult,
+} from "@shared/ipc";
+import { Context } from "effect";
 import {
   AcpClient,
   AcpRpcError,
@@ -22,6 +29,7 @@ interface AgentSession {
   sessionId: string;
   models: ReadonlyArray<ChatModelChoice>;
   promptInFlight: boolean;
+  replyChunks: string[];
   // requestId (stringified JSON-RPC id) -> the original id, so a later
   // chatPermission call can echo it back to the agent unchanged.
   readonly pendingPermissions: Map<string, JsonRpcId>;
@@ -68,9 +76,7 @@ export class ChatService {
   private readonly generations = new Map<string, number>();
   private eventSink: ((event: ChatEvent) => void) | undefined;
 
-  // spawnFn is injectable for tests (a fake child instead of a real
-  // `hermes acp` process); production callers construct with no argument.
-  constructor(private readonly spawnFn?: SpawnFn) {}
+  constructor(private readonly spawnFn: SpawnFn) {}
 
   setEventSink(sink: (event: ChatEvent) => void): void {
     this.eventSink = sink;
@@ -145,6 +151,7 @@ export class ChatService {
       sessionId: "",
       models: [],
       promptInFlight: false,
+      replyChunks: [],
       pendingPermissions: new Map(),
     };
     return session;
@@ -367,17 +374,20 @@ export class ChatService {
     }
   }
 
-  async chatPrompt(
+  private async runPrompt(
     agentKey: string,
     text: string,
     contextBlocks?: ReadonlyArray<string>,
-  ): Promise<ChatTurnResult> {
+  ): Promise<{ readonly turn: ChatTurnResult; readonly reply: string }> {
     const session = this.sessions.get(agentKey);
     if (!session || session.client.closed) {
-      return { ok: false, error: "chat session not open — call chatOpen first" };
+      return {
+        turn: { ok: false, error: "chat session not open — call chatOpen first" },
+        reply: "",
+      };
     }
     if (session.promptInFlight) {
-      return { ok: false, error: "turn in flight" };
+      return { turn: { ok: false, error: "turn in flight" }, reply: "" };
     }
 
     const blocks = [
@@ -386,17 +396,39 @@ export class ChatService {
     ];
 
     session.promptInFlight = true;
+    session.replyChunks = [];
     try {
       const result = await session.client.request<{ stopReason?: string }>("session/prompt", {
         sessionId: session.sessionId,
         prompt: blocks,
       });
-      return { ok: true, stopReason: result.stopReason };
+      return {
+        turn: { ok: true, stopReason: result.stopReason },
+        reply: session.replyChunks.join(""),
+      };
     } catch (err) {
-      return { ok: false, error: describeError(err) };
+      return { turn: { ok: false, error: describeError(err) }, reply: "" };
     } finally {
       session.promptInFlight = false;
     }
+  }
+
+  async chatPrompt(
+    agentKey: string,
+    text: string,
+    contextBlocks?: ReadonlyArray<string>,
+  ): Promise<ChatTurnResult> {
+    return (await this.runPrompt(agentKey, text, contextBlocks)).turn;
+  }
+
+  async agentMessage(agentKey: string, text: string): Promise<AgentReply> {
+    if (text.trim().length === 0) return { ok: false, error: "empty message" };
+    const opened = await this.chatOpen(agentKey);
+    if (!opened.ok) return opened;
+    const result = await this.runPrompt(agentKey, text);
+    return result.turn.ok
+      ? { ok: true, reply: result.reply }
+      : { ok: false, error: result.turn.error };
   }
 
   async chatPermission(agentKey: string, requestId: string, optionId: string): Promise<{ ok: boolean }> {
@@ -429,6 +461,18 @@ export class ChatService {
     return { ok: true };
   }
 
+  closeAll(): void {
+    const keys = new Set([
+      ...this.sessions.keys(),
+      ...this.openInFlight.keys(),
+      ...this.authorityRestartInFlight.keys(),
+    ]);
+    for (const key of keys) {
+      this.nextGeneration(key);
+      this.closeCurrent(key);
+    }
+  }
+
   // --- ACP -> ChatEvent projection ------------------------------------------
 
   private handleNotification(
@@ -444,6 +488,10 @@ export class ChatService {
     }
     const update = (params as { update?: { sessionUpdate?: string } } | undefined)?.update;
     if (!update) return;
+    if (update.sessionUpdate === "agent_message_chunk") {
+      const text = (update as { readonly content?: { readonly text?: unknown } }).content?.text;
+      if (typeof text === "string") session.replyChunks.push(text);
+    }
     this.emit(agentKey, update.sessionUpdate ?? "update", update);
   }
 
@@ -480,3 +528,8 @@ export class ChatService {
     this.emit(agentKey, "status", { status: "closed" });
   }
 }
+
+export class ChatServiceContext extends Context.Tag("@vellum/ChatService")<
+  ChatServiceContext,
+  ChatService
+>() {}

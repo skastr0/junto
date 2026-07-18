@@ -2,7 +2,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Either } from "effect";
+import { Either, ManagedRuntime } from "effect";
 import { decodeCanvasDoc, type CanvasDoc } from "../src/shared/canvas";
 import { identityHints } from "../src/shared/connections";
 import { digestCanvas } from "../src/shared/digest";
@@ -10,10 +10,11 @@ import type { SnapshotBundle, SnapshotState } from "../src/shared/entities";
 import { buildGlyphView, canvasProjectKeys } from "../src/shared/glyph-view";
 import type { BindingHint } from "../src/shared/ipc";
 import { fetchBoothBundle } from "../src/main/vellum/adapters/booth";
-import { fetchHermesBundle } from "../src/main/vellum/adapters/hermes";
 import { fetchQuasarBundle } from "../src/main/vellum/adapters/quasar";
 import { fetchTowerBrowse } from "../src/main/vellum/adapters/tower-browse";
 import { fetchTowerBundle } from "../src/main/vellum/adapters/tower";
+import { HermesPlane } from "../src/main/vellum/hermes/plane";
+import { HermesStandaloneLive } from "../src/main/vellum/hermes/live";
 
 // Headless agent surface: `bun run digest [name]` reads
 // ~/.vellum/canvases/<name>.canvas, fetches live tower/quasar/booth
@@ -24,6 +25,7 @@ import { fetchTowerBundle } from "../src/main/vellum/adapters/tower";
 // directly since they only shell out via node:child_process.
 
 const canvasesDir = () => join(homedir(), ".vellum", "canvases");
+const hermesRuntime = ManagedRuntime.make(HermesStandaloneLive);
 
 // Thrown for the two documented failure modes (missing/invalid canvas) and
 // caught once at the bottom of this file so it prints as `digest: <msg>` and
@@ -92,6 +94,7 @@ const main = async () => {
   const path = join(canvasesDir(), `${name}.canvas`);
 
   const doc = await readCanvas(name, path);
+  const hermesPlane = await hermesRuntime.runPromise(HermesPlane);
 
   // Two-pass fetch: base lists first (unhinted), then identity resolution
   // over the doc derives the quasar keys worth enriching — the same
@@ -100,7 +103,7 @@ const main = async () => {
     guarded("tower", () => fetchTowerBundle()),
     guarded("quasar", () => fetchQuasarBundle([])),
     guarded("booth", () => fetchBoothBundle()),
-    guarded("hermes", () => fetchHermesBundle()),
+    guarded("hermes", hermesPlane.fetchBundle),
   ]);
   const hints = identityHints([doc], { bundles: base });
 
@@ -136,4 +139,6 @@ try {
     process.exit(1);
   }
   throw error;
+} finally {
+  await hermesRuntime.dispose();
 }

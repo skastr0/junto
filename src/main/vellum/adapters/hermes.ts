@@ -1,5 +1,6 @@
 import type { Entity, SnapshotBundle } from "@shared/entities";
-import { runCli } from "./exec";
+import type { CliResult } from "./exec";
+import type { HermesHostId } from "../hermes/domain";
 
 // The Hermes fleet adapter: each profile on each host is one agent node.
 // Hosts are enumerated locally (no ssh) and on the remote-a (over the tailnet
@@ -9,25 +10,23 @@ import { runCli } from "./exec";
 // agents.
 
 interface HermesHost {
-  readonly id: string; // stable key prefix, e.g. "local" | "remote-a"
+  readonly id: HermesHostId;
   readonly label: string; // display host
-  // Argv to run a hermes subcommand on this host (ssh-wrapped for remotes).
-  readonly run: (args: ReadonlyArray<string>) => { command: string; argv: string[] };
+}
+
+export interface HermesFleetOperations {
+  readonly profiles: (host: HermesHostId) => Promise<CliResult>;
+  readonly version: (host: HermesHostId) => Promise<CliResult>;
 }
 
 const HOSTS: ReadonlyArray<HermesHost> = [
   {
     id: "local",
     label: "dev-laptop",
-    run: (args) => ({ command: "hermes", argv: [...args] }),
   },
   {
     id: "remote-a",
     label: "remote-a",
-    run: (args) => ({
-      command: "ssh",
-      argv: ["-o", "ConnectTimeout=6", "-o", "BatchMode=yes", "remote-a", "hermes", ...args],
-    }),
   },
 ];
 
@@ -64,16 +63,17 @@ export const parseProfiles = (stdout: string): ReadonlyArray<ParsedProfile> => {
   return rows;
 };
 
-const fetchHost = async (host: HermesHost): Promise<ReadonlyArray<Entity>> => {
-  const list = host.run(["profile", "list"]);
-  const listResult = await runCli(list.command, list.argv, 12_000);
+const fetchHost = async (
+  operations: HermesFleetOperations,
+  host: HermesHost,
+): Promise<ReadonlyArray<Entity>> => {
+  const listResult = await operations.profiles(host.id);
   if (!listResult.ok) return [];
 
   const profiles = parseProfiles(listResult.stdout);
   if (profiles.length === 0) return [];
 
-  const ver = host.run(["version"]);
-  const verResult = await runCli(ver.command, ver.argv, 12_000);
+  const verResult = await operations.version(host.id);
   const version = verResult.ok ? parseVersion(verResult.stdout) : undefined;
 
   const fetchedAt = new Date().toISOString();
@@ -95,11 +95,13 @@ const fetchHost = async (host: HermesHost): Promise<ReadonlyArray<Entity>> => {
   });
 };
 
-export const fetchHermesBundle = async (): Promise<SnapshotBundle> => {
+export const fetchHermesBundle = async (
+  operations: HermesFleetOperations,
+): Promise<SnapshotBundle> => {
   const fetchedAt = new Date().toISOString();
   const perHost = await Promise.all(
     HOSTS.map((host) =>
-      fetchHost(host).catch(() => [] as ReadonlyArray<Entity>),
+      fetchHost(operations, host).catch(() => [] as ReadonlyArray<Entity>),
     ),
   );
   const entities = perHost.flat();

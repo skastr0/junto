@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseAgentKey,
-  parseHermesReply,
   parseIdentityBatchLine,
   parseIdentityBatchOutput,
   readDisplayNameFromContent,
   readEnvFieldFromContent,
-  shQuote,
 } from "../src/main/vellum/adapters/hermes-identity";
+import { parseAgentKey } from "../src/main/vellum/hermes/domain";
 
 describe("parseAgentKey", () => {
   it("splits a valid local key", () => {
@@ -138,37 +136,5 @@ describe("parseIdentityBatchOutput", () => {
       hasAvatar: true,
     });
     expect(identities.get("profile-14")?.hasAvatar).toBe(false);
-  });
-});
-
-describe("parseHermesReply", () => {
-  it("strips the leading session_id line and trims", () => {
-    expect(parseHermesReply("\nsession_id: 20260712_205850_06503c\npong\n")).toBe("pong");
-  });
-
-  it("preserves multi-line replies after the session_id line", () => {
-    expect(parseHermesReply("session_id: abc123\nline one\nline two\n")).toBe("line one\nline two");
-  });
-
-  it("strips ANSI escape sequences", () => {
-    expect(parseHermesReply("session_id: abc\n[32mpong[0m\n")).toBe("pong");
-  });
-
-  it("passes through plain output with no session_id line", () => {
-    expect(parseHermesReply("just a reply\n")).toBe("just a reply");
-  });
-});
-
-describe("shQuote", () => {
-  it("wraps plain text in single quotes", () => {
-    expect(shQuote("pong")).toBe("'pong'");
-  });
-
-  it("escapes embedded single quotes with the close-escape-reopen technique", () => {
-    expect(shQuote("it's fine")).toBe("'it'\\''s fine'");
-  });
-
-  it("leaves double quotes untouched (still safe inside single quotes)", () => {
-    expect(shQuote('say "hi"')).toBe("'say \"hi\"'");
   });
 });

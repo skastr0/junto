@@ -59,8 +59,6 @@ export interface BrowserAutomationHermesPlan {
   readonly subject: BrowserAutomationSubject;
   readonly agentKey: string;
   readonly spawnTarget: {
-    readonly command: string;
-    readonly argv: ReadonlyArray<string>;
     readonly host: "local";
     readonly profile: string;
   };
@@ -456,8 +454,6 @@ export class BrowserAutomationRuntime {
       subject: immutableSubject("hermes", ["hermes", agentKey], agentKey),
       agentKey,
       spawnTarget: Object.freeze({
-        command: spawnTarget.command,
-        argv: Object.freeze([...spawnTarget.argv]),
         host: "local" as const,
         profile: spawnTarget.profile,
       }),

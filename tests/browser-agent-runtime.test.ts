@@ -259,7 +259,7 @@ describe("BrowserAutomationRuntime", () => {
       kind: "hermes",
       ref: HERMES_REF,
       agentKey: "local:default",
-      spawnTarget: { command: "hermes", argv: ["acp"], host: "local", profile: "default" },
+      spawnTarget: { host: "local", profile: "default" },
     });
     expect(deliveries[0]?.plan.targets.map((target) => target.ref)).toEqual([
       formatNodeRef({ canvasName: "work", nodeId: "page-a" }),

@@ -11,6 +11,8 @@ import type { AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
 import { ChatService } from "../src/main/vellum/chat/service";
 import type { ChatEvent } from "../src/shared/ipc";
 
+const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
+
 class FakeChild extends EventEmitter implements AcpChildLike {
   readonly stdout = new EventEmitter();
   readonly stderr = new EventEmitter();
@@ -245,8 +247,6 @@ describe("local browser authority child environment", () => {
     expect(children).toHaveLength(1);
     expect(calls[0]).toEqual({
       target: {
-        command: "hermes",
-        argv: ["acp"],
         host: "local",
         profile: "default",
       },
@@ -461,7 +461,7 @@ describe("chatPrompt", () => {
   });
 
   it("rejects with ok:false when no session is open", async () => {
-    const service = new ChatService();
+    const service = new ChatService(noSpawn);
     const result = await service.chatPrompt("local:default", "hi");
     expect(result).toEqual({ ok: false, error: "chat session not open — call chatOpen first" });
   });
@@ -579,12 +579,35 @@ describe("chatClose", () => {
   });
 
   it("is a no-op ok:true when nothing is open", async () => {
-    const service = new ChatService();
+    const service = new ChatService(noSpawn);
     expect(await service.chatClose("local:default")).toEqual({ ok: true });
   });
 });
 
 describe("crash / event projection", () => {
+  it("returns one-shot inspector replies through ACP stdin without process argv", async () => {
+    const { spawnFn, children, calls } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    const { child } = await openHappyPath(service, children);
+
+    const pending = service.agentMessage("local:default", "credential-shaped prompt");
+    await waitForWrites(child, 3);
+    const request = JSON.parse(child.written[2]!) as { readonly id: JsonRpcId };
+    const update = {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "private reply" },
+    };
+    child.stdout.emit(
+      "data",
+      `${JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { update } })}\n`,
+    );
+    respondOk(child, request.id, { stopReason: "end_turn" });
+
+    expect(await pending).toEqual({ ok: true, reply: "private reply" });
+    expect(calls[0]?.target).toEqual({ host: "local", profile: "default" });
+    expect(JSON.stringify(calls[0]?.target)).not.toContain("credential-shaped prompt");
+  });
+
   it("an unexpected exit emits error then status:closed, and the session becomes unusable", async () => {
     const { spawnFn, children } = fakeSpawn();
     const service = new ChatService(spawnFn);

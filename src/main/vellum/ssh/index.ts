@@ -29,3 +29,4 @@ export {
   type SshReady,
 } from "./service";
 export { SshTransportLive } from "./live";
+export { makeScopedPromiseRunner, type ScopedPromiseRunner } from "./scoped-runner";

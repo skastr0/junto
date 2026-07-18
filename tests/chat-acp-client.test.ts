@@ -8,9 +8,9 @@ import {
   type AcpClientHandlers,
   type JsonRpcId,
 } from "../src/main/vellum/chat/acp-client";
-import type { AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
+import { buildAcpSpawnTarget, type AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
 
-const TARGET: AcpSpawnTarget = { command: "hermes", argv: ["acp"], host: "local", profile: "default" };
+const TARGET = buildAcpSpawnTarget("local:default")!;
 
 class FakeChild extends EventEmitter implements AcpChildLike {
   readonly stdout = new EventEmitter();
@@ -85,7 +85,21 @@ describe("AcpClient.start", () => {
     expect(client.closed).toBe(false);
   });
 
-  it("consumes a validated local child overlay at spawn without changing argv or ACP", async () => {
+  it("terminates a child whose unterminated inbound frame exceeds 1 MiB", async () => {
+    const handlers = noopHandlers();
+    const { client, child } = await startedClient(handlers);
+
+    child.stdout.emit("data", "x".repeat(1024 * 1024 + 1));
+
+    expect(client.closed).toBe(true);
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(handlers.onLifecycle).toHaveBeenCalledWith({
+      kind: "error",
+      message: "ACP inbound frame exceeded the 1 MiB limit",
+    });
+  });
+
+  it("consumes a validated local child overlay at spawn without changing ACP intent", async () => {
     const child = new FakeChild();
     const spawn = vi.fn(() => child);
     const overlay = makeLocalBrowserChildEnvironment({
@@ -97,7 +111,7 @@ describe("AcpClient.start", () => {
     const start = client.start();
 
     expect(spawn).toHaveBeenCalledWith(TARGET, { environmentOverlay: overlay });
-    expect(TARGET.argv).toEqual(["acp"]);
+    expect(TARGET).toEqual({ host: "local", profile: "default" });
     expect(child.written[0]).not.toContain(overlay.VELLUM_BROWSER_CAPABILITY);
     expect(child.written[0]).not.toContain(overlay.VELLUM_BROWSER_HOME);
     respondOk(child, lastSentId(child), {
@@ -109,12 +123,7 @@ describe("AcpClient.start", () => {
   });
 
   it("rejects a remote child overlay before invoking spawn", async () => {
-    const remote: AcpSpawnTarget = {
-      command: "ssh",
-      argv: ["remote-a", "hermes", "acp"],
-      host: "remote-a",
-      profile: "default",
-    };
+    const remote: AcpSpawnTarget = buildAcpSpawnTarget("remote-a:default")!;
     const spawn = vi.fn(() => new FakeChild());
     const client = new AcpClient(
       remote,

@@ -12,6 +12,7 @@ describe("herdr detach-on-quit product lock", () => {
   const streamSrc = readFileSync(join(root, "src/main/vellum/herdr/stream.ts"), "utf8");
   const indexSrc = readFileSync(join(root, "src/main/index.ts"), "utf8");
   const serviceSrc = readFileSync(join(root, "src/main/vellum/herdr/service.ts"), "utf8");
+  const planeSrc = readFileSync(join(root, "src/main/vellum/herdr/plane.ts"), "utf8");
 
   it("stream manager documents detach-only and implements terminal.release", () => {
     expect(streamSrc).toMatch(/terminal\.release/);
@@ -46,11 +47,12 @@ describe("herdr detach-on-quit product lock", () => {
     expect(quitRegion).not.toMatch(/killPane|killTab|pane close|session stop/);
   });
 
-  it("killPane/killTab exist only as explicit service methods (not auto-quit)", () => {
+  it("killPane/killTab remain explicit while the scoped plane owns server detach", () => {
     expect(serviceSrc).toMatch(/async killPane/);
     expect(serviceSrc).toMatch(/async killTab/);
-    // ensureServer must detach the long-lived server so it outlives the app
-    expect(serviceSrc).toMatch(/detached:\s*true/);
-    expect(serviceSrc).toMatch(/\.unref\(\)/);
+    expect(planeSrc).toMatch(/detached:\s*true/);
+    expect(planeSrc).toMatch(/child\.unref\(\)/);
+    expect(planeSrc).toMatch(/transport\.handoffServer/);
+    expect(planeSrc).toMatch(/Effect\.addFinalizer/);
   });
 });

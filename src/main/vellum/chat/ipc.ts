@@ -9,35 +9,40 @@ import { ChatService } from "./service";
 export const registerChatIpc = (
   ipcMain: IpcMain,
   webContentsGetter: () => Iterable<WebContents>,
-  service: ChatService = new ChatService(),
-): ChatService => {
-  service.setEventSink((event) => {
-    for (const contents of webContentsGetter()) {
-      contents.send(IPC_CHANNELS.chatEvent, event);
-    }
+  serviceSource: ChatService | Promise<ChatService>,
+): Promise<ChatService> => {
+  const service = Promise.resolve(serviceSource);
+  void service.then((resolved) => {
+    resolved.setEventSink((event) => {
+      for (const contents of webContentsGetter()) {
+        contents.send(IPC_CHANNELS.chatEvent, event);
+      }
+    });
   });
 
   ipcMain.handle(
     IPC_CHANNELS.chatOpen,
     (_event, agentKey: string, resumeSessionId?: string): Promise<ChatOpenResult> =>
-      service.chatOpen(agentKey, resumeSessionId),
+      service.then((resolved) => resolved.chatOpen(agentKey, resumeSessionId)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.chatPrompt,
     (_event, agentKey: string, text: string, contextBlocks?: ReadonlyArray<string>): Promise<ChatTurnResult> =>
-      service.chatPrompt(agentKey, text, contextBlocks),
+      service.then((resolved) => resolved.chatPrompt(agentKey, text, contextBlocks)),
   );
 
   ipcMain.handle(IPC_CHANNELS.chatPermission, (_event, agentKey: string, requestId: string, optionId: string) =>
-    service.chatPermission(agentKey, requestId, optionId),
+    service.then((resolved) => resolved.chatPermission(agentKey, requestId, optionId)),
   );
 
   ipcMain.handle(IPC_CHANNELS.chatSetModel, (_event, agentKey: string, modelId: string) =>
-    service.chatSetModel(agentKey, modelId),
+    service.then((resolved) => resolved.chatSetModel(agentKey, modelId)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.chatClose, (_event, agentKey: string) => service.chatClose(agentKey));
+  ipcMain.handle(IPC_CHANNELS.chatClose, (_event, agentKey: string) =>
+    service.then((resolved) => resolved.chatClose(agentKey)),
+  );
 
   return service;
 };

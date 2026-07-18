@@ -8,7 +8,12 @@ import type {
 } from "./domain";
 import { inspectRemoteCommand, inspectRemoteStdin } from "./domain";
 
-export type OneShotBudget = "short" | "status" | "list" | "standard";
+export type OneShotBudget =
+  | "short"
+  | "status"
+  | "list"
+  | "standard"
+  | "bulk";
 export type ReadinessBudget = "fast" | "agent";
 
 const ONE_SHOT_TIMEOUT_MS: Readonly<Record<OneShotBudget, number>> = {
@@ -16,6 +21,7 @@ const ONE_SHOT_TIMEOUT_MS: Readonly<Record<OneShotBudget, number>> = {
   status: 8_000,
   list: 10_000,
   standard: 12_000,
+  bulk: 20_000,
 };
 
 const READINESS_TIMEOUT_MS: Readonly<Record<ReadinessBudget, number>> = {

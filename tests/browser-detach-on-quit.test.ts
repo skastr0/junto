@@ -16,10 +16,11 @@ describe("browser detach-on-quit product lock", () => {
 
   it("main process quit path detaches browser sessions", () => {
     expect(indexSrc).toMatch(/browserComposition\?\.sessions\.detachAllOnQuit/);
-    // registered inside the same quit fan-out as herdr (before-quit/will-quit/SIGTERM)
+    // Browser detach and scoped Herdr/SSH disposal share the same quit fan-out.
     expect(indexSrc).toMatch(
-      /detachHerdrOnQuit[\s\S]*browserComposition\?\.sessions\.detachAllOnQuit/,
+      /detachRuntimeOnQuit[\s\S]*detachBrowserOnQuit/,
     );
+    expect(indexSrc).toMatch(/AppRuntime\.dispose\(\)/);
   });
 
   it("detachAllOnQuit never destroys sessions or wipes profiles", () => {

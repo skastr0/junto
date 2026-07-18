@@ -3,9 +3,9 @@ import type { ServiceCheck } from "@shared/contracts";
 import type { SnapshotBundle, SnapshotState } from "@shared/entities";
 import type { BindingHint } from "@shared/ipc";
 import { fetchBoothBundle } from "./adapters/booth";
-import { fetchHermesBundle } from "./adapters/hermes";
 import { fetchQuasarBundle } from "./adapters/quasar";
 import { fetchTowerBundle } from "./adapters/tower";
+import { HermesPlane } from "./hermes/plane";
 
 // The read-only data plane. Adapters shell out to reference CLIs and
 // normalize into SnapshotBundles. refresh never fails: a broken adapter
@@ -71,7 +71,9 @@ const isSubsumedBy = (
   return true;
 };
 
-export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
+export const makeSnapshotsLive = (
+  fetchHermesBundle: () => Promise<SnapshotBundle>,
+) => Layer.sync(SnapshotsService, () => {
   let state: SnapshotState = emptyState;
   let lastHints: ReadonlyArray<BindingHint> | undefined;
   let started = false;
@@ -151,3 +153,7 @@ export const SnapshotsLive = Layer.sync(SnapshotsService, () => {
     },
   });
 });
+
+export const SnapshotsLive = Layer.unwrapEffect(
+  Effect.map(HermesPlane, (plane) => makeSnapshotsLive(plane.fetchBundle)),
+);

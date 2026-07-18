@@ -10,11 +10,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CanvasesService } from "../src/main/vellum/canvases";
 import { SnapshotsService } from "../src/main/vellum/snapshots";
 import { StoreError, StoreService } from "../src/main/services/store";
-import { ChatService } from "../src/main/vellum/chat/service";
+import { ChatService, ChatServiceContext } from "../src/main/vellum/chat/service";
+import type { SpawnFn } from "../src/main/vellum/chat/acp-client";
 import { KernelLive, KernelService } from "../src/main/vellum/kernel/service";
 import { __resetKernelMemoryForTest, getArmed } from "../src/main/vellum/kernel/cycle";
 
 const ARMED_STORE_KEY = "kernel.armed";
+const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
 
 const check = (id: string) => ({ id, label: id, status: "ok" as const, detail: "" });
 const emptyDoc = (name: string) => ({ name, path: "", doc: { nodes: [], edges: [] } });
@@ -69,8 +71,13 @@ const runArm = (
   regionId: string,
   armed: boolean,
 ) => {
-  const deps = Layer.mergeAll(fakeCanvases, fakeSnapshots, makeStore(opts, sets));
-  const layer = Layer.provide(KernelLive(new ChatService()), deps);
+  const deps = Layer.mergeAll(
+    fakeCanvases,
+    fakeSnapshots,
+    makeStore(opts, sets),
+    Layer.succeed(ChatServiceContext, new ChatService(noSpawn)),
+  );
+  const layer = Layer.provide(KernelLive, deps);
   const runtime = ManagedRuntime.make(layer);
   return runtime
     .runPromise(Effect.flatMap(KernelService, (kernel) => kernel.armRegion(canvasName, regionId, armed)))

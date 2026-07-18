@@ -6,7 +6,7 @@ import type { TowerBrowseResult, TowerGlyphRow } from "@shared/ipc";
 import { deriveRegionRollups, type AgentActivity, type RegionRollup } from "@shared/region-rollup";
 import { fetchTowerBrowse } from "./adapters/tower-browse";
 import { CanvasesService, type CanvasError } from "./canvases";
-import type { ChatService } from "./chat/service";
+import { ChatServiceContext, type ChatService } from "./chat/service";
 import { HerdrPlane } from "./herdr/plane";
 import { resolveGlyphCacheUpdate } from "./kernel/service";
 import { SnapshotsService } from "./snapshots";
@@ -36,7 +36,7 @@ export type GlyphBrowseFetcher = (project: string) => Promise<TowerBrowseResult>
 // shared ChatService instance is constructed once in runtime.ts and passed
 // in, so rollup activity reads the same live ACP sessions as chat + pulses.
 // fetchBrowse is injectable for tests; production uses the real adapter.
-export const RegionRollupLive = (
+export const makeRegionRollupLive = (
   chatService: ChatService,
   fetchBrowse: GlyphBrowseFetcher = fetchTowerBrowse,
 ): Layer.Layer<RegionRollupService, never, CanvasesService | SnapshotsService | HerdrPlane> =>
@@ -136,3 +136,7 @@ export const RegionRollupLive = (
       });
     }),
   );
+
+export const RegionRollupLive = Layer.unwrapEffect(
+  Effect.map(ChatServiceContext, (chat) => makeRegionRollupLive(chat)),
+);

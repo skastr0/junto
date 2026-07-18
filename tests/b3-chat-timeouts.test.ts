@@ -8,7 +8,7 @@ import {
   type SpawnFn,
 } from "../src/main/vellum/chat/acp-client";
 import { ChatService } from "../src/main/vellum/chat/service";
-import type { AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
+import { buildAcpSpawnTarget, type AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
 
 // Covers batch b3-chat's timeout/race/kill-escalation contract:
 //   - every post-handshake AcpClient.request() (session/new, session/load,
@@ -20,7 +20,7 @@ import type { AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
 //   - close() (and a request timeout) escalate SIGTERM -> SIGKILL after a
 //     grace window if the child never exits.
 
-const TARGET: AcpSpawnTarget = { command: "hermes", argv: ["acp"], host: "local", profile: "default" };
+const TARGET: AcpSpawnTarget = buildAcpSpawnTarget("local:default")!;
 
 class FakeChild extends EventEmitter implements AcpChildLike {
   readonly stdout = new EventEmitter();

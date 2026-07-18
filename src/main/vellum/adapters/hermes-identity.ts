@@ -1,8 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { AgentIdentity, AgentReply } from "@shared/ipc";
-import { runCli } from "./exec";
+import type { AgentIdentity } from "@shared/ipc";
+import type { CliResult } from "./exec";
+import {
+  parseAgentKey,
+  type HermesHostId,
+  type HermesProfileName,
+} from "../hermes/domain";
 
 // Hermes fleet identity, avatar, and messaging adapter. Agent keys are
 // "<host>:<profile>", host in {local, remote-a} — matching the key shape
@@ -14,30 +19,10 @@ import { runCli } from "./exec";
 // .env field are extracted via targeted line matching only, never parsed
 // into an object, logged, or forwarded across IPC.
 
-export type HermesHostId = "local" | "remote-a";
-
-export interface ParsedAgentKey {
-  readonly host: HermesHostId;
-  readonly profile: string;
+export interface HermesIdentityOperations {
+  readonly identityBatch: () => Promise<CliResult>;
+  readonly avatar: (profile: HermesProfileName) => Promise<CliResult>;
 }
-
-// Observed charset across every local + remote profile directory name.
-const PROFILE_NAME_RE = /^[A-Za-z0-9_-]+$/;
-
-// Rejects malformed keys and out-of-charset profile names instead of
-// forwarding them into a remote shell command — an untrusted profile
-// segment is a contract breach, not a case to sanitize-and-continue.
-export const parseAgentKey = (key: string): ParsedAgentKey | undefined => {
-  const idx = key.indexOf(":");
-  if (idx <= 0) return undefined;
-  const host = key.slice(0, idx);
-  const profile = key.slice(idx + 1);
-  if (host !== "local" && host !== "remote-a") return undefined;
-  if (!PROFILE_NAME_RE.test(profile)) return undefined;
-  return { host, profile };
-};
-
-const isDefaultProfile = (profile: string): boolean => profile === "default";
 
 // ---------------------------------------------------------------------------
 // Local filesystem reads
@@ -46,7 +31,7 @@ const isDefaultProfile = (profile: string): boolean => profile === "default";
 const LOCAL_HERMES_ROOT = join(homedir(), ".hermes");
 
 const localProfileDir = (profile: string): string =>
-  isDefaultProfile(profile) ? LOCAL_HERMES_ROOT : join(LOCAL_HERMES_ROOT, "profiles", profile);
+  profile === "default" ? LOCAL_HERMES_ROOT : join(LOCAL_HERMES_ROOT, "profiles", profile);
 
 const DISPLAY_NAME_RE = /Display name\/code:\s*(.+)/;
 
@@ -126,47 +111,6 @@ const fetchLocalIdentityBatch = async (): Promise<Map<string, AgentIdentity>> =>
   return identities;
 };
 
-// ---------------------------------------------------------------------------
-// Remote (remote-a) identity batch: ONE ssh call running a fixed POSIX sh
-// script. The script string below is a fixed literal — no profile name or
-// file content is ever interpolated into it; it walks the filesystem and
-// emits tab-separated lines itself.
-// ---------------------------------------------------------------------------
-
-const SSH_OPTS = ["-o", "ConnectTimeout=6", "-o", "BatchMode=yes"] as const;
-const MAC_MINI = "remote-a";
-
-const REMOTE_IDENTITY_SCRIPT = `
-emit() {
-  name="$1"; dir="$2"
-  display=""
-  for brief in "$dir/assets/identity-brief.md" "$dir/identity-brief.md"; do
-    if [ -f "$brief" ]; then
-      display=$(grep -m1 -E "Display name/code:" "$brief" 2>/dev/null | sed -E 's/.*Display name\\/code:[[:space:]]*//')
-      [ -n "$display" ] && break
-    fi
-  done
-  muid=""
-  room=""
-  env="$dir/.env"
-  if [ -f "$env" ]; then
-    muid=$(grep -m1 "^MATRIX_USER_ID=" "$env" 2>/dev/null | cut -d= -f2-)
-    room=$(grep -m1 "^MATRIX_HOME_ROOM_NAME=" "$env" 2>/dev/null | cut -d= -f2-)
-  fi
-  avatar="false"
-  [ -f "$dir/assets/profile-picture.png" ] && avatar="true"
-  printf '%s\\t%s\\t%s\\t%s\\t%s\\n' "$name" "$display" "$muid" "$room" "$avatar"
-}
-emit default "$HOME/.hermes"
-if [ -d "$HOME/.hermes/profiles" ]; then
-  for d in "$HOME/.hermes/profiles"/*/; do
-    [ -d "$d" ] || continue
-    n=$(basename "$d")
-    emit "$n" "$HOME/.hermes/profiles/$n"
-  done
-fi
-`;
-
 // One tab-separated line -> one profile's identity fields. Exported for unit
 // testing; in production this only ever receives the fixed script's stdout.
 export const parseIdentityBatchLine = (
@@ -207,8 +151,10 @@ export const parseIdentityBatchOutput = (stdout: string): Map<string, AgentIdent
 // an empty one, which means "the ssh call succeeded and the host reported
 // zero profiles". fetchHostBatch below relies on that distinction to avoid
 // caching a transient failure as a legitimate empty result.
-const fetchRemoteIdentityBatch = async (): Promise<Map<string, AgentIdentity> | undefined> => {
-  const result = await runCli("ssh", [...SSH_OPTS, MAC_MINI, REMOTE_IDENTITY_SCRIPT], 15_000);
+const fetchRemoteIdentityBatch = async (
+  operations: HermesIdentityOperations,
+): Promise<Map<string, AgentIdentity> | undefined> => {
+  const result = await operations.identityBatch();
   if (!result.ok) return undefined;
   return parseIdentityBatchOutput(result.stdout);
 };
@@ -238,11 +184,16 @@ interface HostCacheEntry {
 const hostCache = new Map<HermesHostId, HostCacheEntry>();
 const hostFetchInFlight = new Map<HermesHostId, Promise<Map<string, AgentIdentity>>>();
 
-const fetchHostBatch = (host: HermesHostId): Promise<Map<string, AgentIdentity>> => {
+const fetchHostBatch = (
+  operations: HermesIdentityOperations,
+  host: HermesHostId,
+): Promise<Map<string, AgentIdentity>> => {
   const inFlight = hostFetchInFlight.get(host);
   if (inFlight) return inFlight;
 
-  const run = host === "local" ? fetchLocalIdentityBatch : fetchRemoteIdentityBatch;
+  const run = host === "local"
+    ? fetchLocalIdentityBatch
+    : () => fetchRemoteIdentityBatch(operations);
   const promise = run()
     .then((identities) => {
       if (identities === undefined) {
@@ -265,7 +216,10 @@ const fetchHostBatch = (host: HermesHostId): Promise<Map<string, AgentIdentity>>
   return promise;
 };
 
-export const fetchAgentIdentity = async (key: string): Promise<AgentIdentity | null> => {
+export const fetchAgentIdentity = async (
+  operations: HermesIdentityOperations,
+  key: string,
+): Promise<AgentIdentity | null> => {
   const parsed = parseAgentKey(key);
   if (!parsed) return null;
 
@@ -274,7 +228,7 @@ export const fetchAgentIdentity = async (key: string): Promise<AgentIdentity | n
     return cached.identities.get(parsed.profile) ?? null;
   }
 
-  const identities = await fetchHostBatch(parsed.host);
+  const identities = await fetchHostBatch(operations, parsed.host);
   return identities.get(parsed.profile) ?? null;
 };
 
@@ -301,13 +255,11 @@ const readLocalAvatarBuffer = (profile: string): Buffer | undefined => {
   }
 };
 
-// profile is already validated against PROFILE_NAME_RE by parseAgentKey, so
-// it is safe to splice into the remote command literal below.
-const fetchRemoteAvatarBuffer = async (profile: string): Promise<Buffer | undefined> => {
-  const remotePath = isDefaultProfile(profile)
-    ? "$HOME/.hermes/assets/profile-picture.png"
-    : `$HOME/.hermes/profiles/${profile}/assets/profile-picture.png`;
-  const result = await runCli("ssh", [...SSH_OPTS, MAC_MINI, `base64 < ${remotePath}`], 20_000);
+const fetchRemoteAvatarBuffer = async (
+  operations: HermesIdentityOperations,
+  profile: HermesProfileName,
+): Promise<Buffer | undefined> => {
+  const result = await operations.avatar(profile);
   if (!result.ok) return undefined;
   try {
     const buf = Buffer.from(result.stdout.replace(/\s+/g, ""), "base64");
@@ -317,7 +269,10 @@ const fetchRemoteAvatarBuffer = async (profile: string): Promise<Buffer | undefi
   }
 };
 
-export const fetchAgentAvatar = async (key: string): Promise<string | null> => {
+export const fetchAgentAvatar = async (
+  operations: HermesIdentityOperations,
+  key: string,
+): Promise<string | null> => {
   const parsed = parseAgentKey(key);
   if (!parsed) return null;
 
@@ -334,7 +289,7 @@ export const fetchAgentAvatar = async (key: string): Promise<string | null> => {
   const buf =
     parsed.host === "local"
       ? readLocalAvatarBuffer(parsed.profile)
-      : await fetchRemoteAvatarBuffer(parsed.profile);
+      : await fetchRemoteAvatarBuffer(operations, parsed.profile);
   if (!buf || buf.length === 0 || buf.length > MAX_AVATAR_BYTES) return null;
 
   try {
@@ -345,71 +300,4 @@ export const fetchAgentAvatar = async (key: string): Promise<string | null> => {
   }
 
   return toDataUri(buf);
-};
-
-// ---------------------------------------------------------------------------
-// Messaging: one non-interactive turn, local spawn or ssh-wrapped remote.
-// ---------------------------------------------------------------------------
-
-const MESSAGE_TIMEOUT_MS = 180_000;
-
-// ANSI CSI sequences (colors, cursor moves) that can show up in non-quiet
-// terminal output.
-const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
-const SESSION_ID_LINE_RE = /^session_id:\s*\S+$/i;
-
-// `hermes chat -q` prints a leading "session_id: <id>" line ahead of the
-// actual reply (verified live) — strip that line too, not just ANSI, so the
-// reply is the model's answer and not connection bookkeeping.
-export const parseHermesReply = (stdout: string): string => {
-  const stripped = stdout.replace(ANSI_RE, "");
-  const lines = stripped.split("\n");
-  while (lines.length > 0 && lines[0]!.trim().length === 0) lines.shift();
-  if (lines.length > 0 && SESSION_ID_LINE_RE.test(lines[0]!.trim())) lines.shift();
-  return lines.join("\n").trim();
-};
-
-// The '\'' technique: close the quote, emit an escaped literal quote, reopen
-// the quote. Needed only for the remote path — ssh re-parses the whole
-// remote command line in the target shell, so the text must survive that
-// second parse. The local path passes text as a plain argv element (spawn,
-// no shell), so no escaping is needed there.
-export const shQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
-
-export const fetchAgentMessage = async (key: string, text: string): Promise<AgentReply> => {
-  if (text.trim().length === 0) return { ok: false, error: "empty message" };
-
-  const parsed = parseAgentKey(key);
-  if (!parsed) return { ok: false, error: `invalid agent key: ${key}` };
-
-  // -Q (quiet) is required, not cosmetic: without it `hermes chat` prints a
-  // banner + box-drawn response + session footer instead of the clean
-  // "session_id: <id>\n<reply>" shape parseHermesReply expects (verified
-  // live — plain `-q` alone still emits the full banner).
-  const result =
-    parsed.host === "local"
-      ? await runCli(
-          "hermes",
-          isDefaultProfile(parsed.profile)
-            ? ["chat", "-q", text, "-Q"]
-            : ["-p", parsed.profile, "chat", "-q", text, "-Q"],
-          MESSAGE_TIMEOUT_MS,
-        )
-      : await runCli(
-          "ssh",
-          [
-            ...SSH_OPTS,
-            MAC_MINI,
-            isDefaultProfile(parsed.profile)
-              ? `hermes chat -q ${shQuote(text)} -Q`
-              : `hermes -p ${parsed.profile} chat -q ${shQuote(text)} -Q`,
-          ],
-          MESSAGE_TIMEOUT_MS,
-        );
-
-  if (!result.ok) {
-    return { ok: false, error: result.error ?? "hermes chat failed" };
-  }
-
-  return { ok: true, reply: parseHermesReply(result.stdout) };
 };

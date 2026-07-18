@@ -12,11 +12,13 @@ import type { HerdrObservePool } from "../src/main/vellum/herdr/observe-pool";
 import type { HerdrService } from "../src/main/vellum/herdr/service";
 import type { HerdrStreamManager } from "../src/main/vellum/herdr/stream";
 import {
-  RegionRollupLive,
+  makeRegionRollupLive,
   RegionRollupService,
   type GlyphBrowseFetcher,
 } from "../src/main/vellum/region-rollup";
 import { SnapshotsService } from "../src/main/vellum/snapshots";
+
+const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
 
 // Service-level glue tests: activity wiring from the ACP chat plane, the
 // CanvasError channel for unknown canvases, and the TTL glyph cache.
@@ -160,7 +162,7 @@ const makeRuntime = (
 ) =>
   ManagedRuntime.make(
     Layer.provide(
-      RegionRollupLive(chatService, fetchBrowse),
+      makeRegionRollupLive(chatService, fetchBrowse),
       Layer.mergeAll(fakeCanvases(docs), fakeSnapshots, fakeHerdr),
     ),
   );
@@ -224,7 +226,7 @@ describe("RegionRollupService — activity wiring", () => {
 
 describe("RegionRollupService — error channel", () => {
   it("an unknown canvas name fails with CanvasError, not a fabricated rollup", async () => {
-    const chat = new ChatService();
+    const chat = new ChatService(noSpawn);
     const runtime = makeRuntime(chat, new Map([["ops", docActivity]]), emptyBrowse);
     try {
       const result = await runtime.runPromise(
@@ -243,7 +245,7 @@ describe("RegionRollupService — error channel", () => {
 
 describe("RegionRollupService — glyph cache", () => {
   it("two rollups calls within TTL browse every canvas project exactly once", async () => {
-    const chat = new ChatService();
+    const chat = new ChatService(noSpawn);
     const browseOk: TowerBrowseResult = {
       ok: true,
       glyphs: [{ glyphId: "g-1", orbit: "forge", title: "work", state: "building", updatedAt: 1 }],
@@ -271,7 +273,7 @@ describe("RegionRollupService — glyph cache", () => {
   });
 
   it("a failed browse stays absent from the view instead of failing the call", async () => {
-    const chat = new ChatService();
+    const chat = new ChatService(noSpawn);
     const fetchBrowse = vi.fn<GlyphBrowseFetcher>(async () => {
       throw new Error("gateway down");
     });
