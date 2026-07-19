@@ -314,6 +314,9 @@ describe("remote hosts registry", () => {
       ];
       setHostsSnapshot(withStudio);
       expect(notified).toEqual(["local", "local", "studio"]);
+
+      setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+      expect(notified).toEqual(["local", "local", "studio", "local", "studio"]);
     } finally {
       unsubscribe();
       mirrors.stopAll();

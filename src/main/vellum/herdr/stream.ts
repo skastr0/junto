@@ -1,4 +1,4 @@
-import type { HerdrPointerCell } from "@shared/ipc";
+import type { HerdrPointerCell, HerdrRetainedPayload } from "@shared/ipc";
 import { isKnownHerdrHost } from "./hosts";
 import { feedNdjson } from "./ndjson";
 import { pastePathPayload, stageImageOnHost, type StageRemoteImage } from "./stage-image";
@@ -62,11 +62,7 @@ export interface ObservePoolHooks {
     readonly cols: number;
     readonly rows: number;
   }): { readonly pooled: boolean };
-  retainedFrames(terminalId: string): {
-    readonly frames: ReadonlyArray<string>;
-    readonly cols?: number;
-    readonly rows?: number;
-  };
+  retainedFrames(terminalId: string): HerdrRetainedPayload;
   pauseForControl(terminalId: string): void;
   clearRetention(terminalId: string): void;
   releaseObserve(terminalId: string): void;
@@ -115,7 +111,7 @@ export class HerdrStreamManager {
     readonly rows: number;
     readonly takeover?: boolean;
   }):
-    | { readonly ok: true; readonly streamId: string; readonly retained: ReadonlyArray<string> }
+    | { readonly ok: true; readonly streamId: string; readonly retained: HerdrRetainedPayload }
     | { readonly ok: false; readonly message: string } {
     if (this.shutDown) {
       return { ok: false, message: "herdr streams shut down (app quitting)" };
@@ -143,8 +139,7 @@ export class HerdrStreamManager {
     ];
     // Capture retained observe frames BEFORE the observe child is killed —
     // the renderer paints these synchronously while live frames spin up.
-    const rawRetained = this.pool.retainedFrames(input.terminalId);
-    const retained = rawRetained.frames;
+    const retained = this.pool.retainedFrames(input.terminalId);
 
     let child: HerdrProcessLike;
     try {
@@ -277,8 +272,8 @@ export class HerdrStreamManager {
   ): { readonly ok: boolean; readonly error?: string } {
     const stream = this.require(streamId);
     if (!stream.ok) return stream;
-    const nextCols = Math.max(20, Math.floor(cols || 80));
-    const nextRows = Math.max(5, Math.floor(rows || 24));
+    const nextCols = Number.isFinite(cols) ? Math.max(20, Math.floor(cols)) : 80;
+    const nextRows = Number.isFinite(rows) ? Math.max(5, Math.floor(rows)) : 24;
     const written = this.writeJson(stream.stream, {
       type: "terminal.resize",
       cols: nextCols,
@@ -308,18 +303,19 @@ export class HerdrStreamManager {
   ): { readonly ok: boolean; readonly error?: string } {
     const stream = this.require(streamId);
     if (!stream.ok) return stream;
-    const ticks = Math.max(1, Math.min(20, Math.abs(Math.round(delta || 1)) || 1));
+    const rawDelta = Number.isFinite(delta) ? Math.round(delta) : 1;
+    const ticks = Math.max(1, Math.min(20, Math.abs(rawDelta) || 1));
     // Browser wheel: deltaY > 0 → scroll down; herdr uses direction up/down.
-    const direction = delta < 0 ? "up" : "down";
+    const direction = rawDelta < 0 ? "up" : "down";
     const payload = JSON.stringify({
       type: "terminal.scroll",
       direction,
       lines: 1,
       ...(at
         ? {
-            column: Math.max(0, Math.floor(at.column || 0)),
-            row: Math.max(0, Math.floor(at.row || 0)),
-            modifiers: (at.modifiers || 0) & 0xff,
+            column: Math.max(0, Math.floor(Number.isFinite(at.column) ? at.column : 0)),
+            row: Math.max(0, Math.floor(Number.isFinite(at.row) ? at.row : 0)),
+            modifiers: (Number.isFinite(at.modifiers) ? at.modifiers : 0) & 0xff,
           }
         : {}),
     });

@@ -94,8 +94,6 @@ export class HerdrObservePool {
     const existing = this.entries.get(input.terminalId);
     if (existing?.live) {
       existing.touched = ++this.touchSeq;
-      if (input.cols) existing.cols = input.cols;
-      if (input.rows) existing.rows = input.rows;
       return { pooled: true };
     }
     // Enforce caps BEFORE spawn (never count the terminal being ensured).

@@ -793,13 +793,19 @@ export interface HerdrStreamOpenInput {
   readonly takeover?: boolean;
 }
 
+export interface HerdrRetainedPayload {
+  readonly frames: ReadonlyArray<string>;
+  readonly cols?: number;
+  readonly rows?: number;
+}
+
 export interface HerdrStreamOpenResult {
   readonly ok: boolean;
   readonly streamId?: string;
   readonly message?: string;
   /** Retained observe frames (base64 ANSI, [full, ...deltas] in order) —
    * painted synchronously before live control frames arrive. */
-  readonly retained?: ReadonlyArray<string>;
+  readonly retained?: HerdrRetainedPayload;
 }
 
 /** Warm a pooled read-only observe stream for a terminal (LRU-touch). */
@@ -933,7 +939,7 @@ export interface VellumHerdrApi {
   readonly herdrStreamClose: (streamId: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   readonly herdrObserveTouch: (input: HerdrObserveTouchInput) => Promise<{ readonly pooled: boolean }>;
   /** Retained observe frames for a terminal — preview paint without opening a stream. */
-  readonly herdrObserveRetained: (terminalId: string) => Promise<ReadonlyArray<string>>;
+  readonly herdrObserveRetained: (terminalId: string) => Promise<HerdrRetainedPayload>;
   readonly onHerdrStreamEvent: (listener: (event: HerdrStreamEvent) => void) => () => void;
   readonly herdrMirrorState: () => Promise<ReadonlyArray<HerdrMirrorStateInfo>>;
   readonly onHerdrMirrorEvent: (listener: (event: HerdrMirrorEvent) => void) => () => void;

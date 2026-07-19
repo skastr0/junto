@@ -25,17 +25,45 @@ export const registerHerdrIpc = (
   ipcMain: IpcMain,
   webContentsGetter: () => Iterable<WebContents>,
 ): void => {
-  const streamSenders = new Map<string, WebContents>();
+  interface StreamOwner {
+    readonly streamId: string;
+    readonly sender: WebContents;
+    readonly onDestroyed: () => void;
+    readonly onRenderProcessGone: () => void;
+  }
+
+  const streamOwnersByStreamId = new Map<string, StreamOwner>();
+
+  const releaseStreamOwner = (streamId: string): StreamOwner | undefined => {
+    const owner = streamOwnersByStreamId.get(streamId);
+    if (!owner) return undefined;
+    streamOwnersByStreamId.delete(streamId);
+    try {
+      if (!owner.sender.isDestroyed()) {
+        owner.sender.removeListener("destroyed", owner.onDestroyed);
+        owner.sender.removeListener("render-process-gone", owner.onRenderProcessGone);
+      }
+    } catch {
+      // ignore
+    }
+    return owner;
+  };
+
+  const isAuthorized = (sender: WebContents, streamId: string): boolean => {
+    const owner = streamOwnersByStreamId.get(streamId);
+    if (!owner) return true; // untracked streamId (e.g. tests)
+    return owner.sender === sender && !sender.isDestroyed();
+  };
 
   void withPlane((plane) => {
     plane.streams.setSink((frame) => {
-      const sender = streamSenders.get(frame.streamId);
-      if (sender) {
-        if (!sender.isDestroyed()) {
-          sender.send(IPC_CHANNELS.herdrStreamEvent, frame);
-        } else {
-          streamSenders.delete(frame.streamId);
-          plane.streams.close(frame.streamId, "renderer_destroyed");
+      const owner = streamOwnersByStreamId.get(frame.streamId);
+      if (owner) {
+        if (!owner.sender.isDestroyed()) {
+          owner.sender.send(IPC_CHANNELS.herdrStreamEvent, frame);
+        }
+        if (frame.type === "closed") {
+          releaseStreamOwner(frame.streamId);
         }
         return;
       }
@@ -158,44 +186,71 @@ export const registerHerdrIpc = (
       if (res.ok && res.streamId && event.sender && !event.sender.isDestroyed()) {
         const sender = event.sender;
         const streamId = res.streamId;
-        streamSenders.set(streamId, sender);
+        releaseStreamOwner(streamId);
+
         const onDestroyed = () => {
-          streamSenders.delete(streamId);
+          releaseStreamOwner(streamId);
           plane.streams.close(streamId, "renderer_destroyed");
         };
+        const onRenderProcessGone = () => {
+          releaseStreamOwner(streamId);
+          plane.streams.close(streamId, "renderer_process_gone");
+        };
+
         sender.once("destroyed", onDestroyed);
+        sender.once("render-process-gone", onRenderProcessGone);
+
+        streamOwnersByStreamId.set(streamId, {
+          streamId,
+          sender,
+          onDestroyed,
+          onRenderProcessGone,
+        });
       }
       return res;
     }),
   );
 
-  ipcMain.handle(IPC_CHANNELS.herdrStreamInput, (_e, streamId: string, dataBase64: string) =>
-    withPlane((plane) => plane.streams.input(streamId, dataBase64)),
+  ipcMain.handle(IPC_CHANNELS.herdrStreamInput, (event, streamId: string, dataBase64: string) =>
+    withPlane((plane) => {
+      if (!isAuthorized(event.sender, streamId)) return { ok: false, error: "unauthorized stream owner" };
+      return plane.streams.input(streamId, dataBase64);
+    }),
   );
-
 
   ipcMain.handle(
     IPC_CHANNELS.herdrStreamPasteImage,
-    (_e, streamId: string, extension: string, dataBase64: string) =>
-      withPlane((plane) => plane.streams.pasteImage(streamId, extension, dataBase64)),
+    (event, streamId: string, extension: string, dataBase64: string) =>
+      withPlane((plane) => {
+        if (!isAuthorized(event.sender, streamId)) return { ok: false, error: "unauthorized stream owner" };
+        return plane.streams.pasteImage(streamId, extension, dataBase64);
+      }),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.herdrStreamResize,
-    (_e, streamId: string, cols: number, rows: number) =>
-      withPlane((plane) => plane.streams.resize(streamId, cols, rows)),
+    (event, streamId: string, cols: number, rows: number) =>
+      withPlane((plane) => {
+        if (!isAuthorized(event.sender, streamId)) return { ok: false, error: "unauthorized stream owner" };
+        return plane.streams.resize(streamId, cols, rows);
+      }),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.herdrStreamScroll,
-    (_e, streamId: string, delta: number, at?: HerdrPointerCell) =>
-      withPlane((plane) => plane.streams.scroll(streamId, delta, at)),
+    (event, streamId: string, delta: number, at?: HerdrPointerCell) =>
+      withPlane((plane) => {
+        if (!isAuthorized(event.sender, streamId)) return { ok: false, error: "unauthorized stream owner" };
+        return plane.streams.scroll(streamId, delta, at);
+      }),
   );
 
-  ipcMain.handle(IPC_CHANNELS.herdrStreamClose, (_e, streamId: string) =>
+  ipcMain.handle(IPC_CHANNELS.herdrStreamClose, (event, streamId: string) =>
     withPlane((plane) => {
-      streamSenders.delete(streamId);
-      return plane.streams.close(streamId);
+      if (!isAuthorized(event.sender, streamId)) return { ok: false, error: "unauthorized stream owner" };
+      const res = plane.streams.close(streamId);
+      releaseStreamOwner(streamId);
+      return res;
     }),
   );
 

@@ -73,6 +73,7 @@ export class HerdrMirrorRegistry {
 
   private reconcileHosts(): void {
     if (!this.started) return;
+    const previousHostIds = new Set(this.registry.keys());
     // Host mutations are rare and may change an endpoint without changing its
     // stable id. Rebuild every live mirror so no socket/forward can remain
     // attached to an old machine, and removals stop polling immediately.
@@ -84,9 +85,16 @@ export class HerdrMirrorRegistry {
       }
     }
     this.registry.clear();
-    for (const host of listHerdrHosts()) {
+    const currentHosts = listHerdrHosts();
+    const currentHostIds = new Set(currentHosts.map((h) => h.id));
+    for (const host of currentHosts) {
       this.mirrorFor(host.id);
       this.notifyChange(host.id);
+    }
+    for (const oldHostId of previousHostIds) {
+      if (!currentHostIds.has(oldHostId)) {
+        this.notifyChange(oldHostId);
+      }
     }
   }
 

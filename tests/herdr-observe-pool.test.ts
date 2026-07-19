@@ -257,7 +257,7 @@ describe("control stream ↔ observe pool handoff", () => {
 
     const { streams, controlChildren } = makeStreams(pool);
     const opened = streams.open(openInput);
-    expect(opened.ok && opened.retained).toEqual(["F1", "d1"]);
+    expect(opened.ok && opened.retained).toEqual({ frames: ["F1", "d1"], cols: 80, rows: 24 });
     expect(calls[0]!.child.kills).toEqual(["SIGTERM"]); // observe paused
     expect(pool.entryState("t1")?.live).toBe(false);
     // Retention held until the first live control frame…
@@ -354,10 +354,11 @@ describe("control stream ↔ observe pool handoff", () => {
     expect(retainedInitial.cols).toBe(120);
     expect(retainedInitial.rows).toBe(32);
 
-    // Renderer measures terminal at 140x45 and touches pool
+    // Renderer measures terminal at 140x45 and touches pool while process is live
     pool.ensureObserve({ hostId: "local", terminalId: "t1", cols: 140, rows: 45 });
     const retainedUpdated = pool.retainedFrames("t1");
-    expect(retainedUpdated.cols).toBe(140);
-    expect(retainedUpdated.rows).toBe(45);
+    // Spawned child process geometry remains 120x32 so retained frame metadata matches actual rendered pixels
+    expect(retainedUpdated.cols).toBe(120);
+    expect(retainedUpdated.rows).toBe(32);
   });
 });

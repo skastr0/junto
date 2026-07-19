@@ -80,6 +80,8 @@ const keyEventToPty = (e: KeyboardEvent): string | null => {
   return null;
 };
 
+import type { HerdrRetainedPayload } from "@shared/ipc";
+
 type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
   herdrStreamOpen: (input: {
     hostId: string;
@@ -88,8 +90,8 @@ type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
     cols: number;
     rows: number;
     takeover?: boolean;
-  }) => Promise<{ ok: boolean; streamId?: string; message?: string; retained?: ReadonlyArray<string> }>;
-  herdrObserveRetained?: (terminalId: string) => Promise<ReadonlyArray<string>>;
+  }) => Promise<{ ok: boolean; streamId?: string; message?: string; retained?: HerdrRetainedPayload | ReadonlyArray<string> }>;
+  herdrObserveRetained?: (terminalId: string) => Promise<HerdrRetainedPayload | ReadonlyArray<string>>;
   herdrStreamInput: (streamId: string, data: string) => Promise<{ ok?: boolean; error?: string }>;
   herdrStreamPasteImage: (
     streamId: string,
@@ -293,9 +295,19 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
     // the terminal and swaps to live at full opacity.
     let liveFrameSeen = false;
     let placeholderPainted = false;
-    const writePlaceholder = (frames: ReadonlyArray<string> | undefined): void => {
-      if (cancelled || liveFrameSeen || placeholderPainted || !frames?.length) return;
+    const writePlaceholder = (payload: HerdrRetainedPayload | ReadonlyArray<string> | undefined): void => {
+      if (!payload || cancelled || liveFrameSeen || placeholderPainted) return;
+      const isObj = typeof payload === "object" && "frames" in payload;
+      const frames = isObj ? payload.frames : payload;
+      if (!frames?.length) return;
       placeholderPainted = true;
+      if (isObj && payload.cols && payload.rows && payload.cols >= 20 && payload.rows >= 5) {
+        try {
+          term.resize(payload.cols, payload.rows);
+        } catch {
+          // ignore
+        }
+      }
       hostEl.style.transition = "opacity 160ms ease";
       hostEl.style.opacity = "0.55";
       for (const bytes of frames) term.write(base64ToUtf8(bytes));
