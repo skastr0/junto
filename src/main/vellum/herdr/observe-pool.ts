@@ -94,8 +94,8 @@ export class HerdrObservePool {
     const existing = this.entries.get(input.terminalId);
     if (existing?.live) {
       existing.touched = ++this.touchSeq;
-      existing.cols = input.cols;
-      existing.rows = input.rows;
+      if (input.cols) existing.cols = input.cols;
+      if (input.rows) existing.rows = input.rows;
       return { pooled: true };
     }
     // Enforce caps BEFORE spawn (never count the terminal being ensured).
@@ -117,8 +117,8 @@ export class HerdrObservePool {
     };
     entry.hostId = input.hostId;
     entry.session = input.session;
-    entry.cols = input.cols;
-    entry.rows = input.rows;
+    if (input.cols) entry.cols = input.cols;
+    if (input.rows) entry.rows = input.rows;
     this.entries.set(input.terminalId, entry);
     const spawned = this.spawnChild(entry);
     if (!spawned && !existing) this.entries.delete(input.terminalId);
@@ -126,11 +126,16 @@ export class HerdrObservePool {
     return { pooled: spawned };
   }
 
-  /** [fullBytes, ...deltaBytes] in arrival order — empty if nothing retained. */
-  retainedFrames(terminalId: string): ReadonlyArray<string> {
+  /** Retained frames and preserved geometry bounds in arrival order. */
+  retainedFrames(terminalId: string): {
+    readonly frames: ReadonlyArray<string>;
+    readonly cols?: number;
+    readonly rows?: number;
+  } {
     const entry = this.entries.get(terminalId);
-    if (!entry) return [];
-    return entry.full !== undefined ? [entry.full, ...entry.deltas] : [...entry.deltas];
+    if (!entry) return { frames: [] };
+    const frames = entry.full !== undefined ? [entry.full, ...entry.deltas] : [...entry.deltas];
+    return { frames, cols: entry.cols, rows: entry.rows };
   }
 
   /**

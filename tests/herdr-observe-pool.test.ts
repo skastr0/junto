@@ -117,11 +117,11 @@ describe("HerdrObservePool retention", () => {
     const child = calls[0]!.child;
     child.frame("d1");
     child.frame("d2");
-    expect(pool.retainedFrames("t1")).toEqual(["d1", "d2"]);
+    expect(pool.retainedFrames("t1").frames).toEqual(["d1", "d2"]);
     child.frame("F1", true);
     child.frame("d3");
-    expect(pool.retainedFrames("t1")).toEqual(["F1", "d3"]);
-    expect(pool.retainedFrames("nope")).toEqual([]);
+    expect(pool.retainedFrames("t1").frames).toEqual(["F1", "d3"]);
+    expect(pool.retainedFrames("nope").frames).toEqual([]);
   });
 
   it("non-frame and non-JSON lines are ignored", () => {
@@ -131,7 +131,7 @@ describe("HerdrObservePool retention", () => {
     const child = calls[0]!.child;
     child.line({ type: "terminal.title" });
     child.stdout.emit("data", "not json\n");
-    expect(pool.retainedFrames("t1")).toEqual([]);
+    expect(pool.retainedFrames("t1").frames).toEqual([]);
     expect(pool.entryState("t1")?.live).toBe(true);
   });
 
@@ -144,7 +144,7 @@ describe("HerdrObservePool retention", () => {
     child.line({ type: "terminal.closed" });
     expect(child.kills).toEqual(["SIGTERM"]);
     expect(pool.entryState("t1")).toBeUndefined();
-    expect(pool.retainedFrames("t1")).toEqual([]);
+    expect(pool.retainedFrames("t1").frames).toEqual([]);
   });
 
   it("dead entries beyond maxEntries are pruned oldest-first; live entries survive", () => {
@@ -172,10 +172,10 @@ describe("HerdrObservePool retention", () => {
     expect(calls.length).toBe(2);
     expect(observedTerminal(calls[1]!)).toBe("t1");
     // Retention survives across the respawn…
-    expect(pool.retainedFrames("t1")).toEqual(["F1", "123456", "789012"]);
+    expect(pool.retainedFrames("t1").frames).toEqual(["F1", "123456", "789012"]);
     // …until the fresh attach's full frame replaces it.
     calls[1]!.child.frame("F2", true);
-    expect(pool.retainedFrames("t1")).toEqual(["F2"]);
+    expect(pool.retainedFrames("t1").frames).toEqual(["F2"]);
   });
 });
 
@@ -187,12 +187,12 @@ describe("HerdrObservePool lifecycle", () => {
     calls[0]!.child.frame("F1", true);
     calls[0]!.child.emit("close", 1);
     expect(pool.entryState("t1")).toEqual({ live: false, stale: true });
-    expect(pool.retainedFrames("t1")).toEqual(["F1"]);
+    expect(pool.retainedFrames("t1").frames).toEqual(["F1"]);
 
     expect(touch(pool, "t1")).toEqual({ pooled: true });
     expect(calls.length).toBe(2);
     expect(pool.entryState("t1")?.live).toBe(true);
-    expect(pool.retainedFrames("t1")).toEqual(["F1"]); // retention kept across respawn
+    expect(pool.retainedFrames("t1").frames).toEqual(["F1"]); // retention kept across respawn
   });
 
   it("releaseObserve kills and drops; stopAll kills everything and refuses new observes", () => {
@@ -203,7 +203,7 @@ describe("HerdrObservePool lifecycle", () => {
     pool.releaseObserve("t1");
     expect(calls[0]!.child.kills).toEqual(["SIGTERM"]);
     expect(pool.entryState("t1")).toBeUndefined();
-    expect(pool.retainedFrames("t1")).toEqual([]);
+    expect(pool.retainedFrames("t1").frames).toEqual([]);
 
     pool.stopAll();
     expect(calls[1]!.child.kills).toEqual(["SIGTERM"]);
@@ -261,9 +261,9 @@ describe("control stream ↔ observe pool handoff", () => {
     expect(calls[0]!.child.kills).toEqual(["SIGTERM"]); // observe paused
     expect(pool.entryState("t1")?.live).toBe(false);
     // Retention held until the first live control frame…
-    expect(pool.retainedFrames("t1")).toEqual(["F1", "d1"]);
+    expect(pool.retainedFrames("t1").frames).toEqual(["F1", "d1"]);
     controlChildren[0]!.frame("C1", true);
-    expect(pool.retainedFrames("t1")).toEqual([]);
+    expect(pool.retainedFrames("t1").frames).toEqual([]);
   });
 
   it("control close re-pools an observe stream for the terminal at last cols/rows", () => {
@@ -310,7 +310,7 @@ describe("control stream ↔ observe pool handoff", () => {
     expect(calls.length).toBe(1); // no observe respawn for a dead terminal
     expect(controlChildren[0]!.kills).toEqual(["SIGTERM"]);
     expect(pool.entryState("t1")).toBeUndefined();
-    expect(pool.retainedFrames("t1")).toEqual([]);
+    expect(pool.retainedFrames("t1").frames).toEqual([]);
     expect(events.map((e) => e.type)).toEqual(["closed"]);
     expect(events[0]!.reason).toBe("pane_gone");
     expect(streams.getActiveStreamId()).toBeUndefined();
@@ -341,5 +341,23 @@ describe("control stream ↔ observe pool handoff", () => {
     expect(observedTerminal(calls[0]!)).toBe("t2");
     expect(calls[0]!.child.kills).toEqual(["SIGTERM"]);
     expect(touch(pool, "t3")).toEqual({ pooled: false }); // pool shut down
+  });
+
+  it("preserves measured geometry on entry update and exposes cols/rows on retainedFrames", () => {
+    const { calls, spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn });
+    pool.ensureObserve({ hostId: "local", terminalId: "t1", cols: 120, rows: 32 });
+    calls[0]!.child.frame("F1", true);
+
+    const retainedInitial = pool.retainedFrames("t1");
+    expect(retainedInitial.frames).toEqual(["F1"]);
+    expect(retainedInitial.cols).toBe(120);
+    expect(retainedInitial.rows).toBe(32);
+
+    // Renderer measures terminal at 140x45 and touches pool
+    pool.ensureObserve({ hostId: "local", terminalId: "t1", cols: 140, rows: 45 });
+    const retainedUpdated = pool.retainedFrames("t1");
+    expect(retainedUpdated.cols).toBe(140);
+    expect(retainedUpdated.rows).toBe(45);
   });
 });

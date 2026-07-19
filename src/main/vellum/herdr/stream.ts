@@ -62,7 +62,11 @@ export interface ObservePoolHooks {
     readonly cols: number;
     readonly rows: number;
   }): { readonly pooled: boolean };
-  retainedFrames(terminalId: string): ReadonlyArray<string>;
+  retainedFrames(terminalId: string): {
+    readonly frames: ReadonlyArray<string>;
+    readonly cols?: number;
+    readonly rows?: number;
+  };
   pauseForControl(terminalId: string): void;
   clearRetention(terminalId: string): void;
   releaseObserve(terminalId: string): void;
@@ -139,7 +143,8 @@ export class HerdrStreamManager {
     ];
     // Capture retained observe frames BEFORE the observe child is killed —
     // the renderer paints these synchronously while live frames spin up.
-    const retained = this.pool.retainedFrames(input.terminalId);
+    const rawRetained = this.pool.retainedFrames(input.terminalId);
+    const retained = rawRetained.frames;
 
     let child: HerdrProcessLike;
     try {
