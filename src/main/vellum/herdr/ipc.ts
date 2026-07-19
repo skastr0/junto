@@ -25,10 +25,24 @@ export const registerHerdrIpc = (
   ipcMain: IpcMain,
   webContentsGetter: () => Iterable<WebContents>,
 ): void => {
+  const streamSenders = new Map<string, WebContents>();
+
   void withPlane((plane) => {
     plane.streams.setSink((frame) => {
+      const sender = streamSenders.get(frame.streamId);
+      if (sender) {
+        if (!sender.isDestroyed()) {
+          sender.send(IPC_CHANNELS.herdrStreamEvent, frame);
+        } else {
+          streamSenders.delete(frame.streamId);
+          plane.streams.close(frame.streamId, "renderer_destroyed");
+        }
+        return;
+      }
       for (const contents of webContentsGetter()) {
-        contents.send(IPC_CHANNELS.herdrStreamEvent, frame);
+        if (!contents.isDestroyed()) {
+          contents.send(IPC_CHANNELS.herdrStreamEvent, frame);
+        }
       }
     });
 
@@ -41,7 +55,9 @@ export const registerHerdrIpc = (
       lastFresh.set(hostId, fresh);
       const payload: HerdrMirrorEvent = { hostId, kind, fresh };
       for (const contents of webContentsGetter()) {
-        contents.send(IPC_CHANNELS.herdrMirrorEvent, payload);
+        if (!contents.isDestroyed()) {
+          contents.send(IPC_CHANNELS.herdrMirrorEvent, payload);
+        }
       }
     });
   });
@@ -136,8 +152,21 @@ export const registerHerdrIpc = (
       withPlane((plane) => plane.service.killTab(hostId, session, tabId).then(toOp)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.herdrStreamOpen, (_e, input: HerdrStreamOpenInput) =>
-    withPlane((plane) => plane.streams.open(input)),
+  ipcMain.handle(IPC_CHANNELS.herdrStreamOpen, (event, input: HerdrStreamOpenInput) =>
+    withPlane((plane) => {
+      const res = plane.streams.open(input);
+      if (res.ok && res.streamId && event.sender && !event.sender.isDestroyed()) {
+        const sender = event.sender;
+        const streamId = res.streamId;
+        streamSenders.set(streamId, sender);
+        const onDestroyed = () => {
+          streamSenders.delete(streamId);
+          plane.streams.close(streamId, "renderer_destroyed");
+        };
+        sender.once("destroyed", onDestroyed);
+      }
+      return res;
+    }),
   );
 
   ipcMain.handle(IPC_CHANNELS.herdrStreamInput, (_e, streamId: string, dataBase64: string) =>
@@ -164,7 +193,10 @@ export const registerHerdrIpc = (
   );
 
   ipcMain.handle(IPC_CHANNELS.herdrStreamClose, (_e, streamId: string) =>
-    withPlane((plane) => plane.streams.close(streamId)),
+    withPlane((plane) => {
+      streamSenders.delete(streamId);
+      return plane.streams.close(streamId);
+    }),
   );
 
   ipcMain.handle(IPC_CHANNELS.herdrObserveTouch, (_e, input: HerdrObserveTouchInput) =>
