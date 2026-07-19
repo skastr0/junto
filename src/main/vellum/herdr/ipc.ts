@@ -34,19 +34,16 @@ export const registerHerdrIpc = (
 
     // Mirror change push — a freshness flip is "state"; data churn is "change".
     const lastFresh = new Map<string, boolean>();
-    for (const host of listHerdrHosts()) {
-      const mirror = plane.mirrors.mirrorFor(host.id);
-      if (!mirror) continue;
-      mirror.onChange(() => {
-        const fresh = mirror.isFresh();
-        const kind: HerdrMirrorEvent["kind"] = lastFresh.get(host.id) === fresh ? "change" : "state";
-        lastFresh.set(host.id, fresh);
-        const payload: HerdrMirrorEvent = { hostId: host.id, kind, fresh };
-        for (const contents of webContentsGetter()) {
-          contents.send(IPC_CHANNELS.herdrMirrorEvent, payload);
-        }
-      });
-    }
+    plane.mirrors.onChange((hostId) => {
+      const mirror = plane.mirrors.mirrorFor(hostId);
+      const fresh = mirror?.isFresh() ?? false;
+      const kind: HerdrMirrorEvent["kind"] = lastFresh.get(hostId) === fresh ? "change" : "state";
+      lastFresh.set(hostId, fresh);
+      const payload: HerdrMirrorEvent = { hostId, kind, fresh };
+      for (const contents of webContentsGetter()) {
+        contents.send(IPC_CHANNELS.herdrMirrorEvent, payload);
+      }
+    });
   });
 
   ipcMain.handle(IPC_CHANNELS.herdrMirrorState, () => withPlane((plane) => plane.mirrors.states()));

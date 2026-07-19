@@ -11,16 +11,35 @@ export interface HerdrMirrorHostState {
 
 export class HerdrMirrorRegistry {
   private readonly registry = new Map<string, HerdrMirror>();
+  private readonly changeCbs = new Set<(hostId: string) => void>();
   private started = false;
   private unsubscribeHosts?: () => void;
 
   constructor(private readonly makeTransport: (hostId: string) => MirrorTransport) {}
+
+  onChange(cb: (hostId: string) => void): () => void {
+    this.changeCbs.add(cb);
+    return () => {
+      this.changeCbs.delete(cb);
+    };
+  }
+
+  private notifyChange(hostId: string): void {
+    for (const cb of this.changeCbs) {
+      try {
+        cb(hostId);
+      } catch {
+        // Listener errors never break registry notification
+      }
+    }
+  }
 
   mirrorFor(hostId: string): HerdrMirror | undefined {
     if (!isKnownHerdrHost(hostId)) return undefined;
     let mirror = this.registry.get(hostId);
     if (!mirror) {
       mirror = new HerdrMirror(hostId, this.makeTransport(hostId));
+      mirror.onChange(() => this.notifyChange(hostId));
       this.registry.set(hostId, mirror);
       if (this.started) mirror.start();
     }
@@ -32,7 +51,10 @@ export class HerdrMirrorRegistry {
       this.unsubscribeHosts = subscribeHostsSnapshot(() => this.reconcileHosts());
     }
     this.started = true;
-    for (const host of listHerdrHosts()) this.mirrorFor(host.id);
+    for (const host of listHerdrHosts()) {
+      this.mirrorFor(host.id);
+      this.notifyChange(host.id);
+    }
   }
 
   stopAll(): void {
@@ -62,7 +84,10 @@ export class HerdrMirrorRegistry {
       }
     }
     this.registry.clear();
-    for (const host of listHerdrHosts()) this.mirrorFor(host.id);
+    for (const host of listHerdrHosts()) {
+      this.mirrorFor(host.id);
+      this.notifyChange(host.id);
+    }
   }
 
   states(): ReadonlyArray<HerdrMirrorHostState> {

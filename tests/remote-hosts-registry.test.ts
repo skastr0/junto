@@ -288,6 +288,38 @@ describe("remote hosts registry", () => {
     }
   });
 
+  it("notifies onChange listeners when mirrors are created and across host reconciliation", () => {
+    setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+    const notified: string[] = [];
+    const mirrors = new HerdrMirrorRegistry((hostId): MirrorTransport => ({
+      request: async () => ({ snapshot: {} }),
+      openEvents: async () => () => undefined,
+      dispose: () => undefined,
+    }));
+    const unsubscribe = mirrors.onChange((hostId) => notified.push(hostId));
+
+    try {
+      mirrors.startAll();
+      expect(notified).toEqual(["local"]);
+
+      const withStudio = [
+        ...defaultRemoteHostsDocument().hosts,
+        {
+          id: "studio",
+          label: "Studio",
+          kind: "remote" as const,
+          endpoint: "studio-a",
+          capabilities: ["herdr" as const],
+        },
+      ];
+      setHostsSnapshot(withStudio);
+      expect(notified).toEqual(["local", "local", "studio"]);
+    } finally {
+      unsubscribe();
+      mirrors.stopAll();
+    }
+  });
+
   it("rejects malformed/host:port endpoints while preserving direct IPv6 destinations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-endpoint-"));
     dirs.push(root);
