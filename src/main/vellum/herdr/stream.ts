@@ -277,8 +277,8 @@ export class HerdrStreamManager {
   ): { readonly ok: boolean; readonly error?: string } {
     const stream = this.require(streamId);
     if (!stream.ok) return stream;
-    const nextCols = Math.max(20, Math.floor(cols));
-    const nextRows = Math.max(5, Math.floor(rows));
+    const nextCols = Math.max(20, Math.floor(cols || 80));
+    const nextRows = Math.max(5, Math.floor(rows || 24));
     const written = this.writeJson(stream.stream, {
       type: "terminal.resize",
       cols: nextCols,
@@ -308,7 +308,7 @@ export class HerdrStreamManager {
   ): { readonly ok: boolean; readonly error?: string } {
     const stream = this.require(streamId);
     if (!stream.ok) return stream;
-    const ticks = Math.max(1, Math.min(20, Math.abs(Math.round(delta)) || 1));
+    const ticks = Math.max(1, Math.min(20, Math.abs(Math.round(delta || 1)) || 1));
     // Browser wheel: deltaY > 0 → scroll down; herdr uses direction up/down.
     const direction = delta < 0 ? "up" : "down";
     const payload = JSON.stringify({
@@ -317,9 +317,9 @@ export class HerdrStreamManager {
       lines: 1,
       ...(at
         ? {
-            column: Math.max(0, Math.floor(at.column)),
-            row: Math.max(0, Math.floor(at.row)),
-            modifiers: at.modifiers & 0xff,
+            column: Math.max(0, Math.floor(at.column || 0)),
+            row: Math.max(0, Math.floor(at.row || 0)),
+            modifiers: (at.modifiers || 0) & 0xff,
           }
         : {}),
     });
