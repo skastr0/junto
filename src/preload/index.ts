@@ -247,6 +247,28 @@ const vellumApi: VellumApi = {
     invoke<void>(IPC_CHANNELS.pulseRegion, IPC_TIMEOUT_MS, canvasName, regionId, opts),
   regionRollups: (name) =>
     invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
+  workTaskCreate: (canvas, nodeId, brief, metadata) =>
+    invoke(IPC_CHANNELS.workTaskCreate, IPC_TIMEOUT_MS, canvas, nodeId, brief, metadata),
+  workTaskTransition: (canvas, nodeId, taskId, state, note) =>
+    invoke(IPC_CHANNELS.workTaskTransition, IPC_TIMEOUT_MS, canvas, nodeId, taskId, state, note),
+  workTaskClaim: (canvas, nodeId, taskId, actor) =>
+    invoke(IPC_CHANNELS.workTaskClaim, IPC_TIMEOUT_MS, canvas, nodeId, taskId, actor),
+  workMessageAppend: (canvas, nodeId, taskId, message) =>
+    invoke(IPC_CHANNELS.workMessageAppend, IPC_TIMEOUT_MS, canvas, nodeId, taskId, message),
+  workRequestCreate: (canvas, nodeId, brief, metadata) =>
+    invoke(IPC_CHANNELS.workRequestCreate, IPC_TIMEOUT_MS, canvas, nodeId, brief, metadata),
+  workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
+    invoke(
+      IPC_CHANNELS.workRequestResolve,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      taskId,
+      responseText,
+      disposition,
+    ),
+  workArtifactPublish: (canvas, nodeId, artifact) =>
+    invoke(IPC_CHANNELS.workArtifactPublish, IPC_TIMEOUT_MS, canvas, nodeId, artifact),
   onNodeRefOpened,
   onCanvasFlushRequested,
   onCanvasChanged: (listener) => subscribe<string>(IPC_CHANNELS.canvasChanged, listener),

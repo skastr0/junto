@@ -22,6 +22,8 @@ import { registerSettingsIpc } from "./settings/ipc";
 import { SettingsService } from "./settings/service";
 import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
+import { WorkService } from "./work/service";
+import type { A2AMetadata, Artifact, Message, TaskState } from "@shared/canvas";
 
 const broadcast = (channel: string, payload: unknown) => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -190,6 +192,105 @@ export const registerVellumIpc = (): void => {
   // document + snapshots + the chat plane's session/permission state.
   ipcMain.handle(IPC_CHANNELS.regionRollups, (_event, name: string) =>
     AppRuntime.runPromise(Effect.flatMap(RegionRollupService, (service) => service.rollups(name))),
+  );
+
+  // A2A work plane — seven ops, all serialized through CanvasesService write.
+  ipcMain.handle(
+    IPC_CHANNELS.workTaskCreate,
+    (_event, canvas: string, nodeId: string, brief: string, metadata?: A2AMetadata) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* denyIfRemoteAuthorial;
+          const work = yield* WorkService;
+          return yield* work.workTaskCreate(canvas, nodeId, brief, metadata);
+        }),
+      ),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.workTaskTransition,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+      state: TaskState,
+      note?: string,
+    ) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* denyIfRemoteAuthorial;
+          const work = yield* WorkService;
+          return yield* work.workTaskTransition(canvas, nodeId, taskId, state, note);
+        }),
+      ),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.workTaskClaim,
+    (_event, canvas: string, nodeId: string, taskId: string, actor: string) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* denyIfRemoteAuthorial;
+          const work = yield* WorkService;
+          return yield* work.workTaskClaim(canvas, nodeId, taskId, actor);
+        }),
+      ),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.workMessageAppend,
+    (_event, canvas: string, nodeId: string, taskId: string | null, message: Message) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* denyIfRemoteAuthorial;
+          const work = yield* WorkService;
+          return yield* work.workMessageAppend(canvas, nodeId, taskId, message);
+        }),
+      ),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.workRequestCreate,
+    (_event, canvas: string, nodeId: string, brief: string, metadata?: A2AMetadata) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* denyIfRemoteAuthorial;
+          const work = yield* WorkService;
+          return yield* work.workRequestCreate(canvas, nodeId, brief, metadata);
+        }),
+      ),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.workRequestResolve,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+      responseText: string,
+      disposition: "completed" | "rejected",
+    ) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* denyIfRemoteAuthorial;
+          const work = yield* WorkService;
+          return yield* work.workRequestResolve(
+            canvas,
+            nodeId,
+            taskId,
+            responseText,
+            disposition,
+          );
+        }),
+      ),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.workArtifactPublish,
+    (_event, canvas: string, nodeId: string, artifact: Artifact) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* denyIfRemoteAuthorial;
+          const work = yield* WorkService;
+          return yield* work.workArtifactPublish(canvas, nodeId, artifact);
+        }),
+      ),
   );
 
   // Wire pushes and background loops once at startup.

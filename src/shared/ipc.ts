@@ -10,7 +10,14 @@ export type {
   BrowserStopReceipt,
 } from "./browser";
 import type { DirectoryEntry, DoctorReport, FolderSnapshot, ServiceCheck } from "./contracts";
-import type { CanvasDoc } from "./canvas";
+import type {
+  A2AMetadata,
+  A2ATask,
+  Artifact,
+  CanvasDoc,
+  Message,
+  TaskState,
+} from "./canvas";
 import type {
   DemoCommand,
   DemoCommandResult,
@@ -67,6 +74,14 @@ export const IPC_CHANNELS = {
   armRegion: "vellum:arm-region",
   pulseRegion: "vellum:pulse-region",
   regionRollups: "vellum:region-rollups",
+  // A2A work plane (serialized canvas mutations)
+  workTaskCreate: "vellum:work-task-create",
+  workTaskTransition: "vellum:work-task-transition",
+  workTaskClaim: "vellum:work-task-claim",
+  workMessageAppend: "vellum:work-message-append",
+  workRequestCreate: "vellum:work-request-create",
+  workRequestResolve: "vellum:work-request-resolve",
+  workArtifactPublish: "vellum:work-artifact-publish",
   // herdr work surface
   herdrHosts: "vellum:herdr-hosts",
   herdrEnsureServer: "vellum:herdr-ensure-server",
@@ -262,6 +277,19 @@ export interface ArmRegionResult {
   readonly error?: string;
 }
 
+export type WorkErrorCode =
+  | "canvas_not_found"
+  | "node_not_found"
+  | "task_not_found"
+  | "illegal_kind"
+  | "illegal_transition"
+  | "claim_contention"
+  | "invalid";
+
+export type WorkOpResult<T> =
+  | { readonly ok: true; readonly data: T }
+  | { readonly ok: false; readonly code: WorkErrorCode; readonly message: string };
+
 // --- glyph rows for kernel watchers / criteria (no live private browse) -----
 
 export interface TowerGlyphRow {
@@ -393,6 +421,50 @@ export interface VellumApi {
   // Region severity rollups for the bottom bar, derived live per call from
   // the document + snapshots + ACP chat activity (shared/region-rollup.ts).
   readonly regionRollups: (name: string) => Promise<ReadonlyArray<RegionRollup>>;
+  // A2A work plane — all mutations serialized through main canvas write path.
+  readonly workTaskCreate: (
+    canvas: string,
+    nodeId: string,
+    brief: string,
+    metadata?: A2AMetadata,
+  ) => Promise<WorkOpResult<A2ATask>>;
+  readonly workTaskTransition: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
+    state: TaskState,
+    note?: string,
+  ) => Promise<WorkOpResult<A2ATask>>;
+  readonly workTaskClaim: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
+    actor: string,
+  ) => Promise<WorkOpResult<A2ATask>>;
+  readonly workMessageAppend: (
+    canvas: string,
+    nodeId: string,
+    taskId: string | null,
+    message: Message,
+  ) => Promise<WorkOpResult<Message>>;
+  readonly workRequestCreate: (
+    canvas: string,
+    nodeId: string,
+    brief: string,
+    metadata?: A2AMetadata,
+  ) => Promise<WorkOpResult<A2ATask>>;
+  readonly workRequestResolve: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
+    responseText: string,
+    disposition: "completed" | "rejected",
+  ) => Promise<WorkOpResult<A2ATask>>;
+  readonly workArtifactPublish: (
+    canvas: string,
+    nodeId: string,
+    artifact: Artifact,
+  ) => Promise<WorkOpResult<Artifact>>;
   readonly onNodeRefOpened: (
     listener: (event: NodeRefOpenedEvent) => void | Promise<void>,
   ) => () => void;

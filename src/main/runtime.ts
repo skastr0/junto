@@ -10,6 +10,7 @@ import { HermesTransportLive } from "./vellum/hermes/transport";
 import { HerdrPlaneLive } from "./vellum/herdr/plane";
 import { HerdrTransportLive } from "./vellum/herdr/transport";
 import { KernelLive, KernelService } from "./vellum/kernel/service";
+import { WorkLive } from "./vellum/work/service";
 import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
 import { SettingsLive, SettingsService } from "./vellum/settings/service";
 import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
@@ -70,7 +71,7 @@ const BaseLayer = Layer.mergeAll(
 );
 
 export const RootLayer = Layer.provideMerge(
-  Layer.mergeAll(KernelLive, RegionRollupLive),
+  Layer.mergeAll(KernelLive, RegionRollupLive, WorkLive),
   BaseLayer,
 );
 
