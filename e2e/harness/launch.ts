@@ -54,12 +54,6 @@ export interface LaunchOptions {
   readonly demo?: boolean;
   /** canvas name -> document, written to the sandbox's canvases dir before launch. */
   readonly seedCanvases?: Readonly<Record<string, CanvasDoc>>;
-  /**
-   * Restrict PATH to e2e/fakes/bin + the system floor so only the fake
-   * herdr/ssh/hermes/codexbar resolve — no operator CLI, no real host, no
-   * AI tokens. `extraEnv.PATH` (if set) still wins — it's applied after.
-   */
-  readonly fakesOnPath?: boolean;
   readonly extraEnv?: Readonly<Record<string, string>>;
 }
 
@@ -128,7 +122,14 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     VELLUM_CANVASES_DIR: sandbox.canvasesDir,
     ELECTRON_RENDERER_URL: server.url,
     ...(options.demo ? { VELLUM_DEMO: "1" } : {}),
-    ...(options.fakesOnPath ? { PATH: `${FAKES_BIN_DIR}:${SYSTEM_PATH_FLOOR}` } : {}),
+    // Restrict PATH to e2e/fakes/bin + the system floor on every launch — no
+    // operator CLI, no real host, no AI tokens. Never opt-in: app boot
+    // unconditionally starts the usage-HUD poller (ipc.ts), which shells out
+    // to codexbar the moment any scenario window opens, demo or not. This is
+    // one of the isolation invariants at the top of this file, not a
+    // per-spec choice. `extraEnv.PATH` (if a spec ever sets it) still wins —
+    // it's applied after.
+    PATH: `${FAKES_BIN_DIR}:${SYSTEM_PATH_FLOOR}`,
     ...options.extraEnv,
   };
 

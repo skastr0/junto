@@ -21,7 +21,6 @@ test("attaching chat to a fake hermes agent round-trips a scripted reply", async
   await writeScenario(scenarioPath, oneReplyScenario(SCRIPTED_REPLY));
 
   const vellum = await launchVellum({
-    fakesOnPath: true,
     extraEnv: { FAKE_HERMES_SCENARIO: scenarioPath },
     seedCanvases: {
       chat: canvasDoc([agentTextNode({ id: "a1", key: AGENT_KEY, label: LABEL })]),

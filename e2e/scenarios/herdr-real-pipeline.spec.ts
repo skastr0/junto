@@ -36,7 +36,6 @@ test("herdr pane renders the real scripted world, then degrades on a scripted mi
   });
 
   const vellum = await launchVellum({
-    fakesOnPath: true,
     extraEnv: { FAKE_HERDR_SCENARIO: scenarioPath },
     seedCanvases: {
       herdr: canvasDoc([

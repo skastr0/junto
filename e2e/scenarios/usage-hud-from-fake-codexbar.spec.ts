@@ -27,7 +27,6 @@ test("usage HUD renders fake codexbar quotas, then degrades on malformed output"
   });
 
   const healthy = await launchVellum({
-    fakesOnPath: true,
     extraEnv: { FAKE_CODEXBAR_SCENARIO: healthyScenarioPath },
   });
   try {
@@ -42,7 +41,6 @@ test("usage HUD renders fake codexbar quotas, then degrades on malformed output"
   await writeScenario(malformedScenarioPath, { mode: "malformed" });
 
   const malformed = await launchVellum({
-    fakesOnPath: true,
     extraEnv: { FAKE_CODEXBAR_SCENARIO: malformedScenarioPath },
   });
   try {
