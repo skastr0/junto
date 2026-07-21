@@ -356,15 +356,38 @@ export class HerdrServiceMap {
 
     let ports: ReadonlyArray<HerdrServicePort> = [];
     let error: string | undefined;
+    let transportFailed = false;
     if (pids.length > 0 && this.shell) {
       try {
         ports = await this.resolveListenPorts(item.hostId, pids);
       } catch (err) {
+        transportFailed = true;
         error = err instanceof Error ? err.message : String(err);
       }
     }
-    if (ports.length === 0) {
+    if (!transportFailed && ports.length === 0) {
       ports = portsFromCmdlineHints(processes);
+    }
+
+    // Transport/SSH failure must not paint live→dead: keep prior ports/url.
+    if (transportFailed) {
+      const prev = this.get(item.hostId, item.session, item.paneId);
+      this.write(
+        projectService({
+          hostId: item.hostId,
+          session: item.session,
+          paneId: item.paneId,
+          processes,
+          ports: prev?.ports ?? portsFromCmdlineHints(processes),
+          hostBase: prev?.hostBase ?? hostBase,
+          checkedAt: prev?.checkedAt,
+          pending: false,
+          error,
+          priority: item.priority,
+          now: this.now(),
+        }),
+      );
+      return;
     }
 
     this.write(
@@ -389,7 +412,7 @@ export class HerdrServiceMap {
     pids: ReadonlyArray<number>,
   ): Promise<ReadonlyArray<HerdrServicePort>> {
     if (!this.shell || pids.length === 0) return [];
-    // One host command for the batch: lsof -nP -iTCP -sTCP:LISTEN -a -p p1,p2
+    // Sequential per-pane probe (batchPerTick limits how many run per tick).
     const pidList = pids.join(",");
     const result = await this.shell(
       hostId,
@@ -397,9 +420,10 @@ export class HerdrServiceMap {
       8_000,
     );
     if (!result.ok) {
-      // lsof exits 1 when nothing matches — treat empty as no ports, not error
-      if ((result.stdout ?? "").trim().length === 0) return [];
-      throw new Error(result.error ?? "lsof failed");
+      // Transport/SSH failures carry `error`. Empty lsof (no LISTEN) often
+      // exits 1 with empty stdout and no error — treat as no ports.
+      if (result.error) throw new Error(result.error);
+      return [];
     }
     return parseLsofListen(result.stdout, pids);
   }

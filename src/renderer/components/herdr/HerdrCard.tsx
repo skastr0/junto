@@ -15,8 +15,10 @@ import {
   subscribeHerdrServiceMap,
 } from "../../lib/herdr-state";
 import { harnessDisplayName } from "../../lib/harness-icons";
+import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { addNode, editText } from "../../lib/mutations";
 import { makePageNode } from "../../lib/node-factories";
+import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { DIM, INK, withAlpha } from "../../lib/theme";
 import { ActivityMarkFromSpec } from "../ActivityMark";
@@ -241,7 +243,16 @@ export function HerdrCard({
     e.stopPropagation();
     const url = service?.url;
     if (!url) return;
-    const page = makePageNode(node.x + (node.width ?? 220) + 40, node.y, url);
+    const width = node.width ?? 260;
+    const x = node.x + width + 40;
+    const y = node.y;
+    const seed = resolvePageSpawnDefaults(state$.doc.peek(), x + width / 2, y + 55);
+    const page = makePageNode(
+      x,
+      y,
+      url,
+      seed?.profile ? { profile: seed.profile } : undefined,
+    );
     addNode(page, { focus: true });
   };
 

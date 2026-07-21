@@ -56,6 +56,39 @@ describe("HerdrServiceMap worker", () => {
     map.stop();
   });
 
+  it("transport shell error keeps prior live ports/url", async () => {
+    let calls = 0;
+    const shell = async (): Promise<{ ok: boolean; stdout: string; error?: string }> => {
+      calls += 1;
+      if (calls === 1) {
+        return { ok: true, stdout: "node 42 me 1u IPv4 0t0 TCP *:5173 (LISTEN)\n" };
+      }
+      return { ok: false, stdout: "", error: "ssh operation timed out" };
+    };
+    const map = new HerdrServiceMap({ shell, now: () => 1_000 });
+    map.requestProbe({
+      hostId: "local",
+      paneId: "w1:p1",
+      processes: [{ name: "node", cmdline: "vite", pid: 42 }],
+      priority: "intent",
+    });
+    await map.drainHostNow("local");
+    expect(map.get("local", null, "w1:p1")?.health).toBe("live");
+
+    map.requestProbe({
+      hostId: "local",
+      paneId: "w1:p1",
+      processes: [{ name: "node", cmdline: "vite", pid: 42 }],
+      priority: "intent",
+    });
+    await map.drainHostNow("local");
+    const after = map.get("local", null, "w1:p1");
+    expect(after?.health).toBe("live");
+    expect(after?.url).toBe("http://127.0.0.1:5173");
+    expect(after?.error).toMatch(/timed out/);
+    map.stop();
+  });
+
   it("observeProcesses(undefined) does not wipe live projection", async () => {
     const shell = async () => ({
       ok: true,
