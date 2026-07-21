@@ -27,7 +27,6 @@ export class WorkSocket extends Context.Tag("@vellum/cli/WorkSocket")<
   {
     readonly call: (
       op: WorkOpName,
-      nodeRef: string,
       args?: unknown,
       timeoutMs?: number,
     ) => Effect.Effect<unknown, RuntimeDown | AuthError | WireError>;
@@ -48,7 +47,6 @@ const ndjsonCall = (
   socketPath: string,
   token: string,
   op: WorkOpName,
-  nodeRef: string,
   args: unknown,
   timeoutMs: number,
 ): Effect.Effect<WorkResponseEnvelope, RuntimeDown | WireError> =>
@@ -98,9 +96,9 @@ const ndjsonCall = (
     }
 
     socket.on("connect", () => {
+      // Identity is process-bind (peer PID). No client-supplied nodeRef.
       const frame = encodeWorkFrame({
         token,
-        nodeRef,
         op,
         ...(args !== undefined ? { args } : {}),
       });
@@ -193,7 +191,7 @@ const ndjsonCall = (
 export const WorkSocketLive = Layer.succeed(
   WorkSocket,
   WorkSocket.of({
-    call: (op, nodeRef, args, timeoutMs) =>
+    call: (op, args, timeoutMs) =>
       Effect.gen(function* () {
         const workHome = resolveWorkHome();
         const token = yield* readToken(workControlTokenPath(workHome));
@@ -209,7 +207,6 @@ export const WorkSocketLive = Layer.succeed(
           workControlSocketPath(workHome),
           token,
           op,
-          nodeRef,
           args,
           timeoutMs ?? WORK_DEFAULT_TIMEOUT_MS,
         );

@@ -26,7 +26,6 @@ import type {
 } from "../src/main/vellum/browser/page-target";
 
 const REF_PAGE = "vellum://canvas/work?node=p1";
-const REF_AGENT = "vellum://canvas/work?node=agent";
 const TARGET: ResolvedPageTarget = {
   ref: REF_PAGE,
   nodeId: "p1",
@@ -93,21 +92,11 @@ const canvasDoc = (withEdge: boolean): CanvasDoc => ({
       height: 48,
       ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
     },
-    {
-      id: "p2",
-      type: "link",
-      url: "https://example.org/",
-      x: 400,
-      y: 0,
-      width: 120,
-      height: 48,
-      ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
-    },
   ],
   edges: withEdge ? [{ id: "e1", fromNode: "agent", toNode: "p1" }] : [],
 });
 
-describe("browser edge-grant dual admit", () => {
+describe("browser edge-grant process-bind dual admit", () => {
   let root: string;
   let registries: BrowserCapabilityRegistry[];
 
@@ -141,8 +130,9 @@ describe("browser edge-grant dual admit", () => {
     };
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      readCanvas: async (name) => (name === "work" ? doc : undefined),
+      canvasesDir: join(root, "canvases"),
       resolvePageTarget,
+      readCanvas: async (name) => (name === "work" ? doc : undefined),
     });
     const handlers = makeControlHandlers({
       sessions,
@@ -153,10 +143,10 @@ describe("browser edge-grant dual admit", () => {
       shotsDir: join(root, "shots"),
       edgeGrant,
     });
-    return { handlers, edgeGrant, capabilities, sessions };
+    return { handlers, edgeGrant, capabilities };
   };
 
-  it("admits protected list routes via nodeRef + edge without capability secret", async () => {
+  it("admits protected list routes via process principal without capability secret", async () => {
     await mkdir(join(root, "canvases"), { recursive: true });
     const doc = canvasDoc(true);
     await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
@@ -174,8 +164,6 @@ describe("browser edge-grant dual admit", () => {
         requestId,
         body: undefined,
       },
-      undefined,
-      edgeGrant,
     );
     expect(denied.status).toBe(401);
 
@@ -186,12 +174,15 @@ describe("browser edge-grant dual admit", () => {
         method: "GET",
         path: "/pages",
         token,
-        nodeRef: REF_AGENT,
         requestId,
         body: undefined,
       },
       undefined,
-      edgeGrant,
+      {
+        kind: "principal",
+        edgeGrant,
+        principal: { kind: "agent", agentKey: "local:default" },
+      },
     );
     expect(admitted.status).toBe(200);
     expect(admitted.envelope.ok).toBe(true);
@@ -226,14 +217,15 @@ describe("browser edge-grant dual admit", () => {
         requestId: "b".repeat(32),
         body: undefined,
       },
-      undefined,
-      edgeGrant,
     );
     expect(viaCap.status).toBe(200);
   });
 
-  it("denies nodeRef callers with no edge to a page", async () => {
-    const { handlers, edgeGrant } = makeStack(canvasDoc(false));
+  it("denies process principals with no edge to a page", async () => {
+    await mkdir(join(root, "canvases"), { recursive: true });
+    const doc = canvasDoc(false);
+    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
+    const { handlers, edgeGrant } = makeStack(doc);
     const token = rotateControlToken(join(root, "token"));
     const denied = await dispatchControlRequest(
       handlers,
@@ -242,12 +234,15 @@ describe("browser edge-grant dual admit", () => {
         method: "GET",
         path: "/pages",
         token,
-        nodeRef: REF_AGENT,
         requestId: "c".repeat(32),
         body: undefined,
       },
       undefined,
-      edgeGrant,
+      {
+        kind: "principal",
+        edgeGrant,
+        principal: { kind: "agent", agentKey: "local:default" },
+      },
     );
     expect(denied.status).toBe(403);
     expect(denied.envelope.ok).toBe(false);

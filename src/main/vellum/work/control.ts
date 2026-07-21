@@ -32,7 +32,6 @@ import {
   WorkOpName,
   decodeWorkRequest,
   encodeWorkFrame,
-  validateNodeRefString,
   workErr,
   workOk,
   workControlDir,
@@ -57,10 +56,18 @@ import {
   summarizeNode,
   visibilityOf,
 } from "./authz";
+import { resolveCallerAcrossCanvases } from "./caller-resolve";
+import {
+  admitProcessIdentity,
+  getProcessIdentityMap,
+  type PeerPidReader,
+  type ProcessIdentityMap,
+  readUnixPeerPid,
+} from "../process-identity";
 
 // Local work control plane for agents: NDJSON over a Unix domain socket at
-// ~/.vellum/work/control.sock. Token + edge authorization; all mutations
-// route through WorkService — this module is transport + authz only.
+// ~/.vellum/work/control.sock. Token + process-bind identity + edge authz;
+// all mutations route through WorkService — this module is transport + authz.
 
 // ---------------------------------------------------------------------------
 // Token rotation (browser control pattern)
@@ -507,6 +514,12 @@ export interface WorkControlServerOptions {
   readonly version: string;
   readonly home?: string;
   readonly workHome?: string;
+  /** Test / alternate identity map (defaults to the shared main-process map). */
+  readonly processMap?: ProcessIdentityMap;
+  /** Test seam for peer PID (defaults to Unix LOCAL_PEERPID / SO_PEERCRED). */
+  readonly readPeerPid?: PeerPidReader;
+  /** Canvases directory for principal → node resolution. */
+  readonly canvasesDir?: string;
 }
 
 const unlinkSocket = (socketPath: string): void => {
@@ -533,6 +546,10 @@ export const startWorkControlServer = async (
   const socketPath = workControlSocketPath(workHome);
   const token = rotateWorkToken(tokenPath);
   unlinkSocket(socketPath);
+  const processMap = options.processMap ?? getProcessIdentityMap();
+  const readPeerPid = options.readPeerPid ?? readUnixPeerPid;
+  const canvasesDir =
+    options.canvasesDir ?? join(options.home ?? homedir(), ".vellum", "canvases");
 
   const server: Server = createServer((socket) => {
     let buffer = Buffer.alloc(0);
@@ -560,7 +577,7 @@ export const startWorkControlServer = async (
           workErr("ProtocolError", decoded.left.message, {
             retryable: false,
             path: "request",
-            hint: "request must be {token, nodeRef, op, args?}",
+            hint: "request must be {token, op, args?}",
           }),
         );
         return;
@@ -584,14 +601,23 @@ export const startWorkControlServer = async (
         return;
       }
 
-      const nodeRef = validateNodeRefString(req.nodeRef);
-      if (!nodeRef.ok) {
+      // Process-bind: peer PID → registered agent|herdr principal → canvas node.
+      // Client-supplied nodeRef is never identity (forgeable).
+      const identity = admitProcessIdentity(socket, processMap, readPeerPid);
+      if (!identity.ok) {
         respond(
           socket,
           workErr(
-            nodeRef.error.type as WorkErrorType,
-            nodeRef.error.message,
-            nodeRef.error.details,
+            "AuthError",
+            identity.message,
+            {
+              retryable: identity.denial === "peer_pid_unavailable",
+              next_step:
+                identity.denial === "process_unbound"
+                  ? "open the agent chat in Vellum so its process is registered"
+                  : "ensure the CLI runs as a child of a live Vellum agent process",
+              missing: "process-bind",
+            },
             req.op,
             req.id,
           ),
@@ -599,9 +625,35 @@ export const startWorkControlServer = async (
         return;
       }
 
+      const callerResolved = await resolveCallerAcrossCanvases(
+        canvasesDir,
+        identity.principal,
+      );
+      if (!callerResolved.ok) {
+        respond(
+          socket,
+          workErr(
+            callerResolved.code === "ambiguous" ? "ScopeError" : "StaleNodeRef",
+            callerResolved.message,
+            {
+              retryable: false,
+              next_step: "ensure exactly one agent|herdr node matches the live process",
+            },
+            req.op,
+            req.id,
+          ),
+        );
+        return;
+      }
+
+      const caller = {
+        canvasName: callerResolved.caller.canvasName,
+        nodeId: callerResolved.caller.nodeId,
+      };
+
       try {
         const outcome = await options.run(
-          dispatchOp(req.op, req.args, nodeRef.value, options.version).pipe(
+          dispatchOp(req.op, req.args, caller, options.version).pipe(
             Effect.either,
           ),
         );

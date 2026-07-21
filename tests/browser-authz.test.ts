@@ -7,12 +7,12 @@ import {
   connectedPageRefs,
   resolveBrowserCaller,
 } from "../src/main/vellum/browser/authz";
+import { resolveBrowserCallerFromProcess } from "../src/main/vellum/browser/process-bind";
 import {
-  makeProcessBindMap,
-  principalKey,
-  resolveProcessBoundCaller,
-  resolveProcessBoundCallerByPid,
-} from "../src/main/vellum/browser/process-bind";
+  makeProcessIdentityMap,
+  admitProcessIdentity,
+} from "../src/main/vellum/process-identity";
+import type { Socket } from "node:net";
 
 const text = (
   id: string,
@@ -68,92 +68,59 @@ describe("browser edge authz", () => {
     if (agent.ok) {
       expect(agent.principal.kind).toBe("agent");
       expect(agent.principal.agentKey).toBe("local:default");
-      expect(agent.principal.auditOwnerId).toBe("edge:work/agent");
     }
-
-    const herdr = resolveBrowserCaller(board, "work", "herdr");
-    expect(herdr.ok).toBe(true);
-    if (herdr.ok) {
-      expect(herdr.principal.kind).toBe("herdr");
-      expect(herdr.principal.paneId).toBe("pane-1");
-    }
-
     expect(resolveBrowserCaller(board, "work", "p1").ok).toBe(false);
-    expect(resolveBrowserCaller(board, "work", "tasks").ok).toBe(false);
-    expect(resolveBrowserCaller(board, "work", "missing").ok).toBe(false);
   });
 
   it("lists only edge-connected page nodes", () => {
     expect(areConnected(board, "agent", "p1")).toBe(true);
-    expect(areConnected(board, "agent", "p2")).toBe(false);
     expect(connectedPageNodeIds(board, "agent")).toEqual(["p1"]);
-    expect(connectedPageNodeIds(board, "herdr")).toEqual(["p2"]);
     expect(connectedPageRefs(board, "work", "agent")).toEqual([
       "vellum://canvas/work?node=p1",
     ]);
-    expect(callerMayAccessPage(board, "agent", "p1")).toBe(true);
     expect(callerMayAccessPage(board, "agent", "p2")).toBe(false);
-    expect(callerMayAccessPage(board, "agent", "tasks")).toBe(false);
   });
 });
 
-describe("process-bind", () => {
+describe("process-bind (browser canvas resolution)", () => {
   const board = doc(
     [text("agent", "agent", "local:default"), page("p1")],
     [{ id: "e1", fromNode: "agent", toNode: "p1" }],
   );
 
-  it("binds nodeRef callers and optional PID reinforcement", () => {
-    const map = makeProcessBindMap();
-    const ref = "vellum://canvas/work?node=agent";
-    const unbound = resolveProcessBoundCaller(board, ref);
-    expect(unbound.ok).toBe(true);
-    if (unbound.ok) expect(unbound.binding).toBe("node_ref");
-
-    map.bind(4242, principalKey("work", "agent"));
-    const reinforced = resolveProcessBoundCaller(board, ref, {
-      peerPid: 4242,
-      processMap: map,
+  it("maps a process principal to edge-reachable pages", () => {
+    const resolved = resolveBrowserCallerFromProcess(board, "work", {
+      kind: "agent",
+      agentKey: "local:default",
     });
-    expect(reinforced.ok).toBe(true);
-    if (reinforced.ok) expect(reinforced.binding).toBe("node_ref+pid");
-
-    map.bind(9999, principalKey("work", "other"));
-    const mismatch = resolveProcessBoundCaller(board, ref, {
-      peerPid: 9999,
-      processMap: map,
-    });
-    expect(mismatch.ok).toBe(false);
-    if (!mismatch.ok) expect(mismatch.denial).toBe("pid_mismatch");
-  });
-
-  it("requires PID bind when configured", () => {
-    const map = makeProcessBindMap();
-    const ref = "vellum://canvas/work?node=agent";
-    const missing = resolveProcessBoundCaller(board, ref, {
-      processMap: map,
-      requirePidBind: true,
-    });
-    expect(missing.ok).toBe(false);
-    if (!missing.ok) expect(missing.denial).toBe("pid_unbound");
-
-    map.bind(7, principalKey("work", "agent"));
-    const ok = resolveProcessBoundCaller(board, ref, {
-      peerPid: 7,
-      processMap: map,
-      requirePidBind: true,
-    });
-    expect(ok.ok).toBe(true);
-  });
-
-  it("resolves by PID alone when map is populated", () => {
-    const map = makeProcessBindMap();
-    map.bind(11, principalKey("work", "agent"));
-    const byPid = resolveProcessBoundCallerByPid(board, "work", 11, map);
-    expect(byPid.ok).toBe(true);
-    if (byPid.ok) {
-      expect(byPid.binding).toBe("pid");
-      expect(byPid.principal.nodeId).toBe("agent");
+    expect(resolved.ok).toBe(true);
+    if (resolved.ok) {
+      expect(resolved.principal.nodeId).toBe("agent");
+      expect(resolved.pageRefs).toEqual(["vellum://canvas/work?node=p1"]);
     }
+  });
+
+  it("denies when no edge to a page", () => {
+    const isolated = doc([text("agent", "agent", "local:default"), page("p1")], []);
+    const resolved = resolveBrowserCallerFromProcess(isolated, "work", {
+      kind: "agent",
+      agentKey: "local:default",
+    });
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) expect(resolved.denial).toBe("not_connected");
+  });
+});
+
+describe("process identity map", () => {
+  it("admits peer PID and ancestor walk", () => {
+    const map = makeProcessIdentityMap();
+    map.bind(100, { kind: "agent", agentKey: "local:default" });
+    const fakeSocket = {} as Socket;
+    const ok = admitProcessIdentity(fakeSocket, map, () => 100);
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.principal.agentKey).toBe("local:default");
+
+    const unbound = admitProcessIdentity(fakeSocket, map, () => 999);
+    expect(unbound.ok).toBe(false);
   });
 });

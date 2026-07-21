@@ -13,7 +13,6 @@ import { materializeArtifactParts } from "../core/artifact-parts";
 import { DEFAULT_BATCH_CONCURRENCY, runMutationBatch } from "../core/batch";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { loadJsonInput } from "../core/json";
-import { resolveCallerNodeRef } from "../core/node-ref";
 import { executeJsonCommand } from "../core/output";
 import { WorkSocket } from "../core/socket";
 
@@ -36,17 +35,17 @@ const timeoutOption = Options.integer("timeout").pipe(
   Options.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
 
-const callWithNode = <A extends { readonly node?: string }>(
+/** Domain call — identity is process-bind on the server, not a payload claim. */
+const callDomain = <A extends { readonly node?: string }>(
   op: "tasks.list" | "tasks.claim" | "tasks.update" | "msg.list" | "msg.send" | "request.create" | "artifact.publish",
   item: A,
   timeout?: number,
 ) =>
   Effect.gen(function* () {
     const socket = yield* WorkSocket;
-    const nodeRef = yield* resolveCallerNodeRef(item);
-    // Never send node field as domain — it is caller identity only.
+    // Strip legacy `node` field if present — never used as identity.
     const { node: _node, ...args } = item;
-    return yield* socket.call(op, nodeRef, args, timeout);
+    return yield* socket.call(op, args, timeout);
   });
 
 // --- tasks ---
@@ -59,7 +58,7 @@ const tasksListCommand = Command.make(
       "tasks list",
       Effect.gen(function* () {
         const item = yield* loadJsonInput(TasksListArgs, input);
-        return yield* callWithNode("tasks.list", item, toUndefined(timeout));
+        return yield* callDomain("tasks.list", item, toUndefined(timeout));
       }),
     ),
 ).pipe(Command.withDescription("List tasks on a connected task node"));
@@ -74,7 +73,7 @@ const tasksClaimCommand = Command.make(
         input,
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
         itemSchema: TasksClaimArgs,
-        run: (item) => callWithNode("tasks.claim", item, toUndefined(timeout)),
+        run: (item) => callDomain("tasks.claim", item, toUndefined(timeout)),
       }),
     ),
 ).pipe(Command.withDescription("Claim one or more tasks (batch-capable)"));
@@ -89,7 +88,7 @@ const tasksUpdateCommand = Command.make(
         input,
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
         itemSchema: TasksUpdateArgs,
-        run: (item) => callWithNode("tasks.update", item, toUndefined(timeout)),
+        run: (item) => callDomain("tasks.update", item, toUndefined(timeout)),
       }),
     ),
 ).pipe(Command.withDescription("Update task state (batch-capable)"));
@@ -109,7 +108,7 @@ const msgListCommand = Command.make(
       "msg list",
       Effect.gen(function* () {
         const item = yield* loadJsonInput(MsgListArgs, input);
-        return yield* callWithNode("msg.list", item, toUndefined(timeout));
+        return yield* callDomain("msg.list", item, toUndefined(timeout));
       }),
     ),
 ).pipe(Command.withDescription("List messages on a connected node"));
@@ -124,7 +123,7 @@ const msgSendCommand = Command.make(
         input,
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
         itemSchema: MsgSendArgs,
-        run: (item) => callWithNode("msg.send", item, toUndefined(timeout)),
+        run: (item) => callDomain("msg.send", item, toUndefined(timeout)),
       }),
     ),
 ).pipe(Command.withDescription("Send a message (batch-capable)"));
@@ -146,7 +145,7 @@ const requestCreateCommand = Command.make(
         input,
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
         itemSchema: RequestCreateArgs,
-        run: (item) => callWithNode("request.create", item, toUndefined(timeout)),
+        run: (item) => callDomain("request.create", item, toUndefined(timeout)),
       }),
     ),
 ).pipe(Command.withDescription("Create a request (batch-capable)"));
@@ -172,10 +171,8 @@ const artifactPublishCommand = Command.make(
           Effect.gen(function* () {
             const wire = yield* materializeArtifactParts(item);
             const socket = yield* WorkSocket;
-            const nodeRef = yield* resolveCallerNodeRef(item);
             return yield* socket.call(
               "artifact.publish",
-              nodeRef,
               wire,
               toUndefined(timeout),
             );

@@ -75,6 +75,7 @@ export interface AcpClientHandlers {
 // node:child_process's ChildProcessWithoutNullStreams, and by the fake
 // EventEmitter-based child the unit tests inject in its place.
 export type AcpChildLike = {
+  readonly pid?: number;
   readonly stdin: { write(chunk: string): boolean };
   readonly stdout: NodeJS.EventEmitter;
   readonly stderr: NodeJS.EventEmitter;
@@ -215,6 +216,12 @@ export class AcpClient {
 
   get closed(): boolean {
     return this.closedFlag;
+  }
+
+  /** OS pid of the local ACP child after start(); undefined when remote/closed. */
+  get childPid(): number | undefined {
+    const pid = this.child?.pid;
+    return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : undefined;
   }
 
   // Spawns the child and performs the initialize handshake. Rejects (and

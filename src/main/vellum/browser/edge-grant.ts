@@ -1,5 +1,5 @@
 import type { CanvasDoc } from "@shared/canvas";
-import { formatNodeRef, parseNodeRef } from "@shared/node-ref";
+import type { Socket } from "node:net";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   type BrowserAutomationPrincipal,
@@ -7,24 +7,25 @@ import {
   type BrowserCapabilityRegistry,
   type BrowserCapabilityTarget,
 } from "./capabilities";
-import {
-  connectedPageNodeIds,
-  findNode,
-  isPageNode,
-  resolveBrowserCaller,
-  type BrowserCallerPrincipal,
-} from "./authz";
+import { resolveBrowserCallerFromProcess } from "./process-bind";
 import type { PageTargetResolver } from "./page-target";
 import {
-  makeProcessBindMap,
-  resolveProcessBoundCaller,
-  type ProcessBindMap,
-} from "./process-bind";
+  admitProcessIdentity,
+  getProcessIdentityMap,
+  type PeerPidReader,
+  type ProcessIdentityMap,
+  type ProcessPrincipal,
+  readUnixPeerPid,
+} from "../process-identity";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { Either } from "effect";
+import { decodeCanvasDoc } from "@shared/canvas";
 
-// Edge-grant admission: human-drawn agent|herdr → page edges mint a short-lived
-// capability under the hood so existing control handlers keep their lease
-// model. Agents never receive spawn-sibling ceremony — they present
-// VELLUM_NODE_REF + the owner-local transport token.
+// Edge-grant admission for process-bound callers:
+//   peer PID → registered principal → canvas agent|herdr node → edges → pages
+//   mint a short-lived capability under the hood so existing handlers keep
+//   their lease model. Agents never present nodeRef or capability secrets.
 
 export const EDGE_GRANT_TTL_MS = 15 * 60 * 1_000;
 export const EDGE_GRANT_MAX_USES = 4_096;
@@ -45,13 +46,12 @@ const exactHttpOrigin = (value: string): string | undefined => {
 };
 
 export type EdgeGrantDenial =
-  | "invalid_node_ref"
-  | "caller_missing"
-  | "caller_wrong_kind"
+  | "peer_pid_unavailable"
+  | "process_unbound"
+  | "not_found"
+  | "ambiguous"
   | "not_connected"
   | "canvas_unreadable"
-  | "pid_mismatch"
-  | "pid_unbound"
   | "capacity"
   | "closed";
 
@@ -59,18 +59,17 @@ export type EdgeGrantResult =
   | {
       readonly ok: true;
       readonly secret: string;
-      readonly principal: BrowserCallerPrincipal;
+      readonly principal: ProcessPrincipal;
       readonly targetCount: number;
     }
   | { readonly ok: false; readonly denial: EdgeGrantDenial; readonly message: string };
 
 export interface EdgeGrantService {
-  readonly processMap: ProcessBindMap;
-  readonly admit: (
-    nodeRef: string,
-    options?: { readonly peerPid?: number; readonly requirePidBind?: boolean },
-  ) => Promise<EdgeGrantResult>;
-  readonly revokeCaller: (nodeRef: string) => void;
+  readonly processMap: ProcessIdentityMap;
+  /** Admit from a connected control socket (product path). */
+  readonly admitSocket: (socket: Socket) => Promise<EdgeGrantResult>;
+  /** Admit from an already-resolved principal (tests / internal). */
+  readonly admitPrincipal: (principal: ProcessPrincipal) => Promise<EdgeGrantResult>;
   readonly clear: () => void;
 }
 
@@ -78,18 +77,21 @@ interface CacheEntry {
   readonly secret: string;
   readonly principal: BrowserAutomationPrincipal;
   readonly handle: BrowserCapabilityGrant["handle"];
-  readonly caller: BrowserCallerPrincipal;
+  readonly processKey: string;
   readonly targetRefs: ReadonlyArray<string>;
   readonly expiresAt: number;
 }
 
 export interface EdgeGrantDependencies {
   readonly capabilities: BrowserCapabilityRegistry;
-  readonly readCanvas: (name: string) => Promise<CanvasDoc | undefined>;
+  readonly canvasesDir: string;
   readonly resolvePageTarget: PageTargetResolver;
-  readonly processMap?: ProcessBindMap;
+  readonly processMap?: ProcessIdentityMap;
+  readonly readPeerPid?: PeerPidReader;
   readonly wallNow?: () => number;
   readonly ttlMs?: number;
+  /** Optional single-doc loader override for tests. */
+  readonly readCanvas?: (name: string) => Promise<CanvasDoc | undefined>;
 }
 
 const fail = (denial: EdgeGrantDenial, message: string): EdgeGrantResult => ({
@@ -97,6 +99,13 @@ const fail = (denial: EdgeGrantDenial, message: string): EdgeGrantResult => ({
   denial,
   message,
 });
+
+const processKeyOf = (principal: ProcessPrincipal): string => {
+  if (principal.kind === "agent") {
+    return `agent:${principal.agentKey ?? ""}:${principal.canvasName ?? ""}:${principal.nodeId ?? ""}`;
+  }
+  return `herdr:${principal.paneId ?? ""}:${principal.canvasName ?? ""}:${principal.nodeId ?? ""}`;
+};
 
 const sameTargetRefs = (
   cached: ReadonlyArray<string>,
@@ -108,44 +117,59 @@ const sameTargetRefs = (
 export const makeEdgeGrantService = (
   dependencies: EdgeGrantDependencies,
 ): EdgeGrantService => {
-  const processMap = dependencies.processMap ?? makeProcessBindMap();
+  const processMap = dependencies.processMap ?? getProcessIdentityMap();
+  const readPeerPid = dependencies.readPeerPid ?? readUnixPeerPid;
   const wallNow = dependencies.wallNow ?? Date.now;
   const ttlMs = dependencies.ttlMs ?? EDGE_GRANT_TTL_MS;
   const cache = new Map<string, CacheEntry>();
-  const principals = new Map<string, BrowserAutomationPrincipal>();
+  const capabilityPrincipals = new Map<string, BrowserAutomationPrincipal>();
 
-  const revokeCaller = (nodeRef: string): void => {
-    const entry = cache.get(nodeRef);
-    if (entry === undefined) return;
-    cache.delete(nodeRef);
+  const loadDocs = async (): Promise<ReadonlyArray<{ name: string; doc: CanvasDoc }>> => {
+    if (dependencies.readCanvas !== undefined) {
+      // Test path: try common names via override by scanning dir when possible.
+      try {
+        const names = (await readdir(dependencies.canvasesDir)).filter((n) =>
+          n.endsWith(".canvas"),
+        );
+        const out: Array<{ name: string; doc: CanvasDoc }> = [];
+        for (const file of names.sort()) {
+          const name = file.slice(0, -".canvas".length);
+          const doc = await dependencies.readCanvas(name);
+          if (doc) out.push({ name, doc });
+        }
+        if (out.length > 0) return out;
+      } catch {
+        // fall through
+      }
+      return [];
+    }
     try {
-      dependencies.capabilities.revoke(entry.handle, "superseded");
+      const names = (await readdir(dependencies.canvasesDir)).filter((n) =>
+        n.endsWith(".canvas"),
+      );
+      const out: Array<{ name: string; doc: CanvasDoc }> = [];
+      for (const file of names.sort()) {
+        try {
+          const raw = await readFile(join(dependencies.canvasesDir, file), "utf8");
+          const decoded = decodeCanvasDoc(JSON.parse(raw));
+          if (Either.isRight(decoded)) {
+            out.push({ name: file.slice(0, -".canvas".length), doc: decoded.right });
+          }
+        } catch {
+          // skip
+        }
+      }
+      return out;
     } catch {
-      // Best-effort; admit will mint a fresh grant.
+      return [];
     }
   };
 
-  const clear = (): void => {
-    for (const key of [...cache.keys()]) revokeCaller(key);
-    processMap.clear();
-    principals.clear();
-  };
-
   const buildTargets = async (
-    doc: CanvasDoc,
-    canvasName: string,
-    callerId: string,
+    pageRefs: ReadonlyArray<string>,
   ): Promise<ReadonlyArray<BrowserCapabilityTarget>> => {
     const targets: BrowserCapabilityTarget[] = [];
-    for (const pageId of connectedPageNodeIds(doc, callerId)) {
-      const node = findNode(doc, pageId);
-      if (!isPageNode(node) || node === undefined || node.type !== "link") continue;
-      let ref: string;
-      try {
-        ref = formatNodeRef({ canvasName, nodeId: pageId });
-      } catch {
-        continue;
-      }
+    for (const ref of pageRefs) {
       const resolved = await dependencies.resolvePageTarget(ref);
       if (!resolved.ok || resolved.data.ref !== ref) continue;
       const origin = exactHttpOrigin(resolved.data.url);
@@ -163,62 +187,46 @@ export const makeEdgeGrantService = (
     );
   };
 
-  const admit = async (
-    nodeRef: string,
-    options: { readonly peerPid?: number; readonly requirePidBind?: boolean } = {},
+  const admitPrincipal = async (
+    principal: ProcessPrincipal,
   ): Promise<EdgeGrantResult> => {
-    const parsed = parseNodeRef(nodeRef);
-    if (!parsed.ok) {
-      return fail("invalid_node_ref", parsed.error.message);
+    const docs = await loadDocs();
+    if (docs.length === 0) {
+      return fail("canvas_unreadable", "no canvases available for process-bind resolution");
     }
 
-    let doc: CanvasDoc | undefined;
-    try {
-      doc = await dependencies.readCanvas(parsed.value.canvasName);
-    } catch {
-      return fail("canvas_unreadable", "canvas could not be read");
-    }
-    if (doc === undefined) {
-      return fail("canvas_unreadable", "canvas not found");
+    const matches: Array<{ pageRefs: ReadonlyArray<string> }> = [];
+
+    let lastDenial: EdgeGrantDenial = "not_found";
+    let lastMessage = "no matching agent|herdr node for connecting process";
+
+    for (const { name, doc } of docs) {
+      const resolved = resolveBrowserCallerFromProcess(doc, name, principal);
+      if (!resolved.ok) {
+        lastDenial =
+          resolved.denial === "not_connected"
+            ? "not_connected"
+            : resolved.denial === "ambiguous"
+              ? "ambiguous"
+              : "not_found";
+        lastMessage = resolved.message;
+        continue;
+      }
+      matches.push({ pageRefs: resolved.pageRefs });
     }
 
-    const bound = resolveProcessBoundCaller(doc, nodeRef, {
-      peerPid: options.peerPid,
-      processMap,
-      requirePidBind: options.requirePidBind,
-    });
-    if (!bound.ok) {
-      const denial =
-        bound.denial === "invalid_node_ref"
-          ? "invalid_node_ref"
-          : bound.denial === "pid_mismatch"
-            ? "pid_mismatch"
-            : bound.denial === "pid_unbound"
-              ? "pid_unbound"
-              : bound.denial === "caller_missing"
-                ? "caller_missing"
-                : "caller_wrong_kind";
-      return fail(denial, bound.message);
+    if (matches.length === 0) {
+      return fail(lastDenial, lastMessage);
     }
-
-    // Re-check caller against live doc after bind (same result, keeps types tight).
-    const caller = resolveBrowserCaller(
-      doc,
-      bound.principal.canvasName,
-      bound.principal.nodeId,
-    );
-    if (!caller.ok) {
+    if (matches.length > 1) {
       return fail(
-        caller.denial === "caller_missing" ? "caller_missing" : "caller_wrong_kind",
-        "caller is not a live agent or herdr node",
+        "ambiguous",
+        "connecting process matches multiple canvas nodes — keep one agent|herdr card per process",
       );
     }
 
-    const targets = await buildTargets(
-      doc,
-      bound.principal.canvasName,
-      bound.principal.nodeId,
-    );
+    const match = matches[0]!;
+    const targets = await buildTargets(match.pageRefs);
     if (targets.length === 0) {
       return fail(
         "not_connected",
@@ -226,7 +234,7 @@ export const makeEdgeGrantService = (
       );
     }
 
-    const cacheKey = nodeRef;
+    const cacheKey = processKeyOf(principal);
     const now = wallNow();
     const existing = cache.get(cacheKey);
     if (existing !== undefined) {
@@ -237,18 +245,23 @@ export const makeEdgeGrantService = (
         return {
           ok: true,
           secret: existing.secret,
-          principal: existing.caller,
+          principal,
           targetCount: targets.length,
         };
       }
-      revokeCaller(cacheKey);
+      try {
+        dependencies.capabilities.revoke(existing.handle, "superseded");
+      } catch {
+        // best-effort
+      }
+      cache.delete(cacheKey);
     }
 
-    let principal = principals.get(cacheKey);
-    if (principal === undefined) {
+    let capPrincipal = capabilityPrincipals.get(cacheKey);
+    if (capPrincipal === undefined) {
       try {
-        principal = dependencies.capabilities.createPrincipal();
-        principals.set(cacheKey, principal);
+        capPrincipal = dependencies.capabilities.createPrincipal();
+        capabilityPrincipals.set(cacheKey, capPrincipal);
       } catch {
         return fail("closed", "browser authority is closed");
       }
@@ -256,7 +269,7 @@ export const makeEdgeGrantService = (
 
     let grant: BrowserCapabilityGrant;
     try {
-      grant = dependencies.capabilities.issue(principal, {
+      grant = dependencies.capabilities.issue(capPrincipal, {
         actions: [...BROWSER_CAPABILITY_ACTIONS],
         targets,
         ttlMs,
@@ -275,9 +288,9 @@ export const makeEdgeGrantService = (
 
     cache.set(cacheKey, {
       secret: grant.secret,
-      principal,
+      principal: capPrincipal,
       handle: grant.handle,
-      caller: caller.principal,
+      processKey: cacheKey,
       targetRefs: targets.map((t) => t.ref),
       expiresAt: grant.expiresAt,
     });
@@ -285,15 +298,38 @@ export const makeEdgeGrantService = (
     return {
       ok: true,
       secret: grant.secret,
-      principal: caller.principal,
+      principal,
       targetCount: targets.length,
     };
   };
 
+  const admitSocket = async (socket: Socket): Promise<EdgeGrantResult> => {
+    const identity = admitProcessIdentity(socket, processMap, readPeerPid);
+    if (!identity.ok) {
+      return fail(
+        identity.denial === "peer_pid_unavailable"
+          ? "peer_pid_unavailable"
+          : "process_unbound",
+        identity.message,
+      );
+    }
+    return admitPrincipal(identity.principal);
+  };
+
   return Object.freeze({
     processMap,
-    admit,
-    revokeCaller,
-    clear,
+    admitSocket,
+    admitPrincipal,
+    clear: () => {
+      for (const entry of cache.values()) {
+        try {
+          dependencies.capabilities.revoke(entry.handle, "superseded");
+        } catch {
+          // ignore
+        }
+      }
+      cache.clear();
+      capabilityPrincipals.clear();
+    },
   });
 };

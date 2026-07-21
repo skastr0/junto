@@ -365,18 +365,10 @@ export type ControlRouteName = keyof typeof CONTROL_ROUTES;
 export const CONTROL_TOKEN_HEADER = "x-vellum-token";
 export const CONTROL_CAPABILITY_HEADER = "x-vellum-capability";
 export const CONTROL_REQUEST_ID_HEADER = "x-vellum-request-id";
-/** Process-bind caller identity (same value as work plane VELLUM_NODE_REF). */
-export const CONTROL_NODE_REF_HEADER = "x-vellum-node-ref";
 
 /** Child-only environment inputs. Values never enter argv or query strings. */
 export const CONTROL_CAPABILITY_ENV = "VELLUM_BROWSER_CAPABILITY";
 export const CONTROL_HOME_ENV = "VELLUM_BROWSER_HOME";
-/**
- * Process-bound caller: canvas agent|herdr node ref. Shared with the work
- * plane (`VELLUM_NODE_REF`). When set and no capability secret is present,
- * the control plane admits via edge authz instead of capability ceremony.
- */
-export const CONTROL_NODE_REF_ENV = "VELLUM_NODE_REF";
 
 /** 32 random bytes encoded as unpadded base64url. */
 export const isValidControlCapability = (value: string): boolean =>

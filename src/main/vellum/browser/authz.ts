@@ -143,7 +143,7 @@ export const callerMayAccessPage = (
 export const browserAuthzMessage = (denial: BrowserAuthzDenial): string => {
   switch (denial) {
     case "caller_missing":
-      return "caller node not found on canvas — refresh VELLUM_NODE_REF";
+      return "caller node not found on canvas — process is bound to a missing node";
     case "caller_wrong_kind":
       return "caller must be an agent or herdr node";
     case "not_connected":

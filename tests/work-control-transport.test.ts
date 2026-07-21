@@ -18,11 +18,14 @@ import {
   type WorkControlServer,
 } from "../src/main/vellum/work/control";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
 import type { CanvasDoc } from "../src/shared/canvas";
 
 const roots: string[] = [];
 const servers: WorkControlServer[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<WorkService | CanvasesService, never>> = [];
+/** Fixed peer PID for transport tests — process-bind identity. */
+const TEST_PEER_PID = 42_424;
 
 const seedDoc = (): CanvasDoc => ({
   nodes: [
@@ -126,9 +129,19 @@ beforeEach(async () => {
   const runtime = ManagedRuntime.make(Layer.provideMerge(WorkLive, CanvasesLive));
   runtimes.push(runtime);
 
+  const processMap = makeProcessIdentityMap();
+  processMap.bind(TEST_PEER_PID, {
+    kind: "agent",
+    agentKey: "local:agent",
+  });
+
   const server = await startWorkControlServer({
     version: "test",
     workHome,
+    home: root,
+    canvasesDir,
+    processMap,
+    readPeerPid: () => TEST_PEER_PID,
     run: (effect) => runtime.runPromise(effect),
   });
   servers.push(server);

@@ -10,7 +10,6 @@ import {
   renderSchemaContract,
 } from "../core/discovery";
 import { InputError } from "../core/errors";
-import { resolveCallerNodeRef } from "../core/node-ref";
 import { executeJsonCommand } from "../core/output";
 import { WorkSocket, localDoctorChecks } from "../core/socket";
 
@@ -49,8 +48,7 @@ export const pingCommand = Command.make(
       "ping",
       Effect.gen(function* () {
         const socket = yield* WorkSocket;
-        const nodeRef = yield* resolveCallerNodeRef(undefined);
-        return yield* socket.call("ping", nodeRef, {}, toUndefined(timeout));
+        return yield* socket.call("ping", {}, toUndefined(timeout));
       }),
     ),
 ).pipe(Command.withDescription("Liveness probe against the work control socket"));
@@ -98,42 +96,33 @@ export const doctorCommand = Command.make(
         let liveOk = false;
         if (local.socket_present && local.token_present) {
           const socket = yield* WorkSocket;
-          const nodeRefResult = yield* resolveCallerNodeRef(undefined).pipe(Effect.either);
-          if (nodeRefResult._tag === "Right") {
-            const live = yield* socket
-              .call("doctor", nodeRefResult.right, {}, toUndefined(timeout))
-              .pipe(Effect.either);
-            if (live._tag === "Right") {
-              liveOk = true;
-              protocol = live.right;
-              const version =
-                typeof live.right === "object" &&
-                live.right !== null &&
-                "protocol_version" in live.right
-                  ? String((live.right as { protocol_version: string }).protocol_version)
-                  : undefined;
-              checks.push({
-                name: "protocol.version",
-                ok: version === WORK_PROTOCOL_VERSION,
-                details: {
-                  expected: WORK_PROTOCOL_VERSION,
-                  received: version,
-                },
-              });
-            } else {
-              checks.push({
-                name: "protocol.live",
-                ok: false,
-                details: { error: live.left.message },
-              });
-            }
+          const live = yield* socket
+            .call("doctor", {}, toUndefined(timeout))
+            .pipe(Effect.either);
+          if (live._tag === "Right") {
+            liveOk = true;
+            protocol = live.right;
+            const version =
+              typeof live.right === "object" &&
+              live.right !== null &&
+              "protocol_version" in live.right
+                ? String((live.right as { protocol_version: string }).protocol_version)
+                : undefined;
+            checks.push({
+              name: "protocol.version",
+              ok: version === WORK_PROTOCOL_VERSION,
+              details: {
+                expected: WORK_PROTOCOL_VERSION,
+                received: version,
+              },
+            });
           } else {
             checks.push({
-              name: "node_ref",
+              name: "protocol.live",
               ok: false,
               details: {
-                hint: "set VELLUM_NODE_REF for full doctor",
-                error: nodeRefResult.left.message,
+                error: live.left.message,
+                hint: "CLI must run under a live Vellum agent process (process-bind)",
               },
             });
           }
@@ -159,9 +148,8 @@ export const capabilitiesCommand = Command.make(
       "capabilities",
       Effect.gen(function* () {
         const socket = yield* WorkSocket;
-        const nodeRef = yield* resolveCallerNodeRef(undefined);
-        // Live wiring from edges — daemon computes from document state.
-        return yield* socket.call("capabilities", nodeRef, {}, toUndefined(timeout));
+        // Live wiring from edges — daemon uses process-bound caller.
+        return yield* socket.call("capabilities", {}, toUndefined(timeout));
       }),
     ),
 ).pipe(Command.withDescription("Live edge wiring as a contract"));
@@ -174,8 +162,7 @@ export const onboardCommand = Command.make(
       "onboard",
       Effect.gen(function* () {
         const socket = yield* WorkSocket;
-        const nodeRef = yield* resolveCallerNodeRef(undefined);
-        return yield* socket.call("onboard", nodeRef, {}, toUndefined(timeout));
+        return yield* socket.call("onboard", {}, toUndefined(timeout));
       }),
     ),
 ).pipe(Command.withDescription("Onboard briefing from live document state"));

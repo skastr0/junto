@@ -8,8 +8,6 @@ import {
   CONTROL_CAPABILITY_ENV,
   CONTROL_CAPABILITY_HEADER,
   CONTROL_HOME_ENV,
-  CONTROL_NODE_REF_ENV,
-  CONTROL_NODE_REF_HEADER,
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
   CONTROL_TOKEN_HEADER,
@@ -43,10 +41,10 @@ usage:
   vellum-browser <command> [args] [--json]
   bun run browser <command> [args] [--json]
 
-auth (protected commands):
-  VELLUM_NODE_REF                 process-bind caller (agent|herdr node) — product path
-  VELLUM_BROWSER_CAPABILITY       short-lived secret — transitional ceremony path
-  (doctor needs only the owner-local transport token)
+auth:
+  product path: run as a child of a live Vellum agent/herdr process (process-bind)
+  transitional: VELLUM_BROWSER_CAPABILITY short-lived secret (UI grant flow)
+  doctor needs only the owner-local transport token
 
 commands:
   doctor                          control plane health (app must be running)
@@ -87,7 +85,6 @@ const httpOverSocket = (
   route: { method: string; path: string },
   token: string,
   capability: string | undefined,
-  nodeRef: string | undefined,
   body: unknown,
 ): Promise<ControlEnvelope<unknown>> =>
   new Promise((resolve) => {
@@ -139,7 +136,6 @@ const httpOverSocket = (
           ...(capability === undefined
             ? {}
             : { [CONTROL_CAPABILITY_HEADER]: capability }),
-          ...(nodeRef === undefined ? {} : { [CONTROL_NODE_REF_HEADER]: nodeRef }),
           ...(encodedBody === undefined
             ? {}
             : { "content-length": String(Buffer.byteLength(encodedBody)) }),
@@ -318,29 +314,23 @@ const controlHome = (): string | ControlErr => {
 };
 
 /**
- * Dual admission inputs for protected routes:
- *   - capability secret (transitional ceremony path), or
- *   - VELLUM_NODE_REF process-bind (product path: edges grant page scope)
- * Doctor stays transport-token only.
+ * Optional capability secret (transitional UI grant). Product path is
+ * process-bind: the control server attributes this process via Unix peer PID
+ * and does not accept a client-supplied identity claim.
  */
 const admissionFor = (
   route: ControlRouteName,
-):
-  | { readonly capability?: string; readonly nodeRef?: string }
-  | ControlErr => {
+): { readonly capability?: string } | ControlErr => {
   if (route === "doctor") return {};
   const capability = process.env[CONTROL_CAPABILITY_ENV];
-  if (capability !== undefined && isValidControlCapability(capability)) {
-    return { capability };
+  if (capability === undefined) return {};
+  if (!isValidControlCapability(capability)) {
+    return controlErr(
+      "unauthorized",
+      `${CONTROL_CAPABILITY_ENV} is malformed`,
+    );
   }
-  const nodeRef = process.env[CONTROL_NODE_REF_ENV]?.trim();
-  if (nodeRef !== undefined && nodeRef.length > 0) {
-    return { nodeRef };
-  }
-  return controlErr(
-    "unauthorized",
-    `${CONTROL_CAPABILITY_ENV} or ${CONTROL_NODE_REF_ENV} is required for protected browser commands`,
-  );
+  return { capability };
 };
 
 const main = async (): Promise<void> => {
@@ -359,7 +349,6 @@ const main = async (): Promise<void> => {
     return printErrorAndExit(admission, parsed.json);
   }
   const capability = admission.capability;
-  const nodeRef = admission.nodeRef;
 
   let token: string | undefined;
   try {
@@ -381,7 +370,6 @@ const main = async (): Promise<void> => {
     CONTROL_ROUTES[parsed.call.route],
     token,
     capability,
-    nodeRef,
     parsed.call.body,
   );
 

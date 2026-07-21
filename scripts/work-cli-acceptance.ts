@@ -23,10 +23,10 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { formatNodeRef } from "../src/shared/node-ref";
 import { CanvasesLive } from "../src/main/vellum/canvases";
 import { startWorkControlServer } from "../src/main/vellum/work/control";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
 
 const REPO = process.cwd();
 const CLI = join(REPO, "dist/vellum");
@@ -171,18 +171,23 @@ const main = async () => {
   process.env.VELLUM_WORK_HOME = workHome;
 
   const runtime = ManagedRuntime.make(Layer.provideMerge(WorkLive, CanvasesLive));
+  // Bind the acceptance runner PID. CLI children walk PPID to this process.
+  const processMap = makeProcessIdentityMap();
+  processMap.bind(process.pid, { kind: "agent", agentKey: "local:default" });
+
   const server = await startWorkControlServer({
     version: "acceptance",
     workHome,
+    home: root,
+    canvasesDir: canvases,
+    processMap,
     run: (effect) => runtime.runPromise(effect),
   });
 
-  const nodeRef = formatNodeRef({ canvasName: CANVAS, nodeId: AGENT });
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     VELLUM_WORK_HOME: workHome,
-    VELLUM_NODE_REF: nodeRef,
-    // no token in env — CLI reads token file
+    // Identity is process-bind — no VELLUM_NODE_REF.
   };
 
   try {
@@ -296,7 +301,6 @@ const main = async () => {
         s.write(
           `${JSON.stringify({
             token: "0".repeat(64),
-            nodeRef,
             op: "ping",
           })}\n`,
         );

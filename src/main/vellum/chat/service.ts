@@ -19,17 +19,23 @@ import {
   type SpawnFn,
 } from "./acp-client";
 import { buildAcpSpawnTarget, resolveSessionCwd, type AcpSpawnTarget } from "./spawn";
+import { getProcessIdentityMap } from "../process-identity";
 
 // One live ACP session per agent node ("<host>:<profile>"). ChatService owns
 // spawn/initialize/session lifecycle and the ACP <-> ChatEvent projection;
 // the IPC layer (chat/ipc.ts, wired by the orchestrator) is a thin
 // pass-through onto this class.
+//
+// Local ACP children are process-bound: their OS pid is registered so work
+// and browser control can admit the agent without a forgeable nodeRef claim.
 
 interface AgentSession {
   readonly client: AcpClient;
   readonly generation: number;
   /** Hermes host id from the agent key (local | configured remote). */
   readonly host: string;
+  /** Local child pid registered for process-bind (undefined when remote). */
+  boundPid?: number;
   sessionId: string;
   models: ReadonlyArray<ChatModelChoice>;
   promptInFlight: boolean;
@@ -278,9 +284,24 @@ export class ChatService {
     );
   }
 
+  private bindLocalProcess(agentKey: string, session: AgentSession): void {
+    if (session.host !== "local") return;
+    const pid = session.client.childPid;
+    if (pid === undefined) return;
+    session.boundPid = pid;
+    getProcessIdentityMap().bind(pid, { kind: "agent", agentKey });
+  }
+
+  private unbindLocalProcess(session: AgentSession | undefined): void {
+    if (session?.boundPid === undefined) return;
+    getProcessIdentityMap().unbind(session.boundPid);
+    session.boundPid = undefined;
+  }
+
   private closeCurrent(agentKey: string): void {
     const session = this.sessions.get(agentKey);
     if (session === undefined) return;
+    this.unbindLocalProcess(session);
     if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
     session.client.close();
   }
@@ -319,6 +340,7 @@ export class ChatService {
   }
 
   private abandonSession(agentKey: string, session: AgentSession): void {
+    this.unbindLocalProcess(session);
     if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
     session.client.close();
   }
@@ -519,6 +541,8 @@ export class ChatService {
       const init = await session.client.start();
       const supersededAfterStart = this.supersededOpen(agentKey, session);
       if (supersededAfterStart !== undefined) return supersededAfterStart;
+      // Process-bind local ACP children so work/browser CLIs admit by peer PID.
+      this.bindLocalProcess(agentKey, session);
       authSuffix = describeAuthMethods(init.authMethods);
       const cwd = resolveSessionCwd(target.host);
 
@@ -709,6 +733,7 @@ export class ChatService {
     event: AcpLifecycleEvent,
   ): void {
     if (!this.isCurrent(agentKey, session)) return;
+    this.unbindLocalProcess(session);
     this.sessions.delete(agentKey);
     const message = event.kind === "error" ? event.message : `agent process exited (code ${event.code ?? "unknown"})`;
     this.emit(agentKey, "error", { message });

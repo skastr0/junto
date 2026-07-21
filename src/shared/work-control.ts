@@ -93,7 +93,11 @@ export type WorkErrorBody = typeof WorkErrorBody.Type;
 
 export const WorkRequestEnvelope = Schema.Struct({
   token: Schema.String,
-  nodeRef: Schema.String,
+  /**
+   * Deprecated identity claim. Process-bind (Unix peer PID) is the principal.
+   * Accepted for wire compatibility but ignored for authorization.
+   */
+  nodeRef: Schema.optionalWith(Schema.String, { exact: true }),
   op: WorkOpName,
   args: Schema.optionalWith(Schema.Unknown, { exact: true }),
   id: Schema.optionalWith(Schema.String, { exact: true }),
@@ -296,7 +300,7 @@ export const validateNodeRefString = (
           path: "nodeRef",
           received: input,
           hint: "use a canonical vellum://canvas/<name>?node=<id> reference",
-          next_step: "set VELLUM_NODE_REF or pass node in the payload",
+          next_step: "use a canonical vellum://canvas/<name>?node=<id> reference",
           retryable: false,
         },
       },
