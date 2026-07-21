@@ -2,13 +2,12 @@ import type { CanvasNode } from "@shared/canvas";
 
 /**
  * Selection kind for the RTS left command card primary row.
- * Derived from node shape + optional live caps (booth binding, herdr meta).
- * Open vocabulary entity.kind is folded into these tactical surfaces only.
+ * Derived from node shape + herdr meta. Open vocabulary entity.kind is
+ * folded into these tactical surfaces only.
  */
 export type CommandSelectionKind =
   | "herdr"
   | "project"
-  | "booth"
   | "region"
   | "link"
   | "default";
@@ -18,8 +17,6 @@ export type PrimaryCommandAction =
   | "open-terminal"
   | "mark-seen"
   | "kill-pane"
-  | "browse-glyphs"
-  | "review-drafts"
   | "arm-region"
   | "pulse-region"
   | "slot-cue"
@@ -30,22 +27,15 @@ export type CommandCardCaps = {
   readonly canMarkSeen?: boolean;
   /** herdr: kill-pane available (paneId present). */
   readonly canKill?: boolean;
-  /** project: tower (or any) browse surface is meaningful. */
-  readonly canBrowse?: boolean;
-  /** booth: booth connection key resolved. */
-  readonly canReview?: boolean;
   /** region: always true when kind is region; slot index 0–8 or null if unslotted. */
   readonly slotIndex?: number | null;
 };
 
 /**
  * Classify a selected node for the command card primary row.
- * Precedence: region → herdr → booth (project + booth bind) → project → link → default.
+ * Precedence: region → herdr → project → link → default.
  */
-export function commandSelectionKind(
-  node: CanvasNode,
-  _opts?: { readonly hasBooth?: boolean },
-): CommandSelectionKind {
+export function commandSelectionKind(node: CanvasNode): CommandSelectionKind {
   if (node.type === "group") return "region";
   if (node.ether?.herdr || node.ether?.entity?.kind === "herdr") return "herdr";
   if (node.ether?.entity?.kind === "project") return "project";
@@ -69,8 +59,6 @@ export function primaryCommandActions(
       return out;
     }
     case "project":
-      return [];
-    case "booth":
       return [];
     case "region":
       return ["arm-region", "pulse-region", "slot-cue"];

@@ -62,7 +62,6 @@ import { useAlertAttention } from "../../lib/alert-attention";
 import { ConnectEditor } from "../InspectorFields";
 import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
 import { PulseTray } from "../PulseTray";
-import { DetailModal } from "../DetailModal";
 import "./RtsBottomBar.css";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -534,9 +533,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
       case "arm-region":
       case "pulse-region":
       case "slot-cue":
-      case "browse-glyphs":
-      case "review-drafts":
-        return null;
       default:
         return null;
     }

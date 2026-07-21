@@ -31,11 +31,8 @@ describe("commandSelectionKind", () => {
     expect(
       commandSelectionKind(text({ ether: { entity: { kind: "project", name: "prism" } } })),
     ).toBe("project");
-    // hasBooth is ignored — booth live plane is gone
     expect(
-      commandSelectionKind(text({ ether: { entity: { kind: "project", name: "prism" } } }), {
-        hasBooth: true,
-      }),
+      commandSelectionKind(text({ ether: { entity: { kind: "project", name: "prism" } } })),
     ).toBe("project");
     expect(commandSelectionKind({ ...base, type: "link", url: "https://x.com" })).toBe("link");
     expect(commandSelectionKind(text({ text: "note" }))).toBe("default");
@@ -59,9 +56,8 @@ describe("primaryCommandActions", () => {
     ]);
   });
 
-  it("project / booth have no private-source primary actions", () => {
+  it("project has no primary actions", () => {
     expect(primaryCommandActions("project")).toEqual([]);
-    expect(primaryCommandActions("booth")).toEqual([]);
   });
 
   it("region / link / default", () => {
