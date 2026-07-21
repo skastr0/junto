@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { ChatItem, ChatPlanEntry } from "../../lib/chat-state";
 import { toolActivity } from "../../lib/activity";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
@@ -6,6 +6,8 @@ import { ActivityMarkFromSpec } from "../ActivityMark";
 
 // One card per ChatItem kind. Kept deliberately quiet — the transcript is a
 // record to scan, not a marketing surface.
+// Item components are memoized so streaming (appendOrMergeText preserves id
+// and prior item refs) only re-renders the merged tail.
 
 const PERMISSION_OPTION_LABEL: Record<string, string> = {
   allow_once: "Allow once",
@@ -24,30 +26,30 @@ function formatBlock(value: unknown): string {
   }
 }
 
-function UserMessage({ item }: { readonly item: Extract<ChatItem, { kind: "user" }> }) {
+const UserMessage = memo(function UserMessage({ item }: { readonly item: Extract<ChatItem, { kind: "user" }> }) {
   return (
     <div className="chat-message chat-message--user">
       <pre className="chat-message__text">{item.text}</pre>
     </div>
   );
-}
+});
 
-function AssistantMessage({ item }: { readonly item: Extract<ChatItem, { kind: "assistant" }> }) {
+const AssistantMessage = memo(function AssistantMessage({ item }: { readonly item: Extract<ChatItem, { kind: "assistant" }> }) {
   return (
     <div className="chat-message chat-message--assistant">
       <pre className="chat-message__text">{item.text}</pre>
     </div>
   );
-}
+});
 
-function ThoughtMessage({ item }: { readonly item: Extract<ChatItem, { kind: "thought" }> }) {
+const ThoughtMessage = memo(function ThoughtMessage({ item }: { readonly item: Extract<ChatItem, { kind: "thought" }> }) {
   return (
     <details className="chat-thought">
       <summary>thinking…</summary>
       <pre className="chat-thought__text">{item.text}</pre>
     </details>
   );
-}
+});
 
 function PlanEntryRow({ entry }: { readonly entry: ChatPlanEntry }) {
   const done = entry.status === "completed";
@@ -60,15 +62,15 @@ function PlanEntryRow({ entry }: { readonly entry: ChatPlanEntry }) {
   );
 }
 
-function PlanStrip({ item }: { readonly item: Extract<ChatItem, { kind: "plan" }> }) {
+const PlanStrip = memo(function PlanStrip({ item }: { readonly item: Extract<ChatItem, { kind: "plan" }> }) {
   return (
     <div className="chat-plan">
       {item.entries.map((entry, index) => <PlanEntryRow key={index} entry={entry} />)}
     </div>
   );
-}
+});
 
-function ToolCard({ item }: { readonly item: Extract<ChatItem, { kind: "tool" }> }) {
+const ToolCard = memo(function ToolCard({ item }: { readonly item: Extract<ChatItem, { kind: "tool" }> }) {
   const activity = toolActivity(item.status);
   const hasDetail = item.rawInput !== undefined || item.rawOutput !== undefined || Boolean(item.contentText);
   return (
@@ -87,14 +89,14 @@ function ToolCard({ item }: { readonly item: Extract<ChatItem, { kind: "tool" }>
       ) : null}
     </div>
   );
-}
+});
 
-function PermissionCard({
+const PermissionCard = memo(function PermissionCard({
   item,
-  onAnswer,
+  onAnswerPermission,
 }: {
   readonly item: Extract<ChatItem, { kind: "permission" }>;
-  readonly onAnswer: (optionId: string) => void;
+  readonly onAnswerPermission: (requestId: string, optionId: string) => void;
 }) {
   const answered = Boolean(item.answeredOptionId);
   return (
@@ -112,7 +114,7 @@ function PermissionCard({
               type="button"
               disabled={answered}
               className={`chat-permission-card__option${isChosen ? " is-chosen" : ""}${option.optionId.startsWith("deny") ? " is-deny" : ""}`}
-              onClick={() => onAnswer(option.optionId)}
+              onClick={() => onAnswerPermission(item.requestId, option.optionId)}
             >
               {PERMISSION_OPTION_LABEL[option.optionId] ?? option.label}
             </button>
@@ -121,15 +123,15 @@ function PermissionCard({
       </div>
     </div>
   );
-}
+});
 
-function StatusLine({ item }: { readonly item: Extract<ChatItem, { kind: "status" }> }) {
+const StatusLine = memo(function StatusLine({ item }: { readonly item: Extract<ChatItem, { kind: "status" }> }) {
   return (
     <div className="chat-status-line" style={{ color: item.level === "error" ? withAlpha(HUE.crimson, 0.85) : DIM }}>
       {item.text}
     </div>
   );
-}
+});
 
 export function ChatTranscript({
   items,
@@ -162,7 +164,7 @@ export function ChatTranscript({
           case "thought": return <ThoughtMessage key={item.id} item={item} />;
           case "plan": return <PlanStrip key={item.id} item={item} />;
           case "tool": return <ToolCard key={item.id} item={item} />;
-          case "permission": return <PermissionCard key={item.id} item={item} onAnswer={(optionId) => onAnswerPermission(item.requestId, optionId)} />;
+          case "permission": return <PermissionCard key={item.id} item={item} onAnswerPermission={onAnswerPermission} />;
           case "status": return <StatusLine key={item.id} item={item} />;
           default: return null;
         }
