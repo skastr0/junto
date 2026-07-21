@@ -30,10 +30,16 @@ export type ExecutionOverlay = Pick<
   "phaseByEdgeId" | "detailByEdgeId" | "blocked" | "blockedEdgeIds"
 >;
 
+/** Cached edge entry: source doc edge (identity) + projected FlowEdge. */
+type CachedFlowEdge = {
+  readonly source: CanvasEdge;
+  readonly flow: FlowEdge;
+};
+
 /** Mutable identity cache — reuse FlowNode/FlowEdge objects when inputs are unchanged. */
 export type FlowIdentityCache = {
   readonly nodes: Map<string, FlowNode>;
-  readonly edges: Map<string, FlowEdge>;
+  readonly edges: Map<string, CachedFlowEdge>;
 };
 
 export const createFlowIdentityCache = (): FlowIdentityCache => ({
@@ -44,8 +50,8 @@ export const createFlowIdentityCache = (): FlowIdentityCache => ({
 // CanvasDoc -> React Flow. Optional kernel execution overlay carries live
 // glyph/WIP phase so the canvas does not re-derive with an empty GlyphView.
 // Optional identity cache reuses prior FlowNode/FlowEdge objects when the
-// doc node ref + blocked (or edge phase/detail/rippling) are unchanged so
-// React re-renders only the nodes that actually changed.
+// doc node ref + blocked (or source edge ref + phase/detail/rippling) are
+// unchanged so React re-renders only the nodes that actually changed.
 export const toFlow = (
   doc: CanvasDoc,
   execution?: ExecutionOverlay | null,
@@ -79,7 +85,7 @@ export const toFlow = (
     nextNodeIds.add(node.id);
     const isBlocked = blocked.has(node.id);
     const cached = cache?.nodes.get(node.id);
-    if (cached && cached.data.node === node && cached.data.blocked === isBlocked) {
+    if (cached && cached.data?.node === node && cached.data.blocked === isBlocked) {
       return cached;
     }
     const isGroup = node.type === "group";
@@ -112,26 +118,16 @@ export const toFlow = (
     const detail = detailOf(edge.id);
     const rippling = blockedEdgeIds.has(edge.id);
     const cached = cache?.edges.get(edge.id);
-    const cachedData = cached?.data;
-    const cachedEdge = cachedData?.edge;
+    // Hit on *source* doc edge ref + live phase inputs — never compare against
+    // the projected edge (which always remints ether/label).
     if (
       cached &&
-      cachedData &&
-      cachedEdge &&
-      cachedEdge.id === edge.id &&
-      cachedEdge.fromNode === edge.fromNode &&
-      cachedEdge.toNode === edge.toNode &&
-      cachedEdge.fromSide === edge.fromSide &&
-      cachedEdge.toSide === edge.toSide &&
-      cachedEdge.fromEnd === edge.fromEnd &&
-      cachedEdge.toEnd === edge.toEnd &&
-      cachedEdge.label === edge.label &&
-      cachedEdge.ether === edge.ether &&
-      cachedData.phase === phase &&
-      cachedData.detail === detail &&
-      cachedData.rippling === rippling
+      cached.source === edge &&
+      cached.flow.data?.phase === phase &&
+      cached.flow.data?.detail === detail &&
+      cached.flow.data?.rippling === rippling
     ) {
-      return cached;
+      return cached.flow;
     }
     const projected: CanvasEdge = {
       ...edge,
@@ -155,7 +151,7 @@ export const toFlow = (
       },
       zIndex: 2,
     };
-    cache?.edges.set(edge.id, flowEdge);
+    cache?.edges.set(edge.id, { source: edge, flow: flowEdge });
     return flowEdge;
   });
   if (cache) {

@@ -4,7 +4,7 @@ import { applyPhaseMirror } from "../src/shared/canvas";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
 import { buildGlyphView } from "../src/shared/glyph-view";
 import { digestCanvas } from "../src/shared/digest";
-import { toFlow } from "../src/renderer/lib/convert";
+import { createFlowIdentityCache, toFlow } from "../src/renderer/lib/convert";
 import { criteriaPhasesNeedMirror } from "../src/main/vellum/kernel/cycle";
 
 const project = (id: string, key: string) => ({
@@ -113,6 +113,49 @@ describe("toFlow consumes kernel execution overlay", () => {
     expect(liveEdge?.data?.detail).toBe("0/1 done");
     expect(liveB?.data?.blocked).toBe(true);
     expect(liveEdge?.data?.rippling).toBe(true);
+  });
+
+  it("reuses FlowNode/FlowEdge identity when inputs are unchanged (cache hit)", () => {
+    const doc: CanvasDoc = {
+      nodes: [project("a", "pa"), project("b", "pb")],
+      edges: [
+        {
+          id: "e1",
+          fromNode: "a",
+          toNode: "b",
+          ether: { criteria: { mode: "glyphs", glyphIds: ["g1"] } },
+        },
+      ],
+    };
+    const overlay = {
+      phaseByEdgeId: { e1: "blocks" as const },
+      detailByEdgeId: { e1: "0/1 done" },
+      blocked: ["b"],
+      blockedEdgeIds: ["e1"],
+    };
+    const cache = createFlowIdentityCache();
+    const first = toFlow(doc, overlay, cache);
+    const second = toFlow(doc, overlay, cache);
+    expect(second.nodes[0]).toBe(first.nodes[0]);
+    expect(second.nodes[1]).toBe(first.nodes[1]);
+    expect(second.edges[0]).toBe(first.edges[0]);
+  });
+
+  it("remints only the node whose blocked flag or doc ref changed", () => {
+    const doc: CanvasDoc = {
+      nodes: [project("a", "pa"), project("b", "pb")],
+      edges: [],
+    };
+    const cache = createFlowIdentityCache();
+    const first = toFlow(doc, { phaseByEdgeId: {}, detailByEdgeId: {}, blocked: [], blockedEdgeIds: [] }, cache);
+    const second = toFlow(
+      doc,
+      { phaseByEdgeId: {}, detailByEdgeId: {}, blocked: ["b"], blockedEdgeIds: [] },
+      cache,
+    );
+    expect(second.nodes.find((n) => n.id === "a")).toBe(first.nodes.find((n) => n.id === "a"));
+    expect(second.nodes.find((n) => n.id === "b")).not.toBe(first.nodes.find((n) => n.id === "b"));
+    expect(second.nodes.find((n) => n.id === "b")?.data?.blocked).toBe(true);
   });
 });
 
