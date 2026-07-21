@@ -26,14 +26,16 @@ function RegionLabel({ label, editing, draft, inputRef, onDraft, onCommit, onCan
 
 export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   const node = data.node;
-  if (node.type !== "group") return null;
-  const label = node.label ?? "";
+  // Type is guaranteed "group" by React Flow nodeTypes routing — never early-
+  // return before hooks. Narrow label/background only where fields differ.
+  const label = node.type === "group" ? (node.label ?? "") : "";
   const stroke = borderColor(node.color, selected);
   const tint = accentColor(node.color);
-  const hasBackground = Boolean(node.background);
-  const backgroundStyle = node.backgroundStyle ?? "cover";
+  const background = node.type === "group" ? node.background : undefined;
+  const hasBackground = Boolean(background);
+  const backgroundStyle = node.type === "group" ? (node.backgroundStyle ?? "cover") : "cover";
   const [editing, setEditing] = useState(false);
-  const editNodeId = use$(state$.editNodeId);
+  const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
   const [draft, setDraft] = useState(label);
   const inputRef = useRef<HTMLInputElement>(null);
   const armed = Boolean(use$(kernel$.armed[node.id]));
@@ -47,17 +49,17 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   }, [editing, label]);
 
   useEffect(() => {
-    if (editNodeId !== node.id) return;
+    if (!isEditTarget) return;
     setEditing(true);
     state$.editNodeId.set("");
-  }, [editNodeId, node.id]);
+  }, [isEditTarget, node.id]);
 
   const commit = () => {
     setEditing(false);
     if (draft !== label) renameGroup(node.id, draft);
   };
 
-  return <div className="vellum-group relative h-full w-full rounded-[14px]" style={{ border: `1px solid ${selected ? withAlpha(HUE.amber, 0.6) : stroke}`, backgroundImage: hasBackground ? `linear-gradient(135deg, ${withAlpha(tint, 0.1)}, rgba(13,12,11,0.5)), url(${JSON.stringify(node.background)})` : undefined, background: hasBackground ? undefined : node.color ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, rgba(13,12,11,0.25))` : "linear-gradient(135deg, rgba(33,27,21,0.22), rgba(11,11,10,0.12))", backgroundSize: hasBackground ? (backgroundStyle === "cover" ? "cover" : backgroundStyle === "ratio" ? "contain" : "auto") : undefined, backgroundRepeat: hasBackground && backgroundStyle === "repeat" ? "repeat" : "no-repeat", backgroundPosition: hasBackground ? "center" : undefined, boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none" }}>
+  return <div className="vellum-group relative h-full w-full rounded-[14px]" style={{ border: `1px solid ${selected ? withAlpha(HUE.amber, 0.6) : stroke}`, backgroundImage: hasBackground ? `linear-gradient(135deg, ${withAlpha(tint, 0.1)}, rgba(13,12,11,0.5)), url(${JSON.stringify(background)})` : undefined, background: hasBackground ? undefined : node.color ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, rgba(13,12,11,0.25))` : "linear-gradient(135deg, rgba(33,27,21,0.22), rgba(11,11,10,0.12))", backgroundSize: hasBackground ? (backgroundStyle === "cover" ? "cover" : backgroundStyle === "ratio" ? "contain" : "auto") : undefined, backgroundRepeat: hasBackground && backgroundStyle === "repeat" ? "repeat" : "no-repeat", backgroundPosition: hasBackground ? "center" : undefined, boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none" }}>
     <NodeResizer isVisible={selected} minWidth={320} minHeight={180} color={HUE.amber} handleClassName="vellum-resize-handle" lineClassName="vellum-resize-line" onResizeEnd={(_event, params) => resizeNode(node.id, params)} />
     <RegionToolbar nodeId={node.id} selected={selected} onEdit={() => setEditing(true)} />
     <div className="absolute left-2 top-2 flex items-center gap-1">

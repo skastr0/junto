@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
@@ -252,7 +252,9 @@ function AgentTabBar({ agentKey, active, onSelect }: { readonly agentKey: string
 
 // Node accent / flags / focus / connect / delete / copy-ref live in the RTS
 // command bar (lower-left). This panel keeps surface-specific detail only.
-function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
+// Memoized so parent re-renders from unrelated doc churn (other-node drag stops
+// that leave this node reference stable) do not rebuild the inspector tree.
+const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
   const canvasName = use$(state$.canvasName);
   const [agentTab, setAgentTab] = useState("chat");
   const isEntity = Boolean(node.ether?.entity);
@@ -277,7 +279,7 @@ function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly 
       </>}
     </div>
   </aside>;
-}
+});
 
 function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
   const doc = use$(state$.doc);
@@ -381,10 +383,14 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
 }
 
 export function InspectorPanel() {
-  const doc = use$(state$.doc);
-  const nodeId = use$(state$.selectedNodeId);
+  // Select the inspected node by id so other nodes' drag stops (which keep
+  // this node reference stable via syncPositions map) do not re-render us.
+  const node = use$(() => {
+    const id = state$.selectedNodeId.get();
+    if (!id) return undefined;
+    return state$.doc.get().nodes.find((candidate) => candidate.id === id);
+  });
   const edgeId = use$(state$.selectedEdgeId);
-  const node = doc.nodes.find((candidate) => candidate.id === nodeId);
   const onClose = () => { clearSelection(); };
   if (node) return <NodeInspector node={node} onClose={onClose} />;
   if (edgeId) return <EdgeInspector onClose={onClose} />;

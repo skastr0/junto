@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { createElement } from "react";
+import { createElement, memo } from "react";
 
 // Lightweight, dependency-free markdown for freeform note nodes.
 // Raw source is stored; this renders a safe subset when the node is unselected.
@@ -173,7 +173,9 @@ function renderInline(tokens: ReadonlyArray<InlineToken>, keyPrefix: string): Re
   });
 }
 
-export function NoteMarkdown({ source }: { readonly source: string }) {
+// source is a stable string prop — memo skips re-parse when parent re-renders
+// with the same note body (e.g. selection chrome around an unselected note).
+export const NoteMarkdown = memo(function NoteMarkdown({ source }: { readonly source: string }) {
   const blocks = parseBlocks(source);
   if (blocks.length === 0) {
     return <div className="note-md note-md--empty">empty note</div>;
@@ -224,4 +226,4 @@ export function NoteMarkdown({ source }: { readonly source: string }) {
       })}
     </div>
   );
-}
+});

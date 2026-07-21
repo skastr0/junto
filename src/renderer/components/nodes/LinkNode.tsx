@@ -19,7 +19,7 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
   // before this branch existed.
   const isPage = node.ether?.entity?.kind === "page" && Boolean(node.ether?.browser);
   const [editing, setEditing] = useState(false);
-  const editNodeId = use$(state$.editNodeId);
+  const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
   const [draft, setDraft] = useState(url);
   const ref = useRef<HTMLInputElement>(null);
 
@@ -31,10 +31,10 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
   }, [editing, url]);
 
   useEffect(() => {
-    if (editNodeId !== node.id) return;
+    if (!isEditTarget) return;
     setEditing(true);
     state$.editNodeId.set("");
-  }, [editNodeId, node.id]);
+  }, [isEditTarget, node.id]);
 
   const commit = () => {
     setEditing(false);

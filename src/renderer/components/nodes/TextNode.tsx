@@ -11,10 +11,10 @@ import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
 import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { state$ } from "../../lib/state";
-import { resolveNodeConnections } from "../../../shared/connections";
+import { findEntity } from "@shared/entities";
 import { chatActivity, timerActivity, watcherActivity } from "../../lib/activity";
 import { chatCoarse$ } from "../../lib/chat-state";
-import { accentColor, INK, DIM, HUE, SOURCE_HUE, withAlpha } from "../../lib/theme";
+import { accentColor, INK, DIM, SOURCE_HUE, withAlpha } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { openHerdrTerminal } from "../../lib/herdr-state";
@@ -136,21 +136,28 @@ function AgentActivityMark({ agentKey }: { readonly agentKey: string }) {
 // An entity card (project / agent) is ONE node: its name, one line of live
 // stats hydrated from its connectors, and a quiet dot per connector. Never a
 // wall of chips, never exploded into child nodes.
+//
+// Subscribes to this agent's hermes entity only (primitive-derived selectors)
+// so unrelated snapshot churn does not re-render every agent card.
 function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: string }) {
-  const snapshots = use$(state$.snapshots);
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const nameHue = node.color ? accentColor(node.color) : INK;
   const hermesKey = kind === "agent" ? node.ether?.entity?.name : undefined;
-  const connections = resolveNodeConnections(node.ether?.entity, snapshots).filter((c) => c.source === "hermes");
-  const hermes = connections[0]?.entity;
-  const segments: string[] = [];
-  if (hermes) {
+  const line = use$(() => {
+    if (!hermesKey) return "";
+    const hermes = findEntity(state$.snapshots.get(), "hermes", hermesKey);
+    if (!hermes) return "";
+    const segments: string[] = [];
     const status = hermes.stats.status;
     if (typeof status === "string" && status) segments.push(status);
     const model = hermes.stats.model;
     if (typeof model === "string" && model) segments.push(model);
-  }
-  const line = segments.join(" · ");
+    return segments.join(" · ");
+  });
+  const hermesFresh = use$(() => {
+    if (!hermesKey) return false;
+    return findEntity(state$.snapshots.get(), "hermes", hermesKey) !== undefined;
+  });
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [identity, setIdentity] = useState<AgentIdentity | null>(null);
   useEffect(() => {
@@ -168,21 +175,17 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
           <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>{kind}</span>
           <span className="flex items-center gap-1.5">
             {hermesKey ? <AgentActivityMark agentKey={hermesKey} /> : null}
-            {connections.map(({ source, entity }, i) => {
-              const ok = entity !== undefined;
-              return (
-                <span
-                  key={`${source}-${i}`}
-                  title={`${source} · ${ok ? "fresh" : "stale"}`}
-                  className="size-[5px] rounded-full"
-                  style={{
-                    background: SOURCE_HUE[source] ?? DIM,
-                    opacity: ok ? 1 : 0.3,
-                    boxShadow: ok ? `0 0 6px ${withAlpha(SOURCE_HUE[source] ?? DIM, 0.6)}` : "none",
-                  }}
-                />
-              );
-            })}
+            {hermesKey ? (
+              <span
+                title={`hermes · ${hermesFresh ? "fresh" : "stale"}`}
+                className="size-[5px] rounded-full"
+                style={{
+                  background: SOURCE_HUE.hermes ?? DIM,
+                  opacity: hermesFresh ? 1 : 0.3,
+                  boxShadow: hermesFresh ? `0 0 6px ${withAlpha(SOURCE_HUE.hermes ?? DIM, 0.6)}` : "none",
+                }}
+              />
+            ) : null}
           </span>
         </div>
         <div className="mt-1 flex items-center gap-1.5 overflow-hidden">
@@ -295,7 +298,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const text = node.type === "text" ? node.text : "";
   const isFreeNote = !node.ether?.entity;
   const isHerdr = node.ether?.entity?.kind === "herdr";
-  const editNodeId = use$(state$.editNodeId);
+  // Boolean selector: only this node re-renders when edit intent targets it.
+  const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
   const [editing, setEditing] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [maximized, setMaximized] = useState(false);
@@ -316,13 +320,13 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   }, [editing, maximized]);
 
   useEffect(() => {
-    if (editNodeId !== node.id) return;
+    if (!isEditTarget) return;
     setDraft(text);
     if (isFreeNote) setMaximized(true);
     else if (isHerdr) setRenaming(true);
     else setEditing(true);
     state$.editNodeId.set("");
-  }, [editNodeId, node.id, isFreeNote, isHerdr, text]);
+  }, [isEditTarget, node.id, isFreeNote, isHerdr, text]);
 
   const commit = () => {
     setEditing(false);

@@ -24,9 +24,6 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
   const browser = node.ether?.browser;
   const url = node.type === "link" ? node.url : "";
   const canvasName = use$(state$.canvasName);
-  const sessions = use$(browser$.sessionByRef);
-  const registry = use$(dock$.registry);
-  const stopErrors = use$(dock$.stopErrorByRef);
   const pageRef = useMemo(() => {
     try {
       return formatNodeRef({ canvasName, nodeId: node.id });
@@ -34,12 +31,14 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
       return undefined;
     }
   }, [canvasName, node.id]);
-  const session = pageRef ? sessions[pageRef] : undefined;
-  const docked = Boolean(
-    pageRef && registry.surfaces.some((s) => s.kind === "browser" && s.id === pageRef),
-  );
+  // Per-ref selectors — do not subscribe to the whole session/registry maps.
+  const session = use$(browser$.sessionByRef[pageRef ?? ""]);
+  const stopError = use$(dock$.stopErrorByRef[pageRef ?? ""]);
+  const docked = use$(() => {
+    if (!pageRef) return false;
+    return dock$.registry.surfaces.get().some((s) => s.kind === "browser" && s.id === pageRef);
+  });
   const attaching = docked && !session?.attached;
-  const stopError = pageRef ? stopErrors[pageRef] : undefined;
 
   useEffect(() => {
     subscribeBrowserSessionEvents();

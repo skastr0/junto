@@ -13,7 +13,7 @@ export function FileNode({ data, selected }: NodeProps<FlowNode>) {
   const path = node.type === "file" ? node.file : "";
   const subpath = node.type === "file" ? node.subpath ?? "" : "";
   const [editing, setEditing] = useState(false);
-  const editNodeId = use$(state$.editNodeId);
+  const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
   const [draft, setDraft] = useState(path);
   const ref = useRef<HTMLInputElement>(null);
 
@@ -25,10 +25,10 @@ export function FileNode({ data, selected }: NodeProps<FlowNode>) {
   }, [editing, path]);
 
   useEffect(() => {
-    if (editNodeId !== node.id) return;
+    if (!isEditTarget) return;
     setEditing(true);
     state$.editNodeId.set("");
-  }, [editNodeId, node.id]);
+  }, [isEditTarget, node.id]);
 
   const commit = () => {
     setEditing(false);
