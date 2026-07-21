@@ -1,0 +1,299 @@
+#!/usr/bin/env node
+// Fake `ssh` executable for E2E — accepts the product's real invocation shape
+// (see src/main/vellum/ssh/program.ts's createSshProgramCompiler) and executes
+// the remote command LOCALLY via /bin/sh, with PATH prefixed by this same
+// directory so a remote hostId (e.g. "remote-a") resolves `herdr` back to the
+// fake herdr binary next to this file. No network — everything runs on the
+// sandboxed local machine.
+//
+// Three invocation shapes the compiler emits, all handled here:
+//   1. exec   — [...BASE_OPTIONS, ClearAllForwardings, shared|dedicated opts,
+//                endpoint, remoteCommandText] — oneShot / stream / warm /
+//                daemon-handoff / home-directory-lookup all compile to this
+//                (only invocationText differs). Runs `/bin/sh -c <text>`,
+//                stdio inherited straight through (works for both a one-shot
+//                capture and a long-lived interactive stream).
+//   2. master — [...BASE_OPTIONS, -M, -S <controlSocket>, ..., -N, endpoint]
+//                — background "control" process. Faked as a tiny unix-socket
+//                JSON control server on <controlSocket> so separate `-O …`
+//                invocations (forward/check/cancel/exit) can talk to it.
+//   3. control-op — [...,-S <controlSocket>, -O check|forward|cancel|exit, -L
+//                spec, "placeholder"] — a one-shot message to the master.
+"use strict";
+
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, unlinkSync } from "node:fs";
+import * as net from "node:net";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const SELF_DIR = dirname(fileURLToPath(import.meta.url));
+
+// -o takes a "Key=Value" arg; these other flags each take one plain arg.
+const VALUE_FLAGS = new Set([
+  "-o", "-S", "-F", "-O", "-L", "-l", "-p", "-i", "-J", "-D", "-e", "-c", "-m",
+  "-Q", "-E", "-I", "-B", "-W", "-w",
+]);
+
+const parseArgs = (argv) => {
+  const o = [];
+  const values = {};
+  const flags = new Set();
+  const positionals = [];
+  let i = 0;
+  while (i < argv.length) {
+    const a = argv[i];
+    if (a === "-o") {
+      o.push(argv[i + 1]);
+      i += 2;
+      continue;
+    }
+    if (VALUE_FLAGS.has(a)) {
+      values[a] = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (a.startsWith("-") && a.length > 1) {
+      flags.add(a);
+      i += 1;
+      continue;
+    }
+    positionals.push(a);
+    i += 1;
+  }
+  return { o, values, flags, positionals };
+};
+
+const optionValue = (opts, key) => {
+  for (const kv of opts.o) {
+    const idx = kv.indexOf("=");
+    if (idx > 0 && kv.slice(0, idx) === key) return kv.slice(idx + 1);
+  }
+  return undefined;
+};
+
+const controlSocketFor = (opts) => opts.values["-S"] ?? optionValue(opts, "ControlPath");
+
+// --- exec: run the remote command text locally via /bin/sh -----------------
+
+const runExec = (positionals) => {
+  const commandText = positionals[positionals.length - 1];
+  if (!commandText) {
+    process.exit(0);
+    return;
+  }
+  const env = { ...process.env };
+  env.PATH = `${SELF_DIR}:${env.PATH ?? ""}`;
+  let child;
+  try {
+    child = spawn("/bin/sh", ["-c", commandText], { stdio: "inherit", env });
+  } catch (error) {
+    process.stderr.write(`fake ssh: exec failed: ${error}\n`);
+    process.exit(255);
+    return;
+  }
+  child.on("exit", (code, signal) => {
+    process.exitCode = signal ? 1 : (code ?? 0);
+  });
+  child.on("error", (error) => {
+    process.stderr.write(`fake ssh: exec failed: ${error}\n`);
+    process.exitCode = 255;
+  });
+  process.on("SIGTERM", () => {
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // already gone
+    }
+  });
+};
+
+// --- master: a tiny JSON control server on the ControlPath socket ----------
+
+const runMaster = (opts) => {
+  const controlSocket = controlSocketFor(opts);
+  if (!controlSocket) {
+    process.exit(1);
+    return;
+  }
+  mkdirSync(dirname(controlSocket), { recursive: true });
+  try {
+    unlinkSync(controlSocket);
+  } catch {
+    // fine
+  }
+
+  const forwards = new Map(); // localSocket -> net.Server
+
+  const handle = (conn, msg) => {
+    const reply = (obj) => {
+      try {
+        conn.write(`${JSON.stringify(obj)}\n`);
+      } catch {
+        // conn already gone
+      }
+    };
+    if (msg.op === "check") return reply({ ok: true });
+    if (msg.op === "forward") {
+      const { local, remote } = msg;
+      if (forwards.has(local)) return reply({ ok: true });
+      try {
+        unlinkSync(local);
+      } catch {
+        // fine
+      }
+      const fwd = net.createServer((incoming) => {
+        const upstream = net.connect(remote);
+        incoming.pipe(upstream);
+        upstream.pipe(incoming);
+        incoming.on("error", () => upstream.destroy());
+        upstream.on("error", () => incoming.destroy());
+      });
+      fwd.on("error", (error) => reply({ ok: false, error: String(error) }));
+      mkdirSync(dirname(local), { recursive: true });
+      fwd.listen(local, () => {
+        forwards.set(local, fwd);
+        reply({ ok: true });
+      });
+      return;
+    }
+    if (msg.op === "cancel") {
+      const { local } = msg;
+      const fwd = forwards.get(local);
+      if (fwd) {
+        fwd.close();
+        forwards.delete(local);
+      }
+      try {
+        unlinkSync(local);
+      } catch {
+        // fine
+      }
+      return reply({ ok: true });
+    }
+    if (msg.op === "exit") {
+      reply({ ok: true });
+      setTimeout(() => {
+        for (const fwd of forwards.values()) fwd.close();
+        server.close();
+        try {
+          unlinkSync(controlSocket);
+        } catch {
+          // fine
+        }
+        process.exit(0);
+      }, 15);
+      return;
+    }
+    reply({ ok: false, error: `unknown op ${String(msg.op)}` });
+  };
+
+  const server = net.createServer((conn) => {
+    let buf = "";
+    conn.on("data", (chunk) => {
+      buf += chunk;
+      let idx = buf.indexOf("\n");
+      while (idx >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (line) {
+          let msg;
+          try {
+            msg = JSON.parse(line);
+          } catch {
+            idx = buf.indexOf("\n");
+            continue;
+          }
+          handle(conn, msg);
+        }
+        idx = buf.indexOf("\n");
+      }
+    });
+  });
+
+  server.listen(controlSocket);
+  server.on("error", () => process.exit(255));
+
+  const shutdown = () => {
+    for (const fwd of forwards.values()) fwd.close();
+    server.close();
+    try {
+      unlinkSync(controlSocket);
+    } catch {
+      // fine
+    }
+    process.exit(0);
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+};
+
+// --- control-op: send one message to an already-running master -------------
+
+const runControlOp = (opts) => {
+  const controlSocket = controlSocketFor(opts);
+  const op = opts.values["-O"];
+  if (!controlSocket || !op) {
+    process.exit(1);
+    return;
+  }
+  if (!existsSync(controlSocket)) {
+    process.exit(1);
+    return;
+  }
+  const timeoutMs = 1_500;
+  const sock = net.connect(controlSocket);
+  const timer = setTimeout(() => {
+    sock.destroy();
+    process.exit(1);
+  }, timeoutMs);
+  sock.once("error", () => {
+    clearTimeout(timer);
+    process.exit(1);
+  });
+  sock.once("connect", () => {
+    const req = { op };
+    if (op === "forward" || op === "cancel") {
+      const spec = opts.values["-L"] ?? "";
+      const idx = spec.indexOf(":");
+      req.local = idx >= 0 ? spec.slice(0, idx) : spec;
+      req.remote = idx >= 0 ? spec.slice(idx + 1) : "";
+    }
+    sock.write(`${JSON.stringify(req)}\n`);
+  });
+  let buf = "";
+  sock.on("data", (chunk) => {
+    buf += chunk;
+    const idx = buf.indexOf("\n");
+    if (idx < 0) return;
+    clearTimeout(timer);
+    let msg;
+    try {
+      msg = JSON.parse(buf.slice(0, idx));
+    } catch {
+      msg = { ok: false };
+    }
+    sock.end();
+    process.exit(msg.ok ? 0 : 1);
+  });
+};
+
+// --- dispatch ----------------------------------------------------------------
+
+const main = () => {
+  const { opts, positionals } = (() => {
+    const parsed = parseArgs(process.argv.slice(2));
+    return { opts: parsed, positionals: parsed.positionals };
+  })();
+
+  if (opts.values["-O"]) return runControlOp(opts);
+  if (opts.flags.has("-M")) return runMaster(opts);
+  return runExec(positionals);
+};
+
+try {
+  main();
+} catch (error) {
+  process.stderr.write(`fake ssh: ${error?.stack ?? error}\n`);
+  process.exitCode = 1;
+}

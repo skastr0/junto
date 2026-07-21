@@ -1,0 +1,600 @@
+#!/usr/bin/env node
+// Fake `herdr` executable for E2E — emulates the stock herdr 0.7.3 / protocol
+// 16 surface the product actually speaks (see src/main/vellum/herdr/*.ts):
+//
+//   herdr status --json
+//   herdr session list --json
+//   herdr api snapshot
+//   herdr workspace list|create
+//   herdr tab list|create|close
+//   herdr pane list|get|split|close|read|process-info
+//   herdr agent list|focus
+//   herdr terminal session control|observe <terminalId> [--takeover] --cols N --rows N
+//   herdr server                       (unix-socket JSON-RPC daemon: session.snapshot, events.subscribe)
+//   herdr [--session NAME] <...>       (global --session prefix, per HerdrTransport.run)
+//
+// State: a small JSON "world" (workspaces/tabs/panes/agents/layouts, snake_case
+// fields — verified against a live `herdr api snapshot`, see tests/herdr-mirror.test.ts)
+// persisted to disk so mutating commands (workspace/tab/pane create/close) issued
+// from separate CLI invocations stay consistent with each other and with a
+// concurrently-running `herdr server` daemon.
+//
+// Scriptability: FAKE_HERDR_SCENARIO points at a JSON file with the initial
+// world plus a timeline of terminal frames / lifecycle events. Timeline steps
+// may carry `waitFor: <path>` — the fake polls for that file's existence
+// before proceeding, so tests control timing explicitly instead of relying on
+// wall-clock races. See ../scenario.ts for the typed shape + helpers.
+"use strict";
+
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import * as net from "node:net";
+
+// --- paths -------------------------------------------------------------
+
+const scenarioPath = process.env.FAKE_HERDR_SCENARIO;
+const statePath =
+  process.env.FAKE_HERDR_STATE || join(homedir(), ".config", "herdr", "fake-world.json");
+const socketPath =
+  process.env.FAKE_HERDR_SOCKET || join(homedir(), ".config", "herdr", "herdr.sock");
+
+// --- scenario / world state ---------------------------------------------
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const readJsonSafe = (path) => {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+};
+
+const defaultScenario = () => ({
+  world: {
+    workspaces: [],
+    tabs: [],
+    panes: [],
+    agents: [],
+    layouts: [],
+    focused_workspace_id: undefined,
+    focused_tab_id: undefined,
+    focused_pane_id: undefined,
+    protocol: 16,
+    version: "0.7.3",
+  },
+  frames: {},
+  events: [],
+  processes: {},
+});
+
+let cachedScenario;
+const loadScenario = () => {
+  if (cachedScenario) return cachedScenario;
+  const base = defaultScenario();
+  if (!scenarioPath) return (cachedScenario = base);
+  const raw = readJsonSafe(scenarioPath);
+  if (!raw) return (cachedScenario = base);
+  cachedScenario = {
+    world: { ...base.world, ...(raw.world ?? {}) },
+    frames: raw.frames ?? {},
+    events: raw.events ?? [],
+    processes: raw.processes ?? {},
+  };
+  return cachedScenario;
+};
+
+const saveWorld = (world) => {
+  mkdirSync(dirname(statePath), { recursive: true });
+  writeFileSync(statePath, JSON.stringify(world), "utf8");
+};
+
+// Fresh read every call — CLI mutations from other processes and a
+// concurrently-running `server` daemon must see each other's writes.
+const loadWorld = () => {
+  const existing = readJsonSafe(statePath);
+  if (existing) return existing;
+  const world = loadScenario().world;
+  saveWorld(world);
+  return world;
+};
+
+const nextSeq = (world) => {
+  world.__seq = (world.__seq ?? 0) + 1;
+  return world.__seq;
+}
+
+const buildSnapshotBody = (world) => ({
+  workspaces: world.workspaces,
+  tabs: world.tabs,
+  panes: world.panes,
+  agents: world.agents,
+  layouts: world.layouts,
+  focused_workspace_id: world.focused_workspace_id,
+  focused_tab_id: world.focused_tab_id,
+  focused_pane_id: world.focused_pane_id,
+  protocol: world.protocol ?? 16,
+  version: world.version ?? "0.7.3",
+});
+
+// --- small argv helpers ---------------------------------------------------
+
+const flagValue = (args, name) => {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+};
+
+const firstPositional = (args) => {
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (a.startsWith("--")) {
+      i += 1; // skip its value
+      continue;
+    }
+    return a;
+  }
+  return undefined;
+};
+
+// --- output ----------------------------------------------------------------
+
+const printLine = (obj) => process.stdout.write(`${JSON.stringify(obj)}\n`);
+const ok = (result) => printLine({ id: "fake-herdr", result });
+// herdr's own envelope convention: exit 0, body carries `{error}` — matches
+// parseCliEnvelope's primary path (src/main/vellum/herdr/parse.ts).
+const fail = (code, message) => printLine({ id: "fake-herdr", error: { code, message } });
+
+// --- status / session -------------------------------------------------------
+
+const socketAlive = (path, timeoutMs = 400) =>
+  new Promise((resolve) => {
+    if (!existsSync(path)) return resolve(false);
+    const sock = net.connect(path);
+    const timer = setTimeout(() => {
+      sock.destroy();
+      resolve(false);
+    }, timeoutMs);
+    sock.once("connect", () => {
+      clearTimeout(timer);
+      sock.end();
+      resolve(true);
+    });
+    sock.once("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
+
+const cmdStatus = async () => {
+  const running = await socketAlive(socketPath);
+  process.stdout.write(
+    `${JSON.stringify({ server: { running, status: running ? "running" : "stopped" } })}\n`,
+  );
+};
+
+const cmdSessionList = async () => {
+  const running = await socketAlive(socketPath);
+  process.stdout.write(
+    `${JSON.stringify({ sessions: [{ name: "default", default: true, running }] })}\n`,
+  );
+};
+
+const cmdApiSnapshot = () => {
+  ok({ snapshot: buildSnapshotBody(loadWorld()) });
+};
+
+// --- workspace / tab / pane / agent -----------------------------------------
+
+const cmdWorkspace = (sub, rest) => {
+  const world = loadWorld();
+  if (sub === "list") return ok({ workspaces: world.workspaces });
+  if (sub === "create") {
+    const cwd = flagValue(rest, "--cwd");
+    const label = flagValue(rest, "--label");
+    if (!cwd) return fail("invalid", "workspace create requires --cwd");
+    const seq = nextSeq(world);
+    const workspaceId = `w${seq}`;
+    const tabId = `${workspaceId}:t1`;
+    const paneId = `${workspaceId}:p1`;
+    const terminalId = `term_${seq}`;
+    world.workspaces.push({
+      workspace_id: workspaceId,
+      label: label ?? workspaceId,
+      tab_count: 1,
+      pane_count: 1,
+      agent_status: "idle",
+      focused: false,
+      number: world.workspaces.length + 1,
+    });
+    world.tabs.push({
+      tab_id: tabId,
+      workspace_id: workspaceId,
+      label: "1",
+      pane_count: 1,
+      agent_status: "idle",
+      focused: false,
+      number: 1,
+    });
+    world.panes.push({
+      pane_id: paneId,
+      workspace_id: workspaceId,
+      tab_id: tabId,
+      terminal_id: terminalId,
+      cwd,
+      foreground_cwd: cwd,
+      agent_status: "idle",
+      focused: false,
+      revision: 0,
+    });
+    saveWorld(world);
+    return ok({
+      workspace: { workspace_id: workspaceId },
+      tab: { tab_id: tabId },
+      root_pane: { pane_id: paneId, terminal_id: terminalId },
+    });
+  }
+  return fail("unknown_command", `fake herdr: unsupported 'workspace ${sub ?? ""}'`);
+};
+
+const cmdTab = (sub, rest) => {
+  const world = loadWorld();
+  if (sub === "list") {
+    const workspaceId = flagValue(rest, "--workspace");
+    const tabs = workspaceId
+      ? world.tabs.filter((t) => t.workspace_id === workspaceId)
+      : world.tabs;
+    return ok({ tabs });
+  }
+  if (sub === "create") {
+    const workspaceId = flagValue(rest, "--workspace");
+    const label = flagValue(rest, "--label");
+    if (!workspaceId) return fail("invalid", "tab create requires --workspace");
+    const ws = world.workspaces.find((w) => w.workspace_id === workspaceId);
+    if (!ws) return fail("not_found", `workspace ${workspaceId} not found`);
+    const n = world.tabs.filter((t) => t.workspace_id === workspaceId).length + 1;
+    const tabId = `${workspaceId}:t${n}`;
+    const seq = nextSeq(world);
+    const paneId = `${workspaceId}:p${seq}`;
+    const terminalId = `term_${seq}`;
+    world.tabs.push({
+      tab_id: tabId,
+      workspace_id: workspaceId,
+      label: label ?? String(n),
+      pane_count: 1,
+      agent_status: "idle",
+      focused: false,
+      number: n,
+    });
+    world.panes.push({
+      pane_id: paneId,
+      workspace_id: workspaceId,
+      tab_id: tabId,
+      terminal_id: terminalId,
+      cwd: ws.cwd,
+      foreground_cwd: ws.cwd,
+      agent_status: "idle",
+      focused: false,
+      revision: 0,
+    });
+    ws.tab_count = (ws.tab_count ?? 0) + 1;
+    saveWorld(world);
+    return ok({ tab: { tab_id: tabId }, root_pane: { pane_id: paneId, terminal_id: terminalId } });
+  }
+  if (sub === "close") {
+    const tabId = firstPositional(rest);
+    if (!tabId) return fail("invalid", "tab close requires an id");
+    const before = world.tabs.length;
+    world.tabs = world.tabs.filter((t) => t.tab_id !== tabId);
+    world.panes = world.panes.filter((p) => p.tab_id !== tabId);
+    world.agents = world.agents.filter((a) => a.tab_id !== tabId);
+    if (world.tabs.length === before) return fail("not_found", `tab ${tabId} not found`);
+    saveWorld(world);
+    return ok({ closed: true });
+  }
+  return fail("unknown_command", `fake herdr: unsupported 'tab ${sub ?? ""}'`);
+};
+
+const cmdPane = (sub, rest) => {
+  const world = loadWorld();
+  if (sub === "list") {
+    const workspaceId = flagValue(rest, "--workspace");
+    const panes = workspaceId
+      ? world.panes.filter((p) => p.workspace_id === workspaceId)
+      : world.panes;
+    return ok({ panes });
+  }
+  if (sub === "get") {
+    const paneId = firstPositional(rest);
+    const pane = world.panes.find((p) => p.pane_id === paneId);
+    if (!pane) return fail("pane_not_found", `pane ${paneId} not found`);
+    return ok({ pane });
+  }
+  if (sub === "split") {
+    const cwdFlag = flagValue(rest, "--cwd");
+    const sourceId = firstPositional(rest);
+    const source = sourceId
+      ? world.panes.find((p) => p.pane_id === sourceId)
+      : (world.panes.find((p) => p.focused) ?? world.panes[0]);
+    if (!source) return fail("failed", "pane split requires an existing pane to split from");
+    const seq = nextSeq(world);
+    const paneId = `${source.workspace_id}:p${seq}`;
+    const terminalId = `term_${seq}`;
+    world.panes.push({
+      pane_id: paneId,
+      workspace_id: source.workspace_id,
+      tab_id: source.tab_id,
+      terminal_id: terminalId,
+      cwd: cwdFlag ?? source.cwd,
+      foreground_cwd: cwdFlag ?? source.cwd,
+      agent_status: "idle",
+      focused: false,
+      revision: 0,
+    });
+    const tab = world.tabs.find((t) => t.tab_id === source.tab_id);
+    if (tab) tab.pane_count = (tab.pane_count ?? 0) + 1;
+    saveWorld(world);
+    return ok({
+      root_pane: {
+        pane_id: paneId,
+        terminal_id: terminalId,
+        tab_id: source.tab_id,
+        workspace_id: source.workspace_id,
+      },
+    });
+  }
+  if (sub === "close") {
+    const paneId = firstPositional(rest);
+    const before = world.panes.length;
+    world.panes = world.panes.filter((p) => p.pane_id !== paneId);
+    world.agents = world.agents.filter((a) => a.pane_id !== paneId);
+    if (world.panes.length === before) return fail("pane_not_found", `pane ${paneId} not found`);
+    saveWorld(world);
+    return ok({ closed: true });
+  }
+  if (sub === "read") {
+    const paneId = firstPositional(rest);
+    const scenario = loadScenario();
+    const text = scenario.processes?.[paneId]?.readText ?? "";
+    return ok({ text });
+  }
+  if (sub === "process-info") {
+    const paneId = flagValue(rest, "--pane");
+    const scenario = loadScenario();
+    const foreground = scenario.processes?.[paneId]?.foreground ?? [];
+    return ok({ process_info: { foreground_processes: foreground } });
+  }
+  return fail("unknown_command", `fake herdr: unsupported 'pane ${sub ?? ""}'`);
+};
+
+const cmdAgent = (sub, rest) => {
+  const world = loadWorld();
+  if (sub === "list") return ok({ agents: world.agents });
+  if (sub === "focus") {
+    const paneId = firstPositional(rest);
+    const pane = world.panes.find((p) => p.pane_id === paneId);
+    if (!pane) return fail("pane_not_found", `pane ${paneId} not found`);
+    // Product contract (stream.ts / service.ts markPaneSeen): focus clears a
+    // "done, not yet seen" agent back to idle.
+    if (pane.agent_status === "done") pane.agent_status = "idle";
+    const agent = world.agents.find((a) => a.pane_id === paneId);
+    if (agent) agent.agent_status = pane.agent_status;
+    saveWorld(world);
+    return ok({ type: "agent_info", agent: { pane_id: paneId, agent_status: pane.agent_status } });
+  }
+  return fail("unknown_command", `fake herdr: unsupported 'agent ${sub ?? ""}'`);
+};
+
+// --- terminal session control / observe -------------------------------------
+
+const waitForFile = async (path, timeoutMs = 60_000) => {
+  const start = Date.now();
+  while (!existsSync(path)) {
+    if (Date.now() - start > timeoutMs) {
+      process.stderr.write(`fake herdr: waitFor ${path} timed out after ${timeoutMs}ms\n`);
+      return;
+    }
+    await sleep(20);
+  }
+};
+
+const frameLine = (step, seq, cols, rows) => ({
+  type: "terminal.frame",
+  bytes: step.bytes ?? (step.text !== undefined ? Buffer.from(step.text, "utf8").toString("base64") : ""),
+  encoding: step.encoding ?? "ansi",
+  full: step.full ?? seq === 1,
+  width: step.width ?? cols,
+  height: step.height ?? rows,
+  seq,
+});
+
+const emitFrameSteps = async (terminalId, cols, rows) => {
+  const steps = loadScenario().frames?.[terminalId] ?? [];
+  let seq = 0;
+  for (const step of steps) {
+    if (step.waitFor) await waitForFile(step.waitFor);
+    if (step.delayMs) await sleep(step.delayMs);
+    if (step.closed) {
+      printLine({ type: "terminal.closed", reason: step.reason ?? "scripted" });
+      process.exit(0);
+      return;
+    }
+    seq += 1;
+    printLine(frameLine(step, seq, cols, rows));
+  }
+};
+
+// Stock control protocol (verified against stream.ts):
+//   { type: "terminal.input", bytes: "<base64>" }
+//   { type: "terminal.input", text: "<utf8>" }
+//   { type: "terminal.resize", cols, rows }
+//   { type: "terminal.scroll", direction: "up"|"down", lines, column?, row?, modifiers? }
+//   { type: "terminal.release" }
+// None require a reply — the fake just drains stdin so it never backpressures
+// a scripted paste/scroll write.
+const runTerminalStream = (terminalId, cols, rows) => {
+  process.stdin.setEncoding("utf8");
+  let buf = "";
+  process.stdin.on("data", (chunk) => {
+    buf += chunk;
+    let idx = buf.indexOf("\n");
+    while (idx >= 0) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (line) {
+        try {
+          JSON.parse(line);
+        } catch {
+          // stock herdr tolerates/ignores malformed input lines too.
+        }
+      }
+      idx = buf.indexOf("\n");
+    }
+  });
+  process.stdin.resume();
+
+  void emitFrameSteps(terminalId, cols, rows);
+
+  // Keep the event loop alive (control/observe children are killed with
+  // SIGTERM by the product, never expected to exit on their own).
+  const keepAlive = setInterval(() => {}, 60_000);
+  const shutdown = () => {
+    clearInterval(keepAlive);
+    process.exit(0);
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+};
+
+const cmdTerminalSession = (rest) => {
+  const mode = rest[0];
+  const terminalId = rest[1];
+  const flags = rest.slice(2);
+  const cols = Number(flagValue(flags, "--cols") ?? 80);
+  const rows = Number(flagValue(flags, "--rows") ?? 24);
+  if (mode !== "control" && mode !== "observe") {
+    fail("unknown_command", `fake herdr: unsupported 'terminal session ${mode ?? ""}'`);
+    return;
+  }
+  if (!terminalId) {
+    fail("invalid", "terminal session requires a terminal id");
+    return;
+  }
+  runTerminalStream(terminalId, cols, rows);
+};
+
+// --- server (unix-socket JSON-RPC daemon) -----------------------------------
+//
+// herdr's documented client shape (see mirror-transport.ts): one-connection-
+// one-request for `session.snapshot`; `events.subscribe` keeps its connection
+// open — first line is the ack, every subsequent line is a pushed
+// `{ event, data }` lifecycle/subscription push. This IS the real wire
+// contract HerdrMirror + LocalMirrorTransport speak — no CLI indirection.
+
+const runServer = () => {
+  mkdirSync(dirname(socketPath), { recursive: true });
+  try {
+    unlinkSync(socketPath);
+  } catch {
+    // fine — nothing was there
+  }
+
+  const subscribers = new Set();
+
+  const server = net.createServer((conn) => {
+    let buf = "";
+    conn.on("data", (chunk) => {
+      buf += chunk;
+      let idx = buf.indexOf("\n");
+      while (idx >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (line) handleRequest(conn, line);
+        idx = buf.indexOf("\n");
+      }
+    });
+    conn.on("close", () => subscribers.delete(conn));
+    conn.on("error", () => subscribers.delete(conn));
+  });
+
+  const handleRequest = (conn, line) => {
+    let msg;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    }
+    const { id, method } = msg;
+    if (method === "session.snapshot") {
+      conn.write(`${JSON.stringify({ id, result: { snapshot: buildSnapshotBody(loadWorld()) } })}\n`);
+      return;
+    }
+    if (method === "events.subscribe") {
+      subscribers.add(conn);
+      conn.write(`${JSON.stringify({ id, result: {} })}\n`);
+      return;
+    }
+    conn.write(`${JSON.stringify({ id, error: { code: "unknown_method", message: `unknown method ${method}` } })}\n`);
+  };
+
+  server.listen(socketPath);
+  server.on("error", (err) => {
+    process.stderr.write(`fake herdr server: ${err}\n`);
+    process.exit(1);
+  });
+
+  const shutdown = () => {
+    server.close();
+    try {
+      unlinkSync(socketPath);
+    } catch {
+      // fine
+    }
+    process.exit(0);
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+
+  void runEventPump(subscribers);
+};
+
+const runEventPump = async (subscribers) => {
+  for (const step of loadScenario().events ?? []) {
+    if (step.waitFor) await waitForFile(step.waitFor);
+    if (step.delayMs) await sleep(step.delayMs);
+    const payload = `${JSON.stringify({ event: step.event, data: step.data })}\n`;
+    for (const conn of subscribers) {
+      try {
+        conn.write(payload);
+      } catch {
+        // dead connection — subscriber's own close handler will drop it
+      }
+    }
+  }
+};
+
+// --- dispatch ----------------------------------------------------------------
+
+const main = async () => {
+  let args = process.argv.slice(2);
+  if (args[0] === "--session") args = args.slice(2); // named sessions: fake has one world
+
+  const [cmd, sub, ...rest] = args;
+
+  if (cmd === "server") return runServer();
+  if (cmd === "status" && sub === "--json") return cmdStatus();
+  if (cmd === "session" && sub === "list") return cmdSessionList();
+  if (cmd === "api" && sub === "snapshot") return cmdApiSnapshot();
+  if (cmd === "workspace") return cmdWorkspace(sub, rest);
+  if (cmd === "tab") return cmdTab(sub, rest);
+  if (cmd === "pane") return cmdPane(sub, rest);
+  if (cmd === "agent") return cmdAgent(sub, rest);
+  if (cmd === "terminal" && sub === "session") return cmdTerminalSession(rest);
+
+  fail("unknown_command", `fake herdr: unsupported command '${args.join(" ")}'`);
+};
+
+main().catch((error) => {
+  process.stderr.write(`fake herdr: ${error?.stack ?? error}\n`);
+  process.exitCode = 1;
+});
