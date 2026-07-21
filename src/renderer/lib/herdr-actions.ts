@@ -44,7 +44,7 @@ const herdrApi = () =>
 
 /** Detach = remove canvas node only. Never session stop. */
 export const detachHerdrNode = (nodeId: string): void => {
-  void closeHerdrTerminal();
+  void closeHerdrTerminal(nodeId);
   const doc = state$.doc.peek();
   if (state$.selectedNodeId.peek() === nodeId) state$.selectedNodeId.set("");
   commitDoc({
@@ -68,7 +68,7 @@ export const killHerdrPane = async (nodeId: string, herdr: EtherHerdr): Promise<
     setHerdrToast("Kill unavailable — herdr API missing");
     return;
   }
-  closeHerdrTerminal();
+  closeHerdrTerminal(nodeId);
   const result = await api.herdrKillPane(herdr.host, herdr.session ?? null, herdr.paneId);
   if (!result.ok) {
     setHerdrToast(result.message ?? "Kill pane failed — card kept");
@@ -89,7 +89,7 @@ export const killHerdrTab = async (nodeId: string, herdr: EtherHerdr): Promise<v
     setHerdrToast("Kill tab unavailable — herdr API missing");
     return;
   }
-  closeHerdrTerminal();
+  closeHerdrTerminal(nodeId);
   const result = await api.herdrKillTab(herdr.host, herdr.session ?? null, herdr.tabId);
   if (!result.ok) {
     setHerdrToast(result.message ?? "Kill tab failed — card kept");
@@ -199,13 +199,13 @@ export const recreateHerdrPane = async (nodeId: string, herdr: EtherHerdr): Prom
     ),
   });
   setConnectionEvent(nodeId, { type: "reconnected" });
-  // Keep open terminal binding in sync if this card is the active modal target.
-  const open = herdr$.terminal.peek();
-  if (open?.nodeId === nodeId) {
-    herdr$.terminal.set({
-      ...open,
+  // Keep open terminal binding in sync if this card is open.
+  const open = herdr$.terminals[nodeId].peek();
+  if (open) {
+    herdr$.terminals[nodeId].set({
+      nodeId: open.nodeId,
+      title: open.title,
       herdr: nextHerdr,
-      streamId: undefined,
     });
   }
   setHerdrToast("Pane recreated and rebound");

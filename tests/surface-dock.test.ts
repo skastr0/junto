@@ -3,23 +3,29 @@ import type { BrowserOpResult, BrowserSessionInfo } from "../src/shared/ipc";
 import { formatNodeRef, parseNodeRef } from "../src/shared/node-ref";
 import {
   closeSurface,
-  dockBrowserSurfaces,
-  dockInteractiveSurface,
-  initialDockState,
+  focusSurface,
+  initialWorkbenchState,
   isInteractiveSurface,
   openSurface,
+  pinSurface,
+  setLayout,
   setMaxVisible,
-  type DockState,
+  unpinSurface,
+  visiblePanes,
+  workbenchBrowserSurfaces,
+  workbenchInteractiveSurface,
+  type WorkbenchState,
 } from "../src/renderer/lib/surface-registry";
 import {
-  HERDR_DOCK_ID,
   closeDockBrowser,
   dock$,
+  herdrSurfaceId,
   hydrateDockConfig,
   openDockBrowser,
+  pinWorkbenchSurface,
   reconcileDockFromLiveSessions,
   stopDockBrowser,
-  syncDockHerdrSlot,
+  syncHerdrWorkbenchSlot,
 } from "../src/renderer/lib/dock-state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
 import { herdr$ } from "../src/renderer/lib/herdr-state";
@@ -29,60 +35,56 @@ import { herdr$ } from "../src/renderer/lib/herdr-state";
 const browserSlot = (id: string) => ({ id, kind: "browser" as const });
 const herdrSlot = (id: string) => ({ id, kind: "herdr" as const });
 
-describe("surface-registry (pure)", () => {
-  it("opens surfaces up to maxVisible without eviction", () => {
-    let state: DockState = initialDockState(2);
-    let t = openSurface(state, browserSlot("a"));
+describe("surface-registry (pure workbench)", () => {
+  it("opens unlimited browser surfaces into focus (tabs, no eviction)", () => {
+    let t = openSurface(initialWorkbenchState(), browserSlot("a"));
     expect(t.evicted).toEqual([]);
-    t = openSurface(t.state, browserSlot("b"));
-    expect(t.evicted).toEqual([]);
-    expect(t.state.surfaces.map((s) => s.id)).toEqual(["a", "b"]);
-  });
-
-  it("evicts the OLDEST surface when the dock is full", () => {
-    let t = openSurface(initialDockState(2), browserSlot("a"));
     t = openSurface(t.state, browserSlot("b"));
     t = openSurface(t.state, browserSlot("c"));
-    expect(t.evicted.map((s) => s.id)).toEqual(["a"]);
-    expect(t.state.surfaces.map((s) => s.id)).toEqual(["b", "c"]);
+    expect(t.evicted).toEqual([]);
+    expect(t.state.surfaces.map((s) => s.id)).toEqual(["a", "b", "c"]);
+    expect(t.state.focusMru[0]).toBe("c");
   });
 
-  it("re-requesting an open surface is a no-op that keeps its slot position", () => {
-    let t = openSurface(initialDockState(2), browserSlot("a"));
+  it("re-requesting an open surface brings it to front of its zone MRU", () => {
+    let t = openSurface(initialWorkbenchState(), browserSlot("a"));
     t = openSurface(t.state, browserSlot("b"));
     const again = openSurface(t.state, browserSlot("a"));
     expect(again.evicted).toEqual([]);
-    expect(again.state.surfaces.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(again.state.focusMru[0]).toBe("a");
+    expect(again.state.surfaces.map((s) => s.id).sort()).toEqual(["a", "b"]);
   });
 
-  it("enforces ONE interactive surface: a second herdr/chat evicts the first", () => {
-    let t = openSurface(initialDockState(3), browserSlot("a"));
-    t = openSurface(t.state, herdrSlot("term"));
-    t = openSurface(t.state, { id: "chat-1", kind: "chat" });
-    expect(t.evicted.map((s) => s.id)).toEqual(["term"]);
-    expect(dockInteractiveSurface(t.state)?.id).toBe("chat-1");
-    expect(dockBrowserSurfaces(t.state).map((s) => s.id)).toEqual(["a"]);
-  });
-
-  it("a browser never evicts the interactive surface unless the cap forces it", () => {
-    let t = openSurface(initialDockState(2), herdrSlot("term"));
-    t = openSurface(t.state, browserSlot("a"));
+  it("allows multiple herdr surfaces (no global interactive eviction)", () => {
+    let t = openSurface(initialWorkbenchState(), browserSlot("a"));
+    t = openSurface(t.state, herdrSlot("herdr:n1"));
+    t = openSurface(t.state, herdrSlot("herdr:n2"));
     expect(t.evicted).toEqual([]);
-    expect(t.state.surfaces.map((s) => s.id)).toEqual(["term", "a"]);
-    // Cap of 2: a second browser evicts the oldest slot (the terminal).
+    expect(t.state.surfaces.filter((s) => s.kind === "herdr").map((s) => s.id).sort()).toEqual([
+      "herdr:n1",
+      "herdr:n2",
+    ]);
+    expect(workbenchBrowserSurfaces(t.state).map((s) => s.id)).toEqual(["a"]);
+    expect(workbenchInteractiveSurface(t.state)?.id).toBe("herdr:n1");
+  });
+
+  it("a browser never evicts herdr surfaces", () => {
+    let t = openSurface(initialWorkbenchState(), herdrSlot("herdr:n1"));
+    t = openSurface(t.state, browserSlot("a"));
     t = openSurface(t.state, browserSlot("b"));
-    expect(t.evicted.map((s) => s.id)).toEqual(["term"]);
+    expect(t.evicted).toEqual([]);
+    expect(t.state.surfaces.map((s) => s.id)).toEqual(["herdr:n1", "a", "b"]);
   });
 
   it("same id changing kind replaces the stale slot (evicted for cleanup)", () => {
-    const t0 = openSurface(initialDockState(2), browserSlot("x"));
+    const t0 = openSurface(initialWorkbenchState(), browserSlot("x"));
     const t = openSurface(t0.state, herdrSlot("x"));
-    expect(t.evicted).toEqual([browserSlot("x")]);
-    expect(t.state.surfaces).toEqual([herdrSlot("x")]);
+    expect(t.evicted.map((s) => s.id)).toEqual(["x"]);
+    expect(t.state.surfaces).toEqual([{ id: "x", kind: "herdr", zone: "focus" }]);
   });
 
   it("closeSurface removes the slot; unknown ids are a no-op", () => {
-    const t0 = openSurface(initialDockState(2), browserSlot("a"));
+    const t0 = openSurface(initialWorkbenchState(), browserSlot("a"));
     const closed = closeSurface(t0.state, "a");
     expect(closed.state.surfaces).toEqual([]);
     expect(closed.evicted.map((s) => s.id)).toEqual(["a"]);
@@ -90,19 +92,44 @@ describe("surface-registry (pure)", () => {
     expect(noop.evicted).toEqual([]);
   });
 
-  it("setMaxVisible shrinking below the open count evicts oldest-first", () => {
-    let t = openSurface(initialDockState(3), browserSlot("a"));
+  it("setMaxVisible is a no-op stub (tabs replaced eviction)", () => {
+    let t = openSurface(initialWorkbenchState(), browserSlot("a"));
     t = openSurface(t.state, browserSlot("b"));
-    t = openSurface(t.state, browserSlot("c"));
     const shrunk = setMaxVisible(t.state, 1);
-    expect(shrunk.evicted.map((s) => s.id)).toEqual(["a", "b"]);
-    expect(shrunk.state.surfaces.map((s) => s.id)).toEqual(["c"]);
+    expect(shrunk.evicted).toEqual([]);
+    expect(shrunk.state.surfaces.map((s) => s.id)).toEqual(["a", "b"]);
   });
 
-  it("clamps nonsense maxVisible to the default rather than bricking the dock", () => {
-    expect(initialDockState(0).maxVisible).toBe(2);
-    expect(initialDockState(Number.NaN).maxVisible).toBe(2);
-    expect(setMaxVisible(initialDockState(2), -1).state.maxVisible).toBe(2);
+  it("pin / unpin moves zone and MRU stacks", () => {
+    let t = openSurface(initialWorkbenchState(), browserSlot("a"));
+    t = pinSurface(t.state, "a");
+    expect(t.state.surfaces[0]?.zone).toBe("pinned");
+    expect(t.state.pinnedMru).toEqual(["a"]);
+    expect(t.state.focusMru).toEqual([]);
+    t = unpinSurface(t.state, "a");
+    expect(t.state.surfaces[0]?.zone).toBe("focus");
+    expect(t.state.focusMru).toEqual(["a"]);
+  });
+
+  it("visiblePanes respects layout solo vs split", () => {
+    let state: WorkbenchState = initialWorkbenchState();
+    for (const id of ["a", "b", "c"]) {
+      state = openSurface(state, browserSlot(id)).state;
+    }
+    // MRU front is c
+    expect(visiblePanes(state, "focus")).toEqual({
+      pane0: "c",
+      pane1: undefined,
+      tabs: ["b", "a"],
+    });
+    state = setLayout(state, "focus", "split-v").state;
+    expect(visiblePanes(state, "focus")).toEqual({
+      pane0: "c",
+      pane1: "b",
+      tabs: ["a"],
+    });
+    state = focusSurface(state, "a").state;
+    expect(visiblePanes(state, "focus").pane0).toBe("a");
   });
 
   it("classifies browser as non-interactive; herdr/chat as interactive", () => {
@@ -181,12 +208,13 @@ function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
 }
 
 function resetDock(): void {
-  dock$.registry.set(initialDockState());
+  dock$.registry.set(initialWorkbenchState());
   dock$.browserByRef.set({});
   dock$.stopErrorByRef.set({});
   dock$.configHydrated.set(false);
   browser$.sessionByRef.set({});
-  herdr$.terminal.set(null);
+  herdr$.terminals.set({});
+  herdr$.focusedNodeId.set(null);
 }
 
 describe("dock-state", () => {
@@ -200,7 +228,9 @@ describe("dock-state", () => {
     const mock = installMockVellum();
     const ref = refOf("n1");
     await openDockBrowser(ref, payloadOf("n1", "https://example.com", "Example"));
-    expect(dock$.registry.peek().surfaces).toEqual([{ id: ref, kind: "browser" }]);
+    expect(dock$.registry.peek().surfaces).toEqual([
+      { id: ref, kind: "browser", zone: "focus" },
+    ]);
     expect(dock$.browserByRef.peek()[ref]).toMatchObject({ url: "https://example.com" });
     expect(mock.browserOpen).toHaveBeenCalledWith({ ref });
     expect(browser$.sessionByRef[ref].peek()).toMatchObject({
@@ -210,15 +240,14 @@ describe("dock-state", () => {
     });
   });
 
-  it("a full dock detaches the evicted browser by its exact returned handle", async () => {
+  it("opens many browsers without detaching earlier ones (tabs replace eviction)", async () => {
     const mock = installMockVellum();
     const refs = [refOf("n1"), refOf("n2"), refOf("n3")];
     await openDockBrowser(refs[0]!, payloadOf("n1", "https://a.example", "A"));
     await openDockBrowser(refs[1]!, payloadOf("n2", "https://b.example", "B"));
     await openDockBrowser(refs[2]!, payloadOf("n3", "https://c.example", "C"));
-    expect(dock$.registry.peek().surfaces.map((s) => s.id)).toEqual(refs.slice(1));
-    expect(mock.browserClose).toHaveBeenCalledWith("session-1");
-    expect(dock$.browserByRef.peek()[refs[0]!]).toBeUndefined();
+    expect(dock$.registry.peek().surfaces.map((s) => s.id)).toEqual(refs);
+    expect(mock.browserClose).not.toHaveBeenCalled();
   });
 
   it("closeDockBrowser removes UI without an identity fallback when no handle exists", () => {
@@ -276,14 +305,19 @@ describe("dock-state", () => {
     await openDockBrowser(ref, payloadOf("stop-race", "https://stop.example", "Stop"));
 
     const stopping = stopDockBrowser(ref);
-    await vi.waitFor(() => expect(mock.browserStop).toHaveBeenCalledWith("session-1"));
+    for (let i = 0; i < 20 && !mock.browserStop.mock.calls.length; i++) {
+      await Promise.resolve();
+    }
+    expect(mock.browserStop).toHaveBeenCalledWith("session-1");
     cacheBrowserSession(baseSession(ref, "stop-race", "replacement-handle"));
     finishStop({ ok: true, data: {} });
 
     await expect(stopping).resolves.toBe(false);
     expect(mock.browserStop).toHaveBeenCalledTimes(1);
     expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("replacement-handle");
-    expect(dock$.registry.peek().surfaces).toEqual([{ id: ref, kind: "browser" }]);
+    expect(dock$.registry.peek().surfaces).toEqual([
+      { id: ref, kind: "browser", zone: "focus" },
+    ]);
     expect(dock$.stopErrorByRef[ref].peek()).toBe(
       "Page runtime changed while stopping; retry Stop Page.",
     );
@@ -303,7 +337,9 @@ describe("dock-state", () => {
     await stopDockBrowser(ref);
 
     expect(mock.browserStop).toHaveBeenCalledWith("session-1");
-    expect(dock$.registry.peek().surfaces).toEqual([{ id: ref, kind: "browser" }]);
+    expect(dock$.registry.peek().surfaces).toEqual([
+      { id: ref, kind: "browser", zone: "focus" },
+    ]);
     expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("session-1");
     expect(dock$.stopErrorByRef[ref].peek()).toBe("physical teardown not acknowledged");
   });
@@ -366,7 +402,9 @@ describe("dock-state", () => {
     expect(mock.browserStop).toHaveBeenCalledTimes(1);
     expect(mock.browserStop).toHaveBeenCalledWith("stale-handle");
     expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("replacement-handle");
-    expect(dock$.registry.peek().surfaces).toEqual([{ id: ref, kind: "browser" }]);
+    expect(dock$.registry.peek().surfaces).toEqual([
+      { id: ref, kind: "browser", zone: "focus" },
+    ]);
     expect(dock$.stopErrorByRef[ref].peek()).toBe(
       "Page runtime changed while stopping; retry Stop Page.",
     );
@@ -386,7 +424,10 @@ describe("dock-state", () => {
       ref,
       payloadOf("n-stale-open", "https://a.example", "A"),
     );
-    await vi.waitFor(() => expect(mock.browserOpen).toHaveBeenCalledWith({ ref }));
+    for (let i = 0; i < 20 && !mock.browserOpen.mock.calls.length; i++) {
+      await Promise.resolve();
+    }
+    expect(mock.browserOpen).toHaveBeenCalledWith({ ref });
     cacheBrowserSession(newSession);
     resolveOpen?.({ ok: true, data: oldSession });
     await opening;
@@ -413,98 +454,100 @@ describe("dock-state", () => {
       })),
     });
     await reconcileDockFromLiveSessions();
-    expect(dock$.registry.peek().surfaces).toEqual([{ id: attachedRef, kind: "browser" }]);
+    expect(dock$.registry.peek().surfaces).toEqual([
+      { id: attachedRef, kind: "browser", zone: "focus" },
+    ]);
     expect(dock$.browserByRef[attachedRef].peek()?.nodeId).toBe("attached");
     expect(browser$.sessionByRef[attachedRef].peek()?.sessionId).toBe("attached-handle");
     expect(dock$.browserByRef[detachedRef].peek()).toBeUndefined();
   });
 
-  it("hydrateDockConfig adopts maxVisibleSurfaces from the service config (once)", async () => {
+  it("hydrateDockConfig is one-shot (maxVisible no longer applied to registry)", async () => {
     installMockVellum({
-      browserSurfaceConfig: vi.fn(async () => ({ ok: true, data: { maxVisibleSurfaces: 3, maxWarmSessions: 3 } })),
+      browserSurfaceConfig: vi.fn(async () => ({
+        ok: true,
+        data: { maxVisibleSurfaces: 3, maxWarmSessions: 3 },
+      })),
     });
     await hydrateDockConfig();
-    expect(dock$.registry.peek().maxVisible).toBe(3);
-    await hydrateDockConfig(); // second call is a no-op
-    expect((window as unknown as { vellum: MockVellum }).vellum.browserSurfaceConfig).toHaveBeenCalledTimes(1);
+    expect(dock$.configHydrated.peek()).toBe(true);
+    await hydrateDockConfig();
+    expect(
+      (window as unknown as { vellum: MockVellum }).vellum.browserSurfaceConfig,
+    ).toHaveBeenCalledTimes(1);
   });
 
-  describe("herdr slot sync — single control stream invariant", () => {
-    const openTerminal = () =>
-      herdr$.terminal.set({ nodeId: "h1", herdr: { host: "local" } as never, title: "term" });
+  describe("herdr workbench sync — multi terminal, focus by default", () => {
+    const openTerminal = (nodeId = "h1") => {
+      herdr$.terminals[nodeId].set({
+        nodeId,
+        herdr: { host: "local" } as never,
+        title: "term",
+      });
+      herdr$.focusedNodeId.set(nodeId);
+    };
 
-    it("docks the terminal only while a browser surface is open", async () => {
-      installMockVellum();
-      openTerminal();
-      syncDockHerdrSlot();
-      // No browser open — terminal stays in the full-window modal, not the dock.
-      expect(dock$.registry.peek().surfaces).toEqual([]);
-
-      const ref = refOf("n1");
-      await openDockBrowser(ref, payloadOf("n1", "https://a.example", "A", "p"));
-      syncDockHerdrSlot();
+    it("registers every open terminal into the focus zone (no browser required)", () => {
+      openTerminal("h1");
+      syncHerdrWorkbenchSlot();
       expect(dock$.registry.peek().surfaces).toEqual([
-        { id: ref, kind: "browser" },
-        { id: HERDR_DOCK_ID, kind: "herdr" },
+        { id: herdrSurfaceId("h1"), kind: "herdr", zone: "focus" },
       ]);
-      // herdr$.terminal remains the single source — exactly one terminal open.
-      expect(herdr$.terminal.peek()?.nodeId).toBe("h1");
     });
 
-    it("removes the dock slot when the terminal closes, without touching the stream", async () => {
-      installMockVellum();
-      const ref = refOf("n1");
-      await openDockBrowser(ref, payloadOf("n1", "https://a.example", "A", "p"));
-      openTerminal();
-      syncDockHerdrSlot();
+    it("registers multiple herdr surfaces for multiple terminals", () => {
+      openTerminal("h1");
+      openTerminal("h2");
+      syncHerdrWorkbenchSlot();
+      const herdrIds = dock$.registry
+        .peek()
+        .surfaces.filter((s) => s.kind === "herdr")
+        .map((s) => s.id)
+        .sort();
+      expect(herdrIds).toEqual([herdrSurfaceId("h1"), herdrSurfaceId("h2")].sort());
+    });
+
+    it("removes the workbench slot when the terminal closes", () => {
+      openTerminal("h1");
+      syncHerdrWorkbenchSlot();
       expect(dock$.registry.peek().surfaces.some((s) => s.kind === "herdr")).toBe(true);
 
-      herdr$.terminal.set(null); // closeHerdrTerminal already released the stream
-      syncDockHerdrSlot();
+      herdr$.terminals.set({});
+      herdr$.focusedNodeId.set(null);
+      syncHerdrWorkbenchSlot();
       expect(dock$.registry.peek().surfaces.some((s) => s.kind === "herdr")).toBe(false);
-      expect(dock$.registry.peek().surfaces.map((s) => s.id)).toEqual([ref]);
     });
 
-    it("returns the terminal to the modal when the last browser closes", async () => {
-      installMockVellum();
-      const ref = refOf("n1");
-      await openDockBrowser(ref, payloadOf("n1", "https://a.example", "A", "p"));
-      openTerminal();
-      syncDockHerdrSlot();
-      closeDockBrowser(ref);
-      syncDockHerdrSlot();
-      // Slot gone (modal takes over) but the terminal itself is still open.
-      expect(dock$.registry.peek().surfaces).toEqual([]);
-      expect(herdr$.terminal.peek()?.nodeId).toBe("h1");
+    it("preserves pin zone across re-sync", () => {
+      openTerminal("h1");
+      syncHerdrWorkbenchSlot();
+      pinWorkbenchSurface(herdrSurfaceId("h1"));
+      expect(
+        dock$.registry.peek().surfaces.find((s) => s.id === herdrSurfaceId("h1"))?.zone,
+      ).toBe("pinned");
+      syncHerdrWorkbenchSlot();
+      expect(
+        dock$.registry.peek().surfaces.find((s) => s.id === herdrSurfaceId("h1"))?.zone,
+      ).toBe("pinned");
     });
 
-    it("docking the terminal never spawns a second herdr slot on re-sync", async () => {
-      installMockVellum();
-      await openDockBrowser(refOf("n1"), payloadOf("n1", "https://a.example", "A", "p"));
-      openTerminal();
-      syncDockHerdrSlot();
-      syncDockHerdrSlot();
+    it("docking the terminal never spawns a second herdr slot on re-sync", () => {
+      openTerminal("h1");
+      syncHerdrWorkbenchSlot();
+      syncHerdrWorkbenchSlot();
       const herdrSlots = dock$.registry.peek().surfaces.filter((s) => s.kind === "herdr");
       expect(herdrSlots).toHaveLength(1);
     });
 
-    it("a browser landing in a full dock evicts the OLDEST slot (browser detached); the terminal keeps its single stream", async () => {
-      const mock = installMockVellum();
-      dock$.registry.set(initialDockState(2));
-      const firstRef = refOf("n1");
-      const secondRef = refOf("n2");
-      await openDockBrowser(firstRef, payloadOf("n1", "https://a.example", "A", "p"));
-      openTerminal();
-      syncDockHerdrSlot();
-      // Dock is full at 2 (n1 + terminal); a second browser evicts oldest (n1).
-      await openDockBrowser(secondRef, payloadOf("n2", "https://b.example", "B", "p"));
-      expect(dock$.registry.peek().surfaces).toEqual([
-        { id: HERDR_DOCK_ID, kind: "herdr" },
-        { id: secondRef, kind: "browser" },
-      ]);
-      expect(mock.browserClose).toHaveBeenCalledWith("session-1");
-      // Terminal untouched — still exactly one control stream.
-      expect(herdr$.terminal.peek()?.nodeId).toBe("h1");
+    it("browser + herdr coexist without eviction", async () => {
+      installMockVellum();
+      const ref = refOf("n1");
+      await openDockBrowser(ref, payloadOf("n1", "https://a.example", "A", "p"));
+      openTerminal("h1");
+      syncHerdrWorkbenchSlot();
+      expect(dock$.registry.peek().surfaces.map((s) => s.id).sort()).toEqual(
+        [ref, herdrSurfaceId("h1")].sort(),
+      );
     });
   });
 });

@@ -9,22 +9,30 @@ import {
   isCanonicalBrowserRef,
   isUsableBrowserSession,
 } from "./browser-state";
-import { closeHerdrTerminal, herdr$ } from "./herdr-state";
+import { closeHerdrTerminal, herdrTerminalIds } from "./herdr-state";
 import {
   closeSurface,
-  initialDockState,
+  focusSurface,
+  initialWorkbenchState,
   openSurface,
-  setMaxVisible,
-  type DockState,
-  type DockSurface,
-  type DockTransition,
+  pinSurface,
+  setFocusSize,
+  setLayout,
+  setPinnedWidthFrac,
+  surfaceById,
+  unpinSurface,
+  type LayoutMode,
+  type WorkbenchState,
+  type WorkbenchTransition,
+  type WorkSurface,
+  type WorkZone,
 } from "./surface-registry";
 import { getVellumApi } from "./vellum-api";
 
-// Stage-level work-surface dock: slot decisions are pure (surface-registry.ts);
-// this module owns the observable + the side effects evictions demand. Every
-// eviction/close DETACHES only — warm browser sessions and herdr panes survive
-// (the product lock: nothing is wiped implicitly).
+// Workbench side effects: pure transitions live in surface-registry.ts; this
+// module owns the observable + detach/stream cleanup. Every close DETACHES
+// only — warm browser sessions and herdr panes survive unless Stop Page or
+// herdr kill is explicit.
 
 export interface DockBrowserPayload {
   readonly nodeId: string;
@@ -33,12 +41,24 @@ export interface DockBrowserPayload {
   readonly title: string;
 }
 
-/** Reserved slot id for the (single) herdr terminal surface. */
+const HERDR_SURFACE_PREFIX = "herdr:";
+
+/** Surface id for a herdr terminal bound to a canvas node. */
+export const herdrSurfaceId = (nodeId: string): string => `${HERDR_SURFACE_PREFIX}${nodeId}`;
+
+/** Inverse of herdrSurfaceId — null when the id is not a herdr surface. */
+export const parseHerdrSurfaceId = (id: string): string | null => {
+  if (!id.startsWith(HERDR_SURFACE_PREFIX)) return null;
+  const nodeId = id.slice(HERDR_SURFACE_PREFIX.length);
+  return nodeId.length > 0 ? nodeId : null;
+};
+
+/** @deprecated Prefer herdrSurfaceId(nodeId) — global id no longer used. */
 export const HERDR_DOCK_ID = "herdr-terminal";
 
 export const dock$ = observable({
-  registry: initialDockState() as DockState,
-  /** canonical vellum:// ref -> display payload for the dock placeholder. */
+  registry: initialWorkbenchState() as WorkbenchState,
+  /** canonical vellum:// ref -> display payload for browser slots. */
   browserByRef: {} as Record<string, DockBrowserPayload>,
   /** Explicit Stop Page failures stay visible until retry/open succeeds. */
   stopErrorByRef: {} as Record<string, string>,
@@ -62,50 +82,40 @@ const clearStoppedSurface = (ref: string, observedSessionId: string | undefined)
   return true;
 };
 
-/** One-shot maxVisibleSurfaces hydration from BrowserProfileService config. */
+/**
+ * maxVisibleSurfaces is no longer a UI admission cap (tabs replace eviction).
+ * Still one-shot hydrate so future warm-limit UI can read config if needed.
+ */
 export const hydrateDockConfig = async (): Promise<void> => {
   if (dock$.configHydrated.peek()) return;
   dock$.configHydrated.set(true);
-  const a = api();
-  if (!a?.browserSurfaceConfig) return; // default 2 stands
-  try {
-    const result = await a.browserSurfaceConfig();
-    const max = result.ok ? result.data?.maxVisibleSurfaces : undefined;
-    if (typeof max === "number") applyTransition(setMaxVisible(dock$.registry.peek(), max));
-  } catch {
-    // Default 2 stands — never block the dock on a config read.
-  }
+  // Intentionally no setMaxVisible — admission is unlimited; sessions enforce warm caps.
+  void api()?.browserSurfaceConfig?.().catch(() => undefined);
 };
 
 /**
- * Run one registry transition and perform the detach side effects its
- * evictions demand. Browser evictions detach over IPC (session stays warm);
- * a herdr eviction releases the single control stream via closeHerdrTerminal
- * — the dock never leaves a second stream running behind an evicted slot.
+ * Apply one registry transition and run side effects for fully-closed surfaces.
+ * Browser closes detach over IPC (session stays warm); herdr closes release
+ * that nodeId's control stream only.
  */
-const applyTransition = (transition: DockTransition): void => {
+const applyTransition = (transition: WorkbenchTransition): void => {
   dock$.registry.set(transition.state);
-  for (const evicted of transition.evicted) {
-    if (evicted.kind === "browser") {
-      dock$.browserByRef[evicted.id].delete();
-      detachCurrentSession(evicted.id);
-    } else {
-      closeHerdrTerminal();
+  for (const closed of transition.evicted) {
+    if (closed.kind === "browser") {
+      dock$.browserByRef[closed.id].delete();
+      detachCurrentSession(closed.id);
+    } else if (closed.kind === "herdr") {
+      // Only release stream if the herdr surface itself was closed/evicted —
+      // not when merely moving zones (pin/unpin never emit herdr in evicted).
+      const nodeId = parseHerdrSurfaceId(closed.id);
+      if (nodeId) closeHerdrTerminal(nodeId);
     }
   }
 };
 
 /**
- * Reconcile the dock with the main process's actual live sessions. dock$
- * always starts empty on a fresh render tree (module init) — that's the
- * ground truth after a real app launch, but NOT after a renderer-only reload
- * (dev hot reload, or registerCrashRecovery's webContents.reload()): a
- * WebContentsView already attached under the window's contentView survives
- * that reload untouched, while the new React tree has no memory of it, so an
- * empty dock renders nothing and the surviving native view floats with no
- * dock chrome. Runs once per renderer lifetime; any session reported
- * attached:true gets its slot rebuilt so BrowserDockSlot mounts and its own
- * ResizeObserver effect repositions the surviving view via browserSetBounds.
+ * Reconcile the workbench with main-process live sessions after renderer reload.
+ * Attached sessions land in the focus zone (v1 — no zone persistence yet).
  */
 let reconciledLiveSessions = false;
 
@@ -132,34 +142,29 @@ export const reconcileDockFromLiveSessions = async (): Promise<void> => {
         url: session.url,
         title: session.title ?? session.url,
       });
-      applyTransition(openSurface(dock$.registry.peek(), { id: session.ref, kind: "browser" }));
+      applyTransition(
+        openSurface(dock$.registry.peek(), { id: session.ref, kind: "browser" }, "focus"),
+      );
     }
   } catch {
-    // Best-effort — an unreconciled attached session degrades to the existing
-    // manual recovery (the card's own detach button, fed by refreshBrowserSession).
+    // Best-effort — unreconciled attached session degrades to manual recovery.
   }
 };
 
 /**
- * Open (or re-focus) a page node's browser surface in the dock. The dock slot
- * appears immediately; the warm session opens/reuses over IPC and its state
- * flows back on the browserSessionChanged push channel.
+ * Open (or re-focus) a page browser surface in the **focus** zone by default.
+ * Slot appears immediately; warm session opens/reuses over IPC.
  */
 export const openDockBrowser = async (
   ref: string,
   payload: DockBrowserPayload,
+  zone: WorkZone = "focus",
 ): Promise<void> => {
   if (!isCanonicalBrowserRef(ref)) return;
   dock$.stopErrorByRef[ref].delete();
-  // Awaited (not fire-and-forget): hydrateDockConfig no-ops instantly once
-  // already hydrated, so this only ever delays the FIRST surface of a
-  // session — long enough that openSurface's eviction below never runs
-  // against the placeholder maxVisible=2 default when the real config says
-  // otherwise (a same-beat second/third open would evict under the wrong
-  // limit, and nothing re-admits a wrongly-evicted surface afterward).
   await hydrateDockConfig();
   dock$.browserByRef[ref].set(payload);
-  applyTransition(openSurface(dock$.registry.peek(), { id: ref, kind: "browser" }));
+  applyTransition(openSurface(dock$.registry.peek(), { id: ref, kind: "browser" }, zone));
   const a = api();
   if (!a?.browserOpen) return;
   const observedSessionId = browserSessionIdForRef(ref);
@@ -173,23 +178,94 @@ export const openDockBrowser = async (
   }
 };
 
-/**
- * Detach a browser surface (UI first — never trap the operator behind a stuck
- * session). browserClose only detaches: the warm session and its cookies
- * survive, mirroring closeHerdrTerminal's detach-first shape.
- */
+/** Detach a browser surface (UI first). Session and cookies survive. */
 export const closeDockBrowser = (ref: string): void => {
-  dock$.registry.set(closeSurface(dock$.registry.peek(), ref).state);
-  dock$.browserByRef[ref].delete();
-  // UI removal is unconditional. IPC detach is allowed only with the current
-  // opaque handle; ref/nodeId fallback would reintroduce confused-deputy risk.
-  detachCurrentSession(ref);
+  applyTransition(closeSurface(dock$.registry.peek(), ref));
 };
 
 /**
- * Explicitly stop one page runtime by exact opaque handle. The surface remains
- * visible on failure and is removed only after authoritative destruction (or
- * authoritative absence); the profile partition and sibling pages stay.
+ * Reconcile workbench herdr surfaces with herdr$.terminals:
+ * - every open terminal gets a focus-zone surface (id = herdrSurfaceId(nodeId))
+ * - surfaces for closed terminals are dropped without a second stream release
+ * Pin moves a slot without reopening the stream.
+ */
+export const syncHerdrWorkbenchSlot = (): void => {
+  const openIds = new Set(herdrTerminalIds());
+  let registry = dock$.registry.peek();
+
+  // Drop slots whose terminal is gone (stream already released by closeHerdrTerminal).
+  for (const surface of registry.surfaces) {
+    if (surface.kind !== "herdr") continue;
+    const nodeId = parseHerdrSurfaceId(surface.id);
+    if (nodeId && openIds.has(nodeId)) continue;
+    registry = closeSurface(registry, surface.id).state;
+  }
+  dock$.registry.set(registry);
+
+  // Ensure a focus-zone surface for every open terminal.
+  for (const nodeId of openIds) {
+    const id = herdrSurfaceId(nodeId);
+    if (surfaceById(registry, id)) continue;
+    const transition = openSurface(registry, { id, kind: "herdr" }, "focus");
+    // Never re-release herdr streams while registering (evicted herdrs filtered).
+    applyTransition({
+      state: transition.state,
+      evicted: transition.evicted.filter((s) => s.kind !== "herdr"),
+    });
+    registry = dock$.registry.peek();
+  }
+};
+
+/** @deprecated Use syncHerdrWorkbenchSlot — no longer auto-docks when browser opens. */
+export const syncDockHerdrSlot = syncHerdrWorkbenchSlot;
+
+export const pinWorkbenchSurface = (id: string): void => {
+  applyTransition(pinSurface(dock$.registry.peek(), id));
+};
+
+export const unpinWorkbenchSurface = (id: string): void => {
+  applyTransition(unpinSurface(dock$.registry.peek(), id));
+};
+
+export const focusWorkbenchSurface = (id: string): void => {
+  applyTransition(focusSurface(dock$.registry.peek(), id));
+};
+
+export const setWorkbenchLayout = (zone: WorkZone, layout: LayoutMode): void => {
+  applyTransition(setLayout(dock$.registry.peek(), zone, layout));
+};
+
+export const setWorkbenchPinnedWidthFrac = (frac: number): void => {
+  applyTransition(setPinnedWidthFrac(dock$.registry.peek(), frac));
+};
+
+export const setWorkbenchFocusSize = (
+  size: { readonly width: number; readonly height: number } | null,
+): void => {
+  applyTransition(setFocusSize(dock$.registry.peek(), size));
+};
+
+export const closeWorkbenchSurface = (id: string): void => {
+  const surface = dock$.registry.peek().surfaces.find((s) => s.id === id);
+  if (!surface) return;
+  if (surface.kind === "browser") {
+    closeDockBrowser(id);
+    return;
+  }
+  if (surface.kind === "herdr") {
+    const nodeId = parseHerdrSurfaceId(id);
+    if (nodeId) {
+      closeHerdrTerminal(nodeId);
+      // Slot removed via syncHerdrWorkbenchSlot when terminals clears.
+      return;
+    }
+  }
+  applyTransition(closeSurface(dock$.registry.peek(), id));
+};
+
+/**
+ * Explicitly stop one page runtime by exact opaque handle. Surface remains
+ * visible on failure; removed only after authoritative destruction.
  */
 export const stopDockBrowser = async (ref: string): Promise<boolean> => {
   dock$.stopErrorByRef[ref].delete();
@@ -257,33 +333,4 @@ export const stopDockBrowser = async (ref: string): Promise<boolean> => {
   return false;
 };
 
-/**
- * Keep the dock's herdr slot in sync with herdr$.terminal (the single source
- * of the one-control-stream invariant — this module never opens a second).
- * The terminal only docks while a browser surface is open; alone it stays in
- * the full-window HerdrTerminalModal, which remains the plain-canvas surface.
- */
-export const syncDockHerdrSlot = (): void => {
-  const registry = dock$.registry.peek();
-  const terminal = herdr$.terminal.peek();
-  const hasBrowser = registry.surfaces.some((s) => s.kind === "browser");
-  const herdrSlot = registry.surfaces.find((s) => s.kind === "herdr");
-
-  if (terminal && hasBrowser) {
-    if (!herdrSlot) {
-      // Slot bookkeeping only: evicted browsers detach, but a herdr "eviction"
-      // here would close the very terminal we are docking — filter it out.
-      const transition = openSurface(registry, { id: HERDR_DOCK_ID, kind: "herdr" });
-      applyTransition({
-        state: transition.state,
-        evicted: transition.evicted.filter((s) => s.kind === "browser"),
-      });
-    }
-  } else if (herdrSlot) {
-    // Terminal closed, or last browser left (modal takes over) — drop the
-    // slot without touching the stream.
-    dock$.registry.set(closeSurface(registry, herdrSlot.id).state);
-  }
-};
-
-export const dockSurfaces = (): ReadonlyArray<DockSurface> => dock$.registry.peek().surfaces;
+export const dockSurfaces = (): ReadonlyArray<WorkSurface> => dock$.registry.peek().surfaces;

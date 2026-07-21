@@ -55,7 +55,10 @@ export const herdr$ = observable({
    * node or stomp React state after cancel or after a later reopen.
    */
   wizardEpoch: 0,
-  terminal: null as HerdrTerminalOpen | null,
+  /** nodeId → open terminal pane (multi; keyboard follows focusedNodeId). */
+  terminals: {} as Record<string, HerdrTerminalOpen>,
+  /** Which open terminal captures keyboard. Null when none open. */
+  focusedNodeId: null as string | null,
   /** nodeId → meta hydration */
   metaByNodeId: {} as Record<string, HerdrMetaCache>,
   /** nodeId → connection machine */
@@ -64,6 +67,28 @@ export const herdr$ = observable({
   mirrorByHost: {} as Record<string, HerdrMirrorFresh>,
   toast: "" as string,
 });
+
+/** Open terminal node ids (stable order not guaranteed). */
+export const herdrTerminalIds = (): ReadonlyArray<string> => Object.keys(herdr$.terminals.peek());
+
+export const getHerdrTerminal = (nodeId: string): HerdrTerminalOpen | undefined =>
+  herdr$.terminals[nodeId].peek();
+
+/** Peek the focused terminal entry, or undefined if none. */
+export const focusedHerdrTerminal = (): HerdrTerminalOpen | undefined => {
+  const id = herdr$.focusedNodeId.peek();
+  return id ? herdr$.terminals[id].peek() : undefined;
+};
+
+const closeStreamIfAny = (streamId: string | undefined): void => {
+  if (!streamId) return;
+  const api = getVellumApi() as
+    | (ReturnType<typeof getVellumApi> & {
+        herdrStreamClose?: (streamId: string) => Promise<unknown>;
+      })
+    | undefined;
+  void api?.herdrStreamClose?.(streamId).catch(() => undefined);
+};
 
 // Default herdr card size — seed resolves against the card center so membership
 // matches geometry.containedNodeIds (center-in-region).
@@ -81,16 +106,18 @@ const releasePendingSeen = (nodeId: string): void => {
 };
 
 export const openHerdrWizard = (anchor: { readonly x: number; readonly y: number }): void => {
-  // One interactive surface at a time — null terminal UI immediately, release stream async.
-  const open = herdr$.terminal.peek();
-  if (open?.streamId) {
-    const api = getVellumApi() as
-      | (ReturnType<typeof getVellumApi> & { herdrStreamClose?: (id: string) => Promise<unknown> })
-      | undefined;
-    void api?.herdrStreamClose?.(open.streamId);
+  // Wizard owns the interaction — close all open terminals (UI first, streams async).
+  const openIds = herdrTerminalIds();
+  for (const nodeId of openIds) {
+    const open = herdr$.terminals[nodeId].peek();
+    if (open?.streamId) closeStreamIfAny(open.streamId);
+    releasePendingSeen(nodeId);
   }
-  if (open?.nodeId) releasePendingSeen(open.nodeId);
-  herdr$.terminal.set(null);
+  if (openIds.length > 0) {
+    herdr$.terminals.set({});
+    herdr$.focusedNodeId.set(null);
+    syncWorkbenchHerdrSlot();
+  }
   herdr$.wizardAnchor.set(anchor);
   const cx = anchor.x + HERDR_NODE_SIZE.width / 2;
   const cy = anchor.y + HERDR_NODE_SIZE.height / 2;
@@ -106,9 +133,27 @@ export const closeHerdrWizard = (): void => {
   herdr$.wizardEpoch.set(herdr$.wizardEpoch.peek() + 1);
 };
 
+const syncWorkbenchHerdrSlot = (): void => {
+  // Dynamic import avoids a static cycle (dock-state imports closeHerdrTerminal).
+  void import("./dock-state").then(({ syncHerdrWorkbenchSlot }) => {
+    syncHerdrWorkbenchSlot();
+  });
+};
+
+/**
+ * Upsert a terminal for nodeId and make it the keyboard focus target.
+ * Re-opening an already-open node preserves its streamId (no reconnect).
+ */
 export const openHerdrTerminal = (nodeId: string, herdr: EtherHerdr, title: string): void => {
   herdr$.wizardOpen.set(false);
-  herdr$.terminal.set({ nodeId, herdr, title });
+  const prev = herdr$.terminals[nodeId].peek();
+  herdr$.terminals[nodeId].set({
+    nodeId,
+    herdr,
+    title,
+    ...(prev?.streamId !== undefined ? { streamId: prev.streamId } : {}),
+  });
+  herdr$.focusedNodeId.set(nodeId);
   ensureConnection(nodeId);
   setConnectionEvent(nodeId, { type: "ok" });
   // Opening the terminal is "looking at" the pane. Optimistically clear herdr's
@@ -116,34 +161,47 @@ export const openHerdrTerminal = (nodeId: string, herdr: EtherHerdr, title: stri
   // Then mark seen on the host so the mirror event confirms it for the fleet.
   markHerdrPaneSeenLocal(nodeId, herdr);
   void markHerdrPaneSeenRemote(herdr, nodeId);
+  // Place the UI slot in the focus zone (pin is explicit afterward).
+  syncWorkbenchHerdrSlot();
 };
 
 /**
- * Close the terminal modal immediately (UI first).
- * Stream detach is fire-and-forget — never block the UI on a stuck herdr child.
+ * Close one terminal (UI first). Defaults to the focused terminal when nodeId
+ * is omitted. Stream detach is fire-and-forget.
  */
-export const closeHerdrTerminal = (): void => {
-  const terminal = herdr$.terminal.peek();
+export const closeHerdrTerminal = (nodeId?: string): void => {
+  const id = nodeId ?? herdr$.focusedNodeId.peek();
+  if (!id) return;
+  const terminal = herdr$.terminals[id].peek();
   if (!terminal) return;
   const streamId = terminal.streamId;
   // UI first — operator must never be trapped in the modal.
-  herdr$.terminal.set(null);
+  herdr$.terminals[id].delete();
+  if (herdr$.focusedNodeId.peek() === id) {
+    const remaining = herdrTerminalIds().filter((x) => x !== id);
+    herdr$.focusedNodeId.set(remaining[0] ?? null);
+  }
   // Drop the open-path latch: if host still says done (focus failed), the card
   // must re-converge to host truth after close instead of staying quiet forever.
-  releasePendingSeen(terminal.nodeId);
-  if (!streamId) return;
-  const api = getVellumApi() as
-    | (ReturnType<typeof getVellumApi> & {
-        herdrStreamClose?: (streamId: string) => Promise<unknown>;
-      })
-    | undefined;
-  void api?.herdrStreamClose?.(streamId).catch(() => undefined);
+  releasePendingSeen(id);
+  syncWorkbenchHerdrSlot();
+  closeStreamIfAny(streamId);
 };
 
-export const setTerminalStreamId = (streamId: string | undefined): void => {
-  const terminal = herdr$.terminal.peek();
+/** Route keyboard capture to an already-open terminal. No-op if unknown. */
+export const focusHerdrTerminal = (nodeId: string): void => {
+  if (!herdr$.terminals[nodeId].peek()) return;
+  herdr$.focusedNodeId.set(nodeId);
+};
+
+export const setTerminalStreamId = (nodeId: string, streamId: string | undefined): void => {
+  const terminal = herdr$.terminals[nodeId].peek();
   if (!terminal) return;
-  herdr$.terminal.set({ ...terminal, streamId });
+  herdr$.terminals[nodeId].set(
+    streamId === undefined
+      ? { nodeId: terminal.nodeId, herdr: terminal.herdr, title: terminal.title }
+      : { ...terminal, streamId },
+  );
 };
 
 export const ensureConnection = (nodeId: string): void => {

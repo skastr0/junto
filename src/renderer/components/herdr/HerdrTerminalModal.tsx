@@ -6,13 +6,14 @@ import "@xterm/xterm/css/xterm.css";
 import {
   canAutoReconnect,
   closeHerdrTerminal,
+  focusHerdrTerminal,
   herdr$,
   setConnectionEvent,
   setTerminalStreamId,
 } from "../../lib/herdr-state";
 import { recreateHerdrPane } from "../../lib/herdr-actions";
 import { extractHerdrClipboardImage } from "../../lib/herdr-clipboard-image";
-import { dock$ } from "../../lib/dock-state";
+import { dock$, herdrSurfaceId } from "../../lib/dock-state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { ActivityMark } from "../ActivityMark";
 import { FocusSurface } from "../FocusSurface";
@@ -124,17 +125,21 @@ type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
 };
 
 /**
- * Herdr terminal work surface: header + xterm + stream lifecycle. xterm is
- * display-only; keyboard is owned by a window-level capture handler so focus
- * never blocks typing. Two hosts render it (never both at once — the dock's
- * herdr slot suppresses the modal): full-window HerdrTerminalModal below, and
- * WorkSurfaceDock's interactive slot ("dock" variant, inline, no portal or
- * backdrop). Either way herdr$.terminal stays the single source, so there is
- * exactly one control stream total.
+ * Herdr terminal work surface for one nodeId: header + xterm + stream lifecycle.
+ * xterm is display-only; keyboard is window-level capture ONLY while this
+ * nodeId === focusedNodeId (click the panel to focus). Multiple panels may
+ * mount; only the focused one steals keys.
  */
-export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "dock" }) {
-  const terminalOpen = use$(herdr$.terminal);
-  const nodeId = terminalOpen?.nodeId ?? "";
+export function HerdrTerminalPanel({
+  variant,
+  nodeId,
+}: {
+  readonly variant: "modal" | "dock";
+  readonly nodeId: string;
+}) {
+  const terminalOpen = use$(herdr$.terminals[nodeId]);
+  const focusedNodeId = use$(herdr$.focusedNodeId);
+  const isFocused = focusedNodeId === nodeId;
   const conn = use$(herdr$.connectionByNodeId[nodeId]);
   const hostRef = useRef<HTMLDivElement>(null);
   const streamIdRef = useRef<string | undefined>(undefined);
@@ -144,9 +149,9 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
   const [status, setStatus] = useState("connecting…");
   const [geom, setGeom] = useState({ cols: 0, rows: 0 });
 
-  // Keyboard: window capture while open — independent of focus/xterm.
+  // Keyboard: window capture only while this panel is the focused herdr.
   useEffect(() => {
-    if (!terminalOpen) return;
+    if (!terminalOpen || !isFocused) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
       // Close on ⌘W/Ctrl+W only — Escape belongs to the terminal (agent TUIs
@@ -154,14 +159,14 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "w") {
         e.preventDefault();
         e.stopImmediatePropagation();
-        closeHerdrTerminal();
+        closeHerdrTerminal(nodeId);
         return;
       }
 
       const t = e.target as HTMLElement | null;
       if (t?.closest?.("[data-herdr-chrome]")) return;
 
-      // Steal from canvas / app shortcuts while modal is open.
+      // Steal from canvas / app shortcuts while this terminal is focused.
       e.stopPropagation();
 
       if (e.metaKey || e.altKey) return;
@@ -247,7 +252,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("paste", onPaste, true);
     };
-  }, [Boolean(terminalOpen)]);
+  }, [Boolean(terminalOpen), isFocused, nodeId]);
 
   // Stream + xterm lifecycle
   useEffect(() => {
@@ -412,7 +417,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       // Pool handoff: frames captured before the observe stream was paused.
       writePlaceholder(opened.retained);
       streamIdRef.current = opened.streamId;
-      setTerminalStreamId(opened.streamId);
+      setTerminalStreamId(nodeId, opened.streamId);
       setStatus(`connected · ${cols}×${rows} · type · ⌘W closes`);
       setConnectionEvent(terminalOpen.nodeId, { type: "ok" });
       // One more resize after attach — layout often settles after first paint.
@@ -435,7 +440,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
         setStatus(`closed · ${event.reason ?? "eof"}`);
         setConnectionEvent(terminalOpen.nodeId, { type: "stream_drop" });
         streamIdRef.current = undefined;
-        setTerminalStreamId(undefined);
+        setTerminalStreamId(nodeId, undefined);
         if (canAutoReconnect(terminalOpen.nodeId)) {
           setConnectionEvent(terminalOpen.nodeId, { type: "reconnect_start" });
           setStatus("reconnecting…");
@@ -588,7 +593,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       term.dispose();
       termRef.current = null;
     };
-  }, [terminalOpen?.nodeId, terminalOpen?.herdr.paneId, terminalOpen?.herdr.terminalId]);
+  }, [nodeId, terminalOpen?.herdr.paneId, terminalOpen?.herdr.terminalId]);
 
   // Force a layout pass when opening so host has non-zero size.
   useLayoutEffect(() => {
@@ -601,12 +606,22 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
 
   if (!terminalOpen) return null;
 
+  const claimFocus = () => {
+    focusHerdrTerminal(nodeId);
+  };
+
   const chrome = (
-    <>
+    <div
+      className={isFocused ? "herdr-terminal-panel herdr-terminal-panel--focused" : "herdr-terminal-panel"}
+      data-herdr-node={nodeId}
+      data-herdr-focused={isFocused ? "1" : "0"}
+      onMouseDown={claimFocus}
+    >
       <header data-herdr-chrome className="herdr-modal-header">
         <div className="herdr-modal-header__meta min-w-0">
           <div className="herdr-modal-eyebrow">
             herdr · ⌘W / Close detaches (pane keeps running) · Esc goes to the terminal
+            {isFocused ? " · focused" : " · click to focus"}
           </div>
           <div className="herdr-modal-title truncate">{terminalOpen.title}</div>
           <div className="herdr-modal-status truncate">
@@ -642,7 +657,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              closeHerdrTerminal();
+              closeHerdrTerminal(nodeId);
             }}
           >
             Close
@@ -650,14 +665,8 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
         </div>
       </header>
 
-      <div
-        ref={hostRef}
-        className="herdr-xterm herdr-modal-body"
-        onMouseDown={() => {
-          // Keep window key handler as the input path; no focus requirement.
-        }}
-      />
-    </>
+      <div ref={hostRef} className="herdr-xterm herdr-modal-body" />
+    </div>
   );
 
   // Dock: fill the work-surface slot (no focus measure — slot owns width).
@@ -673,7 +682,7 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
       height="immersive"
       layer="work"
       label="Herdr terminal"
-      onClose={() => closeHerdrTerminal()}
+      onClose={() => closeHerdrTerminal(nodeId)}
       closeOnEscape={false}
       closeOnBackdrop
     >
@@ -683,12 +692,22 @@ export function HerdrTerminalPanel({ variant }: { readonly variant: "modal" | "d
 }
 
 /**
- * Full-window herdr work surface (portaled to document.body so app chrome
- * cannot clip it). Yields to WorkSurfaceDock whenever the dock holds the
- * herdr slot — one render host at a time, one control stream always.
+ * Full-window herdr surfaces for open terminals not yet hosted by the workbench
+ * registry (fallback). WorkSurfaceDock owns surfaces once synced.
  */
 export function HerdrTerminalModal() {
+  const terminals = use$(herdr$.terminals);
   const registry = use$(dock$.registry);
-  if (registry.surfaces.some((s) => s.kind === "herdr")) return null;
-  return <HerdrTerminalPanel variant="modal" />;
+  const hosted = new Set(
+    registry.surfaces.filter((s) => s.kind === "herdr").map((s) => s.id),
+  );
+  const orphanIds = Object.keys(terminals).filter((id) => !hosted.has(herdrSurfaceId(id)));
+  if (orphanIds.length === 0) return null;
+  return (
+    <>
+      {orphanIds.map((id) => (
+        <HerdrTerminalPanel key={id} variant="modal" nodeId={id} />
+      ))}
+    </>
+  );
 }
