@@ -33,13 +33,18 @@ export function PulseTray({ embedded = false }: { readonly embedded?: boolean } 
       const items = comparePulse(prev, next);
       if (items.length > 0) {
         setToasts((current) => {
-          const updated = [...current, ...items.map((item): TrayToast => ({ id: item.id, kind: "snapshot", item }))];
-          // Remove old timers for newly added items only
+          const incoming = new Map(items.map((item) => [item.id, item] as const));
+          // Drop same-id entries then append — re-arm needs a fresh timer key.
+          const kept = current.filter((t) => !incoming.has(t.id));
           for (const item of items) {
             const existingTimer = timersRef.current.get(item.id);
             if (existingTimer) clearTimeout(existingTimer);
+            timersRef.current.delete(item.id);
           }
-          return updated;
+          return [
+            ...kept,
+            ...items.map((item): TrayToast => ({ id: item.id, kind: "snapshot", item })),
+          ];
         });
       }
     }
@@ -58,13 +63,18 @@ export function PulseTray({ embedded = false }: { readonly embedded?: boolean } 
       const added = next.filter((record) => !seen.has(record.id));
       if (added.length > 0) {
         setToasts((current) => {
-          const updated = [...current, ...added.map((record): TrayToast => ({ id: `kernel-${record.id}`, kind: "kernel", record }))];
+          const keys = new Set(added.map((record) => `kernel-${record.id}`));
+          const kept = current.filter((t) => !keys.has(t.id));
           for (const record of added) {
             const key = `kernel-${record.id}`;
             const existingTimer = timersRef.current.get(key);
             if (existingTimer) clearTimeout(existingTimer);
+            timersRef.current.delete(key);
           }
-          return updated;
+          return [
+            ...kept,
+            ...added.map((record): TrayToast => ({ id: `kernel-${record.id}`, kind: "kernel", record })),
+          ];
         });
       }
     }
