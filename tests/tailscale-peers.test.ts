@@ -1,0 +1,97 @@
+import { describe, expect, it } from "vitest";
+import {
+  endpointHostToken,
+  matchTailscalePeer,
+  parseTailscaleStatusJson,
+  peerReachableHost,
+  resolveTailscaleHostForQuery,
+} from "../src/shared/tailscale-peers";
+
+/** Shape mirrors live `tailscale status --json` (field names capitalised). */
+const fixtureStatus = {
+  Self: {
+    HostName: "Developer laptop",
+    DNSName: "dev-laptop.example.ts.net.",
+    TailscaleIPs: ["100.64.0.10", "fd7a:115c:a1e0::10"],
+    Online: true,
+  },
+  Peer: {
+    nodekey1: {
+      HostName: "Developer desktop",
+      DNSName: "remote-a.example.ts.net.",
+      TailscaleIPs: ["100.64.0.20", "fd7a:115c:a1e0::20"],
+      Online: true,
+    },
+    nodekey2: {
+      HostName: "dev-phone",
+      DNSName: "dev-phone.example.ts.net.",
+      TailscaleIPs: ["100.64.0.30"],
+      Online: true,
+    },
+    nodekey3: {
+      HostName: "old-box",
+      DNSName: "stale-box.example.ts.net.",
+      TailscaleIPs: ["100.1.2.3"],
+      Online: false,
+    },
+  },
+};
+
+describe("tailscale-peers parse", () => {
+  it("parses Self + Peer map", () => {
+    const snap = parseTailscaleStatusJson(fixtureStatus);
+    expect(snap.self?.ipv4).toBe("100.64.0.10");
+    expect(snap.peers).toHaveLength(3);
+    expect(snap.peers.find((p) => p.dnsName?.includes("remote-a"))?.ipv4).toBe(
+      "100.64.0.20",
+    );
+  });
+
+  it("prefers MagicDNS without trailing dot", () => {
+    const peer = parseTailscaleStatusJson(fixtureStatus).peers.find((p) =>
+      p.dnsName?.includes("remote-a"),
+    )!;
+    expect(peerReachableHost(peer)).toBe("remote-a.example.ts.net");
+  });
+});
+
+describe("tailscale-peers match", () => {
+  const snap = parseTailscaleStatusJson(fixtureStatus);
+
+  it("matches host id remote-a to MagicDNS peer", () => {
+    const host = resolveTailscaleHostForQuery(
+      { hostId: "remote-a", endpoint: "remote-a" },
+      snap,
+    );
+    expect(host).toBe("remote-a.example.ts.net");
+  });
+
+  it("matches user@endpoint form", () => {
+    const host = resolveTailscaleHostForQuery(
+      { hostId: "mini", endpoint: "me@remote-a" },
+      snap,
+    );
+    expect(host).toBe("remote-a.example.ts.net");
+  });
+
+  it("does not invent a peer for unknown host", () => {
+    expect(
+      resolveTailscaleHostForQuery({ hostId: "nowhere", endpoint: "nowhere" }, snap),
+    ).toBeUndefined();
+  });
+
+  it("skips local host id", () => {
+    expect(resolveTailscaleHostForQuery({ hostId: "local" }, snap)).toBeUndefined();
+  });
+
+  it("prefers online peer when labels collide weakly", () => {
+    const peer = matchTailscalePeer({ hostId: "remote-a" }, snap);
+    expect(peer?.online).toBe(true);
+    expect(peer?.dnsName).toContain("remote-a");
+  });
+
+  it("endpointHostToken strips user@", () => {
+    expect(endpointHostToken("user@remote-a")).toBe("remote-a");
+    expect(endpointHostToken("remote-a")).toBe("remote-a");
+  });
+});

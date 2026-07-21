@@ -12,6 +12,7 @@
 import type { CliResult } from "../adapters/exec";
 import { findHostById } from "../hosts/snapshot";
 import {
+  DEFAULT_AMBIENT_TTL_MS,
   enqueueServiceProbe,
   interestLevel,
   parseLsofListen,
@@ -48,6 +49,8 @@ export interface HerdrServiceMapOptions {
   readonly batchPerTick?: number;
   /** Minimum ms between drain ticks per host. Default 10_000. */
   readonly tickIntervalMs?: number;
+  /** Re-enqueue live interesting panes for ambient refresh. Default 3m. */
+  readonly ambientTtlMs?: number;
   readonly now?: () => number;
   /** Resolve Tailscale/mesh override for a host id (optional). */
   readonly resolveTailscaleHost?: (hostId: string) => string | undefined;
@@ -69,17 +72,21 @@ export class HerdrServiceMap {
   private readonly listeners = new Set<(proj: HerdrServiceProjection) => void>();
   private batchPerTick: number;
   private tickIntervalMs: number;
+  private ambientTtlMs: number;
   private now: () => number;
   private shell?: HostShellRunner;
   private fetchProcesses?: ProcessInfoFetcher;
   private resolveTailscaleHost?: (hostId: string) => string | undefined;
   private stopped = false;
+  /** pane cache keys with pending ambient re-enqueue timers */
+  private readonly ambientTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(opts: HerdrServiceMapOptions = {}) {
     this.shell = opts.shell;
     this.fetchProcesses = opts.fetchProcesses;
     this.batchPerTick = opts.batchPerTick ?? 2;
     this.tickIntervalMs = opts.tickIntervalMs ?? 10_000;
+    this.ambientTtlMs = opts.ambientTtlMs ?? DEFAULT_AMBIENT_TTL_MS;
     this.now = opts.now ?? Date.now;
     this.resolveTailscaleHost = opts.resolveTailscaleHost;
   }
@@ -91,6 +98,7 @@ export class HerdrServiceMap {
     if (opts.resolveTailscaleHost) this.resolveTailscaleHost = opts.resolveTailscaleHost;
     if (opts.batchPerTick !== undefined) this.batchPerTick = opts.batchPerTick;
     if (opts.tickIntervalMs !== undefined) this.tickIntervalMs = opts.tickIntervalMs;
+    if (opts.ambientTtlMs !== undefined) this.ambientTtlMs = opts.ambientTtlMs;
     if (opts.now) this.now = opts.now;
   }
 
@@ -103,6 +111,8 @@ export class HerdrServiceMap {
     this.stopped = true;
     for (const t of this.hostTimers.values()) clearTimeout(t);
     this.hostTimers.clear();
+    for (const t of this.ambientTimers.values()) clearTimeout(t);
+    this.ambientTimers.clear();
   }
 
   get(
@@ -249,11 +259,18 @@ export class HerdrServiceMap {
   // --- internals ------------------------------------------------------------
 
   private hostBase(hostId: string): string | undefined {
+    if (hostId === "local") return "127.0.0.1";
     const host = findHostById(hostId);
+    if (host?.kind === "local") return "127.0.0.1";
+    // Non-local: prefer Tailscale peer (MagicDNS/IPv4), else SSH endpoint,
+    // else hostId as a last-ditch hostname token for mesh match.
     const reach: HostReachability = {
       hostId,
-      kind: host?.kind === "remote" ? "remote" : "local",
-      endpoint: host?.kind === "remote" ? host.endpoint : undefined,
+      kind: "remote",
+      endpoint:
+        host?.kind === "remote" && host.endpoint
+          ? host.endpoint
+          : hostId,
       tailscaleHost: this.resolveTailscaleHost?.(hostId),
     };
     return resolveHostBase(reach);
@@ -390,21 +407,49 @@ export class HerdrServiceMap {
       return;
     }
 
-    this.write(
-      projectService({
+    const proj = projectService({
+      hostId: item.hostId,
+      session: item.session,
+      paneId: item.paneId,
+      processes,
+      ports,
+      hostBase,
+      checkedAt: this.now(),
+      pending: false,
+      error,
+      priority: item.priority,
+      now: this.now(),
+    });
+    this.write(proj);
+    if (proj.health === "live" && proj.interesting) {
+      this.scheduleAmbientRefresh(item);
+    }
+  }
+
+  /**
+   * After a successful live probe, re-check ports on ambient TTL so long-lived
+   * servers stay honest without per-card polling.
+   */
+  private scheduleAmbientRefresh(item: HerdrServiceQueueItem): void {
+    if (this.stopped || this.ambientTtlMs <= 0) return;
+    const key = cacheKey(item.hostId, item.session, item.paneId);
+    const existing = this.ambientTimers.get(key);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.ambientTimers.delete(key);
+      if (this.stopped) return;
+      const current = this.cache.get(key);
+      if (!current?.interesting) return;
+      if (current.health !== "live" && current.health !== "stale") return;
+      this.enqueue({
         hostId: item.hostId,
         session: item.session,
         paneId: item.paneId,
-        processes,
-        ports,
-        hostBase,
-        checkedAt: this.now(),
-        pending: false,
-        error,
-        priority: item.priority,
-        now: this.now(),
-      }),
-    );
+        priority: "ambient",
+        processes: current.processes,
+      });
+    }, this.ambientTtlMs);
+    this.ambientTimers.set(key, timer);
   }
 
   private async resolveListenPorts(

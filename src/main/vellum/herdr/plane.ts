@@ -32,6 +32,7 @@ import { HerdrStreamManager, type HerdrProcessLike, type HerdrSpawnFn } from "./
 import { HerdrTransport } from "./transport";
 import { parseCliEnvelope, parseProcessInfo } from "./parse";
 import { findHostById } from "../hosts/snapshot";
+import { tailscalePeerCache } from "../hosts/tailscale-peers";
 import { makeRemoteCommand, parseSshEndpoint } from "../ssh/domain";
 import { oneShot } from "../ssh/program";
 import { SshTransport } from "../ssh/service";
@@ -419,7 +420,11 @@ export const HerdrPlaneLive = Layer.scoped(
       fetchProcesses,
       batchPerTick: 2,
       tickIntervalMs: 10_000,
+      resolveTailscaleHost: (hostId) => tailscalePeerCache.resolveHost(hostId),
     });
+
+    // Warm Tailscale peer cache once at start (soft-fail if CLI missing).
+    void tailscalePeerCache.refresh();
 
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
