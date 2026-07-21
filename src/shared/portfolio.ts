@@ -141,8 +141,19 @@ const agentNodes = (state: SnapshotState, present: Set<string>, originY: number)
   return agents.map((agent, index) => {
     const col = index % COLUMNS;
     const row = Math.floor(index / COLUMNS);
-    const host = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
-    const label = host ? `${agent.title ?? agent.key} · ${host}` : (agent.title ?? agent.key);
+    const statsHost = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
+    const keyHost = (() => {
+      const colon = agent.key.indexOf(":");
+      if (colon <= 0) return undefined;
+      const candidate = agent.key.slice(0, colon);
+      return /^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/.test(candidate) && candidate.length <= 64
+        ? candidate
+        : undefined;
+    })();
+    const host = statsHost ?? keyHost ?? "local";
+    const label = statsHost
+      ? `${agent.title ?? agent.key} · ${statsHost}`
+      : (agent.title ?? agent.key);
     return {
       id: `agent-${slug(agent.key)}`,
       type: "text",
@@ -153,6 +164,7 @@ const agentNodes = (state: SnapshotState, present: Set<string>, originY: number)
       text: label,
       ether: {
         entity: { kind: "agent", name: agent.key },
+        host,
       },
     } as CanvasNode;
   });

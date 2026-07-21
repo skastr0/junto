@@ -1,5 +1,5 @@
 import type { CanvasNode } from "./canvas";
-import { HostId } from "./remote-hosts";
+import type { HostId } from "./remote-hosts";
 
 /**
  * Station plane: this machine's durable role in a Vellum fleet.
@@ -37,8 +37,24 @@ export const isExecutableEntityKind = (value: unknown): value is ExecutableEntit
   typeof value === "string" && EXECUTABLE_KIND_SET.has(value);
 
 /**
+ * Hermes agent keys are `<host>:<profile>`. Extract host when well-formed.
+ * Does not invent hosts from free-form labels.
+ */
+export const hostIdFromAgentKey = (key: string | undefined): string | undefined => {
+  if (typeof key !== "string" || key.length === 0) return undefined;
+  const colon = key.indexOf(":");
+  if (colon <= 0) return undefined;
+  const host = key.slice(0, colon);
+  return isValidStationHostId(host) ? host : undefined;
+};
+
+/**
  * Resolve the host id a node is assigned to execute on.
- * Precedence: ether.host (authorial stamp) → herdr.host binding → default local.
+ * Precedence:
+ *   ether.host (authorial stamp)
+ *   → herdr.host binding
+ *   → agent key host prefix (hermes `<host>:<profile>`)
+ *   → default local
  */
 export const resolveNodeHostId = (node: CanvasNode): string => {
   const ether = node.ether;
@@ -46,6 +62,10 @@ export const resolveNodeHostId = (node: CanvasNode): string => {
   if (typeof ether.host === "string" && ether.host.length > 0) return ether.host;
   if (typeof ether.herdr?.host === "string" && ether.herdr.host.length > 0) {
     return ether.herdr.host;
+  }
+  if (ether.entity?.kind === "agent") {
+    const fromKey = hostIdFromAgentKey(ether.entity.name);
+    if (fromKey !== undefined) return fromKey;
   }
   return DEFAULT_STATION_HOST_ID;
 };
@@ -81,14 +101,10 @@ export const watcherMayTargetAgent = (input: {
 };
 
 /** Validate a host id string against the shared HostId pattern without Effect decode. */
-export const isValidStationHostId = (value: string): boolean => {
-  try {
-    // HostId is an Effect Schema; use pattern mirror for pure callers.
-    return /^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && value.length <= 64;
-  } catch {
-    return false;
-  }
-};
+export const isValidStationHostId = (value: string): boolean =>
+  value.length > 0 &&
+  value.length <= 64 &&
+  /^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
 
 // ---------------------------------------------------------------------------
 // Supervised runtime preference vs LaunchAgent install (Remote 24×7 foundation)

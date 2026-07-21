@@ -192,6 +192,7 @@ export const recreateHerdrPane = async (nodeId: string, herdr: EtherHerdr): Prom
             ether: {
               ...n.ether,
               entity: { kind: "herdr" },
+              host: nextHerdr.host,
               herdr: nextHerdr,
             },
           }

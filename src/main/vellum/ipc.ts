@@ -37,6 +37,7 @@ import { KernelService } from "./kernel/service";
 import { RegionRollupService } from "./region-rollup";
 import { registerHostsIpc } from "./hosts/ipc";
 import { registerSettingsIpc } from "./settings/ipc";
+import { SettingsService } from "./settings/service";
 import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
 
@@ -48,6 +49,19 @@ const broadcast = (channel: string, payload: unknown) => {
     window.webContents.send(channel, payload);
   }
 };
+
+/** Remote stations pull canvases; they must not rewrite authorial SoT. */
+const denyIfRemoteAuthorial = Effect.gen(function* () {
+  const settings = yield* SettingsService;
+  const current = yield* settings.get;
+  if (current.station.role === "remote") {
+    return yield* Effect.fail(
+      new Error(
+        "Remote station cannot mutate authorial canvases. Author on the Command Center.",
+      ),
+    );
+  }
+});
 
 export const registerVellumIpc = (): void => {
   registerHerdrIpc(ipcMain, () => BrowserWindow.getAllWindows().map((w) => w.webContents));
@@ -63,18 +77,32 @@ export const registerVellumIpc = (): void => {
 
   ipcMain.handle(IPC_CHANNELS.writeCanvas, (_event, name: string, doc: CanvasDoc, expectedRevision?: string) =>
     AppRuntime.runPromise(
-      Effect.flatMap(CanvasesService, (canvases) =>
-        canvases.write(name, doc, expectedRevision),
-      ),
+      Effect.gen(function* () {
+        yield* denyIfRemoteAuthorial;
+        const canvases = yield* CanvasesService;
+        return yield* canvases.write(name, doc, expectedRevision);
+      }),
     ),
   );
 
   ipcMain.handle(IPC_CHANNELS.createCanvas, (_event, name: string) =>
-    AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.create(name))),
+    AppRuntime.runPromise(
+      Effect.gen(function* () {
+        yield* denyIfRemoteAuthorial;
+        const canvases = yield* CanvasesService;
+        return yield* canvases.create(name);
+      }),
+    ),
   );
 
   ipcMain.handle(IPC_CHANNELS.deleteCanvas, (_event, name: string) =>
-    AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.remove(name))),
+    AppRuntime.runPromise(
+      Effect.gen(function* () {
+        yield* denyIfRemoteAuthorial;
+        const canvases = yield* CanvasesService;
+        return yield* canvases.remove(name);
+      }),
+    ),
   );
 
   ipcMain.handle(IPC_CHANNELS.exportDigest, (_event, name: string) =>

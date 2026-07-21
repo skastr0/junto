@@ -338,21 +338,38 @@ const makeAddActions = (
   },
   addAgent: (label, key) => {
     const position = positionFor({ width: 240, height: 96 });
-    const node = makeAgentNode(position.x, position.y, label, key);
+    const stationHost = state$.settings.station.hostId.peek() || "local";
+    const node = makeAgentNode(position.x, position.y, label, key, stationHost);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
   },
   addWatcher: () => {
     const position = positionFor({ width: 240, height: 96 });
-    const node = makeWatcherNode(position.x, position.y);
+    const stationHost = state$.settings.station.hostId.peek() || "local";
+    const node = {
+      ...makeWatcherNode(position.x, position.y),
+      ether: {
+        entity: { kind: "watcher" as const },
+        host: stationHost,
+        watch: { kind: "glyphs_done" as const },
+      },
+    };
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
   },
   addTimer: () => {
     const position = positionFor({ width: 240, height: 96 });
-    const node = makeTimerNode(position.x, position.y);
+    const stationHost = state$.settings.station.hostId.peek() || "local";
+    const node = {
+      ...makeTimerNode(position.x, position.y),
+      ether: {
+        entity: { kind: "timer" as const },
+        host: stationHost,
+        timer: { everyMinutes: 30 },
+      },
+    };
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();

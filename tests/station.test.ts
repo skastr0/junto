@@ -78,6 +78,22 @@ describe("node host assignment", () => {
     expect(isNodeEligibleOnStation(node, "remote-a")).toBe(false);
   });
 
+  it("legacy agent key host prefix resolves when ether.host absent", () => {
+    const node = {
+      id: "n1b",
+      type: "text",
+      text: "remote agent",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 80,
+      ether: { entity: { kind: "agent", name: "remote-a:codex" } },
+    } as CanvasNode;
+    expect(resolveNodeHostId(node)).toBe("remote-a");
+    expect(isNodeEligibleOnStation(node, "remote-a")).toBe(true);
+    expect(isNodeEligibleOnStation(node, "local")).toBe(false);
+  });
+
   it("herdr.host fills resolve when ether.host absent", () => {
     const node = {
       id: "n2",
