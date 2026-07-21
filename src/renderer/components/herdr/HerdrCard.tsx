@@ -211,9 +211,17 @@ export function HerdrCard({
     service?.ports && service.ports.length > 0
       ? `:${service.ports.map((p) => p.port).join(",")}`
       : undefined;
+  const serveTag = service?.serveJoined
+    ? service.serveLabel ?? "svc"
+    : undefined;
   const serviceBadge =
     service?.health === "live" || service?.health === "stale"
-      ? [processLine, portLine, service.health === "stale" ? "stale" : undefined]
+      ? [
+          serveTag,
+          processLine,
+          serveTag ? undefined : portLine,
+          service.health === "stale" ? "stale" : undefined,
+        ]
           .filter(Boolean)
           .join(" · ")
       : service?.health === "pending"

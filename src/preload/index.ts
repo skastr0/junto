@@ -323,6 +323,10 @@ const herdrApi: VellumHerdrApi = {
     invoke(IPC_CHANNELS.herdrServiceMapProbe, IPC_TIMEOUT_MS, hostId, session, paneId),
   onHerdrServiceMapEvent: (listener) =>
     subscribe(IPC_CHANNELS.herdrServiceMapEvent, listener),
+  herdrServeCatalogGet: (hostId) =>
+    invoke(IPC_CHANNELS.herdrServeCatalogGet, IPC_TIMEOUT_MS, hostId),
+  herdrServeCatalogRefresh: (hostId) =>
+    invoke(IPC_CHANNELS.herdrServeCatalogRefresh, IPC_TIMEOUT_MS, hostId),
   herdrMarkPaneSeen: (hostId, session, paneId) =>
     invoke(IPC_CHANNELS.herdrMarkPaneSeen, IPC_TIMEOUT_MS, hostId, session, paneId),
   herdrCreateWorkspace: (hostId, session, input) =>

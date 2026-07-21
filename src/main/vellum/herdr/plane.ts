@@ -21,6 +21,7 @@ import {
 } from "../ssh";
 import {
   isKnownHerdrHost,
+  listHerdrHosts,
   type HerdrHostId,
 } from "./hosts";
 import { LocalMirrorTransport, RemoteMirrorTransport } from "./mirror-transport";
@@ -32,6 +33,7 @@ import { HerdrStreamManager, type HerdrProcessLike, type HerdrSpawnFn } from "./
 import { HerdrTransport } from "./transport";
 import { parseCliEnvelope, parseProcessInfo } from "./parse";
 import { findHostById } from "../hosts/snapshot";
+import { HostServeCatalog } from "../hosts/serve-catalog";
 import { tailscalePeerCache } from "../hosts/tailscale-peers";
 import { makeRemoteCommand, parseSshEndpoint } from "../ssh/domain";
 import { oneShot } from "../ssh/program";
@@ -197,6 +199,8 @@ export class HerdrPlane extends Context.Tag("@vellum/HerdrPlane")<
     readonly streams: HerdrStreamManager;
     /** Host-scoped process→port→URL projection (rate-limited side channel). */
     readonly serviceMap: HerdrServiceMap;
+    /** Host-scoped Tailscale Serve / SVC catalog. */
+    readonly serveCatalog: HostServeCatalog;
     readonly start: Effect.Effect<void>;
     readonly warm: Effect.Effect<void>;
   }
@@ -415,12 +419,40 @@ export const HerdrPlaneLive = Layer.scoped(
       return parseProcessInfo(envelope.result).slice(0, 8);
     };
 
+    const resolveHostBaseForCatalog = (hostId: string): string | undefined => {
+      if (hostId === "local") return "127.0.0.1";
+      return (
+        tailscalePeerCache.resolveHost(hostId) ??
+        (() => {
+          const h = findHostById(hostId);
+          if (h?.kind === "remote" && h.endpoint) {
+            const ep = h.endpoint;
+            const at = ep.lastIndexOf("@");
+            return at >= 0 ? ep.slice(at + 1) : ep;
+          }
+          return hostId === "local" ? undefined : hostId;
+        })()
+      );
+    };
+
+    const serveCatalog = new HostServeCatalog({
+      runServeStatus: (hostId) =>
+        hostShell(hostId, ["tailscale", "serve", "status", "--json"], 8_000),
+      resolveHostBase: resolveHostBaseForCatalog,
+      ttlMs: 3 * 60_000,
+    });
+
     const serviceMap = new HerdrServiceMap({
       shell: hostShell,
       fetchProcesses,
       batchPerTick: 2,
       tickIntervalMs: 10_000,
       resolveTailscaleHost: (hostId) => tailscalePeerCache.resolveHost(hostId),
+      resolvePreferredServeUrl: (hostId, localPorts) => {
+        const hit = serveCatalog.preferredUrl(hostId, localPorts);
+        if (!hit) return undefined;
+        return { url: hit.url, label: hit.entry.label };
+      },
     });
 
     // Warm Tailscale peer cache once at start (soft-fail if CLI missing).
@@ -435,7 +467,17 @@ export const HerdrPlaneLive = Layer.scoped(
     );
 
     const warm = transport.warm.pipe(Effect.ignore);
-    const start = warm.pipe(Effect.zipRight(Effect.sync(() => mirrors.startAll())));
+    const start = warm.pipe(
+      Effect.zipRight(
+        Effect.sync(() => {
+          mirrors.startAll();
+          // Soft warm serve catalogs for known herdr hosts (local first).
+          for (const h of listHerdrHosts()) {
+            void serveCatalog.refresh(h.id);
+          }
+        }),
+      ),
+    );
 
     return HerdrPlane.of({
       service,
@@ -443,6 +485,7 @@ export const HerdrPlaneLive = Layer.scoped(
       observePool,
       streams,
       serviceMap,
+      serveCatalog,
       start,
       warm,
     });

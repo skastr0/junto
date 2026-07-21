@@ -103,6 +103,9 @@ export const IPC_CHANNELS = {
   /** Intent probe (open/sync) — rate-limited host queue. */
   herdrServiceMapProbe: "vellum:herdr-service-map-probe",
   herdrServiceMapEvent: "vellum:herdr-service-map-event",
+  /** Host Tailscale Serve / SVC catalog (cached). */
+  herdrServeCatalogGet: "vellum:herdr-serve-catalog-get",
+  herdrServeCatalogRefresh: "vellum:herdr-serve-catalog-refresh",
   // browser work surface (partitioned WebContentsView sessions)
   browserProfiles: "vellum:browser-profiles",
   browserOpen: "vellum:browser-open",
@@ -794,7 +797,31 @@ export interface HerdrServiceMapInfo {
   readonly ports?: ReadonlyArray<HerdrServicePortInfo>;
   readonly url?: string;
   readonly hostBase?: string;
+  readonly serveLabel?: string;
+  readonly serveJoined?: boolean;
   readonly checkedAt?: number;
+  readonly error?: string;
+}
+
+export type HerdrServeEntryKind = "svc" | "web" | "tcp-forward";
+
+export interface HerdrServeEntryInfo {
+  readonly kind: HerdrServeEntryKind;
+  readonly id: string;
+  readonly label: string;
+  readonly publicUrl?: string;
+  readonly publicHost?: string;
+  readonly publicPort?: number;
+  readonly path?: string;
+  readonly localPort?: number;
+  readonly https?: boolean;
+}
+
+export interface HerdrServeCatalogInfo {
+  readonly hostId: string;
+  readonly entries: ReadonlyArray<HerdrServeEntryInfo>;
+  readonly services: ReadonlyArray<HerdrServeEntryInfo>;
+  readonly fetchedAt?: number;
   readonly error?: string;
 }
 
@@ -937,6 +964,12 @@ export interface VellumHerdrApi {
   readonly onHerdrServiceMapEvent: (
     listener: (event: HerdrServiceMapInfo) => void,
   ) => () => void;
+  readonly herdrServeCatalogGet: (
+    hostId: string,
+  ) => Promise<HerdrOpResult<HerdrServeCatalogInfo>>;
+  readonly herdrServeCatalogRefresh: (
+    hostId: string,
+  ) => Promise<HerdrOpResult<HerdrServeCatalogInfo>>;
   /** Marks the pane seen so herdr agent_status transitions done → idle. */
   readonly herdrMarkPaneSeen: (
     hostId: string,

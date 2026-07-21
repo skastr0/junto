@@ -36,6 +36,10 @@ export interface HerdrServiceProjection {
   readonly ports?: ReadonlyArray<HerdrServicePort>;
   readonly url?: string;
   readonly hostBase?: string;
+  /** Tailscale SVC / serve label when url was joined from serve catalog. */
+  readonly serveLabel?: string;
+  /** True when url came from Tailscale Serve/SVC rather than host:port. */
+  readonly serveJoined?: boolean;
   readonly checkedAt?: number;
   readonly error?: string;
   readonly priority?: HerdrServicePriority;
@@ -280,6 +284,9 @@ export const projectService = (input: {
   readonly processes?: ReadonlyArray<HerdrServiceProcess>;
   readonly ports?: ReadonlyArray<HerdrServicePort>;
   readonly hostBase?: string;
+  /** Prefer Tailscale SVC/serve public URL over host:port compose. */
+  readonly urlOverride?: string;
+  readonly serveLabel?: string;
   readonly checkedAt?: number;
   readonly pending?: boolean;
   readonly error?: string;
@@ -297,10 +304,15 @@ export const projectService = (input: {
     now: input.now,
     processGone: input.processGone,
   });
-  const url =
+  const composed =
     health === "live" || health === "stale"
       ? composeServiceUrl({ hostBase: input.hostBase, ports: input.ports })
       : undefined;
+  const override =
+    (health === "live" || health === "stale") && input.urlOverride?.trim()
+      ? input.urlOverride.trim()
+      : undefined;
+  const url = override ?? composed;
   return {
     hostId: input.hostId,
     session: input.session,
@@ -311,6 +323,9 @@ export const projectService = (input: {
     ports: input.ports,
     url,
     hostBase: input.hostBase,
+    ...(override
+      ? { serveJoined: true as const, serveLabel: input.serveLabel }
+      : {}),
     checkedAt: input.checkedAt,
     error: input.error,
     priority: input.priority,

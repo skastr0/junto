@@ -117,6 +117,13 @@ function HerdrSections({ node }: { readonly node: CanvasNode }) {
       {(meta?.processes ?? []).map((proc, i) =>
         row(`process ${i + 1}`, proc.name ?? proc.cmdline, proc.cmdline ?? proc.name),
       )}
+      {row(
+        "service",
+        meta?.service?.url
+          ? `${meta.service.serveJoined && meta.service.serveLabel ? `${meta.service.serveLabel} · ` : ""}${meta.service.url}`
+          : meta?.service?.health,
+        meta?.service?.url,
+      )}
       {row("preview", meta?.preview)}
     </div>
     <div className="mt-2 flex items-center gap-2">

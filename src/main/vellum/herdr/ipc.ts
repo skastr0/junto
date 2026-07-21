@@ -317,6 +317,8 @@ export const registerHerdrIpc = (
     IPC_CHANNELS.herdrServiceMapProbe,
     (_e, hostId: string, session: string | null | undefined, paneId: string) =>
       withPlane((plane) => {
+        // Intent also refreshes serve catalog (cheap TTL; joins SVC URLs).
+        void plane.serveCatalog.refresh(hostId);
         const data = plane.serviceMap.requestProbe({
           hostId,
           session,
@@ -325,6 +327,55 @@ export const registerHerdrIpc = (
         });
         return { ok: true as const, data };
       }),
+  );
+
+  const catalogToInfo = (cat: {
+    readonly hostId: string;
+    readonly entries: ReadonlyArray<{
+      readonly kind: "svc" | "web" | "tcp-forward";
+      readonly id: string;
+      readonly label: string;
+      readonly publicUrl?: string;
+      readonly publicHost?: string;
+      readonly publicPort?: number;
+      readonly path?: string;
+      readonly localPort?: number;
+      readonly https?: boolean;
+    }>;
+    readonly fetchedAt?: number;
+    readonly error?: string;
+  }) => {
+    // One root row per svc name
+    const byRoot = new Map<string, (typeof cat.entries)[number]>();
+    for (const e of cat.entries) {
+      if (e.kind !== "svc") continue;
+      const root = e.id.replace(/\/.*$/, "");
+      const prev = byRoot.get(root);
+      if (!prev || e.path === "/") byRoot.set(root, e);
+    }
+    return {
+      hostId: cat.hostId,
+      entries: cat.entries,
+      services: [...byRoot.values()],
+      fetchedAt: cat.fetchedAt,
+      error: cat.error,
+    };
+  };
+
+  ipcMain.handle(IPC_CHANNELS.herdrServeCatalogGet, (_e, hostId: string) =>
+    withPlane((plane) => {
+      const cat = plane.serveCatalog.peekOrEmpty(hostId);
+      // Kick refresh if empty/stale without blocking
+      void plane.serveCatalog.refresh(hostId);
+      return { ok: true as const, data: catalogToInfo(cat) };
+    }),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.herdrServeCatalogRefresh, (_e, hostId: string) =>
+    withPlane(async (plane) => {
+      const cat = await plane.serveCatalog.refresh(hostId);
+      return { ok: true as const, data: catalogToInfo(cat) };
+    }),
   );
 
   // Push service map updates to all renderers (cheap JSON; cards filter by pane).

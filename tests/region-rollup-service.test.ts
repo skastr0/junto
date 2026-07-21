@@ -156,6 +156,7 @@ const fakeHerdr = Layer.succeed(
     observePool: {} as HerdrObservePool,
     streams: {} as HerdrStreamManager,
     serviceMap: { stop: () => {}, get: () => undefined, observeProcesses: () => {}, requestProbe: () => ({ health: "unknown" }) } as never,
+    serveCatalog: { peekOrEmpty: () => ({ hostId: "local", entries: [] }), refresh: async () => ({ hostId: "local", entries: [] }), preferredUrl: () => undefined } as never,
     start: Effect.void,
     warm: Effect.void,
   }),

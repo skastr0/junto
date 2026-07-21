@@ -42,6 +42,11 @@ export type ProcessInfoFetcher = (
   paneId: string,
 ) => Promise<ReadonlyArray<HerdrServiceProcess>>;
 
+export type PreferredServeUrlResolver = (
+  hostId: string,
+  localPorts: ReadonlyArray<number>,
+) => { readonly url: string; readonly label?: string } | undefined;
+
 export interface HerdrServiceMapOptions {
   readonly shell?: HostShellRunner;
   readonly fetchProcesses?: ProcessInfoFetcher;
@@ -54,6 +59,8 @@ export interface HerdrServiceMapOptions {
   readonly now?: () => number;
   /** Resolve Tailscale/mesh override for a host id (optional). */
   readonly resolveTailscaleHost?: (hostId: string) => string | undefined;
+  /** Join local LISTEN ports to Tailscale Serve/SVC public URLs. */
+  readonly resolvePreferredServeUrl?: PreferredServeUrlResolver;
 }
 
 const cacheKey = (
@@ -77,6 +84,7 @@ export class HerdrServiceMap {
   private shell?: HostShellRunner;
   private fetchProcesses?: ProcessInfoFetcher;
   private resolveTailscaleHost?: (hostId: string) => string | undefined;
+  private resolvePreferredServeUrl?: PreferredServeUrlResolver;
   private stopped = false;
   /** pane cache keys with pending ambient re-enqueue timers */
   private readonly ambientTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -89,6 +97,7 @@ export class HerdrServiceMap {
     this.ambientTtlMs = opts.ambientTtlMs ?? DEFAULT_AMBIENT_TTL_MS;
     this.now = opts.now ?? Date.now;
     this.resolveTailscaleHost = opts.resolveTailscaleHost;
+    this.resolvePreferredServeUrl = opts.resolvePreferredServeUrl;
   }
 
   /** Late-bind runners from HerdrPlane once transports exist. */
@@ -96,6 +105,7 @@ export class HerdrServiceMap {
     if (opts.shell) this.shell = opts.shell;
     if (opts.fetchProcesses) this.fetchProcesses = opts.fetchProcesses;
     if (opts.resolveTailscaleHost) this.resolveTailscaleHost = opts.resolveTailscaleHost;
+    if (opts.resolvePreferredServeUrl) this.resolvePreferredServeUrl = opts.resolvePreferredServeUrl;
     if (opts.batchPerTick !== undefined) this.batchPerTick = opts.batchPerTick;
     if (opts.tickIntervalMs !== undefined) this.tickIntervalMs = opts.tickIntervalMs;
     if (opts.ambientTtlMs !== undefined) this.ambientTtlMs = opts.ambientTtlMs;
@@ -407,6 +417,8 @@ export class HerdrServiceMap {
       return;
     }
 
+    const localPorts = ports.map((p) => p.port);
+    const serveHit = this.resolvePreferredServeUrl?.(item.hostId, localPorts);
     const proj = projectService({
       hostId: item.hostId,
       session: item.session,
@@ -414,6 +426,8 @@ export class HerdrServiceMap {
       processes,
       ports,
       hostBase,
+      urlOverride: serveHit?.url,
+      serveLabel: serveHit?.label,
       checkedAt: this.now(),
       pending: false,
       error,
@@ -492,6 +506,8 @@ const servicePaintEqual = (a: HerdrServiceProjection, b: HerdrServiceProjection)
   a.health === b.health &&
   a.url === b.url &&
   a.hostBase === b.hostBase &&
+  a.serveLabel === b.serveLabel &&
+  a.serveJoined === b.serveJoined &&
   a.error === b.error &&
   a.interesting === b.interesting &&
   a.checkedAt === b.checkedAt &&
