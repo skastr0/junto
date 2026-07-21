@@ -22,7 +22,7 @@ import { Ban, Bot, Boxes, Expand, Eye, FileText, Globe, Link2, ListChecks, Plus,
 import { state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
-import { searchText, toFlow } from "../lib/convert";
+import { createFlowIdentityCache, searchText, toFlow } from "../lib/convert";
 import { nodeTitle } from "../lib/presentation";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
@@ -66,6 +66,42 @@ const fitReadableField = (rf: CanvasFlow, duration = 320): void => {
   void rf.fitView({ nodes: anchors, padding: 0.18, duration, maxZoom: regions.length > 0 ? 1.15 : 1.35 }).catch(() => undefined);
 };
 
+function applyStructuralRebuild(
+  setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
+  setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1],
+  flowCache: ReturnType<typeof createFlowIdentityCache>,
+  searchQuery: string,
+  edgeFilter: EtherEdgeKind | "",
+  flagFilter: EtherFlag | "",
+): void {
+  const built = toFlow(state$.doc.peek(), kernel$.execution.peek(), flowCache);
+  const nodeId = state$.selectedNodeId.peek();
+  const edgeId = state$.selectedEdgeId.peek();
+  const visibleNodes = flagFilter
+    ? built.nodes.filter((node) => node.type === "group" || node.data?.node.ether?.flags?.includes(flagFilter))
+    : built.nodes;
+  const visibleIds = new Set(visibleNodes.map((node) => node.id));
+  const filteredEdges = built.edges.filter(
+    (edge) =>
+      visibleIds.has(edge.source) &&
+      visibleIds.has(edge.target) &&
+      (!edgeFilter || (edge.data?.phase ?? edge.data?.edge.ether?.kind ?? "relates") === edgeFilter),
+  );
+  // Selection stays out of data — only stamp selected on the RF shell object.
+  const selectedNodes = visibleNodes.map((node) => (node.id === nodeId ? { ...node, selected: true } : node));
+  const selectedEdges = filteredEdges.map((edge) => (edge.id === edgeId ? { ...edge, selected: true } : edge));
+  const query = searchQuery.trim().toLowerCase();
+  if (!query) {
+    setNodes(selectedNodes);
+    setEdges(selectedEdges);
+    return;
+  }
+  const matches = selectedNodes.filter((flowNode) => searchText(flowNode.data.node).includes(query));
+  const queryVisibleIds = new Set(matches.map((flowNode) => flowNode.id));
+  setNodes(matches);
+  setEdges(selectedEdges.filter((edge) => queryVisibleIds.has(edge.source) && queryVisibleIds.has(edge.target)));
+}
+
 function useCanvasDocument(
   docVersion: number,
   executionRev: number,
@@ -76,29 +112,30 @@ function useCanvasDocument(
   selectedEdgeId: string,
   setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
   setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1],
+  dragInProgressRef: React.MutableRefObject<boolean>,
+  pendingRebuildRef: React.MutableRefObject<boolean>,
+  flowCacheRef: React.MutableRefObject<ReturnType<typeof createFlowIdentityCache>>,
+  rebuildTick: number,
 ) {
-  // Structural rebuild — document/filter/search + live kernel execution.
-  // Selection is stamped from a peek so a click never rebuilds the whole graph.
+  // Keep search input live; rebuild only after pause so keystrokes do not
+  // remint the full graph on every character.
+  const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
   useEffect(() => {
-    const built = toFlow(state$.doc.peek(), kernel$.execution.peek());
-    const nodeId = state$.selectedNodeId.peek();
-    const edgeId = state$.selectedEdgeId.peek();
-    const visibleNodes = flagFilter ? built.nodes.filter((node) => node.type === "group" || node.data?.node.ether?.flags?.includes(flagFilter)) : built.nodes;
-    const visibleIds = new Set(visibleNodes.map((node) => node.id));
-    const filteredEdges = built.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target) && (!edgeFilter || (edge.data?.phase ?? edge.data?.edge.ether?.kind ?? "relates") === edgeFilter));
-    const selectedNodes = visibleNodes.map((node) => node.id === nodeId ? { ...node, selected: true } : node);
-    const selectedEdges = filteredEdges.map((edge) => edge.id === edgeId ? { ...edge, selected: true } : edge);
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) {
-      setNodes(selectedNodes);
-      setEdges(selectedEdges);
+    const handle = window.setTimeout(() => setDebouncedSearch(searchQuery), 150);
+    return () => window.clearTimeout(handle);
+  }, [searchQuery]);
+
+  // Structural rebuild — document/filter/search + live kernel execution.
+  // Identity cache reuses FlowNode/FlowEdge when inputs are unchanged.
+  // While dragging, defer so kernel pushes / file-watch reloads cannot snap mid-gesture.
+  useEffect(() => {
+    if (dragInProgressRef.current) {
+      pendingRebuildRef.current = true;
       return;
     }
-    const matches = selectedNodes.filter((flowNode) => searchText(flowNode.data.node).includes(query));
-    const queryVisibleIds = new Set(matches.map((flowNode) => flowNode.id));
-    setNodes(matches);
-    setEdges(selectedEdges.filter((edge) => queryVisibleIds.has(edge.source) && queryVisibleIds.has(edge.target)));
-  }, [docVersion, executionRev, edgeFilter, flagFilter, searchQuery, setNodes, setEdges]);
+    pendingRebuildRef.current = false;
+    applyStructuralRebuild(setNodes, setEdges, flowCacheRef.current, debouncedSearch, edgeFilter, flagFilter);
+  }, [docVersion, executionRev, edgeFilter, flagFilter, debouncedSearch, rebuildTick, setNodes, setEdges, dragInProgressRef, pendingRebuildRef, flowCacheRef]);
 
   // Selection sync — a light map over the existing graph, not a rebuild. A
   // live rubber-band multi-selection (no single subject) is left untouched.
@@ -181,7 +218,13 @@ function useCanvasViewport(canvasName: string, nodeCount: number, rf: CanvasFlow
   }, [canvasName, nodeCount, rf]);
 }
 
-function useCanvasInteractions(rf: CanvasFlow, setNodes: ReturnType<typeof useNodesState<FlowNode>>[1]) {
+function useCanvasInteractions(
+  rf: CanvasFlow,
+  setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
+  dragInProgressRef: React.MutableRefObject<boolean>,
+  pendingRebuildRef: React.MutableRefObject<boolean>,
+  flushRebuild: () => void,
+) {
   const onConnect = useCallback((connection: Connection) => addEdge(connection), []);
   // Dropping a connection on a card body (not a handle) still creates the
   // edge — the whole node is a legitimate target, the dots are just anchors.
@@ -211,6 +254,7 @@ function useCanvasInteractions(rf: CanvasFlow, setNodes: ReturnType<typeof useNo
     readonly startPositions: ReadonlyMap<string, { readonly x: number; readonly y: number }>;
   } | null>(null);
   const onNodeDragStart: OnNodeDrag<FlowNode> = useCallback((_event, node) => {
+    dragInProgressRef.current = true;
     holdDragRef.current = null;
     if (node.data.node.type !== "group" || !node.data.node.ether?.region?.hold) return;
     const doc = state$.doc.peek();
@@ -223,7 +267,7 @@ function useCanvasInteractions(rf: CanvasFlow, setNodes: ReturnType<typeof useNo
       startPositions.set(id, member.position);
     }
     holdDragRef.current = { regionId: node.id, regionStart: node.position, startPositions };
-  }, [rf]);
+  }, [rf, dragInProgressRef]);
   const onNodeDrag: OnNodeDrag<FlowNode> = useCallback((_event, node) => {
     const drag = holdDragRef.current;
     if (!drag || node.id !== drag.regionId || drag.startPositions.size === 0) return;
@@ -239,7 +283,12 @@ function useCanvasInteractions(rf: CanvasFlow, setNodes: ReturnType<typeof useNo
     const positions = new Map<string, { x: number; y: number }>();
     for (const node of rf.getNodes()) positions.set(node.id, node.position);
     syncPositions(positions);
-  }, [rf]);
+    dragInProgressRef.current = false;
+    if (pendingRebuildRef.current) {
+      pendingRebuildRef.current = false;
+      flushRebuild();
+    }
+  }, [rf, dragInProgressRef, pendingRebuildRef, flushRebuild]);
   const onNodesDelete = useCallback((deleted: ReadonlyArray<FlowNode>) => deleteNodes(deleted.map((node) => node.id)), []);
   const onEdgesDelete = useCallback((deleted: ReadonlyArray<FlowEdge>) => deleteEdges(deleted.map((edge) => edge.id)), []);
   const onSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }: { readonly nodes: ReadonlyArray<FlowNode>; readonly edges: ReadonlyArray<FlowEdge> }) => {
@@ -845,11 +894,38 @@ function useCanvasGraph() {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([]);
   const rf = useReactFlow<FlowNode, FlowEdge>();
-  useCanvasDocument(docVersion, executionRev, searchQuery, edgeFilter, flagFilter, selectedNodeId, selectedEdgeId, setNodes, setEdges);
+  const dragInProgressRef = useRef(false);
+  const pendingRebuildRef = useRef(false);
+  const flowCacheRef = useRef(createFlowIdentityCache());
+  // Bump after drag-stop when a rebuild was deferred mid-gesture.
+  const [rebuildTick, setRebuildTick] = useState(0);
+  const flushRebuild = useCallback(() => setRebuildTick((n) => n + 1), []);
+  useCanvasDocument(
+    docVersion,
+    executionRev,
+    searchQuery,
+    edgeFilter,
+    flagFilter,
+    selectedNodeId,
+    selectedEdgeId,
+    setNodes,
+    setEdges,
+    dragInProgressRef,
+    pendingRebuildRef,
+    flowCacheRef,
+    rebuildTick,
+  );
   useCanvasSearchViewport(searchQuery, nodes.length, rf, `${edgeFilter}|${flagFilter}`);
   useCanvasFocus(focusNodeId, rf);
   useCanvasViewport(canvasName, nodes.length, rf);
-  return { nodes, edges, onNodesChange, onEdgesChange, interactions: useCanvasInteractions(rf, setNodes), rf };
+  return {
+    nodes,
+    edges,
+    onNodesChange,
+    onEdgesChange,
+    interactions: useCanvasInteractions(rf, setNodes, dragInProgressRef, pendingRebuildRef, flushRebuild),
+    rf,
+  };
 }
 
 function CanvasGraph() {
