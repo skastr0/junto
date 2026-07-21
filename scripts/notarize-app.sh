@@ -94,9 +94,12 @@ if ! asc doctor >/dev/null; then
 fi
 
 ZIP_SHA="$(shasum -a 256 "$ZIP_SRC" | awk '{print $1}')"
+# pipefail + early-exit awk SIGPIPEs codesign (exit 141). Drain full codesign
+# output, then parse — never short-circuit the writer.
 APP_CDHASH="$(
-  codesign -dv --verbose=4 "$APP_PATH" 2>&1 | awk -F= '/^CDHash=/{print $2; exit}'
+  codesign -dv --verbose=4 "$APP_PATH" 2>&1 | awk -F= '/^CDHash=/{print $2}'
 )"
+APP_CDHASH="$(printf '%s\n' "$APP_CDHASH" | head -n1)"
 RECEIPT_PATH="$RELEASE_DIR/notarization-receipt.json"
 SUBMIT_LOG="$RELEASE_DIR/notarization-submit.json"
 mkdir -p "$RELEASE_DIR"
