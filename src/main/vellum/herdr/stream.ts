@@ -70,12 +70,13 @@ export interface ObservePoolHooks {
 }
 
 /**
- * Owns at most one interactive control stream globally (product lock).
- * Opening a second stream releases the previous control (takeover path).
+ * Owns concurrent interactive control streams (one per streamId).
+ * At most one control stream per terminalId: re-opening the same terminal
+ * detaches that terminal's prior control only — unrelated terminals stay live.
  *
  * ## Product lock — detach, never murder
  *
- * Closing a stream (modal close, takeover, app quit, launchd unload) ONLY:
+ * Closing a stream (modal close, same-PTY re-open, app quit, launchd unload) ONLY:
  *   1. sends `terminal.release` to herdr
  *   2. SIGTERM the local/ssh *control client* process (`herdr terminal session control …`)
  *
@@ -84,7 +85,10 @@ export interface ObservePoolHooks {
  * or quitting Vellum must be a non-event for the fleet.
  */
 export class HerdrStreamManager {
-  private active: ActiveStream | undefined;
+  /** streamId → active control stream */
+  private streams = new Map<string, ActiveStream>();
+  /** terminalId → streamId (at most one control per terminal) */
+  private byTerminal = new Map<string, string>();
   private seq = 0;
   private sink: StreamSink | undefined;
   private shutDown = false;
@@ -99,8 +103,9 @@ export class HerdrStreamManager {
     this.sink = sink;
   }
 
+  /** @deprecated multi-stream era — returns first/any active streamId if any */
   getActiveStreamId(): string | undefined {
-    return this.active?.streamId;
+    return this.streams.keys().next().value;
   }
 
   open(input: {
@@ -122,8 +127,9 @@ export class HerdrStreamManager {
     if (!isKnownHerdrHost(input.hostId) || input.hostId.startsWith("-")) {
       return { ok: false, message: `unknown herdr host: ${input.hostId}` };
     }
-    // Single global control stream — detach previous first (never kill panes).
-    if (this.active) this.detachControl(this.active.streamId, "superseded");
+    // Same-PTY re-open: detach only this terminal's prior control (never others).
+    const priorStreamId = this.byTerminal.get(input.terminalId);
+    if (priorStreamId) this.detachControl(priorStreamId, "superseded");
 
     const streamId = `hs-${Date.now().toString(36)}-${(++this.seq).toString(36)}`;
     const args = [
@@ -153,7 +159,7 @@ export class HerdrStreamManager {
     // its retention until the first live control frame arrives (handleLine).
     this.pool.pauseForControl(input.terminalId);
 
-    this.active = {
+    const active: ActiveStream = {
       streamId,
       hostId: input.hostId,
       session: input.session,
@@ -164,6 +170,8 @@ export class HerdrStreamManager {
       rows: Math.max(5, Math.floor(input.rows || 24)),
       firstFrameSeen: false,
     };
+    this.streams.set(streamId, active);
+    this.byTerminal.set(input.terminalId, streamId);
 
     let buffer = "";
     child.stdout.setEncoding("utf8");
@@ -180,30 +188,28 @@ export class HerdrStreamManager {
     });
 
     child.on("close", (code) => {
-      if (this.active?.streamId === streamId) {
-        const closing = this.active;
-        this.active = undefined;
-        this.handBackToObservePool(closing);
-        this.emit({
-          streamId,
-          type: "closed",
-          reason: code === 0 ? "exit" : `exit_${code ?? "null"}`,
-        });
-      }
+      const closing = this.streams.get(streamId);
+      if (!closing) return;
+      this.removeStream(streamId, closing.terminalId);
+      this.handBackToObservePool(closing);
+      this.emit({
+        streamId,
+        type: "closed",
+        reason: code === 0 ? "exit" : `exit_${code ?? "null"}`,
+      });
     });
 
     child.on("error", (error) => {
-      if (this.active?.streamId === streamId) {
-        const closing = this.active;
-        this.active = undefined;
-        this.handBackToObservePool(closing);
-        this.emit({
-          streamId,
-          type: "error",
-          message: error.message,
-        });
-        this.emit({ streamId, type: "closed", reason: "spawn_error" });
-      }
+      const closing = this.streams.get(streamId);
+      if (!closing) return;
+      this.removeStream(streamId, closing.terminalId);
+      this.handBackToObservePool(closing);
+      this.emit({
+        streamId,
+        type: "error",
+        message: error.message,
+      });
+      this.emit({ streamId, type: "closed", reason: "spawn_error" });
     });
 
     return { ok: true, streamId, retained };
@@ -348,8 +354,8 @@ export class HerdrStreamManager {
    * |- safe to call on app quit and launchd unload
    */
   detachControl(streamId: string, reason = "client_close"): { readonly ok: boolean; readonly error?: string } {
-    const active = this.active;
-    if (!active || active.streamId !== streamId) {
+    const active = this.streams.get(streamId);
+    if (!active) {
       return { ok: true };
     }
     try {
@@ -364,7 +370,7 @@ export class HerdrStreamManager {
     } catch {
       // ignore
     }
-    this.active = undefined;
+    this.removeStream(streamId, active.terminalId);
     this.handBackToObservePool(active);
     this.emit({ streamId, type: "closed", reason });
     return { ok: true };
@@ -376,7 +382,9 @@ export class HerdrStreamManager {
    */
   detachAllOnQuit(reason = "app_quit"): void {
     this.shutDown = true;
-    if (this.active) this.detachControl(this.active.streamId, reason);
+    for (const streamId of [...this.streams.keys()]) {
+      this.detachControl(streamId, reason);
+    }
     // Observers own nothing on the host — plain SIGTERM, no terminal.release.
     this.pool.stopAll();
   }
@@ -405,10 +413,19 @@ export class HerdrStreamManager {
   private require(
     streamId: string,
   ): { readonly ok: true; readonly stream: ActiveStream } | { readonly ok: false; readonly error: string } {
-    if (!this.active || this.active.streamId !== streamId) {
+    const stream = this.streams.get(streamId);
+    if (!stream) {
       return { ok: false, error: "stream not active" };
     }
-    return { ok: true, stream: this.active };
+    return { ok: true, stream };
+  }
+
+  /** Drop stream from both indexes. Caller handles pool handoff / emit. */
+  private removeStream(streamId: string, terminalId: string): void {
+    this.streams.delete(streamId);
+    if (this.byTerminal.get(terminalId) === streamId) {
+      this.byTerminal.delete(terminalId);
+    }
   }
 
   private writeJson(
@@ -442,8 +459,8 @@ export class HerdrStreamManager {
     if (type === "terminal.frame") {
       // First live control frame: renderer has fresher pixels than the pool's
       // retained observe frames — clear that terminal's retention.
-      const active = this.active;
-      if (active && active.streamId === streamId && !active.firstFrameSeen) {
+      const active = this.streams.get(streamId);
+      if (active && !active.firstFrameSeen) {
         active.firstFrameSeen = true;
         this.pool.clearRetention(active.terminalId);
       }
@@ -465,14 +482,14 @@ export class HerdrStreamManager {
         type: "closed",
         reason: typeof obj.reason === "string" ? obj.reason : "closed",
       });
-      if (this.active?.streamId === streamId) {
-        const closing = this.active;
+      const closing = this.streams.get(streamId);
+      if (closing) {
         try {
           closing.child.kill("SIGTERM");
         } catch {
           // ignore
         }
-        this.active = undefined;
+        this.removeStream(streamId, closing.terminalId);
         // Host reported the terminal genuinely closed — do NOT re-observe a
         // dead terminal; drop its pooled entry and retention instead.
         if (!this.shutDown) this.pool.releaseObserve(closing.terminalId);

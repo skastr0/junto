@@ -100,3 +100,99 @@ describe("HerdrStreamManager geometry bounds normalization", () => {
     });
   });
 });
+
+describe("HerdrStreamManager multi-stream concurrency", () => {
+  const makeMgr = () => {
+    const children: FakeProcess[] = [];
+    const closed: Array<{ streamId: string; reason?: string }> = [];
+    const mgr = new HerdrStreamManager(
+      mockPool,
+      () => {
+        const proc = new FakeProcess();
+        children.push(proc);
+        return proc;
+      },
+      async () => "/tmp/img",
+    );
+    mgr.setSink((frame) => {
+      if (frame.type === "closed") closed.push({ streamId: frame.streamId, reason: frame.reason });
+    });
+    return { mgr, children, closed };
+  };
+
+  it("two opens with different terminalIds both stay active", () => {
+    const { mgr, children, closed } = makeMgr();
+
+    const a = mgr.open({ hostId: "local", terminalId: "t-a", cols: 80, rows: 24 });
+    const b = mgr.open({ hostId: "local", terminalId: "t-b", cols: 80, rows: 24 });
+    expect(a.ok).toBe(true);
+    expect(b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+
+    // Neither supersedes the other — both control clients still live.
+    expect(children).toHaveLength(2);
+    expect(children[0]!.killedSignal).toBeUndefined();
+    expect(children[1]!.killedSignal).toBeUndefined();
+    expect(closed).toEqual([]);
+
+    // Input routes to the correct stream only.
+    mgr.inputText(a.streamId, "alpha");
+    mgr.inputText(b.streamId, "beta");
+    expect(children[0]!.written.some((w) => w.includes("alpha"))).toBe(true);
+    expect(children[0]!.written.some((w) => w.includes("beta"))).toBe(false);
+    expect(children[1]!.written.some((w) => w.includes("beta"))).toBe(true);
+    expect(children[1]!.written.some((w) => w.includes("alpha"))).toBe(false);
+
+    // Closing one leaves the other active.
+    mgr.close(a.streamId);
+    expect(children[0]!.killedSignal).toBe("SIGTERM");
+    expect(children[1]!.killedSignal).toBeUndefined();
+    expect(mgr.inputText(a.streamId, "x").ok).toBe(false);
+    expect(mgr.inputText(b.streamId, "still-here").ok).toBe(true);
+  });
+
+  it("second open same terminalId replaces only that one", () => {
+    const { mgr, children, closed } = makeMgr();
+
+    const keep = mgr.open({ hostId: "local", terminalId: "keep", cols: 80, rows: 24 });
+    const first = mgr.open({ hostId: "local", terminalId: "same", cols: 80, rows: 24 });
+    expect(keep.ok && first.ok).toBe(true);
+    if (!keep.ok || !first.ok) return;
+
+    const second = mgr.open({ hostId: "local", terminalId: "same", cols: 100, rows: 30 });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+
+    // Prior control for "same" superseded; "keep" untouched.
+    expect(children).toHaveLength(3);
+    expect(children[0]!.killedSignal).toBeUndefined(); // keep
+    expect(children[1]!.killedSignal).toBe("SIGTERM"); // first same
+    expect(children[2]!.killedSignal).toBeUndefined(); // second same
+    expect(closed).toEqual([{ streamId: first.streamId, reason: "superseded" }]);
+    expect(second.streamId).not.toBe(first.streamId);
+
+    // Old streamId rejected; new same + keep both accept input.
+    expect(mgr.inputText(first.streamId, "stale").ok).toBe(false);
+    expect(mgr.inputText(second.streamId, "fresh").ok).toBe(true);
+    expect(mgr.inputText(keep.streamId, "other").ok).toBe(true);
+    expect(children[0]!.written.some((w) => w.includes("other"))).toBe(true);
+    expect(children[2]!.written.some((w) => w.includes("fresh"))).toBe(true);
+  });
+
+  it("detachAllOnQuit detaches every concurrent control stream", () => {
+    const { mgr, children, closed } = makeMgr();
+    const a = mgr.open({ hostId: "local", terminalId: "t1", cols: 80, rows: 24 });
+    const b = mgr.open({ hostId: "local", terminalId: "t2", cols: 80, rows: 24 });
+    expect(a.ok && b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+
+    mgr.detachAllOnQuit("app_quit");
+    expect(children[0]!.killedSignal).toBe("SIGTERM");
+    expect(children[1]!.killedSignal).toBe("SIGTERM");
+    expect(closed.map((c) => c.reason)).toEqual(["app_quit", "app_quit"]);
+    expect(mgr.inputText(a.streamId, "x").ok).toBe(false);
+    expect(mgr.inputText(b.streamId, "x").ok).toBe(false);
+    // Further opens rejected after shutdown.
+    expect(mgr.open({ hostId: "local", terminalId: "t3", cols: 80, rows: 24 }).ok).toBe(false);
+  });
+});
