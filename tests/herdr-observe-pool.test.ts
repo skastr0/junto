@@ -195,6 +195,26 @@ describe("HerdrObservePool lifecycle", () => {
     expect(pool.retainedFrames("t1").frames).toEqual(["F1"]); // retention kept across respawn
   });
 
+  it("releaseByHost kills and drops every entry for that host only", () => {
+    const { calls, spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn });
+    touch(pool, "l1", "local");
+    touch(pool, "m1", "remote-a");
+    touch(pool, "m2", "remote-a");
+
+    pool.releaseByHost("remote-a");
+
+    expect(pool.entryState("m1")).toBeUndefined();
+    expect(pool.entryState("m2")).toBeUndefined();
+    expect(pool.retainedFrames("m1").frames).toEqual([]);
+    expect(pool.entryState("l1")?.live).toBe(true);
+    const killedTerminals = calls
+      .filter((call) => call.child.kills.length > 0)
+      .map(observedTerminal)
+      .sort();
+    expect(killedTerminals).toEqual(["m1", "m2"]);
+  });
+
   it("releaseObserve kills and drops; stopAll kills everything and refuses new observes", () => {
     const { calls, spawnFn } = makeSpawner();
     const pool = new HerdrObservePool({ spawnFn });

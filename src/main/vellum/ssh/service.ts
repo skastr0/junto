@@ -89,6 +89,15 @@ export class SshTransport extends Context.Tag("@vellum/SshTransport")<
       awaitReady: (confirm: ConfirmSshReady) => Effect.Effect<SshReady<A>, E, R>,
     ) => Effect.Effect<A, SshError | E, R>;
     readonly warm: (endpoint: SshEndpoint) => Effect.Effect<void, SshError>;
+    /**
+     * Explicit, best-effort `-O exit` against the endpoint's SHARED
+     * ControlMaster. Reserved for the host-removal/edit operator action —
+     * never wired into a Scope/Layer finalizer (see the never-teardown-on-
+     * dispose note above `SshTransportLayer`). Stock OpenSSH itself unlinks
+     * the ControlPath socket on a successful exit, so no separate file
+     * cleanup is attempted here.
+     */
+    readonly teardown: (endpoint: SshEndpoint) => Effect.Effect<void>;
   }
 >() {}
 
@@ -622,6 +631,15 @@ export const SshTransportLayer = Layer.scoped(
       );
     };
 
-    return SshTransport.of({ run, connect, forward, handoff, warm });
+    // Sole caller of compiler.masterExit. Explicit operator action only —
+    // the host registry invokes this on removal/edit, never on Layer/Scope
+    // disposal (the shared master stays process-global, ControlPersist=600).
+    const teardown = (endpoint: SshEndpoint): Effect.Effect<void> =>
+      withDial(
+        endpoint,
+        runChecked(endpoint, "master-exit", compiler.masterExit(endpoint), 4_000),
+      ).pipe(Effect.asVoid, Effect.ignore);
+
+    return SshTransport.of({ run, connect, forward, handoff, warm, teardown });
   }),
 );

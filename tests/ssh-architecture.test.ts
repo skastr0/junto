@@ -53,6 +53,7 @@ describe("SSH architecture", () => {
   it("reserves private SSH constructors for product policy renderers", () => {
     const renderers = new Set([
       "src/main/vellum/herdr/transport.ts",
+      "src/main/vellum/herdr/plane.ts",
       "src/main/vellum/hermes/transport.ts",
       "src/main/vellum/hosts/doctor.ts",
     ]);
@@ -73,11 +74,25 @@ describe("SSH architecture", () => {
     expect(violations).toEqual([]);
   });
 
-  it("does not dispose shared ControlMaster sockets with -O exit", () => {
+  it("reserves shared ControlMaster -O exit for the explicit teardown op, never Layer/Scope disposal", () => {
     // Shared masters are process-global (ControlPersist=600). A headless CLI
     // and the GUI share the same ControlPath; exit-on-dispose races them.
+    // -O exit is reserved for SshTransport.teardown — an explicit operator
+    // action the host registry invokes on removal/edit — and must never be
+    // reachable from a Scope/Layer finalizer that runs on ordinary dispose.
     const service = readFileSync(join(root, "src/main/vellum/ssh/service.ts"), "utf8");
-    expect(service).not.toMatch(/master-exit|masterExit\(/u);
     expect(service).toMatch(/ControlPersist=600|do not track or -O exit/iu);
+
+    const masterExitSites = service.match(/compiler\.masterExit\(/gu) ?? [];
+    expect(masterExitSites).toHaveLength(1);
+
+    const teardownStart = service.indexOf("const teardown =");
+    const returnStart = service.indexOf("return SshTransport.of(");
+    expect(teardownStart).toBeGreaterThan(-1);
+    expect(returnStart).toBeGreaterThan(teardownStart);
+    // The sole masterExit call site is inside the named teardown operation…
+    expect(service.slice(teardownStart, returnStart)).toMatch(/compiler\.masterExit\(/u);
+    // …and no Scope/Layer finalizer in the file ever reaches it.
+    expect(service).not.toMatch(/(?:Effect|Scope)\.addFinalizer\([^)]{0,600}masterExit\(/su);
   });
 });

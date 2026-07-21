@@ -436,6 +436,46 @@ describe("SshTransport", () => {
     expect(releases.some((command) => remoteText(command).includes("never"))).toBe(true);
   });
 
+  it("teardown issues -O exit against the endpoint's shared ControlMaster", async () => {
+    const calls: Command.StandardCommand[] = [];
+    const releases: Command.StandardCommand[] = [];
+    const layer = await testLayer(() => ({}), calls, releases);
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const endpoint = yield* parseSshEndpoint("remote-a");
+        yield* (yield* SshTransport).teardown(endpoint);
+      }).pipe(Effect.provide(layer)),
+    );
+
+    const exitCall = calls.find(
+      (command) => command.args.includes("-O") && command.args.includes("exit"),
+    );
+    expect(exitCall).toBeDefined();
+    expect(exitCall!.args.at(-1)).toBe("remote-a");
+    // Same ControlPath template as the shared master it is exiting — ssh
+    // resolves the identical socket for this endpoint.
+    expect(exitCall!.args.some((arg) => arg.startsWith("ControlPath="))).toBe(true);
+  });
+
+  it("teardown is best-effort: an already-gone master never fails or throws", async () => {
+    const calls: Command.StandardCommand[] = [];
+    const releases: Command.StandardCommand[] = [];
+    // ssh -O exit against a socket with no listening master exits non-zero.
+    const layer = await testLayer(() => ({ code: 255 }), calls, releases);
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        Effect.gen(function* () {
+          const endpoint = yield* parseSshEndpoint("remote-a");
+          yield* (yield* SshTransport).teardown(endpoint);
+        }).pipe(Effect.provide(layer)),
+      ),
+    );
+
+    expect(Either.isRight(result)).toBe(true);
+  });
+
   it("composes global and per-endpoint dial admission without host starvation", async () => {
     const calls: Command.StandardCommand[] = [];
     const releases: Command.StandardCommand[] = [];

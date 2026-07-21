@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HerdrStreamManager, type HerdrProcessLike, type ObservePoolHooks } from "../src/main/vellum/herdr/stream";
+import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
+import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 
 class FakeProcess implements HerdrProcessLike {
   written: string[] = [];
@@ -194,5 +196,60 @@ describe("HerdrStreamManager multi-stream concurrency", () => {
     expect(mgr.inputText(b.streamId, "x").ok).toBe(false);
     // Further opens rejected after shutdown.
     expect(mgr.open({ hostId: "local", terminalId: "t3", cols: 80, rows: 24 }).ok).toBe(false);
+  });
+});
+
+describe("HerdrStreamManager host revocation", () => {
+  it("detachByHost detaches every stream for that host only, without re-pooling", () => {
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["herdr"] },
+    ]);
+    try {
+      const spawnedBy: Record<string, FakeProcess[]> = {};
+      const pooled: string[] = [];
+      const pool: ObservePoolHooks = {
+        ...mockPool,
+        ensureObserve: (input) => {
+          pooled.push(input.terminalId);
+          return { pooled: true };
+        },
+      };
+      const mgr = new HerdrStreamManager(
+        pool,
+        (hostId) => {
+          const proc = new FakeProcess();
+          (spawnedBy[hostId] ??= []).push(proc);
+          return proc;
+        },
+        async () => "/tmp/img",
+      );
+      const closed: Array<{ streamId: string; reason?: string }> = [];
+      mgr.setSink((frame) => {
+        if (frame.type === "closed") closed.push({ streamId: frame.streamId, reason: frame.reason });
+      });
+
+      const local = mgr.open({ hostId: "local", terminalId: "t-local", cols: 80, rows: 24 });
+      const s1 = mgr.open({ hostId: "studio", terminalId: "t-s1", cols: 80, rows: 24 });
+      const s2 = mgr.open({ hostId: "studio", terminalId: "t-s2", cols: 80, rows: 24 });
+      expect(local.ok && s1.ok && s2.ok).toBe(true);
+      if (!local.ok || !s1.ok || !s2.ok) return;
+
+      mgr.detachByHost("studio", "host_revoked");
+
+      expect(spawnedBy.studio?.every((proc) => proc.killedSignal === "SIGTERM")).toBe(true);
+      expect(spawnedBy.local?.[0]!.killedSignal).toBeUndefined();
+      expect(closed).toEqual([
+        { streamId: s1.streamId, reason: "host_revoked" },
+        { streamId: s2.streamId, reason: "host_revoked" },
+      ]);
+      // The revoked host's terminals never bounce back into the observe pool.
+      expect(pooled).toEqual([]);
+      // The untouched host's stream is unaffected.
+      expect(mgr.inputText(local.streamId, "still-here").ok).toBe(true);
+      expect(mgr.inputText(s1.streamId, "gone").ok).toBe(false);
+    } finally {
+      setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+    }
   });
 });

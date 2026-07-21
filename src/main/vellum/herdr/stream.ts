@@ -355,6 +355,28 @@ export class HerdrStreamManager {
    * |- safe to call on app quit and launchd unload
    */
   detachControl(streamId: string, reason = "client_close"): { readonly ok: boolean; readonly error?: string } {
+    return this.detachControlInternal(streamId, reason, true);
+  }
+
+  /**
+   * Host removed/edited: detach every live control stream for hostId. Same
+   * product lock as detachControl (release + SIGTERM client only), but never
+   * hands the terminal back to the observe pool — the caller (host
+   * reconciliation) is about to release those pooled entries too, so
+   * re-pooling here would just spawn an observer for a host that is already
+   * being torn down.
+   */
+  detachByHost(hostId: string, reason = "host_revoked"): void {
+    for (const [streamId, active] of [...this.streams.entries()]) {
+      if (active.hostId === hostId) this.detachControlInternal(streamId, reason, false);
+    }
+  }
+
+  private detachControlInternal(
+    streamId: string,
+    reason: string,
+    handBack: boolean,
+  ): { readonly ok: boolean; readonly error?: string } {
     const active = this.streams.get(streamId);
     if (!active) {
       return { ok: true };
@@ -372,7 +394,7 @@ export class HerdrStreamManager {
       // ignore
     }
     this.removeStream(streamId, active.terminalId);
-    this.handBackToObservePool(active);
+    if (handBack) this.handBackToObservePool(active);
     this.emit({ streamId, type: "closed", reason });
     return { ok: true };
   }

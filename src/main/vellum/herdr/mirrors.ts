@@ -1,3 +1,4 @@
+import { hostHasCapability, type RemoteHost } from "@shared/remote-hosts";
 import { isKnownHerdrHost, listHerdrHosts } from "./hosts";
 import { subscribeHostsSnapshot } from "../hosts/snapshot";
 import { HerdrMirror } from "./mirror";
@@ -9,13 +10,32 @@ export interface HerdrMirrorHostState {
   readonly lastSyncAt?: number;
 }
 
+/**
+ * Live herdr-side resources that must be revoked, synchronously with
+ * reconciliation, when a host is removed or its endpoint materially changes
+ * (a same-id edit is treated as remove+add). Injected so the herdr plane can
+ * wire the real stream manager / observe pool / ssh transport while tests
+ * fake them.
+ */
+export interface HerdrHostRevocationHooks {
+  /** Detach every live control stream for hostId (release + SIGTERM client only). */
+  readonly detachByHost: (hostId: string) => void;
+  /** Kill + drop every pooled observer for hostId (retention discarded). */
+  readonly releaseByHost: (hostId: string) => void;
+  /** Best-effort `-O exit` against the host's OLD shared ControlMaster. */
+  readonly teardownEndpoint: (endpoint: string) => void;
+}
+
 export class HerdrMirrorRegistry {
   private readonly registry = new Map<string, HerdrMirror>();
   private readonly changeCbs = new Set<(hostId: string) => void>();
   private started = false;
   private unsubscribeHosts?: () => void;
 
-  constructor(private readonly makeTransport: (hostId: string) => MirrorTransport) {}
+  constructor(
+    private readonly makeTransport: (hostId: string) => MirrorTransport,
+    private readonly revocation?: HerdrHostRevocationHooks,
+  ) {}
 
   onChange(cb: (hostId: string) => void): () => void {
     this.changeCbs.add(cb);
@@ -48,7 +68,9 @@ export class HerdrMirrorRegistry {
 
   startAll(): void {
     if (!this.unsubscribeHosts) {
-      this.unsubscribeHosts = subscribeHostsSnapshot(() => this.reconcileHosts());
+      this.unsubscribeHosts = subscribeHostsSnapshot((hosts, previous) =>
+        this.reconcileHosts(hosts, previous),
+      );
     }
     this.started = true;
     for (const host of listHerdrHosts()) {
@@ -71,8 +93,44 @@ export class HerdrMirrorRegistry {
     this.registry.clear();
   }
 
-  private reconcileHosts(): void {
+  /**
+   * Herdr-plane resource revocation. Scoped to hosts that HAD herdr
+   * capability in `previous`: a host dropped from the document entirely and
+   * a host that merely lost herdr capability both mean its live
+   * streams/observers/master must go — same as a same-id endpoint edit,
+   * which is treated as remove+add (old endpoint torn down, new endpoint
+   * dialed fresh by the next mirror/stream/observe attach).
+   */
+  private revokedHosts(
+    hosts: ReadonlyArray<RemoteHost>,
+    previous: ReadonlyArray<RemoteHost>,
+  ): ReadonlyArray<RemoteHost> {
+    const prevHerdr = previous.filter((h) => hostHasCapability(h, "herdr"));
+    const currHerdrIds = new Set(
+      hosts.filter((h) => hostHasCapability(h, "herdr")).map((h) => h.id),
+    );
+    return prevHerdr.filter((prevHost) => {
+      if (!currHerdrIds.has(prevHost.id)) return true; // removed (or lost herdr capability)
+      const currHost = hosts.find((h) => h.id === prevHost.id);
+      return currHost?.endpoint !== prevHost.endpoint; // same id, endpoint changed
+    });
+  }
+
+  private reconcileHosts(
+    hosts: ReadonlyArray<RemoteHost>,
+    previous: ReadonlyArray<RemoteHost>,
+  ): void {
     if (!this.started) return;
+
+    const revoked = this.revokedHosts(hosts, previous);
+
+    // Product-lock order: detach every live control stream, then drop every
+    // pooled observer, BEFORE the mirror rebuild and ssh master teardown
+    // below — nothing may still be riding a transport this reconciliation
+    // is about to tear down.
+    for (const host of revoked) this.revocation?.detachByHost(host.id);
+    for (const host of revoked) this.revocation?.releaseByHost(host.id);
+
     const previousHostIds = new Set(this.registry.keys());
     // Host mutations are rare and may change an endpoint without changing its
     // stable id. Rebuild every live mirror so no socket/forward can remain
@@ -94,6 +152,14 @@ export class HerdrMirrorRegistry {
     for (const oldHostId of previousHostIds) {
       if (!currentHostIds.has(oldHostId)) {
         this.notifyChange(oldHostId);
+      }
+    }
+
+    // Tear down the OLD shared ControlMaster last — after every consumer
+    // (control streams, observers, mirror forward) has already released it.
+    for (const host of revoked) {
+      if (host.kind === "remote" && host.endpoint) {
+        this.revocation?.teardownEndpoint(host.endpoint);
       }
     }
   }

@@ -166,6 +166,17 @@ export class HerdrObservePool {
     this.entries.delete(terminalId);
   }
 
+  /**
+   * Host removed/edited: kill + drop every pooled entry for hostId. Retention
+   * is discarded outright — stale pixels for a gone endpoint are a lie, so
+   * this never keeps a stale entry around the way a normal pause/evict does.
+   */
+  releaseByHost(hostId: string): void {
+    for (const terminalId of [...this.entries.keys()]) {
+      if (this.entries.get(terminalId)?.hostId === hostId) this.releaseObserve(terminalId);
+    }
+  }
+
   /** App quit: SIGTERM every observe child. Observers own nothing on the
    * host — plain kill is safe (never `terminal.release`, control-only). */
   stopAll(): void {

@@ -24,7 +24,7 @@ import {
   type HerdrHostId,
 } from "./hosts";
 import { LocalMirrorTransport, RemoteMirrorTransport } from "./mirror-transport";
-import { HerdrMirrorRegistry } from "./mirrors";
+import { HerdrMirrorRegistry, type HerdrHostRevocationHooks } from "./mirrors";
 import { HerdrObservePool } from "./observe-pool";
 import { HerdrService, type HerdrRunner, type HerdrServerStarter } from "./service";
 import { HerdrServiceMap, type HostShellRunner } from "./service-map";
@@ -294,17 +294,6 @@ export const HerdrPlaneLive = Layer.scoped(
       }
     };
 
-    // Demo mode (--vellum-demo): mirrors read from the scripted in-memory
-    // transport so the conductor can drive pane state; real transports never
-    // construct. Inert otherwise.
-    const mirrors = new HerdrMirrorRegistry((hostId) =>
-      isDemoMode()
-        ? scriptedTransportFor(hostId)
-        : hostId === "local"
-          ? new LocalMirrorTransport()
-          : new RemoteMirrorTransport(hostId, () => openMirrorForward(hostId)),
-    );
-
     const spawnHerdr: HerdrSpawnFn = (hostId, args, session) => {
       const known = asHostId(hostId);
       if (!known) throw new Error(`unknown herdr host: ${hostId}`);
@@ -324,6 +313,40 @@ export const HerdrPlaneLive = Layer.scoped(
       (hostId, remoteName, bytes) =>
         runOwned(transport.stageImage(hostId, remoteName, bytes)),
     );
+
+    // Host removal/edit revocation: reconciliation (mirrors.ts) calls these
+    // for the affected host, in order, before its mirror is rebuilt. ssh
+    // teardown targets the endpoint's SHARED ControlMaster directly — the
+    // host may already be gone from the registry by the time this fires, so
+    // it never re-resolves through findHostById/HerdrTransport.
+    const revocation: HerdrHostRevocationHooks = {
+      detachByHost: (hostId) => streams.detachByHost(hostId, "host_revoked"),
+      releaseByHost: (hostId) => observePool.releaseByHost(hostId),
+      teardownEndpoint: (endpoint) => {
+        void runOwned(
+          Effect.gen(function* () {
+            const parsed = yield* parseSshEndpoint(endpoint);
+            yield* ssh.teardown(parsed);
+          }).pipe(Effect.ignore),
+        ).catch(() => {
+          // Best-effort: a rejected runtime bridge must never crash the
+          // reconciliation path that triggered it.
+        });
+      },
+    };
+
+    // Demo mode (--vellum-demo): mirrors read from the scripted in-memory
+    // transport so the conductor can drive pane state; real transports never
+    // construct. Inert otherwise.
+    const mirrors = new HerdrMirrorRegistry((hostId) =>
+      isDemoMode()
+        ? scriptedTransportFor(hostId)
+        : hostId === "local"
+          ? new LocalMirrorTransport()
+          : new RemoteMirrorTransport(hostId, () => openMirrorForward(hostId)),
+      revocation,
+    );
+
     const service = new HerdrService(
       runner,
       (hostId) => mirrors.mirrorFor(hostId),
