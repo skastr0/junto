@@ -22,6 +22,7 @@ export const workControlTokenPath = (workHome: string): string =>
   `${workHome}/token`;
 
 export const WORK_HOME_ENV = "VELLUM_WORK_HOME";
+/** @deprecated Identity is process-bind; this env is not used for authz. */
 export const WORK_NODE_REF_ENV = "VELLUM_NODE_REF";
 export const WORK_PROTOCOL_VERSION = "vellum-work/v1";
 

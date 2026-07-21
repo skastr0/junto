@@ -148,7 +148,7 @@ const mapWorkCode = (
         message,
         details: {
           retryable: false,
-          next_step: "open the canvas in Vellum or fix the nodeRef canvas name",
+          next_step: "ensure the process-bound agent card exists on a live canvas",
         },
       };
     case "illegal_kind":
@@ -214,10 +214,10 @@ const ensureCaller = (
       type: "StaleNodeRef",
       message: `caller node "${nodeId}" not found on canvas`,
       details: {
-        path: "nodeRef",
+        path: "caller",
         received: nodeId,
         retryable: false,
-        next_step: "refresh the board and use a live node id",
+        next_step: "ensure the live process maps to one agent|herdr card on the canvas",
       },
     };
   }

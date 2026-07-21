@@ -114,13 +114,14 @@ describe("process-bind (browser canvas resolution)", () => {
 describe("process identity map", () => {
   it("admits peer PID and ancestor walk", () => {
     const map = makeProcessIdentityMap();
-    map.bind(100, { kind: "agent", agentKey: "local:default" });
+    expect(map.bind(process.pid, { kind: "agent", agentKey: "local:default" })).toBe(true);
     const fakeSocket = {} as Socket;
-    const ok = admitProcessIdentity(fakeSocket, map, () => 100);
+    const ok = admitProcessIdentity(fakeSocket, map, () => process.pid);
     expect(ok.ok).toBe(true);
     if (ok.ok) expect(ok.principal.agentKey).toBe("local:default");
 
-    const unbound = admitProcessIdentity(fakeSocket, map, () => 999);
+    const unbound = admitProcessIdentity(fakeSocket, map, () => 999_999);
     expect(unbound.ok).toBe(false);
+    map.clear();
   });
 });

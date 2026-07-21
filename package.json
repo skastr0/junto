@@ -95,6 +95,10 @@
       {
         "from": "dist/vellum-browser",
         "to": "bin/vellum-browser"
+      },
+      {
+        "from": "scripts/unix-peer-pid.py",
+        "to": "bin/unix-peer-pid.py"
       }
     ],
     "protocols": [

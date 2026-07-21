@@ -46,6 +46,7 @@ import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 import { startWorkControlServer, type WorkControlServer } from "./vellum/work/control";
+import { configurePeerPidHelperRoots } from "./vellum/process-identity";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
 import {
   acknowledgeNodeRefRelay,
@@ -644,6 +645,20 @@ if (!gotSingleInstanceLock) {
     // process.env.PATH is fixed before any adapter/service spawns a CLI. Never
     // rejects; adapters also await it lazily, so this is belt-and-suspenders.
     await resolvedSpawnEnv();
+
+    // Seal process-bind peer-PID helper roots before any UDS control server starts.
+    // Packaged: electron-builder extraResources → resources/bin/unix-peer-pid.py
+    // Dev: never cwd — only explicit absolute repo scripts/ path.
+    {
+      const roots: string[] = [];
+      if (typeof process.resourcesPath === "string" && process.resourcesPath.length > 0) {
+        roots.push(join(process.resourcesPath, "bin"));
+      }
+      if (!app.isPackaged) {
+        roots.push(join(app.getAppPath(), "scripts"));
+      }
+      configurePeerPidHelperRoots(roots);
+    }
 
     registerIpcHandlers();
     registerDemoIpcHandlers();

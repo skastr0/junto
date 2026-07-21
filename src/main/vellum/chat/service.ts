@@ -288,8 +288,11 @@ export class ChatService {
     if (session.host !== "local") return;
     const pid = session.client.childPid;
     if (pid === undefined) return;
+    const map = getProcessIdentityMap();
+    // Drop any prior bind for this agentKey before attaching the new child.
+    map.unbindAgentKey(agentKey);
+    if (!map.bind(pid, { kind: "agent", agentKey })) return;
     session.boundPid = pid;
-    getProcessIdentityMap().bind(pid, { kind: "agent", agentKey });
   }
 
   private unbindLocalProcess(session: AgentSession | undefined): void {

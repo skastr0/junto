@@ -24,8 +24,8 @@ import type { CanvasDoc } from "../src/shared/canvas";
 const roots: string[] = [];
 const servers: WorkControlServer[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<WorkService | CanvasesService, never>> = [];
-/** Fixed peer PID for transport tests — process-bind identity. */
-const TEST_PEER_PID = 42_424;
+/** Peer PID for transport tests — must be a live process (epoch-checked). */
+const TEST_PEER_PID = process.pid;
 
 const seedDoc = (): CanvasDoc => ({
   nodes: [
@@ -181,7 +181,6 @@ describe("work control transport", () => {
     const server = servers[0]!;
     const pong = await call(server.socketPath, {
       token: token(),
-      nodeRef,
       op: "ping",
     });
     const decoded = decodeWorkResponse(pong);
@@ -194,6 +193,62 @@ describe("work control transport", () => {
         );
       }
     }
+  });
+
+  it("ignores forged nodeRef — process principal wins", async () => {
+    const server = servers[0]!;
+    // Client claims a different canvas/node; identity is process-bind only.
+    const forged = await call(server.socketPath, {
+      token: token(),
+      nodeRef: "vellum://canvas/other?node=impostor",
+      op: "capabilities",
+    });
+    const decoded = decodeWorkResponse(forged);
+    expect(decoded._tag).toBe("Right");
+    if (decoded._tag === "Right") {
+      expect(decoded.right.ok).toBe(true);
+      if (decoded.right.ok) {
+        const data = decoded.right.data as {
+          node?: { id?: string };
+          connected?: ReadonlyArray<{ id: string }>;
+        };
+        // Still the process-bound agent card, not the forged impostor.
+        expect(data.node?.id).toBe("agent");
+        expect(data.connected?.some((c) => c.id === "tasks")).toBe(true);
+      }
+    }
+  });
+
+  it("denies unbound peer regardless of nodeRef", async () => {
+    // Spin a one-off server with empty process map.
+    const root = await mkdtemp(join(tmpdir(), "vellum-work-unbound-"));
+    roots.push(root);
+    const workHome = join(root, "work");
+    const canvasesDir = join(root, "canvases");
+    mkdirSync(workHome, { recursive: true });
+    mkdirSync(canvasesDir, { recursive: true });
+    writeFileSync(join(canvasesDir, "work-cli.canvas"), JSON.stringify(seedDoc()));
+    const runtime = ManagedRuntime.make(Layer.provideMerge(WorkLive, CanvasesLive));
+    runtimes.push(runtime);
+    const emptyMap = makeProcessIdentityMap();
+    const unboundServer = await startWorkControlServer({
+      version: "test",
+      workHome,
+      home: root,
+      canvasesDir,
+      processMap: emptyMap,
+      readPeerPid: () => 99_999,
+      run: (effect) => runtime.runPromise(effect),
+    });
+    servers.push(unboundServer);
+    const res = (await call(unboundServer.socketPath, {
+      token: readFileSync(workControlTokenPath(workHome), "utf8").trim(),
+      nodeRef,
+      op: "ping",
+    })) as { ok: false; error: { type: string; message: string } };
+    expect(res.ok).toBe(false);
+    expect(res.error.type).toBe("AuthError");
+    expect(res.error.message).toMatch(/not a registered|process/i);
   });
 
   it("rejects wrong token as AuthError", async () => {

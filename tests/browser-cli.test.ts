@@ -298,6 +298,7 @@ describe("browser CLI packaging contract", () => {
 
     expect(pkg.build.extraResources).toEqual([
       { from: "dist/vellum-browser", to: "bin/vellum-browser" },
+      { from: "scripts/unix-peer-pid.py", to: "bin/unix-peer-pid.py" },
     ]);
     expect(pkg.build.files).not.toContain("scripts/**");
     expect(buildScript).toContain("--no-compile-autoload-dotenv");

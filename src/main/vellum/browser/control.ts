@@ -969,9 +969,9 @@ export type ControlAdmitContext =
  * Full request dispatch (auth → route → handler), transport-free so tests
  * exercise exactly what the socket serves.
  *
- * Dual admission on protected routes:
- *   1. Capability secret (transitional UI grant path)
- *   2. Process-bind: peer PID → registered agent|herdr → edges (product path)
+ * Product HTTP path always process-binds first. Transport-free tests may pass
+ * an admit context: `principal` (process principal → edge mint) or a
+ * pre-minted capability secret (internal lease only — not client identity).
  */
 export const dispatchControlRequest = async (
   handlers: ControlHandlers,
@@ -1008,18 +1008,21 @@ export const dispatchControlRequest = async (
   let authorization: ControlAuthorization | undefined;
   if (handler.action !== null) {
     let capability = request.capability;
+    // Client-presented secrets are not identity. Only admit.principal mints
+    // from a process principal, or a pre-minted internal lease is supplied.
     if (!isValidControlCapability(capability ?? "")) {
       if (admit === undefined) {
         return { status: 401, envelope: capabilityDenied("unauthorized") };
       }
-      if (admit.kind === "capability") {
-        capability = admit.capability;
-      } else if (admit.kind === "principal") {
+      if (admit.kind === "principal") {
         const edge = await admit.edgeGrant.admitPrincipal(admit.principal);
         if (!edge.ok) return edgeGrantHttp(edge.denial, edge.message);
         capability = edge.secret;
+      } else if (admit.kind === "capability") {
+        // Explicit internal lease for unit tests that exercise capability
+        // machinery — never available over the product HTTP path.
+        capability = admit.capability;
       } else {
-        // process path needs a live socket — use principal admit from tests only
         return {
           status: 401,
           envelope: controlErr(
@@ -1280,44 +1283,31 @@ export const startBrowserControlServer = async (
           respond(404, controlErr("bad_request", "unknown route"), true);
           return;
         }
-        const presentedCapability = fixedHeader(req, CONTROL_CAPABILITY_HEADER);
         const presentedRequestId = fixedHeader(req, CONTROL_REQUEST_ID_HEADER);
-        // Protected routes: capability secret (transitional) OR process-bind.
-        // Process-bind mints after body read via admitSocket on this connection.
+        // Protected routes: process-bind only (peer PID → edges). Client
+        // capability secrets are not identity — edge-grant mints an internal
+        // lease after process admission.
         let processCapability: string | undefined;
         if (handler.action !== null) {
-          const hasCapability = isValidControlCapability(presentedCapability ?? "");
           if (!isValidControlRequestId(presentedRequestId ?? "")) {
             respond(400, controlErr("bad_request", "invalid request id"), true);
             return;
           }
-          if (hasCapability) {
-            const admitted = handler.preflight(presentedCapability);
-            if (!admitted.ok) {
-              respond(
-                admitted.denial === "unauthorized" ? 401 : 403,
-                capabilityDenied(admitted.denial),
-                true,
-              );
-              return;
-            }
-          } else {
-            const edge = await edgeGrant.admitSocket(req.socket);
-            if (!edge.ok) {
-              const denied = edgeGrantHttp(edge.denial, edge.message);
-              respond(denied.status, denied.envelope, true);
-              return;
-            }
-            processCapability = edge.secret;
-            const admitted = handler.preflight(processCapability);
-            if (!admitted.ok) {
-              respond(
-                admitted.denial === "unauthorized" ? 401 : 403,
-                capabilityDenied(admitted.denial),
-                true,
-              );
-              return;
-            }
+          const edge = await edgeGrant.admitSocket(req.socket);
+          if (!edge.ok) {
+            const denied = edgeGrantHttp(edge.denial, edge.message);
+            respond(denied.status, denied.envelope, true);
+            return;
+          }
+          processCapability = edge.secret;
+          const admitted = handler.preflight(processCapability);
+          if (!admitted.ok) {
+            respond(
+              admitted.denial === "unauthorized" ? 401 : 403,
+              capabilityDenied(admitted.denial),
+              true,
+            );
+            return;
           }
         }
         if (activeHandlers >= maxActiveHandlers) {
@@ -1394,12 +1384,9 @@ export const startBrowserControlServer = async (
                 method,
                 path: rawTarget,
                 token: presentedToken,
-                ...(presentedCapability !== undefined &&
-                isValidControlCapability(presentedCapability)
-                  ? { capability: presentedCapability }
-                  : processCapability !== undefined
-                    ? { capability: processCapability }
-                    : {}),
+                ...(processCapability !== undefined
+                  ? { capability: processCapability }
+                  : {}),
                 ...(presentedRequestId === undefined
                   ? {}
                   : { requestId: presentedRequestId }),

@@ -27,8 +27,12 @@ While Vellum is running, agents talk to the **local** work control socket (not t
 |---|---|
 | CLI | `dist/vellum` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact` |
 | Socket | `~/.vellum/work/control.sock` + bearer token `~/.vellum/work/token` |
-| Identity | `VELLUM_NODE_REF=vellum://canvas/<name>?node=<id>` (caller agent/work node) |
+| Identity | **process-bind** — CLI must run as a descendant of a live Vellum agent (ACP) or herdr pane process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_NODE_REF` identity claim. |
 | Authz | **edges** — agent only acts on connected nodes (kernel-enforced ScopeError otherwise) |
+
+**How to use:** open the agent chat (or refresh local herdr pane meta) in Vellum so the process is registered, then run `dist/vellum` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
+
+Browser control (`bun run browser` / `vellum-browser`) uses the same process-bind identity on protected routes. Capability secrets are not product identity.
 
 Ops go through WorkService (A2A tasks/messages/requests/artifacts). That is the agent write path; freeform canvas authoring remains human/Command Center.
 
