@@ -103,6 +103,27 @@ export const herdrTextNode = (input: {
   },
 });
 
+/** An agent-bound node matching makeAgentNode's shape
+ * (src/renderer/lib/node-factories.ts) — opens ChatView in the inspector
+ * once selected. `key` is a hermes agent key ("<host>:<profile>"). */
+export const agentTextNode = (input: {
+  readonly id: string;
+  readonly key: string;
+  readonly label: string;
+  readonly host?: string;
+  readonly x?: number;
+  readonly y?: number;
+}): TextNode => ({
+  id: input.id,
+  type: "text",
+  text: input.label,
+  x: input.x ?? 0,
+  y: input.y ?? 0,
+  width: 240,
+  height: 96,
+  ether: { entity: { kind: "agent", name: input.key }, host: input.host ?? "local" },
+});
+
 export const canvasDoc = (
   nodes: readonly CanvasNode[],
   edges: readonly CanvasEdge[] = [],
