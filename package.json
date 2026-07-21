@@ -34,10 +34,14 @@
     "canvas:rm": "bun scripts/canvas-rm.ts",
     "ref": "bun scripts/ref-cli.ts",
     "browser": "bun scripts/browser-cli.ts",
-    "render": "bun scripts/render.ts"
+    "render": "bun scripts/render.ts",
+    "cli": "bun src/cli/main.ts",
+    "cli:build": "bun build --compile --outfile dist/vellum src/cli/main.ts"
   },
   "dependencies": {
+    "@effect/cli": "^0.75.0",
     "@effect/platform": "^0.96.0",
+    "@effect/platform-bun": "^0.89.0",
     "@effect/platform-node": "^0.106.0",
     "@legendapp/state": "^3.0.0-beta.31",
     "@pierre/diffs": "^1.1.21",

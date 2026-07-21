@@ -45,6 +45,7 @@ import { HerdrPlane } from "./vellum/herdr/plane";
 import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
+import { startWorkControlServer, type WorkControlServer } from "./vellum/work/control";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
 import {
   acknowledgeNodeRefRelay,
@@ -228,6 +229,7 @@ const headless = process.argv.includes("--vellum-headless");
 let trustedMainWindow: BrowserWindow | undefined;
 let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
+let workControl: WorkControlServer | undefined;
 let closeWindowsWithoutCanvasFlush = false;
 
 const CANVAS_FLUSH_TIMEOUT_MS = 45_000;
@@ -617,6 +619,19 @@ if (!gotSingleInstanceLock) {
     registerIpcHandlers();
     registerDemoIpcHandlers();
 
+    // Work control socket: agent protocol surface over the A2A work plane.
+    // Independent of browser composition; owns ~/.vellum/work/{control.sock,token}.
+    try {
+      workControl = await startWorkControlServer({
+        version: app.getVersion(),
+        run: (effect) => AppRuntime.runPromise(effect),
+      });
+    } catch (error) {
+      console.error("[work-control] failed to start:", error);
+      exitAfterDetach(1, "work-control-startup-failure");
+      return;
+    }
+
     const [herdr, chat] = await Promise.all([
       AppRuntime.runPromise(HerdrPlane),
       AppRuntime.runPromise(ChatServiceContext),
@@ -691,6 +706,12 @@ if (!gotSingleInstanceLock) {
         // Startup is already failing closed; socket cleanup stays best-effort.
       }
       browserControl = undefined;
+      try {
+        workControl?.close();
+      } catch {
+        // best-effort
+      }
+      workControl = undefined;
       console.error(BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE);
       exitAfterDetach(1, "browser-composition-startup-failure");
       return;
@@ -750,6 +771,13 @@ const detachRuntimeOnQuit = (reason: string): void => {
     console.error(`[browser-control] close on quit failed (${reason}):`, error);
   }
   browserControl = undefined;
+
+  try {
+    workControl?.close();
+  } catch (error) {
+    console.error(`[work-control] close on quit failed (${reason}):`, error);
+  }
+  workControl = undefined;
 
   // Herdr control/observe/forward children are owned by AppRuntime's scoped
   // layer; disposing it detaches clients without touching remote panes.
