@@ -17,6 +17,7 @@ import {
   parseLsofListen,
   portsFromCmdlineHints,
   processIdentityChanged,
+  processIdentityKey,
   projectService,
   resolveHostBase,
   takeQueueForHost,
@@ -63,6 +64,8 @@ export class HerdrServiceMap {
   private readonly cache = new Map<string, HerdrServiceProjection>();
   private readonly hostTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly hostRunning = new Set<string>();
+  /** Hosts that need an immediate re-drain after the current one (intent cut-line). */
+  private readonly intentKick = new Set<string>();
   private readonly listeners = new Set<(proj: HerdrServiceProjection) => void>();
   private batchPerTick: number;
   private tickIntervalMs: number;
@@ -130,6 +133,10 @@ export class HerdrServiceMap {
     readonly processes?: ReadonlyArray<HerdrServiceProcess>;
   }): void {
     if (this.stopped || !input.paneId) return;
+    // Mirror-fresh getPaneMeta omits processes by design — absent ≠ empty shell.
+    // Never wipe ports/url on undefined payload.
+    if (input.processes === undefined) return;
+
     const key = cacheKey(input.hostId, input.session, input.paneId);
     const level = interestLevel(input.processes);
     const prev = this.cache.get(key);
@@ -204,6 +211,8 @@ export class HerdrServiceMap {
   }): HerdrServiceProjection {
     const priority = input.priority ?? "intent";
     const existing = this.get(input.hostId, input.session, input.paneId);
+    // Keep last live projection painted while intent revalidates — no "port…" flash.
+    const showPending = !(existing?.health === "live" || existing?.health === "stale");
     const pending = projectService({
       hostId: input.hostId,
       session: input.session,
@@ -212,7 +221,7 @@ export class HerdrServiceMap {
       ports: existing?.ports,
       hostBase: existing?.hostBase ?? this.hostBase(input.hostId),
       checkedAt: existing?.checkedAt,
-      pending: true,
+      pending: showPending,
       priority,
       now: this.now(),
     });
@@ -224,8 +233,9 @@ export class HerdrServiceMap {
       priority,
       processes: input.processes ?? existing?.processes,
     });
-    // Intent drains ASAP (0 delay) once.
+    // Intent drains ASAP (0 delay); if a drain is mid-flight, re-arm 0 after it.
     if (priority === "intent") {
+      this.intentKick.add(input.hostId);
       this.scheduleHost(input.hostId, 0);
     }
     return pending;
@@ -283,10 +293,19 @@ export class HerdrServiceMap {
       }
       // More work for this host?
       if (this.queue.some((q) => q.hostId === hostId)) {
-        this.scheduleHost(hostId, this.tickIntervalMs);
+        const asap = this.intentKick.has(hostId);
+        this.intentKick.delete(hostId);
+        this.scheduleHost(hostId, asap ? 0 : this.tickIntervalMs);
+      } else {
+        this.intentKick.delete(hostId);
       }
     } finally {
       this.hostRunning.delete(hostId);
+      // Intent arrived mid-drain: schedule immediate follow-up.
+      if (this.intentKick.has(hostId) && this.queue.some((q) => q.hostId === hostId)) {
+        this.intentKick.delete(hostId);
+        this.scheduleHost(hostId, 0);
+      }
     }
   }
 
@@ -387,6 +406,8 @@ export class HerdrServiceMap {
 
   private write(proj: HerdrServiceProjection): void {
     const key = cacheKey(proj.hostId, proj.session, proj.paneId);
+    const prev = this.cache.get(key);
+    if (prev && servicePaintEqual(prev, proj)) return;
     this.cache.set(key, proj);
     for (const listener of this.listeners) {
       try {
@@ -397,6 +418,17 @@ export class HerdrServiceMap {
     }
   }
 }
+
+const servicePaintEqual = (a: HerdrServiceProjection, b: HerdrServiceProjection): boolean =>
+  a.health === b.health &&
+  a.url === b.url &&
+  a.hostBase === b.hostBase &&
+  a.error === b.error &&
+  a.interesting === b.interesting &&
+  a.checkedAt === b.checkedAt &&
+  processIdentityKey(a.processes) === processIdentityKey(b.processes) &&
+  (a.ports ?? []).map((p) => p.port).join(",") === (b.ports ?? []).map((p) => p.port).join(",");
+
 
 /**
  * Configure an existing map's runners after construction (plane injects

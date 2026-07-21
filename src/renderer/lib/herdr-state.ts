@@ -247,17 +247,30 @@ export const setHerdrToast = (message: string): void => {
   }
 };
 
-/** Apply a service-map projection onto cards whose meta pane matches. */
+/** Apply a service-map projection onto cards whose herdr binding matches host+pane. */
 export const applyHerdrServiceMap = (proj: HerdrServiceMapInfo): void => {
-  const metaMap = herdr$.metaByNodeId.peek();
-  for (const [nodeId, cache] of Object.entries(metaMap)) {
-    const meta = cache?.meta;
-    if (!meta || meta.paneId !== proj.paneId) continue;
-    // When a prior service exists, require same host (pane ids are host-local).
-    if (meta.service && meta.service.hostId !== proj.hostId) continue;
-    herdr$.metaByNodeId[nodeId].set({
+  const doc = state$.doc.peek();
+  const nodes = doc?.nodes ?? [];
+  for (const node of nodes) {
+    const binding = node.ether?.herdr;
+    if (!binding?.paneId) continue;
+    if (binding.host !== proj.hostId || binding.paneId !== proj.paneId) continue;
+    // Session: both nullish match; otherwise exact.
+    const nodeSession = binding.session ?? null;
+    const projSession = proj.session ?? null;
+    if (nodeSession !== projSession) continue;
+    const cache = herdr$.metaByNodeId[node.id].peek();
+    if (!cache?.meta) {
+      herdr$.metaByNodeId[node.id].set({
+        status: "ok",
+        meta: { paneId: proj.paneId, service: proj },
+        fetchedAt: Date.now(),
+      });
+      continue;
+    }
+    herdr$.metaByNodeId[node.id].set({
       ...cache,
-      meta: { ...meta, service: proj },
+      meta: { ...cache.meta, service: proj },
       fetchedAt: Date.now(),
     });
   }

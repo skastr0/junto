@@ -56,6 +56,32 @@ describe("HerdrServiceMap worker", () => {
     map.stop();
   });
 
+  it("observeProcesses(undefined) does not wipe live projection", async () => {
+    const shell = async () => ({
+      ok: true,
+      stdout: "node 42 me 1u IPv4 0t0 TCP *:5173 (LISTEN)\n",
+    });
+    const map = new HerdrServiceMap({ shell, now: () => 1_000 });
+    map.requestProbe({
+      hostId: "local",
+      paneId: "w1:p1",
+      processes: [{ name: "node", cmdline: "vite", pid: 42 }],
+      priority: "intent",
+    });
+    await map.drainHostNow("local");
+    expect(map.get("local", null, "w1:p1")?.health).toBe("live");
+
+    // Mirror-fresh getMeta path omits processes — must not clobber.
+    map.observeProcesses({
+      hostId: "local",
+      paneId: "w1:p1",
+      processes: undefined,
+    });
+    expect(map.get("local", null, "w1:p1")?.health).toBe("live");
+    expect(map.get("local", null, "w1:p1")?.url).toBe("http://127.0.0.1:5173");
+    map.stop();
+  });
+
   it("rate-limits ambient batch across multiple panes", async () => {
     let shellCalls = 0;
     const shell = vi.fn(async (_h: string, argv: ReadonlyArray<string>) => {
