@@ -13,7 +13,7 @@
  *  - renderer served from a local static server (127.0.0.1, ephemeral port)
  *    since the trusted renderer protocol only installs when app.isPackaged
  */
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { CanvasDoc } from "../../src/shared/canvas";
@@ -36,10 +36,28 @@ const ELECTRON_BINARY = join(
 const MAIN_ENTRY = join(REPO_ROOT, "out/main/index.js");
 const RENDERER_DIR = join(REPO_ROOT, "out/renderer");
 
+// e2e/fakes/bin/{herdr,ssh,hermes,codexbar} — stock-protocol emulators (see
+// e2e/fakes/*.ts for the scenario-file contract each one reads). The system
+// floor is the minimal set every adapter still needs (/bin/sh, coreutils);
+// nothing above it, so an operator CLI on the real PATH can never leak in.
+const FAKES_BIN_DIR = join(REPO_ROOT, "e2e/fakes/bin");
+// The fakes are `#!/usr/bin/env node` scripts — env resolves `node` off
+// PATH, so the floor must include the node binary actually running this
+// harness (proven node runtime, not the operator's PATH) or every fake
+// ENOENTs silently under a stripped PATH.
+const NODE_BIN_DIR = dirname(process.execPath);
+const SYSTEM_PATH_FLOOR = `${NODE_BIN_DIR}:/usr/bin:/bin:/usr/sbin:/sbin`;
+
 export interface LaunchOptions {
   readonly demo?: boolean;
   /** canvas name -> document, written to the sandbox's canvases dir before launch. */
   readonly seedCanvases?: Readonly<Record<string, CanvasDoc>>;
+  /**
+   * Restrict PATH to e2e/fakes/bin + the system floor so only the fake
+   * herdr/ssh/hermes/codexbar resolve — no operator CLI, no real host, no
+   * AI tokens. `extraEnv.PATH` (if set) still wins — it's applied after.
+   */
+  readonly fakesOnPath?: boolean;
   readonly extraEnv?: Readonly<Record<string, string>>;
 }
 
@@ -83,6 +101,7 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     VELLUM_CANVASES_DIR: sandbox.canvasesDir,
     ELECTRON_RENDERER_URL: server.url,
     ...(options.demo ? { VELLUM_DEMO: "1" } : {}),
+    ...(options.fakesOnPath ? { PATH: `${FAKES_BIN_DIR}:${SYSTEM_PATH_FLOOR}` } : {}),
     ...options.extraEnv,
   };
 

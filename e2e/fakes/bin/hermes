@@ -1,0 +1,226 @@
+#!/usr/bin/env node
+// Fake `hermes` executable for E2E — emulates the stock hermes surface the
+// product actually speaks (see src/main/vellum/hermes/*.ts + adapters/hermes.ts):
+//
+//   hermes profile list              (table, non-JSON — parsed by parseProfiles)
+//   hermes version                   ("Hermes Agent vX.Y.Z ..." — parsed by parseVersion)
+//   hermes acp                       (default profile)
+//   hermes -p <profile> acp          (named profile)
+//
+// `acp` speaks newline-delimited JSON-RPC 2.0 over stdio — the real wire
+// contract proven live against hermes 0.16.0 (see chat/acp-client.ts):
+//   initialize -> {protocolVersion, agentCapabilities, authMethods}
+//   session/new | session/load -> {sessionId, models: {availableModels}}
+//   session/set_model -> {}
+//   session/prompt -> zero+ `session/update` notifications
+//                      (agent_message_chunk / permission_request as an
+//                      agent -> client REQUEST awaiting our answer) then a
+//                      response {stopReason}.
+//
+// Scriptability: FAKE_HERMES_SCENARIO points at a JSON file describing an
+// ordered queue of turns consumed one per `session/prompt` call (the last
+// turn repeats once the queue is exhausted). See ../hermes-scenario.ts for
+// the typed shape + helpers.
+"use strict";
+
+import { readFileSync } from "node:fs";
+
+const scenarioPath = process.env.FAKE_HERMES_SCENARIO;
+
+const readJsonSafe = (path) => {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+};
+
+const loadScenario = () => {
+  const base = { initialize: undefined, session: undefined, turns: [] };
+  if (!scenarioPath) return base;
+  const raw = readJsonSafe(scenarioPath);
+  if (!raw) return base;
+  return { ...base, ...raw, turns: raw.turns ?? [] };
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// --- fleet discovery: `profile list` / `version` ----------------------------
+//
+// Row shape mirrors a live `hermes profile list` table (see adapters/hermes.ts
+// parseProfiles): "◆<name>    <model>    <gateway>" — columns split on 2+
+// spaces, header/separator lines skipped.
+
+const cmdProfileList = () => {
+  const scenario = loadScenario();
+  const profiles = scenario.profiles ?? [{ name: "default", model: "gpt-5.5", gateway: "—" }];
+  const lines = ["Profile         Model        Gateway", "─────────────────────────────────────"];
+  for (const p of profiles) {
+    lines.push(`◆${p.name}         ${p.model ?? "gpt-5.5"}      ${p.gateway ?? "—"}`);
+  }
+  process.stdout.write(`${lines.join("\n")}\n`);
+};
+
+const cmdVersion = () => {
+  process.stdout.write("Hermes Agent v0.16.0 (2026.6.5) · upstream fake0000\n");
+};
+
+// --- acp: ndjson JSON-RPC 2.0 over stdio -------------------------------------
+
+const runAcp = () => {
+  const scenario = loadScenario();
+  let turnIndex = 0;
+  let nextReqId = 1;
+  const pendingAnswers = new Map();
+
+  const write = (msg) => process.stdout.write(`${JSON.stringify(msg)}\n`);
+
+  const handlePrompt = async (id, params) => {
+    const sessionId = params?.sessionId;
+    const turns = scenario.turns ?? [];
+    const turn = turns.length > 0 ? turns[Math.min(turnIndex, turns.length - 1)] : { reply: "ok" };
+    turnIndex += 1;
+
+    if (turn.requestPermission) {
+      const reqId = `perm-${nextReqId++}`;
+      await new Promise((resolve) => {
+        pendingAnswers.set(reqId, resolve);
+        write({
+          jsonrpc: "2.0",
+          id: reqId,
+          method: "session/request_permission",
+          params: {
+            sessionId,
+            toolCall: {
+              title: turn.requestPermission.title ?? "tool call",
+              kind: turn.requestPermission.toolKind,
+            },
+            options: turn.requestPermission.options ?? [],
+          },
+        });
+      });
+    }
+
+    const chunks = turn.chunks ?? [turn.reply ?? ""];
+    for (const chunk of chunks) {
+      if (turn.delayMs) await sleep(turn.delayMs);
+      write({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId,
+          update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: chunk } },
+        },
+      });
+    }
+
+    write({ jsonrpc: "2.0", id, result: { stopReason: turn.stopReason ?? "end_turn" } });
+  };
+
+  const handleLine = async (line) => {
+    let msg;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    }
+    const { id, method, params, result } = msg;
+
+    // A response TO one of our own agent -> client requests (permission ask):
+    // has an id, no method.
+    if (method === undefined && id !== undefined) {
+      const resolve = pendingAnswers.get(id);
+      if (resolve) {
+        pendingAnswers.delete(id);
+        resolve(result);
+      }
+      return;
+    }
+
+    if (method === "initialize") {
+      write({
+        jsonrpc: "2.0",
+        id,
+        result: scenario.initialize ?? {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: true, promptCapabilities: {}, sessionCapabilities: {} },
+          authMethods: [],
+        },
+      });
+      return;
+    }
+
+    if (method === "session/new") {
+      write({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          sessionId: scenario.session?.sessionId ?? "fake-session-1",
+          models: { availableModels: scenario.session?.models ?? [] },
+        },
+      });
+      return;
+    }
+
+    if (method === "session/load") {
+      write({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          sessionId: params?.sessionId,
+          models: { availableModels: scenario.session?.models ?? [] },
+        },
+      });
+      return;
+    }
+
+    if (method === "session/set_model") {
+      write({ jsonrpc: "2.0", id, result: {} });
+      return;
+    }
+
+    if (method === "session/prompt") {
+      void handlePrompt(id, params);
+      return;
+    }
+
+    if (id !== undefined) {
+      write({ jsonrpc: "2.0", id, error: { code: -32601, message: `unknown method ${String(method)}` } });
+    }
+  };
+
+  process.stdin.setEncoding("utf8");
+  let buf = "";
+  process.stdin.on("data", (chunk) => {
+    buf += chunk;
+    let idx = buf.indexOf("\n");
+    while (idx >= 0) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (line) void handleLine(line);
+      idx = buf.indexOf("\n");
+    }
+  });
+  process.stdin.resume();
+
+  const shutdown = () => process.exit(0);
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+};
+
+// --- dispatch ----------------------------------------------------------------
+
+const main = () => {
+  let args = process.argv.slice(2);
+  if (args[0] === "-p") args = args.slice(2); // named profile: fake has one identity
+
+  const [cmd, sub] = args;
+  if (cmd === "profile" && sub === "list") return cmdProfileList();
+  if (cmd === "version") return cmdVersion();
+  if (cmd === "acp") return runAcp();
+
+  process.stderr.write(`fake hermes: unsupported command '${args.join(" ")}'\n`);
+  process.exitCode = 1;
+};
+
+main();
