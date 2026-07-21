@@ -23,6 +23,9 @@
     "app:build": "bash scripts/build-app.sh",
     "app:build:fast": "bash scripts/build-app.sh --fast",
     "app:build:verify": "bash scripts/build-app.sh --verify",
+    "app:build:notarize": "bash scripts/build-app.sh --notarize",
+    "app:build:ship": "bash scripts/build-app.sh --verify --notarize",
+    "app:notarize": "bash scripts/notarize-app.sh",
     "app:install": "bash scripts/install-app.sh",
     "app:install:fast": "bash scripts/install-app.sh --fast",
     "app:install:skip-build": "bash scripts/install-app.sh --skip-build",
@@ -111,7 +114,8 @@
     ],
     "mac": {
       "target": [
-        "zip"
+        "zip",
+        "dmg"
       ],
       "minimumSystemVersion": "13.0",
       "category": "public.app-category.developer-tools",
@@ -123,6 +127,20 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
       "preAutoEntitlements": false
+    },
+    "dmg": {
+      "background": "build/dmg-background.png",
+      "icon": "build/icon.icns",
+      "iconSize": 128,
+      "title": "Vellum ${version}",
+      "contents": [
+        { "x": 360, "y": 360, "type": "file" },
+        { "x": 920, "y": 360, "type": "link", "path": "/Applications" }
+      ],
+      "window": {
+        "width": 1280,
+        "height": 720
+      }
     }
   }
 }

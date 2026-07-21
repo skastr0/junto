@@ -38,9 +38,23 @@ APP_DST="${VELLUM_APP_DST:-/Applications/${PRODUCT_NAME}.app}"
 PLIST="${VELLUM_PLIST:-$HOME/Library/LaunchAgents/${LABEL}.plist}"
 LOG_DIR="${VELLUM_LOG_DIR:-$HOME/Library/Logs/${PRODUCT_NAME}}"
 DOMAIN="gui/$(id -u)"
+RELEASE_DIR="${VELLUM_RELEASE_DIR:-$REPO_ROOT/release}"
 
 log() { printf 'vellum: %s\n' "$*"; }
 err() { printf 'vellum: error: %s\n' "$*" >&2; }
+
+# Prefer artifactName zip (Vellum-<ver>-arm64-mac.zip); else first *.zip under release/.
+detect_release_zip() {
+  local c
+  # Bash: unmatched globs stay literal when nullglob is off — skip non-files.
+  for c in "$RELEASE_DIR/${PRODUCT_NAME}-"*-mac.zip "$RELEASE_DIR/"*.zip; do
+    if [[ -f "$c" ]]; then
+      printf '%s' "$c"
+      return 0
+    fi
+  done
+  return 1
+}
 
 # True if a LaunchAgent for this label is loaded (any state).
 launchd_loaded() {

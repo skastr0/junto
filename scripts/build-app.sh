@@ -4,12 +4,15 @@
 #   scripts/build-app.sh              typecheck + Electron + standalone browser CLI + package
 #   scripts/build-app.sh --fast       skip typecheck (package only; still compiles both)
 #   scripts/build-app.sh --verify     typecheck + unit tests + compile + package + runtime smoke
+#   scripts/build-app.sh --notarize   after package: asc notary + staple + re-zip (scripts/notarize-app.sh)
 #   scripts/build-app.sh --compile-only   compile Electron + browser CLI, no .app
 #
 # Safe: never writes to /Applications. Never kills herdr sessions.
 # Outputs:
 #   release/mac-arm64/Vellum.app          (or release/mac/) — signed .app for audit/install
 #   release/Vellum-<ver>-arm64-mac.zip    — shippable archive (electron-builder zip target)
+#   release/Vellum-<ver>-arm64-mac.dmg    — human installer (plate B + fullbleed amber icon)
+#   release/notarization-receipt.json     — when --notarize succeeds
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,9 +22,10 @@ source "$SCRIPT_DIR/app-paths.sh"
 FAST=0
 VERIFY=0
 COMPILE_ONLY=0
+NOTARIZE=0
 
 usage() {
-  sed -n '2,12p' "$0" | sed 's/^# \?//'
+  sed -n '2,14p' "$0" | sed 's/^# \?//'
   exit "${1:-0}"
 }
 
@@ -29,6 +33,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --fast) FAST=1; shift ;;
     --verify) VERIFY=1; shift ;;
+    --notarize) NOTARIZE=1; shift ;;
     --compile-only) COMPILE_ONLY=1; shift ;;
     -h|--help) usage 0 ;;
     *) err "unknown flag: $1"; usage 1 ;;
@@ -137,30 +142,16 @@ if [[ "$COMPILE_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
-log "electron-builder --mac → release/ (.app + zip) …"
-# package.json mac.target is zip (distribution unit). Builder still materializes
-# the signed .app under release/mac-*/ for audit + local install.
+log "electron-builder --mac → release/ (.app + zip + dmg) …"
+# package.json mac.target: zip (notary unit) + dmg (human installer with plate B).
+# Builder still materializes the signed .app under release/mac-*/ for audit + install.
 bunx electron-builder --mac
 
 APP_SRC="$(detect_app_src)"
 assert_app_bundle "$APP_SRC"
 
-# Prefer the configured artifactName; fall back to any Vellum-*-mac.zip in release/.
-ZIP_SRC=""
-shopt -s nullglob
-zip_candidates=(
-  "$REPO_ROOT/release/Vellum-"*-mac.zip
-  "$REPO_ROOT/release/"*.zip
-)
-shopt -u nullglob
-for candidate in "${zip_candidates[@]}"; do
-  if [[ -f "$candidate" ]]; then
-    ZIP_SRC="$candidate"
-    break
-  fi
-done
-if [[ -z "$ZIP_SRC" ]]; then
-  err "missing shippable zip under release/ (mac.target should include zip)"
+if ! ZIP_SRC="$(detect_release_zip)"; then
+  err "missing shippable zip under $RELEASE_DIR (mac.target should include zip)"
   exit 1
 fi
 
@@ -172,13 +163,40 @@ if [[ "$VERIFY" -eq 1 ]]; then
   bun "$SCRIPT_DIR/packaged-runtime-smoke.ts" "$APP_SRC"
 fi
 
+if [[ "$NOTARIZE" -eq 1 ]]; then
+  log "notarize + staple (asc) …"
+  VELLUM_APP_SRC="$APP_SRC" VELLUM_ZIP_SRC="$ZIP_SRC" bash "$SCRIPT_DIR/notarize-app.sh"
+  # Zip path is stable; re-detect in case tool rewrote the archive in place.
+  ZIP_SRC="$(detect_release_zip || printf '%s' "$ZIP_SRC")"
+fi
+
 VERSION="$(
   /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_SRC/Contents/Info.plist" 2>/dev/null || true
 )"
+DMG_SRC=""
+shopt -s nullglob
+dmg_candidates=("$RELEASE_DIR"/Vellum-*-mac.dmg "$RELEASE_DIR"/*.dmg)
+shopt -u nullglob
+for candidate in "${dmg_candidates[@]}"; do
+  if [[ -f "$candidate" ]]; then
+    DMG_SRC="$candidate"
+    break
+  fi
+done
+
 log "built $(basename "$APP_SRC")"
 log "  app:  $APP_SRC"
 log "  zip:  $ZIP_SRC"
+if [[ -n "$DMG_SRC" ]]; then
+  log "  dmg:  $DMG_SRC"
+fi
 if [[ -n "$VERSION" ]]; then
   log "  version: $VERSION"
 fi
+if [[ "$NOTARIZE" -eq 1 ]]; then
+  log "  notarization: $RELEASE_DIR/notarization-receipt.json"
+fi
 log "install with: bun run app:install   # or scripts/install-app.sh"
+if [[ "$NOTARIZE" -eq 0 ]]; then
+  log "notarize with: bun run app:notarize   # or build with --notarize"
+fi
