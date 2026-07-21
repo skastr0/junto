@@ -3,7 +3,7 @@
 # shellcheck shell=bash
 
 LABEL="${VELLUM_LAUNCHD_LABEL:-skastr0.vellum}"
-PRODUCT_NAME="${VELLUM_PRODUCT_NAME:-Vellum}"
+PRODUCT_NAME="${VELLUM_PRODUCT_NAME:-Vellum Command}"
 APP_BUNDLE_ID="${VELLUM_APP_ID:-skastr0.vellum}"
 
 # Repo root = parent of scripts/

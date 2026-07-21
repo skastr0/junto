@@ -135,14 +135,14 @@ export const hasDebugAuthority = (rows: ReadonlyArray<ProcessRow>): boolean =>
 
 export const assertNoLiveVellumRuntime = (
   rows: ReadonlyArray<ProcessRow>,
-  bundleRoots: ReadonlyArray<string> = ["/Applications/Vellum.app"],
+  bundleRoots: ReadonlyArray<string> = ["/Applications/Vellum Command.app"],
 ): void => {
   const prefixes = bundleRoots.map((root) => `${root}/Contents/`);
   const running = rows.some((row) =>
     prefixes.some((prefix) => row.command.startsWith(prefix)),
   );
   if (running) {
-    throw new Error("a Vellum runtime is already running; close it before packaged smoke");
+    throw new Error("a Vellum Command runtime is already running; close it before packaged smoke");
   }
 };
 
@@ -234,7 +234,7 @@ const currentProcessRows = (): ReadonlyArray<ProcessRow> => {
 
 const preflightRuntime = (requestedAppPath: string): void => {
   assertNoLiveVellumRuntime(currentProcessRows(), [
-    "/Applications/Vellum.app",
+    "/Applications/Vellum Command.app",
     requestedAppPath,
   ]);
   const launchAgent = runFixed("/bin/launchctl", [
@@ -444,11 +444,11 @@ export const smokePackagedRuntime = async (
     throw new Error("packaged runtime smoke is supported only on macOS");
   }
   const appPath = await realpath(path.resolve(requestedAppPath));
-  if (path.basename(appPath) !== "Vellum.app") {
-    throw new Error("packaged runtime smoke requires Vellum.app");
+  if (path.basename(appPath) !== "Vellum Command.app") {
+    throw new Error("packaged runtime smoke requires Vellum Command.app");
   }
   preflightRuntime(appPath);
-  const executable = path.join(appPath, "Contents", "MacOS", "Vellum");
+  const executable = path.join(appPath, "Contents", "MacOS", "Vellum Command");
   const browserCli = path.join(appPath, "Contents", "Resources", "bin", "vellum-browser");
   await Promise.all([stat(executable), stat(browserCli)]);
 
@@ -657,7 +657,7 @@ const invokedPath = process.argv[1] === undefined ? "" : path.resolve(process.ar
 if (invokedPath === modulePath) {
   const requestedPath = process.argv[2];
   if (requestedPath === undefined || process.argv.length !== 3) {
-    console.error("usage: bun scripts/packaged-runtime-smoke.ts /path/to/Vellum.app");
+    console.error("usage: bun scripts/packaged-runtime-smoke.ts /path/to/Vellum Command.app");
     process.exitCode = 2;
   } else {
     smokePackagedRuntime(requestedPath)

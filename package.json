@@ -1,9 +1,18 @@
 {
   "name": "@skastr0/vellum",
   "version": "0.1.0",
-  "description": "Desktop station for the portfolio canvas: JSON Canvas + ether extension.",
+  "description": "Vellum Command — the deep-field station for multi-agent fleets on macOS.",
   "type": "module",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/skastr0/vellum.git"
+  },
+  "bugs": {
+    "url": "https://github.com/skastr0/vellum/issues"
+  },
+  "homepage": "https://github.com/skastr0/vellum#readme",
   "trustedDependencies": ["electron"],
   "main": "./out/main/index.js",
   "packageManager": "bun@1.3.13",
@@ -30,7 +39,7 @@
     "app:install:fast": "bash scripts/install-app.sh --fast",
     "app:install:skip-build": "bash scripts/install-app.sh --skip-build",
     "app:install:supervised": "bash scripts/install-app.sh --supervised",
-    "app:open": "open /Applications/Vellum.app",
+    "app:open": "open \"/Applications/Vellum Command.app\"",
     "app:uninstall-agent": "bash scripts/install-launchd.sh --uninstall",
     "digest": "bun scripts/digest.ts",
     "canvas:ls": "bun scripts/canvas-ls.ts",
@@ -81,7 +90,7 @@
   },
   "build": {
     "appId": "skastr0.vellum",
-    "productName": "Vellum",
+    "productName": "Vellum Command",
     "afterPack": "./scripts/electron-builder-after-pack.mjs",
     "forceCodeSigning": true,
     "directories": {
@@ -107,7 +116,7 @@
     ],
     "protocols": [
       {
-        "name": "Vellum node reference",
+        "name": "Vellum Command node reference",
         "schemes": ["vellum"],
         "role": "Viewer"
       }
@@ -132,7 +141,7 @@
       "background": "build/dmg-background.png",
       "icon": "build/icon.icns",
       "iconSize": 128,
-      "title": "Vellum ${version}",
+      "title": "Vellum Command ${version}",
       "contents": [
         { "x": 360, "y": 360, "type": "file" },
         { "x": 920, "y": 360, "type": "link", "path": "/Applications" }

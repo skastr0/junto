@@ -52,21 +52,21 @@ describe("readDisplayNameFromContent", () => {
 
 describe("readEnvFieldFromContent", () => {
   const env = [
-    "MATRIX_USER_ID=@profile-13:remote-a.example.ts.net",
-    "MATRIX_ACCESS_TOKEN=syt_super_secret_value",
+    "MATRIX_USER_ID=@agent-example:example.test",
+    "MATRIX_ACCESS_TOKEN=syt_test",
     "MATRIX_DEVICE_ID=ABCDEF1234",
-    "MATRIX_HOME_ROOM=!roomid:remote-a.example.ts.net",
-    "MATRIX_HOME_ROOM_NAME=PROFILE-13 — Repositories",
+    "MATRIX_HOME_ROOM=!roomid:example.test",
+    "MATRIX_HOME_ROOM_NAME=Example Agent — Repositories",
   ].join("\n");
 
   it("extracts the whitelisted matrixUserId field", () => {
     expect(readEnvFieldFromContent(env, "MATRIX_USER_ID")).toBe(
-      "@profile-13:remote-a.example.ts.net",
+      "@agent-example:example.test",
     );
   });
 
   it("extracts the whitelisted homeRoomName field", () => {
-    expect(readEnvFieldFromContent(env, "MATRIX_HOME_ROOM_NAME")).toBe("PROFILE-13 — Repositories");
+    expect(readEnvFieldFromContent(env, "MATRIX_HOME_ROOM_NAME")).toBe("Example Agent — Repositories");
   });
 
   it("returns undefined for a missing key", () => {
@@ -80,21 +80,21 @@ describe("readEnvFieldFromContent", () => {
     // MATRIX_HOME_ROOM) exist only to prove those call sites still resolve
     // the right value when secret lines are interleaved in the same file.
     expect(readEnvFieldFromContent(env, "MATRIX_USER_ID")).toBe(
-      "@profile-13:remote-a.example.ts.net",
+      "@agent-example:example.test",
     );
-    expect(readEnvFieldFromContent(env, "MATRIX_HOME_ROOM_NAME")).toBe("PROFILE-13 — Repositories");
+    expect(readEnvFieldFromContent(env, "MATRIX_HOME_ROOM_NAME")).toBe("Example Agent — Repositories");
   });
 });
 
 describe("parseIdentityBatchLine", () => {
   it("parses a fully populated tab-separated line", () => {
-    const line = "profile-13\tPROFILE-13\t@profile-13:remote-a.ts.net\tPROFILE-13 — Repositories\ttrue";
+    const line = "agent1\tExample Agent\t@agent-example:example.test\tExample Agent — Repositories\ttrue";
     expect(parseIdentityBatchLine(line)).toEqual({
-      profile: "profile-13",
+      profile: "agent1",
       identity: {
-        displayName: "PROFILE-13",
-        matrixUserId: "@profile-13:remote-a.ts.net",
-        homeRoomName: "PROFILE-13 — Repositories",
+        displayName: "Example Agent",
+        matrixUserId: "@agent-example:example.test",
+        homeRoomName: "Example Agent — Repositories",
         hasAvatar: true,
       },
     });
@@ -121,19 +121,19 @@ describe("parseIdentityBatchLine", () => {
 describe("parseIdentityBatchOutput", () => {
   it("parses multiple lines into a profile -> identity map, skipping blanks", () => {
     const stdout = [
-      "default\t\t@hermes:remote-a.ts.net\t\ttrue",
+      "default\t\t@hermes:example.test\t\ttrue",
       "",
-      "profile-13\tPROFILE-13\t@profile-13:remote-a.ts.net\tPROFILE-13 — Repositories\ttrue",
+      "agent1\tExample Agent\t@agent-example:example.test\tExample Agent — Repositories\ttrue",
       "profile-14\t\t\t\tfalse",
     ].join("\n");
 
     const identities = parseIdentityBatchOutput(stdout, "fleet-1");
     expect(identities.size).toBe(3);
-    expect(identities.get("profile-13")).toEqual({
-      key: "fleet-1:profile-13",
-      displayName: "PROFILE-13",
-      matrixUserId: "@profile-13:remote-a.ts.net",
-      homeRoomName: "PROFILE-13 — Repositories",
+    expect(identities.get("agent1")).toEqual({
+      key: "fleet-1:agent1",
+      displayName: "Example Agent",
+      matrixUserId: "@agent-example:example.test",
+      homeRoomName: "Example Agent — Repositories",
       hasAvatar: true,
     });
     expect(identities.get("profile-14")?.hasAvatar).toBe(false);

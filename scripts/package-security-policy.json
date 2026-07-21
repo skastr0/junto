@@ -1,7 +1,7 @@
 {
   "_note": "fuses.LoadBrowserProcessSpecificV8Snapshot must stay false until the package also ships v8_context_snapshot.browser.*.bin (custom per-process snapshot build). True with the stock Electron distribution is fatal at launch: Error loading V8 startup snapshot file.",
   "bundleIdentifier": "skastr0.vellum",
-  "productName": "Vellum",
+  "productName": "Vellum Command",
   "minimumSystemVersion": "13.0",
   "teamIdentifier": "EXAMP12345",
   "builderIdentity": "Example Maintainer (EXAMP12345)",

@@ -8,7 +8,7 @@
   },
   "machO": [
     {
-      "path": "Contents/MacOS/Vellum",
+      "path": "Contents/MacOS/Vellum Command",
       "identifier": "skastr0.vellum",
       "profile": "jit"
     },
@@ -78,22 +78,22 @@
       "profile": "none"
     },
     {
-      "path": "Contents/Frameworks/Vellum Helper (Renderer).app/Contents/MacOS/Vellum Helper (Renderer)",
+      "path": "Contents/Frameworks/Vellum Command Helper (Renderer).app/Contents/MacOS/Vellum Command Helper (Renderer)",
       "identifier": "skastr0.vellum.helper.Renderer",
       "profile": "jit"
     },
     {
-      "path": "Contents/Frameworks/Vellum Helper (GPU).app/Contents/MacOS/Vellum Helper (GPU)",
+      "path": "Contents/Frameworks/Vellum Command Helper (GPU).app/Contents/MacOS/Vellum Command Helper (GPU)",
       "identifier": "skastr0.vellum.helper.GPU",
       "profile": "jit"
     },
     {
-      "path": "Contents/Frameworks/Vellum Helper (Plugin).app/Contents/MacOS/Vellum Helper (Plugin)",
+      "path": "Contents/Frameworks/Vellum Command Helper (Plugin).app/Contents/MacOS/Vellum Command Helper (Plugin)",
       "identifier": "skastr0.vellum.helper.Plugin",
       "profile": "none"
     },
     {
-      "path": "Contents/Frameworks/Vellum Helper.app/Contents/MacOS/Vellum Helper",
+      "path": "Contents/Frameworks/Vellum Command Helper.app/Contents/MacOS/Vellum Command Helper",
       "identifier": "skastr0.vellum.helper",
       "profile": "jit"
     }

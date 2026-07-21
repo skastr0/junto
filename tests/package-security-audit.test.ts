@@ -18,7 +18,7 @@ import {
 } from "../scripts/audit-packaged-app";
 
 const developerIdCodesign = `
-Executable=/tmp/Vellum.app/Contents/MacOS/Vellum
+Executable=/tmp/Vellum Command.app/Contents/MacOS/Vellum Command
 Identifier=skastr0.vellum
 Format=app bundle with Mach-O thin (arm64)
 CodeDirectory v=20500 size=431 flags=0x10000(runtime) hashes=3+7 location=embedded
@@ -172,7 +172,7 @@ describe("ASAR integrity audit", () => {
   const hash = "a".repeat(64);
   const plist = {
     CFBundleIdentifier: "skastr0.vellum",
-    CFBundleExecutable: "Vellum",
+    CFBundleExecutable: "Vellum Command",
     LSMinimumSystemVersion: "13.0",
     ElectronAsarIntegrity: {
       "Resources/app.asar": {

@@ -380,7 +380,7 @@ const createWindow = () => {
     height: 900,
     minWidth: 960,
     minHeight: 680,
-    title: "Vellum",
+    title: "Vellum Command",
     backgroundColor: "#0c0b0a",
     titleBarStyle: "hiddenInset",
     webPreferences: {

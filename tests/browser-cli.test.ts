@@ -218,7 +218,7 @@ describe("packaged browser CLI contract", () => {
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
 
-    const malformedSecret = "not-a-capability-secret";
+    const malformedSecret = "bad-cap";
     const malformed = await runCli(["profiles", "--json"], {
       home: root,
       capability: malformedSecret,

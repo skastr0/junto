@@ -76,7 +76,7 @@ export const signingProfileForPath = (appPath, filePath, runtimePolicy) => {
   const relative = path.relative(appRoot, resolved).split(path.sep).join("/");
   if (relative === "") return "jit";
   if (relative === ".." || relative.startsWith("../") || path.isAbsolute(relative)) {
-    throw new Error("electron-osx-sign attempted to sign outside Vellum.app");
+    throw new Error("electron-osx-sign attempted to sign outside the app bundle");
   }
 
   const jitTargets = new Set();
@@ -110,7 +110,7 @@ export default async function signVellumApp(options) {
   validatePolicies(runtimePolicy, packagePolicy);
 
   if (options.platform !== "darwin") {
-    throw new Error(`Vellum signing supports darwin only, got ${String(options.platform)}`);
+    throw new Error(`Signing supports darwin only, got ${String(options.platform)}`);
   }
   const appPath = await realpath(options.app);
   if (path.basename(appPath) !== `${packagePolicy.productName}.app`) {
@@ -133,7 +133,7 @@ export default async function signVellumApp(options) {
         relativeCanonical.startsWith(`..${path.sep}`) ||
         path.isAbsolute(relativeCanonical)
       ) {
-        throw new Error("electron-osx-sign resolved a target outside Vellum.app");
+        throw new Error("electron-osx-sign resolved a target outside the app bundle");
       }
       const inherited = inheritedOptionsForFile?.(filePath) ?? {};
       const profile = signingProfileForPath(appPath, filePath, runtimePolicy);

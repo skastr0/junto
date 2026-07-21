@@ -100,10 +100,10 @@ export interface PackageAuditReceipt {
 }
 
 export const EXPECTED_JIT_MACHO_PATHS = [
-  "Contents/MacOS/Vellum",
-  "Contents/Frameworks/Vellum Helper (Renderer).app/Contents/MacOS/Vellum Helper (Renderer)",
-  "Contents/Frameworks/Vellum Helper (GPU).app/Contents/MacOS/Vellum Helper (GPU)",
-  "Contents/Frameworks/Vellum Helper.app/Contents/MacOS/Vellum Helper",
+  "Contents/MacOS/Vellum Command",
+  "Contents/Frameworks/Vellum Command Helper (Renderer).app/Contents/MacOS/Vellum Command Helper (Renderer)",
+  "Contents/Frameworks/Vellum Command Helper (GPU).app/Contents/MacOS/Vellum Command Helper (GPU)",
+  "Contents/Frameworks/Vellum Command Helper.app/Contents/MacOS/Vellum Command Helper",
 ] as const;
 
 const MAC_O_MAGICS = new Set([
@@ -944,7 +944,7 @@ const invokedPath =
 if (invokedPath === modulePath) {
   const requestedPath = process.argv[2];
   if (requestedPath === undefined || process.argv.length !== 3) {
-    console.error("usage: bun scripts/audit-packaged-app.ts /path/to/Vellum.app");
+    console.error("usage: bun scripts/audit-packaged-app.ts /path/to/Vellum Command.app");
     process.exitCode = 2;
   } else {
     auditPackagedApp(requestedPath)

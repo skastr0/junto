@@ -4,6 +4,9 @@ release/
 dist/
 .DS_Store
 .atlas/
+.groundwork/
 test-results/
 playwright-report/
 blob-report/
+.local/
+*.digest.txt

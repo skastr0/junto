@@ -1,68 +1,100 @@
-# vellum
+<p align="center">
+  <img src="assets/brand/vellum-command-icon.png" alt="Vellum Command" width="160" height="160" />
+</p>
 
-**The portfolio canvas.** A desktop station where the whole ether is drawn on one spatial surface — projects, orbits, plugins, agents, research pointers, and raw ideas as nodes; dependencies, blockers, and relationships as edges; named regions as geography.
+<h1 align="center">Vellum Command</h1>
 
-vellum renders JSON Canvas 1.0 documents extended with a namespaced `ether` key that binds nodes to live sources: tower (glyphs, signals), quasar (sessions), booth (assets). The document is the product; the app is one projection of it.
+<p align="center"><strong>Run your agent fleet from one spatial board.</strong></p>
 
-## The document
+<p align="center">
+  Managing agents on macOS is overwhelming — terminals stay opaque, the fleet spreads across panes and hosts, and status lives nowhere you can trust.<br />
+  <strong>Vellum Command</strong> puts the whole station on one deep-field canvas.
+</p>
 
-`~/.vellum/canvases/*.canvas` — [JSON Canvas 1.0](https://jsoncanvas.org) plus the `ether` extension:
+<p align="center">
+  <a href="https://github.com/skastr0/vellum/releases/latest"><strong>Download for macOS</strong></a>
+  ·
+  <a href="https://vellumcommand.com">vellumcommand.com</a>
+</p>
 
-- `ether.entity.kind` — open vocabulary (`project`, `orbit`, `plugin`, `agent`, `station`, `skill`, …)
-- `ether.bindings[]` — pointers into tower / quasar / booth (project-level refs in the POC)
-- `ether.flags[]` — `blocker`, `parked`, `attention`
-- edge `ether.criteria` — optional; modes `glyphs` | `wip` | `tasks`. No criteria → soft **relates**. Live phase (`blocks`|`depends`|`relates`) is derived; `ether.kind` is only an optional offline phase mirror, never authorial input.
+---
 
-Two laws hold on every save:
+## The pain
 
-1. **Graceful degradation** — stripped of every `ether` key, the file is valid, readable JSON Canvas 1.0 (Obsidian opens it).
-2. **Mirror law** — extension semantics mirror into native fields (blocker → red; derived phase may project to edge label/color) so plain readers see the degraded truth.
+Managing agents is overwhelming.
 
-Derived state (blocked closure, region membership, binding health, live phase) is never stored — recomputed from the document (+ live sources), so the file cannot go incoherent.
+- **Terminals stay opaque** — signal buried in scrollback; hard to read, harder to operate at scale
+- **The fleet scatters** — local and remote agents become an unmanageable pile of panes and hosts
+- **Status lives nowhere** — running, blocked, waiting, and done never share one surface
 
-## Agent surface
+## The station
 
-The file is the API. External agents edit `.canvas` files directly; the app file-watches and hot-reloads. `export digest` compiles the canvas + live snapshots into a deterministic text projection for agent consumption; screenshots are the multimodal secondary.
+**Vellum Command** lays your Hermes fleet, Herdr terminals, browser pages, and agent work on one portable spatial canvas — so **you author the board** and the fleet acts through a real work plane.
 
-## Architecture
+### Why operators choose it
 
-Built on the [chassis](https://github.com/skastr0/chassis) station recipe: Electron main process owning an Effect `ManagedRuntime` (typed services, typed IPC through a narrow preload bridge) and a Vite + React 19 + Tailwind + Motion + Legend State renderer with `@xyflow/react` for the canvas.
+- **One spatial board for the whole fleet** — agents, work, and regions as geography, not a pile of windows
+- **Herdr terminals made legible** — operable on the canvas, not buried in a dock of tabs
+- **Hermes multi-agent presence** — who is up, blocked, waiting, or done, live on the board
+- **Multi-host / multi-fleet over SSH** — without a second remote tool to babysit
+- **A2A work plane** — tasks, requests, input-required, messages, and artifacts with protocol, not chat chaos
+- **Vellum CLI** — control surface agents use so work happens without freeform canvas thrash
+- **Browser pages as first-class nodes** — same plane as agents and terminals
+- **Regions, pulse, and watchers** — operational geography; the document is the product (portable JSON Canvas)
 
-- **Document plane** — `CanvasesService`: load / validate / canonical-serialize / atomic-write / watch.
-- **Data plane** — `SnapshotsService`: read-only adapters shelling to the reference CLIs (`tower`, `quasar`, `booth`), normalized into snapshot bundles. Bindings hydrate at render; a down server degrades to a stale badge, never touches the document.
-- **Surface** — deep-field rendering: warm near-black ground, wireframe over solid, one hue per thing, quiet motion.
+### Is / is not
 
-## Quick start
+| Vellum Command **is** | Vellum Command **is not** |
+|---|---|
+| A deep-field command station for agent fleets on macOS | Another chat app or prompt playground |
+| A spatial canvas humans author; agents act through the work plane | A free-for-all where agents rewrite your board |
+| A portable JSON Canvas document the app projects | A multi-platform toy chasing every OS |
+
+## Download
+
+**[Download the notarized macOS build →](https://github.com/skastr0/vellum/releases/latest)**
+
+Requirements: **macOS 13+** (arm64 primary). Install **Hermes** and **Herdr** for live fleet and terminal features; browser nodes ship with the station.
+
+Prefer source?
 
 ```bash
 bun install
-bun run dev      # electron + renderer at localhost:5173
-bun run verify   # typecheck + tests + vite compile
+bun run app:build
+bun run app:install:skip-build
 ```
 
-First launch seeds a starter portfolio canvas.
+## Vellum CLI
 
-## Package & install (macOS)
+Talk to the live station without hand-editing canvas files:
 
 ```bash
-bun run app:build              # typecheck + package → release/mac-arm64/Vellum.app
-bun run app:build:fast         # skip typecheck (iterate packaging)
-bun run app:build:verify       # typecheck + tests + package
-
-bun run app:install            # build then install → /Applications/Vellum.app
-bun run app:install:fast       # fast build + install
-bun run app:install:skip-build # install already-built release app
-bun run app:install:supervised # install + LaunchAgent (crash-only KeepAlive)
-bun run app:open               # open /Applications/Vellum.app
-bun run app:uninstall-agent    # remove LaunchAgent; leave the .app
+vellum ping              # is the station up?
+vellum doctor            # what can this host do?
+vellum capabilities      # edge contract
+vellum onboard           # join the work plane
+vellum tasks …           # drive A2A tasks
+vellum msg …             # messages between agents
+vellum request …         # requests / input-required
+vellum artifact …        # artifacts on the board
 ```
 
-**Supervised runtime (Remote 24×7 foundation):** `settings.station.supervisedPreferred` is product intent (Remote onboarding sets it true). Apply with `app:install:supervised` — install scripts do not auto-read settings. Chassis doctor → settings service metadata exposes `role`, `hostId`, `supervisedPreferred`, `supervisedInstalled`, `supervisedAligned` so later Remote deploy can close the gap.
+Human authorship stays on the board. Agent work stays on the control plane — stable commands, not scrollback ritual.
 
-Scripts: `scripts/build-app.sh`, `scripts/install-app.sh`, `scripts/install-launchd.sh`.
+## Brand
 
-**Herdr safety:** quitting Vellum (Dock, install reload, launchd unload) **detaches** terminal control streams only. It does **not** kill herdr panes, tabs, or sessions. Rebuilding/reinstalling is a non-event for your agent fleet.
+Deep-field instrument: warm near-black ground (`#0B0A08`), parchment ink (`#EDE6DA`), amber signal (`#E6A94A`). Factory and cartography — not a chat app. Product language lives on [vellumcommand.com](https://vellumcommand.com).
 
-## Status
+Visual identity: [`assets/brand/IDENTITY.md`](assets/brand/IDENTITY.md) · mark: [`assets/brand/vellum-command-icon.png`](assets/brand/vellum-command-icon.png)
 
-POC. Canvas + live sources are real; packaging scripts install a local Developer-ID-signed `.app` when codesign is available.
+## License
+
+MIT © Guilherme Castro. See [`LICENSE`](LICENSE).
+
+## Security
+
+Report security issues privately. See [`SECURITY.md`](SECURITY.md).
+
+## Contributing
+
+Issues welcome with enough context to reproduce. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
