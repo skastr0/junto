@@ -21,6 +21,8 @@ import {
 import { homeDirectoryLookup, oneShot, oneShotWithStdin } from "../ssh/program";
 import { SshTransport } from "../ssh/service";
 import { migrateSettingsDocument } from "../settings/migrate";
+import { configureRecordFromResult } from "@shared/station-status";
+import { recordStationConfigure } from "../station-status-store";
 
 // SSH write of ~/.vellum/settings.json on a registered remote host.
 // Pattern matches herdr stage-image: opaque /bin/sh -c + stdin body.
@@ -324,20 +326,40 @@ export const configureRemoteHost = (
 
     const probe = yield* probeRemoteStation(ssh, endpoint, settingsPath, planInput);
     if (!probe.ok) {
-      return {
-        ok: false,
+      const failed = {
+        ok: false as const,
         detail: `${host.label}: ${probe.detail}`,
         station: probe.station,
-        code: "io",
+        code: "io" as const,
         message: probe.detail,
       } satisfies ConfigureRemoteResult;
+      yield* Effect.promise(() =>
+        recordStationConfigure(
+          configureRecordFromResult({
+            ok: false,
+            hostId: host.id,
+            detail: failed.detail,
+          }),
+        ).catch(() => undefined),
+      );
+      return failed;
     }
 
-    return {
-      ok: true,
+    const okResult = {
+      ok: true as const,
       detail: `${host.label} (${host.endpoint}): ${probe.detail}`,
       station: probe.station ?? plan.station,
     } satisfies ConfigureRemoteResult;
+    yield* Effect.promise(() =>
+      recordStationConfigure(
+        configureRecordFromResult({
+          ok: true,
+          hostId: host.id,
+          detail: okResult.detail,
+        }),
+      ).catch(() => undefined),
+    );
+    return okResult;
   }).pipe(
     Effect.catchAll((error) => {
       if (error instanceof RemoteHostsError) {

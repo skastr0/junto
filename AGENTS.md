@@ -19,11 +19,25 @@ Canvases live at `~/.vellum/canvases/*.canvas`. The running app file-watches ext
 
 To **read the board as an agent**: `bun run digest` (text) or `bun run render` then view the SVG (image). Do not mutate `.canvas` files from agents.
 
+### Work plane (agent mutations)
+
+While Vellum is running, agents talk to the **local** work control socket (not the canvas file):
+
+| surface | detail |
+|---|---|
+| CLI | `dist/vellum` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact` |
+| Socket | `~/.vellum/work/control.sock` + bearer token `~/.vellum/work/token` |
+| Identity | `VELLUM_NODE_REF=vellum://canvas/<name>?node=<id>` (caller agent/work node) |
+| Authz | **edges** — agent only acts on connected nodes (kernel-enforced ScopeError otherwise) |
+
+Ops go through WorkService (A2A tasks/messages/requests/artifacts). That is the agent write path; freeform canvas authoring remains human/Command Center.
+
 ### Station roles
 
 - **Command Center** — user-selected. Human authors the canvas; fleet management via host registry.
 - **Remote** — user-selected. Capability host for that machine; pulls canvases; host-scoped execution only.
 - Role is never inferred from hardware or open windows.
+- Doctor service `station` reports role, supervised alignment, work-control readiness, last canvas pull / configure.
 
 ## The document contract
 

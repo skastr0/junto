@@ -1,5 +1,15 @@
+import { access } from "node:fs/promises";
+import { constants } from "node:fs";
+import { homedir } from "node:os";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
+import { assessStationDoctor } from "@shared/station-status";
+import {
+  workControlDir,
+  workControlSocketPath,
+  workControlTokenPath,
+  WORK_HOME_ENV,
+} from "@shared/work-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { FolderLive, FolderService } from "./services/folder";
 import { PrismLive, PrismService } from "./services/prism";
@@ -13,12 +23,14 @@ import { KernelLive, KernelService } from "./vellum/kernel/service";
 import { WorkLive } from "./vellum/work/service";
 import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
 import { SettingsLive, SettingsService } from "./vellum/settings/service";
+import { probeLaunchAgentLoaded } from "./vellum/settings/supervised-probe";
 import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
 import { UsageLive } from "./vellum/usage/live";
 import { UsageService } from "./vellum/usage/usage-service";
 import { HostsService, HostsServiceLive } from "./vellum/hosts";
 import { SshTransportLive } from "./vellum/ssh";
 import { primeHostsSnapshot } from "./vellum/hosts/snapshot";
+import { readStationStatus } from "./vellum/station-status-store";
 
 // KernelLive requires CanvasesService/SnapshotsService/StoreService;
 // RegionRollupLive requires CanvasesService/SnapshotsService.
@@ -97,6 +109,39 @@ export const buildDoctorReport = Effect.gen(function* () {
   const hosts = yield* HostsService;
 
   const station = yield* prism.stationInfo;
+  const stationCheck = yield* Effect.gen(function* () {
+    const settingsDoc = yield* settings.get;
+    const statusDoc = yield* Effect.promise(() => readStationStatus());
+    const supervisedInstalled = yield* Effect.promise(() => probeLaunchAgentLoaded());
+    const workHome = process.env[WORK_HOME_ENV] || workControlDir(homedir());
+    const workControlReady = yield* Effect.tryPromise({
+      try: async () => {
+        await access(workControlSocketPath(workHome), constants.F_OK);
+        await access(workControlTokenPath(workHome), constants.R_OK);
+        return true;
+      },
+      catch: () => false as const,
+    }).pipe(Effect.catchAll(() => Effect.succeed(false as const)));
+    return assessStationDoctor({
+      role: settingsDoc.station.role,
+      hostId: settingsDoc.station.hostId,
+      commandCenterRef: settingsDoc.station.commandCenterRef,
+      supervisedPreferred: settingsDoc.station.supervisedPreferred,
+      supervisedInstalled,
+      status: statusDoc,
+      workControlReady,
+    });
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.succeed({
+        id: "station",
+        label: "Station",
+        status: "error" as const,
+        detail: error instanceof Error ? error.message : String(error),
+      } satisfies ServiceCheck),
+    ),
+  );
+
   const serviceResults = yield* Effect.all(
     [
       store.doctor,
@@ -114,7 +159,7 @@ export const buildDoctorReport = Effect.gen(function* () {
     { concurrency: "unbounded" },
   );
 
-  const services: ReadonlyArray<ServiceCheck> = serviceResults;
+  const services: ReadonlyArray<ServiceCheck> = [...serviceResults, stationCheck];
   const recommendations = services
     .filter((service) => service.status !== "ok")
     .map((service) => `${service.label}: ${service.detail}`);

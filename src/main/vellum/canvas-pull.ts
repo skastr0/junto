@@ -21,11 +21,13 @@ import {
   type CanvasPullFileResult,
   type CanvasPullResult,
 } from "@shared/canvas-pull";
+import { pullRecordFromResult } from "@shared/station-status";
 import { applyMirrorLaw, decodeCanvasDoc, serializeCanvas } from "@shared/canvas";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { SettingsService } from "./settings/service";
 import { HostsService } from "./hosts/service";
 import { canvasesDir } from "./canvases";
+import { recordStationPull } from "./station-status-store";
 import {
   makeRemoteCommand,
   parseSshEndpoint,
@@ -428,6 +430,11 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
         failed: [],
         keptLocal: true,
       }),
+    ),
+  ),
+  Effect.tap((result) =>
+    Effect.promise(() =>
+      recordStationPull(pullRecordFromResult(result)).catch(() => undefined),
     ),
   ),
 );
