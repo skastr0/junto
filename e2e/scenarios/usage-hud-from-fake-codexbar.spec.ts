@@ -20,8 +20,7 @@ test("usage HUD renders fake codexbar quotas, then degrades on malformed output"
       {
         provider: "codex",
         source: "cli",
-        accountEmail: "fake@example.com",
-        usage: { primary: { usedPercent: 77, windowMinutes: 300 } },
+        usage: { accountEmail: "fake@example.com", primary: { usedPercent: 77, windowMinutes: 300 } },
       },
     ],
   });

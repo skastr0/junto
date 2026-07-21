@@ -21,9 +21,12 @@ export interface FakeCodexbarQuotaWindow {
 export interface FakeCodexbarQuota {
   readonly provider: string;
   readonly source?: string;
-  readonly accountEmail?: string;
-  readonly loginMethod?: string;
+  // Nested inside `usage`, not siblings of it — matches the real parser's
+  // contract (codexbar-source.ts's parseEntry reads usage.accountEmail /
+  // usage.loginMethod, never entry.accountEmail / entry.loginMethod).
   readonly usage: {
+    readonly accountEmail?: string;
+    readonly loginMethod?: string;
     readonly primary?: FakeCodexbarQuotaWindow;
     readonly secondary?: FakeCodexbarQuotaWindow;
     readonly tertiary?: FakeCodexbarQuotaWindow;

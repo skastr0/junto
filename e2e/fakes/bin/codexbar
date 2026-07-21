@@ -30,9 +30,9 @@ const defaultQuotas = () => [
   {
     provider: "codex",
     source: "cli",
-    accountEmail: "fake@example.com",
-    loginMethod: "chatgpt",
     usage: {
+      accountEmail: "fake@example.com",
+      loginMethod: "chatgpt",
       primary: { usedPercent: 42, windowMinutes: 300, resetDescription: "resets in 5h" },
       secondary: { usedPercent: 7, windowMinutes: 10080 },
       updatedAt: new Date().toISOString(),
