@@ -674,17 +674,27 @@ export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
             no messages
           </div>
         ) : (
-          items.map((msg) => (
-            <div key={msg.messageId} className="text-[11px] leading-snug" style={{ color: INK }}>
-              <span className="uppercase tracking-wide text-[9px]" style={{ color: DIM }}>
-                {msg.role}
-              </span>{" "}
-              {msg.parts
-                .filter((p): p is Extract<Part, { kind: "text" }> => p.kind === "text")
-                .map((p) => p.text)
-                .join(" ") || "(parts)"}
-            </div>
-          ))
+          items.map((msg) => {
+            const deliveredAt = msg.metadata?.deliveredAt;
+            const delivered =
+              typeof deliveredAt === "number" && Number.isFinite(deliveredAt)
+                ? new Date(deliveredAt).toLocaleTimeString()
+                : null;
+            return (
+              <div key={msg.messageId} className="text-[11px] leading-snug" style={{ color: INK }}>
+                <span className="uppercase tracking-wide text-[9px]" style={{ color: DIM }}>
+                  {msg.role}
+                </span>{" "}
+                {msg.parts
+                  .filter((p): p is Extract<Part, { kind: "text" }> => p.kind === "text")
+                  .map((p) => p.text)
+                  .join(" ") || "(parts)"}
+                <span className="ml-1.5 text-[9px] uppercase tracking-wide" style={{ color: DIM }}>
+                  {delivered ? `delivered · ${delivered}` : "pending"}
+                </span>
+              </div>
+            );
+          })
         )}
       </div>
       <div className="mt-2 flex gap-1.5 opacity-80">

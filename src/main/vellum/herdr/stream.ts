@@ -169,6 +169,8 @@ export class HerdrStreamManager {
   private seq = 0;
   private sink: StreamSink | undefined;
   private shutDown = false;
+  /** Fires once a control stream is live for a terminal (message-delivery retry). */
+  private openHook: ((terminalId: string) => void) | undefined;
 
   constructor(
     private readonly pool: ObservePoolHooks,
@@ -178,6 +180,16 @@ export class HerdrStreamManager {
 
   setSink(sink: StreamSink | undefined): void {
     this.sink = sink;
+  }
+
+  /** Optional attach hook — message delivery retries pending nudges here. */
+  setOpenHook(hook: ((terminalId: string) => void) | undefined): void {
+    this.openHook = hook;
+  }
+
+  /** Lookup live control stream for a herdr terminal (message delivery). */
+  streamIdForTerminal(terminalId: string): string | undefined {
+    return this.byTerminal.get(terminalId);
   }
 
   /** @deprecated multi-stream era — returns first/any active streamId if any */
@@ -254,6 +266,11 @@ export class HerdrStreamManager {
     };
     this.streams.set(streamId, active);
     this.byTerminal.set(input.terminalId, streamId);
+    try {
+      this.openHook?.(input.terminalId);
+    } catch {
+      // Hook must never sink stream open.
+    }
 
     let buffer = "";
     child.stdout.setEncoding("utf8");

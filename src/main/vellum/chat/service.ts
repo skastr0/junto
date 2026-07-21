@@ -111,6 +111,8 @@ export class ChatService {
   private readonly authorityRestartInFlight = new Map<string, Promise<ChatOpenResult>>();
   private readonly generations = new Map<string, number>();
   private eventSink: ((event: ChatEvent) => void) | undefined;
+  /** Fires when a session is live (new open or already-open fast path). */
+  private sessionLiveHook: ((agentKey: string) => void) | undefined;
   private idleTimer: ReturnType<typeof setInterval> | undefined;
   private unsubscribeHostsSnapshot: (() => void) | undefined;
 
@@ -127,6 +129,19 @@ export class ChatService {
 
   setEventSink(sink: (event: ChatEvent) => void): void {
     this.eventSink = sink;
+  }
+
+  /** Optional live-session hook — message delivery retries pending nudges here. */
+  setSessionLiveHook(hook: ((agentKey: string) => void) | undefined): void {
+    this.sessionLiveHook = hook;
+  }
+
+  private notifySessionLive(agentKey: string): void {
+    try {
+      this.sessionLiveHook?.(agentKey);
+    } catch {
+      // Hook must never sink chat open.
+    }
   }
 
   /** Test / shutdown seam. */
@@ -354,10 +369,15 @@ export class ChatService {
       generation,
       resumeSessionId,
       environmentOverlay,
-    ).finally(() => {
-      const current = this.openInFlight.get(agentKey);
-      if (current?.generation === generation) this.openInFlight.delete(agentKey);
-    });
+    )
+      .then((result) => {
+        if (result.ok) this.notifySessionLive(agentKey);
+        return result;
+      })
+      .finally(() => {
+        const current = this.openInFlight.get(agentKey);
+        if (current?.generation === generation) this.openInFlight.delete(agentKey);
+      });
     this.openInFlight.set(agentKey, { generation, promise });
     return promise;
   }
@@ -376,6 +396,7 @@ export class ChatService {
     const existing = this.sessions.get(agentKey);
     if (existing && !existing.client.closed && existing.sessionId !== "") {
       this.touch(existing);
+      this.notifySessionLive(agentKey);
       return { ok: true, sessionId: existing.sessionId, resumed: false, models: existing.models };
     }
 

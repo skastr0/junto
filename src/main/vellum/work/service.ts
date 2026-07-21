@@ -24,6 +24,7 @@ import {
   type WorkIds,
 } from "@shared/a2a-work";
 import { CanvasesService, CanvasError } from "../canvases";
+import { messageDelivery } from "./message-delivery";
 import { ulid } from "ulid";
 
 export class WorkServiceError extends Schema.TaggedError<WorkServiceError>()("WorkServiceError", {
@@ -227,6 +228,15 @@ export const WorkLive = Layer.effect(
           apply(canvas, (doc) => {
             const result = workMessageAppend(doc, canvas, nodeId, taskId, message);
             return { doc: result.doc, value: result.message };
+          }),
+        ).pipe(
+          Effect.tap((result) => {
+            // Nudge channel: only agent/herdr message lists (taskId null).
+            // Task/request history is a pull surface — never auto-delivered.
+            if (result.ok && taskId === null) {
+              messageDelivery.notifyAppended(canvas, nodeId, result.data);
+            }
+            return Effect.void;
           }),
         ),
 

@@ -23,6 +23,9 @@ import { SettingsService } from "./settings/service";
 import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
+import { messageDelivery } from "./work/message-delivery";
+import { stampMessageDelivered } from "@shared/message-delivery";
+import { HerdrPlane } from "./herdr/plane";
 import type { A2AMetadata, Artifact, Message, TaskState } from "@shared/canvas";
 
 const broadcast = (channel: string, payload: unknown) => {
@@ -322,6 +325,8 @@ export const registerVellumIpc = (): void => {
       const snapshots = yield* SnapshotsService;
       const usage = yield* UsageService;
       const kernel = yield* KernelService;
+      const chat = yield* ChatServiceContext;
+      const herdr = yield* HerdrPlane;
       yield* canvases.ensureSeed.pipe(Effect.catchAll(() => Effect.void));
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
@@ -331,6 +336,60 @@ export const registerVellumIpc = (): void => {
       // push that keeps an open renderer's doc coherent with a kernel write.
       kernel.subscribeCanvasMutated((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       kernel.subscribe((snapshot) => broadcast(IPC_CHANNELS.kernelChanged, snapshot));
+
+      // Message nudge channel: ether.messages → live ACP / herdr terminal.input.
+      // Retry only on session-live / stream-attach (no polling, no queue store).
+      messageDelivery.configure({
+        transport: {
+          isAgentLive: (agentKey) => chat.isLive(agentKey),
+          sendAgentPrompt: async (agentKey, text) => {
+            const result = await chat.chatPrompt(agentKey, text);
+            return result.ok;
+          },
+          sendHerdrText: (terminalId, text) => {
+            const streamId = herdr.streams.streamIdForTerminal(terminalId);
+            if (!streamId) return false;
+            const written = herdr.streams.inputText(streamId, text);
+            return written.ok;
+          },
+        },
+        store: {
+          listCanvasNames: () =>
+            AppRuntime.runPromise(
+              canvases.list.pipe(Effect.map((entries) => entries.map((e) => e.name))),
+            ),
+          readDoc: (name) =>
+            AppRuntime.runPromise(
+              canvases.read(name).pipe(
+                Effect.map((r) => r.doc),
+                Effect.catchAll(() => Effect.succeed(undefined as CanvasDoc | undefined)),
+              ),
+            ),
+          stampDelivered: async (canvas, nodeId, messageId, deliveredAt) => {
+            for (let attempt = 0; attempt < 8; attempt += 1) {
+              const read = await AppRuntime.runPromise(
+                canvases.read(canvas).pipe(Effect.either),
+              );
+              if (read._tag === "Left") return false;
+              const next = stampMessageDelivered(read.right.doc, nodeId, messageId, deliveredAt);
+              if (!next) return false; // already stamped or missing
+              const written = await AppRuntime.runPromise(
+                canvases.write(canvas, next, read.right.revision).pipe(Effect.either),
+              );
+              if (written._tag === "Right") return true;
+              const msg =
+                written.left instanceof Error ? written.left.message : String(written.left);
+              if (!msg.includes("changed on disk") && !msg.includes("reload before saving")) {
+                return false;
+              }
+            }
+            return false;
+          },
+        },
+      });
+      chat.setSessionLiveHook((agentKey) => messageDelivery.onAgentLive(agentKey));
+      herdr.streams.setOpenHook((terminalId) => messageDelivery.onHerdrAttached(terminalId));
+
       canvases.start();
       snapshots.start();
       // First usage fetch is fire-and-forget off the boot critical path;
