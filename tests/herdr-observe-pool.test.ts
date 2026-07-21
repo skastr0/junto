@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import {
   HerdrObservePool,
@@ -177,6 +177,36 @@ describe("HerdrObservePool retention", () => {
     calls[1]!.child.frame("F2", true);
     expect(pool.retainedFrames("t1").frames).toEqual(["F2"]);
   });
+
+  it("respawn touch with new cols does not relabel retained payload until the new child's full frame arrives", () => {
+    const { calls, spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn });
+    pool.ensureObserve({ hostId: "local", terminalId: "t1", cols: 120, rows: 32 });
+    calls[0]!.child.frame("F1", true);
+    calls[0]!.child.emit("close", 1); // child dies: entry goes stale, retention kept
+    expect(pool.entryState("t1")).toEqual({ live: false, stale: true });
+    expect(pool.retainedFrames("t1")).toEqual({ frames: ["F1"], cols: 120, rows: 32 });
+
+    // Renderer re-measures at 140x45 and touches the (now stale) entry — respawns.
+    pool.ensureObserve({ hostId: "local", terminalId: "t1", cols: 140, rows: 45 });
+    expect(calls.length).toBe(2);
+    expect(calls[1]!.args.join(" ")).toContain("--cols 140 --rows 45");
+    // No replacement frame has arrived yet — retained payload must still
+    // describe the OLD (120x32) pixels actually held, not the new request.
+    expect(pool.retainedFrames("t1")).toEqual({ frames: ["F1"], cols: 120, rows: 32 });
+
+    // The new child's full frame arrives — only now does the label flip.
+    calls[1]!.child.frame("F2", true);
+    expect(pool.retainedFrames("t1")).toEqual({ frames: ["F2"], cols: 140, rows: 45 });
+  });
+
+  it("a delta arriving before any full frame reports the spawned child's geometry, not a pending resize", () => {
+    const { calls, spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn });
+    pool.ensureObserve({ hostId: "local", terminalId: "t1", cols: 100, rows: 28 });
+    calls[0]!.child.frame("d1"); // delta with no prior full frame
+    expect(pool.retainedFrames("t1")).toEqual({ frames: ["d1"], cols: 100, rows: 28 });
+  });
 });
 
 describe("HerdrObservePool lifecycle", () => {
@@ -229,6 +259,88 @@ describe("HerdrObservePool lifecycle", () => {
     expect(calls[1]!.child.kills).toEqual(["SIGTERM"]);
     expect(touch(pool, "t3")).toEqual({ pooled: false });
     expect(calls.length).toBe(2);
+  });
+});
+
+describe("HerdrObservePool idle leases", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("starts the sweep timer lazily with the first entry and stops it when the pool empties", () => {
+    const { spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn });
+    expect(vi.getTimerCount()).toBe(0);
+
+    touch(pool, "t1");
+    expect(vi.getTimerCount()).toBe(1);
+
+    pool.releaseObserve("t1");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("releases a quiet child past the lease, keeps retention, and respawns on next touch", () => {
+    const { calls, spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn, idleLeaseMs: 5 * 60_000, idleSweepMs: 60_000 });
+    touch(pool, "t1");
+    calls[0]!.child.frame("F1", true);
+    expect(pool.entryState("t1")?.live).toBe(true);
+
+    vi.advanceTimersByTime(5 * 60_000 + 60_000); // past the lease, one sweep tick beyond
+    expect(calls[0]!.child.kills).toEqual(["SIGTERM"]);
+    expect(pool.entryState("t1")).toEqual({ live: false, stale: true });
+    // Retention and its geometry survive the idle release — last pixels are still true.
+    expect(pool.retainedFrames("t1")).toEqual({ frames: ["F1"], cols: 80, rows: 24 });
+
+    expect(touch(pool, "t1")).toEqual({ pooled: true }); // respawns on demand
+    expect(calls.length).toBe(2);
+    expect(pool.entryState("t1")?.live).toBe(true);
+  });
+
+  it("respawned child survives a sweep tick before it has sent its own first frame", () => {
+    const { calls, spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn, idleLeaseMs: 5 * 60_000, idleSweepMs: 60_000 });
+    touch(pool, "t1");
+    calls[0]!.child.frame("F1", true);
+
+    vi.advanceTimersByTime(5 * 60_000 + 60_000); // past the lease, released
+    expect(pool.entryState("t1")).toEqual({ live: false, stale: true });
+
+    touch(pool, "t1"); // respawns; new child has sent no frame yet
+    expect(calls.length).toBe(2);
+    expect(pool.entryState("t1")?.live).toBe(true);
+
+    vi.advanceTimersByTime(60_000); // one more sweep tick, still no frame from the new child
+    expect(calls[1]!.child.kills).toEqual([]);
+    expect(pool.entryState("t1")).toEqual({ live: true, stale: false });
+  });
+
+  it("active entries survive idle sweeps as long as frames keep arriving", () => {
+    const { calls, spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn, idleLeaseMs: 5 * 60_000, idleSweepMs: 60_000 });
+    touch(pool, "t1");
+    calls[0]!.child.frame("F1", true);
+
+    vi.advanceTimersByTime(4 * 60_000); // under the lease
+    calls[0]!.child.frame("d1"); // fresh activity resets the quiet clock
+    vi.advanceTimersByTime(4 * 60_000); // 8min since F1, but only 4min since d1
+
+    expect(pool.entryState("t1")?.live).toBe(true);
+    expect(calls[0]!.child.kills).toEqual([]);
+  });
+
+  it("stopAll clears the sweep timer", () => {
+    const { spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn });
+    touch(pool, "t1");
+    expect(vi.getTimerCount()).toBe(1);
+
+    pool.stopAll();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
