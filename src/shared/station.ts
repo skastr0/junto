@@ -1,4 +1,4 @@
-import type { CanvasNode } from "./canvas";
+import type { CanvasDoc, CanvasNode } from "./canvas";
 import type { HostId } from "./remote-hosts";
 
 /**
@@ -203,6 +203,56 @@ export const assessSupervisedRuntime = (
     },
   };
 };
+
+/**
+ * Agent keys reachable from a watcher via soft relates edges (either direction).
+ * Command Center may target any agent host; Remote only same-host agents.
+ * Empty when no edges — region membership alone is not a fire router.
+ */
+export const agentKeysForWatcher = (
+  doc: CanvasDoc,
+  watcherNodeId: string,
+  stationRole: StationRole,
+  stationHostId: string,
+): ReadonlyArray<string> => {
+  const watcher = doc.nodes.find((node) => node.id === watcherNodeId);
+  if (!watcher) return [];
+  const watcherHostId = resolveNodeHostId(watcher);
+  const keys: string[] = [];
+  const seen = new Set<string>();
+
+  for (const edge of doc.edges) {
+    if (edge.fromNode !== watcherNodeId && edge.toNode !== watcherNodeId) continue;
+    const otherId = edge.fromNode === watcherNodeId ? edge.toNode : edge.fromNode;
+    const other = doc.nodes.find((node) => node.id === otherId);
+    if (!other || other.ether?.entity?.kind !== "agent") continue;
+    const name = other.ether.entity.name;
+    if (typeof name !== "string" || name.length === 0 || seen.has(name)) continue;
+    const agentHostId = resolveNodeHostId(other);
+    if (
+      !watcherMayTargetAgent({
+        stationRole,
+        stationHostId,
+        watcherHostId,
+        agentHostId,
+      })
+    ) {
+      continue;
+    }
+    if (stationRole === "remote" && agentHostId !== stationHostId) continue;
+    seen.add(name);
+    keys.push(name);
+  }
+  return keys;
+};
+
+/** Timer sources deliver to same-host agents edged from the timer, same rules. */
+export const agentKeysForExecutableSource = (
+  doc: CanvasDoc,
+  sourceNodeId: string,
+  stationRole: StationRole,
+  stationHostId: string,
+): ReadonlyArray<string> => agentKeysForWatcher(doc, sourceNodeId, stationRole, stationHostId);
 
 // Re-export HostId type surface for station stamps (same alphabet as remote-hosts).
 export type { HostId };

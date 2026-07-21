@@ -15,6 +15,13 @@ import {
 import { groupMembers } from "@shared/graph";
 import type { TowerGlyphRow } from "@shared/ipc";
 import {
+  agentKeysForExecutableSource,
+  DEFAULT_STATION_HOST_ID,
+  isNodeEligibleOnStation,
+  isStationRole,
+  type StationRole,
+} from "@shared/station";
+import {
   detectPulses,
   evaluateWatcher,
   purgeCanvasEdgeMemory,
@@ -280,6 +287,37 @@ const appendPulseRecord = (record: PulseRecord): void => {
   pulseLog = all.filter((entry, index) => entry.at >= cutoff || index >= keepFromIndex);
 };
 
+// --- station scope (Command Center / Remote) ---------------------------------
+// Host-scoped execution: this station only evaluates/fires executable nodes
+// stamped for its hostId. Role is user-selected (settings); never inferred.
+
+let stationHostId: string = DEFAULT_STATION_HOST_ID;
+let stationRole: StationRole = "command-center";
+
+export const __setStationScopeForTest = (input: {
+  readonly hostId: string;
+  readonly role: StationRole;
+}): void => {
+  stationHostId = input.hostId;
+  stationRole = input.role;
+};
+
+export const getStationScope = (): { readonly hostId: string; readonly role: StationRole } => ({
+  hostId: stationHostId,
+  role: stationRole,
+});
+
+export const setStationScope = (input: {
+  readonly hostId: string;
+  readonly role: string;
+}): void => {
+  stationHostId =
+    typeof input.hostId === "string" && input.hostId.length > 0
+      ? input.hostId
+      : DEFAULT_STATION_HOST_ID;
+  stationRole = isStationRole(input.role) ? input.role : "command-center";
+};
+
 // --- delivery ----------------------------------------------------------------
 
 export interface DeliverPulseParams {
@@ -323,23 +361,56 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
   const dry = !wantsLive || cooling;
 
   let delivered: ReadonlyArray<string> = [];
-  if (!dry && regionId !== undefined) {
+  if (!dry) {
     const doc = docs.get(params.canvasName);
     if (doc) {
-      const region = doc.nodes.find((node) => node.id === regionId);
-      const instruction = region?.type === "group" ? region.ether?.region?.instruction : undefined;
+      const region =
+        params.regionId !== undefined
+          ? doc.nodes.find((node) => node.id === params.regionId)
+          : undefined;
+      const instruction =
+        region?.type === "group" ? region.ether?.region?.instruction : undefined;
       const message = composePulseMessage(params.summary, instruction);
-      // Prefer center-in membership (digest/UI) for context; fall back to full-rect.
-      const centerMembers = groupMembers(doc).get(regionId) ?? [];
-      const memberIds = centerMembers.length > 0 ? centerMembers : containedNodeIds(doc, region as GroupNode);
-      const glyphView = lastGlyphIndex ?? new Map();
-      const graph = deriveExecutionGraph(doc, glyphView as GlyphView);
-      const executionContext = composeRegionExecutionContext(doc, regionId, graph, memberIds);
-      const contextBlocks = executionContext.length > 0 ? [executionContext] : undefined;
-      const keys = agentKeysInRegion(doc, regionId);
+
+      // Primary fire routing: human edges from watcher/timer → agent.
+      // Region membership alone does not fan out.
+      let keys = agentKeysForExecutableSource(
+        doc,
+        params.sourceNodeId,
+        stationRole,
+        stationHostId,
+      );
+
+      // Manual region pulse still uses region agents (operator intent), host-filtered on Remote.
+      if (keys.length === 0 && params.kind === "manual" && params.regionId !== undefined) {
+        keys = agentKeysInRegion(doc, params.regionId).filter((key) => {
+          if (stationRole === "command-center") return true;
+          const agentNode = doc.nodes.find(
+            (node) => node.ether?.entity?.kind === "agent" && node.ether.entity.name === key,
+          );
+          return agentNode !== undefined && isNodeEligibleOnStation(agentNode, stationHostId);
+        });
+      }
+
+      let contextBlocks: ReadonlyArray<string> | undefined;
+      if (params.regionId !== undefined && region?.type === "group") {
+        const centerMembers = groupMembers(doc).get(params.regionId) ?? [];
+        const memberIds =
+          centerMembers.length > 0
+            ? centerMembers
+            : containedNodeIds(doc, region as GroupNode);
+        const glyphView = lastGlyphIndex ?? new Map();
+        const graph = deriveExecutionGraph(doc, glyphView as GlyphView);
+        const executionContext = composeRegionExecutionContext(
+          doc,
+          params.regionId,
+          graph,
+          memberIds,
+        );
+        contextBlocks = executionContext.length > 0 ? [executionContext] : undefined;
+      }
+
       const ok: string[] = [];
-      // Sequential by contract — one agent turn spends real work; fan-out here
-      // would spend N turns in parallel with no backpressure.
       for (const key of keys) {
         try {
           if (!deps.isLive(key)) await deps.openChat(key);
@@ -572,6 +643,11 @@ export const runEvaluationCycle = async (): Promise<void> => {
       }
 
       for (const { nodeId, watch, result } of detectPulses(canvasName, doc, snapshots, index)) {
+        const source = doc.nodes.find((node) => node.id === nodeId);
+        // Host-scoped: this station only runs executable nodes assigned to it.
+        if (source !== undefined && !isNodeEligibleOnStation(source, stationHostId)) {
+          continue;
+        }
         const watcherKey = `${canvasName}::${nodeId}`;
         const previous = watchers.get(watcherKey);
         const nextRuntime: WatcherRuntimeState = { status: result.state.status, detail: result.state.detail };
@@ -622,6 +698,7 @@ export const checkTimers = async (): Promise<void> => {
       if (node.type !== "text") continue;
       const timer = node.ether?.timer;
       if (!timer) continue;
+      if (!isNodeEligibleOnStation(node, stationHostId)) continue;
       const timerKey = `${canvasName}::${node.id}`;
       if (!isValidTimerInterval(timer.everyMinutes)) {
         // Invalid -> unknown-style no-op: never scheduled, never fires

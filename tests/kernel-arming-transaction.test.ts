@@ -14,6 +14,8 @@ import { ChatService, ChatServiceContext } from "../src/main/vellum/chat/service
 import type { SpawnFn } from "../src/main/vellum/chat/acp-client";
 import { KernelLive, KernelService } from "../src/main/vellum/kernel/service";
 import { __resetKernelMemoryForTest, getArmed } from "../src/main/vellum/kernel/cycle";
+import { SettingsService } from "../src/main/vellum/settings/service";
+import { defaultSettings } from "../src/shared/settings";
 
 const ARMED_STORE_KEY = "kernel.armed";
 const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
@@ -76,11 +78,25 @@ const runArm = (
   regionId: string,
   armed: boolean,
 ) => {
+  const fakeSettings = Layer.succeed(SettingsService, {
+    doctor: Effect.succeed({
+      id: "settings",
+      label: "settings",
+      status: "ok" as const,
+      detail: "test",
+    }),
+    get: Effect.succeed(defaultSettings()),
+    patch: () => Effect.succeed(defaultSettings()),
+    reset: () => Effect.succeed(defaultSettings()),
+    path: () => "/tmp/vellum-settings-test.json",
+    subscribe: () => () => undefined,
+  });
   const deps = Layer.mergeAll(
     fakeCanvases,
     fakeSnapshots,
     makeStore(opts, sets),
     Layer.succeed(ChatServiceContext, new ChatService(noSpawn)),
+    fakeSettings,
   );
   const layer = Layer.provide(KernelLive, deps);
   const runtime = ManagedRuntime.make(layer);

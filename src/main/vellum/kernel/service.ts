@@ -29,6 +29,7 @@ import { CanvasesService } from "../canvases";
 import { ChatServiceContext, type ChatService } from "../chat/service";
 import { SnapshotsService } from "../snapshots";
 import { StoreService } from "../../services/store";
+import { SettingsService } from "../settings/service";
 import {
   checkTimers,
   deliverPulse,
@@ -42,6 +43,7 @@ import {
   runEvaluationCycle,
   setArmed,
   setDocs,
+  setStationScope,
   __setDeliveryDepsForTest,
   __setFlagWriterForTest,
   __setGlyphFetcherForTest,
@@ -186,13 +188,27 @@ export const resolveGlyphCacheUpdate = (
 type CanvasesShape = Context.Tag.Service<typeof CanvasesService>;
 type SnapshotsShape = Context.Tag.Service<typeof SnapshotsService>;
 type StoreShape = Context.Tag.Service<typeof StoreService>;
+type SettingsShape = Context.Tag.Service<typeof SettingsService>;
 type KernelServiceShape = Context.Tag.Service<typeof KernelService>;
+
+const refreshStationScope = async (settings: SettingsShape): Promise<void> => {
+  try {
+    const current = await Effect.runPromise(settings.get);
+    setStationScope({
+      hostId: current.station.hostId,
+      role: current.station.role,
+    });
+  } catch {
+    // Fail open to defaults already in cycle memory (local command-center).
+  }
+};
 
 const makeKernelService = (
   canvases: CanvasesShape,
   snapshots: SnapshotsShape,
   store: StoreShape,
   chatService: ChatService,
+  settings: SettingsShape,
 ): KernelServiceShape => {
   const docs = new Map<string, CanvasDoc>();
   const glyphCache = new Map<string, { readonly at: number; readonly rows: ReadonlyArray<TowerGlyphRow> }>();
@@ -330,6 +346,7 @@ const makeKernelService = (
   // --- evaluation cycle --------------------------------------------------------
 
   const runCycle = async (): Promise<void> => {
+    await refreshStationScope(settings);
     __setSnapshotsForTest(await Effect.runPromise(snapshots.current));
     await Promise.all([runEvaluationCycle(), checkTimers()]);
     // Sweep stale watcher/timer runtime entries for nodes removed on a still-
@@ -533,6 +550,7 @@ export const KernelLive = Layer.effect(
     const snapshots = yield* SnapshotsService;
     const store = yield* StoreService;
     const chat = yield* ChatServiceContext;
-    return makeKernelService(canvases, snapshots, store, chat);
+    const settings = yield* SettingsService;
+    return makeKernelService(canvases, snapshots, store, chat, settings);
   }),
 );

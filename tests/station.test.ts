@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
+import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import {
   allowAuthorialCliWrite,
   AUTHORIAL_WRITE_ENV,
 } from "../src/shared/authorial-write";
 import {
+  agentKeysForWatcher,
   assessSupervisedRuntime,
   isExecutableNode,
   isNodeEligibleOnStation,
@@ -154,6 +155,63 @@ describe("authorial write gate", () => {
   it("allows CLI write with VELLUM_AUTHORIAL_WRITE=1", () => {
     const gate = allowAuthorialCliWrite({ [AUTHORIAL_WRITE_ENV]: "1" });
     expect(gate.ok).toBe(true);
+  });
+});
+
+describe("watcher to agent edge routing", () => {
+  const doc: CanvasDoc = {
+    nodes: [
+      {
+        id: "w1",
+        type: "text",
+        text: "watch",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+        ether: { entity: { kind: "watcher" }, host: "local", watch: { kind: "glyphs_done" } },
+      },
+      {
+        id: "a1",
+        type: "text",
+        text: "agent local",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+        ether: { entity: { kind: "agent", name: "local:codex" }, host: "local" },
+      },
+      {
+        id: "a2",
+        type: "text",
+        text: "agent mini",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+        ether: { entity: { kind: "agent", name: "remote-a:codex" }, host: "remote-a" },
+      },
+    ],
+    edges: [
+      { id: "e1", fromNode: "w1", toNode: "a1" },
+      { id: "e2", fromNode: "w1", toNode: "a2" },
+    ],
+  };
+
+  it("command center may reach both agents via edges", () => {
+    const keys = agentKeysForWatcher(doc, "w1", "command-center", "local");
+    expect(keys).toContain("local:codex");
+    expect(keys).toContain("remote-a:codex");
+  });
+
+  it("remote only reaches same-host agents", () => {
+    const keys = agentKeysForWatcher(doc, "w1", "remote", "local");
+    expect(keys).toEqual(["local:codex"]);
+  });
+
+  it("returns empty when no edges", () => {
+    const isolated: CanvasDoc = { nodes: doc.nodes, edges: [] };
+    expect(agentKeysForWatcher(isolated, "w1", "command-center", "local")).toEqual([]);
   });
 });
 
