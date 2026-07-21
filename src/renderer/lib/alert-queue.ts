@@ -24,7 +24,7 @@ export type AlertKind = (typeof ALERT_KINDS)[number];
 /**
  * Cycle order priority — lower first.
  * Permission/blocked need you now; herdr-done is "waiting on review";
- * booth is project-level; orphans are structural.
+ * orphans are structural.
  */
 export const ALERT_KIND_PRIORITY: Readonly<Record<AlertKind, number>> = {
   permission: 0,
@@ -73,7 +73,7 @@ export interface AlertSignal {
   readonly label?: string;
   /**
    * Intensity fingerprint. When present, a later observe with a *higher*
-   * level re-fires a rising edge (booth pending rises again). Absent →
+   * level re-fires a rising edge when the signal carries a level. Absent →
    * presence-only (appear = rise, disappear = clear).
    */
   readonly level?: number;

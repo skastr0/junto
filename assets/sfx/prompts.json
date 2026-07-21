@@ -12,10 +12,6 @@
     "text": "UI game interface success chime: two soft ascending sine blips, gentle and warm, short 300ms, medium pitch, dry no reverb tail, no music, no voice, pleasant agent finished notification, clean digital interface"
   },
   {
-    "id": "booth-review",
-    "text": "short paper-like review tick for a draft ready to review, clean UI notification, mono, crisp, no reverb tail, no music, no voice, half second"
-  },
-  {
     "id": "orphan",
     "text": "dry grit click for an orphaned arm warning, clean UI error tick, mono, no reverb tail, no music, no voice, half second"
   },

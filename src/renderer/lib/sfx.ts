@@ -63,17 +63,12 @@ export const sfxIdToClipKey = (id: AlertSfxId): SfxClipKey => {
   }
 };
 
-export const clipKeyToSfxId = (key: SfxClipKey): AlertSfxId | null => {
+export const clipKeyToSfxId = (key: SfxClipKey): AlertSfxId => {
   switch (key) {
     case "herdrDone":
       return "herdr-done";
-    case "blocked":
-    case "permission":
-    case "orphan":
-    case "cycle":
-      return key;
     default:
-      return null; // e.g. legacy boothReview settings key
+      return key;
   }
 };
 

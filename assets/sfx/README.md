@@ -10,7 +10,6 @@ Short static UI sounds for Vellum's RTS attention machine. **Offline pack only**
 | `blocked` | `library/blocked.mp3` | region/edge enters blocked |
 | `permission` | `library/permission.mp3` | ACP permission pending |
 | `herdr-done` | `library/herdr-done.mp3` | herdr agent done + unseen |
-| `booth-review` | `library/booth-review.mp3` | booth pending count rises |
 | `orphan` | `library/orphan.mp3` | kernel orphaned arm |
 | `cycle` | `library/cycle.mp3` | Space / `` ` `` alert advance (quiet) |
 

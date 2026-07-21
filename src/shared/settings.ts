@@ -114,7 +114,6 @@ export const SfxClipsSettings = Schema.Struct({
   blocked: SfxClipPrefs,
   permission: SfxClipPrefs,
   herdrDone: SfxClipPrefs,
-  boothReview: SfxClipPrefs,
   orphan: SfxClipPrefs,
   cycle: SfxClipPrefs,
 });
@@ -197,7 +196,6 @@ export const SfxClipsPatch = Schema.Struct({
   blocked: Schema.optionalWith(SfxClipPatch, { exact: true }),
   permission: Schema.optionalWith(SfxClipPatch, { exact: true }),
   herdrDone: Schema.optionalWith(SfxClipPatch, { exact: true }),
-  boothReview: Schema.optionalWith(SfxClipPatch, { exact: true }),
   orphan: Schema.optionalWith(SfxClipPatch, { exact: true }),
   cycle: Schema.optionalWith(SfxClipPatch, { exact: true }),
 });
@@ -271,7 +269,6 @@ export const defaultSfxClips = (): SfxClipsSettings => ({
   blocked: defaultClip(0.55),
   permission: defaultClip(0.55),
   herdrDone: defaultClip(0.5),
-  boothReview: defaultClip(0.5),
   orphan: defaultClip(0.5),
   // Cycle is navigation chrome — keep quiet by default.
   cycle: defaultClip(0.18),

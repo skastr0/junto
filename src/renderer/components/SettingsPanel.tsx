@@ -759,7 +759,7 @@ function AudioSection() {
   return (
     <div className="settings-section">
       <p className="settings-note">
-        Space / ` cycles the attention queue (permission → blocked → herdr done → booth → orphan).
+        Space / ` cycles the attention queue (permission → blocked → herdr done → orphan).
         Each clip can be muted or leveled independently.
       </p>
       <FieldRow label="Mute all alerts" hint="master mute for the RTS SFX pack">
