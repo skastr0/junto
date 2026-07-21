@@ -42,8 +42,8 @@ usage:
   bun run browser <command> [args] [--json]
 
 auth:
-  product path: run as a child of a live Vellum agent/herdr process (process-bind)
-  transitional: VELLUM_BROWSER_CAPABILITY short-lived secret (UI grant flow)
+  process-bind only — run as a child of a live Vellum agent (ACP) or herdr pane
+  VELLUM_BROWSER_CAPABILITY is ignored for identity (legacy env, unused)
   doctor needs only the owner-local transport token
 
 commands:
@@ -314,9 +314,9 @@ const controlHome = (): string | ControlErr => {
 };
 
 /**
- * Optional capability secret (transitional UI grant). Product path is
- * process-bind: the control server attributes this process via Unix peer PID
- * and does not accept a client-supplied identity claim.
+ * Product path is process-bind only. Capability env is no longer identity —
+ * the server attributes this process via Unix peer PID. We still parse a
+ * malformed capability env as InputError so agents notice stale ceremony config.
  */
 const admissionFor = (
   route: ControlRouteName,
@@ -324,13 +324,15 @@ const admissionFor = (
   if (route === "doctor") return {};
   const capability = process.env[CONTROL_CAPABILITY_ENV];
   if (capability === undefined) return {};
+  // Present but malformed — tell the operator the env is stale/wrong.
+  // Valid secrets are not sent: product HTTP path ignores them for identity.
   if (!isValidControlCapability(capability)) {
     return controlErr(
       "unauthorized",
-      `${CONTROL_CAPABILITY_ENV} is malformed`,
+      `${CONTROL_CAPABILITY_ENV} is set but malformed — unset it; identity is process-bind`,
     );
   }
-  return { capability };
+  return {};
 };
 
 const main = async (): Promise<void> => {

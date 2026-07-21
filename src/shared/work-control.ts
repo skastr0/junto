@@ -162,6 +162,7 @@ export const workErr = (
 // ---------------------------------------------------------------------------
 // Domain arg schemas (shared by CLI input + daemon decode)
 
+/** @deprecated Ignored — identity is process-bind, not payload `node`. */
 export const NodeField = Schema.optionalWith(Schema.String, { exact: true });
 
 export const TasksListArgs = Schema.Struct({

@@ -170,7 +170,8 @@ describe("packaged browser CLI contract", () => {
     expect(result.stderr).not.toContain(capability);
     expect(seen).toHaveLength(1);
     expect(seen[0]?.url).toBe("/profiles");
-    expect(seen[0]?.headers[CONTROL_CAPABILITY_HEADER]).toBe(capability);
+    // Capability env is not identity — CLI does not forward it.
+    expect(seen[0]?.headers[CONTROL_CAPABILITY_HEADER]).toBeUndefined();
     expect(seen[0]?.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");
   });
 
@@ -209,7 +210,7 @@ describe("packaged browser CLI contract", () => {
       url: "/stop",
       body: { sessionId: "session-1" },
     });
-    expect(seen[0]?.headers[CONTROL_CAPABILITY_HEADER]).toBe(capability);
+    expect(seen[0]?.headers[CONTROL_CAPABILITY_HEADER]).toBeUndefined();
   });
 
   it("rejects malformed capability and non-absolute control home without disclosure", async () => {

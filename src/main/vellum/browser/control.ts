@@ -960,9 +960,9 @@ const edgeGrantHttp = (
   return { status: 403, envelope: controlErr("forbidden", message) };
 };
 
+/** Transport-free admit helpers for tests (product HTTP path always process-binds). */
 export type ControlAdmitContext =
   | { readonly kind: "capability"; readonly capability: string }
-  | { readonly kind: "process"; readonly edgeGrant: EdgeGrantService }
   | { readonly kind: "principal"; readonly edgeGrant: EdgeGrantService; readonly principal: import("../process-identity").ProcessPrincipal };
 
 /**
@@ -1018,18 +1018,9 @@ export const dispatchControlRequest = async (
         const edge = await admit.edgeGrant.admitPrincipal(admit.principal);
         if (!edge.ok) return edgeGrantHttp(edge.denial, edge.message);
         capability = edge.secret;
-      } else if (admit.kind === "capability") {
-        // Explicit internal lease for unit tests that exercise capability
-        // machinery — never available over the product HTTP path.
-        capability = admit.capability;
       } else {
-        return {
-          status: 401,
-          envelope: controlErr(
-            "unauthorized",
-            "process-bind requires a live Unix peer PID on the control connection",
-          ),
-        };
+        // kind: "capability" — internal lease for unit tests only.
+        capability = admit.capability;
       }
     }
     if (!isValidControlRequestId(request.requestId ?? "")) {

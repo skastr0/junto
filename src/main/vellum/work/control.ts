@@ -554,6 +554,14 @@ export const startWorkControlServer = async (
   const server: Server = createServer((socket) => {
     let buffer = Buffer.alloc(0);
     let closed = false;
+    // Peer PID is stable for the life of the connection — read once.
+    let cachedPeerPid: number | undefined | null = null;
+    const readPeerOnce = (): number | undefined => {
+      if (cachedPeerPid === null) {
+        cachedPeerPid = readPeerPid(socket);
+      }
+      return cachedPeerPid === null ? undefined : cachedPeerPid;
+    };
 
     const handleLine = async (line: string): Promise<void> => {
       let raw: unknown;
@@ -603,7 +611,7 @@ export const startWorkControlServer = async (
 
       // Process-bind: peer PID → registered agent|herdr principal → canvas node.
       // Client-supplied nodeRef is never identity (forgeable).
-      const identity = admitProcessIdentity(socket, processMap, readPeerPid);
+      const identity = admitProcessIdentity(socket, processMap, readPeerOnce);
       if (!identity.ok) {
         respond(
           socket,
