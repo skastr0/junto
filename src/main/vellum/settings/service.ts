@@ -11,11 +11,16 @@ import {
   type Settings,
   type SettingsSectionKey,
 } from "@shared/settings";
+import { assessSupervisedRuntime } from "@shared/station";
 import {
   applyAndValidatePatch,
   decodePatchInput,
   migrateSettingsDocument,
 } from "./migrate";
+import {
+  probeLaunchAgentLoaded,
+  type SupervisedProbe,
+} from "./supervised-probe";
 
 // SettingsService: single durable prefs aggregate. Path defaults to
 // ~/.vellum/settings.json (agent-readable home). Tests override via
@@ -117,7 +122,16 @@ export interface SettingsServiceApi {
   readonly subscribe: (listener: (settings: Settings) => void) => () => void;
 }
 
-export const makeSettingsService = (path: string = settingsFilePath()): SettingsServiceApi => {
+export type SettingsServiceOptions = {
+  /** Override LaunchAgent probe (tests). Default: real launchctl print. */
+  readonly probeSupervised?: SupervisedProbe;
+};
+
+export const makeSettingsService = (
+  path: string = settingsFilePath(),
+  options: SettingsServiceOptions = {},
+): SettingsServiceApi => {
+  const probeSupervised = options.probeSupervised ?? probeLaunchAgentLoaded;
   let cached: Settings | undefined;
   let inFlight: Promise<Settings> | null = null;
   // Serialize patch/reset RMW so concurrent IPC cannot last-writer-clobber.
@@ -162,14 +176,27 @@ export const makeSettingsService = (path: string = settingsFilePath()): Settings
   return {
     path: () => path,
     doctor: Effect.tryPromise({
-      try: async () => {
+      try: async (): Promise<ServiceCheck> => {
         try {
           const settings = await ensureLoaded();
+          const supervisedInstalled = await probeSupervised();
+          const supervised = assessSupervisedRuntime({
+            role: settings.station.role,
+            hostId: settings.station.hostId,
+            supervisedPreferred: settings.station.supervisedPreferred,
+            supervisedInstalled,
+          });
+          const status =
+            supervised.status === "warning" ? ("warning" as const) : ("ok" as const);
           return {
             id: "settings",
             label: "User Settings",
-            status: "ok" as const,
-            detail: `settings.json · v${settings.version}`,
+            status,
+            detail: `settings.json · v${settings.version} · ${supervised.detail}`,
+            metadata: {
+              version: String(settings.version),
+              ...supervised.metadata,
+            },
           };
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);

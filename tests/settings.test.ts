@@ -155,13 +155,63 @@ describe("settings service", () => {
   });
 
   it("doctor reports version when healthy without leaking absolute paths", async () => {
-    const svc = await fresh();
+    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
+    path = join(dir, "settings.json");
+    const svc = makeSettingsService(path, {
+      probeSupervised: async () => "absent",
+    });
     await run(svc.get);
     const check = await run(svc.doctor);
     expect(check.id).toBe("settings");
     expect(check.status).toBe("ok");
     expect(check.detail).toContain("v1");
     expect(check.detail).not.toContain(path);
+    expect(check.metadata?.version).toBe("1");
+    expect(check.metadata?.role).toBe("unset");
+    expect(check.metadata?.hostId).toBe("local");
+    expect(check.metadata?.supervisedPreferred).toBe("false");
+    expect(check.metadata?.supervisedInstalled).toBe("absent");
+    expect(check.metadata?.supervisedAligned).toBe("true");
+  });
+
+  it("doctor warns when supervised is preferred but LaunchAgent is absent", async () => {
+    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
+    path = join(dir, "settings.json");
+    const svc = makeSettingsService(path, {
+      probeSupervised: async () => "absent",
+    });
+    await run(svc.get);
+    await run(
+      svc.patch({
+        station: { role: "remote", supervisedPreferred: true },
+      }),
+    );
+    const check = await run(svc.doctor);
+    expect(check.status).toBe("warning");
+    expect(check.metadata?.role).toBe("remote");
+    expect(check.metadata?.supervisedPreferred).toBe("true");
+    expect(check.metadata?.supervisedInstalled).toBe("absent");
+    expect(check.metadata?.supervisedAligned).toBe("false");
+    expect(check.detail).toContain("app:install:supervised");
+  });
+
+  it("doctor is ok when preferred and LaunchAgent loaded", async () => {
+    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
+    path = join(dir, "settings.json");
+    const svc = makeSettingsService(path, {
+      probeSupervised: async () => "installed",
+    });
+    await run(svc.get);
+    await run(
+      svc.patch({
+        station: { role: "remote", hostId: "remote-a", supervisedPreferred: true },
+      }),
+    );
+    const check = await run(svc.doctor);
+    expect(check.status).toBe("ok");
+    expect(check.metadata?.hostId).toBe("remote-a");
+    expect(check.metadata?.supervisedInstalled).toBe("installed");
+    expect(check.metadata?.supervisedAligned).toBe("true");
   });
 
   it("rejects oversized settings files", async () => {

@@ -5,6 +5,7 @@ import {
   AUTHORIAL_WRITE_ENV,
 } from "../src/shared/authorial-write";
 import {
+  assessSupervisedRuntime,
   isExecutableNode,
   isNodeEligibleOnStation,
   resolveNodeHostId,
@@ -137,5 +138,70 @@ describe("authorial write gate", () => {
   it("allows CLI write with VELLUM_AUTHORIAL_WRITE=1", () => {
     const gate = allowAuthorialCliWrite({ [AUTHORIAL_WRITE_ENV]: "1" });
     expect(gate.ok).toBe(true);
+  });
+});
+
+describe("supervised runtime assessment", () => {
+  it("aligns when preferred and LaunchAgent loaded", () => {
+    const result = assessSupervisedRuntime({
+      role: "remote",
+      hostId: "remote-a",
+      supervisedPreferred: true,
+      supervisedInstalled: "installed",
+    });
+    expect(result.aligned).toBe(true);
+    expect(result.status).toBe("ok");
+    expect(result.metadata.role).toBe("remote");
+    expect(result.metadata.hostId).toBe("remote-a");
+    expect(result.metadata.supervisedPreferred).toBe("true");
+    expect(result.metadata.supervisedInstalled).toBe("installed");
+    expect(result.metadata.supervisedAligned).toBe("true");
+  });
+
+  it("warns when Remote prefers supervised but agent is absent", () => {
+    const result = assessSupervisedRuntime({
+      role: "remote",
+      hostId: "remote-a",
+      supervisedPreferred: true,
+      supervisedInstalled: "absent",
+    });
+    expect(result.aligned).toBe(false);
+    expect(result.status).toBe("warning");
+    expect(result.detail).toContain("app:install:supervised");
+    expect(result.metadata.supervisedAligned).toBe("false");
+  });
+
+  it("treats unsupervised preference with absent agent as aligned", () => {
+    const result = assessSupervisedRuntime({
+      role: "command-center",
+      hostId: "local",
+      supervisedPreferred: false,
+      supervisedInstalled: "absent",
+    });
+    expect(result.aligned).toBe(true);
+    expect(result.status).toBe("ok");
+  });
+
+  it("warns when preferred but install state is unknown", () => {
+    const result = assessSupervisedRuntime({
+      role: "remote",
+      hostId: "local",
+      supervisedPreferred: true,
+      supervisedInstalled: "unknown",
+    });
+    expect(result.aligned).toBe(false);
+    expect(result.status).toBe("warning");
+    expect(result.metadata.supervisedInstalled).toBe("unknown");
+  });
+
+  it("maps empty role to unset in metadata", () => {
+    const result = assessSupervisedRuntime({
+      role: "",
+      hostId: "local",
+      supervisedPreferred: false,
+      supervisedInstalled: "absent",
+    });
+    expect(result.role).toBe("unset");
+    expect(result.metadata.role).toBe("unset");
   });
 });

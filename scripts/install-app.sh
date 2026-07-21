@@ -8,6 +8,13 @@
 #   scripts/install-app.sh --open          open the app after install
 #   scripts/install-app.sh --supervised    also (re)load LaunchAgent (crash-only KeepAlive)
 #
+# Station preference (settings.station.supervisedPreferred):
+#   Product intent only — this script does NOT read ~/.vellum/settings.json.
+#   StationRoleGate sets supervisedPreferred=true when role=remote. The install
+#   surface for that preference is --supervised (or bun run app:install:supervised).
+#   Settings doctor metadata reports preferred vs LaunchAgent-loaded so Remote
+#   deploy (later) can decide to pass --supervised. No third binary.
+#
 # Installs `vellum browser …` and `vellum-browser …` as atomic symlinks under
 # $VELLUM_BIN_DIR (default: ~/.local/bin). Existing non-Vellum commands are
 # never overwritten.
@@ -32,7 +39,7 @@ OPEN=0
 SUPERVISED=0
 
 usage() {
-  sed -n '2,18p' "$0" | sed 's/^# \?//'
+  sed -n '2,26p' "$0" | sed 's/^# \?//'
   exit "${1:-0}"
 }
 

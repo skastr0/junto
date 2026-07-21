@@ -90,5 +90,103 @@ export const isValidStationHostId = (value: string): boolean => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Supervised runtime preference vs LaunchAgent install (Remote 24×7 foundation)
+//
+// Product surface: settings.station.supervisedPreferred (StationRoleGate sets
+// true for Remote). Install surface: `bun run app:install:supervised` /
+// install-app.sh --supervised → install-launchd.sh. Doctor reports the gap;
+// full Remote deploy of the agent is a later glyph — not this module.
+// ---------------------------------------------------------------------------
+
+/** Whether the Vellum LaunchAgent is loaded for this user domain. */
+export type SupervisedInstallState = "installed" | "absent" | "unknown";
+
+export type SupervisedRuntimeInput = {
+  readonly role: string;
+  readonly hostId: string;
+  readonly supervisedPreferred: boolean;
+  readonly supervisedInstalled: SupervisedInstallState;
+};
+
+export type SupervisedRuntimeAssessment = {
+  readonly role: string;
+  readonly hostId: string;
+  readonly supervisedPreferred: boolean;
+  readonly supervisedInstalled: SupervisedInstallState;
+  /** Preferred intent matches observed install (unknown is never aligned when preferred). */
+  readonly aligned: boolean;
+  readonly status: "ok" | "warning";
+  readonly detail: string;
+  /** ServiceCheck.metadata — all string values. */
+  readonly metadata: Readonly<Record<string, string>>;
+};
+
+/**
+ * Pure reconciliation of station supervised preference vs LaunchAgent state.
+ * No I/O — callers probe launchctl (or inject a test double).
+ */
+export const assessSupervisedRuntime = (
+  input: SupervisedRuntimeInput,
+): SupervisedRuntimeAssessment => {
+  const role = input.role;
+  const hostId = input.hostId;
+  const preferred = input.supervisedPreferred;
+  const installed = input.supervisedInstalled;
+
+  let aligned: boolean;
+  let status: "ok" | "warning";
+  let detail: string;
+
+  if (installed === "unknown") {
+    aligned = !preferred;
+    if (preferred) {
+      status = "warning";
+      detail = "supervised preferred but LaunchAgent state unknown";
+    } else {
+      status = "ok";
+      detail = "supervised not preferred; LaunchAgent state unknown";
+    }
+  } else if (preferred && installed === "installed") {
+    aligned = true;
+    status = "ok";
+    detail = "supervised preferred and LaunchAgent loaded";
+  } else if (!preferred && installed === "absent") {
+    aligned = true;
+    status = "ok";
+    detail = "unsupervised preferred; LaunchAgent absent";
+  } else if (preferred && installed === "absent") {
+    aligned = false;
+    status = "warning";
+    detail =
+      role === "remote"
+        ? "Remote prefers supervised runtime — run bun run app:install:supervised"
+        : "supervised preferred but LaunchAgent not loaded — bun run app:install:supervised";
+  } else {
+    // !preferred && installed === "installed"
+    aligned = false;
+    status = "ok";
+    detail = "LaunchAgent loaded; preference is unsupervised";
+  }
+
+  const roleKey = role.length > 0 ? role : "unset";
+  return {
+    role: roleKey,
+    hostId,
+    supervisedPreferred: preferred,
+    supervisedInstalled: installed,
+    aligned,
+    status,
+    detail,
+    metadata: {
+      role: roleKey,
+      hostId,
+      supervisedPreferred: preferred ? "true" : "false",
+      supervisedInstalled: installed,
+      supervisedAligned: aligned ? "true" : "false",
+    },
+  };
+};
+
 // Re-export HostId type surface for station stamps (same alphabet as remote-hosts).
 export type { HostId };

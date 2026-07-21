@@ -57,6 +57,8 @@ bun run app:open               # open /Applications/Vellum.app
 bun run app:uninstall-agent    # remove LaunchAgent; leave the .app
 ```
 
+**Supervised runtime (Remote 24×7 foundation):** `settings.station.supervisedPreferred` is product intent (Remote onboarding sets it true). Apply with `app:install:supervised` — install scripts do not auto-read settings. Chassis doctor → settings service metadata exposes `role`, `hostId`, `supervisedPreferred`, `supervisedInstalled`, `supervisedAligned` so later Remote deploy can close the gap.
+
 Scripts: `scripts/build-app.sh`, `scripts/install-app.sh`, `scripts/install-launchd.sh`.
 
 **Herdr safety:** quitting Vellum (Dock, install reload, launchd unload) **detaches** terminal control streams only. It does **not** kill herdr panes, tabs, or sessions. Rebuilding/reinstalling is a non-event for your agent fleet.

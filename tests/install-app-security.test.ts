@@ -72,4 +72,11 @@ describe("hardened app installer", () => {
       position(install, 'bash "$SCRIPT_DIR/install-launchd.sh" --skip-build'),
     );
   });
+
+  it("documents supervisedPreferred as product intent, not auto-read by install", () => {
+    expect(install).toContain("settings.station.supervisedPreferred");
+    expect(install).toContain("does NOT read ~/.vellum/settings.json");
+    expect(launchd).toContain("settings.station.supervisedPreferred");
+    expect(launchd).toContain("does not read");
+  });
 });
