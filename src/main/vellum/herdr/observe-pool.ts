@@ -258,7 +258,19 @@ export class HerdrObservePool {
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
       if (entry.child !== child) return; // superseded by a respawn
-      entry.buffer = feedNdjson(entry.buffer, chunk, (line) => this.handleLine(entry, line));
+      entry.buffer = feedNdjson(entry.buffer, chunk, (line) => this.handleLine(entry, line), {
+        onOverflow: () => {
+          if (entry.child !== child) return;
+          // Defective/wedged observer: kill outright and mark stale rather
+          // than eagerly respawning (unlike the deltaBytes self-heal below)
+          // — a child spewing unterminated garbage would just repeat. The
+          // next ensureObserve (e.g. the user re-switching to this
+          // terminal) respawns it.
+          this.killChild(entry);
+          entry.live = false;
+          entry.stale = true;
+        },
+      });
     });
 
     const onGone = (): void => {

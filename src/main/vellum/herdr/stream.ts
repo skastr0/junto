@@ -30,10 +30,32 @@ interface ActiveStream {
   rows: number;
   /** First live control frame clears the pool's retention for this terminal. */
   firstFrameSeen: boolean;
+  /**
+   * Settles once every write enqueued so far has been fully flushed to
+   * stdin. Present only while a chunked (or queued-behind-one) write is
+   * in flight — its presence is the ordering gate: a write that arrives
+   * while this is set queues behind it instead of writing straight through,
+   * so a resize can never overtake a paste's slices mid-flight.
+   */
+  pendingWrite?: Promise<void>;
+  /**
+   * Set the moment inbound overflow kills the child. SIGTERM delivery is
+   * not instantaneous — a wedged child can keep emitting unterminated
+   * garbage after the signal until it actually exits, and each chunk would
+   * otherwise re-trip feedNdjson's overflow path. Guards handleInboundOverflow
+   * against re-emitting duplicate error frames / re-issuing redundant kills
+   * for the same stream in that window.
+   */
+  overflowed?: boolean;
 }
 
 export interface HerdrProcessLike {
-  readonly stdin: { write(chunk: string): boolean };
+  readonly stdin: {
+    write(chunk: string): boolean;
+    /** Real Node Writables (local spawn) and test PassThroughs support this;
+     * the Effect-owned remote child does not — treated as never-backpressured. */
+    once?(event: "drain", listener: () => void): unknown;
+  };
   readonly stdout: {
     setEncoding(encoding: string): unknown;
     on(event: "data", listener: (chunk: string) => void): unknown;
@@ -68,6 +90,61 @@ export interface ObservePoolHooks {
   releaseObserve(terminalId: string): void;
   stopAll(): void;
 }
+
+/**
+ * Outbound NDJSON command lines larger than this are sliced into multiple
+ * stdin writes so a single big paste cannot alone trip the ssh transport's
+ * per-write boundary (INPUT_CHUNK_LIMIT_BYTES in ../ssh/service.ts, 1 MiB) —
+ * converting what used to be a child error + stream reconnect into an
+ * ordinary multi-write flush. Line framing is `\n`-delimited, so slicing one
+ * line across writes is protocol-safe: herdr just sees the same bytes arrive
+ * as several reads before the trailing newline.
+ */
+const DEFAULT_WRITE_CHUNK_CHARS = 256 * 1024;
+
+/** Never split a UTF-16 surrogate pair — base64 payloads are pure ASCII and
+ * unaffected, but raw pasted text (inputText) may carry astral characters
+ * (emoji) that would mangle into replacement chars if cut mid-pair. */
+const chunkSliceEnd = (payload: string, start: number, maxChars: number): number => {
+  const end = Math.min(start + maxChars, payload.length);
+  if (end < payload.length) {
+    const code = payload.charCodeAt(end - 1);
+    if (code >= 0xd800 && code <= 0xdbff) return end - 1;
+  }
+  return end;
+};
+
+/**
+ * Writes `payload` to `stdin` in <=chunkChars slices, honoring write()
+ * backpressure — waits for `drain` before the next slice whenever the
+ * stream signals it (`write` returns false) and supports the event.
+ * Resolves once every slice has been handed to the stream.
+ */
+export const writeChunked = (
+  stdin: HerdrProcessLike["stdin"],
+  payload: string,
+  chunkChars = DEFAULT_WRITE_CHUNK_CHARS,
+): Promise<void> =>
+  new Promise((resolve) => {
+    let offset = 0;
+    const pump = (): void => {
+      while (offset < payload.length) {
+        const end = chunkSliceEnd(payload, offset, chunkChars);
+        const slice = payload.slice(offset, end);
+        offset = end;
+        const flushed = stdin.write(slice);
+        if (!flushed && offset < payload.length) {
+          if (typeof stdin.once === "function") {
+            stdin.once("drain", pump);
+            return;
+          }
+          // No drain signal on this stdin shape — best effort, keep pumping.
+        }
+      }
+      resolve();
+    };
+    pump();
+  });
 
 /**
  * Owns concurrent interactive control streams (one per streamId).
@@ -176,7 +253,9 @@ export class HerdrStreamManager {
     let buffer = "";
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
-      buffer = feedNdjson(buffer, chunk, (line) => this.handleLine(streamId, line));
+      buffer = feedNdjson(buffer, chunk, (line) => this.handleLine(streamId, line), {
+        onOverflow: () => this.handleInboundOverflow(streamId),
+      });
     });
 
     child.stderr.setEncoding("utf8");
@@ -330,15 +409,9 @@ export class HerdrStreamManager {
     // herdr emits one wheel report per command for mouse-reporting apps, so a
     // coalesced gesture keeps real per-tick semantics. Host scrollback apps
     // see the same total (N × 1 line). No patched binary required.
-    try {
-      stream.stream.child.stdin.write(`${`${payload}\n`.repeat(ticks)}`);
-      return { ok: true };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+    // Routed through enqueueWrite (not a bare child.stdin.write) so a scroll
+    // can never interleave into the middle of a paste's in-flight slices.
+    return this.enqueueWrite(stream.stream, `${payload}\n`.repeat(ticks));
   }
 
   /**
@@ -455,15 +528,61 @@ export class HerdrStreamManager {
     stream: ActiveStream,
     payload: Record<string, unknown>,
   ): { readonly ok: boolean; readonly error?: string } {
+    return this.enqueueWrite(stream, `${JSON.stringify(payload)}\n`);
+  }
+
+  /**
+   * Single choke point for every write to a control child's stdin.
+   * |- command order is preserved: a write issued while a prior (large,
+   *    still-chunking) write is in flight queues behind it rather than
+   *    racing straight through — a resize must never overtake a paste.
+   * Small writes with nothing in flight take the exact synchronous path
+   * writeJson always had (one write() call, try/catch around it).
+   */
+  private enqueueWrite(
+    stream: ActiveStream,
+    payload: string,
+  ): { readonly ok: boolean; readonly error?: string } {
+    if (!stream.pendingWrite && payload.length <= DEFAULT_WRITE_CHUNK_CHARS) {
+      try {
+        stream.child.stdin.write(payload);
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+    const prior = stream.pendingWrite ?? Promise.resolve();
+    const queued: Promise<void> = prior
+      .catch(() => undefined)
+      .then(() => writeChunked(stream.child.stdin, payload).catch(() => undefined));
+    stream.pendingWrite = queued.finally(() => {
+      if (stream.pendingWrite === queued) stream.pendingWrite = undefined;
+    });
+    return { ok: true };
+  }
+
+  /**
+   * NDJSON line never terminated within the byte cap — a defective/wedged
+   * child. Kill it; the close handler registered in open() emits this
+   * stream's normal error+closed frames and hands the terminal back to the
+   * observe pool, same as any other control-child death.
+   */
+  private handleInboundOverflow(streamId: string): void {
+    const active = this.streams.get(streamId);
+    if (!active || active.overflowed) return;
+    active.overflowed = true;
+    this.emit({
+      streamId,
+      type: "error",
+      message: "herdr control stream exceeded max NDJSON buffer — killing unresponsive child",
+    });
     try {
-      // NDJSON line; Node pipes flush small writes promptly for interactive use.
-      stream.child.stdin.write(`${JSON.stringify(payload)}\n`);
-      return { ok: true };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      active.child.kill("SIGTERM");
+    } catch {
+      // ignore — the close handler still fires from the eventual process exit
     }
   }
 

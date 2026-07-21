@@ -17,6 +17,7 @@ import * as net from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { DEFAULT_MAX_BUFFER_BYTES } from "./ndjson";
 
 export interface MirrorTransport {
   request(method: string, params: unknown, timeoutMs?: number): Promise<unknown>;
@@ -40,8 +41,21 @@ const nextId = (): string => `vellum:mirror:${Date.now()}:${++idSeq}`;
 export const defaultHerdrSocketPath = (): string =>
   join(homedir(), ".config", "herdr", "herdr.sock");
 
-/** Incremental NDJSON line splitter. */
-const makeLineFeed = (onLine: (line: string) => void) => {
+/**
+ * Incremental NDJSON line splitter.
+ *
+ * Bounds the unterminated remainder the same way ndjson.ts does for the
+ * control/observe children (DEFAULT_MAX_BUFFER_BYTES) — a peer that never
+ * emits a newline cannot grow this buffer without limit. On overflow the
+ * buffer resets and `onOverflow` fires; callers destroy the socket so the
+ * mirror's normal backoff/re-bootstrap takes over, same as any other
+ * transport-level failure.
+ */
+const makeLineFeed = (
+  onLine: (line: string) => void,
+  onOverflow: () => void,
+  maxBufferBytes: number = DEFAULT_MAX_BUFFER_BYTES,
+) => {
   // StringDecoder holds partial multi-byte UTF-8 sequences across chunk
   // boundaries — a plain per-chunk toString() would mangle a code point
   // split by TCP segmentation (real over the ssh-forwarded socket).
@@ -55,6 +69,10 @@ const makeLineFeed = (onLine: (line: string) => void) => {
       buf = buf.slice(idx + 1);
       if (line) onLine(line);
       idx = buf.indexOf("\n");
+    }
+    if (Buffer.byteLength(buf, "utf8") > maxBufferBytes) {
+      buf = "";
+      onOverflow();
     }
   };
 };
@@ -92,28 +110,31 @@ export class LocalMirrorTransport implements MirrorTransport {
       });
       sock.on(
         "data",
-        makeLineFeed((line) => {
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(line);
-          } catch {
-            return; // keep scanning
-          }
-          const obj = asRecord(parsed);
-          if (!obj || obj.id !== id) return;
-          const error = asRecord(obj.error);
-          if (error) {
-            done(() =>
-              reject(
-                new Error(
-                  typeof error.message === "string" ? error.message : `herdr error on ${method}`,
+        makeLineFeed(
+          (line) => {
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(line);
+            } catch {
+              return; // keep scanning
+            }
+            const obj = asRecord(parsed);
+            if (!obj || obj.id !== id) return;
+            const error = asRecord(obj.error);
+            if (error) {
+              done(() =>
+                reject(
+                  new Error(
+                    typeof error.message === "string" ? error.message : `herdr error on ${method}`,
+                  ),
                 ),
-              ),
-            );
-            return;
-          }
-          done(() => resolve(obj.result));
-        }),
+              );
+              return;
+            }
+            done(() => resolve(obj.result));
+          },
+          () => fail(new Error(`herdr mirror socket exceeded max NDJSON buffer on ${method}`)),
+        ),
       );
       sock.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
       sock.on("close", () => fail(new Error(`herdr socket closed before ${method} response`)));
@@ -150,41 +171,52 @@ export class LocalMirrorTransport implements MirrorTransport {
       });
       sock.on(
         "data",
-        makeLineFeed((line) => {
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(line);
-          } catch {
-            return;
-          }
-          const obj = asRecord(parsed);
-          if (!obj) return;
-          if (!acked) {
-            if (obj.id !== id) return;
-            clearTimeout(ackTimer);
-            const error = asRecord(obj.error);
-            if (error) {
-              sock.destroy();
-              reject(
-                new Error(
-                  typeof error.message === "string" ? error.message : "events.subscribe rejected",
-                ),
-              );
+        makeLineFeed(
+          (line) => {
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(line);
+            } catch {
               return;
             }
-            acked = true;
-            resolve(() => {
-              closedNotified = true; // deliberate close — no onClose
-              sock.destroy();
-            });
-            return;
-          }
-          try {
-            onEvent(obj);
-          } catch {
-            // callbacks never throw out of the transport
-          }
-        }),
+            const obj = asRecord(parsed);
+            if (!obj) return;
+            if (!acked) {
+              if (obj.id !== id) return;
+              clearTimeout(ackTimer);
+              const error = asRecord(obj.error);
+              if (error) {
+                sock.destroy();
+                reject(
+                  new Error(
+                    typeof error.message === "string" ? error.message : "events.subscribe rejected",
+                  ),
+                );
+                return;
+              }
+              acked = true;
+              resolve(() => {
+                closedNotified = true; // deliberate close — no onClose
+                sock.destroy();
+              });
+              return;
+            }
+            try {
+              onEvent(obj);
+            } catch {
+              // callbacks never throw out of the transport
+            }
+          },
+          () => {
+            sock.destroy();
+            if (!acked) {
+              clearTimeout(ackTimer);
+              reject(new Error("herdr events socket exceeded max NDJSON buffer"));
+              return;
+            }
+            notifyClose("events socket exceeded max NDJSON buffer");
+          },
+        ),
       );
       sock.on("error", (err) => {
         const e = err instanceof Error ? err : new Error(String(err));
