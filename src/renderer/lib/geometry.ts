@@ -69,11 +69,18 @@ export const containedNodeIds = (doc: CanvasDoc, regionNode: GroupNode): string[
 
 export const syncPositions = (positions: ReadonlyMap<string, { x: number; y: number }>): void => {
   const doc: CanvasDoc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((node) => {
-      const pos = positions.get(node.id);
-      return pos ? { ...node, x: Math.round(pos.x), y: Math.round(pos.y) } : node;
-    }),
-  }, false, true);
+  // Preserve CanvasNode identity when rounded coords are unchanged so the
+  // FlowIdentityCache (convert.toFlow) keeps reminting only moved nodes.
+  let changed = false;
+  const nodes = doc.nodes.map((node) => {
+    const pos = positions.get(node.id);
+    if (!pos) return node;
+    const x = Math.round(pos.x);
+    const y = Math.round(pos.y);
+    if (x === node.x && y === node.y) return node;
+    changed = true;
+    return { ...node, x, y };
+  });
+  if (!changed) return;
+  commitDoc({ ...doc, nodes }, false, true);
 };

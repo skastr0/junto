@@ -584,6 +584,37 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().nodes[0]).toMatchObject({ x: 2, y: -2 });
   });
 
+  it("preserves CanvasNode identity for unmoved nodes so flow cache can reuse them", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc(doc);
+    const before = state$.doc.peek().nodes;
+    const sourceBefore = before[0];
+    const targetBefore = before[1];
+    // Source moves; target coords match current (rounded no-op).
+    syncPositions(
+      new Map([
+        ["source", { x: 50, y: 60 }],
+        ["target", { x: targetBefore!.x, y: targetBefore!.y }],
+      ]),
+    );
+    const after = state$.doc.peek().nodes;
+    expect(after[0]).not.toBe(sourceBefore);
+    expect(after[0]).toMatchObject({ id: "source", x: 50, y: 60 });
+    expect(after[1]).toBe(targetBefore);
+  });
+
+  it("skips commit entirely when no rounded position changed", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc(doc);
+    const before = state$.doc.peek();
+    const epoch = state$.docEpoch.peek();
+    syncPositions(
+      new Map(before.nodes.map((n) => [n.id, { x: n.x, y: n.y }])),
+    );
+    expect(state$.doc.peek()).toBe(before);
+    expect(state$.docEpoch.peek()).toBe(epoch);
+  });
+
   it("persists region geometry changes without rebuilding the graph", () => {
     state$.canvasName.set("mutation-test");
     const regionDoc: CanvasDoc = { nodes: [{ id: "region", type: "group", label: "UI QA", x: 0, y: 0, width: 400, height: 200 }], edges: [] };
