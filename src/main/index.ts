@@ -243,10 +243,18 @@ let closeWindowsWithoutCanvasFlush = false;
 /** Explicit quit confirmed by the operator (or skipped: signal / headless / idle). */
 let quitConfirmed = false;
 /**
- * Signal / forced-exit path: skip the honest-quit dialog. Cmd+Q and menu quit
- * still gate on live work. Set before app.quit() from installProcessSignalTermination.
+ * Signal / forced-exit path: skip the honest-quit dialog for the next before-quit
+ * entry only (consumed once). Cmd+Q still gates on live work. Set from
+ * installProcessSignalTermination cleanup; cleared on consume or prep failure.
  */
 let skipQuitConfirm = false;
+/**
+ * Bumps to invalidate an in-flight honest-quit dialog (e.g. signal supersedes
+ * Cmd+Q confirm). Confirm accept is ignored when generation no longer matches.
+ */
+let quitConfirmGeneration = 0;
+/** True while a native confirm dialog is open — blocks a second dialog, not signal force. */
+let quitConfirmPending = false;
 
 const CANVAS_FLUSH_TIMEOUT_MS = 45_000;
 const pendingCanvasFlushes = new Map<
@@ -589,7 +597,8 @@ const ensureSupervised = async (): Promise<boolean> => {
 // Single-instance lock — under a permanent/launchd deployment a second launch
 // (Spotlight, `open`, a KeepAlive race) must NOT start a second process that
 // would file-watch and clobber the same ~/.vellum/canvases document plane.
-// The second process exits immediately; the first focuses its window.
+// The second process exits immediately; the first focuses its window — or, when
+// the factory is windowless on macOS, recreates the surface (mirror activate).
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -597,7 +606,11 @@ if (!gotSingleInstanceLock) {
   app.on("second-instance", () => {
     requestNodeRefDrain();
     const [existing] = BrowserWindow.getAllWindows();
-    if (!existing) return;
+    if (!existing) {
+      // Windowless keep-alive: Spotlight/`open -a` must not leave a dead UI.
+      if (!headless) createWindow();
+      return;
+    }
     if (existing.isMinimized()) existing.restore();
     existing.show();
     existing.focus();
@@ -860,13 +873,27 @@ const collectLiveWorkSnapshot = () =>
     attachedHerdrStreamCount: herdrActiveControlCount(),
   });
 
+/** Cancel left the process with no UI — give the operator a surface back. */
+const recreateWindowIfEmpty = (): void => {
+  if (headless || runtimeDisposed) return;
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+};
+
+const invalidateQuitConfirm = (): void => {
+  quitConfirmGeneration += 1;
+  quitConfirmPending = false;
+};
+
 app.on("before-quit", (event) => {
   if (runtimeDisposed) return;
   event.preventDefault();
+  // Flush/dispose already running — do not re-enter. Confirm dialog does NOT
+  // own quitPreparation, so a signal can still force through while a dialog is open.
   if (quitPreparation !== undefined) return;
 
   // Sacred order lives inside this handler (flush, then runtime detach, then dispose).
   const beginQuitPreparation = (): void => {
+    if (runtimeDisposed || quitPreparation !== undefined) return;
     const mainWindow = trustedMainWindow;
     const flush =
       mainWindow === undefined || mainWindow.isDestroyed()
@@ -888,16 +915,25 @@ app.on("before-quit", (event) => {
       .catch((error) => {
         quitPreparation = undefined;
         quitConfirmed = false;
+        // Never leave skip sticky after a failed prep — next Cmd+Q must be honest.
+        skipQuitConfirm = false;
         console.error("[canvas] quit blocked:", error);
       });
   };
 
   // Signal / headless / already-confirmed: no dialog; same flush→detach path.
+  // skipQuitConfirm is consumed once so a failed signal quit cannot permanently
+  // silence the honest affordance on a later Cmd+Q.
   if (skipQuitConfirm || headless || quitConfirmed) {
+    invalidateQuitConfirm();
+    skipQuitConfirm = false;
     quitConfirmed = true;
     beginQuitPreparation();
     return;
   }
+
+  // Second Cmd+Q while the confirm is open: swallow (still preventDefault).
+  if (quitConfirmPending) return;
 
   const live = collectLiveWorkSnapshot();
   if (!hasLiveWork(live)) {
@@ -907,45 +943,44 @@ app.on("before-quit", (event) => {
   }
 
   // Honest quit: one confirm naming what pauses vs what survives (herdr never killed).
+  // Dialog does not set quitPreparation — signals must be able to supersede it.
   const prompt = buildQuitConfirmPrompt(live);
   const parent = trustedMainWindow;
+  const dialogOptions = {
+    type: prompt.type,
+    title: prompt.title,
+    message: prompt.message,
+    detail: prompt.detail,
+    buttons: [...prompt.buttons] as string[],
+    defaultId: prompt.defaultId,
+    cancelId: prompt.cancelId,
+    noLink: prompt.noLink,
+  };
+  const generation = quitConfirmGeneration;
+  quitConfirmPending = true;
   const box =
     parent !== undefined && !parent.isDestroyed()
-      ? dialog.showMessageBox(parent, {
-          type: prompt.type,
-          title: prompt.title,
-          message: prompt.message,
-          detail: prompt.detail,
-          buttons: [...prompt.buttons],
-          defaultId: prompt.defaultId,
-          cancelId: prompt.cancelId,
-          noLink: prompt.noLink,
-        })
-      : dialog.showMessageBox({
-          type: prompt.type,
-          title: prompt.title,
-          message: prompt.message,
-          detail: prompt.detail,
-          buttons: [...prompt.buttons],
-          defaultId: prompt.defaultId,
-          cancelId: prompt.cancelId,
-          noLink: prompt.noLink,
-        });
+      ? dialog.showMessageBox(parent, dialogOptions)
+      : dialog.showMessageBox(dialogOptions);
 
-  quitPreparation = box
+  void box
     .then((result) => {
+      if (generation !== quitConfirmGeneration) return;
+      quitConfirmPending = false;
       if (result.response !== QUIT_CONFIRM_ACCEPT_INDEX) {
-        quitPreparation = undefined;
         quitConfirmed = false;
+        // non-darwin last-window quit → dialog cancel must not leave a UI zombie.
+        recreateWindowIfEmpty();
         return;
       }
       quitConfirmed = true;
-      quitPreparation = undefined;
       beginQuitPreparation();
     })
     .catch((error) => {
-      quitPreparation = undefined;
+      if (generation !== quitConfirmGeneration) return;
+      quitConfirmPending = false;
       quitConfirmed = false;
+      skipQuitConfirm = false;
       console.error("[quit] confirm dialog failed:", error);
     });
 });
@@ -960,8 +995,10 @@ app.on("will-quit", () => {
 installProcessSignalTermination({
   app,
   cleanup: (signal) => {
-    // Signals are forced exits — never the honest-quit dialog.
+    // Signals are forced exits — never the honest-quit dialog. Invalidate any
+    // open confirm so accept after cancel race cannot fight the force path.
     skipQuitConfirm = true;
+    invalidateQuitConfirm();
     beginSignalCanvasFlush();
     detachRuntimeOnQuit(signal);
   },
