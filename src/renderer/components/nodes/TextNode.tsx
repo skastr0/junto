@@ -8,10 +8,10 @@ import type { AgentIdentity } from "@shared/ipc";
 import type { FlowNode } from "../../lib/convert";
 import { getAgentAvatar, getAgentIdentity } from "../../lib/agent";
 import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
-import { boothPendingReview, entityReadout } from "../../lib/entity-readout";
 import { editText, setNodeTasks } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { state$ } from "../../lib/state";
+import { resolveNodeConnections } from "../../../shared/connections";
 import { chatActivity, timerActivity, watcherActivity } from "../../lib/activity";
 import { chatState$, initialAgentChatState } from "../../lib/chat-state";
 import { accentColor, INK, DIM, HUE, SOURCE_HUE, withAlpha } from "../../lib/theme";
@@ -189,65 +189,54 @@ function AgentActivityMark({ agentKey }: { readonly agentKey: string }) {
 function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: string }) {
   const snapshots = use$(state$.snapshots);
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
-  const view = node.ether?.view;
-  const { segments, dots } = entityReadout(node.ether?.entity, snapshots, view);
-  const line = segments.join(" · ");
-  // Booth attention decal: drafts owed a human verdict. Exists only above
-  // zero — a quiet card carries no badge, per the exception-only contract.
-  const pendingReview = boothPendingReview(node.ether?.entity, snapshots);
-  const eyebrow = kind === "project" && view?.orbit ? `${kind} · ${view.orbit}` : kind;
   const nameHue = node.color ? accentColor(node.color) : INK;
-  const isAgent = kind === "agent";
-  const hermesKey = isAgent ? node.ether?.entity?.name : undefined;
+  const hermesKey = kind === "agent" ? node.ether?.entity?.name : undefined;
+  const connections = resolveNodeConnections(node.ether?.entity, snapshots).filter((c) => c.source === "hermes");
+  const hermes = connections[0]?.entity;
+  const segments: string[] = [];
+  if (hermes) {
+    const status = hermes.stats.status;
+    if (typeof status === "string" && status) segments.push(status);
+    const model = hermes.stats.model;
+    if (typeof model === "string" && model) segments.push(model);
+  }
+  const line = segments.join(" · ");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [identity, setIdentity] = useState<AgentIdentity | null>(null);
   useEffect(() => {
     if (!hermesKey) return;
     let cancelled = false;
-    // getAgentAvatar/getAgentIdentity never reject (lib/agent.ts resolves a
-    // miss to null) — the .catch is a floor against a future change to that.
     void getAgentAvatar(hermesKey).then((url) => { if (!cancelled) setAvatarUrl(url); }).catch(() => undefined);
     void getAgentIdentity(hermesKey).then((value) => { if (!cancelled) setIdentity(value); }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [hermesKey]);
-  const displayName = isAgent && identity?.displayName && identity.displayName !== rawName ? identity.displayName : rawName;
+  const displayName = hermesKey && identity?.displayName && identity.displayName !== rawName ? identity.displayName : rawName;
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
       <div>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>{eyebrow}</span>
+          <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>{kind}</span>
           <span className="flex items-center gap-1.5">
-            {pendingReview > 0 ? (
-              <span
-                title={`${pendingReview} booth draft${pendingReview === 1 ? "" : "s"} awaiting review`}
-                className="rounded-full border px-1.5 py-px text-[8px] font-semibold tabular-nums leading-none tracking-[.06em]"
-                style={{
-                  color: SOURCE_HUE.booth,
-                  borderColor: withAlpha(SOURCE_HUE.booth, 0.45),
-                  background: withAlpha(SOURCE_HUE.booth, 0.12),
-                  boxShadow: `0 0 8px ${withAlpha(SOURCE_HUE.booth, 0.35)}`,
-                }}
-              >
-                {pendingReview} to review
-              </span>
-            ) : null}
             {hermesKey ? <AgentActivityMark agentKey={hermesKey} /> : null}
-            {dots.map(({ source, ok }, i) => (
-              <span
-                key={`${source}-${i}`}
-                title={`${source} · ${ok ? "fresh" : "stale"}`}
-                className="size-[5px] rounded-full"
-                style={{
-                  background: SOURCE_HUE[source] ?? DIM,
-                  opacity: ok ? 1 : 0.3,
-                  boxShadow: ok ? `0 0 6px ${withAlpha(SOURCE_HUE[source] ?? DIM, 0.6)}` : "none",
-                }}
-              />
-            ))}
+            {connections.map(({ source, entity }, i) => {
+              const ok = entity !== undefined;
+              return (
+                <span
+                  key={`${source}-${i}`}
+                  title={`${source} · ${ok ? "fresh" : "stale"}`}
+                  className="size-[5px] rounded-full"
+                  style={{
+                    background: SOURCE_HUE[source] ?? DIM,
+                    opacity: ok ? 1 : 0.3,
+                    boxShadow: ok ? `0 0 6px ${withAlpha(SOURCE_HUE[source] ?? DIM, 0.6)}` : "none",
+                  }}
+                />
+              );
+            })}
           </span>
         </div>
         <div className="mt-1 flex items-center gap-1.5 overflow-hidden">
-          {isAgent ? (
+          {hermesKey ? (
             <span className="shrink-0 overflow-hidden rounded-full" style={{ width: 20, height: 20 }}>
               {avatarUrl ? <img src={avatarUrl} alt="" className="size-full object-cover" /> : null}
             </span>
@@ -476,7 +465,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
                     onRenameDone={() => setRenaming(false)}
                   />
                 )
-                : <EntityCard node={node} kind={node.ether.entity.kind} />}
+                : node.ether.entity.kind === "agent" ? <EntityCard node={node} kind="agent" />
+                : <NoteMarkdown source={text} />}
         </div>
       ) : (
         <div

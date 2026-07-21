@@ -77,54 +77,7 @@ describe("alert-queue", () => {
       expect(risen.map((r) => r.kind).sort()).toEqual(["blocked", "herdr-done", "orphan"]);
     });
 
-    it("booth-review rises on first pending and again when level increases", () => {
-      let q = emptyAlertQueue();
-      q = observeSignals(q, [], 1).queue;
 
-      const first = observeSignals(
-        q,
-        [sig({ id: alertId.boothReview("prism"), kind: "booth-review", subjectKey: "prism", level: 2, nodeId: "p1" })],
-        10,
-      );
-      expect(first.risen).toHaveLength(1);
-      expect(first.risen[0]?.level).toBe(2);
-      q = first.queue;
-
-      const steady = observeSignals(
-        q,
-        [sig({ id: alertId.boothReview("prism"), kind: "booth-review", subjectKey: "prism", level: 2, nodeId: "p1" })],
-        20,
-      );
-      expect(steady.risen).toEqual([]);
-      q = steady.queue;
-
-      const up = observeSignals(
-        q,
-        [sig({ id: alertId.boothReview("prism"), kind: "booth-review", subjectKey: "prism", level: 5, nodeId: "p1" })],
-        30,
-      );
-      expect(up.risen).toHaveLength(1);
-      expect(up.risen[0]?.level).toBe(5);
-      expect(up.queue.items).toHaveLength(1);
-      expect(up.queue.items[0]?.level).toBe(5);
-    });
-
-    it("does not re-rise on level decrease", () => {
-      let q = emptyAlertQueue();
-      q = observeSignals(q, [], 1).queue;
-      q = observeSignals(
-        q,
-        [sig({ id: alertId.boothReview("x"), kind: "booth-review", subjectKey: "x", level: 4 })],
-        2,
-      ).queue;
-      const down = observeSignals(
-        q,
-        [sig({ id: alertId.boothReview("x"), kind: "booth-review", subjectKey: "x", level: 1 })],
-        3,
-      );
-      expect(down.risen).toEqual([]);
-      expect(down.queue.items[0]?.level).toBe(1);
-    });
 
     it("removes items when the signal disappears", () => {
       let q = emptyAlertQueue();
@@ -151,14 +104,13 @@ describe("alert-queue", () => {
   });
 
   describe("priority order", () => {
-    it("orders permission before blocked before herdr before booth before orphan", () => {
+    it("orders permission before blocked before herdr before orphan", () => {
       let q = emptyAlertQueue();
       q = observeSignals(q, [], 1).queue;
       const { queue } = observeSignals(
         q,
         [
           sig({ id: alertId.orphan("c::r"), kind: "orphan", subjectKey: "c::r", nodeId: "r" }),
-          sig({ id: alertId.boothReview("p"), kind: "booth-review", subjectKey: "p", level: 1, nodeId: "p" }),
           sig({ id: alertId.herdrDone("h"), kind: "herdr-done", subjectKey: "h", nodeId: "h" }),
           sig({ id: alertId.blocked("b"), kind: "blocked", subjectKey: "b", nodeId: "b" }),
           sig({ id: alertId.permission("a"), kind: "permission", subjectKey: "a", nodeId: "a" }),
@@ -169,7 +121,6 @@ describe("alert-queue", () => {
         "permission",
         "blocked",
         "herdr-done",
-        "booth-review",
         "orphan",
       ]);
     });
@@ -289,7 +240,6 @@ describe("alert-queue", () => {
       expect(alertId.blocked("n")).toBe("blocked:n");
       expect(alertId.permission("h:p")).toBe("permission:h:p");
       expect(alertId.herdrDone("n")).toBe("herdr-done:n");
-      expect(alertId.boothReview("prj")).toBe("booth-review:prj");
       expect(alertId.orphan("c::r")).toBe("orphan:c::r");
     });
 

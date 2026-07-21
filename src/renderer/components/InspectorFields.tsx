@@ -7,12 +7,17 @@ import { towerProjectKey } from "@shared/execution-graph";
 import { findEntity } from "@shared/entities";
 import { addEdge, setEdgeCriteria } from "../lib/edge-mutations";
 import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTasks, setNodeTimer, setNodeView, setNodeWatch, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
-import { fetchTowerBrowse, glyphStateHue, orbitOptions, TOWER_STATES } from "../lib/browse";
 import { state$ } from "../lib/state";
-import { sourceEnabled } from "../lib/source-capabilities";
 import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
+
+// Watcher vocabulary (schema strings) — no live browse.
+const TOWER_STATES = ["backlog", "exploring", "committed", "building", "reviewing", "done", "abandoned"] as const;
+const ORBIT_BASE = ["forge", "beacon", "survey", "scribe", "oracle", "atelier", "manual", "showcase", "cartography"] as const;
+const orbitOptions = (_stats?: Readonly<Record<string, string | number>>): ReadonlyArray<string> =>
+  [...ORBIT_BASE];
+const glyphStateHue = (_state: string): string => DIM;
 
 const FLAG_OPTIONS: ReadonlyArray<{ readonly flag: EtherFlag; readonly hue: string }> = [
   { flag: "blocker", hue: HUE.crimson },
@@ -129,136 +134,6 @@ function TasksEditor({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-function GlyphTypeaheadPicker({
-  towerKey,
-  selectedIds,
-  onChange,
-}: {
-  readonly towerKey: string;
-  readonly selectedIds: ReadonlyArray<string>;
-  readonly onChange: (ids: ReadonlyArray<string>) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [rows, setRows] = useState<
-    ReadonlyArray<{ readonly glyphId: string; readonly title: string; readonly state: string; readonly orbit: string }>
-  >([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!towerKey) return;
-    let cancelled = false;
-    setLoading(true);
-    setError("");
-    void fetchTowerBrowse(towerKey)
-      .then((result) => {
-        if (cancelled) return;
-        if (!result.ok) {
-          setError(result.error ?? "browse failed");
-          setRows([]);
-          return;
-        }
-        setRows(
-          result.glyphs.map((g) => ({
-            glyphId: g.glyphId,
-            title: g.title,
-            state: g.state,
-            orbit: g.orbit,
-          })),
-        );
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [towerKey]);
-
-  const selected = new Set(selectedIds);
-  const q = query.trim().toLowerCase();
-  const filtered = rows.filter((row) => {
-    if (!q) return true;
-    return (
-      row.glyphId.toLowerCase().includes(q) ||
-      row.title.toLowerCase().includes(q) ||
-      row.state.toLowerCase().includes(q) ||
-      row.orbit.toLowerCase().includes(q)
-    );
-  });
-
-  const toggle = (glyphId: string) => {
-    if (selected.has(glyphId)) onChange(selectedIds.filter((id) => id !== glyphId));
-    else onChange([...selectedIds, glyphId]);
-  };
-
-  return (
-    <div style={{ marginTop: 6 }}>
-      <label className="inspector-editor">
-        <span>find glyphs</span>
-        <input
-          aria-label="Filter glyphs"
-          value={query}
-          placeholder="typeahead · id, title, state, orbit"
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      </label>
-      {loading ? <div className="inspector-detail">loading tower glyphs…</div> : null}
-      {error ? <div className="inspector-detail" style={{ color: HUE.crimson }}>{error}</div> : null}
-      {selectedIds.length > 0 ? (
-        <div className="mb-1 flex flex-wrap gap-1">
-          {selectedIds.map((id) => {
-            const row = rows.find((r) => r.glyphId === id);
-            return (
-              <button
-                key={id}
-                type="button"
-                className="inspector-flag-toggle"
-                style={{ color: HUE.amber, borderColor: withAlpha(HUE.amber, 0.5) }}
-                onClick={() => toggle(id)}
-                title="remove"
-              >
-                {row ? `${row.glyphId} · ${row.state}` : id} ×
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="inspector-detail">Select one or more glyphs that must be done.</div>
-      )}
-      <div className="max-h-40 overflow-y-auto" style={{ border: "1px solid rgba(237,230,218,.08)", borderRadius: 6 }}>
-        {filtered.slice(0, 40).map((row) => {
-          const on = selected.has(row.glyphId);
-          return (
-            <button
-              key={`${row.orbit}:${row.glyphId}`}
-              type="button"
-              className="flex w-full items-center gap-2 px-2 py-1 text-left text-[11px]"
-              style={{
-                color: on ? INK : DIM,
-                background: on ? withAlpha(HUE.amber, 0.1) : "transparent",
-                borderBottom: "1px solid rgba(237,230,218,.06)",
-              }}
-              onClick={() => toggle(row.glyphId)}
-            >
-              <span style={{ color: on ? HUE.amber : DIM }}>{on ? "☑" : "☐"}</span>
-              <span className="truncate font-mono">{row.glyphId}</span>
-              <span className="truncate opacity-80">{row.title}</span>
-              <span className="ml-auto shrink-0 tabular-nums opacity-60">{row.state}</span>
-            </button>
-          );
-        })}
-        {!loading && filtered.length === 0 ? (
-          <div className="inspector-detail px-2 py-2">no glyphs match</div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 export function EdgeCriteriaEditor({
   edgeId,
   fromNode,
@@ -353,28 +228,12 @@ export function EdgeCriteriaEditor({
           ) : null}
         </select>
       </label>
-      {mode === "glyphs" && towerKey ? (
-        <GlyphTypeaheadPicker
-          towerKey={towerKey}
-          selectedIds={selectedGlyphIds}
-          onChange={(glyphIds) => {
-            if (glyphIds.length === 0) {
-              setGlyphsDraft(true);
-              setEdgeCriteria(edgeId, undefined);
-              return;
-            }
-            setGlyphsDraft(false);
-            setEdgeCriteria(edgeId, {
-              mode: "glyphs",
-              glyphIds: [...glyphIds],
-              project: towerKey,
-              ...(criteria?.mode === "glyphs" && criteria.orbit ? { orbit: criteria.orbit } : {}),
-            });
-          }}
-        />
-      ) : null}
-      {mode === "glyphs" && !towerKey ? (
-        <div className="inspector-detail">Source needs a tower project binding to pick glyphs.</div>
+      {mode === "glyphs" ? (
+        <div className="inspector-detail">
+          {towerKey
+            ? "Glyph ids are authored on the edge (no live tower browse)."
+            : "Source needs a project identity (ether.entity.name) for glyph criteria."}
+        </div>
       ) : null}
       {mode === "wip" ? (
         <div className="inspector-detail">
@@ -678,13 +537,12 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
 }) {
   // Unconfigured sources drop out of the picker; an authored value stays
   // visible regardless so existing documents never render a blank select.
-  const snapshots = use$(state$.snapshots);
   const onEnter = commitOnEnter(onCommit);
   return <>
     <label className="inspector-editor">
       <span>source</span>
       <select aria-label="Watcher stat source" value={source} onChange={(event) => onSourceChange(event.target.value as NonNullable<EtherWatch["source"]>)}>
-        {STAT_SOURCE_OPTIONS.filter((s) => s === source || sourceEnabled(snapshots, s)).map((s) => <option key={s} value={s}>{s}</option>)}
+        {STAT_SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
       </select>
     </label>
     <label className="inspector-editor">
@@ -714,13 +572,12 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
 function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, towerKey: string | undefined) {
   // Fresh watchers on a station without tower default to the shape that can
   // actually evaluate there; authored values always win.
-  const towerOn = sourceEnabled(use$(state$.snapshots), "tower");
-  const [kind, setKind] = useState<EtherWatch["kind"]>(watch?.kind ?? (towerOn ? "glyphs_done" : "stat_threshold"));
+  const [kind, setKind] = useState<EtherWatch["kind"]>(watch?.kind ?? "stat_threshold");
   const [project, setProject] = useState(watch?.project ?? towerKey ?? "");
   const [orbit, setOrbit] = useState(watch?.orbit ?? "");
   const [glyphIdsText, setGlyphIdsText] = useState((watch?.glyphIds ?? []).join(", "));
   const [stateName, setStateName] = useState(watch?.state ?? "committed");
-  const [source, setSource] = useState<NonNullable<EtherWatch["source"]>>(watch?.source ?? (towerOn ? "tower" : "hermes"));
+  const [source, setSource] = useState<NonNullable<EtherWatch["source"]>>(watch?.source ?? "hermes");
   const [key, setKey] = useState(watch?.key ?? "");
   const [stat, setStat] = useState(watch?.stat ?? "");
   const [op, setOp] = useState<NonNullable<EtherWatch["op"]>>(watch?.op ?? "gt");
@@ -728,12 +585,12 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, towerKey: 
   const [flagOnUnsatisfied, setFlagOnUnsatisfied] = useState(Boolean(watch?.flagOnUnsatisfied));
 
   useEffect(() => {
-    setKind(watch?.kind ?? (towerOn ? "glyphs_done" : "stat_threshold"));
+    setKind(watch?.kind ?? "stat_threshold");
     setProject(watch?.project ?? towerKey ?? "");
     setOrbit(watch?.orbit ?? "");
     setGlyphIdsText((watch?.glyphIds ?? []).join(", "));
     setStateName(watch?.state ?? "committed");
-    setSource(watch?.source ?? (towerOn ? "tower" : "hermes"));
+    setSource(watch?.source ?? "hermes");
     setKey(watch?.key ?? "");
     setStat(watch?.stat ?? "");
     setOp(watch?.op ?? "gt");
@@ -758,7 +615,6 @@ function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   const towerKey = towerProjectKey(node);
   // Glyph-rule kinds are tower semantics: offer them only where tower is
   // configured (an authored kind stays visible regardless).
-  const towerOn = sourceEnabled(use$(state$.snapshots), "tower");
   const {
     kind, setKind, project, setProject, orbit, setOrbit, glyphIdsText, setGlyphIdsText,
     stateName, setStateName, source, setSource, key, setKey, stat, setStat, op, setOp,
@@ -803,7 +659,7 @@ function WatcherEditor({ node }: { readonly node: CanvasNode }) {
     <label className="inspector-editor">
       <span>kind</span>
       <select aria-label="Watcher kind" value={kind} onChange={(event) => { const next = event.target.value as EtherWatch["kind"]; setKind(next); commit({ kind: next }); }}>
-        {WATCH_KIND_OPTIONS.filter((option) => option.value === kind || option.value === "stat_threshold" || towerOn).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        {WATCH_KIND_OPTIONS.filter((option) => option.value === kind || option.value === "stat_threshold" || option.value === "glyphs_done" || option.value === "glyphs_entered_state").map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     </label>
     {kind !== "stat_threshold" ? (

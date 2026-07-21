@@ -44,13 +44,11 @@ export type CommandCardCaps = {
  */
 export function commandSelectionKind(
   node: CanvasNode,
-  opts?: { readonly hasBooth?: boolean },
+  _opts?: { readonly hasBooth?: boolean },
 ): CommandSelectionKind {
   if (node.type === "group") return "region";
   if (node.ether?.herdr || node.ether?.entity?.kind === "herdr") return "herdr";
-  if (node.ether?.entity?.kind === "project") {
-    return opts?.hasBooth ? "booth" : "project";
-  }
+  if (node.ether?.entity?.kind === "project") return "project";
   if (node.type === "link") return "link";
   return "default";
 }
@@ -71,13 +69,9 @@ export function primaryCommandActions(
       return out;
     }
     case "project":
-      return caps.canBrowse === false ? [] : ["browse-glyphs"];
-    case "booth": {
-      const out: PrimaryCommandAction[] = [];
-      if (caps.canBrowse !== false) out.push("browse-glyphs");
-      if (caps.canReview !== false) out.push("review-drafts");
-      return out;
-    }
+      return [];
+    case "booth":
+      return [];
     case "region":
       return ["arm-region", "pulse-region", "slot-cue"];
     case "link":

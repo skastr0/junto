@@ -52,25 +52,6 @@ export const makeGroupNode = (
   height: Math.round(size?.height ?? 320),
 });
 
-// A project is ONE identity card — its name in the current hue plus a compact
-// stat readout derived live from every source that knows it. `name` is the
-// immutable identity stamped at creation; the visible label stays free.
-export const makeProjectNode = (
-  x: number,
-  y: number,
-  label: string,
-  name: string,
-): TextNode => ({
-  id: `proj-${ulid()}`,
-  type: "text",
-  text: label,
-  x: Math.round(x),
-  y: Math.round(y),
-  width: 240,
-  height: 96,
-  ether: { entity: { kind: "project", name } },
-});
-
 // An agent node — profile name plus its live hermes readout (running/stopped,
 // model, version).
 export const makeAgentNode = (

@@ -122,65 +122,6 @@ describe("collectAlertSignals", () => {
     expect(signals[0]?.nodeId).toBe("h1");
   });
 
-  it("collects booth pending with level and project node focus", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        {
-          id: "proj-1",
-          type: "text",
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 40,
-          text: "prism",
-          ether: { entity: { kind: "project", name: "prism" } },
-        },
-      ],
-      edges: [],
-    };
-    const snapshots: SnapshotState = {
-      bundles: [
-        {
-          source: "booth",
-          fetchedAt: "2025-01-01T00:00:00Z",
-          ok: true,
-          entities: [
-            {
-              source: "booth",
-              key: "prism",
-              kind: "project",
-              title: "Prism",
-              stats: { pending_review: 3 },
-              updatedAt: "2025-01-01T00:00:00Z",
-            },
-            {
-              source: "booth",
-              key: "quiet",
-              kind: "project",
-              title: "Quiet",
-              stats: { pending_review: 0 },
-              updatedAt: "2025-01-01T00:00:00Z",
-            },
-          ],
-        },
-      ],
-    };
-    const signals = collectAlertSignals({
-      doc,
-      rollups: [],
-      chat: {},
-      herdrMeta: {},
-      snapshots,
-      orphans: [],
-    });
-    expect(signals).toHaveLength(1);
-    expect(signals[0]).toMatchObject({
-      id: alertId.boothReview("prism"),
-      kind: "booth-review",
-      level: 3,
-      nodeId: "proj-1",
-    });
-  });
 
   it("collects orphans and resolves region id when present", () => {
     const doc: CanvasDoc = {

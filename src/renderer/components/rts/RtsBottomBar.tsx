@@ -24,7 +24,6 @@ import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { groupMembers } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
-import { connectionKey, resolveNodeConnections } from "../../../shared/connections";
 import { state$, toggleFlagFilter } from "../../lib/state";
 import { assignSlot, mergeSlotOrder, useRegionRollups } from "../../lib/region-rollups";
 import {
@@ -60,12 +59,10 @@ import { playAlert } from "../../lib/sfx";
 import { HUE, withAlpha } from "../../lib/theme";
 import { armRegion, disarmOrphan, kernel$, pulseRegion } from "../../lib/kernel-view";
 import { useAlertAttention } from "../../lib/alert-attention";
-import { fetchBoothDrafts, orderDrafts } from "../../lib/booth-browse";
 import { ConnectEditor } from "../InspectorFields";
 import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
 import { PulseTray } from "../PulseTray";
 import { DetailModal } from "../DetailModal";
-import { DraftDetailBody } from "../BoothBrowse";
 import "./RtsBottomBar.css";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -382,8 +379,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [copyDetail, setCopyDetail] = useState("");
   const [killArmed, setKillArmed] = useState(false);
-  const [reviewDraft, setReviewDraft] = useState<{ readonly id: string; readonly projectKey: string } | null>(null);
-  const copyRequest = useRef(0);
+    const copyRequest = useRef(0);
   const killTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -392,7 +388,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     setCopyDetail("");
     setConnectOpen(false);
     setKillArmed(false);
-    setReviewDraft(null);
     if (killTimer.current !== null) {
       window.clearTimeout(killTimer.current);
       killTimer.current = null;
@@ -418,18 +413,13 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
 
   const flags = node.ether?.flags ?? [];
   const herdr = node.ether?.herdr;
-  const connections = resolveNodeConnections(node.ether?.entity, snapshots);
-  const towerKey = connectionKey(connections, "tower");
-  const boothKey = connectionKey(connections, "booth");
-  const kind = commandSelectionKind(node, { hasBooth: Boolean(boothKey) });
+  const kind = commandSelectionKind(node);
   const agentStatus = herdrMeta?.meta?.agentStatus;
   const canMarkSeen = Boolean(herdr?.paneId) && agentStatus === "done";
   const canKill = Boolean(herdr?.paneId);
   const primary = primaryCommandActions(kind, {
     canMarkSeen,
     canKill,
-    canBrowse: Boolean(towerKey) || kind === "project" || kind === "booth",
-    canReview: Boolean(boothKey),
   });
 
   const metaLine = (() => {
@@ -437,8 +427,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
       const status = agentStatus ? ` · ${agentStatus}` : "";
       return `herdr · ${herdr.host}${status}`;
     }
-    if (kind === "booth") return boothKey ? `booth · ${boothKey}` : "booth";
-    if (kind === "project") return towerKey ? `project · ${towerKey}` : nodeTypeLabel(node);
     return nodeTypeLabel(node);
   })();
 
@@ -493,16 +481,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     void killHerdrPane(node.id, herdr);
   };
 
-  const openReviewQueue = () => {
-    if (!boothKey) return;
-    void fetchBoothDrafts(boothKey).then((result) => {
-      if (!result.ok || result.drafts.length === 0) return;
-      const ordered = orderDrafts(result.drafts);
-      const ready = ordered.find((d) => d.status === "ready_for_review") ?? ordered[0];
-      if (!ready) return;
-      setReviewDraft({ id: ready.id, projectKey: boothKey });
-    });
-  };
 
   const renderPrimary = (action: PrimaryCommandAction) => {
     switch (action) {
@@ -547,42 +525,18 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
             <SquareX size={ICON} />
           </CmdKey>
         ) : null;
-      case "browse-glyphs":
-        return (
-          <CmdKey
-            key={action}
-            label="Browse glyphs"
-            title="focus node — inspector browse"
-            style={{ color: HUE.cyan }}
-            onClick={() => {
-              state$.selectedNodeId.set(node.id);
-              state$.selectedNodeIds.set([node.id]);
-              state$.selectedEdgeId.set("");
-              state$.focusNodeId.set(node.id);
-            }}
-          >
-            <Search size={ICON} />
-          </CmdKey>
-        );
-      case "review-drafts":
-        return (
-          <CmdKey
-            key={action}
-            label="Review drafts"
-            title={boothKey ? "open next draft in review queue" : "no booth binding"}
-            style={{ color: HUE.violet }}
-            disabled={!boothKey}
-            onClick={openReviewQueue}
-          >
-            <ListTree size={ICON} />
-          </CmdKey>
-        );
       case "open-link":
         return node.type === "link" ? (
           <CmdKey key={action} label="Open link" onClick={() => window.open(node.url, "_blank")}>
             <ExternalLink size={ICON} />
           </CmdKey>
         ) : null;
+      case "arm-region":
+      case "pulse-region":
+      case "slot-cue":
+      case "browse-glyphs":
+      case "review-drafts":
+        return null;
       default:
         return null;
     }
@@ -686,11 +640,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
           </div>
         ) : null}
       </div>
-      {reviewDraft ? (
-        <DetailModal onClose={() => setReviewDraft(null)}>
-          <DraftDetailBody draftId={reviewDraft.id} projectKey={reviewDraft.projectKey} />
-        </DetailModal>
-      ) : null}
     </div>
   );
 }

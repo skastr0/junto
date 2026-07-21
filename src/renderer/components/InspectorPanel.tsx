@@ -10,12 +10,10 @@ import { clearSelection, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { DIM, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
 import { ActivityMarkFromSpec } from "./ActivityMark";
-import { entityReadout } from "../lib/entity-readout";
 import { resolveNodeConnections } from "../../shared/connections";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
 import { getAgentAvatar, getAgentIdentity } from "../lib/agent";
 import { getVellumApi } from "../lib/vellum-api";
-import { ProjectBrowseSection } from "./InspectorBrowse";
 import { BrowserAutomationSection } from "./BrowserAutomationSection";
 import { ChatView, InspectorTabs } from "./chat";
 import { chatState$ } from "../lib/chat-state";
@@ -44,8 +42,15 @@ function AccentControls({ value, onChange }: { readonly value?: string; readonly
 // row per connector — the same truth the card wears, with room to breathe.
 function LiveReadout({ node }: { readonly node: CanvasNode }) {
   const snapshots = use$(state$.snapshots);
-  const { segments } = entityReadout(node.ether?.entity, snapshots);
-  const connections = resolveNodeConnections(node.ether?.entity, snapshots);
+  const connections = resolveNodeConnections(node.ether?.entity, snapshots).filter((c) => c.source === "hermes");
+  const hermes = connections[0]?.entity;
+  const segments: string[] = [];
+  if (hermes) {
+    const status = hermes.stats.status;
+    if (typeof status === "string" && status) segments.push(status);
+    const model = hermes.stats.model;
+    if (typeof model === "string" && model) segments.push(model);
+  }
   return <div className="inspector-section">
     <div className="inspector-section__label">live readout</div>
     <div className="text-[13px] tabular-nums" style={{ color: "#EDE6DA" }}>{segments.join(" · ") || <span style={{ color: DIM }}>no live data</span>}</div>
@@ -265,8 +270,7 @@ function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly 
         </div>
       ) : <>
         {!isEntity ? <div className="inspector-detail">{nodeDetail(node) || "No description recorded."}</div> : null}
-        {isEntity && node.ether?.entity?.kind === "herdr" ? <HerdrSections key={node.id} node={node} /> : isEntity ? <LiveReadout node={node} /> : null}
-        {isEntity && node.ether?.entity?.kind === "project" ? <ProjectBrowseSection key={node.id} node={node} /> : null}
+        {isEntity && node.ether?.entity?.kind === "herdr" ? <HerdrSections key={node.id} node={node} /> : isEntity && node.ether?.entity?.kind === "agent" ? <LiveReadout node={node} /> : !isEntity || node.ether?.entity?.kind === "project" ? <div className="inspector-detail">{nodeDetail(node) || (node.ether?.entity?.kind === "project" ? "project (note)" : "No description recorded.")}</div> : null}
         {isAgent ? <AgentSections key={node.id} node={node} /> : null}
         <BrowserAutomationSection key={`${canvasName}:${node.id}`} canvasName={canvasName} node={node} />
         <NodeFieldEditors node={node} />

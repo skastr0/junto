@@ -6,7 +6,6 @@
  */
 
 import blockedUrl from "../assets/sfx/blocked.mp3?url";
-import boothReviewUrl from "../assets/sfx/booth-review.mp3?url";
 import cycleUrl from "../assets/sfx/cycle.mp3?url";
 import herdrDoneUrl from "../assets/sfx/herdr-done.mp3?url";
 import orphanUrl from "../assets/sfx/orphan.mp3?url";
@@ -19,7 +18,6 @@ export const ALERT_SFX_IDS = [
   "blocked",
   "permission",
   "herdr-done",
-  "booth-review",
   "orphan",
   "cycle",
 ] as const;
@@ -33,7 +31,6 @@ export const SFX_CLIP_KEYS: ReadonlyArray<SfxClipKey> = [
   "blocked",
   "permission",
   "herdrDone",
-  "boothReview",
   "orphan",
   "cycle",
 ];
@@ -42,7 +39,6 @@ export const SFX_LABELS: Readonly<Record<AlertSfxId, string>> = {
   blocked: "Blocked",
   permission: "Permission pending",
   "herdr-done": "Herdr done",
-  "booth-review": "Booth review",
   orphan: "Orphaned arm",
   cycle: "Cycle / next alert",
 };
@@ -51,7 +47,6 @@ const URLS: Readonly<Record<AlertSfxId, string>> = {
   blocked: blockedUrl,
   permission: permissionUrl,
   "herdr-done": herdrDoneUrl,
-  "booth-review": boothReviewUrl,
   orphan: orphanUrl,
   cycle: cycleUrl,
 };
@@ -63,21 +58,22 @@ export const sfxIdToClipKey = (id: AlertSfxId): SfxClipKey => {
   switch (id) {
     case "herdr-done":
       return "herdrDone";
-    case "booth-review":
-      return "boothReview";
     default:
       return id;
   }
 };
 
-export const clipKeyToSfxId = (key: SfxClipKey): AlertSfxId => {
+export const clipKeyToSfxId = (key: SfxClipKey): AlertSfxId | null => {
   switch (key) {
     case "herdrDone":
       return "herdr-done";
-    case "boothReview":
-      return "booth-review";
-    default:
+    case "blocked":
+    case "permission":
+    case "orphan":
+    case "cycle":
       return key;
+    default:
+      return null; // e.g. legacy boothReview settings key
   }
 };
 

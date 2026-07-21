@@ -18,7 +18,7 @@ const text = (over: Partial<CanvasNode> & { type?: "text"; text?: string } = {})
   }) as CanvasNode;
 
 describe("commandSelectionKind", () => {
-  it("classifies region, herdr, project, booth, link, default", () => {
+  it("classifies region, herdr, project, link, default", () => {
     expect(commandSelectionKind({ ...base, type: "group", label: "ops" })).toBe("region");
     expect(
       commandSelectionKind(
@@ -31,11 +31,12 @@ describe("commandSelectionKind", () => {
     expect(
       commandSelectionKind(text({ ether: { entity: { kind: "project", name: "prism" } } })),
     ).toBe("project");
+    // hasBooth is ignored — booth live plane is gone
     expect(
       commandSelectionKind(text({ ether: { entity: { kind: "project", name: "prism" } } }), {
         hasBooth: true,
       }),
-    ).toBe("booth");
+    ).toBe("project");
     expect(commandSelectionKind({ ...base, type: "link", url: "https://x.com" })).toBe("link");
     expect(commandSelectionKind(text({ text: "note" }))).toBe("default");
     expect(commandSelectionKind(text({ ether: { entity: { kind: "agent", name: "h:p" } } }))).toBe(
@@ -58,13 +59,9 @@ describe("primaryCommandActions", () => {
     ]);
   });
 
-  it("project / booth browse + review gates", () => {
-    expect(primaryCommandActions("project")).toEqual(["browse-glyphs"]);
-    expect(primaryCommandActions("project", { canBrowse: false })).toEqual([]);
-    expect(primaryCommandActions("booth")).toEqual(["browse-glyphs", "review-drafts"]);
-    expect(primaryCommandActions("booth", { canBrowse: false, canReview: true })).toEqual([
-      "review-drafts",
-    ]);
+  it("project / booth have no private-source primary actions", () => {
+    expect(primaryCommandActions("project")).toEqual([]);
+    expect(primaryCommandActions("booth")).toEqual([]);
   });
 
   it("region / link / default", () => {

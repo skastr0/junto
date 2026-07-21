@@ -18,19 +18,17 @@ import {
 import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { EtherEdgeKind, EtherFlag, TextNode } from "@shared/canvas";
-import { mergeProjects } from "@shared/portfolio";
 import { Ban, Bot, Boxes, Expand, Eye, FileText, Globe, Link2, ListChecks, Plus, ScanLine, SquareDashed, Terminal, Timer, Trash2 } from "lucide-react";
 import { state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { searchText, toFlow } from "../lib/convert";
 import { nodeTitle } from "../lib/presentation";
-import { anyPrivateSourceEnabled } from "../lib/source-capabilities";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
-import { makeAgentNode, makeFileNode, makeGroupNode, makeLinkNode, makePageNode, makeProjectNode, makeTasksNode, makeTextNode } from "../lib/node-factories";
+import { makeAgentNode, makeFileNode, makeGroupNode, makeLinkNode, makePageNode, makeTasksNode, makeTextNode } from "../lib/node-factories";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { GROUND, HUE } from "../lib/theme";
 import type { MemberSeverity } from "@shared/region-rollup";
@@ -265,11 +263,10 @@ function useCanvasInteractions(rf: CanvasFlow, setNodes: ReturnType<typeof useNo
   return { onConnect, onConnectEnd, onNodeDragStart, onNodeDrag, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick };
 }
 
-type AddPicker = "project" | "agent" | null;
+type AddPicker = "agent" | null;
 
 interface AddActions {
   readonly create: (kind: "text" | "file" | "link" | "group") => void;
-  readonly addProject: (display: string, name: string) => void;
   readonly addAgent: (label: string, key: string) => void;
   readonly addWatcher: () => void;
   readonly addTimer: () => void;
@@ -326,13 +323,6 @@ const makeAddActions = (
           ? makeLinkNode(position.x, position.y)
           : makeGroupNode(position.x, position.y);
     addNode(node);
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addProject: (display, name) => {
-    const position = positionFor({ width: 240, height: 96 });
-    const node = makeProjectNode(position.x, position.y, display, name);
-    addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
   },
@@ -444,9 +434,7 @@ type MenuEntry = {
 // row is highlighted (the top match by default).
 function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; readonly setPicker: (picker: AddPicker) => void; readonly actions: AddActions }) {
   const snapshots = use$(state$.snapshots);
-  // Merged live projects (tower/quasar/booth, collapsed by title into one entry
   // bound to every source that knows it).
-  const projects = mergeProjects(snapshots, { all: true });
   const agents = snapshots.bundles
     .filter((bundle) => bundle.ok && bundle.source === "hermes")
     .flatMap((bundle) => bundle.entities)
@@ -475,21 +463,9 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
       { key: "tasks", label: "tasks", sub: "local checklist · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", onSelect: () => actions.addTasks() },
       { key: "herdr", label: "herdr", sub: "work surface · attach live pane", icon: <Terminal size={14} />, ariaLabel: "Add herdr work surface", onSelect: () => actions.addHerdr() },
       { key: "page", label: "page", sub: "work surface · browser session", icon: <Globe size={14} />, ariaLabel: "Add browser page work surface", onSelect: () => actions.addPage() },
-      ...(anyPrivateSourceEnabled(snapshots)
-        ? [{ key: "project", label: "project", sub: "bound live readout", icon: <Boxes size={14} />, ariaLabel: "Add project", onSelect: () => setPicker("project") }]
-        : []),
       { key: "agent", label: "agent", sub: "hermes profile", icon: <Bot size={14} />, ariaLabel: "Add agent", onSelect: () => setPicker("agent") },
     ]
-    : picker === "project"
-      ? projects.map((project) => ({
-        key: project.display,
-        label: project.display,
-        sub: [...project.sources].join(" · "),
-        icon: <Boxes size={13} />,
-        ariaLabel: `Add project ${project.display}`,
-        onSelect: () => actions.addProject(project.display, project.name),
-      }))
-      : agents.map((agent) => {
+    : agents.map((agent) => {
         const host = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
         const title = agent.title ?? agent.key;
         return {
@@ -522,9 +498,9 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
   };
 
   const isPicker = picker !== null;
-  const emptyLabel = picker === "project" ? "No projects in the live snapshots." : "No agents in the live snapshots.";
+  const emptyLabel = "No agents in the live snapshots.";
 
-  return <div className={isPicker ? "node-palette__menu node-palette__menu--picker" : "node-palette__menu"} role={isPicker ? "listbox" : undefined} aria-label={isPicker ? `Choose ${picker === "project" ? "a project" : "an agent"}` : undefined}>
+  return <div className={isPicker ? "node-palette__menu node-palette__menu--picker" : "node-palette__menu"} role={isPicker ? "listbox" : undefined} aria-label={isPicker ? "Choose an agent" : undefined}>
     {isPicker ? <div className="node-palette__picker-head"><button type="button" aria-label="Back to add menu" onClick={() => setPicker(null)}>‹ {picker}</button></div> : null}
     <input
       ref={inputRef}

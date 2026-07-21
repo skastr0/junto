@@ -2,7 +2,7 @@
  * Wire: rising-edge alert queue → SFX + Space/` cycle → focusNodeId.
  *
  * Pure model lives in alert-queue.ts. This module collects live signals from
- * region rollups, chat permissions, herdr done, booth pending, and kernel
+ * region rollups, chat permissions, herdr done, and kernel
  * orphans; observes the queue; plays playAlert on rise; and cycles focus.
  */
 
@@ -35,16 +35,6 @@ const agentNodeId = (doc: CanvasDoc, agentKey: string): string | undefined => {
     if (node.ether?.entity?.kind === "agent" && node.ether.entity.name === agentKey) {
       return node.id;
     }
-  }
-  return undefined;
-};
-
-/** Prefer project node whose entity.name is the booth/tower key. */
-const boothNodeId = (doc: CanvasDoc, projectKey: string): string | undefined => {
-  for (const node of doc.nodes) {
-    const entity = node.ether?.entity;
-    if (!entity?.name) continue;
-    if (entity.name === projectKey) return node.id;
   }
   return undefined;
 };
@@ -110,23 +100,6 @@ export const collectAlertSignals = (input: {
       nodeId: nodeExists(doc, nodeId),
       label: nodeId,
     });
-  }
-
-  // booth-review: pending_review > 0 (level = count for re-rise on increase)
-  const boothBundle = snapshots.bundles.find((b) => b.source === "booth" && b.ok);
-  if (boothBundle) {
-    for (const entity of boothBundle.entities) {
-      const pending = entity.stats.pending_review;
-      if (typeof pending !== "number" || pending <= 0) continue;
-      push({
-        id: alertId.boothReview(entity.key),
-        kind: "booth-review",
-        subjectKey: entity.key,
-        nodeId: boothNodeId(doc, entity.key),
-        label: entity.title || entity.key,
-        level: pending,
-      });
-    }
   }
 
   // orphan: kernel orphaned arms

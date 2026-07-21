@@ -16,7 +16,6 @@ export const ALERT_KINDS = [
   "blocked",
   "permission",
   "herdr-done",
-  "booth-review",
   "orphan",
 ] as const;
 
@@ -31,7 +30,6 @@ export const ALERT_KIND_PRIORITY: Readonly<Record<AlertKind, number>> = {
   permission: 0,
   blocked: 1,
   "herdr-done": 2,
-  "booth-review": 3,
   orphan: 4,
 };
 
@@ -39,7 +37,6 @@ export const ALERT_KIND_LABEL: Readonly<Record<AlertKind, string>> = {
   permission: "permission",
   blocked: "blocked",
   "herdr-done": "herdr done",
-  "booth-review": "booth review",
   orphan: "orphan",
 };
 
@@ -238,7 +235,6 @@ export const alertId = {
   blocked: (nodeId: string) => `blocked:${nodeId}`,
   permission: (agentKey: string) => `permission:${agentKey}`,
   herdrDone: (nodeId: string) => `herdr-done:${nodeId}`,
-  boothReview: (projectKey: string) => `booth-review:${projectKey}`,
   orphan: (key: string) => `orphan:${key}`,
 } as const;
 

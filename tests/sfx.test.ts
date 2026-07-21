@@ -15,8 +15,8 @@ describe("sfx catalog", () => {
     vi.restoreAllMocks();
   });
 
-  it("exposes six alert ids with resolvable urls", () => {
-    expect(ALERT_SFX_IDS).toHaveLength(6);
+  it("exposes alert ids with resolvable urls", () => {
+    expect(ALERT_SFX_IDS).toHaveLength(5);
     for (const id of ALERT_SFX_IDS) {
       expect(sfxUrl(id)).toMatch(/\.mp3/);
       expect(sfxIdToClipKey(id)).toBeTruthy();
