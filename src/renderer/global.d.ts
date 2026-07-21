@@ -2,7 +2,6 @@ import type {
   ChassisApi,
   VellumApi,
   VellumBrowserApi,
-  VellumBrowserAutomationApi,
   VellumChatApi,
   VellumDemoApi,
   VellumHerdrApi,
@@ -15,7 +14,6 @@ declare global {
       VellumChatApi &
       VellumHerdrApi &
       VellumBrowserApi &
-      VellumBrowserAutomationApi &
       VellumDemoApi;
   }
 }

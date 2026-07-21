@@ -7,7 +7,6 @@ import {
   type HerdrMirrorEvent,
   type HerdrStreamEvent,
   type HerdrStreamOpenInput,
-  type BrowserAutomationEnableInput,
   type BrowserOpenInput,
   type BrowserProfileWipeInput,
   type BrowserSessionInfo,
@@ -16,7 +15,6 @@ import {
   type LoginItemOpResult,
   type VellumApi,
   type VellumBrowserApi,
-  type VellumBrowserAutomationApi,
   type VellumChatApi,
   type VellumDemoApi,
   type VellumHerdrApi,
@@ -387,14 +385,6 @@ const demoApi: VellumDemoApi = {
   demoWriteEdl: (edl) => invoke(IPC_CHANNELS.demoWriteEdl, IPC_TIMEOUT_MS, edl),
 };
 
-const browserAutomationApi: VellumBrowserAutomationApi = {
-  browserAutomationEnable: (input: BrowserAutomationEnableInput) =>
-    invoke(IPC_CHANNELS.browserAutomationEnable, IPC_TIMEOUT_MS, input),
-  browserAutomationList: () =>
-    invoke(IPC_CHANNELS.browserAutomationList, IPC_TIMEOUT_MS),
-  browserAutomationRevoke: (automationId) =>
-    invoke(IPC_CHANNELS.browserAutomationRevoke, IPC_TIMEOUT_MS, automationId),
-};
 
 contextBridge.exposeInMainWorld("chassis", chassisApi);
 contextBridge.exposeInMainWorld("vellum", {
@@ -402,6 +392,5 @@ contextBridge.exposeInMainWorld("vellum", {
   ...chatApi,
   ...herdrApi,
   ...browserApi,
-  ...browserAutomationApi,
   ...demoApi,
 });

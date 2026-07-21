@@ -2,10 +2,9 @@ import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import { isAllowedBrowserUrl } from "@shared/browser";
 import {
-  makeBrowserAutomationProduct,
-  type BrowserAutomationProduct,
-  type BrowserAutomationProductDependencies,
-} from "./agent-product";
+  makeBrowserCapabilityRegistry,
+  type BrowserCapabilityRegistry,
+} from "./capabilities";
 import { makeBrowserProfileGate, type BrowserProfileGate } from "./profile-gate";
 import {
   makeBrowserProfileStorageLifecycle,
@@ -14,7 +13,6 @@ import {
   type BrowserProfileStoragePlatform,
   type BrowserProfileStorageSessionControl,
 } from "./profile-storage";
-import { makeElectronBrowserProfileStoragePlatform } from "./profile-storage-electron";
 import {
   makeBrowserProfileService,
   type BrowserProfileServiceApi,
@@ -24,7 +22,10 @@ import {
   BrowserSessionService,
   type BrowserViewAdapter,
 } from "./sessions";
-import { electronViewAdapter } from "./view-adapter";
+
+// Browser composition without ceremony: sessions + profiles + internal
+// capability registry (edge-grant leases only). Product access is
+// process-bind + canvas edges — no enable/restart grant delivery.
 
 export const BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE =
   "browser security initialization failed; browser startup blocked";
@@ -37,17 +38,14 @@ export class BrowserCompositionStartupError extends Error {
   }
 }
 
-export type BrowserCompositionDependencies = Omit<
-  BrowserAutomationProductDependencies,
-  "sessions" | "profileGate"
->;
-
 export interface BrowserComposition {
   readonly profileGate: BrowserProfileGate;
   readonly profiles: BrowserProfileServiceApi;
   readonly sessions: BrowserSessionService;
   readonly storage: BrowserProfileWipeLifecycle;
-  readonly automation: BrowserAutomationProduct;
+  /** Internal edge-grant lease registry — not a product grant surface. */
+  readonly registry: BrowserCapabilityRegistry;
+  readonly close: () => void;
 }
 
 export interface BrowserCompositionRuntime {
@@ -58,9 +56,6 @@ export interface BrowserCompositionRuntime {
   readonly makeStorageLifecycle?: (
     dependencies: BrowserProfileStorageDependencies,
   ) => BrowserProfileWipeLifecycle;
-  readonly makeAutomationProduct?: (
-    dependencies: BrowserAutomationProductDependencies,
-  ) => BrowserAutomationProduct;
 }
 
 class BindOnce<T extends object> {
@@ -81,26 +76,15 @@ class BindOnce<T extends object> {
   }
 }
 
-const closeAutomation = (automation: BrowserAutomationProduct | undefined): void => {
-  try {
-    automation?.close();
-  } catch {
-    // Startup is already blocked; cleanup cannot weaken the fixed failure.
-  }
-};
-
 /**
- * Builds the sole browser authority graph, completes cold profile recovery,
- * and only then invokes the caller-owned activation boundary. The private
- * bind-once delegates break the storage lifecycle cycle without widening its
- * session or capability authority.
+ * Builds sessions + profile gate + internal capability registry, completes
+ * cold profile recovery, then activates the control plane.
  */
 export const startBrowserComposition = async (
-  dependencies: BrowserCompositionDependencies,
   activate: (composition: BrowserComposition) => void | Promise<void>,
   runtime: BrowserCompositionRuntime = {},
 ): Promise<BrowserComposition> => {
-  let automation: BrowserAutomationProduct | undefined;
+  let registry: BrowserCapabilityRegistry | undefined;
   try {
     const profileGate = runtime.profileGate ?? makeBrowserProfileGate();
     const sessionsRef = new BindOnce<BrowserProfileStorageSessionControl>();
@@ -113,8 +97,16 @@ export const startBrowserComposition = async (
       revokeByProfile: (profile, reason) =>
         capabilitiesRef.get().revokeByProfile(profile, reason),
     });
+    // Electron platform/view adapters are production-only defaults so unit
+    // tests can inject stubs without importing the electron package.
+    const platform =
+      runtime.storagePlatform ??
+      (await import("./profile-storage-electron")).makeElectronBrowserProfileStoragePlatform();
+    const viewAdapter =
+      runtime.viewAdapter ?? (await import("./view-adapter")).electronViewAdapter;
+
     const storage = (runtime.makeStorageLifecycle ?? makeBrowserProfileStorageLifecycle)({
-      platform: runtime.storagePlatform ?? makeElectronBrowserProfileStoragePlatform(),
+      platform,
       sessions: storageSessionControl,
       capabilities: storageCapabilityControl,
       profileGate,
@@ -124,7 +116,7 @@ export const startBrowserComposition = async (
       profileGate,
     });
     const sessions = new BrowserSessionService(
-      runtime.viewAdapter ?? electronViewAdapter,
+      viewAdapter,
       profiles,
       Date.now,
       randomUUID,
@@ -132,25 +124,48 @@ export const startBrowserComposition = async (
       profileGate,
     );
     sessionsRef.bind(sessions);
-    automation = (runtime.makeAutomationProduct ?? makeBrowserAutomationProduct)({
-      ...dependencies,
-      sessions,
-      profileGate,
-    });
-    capabilitiesRef.bind(automation.registry);
 
+    registry = makeBrowserCapabilityRegistry({
+      profileGate,
+      onTerminate: (notice) => {
+        try {
+          sessions.destroyOwnerSessions(notice.auditId, "browser authority ended");
+        } catch {
+          // Registry termination must remain complete if teardown fails.
+        }
+      },
+    });
+    capabilitiesRef.bind(registry);
+
+    let closed = false;
     const composition = Object.freeze<BrowserComposition>({
       profileGate,
       profiles,
       sessions,
       storage,
-      automation,
+      registry,
+      close: () => {
+        if (closed) return;
+        closed = true;
+        try {
+          registry?.close();
+        } catch {
+          // best-effort
+        }
+      },
     });
     await Effect.runPromise(profiles.recoverPendingWipe);
     await activate(composition);
     return composition;
-  } catch {
-    closeAutomation(automation);
-    throw new BrowserCompositionStartupError();
+  } catch (error) {
+    try {
+      registry?.close();
+    } catch {
+      // Startup is already blocked.
+    }
+    // Preserve cause for diagnostics (tests/logs); public message stays fixed.
+    const failure = new BrowserCompositionStartupError();
+    (failure as Error & { cause?: unknown }).cause = error;
+    throw failure;
   }
 };

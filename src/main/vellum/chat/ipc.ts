@@ -22,8 +22,13 @@ export const registerChatIpc = (
 
   ipcMain.handle(
     IPC_CHANNELS.chatOpen,
-    (_event, agentKey: string, resumeSessionId?: string): Promise<ChatOpenResult> =>
-      service.then((resolved) => resolved.chatOpen(agentKey, resumeSessionId)),
+    (
+      _event,
+      agentKey: string,
+      resumeSessionId?: string,
+      bindPin?: { readonly canvasName: string; readonly nodeId: string },
+    ): Promise<ChatOpenResult> =>
+      service.then((resolved) => resolved.chatOpen(agentKey, resumeSessionId, bindPin)),
   );
 
   ipcMain.handle(

@@ -16,15 +16,15 @@ describe("browser startup recovery gate", () => {
     const composition = ready.indexOf("startBrowserComposition(");
     const activation = ready.indexOf("async (composition) =>", composition);
     const control = ready.indexOf("startBrowserControlServer(", activation);
-    const agentIpc = ready.indexOf("registerBrowserAgentIpc(", activation);
     const browserIpc = ready.indexOf("registerBrowserIpcHandlers(", activation);
     const window = ready.indexOf("if (!headless) createWindow()", composition);
 
     expect(composition).toBeGreaterThanOrEqual(0);
     expect(activation).toBeGreaterThan(composition);
     expect(control).toBeGreaterThan(activation);
-    expect(agentIpc).toBeGreaterThan(control);
-    expect(browserIpc).toBeGreaterThan(agentIpc);
+    expect(browserIpc).toBeGreaterThan(control);
+    // Ceremony agent IPC must stay gone.
+    expect(ready.indexOf("registerBrowserAgentIpc(")).toBe(-1);
     expect(window).toBeGreaterThan(browserIpc);
     expect(ready.slice(composition, window)).not.toContain("session.fromPartition");
   });

@@ -284,6 +284,20 @@ export class ChatService {
     );
   }
 
+  /**
+   * Optional canvas pin for the next local bind (set by callers that know the
+   * agent card). Cleared after bind. Reduces multi-canvas ambiguous matches.
+   */
+  private pendingBindPin:
+    | { readonly canvasName: string; readonly nodeId: string }
+    | undefined;
+
+  setAgentBindPin(
+    pin: { readonly canvasName: string; readonly nodeId: string } | undefined,
+  ): void {
+    this.pendingBindPin = pin;
+  }
+
   private bindLocalProcess(agentKey: string, session: AgentSession): void {
     if (session.host !== "local") return;
     const pid = session.client.childPid;
@@ -291,7 +305,16 @@ export class ChatService {
     const map = getProcessIdentityMap();
     // Drop any prior bind for this agentKey before attaching the new child.
     map.unbindAgentKey(agentKey);
-    if (!map.bind(pid, { kind: "agent", agentKey })) return;
+    const pin = this.pendingBindPin;
+    this.pendingBindPin = undefined;
+    const principal = {
+      kind: "agent" as const,
+      agentKey,
+      ...(pin !== undefined
+        ? { canvasName: pin.canvasName, nodeId: pin.nodeId }
+        : {}),
+    };
+    if (!map.bind(pid, principal)) return;
     session.boundPid = pid;
   }
 
@@ -415,7 +438,12 @@ export class ChatService {
   // path (it would return ok:true with an empty, unusable sessionId). It
   // falls through to the openInFlight check below instead and joins the
   // same in-flight open.
-  async chatOpen(agentKey: string, resumeSessionId?: string): Promise<ChatOpenResult> {
+  async chatOpen(
+    agentKey: string,
+    resumeSessionId?: string,
+    bindPin?: { readonly canvasName: string; readonly nodeId: string },
+  ): Promise<ChatOpenResult> {
+    if (bindPin !== undefined) this.setAgentBindPin(bindPin);
     const authorityRestart = this.authorityRestartInFlight.get(agentKey);
     if (authorityRestart !== undefined) return authorityRestart;
     const existing = this.sessions.get(agentKey);

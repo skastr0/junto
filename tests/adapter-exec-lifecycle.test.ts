@@ -75,7 +75,7 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
     expect(detachBlock.indexOf("terminateAdapterChildrenOnQuit()"))
       .toBeGreaterThanOrEqual(0);
     expect(detachBlock.indexOf("terminateAdapterChildrenOnQuit()"))
-      .toBeLessThan(detachBlock.indexOf("browserComposition?.automation.close()"));
+      .toBeLessThan(detachBlock.indexOf("browserComposition?.close()"));
     expect(indexSource).toMatch(
       /app\.on\("before-quit",[\s\S]*detachRuntimeOnQuit\("before-quit"\)/u,
     );

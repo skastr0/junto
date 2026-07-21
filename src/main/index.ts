@@ -33,9 +33,6 @@ import { AppRuntime } from "./runtime";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./vellum/canvases";
 import { registerDemoIpcHandlers } from "./vellum/demo/ipc";
-import { buildBrowserAutomationNativePrompt } from "./vellum/browser/agent-confirmation";
-import type { BrowserAutomationConfirmation } from "./vellum/browser/agent-authority";
-import { registerBrowserAgentIpc } from "./vellum/browser/agent-ipc";
 import {
   BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE,
   startBrowserComposition,
@@ -507,38 +504,6 @@ const createWindow = () => {
   return mainWindow;
 };
 
-const confirmBrowserAutomation = async (
-  request: BrowserAutomationConfirmation,
-): Promise<boolean> => {
-  const mainWindow = trustedMainWindow;
-  const prompt = buildBrowserAutomationNativePrompt(request);
-  if (
-    headless ||
-    prompt === undefined ||
-    mainWindow === undefined ||
-    mainWindow.isDestroyed() ||
-    mainWindow.webContents.isDestroyed()
-  ) {
-    return false;
-  }
-
-  const result = await dialog.showMessageBox(mainWindow, {
-    type: prompt.type,
-    title: prompt.title,
-    message: prompt.message,
-    detail: prompt.detail,
-    buttons: [...prompt.buttons],
-    defaultId: prompt.defaultId,
-    cancelId: prompt.cancelId,
-    noLink: prompt.noLink,
-  });
-  return (
-    result.response === 1 &&
-    trustedMainWindow === mainWindow &&
-    !mainWindow.isDestroyed() &&
-    !mainWindow.webContents.isDestroyed()
-  );
-};
 
 // Supervision handoff — the operator contract: whenever the LaunchAgent is
 // installed, the running Vellum is ALWAYS the launchd-supervised instance.
@@ -687,7 +652,7 @@ if (!gotSingleInstanceLock) {
         console.error("[herdr] resume warm failed");
       });
       try {
-        browserComposition?.automation.reapAfterResume();
+        browserComposition?.registry.reapAfterResume();
       } catch {
         console.error("[browser-automation] resume reap failed");
       }
@@ -698,36 +663,10 @@ if (!gotSingleInstanceLock) {
     // the local control socket can become reachable.
     try {
       browserComposition = await startBrowserComposition(
-        {
-          chat,
-          herdr: herdr.service,
-          readCanvas: (name) =>
-            AppRuntime.runPromise(
-              Effect.flatMap(CanvasesService, (canvases) =>
-                Effect.map(canvases.read(name), (result) => result.doc),
-              ),
-            ),
-          resolvePageTarget: resolveBrowserPageTarget,
-          getHerdrPaneMeta: async (host, session, paneId) => {
-            const result = await herdr.service.getPaneMeta(host, session, paneId);
-            if (!result.ok) return { ok: false, code: result.code };
-            const meta = result.data;
-            return {
-              ok: true,
-              data: {
-                paneId: meta.paneId,
-                ...(meta.workspaceId === undefined ? {} : { workspaceId: meta.workspaceId }),
-                ...(meta.tabId === undefined ? {} : { tabId: meta.tabId }),
-                ...(meta.cwd === undefined ? {} : { cwd: meta.cwd }),
-              },
-            };
-          },
-          confirm: confirmBrowserAutomation,
-        },
         async (composition) => {
           browserControl = await startBrowserControlServer({
             sessions: composition.sessions,
-            capabilities: composition.automation.registry,
+            capabilities: composition.registry,
             resolvePageTarget: resolveBrowserPageTarget,
             version: app.getVersion(),
             readCanvas: async (name) => {
@@ -741,15 +680,6 @@ if (!gotSingleInstanceLock) {
                 return undefined;
               }
             },
-          });
-          registerBrowserAgentIpc(ipcMain, composition.automation.runtime, (event) => {
-            const mainWindow = trustedMainWindow;
-            return (
-              mainWindow !== undefined &&
-              !mainWindow.isDestroyed() &&
-              !mainWindow.webContents.isDestroyed() &&
-              event.sender === mainWindow.webContents
-            );
           });
           registerBrowserIpcHandlers(composition.sessions);
         },
@@ -820,7 +750,7 @@ const detachRuntimeOnQuit = (reason: string): void => {
   // Registry termination destroys only automation-owner WebContentsViews;
   // profile partitions and unrelated renderer-owned views remain intact.
   try {
-    browserComposition?.automation.close();
+    browserComposition?.close();
   } catch (error) {
     console.error(`[browser-automation] close on quit failed (${reason}):`, error);
   }
