@@ -17,7 +17,15 @@ import {
 const decodeSettings = Schema.decodeUnknownEither(Settings);
 const decodeSettingsPatch = Schema.decodeUnknownEither(SettingsPatch);
 
-const SECTION_KEYS = ["appearance", "canvas", "kernel", "browser", "advanced", "audio"] as const;
+const SECTION_KEYS = [
+  "appearance",
+  "canvas",
+  "kernel",
+  "browser",
+  "advanced",
+  "audio",
+  "station",
+] as const;
 
 /** Pick only known keys from a raw section object (no untrusted key sprawl). */
 const pickKnown = (

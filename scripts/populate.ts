@@ -18,13 +18,17 @@ import { fetchQuasarBundle } from "../src/main/vellum/adapters/quasar";
 import { fetchTowerBundle } from "../src/main/vellum/adapters/tower";
 import { HermesStandaloneLive } from "../src/main/vellum/hermes/live";
 import { HermesPlane } from "../src/main/vellum/hermes/plane";
+import {
+  AUTHORIAL_WRITE_ENV,
+  requireAuthorialCliWrite,
+} from "../src/shared/authorial-write";
 
-// Headless populate: `bun run populate [name]` fetches the live tower/quasar/
-// booth corpus and merges one bound project node per real project onto
-// ~/.vellum/canvases/<name>.canvas (default "portfolio"). A regenerable
-// projection of the real corpus — existing nodes and the user's arrangement
-// are preserved; only newly-seen projects are appended. Reload the app to see
-// them; stats hydrate live.
+// Headless populate: operator CLI only. Requires VELLUM_AUTHORIAL_WRITE=1.
+// Agents must not rewrite the canvas; they consume digests and live tools.
+//
+// `bun run populate [name]` fetches the live tower/quasar/booth corpus and
+// merges one bound project node per real project onto
+// ~/.vellum/canvases/<name>.canvas (default "portfolio").
 
 const canvasesDir = () => join(homedir(), ".vellum", "canvases");
 const canvasPath = (name: string) => join(canvasesDir(), `${name}.canvas`);
@@ -62,6 +66,14 @@ const readExisting = async (name: string): Promise<CanvasDoc> => {
 };
 
 const main = async () => {
+  try {
+    requireAuthorialCliWrite();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    console.error(`Operator override: ${AUTHORIAL_WRITE_ENV}=1 bun run populate …`);
+    process.exitCode = 2;
+    return;
+  }
   const args = process.argv.slice(2);
   const all = args.includes("--all");
   const name = args.find((a) => !a.startsWith("--")) ?? "portfolio";

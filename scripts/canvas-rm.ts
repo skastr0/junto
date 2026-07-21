@@ -2,11 +2,15 @@
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  AUTHORIAL_WRITE_ENV,
+  requireAuthorialCliWrite,
+} from "../src/shared/authorial-write";
 
-// Headless agent surface: `bun run canvas:rm <name> [name...]` deletes canvas
-// documents under ~/.vellum/canvases. Removes known derived sidecars
-// (digest.txt, svg) when present. Exits non-zero if any named canvas is
-// missing or the name is invalid. `--json` emits a machine-readable report.
+// Operator CLI only (requires VELLUM_AUTHORIAL_WRITE=1). Agents must not
+// delete canvases. Removes known derived sidecars (digest.txt, svg) when
+// present. Exits non-zero if any named canvas is missing or the name is
+// invalid. `--json` emits a machine-readable report.
 
 const NAME_PATTERN = /^[a-z0-9-]+$/;
 const SIDECAR_SUFFIXES = ["digest.txt", "svg"] as const;
@@ -73,6 +77,13 @@ const usage = (): never => {
 };
 
 const main = async () => {
+  try {
+    requireAuthorialCliWrite();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    console.error(`Operator override: ${AUTHORIAL_WRITE_ENV}=1 bun run canvas:rm …`);
+    process.exit(2);
+  }
   const args = process.argv.slice(2);
   const jsonMode = args.includes("--json");
   const names = args.filter((arg) => arg !== "--json");

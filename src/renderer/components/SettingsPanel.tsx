@@ -27,6 +27,7 @@ import "./settings-panel.css";
 type PanelSection = SettingsSectionKey | "hosts";
 
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
+  { key: "station", label: "Station", blurb: "Command Center or Remote role" },
   { key: "appearance", label: "Appearance", blurb: "theme, density, motion" },
   { key: "canvas", label: "Canvas", blurb: "defaults for the portfolio field" },
   { key: "hosts", label: "Hosts", blurb: "fleet + Tailscale services" },
@@ -797,8 +798,89 @@ function AudioSection() {
   );
 }
 
+function StationSection() {
+  const station = use$(state$.settings.station);
+  const role = station.role;
+  const roleLabel =
+    role === "command-center"
+      ? "Command Center"
+      : role === "remote"
+        ? "Remote"
+        : "Not set (complete onboarding)";
+
+  return (
+    <div className="settings-section">
+      <FieldRow
+        label="Role"
+        hint="User-selected only. Changing role is deliberate — never auto-detected."
+      >
+        <span style={{ color: INK, fontSize: 13 }}>{roleLabel}</span>
+      </FieldRow>
+      <FieldRow label="This station host id" hint="Must match a host registry id (usually local)">
+        <input
+          type="text"
+          value={station.hostId}
+          aria-label="Station host id"
+          onChange={(event) => {
+            const value = event.target.value.trim();
+            if (value.length === 0) return;
+            void patchSettings({ station: { hostId: value } });
+          }}
+        />
+      </FieldRow>
+      {role === "remote" ? (
+        <FieldRow
+          label="Command Center ref"
+          hint="Host id or SSH target this Remote pulls from"
+        >
+          <input
+            type="text"
+            value={station.commandCenterRef}
+            aria-label="Command Center reachability"
+            onChange={(event) =>
+              void patchSettings({ station: { commandCenterRef: event.target.value } })
+            }
+          />
+        </FieldRow>
+      ) : null}
+      <FieldRow
+        label="Prefer supervised runtime"
+        hint="LaunchAgent KeepAlive — recommended for Remote 24×7"
+      >
+        <input
+          type="checkbox"
+          checked={station.supervisedPreferred}
+          aria-label="Prefer supervised runtime"
+          onChange={(event) =>
+            void patchSettings({ station: { supervisedPreferred: event.target.checked } })
+          }
+        />
+      </FieldRow>
+      <FieldRow label="Change role" hint="Clears role and reopens the station gate">
+        <button
+          type="button"
+          className="settings-panel__ghost"
+          onClick={() =>
+            void patchSettings({
+              station: { role: "", commandCenterRef: "" },
+            })
+          }
+        >
+          Reset role (re-onboard)
+        </button>
+      </FieldRow>
+      <p className="settings-note" style={{ color: DIM }}>
+        Canvas authoring is human-only on the Command Center. Agents never write the canvas.
+        Remote is a capability host for this machine only.
+      </p>
+    </div>
+  );
+}
+
 function SectionBody({ section }: { readonly section: PanelSection }) {
   switch (section) {
+    case "station":
+      return <StationSection />;
     case "appearance":
       return <AppearanceSection />;
     case "canvas":

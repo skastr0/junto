@@ -27,6 +27,7 @@ import { CanvasChrome } from "./components/CanvasChrome";
 import { KernelStatus } from "./components/KernelStatus";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { StationRoleGate } from "./components/StationRoleGate";
 import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
@@ -419,6 +420,7 @@ export function App() {
 
         <DigestPanel />
         <SettingsPanel />
+        <StationRoleGate />
         {/* PulseTray mounts inside RtsBottomBar (right third, above minimap). */}
         <HerdrWizard />
         {/* HerdrTerminalModal is fallback only — WorkFocusShell owns herdr when registered. */}

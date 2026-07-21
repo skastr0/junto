@@ -6,17 +6,25 @@ vellum is a desktop station (Electron + Effect + React) that renders a **portfol
 
 ## The agent surface (headless — no GUI needed)
 
-Canvases live at `~/.vellum/canvases/*.canvas`. Read or write them directly (the running app file-watches and hot-reloads external edits), or use the CLIs:
+**Agents never write the canvas.** The canvas is human-authored (Command Center). Agents consume compiled projections and local Vellum tools.
 
-| command | what it does |
-|---|---|
-| `bun run populate [name] [--all]` | merge the live corpus (tower/quasar/hermes) onto a canvas as bound, hydrated nodes. Default = owned/registered projects; `--all` = every indexed repo. Idempotent, preserves existing nodes. |
-| `bun run render [name]` | write `<name>.svg` — a deep-field image of the board, for multimodal reading. |
-| `bun run digest [name]` | print (and write `<name>.digest.txt`) a deterministic text projection of the board + live source data. |
-| `bun run canvas:ls [--json]` | list canvases with node/edge counts. |
-| `bun run canvas:rm <name> [name...] [--json]` | delete canvas document(s) and known sidecars (digest/svg). |
+Canvases live at `~/.vellum/canvases/*.canvas`. The running app file-watches external edits. Headless CLIs:
 
-To **read the board as an agent**: `bun run digest` (text) or `bun run render` then view the SVG (image).
+| command | who | what it does |
+|---|---|---|
+| `bun run digest [name]` | agents + operators | print (and write `<name>.digest.txt`) a deterministic text projection of the board + live source data. |
+| `bun run render [name]` | agents + operators | write `<name>.svg` — a deep-field image of the board, for multimodal reading. |
+| `bun run canvas:ls [--json]` | agents + operators | list canvases with node/edge counts. |
+| `bun run populate [name] [--all]` | **operator only** | merge live corpus onto a canvas. Requires `VELLUM_AUTHORIAL_WRITE=1`. |
+| `bun run canvas:rm <name>…` | **operator only** | delete canvas document(s). Requires `VELLUM_AUTHORIAL_WRITE=1`. |
+
+To **read the board as an agent**: `bun run digest` (text) or `bun run render` then view the SVG (image). Do not mutate `.canvas` files from agents.
+
+### Station roles
+
+- **Command Center** — user-selected. Human authors the canvas; fleet management via host registry.
+- **Remote** — user-selected. Capability host for that machine; pulls canvases; host-scoped execution only.
+- Role is never inferred from hardware or open windows.
 
 ## The document contract
 

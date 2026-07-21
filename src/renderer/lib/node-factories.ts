@@ -78,6 +78,7 @@ export const makeAgentNode = (
   y: number,
   label: string,
   key: string,
+  host = "local",
 ): TextNode => ({
   id: `agent-${ulid()}`,
   type: "text",
@@ -86,7 +87,7 @@ export const makeAgentNode = (
   y: Math.round(y),
   width: 240,
   height: 96,
-  ether: { entity: { kind: "agent", name: key } },
+  ether: { entity: { kind: "agent", name: key }, host },
 });
 
 // A tasks node — local checklist that can block only when connected by an
@@ -130,6 +131,7 @@ export const makeHerdrNode = (
     height: 110,
     ether: {
       entity: { kind: "herdr" },
+      host: herdr.host,
       herdr: {
         ...herdr,
         onDelete: herdr.onDelete ?? "detach",
@@ -146,6 +148,7 @@ export const makePageNode = (
   y: number,
   url: string,
   browser?: Partial<EtherBrowser>,
+  host = "local",
 ): LinkNode => {
   const profile = browser?.profile?.trim() || "personal";
   return {
@@ -158,6 +161,7 @@ export const makePageNode = (
     height: 110,
     ether: {
       entity: { kind: "page" },
+      host,
       browser: {
         profile,
         onDelete: browser?.onDelete ?? "detach",
@@ -165,3 +169,44 @@ export const makePageNode = (
     },
   };
 };
+
+/** Watcher predicate node — stamps host for host-scoped kernel fire. */
+export const makeWatcherNode = (
+  x: number,
+  y: number,
+  host = "local",
+): TextNode => ({
+  id: `watch-${ulid()}`,
+  type: "text",
+  text: "watcher",
+  x: Math.round(x),
+  y: Math.round(y),
+  width: 220,
+  height: 96,
+  ether: {
+    entity: { kind: "watcher" },
+    host,
+    watch: { kind: "glyphs_done" },
+  },
+});
+
+/** Timer clock node — stamps host for host-scoped kernel fire. */
+export const makeTimerNode = (
+  x: number,
+  y: number,
+  everyMinutes = 30,
+  host = "local",
+): TextNode => ({
+  id: `timer-${ulid()}`,
+  type: "text",
+  text: "timer",
+  x: Math.round(x),
+  y: Math.round(y),
+  width: 200,
+  height: 88,
+  ether: {
+    entity: { kind: "timer" },
+    host,
+    timer: { everyMinutes },
+  },
+});

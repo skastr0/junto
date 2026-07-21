@@ -228,6 +228,16 @@ export type EdgeCriteriaTasks = typeof EdgeCriteriaTasks.Type;
 export const EdgeCriteria = Schema.Union(EdgeCriteriaGlyphs, EdgeCriteriaWip, EdgeCriteriaTasks);
 export type EdgeCriteria = typeof EdgeCriteria.Type;
 
+// Authorial host stamp for executable nodes (agent, herdr, page, watcher, timer).
+// Same alphabet as remote-hosts HostId. Absence means "local" at resolve time
+// (see shared/station resolveNodeHostId) so existing canvases stay valid.
+export const EtherHostId = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(64),
+  Schema.pattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/),
+);
+export type EtherHostId = typeof EtherHostId.Type;
+
 export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalWith(EtherEntity, { exact: true }),
   flags: Schema.optionalWith(Schema.Array(EtherFlag), { exact: true }),
@@ -240,6 +250,8 @@ export const EtherNodeExtension = Schema.Struct({
   herdr: Schema.optionalWith(EtherHerdr, { exact: true }),
   // Work-surface binding for entity.kind === "page" on a link node. Not an EntitySource.
   browser: Schema.optionalWith(EtherBrowser, { exact: true }),
+  // Host that may execute/tool this node. Optional for graceful degradation.
+  host: Schema.optionalWith(EtherHostId, { exact: true }),
 });
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 

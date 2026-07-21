@@ -3,6 +3,7 @@ import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
 } from "./browser-limits";
+import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
 
 // Settings plane: one schema-validated durable document under
 // ~/.vellum/settings.json. Mutable user prefs — not Effect Config (boot/env)
@@ -71,6 +72,34 @@ export const AdvancedSettings = Schema.Struct({
 });
 export type AdvancedSettings = typeof AdvancedSettings.Type;
 
+// Station role: user-selected Command Center or Remote. Empty role means
+// onboarding has not completed — UI must not guess.
+export const StationRoleSetting = Schema.Literal(...STATION_ROLES, "");
+export type StationRoleSetting = typeof StationRoleSetting.Type;
+
+export const StationHostIdSetting = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(64),
+  Schema.pattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/),
+);
+export type StationHostIdSetting = typeof StationHostIdSetting.Type;
+
+/** Reachability hint for a Remote (SSH host id / endpoint label). Empty on Command Center. */
+export const StationReachability = Schema.String.pipe(Schema.maxLength(255));
+export type StationReachability = typeof StationReachability.Type;
+
+export const StationSettings = Schema.Struct({
+  /** "" until the human picks a role at onboarding. */
+  role: StationRoleSetting,
+  /** This machine's host id in the fleet registry (usually "local" on first box). */
+  hostId: StationHostIdSetting,
+  /** Remote-only: how this station finds the Command Center (host id or endpoint). */
+  commandCenterRef: StationReachability,
+  /** Prefer LaunchAgent supervised run (especially Remote). */
+  supervisedPreferred: Schema.Boolean,
+});
+export type StationSettings = typeof StationSettings.Type;
+
 // RTS UI SFX — per-clip enable + volume under a master mute/gain.
 // Clip keys are camelCase; renderer maps alert ids (herdr-done → herdrDone).
 const unitInterval = Schema.Number.pipe(Schema.between(0, 1));
@@ -106,6 +135,7 @@ export const Settings = Schema.Struct({
   browser: BrowserPrefs,
   advanced: AdvancedSettings,
   audio: AudioSettings,
+  station: StationSettings,
 });
 export type Settings = typeof Settings.Type;
 
@@ -149,6 +179,14 @@ export const AdvancedPatch = Schema.Struct({
 });
 export type AdvancedPatch = typeof AdvancedPatch.Type;
 
+export const StationPatch = Schema.Struct({
+  role: Schema.optionalWith(StationRoleSetting, { exact: true }),
+  hostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
+  commandCenterRef: Schema.optionalWith(StationReachability, { exact: true }),
+  supervisedPreferred: Schema.optionalWith(Schema.Boolean, { exact: true }),
+});
+export type StationPatch = typeof StationPatch.Type;
+
 export const SfxClipPatch = Schema.Struct({
   enabled: Schema.optionalWith(Schema.Boolean, { exact: true }),
   volume: Schema.optionalWith(unitInterval, { exact: true }),
@@ -179,6 +217,7 @@ export const SettingsPatch = Schema.Struct({
   browser: Schema.optionalWith(BrowserPatch, { exact: true }),
   advanced: Schema.optionalWith(AdvancedPatch, { exact: true }),
   audio: Schema.optionalWith(AudioPatch, { exact: true }),
+  station: Schema.optionalWith(StationPatch, { exact: true }),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 
@@ -189,6 +228,7 @@ export const SettingsSectionKey = Schema.Literal(
   "browser",
   "advanced",
   "audio",
+  "station",
 );
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
@@ -218,6 +258,13 @@ export const defaultAdvanced = (): AdvancedSettings => ({
   openLastCanvas: true,
 });
 
+export const defaultStation = (): StationSettings => ({
+  role: "",
+  hostId: DEFAULT_STATION_HOST_ID,
+  commandCenterRef: "",
+  supervisedPreferred: false,
+});
+
 const defaultClip = (volume: number): SfxClipPrefs => ({ enabled: true, volume });
 
 export const defaultSfxClips = (): SfxClipsSettings => ({
@@ -244,6 +291,7 @@ export const defaultSettings = (): Settings => ({
   browser: defaultBrowser(),
   advanced: defaultAdvanced(),
   audio: defaultAudio(),
+  station: defaultStation(),
 });
 
 export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectionKey] => {
@@ -260,6 +308,8 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultAdvanced();
     case "audio":
       return defaultAudio();
+    case "station":
+      return defaultStation();
   }
 };
 
@@ -293,6 +343,9 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
   }
   if (patch.advanced) {
     next = { ...next, advanced: mergeSection(next.advanced, patch.advanced) };
+  }
+  if (patch.station) {
+    next = { ...next, station: mergeSection(next.station, patch.station) };
   }
   if (patch.audio) {
     const audioPatch = patch.audio;
