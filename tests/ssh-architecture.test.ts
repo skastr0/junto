@@ -92,7 +92,33 @@ describe("SSH architecture", () => {
     expect(returnStart).toBeGreaterThan(teardownStart);
     // The sole masterExit call site is inside the named teardown operation…
     expect(service.slice(teardownStart, returnStart)).toMatch(/compiler\.masterExit\(/u);
-    // …and no Scope/Layer finalizer in the file ever reaches it.
-    expect(service).not.toMatch(/(?:Effect|Scope)\.addFinalizer\([^)]{0,600}masterExit\(/su);
+    // …and no Scope/Layer finalizer in the file ever reaches it. Scanned by
+    // balanced parens, not a [^)]-bounded regex: the latter stops matching
+    // at the finalizer body's first nested call (e.g. `Effect.sync(() =>
+    // …)`), which is the common shape for real Effect finalizers and would
+    // silently defeat a paren-excluding window.
+    expect(finalizerBodiesReaching(service, "masterExit(")).toEqual([]);
   });
 });
+
+/**
+ * Finds every `Effect.addFinalizer(...)` / `Scope.addFinalizer(...)` call in
+ * `source` and returns the ones whose (balanced-paren) argument body
+ * contains `needle`.
+ */
+function finalizerBodiesReaching(source: string, needle: string): ReadonlyArray<number> {
+  const opener = /(?:Effect|Scope)\.addFinalizer\(/gu;
+  const hits: number[] = [];
+  for (const match of source.matchAll(opener)) {
+    const bodyStart = match.index + match[0].length;
+    let depth = 1;
+    let i = bodyStart;
+    while (i < source.length && depth > 0) {
+      if (source[i] === "(") depth++;
+      else if (source[i] === ")") depth--;
+      i++;
+    }
+    if (source.slice(bodyStart, i).includes(needle)) hits.push(match.index);
+  }
+  return hits;
+}

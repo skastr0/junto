@@ -127,9 +127,23 @@ export class HerdrMirrorRegistry {
     // Product-lock order: detach every live control stream, then drop every
     // pooled observer, BEFORE the mirror rebuild and ssh master teardown
     // below — nothing may still be riding a transport this reconciliation
-    // is about to tear down.
-    for (const host of revoked) this.revocation?.detachByHost(host.id);
-    for (const host of revoked) this.revocation?.releaseByHost(host.id);
+    // is about to tear down. Best-effort per host, matching the mirror-stop
+    // loop below: one hook throwing (e.g. a stream emit sink) must not skip
+    // revocation for the remaining hosts in this same batch.
+    for (const host of revoked) {
+      try {
+        this.revocation?.detachByHost(host.id);
+      } catch {
+        // Revocation remains best-effort per host.
+      }
+    }
+    for (const host of revoked) {
+      try {
+        this.revocation?.releaseByHost(host.id);
+      } catch {
+        // Revocation remains best-effort per host.
+      }
+    }
 
     const previousHostIds = new Set(this.registry.keys());
     // Host mutations are rare and may change an endpoint without changing its
