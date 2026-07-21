@@ -286,7 +286,11 @@ const makeWatcherNode = (x: number, y: number): TextNode => ({
   text: "watcher",
   width: 240,
   height: 96,
-  ether: { entity: { kind: "watcher" }, watch: { kind: "glyphs_done" } },
+  ether: {
+    entity: { kind: "watcher" },
+    host: "local",
+    watch: { kind: "glyphs_done" },
+  },
 });
 
 const makeTimerNode = (x: number, y: number): TextNode => ({
@@ -294,7 +298,11 @@ const makeTimerNode = (x: number, y: number): TextNode => ({
   text: "heartbeat",
   width: 240,
   height: 96,
-  ether: { entity: { kind: "timer" }, timer: { everyMinutes: 30 } },
+  ether: {
+    entity: { kind: "timer" },
+    host: "local",
+    timer: { everyMinutes: 30 },
+  },
 });
 
 // Node creation against a caller-supplied placement strategy — the toolbar
