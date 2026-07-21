@@ -28,6 +28,7 @@
     "electron.vite.config.ts",
     "src",
     "tests",
-    "scripts"
+    "scripts",
+    "e2e"
   ]
 }

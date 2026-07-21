@@ -4,3 +4,6 @@ release/
 dist/
 .DS_Store
 .atlas/
+test-results/
+playwright-report/
+blob-report/

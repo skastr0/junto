@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 // Mirrors electron.vite.config.ts's alias map. Vitest does not read
 // electron-vite's own config file, so without this, any test that reaches a
@@ -10,6 +10,12 @@ import { defineConfig } from "vitest/config";
 // `vi.mock("@shared/canvas", ...)` redirect; this makes that workaround
 // unnecessary for every test going forward.
 export default defineConfig({
+  test: {
+    // e2e/ specs use @playwright/test's own `test`/`expect` and launch a
+    // real Electron app — vitest's default glob would otherwise pick up
+    // every *.spec.ts under e2e/ and try to run it as a vitest test.
+    exclude: [...configDefaults.exclude, "e2e/**"],
+  },
   resolve: {
     alias: {
       "@shared": resolve(__dirname, "src/shared"),
