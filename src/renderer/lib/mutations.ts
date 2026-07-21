@@ -11,6 +11,7 @@ import type {
 import { resolveBrowserOnDelete } from "@shared/canvas";
 import { mergeLocalCanvasWithWorkWrite } from "@shared/work-canvas-merge";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
+import { batch } from "@legendapp/state";
 import type { BindingHint } from "@shared/ipc";
 import { formatNodeRef } from "@shared/node-ref";
 import { state$ } from "./state";
@@ -445,17 +446,21 @@ export const parseSide = (handle?: string | null): NodeSide | undefined => {
 // pass false to skip the fitView jump (e.g. a region drawn around a selection
 // that is already fully in view — a zoom jump there would be jarring).
 export const addNode = (node: CanvasNode, options?: { readonly edit?: boolean; readonly focus?: boolean }): void => {
-  state$.searchQuery.set("");
-  state$.edgeFilter.set("");
-  state$.flagFilter.set("");
-  state$.selectedNodeId.set(node.id);
-  state$.selectedEdgeId.set("");
+  batch(() => {
+    state$.searchQuery.set("");
+    state$.edgeFilter.set("");
+    state$.flagFilter.set("");
+    state$.selectedNodeId.set(node.id);
+    state$.selectedEdgeId.set("");
+  });
   const doc = state$.doc.peek();
   commitDoc({ ...doc, nodes: [...doc.nodes, node] });
   if (options?.focus === false) return;
   window.setTimeout(() => {
-    state$.focusNodeId.set(node.id);
-    if (options?.edit !== false) state$.editNodeId.set(node.id);
+    batch(() => {
+      state$.focusNodeId.set(node.id);
+      if (options?.edit !== false) state$.editNodeId.set(node.id);
+    });
   }, 0);
 };
 

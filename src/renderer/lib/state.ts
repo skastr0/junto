@@ -1,4 +1,4 @@
-import { observable } from "@legendapp/state";
+import { batch, observable } from "@legendapp/state";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import type { SnapshotState } from "@shared/entities";
 import type { CanvasSummary, DigestResult } from "@shared/ipc";
@@ -60,24 +60,30 @@ export const state$ = observable({
 });
 
 export const toggleFlagFilter = (flag: EtherFlag): void => {
-  const current = state$.flagFilter.peek();
-  state$.flagFilter.set(current === flag ? "" : flag);
-  state$.selectedNodeId.set("");
-  state$.selectedNodeIds.set([]);
-  state$.selectedEdgeId.set("");
+  batch(() => {
+    const current = state$.flagFilter.peek();
+    state$.flagFilter.set(current === flag ? "" : flag);
+    state$.selectedNodeId.set("");
+    state$.selectedNodeIds.set([]);
+    state$.selectedEdgeId.set("");
+  });
 };
 
 export const clearGraphFilters = (): void => {
-  state$.edgeFilter.set("");
-  state$.flagFilter.set("");
-  state$.selectedNodeId.set("");
-  state$.selectedNodeIds.set([]);
-  state$.selectedEdgeId.set("");
+  batch(() => {
+    state$.edgeFilter.set("");
+    state$.flagFilter.set("");
+    state$.selectedNodeId.set("");
+    state$.selectedNodeIds.set([]);
+    state$.selectedEdgeId.set("");
+  });
 };
 
 /** Clear canvas selection (node + multi + edge). */
 export const clearSelection = (): void => {
-  state$.selectedNodeId.set("");
-  state$.selectedNodeIds.set([]);
-  state$.selectedEdgeId.set("");
+  batch(() => {
+    state$.selectedNodeId.set("");
+    state$.selectedNodeIds.set([]);
+    state$.selectedEdgeId.set("");
+  });
 };

@@ -44,18 +44,21 @@ export function FocusSurface({
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  // Keep latest onClose without re-binding Escape every parent render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!closeOnEscape) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeOnEscape, onClose]);
+  }, [closeOnEscape]);
 
   // Resizable document surfaces: restore last size for this session.
   useEffect(() => {

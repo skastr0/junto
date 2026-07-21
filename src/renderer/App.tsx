@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { identityHints } from "../shared/connections";
 import type { CanvasDoc } from "@shared/canvas";
+import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { state$ } from "./lib/state";
 import {
@@ -64,16 +65,18 @@ const refreshSnapshotsSoft = async (doc: CanvasDoc) => {
 };
 
 const resetCanvasView = (): void => {
-  state$.searchQuery.set("");
-  state$.edgeFilter.set("");
-  state$.flagFilter.set("");
-  state$.digestOpen.set(false);
-  state$.selectedNodeId.set("");
-  state$.selectedNodeIds.set([]);
-  state$.selectedEdgeId.set("");
-  state$.focusNodeId.set("");
-  state$.regionSlotOrder.set([]);
-  state$.regionSeverityByNodeId.set({});
+  batch(() => {
+    state$.searchQuery.set("");
+    state$.edgeFilter.set("");
+    state$.flagFilter.set("");
+    state$.digestOpen.set(false);
+    state$.selectedNodeId.set("");
+    state$.selectedNodeIds.set([]);
+    state$.selectedEdgeId.set("");
+    state$.focusNodeId.set("");
+    state$.regionSlotOrder.set([]);
+    state$.regionSeverityByNodeId.set({});
+  });
 };
 
 const canvasNavigationClock = makeNavigationClock();
