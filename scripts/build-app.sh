@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a packaged macOS Vellum.app under release/mac-*/Vellum.app.
+# Build a packaged macOS Vellum distribution under release/.
 #
 #   scripts/build-app.sh              typecheck + Electron + standalone browser CLI + package
 #   scripts/build-app.sh --fast       skip typecheck (package only; still compiles both)
@@ -7,7 +7,9 @@
 #   scripts/build-app.sh --compile-only   compile Electron + browser CLI, no .app
 #
 # Safe: never writes to /Applications. Never kills herdr sessions.
-# Output path: release/mac-arm64/Vellum.app (Apple Silicon) or release/mac/.
+# Outputs:
+#   release/mac-arm64/Vellum.app          (or release/mac/) — signed .app for audit/install
+#   release/Vellum-<ver>-arm64-mac.zip    — shippable archive (electron-builder zip target)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -135,12 +137,32 @@ if [[ "$COMPILE_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
-log "electron-builder --dir → release/ …"
-# --dir = unpacked .app only (fast; no dmg/zip). Matches package.json "build".
-bunx electron-builder --dir --mac
+log "electron-builder --mac → release/ (.app + zip) …"
+# package.json mac.target is zip (distribution unit). Builder still materializes
+# the signed .app under release/mac-*/ for audit + local install.
+bunx electron-builder --mac
 
 APP_SRC="$(detect_app_src)"
 assert_app_bundle "$APP_SRC"
+
+# Prefer the configured artifactName; fall back to any Vellum-*-mac.zip in release/.
+ZIP_SRC=""
+shopt -s nullglob
+zip_candidates=(
+  "$REPO_ROOT/release/Vellum-"*-mac.zip
+  "$REPO_ROOT/release/"*.zip
+)
+shopt -u nullglob
+for candidate in "${zip_candidates[@]}"; do
+  if [[ -f "$candidate" ]]; then
+    ZIP_SRC="$candidate"
+    break
+  fi
+done
+if [[ -z "$ZIP_SRC" ]]; then
+  err "missing shippable zip under release/ (mac.target should include zip)"
+  exit 1
+fi
 
 log "package security audit (signature + ASAR + Electron fuses) …"
 bun "$SCRIPT_DIR/audit-packaged-app.ts" "$APP_SRC"
@@ -150,8 +172,13 @@ if [[ "$VERIFY" -eq 1 ]]; then
   bun "$SCRIPT_DIR/packaged-runtime-smoke.ts" "$APP_SRC"
 fi
 
+VERSION="$(
+  /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_SRC/Contents/Info.plist" 2>/dev/null || true
+)"
 log "built $(basename "$APP_SRC")"
-log "  path: $APP_SRC"
-/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_SRC/Contents/Info.plist" 2>/dev/null \
-  | sed 's/^/  version: /' || true
+log "  app:  $APP_SRC"
+log "  zip:  $ZIP_SRC"
+if [[ -n "$VERSION" ]]; then
+  log "  version: $VERSION"
+fi
 log "install with: bun run app:install   # or scripts/install-app.sh"

@@ -84,6 +84,7 @@
     "directories": {
       "output": "release"
     },
+    "artifactName": "${productName}-${version}-${arch}-mac.${ext}",
     "files": [
       "out/**",
       "station/**",
@@ -109,7 +110,9 @@
       }
     ],
     "mac": {
-      "target": "dir",
+      "target": [
+        "zip"
+      ],
       "minimumSystemVersion": "13.0",
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
