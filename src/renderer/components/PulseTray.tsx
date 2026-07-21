@@ -71,31 +71,26 @@ export function PulseTray({ embedded = false }: { readonly embedded?: boolean } 
     prevPulseLogRef.current = next;
   }, [pulseLog]);
 
-  // Auto-dismiss toasts after TOAST_AUTO_DISMISS_MS
+  // Auto-dismiss toasts after TOAST_AUTO_DISMISS_MS.
+  // Timers live across toasts changes: cleanup only on unmount. Clearing the
+  // map on every toasts change left ids in timersRef while killing the
+  // timeouts, so skipped toasts never got a replacement timer (stuck toast).
   useEffect(() => {
-    const removeToast = (id: string) => {
-      setToasts((current) => current.filter((t) => t.id !== id));
-      const timer = timersRef.current.get(id);
-      if (timer) {
-        clearTimeout(timer);
-        timersRef.current.delete(id);
-      }
-    };
-
     for (const toast of toasts) {
-      // Skip if already has a timer
       if (timersRef.current.has(toast.id)) continue;
-
-      const timer = setTimeout(() => removeToast(toast.id), TOAST_AUTO_DISMISS_MS);
-      timersRef.current.set(toast.id, timer);
+      const id = toast.id;
+      const timer = setTimeout(() => {
+        timersRef.current.delete(id);
+        setToasts((current) => current.filter((t) => t.id !== id));
+      }, TOAST_AUTO_DISMISS_MS);
+      timersRef.current.set(id, timer);
     }
-
-    return () => {
-      for (const timer of timersRef.current.values()) {
-        clearTimeout(timer);
-      }
-    };
   }, [toasts]);
+
+  useEffect(() => () => {
+    for (const timer of timersRef.current.values()) clearTimeout(timer);
+    timersRef.current.clear();
+  }, []);
 
   const visibleToasts = toasts.slice(0, MAX_VISIBLE_TOASTS);
   const hiddenCount = Math.max(0, toasts.length - MAX_VISIBLE_TOASTS);
