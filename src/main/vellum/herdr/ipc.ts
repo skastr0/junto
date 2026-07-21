@@ -30,6 +30,7 @@ export const registerHerdrIpc = (
     readonly sender: WebContents;
     readonly onDestroyed: () => void;
     readonly onRenderProcessGone: () => void;
+    readonly onDidStartLoading: () => void;
   }
 
   const streamOwnersByStreamId = new Map<string, StreamOwner>();
@@ -42,6 +43,7 @@ export const registerHerdrIpc = (
       if (!owner.sender.isDestroyed()) {
         owner.sender.removeListener("destroyed", owner.onDestroyed);
         owner.sender.removeListener("render-process-gone", owner.onRenderProcessGone);
+        owner.sender.removeListener("did-start-loading", owner.onDidStartLoading);
       }
     } catch {
       // ignore
@@ -49,28 +51,26 @@ export const registerHerdrIpc = (
     return owner;
   };
 
+  // Default deny: an unrecognized/untracked streamId is unauthorized. Tests
+  // must register ownership the way production does (open through the
+  // handler with a fake sender) or drive plane.streams directly below IPC.
   const isAuthorized = (sender: WebContents, streamId: string): boolean => {
     const owner = streamOwnersByStreamId.get(streamId);
-    if (!owner) return true; // untracked streamId (e.g. tests)
+    if (!owner) return false;
     return owner.sender === sender && !sender.isDestroyed();
   };
 
   void withPlane((plane) => {
     plane.streams.setSink((frame) => {
       const owner = streamOwnersByStreamId.get(frame.streamId);
-      if (owner) {
-        if (!owner.sender.isDestroyed()) {
-          owner.sender.send(IPC_CHANNELS.herdrStreamEvent, frame);
-        }
-        if (frame.type === "closed") {
-          releaseStreamOwner(frame.streamId);
-        }
-        return;
+      // Ownerless frame: dropped. If it is "closed", release is a no-op
+      // (there is nothing to release) — no broadcast fallback.
+      if (!owner) return;
+      if (!owner.sender.isDestroyed()) {
+        owner.sender.send(IPC_CHANNELS.herdrStreamEvent, frame);
       }
-      for (const contents of webContentsGetter()) {
-        if (!contents.isDestroyed()) {
-          contents.send(IPC_CHANNELS.herdrStreamEvent, frame);
-        }
+      if (frame.type === "closed") {
+        releaseStreamOwner(frame.streamId);
       }
     });
 
@@ -129,7 +129,23 @@ export const registerHerdrIpc = (
   ipcMain.handle(
     IPC_CHANNELS.herdrGetMeta,
     (_e, hostId: string, session: string | null | undefined, paneId: string) =>
-      withPlane((plane) => plane.service.getPaneMeta(hostId, session, paneId).then(toOp)),
+      withPlane(async (plane) => {
+        const result = await plane.service.getPaneMeta(hostId, session, paneId);
+        if (result.ok) {
+          // Feed processes into host service map (no SSH unless interest + queue).
+          plane.serviceMap.observeProcesses({
+            hostId,
+            session,
+            paneId,
+            processes: result.data.processes,
+          });
+          const service = plane.serviceMap.get(hostId, session, paneId);
+          if (service) {
+            return toOp({ ok: true, data: { ...result.data, service } });
+          }
+        }
+        return toOp(result);
+      }),
   );
 
   ipcMain.handle(
@@ -182,31 +198,56 @@ export const registerHerdrIpc = (
 
   ipcMain.handle(IPC_CHANNELS.herdrStreamOpen, (event, input: HerdrStreamOpenInput) =>
     withPlane((plane) => {
-      const res = plane.streams.open(input);
-      if (res.ok && res.streamId && event.sender && !event.sender.isDestroyed()) {
-        const sender = event.sender;
-        const streamId = res.streamId;
-        releaseStreamOwner(streamId);
-
-        const onDestroyed = () => {
-          releaseStreamOwner(streamId);
-          plane.streams.close(streamId, "renderer_destroyed");
-        };
-        const onRenderProcessGone = () => {
-          releaseStreamOwner(streamId);
-          plane.streams.close(streamId, "renderer_process_gone");
-        };
-
-        sender.once("destroyed", onDestroyed);
-        sender.once("render-process-gone", onRenderProcessGone);
-
-        streamOwnersByStreamId.set(streamId, {
-          streamId,
-          sender,
-          onDestroyed,
-          onRenderProcessGone,
-        });
+      const sender = event.sender;
+      if (!sender || sender.isDestroyed()) {
+        return { ok: false, message: "renderer gone" };
       }
+
+      const res = plane.streams.open(input);
+      if (!res.ok || !res.streamId) return res;
+      const streamId = res.streamId;
+
+      // open() is synchronous — this only fires when a synchronous side
+      // effect inside `open` itself destroyed the sender (as the test
+      // simulates), not an async race. Close the stream we just opened
+      // rather than leaving it alive and unreachable.
+      if (sender.isDestroyed()) {
+        plane.streams.close(streamId, "renderer_gone");
+        return { ok: false, message: "renderer gone" };
+      }
+
+      releaseStreamOwner(streamId);
+
+      // Sender already gone by the time these fire — release first (there
+      // is no one left to deliver a final frame to), then close.
+      const detachOnRendererGone = (reason: string) => () => {
+        releaseStreamOwner(streamId);
+        plane.streams.close(streamId, reason);
+      };
+      const onDestroyed = detachOnRendererGone("renderer_destroyed");
+      const onRenderProcessGone = detachOnRendererGone("renderer_process_gone");
+      // An ordinary reload/navigation fires "did-start-loading" but never
+      // "destroyed"/"render-process-gone" — without this, reload leaked the
+      // control stream + ssh child alive and unreachable. Deliver the final
+      // "closed" frame before release (close-then-release, mirroring
+      // herdrStreamClose) so the still-alive sender sees it.
+      const onDidStartLoading = () => {
+        plane.streams.close(streamId, "renderer_reloaded");
+        releaseStreamOwner(streamId);
+      };
+
+      sender.once("destroyed", onDestroyed);
+      sender.once("render-process-gone", onRenderProcessGone);
+      sender.once("did-start-loading", onDidStartLoading);
+
+      streamOwnersByStreamId.set(streamId, {
+        streamId,
+        sender,
+        onDestroyed,
+        onRenderProcessGone,
+        onDidStartLoading,
+      });
+
       return res;
     }),
   );
@@ -261,4 +302,39 @@ export const registerHerdrIpc = (
   ipcMain.handle(IPC_CHANNELS.herdrObserveRetained, (_e, terminalId: string) =>
     withPlane((plane) => plane.observePool.retainedFrames(terminalId)),
   );
+
+  // --- HostServiceMap (process → port → URL); append-only, no stream ownership ---
+  ipcMain.handle(
+    IPC_CHANNELS.herdrServiceMapGet,
+    (_e, hostId: string, session: string | null | undefined, paneId: string) =>
+      withPlane((plane) => {
+        const data = plane.serviceMap.get(hostId, session, paneId) ?? null;
+        return { ok: true as const, data };
+      }),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.herdrServiceMapProbe,
+    (_e, hostId: string, session: string | null | undefined, paneId: string) =>
+      withPlane((plane) => {
+        const data = plane.serviceMap.requestProbe({
+          hostId,
+          session,
+          paneId,
+          priority: "intent",
+        });
+        return { ok: true as const, data };
+      }),
+  );
+
+  // Push service map updates to all renderers (cheap JSON; cards filter by pane).
+  void withPlane((plane) => {
+    plane.serviceMap.onChange((proj) => {
+      for (const contents of webContentsGetter()) {
+        if (!contents.isDestroyed()) {
+          contents.send(IPC_CHANNELS.herdrServiceMapEvent, proj);
+        }
+      }
+    });
+  });
 };

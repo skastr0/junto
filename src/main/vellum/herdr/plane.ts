@@ -27,8 +27,15 @@ import { LocalMirrorTransport, RemoteMirrorTransport } from "./mirror-transport"
 import { HerdrMirrorRegistry } from "./mirrors";
 import { HerdrObservePool } from "./observe-pool";
 import { HerdrService, type HerdrRunner, type HerdrServerStarter } from "./service";
+import { HerdrServiceMap, type HostShellRunner } from "./service-map";
 import { HerdrStreamManager, type HerdrProcessLike, type HerdrSpawnFn } from "./stream";
 import { HerdrTransport } from "./transport";
+import { parseCliEnvelope, parseProcessInfo } from "./parse";
+import { findHostById } from "../hosts/snapshot";
+import { makeRemoteCommand, parseSshEndpoint } from "../ssh/domain";
+import { oneShot } from "../ssh/program";
+import { SshTransport } from "../ssh/service";
+import { runCli } from "../adapters/exec";
 
 type RunPromise = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 
@@ -187,6 +194,8 @@ export class HerdrPlane extends Context.Tag("@vellum/HerdrPlane")<
     readonly mirrors: HerdrMirrorRegistry;
     readonly observePool: HerdrObservePool;
     readonly streams: HerdrStreamManager;
+    /** Host-scoped process→port→URL projection (rate-limited side channel). */
+    readonly serviceMap: HerdrServiceMap;
     readonly start: Effect.Effect<void>;
     readonly warm: Effect.Effect<void>;
   }
@@ -196,6 +205,7 @@ export const HerdrPlaneLive = Layer.scoped(
   HerdrPlane,
   Effect.gen(function* () {
     const transport = yield* HerdrTransport;
+    const ssh = yield* SshTransport;
     const owner = yield* Scope.Scope;
     const runtime = yield* Effect.runtime<never>();
     const runPromise: RunPromise = (effect) => Runtime.runPromise(runtime)(effect);
@@ -320,16 +330,93 @@ export const HerdrPlaneLive = Layer.scoped(
       startServer,
     );
 
+    // Host shell for LISTEN probes — same hop class as herdr remote, never per-card.
+    const hostShell: HostShellRunner = async (hostId, argv, timeoutMs = 8_000) => {
+      if (argv.length === 0) return { ok: false, stdout: "", error: "empty argv" };
+      const executable = argv[0]!;
+      const args = argv.slice(1);
+      const host = findHostById(hostId);
+      if (!host || host.kind === "local" || hostId === "local") {
+        return runCli(executable, args, timeoutMs);
+      }
+      if (!host.endpoint) {
+        return { ok: false, stdout: "", error: `host ${hostId} has no ssh endpoint` };
+      }
+      try {
+        const result = await runOwned(
+          Effect.gen(function* () {
+            const endpoint = yield* parseSshEndpoint(host.endpoint!);
+            const command = yield* makeRemoteCommand(executable, args);
+            return yield* ssh.run(oneShot(endpoint, command, { budget: "status" }));
+          }).pipe(
+            Effect.catchAll((error) =>
+              Effect.succeed({
+                stdout: "",
+                stderr: error instanceof Error ? error.message : String(error),
+                _fail: true as const,
+              }),
+            ),
+          ),
+        );
+        if ("_fail" in result && result._fail) {
+          return { ok: false, stdout: result.stdout, error: result.stderr || "ssh shell failed" };
+        }
+        // lsof exits non-zero when no sockets match; caller treats empty stdout as no ports.
+        return { ok: true, stdout: result.stdout ?? "" };
+      } catch (error) {
+        return {
+          ok: false,
+          stdout: "",
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    };
+
+    const fetchProcesses = async (
+      hostId: string,
+      session: string | null | undefined,
+      paneId: string,
+    ) => {
+      const known = asHostId(hostId);
+      if (!known) return [];
+      const cli = await runner(
+        known,
+        ["pane", "process-info", "--pane", paneId],
+        session,
+        6_000,
+      );
+      if (!cli.ok) return [];
+      const envelope = parseCliEnvelope(cli.stdout);
+      if (!envelope.ok) return [];
+      return parseProcessInfo(envelope.result).slice(0, 8);
+    };
+
+    const serviceMap = new HerdrServiceMap({
+      shell: hostShell,
+      fetchProcesses,
+      batchPerTick: 2,
+      tickIntervalMs: 10_000,
+    });
+
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         streams.detachAllOnQuit("runtime_dispose");
         mirrors.stopAll();
+        serviceMap.stop();
       }),
     );
 
     const warm = transport.warm.pipe(Effect.ignore);
     const start = warm.pipe(Effect.zipRight(Effect.sync(() => mirrors.startAll())));
 
-    return HerdrPlane.of({ service, mirrors, observePool, streams, start, warm });
+    return HerdrPlane.of({
+      service,
+      mirrors,
+      observePool,
+      streams,
+      serviceMap,
+      start,
+      warm,
+    });
   }),
 );

@@ -8,7 +8,12 @@ import {
   type HerdrConnectionState,
 } from "@shared/herdr";
 import { resolveHerdrSpawnDefaults } from "@shared/region-defaults";
-import type { HerdrMirrorEvent, HerdrMirrorStateInfo, HerdrPaneInfo } from "@shared/ipc";
+import type {
+  HerdrMirrorEvent,
+  HerdrMirrorStateInfo,
+  HerdrPaneInfo,
+  HerdrServiceMapInfo,
+} from "@shared/ipc";
 import { state$ } from "./state";
 import { getVellumApi } from "./vellum-api";
 
@@ -147,6 +152,10 @@ export const openHerdrTerminal = (nodeId: string, herdr: EtherHerdr, title: stri
     title,
     ...(prev?.streamId !== undefined ? { streamId: prev.streamId } : {}),
   });
+  // Intent: free service-map probe when the operator opens the terminal.
+  if (herdr.paneId) {
+    void probeHerdrServiceMap(nodeId, herdr);
+  }
   herdr$.focusedNodeId.set(nodeId);
   ensureConnection(nodeId);
   setConnectionEvent(nodeId, { type: "ok" });
@@ -236,6 +245,80 @@ export const setHerdrToast = (message: string): void => {
       if (herdr$.toast.peek() === message) herdr$.toast.set("");
     }, 4000);
   }
+};
+
+/** Apply a service-map projection onto cards whose meta pane matches. */
+export const applyHerdrServiceMap = (proj: HerdrServiceMapInfo): void => {
+  const metaMap = herdr$.metaByNodeId.peek();
+  for (const [nodeId, cache] of Object.entries(metaMap)) {
+    const meta = cache?.meta;
+    if (!meta || meta.paneId !== proj.paneId) continue;
+    // When a prior service exists, require same host (pane ids are host-local).
+    if (meta.service && meta.service.hostId !== proj.hostId) continue;
+    herdr$.metaByNodeId[nodeId].set({
+      ...cache,
+      meta: { ...meta, service: proj },
+      fetchedAt: Date.now(),
+    });
+  }
+};
+
+/** Intent probe — open terminal / Sync. Never blocks UI. */
+export const probeHerdrServiceMap = async (
+  nodeId: string,
+  herdr: EtherHerdr,
+): Promise<void> => {
+  if (!herdr.paneId) return;
+  type Api = ReturnType<typeof getVellumApi> & {
+    herdrServiceMapProbe?: (
+      hostId: string,
+      session: string | null | undefined,
+      paneId: string,
+    ) => Promise<{ ok: boolean; data?: HerdrServiceMapInfo }>;
+  };
+  const api = getVellumApi() as Api | undefined;
+  if (!api?.herdrServiceMapProbe) return;
+  try {
+    const result = await api.herdrServiceMapProbe(
+      herdr.host,
+      herdr.session ?? null,
+      herdr.paneId,
+    );
+    if (result.ok && result.data) {
+      const cache = herdr$.metaByNodeId[nodeId].peek();
+      if (cache?.meta) {
+        herdr$.metaByNodeId[nodeId].set({
+          ...cache,
+          meta: { ...cache.meta, service: result.data },
+          fetchedAt: Date.now(),
+        });
+      } else {
+        applyHerdrServiceMap(result.data);
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+};
+
+let serviceMapUnsub: (() => void) | undefined;
+
+/** One app-wide subscription for service-map pushes. Idempotent. */
+export const subscribeHerdrServiceMap = (): (() => void) => {
+  if (serviceMapUnsub) return serviceMapUnsub;
+  type Api = ReturnType<typeof getVellumApi> & {
+    onHerdrServiceMapEvent?: (listener: (event: HerdrServiceMapInfo) => void) => () => void;
+  };
+  const api = getVellumApi() as Api | undefined;
+  if (!api?.onHerdrServiceMapEvent) return () => undefined;
+  const unsubscribe = api.onHerdrServiceMapEvent((event) => {
+    applyHerdrServiceMap(event);
+  });
+  serviceMapUnsub = () => {
+    unsubscribe();
+    serviceMapUnsub = undefined;
+  };
+  return serviceMapUnsub;
 };
 
 type HerdrMirrorApi = ReturnType<typeof getVellumApi> & {
@@ -360,6 +443,8 @@ export const mergeHerdrMetaAfterRefresh = (
   const foregroundCwd = remote.foregroundCwd ?? prior?.foregroundCwd;
   const focused = remote.focused !== undefined ? remote.focused : prior?.focused;
   const processes = remote.processes ?? prior?.processes;
+  // Service projection is sticky: pure-local mirror meta omits it every tick.
+  const service = remote.service ?? prior?.service;
 
   return {
     ...remote,
@@ -374,6 +459,7 @@ export const mergeHerdrMetaAfterRefresh = (
     ...(focused !== undefined ? { focused } : {}),
     // Explicit empty remote list still wins (operator-visible process exit).
     ...(processes !== undefined ? { processes } : {}),
+    ...(service !== undefined ? { service } : {}),
   };
 };
 

@@ -98,6 +98,11 @@ export const IPC_CHANNELS = {
   herdrStreamClose: "vellum:herdr-stream-close",
   herdrObserveTouch: "vellum:herdr-observe-touch",
   herdrObserveRetained: "vellum:herdr-observe-retained",
+  /** Host-scoped process→port→URL projection (read cache). */
+  herdrServiceMapGet: "vellum:herdr-service-map-get",
+  /** Intent probe (open/sync) — rate-limited host queue. */
+  herdrServiceMapProbe: "vellum:herdr-service-map-probe",
+  herdrServiceMapEvent: "vellum:herdr-service-map-event",
   // browser work surface (partitioned WebContentsView sessions)
   browserProfiles: "vellum:browser-profiles",
   browserOpen: "vellum:browser-open",
@@ -764,6 +769,35 @@ export interface HerdrProcessInfo {
   readonly pid?: number;
 }
 
+/** Projected host service (dev server) state for a herdr pane — never from herdr alone. */
+export type HerdrServiceHealth =
+  | "unknown"
+  | "pending"
+  | "live"
+  | "stale"
+  | "dead"
+  | "skipped";
+
+export interface HerdrServicePortInfo {
+  readonly port: number;
+  readonly protocol?: "tcp" | "udp";
+  readonly address?: string;
+}
+
+export interface HerdrServiceMapInfo {
+  readonly hostId: string;
+  readonly session?: string | null;
+  readonly paneId: string;
+  readonly health: HerdrServiceHealth;
+  readonly processes?: ReadonlyArray<HerdrProcessInfo>;
+  readonly interesting?: boolean;
+  readonly ports?: ReadonlyArray<HerdrServicePortInfo>;
+  readonly url?: string;
+  readonly hostBase?: string;
+  readonly checkedAt?: number;
+  readonly error?: string;
+}
+
 export interface HerdrPaneInfo {
   readonly paneId: string;
   readonly workspaceId?: string;
@@ -782,6 +816,8 @@ export interface HerdrPaneInfo {
   readonly workspaceLabel?: string;
   readonly tabLabel?: string;
   readonly processes?: ReadonlyArray<HerdrProcessInfo>;
+  /** Optional service projection (process→port→url); sticky in renderer cache. */
+  readonly service?: HerdrServiceMapInfo;
 }
 
 export interface HerdrStreamOpenInput {
@@ -887,6 +923,20 @@ export interface VellumHerdrApi {
     session: string | null | undefined,
     paneId: string,
   ) => Promise<HerdrOpResult<HerdrPaneInfo>>;
+  readonly herdrServiceMapGet: (
+    hostId: string,
+    session: string | null | undefined,
+    paneId: string,
+  ) => Promise<HerdrOpResult<HerdrServiceMapInfo | null>>;
+  /** Enqueue intent probe (Sync / open terminal / open page). */
+  readonly herdrServiceMapProbe: (
+    hostId: string,
+    session: string | null | undefined,
+    paneId: string,
+  ) => Promise<HerdrOpResult<HerdrServiceMapInfo>>;
+  readonly onHerdrServiceMapEvent: (
+    listener: (event: HerdrServiceMapInfo) => void,
+  ) => () => void;
   /** Marks the pane seen so herdr agent_status transitions done → idle. */
   readonly herdrMarkPaneSeen: (
     hostId: string,

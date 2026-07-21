@@ -1,0 +1,411 @@
+/**
+ * Host-scoped Herdr service map: process → LISTEN ports → reachable URL.
+ *
+ * Cards never SSH. They read cache. Probes go through a rate-limited queue:
+ *   intent  > change > ambient
+ * with a few host commands per tick so hundreds of nodes stay linear.
+ *
+ * No herdr patches. LISTEN resolution is a host side-channel (lsof) via an
+ * injectable shell runner (local spawn or existing SSH hop).
+ */
+
+import type { CliResult } from "../adapters/exec";
+import { findHostById } from "../hosts/snapshot";
+import {
+  enqueueServiceProbe,
+  interestLevel,
+  parseLsofListen,
+  portsFromCmdlineHints,
+  processIdentityChanged,
+  projectService,
+  resolveHostBase,
+  takeQueueForHost,
+  type HerdrServicePort,
+  type HerdrServicePriority,
+  type HerdrServiceProcess,
+  type HerdrServiceProjection,
+  type HerdrServiceQueueItem,
+  type HostReachability,
+} from "@shared/herdr-service-map";
+
+export type HostShellRunner = (
+  hostId: string,
+  argv: ReadonlyArray<string>,
+  timeoutMs?: number,
+) => Promise<CliResult>;
+
+export type ProcessInfoFetcher = (
+  hostId: string,
+  session: string | null | undefined,
+  paneId: string,
+) => Promise<ReadonlyArray<HerdrServiceProcess>>;
+
+export interface HerdrServiceMapOptions {
+  readonly shell?: HostShellRunner;
+  readonly fetchProcesses?: ProcessInfoFetcher;
+  /** Max probe jobs per host per drain tick. Default 2. */
+  readonly batchPerTick?: number;
+  /** Minimum ms between drain ticks per host. Default 10_000. */
+  readonly tickIntervalMs?: number;
+  readonly now?: () => number;
+  /** Resolve Tailscale/mesh override for a host id (optional). */
+  readonly resolveTailscaleHost?: (hostId: string) => string | undefined;
+}
+
+const cacheKey = (
+  hostId: string,
+  session: string | null | undefined,
+  paneId: string,
+): string => `${hostId}\0${session ?? ""}\0${paneId}`;
+
+export class HerdrServiceMap {
+  private queue: ReadonlyArray<HerdrServiceQueueItem> = [];
+  private readonly cache = new Map<string, HerdrServiceProjection>();
+  private readonly hostTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly hostRunning = new Set<string>();
+  private readonly listeners = new Set<(proj: HerdrServiceProjection) => void>();
+  private batchPerTick: number;
+  private tickIntervalMs: number;
+  private now: () => number;
+  private shell?: HostShellRunner;
+  private fetchProcesses?: ProcessInfoFetcher;
+  private resolveTailscaleHost?: (hostId: string) => string | undefined;
+  private stopped = false;
+
+  constructor(opts: HerdrServiceMapOptions = {}) {
+    this.shell = opts.shell;
+    this.fetchProcesses = opts.fetchProcesses;
+    this.batchPerTick = opts.batchPerTick ?? 2;
+    this.tickIntervalMs = opts.tickIntervalMs ?? 10_000;
+    this.now = opts.now ?? Date.now;
+    this.resolveTailscaleHost = opts.resolveTailscaleHost;
+  }
+
+  /** Late-bind runners from HerdrPlane once transports exist. */
+  applyConfig(opts: HerdrServiceMapOptions): void {
+    if (opts.shell) this.shell = opts.shell;
+    if (opts.fetchProcesses) this.fetchProcesses = opts.fetchProcesses;
+    if (opts.resolveTailscaleHost) this.resolveTailscaleHost = opts.resolveTailscaleHost;
+    if (opts.batchPerTick !== undefined) this.batchPerTick = opts.batchPerTick;
+    if (opts.tickIntervalMs !== undefined) this.tickIntervalMs = opts.tickIntervalMs;
+    if (opts.now) this.now = opts.now;
+  }
+
+  onChange(listener: (proj: HerdrServiceProjection) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  stop(): void {
+    this.stopped = true;
+    for (const t of this.hostTimers.values()) clearTimeout(t);
+    this.hostTimers.clear();
+  }
+
+  get(
+    hostId: string,
+    session: string | null | undefined,
+    paneId: string,
+  ): HerdrServiceProjection | undefined {
+    return this.cache.get(cacheKey(hostId, session, paneId));
+  }
+
+  listForHost(hostId: string): ReadonlyArray<HerdrServiceProjection> {
+    const out: HerdrServiceProjection[] = [];
+    for (const proj of this.cache.values()) {
+      if (proj.hostId === hostId) out.push(proj);
+    }
+    return out;
+  }
+
+  /**
+   * Observe processes from getPaneMeta / mirror without forcing a probe.
+   * Enqueues change-priority when identity flips and interest is non-none;
+   * ambient only for strong interest that has never been checked.
+   */
+  observeProcesses(input: {
+    readonly hostId: string;
+    readonly session?: string | null;
+    readonly paneId: string;
+    readonly processes?: ReadonlyArray<HerdrServiceProcess>;
+  }): void {
+    if (this.stopped || !input.paneId) return;
+    const key = cacheKey(input.hostId, input.session, input.paneId);
+    const level = interestLevel(input.processes);
+    const prev = this.cache.get(key);
+    const changed = processIdentityChanged(prev?.processes, input.processes);
+
+    if (level === "none") {
+      const skipped = projectService({
+        hostId: input.hostId,
+        session: input.session,
+        paneId: input.paneId,
+        processes: input.processes,
+        hostBase: prev?.hostBase ?? this.hostBase(input.hostId),
+        checkedAt: prev?.checkedAt,
+        ports: undefined,
+        now: this.now(),
+      });
+      this.write(skipped);
+      return;
+    }
+
+    // Keep process snapshot on projection without wiping ports until re-probe.
+    if (prev) {
+      this.write({
+        ...prev,
+        processes: input.processes,
+        interesting: true,
+      });
+    } else {
+      this.write(
+        projectService({
+          hostId: input.hostId,
+          session: input.session,
+          paneId: input.paneId,
+          processes: input.processes,
+          hostBase: this.hostBase(input.hostId),
+          pending: false,
+          now: this.now(),
+        }),
+      );
+    }
+
+    if (changed && prev?.processes !== undefined) {
+      this.enqueue({
+        hostId: input.hostId,
+        session: input.session,
+        paneId: input.paneId,
+        priority: "change",
+        processes: input.processes,
+      });
+      return;
+    }
+
+    // First sight of strong interest → ambient (don't stampede on weak nvim).
+    if (level === "strong" && (prev?.checkedAt === undefined || prev.health === "unknown")) {
+      this.enqueue({
+        hostId: input.hostId,
+        session: input.session,
+        paneId: input.paneId,
+        priority: "ambient",
+        processes: input.processes,
+      });
+    }
+  }
+
+  /** Intent: open terminal, Sync, wire page edge. Cuts the line. */
+  requestProbe(input: {
+    readonly hostId: string;
+    readonly session?: string | null;
+    readonly paneId: string;
+    readonly priority?: HerdrServicePriority;
+    readonly processes?: ReadonlyArray<HerdrServiceProcess>;
+  }): HerdrServiceProjection {
+    const priority = input.priority ?? "intent";
+    const existing = this.get(input.hostId, input.session, input.paneId);
+    const pending = projectService({
+      hostId: input.hostId,
+      session: input.session,
+      paneId: input.paneId,
+      processes: input.processes ?? existing?.processes,
+      ports: existing?.ports,
+      hostBase: existing?.hostBase ?? this.hostBase(input.hostId),
+      checkedAt: existing?.checkedAt,
+      pending: true,
+      priority,
+      now: this.now(),
+    });
+    this.write(pending);
+    this.enqueue({
+      hostId: input.hostId,
+      session: input.session,
+      paneId: input.paneId,
+      priority,
+      processes: input.processes ?? existing?.processes,
+    });
+    // Intent drains ASAP (0 delay) once.
+    if (priority === "intent") {
+      this.scheduleHost(input.hostId, 0);
+    }
+    return pending;
+  }
+
+  /** Test / forced single drain without waiting for timer. */
+  async drainHostNow(hostId: string): Promise<void> {
+    await this.drainHost(hostId);
+  }
+
+  // --- internals ------------------------------------------------------------
+
+  private hostBase(hostId: string): string | undefined {
+    const host = findHostById(hostId);
+    const reach: HostReachability = {
+      hostId,
+      kind: host?.kind === "remote" ? "remote" : "local",
+      endpoint: host?.kind === "remote" ? host.endpoint : undefined,
+      tailscaleHost: this.resolveTailscaleHost?.(hostId),
+    };
+    return resolveHostBase(reach);
+  }
+
+  private enqueue(item: Omit<HerdrServiceQueueItem, "enqueuedAt"> & { enqueuedAt?: number }): void {
+    this.queue = enqueueServiceProbe(this.queue, {
+      ...item,
+      enqueuedAt: item.enqueuedAt ?? this.now(),
+    });
+    this.scheduleHost(item.hostId, this.tickIntervalMs);
+  }
+
+  private scheduleHost(hostId: string, delayMs: number): void {
+    if (this.stopped) return;
+    if (this.hostTimers.has(hostId)) {
+      // Already scheduled; intent uses 0 — reschedule if faster.
+      if (delayMs > 0) return;
+      clearTimeout(this.hostTimers.get(hostId));
+      this.hostTimers.delete(hostId);
+    }
+    const timer = setTimeout(() => {
+      this.hostTimers.delete(hostId);
+      void this.drainHost(hostId);
+    }, delayMs);
+    this.hostTimers.set(hostId, timer);
+  }
+
+  private async drainHost(hostId: string): Promise<void> {
+    if (this.stopped || this.hostRunning.has(hostId)) return;
+    this.hostRunning.add(hostId);
+    try {
+      const { taken, rest } = takeQueueForHost(this.queue, hostId, this.batchPerTick);
+      this.queue = rest;
+      for (const item of taken) {
+        await this.probeOne(item);
+      }
+      // More work for this host?
+      if (this.queue.some((q) => q.hostId === hostId)) {
+        this.scheduleHost(hostId, this.tickIntervalMs);
+      }
+    } finally {
+      this.hostRunning.delete(hostId);
+    }
+  }
+
+  private async probeOne(item: HerdrServiceQueueItem): Promise<void> {
+    const hostBase = this.hostBase(item.hostId);
+    let processes = item.processes;
+    if ((!processes || processes.length === 0) && this.fetchProcesses) {
+      try {
+        processes = await this.fetchProcesses(item.hostId, item.session, item.paneId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.write(
+          projectService({
+            hostId: item.hostId,
+            session: item.session,
+            paneId: item.paneId,
+            processes,
+            hostBase,
+            pending: false,
+            error: message,
+            checkedAt: this.now(),
+            now: this.now(),
+          }),
+        );
+        return;
+      }
+    }
+
+    const level = interestLevel(processes);
+    if (level === "none") {
+      this.write(
+        projectService({
+          hostId: item.hostId,
+          session: item.session,
+          paneId: item.paneId,
+          processes,
+          hostBase,
+          checkedAt: this.now(),
+          now: this.now(),
+        }),
+      );
+      return;
+    }
+
+    const pids = (processes ?? [])
+      .map((p) => p.pid)
+      .filter((p): p is number => typeof p === "number" && p > 0);
+
+    let ports: ReadonlyArray<HerdrServicePort> = [];
+    let error: string | undefined;
+    if (pids.length > 0 && this.shell) {
+      try {
+        ports = await this.resolveListenPorts(item.hostId, pids);
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+      }
+    }
+    if (ports.length === 0) {
+      ports = portsFromCmdlineHints(processes);
+    }
+
+    this.write(
+      projectService({
+        hostId: item.hostId,
+        session: item.session,
+        paneId: item.paneId,
+        processes,
+        ports,
+        hostBase,
+        checkedAt: this.now(),
+        pending: false,
+        error,
+        priority: item.priority,
+        now: this.now(),
+      }),
+    );
+  }
+
+  private async resolveListenPorts(
+    hostId: string,
+    pids: ReadonlyArray<number>,
+  ): Promise<ReadonlyArray<HerdrServicePort>> {
+    if (!this.shell || pids.length === 0) return [];
+    // One host command for the batch: lsof -nP -iTCP -sTCP:LISTEN -a -p p1,p2
+    const pidList = pids.join(",");
+    const result = await this.shell(
+      hostId,
+      ["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", pidList],
+      8_000,
+    );
+    if (!result.ok) {
+      // lsof exits 1 when nothing matches — treat empty as no ports, not error
+      if ((result.stdout ?? "").trim().length === 0) return [];
+      throw new Error(result.error ?? "lsof failed");
+    }
+    return parseLsofListen(result.stdout, pids);
+  }
+
+  private write(proj: HerdrServiceProjection): void {
+    const key = cacheKey(proj.hostId, proj.session, proj.paneId);
+    this.cache.set(key, proj);
+    for (const listener of this.listeners) {
+      try {
+        listener(proj);
+      } catch {
+        // listeners must not break the map
+      }
+    }
+  }
+}
+
+/**
+ * Configure an existing map's runners after construction (plane injects
+ * host shell + process-info fetch once SSH/herdr transports are live).
+ */
+export const configureHerdrServiceMap = (
+  map: HerdrServiceMap,
+  opts: HerdrServiceMapOptions,
+): void => {
+  // Reconstruct by mutating private fields via a narrow apply API.
+  map.applyConfig(opts);
+};

@@ -317,6 +317,12 @@ const herdrApi: VellumHerdrApi = {
     invoke(IPC_CHANNELS.herdrListAgents, IPC_TIMEOUT_MS, hostId, session),
   herdrGetMeta: (hostId, session, paneId) =>
     invoke(IPC_CHANNELS.herdrGetMeta, IPC_TIMEOUT_MS, hostId, session, paneId),
+  herdrServiceMapGet: (hostId, session, paneId) =>
+    invoke(IPC_CHANNELS.herdrServiceMapGet, IPC_TIMEOUT_MS, hostId, session, paneId),
+  herdrServiceMapProbe: (hostId, session, paneId) =>
+    invoke(IPC_CHANNELS.herdrServiceMapProbe, IPC_TIMEOUT_MS, hostId, session, paneId),
+  onHerdrServiceMapEvent: (listener) =>
+    subscribe(IPC_CHANNELS.herdrServiceMapEvent, listener),
   herdrMarkPaneSeen: (hostId, session, paneId) =>
     invoke(IPC_CHANNELS.herdrMarkPaneSeen, IPC_TIMEOUT_MS, hostId, session, paneId),
   herdrCreateWorkspace: (hostId, session, input) =>

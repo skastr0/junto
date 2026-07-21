@@ -155,6 +155,7 @@ const fakeHerdr = Layer.succeed(
     mirrors: { mirrorFor: () => undefined } as unknown as HerdrMirrorRegistry,
     observePool: {} as HerdrObservePool,
     streams: {} as HerdrStreamManager,
+    serviceMap: { stop: () => {}, get: () => undefined, observeProcesses: () => {}, requestProbe: () => ({ health: "unknown" }) } as never,
     start: Effect.void,
     warm: Effect.void,
   }),

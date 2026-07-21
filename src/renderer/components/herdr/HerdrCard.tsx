@@ -8,12 +8,15 @@ import {
   herdr$,
   onHerdrMirrorChange,
   openHerdrTerminal,
+  probeHerdrServiceMap,
   refreshHerdrMeta,
   scheduleRefreshHerdrMeta,
   subscribeHerdrMirror,
+  subscribeHerdrServiceMap,
 } from "../../lib/herdr-state";
 import { harnessDisplayName } from "../../lib/harness-icons";
-import { editText } from "../../lib/mutations";
+import { addNode, editText } from "../../lib/mutations";
+import { makePageNode } from "../../lib/node-factories";
 import { getVellumApi } from "../../lib/vellum-api";
 import { DIM, INK, withAlpha } from "../../lib/theme";
 import { ActivityMarkFromSpec } from "../ActivityMark";
@@ -129,6 +132,7 @@ export function HerdrCard({
   // One app-wide freshness subscription (idempotent across card mounts).
   useEffect(() => {
     subscribeHerdrMirror();
+    subscribeHerdrServiceMap();
   }, []);
 
   // Push: default-session cards only. Mirror is default-session; named sessions
@@ -196,11 +200,49 @@ export function HerdrCard({
     .filter((s): s is string => Boolean(s))
     .join(" › ");
 
+  const service = meta?.service;
+  const processLine =
+    service?.processes?.[0]?.name ??
+    service?.processes?.[0]?.cmdline?.split(/\s+/)[0] ??
+    meta?.processes?.[0]?.name;
+  const portLine =
+    service?.ports && service.ports.length > 0
+      ? `:${service.ports.map((p) => p.port).join(",")}`
+      : undefined;
+  const serviceBadge =
+    service?.health === "live" || service?.health === "stale"
+      ? [processLine, portLine, service.health === "stale" ? "stale" : undefined]
+          .filter(Boolean)
+          .join(" · ")
+      : service?.health === "pending"
+        ? [processLine, "port…"].filter(Boolean).join(" · ")
+        : service?.health === "dead" && processLine
+          ? `${processLine} · no port`
+          : processLine;
+
   const bottomFallback = preview ?? herdr.paneId ?? "no meta yet";
-  const bottomTitle = cwd ? (preview ? `${cwd} — ${preview}` : cwd) : bottomFallback;
+  const bottomTitle = [
+    service?.url,
+    cwd ? (preview ? `${cwd} — ${preview}` : cwd) : bottomFallback,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const open = () => {
     openHerdrTerminal(node.id, herdr, rawName);
+  };
+
+  const syncService = (e: SyntheticEvent) => {
+    e.stopPropagation();
+    void probeHerdrServiceMap(node.id, herdr);
+  };
+
+  const openServicePage = (e: SyntheticEvent) => {
+    e.stopPropagation();
+    const url = service?.url;
+    if (!url) return;
+    const page = makePageNode(node.x + (node.width ?? 220) + 40, node.y, url);
+    addNode(page, { focus: true });
   };
 
   // Time-based coalescing shared by every open trigger: pointerdown+click
@@ -291,15 +333,55 @@ export function HerdrCard({
           {crumbs.join(" › ")}
         </div>
       </div>
-      <div className="line-clamp-1 text-[10px]" style={{ color: DIM }} title={bottomTitle}>
-        {cwd ? (
-          <>
-            <span style={{ color: withAlpha(INK, 0.6) }}>{cwdBase}</span>
-            {preview ? <span style={{ color: DIM }}>{` — ${preview}`}</span> : null}
-          </>
-        ) : (
-          bottomFallback
-        )}
+      <div className="flex flex-col gap-0.5">
+        {serviceBadge ? (
+          <div
+            className="flex items-center gap-1 truncate text-[10px] tabular-nums"
+            style={{
+              color:
+                service?.health === "live"
+                  ? withAlpha(INK, 0.85)
+                  : service?.health === "dead"
+                    ? "var(--vellum-crimson, #c44)"
+                    : DIM,
+            }}
+            title={service?.url ?? serviceBadge}
+          >
+            <span className="truncate">{serviceBadge}</span>
+            {service?.url ? (
+              <button
+                type="button"
+                className="nodrag nopan shrink-0 rounded px-1 text-[9px] uppercase tracking-wide"
+                style={{ color: INK, background: withAlpha(INK, 0.08) }}
+                title={`Open page · ${service.url}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={openServicePage}
+              >
+                open
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="nodrag nopan shrink-0 rounded px-1 text-[9px] uppercase tracking-wide"
+              style={{ color: DIM, background: withAlpha(INK, 0.06) }}
+              title="Sync process/port probe"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={syncService}
+            >
+              sync
+            </button>
+          </div>
+        ) : null}
+        <div className="line-clamp-1 text-[10px]" style={{ color: DIM }} title={bottomTitle}>
+          {cwd ? (
+            <>
+              <span style={{ color: withAlpha(INK, 0.6) }}>{cwdBase}</span>
+              {preview ? <span style={{ color: DIM }}>{` — ${preview}`}</span> : null}
+            </>
+          ) : (
+            bottomFallback
+          )}
+        </div>
       </div>
     </div>
   );
