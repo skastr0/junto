@@ -13,7 +13,7 @@ import { NoteMarkdown } from "../../lib/note-markdown";
 import { state$ } from "../../lib/state";
 import { resolveNodeConnections } from "../../../shared/connections";
 import { chatActivity, timerActivity, watcherActivity } from "../../lib/activity";
-import { chatState$, initialAgentChatState } from "../../lib/chat-state";
+import { chatCoarse$ } from "../../lib/chat-state";
 import { accentColor, INK, DIM, HUE, SOURCE_HUE, withAlpha } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
@@ -119,18 +119,16 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-/** Live chat activity for a hermes agent node — separate component so hooks stay unconditional. */
+/** Live chat activity for a hermes agent node — separate component so hooks stay unconditional.
+ *  Subscribes to chatCoarse$ only (no transcript) so streaming tokens do not re-render marks. */
 function AgentActivityMark({ agentKey }: { readonly agentKey: string }) {
-  const raw = use$(chatState$[agentKey]);
-  const state = raw ?? initialAgentChatState();
-  const tools = state.transcript
-    .filter((item): item is Extract<typeof item, { kind: "tool" }> => item.kind === "tool")
-    .map((item) => ({ status: item.status }));
+  const coarse = use$(chatCoarse$[agentKey]);
+  const status = coarse?.status ?? "idle";
   const activity = chatActivity({
-    status: state.status,
-    pendingPermission: Boolean(state.pendingPermission),
-    tools,
-    sending: state.turnBusy,
+    status,
+    pendingPermission: Boolean(coarse?.pendingPermissionId),
+    tools: coarse?.hasBusyTools ? [{ status: "in_progress" as const }] : [],
+    sending: coarse?.turnBusy ?? false,
   });
   return <ActivityMarkFromSpec spec={activity} />;
 }

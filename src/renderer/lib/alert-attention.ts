@@ -21,7 +21,7 @@ import {
   type AlertQueue,
   type AlertSignal,
 } from "./alert-queue";
-import { chatState$ } from "./chat-state";
+import { chatCoarse$ } from "./chat-state";
 import { herdr$ } from "./herdr-state";
 import { kernel$ } from "./kernel-view";
 import { playAlert } from "./sfx";
@@ -48,7 +48,7 @@ const nodeExists = (doc: CanvasDoc, nodeId: string | undefined): string | undefi
 export const collectAlertSignals = (input: {
   readonly doc: CanvasDoc;
   readonly rollups: ReadonlyArray<RegionRollup>;
-  readonly chat: Record<string, { pendingPermission?: { requestId?: string } } | undefined>;
+  readonly chat: Record<string, { pendingPermissionId?: string; pendingPermission?: { requestId?: string } } | undefined>;
   readonly herdrMeta: Record<string, { meta?: { agentStatus?: string } } | undefined>;
   readonly snapshots: SnapshotState;
   readonly orphans: ReadonlyArray<string>;
@@ -77,9 +77,9 @@ export const collectAlertSignals = (input: {
     }
   }
 
-  // permission: chat pendingPermission appears
+  // permission: chat pendingPermission appears (coarse projection preferred)
   for (const [agentKey, slot] of Object.entries(chat)) {
-    if (!slot?.pendingPermission) continue;
+    if (!slot?.pendingPermissionId && !slot?.pendingPermission) continue;
     push({
       id: alertId.permission(agentKey),
       kind: "permission",
@@ -166,7 +166,7 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
       const signals = collectAlertSignals({
         doc: state$.doc.peek(),
         rollups: rollupsRef.current,
-        chat: chatState$.peek() as Record<string, { pendingPermission?: { requestId?: string } } | undefined>,
+        chat: chatCoarse$.peek() as Record<string, { pendingPermissionId?: string } | undefined>,
         herdrMeta: herdr$.metaByNodeId.peek() as Record<
           string,
           { meta?: { agentStatus?: string } } | undefined
@@ -180,7 +180,7 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
     run();
 
     const offs = [
-      chatState$.onChange(() => run()),
+      chatCoarse$.onChange(() => run()),
       herdr$.metaByNodeId.onChange(() => run()),
       kernel$.orphaned.onChange(() => run()),
       state$.snapshots.onChange(() => run()),
@@ -202,7 +202,7 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
     const signals = collectAlertSignals({
       doc: state$.doc.peek(),
       rollups: rollupsRef.current,
-      chat: chatState$.peek() as Record<string, { pendingPermission?: { requestId?: string } } | undefined>,
+      chat: chatCoarse$.peek() as Record<string, { pendingPermissionId?: string } | undefined>,
       herdrMeta: herdr$.metaByNodeId.peek() as Record<
         string,
         { meta?: { agentStatus?: string } } | undefined

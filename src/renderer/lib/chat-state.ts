@@ -366,9 +366,53 @@ export function reduceChatEvent(state: AgentChatState, event: ChatEvent): AgentC
 
 export const chatState$ = observable<Record<string, AgentChatState>>({});
 
+/** Coarse chrome projection — status transitions only, no transcript.
+ *  Streaming tokens notify chatState$ only; region chrome / activity marks
+ *  subscribe here so they re-render on real status flips, not per token. */
+export type AgentChatCoarse = {
+  readonly status: ChatStatus;
+  readonly pendingPermissionId?: string;
+  readonly turnBusy: boolean;
+  readonly hasBusyTools: boolean;
+};
+
+export const chatCoarse$ = observable<Record<string, AgentChatCoarse>>({});
+
+const initialCoarse = (): AgentChatCoarse => ({
+  status: "idle",
+  turnBusy: false,
+  hasBusyTools: false,
+});
+
+const hasBusyToolsFromTranscript = (transcript: ReadonlyArray<ChatItem>): boolean =>
+  transcript.some(
+    (item) => item.kind === "tool" && (item.status === "pending" || item.status === "in_progress"),
+  );
+
+const syncChatCoarse = (agentKey: string, state: AgentChatState): void => {
+  const next: AgentChatCoarse = {
+    status: state.status,
+    pendingPermissionId: state.pendingPermission?.requestId,
+    turnBusy: state.turnBusy,
+    hasBusyTools: hasBusyToolsFromTranscript(state.transcript),
+  };
+  const prev = chatCoarse$[agentKey].peek();
+  if (
+    prev &&
+    prev.status === next.status &&
+    prev.pendingPermissionId === next.pendingPermissionId &&
+    prev.turnBusy === next.turnBusy &&
+    prev.hasBusyTools === next.hasBusyTools
+  ) {
+    return;
+  }
+  chatCoarse$[agentKey].set(next);
+};
+
 function ensureAgent(agentKey: string): void {
   if (chatState$[agentKey].peek() === undefined) {
     chatState$[agentKey].set(initialAgentChatState());
+    chatCoarse$[agentKey].set(initialCoarse());
   }
 }
 
@@ -394,9 +438,11 @@ function pushStatus(agentKey: string, text: string, level: "info" | "error"): vo
 export async function openChat(agentKey: string, resumeSessionId?: string): Promise<void> {
   ensureAgent(agentKey);
   chatState$[agentKey].assign({ status: "connecting", error: undefined, authMethods: undefined });
+  syncChatCoarse(agentKey, getAgentChatState(agentKey));
   const api = getChatApi();
   if (!api || typeof api.chatOpen !== "function") {
     chatState$[agentKey].assign({ status: "error", error: "chat unavailable" });
+    syncChatCoarse(agentKey, getAgentChatState(agentKey));
     return;
   }
   try {
@@ -420,6 +466,7 @@ export async function openChat(agentKey: string, resumeSessionId?: string): Prom
   } catch (error) {
     chatState$[agentKey].assign({ status: "error", error: error instanceof Error ? error.message : String(error) });
   }
+  syncChatCoarse(agentKey, getAgentChatState(agentKey));
 }
 
 export async function sendPrompt(
@@ -438,6 +485,7 @@ export async function sendPrompt(
     return;
   }
   chatState$[agentKey].turnBusy.set(true);
+  syncChatCoarse(agentKey, getAgentChatState(agentKey));
   try {
     const result = await api.chatPrompt(agentKey, trimmed, contextBlocks?.map((block) => block.text));
     if (!result.ok) pushStatus(agentKey, result.error ?? "turn failed", "error");
@@ -445,6 +493,7 @@ export async function sendPrompt(
     pushStatus(agentKey, error instanceof Error ? error.message : String(error), "error");
   } finally {
     chatState$[agentKey].turnBusy.set(false);
+    syncChatCoarse(agentKey, getAgentChatState(agentKey));
   }
 }
 
@@ -455,6 +504,7 @@ export async function answerPermission(agentKey: string, requestId: string, opti
   );
   const pending = chatState$[agentKey].pendingPermission.peek();
   if (pending?.requestId === requestId) chatState$[agentKey].pendingPermission.set(undefined);
+  syncChatCoarse(agentKey, getAgentChatState(agentKey));
   const api = getChatApi();
   if (!api || typeof api.chatPermission !== "function") {
     pushStatus(agentKey, "permission response unavailable", "error");
@@ -466,6 +516,7 @@ export async function answerPermission(agentKey: string, requestId: string, opti
   } catch (error) {
     pushStatus(agentKey, error instanceof Error ? error.message : String(error), "error");
   }
+  syncChatCoarse(agentKey, getAgentChatState(agentKey));
 }
 
 export async function setModel(agentKey: string, modelId: string): Promise<void> {
@@ -490,6 +541,7 @@ export async function setModel(agentKey: string, modelId: string): Promise<void>
 export async function closeChat(agentKey: string): Promise<void> {
   ensureAgent(agentKey);
   chatState$[agentKey].assign({ status: "closed", pendingPermission: undefined });
+  syncChatCoarse(agentKey, getAgentChatState(agentKey));
   const api = getChatApi();
   if (!api || typeof api.chatClose !== "function") return;
   try {
@@ -519,7 +571,9 @@ export function subscribeChatEvents(): () => void {
   const unsubscribe = api.onChatEvent((event) => {
     if (!event || typeof event.agentKey !== "string") return;
     ensureAgent(event.agentKey);
-    chatState$[event.agentKey].set((prev) => reduceChatEvent(prev ?? initialAgentChatState(), event));
+    const next = reduceChatEvent(getAgentChatState(event.agentKey), event);
+    chatState$[event.agentKey].set(next);
+    syncChatCoarse(event.agentKey, next);
   });
   activeUnsubscribe = () => {
     unsubscribe();

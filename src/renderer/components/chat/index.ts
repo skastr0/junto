@@ -6,6 +6,7 @@ export { ChatTranscript } from "./ChatTranscript";
 export { ChatComposer, type ChatContextBlock } from "./ChatComposer";
 export {
   chatState$,
+  chatCoarse$,
   getAgentChatState,
   initialAgentChatState,
   reduceChatEvent,
@@ -17,6 +18,7 @@ export {
   closeChat,
   markRead,
   type AgentChatState,
+  type AgentChatCoarse,
   type ChatStatus,
   type ChatItem,
   type ChatUserItem,

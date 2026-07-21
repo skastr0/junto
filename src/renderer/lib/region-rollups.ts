@@ -4,7 +4,7 @@ import { deriveRegionRollups } from "@shared/region-rollup";
 import { use$ } from "@legendapp/state/react";
 import { state$ } from "./state";
 import { kernel$ } from "./kernel-view";
-import { chatState$ } from "./chat-state";
+import { chatCoarse$ } from "./chat-state";
 import { herdr$ } from "./herdr-state";
 
 // Coarse poll of window.vellum.regionRollups for glyph/graph enrichment.
@@ -21,9 +21,11 @@ const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
   idle: 4,
 };
 
-const chatCoarseKey = (chat: Record<string, { status?: string; pendingPermission?: { requestId?: string } }>): string =>
+const chatCoarseKey = (
+  chat: Record<string, { status?: string; pendingPermissionId?: string; turnBusy?: boolean }>,
+): string =>
   Object.entries(chat)
-    .map(([key, slot]) => `${key}:${slot?.status ?? ""}:${slot?.pendingPermission?.requestId ?? ""}`)
+    .map(([key, slot]) => `${key}:${slot?.status ?? ""}:${slot?.pendingPermissionId ?? ""}:${slot?.turnBusy ? 1 : 0}`)
     .sort()
     .join("|");
 
@@ -119,9 +121,10 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   const docEpoch = use$(state$.docEpoch);
   const snapshots = use$(state$.snapshots);
   const executionRev = use$(kernel$.executionRev);
-  const chat = use$(chatState$) as Record<
+  // Coarse chat only — streaming tokens never reach this subscriber.
+  const chat = use$(chatCoarse$) as Record<
     string,
-    { status?: string; pendingPermission?: { requestId?: string }; turnBusy?: boolean }
+    { status?: string; pendingPermissionId?: string; turnBusy?: boolean }
   >;
   const chatKey = chatCoarseKey(chat ?? {});
   const herdrMeta = use$(herdr$.metaByNodeId) as Record<
@@ -147,11 +150,11 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     for (const [key, slot] of Object.entries(chat ?? {})) {
       m.set(key, {
         sessionLive: slot.status === "live" || slot.status === "connecting" || slot.turnBusy === true,
-        permissionPending: slot.pendingPermission !== undefined,
+        permissionPending: slot.pendingPermissionId !== undefined,
       });
     }
     return m;
-  }, [chat, chatKey]);
+  }, [chatKey]);
 
   // Client derive — always has herdr/chat/flags; no IPC required for those.
   const client = useMemo(
