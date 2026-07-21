@@ -680,6 +680,13 @@ export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
               typeof deliveredAt === "number" && Number.isFinite(deliveredAt)
                 ? new Date(deliveredAt).toLocaleTimeString()
                 : null;
+            // Own (agent) messages are never nudged back — not "pending".
+            const stateLabel =
+              msg.role === "agent"
+                ? "own"
+                : delivered
+                  ? `delivered · ${delivered}`
+                  : "pending";
             return (
               <div key={msg.messageId} className="text-[11px] leading-snug" style={{ color: INK }}>
                 <span className="uppercase tracking-wide text-[9px]" style={{ color: DIM }}>
@@ -690,7 +697,7 @@ export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
                   .map((p) => p.text)
                   .join(" ") || "(parts)"}
                 <span className="ml-1.5 text-[9px] uppercase tracking-wide" style={{ color: DIM }}>
-                  {delivered ? `delivered · ${delivered}` : "pending"}
+                  {stateLabel}
                 </span>
               </div>
             );

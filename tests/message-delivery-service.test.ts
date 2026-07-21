@@ -214,7 +214,7 @@ describe("MessageDeliveryService", () => {
     expect(herdrPayloads.some((p) => p.includes("[message · user] wake"))).toBe(true);
   });
 
-  it("formatting includes sender and taskId when present", async () => {
+  it("formatting includes role and taskId; metadata.sender spoof ignored", async () => {
     const msg = userMsg("fmt", "do the thing", {
       metadata: { sender: "operator" },
       taskId: "task-42",
@@ -236,6 +236,44 @@ describe("MessageDeliveryService", () => {
     });
     service.notifyAppended("c", "agent", msg);
     await waitUntil(() => payloads.length >= 1);
-    expect(payloads[0]).toBe("[message · operator] do the thing · task task-42");
+    expect(payloads[0]).toBe("[message · user] do the thing · task task-42");
+  });
+
+  it("transport accept + stamp fail never re-sends on attach", async () => {
+    const msg = userMsg("dup", "once only");
+    const store = makeStore({ c: agentDoc([msg]) });
+    let stampOk = false;
+    let sendCount = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        isAgentLive: () => true,
+        sendAgentPrompt: async () => {
+          sendCount += 1;
+          return true;
+        },
+        sendHerdrText: () => false,
+      },
+      store: {
+        ...store,
+        stampDelivered: async (...args) => {
+          if (!stampOk) return false;
+          return store.stampDelivered(...args);
+        },
+      },
+      now: () => 5,
+    });
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => sendCount === 1);
+    expect((await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt).toBeUndefined();
+
+    // Attach re-drive: stamp only, no second transport hit
+    stampOk = true;
+    service.onAgentLive("local:mira");
+    await waitUntil(async () => {
+      const live = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
+      return live?.metadata?.deliveredAt === 5;
+    });
+    expect(sendCount).toBe(1);
   });
 });

@@ -53,25 +53,30 @@ const herdrNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"][nu
 });
 
 describe("message-delivery pure helpers", () => {
-  it("formats one-line payload with sender and optional taskId", () => {
+  it("formats one-line payload with role and optional taskId", () => {
     expect(composeMessageDeliveryPayload(userMsg())).toBe("[message · user] ping the lane");
     expect(
       composeMessageDeliveryPayload(
         userMsg({
-          metadata: { sender: "operator" },
+          metadata: { sender: "operator" }, // spoof ignored — label is role only
           taskId: "task-9",
         }),
       ),
-    ).toBe("[message · operator] ping the lane · task task-9");
+    ).toBe("[message · user] ping the lane · task task-9");
   });
 
-  it("sender falls back to role; brief collapses whitespace", () => {
-    expect(messageSenderLabel(userMsg())).toBe("user");
+  it("sender is role only; brief strips controls and collapses whitespace", () => {
+    expect(messageSenderLabel(userMsg({ metadata: { sender: "operator" } }))).toBe("user");
     expect(
       messageBriefText(
-        userMsg({ parts: [{ kind: "text", text: "  a\n  b  " }, { kind: "text", text: "c" }] }),
+        userMsg({
+          parts: [
+            { kind: "text", text: "  a\n  b  " },
+            { kind: "text", text: "c\u001b[31mx" },
+          ],
+        }),
       ),
-    ).toBe("a b c");
+    ).toBe("a b c [31mx");
   });
 
   it("own-echo: agent role is never pending; user role is", () => {

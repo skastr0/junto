@@ -193,6 +193,8 @@ export const MsgSendArgs = Schema.Struct({
   target: Schema.String,
   text: Schema.String,
   taskId: Schema.optionalWith(Schema.String, { exact: true }),
+  // Ignored: control always stamps role "agent" so callers cannot open the
+  // foreign-message nudge path by sending role=user.
   role: Schema.optionalWith(Schema.Literal("user", "agent"), { exact: true }),
   node: NodeField,
 });

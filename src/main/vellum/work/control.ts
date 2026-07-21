@@ -420,23 +420,17 @@ const dispatchOp = (
           details: { path: "text", retryable: false },
         });
       }
-      const role = decoded.right.role ?? "agent";
+      // Authority: work-control is an agent surface. Role is never client-
+      // chosen — always "agent" so the nudge channel cannot be forced open
+      // by role=user spoof (message delivery only delivers foreign user msgs).
       const messageId = ulid();
       const contextId = caller.canvasName;
-      const message: Message =
-        role === "user"
-          ? makeUserMessage({
-              messageId,
-              text,
-              contextId,
-              ...(decoded.right.taskId ? { taskId: decoded.right.taskId } : {}),
-            })
-          : makeAgentMessage({
-              messageId,
-              text,
-              contextId,
-              ...(decoded.right.taskId ? { taskId: decoded.right.taskId } : {}),
-            });
+      const message: Message = makeAgentMessage({
+        messageId,
+        text,
+        contextId,
+        ...(decoded.right.taskId ? { taskId: decoded.right.taskId } : {}),
+      });
       const result = yield* work.workMessageAppend(
         caller.canvasName,
         decoded.right.target,

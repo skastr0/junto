@@ -587,6 +587,9 @@ export class ChatService {
       return { turn: { ok: false, error: describeError(err) }, reply: "" };
     } finally {
       session.promptInFlight = false;
+      // Transport re-available for pending message nudges (idle re-drive).
+      // Does not re-open chat; only notifies listeners that the turn slot is free.
+      this.notifySessionLive(agentKey);
     }
   }
 

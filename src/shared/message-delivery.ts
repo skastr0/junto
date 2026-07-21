@@ -4,31 +4,38 @@
 
 import type { CanvasDoc, CanvasNode, Message } from "./canvas";
 
+/**
+ * Strip C0/C1 controls (and DEL) so herdr terminal.input never carries
+ * CSI/ESC inject material. Whitespace is collapsed to a single line.
+ */
+export const sanitizeDeliveryLine = (text: string): string =>
+  text
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 /** Pulse-style one-liner: `[message · <sender>] <brief>[ · task <id>]` */
 export const composeMessageDeliveryPayload = (message: Message): string => {
   const sender = messageSenderLabel(message);
   const brief = messageBriefText(message);
   const task =
     typeof message.taskId === "string" && message.taskId.trim().length > 0
-      ? ` · task ${message.taskId.trim()}`
+      ? ` · task ${sanitizeDeliveryLine(message.taskId)}`
       : "";
-  return `[message · ${sender}] ${brief}${task}`;
+  return sanitizeDeliveryLine(`[message · ${sender}] ${brief}${task}`);
 };
 
-export const messageSenderLabel = (message: Message): string => {
-  const meta = message.metadata;
-  if (meta && typeof meta.sender === "string") {
-    const trimmed = meta.sender.trim();
-    if (trimmed.length > 0) return trimmed;
-  }
-  return message.role;
-};
+/**
+ * Sender label for the nudge line. Prefer role only — free metadata.sender
+ * is spoofable on authorial writes and must not mint an "operator" trust label.
+ */
+export const messageSenderLabel = (message: Message): string => message.role;
 
 export const messageBriefText = (message: Message): string => {
   const chunks: string[] = [];
   for (const part of message.parts) {
     if (part.kind !== "text") continue;
-    const line = part.text.replace(/\s+/g, " ").trim();
+    const line = sanitizeDeliveryLine(part.text);
     if (line) chunks.push(line);
   }
   return chunks.join(" ") || "(empty)";

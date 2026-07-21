@@ -46,6 +46,11 @@ const flightKey = (canvas: string, nodeId: string, messageId: string): string =>
 
 export class MessageDeliveryService {
   private readonly inFlight = new Set<string>();
+  /**
+   * Process-local: transport accepted the nudge but document stamp may lag.
+   * Later attach/idle re-drives must stamp only — never re-send (at-most-once).
+   */
+  private readonly transportAccepted = new Set<string>();
   private transport: MessageDeliveryTransport | undefined;
   private store: MessageDeliveryStore | undefined;
   private now: MessageDeliveryClock = () => Date.now();
@@ -63,6 +68,7 @@ export class MessageDeliveryService {
   /** Test seam — drop all in-flight marks and deps. */
   resetForTest(): void {
     this.inFlight.clear();
+    this.transportAccepted.clear();
     this.transport = undefined;
     this.store = undefined;
     this.now = () => Date.now();
@@ -136,22 +142,30 @@ export class MessageDeliveryService {
       const node = doc.nodes.find((n) => n.id === nodeId);
       if (!node) return;
       const live = node.ether?.messages?.items.find((m) => m.messageId === message.messageId);
-      if (!live || !isPendingDelivery(live)) return;
+      if (!live) return;
+      if (isPendingDelivery(live) === false) {
+        // Already stamped on disk — drop transportAccepted residue.
+        this.transportAccepted.delete(key);
+        return;
+      }
 
       const target = deliveryTargetOf(node);
       if (!target) return;
 
-      const payload = composeMessageDeliveryPayload(live);
-      const delivered = await this.deliver(transport, target, payload);
-      if (!delivered) return;
+      // At-most-once: never re-hit the transport after a prior accept.
+      if (!this.transportAccepted.has(key)) {
+        const payload = composeMessageDeliveryPayload(live);
+        const delivered = await this.deliver(transport, target, payload);
+        if (!delivered) return;
+        this.transportAccepted.add(key);
+      }
 
       const at = this.now();
       const stamped = await store.stampDelivered(canvas, nodeId, live.messageId, at);
-      // stamp may race-fail; inFlight still cleared in finally so a later
-      // attach can re-check (isPendingDelivery will be false if stamp won).
-      void stamped;
+      if (stamped) this.transportAccepted.delete(key);
+      // Stamp fail: keep transportAccepted so attach/idle only re-stamps.
     } catch {
-      // Best-effort: leave pending, clear inFlight so attach can retry.
+      // Best-effort: leave pending; inFlight cleared so idle/attach can retry.
     } finally {
       this.inFlight.delete(key);
     }
