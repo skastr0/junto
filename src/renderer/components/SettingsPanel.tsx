@@ -265,21 +265,9 @@ function BrowserSection() {
 
   return (
     <div className="settings-section">
-      <FieldRow label="Max visible surfaces" hint="dock slots (hard ceiling 8)">
-        <input
-          type="number"
-          min={1}
-          max={8}
-          value={browser.maxVisibleSurfaces}
-          aria-label="Max visible surfaces"
-          onChange={(event) => {
-            const value = Number(event.target.value);
-            if (!Number.isFinite(value)) return;
-            void patchSettings({ browser: { maxVisibleSurfaces: Math.floor(value) } });
-          }}
-        />
-      </FieldRow>
-      <FieldRow label="Max warm sessions" hint="warm WebContents pool (hard ceiling 32)">
+      {/* maxVisibleSurfaces is retained in config for compatibility but no longer
+          gates the workbench (tabs + keep-alive). Warm sessions are the real cap. */}
+      <FieldRow label="Max warm sessions" hint="concurrent warm browser pages (hard ceiling 32)">
         <input
           type="number"
           min={1}

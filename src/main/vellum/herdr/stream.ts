@@ -181,6 +181,7 @@ export class HerdrStreamManager {
 
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
+      if (!this.streams.has(streamId)) return;
       // herdr often prints "herdr: … input ignored: …" on stderr (or stdout).
       for (const text of chunk.split("\n").map((l) => l.trim()).filter(Boolean)) {
         this.emit({ streamId, type: "error", message: text.slice(0, 400) });
@@ -445,6 +446,8 @@ export class HerdrStreamManager {
   }
 
   private handleLine(streamId: string, line: string): void {
+    // Drop late IO after detach/supersede so IPC does not fan-out unowned frames.
+    if (!this.streams.has(streamId)) return;
     let obj: Record<string, unknown>;
     try {
       obj = JSON.parse(line) as Record<string, unknown>;

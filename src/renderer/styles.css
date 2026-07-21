@@ -394,6 +394,7 @@ body {
   color: #f0d9a8;
 }
 .workbench-panes {
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
@@ -416,6 +417,19 @@ body {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+/* Keep-alive host for tabbed-away surfaces: offscreen so streams/sessions live
+   while browser bounds go to 0×0 (BrowserSurfaceSlot visible=false). */
+.workbench-pane--parked {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  left: -10000px;
+  top: 0;
+  flex: 0 0 0;
 }
 .workbench-pane > .dock-slot,
 .workbench-pane > .workbench-surface {

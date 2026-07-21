@@ -4,9 +4,7 @@ import {
   closeWorkbenchSurface,
   dock$,
   setWorkbenchFocusSize,
-  syncHerdrWorkbenchSlot,
 } from "../../lib/dock-state";
-import { herdr$ } from "../../lib/herdr-state";
 import {
   surfaceById,
   visiblePanes,
@@ -19,17 +17,10 @@ import { WorkbenchPanes } from "./WorkbenchPanes";
 /**
  * Centered focus-zone shell. Mounts when focus zone is non-empty.
  * Measure: terminal when only herdr; workspace otherwise (browser / split).
- * All herdr streams go through workbench shells — modal yields when registered.
+ * Herdr slots are registered synchronously via dock-state observe.
  */
 export function WorkFocusShell() {
   const registry = use$(dock$.registry);
-  const terminals = use$(herdr$.terminals);
-  const terminalCount = Object.keys(terminals).length;
-
-  // Keep herdr slots in registry whenever terminals open/close.
-  useEffect(() => {
-    syncHerdrWorkbenchSlot();
-  }, [terminalCount]);
 
   const hasFocus = zoneHasSurfaces(registry, "focus");
   const focusSurfaces = registry.surfaces.filter((s) => s.zone === "focus");
@@ -50,6 +41,7 @@ export function WorkFocusShell() {
   }, []);
 
   const panelObserverRef = useRef<ResizeObserver | null>(null);
+  const lastWritten = useRef<{ w: number; h: number } | null>(null);
   useEffect(() => {
     if (!hasFocus) return;
     const id = requestAnimationFrame(() => {
@@ -57,17 +49,20 @@ export function WorkFocusShell() {
         ".focus-surface__panel.work-focus-shell__panel",
       ) as HTMLElement | null;
       if (!panel) return;
-      const stored = registry.focusSize;
+      const stored = dock$.registry.peek().focusSize;
       if (stored) {
         panel.style.width = `${stored.width}px`;
         panel.style.height = `${stored.height}px`;
+        lastWritten.current = { w: stored.width, h: stored.height };
       }
       panelObserverRef.current?.disconnect();
       const obs = new ResizeObserver(() => {
-        setWorkbenchFocusSize({
-          width: panel.offsetWidth,
-          height: panel.offsetHeight,
-        });
+        const w = panel.offsetWidth;
+        const h = panel.offsetHeight;
+        const prev = lastWritten.current;
+        if (prev && prev.w === w && prev.h === h) return;
+        lastWritten.current = { w, h };
+        setWorkbenchFocusSize({ width: w, height: h });
       });
       obs.observe(panel);
       panelObserverRef.current = obs;
@@ -77,7 +72,7 @@ export function WorkFocusShell() {
       panelObserverRef.current?.disconnect();
       panelObserverRef.current = null;
     };
-  }, [hasFocus, measure, registry.focusSize?.width, registry.focusSize?.height]);
+  }, [hasFocus, measure]);
 
   if (!hasFocus) return null;
 

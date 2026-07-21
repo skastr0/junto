@@ -14,18 +14,25 @@ import { getVellumApi } from "../../lib/vellum-api";
 
 type BrowserApi = ReturnType<typeof getVellumApi> & Partial<VellumBrowserApi>;
 
+const ZERO_BOUNDS = { x: 0, y: 0, width: 0, height: 0 } as const;
+
 /**
  * Browser workbench body: plain DOM placeholder — WebContentsView is never
  * parented here. Measured rect is pushed over browserSetBounds so main paints
  * the native view above the window at this spot.
+ *
+ * When `visible` is false (tabbed away), bounds are zeroed so the native view
+ * does not ghost over chrome. The slot stays mounted for keep-alive.
  */
 export function BrowserSurfaceSlot({
   pageRef,
   zone,
+  visible = true,
   onActivate,
 }: {
   readonly pageRef: string;
   readonly zone: WorkZone;
+  readonly visible?: boolean;
   readonly onActivate?: () => void;
 }) {
   const payload = use$(dock$.browserByRef[pageRef]);
@@ -36,8 +43,6 @@ export function BrowserSurfaceSlot({
   const [status, setStatus] = useState("attaching…");
 
   useEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
     if (!sessionId) {
       setStatus("waiting for session…");
       return;
@@ -54,6 +59,13 @@ export function BrowserSurfaceSlot({
     const pushBounds = () => {
       rafId = null;
       if (cancelled) return;
+      if (!visible) {
+        setStatus("parked");
+        void api.browserSetBounds!(sessionId, { ...ZERO_BOUNDS });
+        return;
+      }
+      const el = bodyRef.current;
+      if (!el) return;
       const rect = el.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
       setStatus("attached");
@@ -73,7 +85,8 @@ export function BrowserSurfaceSlot({
     scheduleBounds();
     window.addEventListener("resize", scheduleBounds);
     let resizeObs: ResizeObserver | undefined;
-    if (typeof ResizeObserver !== "undefined") {
+    const el = bodyRef.current;
+    if (visible && el && typeof ResizeObserver !== "undefined") {
       resizeObs = new ResizeObserver(() => scheduleBounds());
       resizeObs.observe(el);
     }
@@ -83,8 +96,10 @@ export function BrowserSurfaceSlot({
       window.removeEventListener("resize", scheduleBounds);
       resizeObs?.disconnect();
       if (rafId != null) cancelAnimationFrame(rafId);
+      // Hide native view when this effect ends (unmount or session change).
+      void api.browserSetBounds?.(sessionId, { ...ZERO_BOUNDS }).catch(() => undefined);
     };
-  }, [pageRef, sessionId]);
+  }, [pageRef, sessionId, visible]);
 
   if (!payload) return null;
 
@@ -94,64 +109,67 @@ export function BrowserSurfaceSlot({
     <section
       className="dock-slot workbench-surface"
       aria-label="Browser page surface"
+      aria-hidden={!visible}
       onMouseDown={() => onActivate?.()}
     >
-      <header className="browser-modal-header dock-slot__header">
-        <div className="browser-modal-header__meta min-w-0">
-          <div className="browser-modal-eyebrow">
-            page · {payload.browser.profile} · close detaches (session keeps running)
-          </div>
-          <div className="browser-modal-title truncate">{session?.title ?? payload.title}</div>
-          <div className="browser-modal-status truncate">
-            {session?.url ?? payload.url}
-            {" · "}
-            {session?.state ?? status}
-          </div>
-          {stopError ? (
-            <div className="browser-modal-status text-red-300" role="alert">
-              {stopError}
+      {visible ? (
+        <header className="browser-modal-header dock-slot__header">
+          <div className="browser-modal-header__meta min-w-0">
+            <div className="browser-modal-eyebrow">
+              page · {payload.browser.profile} · close detaches (session keeps running)
             </div>
-          ) : null}
-        </div>
-        <div className="browser-modal-actions">
-          <button
-            type="button"
-            className="browser-modal-btn"
-            title={pinned ? "Move to focus shell" : "Pin to side dock"}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              if (pinned) unpinWorkbenchSurface(pageRef);
-              else pinWorkbenchSurface(pageRef);
-            }}
-          >
-            {pinned ? "Unpin" : "Pin"}
-          </button>
-          <button
-            type="button"
-            className="browser-modal-btn"
-            title="Destroy this page runtime; profile cookies remain"
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              void stopDockBrowser(pageRef);
-            }}
-          >
-            Stop Page
-          </button>
-          <button
-            type="button"
-            className="browser-modal-btn browser-modal-btn--primary"
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              closeDockBrowser(pageRef);
-            }}
-          >
-            Close
-          </button>
-        </div>
-      </header>
+            <div className="browser-modal-title truncate">{session?.title ?? payload.title}</div>
+            <div className="browser-modal-status truncate">
+              {session?.url ?? payload.url}
+              {" · "}
+              {session?.state ?? status}
+            </div>
+            {stopError ? (
+              <div className="browser-modal-status text-red-300" role="alert">
+                {stopError}
+              </div>
+            ) : null}
+          </div>
+          <div className="browser-modal-actions">
+            <button
+              type="button"
+              className="browser-modal-btn"
+              title={pinned ? "Move to focus shell" : "Pin to side dock"}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (pinned) unpinWorkbenchSurface(pageRef);
+                else pinWorkbenchSurface(pageRef);
+              }}
+            >
+              {pinned ? "Unpin" : "Pin"}
+            </button>
+            <button
+              type="button"
+              className="browser-modal-btn"
+              title="Destroy this page runtime; profile cookies remain"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void stopDockBrowser(pageRef);
+              }}
+            >
+              Stop Page
+            </button>
+            <button
+              type="button"
+              className="browser-modal-btn browser-modal-btn--primary"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeDockBrowser(pageRef);
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </header>
+      ) : null}
       <div ref={bodyRef} className="browser-modal-body dock-slot__body" />
     </section>
   );

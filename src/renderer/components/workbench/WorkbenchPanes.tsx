@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
+  activateWorkbenchSurface,
   dock$,
-  focusWorkbenchSurface,
   pinWorkbenchSurface,
   unpinWorkbenchSurface,
 } from "../../lib/dock-state";
-import { focusHerdrTerminal } from "../../lib/herdr-state";
 import {
   surfaceById,
   visiblePanes,
@@ -20,10 +19,12 @@ import { parseHerdrNodeId } from "./surface-label";
 function HerdrSurfaceSlot({
   surface,
   zone,
+  visible,
   onActivate,
 }: {
   readonly surface: WorkSurface;
   readonly zone: WorkZone;
+  readonly visible: boolean;
   readonly onActivate?: () => void;
 }) {
   const nodeId = parseHerdrNodeId(surface.id);
@@ -41,26 +42,29 @@ function HerdrSurfaceSlot({
     <section
       className="dock-slot dock-slot--herdr workbench-surface"
       aria-label="Herdr terminal surface"
+      aria-hidden={!visible}
       onMouseDown={() => {
         onActivate?.();
-        focusHerdrTerminal(nodeId);
       }}
     >
-      <div className="workbench-surface__herdr-actions" data-herdr-chrome>
-        <button
-          type="button"
-          className="browser-modal-btn"
-          title={pinned ? "Move to focus shell" : "Pin to side dock"}
-          onPointerDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (pinned) unpinWorkbenchSurface(surface.id);
-            else pinWorkbenchSurface(surface.id);
-          }}
-        >
-          {pinned ? "Unpin" : "Pin"}
-        </button>
-      </div>
+      {visible ? (
+        <div className="workbench-surface__herdr-actions" data-herdr-chrome>
+          <button
+            type="button"
+            className="browser-modal-btn"
+            title={pinned ? "Move to focus shell" : "Pin to side dock"}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (pinned) unpinWorkbenchSurface(surface.id);
+              else pinWorkbenchSurface(surface.id);
+            }}
+          >
+            {pinned ? "Unpin" : "Pin"}
+          </button>
+        </div>
+      ) : null}
+      {/* Keep mounted when tabbed away so the control stream survives. */}
       <HerdrTerminalPanel variant="dock" nodeId={nodeId} />
     </section>
   );
@@ -69,15 +73,28 @@ function HerdrSurfaceSlot({
 function resolveSurfaceBody(
   surface: WorkSurface,
   zone: WorkZone,
+  visible: boolean,
   onActivate: () => void,
 ): ReactNode {
   if (surface.kind === "browser") {
     return (
-      <BrowserSurfaceSlot pageRef={surface.id} zone={zone} onActivate={onActivate} />
+      <BrowserSurfaceSlot
+        pageRef={surface.id}
+        zone={zone}
+        visible={visible}
+        onActivate={onActivate}
+      />
     );
   }
   if (surface.kind === "herdr") {
-    return <HerdrSurfaceSlot surface={surface} zone={zone} onActivate={onActivate} />;
+    return (
+      <HerdrSurfaceSlot
+        surface={surface}
+        zone={zone}
+        visible={visible}
+        onActivate={onActivate}
+      />
+    );
   }
   return (
     <section className="dock-slot workbench-surface" onMouseDown={onActivate}>
@@ -87,34 +104,51 @@ function resolveSurfaceBody(
 }
 
 /**
- * Renders 1–2 visible panes for a zone from MRU + layout.
- * Click focuses (MRU front). Surplus surfaces live only in the tab strip.
+ * Renders every surface in the zone (keep-alive). Visible panes fill the
+ * layout; surplus surfaces park offscreen so browser bounds zero and herdr
+ * streams stay open.
  */
 export function WorkbenchPanes({ zone }: { readonly zone: WorkZone }) {
   const registry = use$(dock$.registry);
   const panes = visiblePanes(registry, zone);
   const layout = zone === "focus" ? registry.focusLayout : registry.pinnedLayout;
+  const mru = zone === "focus" ? registry.focusMru : registry.pinnedMru;
 
-  const pane0 = panes.pane0 ? surfaceById(registry, panes.pane0) : undefined;
-  const pane1 = panes.pane1 ? surfaceById(registry, panes.pane1) : undefined;
+  const visibleIds = new Set(
+    [panes.pane0, panes.pane1].filter((id): id is string => Boolean(id)),
+  );
 
-  if (!pane0) return null;
-
-  const activate = (id: string) => () => focusWorkbenchSurface(id);
+  if (mru.length === 0) return null;
 
   return (
     <div
       className={["workbench-panes", `workbench-panes--${layout}`].join(" ")}
       data-zone={zone}
     >
-      <div className="workbench-pane" data-pane="0">
-        {resolveSurfaceBody(pane0, zone, activate(pane0.id))}
-      </div>
-      {pane1 ? (
-        <div className="workbench-pane" data-pane="1">
-          {resolveSurfaceBody(pane1, zone, activate(pane1.id))}
-        </div>
-      ) : null}
+      {mru.map((id) => {
+        const surface = surfaceById(registry, id);
+        if (!surface) return null;
+        const visible = visibleIds.has(id);
+        const paneSlot =
+          id === panes.pane0 ? "0" : id === panes.pane1 ? "1" : undefined;
+        return (
+          <div
+            key={id}
+            className={[
+              "workbench-pane",
+              visible ? "" : "workbench-pane--parked",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            data-pane={paneSlot}
+            aria-hidden={!visible}
+          >
+            {resolveSurfaceBody(surface, zone, visible, () =>
+              activateWorkbenchSurface(id),
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

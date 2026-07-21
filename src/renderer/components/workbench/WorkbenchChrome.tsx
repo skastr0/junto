@@ -1,7 +1,7 @@
 import { use$ } from "@legendapp/state/react";
 import {
+  activateWorkbenchSurface,
   dock$,
-  focusWorkbenchSurface,
   pinWorkbenchSurface,
   setWorkbenchLayout,
   unpinWorkbenchSurface,
@@ -56,11 +56,7 @@ export function WorkbenchChrome({
     }
   };
 
-  const tabSurfaces = tabs
-    .map((id) => surfaceById(registry, id))
-    .filter((s): s is NonNullable<typeof s> => Boolean(s));
-
-  // Also list pane surfaces as inactive-looking tabs when in split (so user can swap).
+  // Pane + surplus tabs in one strip (click promotes / routes keyboard).
   const allTabIds = [
     ...paneIds.filter((id): id is string => Boolean(id)),
     ...tabs,
@@ -70,39 +66,40 @@ export function WorkbenchChrome({
   return (
     <div className="workbench-chrome" data-zone={zone}>
       <div className="workbench-chrome__tabs" role="tablist" aria-label={`${zone} surfaces`}>
-        {uniqueTabIds.map((id) => {
-          const surface = surfaceById(registry, id);
-          if (!surface) return null;
-          const isActive = id === activeId || paneIds.includes(id);
-          const isFront = id === activeId;
-          return (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={isFront}
-              className={[
-                "workbench-tab",
-                isActive ? "workbench-tab--visible" : "",
-                isFront ? "workbench-tab--active" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              title={surfaceLabel(surface, registry)}
-              onClick={() => focusWorkbenchSurface(id)}
-            >
-              <span className="workbench-tab__kind">{surface.kind}</span>
-              <span className="workbench-tab__label truncate">
-                {surfaceLabel(surface, registry)}
-              </span>
-            </button>
-          );
-        })}
-        {tabSurfaces.length === 0 && uniqueTabIds.length <= 1 ? (
+        {uniqueTabIds.length === 0 ? (
           <span className="workbench-chrome__empty">
             {zone === "focus" ? "focus" : "pinned"}
           </span>
-        ) : null}
+        ) : (
+          uniqueTabIds.map((id) => {
+            const surface = surfaceById(registry, id);
+            if (!surface) return null;
+            const isActive = id === activeId || paneIds.includes(id);
+            const isFront = id === activeId;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={isFront}
+                className={[
+                  "workbench-tab",
+                  isActive ? "workbench-tab--visible" : "",
+                  isFront ? "workbench-tab--active" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                title={surfaceLabel(surface, registry)}
+                onClick={() => activateWorkbenchSurface(id)}
+              >
+                <span className="workbench-tab__kind">{surface.kind}</span>
+                <span className="workbench-tab__label truncate">
+                  {surfaceLabel(surface, registry)}
+                </span>
+              </button>
+            );
+          })
+        )}
       </div>
 
       <div className="workbench-chrome__actions">

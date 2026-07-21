@@ -18,6 +18,7 @@ import {
 } from "../src/renderer/lib/surface-registry";
 import {
   closeDockBrowser,
+  closeWorkbenchSurface,
   dock$,
   herdrSurfaceId,
   hydrateDockConfig,
@@ -548,6 +549,23 @@ describe("dock-state", () => {
       expect(dock$.registry.peek().surfaces.map((s) => s.id).sort()).toEqual(
         [ref, herdrSurfaceId("h1")].sort(),
       );
+    });
+
+    it("observe registers herdr surfaces without an explicit sync call", () => {
+      // dock-state binds observe(herdr$.terminals) at module load.
+      openTerminal("h1");
+      expect(dock$.registry.peek().surfaces).toEqual([
+        { id: herdrSurfaceId("h1"), kind: "herdr", zone: "focus" },
+      ]);
+    });
+
+    it("closeWorkbenchSurface drops the herdr slot immediately", () => {
+      openTerminal("h1");
+      const id = herdrSurfaceId("h1");
+      expect(dock$.registry.peek().surfaces.some((s) => s.id === id)).toBe(true);
+      closeWorkbenchSurface(id);
+      expect(dock$.registry.peek().surfaces.some((s) => s.id === id)).toBe(false);
+      expect(herdr$.terminals["h1"].peek()).toBeUndefined();
     });
   });
 });

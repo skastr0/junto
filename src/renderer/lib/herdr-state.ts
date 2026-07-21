@@ -107,6 +107,7 @@ const releasePendingSeen = (nodeId: string): void => {
 
 export const openHerdrWizard = (anchor: { readonly x: number; readonly y: number }): void => {
   // Wizard owns the interaction — close all open terminals (UI first, streams async).
+  // Workbench slots drop via dock-state observe on terminals change (no dynamic import).
   const openIds = herdrTerminalIds();
   for (const nodeId of openIds) {
     const open = herdr$.terminals[nodeId].peek();
@@ -116,7 +117,6 @@ export const openHerdrWizard = (anchor: { readonly x: number; readonly y: number
   if (openIds.length > 0) {
     herdr$.terminals.set({});
     herdr$.focusedNodeId.set(null);
-    syncWorkbenchHerdrSlot();
   }
   herdr$.wizardAnchor.set(anchor);
   const cx = anchor.x + HERDR_NODE_SIZE.width / 2;
@@ -133,16 +133,10 @@ export const closeHerdrWizard = (): void => {
   herdr$.wizardEpoch.set(herdr$.wizardEpoch.peek() + 1);
 };
 
-const syncWorkbenchHerdrSlot = (): void => {
-  // Dynamic import avoids a static cycle (dock-state imports closeHerdrTerminal).
-  void import("./dock-state").then(({ syncHerdrWorkbenchSlot }) => {
-    syncHerdrWorkbenchSlot();
-  });
-};
-
 /**
  * Upsert a terminal for nodeId and make it the keyboard focus target.
  * Re-opening an already-open node preserves its streamId (no reconnect).
+ * Workbench surface registration is synchronous via dock-state observe.
  */
 export const openHerdrTerminal = (nodeId: string, herdr: EtherHerdr, title: string): void => {
   herdr$.wizardOpen.set(false);
@@ -161,13 +155,11 @@ export const openHerdrTerminal = (nodeId: string, herdr: EtherHerdr, title: stri
   // Then mark seen on the host so the mirror event confirms it for the fleet.
   markHerdrPaneSeenLocal(nodeId, herdr);
   void markHerdrPaneSeenRemote(herdr, nodeId);
-  // Place the UI slot in the focus zone (pin is explicit afterward).
-  syncWorkbenchHerdrSlot();
 };
 
 /**
  * Close one terminal (UI first). Defaults to the focused terminal when nodeId
- * is omitted. Stream detach is fire-and-forget.
+ * is omitted. Stream detach is fire-and-forget. Workbench slot drops via observe.
  */
 export const closeHerdrTerminal = (nodeId?: string): void => {
   const id = nodeId ?? herdr$.focusedNodeId.peek();
@@ -184,7 +176,6 @@ export const closeHerdrTerminal = (nodeId?: string): void => {
   // Drop the open-path latch: if host still says done (focus failed), the card
   // must re-converge to host truth after close instead of staying quiet forever.
   releasePendingSeen(id);
-  syncWorkbenchHerdrSlot();
   closeStreamIfAny(streamId);
 };
 
@@ -192,6 +183,11 @@ export const closeHerdrTerminal = (nodeId?: string): void => {
 export const focusHerdrTerminal = (nodeId: string): void => {
   if (!herdr$.terminals[nodeId].peek()) return;
   herdr$.focusedNodeId.set(nodeId);
+};
+
+/** Release keyboard capture without closing any terminal (browser/canvas focus). */
+export const clearHerdrKeyboardFocus = (): void => {
+  herdr$.focusedNodeId.set(null);
 };
 
 export const setTerminalStreamId = (nodeId: string, streamId: string | undefined): void => {
