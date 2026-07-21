@@ -28,7 +28,17 @@ import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
-import { makeAgentNode, makeFileNode, makeGroupNode, makeLinkNode, makePageNode, makeTasksNode, makeTextNode } from "../lib/node-factories";
+import {
+  makeAgentNode,
+  makeArtifactsNode,
+  makeFileNode,
+  makeGroupNode,
+  makeLinkNode,
+  makePageNode,
+  makeRequestsNode,
+  makeTasksNode,
+  makeTextNode,
+} from "../lib/node-factories";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { GROUND, HUE } from "../lib/theme";
 import type { MemberSeverity } from "@shared/region-rollup";
@@ -271,6 +281,8 @@ interface AddActions {
   readonly addWatcher: () => void;
   readonly addTimer: () => void;
   readonly addTasks: () => void;
+  readonly addRequests: () => void;
+  readonly addArtifacts: () => void;
   readonly addHerdr: () => void;
   readonly addPage: () => void;
 }
@@ -371,6 +383,20 @@ const makeAddActions = (
     state$.focusNodeId.set(node.id);
     dismiss();
   },
+  addRequests: () => {
+    const position = positionFor({ width: 240, height: 120 });
+    const node = makeRequestsNode(position.x, position.y);
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
+  addArtifacts: () => {
+    const position = positionFor({ width: 240, height: 120 });
+    const node = makeArtifactsNode(position.x, position.y);
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
   addHerdr: () => {
     const position = positionFor({ width: 260, height: 110 });
     openHerdrWizard(position);
@@ -460,7 +486,9 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
       { key: "group", label: "region", sub: "spatial container", icon: <SquareDashed size={14} />, ariaLabel: "Add region", onSelect: () => actions.create("group") },
       { key: "watcher", label: "watcher", sub: "condition over live data", icon: <Eye size={14} />, ariaLabel: "Add watcher", onSelect: () => actions.addWatcher() },
       { key: "timer", label: "timer", sub: "pulse on an interval", icon: <Timer size={14} />, ariaLabel: "Add timer", onSelect: () => actions.addTimer() },
-      { key: "tasks", label: "tasks", sub: "local checklist · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", onSelect: () => actions.addTasks() },
+      { key: "tasks", label: "tasks", sub: "A2A task list · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", onSelect: () => actions.addTasks() },
+      { key: "requests", label: "requests", sub: "input-required · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add requests", onSelect: () => actions.addRequests() },
+      { key: "artifacts", label: "artifacts", sub: "published parts shelf", icon: <FileText size={14} />, ariaLabel: "Add artifacts", onSelect: () => actions.addArtifacts() },
       { key: "herdr", label: "herdr", sub: "work surface · attach live pane", icon: <Terminal size={14} />, ariaLabel: "Add herdr work surface", onSelect: () => actions.addHerdr() },
       { key: "page", label: "page", sub: "work surface · browser session", icon: <Globe size={14} />, ariaLabel: "Add browser page work surface", onSelect: () => actions.addPage() },
       { key: "agent", label: "agent", sub: "hermes profile", icon: <Bot size={14} />, ariaLabel: "Add agent", onSelect: () => setPicker("agent") },

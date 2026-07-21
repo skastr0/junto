@@ -794,36 +794,4 @@ export const setNodeTimer = (id: string, timer: EtherTimer | undefined): void =>
   });
 };
 
-// Local checklist for entity.kind === "task". Incomplete items never auto-seed
-// blocks — only an edge with criteria.mode === "tasks" can.
-export const setNodeTasks = (
-  id: string,
-  items: ReadonlyArray<{ readonly id: string; readonly text: string; readonly done?: boolean }> | undefined,
-): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== id) return n;
-      if (items !== undefined) {
-        return {
-          ...n,
-          ether: {
-            ...(n.ether ?? {}),
-            entity: n.ether?.entity ?? { kind: "task" },
-            tasks: {
-              items: items.map((item) => ({
-                id: item.id,
-                text: item.text,
-                ...(item.done ? { done: true as const } : {}),
-              })),
-            },
-          },
-        };
-      }
-      if (!n.ether) return n;
-      const nextEther = without(n.ether, "tasks");
-      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
-    }),
-  });
-};
+// Checklist mutator deleted — A2A work ops live in main (WorkService).

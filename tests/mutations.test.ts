@@ -252,7 +252,22 @@ describe("renderer graph mutations", () => {
           height: 80,
           ether: {
             entity: { kind: "task" },
-            tasks: { items: [{ id: "i1", text: "ship", done: false }] },
+            tasks: {
+              items: [
+                {
+                  id: "i1",
+                  state: "submitted",
+                  history: [
+                    {
+                      messageId: "m1",
+                      role: "user",
+                      parts: [{ kind: "text", text: "ship" }],
+                      taskId: "i1",
+                    },
+                  ],
+                },
+              ],
+            },
           },
         },
         {
@@ -276,6 +291,56 @@ describe("renderer graph mutations", () => {
     expect(edge?.ether?.criteria).toEqual({ mode: "tasks" });
     expect(edge?.ether?.kind).toBeUndefined();
     expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+  });
+
+  it("auto-binds tasks criteria when connecting from a requests node", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        {
+          id: "req",
+          type: "text",
+          text: "1 pending",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: {
+            entity: { kind: "requests" },
+            requests: {
+              items: [
+                {
+                  id: "q1",
+                  state: "input-required",
+                  history: [
+                    {
+                      messageId: "m1",
+                      role: "user",
+                      parts: [{ kind: "text", text: "approve?" }],
+                      taskId: "q1",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        {
+          id: "proj",
+          type: "text",
+          text: "quasar",
+          x: 300,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: { entity: { kind: "project", name: "quasar" } },
+        },
+      ],
+      edges: [],
+    });
+    expect(inferEdgeCriteria(state$.doc.peek().nodes[0])).toEqual({ mode: "tasks" });
+    addEdge({ source: "req", target: "proj" });
+    expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({ mode: "tasks" });
   });
 
   it("refuses empty glyphs criteria shells and strips them when cleared", () => {
@@ -359,7 +424,22 @@ describe("renderer graph mutations", () => {
         height: 80,
         ether: {
           entity: { kind: "task" },
-          tasks: { items: [{ id: "i1", text: "ship", done: false }] },
+          tasks: {
+            items: [
+              {
+                id: "i1",
+                state: "submitted",
+                history: [
+                  {
+                    messageId: "m1",
+                    role: "user",
+                    parts: [{ kind: "text", text: "ship" }],
+                    taskId: "i1",
+                  },
+                ],
+              },
+            ],
+          },
         },
       },
     ];

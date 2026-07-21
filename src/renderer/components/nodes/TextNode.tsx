@@ -8,7 +8,7 @@ import type { AgentIdentity } from "@shared/ipc";
 import type { FlowNode } from "../../lib/convert";
 import { getAgentAvatar, getAgentIdentity } from "../../lib/agent";
 import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
-import { editText, setNodeTasks } from "../../lib/mutations";
+import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { state$ } from "../../lib/state";
 import { resolveNodeConnections } from "../../../shared/connections";
@@ -21,6 +21,14 @@ import { openHerdrTerminal } from "../../lib/herdr-state";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { HerdrToolbarActions } from "../herdr/HerdrToolbarActions";
+import {
+  ArtifactsCard,
+  ArtifactsDetail,
+  RequestsCard,
+  RequestsDetail,
+  TasksCard,
+  TasksDetail,
+} from "../work/WorkSurfaces";
 import { NodeShell } from "./NodeShell";
 
 // Re-renders every intervalMs so relative-time copy ("fired 2m ago", "next
@@ -106,62 +114,6 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
         {/* Countdown numbers are content, not status labels. */}
         <div>{nextFire ? formatCountdown(nextFire, now) : "—"}</div>
         {everyMinutes ? <div className="mt-0.5" style={{ opacity: 0.7 }}>every {everyMinutes}m</div> : null}
-      </div>
-    </div>
-  );
-}
-
-// Local checklist card. Toggle done on the document; blocks only when edged.
-function TasksCard({ node }: { readonly node: CanvasNode }) {
-  const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
-  const items = node.ether?.tasks?.items ?? [];
-  const open = items.filter((item) => !item.done).length;
-  const toggle = (itemId: string) => {
-    const next = items.map((item) =>
-      item.id === itemId ? { ...item, done: !item.done } : item,
-    );
-    setNodeTasks(node.id, next);
-  };
-  return (
-    <div className="flex h-full w-full flex-col overflow-hidden">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>tasks</span>
-        <span className="text-[9px] tabular-nums" style={{ color: DIM }}>
-          {items.length - open}/{items.length}
-        </span>
-      </div>
-      <div
-        className="mt-1 truncate text-[13px] font-semibold leading-snug"
-        style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
-        title={rawName}
-      >
-        {rawName}
-      </div>
-      <div className="mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-        {items.slice(0, 4).map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className="nodrag nopan flex items-center gap-1.5 truncate text-left text-[10px] leading-snug"
-            style={{ color: item.done ? DIM : INK, opacity: item.done ? 0.65 : 1 }}
-            onClick={(event) => {
-              event.stopPropagation();
-              toggle(item.id);
-            }}
-          >
-            <span aria-hidden style={{ color: item.done ? "#5FB98E" : HUE.amber }}>
-              {item.done ? "☑" : "☐"}
-            </span>
-            <span className="truncate" style={{ textDecoration: item.done ? "line-through" : "none" }}>
-              {item.text || item.id}
-            </span>
-          </button>
-        ))}
-        {items.length > 4 ? (
-          <div className="text-[9px]" style={{ color: DIM }}>
-            +{items.length - 4} more
-          </div>
-        ) : null}
       </div>
     </div>
   );
@@ -349,8 +301,12 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const [editing, setEditing] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [maximized, setMaximized] = useState(false);
+  const [workDetail, setWorkDetail] = useState(false);
   const [draft, setDraft] = useState(text);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const entityKind = node.ether?.entity?.kind;
+  const isWorkSurface =
+    entityKind === "task" || entityKind === "requests" || entityKind === "artifacts";
 
   useEffect(() => {
     if (editing && !maximized) {
@@ -418,7 +374,16 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           onDiscard={discard}
         />
       ) : null}
-      {editing && !maximized && !isHerdr ? (
+      {workDetail && entityKind === "task" ? (
+        <TasksDetail node={node} onClose={() => setWorkDetail(false)} />
+      ) : null}
+      {workDetail && entityKind === "requests" ? (
+        <RequestsDetail node={node} onClose={() => setWorkDetail(false)} />
+      ) : null}
+      {workDetail && entityKind === "artifacts" ? (
+        <ArtifactsDetail node={node} onClose={() => setWorkDetail(false)} />
+      ) : null}
+      {editing && !maximized && !isHerdr && !isWorkSurface ? (
         <textarea
           ref={ref}
           autoFocus
@@ -450,13 +415,19 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
               openHerdr();
               return;
             }
+            if (isWorkSurface) {
+              setWorkDetail(true);
+              return;
+            }
             openInline();
           }}
         >
-          {node.ether.entity.kind === "watcher" ? <WatcherCard node={node} />
-            : node.ether.entity.kind === "timer" ? <TimerCard node={node} />
-              : node.ether.entity.kind === "task" ? <TasksCard node={node} />
-                : node.ether.entity.kind === "herdr" ? (
+          {entityKind === "watcher" ? <WatcherCard node={node} />
+            : entityKind === "timer" ? <TimerCard node={node} />
+              : entityKind === "task" ? <TasksCard node={node} />
+                : entityKind === "requests" ? <RequestsCard node={node} />
+                  : entityKind === "artifacts" ? <ArtifactsCard node={node} />
+                : entityKind === "herdr" ? (
                   <HerdrCard
                     node={node}
                     selected={selected}
@@ -465,7 +436,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
                     onRenameDone={() => setRenaming(false)}
                   />
                 )
-                : node.ether.entity.kind === "agent" ? <EntityCard node={node} kind="agent" />
+                : entityKind === "agent" ? <EntityCard node={node} kind="agent" />
                 : <NoteMarkdown source={text} />}
         </div>
       ) : (

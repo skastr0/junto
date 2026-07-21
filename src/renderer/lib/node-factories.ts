@@ -71,8 +71,7 @@ export const makeAgentNode = (
   ether: { entity: { kind: "agent", name: key }, host },
 });
 
-// A tasks node — local checklist that can block only when connected by an
-// edge with criteria.mode === "tasks". Never auto-creates edges.
+// A tasks node — A2A task list; blocks only when edged with criteria.mode tasks.
 export const makeTasksNode = (x: number, y: number): TextNode => ({
   id: `task-${ulid()}`,
   type: "text",
@@ -83,9 +82,37 @@ export const makeTasksNode = (x: number, y: number): TextNode => ({
   height: 120,
   ether: {
     entity: { kind: "task" },
-    tasks: {
-      items: [{ id: `item-${ulid()}`, text: "first item" }],
-    },
+    tasks: { items: [] },
+  },
+});
+
+// Operator requests — items live around state input-required.
+export const makeRequestsNode = (x: number, y: number): TextNode => ({
+  id: `requests-${ulid()}`,
+  type: "text",
+  text: "0 pending",
+  x: Math.round(x),
+  y: Math.round(y),
+  width: 240,
+  height: 120,
+  ether: {
+    entity: { kind: "requests" },
+    requests: { items: [] },
+  },
+});
+
+// Artifact shelf — published parts with optional task provenance.
+export const makeArtifactsNode = (x: number, y: number): TextNode => ({
+  id: `artifacts-${ulid()}`,
+  type: "text",
+  text: "artifacts",
+  x: Math.round(x),
+  y: Math.round(y),
+  width: 240,
+  height: 120,
+  ether: {
+    entity: { kind: "artifacts" },
+    artifacts: { items: [] },
   },
 });
 

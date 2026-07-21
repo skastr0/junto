@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Flag, SlidersHorizontal } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
-import { ulid } from "ulid";
 import type { CanvasDoc, CanvasNode, EdgeCriteria, EtherFlag, EtherRegionDefaults, EtherView, EtherWatch } from "@shared/canvas";
 import { towerProjectKey } from "@shared/execution-graph";
 import { findEntity } from "@shared/entities";
 import { addEdge, setEdgeCriteria } from "../lib/edge-mutations";
-import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTasks, setNodeTimer, setNodeView, setNodeWatch, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTimer, setNodeView, setNodeWatch, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
 import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
@@ -74,64 +74,21 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
 // switchboard above reads as one branch per concern instead of three more
 // node-type ternaries stacked onto an already-dense dispatcher.
 function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
+  const kind = node.ether?.entity?.kind;
   return <>
     {node.type === "group" ? <RegionPulseControl node={node} /> : null}
-    {node.ether?.entity?.kind === "watcher" ? <WatcherEditor node={node} /> : null}
-    {node.ether?.entity?.kind === "timer" ? <TimerEditor node={node} /> : null}
-    {node.ether?.entity?.kind === "task" ? <TasksEditor node={node} /> : null}
+    {kind === "watcher" ? <WatcherEditor node={node} /> : null}
+    {kind === "timer" ? <TimerEditor node={node} /> : null}
+    {kind === "task" || kind === "requests" || kind === "artifacts" ? (
+      <div className="inspector-section">
+        <div className="inspector-section__label">work plane</div>
+        <div className="inspector-detail">
+          Double-click the card for the full {kind} surface. Mutations go through the A2A work service.
+        </div>
+      </div>
+    ) : null}
+    {kind === "agent" || kind === "herdr" ? <AgentMessagesPane node={node} /> : null}
   </>;
-}
-
-function TasksEditor({ node }: { readonly node: CanvasNode }) {
-  const items = node.ether?.tasks?.items ?? [];
-  const commit = (next: typeof items) => setNodeTasks(node.id, next);
-  return (
-    <div className="inspector-section">
-      <div className="inspector-section__label">checklist</div>
-      <div className="flex flex-col gap-1.5">
-        {items.map((item) => (
-          <div key={item.id} className="flex items-center gap-1.5">
-            <button
-              type="button"
-              aria-label={item.done ? "Mark incomplete" : "Mark done"}
-              className="inspector-flag-toggle"
-              onClick={() =>
-                commit(items.map((row) => (row.id === item.id ? { ...row, done: !row.done } : row)))
-              }
-            >
-              {item.done ? "☑" : "☐"}
-            </button>
-            <input
-              aria-label="Task text"
-              className="flex-1"
-              value={item.text}
-              onChange={(event) =>
-                commit(items.map((row) => (row.id === item.id ? { ...row, text: event.target.value } : row)))
-              }
-            />
-            <button
-              type="button"
-              aria-label="Remove task"
-              className="inspector-action--danger"
-              onClick={() => commit(items.filter((row) => row.id !== item.id))}
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
-      <button
-        type="button"
-        className="mt-2"
-        onClick={() => commit([...items, { id: `item-${ulid()}`, text: "new item" }])}
-      >
-        add item
-      </button>
-      <div className="inspector-detail mt-1">
-        Incomplete tasks block only when this node is the source of an edge with tasks criteria.
-      </div>
-    </div>
-  );
 }
 
 export function EdgeCriteriaEditor({
@@ -148,8 +105,9 @@ export function EdgeCriteriaEditor({
   const doc = use$(state$.doc);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
   const criteria = edge?.ether?.criteria;
-  const fromIsTask = fromNode?.ether?.entity?.kind === "task";
-  const fromIsProject = fromNode?.ether?.entity?.kind === "project";
+  const fromKind = fromNode?.ether?.entity?.kind;
+  const fromIsTask = fromKind === "task" || fromKind === "requests";
+  const fromIsProject = fromKind === "project";
   const towerKey = towerProjectKey(fromNode) ?? "";
 
   // Local draft only — never persist empty glyphs criteria (mutation also strips).
@@ -219,7 +177,13 @@ export function EdgeCriteriaEditor({
           onChange={(event) => setMode(event.target.value as "none" | "glyphs" | "wip" | "tasks")}
         >
           <option value="none">none · soft relates</option>
-          {fromIsTask ? <option value="tasks">tasks · open checklist blocks</option> : null}
+          {fromIsTask ? (
+            <option value="tasks">
+              {fromKind === "requests"
+                ? "tasks · pending requests block"
+                : "tasks · incomplete A2A tasks block"}
+            </option>
+          ) : null}
           {fromIsProject || towerKey ? (
             <option value="wip">WIP · committed/building/reviewing (opt-in)</option>
           ) : null}
@@ -242,7 +206,9 @@ export function EdgeCriteriaEditor({
       ) : null}
       {mode === "tasks" ? (
         <div className="inspector-detail">
-          Blocks while incomplete items remain on the source tasks node. Auto-set when connecting from tasks.
+          {fromKind === "requests"
+            ? "Blocks while any selected request is input-required. Auto-set when connecting from requests."
+            : "Blocks while any selected task is not completed. Auto-set when connecting from tasks."}
         </div>
       ) : null}
       {mode === "none" ? (
@@ -837,10 +803,11 @@ export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node
   const targets = doc.nodes.filter((candidate) => candidate.id !== node.id && candidate.type !== "group");
   const availableTargets = targets.filter((target) => !doc.edges.some((edge) => edge.fromNode === node.id && edge.toNode === target.id));
   const filteredTargets = availableTargets.filter((target) => !targetQuery.trim() || searchText(target).includes(targetQuery.trim().toLowerCase()));
-  const fromIsTask = node.ether?.entity?.kind === "task";
+  const kind = node.ether?.entity?.kind;
+  const fromIsTask = kind === "task" || kind === "requests";
   const connect = () => {
     if (!targetId) return;
-    // Criteria inferred from source (tasks → tasks criteria). No static kind picker.
+    // Criteria inferred from source (tasks/requests → tasks criteria).
     addEdge({ source: node.id, target: targetId });
     setTargetId("");
     setTargetQuery("");
@@ -879,7 +846,7 @@ export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node
       )}
       <div className="inspector-detail">
         {fromIsTask
-          ? "From a tasks node: edge auto-binds to the checklist (blocks while open)."
+          ? "From a tasks/requests node: edge auto-binds tasks criteria (blocks while open/pending)."
           : "Soft relates by default. Attach WIP or glyph criteria on the edge after connect."}
       </div>
       <button disabled={!targetId} onClick={connect}>

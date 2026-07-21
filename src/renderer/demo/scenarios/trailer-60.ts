@@ -292,7 +292,7 @@ const demoRegion: GroupNode = {
 const demoTask: TextNode = {
   id: "demo-task",
   type: "text",
-  text: "tasks",
+  text: "record trailer\ncut soundtrack\nship v1",
   x: 60,
   y: 180,
   width: 260,
@@ -301,9 +301,45 @@ const demoTask: TextNode = {
     entity: { kind: "task" },
     tasks: {
       items: [
-        { id: "demo-task-i1", text: "record trailer" },
-        { id: "demo-task-i2", text: "cut soundtrack" },
-        { id: "demo-task-i3", text: "ship v1" },
+        {
+          id: "demo-task-i1",
+          state: "submitted",
+          history: [
+            {
+              messageId: "demo-msg-1",
+              role: "user",
+              parts: [{ kind: "text", text: "record trailer" }],
+              taskId: "demo-task-i1",
+              contextId: "release ops",
+            },
+          ],
+        },
+        {
+          id: "demo-task-i2",
+          state: "submitted",
+          history: [
+            {
+              messageId: "demo-msg-2",
+              role: "user",
+              parts: [{ kind: "text", text: "cut soundtrack" }],
+              taskId: "demo-task-i2",
+              contextId: "release ops",
+            },
+          ],
+        },
+        {
+          id: "demo-task-i3",
+          state: "submitted",
+          history: [
+            {
+              messageId: "demo-msg-3",
+              role: "user",
+              parts: [{ kind: "text", text: "ship v1" }],
+              taskId: "demo-task-i3",
+              contextId: "release ops",
+            },
+          ],
+        },
       ],
     },
   },
