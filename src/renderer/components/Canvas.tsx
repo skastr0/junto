@@ -253,6 +253,40 @@ function useCanvasInteractions(
     readonly regionStart: { readonly x: number; readonly y: number };
     readonly startPositions: ReadonlyMap<string, { readonly x: number; readonly y: number }>;
   } | null>(null);
+  // End drag: clear latch, optionally stamp RF positions, flush deferred rebuild.
+  // Idempotent — safe when both onNodeDragStop and pointerup fire.
+  const finishDrag = useCallback((sync: boolean) => {
+    if (!dragInProgressRef.current) return;
+    holdDragRef.current = null;
+    if (sync) {
+      const positions = new Map<string, { x: number; y: number }>();
+      for (const node of rf.getNodes()) positions.set(node.id, node.position);
+      syncPositions(positions);
+    }
+    dragInProgressRef.current = false;
+    if (pendingRebuildRef.current) {
+      pendingRebuildRef.current = false;
+      flushRebuild();
+    }
+  }, [rf, dragInProgressRef, pendingRebuildRef, flushRebuild]);
+
+  // Recover from pointercancel / missing dragStop / unmount so rebuilds never stick.
+  useEffect(() => {
+    const onPointerEnd = () => finishDrag(true);
+    window.addEventListener("pointerup", onPointerEnd);
+    window.addEventListener("pointercancel", onPointerEnd);
+    return () => {
+      window.removeEventListener("pointerup", onPointerEnd);
+      window.removeEventListener("pointercancel", onPointerEnd);
+      // Unmount mid-drag: drop latch without writing RF positions into a dying tree.
+      if (dragInProgressRef.current) {
+        dragInProgressRef.current = false;
+        holdDragRef.current = null;
+        pendingRebuildRef.current = false;
+      }
+    };
+  }, [finishDrag, dragInProgressRef, pendingRebuildRef]);
+
   const onNodeDragStart: OnNodeDrag<FlowNode> = useCallback((_event, node) => {
     dragInProgressRef.current = true;
     holdDragRef.current = null;
@@ -279,17 +313,13 @@ function useCanvasInteractions(
     }));
   }, [setNodes]);
   const onNodeDragStop = useCallback(() => {
-    holdDragRef.current = null;
-    const positions = new Map<string, { x: number; y: number }>();
-    for (const node of rf.getNodes()) positions.set(node.id, node.position);
-    syncPositions(positions);
-    dragInProgressRef.current = false;
-    if (pendingRebuildRef.current) {
-      pendingRebuildRef.current = false;
-      flushRebuild();
-    }
-  }, [rf, dragInProgressRef, pendingRebuildRef, flushRebuild]);
-  const onNodesDelete = useCallback((deleted: ReadonlyArray<FlowNode>) => deleteNodes(deleted.map((node) => node.id)), []);
+    finishDrag(true);
+  }, [finishDrag]);
+  const onNodesDelete = useCallback((deleted: ReadonlyArray<FlowNode>) => {
+    // Deleting mid-drag would otherwise leave the rebuild latch stuck.
+    if (dragInProgressRef.current) finishDrag(false);
+    deleteNodes(deleted.map((node) => node.id));
+  }, [dragInProgressRef, finishDrag]);
   const onEdgesDelete = useCallback((deleted: ReadonlyArray<FlowEdge>) => deleteEdges(deleted.map((edge) => edge.id)), []);
   const onSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }: { readonly nodes: ReadonlyArray<FlowNode>; readonly edges: ReadonlyArray<FlowEdge> }) => {
     // React Flow emits empty selections while the graph remounts. A pane
