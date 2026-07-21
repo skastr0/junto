@@ -18,7 +18,7 @@ import type { TowerGlyphRow } from "@shared/ipc";
 // Value import: vitest here has no alias resolver for runtime imports (only
 // tsc resolves "@shared/*", via tsconfig paths) — a relative path is what
 // actually lets this module load under `bun run test`. Mirrors the same
-// documented workaround in lib/entity-readout.ts. Type-only imports stay on
+// Type-only imports stay on
 // the alias since those are erased before any resolver sees them.
 import { findEntity, type Entity, type SnapshotState } from "../../../shared/entities";
 
