@@ -20,6 +20,7 @@ import {
 } from "../lib/sfx";
 import { DIM, HUE, INK } from "../lib/theme";
 import { getVellumApi } from "../lib/vellum-api";
+import { HostServeCatalog } from "./HostServeCatalog";
 import "./settings-panel.css";
 
 /** Settings sections: prefs sections + hosts (hosts is not a SettingsSectionKey). */
@@ -28,7 +29,7 @@ type PanelSection = SettingsSectionKey | "hosts";
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
   { key: "appearance", label: "Appearance", blurb: "theme, density, motion" },
   { key: "canvas", label: "Canvas", blurb: "defaults for the portfolio field" },
-  { key: "hosts", label: "Hosts", blurb: "local + remote SSH fleet" },
+  { key: "hosts", label: "Hosts", blurb: "fleet + Tailscale services" },
   { key: "audio", label: "Audio", blurb: "RTS alert SFX mute and levels" },
   { key: "kernel", label: "Kernel", blurb: "pulse retention and debug" },
   { key: "browser", label: "Browser", blurb: "surface and warm-session limits" },
@@ -545,7 +546,8 @@ function HostsSection() {
         Remote hosts are user-authored — nothing is hard-coded for a particular machine.
         Use an SSH config <code>Host</code> alias, <code>user@hostname</code>, or an IPv6
         literal. Configure custom ports in <code>~/.ssh/config</code>. Agent keys for Hermes
-        use the host id (or optional hermes id).
+        use the host id (or optional hermes id). Expand <strong>Services</strong> on a host to
+        list Tailscale Serve / SVC URLs and open them as canvas page nodes.
       </p>
 
       {loading ? (
@@ -598,6 +600,7 @@ function HostsSection() {
                   {testDetail[host.id]}
                 </p>
               ) : null}
+              <HostServeCatalog hostId={host.id} hostLabel={host.label} />
             </li>
           ))}
         </ul>
