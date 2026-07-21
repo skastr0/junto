@@ -8,7 +8,7 @@ import type {
   Part,
   TaskState,
 } from "@shared/canvas";
-import { claimedByOf, countByTaskState, taskBrief } from "@shared/a2a";
+import { canTransitionTaskState, claimedByOf, countByTaskState, isTerminalTaskState, taskBrief } from "@shared/a2a";
 import { DetailModal } from "../DetailModal";
 import { getVellumApi } from "../../lib/vellum-api";
 import { state$ } from "../../lib/state";
@@ -157,7 +157,7 @@ function StateChip({ state, count }: { readonly state: TaskState; readonly count
 export function TasksCard({ node }: { readonly node: CanvasNode }) {
   const items = node.ether?.tasks?.items ?? [];
   const counts = countByTaskState(items);
-  const open = items.filter((t) => t.state !== "completed").length;
+  const open = items.filter((t) => !isTerminalTaskState(t.state)).length;
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <div className="flex items-center justify-between gap-2">
@@ -249,12 +249,17 @@ function TaskRow({
   task,
   onTransition,
   onClaim,
+  error,
 }: {
   readonly task: A2ATask;
-  readonly onTransition: (state: TaskState, note?: string) => void;
-  readonly onClaim: () => void;
+  readonly onTransition: (state: TaskState, note?: string) => void | Promise<void>;
+  readonly onClaim: () => void | Promise<void>;
+  readonly error?: string;
 }) {
   const claim = claimedByOf(task);
+  const stateOptions = TASK_STATES.filter(
+    (s) => s === task.state || canTransitionTaskState(task.state, s),
+  );
   return (
     <div
       className="rounded border p-2"
@@ -271,16 +276,16 @@ function TaskRow({
           </div>
         </div>
         <div className="flex flex-wrap gap-1">
-          <button type="button" className="text-[10px]" onClick={onClaim}>
+          <button type="button" className="text-[10px]" onClick={() => void onClaim()}>
             claim
           </button>
           <select
             aria-label="Task state"
             className="text-[10px]"
             value={task.state}
-            onChange={(e) => onTransition(e.target.value as TaskState)}
+            onChange={(e) => void onTransition(e.target.value as TaskState)}
           >
-            {TASK_STATES.map((s) => (
+            {stateOptions.map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>
@@ -288,6 +293,11 @@ function TaskRow({
           </select>
         </div>
       </div>
+      {error ? (
+        <div className="mt-1 text-[10px]" style={{ color: HUE.crimson }}>
+          {error}
+        </div>
+      ) : null}
       {task.history.length > 0 ? (
         <div className="mt-2 flex flex-col gap-1 border-t pt-2" style={{ borderColor: withAlpha(DIM, 0.2) }}>
           {task.history.map((msg) => (
@@ -317,15 +327,20 @@ export function TasksDetail({
   const items = node.ether?.tasks?.items ?? [];
   const [brief, setBrief] = useState("");
   const [error, setError] = useState("");
+  const [rowError, setRowError] = useState<Record<string, string>>({});
   const api = getVellumApi();
   const name = canvasName();
 
   const create = async () => {
     if (!api || !brief.trim()) return;
     setError("");
-    const result = await api.workTaskCreate(name, node.id, brief.trim());
-    if (!result.ok) setError(result.message);
-    else setBrief("");
+    try {
+      const result = await api.workTaskCreate(name, node.id, brief.trim());
+      if (!result.ok) setError(result.message);
+      else setBrief("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   return (
@@ -364,11 +379,32 @@ export function TasksDetail({
             <TaskRow
               key={task.id}
               task={task}
-              onClaim={() => {
-                void api?.workTaskClaim(name, node.id, task.id, "operator");
+              error={rowError[task.id]}
+              onClaim={async () => {
+                if (!api) return;
+                setRowError((prev) => ({ ...prev, [task.id]: "" }));
+                try {
+                  const result = await api.workTaskClaim(name, node.id, task.id, "operator");
+                  if (!result.ok) setRowError((prev) => ({ ...prev, [task.id]: result.message }));
+                } catch (err) {
+                  setRowError((prev) => ({
+                    ...prev,
+                    [task.id]: err instanceof Error ? err.message : String(err),
+                  }));
+                }
               }}
-              onTransition={(state) => {
-                void api?.workTaskTransition(name, node.id, task.id, state);
+              onTransition={async (state) => {
+                if (!api) return;
+                setRowError((prev) => ({ ...prev, [task.id]: "" }));
+                try {
+                  const result = await api.workTaskTransition(name, node.id, task.id, state);
+                  if (!result.ok) setRowError((prev) => ({ ...prev, [task.id]: result.message }));
+                } catch (err) {
+                  setRowError((prev) => ({
+                    ...prev,
+                    [task.id]: err instanceof Error ? err.message : String(err),
+                  }));
+                }
               }}
             />
           ))}
@@ -450,6 +486,7 @@ function RequestRow({
   readonly canvas: string;
 }) {
   const [response, setResponse] = useState("");
+  const [error, setError] = useState("");
   const api = getVellumApi();
   const imageParts = useMemo(
     () =>
@@ -459,8 +496,23 @@ function RequestRow({
 
   const resolve = async (disposition: "completed" | "rejected") => {
     if (!api || !response.trim()) return;
-    await api.workRequestResolve(canvas, nodeId, task.id, response.trim(), disposition);
-    setResponse("");
+    setError("");
+    try {
+      const result = await api.workRequestResolve(
+        canvas,
+        nodeId,
+        task.id,
+        response.trim(),
+        disposition,
+      );
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setResponse("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   return (
@@ -491,6 +543,11 @@ function RequestRow({
             onChange={(e) => setResponse(e.target.value)}
             placeholder="response…"
           />
+          {error ? (
+            <div className="text-[10px]" style={{ color: HUE.crimson }}>
+              {error}
+            </div>
+          ) : null}
           <div className="flex gap-2">
             <button type="button" onClick={() => void resolve("completed")}>
               complete

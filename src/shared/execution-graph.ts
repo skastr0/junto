@@ -7,7 +7,7 @@ import type {
   EdgePhase,
 } from "./canvas";
 import { WIP_GLYPH_STATES } from "./canvas";
-import { taskBrief } from "./a2a";
+import { isTerminalTaskState, taskBrief } from "./a2a";
 
 // Live execution graph: pure function of (document + glyph view).
 // Derived state is never stored in the .canvas file.
@@ -214,8 +214,8 @@ const a2aItemsOn = (node: CanvasNode | undefined): ReadonlyArray<A2ATask> => {
 
 const isBlockingTaskItem = (item: A2ATask, fromKind: string | undefined): boolean => {
   if (fromKind === "requests") return item.state === "input-required";
-  // task nodes (and default): block while not completed
-  return item.state !== "completed";
+  // task nodes (and default): block only while non-terminal
+  return !isTerminalTaskState(item.state);
 };
 
 const evalTasksCriteria = (
@@ -244,7 +244,7 @@ const evalTasksCriteria = (
       detail:
         fromKind === "requests"
           ? `${scoped.length}/${scoped.length} requests resolved`
-          : `${scoped.length}/${scoped.length} tasks completed`,
+          : `${scoped.length}/${scoped.length} tasks settled`,
       generates: false,
       relays: true,
     };
@@ -263,7 +263,7 @@ const evalTasksCriteria = (
   }
   return {
     phase: "blocks",
-    detail: `${scoped.length - open.length}/${scoped.length} tasks completed · open: ${sample}`,
+    detail: `${scoped.length - open.length}/${scoped.length} tasks settled · open: ${sample}`,
     generates: true,
     relays: true,
   };
@@ -497,12 +497,12 @@ export const composeRegionExecutionContext = (
       const preview = items.map((item) => `${item.state}: ${taskBrief(item)}`).join("; ");
       taskLines.push(`${titleOf(node, id)} :: ${pending}/${items.length} pending · ${preview}`);
     } else {
-      const open = items.filter((item) => item.state !== "completed").length;
+      const open = items.filter((item) => !isTerminalTaskState(item.state)).length;
       const preview = items
-        .map((item) => `${item.state === "completed" ? "[x]" : "[ ]"} ${taskBrief(item)}`)
+        .map((item) => `${isTerminalTaskState(item.state) ? "[x]" : "[ ]"} ${taskBrief(item)}`)
         .join("; ");
       taskLines.push(
-        `${titleOf(node, id)} :: ${items.length - open}/${items.length} completed · ${preview}`,
+        `${titleOf(node, id)} :: ${items.length - open}/${items.length} settled · ${preview}`,
       );
     }
   }

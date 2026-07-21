@@ -58,7 +58,7 @@ const toWorkServiceError = (error: unknown): WorkServiceError => {
   if (error instanceof WorkServiceError) return error;
   if (error instanceof CanvasError) {
     const msg = error.message;
-    if (msg.includes("failed validation") || msg.includes("not valid JSON") || msg.includes("ENOENT") || msg.includes("no such file")) {
+    if (msg.includes("ENOENT") || msg.includes("no such file") || msg.includes("does not exist")) {
       return new WorkServiceError({ code: "canvas_not_found", message: msg });
     }
     return new WorkServiceError({ code: "invalid", message: msg });

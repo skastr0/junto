@@ -48,7 +48,7 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "criteria"?: EdgeCriteria } }`.
 - No `criteria` → soft **relates** (never generates or relays blocks).
 - `criteria.mode: "glyphs"` → selected glyph ids must be `done` when glyph data is available (blocks while pending; depends when clear). Unknown/missing glyph data does not invent blocks.
 - `criteria.mode: "wip"` → opt-in: any glyph in `committed`|`building`|`reviewing` blocks (never default on projects).
-- `criteria.mode: "tasks"` → incomplete checklist items on the source tasks node block. Connecting from a tasks node attaches this automatically.
+- `criteria.mode: "tasks"` → from a **task** node, non-terminal A2A items block (submitted/working/input-required/auth-required); from a **requests** node, items in `input-required` block (clears on completed|rejected|canceled). Connecting from either kind attaches this criteria automatically.
 - Live **phase** (`blocks`|`depends`|`relates`) is derived. Optional `ether.kind` is only a phase mirror for offline JSON Canvas readers — never authorial input.
 
 **Two invariants** (enforced on every app/CLI write):

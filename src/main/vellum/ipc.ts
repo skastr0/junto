@@ -195,12 +195,28 @@ export const registerVellumIpc = (): void => {
   );
 
   // A2A work plane — seven ops, all serialized through CanvasesService write.
+  // Remote stations get a typed WorkOpResult (never a rejected IPC promise).
+  const denyRemoteWork = Effect.gen(function* () {
+    const settings = yield* SettingsService;
+    const current = yield* settings.get;
+    if (current.station.role === "remote") {
+      return {
+        ok: false as const,
+        code: "invalid" as const,
+        message:
+          "Remote station cannot mutate authorial canvases. Author on the Command Center.",
+      };
+    }
+    return null;
+  });
+
   ipcMain.handle(
     IPC_CHANNELS.workTaskCreate,
     (_event, canvas: string, nodeId: string, brief: string, metadata?: A2AMetadata) =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
-          yield* denyIfRemoteAuthorial;
+          const denied = yield* denyRemoteWork;
+          if (denied) return denied;
           const work = yield* WorkService;
           return yield* work.workTaskCreate(canvas, nodeId, brief, metadata);
         }),
@@ -218,7 +234,8 @@ export const registerVellumIpc = (): void => {
     ) =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
-          yield* denyIfRemoteAuthorial;
+          const denied = yield* denyRemoteWork;
+          if (denied) return denied;
           const work = yield* WorkService;
           return yield* work.workTaskTransition(canvas, nodeId, taskId, state, note);
         }),
@@ -229,7 +246,8 @@ export const registerVellumIpc = (): void => {
     (_event, canvas: string, nodeId: string, taskId: string, actor: string) =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
-          yield* denyIfRemoteAuthorial;
+          const denied = yield* denyRemoteWork;
+          if (denied) return denied;
           const work = yield* WorkService;
           return yield* work.workTaskClaim(canvas, nodeId, taskId, actor);
         }),
@@ -240,7 +258,8 @@ export const registerVellumIpc = (): void => {
     (_event, canvas: string, nodeId: string, taskId: string | null, message: Message) =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
-          yield* denyIfRemoteAuthorial;
+          const denied = yield* denyRemoteWork;
+          if (denied) return denied;
           const work = yield* WorkService;
           return yield* work.workMessageAppend(canvas, nodeId, taskId, message);
         }),
@@ -251,7 +270,8 @@ export const registerVellumIpc = (): void => {
     (_event, canvas: string, nodeId: string, brief: string, metadata?: A2AMetadata) =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
-          yield* denyIfRemoteAuthorial;
+          const denied = yield* denyRemoteWork;
+          if (denied) return denied;
           const work = yield* WorkService;
           return yield* work.workRequestCreate(canvas, nodeId, brief, metadata);
         }),
@@ -269,7 +289,8 @@ export const registerVellumIpc = (): void => {
     ) =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
-          yield* denyIfRemoteAuthorial;
+          const denied = yield* denyRemoteWork;
+          if (denied) return denied;
           const work = yield* WorkService;
           return yield* work.workRequestResolve(
             canvas,
@@ -286,7 +307,8 @@ export const registerVellumIpc = (): void => {
     (_event, canvas: string, nodeId: string, artifact: Artifact) =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
-          yield* denyIfRemoteAuthorial;
+          const denied = yield* denyRemoteWork;
+          if (denied) return denied;
           const work = yield* WorkService;
           return yield* work.workArtifactPublish(canvas, nodeId, artifact);
         }),

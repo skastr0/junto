@@ -180,6 +180,22 @@ describe("evaluateEdge — authorial modes", () => {
       expect(evaluateEdge(edge, resolved, new Map()).phase).toBe("depends");
     }
   });
+
+  it("tasks criteria: canceled/failed/rejected are terminal and do not block", () => {
+    const edge = {
+      id: "e1",
+      fromNode: "t1",
+      toNode: "b",
+      ether: { criteria: { mode: "tasks" as const } },
+    };
+    for (const state of ["canceled", "failed", "rejected"] as const) {
+      const node = text("t1", "Checklist", {
+        entity: { kind: "task" },
+        tasks: { items: [a2aTask("i1", "x", state)] },
+      });
+      expect(evaluateEdge(edge, node, new Map()).phase).toBe("depends");
+    }
+  });
 });
 
 describe("deriveExecutionGraph — propagation", () => {

@@ -7,7 +7,14 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "../../src/shared/canvas";
+import type {
+  A2ATask,
+  Artifact,
+  CanvasDoc,
+  CanvasEdge,
+  CanvasNode,
+  TextNode,
+} from "../../src/shared/canvas";
 import { serializeCanvas } from "../../src/shared/canvas";
 
 export interface Sandbox {
@@ -128,3 +135,124 @@ export const canvasDoc = (
   nodes: readonly CanvasNode[],
   edges: readonly CanvasEdge[] = [],
 ): CanvasDoc => ({ nodes: [...nodes], edges: [...edges] });
+
+// --- A2A work-plane fixtures (no legacy checklist shape) --------------------
+
+export const a2aTask = (
+  id: string,
+  brief: string,
+  state: A2ATask["state"] = "submitted",
+): A2ATask => ({
+  id,
+  state,
+  history: [
+    {
+      messageId: `${id}-m0`,
+      role: "user",
+      parts: [{ kind: "text", text: brief }],
+      taskId: id,
+      contextId: "e2e",
+    },
+  ],
+});
+
+/** Empty tasks node — work ops fill ether.tasks via WorkService. */
+export const tasksNode = (input: {
+  readonly id: string;
+  readonly x?: number;
+  readonly y?: number;
+  readonly items?: ReadonlyArray<A2ATask>;
+}): TextNode => ({
+  id: input.id,
+  type: "text",
+  text:
+    input.items && input.items.length > 0
+      ? input.items
+          .map((t) => {
+            const part = t.history[0]?.parts.find((p) => p.kind === "text");
+            return part && part.kind === "text" ? part.text : t.id;
+          })
+          .join("\n")
+      : "tasks",
+  x: input.x ?? 0,
+  y: input.y ?? 0,
+  width: 240,
+  height: 120,
+  ether: {
+    entity: { kind: "task" },
+    tasks: { items: [...(input.items ?? [])] },
+  },
+});
+
+export const requestsNode = (input: {
+  readonly id: string;
+  readonly x?: number;
+  readonly y?: number;
+  readonly items?: ReadonlyArray<A2ATask>;
+}): TextNode => {
+  const items = input.items ?? [];
+  const pending = items.filter((t) => t.state === "input-required").length;
+  return {
+    id: input.id,
+    type: "text",
+    text: `${pending} pending`,
+    x: input.x ?? 0,
+    y: input.y ?? 0,
+    width: 240,
+    height: 120,
+    ether: {
+      entity: { kind: "requests" },
+      requests: { items: [...items] },
+    },
+  };
+};
+
+export const artifactsNode = (input: {
+  readonly id: string;
+  readonly x?: number;
+  readonly y?: number;
+  readonly items?: ReadonlyArray<Artifact>;
+}): TextNode => ({
+  id: input.id,
+  type: "text",
+  text: "artifacts",
+  x: input.x ?? 0,
+  y: input.y ?? 0,
+  width: 240,
+  height: 120,
+  ether: {
+    entity: { kind: "artifacts" },
+    artifacts: { items: [...(input.items ?? [])] },
+  },
+});
+
+/** Soft project-like blockable target (kind project; no private-source bindings). */
+export const projectNode = (input: {
+  readonly id: string;
+  readonly name: string;
+  readonly label?: string;
+  readonly x?: number;
+  readonly y?: number;
+}): TextNode => ({
+  id: input.id,
+  type: "text",
+  text: input.label ?? input.name,
+  x: input.x ?? 0,
+  y: input.y ?? 0,
+  width: 200,
+  height: 80,
+  ether: { entity: { kind: "project", name: input.name } },
+});
+
+export const tasksCriteriaEdge = (
+  id: string,
+  fromNode: string,
+  toNode: string,
+): CanvasEdge => ({
+  id,
+  fromNode,
+  toNode,
+  fromSide: "right",
+  toSide: "left",
+  ether: { criteria: { mode: "tasks" } },
+});

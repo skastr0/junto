@@ -132,8 +132,14 @@ export const digestCanvas = (
       // Local A2A work stores live in the document.
       if (entity.kind === "task") {
         const items = node.ether?.tasks?.items ?? [];
-        const open = items.filter((item) => item.state !== "completed").length;
-        entityLines.push(`  tasks: ${items.length - open}/${items.length} completed`);
+        const open = items.filter(
+          (item) =>
+            item.state !== "completed" &&
+            item.state !== "canceled" &&
+            item.state !== "failed" &&
+            item.state !== "rejected",
+        ).length;
+        entityLines.push(`  tasks: ${items.length - open}/${items.length} settled`);
       }
       if (entity.kind === "requests") {
         const items = node.ether?.requests?.items ?? [];

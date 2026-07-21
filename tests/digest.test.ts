@@ -127,18 +127,18 @@ Foo :: project
 Bar :: orbit
 Baz :: project
 Ops :: task
-  tasks: 0/1 completed
+  tasks: 0/1 settled
 
 edges
 Foo --relates--> Bar
-Ops --blocks(0/1 tasks completed · open: ship)--> Baz
+Ops --blocks(0/1 tasks settled · open: ship)--> Baz
 Baz --refs--> Foo
 Foo --relates--> Baz
 
 blockers
 Bar
 blocked closure :: 1 nodes
-Baz · 0/1 tasks completed · open: ship
+Baz · 0/1 tasks settled · open: ship
 
 seeds
 Bar
