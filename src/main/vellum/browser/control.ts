@@ -25,6 +25,7 @@ import { decodeCanvasDoc } from "@shared/canvas";
 import { formatNodeRef } from "@shared/node-ref";
 import {
   CONTROL_CAPABILITY_HEADER,
+  CONTROL_NODE_REF_HEADER,
   CONTROL_ROUTES,
   CONTROL_HEADERS_TIMEOUT_MS,
   CONTROL_MAX_BODY_BYTES,
@@ -53,6 +54,12 @@ import {
   type ControlErrorTag,
   type PageNodeRow,
 } from "@shared/browser-control";
+import type { CanvasDoc } from "@shared/canvas";
+import {
+  makeEdgeGrantService,
+  type EdgeGrantDenial,
+  type EdgeGrantService,
+} from "./edge-grant";
 import {
   BROWSER_CONTROL_HANDLER_TIMEOUT_MS,
   BROWSER_CONTROL_MAX_RESPONSE_BYTES,
@@ -297,6 +304,11 @@ export interface ControlDeps {
     readonly writeExclusive?: (path: string, data: Uint8Array) => Promise<void>;
     readonly remove?: (path: string) => Promise<void>;
   };
+  /**
+   * Process-bind + edge authz admission (BA-001). When present, protected
+   * routes accept VELLUM_NODE_REF without a capability secret.
+   */
+  readonly edgeGrant?: EdgeGrantService;
 }
 
 const ensureScreenshotDirectory = async (path: string): Promise<void> => {
@@ -927,9 +939,34 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
   return handlers;
 };
 
+const edgeGrantHttp = (
+  denial: EdgeGrantDenial,
+  message: string,
+): { status: number; envelope: ControlEnvelope<never> } => {
+  if (denial === "capacity") {
+    return {
+      status: 429,
+      envelope: controlErr("resource_exhausted", message),
+    };
+  }
+  if (
+    denial === "invalid_node_ref" ||
+    denial === "caller_missing" ||
+    denial === "closed" ||
+    denial === "canvas_unreadable"
+  ) {
+    return { status: 401, envelope: controlErr("unauthorized", message) };
+  }
+  return { status: 403, envelope: controlErr("forbidden", message) };
+};
+
 /**
  * Full request dispatch (auth → route → handler), transport-free so tests
  * exercise exactly what the socket serves.
+ *
+ * Dual admission on protected routes:
+ *   1. Capability secret (transitional ceremony path)
+ *   2. Process-bind nodeRef + human edges (product path, BA-001)
  */
 export const dispatchControlRequest = async (
   handlers: ControlHandlers,
@@ -939,10 +976,12 @@ export const dispatchControlRequest = async (
     readonly path: string;
     readonly token: string | undefined;
     readonly capability?: string;
+    readonly nodeRef?: string;
     readonly requestId?: string;
     readonly body: unknown;
   },
   signal?: AbortSignal,
+  edgeGrant?: EdgeGrantService,
 ): Promise<{ status: number; envelope: ControlEnvelope<unknown> }> => {
   if (!tokenMatches(request.token, token)) {
     return { status: 401, envelope: controlErr("unauthorized", "missing or invalid token") };
@@ -964,13 +1003,23 @@ export const dispatchControlRequest = async (
   }
   let authorization: ControlAuthorization | undefined;
   if (handler.action !== null) {
-    if (!isValidControlCapability(request.capability ?? "")) {
-      return { status: 401, envelope: capabilityDenied("unauthorized") };
+    let capability = request.capability;
+    if (!isValidControlCapability(capability ?? "")) {
+      const nodeRef =
+        typeof request.nodeRef === "string" && request.nodeRef.length > 0
+          ? request.nodeRef
+          : undefined;
+      if (edgeGrant === undefined || nodeRef === undefined) {
+        return { status: 401, envelope: capabilityDenied("unauthorized") };
+      }
+      const edge = await edgeGrant.admit(nodeRef);
+      if (!edge.ok) return edgeGrantHttp(edge.denial, edge.message);
+      capability = edge.secret;
     }
     if (!isValidControlRequestId(request.requestId ?? "")) {
       return { status: 400, envelope: controlErr("bad_request", "invalid request id") };
     }
-    const admitted = handler.preflight(request.capability);
+    const admitted = handler.preflight(capability);
     if (!admitted.ok) {
       return {
         status: admitted.denial === "unauthorized" ? 401 : 403,
@@ -978,7 +1027,7 @@ export const dispatchControlRequest = async (
       };
     }
     authorization = {
-      capability: request.capability!,
+      capability: capability!,
       requestId: request.requestId!,
     };
   }
@@ -1128,6 +1177,9 @@ export const startBrowserControlServer = async (
     readonly resolvePageTarget: PageTargetResolver;
     readonly version: string;
     readonly home?: string;
+    /** Enables process-bind + edge admission without capability ceremony. */
+    readonly readCanvas?: (name: string) => Promise<CanvasDoc | undefined>;
+    readonly edgeGrant?: EdgeGrantService;
   },
   runtime: BrowserControlRuntime = defaultControlRuntime,
 ): Promise<BrowserControlServer> => {
@@ -1138,6 +1190,15 @@ export const startBrowserControlServer = async (
   await ensureScreenshotDirectory(controlShotsDir(home));
 
   const token = rotateControlToken(controlTokenPath(home));
+  const edgeGrant =
+    options.edgeGrant ??
+    (options.readCanvas !== undefined
+      ? makeEdgeGrantService({
+          capabilities: options.capabilities,
+          readCanvas: options.readCanvas,
+          resolvePageTarget: options.resolvePageTarget,
+        })
+      : undefined);
   const handlers = makeControlHandlers({
     sessions: options.sessions,
     capabilities: options.capabilities,
@@ -1145,6 +1206,7 @@ export const startBrowserControlServer = async (
     version: options.version,
     canvasesDir: join(home, ".vellum", "canvases"),
     shotsDir: controlShotsDir(home),
+    ...(edgeGrant === undefined ? {} : { edgeGrant }),
   });
   const maxActiveHandlers = boundedRuntimeValue(
     runtime.maxActiveHandlers,
@@ -1206,9 +1268,18 @@ export const startBrowserControlServer = async (
           return;
         }
         const presentedCapability = fixedHeader(req, CONTROL_CAPABILITY_HEADER);
+        const presentedNodeRef = fixedHeader(req, CONTROL_NODE_REF_HEADER);
         const presentedRequestId = fixedHeader(req, CONTROL_REQUEST_ID_HEADER);
+        // Early transport checks only. Capability vs process-bind dual-admit
+        // runs inside dispatchControlRequest so edge minting shares one path
+        // with the transport-free test surface.
         if (handler.action !== null) {
-          if (!isValidControlCapability(presentedCapability ?? "")) {
+          const hasCapability = isValidControlCapability(presentedCapability ?? "");
+          const hasNodeRef =
+            edgeGrant !== undefined &&
+            typeof presentedNodeRef === "string" &&
+            presentedNodeRef.length > 0;
+          if (!hasCapability && !hasNodeRef) {
             respond(401, capabilityDenied("unauthorized"), true);
             return;
           }
@@ -1216,14 +1287,19 @@ export const startBrowserControlServer = async (
             respond(400, controlErr("bad_request", "invalid request id"), true);
             return;
           }
-          const admitted = handler.preflight(presentedCapability);
-          if (!admitted.ok) {
-            respond(
-              admitted.denial === "unauthorized" ? 401 : 403,
-              capabilityDenied(admitted.denial),
-              true,
-            );
-            return;
+          // Capability preflight stays early when the secret is presented so
+          // a dead secret never triggers body read. Edge-bind path preflights
+          // after mint inside dispatch.
+          if (hasCapability) {
+            const admitted = handler.preflight(presentedCapability);
+            if (!admitted.ok) {
+              respond(
+                admitted.denial === "unauthorized" ? 401 : 403,
+                capabilityDenied(admitted.denial),
+                true,
+              );
+              return;
+            }
           }
         }
         if (activeHandlers >= maxActiveHandlers) {
@@ -1303,12 +1379,14 @@ export const startBrowserControlServer = async (
                 ...(presentedCapability === undefined
                   ? {}
                   : { capability: presentedCapability }),
+                ...(presentedNodeRef === undefined ? {} : { nodeRef: presentedNodeRef }),
                 ...(presentedRequestId === undefined
                   ? {}
                   : { requestId: presentedRequestId }),
                 body: body.body,
               },
               controller.signal,
+              edgeGrant,
             );
           })().catch((error: unknown) => ({
             status: 500,

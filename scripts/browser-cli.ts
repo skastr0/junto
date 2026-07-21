@@ -8,6 +8,8 @@ import {
   CONTROL_CAPABILITY_ENV,
   CONTROL_CAPABILITY_HEADER,
   CONTROL_HOME_ENV,
+  CONTROL_NODE_REF_ENV,
+  CONTROL_NODE_REF_HEADER,
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
   CONTROL_TOKEN_HEADER,
@@ -40,6 +42,11 @@ usage:
   vellum browser <command> [args] [--json]
   vellum-browser <command> [args] [--json]
   bun run browser <command> [args] [--json]
+
+auth (protected commands):
+  VELLUM_NODE_REF                 process-bind caller (agent|herdr node) — product path
+  VELLUM_BROWSER_CAPABILITY       short-lived secret — transitional ceremony path
+  (doctor needs only the owner-local transport token)
 
 commands:
   doctor                          control plane health (app must be running)
@@ -80,6 +87,7 @@ const httpOverSocket = (
   route: { method: string; path: string },
   token: string,
   capability: string | undefined,
+  nodeRef: string | undefined,
   body: unknown,
 ): Promise<ControlEnvelope<unknown>> =>
   new Promise((resolve) => {
@@ -131,6 +139,7 @@ const httpOverSocket = (
           ...(capability === undefined
             ? {}
             : { [CONTROL_CAPABILITY_HEADER]: capability }),
+          ...(nodeRef === undefined ? {} : { [CONTROL_NODE_REF_HEADER]: nodeRef }),
           ...(encodedBody === undefined
             ? {}
             : { "content-length": String(Buffer.byteLength(encodedBody)) }),
@@ -308,20 +317,30 @@ const controlHome = (): string | ControlErr => {
   return normalize(configured);
 };
 
-const capabilityFor = (
+/**
+ * Dual admission inputs for protected routes:
+ *   - capability secret (transitional ceremony path), or
+ *   - VELLUM_NODE_REF process-bind (product path: edges grant page scope)
+ * Doctor stays transport-token only.
+ */
+const admissionFor = (
   route: ControlRouteName,
-): string | undefined | ControlErr => {
-  // Doctor is transport-authenticated liveness only. Never attach a browser
-  // authority secret to a route that does not need one.
-  if (route === "doctor") return undefined;
+):
+  | { readonly capability?: string; readonly nodeRef?: string }
+  | ControlErr => {
+  if (route === "doctor") return {};
   const capability = process.env[CONTROL_CAPABILITY_ENV];
-  if (capability === undefined || !isValidControlCapability(capability)) {
-    return controlErr(
-      "unauthorized",
-      `${CONTROL_CAPABILITY_ENV} is required for protected browser commands`,
-    );
+  if (capability !== undefined && isValidControlCapability(capability)) {
+    return { capability };
   }
-  return capability;
+  const nodeRef = process.env[CONTROL_NODE_REF_ENV]?.trim();
+  if (nodeRef !== undefined && nodeRef.length > 0) {
+    return { nodeRef };
+  }
+  return controlErr(
+    "unauthorized",
+    `${CONTROL_CAPABILITY_ENV} or ${CONTROL_NODE_REF_ENV} is required for protected browser commands`,
+  );
 };
 
 const main = async (): Promise<void> => {
@@ -335,11 +354,12 @@ const main = async (): Promise<void> => {
   if (typeof resolvedHome !== "string") return printErrorAndExit(resolvedHome, parsed.json);
   const home = resolvedHome;
 
-  const resolvedCapability = capabilityFor(parsed.call.route);
-  if (typeof resolvedCapability === "object") {
-    return printErrorAndExit(resolvedCapability, parsed.json);
+  const admission = admissionFor(parsed.call.route);
+  if ("error" in admission) {
+    return printErrorAndExit(admission, parsed.json);
   }
-  const capability = resolvedCapability;
+  const capability = admission.capability;
+  const nodeRef = admission.nodeRef;
 
   let token: string | undefined;
   try {
@@ -361,6 +381,7 @@ const main = async (): Promise<void> => {
     CONTROL_ROUTES[parsed.call.route],
     token,
     capability,
+    nodeRef,
     parsed.call.body,
   );
 

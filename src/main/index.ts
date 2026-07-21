@@ -715,6 +715,17 @@ if (!gotSingleInstanceLock) {
             capabilities: composition.automation.registry,
             resolvePageTarget: resolveBrowserPageTarget,
             version: app.getVersion(),
+            readCanvas: async (name) => {
+              try {
+                return await AppRuntime.runPromise(
+                  Effect.flatMap(CanvasesService, (canvases) =>
+                    Effect.map(canvases.read(name), (result) => result.doc),
+                  ),
+                );
+              } catch {
+                return undefined;
+              }
+            },
           });
           registerBrowserAgentIpc(ipcMain, composition.automation.runtime, (event) => {
             const mainWindow = trustedMainWindow;

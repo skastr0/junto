@@ -9,6 +9,8 @@ import {
   CONTROL_CAPABILITY_ENV,
   CONTROL_CAPABILITY_HEADER,
   CONTROL_HOME_ENV,
+  CONTROL_NODE_REF_ENV,
+  CONTROL_NODE_REF_HEADER,
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_TOKEN_HEADER,
   controlDir,
@@ -84,6 +86,7 @@ const runCli = (
     readonly home: string;
     readonly controlHome?: string;
     readonly capability?: string;
+    readonly nodeRef?: string;
   },
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> =>
   new Promise((resolveRun, rejectRun) => {
@@ -92,6 +95,9 @@ const runCli = (
       HOME: options.home,
       [CONTROL_HOME_ENV]: options.controlHome,
       [CONTROL_CAPABILITY_ENV]: options.capability,
+      ...(options.nodeRef === undefined
+        ? {}
+        : { [CONTROL_NODE_REF_ENV]: options.nodeRef }),
     };
     const child = spawn("bun", [join(repoRoot, "scripts/browser-cli.ts"), ...args], {
       cwd: repoRoot,
@@ -171,6 +177,25 @@ describe("packaged browser CLI contract", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]?.url).toBe("/profiles");
     expect(seen[0]?.headers[CONTROL_CAPABILITY_HEADER]).toBe(capability);
+    expect(seen[0]?.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");
+  });
+
+  it("admits protected commands via VELLUM_NODE_REF without a capability secret", async () => {
+    const root = await newRoot();
+    const seen: SeenRequest[] = [];
+    await startRogueControl(root, seen);
+    const nodeRef = "vellum://canvas/work?node=agent-1";
+
+    const result = await runCli(["pages", "--json"], {
+      home: root,
+      nodeRef,
+    });
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.url).toBe("/pages");
+    expect(seen[0]?.headers[CONTROL_CAPABILITY_HEADER]).toBeUndefined();
+    expect(seen[0]?.headers[CONTROL_NODE_REF_HEADER]).toBe(nodeRef);
     expect(seen[0]?.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");
   });
 
