@@ -1,112 +1,291 @@
-// Pure slot logic for the stage-level work-surface dock. No observables, no
-// IPC, no DOM — dock-state.ts applies these transitions and performs the
-// side effects (browserClose detach, herdr stream release) for evictions.
+// Pure workbench slot logic. No observables, no IPC, no DOM — dock-state.ts
+// applies these transitions and performs side effects (browser detach, herdr
+// stream release) for closed/evicted interactive surfaces.
+//
+// Product model:
+// - Two zones: focus (centered modal, default for new opens) and pinned
+//   (stage-right dock, explicit pin only).
+// - Per-zone layout: solo | split-v | split-h (1 or 2 visible panes).
+// - Surplus surfaces become tabs via an MRU stack (front = active).
+// - No hard maxVisible UI eviction — tabs replace detach-on-overflow.
+// - Multiple herdr surfaces allowed (focus-on-click routes keyboard).
+//   Per-terminal control exclusivity is host-side; not a global UI lock.
 
-/**
- * "browser" slots host a native WebContentsView placeholder; "herdr" and
- * "chat" are interactive-stream surfaces. The dock never holds more than ONE
- * interactive surface at a time — that is the same single-control-stream
- * invariant herdr$ enforces via openHerdrTerminal/closeHerdrTerminal
- * (herdr-state.ts), restated at the slot level so a dock can never show two
- * terminals (or a terminal and a chat) competing for input.
- */
 export type SurfaceKind = "browser" | "herdr" | "chat";
+export type WorkZone = "focus" | "pinned";
+export type LayoutMode = "solo" | "split-v" | "split-h";
 
-export interface DockSurface {
+export interface WorkSurface {
   readonly id: string;
   readonly kind: SurfaceKind;
+  readonly zone: WorkZone;
 }
 
-export interface DockState {
-  /** From BrowserProfileService config (maxVisibleSurfaces); default 2. */
-  readonly maxVisible: number;
-  /** Open slots, oldest first — index 0 is the first eviction candidate. */
-  readonly surfaces: ReadonlyArray<DockSurface>;
+/** @deprecated Prefer WorkSurface — kept as alias for gradual call-site migration. */
+export type DockSurface = WorkSurface;
+
+export interface WorkbenchState {
+  readonly surfaces: ReadonlyArray<WorkSurface>;
+  /** MRU per zone; index 0 is frontmost. */
+  readonly focusMru: ReadonlyArray<string>;
+  readonly pinnedMru: ReadonlyArray<string>;
+  readonly focusLayout: LayoutMode;
+  readonly pinnedLayout: LayoutMode;
+  readonly focusSize: { readonly width: number; readonly height: number } | null;
+  /** Fraction of stage width for the pinned dock (0.25–0.70). */
+  readonly pinnedWidthFrac: number;
 }
 
-export interface DockTransition {
-  readonly state: DockState;
-  /** Slots the caller must now detach (side effects live in dock-state.ts). */
-  readonly evicted: ReadonlyArray<DockSurface>;
+/** @deprecated Prefer WorkbenchState. */
+export type DockState = WorkbenchState;
+
+export interface WorkbenchTransition {
+  readonly state: WorkbenchState;
+  /** Surfaces the caller must fully close (stream release / browser detach). */
+  readonly evicted: ReadonlyArray<WorkSurface>;
+}
+
+/** @deprecated Prefer WorkbenchTransition. */
+export type DockTransition = WorkbenchTransition;
+
+export interface VisiblePanes {
+  readonly pane0: string | undefined;
+  readonly pane1: string | undefined;
+  readonly tabs: ReadonlyArray<string>;
 }
 
 export const isInteractiveSurface = (kind: SurfaceKind): boolean => kind !== "browser";
 
-export const initialDockState = (maxVisible = 2): DockState => ({
-  maxVisible: clampMaxVisible(maxVisible),
+export const panesForLayout = (layout: LayoutMode): 1 | 2 => (layout === "solo" ? 1 : 2);
+
+const DEFAULT_PINNED_WIDTH_FRAC = 0.45;
+const MIN_PINNED_WIDTH_FRAC = 0.25;
+const MAX_PINNED_WIDTH_FRAC = 0.7;
+
+export const clampPinnedWidthFrac = (n: number): number => {
+  if (!Number.isFinite(n)) return DEFAULT_PINNED_WIDTH_FRAC;
+  return Math.min(MAX_PINNED_WIDTH_FRAC, Math.max(MIN_PINNED_WIDTH_FRAC, n));
+};
+
+export const initialWorkbenchState = (): WorkbenchState => ({
   surfaces: [],
+  focusMru: [],
+  pinnedMru: [],
+  focusLayout: "solo",
+  pinnedLayout: "solo",
+  focusSize: null,
+  pinnedWidthFrac: DEFAULT_PINNED_WIDTH_FRAC,
 });
 
-/** maxVisible below 1 would make the dock unable to hold anything — clamp. */
-const clampMaxVisible = (n: number): number =>
-  Number.isFinite(n) && n >= 1 ? Math.floor(n) : 2;
+/** @deprecated Prefer initialWorkbenchState. */
+export const initialDockState = (_maxVisible?: number): WorkbenchState => initialWorkbenchState();
 
-export const setMaxVisible = (state: DockState, maxVisible: number): DockTransition => {
-  const next = clampMaxVisible(maxVisible);
-  if (next === state.maxVisible && state.surfaces.length <= next) {
-    return { state, evicted: [] };
+const mruKey = (zone: WorkZone): "focusMru" | "pinnedMru" =>
+  zone === "focus" ? "focusMru" : "pinnedMru";
+
+const layoutKey = (zone: WorkZone): "focusLayout" | "pinnedLayout" =>
+  zone === "focus" ? "focusLayout" : "pinnedLayout";
+
+const withoutId = (ids: ReadonlyArray<string>, id: string): ReadonlyArray<string> =>
+  ids.filter((x) => x !== id);
+
+/** Prepend id to MRU (front = most recent). */
+const prependMru = (ids: ReadonlyArray<string>, id: string): ReadonlyArray<string> => [
+  id,
+  ...withoutId(ids, id),
+];
+
+const zoneSurfaces = (state: WorkbenchState, zone: WorkZone): ReadonlyArray<WorkSurface> =>
+  state.surfaces.filter((s) => s.zone === zone);
+
+export const surfaceById = (
+  state: WorkbenchState,
+  id: string,
+): WorkSurface | undefined => state.surfaces.find((s) => s.id === id);
+
+export const visiblePanes = (state: WorkbenchState, zone: WorkZone): VisiblePanes => {
+  const mru = state[mruKey(zone)];
+  const layout = state[layoutKey(zone)];
+  const paneCount = panesForLayout(layout);
+  if (mru.length === 0) return { pane0: undefined, pane1: undefined, tabs: [] };
+  if (paneCount === 1) {
+    return { pane0: mru[0], pane1: undefined, tabs: mru.slice(1) };
   }
-  // Shrinking below the open count evicts oldest-first, same as openSurface.
-  const evicted = state.surfaces.slice(0, Math.max(0, state.surfaces.length - next));
   return {
-    state: { maxVisible: next, surfaces: state.surfaces.slice(evicted.length) },
-    evicted,
+    pane0: mru[0],
+    pane1: mru[1],
+    tabs: mru.slice(2),
   };
 };
 
 /**
- * Request a slot. Re-requesting an already-open surface is a no-op (its slot
- * position is kept — reopening a page never reshuffles the dock). Otherwise:
- * 1. an existing interactive surface is evicted when the newcomer is also
- *    interactive (one interactive stream total), then
- * 2. oldest surfaces are evicted until the newcomer fits under maxVisible.
+ * Open (or re-focus) a surface into a zone. Default zone is focus.
+ * Re-requesting an already-open surface moves it to the front of its current
+ * zone MRU (zone argument ignored when already open, unless kinds clash).
+ * Multiple herdr/browser surfaces coexist — no global interactive eviction.
  */
-export const openSurface = (state: DockState, surface: DockSurface): DockTransition => {
-  const existing = state.surfaces.find((s) => s.id === surface.id);
-  if (existing && existing.kind === surface.kind) return { state, evicted: [] };
+export const openSurface = (
+  state: WorkbenchState,
+  surface: { readonly id: string; readonly kind: SurfaceKind },
+  zone: WorkZone = "focus",
+): WorkbenchTransition => {
+  const existing = surfaceById(state, surface.id);
+  if (existing && existing.kind === surface.kind) {
+    // Re-focus: bring to front of its current zone.
+    const z = existing.zone;
+    return {
+      state: {
+        ...state,
+        [mruKey(z)]: prependMru(state[mruKey(z)], existing.id),
+      },
+      evicted: [],
+    };
+  }
 
-  const evicted: DockSurface[] = [];
+  const evicted: WorkSurface[] = [];
   let surfaces = state.surfaces;
+  let focusMru = state.focusMru;
+  let pinnedMru = state.pinnedMru;
 
-  // Same id, different kind: the node changed roles — the stale slot goes.
+  // Same id, different kind: replace stale slot.
   if (existing) {
     evicted.push(existing);
     surfaces = surfaces.filter((s) => s.id !== surface.id);
+    focusMru = withoutId(focusMru, surface.id);
+    pinnedMru = withoutId(pinnedMru, surface.id);
   }
 
-  if (isInteractiveSurface(surface.kind)) {
-    for (const s of surfaces) {
-      if (isInteractiveSurface(s.kind)) evicted.push(s);
-    }
-    surfaces = surfaces.filter((s) => !isInteractiveSurface(s.kind));
-  }
-
-  while (surfaces.length >= state.maxVisible) {
-    evicted.push(surfaces[0]!);
-    surfaces = surfaces.slice(1);
+  const next: WorkSurface = { id: surface.id, kind: surface.kind, zone };
+  surfaces = [...surfaces, next];
+  if (zone === "focus") {
+    focusMru = prependMru(focusMru, next.id);
+  } else {
+    pinnedMru = prependMru(pinnedMru, next.id);
   }
 
   return {
-    state: { maxVisible: state.maxVisible, surfaces: [...surfaces, surface] },
+    state: { ...state, surfaces, focusMru, pinnedMru },
     evicted,
   };
 };
 
-/** Close a slot. Closing an unknown id is a no-op (idempotent, never throws). */
-export const closeSurface = (state: DockState, id: string): DockTransition => {
-  const target = state.surfaces.find((s) => s.id === id);
+export const closeSurface = (state: WorkbenchState, id: string): WorkbenchTransition => {
+  const target = surfaceById(state, id);
   if (!target) return { state, evicted: [] };
   return {
     state: {
-      maxVisible: state.maxVisible,
+      ...state,
       surfaces: state.surfaces.filter((s) => s.id !== id),
+      focusMru: withoutId(state.focusMru, id),
+      pinnedMru: withoutId(state.pinnedMru, id),
     },
     evicted: [target],
   };
 };
 
-export const dockInteractiveSurface = (state: DockState): DockSurface | undefined =>
-  state.surfaces.find((s) => isInteractiveSurface(s.kind));
+/** Bring a surface to the front of its zone MRU. No-op if unknown. */
+export const focusSurface = (state: WorkbenchState, id: string): WorkbenchTransition => {
+  const target = surfaceById(state, id);
+  if (!target) return { state, evicted: [] };
+  const key = mruKey(target.zone);
+  return {
+    state: { ...state, [key]: prependMru(state[key], id) },
+    evicted: [],
+  };
+};
 
-export const dockBrowserSurfaces = (state: DockState): ReadonlyArray<DockSurface> =>
-  state.surfaces.filter((s) => s.kind === "browser");
+export const pinSurface = (state: WorkbenchState, id: string): WorkbenchTransition => {
+  const target = surfaceById(state, id);
+  if (!target || target.zone === "pinned") return { state, evicted: [] };
+  return {
+    state: {
+      ...state,
+      surfaces: state.surfaces.map((s) =>
+        s.id === id ? { ...s, zone: "pinned" as const } : s,
+      ),
+      focusMru: withoutId(state.focusMru, id),
+      pinnedMru: prependMru(state.pinnedMru, id),
+    },
+    evicted: [],
+  };
+};
+
+export const unpinSurface = (state: WorkbenchState, id: string): WorkbenchTransition => {
+  const target = surfaceById(state, id);
+  if (!target || target.zone === "focus") return { state, evicted: [] };
+  return {
+    state: {
+      ...state,
+      surfaces: state.surfaces.map((s) =>
+        s.id === id ? { ...s, zone: "focus" as const } : s,
+      ),
+      pinnedMru: withoutId(state.pinnedMru, id),
+      focusMru: prependMru(state.focusMru, id),
+    },
+    evicted: [],
+  };
+};
+
+export const setLayout = (
+  state: WorkbenchState,
+  zone: WorkZone,
+  layout: LayoutMode,
+): WorkbenchTransition => {
+  const key = layoutKey(zone);
+  if (state[key] === layout) return { state, evicted: [] };
+  return { state: { ...state, [key]: layout }, evicted: [] };
+};
+
+export const setPinnedWidthFrac = (
+  state: WorkbenchState,
+  frac: number,
+): WorkbenchTransition => {
+  const next = clampPinnedWidthFrac(frac);
+  if (next === state.pinnedWidthFrac) return { state, evicted: [] };
+  return { state: { ...state, pinnedWidthFrac: next }, evicted: [] };
+};
+
+export const setFocusSize = (
+  state: WorkbenchState,
+  size: { readonly width: number; readonly height: number } | null,
+): WorkbenchTransition => {
+  if (
+    size === null && state.focusSize === null
+  ) {
+    return { state, evicted: [] };
+  }
+  if (
+    size &&
+    state.focusSize &&
+    size.width === state.focusSize.width &&
+    size.height === state.focusSize.height
+  ) {
+    return { state, evicted: [] };
+  }
+  return { state: { ...state, focusSize: size }, evicted: [] };
+};
+
+export const workbenchInteractiveSurface = (
+  state: WorkbenchState,
+): WorkSurface | undefined => state.surfaces.find((s) => isInteractiveSurface(s.kind));
+
+export const workbenchBrowserSurfaces = (
+  state: WorkbenchState,
+): ReadonlyArray<WorkSurface> => state.surfaces.filter((s) => s.kind === "browser");
+
+export const zoneHasSurfaces = (state: WorkbenchState, zone: WorkZone): boolean =>
+  zoneSurfaces(state, zone).length > 0;
+
+/** @deprecated Prefer workbenchInteractiveSurface. */
+export const dockInteractiveSurface = workbenchInteractiveSurface;
+/** @deprecated Prefer workbenchBrowserSurfaces. */
+export const dockBrowserSurfaces = workbenchBrowserSurfaces;
+
+/**
+ * @deprecated maxVisible no longer gates UI admission (tabs replace eviction).
+ * Kept as a no-op-compatible stub so older call sites compile during migration.
+ */
+export const setMaxVisible = (state: WorkbenchState, _maxVisible: number): WorkbenchTransition => ({
+  state,
+  evicted: [],
+});

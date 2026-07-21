@@ -220,25 +220,39 @@ body {
   overflow: hidden;
 }
 
-/* Work-surface dock — flex sibling of the canvas column inside .vellum-stage;
-   opening it splits the stage width instead of overlaying the canvas. Browser
-   slot bodies track a rect only — a partitioned WebContentsView (main
-   process) paints over them once attached, never parented under a node. */
+/* Work-surface dock — pinned zone only (flex sibling of canvas column).
+   Width from --workbench-pinned-width / flex basis (set by WorkSurfaceDock).
+   Focus-zone surfaces live in WorkFocusShell (centered FocusSurface). */
 .work-surface-dock {
+  position: relative;
   display: flex;
-  flex: 0 0 min(55%, 1100px);
+  flex-direction: column;
+  flex: 0 0 var(--workbench-pinned-width, 45%);
   min-width: 0;
-  gap: 8px;
-  padding: 8px;
+  min-height: 0;
   box-sizing: border-box;
   border-left: 1px solid rgba(237, 230, 218, 0.12);
   background: #0c0b0a;
+}
+.work-surface-dock--pinned {
+  /* explicit pin dock */
+}
+.work-surface-dock__inner {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 8px 8px 12px;
+  gap: 6px;
+  overflow: hidden;
 }
 .dock-slot {
   position: relative;
   display: flex;
   flex: 1 1 0;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
   border-radius: 10px;
@@ -252,6 +266,196 @@ body {
   border: 0;
   border-radius: 0;
   box-shadow: none;
+}
+
+/* =============================================================================
+   Workbench — shared chrome, panes, resize handles, focus shell
+   ============================================================================= */
+.work-focus-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.focus-surface__panel.work-focus-shell__panel {
+  /* allow user resize of the centered focus shell */
+  resize: both;
+  overflow: hidden;
+  min-width: min(420px, 92vw);
+  min-height: min(280px, 70vh);
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 56px);
+}
+.workbench-chrome {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  padding: 2px 2px 4px;
+  border-bottom: 1px solid rgba(237, 230, 218, 0.08);
+}
+.workbench-chrome__tabs {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.workbench-chrome__empty {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6a645c;
+  padding: 0 6px;
+}
+.workbench-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #8a8378;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.workbench-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #ede6da;
+}
+.workbench-tab--visible {
+  border-color: rgba(237, 230, 218, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+.workbench-tab--active {
+  border-color: rgba(232, 163, 61, 0.35);
+  background: rgba(232, 163, 61, 0.1);
+  color: #f0d9a8;
+}
+.workbench-tab__kind {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.workbench-tab__label {
+  min-width: 0;
+}
+.workbench-chrome__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+.workbench-chrome__btn {
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #ede6da;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.workbench-chrome__btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.workbench-layout-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+}
+.workbench-layout-toggle__opt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #6a645c;
+  line-height: 1;
+}
+.workbench-layout-toggle__opt--on {
+  background: rgba(232, 163, 61, 0.18);
+  color: #f0d9a8;
+}
+.workbench-panes {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+  overflow: hidden;
+}
+.workbench-panes--solo {
+  flex-direction: row;
+}
+.workbench-panes--split-v {
+  flex-direction: row;
+}
+.workbench-panes--split-h {
+  flex-direction: column;
+}
+.workbench-pane {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.workbench-pane > .dock-slot,
+.workbench-pane > .workbench-surface {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+}
+.workbench-surface__herdr-actions {
+  position: absolute;
+  top: 10px;
+  right: 88px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  pointer-events: auto;
+}
+.workbench-surface__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6a645c;
+  font-size: 12px;
+}
+.workbench-resize-handle {
+  position: absolute;
+  z-index: 5;
+  touch-action: none;
+}
+.workbench-resize-handle--left {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+}
+.workbench-resize-handle--left:hover,
+.workbench-resize-handle--left:active {
+  background: rgba(232, 163, 61, 0.25);
 }
 .browser-modal-header {
   display: flex;

@@ -31,6 +31,7 @@ import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
+import { WorkFocusShell } from "./components/workbench";
 import { TooltipLayer } from "./components/TooltipLayer";
 import { DemoCameraBridge } from "./demo/camera-bridge";
 import { DemoLayer } from "./demo/demo-layer";
@@ -420,7 +421,9 @@ export function App() {
         <SettingsPanel />
         {/* PulseTray mounts inside RtsBottomBar (right third, above minimap). */}
         <HerdrWizard />
+        {/* HerdrTerminalModal is fallback only — WorkFocusShell owns herdr when registered. */}
         <HerdrTerminalModal />
+        <WorkFocusShell />
         <HerdrToast />
         <DemoLayer />
         </div>
