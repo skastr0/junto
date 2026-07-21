@@ -32,7 +32,7 @@ import {
   type RegionRetapMemory,
 } from "../../lib/region-retap";
 import { signalMark, signalMarkForMember } from "../../lib/signal-mark";
-import { deleteNode, deleteNodes, setNodeColor, toggleFlag, addNode } from "../../lib/mutations";
+import { deleteNode, deleteNodes, setNodeColor, toggleFlag, setFlagForNodes, addNode } from "../../lib/mutations";
 import { makeGroupNode } from "../../lib/node-factories";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import {
@@ -159,21 +159,21 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
           <div className="rts-cmd-keys" role="toolbar" aria-label="Multi-select actions">
             <CmdKey
               label="Flag blocker"
-              onClick={() => selectedNodeIds.forEach((id) => toggleFlag(id, "blocker"))}
+              onClick={() => setFlagForNodes(selectedNodeIds, "blocker")}
               style={{ color: HUE.crimson }}
             >
               <Ban size={ICON} />
             </CmdKey>
             <CmdKey
               label="Flag attention"
-              onClick={() => selectedNodeIds.forEach((id) => toggleFlag(id, "attention"))}
+              onClick={() => setFlagForNodes(selectedNodeIds, "attention")}
               style={{ color: HUE.amber }}
             >
               <AlertTriangle size={ICON} />
             </CmdKey>
             <CmdKey
               label="Flag parked"
-              onClick={() => selectedNodeIds.forEach((id) => toggleFlag(id, "parked"))}
+              onClick={() => setFlagForNodes(selectedNodeIds, "parked")}
               style={{ color: HUE.violet }}
             >
               <PauseCircle size={ICON} />
