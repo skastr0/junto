@@ -237,30 +237,6 @@ const vellumApi: VellumApi = {
   refreshSnapshots: (hints) => invoke(IPC_CHANNELS.refreshSnapshots, IPC_TIMEOUT_MS, hints),
   getUsage: () => invoke(IPC_CHANNELS.getUsage, IPC_TIMEOUT_MS),
   refreshUsage: () => invoke(IPC_CHANNELS.refreshUsage, USAGE_REFRESH_TIMEOUT_MS),
-  towerBrowse: (projectKey) => invoke(IPC_CHANNELS.towerBrowse, IPC_TIMEOUT_MS, projectKey),
-  towerSearch: (query, projectKey) =>
-    invoke(IPC_CHANNELS.towerSearch, IPC_TIMEOUT_MS, query, projectKey),
-  towerGlyphRead: (projectKey, orbit, glyphId) =>
-    invoke(IPC_CHANNELS.towerGlyphRead, IPC_TIMEOUT_MS, projectKey, orbit, glyphId),
-  towerSignalRead: (projectKey, orbit, signalId) =>
-    invoke(IPC_CHANNELS.towerSignalRead, IPC_TIMEOUT_MS, projectKey, orbit, signalId),
-  towerDispatches: (projectKey) => invoke(IPC_CHANNELS.towerDispatches, IPC_TIMEOUT_MS, projectKey),
-  towerCommentGlyph: (projectKey, orbit, glyphId, body) =>
-    invoke(IPC_CHANNELS.towerCommentGlyph, IPC_TIMEOUT_MS, projectKey, orbit, glyphId, body),
-  towerCommentSignal: (projectKey, orbit, signalId, body) =>
-    invoke(IPC_CHANNELS.towerCommentSignal, IPC_TIMEOUT_MS, projectKey, orbit, signalId, body),
-  towerEmitSignal: (input) => invoke(IPC_CHANNELS.towerEmitSignal, IPC_TIMEOUT_MS, input),
-  boothDrafts: (projectKey) => invoke(IPC_CHANNELS.boothDrafts, IPC_TIMEOUT_MS, projectKey),
-  boothDraftRead: (draftId) => invoke(IPC_CHANNELS.boothDraftRead, IPC_TIMEOUT_MS, draftId),
-  boothRequests: (projectKey) => invoke(IPC_CHANNELS.boothRequests, IPC_TIMEOUT_MS, projectKey),
-  boothReview: (projectKey, draftId, action, body) =>
-    invoke(IPC_CHANNELS.boothReview, IPC_TIMEOUT_MS, projectKey, draftId, action, body),
-  quasarSessions: (quasarKey, limit) =>
-    invoke(IPC_CHANNELS.quasarSessions, IPC_TIMEOUT_MS, quasarKey, limit),
-  quasarSearch: (query, quasarKey) =>
-    invoke(IPC_CHANNELS.quasarSearch, IPC_TIMEOUT_MS, query, quasarKey),
-  quasarSessionDetail: (sessionId) =>
-    invoke(IPC_CHANNELS.quasarSessionDetail, IPC_TIMEOUT_MS, sessionId),
   agentIdentity: (key) => invoke(IPC_CHANNELS.agentIdentity, IPC_TIMEOUT_MS, key),
   agentAvatar: (key) => invoke(IPC_CHANNELS.agentAvatar, IPC_TIMEOUT_MS, key),
   agentMessage: (key, text) => invoke(IPC_CHANNELS.agentMessage, AGENT_MESSAGE_TIMEOUT_MS, key, text),

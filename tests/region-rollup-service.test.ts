@@ -2,7 +2,6 @@ import { EventEmitter } from "node:events";
 import { Effect, Either, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import type { TowerBrowseResult } from "../src/shared/ipc";
 import { CanvasesService, CanvasError } from "../src/main/vellum/canvases";
 import type { AcpChildLike, JsonRpcId, SpawnFn } from "../src/main/vellum/chat/acp-client";
 import { ChatService } from "../src/main/vellum/chat/service";
@@ -14,7 +13,6 @@ import type { HerdrStreamManager } from "../src/main/vellum/herdr/stream";
 import {
   makeRegionRollupLive,
   RegionRollupService,
-  type GlyphBrowseFetcher,
 } from "../src/main/vellum/region-rollup";
 import { SnapshotsService } from "../src/main/vellum/snapshots";
 
@@ -165,11 +163,10 @@ const fakeHerdr = Layer.succeed(
 const makeRuntime = (
   chatService: ChatService,
   docs: ReadonlyMap<string, CanvasDoc>,
-  fetchBrowse: GlyphBrowseFetcher,
 ) =>
   ManagedRuntime.make(
     Layer.provide(
-      makeRegionRollupLive(chatService, fetchBrowse),
+      makeRegionRollupLive(chatService),
       Layer.mergeAll(fakeCanvases(docs), fakeSnapshots, fakeHerdr),
     ),
   );
@@ -177,27 +174,19 @@ const makeRuntime = (
 const rollups = (runtime: ReturnType<typeof makeRuntime>, canvasName: string) =>
   runtime.runPromise(Effect.flatMap(RegionRollupService, (service) => service.rollups(canvasName)));
 
-const emptyBrowse: GlyphBrowseFetcher = async () => ({
-  ok: true,
-  glyphs: [],
-  signals: [],
-});
-
 describe("RegionRollupService — activity wiring", () => {
   it("isLive maps to session:live/working, keyed by ether.entity.name, agents only", async () => {
     const { spawnFn, children } = fakeSpawn();
     const chat = new ChatService(spawnFn);
     await openHappyPath(chat, children, "local:default");
 
-    const fetchBrowse = vi.fn<GlyphBrowseFetcher>(emptyBrowse);
-    const runtime = makeRuntime(chat, new Map([["ops", docActivity]]), fetchBrowse);
+    const runtime = makeRuntime(chat, new Map([["ops", docActivity]]));
     try {
       const [rollup] = await rollups(runtime, "ops");
       const byId = new Map(rollup?.members.map((member) => [member.nodeId, member]));
       expect(byId.get("a1")).toMatchObject({ severity: "working", reasons: ["session:live"] });
       expect(byId.get("a2")).toMatchObject({ severity: "idle", reasons: [] });
       expect(byId.get("p1")).toMatchObject({ severity: "idle", reasons: [] });
-      expect(fetchBrowse).toHaveBeenCalledExactlyOnceWith("local:default");
     } finally {
       await runtime.dispose();
     }
@@ -219,7 +208,7 @@ describe("RegionRollupService — activity wiring", () => {
     );
     expect(chat.hasPendingPermission("local:default")).toBe(true);
 
-    const runtime = makeRuntime(chat, new Map([["ops", docActivity]]), emptyBrowse);
+    const runtime = makeRuntime(chat, new Map([["ops", docActivity]]));
     try {
       const [rollup] = await rollups(runtime, "ops");
       const agent = rollup?.members.find((member) => member.nodeId === "a1");
@@ -234,7 +223,7 @@ describe("RegionRollupService — activity wiring", () => {
 describe("RegionRollupService — error channel", () => {
   it("an unknown canvas name fails with CanvasError, not a fabricated rollup", async () => {
     const chat = new ChatService(noSpawn);
-    const runtime = makeRuntime(chat, new Map([["ops", docActivity]]), emptyBrowse);
+    const runtime = makeRuntime(chat, new Map([["ops", docActivity]]));
     try {
       const result = await runtime.runPromise(
         Effect.either(Effect.flatMap(RegionRollupService, (service) => service.rollups("missing"))),
@@ -250,49 +239,3 @@ describe("RegionRollupService — error channel", () => {
   });
 });
 
-describe("RegionRollupService — glyph cache", () => {
-  it("two rollups calls within TTL browse every canvas project exactly once", async () => {
-    const chat = new ChatService(noSpawn);
-    const browseOk: TowerBrowseResult = {
-      ok: true,
-      glyphs: [{ glyphId: "g-1", orbit: "forge", title: "work", state: "building", updatedAt: 1 }],
-      signals: [],
-    };
-    const fetchBrowse = vi.fn<GlyphBrowseFetcher>(async () => browseOk);
-
-    const runtime = makeRuntime(chat, new Map([["ops", docCache]]), fetchBrowse);
-    try {
-      const [first] = await rollups(runtime, "ops");
-      const [second] = await rollups(runtime, "ops");
-
-      expect(fetchBrowse.mock.calls).toEqual([["prism"], ["vellum"]]);
-
-      // Rows flowed through the cache into the derivation on BOTH calls:
-      // p1 works (glyph:wip:building) and p2 is blocked by the wip edge.
-      for (const rollup of [first, second]) {
-        const byId = new Map(rollup?.members.map((member) => [member.nodeId, member]));
-        expect(byId.get("p1")).toMatchObject({ severity: "working", reasons: ["glyph:wip:building"] });
-        expect(byId.get("p2")?.severity).toBe("blocked");
-      }
-    } finally {
-      await runtime.dispose();
-    }
-  });
-
-  it("a failed browse stays absent from the view instead of failing the call", async () => {
-    const chat = new ChatService(noSpawn);
-    const fetchBrowse = vi.fn<GlyphBrowseFetcher>(async () => {
-      throw new Error("gateway down");
-    });
-
-    const runtime = makeRuntime(chat, new Map([["ops", docCache]]), fetchBrowse);
-    try {
-      const [rollup] = await rollups(runtime, "ops");
-      // Unknown glyph data invents nothing: the wip edge stays relates.
-      expect(rollup?.members.every((member) => member.severity === "idle")).toBe(true);
-      expect(fetchBrowse.mock.calls).toEqual([["prism"], ["vellum"]]);
-    } finally {
-      await runtime.dispose();
-    }
-  });
-});

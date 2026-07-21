@@ -55,21 +55,6 @@ export const IPC_CHANNELS = {
   refreshSnapshots: "vellum:refresh-snapshots",
   getUsage: "vellum:get-usage",
   refreshUsage: "vellum:refresh-usage",
-  towerBrowse: "vellum:tower-browse",
-  towerSearch: "vellum:tower-search",
-  towerGlyphRead: "vellum:tower-glyph-read",
-  towerSignalRead: "vellum:tower-signal-read",
-  towerDispatches: "vellum:tower-dispatches",
-  quasarSessions: "vellum:quasar-sessions",
-  quasarSearch: "vellum:quasar-search",
-  quasarSessionDetail: "vellum:quasar-session-detail",
-  towerCommentGlyph: "vellum:tower-comment-glyph",
-  towerCommentSignal: "vellum:tower-comment-signal",
-  towerEmitSignal: "vellum:tower-emit-signal",
-  boothDrafts: "vellum:booth-drafts",
-  boothDraftRead: "vellum:booth-draft-read",
-  boothRequests: "vellum:booth-requests",
-  boothReview: "vellum:booth-review",
   agentIdentity: "vellum:agent-identity",
   agentAvatar: "vellum:agent-avatar",
   agentMessage: "vellum:agent-message",
@@ -657,22 +642,6 @@ export interface VellumApi {
   readonly getUsage: () => Promise<UsageState>;
   readonly refreshUsage: () => Promise<UsageState>;
   // Source browsing (read-only; feeds inspector detail views, never nodes).
-  readonly towerBrowse: (projectKey: string) => Promise<TowerBrowseResult>;
-  readonly towerSearch: (query: string, projectKey?: string) => Promise<TowerSearchResult>;
-  readonly towerGlyphRead: (projectKey: string, orbit: string, glyphId: string) => Promise<TowerGlyphReadResult>;
-  readonly towerSignalRead: (projectKey: string, orbit: string, signalId: string) => Promise<TowerSignalReadResult>;
-  readonly towerDispatches: (projectKey: string) => Promise<TowerDispatchesResult>;
-  readonly quasarSessions: (quasarKey: string, limit?: number) => Promise<QuasarSessionsResult>;
-  readonly quasarSearch: (query: string, quasarKey?: string) => Promise<QuasarSearchResult>;
-  readonly quasarSessionDetail: (sessionId: string) => Promise<QuasarSessionDetailResult>;
-  // Deliberate writes.
-  readonly towerCommentGlyph: (projectKey: string, orbit: string, glyphId: string, body: string) => Promise<SourceWriteResult>;
-  readonly towerCommentSignal: (projectKey: string, orbit: string, signalId: string, body: string) => Promise<SourceWriteResult>;
-  readonly towerEmitSignal: (input: TowerEmitSignalInput) => Promise<TowerEmitSignalResult>;
-  readonly boothDrafts: (projectKey: string) => Promise<BoothDraftsResult>;
-  readonly boothDraftRead: (draftId: string) => Promise<BoothDraftReadResult>;
-  readonly boothRequests: (projectKey: string) => Promise<BoothRequestsResult>;
-  readonly boothReview: (projectKey: string, draftId: string, action: BoothReviewAction, body?: string) => Promise<SourceWriteResult>;
   // Hermes fleet: identity enrichment, lazy avatar (data: URI), and messaging.
   readonly agentIdentity: (key: string) => Promise<AgentIdentity | null>;
   readonly agentAvatar: (key: string) => Promise<string | null>;

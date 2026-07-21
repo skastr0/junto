@@ -1,26 +1,17 @@
 import { Context, Effect, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import type { SnapshotBundle, SnapshotState, SourceCapabilities } from "@shared/entities";
+import type { SnapshotBundle, SnapshotState } from "@shared/entities";
 import type { BindingHint } from "@shared/ipc";
-import { fetchBoothBundle } from "./adapters/booth";
-import { fetchQuasarBundle } from "./adapters/quasar";
-import { fetchTowerBundle } from "./adapters/tower";
 import { HermesPlane } from "./hermes/plane";
-import { detectSourceCapabilities } from "./source-capabilities";
 
-// The read-only data plane. Adapters talk to each source (tower/quasar/booth
-// through their SDK HTTP clients, hermes via CLI) and normalize into
-// SnapshotBundles. refresh never fails: a broken adapter yields a bundle
-// with ok:false and an error string, nothing more. A source whose config is
-// absent (source-capabilities.ts) is never fetched at all; the detected
-// capabilities ride SnapshotState so the renderer can fall back to nothing.
+// Read-only data plane: hermes only. refresh never fails — a broken adapter
+// yields ok:false. Private source adapters are gone, not stubbed.
 export class SnapshotsService extends Context.Tag("@vellum/SnapshotsService")<
   SnapshotsService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly current: Effect.Effect<SnapshotState>;
     readonly refresh: (hints?: ReadonlyArray<BindingHint>) => Effect.Effect<SnapshotState>;
-    // Begin the background poll loop (cheap lists only). Idempotent.
     readonly start: () => void;
     readonly subscribe: (listener: (state: SnapshotState) => void) => () => void;
   }
@@ -30,15 +21,6 @@ const emptyState: SnapshotState = { bundles: [] };
 
 const POLL_INTERVAL_MS = 60_000;
 
-const hintsFor = (
-  hints: ReadonlyArray<BindingHint> | undefined,
-  source: BindingHint["source"],
-): ReadonlyArray<string> => (hints ?? []).filter((hint) => hint.source === source).map((hint) => hint.key);
-
-// A fully isolated adapter call: fetchX already folds its own CLI/parse
-// failures into an ok:false bundle, so this catch only guards against a
-// truly unexpected throw (e.g. a bug in the adapter) so refresh() itself
-// can never reject.
 const guarded = async (
   source: SnapshotBundle["source"],
   run: () => Promise<SnapshotBundle>,
@@ -56,24 +38,9 @@ const guarded = async (
   }
 };
 
-// An unconfigured source reports one stable ok:false bundle; paired with the
-// capability bit it renders as nothing, not as an error badge.
-const notConfigured = (source: SnapshotBundle["source"]): SnapshotBundle => ({
-  source,
-  fetchedAt: new Date().toISOString(),
-  ok: false,
-  error: "not configured",
-  entities: [],
-});
-
-// A canonical, order-independent key for a hint set: used to decide whether
-// an in-flight refresh already covers what a new call is asking for.
 const hintsKeySet = (hints: ReadonlyArray<BindingHint> | undefined): ReadonlySet<string> =>
   new Set((hints ?? []).map((hint) => `${hint.source}:${hint.key}`));
 
-// True when everything `requested` needs is already covered by `covering`
-// (requested is a subset-or-equal of covering) — i.e. `covering` has
-// equal-or-newer/broader hints than what's being asked for.
 const isSubsumedBy = (
   requested: ReadonlyArray<BindingHint> | undefined,
   covering: ReadonlyArray<BindingHint> | undefined,
@@ -87,44 +54,27 @@ const isSubsumedBy = (
 
 export const makeSnapshotsLive = (
   fetchHermesBundle: () => Promise<SnapshotBundle>,
-  detect: () => SourceCapabilities = detectSourceCapabilities,
 ) => Layer.sync(SnapshotsService, () => {
   let state: SnapshotState = emptyState;
   let lastHints: ReadonlyArray<BindingHint> | undefined;
   let started = false;
   const listeners = new Set<(state: SnapshotState) => void>();
 
-  // Monotonic call-order stamp: whichever refresh() call started last is
-  // "newest". A completion only commits to `state` (and only notifies
-  // listeners) if its stamp is not older than the newest one already
-  // committed — so a slow, superseded call can never clobber a faster,
-  // newer one, regardless of Promise settle order.
   let sequenceCounter = 0;
   let lastCommittedSequence = 0;
 
-  // The currently-running refresh, if any, plus the hint set it was
-  // started with. A new call whose hints are already covered by this one
-  // joins it instead of kicking off a redundant CLI fan-out.
   let inFlight: { readonly hints: ReadonlyArray<BindingHint> | undefined; readonly promise: Promise<SnapshotState> } | null =
     null;
 
   const runRefresh = async (
-    hints: ReadonlyArray<BindingHint> | undefined,
+    _hints: ReadonlyArray<BindingHint> | undefined,
     sequence: number,
   ): Promise<SnapshotState> => {
-    const capabilities = detect();
-    const [tower, quasar, booth, hermes] = await Promise.all([
-      capabilities.tower ? guarded("tower", () => fetchTowerBundle()) : notConfigured("tower"),
-      capabilities.quasar ? guarded("quasar", () => fetchQuasarBundle(hintsFor(hints, "quasar"))) : notConfigured("quasar"),
-      // booth ignores hints by design: every project is enriched each poll,
-      // which is what lets the renderer resolve booth implicitly via tower.
-      capabilities.booth ? guarded("booth", () => fetchBoothBundle()) : notConfigured("booth"),
-      guarded("hermes", () => fetchHermesBundle()),
-    ]);
+    const hermes = await guarded("hermes", () => fetchHermesBundle());
 
     if (sequence >= lastCommittedSequence) {
       lastCommittedSequence = sequence;
-      state = { bundles: [tower, quasar, booth, hermes], capabilities };
+      state = { bundles: [hermes] };
       for (const listener of listeners) listener(state);
     }
 
@@ -153,7 +103,7 @@ export const makeSnapshotsLive = (
       id: "snapshots",
       label: "Adapter Snapshots",
       status: "ok",
-      detail: "tower/quasar/booth SDK adapters",
+      detail: "hermes adapter",
     }),
     current: Effect.sync(() => state),
     refresh: (hints) => Effect.promise(() => refresh(hints)),

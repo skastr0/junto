@@ -29,10 +29,6 @@ import { primeHostsSnapshot } from "./vellum/hosts/snapshot";
 // tracking).
 // UsageLive is already composed (UsageServiceLive + CodexBarSourcesLive) so
 // it can sit in BaseLayer as one self-contained member.
-// Tower/quasar SDK clients (TowerSdkLive/QuasarSdkLive) deliberately do NOT
-// live in this layer — see adapters/sdk-runtime.ts for why (a dedicated
-// small runtime avoids a circular-dependency cluster between this file and
-// the adapters that would otherwise need it).
 const HostsWithSshLive = Layer.provideMerge(
   HostsServiceLive,
   SshTransportLive,

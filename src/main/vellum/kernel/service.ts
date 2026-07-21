@@ -24,7 +24,6 @@ import type {
   TowerGlyphRow,
   WatcherRuntimeState,
 } from "@shared/ipc";
-import { fetchTowerBrowse } from "../adapters/tower-browse";
 import { CanvasesService } from "../canvases";
 import { ChatServiceContext, type ChatService } from "../chat/service";
 import { SnapshotsService } from "../snapshots";
@@ -90,7 +89,6 @@ const SAFETY_INTERVAL_MS = 30_000;
 // the next full cycle (worst case SAFETY_INTERVAL_MS later). Cheap: just an
 // array-length comparison, no evaluation work.
 const PULSE_LOG_POLL_MS = 3_000;
-const GLYPH_CACHE_TTL_MS = 15_000;
 const ARMED_STORE_KEY = "kernel.armed";
 const KNOWN_FLAGS: ReadonlySet<string> = new Set(["blocker", "parked", "attention"]);
 
@@ -211,7 +209,6 @@ const makeKernelService = (
   settings: SettingsShape,
 ): KernelServiceShape => {
   const docs = new Map<string, CanvasDoc>();
-  const glyphCache = new Map<string, { readonly at: number; readonly rows: ReadonlyArray<TowerGlyphRow> }>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
   const canvasMutatedListeners = new Set<(name: string) => void>();
 
@@ -279,20 +276,9 @@ const makeKernelService = (
     ).catch(() => undefined);
   };
 
-  // --- glyph fetcher: TTL-cached tower-browse ---------------------------------
-  const cachedGlyphFetcher = async (project: string): Promise<ReadonlyArray<TowerGlyphRow> | undefined> => {
-    const cached = glyphCache.get(project);
-    if (cached && Date.now() - cached.at < GLYPH_CACHE_TTL_MS) return cached.rows;
-    try {
-      const result = await fetchTowerBrowse(project);
-      const { rows, cacheWrite } = resolveGlyphCacheUpdate(result, cached);
-      if (cacheWrite !== undefined) glyphCache.set(project, { at: Date.now(), rows: cacheWrite });
-      return rows;
-    } catch {
-      return cached?.rows;
-    }
-  };
-  __setGlyphFetcherForTest(cachedGlyphFetcher);
+  // Glyph rows for watchers/criteria: tests inject via __setGlyphFetcherForTest.
+  // No production private-source fetch — leave unset (undefined → unavailable).
+  __setGlyphFetcherForTest(undefined);
 
   // --- delivery: the shared main-side ChatService -----------------------------
   __setDeliveryDepsForTest({
