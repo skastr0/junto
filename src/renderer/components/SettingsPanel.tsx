@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type {
   BrowserProfileInfo,
+  CanvasPullResult,
   HostsConfigureRemoteResult,
   HostsOpResult,
   HostsTestResult,
@@ -853,6 +854,26 @@ function StationSection() {
       : role === "remote"
         ? "Remote"
         : "Not set (complete onboarding)";
+  const [pullBusy, setPullBusy] = useState(false);
+  const [pullDetail, setPullDetail] = useState<string | null>(null);
+
+  const onPullCanvases = useCallback(async () => {
+    const api = getVellumApi();
+    if (!api?.pullCanvases) {
+      setPullDetail("Pull unavailable — preload bridge missing pullCanvases");
+      return;
+    }
+    setPullBusy(true);
+    setPullDetail(null);
+    try {
+      const result: CanvasPullResult = await api.pullCanvases();
+      setPullDetail(result.detail);
+    } catch (error) {
+      setPullDetail(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPullBusy(false);
+    }
+  }, []);
 
   return (
     <div className="settings-section">
@@ -888,6 +909,27 @@ function StationSection() {
             }
           />
         </FieldRow>
+      ) : null}
+      {role === "remote" ? (
+        <FieldRow
+          label="Canvas pull"
+          hint="Replace local canvases with full copies from the Command Center (read-only)"
+        >
+          <button
+            type="button"
+            className="settings-panel__ghost"
+            disabled={pullBusy || station.commandCenterRef.trim().length === 0}
+            aria-label="Pull canvases from Command Center"
+            onClick={() => void onPullCanvases()}
+          >
+            {pullBusy ? "Pulling…" : "Pull from Command Center"}
+          </button>
+        </FieldRow>
+      ) : null}
+      {role === "remote" && pullDetail ? (
+        <p className="settings-note" style={{ color: DIM }} role="status">
+          {pullDetail}
+        </p>
       ) : null}
       <FieldRow
         label="Prefer supervised runtime"

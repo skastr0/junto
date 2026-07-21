@@ -28,6 +28,7 @@ import { detectSourceCapabilities } from "./source-capabilities";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { CanvasesService } from "./canvases";
+import { pullCanvasesFromCommandCenter } from "./canvas-pull";
 import { registerChatIpc } from "./chat/ipc";
 import { ChatServiceContext } from "./chat/service";
 import { HermesPlane } from "./hermes/plane";
@@ -103,6 +104,11 @@ export const registerVellumIpc = (): void => {
         return yield* canvases.remove(name);
       }),
     ),
+  );
+
+  // Remote → Command Center canvas pull (read-only; never mutates CC).
+  ipcMain.handle(IPC_CHANNELS.pullCanvases, () =>
+    AppRuntime.runPromise(pullCanvasesFromCommandCenter),
   );
 
   ipcMain.handle(IPC_CHANNELS.exportDigest, (_event, name: string) =>
