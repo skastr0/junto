@@ -36,7 +36,7 @@ export interface WatcherEvalResult {
 }
 
 // projectKey -> that project's current glyph rows, as last landed via
-// the cached towerBrowse fetch. A project absent from the index
+// the glyph index. A project absent from the index
 // means "not in cache yet" (a fetch may already be in flight) — evaluation
 // degrades to "unknown" rather than blocking on it; the next pass picks up
 // whatever landed in the meantime (LAW: never blocks).

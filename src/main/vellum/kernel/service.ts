@@ -2,7 +2,7 @@
 // continuously over EVERY hydrated canvas, window-optional. This module owns
 // lifecycle (hydration, doc resync, the 30s safety interval), binds cycle.ts's
 // injectable seams to concrete main-side collaborators (ChatService,
-// CanvasesService, StoreService, the tower-browse adapter), and persists
+// CanvasesService, StoreService), and persists
 // arming through StoreService. See kernel-design.md for the full design.
 //
 // cycle.ts/evaluate.ts are the pure loop + evaluator (ported verbatim from
@@ -20,8 +20,6 @@ import type {
   BindingHint,
   KernelSnapshot,
   PulseRecord,
-  TowerBrowseResult,
-  TowerGlyphRow,
   WatcherRuntimeState,
 } from "@shared/ipc";
 import { CanvasesService } from "../canvases";
@@ -162,23 +160,6 @@ export const computeOrphanedArming = (
   return orphaned;
 };
 
-// Pure decision: given a fresh tower-browse result and the previous cache
-// entry (if any), what should the durable cache now hold, and what rows
-// should THIS call return. A partial read (some, not all, of the 5 fanned-
-// out orbit requests failed) must never be treated as authoritative for
-// edge decisions — a glyphs_done/glyphs_entered_state watcher fed a partial
-// read could see fewer done glyphs than reality and suppress or mis-time a
-// fire. So: prefer a prior COMPLETE cache entry over the fresh partial one;
-// with no prior cache, fall through to `undefined` (matches "glyph data
-// unavailable" -> unknown in evaluate.ts) rather than let the watcher
-// evaluate against data already known to be incomplete. Partial rows are
-// NEVER written to the durable cache either, so they can never clobber a
-// real complete snapshot or be mistaken for one on a later TTL-expired read.
-export const resolveGlyphCacheUpdate = (
-  fresh: TowerBrowseResult,
-  cached: { readonly rows: ReadonlyArray<TowerGlyphRow> } | undefined,
-): { readonly rows: ReadonlyArray<TowerGlyphRow> | undefined; readonly cacheWrite: ReadonlyArray<TowerGlyphRow> | undefined } => {
-  if (!fresh.ok) return { rows: cached?.rows, cacheWrite: undefined };
   if (fresh.partial) return { rows: cached?.rows, cacheWrite: undefined };
   return { rows: fresh.glyphs, cacheWrite: fresh.glyphs };
 };

@@ -272,24 +272,6 @@ export interface TowerGlyphRow {
   readonly updatedAt: number; // epoch ms
 }
 
-export interface TowerSignalRow {
-  readonly signalId: string;
-  readonly orbit: string;
-  readonly status: string; // inbox|claimed|consumed|dead
-  readonly kind: string;
-  readonly summary: string;
-  readonly priority?: string; // low|normal|high|urgent
-  readonly updatedAt: number; // epoch ms
-}
-
-export interface TowerBrowseResult {
-  readonly ok: boolean;
-  readonly error?: string;
-  readonly glyphs: ReadonlyArray<TowerGlyphRow>;
-  readonly signals: ReadonlyArray<TowerSignalRow>;
-  // partial: some orbits failed — must not be authoritative for edge decisions
-  readonly partial?: boolean;
-}
 
 // --- hermes agent identity + messaging -------------------------------------
 
