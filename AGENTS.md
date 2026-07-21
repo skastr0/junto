@@ -1,6 +1,6 @@
 # AGENTS.md — vellum
 
-vellum is a desktop station (Electron + Effect + React) that renders a **portfolio canvas**: your projects, orbits, plugins, agents, and notes as spatial nodes; dependencies/blockers/relationships as edges; named regions as geography. The canvas is a [JSON Canvas 1.0](https://jsoncanvas.org) document extended with a namespaced `ether` key that binds nodes to live sources (tower, quasar, booth, hermes).
+vellum is a desktop station (Electron + Effect + React) that renders a **portfolio canvas**: agents, work surfaces, notes, and regions as spatial nodes; dependencies/blockers/relationships as edges; named regions as geography. The canvas is a [JSON Canvas 1.0](https://jsoncanvas.org) document extended with a namespaced `ether` key.
 
 **The document is the product; the app is one projection of it. The file is the agent API.**
 
@@ -12,10 +12,9 @@ Canvases live at `~/.vellum/canvases/*.canvas`. The running app file-watches ext
 
 | command | who | what it does |
 |---|---|---|
-| `bun run digest [name]` | agents + operators | print (and write `<name>.digest.txt`) a deterministic text projection of the board + live source data. |
+| `bun run digest [name]` | agents + operators | print (and write `<name>.digest.txt`) a deterministic text projection of the board + live hermes snapshot data. |
 | `bun run render [name]` | agents + operators | write `<name>.svg` — a deep-field image of the board, for multimodal reading. |
 | `bun run canvas:ls [--json]` | agents + operators | list canvases with node/edge counts. |
-| `bun run populate [name] [--all]` | **operator only** | merge live corpus onto a canvas. Requires `VELLUM_AUTHORIAL_WRITE=1`. |
 | `bun run canvas:rm <name>…` | **operator only** | delete canvas document(s). Requires `VELLUM_AUTHORIAL_WRITE=1`. |
 
 To **read the board as an agent**: `bun run digest` (text) or `bun run render` then view the SVG (image). Do not mutate `.canvas` files from agents.
@@ -33,8 +32,8 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
 ```jsonc
 { "id": "n1", "type": "text", "x": 0, "y": 0, "width": 220, "height": 84, "text": "prism",
   "ether": {
-    "entity": { "kind": "project" },          // open vocab: project|orbit|plugin|agent|station|skill|...
-    "bindings": [                              // pointers into live sources; [] = a free node
+    "entity": { "kind": "project" },          // open vocab: project|agent|herdr|task|watcher|timer|page|...
+    "bindings": [                              // document vocabulary; may name tower/quasar/booth keys
       { "source": "tower",  "ref": { "type": "project", "key": "prism" } },
       { "source": "quasar", "ref": { "type": "project", "key": "git:github.com/skastr0/prism" } }
     ],
@@ -47,7 +46,7 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "criteria"?: EdgeCriteria } }`.
 
 **Edge product (criteria-only):**
 - No `criteria` → soft **relates** (never generates or relays blocks).
-- `criteria.mode: "glyphs"` → selected glyph ids on a tower project must be `done` (blocks while pending; depends when clear). Unknown/missing tower data does not invent blocks.
+- `criteria.mode: "glyphs"` → selected glyph ids must be `done` when glyph data is available (blocks while pending; depends when clear). Unknown/missing glyph data does not invent blocks.
 - `criteria.mode: "wip"` → opt-in: any glyph in `committed`|`building`|`reviewing` blocks (never default on projects).
 - `criteria.mode: "tasks"` → incomplete checklist items on the source tasks node block. Connecting from a tasks node attaches this automatically.
 - Live **phase** (`blocks`|`depends`|`relates`) is derived. Optional `ether.kind` is only a phase mirror for offline JSON Canvas readers — never authorial input.
@@ -57,6 +56,8 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "criteria"?: EdgeCriteria } }`.
 2. **Mirror law** — extension semantics mirror into native fields (blocker → red `color`; derived phase may project to edge `label`/`color`).
 
 Derived state (blocked closure, group membership, binding health, live phase) is **recomputed** from the document (+ live sources). Phase may be mirrored onto `ether.kind` for offline readability; it is not the authoring surface.
+
+**Vocabulary vs live plane:** schema string literals (`EntitySource` includes `tower`|`quasar`|`booth`|`hermes`, EtherWatch kinds, edge criteria modes) remain valid so operator canvases keep decoding. The **live** adapter plane is hermes-only. Private-source bindings and project nodes degrade offline (project cards render as plain notes; glyph criteria stay non-generating without glyph data).
 
 ## Kernel: watchers, timers, region pulse
 
@@ -72,33 +73,27 @@ Region activation gated by three structures (`src/shared/canvas.ts`):
 
 ## Binding refs and canonical keys
 
-`ref.key` is always the join key against a live `Entity.key`. Granularity by `ref.type`:
-- tower: `project` (`key`), `orbit` (`orbit:<project>/<orbit>`)
-- quasar: `project` (`git:...`)
-- booth: `project`
-- hermes: `agent` (`<host>:<profile>`)
+`ref.key` is always the join key against a live `Entity.key` when a source is live. Granularity by `ref.type`:
+- tower / quasar / booth: document vocabulary only (no live fetch)
+- hermes: `agent` (`<host>:<profile>`) — live
 
 ## Sources (read-only adapters)
 
-`src/main/vellum/adapters/` shell out to the reference CLIs and normalize into snapshot bundles. A down source degrades to a stale badge; it never touches the document. tower/quasar/hermes are live; booth may be down. hermes enumerates profiles on the local machine + remote-a over ssh.
+`src/main/vellum/adapters/` — live: **hermes** (+ exec helpers). A down hermes degrades to a stale badge; it never touches the document. hermes enumerates profiles on the local machine + remote hosts over ssh.
 
 ## In-app planes
 
-**Read-only browse** — tower glyphs/signals and quasar sessions, searchable via canvas detail inspectors (ipc.ts channels: `towerBrowse`, `towerSearch`, `towerGlyphRead`, `towerSignalRead`, `quasarSessions`, `quasarSearch`, `quasarSessionDetail`). Never surface as nodes.
-
-**Deliberate writes** — narrow, user-initiated mutations: tower comments on glyphs/signals, tower signal emit, and booth review actions (channels: `towerCommentGlyph`, `towerCommentSignal`, `towerEmitSignal`, `boothDrafts`, `boothReview`). Booth reviews pending server integration.
-
 **Attached agent chat** — one live ACP session per agent node (`<host>:<profile>`); resumable across app sessions (channels: `chatOpen`, `chatPrompt`, `chatPermission`, `chatSetModel`, `chatClose`). Main process owns the `hermes acp` child; renders in the canvas as inline composition. The file remains the agent API.
 
-**Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one glyph, one draft). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.
+**Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one herdr pane, one page). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.
 
 | measure | width intent | use |
 |---|---|---|
-| `prose` | ~65ch reading line | long copy, booth body review |
-| `document` | ~760px, resizable | tower glyph/signal, quasar session, booth draft |
+| `prose` | ~65ch reading line | long copy |
+| `document` | ~760px, resizable | glyph/session-shaped readers when present |
 | `terminal` | ~140 mono cells @ 13px (~1100px) | herdr agent PTY |
 | `workspace` | ~1280px immersive | focused browser / multi-pane still framed |
-| `form` | ~448px fit | wizards, emit-signal |
+| `form` | ~448px fit | wizards |
 
 Techniques baked in: dim+blur backdrop, titlebar-aware padding, enter animation (respects `prefers-reduced-motion`), portal to `document.body`, layer (`detail` vs `work` z-index). Dock/split remains available for multi-surface work; focus is the default for one subject.
 
