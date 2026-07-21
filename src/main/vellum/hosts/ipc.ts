@@ -1,9 +1,14 @@
 import type { IpcMain } from "electron";
 import { Effect } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
-import type { HostsOpResult, HostsTestResult } from "@shared/ipc";
+import type {
+  HostsConfigureRemoteResult,
+  HostsOpResult,
+  HostsTestResult,
+} from "@shared/ipc";
 import { RemoteHostsError } from "@shared/remote-hosts";
 import { AppRuntime } from "../../runtime";
+import { SettingsService } from "../settings/service";
 import { HostsService } from "./service";
 
 const toOp = (
@@ -81,6 +86,73 @@ export const registerHostsIpc = (ipcMain: IpcMain): void => {
           code: result.left.code,
           message: result.left.message,
         } satisfies HostsTestResult;
+      }),
+    ),
+  );
+
+  // Install / configure Vellum Remote on a registered host over existing SSH.
+  // Only the Command Center may push remote station stamps (no reverse RPC).
+  ipcMain.handle(IPC_CHANNELS.hostsConfigureRemote, (_event, id: unknown) =>
+    AppRuntime.runPromise(
+      Effect.gen(function* () {
+        if (typeof id !== "string" || id.length === 0) {
+          return {
+            ok: false,
+            detail: "host id required",
+            code: "validation",
+            message: "host id required",
+          } satisfies HostsConfigureRemoteResult;
+        }
+
+        const settingsSvc = yield* SettingsService;
+        const hosts = yield* HostsService;
+
+        const settingsResult = yield* Effect.either(settingsSvc.get);
+        if (settingsResult._tag === "Left") {
+          return {
+            ok: false,
+            detail: settingsResult.left.message,
+            code: settingsResult.left.code,
+            message: settingsResult.left.message,
+          } satisfies HostsConfigureRemoteResult;
+        }
+
+        const station = settingsResult.right.station;
+        if (station.role !== "command-center") {
+          return {
+            ok: false,
+            detail:
+              "Configure as Remote is only available when this station is Command Center",
+            code: "validation",
+            message:
+              "Configure as Remote is only available when this station is Command Center",
+          } satisfies HostsConfigureRemoteResult;
+        }
+
+        const commandCenterRef = station.hostId;
+        const result = yield* Effect.either(
+          hosts.configureRemote(id, {
+            commandCenterRef,
+            supervisedPreferred: true,
+          }),
+        );
+
+        if (result._tag === "Left") {
+          return {
+            ok: false,
+            detail: result.left.message,
+            code: result.left.code,
+            message: result.left.message,
+          } satisfies HostsConfigureRemoteResult;
+        }
+
+        return {
+          ok: result.right.ok,
+          detail: result.right.detail,
+          station: result.right.station,
+          code: result.right.code,
+          message: result.right.message ?? result.right.detail,
+        } satisfies HostsConfigureRemoteResult;
       }),
     ),
   );

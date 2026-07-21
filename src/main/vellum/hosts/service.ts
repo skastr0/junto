@@ -7,6 +7,10 @@ import {
   type RemoteHost as RemoteHostT,
 } from "@shared/remote-hosts";
 import { SshTransport } from "../ssh";
+import {
+  configureRemoteHost,
+  type ConfigureRemoteResult,
+} from "./configure-remote";
 import { runRemoteHostsDoctor, testHostConnection } from "./doctor";
 import {
   getDefaultHostsRegistry,
@@ -15,6 +19,8 @@ import {
 import { setHostsSnapshot } from "./snapshot";
 
 const decodeHost = Schema.decodeUnknownEither(RemoteHost);
+
+export type { ConfigureRemoteResult };
 
 export class HostsService extends Context.Tag("@vellum/HostsService")<
   HostsService,
@@ -33,6 +39,14 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
     readonly test: (
       id: string,
     ) => Effect.Effect<{ readonly ok: boolean; readonly detail: string }, RemoteHostsError>;
+    /** Command Center → SSH stamp Remote station fields on a registered remote host. */
+    readonly configureRemote: (
+      id: string,
+      options: {
+        readonly commandCenterRef: string;
+        readonly supervisedPreferred?: boolean;
+      },
+    ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
     readonly path: () => string;
   }
 >() {}
@@ -112,6 +126,19 @@ export const makeHostsService = (
         );
       }
       return yield* testHostConnection(ssh, host);
+    }),
+  configureRemote: (id, options) =>
+    Effect.gen(function* () {
+      const host = yield* Effect.tryPromise({
+        try: () => registry.get(id),
+        catch: asRemoteHostsError,
+      });
+      if (!host) {
+        return yield* Effect.fail(
+          new RemoteHostsError("not_found", `unknown host: ${id}`),
+        );
+      }
+      return yield* configureRemoteHost(ssh, host, options);
     }),
 });
 

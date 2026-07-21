@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type {
   BrowserProfileInfo,
+  HostsConfigureRemoteResult,
   HostsOpResult,
   HostsTestResult,
   VellumBrowserApi,
@@ -379,6 +380,8 @@ function AdvancedSection() {
 }
 
 function HostsSection() {
+  const station = use$(state$.settings.station);
+  const isCommandCenter = station.role === "command-center";
   const [hosts, setHosts] = useState<ReadonlyArray<HostRow>>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -541,6 +544,35 @@ function HostsSection() {
     }
   };
 
+  const configureAsRemote = async (id: string) => {
+    const api = getVellumApi();
+    if (!api?.hostsConfigureRemote) {
+      setNotice({ kind: "error", message: "Configure Remote API unavailable." });
+      return;
+    }
+    setBusy(true);
+    setTestDetail((prev) => ({ ...prev, [id]: "configuring as Remote…" }));
+    try {
+      const result: HostsConfigureRemoteResult = await api.hostsConfigureRemote(id);
+      setTestDetail((prev) => ({
+        ...prev,
+        [id]: result.detail || (result.ok ? "configured" : result.message ?? "failed"),
+      }));
+      setNotice({
+        kind: result.ok ? "success" : "error",
+        message: result.ok
+          ? `${id}: Remote configured`
+          : `${id}: ${result.detail || result.message}`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setTestDetail((prev) => ({ ...prev, [id]: message }));
+      setNotice({ kind: "error", message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="settings-section">
       <p className="settings-note">
@@ -549,6 +581,9 @@ function HostsSection() {
         literal. Configure custom ports in <code>~/.ssh/config</code>. Agent keys for Hermes
         use the host id (or optional hermes id). Expand <strong>Services</strong> on a host to
         list Tailscale Serve / SVC URLs and open them as canvas page nodes.
+        {isCommandCenter
+          ? " On Command Center, Configure as Remote stamps that machine’s station role over SSH."
+          : ""}
       </p>
 
       {loading ? (
@@ -577,6 +612,17 @@ function HostsSection() {
                 </button>
                 {host.kind === "remote" ? (
                   <>
+                    {isCommandCenter ? (
+                      <button
+                        type="button"
+                        className="settings-panel__ghost"
+                        disabled={busy}
+                        title="Write station.role=remote to this host’s ~/.vellum/settings.json over SSH"
+                        onClick={() => void configureAsRemote(host.id)}
+                      >
+                        Configure as Remote
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="settings-panel__ghost"

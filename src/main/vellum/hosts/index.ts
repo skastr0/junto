@@ -1,4 +1,9 @@
-export { HostsService, HostsServiceLive, makeHostsService } from "./service";
+export {
+  HostsService,
+  HostsServiceLive,
+  makeHostsService,
+  type ConfigureRemoteResult,
+} from "./service";
 export {
   getDefaultHostsRegistry,
   makeHostsRegistry,
@@ -7,3 +12,4 @@ export {
   type HostsRegistry,
 } from "./registry";
 export { runRemoteHostsDoctor, testHostConnection } from "./doctor";
+export { configureRemoteHost } from "./configure-remote";

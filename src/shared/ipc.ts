@@ -133,6 +133,8 @@ export const IPC_CHANNELS = {
   hostsUpsert: "vellum:hosts-upsert",
   hostsRemove: "vellum:hosts-remove",
   hostsTest: "vellum:hosts-test",
+  /** Command Center: stamp Remote station fields on a registered host over SSH. */
+  hostsConfigureRemote: "vellum:hosts-configure-remote",
   // main -> renderer pushes
   nodeRefOpened: "vellum:node-ref-opened",
   nodeRefOpenedAck: "vellum:node-ref-opened-ack",
@@ -690,6 +692,8 @@ export interface VellumApi {
   readonly hostsUpsert: (host: unknown) => Promise<HostsOpResult>;
   readonly hostsRemove: (id: string) => Promise<HostsOpResult>;
   readonly hostsTest: (id: string) => Promise<HostsTestResult>;
+  /** Install / configure Vellum Remote station settings on a registered remote host. */
+  readonly hostsConfigureRemote: (id: string) => Promise<HostsConfigureRemoteResult>;
 }
 
 export interface HostsOpResult {
@@ -711,6 +715,20 @@ export interface HostsTestResult {
   readonly detail: string;
   readonly code?: string;
   readonly message?: string;
+}
+
+/** Result of hostsConfigureRemote — ok/detail/error for doctor + Hosts UI. */
+export interface HostsConfigureRemoteResult {
+  readonly ok: boolean;
+  readonly detail: string;
+  readonly code?: string;
+  readonly message?: string;
+  readonly station?: {
+    readonly role: string;
+    readonly hostId: string;
+    readonly commandCenterRef: string;
+    readonly supervisedPreferred: boolean;
+  };
 }
 
 // The attached-chat surface is declared separately and merged into the
