@@ -76,11 +76,70 @@ const EMPTY_CANVAS_ENTRY: {
 // can re-project without waiting for the next kernelChanged push.
 let latestSnapshot: KernelSnapshot = { canvases: {}, pulseLog: [] };
 
+const shallowRecordEqual = <T>(
+  prev: Record<string, T> | undefined,
+  next: Record<string, T>,
+): boolean => {
+  const p = prev ?? {};
+  const pKeys = Object.keys(p);
+  const nKeys = Object.keys(next);
+  if (pKeys.length !== nKeys.length) return false;
+  for (const key of nKeys) {
+    if (p[key] !== next[key]) return false;
+  }
+  return true;
+};
+
+const pulseLogEqual = (
+  prev: ReadonlyArray<PulseRecord> | undefined,
+  next: ReadonlyArray<PulseRecord>,
+): boolean => {
+  if (!prev) return next.length === 0;
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < next.length; i += 1) {
+    if (prev[i] !== next[i] && prev[i]?.id !== next[i]?.id) return false;
+  }
+  // Same length + same ids in order is enough for the tray; content rarely mutates in place.
+  for (let i = 0; i < next.length; i += 1) {
+    if (prev[i]?.id !== next[i]?.id) return false;
+  }
+  return true;
+};
+
+const stringArrayEqual = (
+  prev: ReadonlyArray<string> | undefined,
+  next: ReadonlyArray<string>,
+): boolean => {
+  if (!prev) return next.length === 0;
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < next.length; i += 1) {
+    if (prev[i] !== next[i]) return false;
+  }
+  return true;
+};
+
 const projectSnapshot = (snapshot: KernelSnapshot, canvasName: string): void => {
   const entry = snapshot.canvases[canvasName] ?? EMPTY_CANVAS_ENTRY;
-  kernel$.watchers.set(entry.watchers);
-  kernel$.armed.set(entry.armed);
-  kernel$.nextFire.set(entry.nextFire);
+
+  // Keep existing leaves for unchanged entries so WatcherCards / PulseTray
+  // do not re-render on every ~3s kernel push with identical data.
+  const prevWatchers = kernel$.watchers.peek() as Record<string, WatcherRuntimeState>;
+  if (!shallowRecordEqual(prevWatchers, entry.watchers)) {
+    const merged: Record<string, WatcherRuntimeState> = {};
+    for (const [id, next] of Object.entries(entry.watchers)) {
+      const prev = prevWatchers[id];
+      merged[id] = prev && shallowWatcherEqual(prev, next) ? prev : next;
+    }
+    kernel$.watchers.set(merged);
+  }
+
+  if (!shallowRecordEqual(kernel$.armed.peek() as Record<string, boolean>, entry.armed)) {
+    kernel$.armed.set(entry.armed);
+  }
+  if (!shallowRecordEqual(kernel$.nextFire.peek() as Record<string, number>, entry.nextFire)) {
+    kernel$.nextFire.set(entry.nextFire);
+  }
+
   const nextExecution = entry.execution ?? null;
   const prev = kernel$.execution.peek();
   // Stamp only when the serializable payload actually changes so canvas
@@ -91,10 +150,30 @@ const projectSnapshot = (snapshot: KernelSnapshot, canvasName: string): void => 
     kernel$.execution.set(nextExecution);
     kernel$.executionRev.set(kernel$.executionRev.peek() + 1);
   }
-  kernel$.pulseLog.set(snapshot.pulseLog.filter((record) => record.canvasName === canvasName));
+
+  const nextPulseLog = snapshot.pulseLog.filter((record) => record.canvasName === canvasName);
+  if (!pulseLogEqual(kernel$.pulseLog.peek() as PulseRecord[] | undefined, nextPulseLog)) {
+    kernel$.pulseLog.set(nextPulseLog);
+  }
+
   // Global surfaces — independent of the open canvas.
-  kernel$.fault.set(snapshot.fault ?? "");
-  kernel$.orphaned.set([...(snapshot.orphanedArming ?? [])]);
+  const nextFault = snapshot.fault ?? "";
+  if (kernel$.fault.peek() !== nextFault) kernel$.fault.set(nextFault);
+  const nextOrphans = [...(snapshot.orphanedArming ?? [])];
+  if (!stringArrayEqual(kernel$.orphaned.peek() as string[] | undefined, nextOrphans)) {
+    kernel$.orphaned.set(nextOrphans);
+  }
+};
+
+const shallowWatcherEqual = (a: WatcherRuntimeState, b: WatcherRuntimeState): boolean => {
+  if (a === b) return true;
+  const aKeys = Object.keys(a) as Array<keyof WatcherRuntimeState>;
+  const bKeys = Object.keys(b) as Array<keyof WatcherRuntimeState>;
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
 };
 
 // --- arming + manual pulse (IPC invokes, closing over the open canvas) -------
