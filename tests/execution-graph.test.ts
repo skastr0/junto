@@ -9,6 +9,7 @@ import {
   type GlyphView,
 } from "../src/shared/execution-graph";
 import { groupMembers } from "../src/shared/graph";
+import { a2aTask } from "./helpers/a2a-fixtures";
 
 const text = (
   id: string,
@@ -131,14 +132,11 @@ describe("evaluateEdge — authorial modes", () => {
     expect(evaluateEdge(edge, from, new Map()).generates).toBe(false);
   });
 
-  it("tasks criteria: incomplete blocks; all done depends; empty list depends", () => {
+  it("tasks criteria: incomplete blocks; all completed depends; empty list depends", () => {
     const tasks = text("t1", "Checklist", {
       entity: { kind: "task" },
       tasks: {
-        items: [
-          { id: "i1", text: "one", done: false },
-          { id: "i2", text: "two", done: true },
-        ],
+        items: [a2aTask("i1", "one", "submitted"), a2aTask("i2", "two", "completed")],
       },
     });
     const edge = {
@@ -152,16 +150,35 @@ describe("evaluateEdge — authorial modes", () => {
     const doneTasks = text("t1", "Checklist", {
       entity: { kind: "task" },
       tasks: {
-        items: [
-          { id: "i1", text: "one", done: true },
-          { id: "i2", text: "two", done: true },
-        ],
+        items: [a2aTask("i1", "one", "completed"), a2aTask("i2", "two", "completed")],
       },
     });
     expect(evaluateEdge(edge, doneTasks, new Map()).phase).toBe("depends");
 
     const empty = text("t1", "Checklist", { entity: { kind: "task" }, tasks: { items: [] } });
     expect(evaluateEdge(edge, empty, new Map()).phase).toBe("depends");
+  });
+
+  it("requests criteria: input-required blocks; completed/rejected/canceled depends", () => {
+    const edge = {
+      id: "e1",
+      fromNode: "r1",
+      toNode: "b",
+      ether: { criteria: { mode: "tasks" as const } },
+    };
+    const pending = text("r1", "Requests", {
+      entity: { kind: "requests" },
+      requests: { items: [a2aTask("q1", "approve?", "input-required")] },
+    });
+    expect(evaluateEdge(edge, pending, new Map()).phase).toBe("blocks");
+
+    for (const state of ["completed", "rejected", "canceled"] as const) {
+      const resolved = text("r1", "Requests", {
+        entity: { kind: "requests" },
+        requests: { items: [a2aTask("q1", "approve?", state)] },
+      });
+      expect(evaluateEdge(edge, resolved, new Map()).phase).toBe("depends");
+    }
   });
 });
 
@@ -257,7 +274,7 @@ describe("deriveExecutionGraph — propagation", () => {
   it("tasks incomplete without edge does not block; with edge does", () => {
     const tasks = text("t1", "Checklist", {
       entity: { kind: "task" },
-      tasks: { items: [{ id: "i1", text: "do it", done: false }] },
+      tasks: { items: [a2aTask("i1", "do it", "submitted")] },
     });
     const target = projectNode("p1", "Proj", "proj");
     const noEdge: CanvasDoc = { nodes: [tasks, target], edges: [] };
@@ -400,7 +417,7 @@ describe("composeRegionExecutionContext", () => {
         projectNode("b", "Beta", "pb"),
         text("t1", "Ops", {
           entity: { kind: "task" },
-          tasks: { items: [{ id: "i1", text: "ship docs", done: false }] },
+          tasks: { items: [a2aTask("i1", "ship docs", "submitted")] },
         }),
       ],
       edges: [

@@ -129,11 +129,20 @@ export const digestCanvas = (
             : `  ${connection.source}: stale`,
         );
       }
-      // Local task checklist lives in the document.
+      // Local A2A work stores live in the document.
       if (entity.kind === "task") {
         const items = node.ether?.tasks?.items ?? [];
-        const open = items.filter((item) => !item.done).length;
-        entityLines.push(`  tasks: ${items.length - open}/${items.length} done`);
+        const open = items.filter((item) => item.state !== "completed").length;
+        entityLines.push(`  tasks: ${items.length - open}/${items.length} completed`);
+      }
+      if (entity.kind === "requests") {
+        const items = node.ether?.requests?.items ?? [];
+        const pending = items.filter((item) => item.state === "input-required").length;
+        entityLines.push(`  requests: ${pending}/${items.length} pending`);
+      }
+      if (entity.kind === "artifacts") {
+        const items = node.ether?.artifacts?.items ?? [];
+        entityLines.push(`  artifacts: ${items.length}`);
       }
     }
     sections.push(entityLines);

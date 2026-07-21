@@ -80,12 +80,13 @@ export const toggleEdgeArrow = (id: string, side: "from" | "to"): void => {
 
 /**
  * Infer live criteria from the source node.
- * - tasks node → tasks criteria
+ * - tasks / requests node → tasks criteria
  * - otherwise → none (soft relates); WIP/glyphs are explicit opt-in
  */
 export const inferEdgeCriteria = (fromNode: CanvasNode | undefined): EdgeCriteria | undefined => {
   if (!fromNode) return undefined;
-  if (fromNode.ether?.entity?.kind === "task") return { mode: "tasks" };
+  const kind = fromNode.ether?.entity?.kind;
+  if (kind === "task" || kind === "requests") return { mode: "tasks" };
   return undefined;
 };
 

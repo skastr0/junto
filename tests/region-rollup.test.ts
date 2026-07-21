@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
+import type { A2ATask, CanvasDoc } from "../src/shared/canvas";
 import type { GlyphRow, GlyphView } from "../src/shared/execution-graph";
 import { deriveRegionRollups, type AgentActivity } from "../src/shared/region-rollup";
+import { a2aTask } from "./helpers/a2a-fixtures";
 
 type Node = CanvasDoc["nodes"][number];
 type Edge = CanvasDoc["edges"][number];
@@ -40,7 +41,7 @@ const taskNode = (
   x: number,
   y: number,
   label: string,
-  items: ReadonlyArray<{ id: string; text: string; done?: boolean }>,
+  items: ReadonlyArray<A2ATask>,
 ): Node => node(id, x, y, label, { entity: { kind: "task" }, tasks: { items: [...items] } });
 
 const glyphRow = (state: string): GlyphRow => ({ glyphId: "g-1", orbit: "forge", title: "work", state });
@@ -63,7 +64,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        taskNode("t", 10, 10, "Ops tasks", [{ id: "i1", text: "ship" }]),
+        taskNode("t", 10, 10, "Ops tasks", [a2aTask("i1", "ship")]),
         projectNode("p", 10, 100, "prism", "prism"),
       ],
       edges: [{ id: "e1", fromNode: "t", toNode: "p", ether: { criteria: { mode: "tasks" } } }],
@@ -71,7 +72,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const [rollup] = deriveRegionRollups({ doc });
     const target = rollup?.members.find((member) => member.nodeId === "p");
     expect(target?.severity).toBe("blocked");
-    expect(target?.reasons).toEqual(["edge:0/1 tasks done · open: ship"]);
+    expect(target?.reasons).toEqual(["edge:0/1 tasks completed · open: ship"]);
     expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 0, working: 0 });
   });
 
@@ -101,13 +102,13 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        taskNode("t", 10, 10, "Ops tasks", [{ id: "i1", text: "ship" }]),
+        taskNode("t", 10, 10, "Ops tasks", [a2aTask("i1", "ship")]),
         projectNode("a", 10, 100, "prism", "prism"),
         projectNode("b", 10, 200, "quasar", "quasar"),
       ],
       edges: [
         { id: "e1", fromNode: "t", toNode: "a", ether: { criteria: { mode: "tasks" } } },
-        // a has no checklist -> depends -> relays the block onward to b
+        // a has no open tasks -> depends -> relays the block onward to b
         { id: "e2", fromNode: "a", toNode: "b", ether: { criteria: { mode: "tasks" } } },
       ],
     };
@@ -121,14 +122,14 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const base: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 800, 800, "ops"),
-        taskNode("u", 10, 10, "Ops tasks", [{ id: "i1", text: "ship" }]),
+        taskNode("u", 10, 10, "Ops tasks", [a2aTask("i1", "ship")]),
         projectNode("s", 10, 110, "Seed source", "seed-src"),
         projectNode("t", 10, 210, "Target", "target"),
       ],
       edges: [
-        // generating: open checklist blocks t with an edge reason
+        // generating: open task blocks t with an edge reason
         { id: "e1", fromNode: "u", toNode: "t", ether: { criteria: { mode: "tasks" } } },
-        // relaying (s has no checklist -> depends): the blocker flag on s
+        // relaying (s has no open tasks -> depends): the blocker flag on s
         // seed-hops through it, landing a seed reason on t
         { id: "e2", fromNode: "s", toNode: "t", ether: { criteria: { mode: "tasks" } } },
       ],
@@ -142,7 +143,10 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const [rollup] = deriveRegionRollups({ doc: flagged });
     const target = rollup?.members.find((member) => member.nodeId === "t");
     expect(target?.severity).toBe("blocked");
-    expect(target?.reasons).toEqual(["edge:0/1 tasks done · open: ship", "seed:from blocker Seed source"]);
+    expect(target?.reasons).toEqual([
+      "edge:0/1 tasks completed · open: ship",
+      "seed:from blocker Seed source",
+    ]);
   });
 
   it("attention via flag, and via a pending permission on a live agent", () => {
@@ -415,7 +419,7 @@ describe("deriveRegionRollups — derivation edges", () => {
     const base: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 800, 800, "ops"),
-        taskNode("u", 10, 10, "Ops tasks", [{ id: "i1", text: "ship" }]),
+        taskNode("u", 10, 10, "Ops tasks", [a2aTask("i1", "ship")]),
         projectNode("t", 10, 110, "Target", "target"),
       ],
       edges: [{ id: "e1", fromNode: "u", toNode: "t", ether: { criteria: { mode: "tasks" } } }],
@@ -429,7 +433,7 @@ describe("deriveRegionRollups — derivation edges", () => {
     const [rollup] = deriveRegionRollups({ doc: flagged });
     const target = rollup?.members.find((member) => member.nodeId === "t");
     expect(target?.severity).toBe("blocked");
-    expect(target?.reasons).toEqual(["flag:blocker", "edge:0/1 tasks done · open: ship"]);
+    expect(target?.reasons).toEqual(["flag:blocker", "edge:0/1 tasks completed · open: ship"]);
     expect(new Set(target?.reasons).size).toBe(target?.reasons.length);
   });
 

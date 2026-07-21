@@ -1,12 +1,13 @@
 import type {
+  A2ATask,
   CanvasDoc,
   CanvasEdge,
   CanvasNode,
   EdgeCriteria,
   EdgePhase,
-  EtherTaskItem,
 } from "./canvas";
 import { WIP_GLYPH_STATES } from "./canvas";
+import { taskBrief } from "./a2a";
 
 // Live execution graph: pure function of (document + glyph view).
 // Derived state is never stored in the .canvas file.
@@ -15,7 +16,7 @@ import { WIP_GLYPH_STATES } from "./canvas";
 //   - no criteria → soft "relates" (never generates, never relays)
 //   - criteria glyphs/wip → "blocks" | "depends" when glyph data known;
 //     unknown/missing glyph data → "relates" (no fail-closed generation)
-//   - criteria tasks → from document checklist only
+//   - criteria tasks → from document A2A tasks/requests stores only
 //
 // Propagation:
 //   - phase "blocks" generates a block on toNode
@@ -202,40 +203,67 @@ const evalWipCriteria = (
   };
 };
 
-const taskItemsOn = (node: CanvasNode | undefined): ReadonlyArray<EtherTaskItem> => {
+const a2aItemsOn = (node: CanvasNode | undefined): ReadonlyArray<A2ATask> => {
   if (!node) return [];
-  return node.ether?.tasks?.items ?? [];
+  const kind = node.ether?.entity?.kind;
+  if (kind === "requests") return node.ether?.requests?.items ?? [];
+  if (kind === "task") return node.ether?.tasks?.items ?? [];
+  // Fallback: prefer tasks store if present (criteria mode is document-local).
+  return node.ether?.tasks?.items ?? node.ether?.requests?.items ?? [];
+};
+
+const isBlockingTaskItem = (item: A2ATask, fromKind: string | undefined): boolean => {
+  if (fromKind === "requests") return item.state === "input-required";
+  // task nodes (and default): block while not completed
+  return item.state !== "completed";
 };
 
 const evalTasksCriteria = (
   criteria: Extract<EdgeCriteria, { mode: "tasks" }>,
   fromNode: CanvasNode | undefined,
 ): EdgeEval => {
-  const items = taskItemsOn(fromNode);
+  const fromKind = fromNode?.ether?.entity?.kind;
+  const items = a2aItemsOn(fromNode);
   const scoped =
     criteria.itemIds && criteria.itemIds.length > 0
       ? items.filter((item) => criteria.itemIds!.includes(item.id))
       : items;
   if (scoped.length === 0) {
-    // Empty checklist with an explicit tasks edge = satisfied pathway.
-    return { phase: "depends", detail: "no open tasks", generates: false, relays: true };
+    // Empty list with an explicit tasks edge = satisfied pathway.
+    return {
+      phase: "depends",
+      detail: fromKind === "requests" ? "no pending requests" : "no open tasks",
+      generates: false,
+      relays: true,
+    };
   }
-  const open = scoped.filter((item) => !item.done);
+  const open = scoped.filter((item) => isBlockingTaskItem(item, fromKind));
   if (open.length === 0) {
     return {
       phase: "depends",
-      detail: `${scoped.length}/${scoped.length} tasks done`,
+      detail:
+        fromKind === "requests"
+          ? `${scoped.length}/${scoped.length} requests resolved`
+          : `${scoped.length}/${scoped.length} tasks completed`,
       generates: false,
       relays: true,
     };
   }
   const sample = open
     .slice(0, 3)
-    .map((item) => item.text || item.id)
+    .map((item) => taskBrief(item))
     .join(", ");
+  if (fromKind === "requests") {
+    return {
+      phase: "blocks",
+      detail: `${scoped.length - open.length}/${scoped.length} requests resolved · pending: ${sample}`,
+      generates: true,
+      relays: true,
+    };
+  }
   return {
     phase: "blocks",
-    detail: `${scoped.length - open.length}/${scoped.length} tasks done · open: ${sample}`,
+    detail: `${scoped.length - open.length}/${scoped.length} tasks completed · open: ${sample}`,
     generates: true,
     relays: true,
   };
@@ -452,21 +480,31 @@ export const composeRegionExecutionContext = (
     }
   }
 
-  // Task lists in the region (even when not edged).
+  // Task / request lists in the region (even when not edged).
   const taskLines: string[] = [];
   for (const id of memberIds) {
     const node = byId.get(id);
-    if (!node || node.ether?.entity?.kind !== "task") continue;
-    const items = node.ether?.tasks?.items ?? [];
+    const kind = node?.ether?.entity?.kind;
+    if (!node || (kind !== "task" && kind !== "requests")) continue;
+    const items =
+      kind === "requests" ? (node.ether?.requests?.items ?? []) : (node.ether?.tasks?.items ?? []);
     if (items.length === 0) {
       taskLines.push(`${titleOf(node, id)} :: (empty)`);
       continue;
     }
-    const open = items.filter((item) => !item.done).length;
-    const preview = items
-      .map((item) => `${item.done ? "[x]" : "[ ]"} ${item.text || item.id}`)
-      .join("; ");
-    taskLines.push(`${titleOf(node, id)} :: ${items.length - open}/${items.length} done · ${preview}`);
+    if (kind === "requests") {
+      const pending = items.filter((item) => item.state === "input-required").length;
+      const preview = items.map((item) => `${item.state}: ${taskBrief(item)}`).join("; ");
+      taskLines.push(`${titleOf(node, id)} :: ${pending}/${items.length} pending · ${preview}`);
+    } else {
+      const open = items.filter((item) => item.state !== "completed").length;
+      const preview = items
+        .map((item) => `${item.state === "completed" ? "[x]" : "[ ]"} ${taskBrief(item)}`)
+        .join("; ");
+      taskLines.push(
+        `${titleOf(node, id)} :: ${items.length - open}/${items.length} completed · ${preview}`,
+      );
+    }
   }
   if (taskLines.length > 0) {
     lines.push("tasks");

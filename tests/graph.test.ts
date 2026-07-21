@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
 import { blockedClosure, blockedEdgeIds, groupMembers } from "../src/shared/graph";
+import { a2aTask } from "./helpers/a2a-fixtures";
 
 const project = (id: string, label: string) => ({
   id,
@@ -26,7 +27,7 @@ const tasks = (id: string, open: boolean) => ({
   height: 80,
   ether: {
     entity: { kind: "task" as const },
-    tasks: { items: [{ id: "i1", text: "item", done: !open }] },
+    tasks: { items: [a2aTask("i1", "item", open ? "submitted" : "completed")] },
   },
 });
 

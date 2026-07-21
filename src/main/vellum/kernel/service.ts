@@ -160,10 +160,6 @@ export const computeOrphanedArming = (
   return orphaned;
 };
 
-  if (fresh.partial) return { rows: cached?.rows, cacheWrite: undefined };
-  return { rows: fresh.glyphs, cacheWrite: fresh.glyphs };
-};
-
 type CanvasesShape = Context.Tag.Service<typeof CanvasesService>;
 type SnapshotsShape = Context.Tag.Service<typeof SnapshotsService>;
 type StoreShape = Context.Tag.Service<typeof StoreService>;

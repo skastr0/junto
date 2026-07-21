@@ -15,7 +15,22 @@ const doc: CanvasDoc = {
       text: "prism",
       ether: {
         entity: { kind: "task" },
-        tasks: { items: [{ id: "i1", text: "ship", done: false }] },
+        tasks: {
+          items: [
+            {
+              id: "i1",
+              state: "submitted",
+              history: [
+                {
+                  messageId: "m1",
+                  role: "user",
+                  parts: [{ kind: "text", text: "ship" }],
+                  taskId: "i1",
+                },
+              ],
+            },
+          ],
+        },
       },
     },
     {

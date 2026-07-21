@@ -51,7 +51,22 @@ const doc: CanvasDoc = {
       height: 50,
       ether: {
         entity: { kind: "task" },
-        tasks: { items: [{ id: "i1", text: "ship", done: false }] },
+        tasks: {
+          items: [
+            {
+              id: "i1",
+              state: "submitted",
+              history: [
+                {
+                  messageId: "m1",
+                  role: "user",
+                  parts: [{ kind: "text", text: "ship" }],
+                  taskId: "i1",
+                },
+              ],
+            },
+          ],
+        },
       },
     },
   ],
@@ -112,18 +127,18 @@ Foo :: project
 Bar :: orbit
 Baz :: project
 Ops :: task
-  tasks: 0/1 done
+  tasks: 0/1 completed
 
 edges
 Foo --relates--> Bar
-Ops --blocks(0/1 tasks done · open: ship)--> Baz
+Ops --blocks(0/1 tasks completed · open: ship)--> Baz
 Baz --refs--> Foo
 Foo --relates--> Baz
 
 blockers
 Bar
 blocked closure :: 1 nodes
-Baz · 0/1 tasks done · open: ship
+Baz · 0/1 tasks completed · open: ship
 
 seeds
 Bar
