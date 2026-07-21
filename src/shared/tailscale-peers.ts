@@ -123,8 +123,14 @@ const peerScore = (peer: TailscalePeer, tokens: ReadonlyArray<string>): number =
     if (!token) continue;
     if (dnsLabel === token) score = Math.max(score, 100);
     if (dns === token || dns.startsWith(`${token}.`)) score = Math.max(score, 95);
-    if (hostNorm === token || hostNorm === normalizeToken(token)) score = Math.max(score, 80);
-    if (hostRaw.includes(token) || token.includes(hostNorm)) score = Math.max(score, 50);
+    // Never score against empty hostNorm — `"".includes` is true for every token in JS.
+    if (hostNorm.length > 0) {
+      if (hostNorm === token || hostNorm === normalizeToken(token)) score = Math.max(score, 80);
+      // Substring host match only for tokens long enough to avoid `mac` → Mac mini.
+      if (token.length >= 4 && (hostRaw.includes(token) || hostNorm.includes(token))) {
+        score = Math.max(score, 55);
+      }
+    }
   }
   if (peer.online === true) score += 5;
   if (peer.online === false) score -= 20;

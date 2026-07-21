@@ -376,7 +376,7 @@ export function HerdrCard({
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={openServicePage}
               >
-                open
+                page
               </button>
             ) : null}
             <button

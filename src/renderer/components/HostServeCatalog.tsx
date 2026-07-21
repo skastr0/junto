@@ -2,7 +2,7 @@
  * Tailscale Serve / SVC catalog for a single host (Settings → Hosts).
  * Lists named services + TCP forwards; Open mints a canvas page node.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { HerdrServeCatalogInfo, HerdrServeEntryInfo } from "@shared/ipc";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { addNode } from "../lib/mutations";
@@ -23,6 +23,8 @@ export function HostServeCatalog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [expanded, setExpanded] = useState(false);
+  const [fetched, setFetched] = useState(false);
+  const loadGen = useRef(0);
 
   const load = useCallback(
     async (force: boolean) => {
@@ -39,14 +41,18 @@ export function HostServeCatalog({
         }>;
       };
       const api = getVellumApi() as Api | undefined;
+      // Prefer refresh when force; Get also awaits a real fetch on main now.
       const fn = force ? api?.herdrServeCatalogRefresh : api?.herdrServeCatalogGet;
       if (!fn) {
         setError("Serve catalog API unavailable");
+        setFetched(true);
         return;
       }
+      const gen = ++loadGen.current;
       setLoading(true);
       try {
         const result = await fn(hostId);
+        if (gen !== loadGen.current) return;
         if (result.ok && result.data) {
           setCatalog(result.data);
           setError(result.data.error);
@@ -54,9 +60,13 @@ export function HostServeCatalog({
           setError(result.message ?? "Could not load services");
         }
       } catch (err) {
+        if (gen !== loadGen.current) return;
         setError(err instanceof Error ? err.message : String(err));
       } finally {
-        setLoading(false);
+        if (gen === loadGen.current) {
+          setLoading(false);
+          setFetched(true);
+        }
       }
     },
     [hostId],
@@ -71,23 +81,15 @@ export function HostServeCatalog({
     const url = entry.publicUrl?.trim();
     if (!url) return;
     const doc = state$.doc.peek();
-    // Fan new pages near viewport center of existing nodes
-    const nodes = doc.nodes;
-    const baseX =
-      nodes.length > 0
-        ? Math.round(nodes.reduce((s, n) => s + n.x, 0) / nodes.length) + 80
-        : 120;
-    const baseY =
-      nodes.length > 0
-        ? Math.round(nodes.reduce((s, n) => s + n.y, 0) / nodes.length) + 40
-        : 120;
-    const jitter = Math.floor(Math.random() * 60);
-    const x = baseX + jitter;
-    const y = baseY + (jitter % 40);
-    const seed = resolvePageSpawnDefaults(doc, x + 130, y + 55);
+    // Place near viewport focus or first selected-ish density — use last selected node if any.
+    const selectedId = state$.selectedNodeId.peek();
+    const selected = selectedId ? doc.nodes.find((n) => n.id === selectedId) : undefined;
+    const anchor = selected ?? doc.nodes[doc.nodes.length - 1];
+    const width = 260;
+    const x = anchor ? Math.round(anchor.x + (anchor.width ?? width) + 40) : 160;
+    const y = anchor ? Math.round(anchor.y) : 160;
+    const seed = resolvePageSpawnDefaults(doc, x + width / 2, y + 55);
     const page = makePageNode(x, y, url, seed?.profile ? { profile: seed.profile } : undefined);
-    // Title the first line via link node — keep url; optional note in ether not available.
-    // Stamp a readable label by using text is wrong for link nodes; page uses url field.
     addNode(page, { edit: false, focus: true });
     closeSettings();
   };
@@ -98,6 +100,8 @@ export function HostServeCatalog({
   const webRoots =
     catalog?.entries.filter((e) => e.kind === "web" && (e.path === "/" || !e.path) && e.publicUrl) ??
     [];
+  const openableCount = services.length + forwards.length + webRoots.length;
+  const showEmpty = fetched && !loading && openableCount === 0 && !error;
 
   return (
     <div className="settings-host-services">
@@ -109,8 +113,8 @@ export function HostServeCatalog({
           onClick={() => setExpanded((v) => !v)}
         >
           {expanded ? "▾" : "▸"} Services
-          {services.length > 0 ? (
-            <span className="settings-host-services__count">{services.length}</span>
+          {fetched && openableCount > 0 ? (
+            <span className="settings-host-services__count">{openableCount}</span>
           ) : null}
         </button>
         {expanded ? (
@@ -127,15 +131,18 @@ export function HostServeCatalog({
 
       {expanded ? (
         <div className="settings-host-services__body">
-          {loading && !catalog ? (
+          {loading && !fetched ? (
             <p className="settings-note">Loading Tailscale Serve…</p>
+          ) : null}
+          {loading && fetched ? (
+            <p className="settings-note">Refreshing…</p>
           ) : null}
           {error ? (
             <p className="settings-host-services__error" role="status">
               {error}
             </p>
           ) : null}
-          {!loading && catalog && services.length === 0 && forwards.length === 0 && webRoots.length === 0 ? (
+          {showEmpty ? (
             <p className="settings-note">
               No Serve / SVC entries on {hostLabel}. Advertise with{" "}
               <code>tailscale serve</code> on that machine.
@@ -157,10 +164,10 @@ export function HostServeCatalog({
                     type="button"
                     className="settings-panel__ghost"
                     disabled={!svc.publicUrl}
-                    title={svc.publicUrl ? `Open ${svc.publicUrl}` : "No public URL"}
+                    title={svc.publicUrl ? `Open page · ${svc.publicUrl}` : "No public URL"}
                     onClick={() => openEntry(svc)}
                   >
-                    open
+                    open page
                   </button>
                 </li>
               ))}
@@ -181,9 +188,10 @@ export function HostServeCatalog({
                       type="button"
                       className="settings-panel__ghost"
                       disabled={!w.publicUrl}
+                      title={w.publicUrl ? `Open page · ${w.publicUrl}` : undefined}
                       onClick={() => openEntry(w)}
                     >
-                      open
+                      open page
                     </button>
                   </li>
                 ))}
@@ -205,9 +213,14 @@ export function HostServeCatalog({
                       type="button"
                       className="settings-panel__ghost"
                       disabled={!f.publicUrl}
+                      title={
+                        f.publicUrl
+                          ? `Open page · ${f.publicUrl} (may be non-HTTP)`
+                          : undefined
+                      }
                       onClick={() => openEntry(f)}
                     >
-                      open
+                      open page
                     </button>
                   </li>
                 ))}
@@ -216,8 +229,8 @@ export function HostServeCatalog({
           ) : null}
 
           <p className="settings-host-services__hint" style={{ color: DIM }}>
-            From <code>tailscale serve status</code> on {hostId}. Open places a page node on the
-            canvas.
+            From <code>tailscale serve status</code> on {hostId}. Open page places a browser
+            node on the canvas.
           </p>
         </div>
       ) : null}

@@ -94,4 +94,25 @@ describe("tailscale-peers match", () => {
     expect(endpointHostToken("user@remote-a")).toBe("remote-a");
     expect(endpointHostToken("remote-a")).toBe("remote-a");
   });
+
+  it("does not match unknown hostId against HostName-less peers", () => {
+    const bare = parseTailscaleStatusJson({
+      Peer: {
+        k: {
+          DNSName: "ghost.tail.ts.net.",
+          TailscaleIPs: ["100.1.2.3"],
+          Online: true,
+        },
+      },
+    });
+    expect(
+      resolveTailscaleHostForQuery({ hostId: "nowhere", endpoint: "nowhere" }, bare),
+    ).toBeUndefined();
+  });
+
+  it("short substring hostId does not steal Mac mini", () => {
+    const hit = resolveTailscaleHostForQuery({ hostId: "mac", endpoint: "mac" }, snap);
+    // score floor should reject weak substring-only matches
+    expect(hit).toBeUndefined();
+  });
 });

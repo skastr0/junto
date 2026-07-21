@@ -85,4 +85,49 @@ describe("HostServiceMap × Serve join", () => {
     expect(live?.serveLabel).toBe("booth-control");
     map.stop();
   });
+
+  it("transport fail keeps serveJoined SVC url", async () => {
+    let n = 0;
+    const catalog = new HostServeCatalog({
+      runServeStatus: async () => ({ ok: true, stdout: miniServeJson }),
+      resolveHostBase: () => "remote-a.example.ts.net",
+      now: () => 1,
+    });
+    await catalog.refresh("remote-a");
+    const map = new HerdrServiceMap({
+      shell: async () => {
+        n += 1;
+        if (n === 1) {
+          return { ok: true, stdout: "node 42 me 1u IPv4 0t0 TCP *:5175 (LISTEN)\n" };
+        }
+        return { ok: false, stdout: "", error: "ssh timed out" };
+      },
+      resolvePreferredServeUrl: (hostId, ports) => {
+        const hit = catalog.preferredUrl(hostId, ports);
+        return hit ? { url: hit.url, label: hit.entry.label } : undefined;
+      },
+      now: () => 1,
+    });
+    map.requestProbe({
+      hostId: "remote-a",
+      paneId: "w:p1",
+      processes: [{ name: "node", cmdline: "vite", pid: 42 }],
+      priority: "intent",
+    });
+    await map.drainHostNow("remote-a");
+    expect(map.get("remote-a", null, "w:p1")?.serveJoined).toBe(true);
+
+    map.requestProbe({
+      hostId: "remote-a",
+      paneId: "w:p1",
+      processes: [{ name: "node", cmdline: "vite", pid: 42 }],
+      priority: "intent",
+    });
+    await map.drainHostNow("remote-a");
+    const after = map.get("remote-a", null, "w:p1");
+    expect(after?.url).toBe("https://booth-control.example.ts.net");
+    expect(after?.serveJoined).toBe(true);
+    expect(after?.error).toMatch(/timed out/);
+    map.stop();
+  });
 });

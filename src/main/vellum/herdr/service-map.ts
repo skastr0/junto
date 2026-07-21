@@ -231,7 +231,8 @@ export class HerdrServiceMap {
   }): HerdrServiceProjection {
     const priority = input.priority ?? "intent";
     const existing = this.get(input.hostId, input.session, input.paneId);
-    // Keep last live projection painted while intent revalidates — no "port…" flash.
+    // Keep last live projection painted while intent revalidates — no "port…" flash
+    // and do not drop serveJoined SVC urls by recomposing host:port mid-probe.
     const showPending = !(existing?.health === "live" || existing?.health === "stale");
     const pending = projectService({
       hostId: input.hostId,
@@ -240,6 +241,8 @@ export class HerdrServiceMap {
       processes: input.processes ?? existing?.processes,
       ports: existing?.ports,
       hostBase: existing?.hostBase ?? this.hostBase(input.hostId),
+      urlOverride: existing?.serveJoined ? existing.url : undefined,
+      serveLabel: existing?.serveJoined ? existing.serveLabel : undefined,
       checkedAt: existing?.checkedAt,
       pending: showPending,
       priority,
@@ -396,7 +399,8 @@ export class HerdrServiceMap {
       ports = portsFromCmdlineHints(processes);
     }
 
-    // Transport/SSH failure must not paint live→dead: keep prior ports/url.
+    // Transport/SSH failure must not paint live→dead: keep prior ports/url
+    // including serveJoined SVC https (do not recompose host:port only).
     if (transportFailed) {
       const prev = this.get(item.hostId, item.session, item.paneId);
       this.write(
@@ -407,6 +411,8 @@ export class HerdrServiceMap {
           processes,
           ports: prev?.ports ?? portsFromCmdlineHints(processes),
           hostBase: prev?.hostBase ?? hostBase,
+          urlOverride: prev?.serveJoined ? prev.url : undefined,
+          serveLabel: prev?.serveJoined ? prev.serveLabel : undefined,
           checkedAt: prev?.checkedAt,
           pending: false,
           error,
