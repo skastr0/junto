@@ -9,6 +9,7 @@ import type {
   NodeSide,
 } from "@shared/canvas";
 import { resolveBrowserOnDelete } from "@shared/canvas";
+import { mergeLocalCanvasWithWorkWrite } from "@shared/work-canvas-merge";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import type { BindingHint } from "@shared/ipc";
 import { formatNodeRef } from "@shared/node-ref";
@@ -92,11 +93,56 @@ const nextRecoveryName = (): string => {
   return `recovery-${Date.now().toString(36)}-${recoveryNameSequence.toString(36)}`;
 };
 
-// A stale disk revision is the one save failure we can resolve without
-// choosing a winner: keep the external original untouched and make the newest
-// local snapshot durable under a new canonical canvas name. Only after that
-// write resolves do we rebind the renderer, so navigation/quit cannot mistake
-// an in-memory copy for a durable recovery.
+// Prefer rebase when disk advanced under a local save (work ops, kernel
+// mirrors, external edits that share node ids): keep freeform local geometry
+// and graph membership, take A2A work stores from disk, write at disk revision.
+// Falls through to recovery-canvas only when rebase cannot complete.
+const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => {
+  const api = window.vellum;
+  if (!api) throw new Error("Electron preload bridge is not available.");
+
+  const localSnapshot =
+    pendingSave?.name === failed.name ? pendingSave.doc : failed.doc;
+  const disk = await api.readCanvas(failed.name);
+  const merged = roundDoc(mergeLocalCanvasWithWorkWrite(localSnapshot, disk.doc));
+  const written = await api.writeCanvas(failed.name, merged, disk.revision);
+  revisionsByName.set(failed.name, written.revision);
+
+  // Drop the conflicted queue entry; re-queue only if a newer pending edit
+  // arrived while we rebased (same name, different snapshot).
+  if (pendingSave?.name === failed.name) {
+    if (pendingSave.doc === localSnapshot) {
+      pendingSave = null;
+    } else {
+      pendingSave = {
+        name: failed.name,
+        doc: roundDoc(mergeLocalCanvasWithWorkWrite(pendingSave.doc, disk.doc)),
+      };
+    }
+  }
+
+  if (state$.canvasName.peek() === failed.name) {
+    const selectedNodeId = state$.selectedNodeId.peek();
+    const selectedNodeIds = state$.selectedNodeIds.peek();
+    const selectedEdgeId = state$.selectedEdgeId.peek();
+    const focusNodeId = state$.focusNodeId.peek();
+    const editNodeId = state$.editNodeId.peek();
+    state$.doc.set(merged);
+    state$.docVersion.set(state$.docVersion.peek() + 1);
+    state$.docEpoch.set(state$.docEpoch.peek() + 1);
+    state$.selectedNodeId.set(selectedNodeId);
+    state$.selectedNodeIds.set(selectedNodeIds);
+    state$.selectedEdgeId.set(selectedEdgeId);
+    state$.focusNodeId.set(focusNodeId);
+    state$.editNodeId.set(editNodeId);
+  }
+
+  state$.saveState.set(pendingSave?.name === failed.name ? "saving" : "saved");
+  state$.error.set("");
+};
+
+// Last resort: keep the external original untouched and make the newest local
+// snapshot durable under a new canvas name.
 const recoverRevisionConflict = async (failed: PendingCanvasSave): Promise<void> => {
   const api = window.vellum;
   if (!api) throw new Error("Electron preload bridge is not available.");
@@ -119,10 +165,6 @@ const recoverRevisionConflict = async (failed: PendingCanvasSave): Promise<void>
   revisionsByName.set(created.name, recovered.revision);
   abandonedNames.delete(created.name);
 
-  // Edits can arrive while the recovery write is in flight. The recovered
-  // snapshot is already durable; rebind any newer queued snapshot so the save
-  // pump applies it on top of the recovery revision rather than retrying the
-  // conflicted original forever.
   if (pendingSave?.name === failed.name) {
     pendingSave = pendingSave === snapshot
       ? null
@@ -133,8 +175,6 @@ const recoverRevisionConflict = async (failed: PendingCanvasSave): Promise<void>
     state$.canvasName.set(created.name);
   }
 
-  // Recovery durability must not depend on list refresh. Refresh is only the
-  // UI coherence step and may fail independently after the new file exists.
   await api.listCanvases()
     .then((canvases) => state$.canvases.set(canvases))
     .catch(() => undefined);
@@ -158,12 +198,17 @@ const handleSaveFailure = async (
   let failure = error;
   if (isRevisionConflict(error)) {
     try {
-      await recoverRevisionConflict(request);
+      await rebaseLocalOverDisk(request);
       return;
-    } catch (recoveryError) {
-      failure = new Error(
-        `${messageOf(error)}; recovery copy failed: ${messageOf(recoveryError)}`,
-      );
+    } catch (rebaseError) {
+      try {
+        await recoverRevisionConflict(request);
+        return;
+      } catch (recoveryError) {
+        failure = new Error(
+          `${messageOf(error)}; rebase failed: ${messageOf(rebaseError)}; recovery copy failed: ${messageOf(recoveryError)}`,
+        );
+      }
     }
   }
 
@@ -242,6 +287,64 @@ export const getCanvasRevision = (name: string): string | undefined =>
 
 export const acceptCanvasRevision = (name: string, revision: string): void => {
   revisionsByName.set(name, revision);
+};
+
+/**
+ * Apply a successful WorkService write into the open renderer document.
+ * Baselines `revisionsByName` at the work revision so a concurrent freeform
+ * flush cannot treat the work write as a foreign conflict (recovery canvas).
+ * Freeform geometry / edges stay local; A2A stores + mirrored text come from
+ * `workDoc`.
+ */
+export const applyWorkCanvasWrite = (
+  name: string,
+  workDoc: CanvasDoc,
+  revision: string,
+): void => {
+  revisionsByName.set(name, revision);
+  if (abandonedNames.has(name)) return;
+  if (state$.canvasName.peek() !== name) return;
+
+  const local = state$.doc.peek();
+  const hadPending = hasPendingCanvasChanges(name);
+  const merged = roundDoc(mergeLocalCanvasWithWorkWrite(local, workDoc));
+
+  // Drop any stale pending snapshot baselined at the pre-work revision —
+  // we'll re-queue a merge at the new baseline if freeform still differs.
+  if (pendingSave?.name === name) pendingSave = null;
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+
+  const selectedNodeId = state$.selectedNodeId.peek();
+  const selectedNodeIds = state$.selectedNodeIds.peek();
+  const selectedEdgeId = state$.selectedEdgeId.peek();
+  const focusNodeId = state$.focusNodeId.peek();
+  const editNodeId = state$.editNodeId.peek();
+
+  state$.doc.set(merged);
+  state$.docVersion.set(state$.docVersion.peek() + 1);
+  state$.docEpoch.set(state$.docEpoch.peek() + 1);
+  state$.selectedNodeId.set(selectedNodeId);
+  state$.selectedNodeIds.set(selectedNodeIds);
+  state$.selectedEdgeId.set(selectedEdgeId);
+  state$.focusNodeId.set(focusNodeId);
+  state$.editNodeId.set(editNodeId);
+  state$.error.set("");
+
+  const freeformStillPending =
+    hadPending || JSON.stringify(merged) !== JSON.stringify(roundDoc(workDoc));
+  if (freeformStillPending) {
+    pendingSave = { name, doc: merged };
+    state$.saveState.set("saving");
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      void flushPendingCanvasSave().catch(() => undefined);
+    }, 500);
+  } else {
+    state$.saveState.set("saved");
+  }
 };
 
 export const retrySave = (): void => {

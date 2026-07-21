@@ -7,9 +7,11 @@ import type {
   A2AMetadata,
   A2ATask,
   Artifact,
+  CanvasDoc,
   Message,
   TaskState,
 } from "@shared/canvas";
+import type { WorkOpResult } from "@shared/ipc";
 import {
   WorkError,
   workArtifactPublish,
@@ -19,7 +21,6 @@ import {
   workTaskClaim,
   workTaskCreate,
   workTaskTransition,
-  type WorkErrorCode,
   type WorkIds,
 } from "@shared/a2a-work";
 import { CanvasesService, CanvasError } from "../canvases";
@@ -38,13 +39,7 @@ export class WorkServiceError extends Schema.TaggedError<WorkServiceError>()("Wo
   message: Schema.String,
 }) {}
 
-export type WorkOpOk<T> = { readonly ok: true; readonly data: T };
-export type WorkOpFail = {
-  readonly ok: false;
-  readonly code: WorkErrorCode;
-  readonly message: string;
-};
-export type WorkOpResult<T> = WorkOpOk<T> | WorkOpFail;
+export type { WorkOpResult };
 
 const defaultIds = (): WorkIds => ({
   id: () => ulid(),
@@ -69,9 +64,24 @@ const toWorkServiceError = (error: unknown): WorkServiceError => {
   });
 };
 
-const asResult = <T>(effect: Effect.Effect<T, WorkServiceError>): Effect.Effect<WorkOpResult<T>> =>
+type WorkApplyOk<T> = {
+  readonly value: T;
+  readonly doc: CanvasDoc;
+  readonly revision: string;
+};
+
+const asResult = <T>(
+  effect: Effect.Effect<WorkApplyOk<T>, WorkServiceError>,
+): Effect.Effect<WorkOpResult<T>> =>
   effect.pipe(
-    Effect.map((data): WorkOpResult<T> => ({ ok: true, data })),
+    Effect.map(
+      ({ value, doc, revision }): WorkOpResult<T> => ({
+        ok: true,
+        data: value,
+        doc,
+        revision,
+      }),
+    ),
     Effect.catchAll((err) =>
       Effect.succeed({
         ok: false as const,
@@ -144,16 +154,16 @@ export const WorkLive = Layer.effect(
     // and use a single-shot transform.
     const apply = <T>(
       canvas: string,
-      fn: (doc: import("@shared/canvas").CanvasDoc) => { doc: import("@shared/canvas").CanvasDoc; value: T },
-    ): Effect.Effect<T, WorkServiceError> =>
+      fn: (doc: CanvasDoc) => { doc: CanvasDoc; value: T },
+    ): Effect.Effect<WorkApplyOk<T>, WorkServiceError> =>
       Effect.gen(function* () {
         // Read once, transform once, write with expected revision so concurrent
-        // ops serialize via mutex and lose cleanly on conflict (retry once).
+        // ops serialize via mutex and lose cleanly on conflict (retry).
         let lastError: WorkServiceError | undefined;
         for (let attempt = 0; attempt < 8; attempt += 1) {
           const read = yield* canvases.read(canvas).pipe(Effect.mapError(toWorkServiceError));
           let value: T;
-          let nextDoc: import("@shared/canvas").CanvasDoc;
+          let nextDoc: CanvasDoc;
           try {
             const result = fn(read.doc);
             value = result.value;
@@ -164,7 +174,9 @@ export const WorkLive = Layer.effect(
           const written = yield* canvases
             .write(canvas, nextDoc, read.revision)
             .pipe(Effect.either);
-          if (written._tag === "Right") return value;
+          if (written._tag === "Right") {
+            return { value, doc: nextDoc, revision: written.right.revision };
+          }
           const err = toWorkServiceError(written.left);
           // Revision conflict → retry; other errors fail.
           if (

@@ -9,10 +9,18 @@ import type {
   TaskState,
 } from "@shared/canvas";
 import { canTransitionTaskState, claimedByOf, countByTaskState, isTerminalTaskState, taskBrief } from "@shared/a2a";
+import type { WorkOpResult } from "@shared/ipc";
 import { DetailModal } from "../DetailModal";
+import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { getVellumApi } from "../../lib/vellum-api";
 import { state$ } from "../../lib/state";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
+
+/** Baseline renderer revision + merge freeform after every successful work op. */
+const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpResult<T> => {
+  if (result.ok) applyWorkCanvasWrite(canvas, result.doc, result.revision);
+  return result;
+};
 
 const TASK_STATES: ReadonlyArray<TaskState> = [
   "submitted",
@@ -335,7 +343,7 @@ export function TasksDetail({
     if (!api || !brief.trim()) return;
     setError("");
     try {
-      const result = await api.workTaskCreate(name, node.id, brief.trim());
+      const result = acceptWorkResult(name, await api.workTaskCreate(name, node.id, brief.trim()));
       if (!result.ok) setError(result.message);
       else setBrief("");
     } catch (err) {
@@ -384,7 +392,10 @@ export function TasksDetail({
                 if (!api) return;
                 setRowError((prev) => ({ ...prev, [task.id]: "" }));
                 try {
-                  const result = await api.workTaskClaim(name, node.id, task.id, "operator");
+                  const result = acceptWorkResult(
+                    name,
+                    await api.workTaskClaim(name, node.id, task.id, "operator"),
+                  );
                   if (!result.ok) setRowError((prev) => ({ ...prev, [task.id]: result.message }));
                 } catch (err) {
                   setRowError((prev) => ({
@@ -397,7 +408,10 @@ export function TasksDetail({
                 if (!api) return;
                 setRowError((prev) => ({ ...prev, [task.id]: "" }));
                 try {
-                  const result = await api.workTaskTransition(name, node.id, task.id, state);
+                  const result = acceptWorkResult(
+                    name,
+                    await api.workTaskTransition(name, node.id, task.id, state),
+                  );
                   if (!result.ok) setRowError((prev) => ({ ...prev, [task.id]: result.message }));
                 } catch (err) {
                   setRowError((prev) => ({
@@ -430,9 +444,16 @@ export function RequestsDetail({
   const create = async () => {
     if (!api || !brief.trim()) return;
     setError("");
-    const result = await api.workRequestCreate(name, node.id, brief.trim());
-    if (!result.ok) setError(result.message);
-    else setBrief("");
+    try {
+      const result = acceptWorkResult(
+        name,
+        await api.workRequestCreate(name, node.id, brief.trim()),
+      );
+      if (!result.ok) setError(result.message);
+      else setBrief("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   return (
@@ -498,12 +519,15 @@ function RequestRow({
     if (!api || !response.trim()) return;
     setError("");
     try {
-      const result = await api.workRequestResolve(
+      const result = acceptWorkResult(
         canvas,
-        nodeId,
-        task.id,
-        response.trim(),
-        disposition,
+        await api.workRequestResolve(
+          canvas,
+          nodeId,
+          task.id,
+          response.trim(),
+          disposition,
+        ),
       );
       if (!result.ok) {
         setError(result.message);
@@ -629,9 +653,16 @@ export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
       role: "user",
       parts: [{ kind: "text", text: text.trim() }],
     };
-    const result = await api.workMessageAppend(name, node.id, null, message);
-    if (!result.ok) setError(result.message);
-    else setText("");
+    try {
+      const result = acceptWorkResult(
+        name,
+        await api.workMessageAppend(name, node.id, null, message),
+      );
+      if (!result.ok) setError(result.message);
+      else setText("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   return (
