@@ -13,7 +13,9 @@
  *  - renderer served from a local static server (127.0.0.1, ephemeral port)
  *    since the trusted renderer protocol only installs when app.isPackaged
  */
+import { exec } from "node:child_process";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { CanvasDoc } from "../../src/shared/canvas";
@@ -86,6 +88,31 @@ const dismissStationRoleGate = async (page: Page): Promise<void> => {
   await gate.waitFor({ state: "hidden", timeout: 20_000 });
 };
 
+const execAsync = promisify(exec);
+
+// The (fake or real) herdr server is intentionally detached + unref'd by the
+// product (src/main/vellum/herdr/plane.ts's startServer) — it's meant to
+// outlive any one app session. That's correct product behavior, but an e2e
+// sandbox's fake daemon has nothing left to serve once its temp HOME is
+// gone; leaving it running leaks a process per test. Kill whatever is
+// listening on this sandbox's own herdr socket (never anything else) before
+// the temp dir is removed out from under it.
+const killOrphanedHerdrServer = async (sandbox: Sandbox): Promise<void> => {
+  const socketPath = join(sandbox.homeDir, ".config", "herdr", "herdr.sock");
+  try {
+    const { stdout } = await execAsync(`lsof -t "${socketPath}"`);
+    for (const pid of stdout.split("\n").map((line) => line.trim()).filter(Boolean)) {
+      try {
+        process.kill(Number(pid), "SIGTERM");
+      } catch {
+        // already gone
+      }
+    }
+  } catch {
+    // lsof exits non-zero when nothing holds the socket — nothing to clean up.
+  }
+};
+
 export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumHandle> => {
   const sandbox = await createSandbox();
   for (const [name, doc] of Object.entries(options.seedCanvases ?? {})) {
@@ -118,6 +145,7 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
   const close = async (): Promise<void> => {
     await app.close().catch(() => undefined);
     await server.close().catch(() => undefined);
+    await killOrphanedHerdrServer(sandbox);
     await destroySandbox(sandbox);
   };
 
