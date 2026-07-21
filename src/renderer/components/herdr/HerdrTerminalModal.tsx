@@ -146,8 +146,13 @@ export function HerdrTerminalPanel({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const apiRef = useRef<HerdrApi | undefined>(undefined);
+  // Host/session/terminalId may churn without a pane change; effect keys only
+  // on paneId and reads live binding via this ref (avoids full reconnect).
+  const terminalOpenRef = useRef(terminalOpen);
+  terminalOpenRef.current = terminalOpen;
   const [status, setStatus] = useState("connecting…");
   const [geom, setGeom] = useState({ cols: 0, rows: 0 });
+  const paneId = terminalOpen?.herdr.paneId;
 
   // Keyboard: window capture only while this panel is the focused herdr.
   useEffect(() => {
@@ -254,9 +259,11 @@ export function HerdrTerminalPanel({
     };
   }, [Boolean(terminalOpen), isFocused, nodeId]);
 
-  // Stream + xterm lifecycle
+  // Stream + xterm lifecycle — keyed on paneId only. Host/session/terminalId
+  // are read from terminalOpenRef so binding churn does not full-reconnect.
   useEffect(() => {
-    if (!terminalOpen || !hostRef.current) return;
+    if (!paneId || !hostRef.current) return;
+    if (!terminalOpenRef.current) return;
     const api = getVellumApi() as HerdrApi | undefined;
     apiRef.current = api;
     const hostEl = hostRef.current;
@@ -323,9 +330,10 @@ export function HerdrTerminalPanel({
     };
     // Cached terminal id is good enough for a dimmed preview — the live id is
     // re-resolved in openStream; a stale preview is wiped by the first full frame.
-    if (terminalOpen.herdr.terminalId && api.herdrObserveRetained) {
+    const seedTerminalId = terminalOpenRef.current?.herdr.terminalId;
+    if (seedTerminalId && api.herdrObserveRetained) {
       void api
-        .herdrObserveRetained(terminalOpen.herdr.terminalId)
+        .herdrObserveRetained(seedTerminalId)
         .then(writePlaceholder)
         .catch(() => undefined);
     }
@@ -348,7 +356,8 @@ export function HerdrTerminalPanel({
       }
       cols = Math.max(20, Math.min(300, cols));
       rows = Math.max(5, Math.min(120, rows));
-      setGeom({ cols, rows });
+      // Skip no-op resize renders (ResizeObserver can re-fire same geometry).
+      setGeom((prev) => (prev.cols === cols && prev.rows === rows ? prev : { cols, rows }));
       return { cols, rows };
     };
 
@@ -361,12 +370,14 @@ export function HerdrTerminalPanel({
 
     const openStream = async () => {
       setStatus("ensuring server…");
-      const herdr = terminalOpen.herdr;
+      const open = terminalOpenRef.current;
+      if (!open) return;
+      const herdr = open.herdr;
       const ensure = await api.herdrEnsureServer(herdr.host, herdr.session ?? null);
       if (cancelled) return;
       if (!ensure.ok) {
         setStatus(ensure.message ?? "ensure failed");
-        setConnectionEvent(terminalOpen.nodeId, { type: "host_unreachable" });
+        setConnectionEvent(open.nodeId, { type: "host_unreachable" });
         return;
       }
 
@@ -374,16 +385,20 @@ export function HerdrTerminalPanel({
       // hands-off; a cached id then fails every reconnect and the modal spins
       // in an attach loop. The pane id is the stable handle — always re-resolve
       // the live terminal id from it, falling back to the cached one.
+      // Re-read ref after await: host/session may have updated mid-flight.
+      const live = terminalOpenRef.current;
+      if (!live) return;
+      const liveHerdr = live.herdr;
       let terminalId: string | undefined;
-      if (herdr.paneId) {
-        const meta = await api.herdrGetMeta(herdr.host, herdr.session ?? null, herdr.paneId);
+      if (liveHerdr.paneId) {
+        const meta = await api.herdrGetMeta(liveHerdr.host, liveHerdr.session ?? null, liveHerdr.paneId);
         if (cancelled) return;
         terminalId = meta.data?.terminalId;
       }
-      terminalId ||= herdr.terminalId;
+      terminalId ||= terminalOpenRef.current?.herdr.terminalId ?? liveHerdr.terminalId;
       if (!terminalId) {
         setStatus("no terminal id on bound pane");
-        setConnectionEvent(terminalOpen.nodeId, { type: "pane_missing" });
+        setConnectionEvent(live.nodeId, { type: "pane_missing" });
         return;
       }
 
@@ -392,10 +407,11 @@ export function HerdrTerminalPanel({
       if (cancelled) return;
       const { cols, rows } = measure();
 
+      const attachHerdr = terminalOpenRef.current?.herdr ?? liveHerdr;
       setStatus(`attaching ${cols}×${rows}…`);
       const opened = await api.herdrStreamOpen({
-        hostId: herdr.host,
-        session: herdr.session ?? null,
+        hostId: attachHerdr.host,
+        session: attachHerdr.session ?? null,
         terminalId,
         cols,
         rows,
@@ -411,7 +427,7 @@ export function HerdrTerminalPanel({
       }
       if (!opened.ok || !opened.streamId) {
         setStatus(opened.message ?? "stream open failed");
-        setConnectionEvent(terminalOpen.nodeId, { type: "stream_drop" });
+        setConnectionEvent(nodeId, { type: "stream_drop" });
         return;
       }
       // Pool handoff: frames captured before the observe stream was paused.
@@ -419,7 +435,7 @@ export function HerdrTerminalPanel({
       streamIdRef.current = opened.streamId;
       setTerminalStreamId(nodeId, opened.streamId);
       setStatus(`connected · ${cols}×${rows} · type · ⌘W closes`);
-      setConnectionEvent(terminalOpen.nodeId, { type: "ok" });
+      setConnectionEvent(nodeId, { type: "ok" });
       // One more resize after attach — layout often settles after first paint.
       window.setTimeout(() => {
         if (!cancelled) pushResize();
@@ -438,15 +454,15 @@ export function HerdrTerminalPanel({
         setStatus(event.message ?? "stream error");
       } else if (event.type === "closed") {
         setStatus(`closed · ${event.reason ?? "eof"}`);
-        setConnectionEvent(terminalOpen.nodeId, { type: "stream_drop" });
+        setConnectionEvent(nodeId, { type: "stream_drop" });
         streamIdRef.current = undefined;
         setTerminalStreamId(nodeId, undefined);
-        if (canAutoReconnect(terminalOpen.nodeId)) {
-          setConnectionEvent(terminalOpen.nodeId, { type: "reconnect_start" });
+        if (canAutoReconnect(nodeId)) {
+          setConnectionEvent(nodeId, { type: "reconnect_start" });
           setStatus("reconnecting…");
           void openStream();
         } else {
-          setConnectionEvent(terminalOpen.nodeId, { type: "reconnect_exhausted" });
+          setConnectionEvent(nodeId, { type: "reconnect_exhausted" });
         }
       }
     });
@@ -593,7 +609,7 @@ export function HerdrTerminalPanel({
       term.dispose();
       termRef.current = null;
     };
-  }, [nodeId, terminalOpen?.herdr.paneId, terminalOpen?.herdr.terminalId]);
+  }, [nodeId, paneId]);
 
   // Force a layout pass when opening so host has non-zero size.
   useLayoutEffect(() => {

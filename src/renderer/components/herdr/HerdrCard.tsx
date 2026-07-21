@@ -10,6 +10,7 @@ import {
   openHerdrTerminal,
   probeHerdrServiceMap,
   refreshHerdrMeta,
+  registerHerdrMetaPoll,
   scheduleRefreshHerdrMeta,
   subscribeHerdrMirror,
   subscribeHerdrServiceMap,
@@ -156,15 +157,13 @@ export function HerdrCard({
 
   // Poll when not push-driven: named-session cards always poll (their host
   // `fresh` is the *default* mirror and is not their data path). Default-session
-  // cards poll only while the host mirror is stale.
+  // cards poll only while the host mirror is stale. Shared poller in herdr-state
+  // (one 12s timer for all registered cards — not per-card intervals).
   useEffect(() => {
     if (!herdr?.paneId) return;
     void refreshHerdrMeta(node.id, herdr);
     if (pushDriven) return;
-    const timer = window.setInterval(() => {
-      void refreshHerdrMeta(node.id, herdr);
-    }, 12_000);
-    return () => window.clearInterval(timer);
+    return registerHerdrMetaPoll(node.id, herdr);
   }, [node.id, herdr?.host, herdr?.paneId, herdr?.session, herdr?.terminalId, pushDriven]);
 
   if (!herdr) {

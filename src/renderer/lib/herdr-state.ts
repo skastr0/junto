@@ -648,6 +648,49 @@ export const scheduleRefreshHerdrMeta = (nodeId: string, herdr: EtherHerdr): voi
   );
 };
 
+/** Shared 12s meta poll — one timer for all registered cards (not per-card). */
+const META_POLL_MS = 12_000;
+const metaPollByNodeId = new Map<string, EtherHerdr>();
+let metaPollTimer: ReturnType<typeof setInterval> | undefined;
+
+const tickMetaPoll = (): void => {
+  for (const [nodeId, herdr] of metaPollByNodeId) {
+    void refreshHerdrMeta(nodeId, herdr);
+  }
+};
+
+const ensureMetaPollTimer = (): void => {
+  if (metaPollTimer !== undefined || metaPollByNodeId.size === 0) return;
+  metaPollTimer = setInterval(tickMetaPoll, META_POLL_MS);
+};
+
+const stopMetaPollTimerIfEmpty = (): void => {
+  if (metaPollByNodeId.size > 0 || metaPollTimer === undefined) return;
+  clearInterval(metaPollTimer);
+  metaPollTimer = undefined;
+};
+
+/**
+ * Register interest in the shared meta poller. One interval fans out to all
+ * registered node ids. Caller still owns immediate mount refresh via
+ * refreshHerdrMeta. Returns unregister (call on unmount / when push-driven).
+ */
+export const registerHerdrMetaPoll = (
+  nodeId: string,
+  herdr: EtherHerdr,
+): (() => void) => {
+  metaPollByNodeId.set(nodeId, herdr);
+  ensureMetaPollTimer();
+  return () => {
+    // Only remove if still this registration — a re-register before cleanup
+    // would overwrite the map entry; leave the newer herdr alone.
+    if (metaPollByNodeId.get(nodeId) === herdr) {
+      metaPollByNodeId.delete(nodeId);
+      stopMetaPollTimerIfEmpty();
+    }
+  };
+};
+
 /**
  * Register the in-flight slot BEFORE starting the async loop. Starting first
  * then Map.set left a zombie: the async body ran sync until await, saw no
