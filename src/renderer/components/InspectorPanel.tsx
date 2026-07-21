@@ -241,8 +241,8 @@ function AgentSections({ node }: { readonly node: CanvasNode }) {
 // identity/readout/label/flag surfaces. The unread count from the chat store
 // badges the tab while you're looking elsewhere.
 function AgentTabBar({ agentKey, active, onSelect }: { readonly agentKey: string; readonly active: string; readonly onSelect: (id: string) => void }) {
-  const chat = use$(chatState$[agentKey]);
-  const unread = chat?.unread ?? 0;
+  // Field-level only — full chatState$[agentKey] re-renders per streaming token.
+  const unread = use$(chatState$[agentKey].unread) ?? 0;
   return <InspectorTabs
     tabs={[{ id: "chat", label: "chat", badge: active !== "chat" && unread > 0 ? unread : undefined }, { id: "details", label: "details" }]}
     active={active}

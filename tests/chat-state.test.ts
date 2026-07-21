@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatEvent, ChatOpenResult } from "../src/shared/ipc";
 import {
   answerPermission,
+  chatCoarse$,
   chatState$,
   closeChat,
   extractAuthMethods,
@@ -11,6 +12,7 @@ import {
   openChat,
   reduceChatEvent,
   sendPrompt,
+  setAgentChatState,
   setModel,
   subscribeChatEvents,
   type AgentChatState,
@@ -356,6 +358,68 @@ describe("subscribeChatEvents", () => {
     handler?.({ agentKey, kind: "agent_message_chunk", payload: { content: { text: "routed" } } });
     expect(getAgentChatState(agentKey).transcript).toMatchObject([{ kind: "assistant", text: "routed" }]);
     unsubscribe();
+  });
+
+  it("mirrors coarse chrome on stream events and paint-equals skip identical slots", () => {
+    const agentKey = freshAgentKey();
+    let handler: ((event: ChatEvent) => void) | undefined;
+    installMockVellum({
+      onChatEvent: vi.fn((listener: (event: ChatEvent) => void) => {
+        handler = listener;
+        return () => undefined;
+      }),
+    });
+    const unsubscribe = subscribeChatEvents();
+    handler?.({ agentKey, kind: "status", payload: { status: "live" } });
+    const first = chatCoarse$[agentKey].peek();
+    expect(first).toMatchObject({ status: "live", turnBusy: false, hasBusyTools: false });
+
+    handler?.({ agentKey, kind: "agent_message_chunk", payload: { content: { text: "tok" } } });
+    // Token chunk must not remint coarse identity when chrome fields unchanged.
+    expect(chatCoarse$[agentKey].peek()).toBe(first);
+
+    handler?.({
+      agentKey,
+      kind: "tool_call",
+      payload: { toolCallId: "t1", title: "grep", status: "in_progress" },
+    });
+    const withTool = chatCoarse$[agentKey].peek();
+    expect(withTool).not.toBe(first);
+    expect(withTool?.hasBusyTools).toBe(true);
+    unsubscribe();
+  });
+});
+
+describe("setAgentChatState / chatCoarse$", () => {
+  it("keeps chatCoarse$ in lockstep with full slot writes", () => {
+    const agentKey = `test-${Math.random().toString(36).slice(2)}`;
+    setAgentChatState(agentKey, {
+      ...initialAgentChatState(),
+      status: "live",
+      turnBusy: true,
+      pendingPermission: { requestId: "p1" },
+      transcript: [{ kind: "tool", id: "t1", toolCallId: "t1", title: "x", status: "pending", ts: 1 }],
+    });
+    expect(chatCoarse$[agentKey].peek()).toEqual({
+      status: "live",
+      pendingPermissionId: "p1",
+      turnBusy: true,
+      hasBusyTools: true,
+    });
+  });
+
+  it("closeChat clears pending permission in both stores", async () => {
+    clearWindow();
+    const agentKey = `test-${Math.random().toString(36).slice(2)}`;
+    setAgentChatState(agentKey, {
+      ...initialAgentChatState(),
+      status: "live",
+      pendingPermission: { requestId: "p2" },
+    });
+    await closeChat(agentKey);
+    expect(getAgentChatState(agentKey).pendingPermission).toBeUndefined();
+    expect(chatCoarse$[agentKey].peek()?.pendingPermissionId).toBeUndefined();
+    expect(chatCoarse$[agentKey].peek()?.status).toBe("closed");
   });
 });
 

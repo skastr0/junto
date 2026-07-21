@@ -8,6 +8,7 @@ export {
   chatState$,
   chatCoarse$,
   getAgentChatState,
+  setAgentChatState,
   initialAgentChatState,
   reduceChatEvent,
   subscribeChatEvents,

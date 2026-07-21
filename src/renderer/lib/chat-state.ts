@@ -389,14 +389,26 @@ const hasBusyToolsFromTranscript = (transcript: ReadonlyArray<ChatItem>): boolea
     (item) => item.kind === "tool" && (item.status === "pending" || item.status === "in_progress"),
   );
 
-const syncChatCoarse = (agentKey: string, state: AgentChatState): void => {
+/** Events that can flip tool busy flags — skip transcript scan on pure text chunks. */
+const toolsMayChangeKind = (kind: string): boolean =>
+  kind === "tool_call" || kind === "tool_call_update";
+
+const syncChatCoarse = (
+  agentKey: string,
+  state: AgentChatState,
+  opts?: { readonly rescanTools?: boolean },
+): void => {
+  const prev = chatCoarse$[agentKey].peek();
+  const hasBusyTools =
+    opts?.rescanTools === false && prev !== undefined
+      ? prev.hasBusyTools
+      : hasBusyToolsFromTranscript(state.transcript);
   const next: AgentChatCoarse = {
     status: state.status,
     pendingPermissionId: state.pendingPermission?.requestId,
     turnBusy: state.turnBusy,
-    hasBusyTools: hasBusyToolsFromTranscript(state.transcript),
+    hasBusyTools,
   };
-  const prev = chatCoarse$[agentKey].peek();
   if (
     prev &&
     prev.status === next.status &&
@@ -408,6 +420,12 @@ const syncChatCoarse = (agentKey: string, state: AgentChatState): void => {
   }
   chatCoarse$[agentKey].set(next);
 };
+
+/** Single write path for full-slot replacement — keeps chatCoarse$ in lockstep. */
+export function setAgentChatState(agentKey: string, next: AgentChatState): void {
+  chatState$[agentKey].set(next);
+  syncChatCoarse(agentKey, next);
+}
 
 function ensureAgent(agentKey: string): void {
   if (chatState$[agentKey].peek() === undefined) {
@@ -573,7 +591,10 @@ export function subscribeChatEvents(): () => void {
     ensureAgent(event.agentKey);
     const next = reduceChatEvent(getAgentChatState(event.agentKey), event);
     chatState$[event.agentKey].set(next);
-    syncChatCoarse(event.agentKey, next);
+    // Token chunks never flip tool busy — skip O(transcript) scan.
+    syncChatCoarse(event.agentKey, next, {
+      rescanTools: toolsMayChangeKind(event.kind) || chatCoarse$[event.agentKey].peek() === undefined,
+    });
   });
   activeUnsubscribe = () => {
     unsubscribe();
