@@ -13,6 +13,7 @@ import {
   type BrowserSessionInfo,
   type BrowserSurfaceBounds,
   type CanvasFlushRequest,
+  type LoginItemOpResult,
   type VellumApi,
   type VellumBrowserApi,
   type VellumBrowserAutomationApi,
@@ -287,6 +288,9 @@ const vellumApi: VellumApi = {
     invoke<SettingsOpResult>(IPC_CHANNELS.settingsPatch, IPC_TIMEOUT_MS, patch),
   settingsReset: (section?: SettingsSectionKey) =>
     invoke<SettingsOpResult>(IPC_CHANNELS.settingsReset, IPC_TIMEOUT_MS, section),
+  loginItemGet: () => invoke<LoginItemOpResult>(IPC_CHANNELS.loginItemGet, IPC_TIMEOUT_MS),
+  loginItemSet: (openAtLogin: boolean) =>
+    invoke<LoginItemOpResult>(IPC_CHANNELS.loginItemSet, IPC_TIMEOUT_MS, openAtLogin),
   onSettingsChanged: (listener) => subscribe<Settings>(IPC_CHANNELS.settingsChanged, listener),
 };
 

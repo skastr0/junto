@@ -57,6 +57,13 @@ import {
 import { resolveNodeRef } from "./vellum/node-ref-resolver";
 import { installProcessSignalTermination } from "./vellum/process-signal-termination";
 import {
+  assessLiveWork,
+  buildQuitConfirmPrompt,
+  hasLiveWork,
+  QUIT_CONFIRM_ACCEPT_INDEX,
+} from "./vellum/quit-live-work";
+import { getArmed, getNextFire } from "./vellum/kernel/cycle";
+import {
   installTrustedRendererPermissionPolicy,
   installTrustedRendererProtocol,
   registerTrustedRendererScheme,
@@ -230,7 +237,16 @@ let trustedMainWindow: BrowserWindow | undefined;
 let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
 let workControl: WorkControlServer | undefined;
+/** Active herdr control-stream count provider for the quit live-work gate. */
+let herdrActiveControlCount: () => number = () => 0;
 let closeWindowsWithoutCanvasFlush = false;
+/** Explicit quit confirmed by the operator (or skipped: signal / headless / idle). */
+let quitConfirmed = false;
+/**
+ * Signal / forced-exit path: skip the honest-quit dialog. Cmd+Q and menu quit
+ * still gate on live work. Set before app.quit() from installProcessSignalTermination.
+ */
+let skipQuitConfirm = false;
 
 const CANVAS_FLUSH_TIMEOUT_MS = 45_000;
 const pendingCanvasFlushes = new Map<
@@ -636,6 +652,7 @@ if (!gotSingleInstanceLock) {
       AppRuntime.runPromise(HerdrPlane),
       AppRuntime.runPromise(ChatServiceContext),
     ]);
+    herdrActiveControlCount = () => herdr.streams.activeControlCount();
     await AppRuntime.runPromise(herdr.start);
     powerMonitor.on("resume", () => {
       void AppRuntime.runPromise(Effect.flatMap(HerdrPlane, (plane) => plane.warm)).catch(() => {
@@ -730,6 +747,10 @@ if (!gotSingleInstanceLock) {
     });
 }
 
+// WINDOW CLOSE ≠ QUIT on macOS: last window close leaves the app running —
+// kernel, watchers, timers, canvas file-watching, and control sockets stay live
+// with zero windows. Dock icon remains; activate recreates the window.
+// Non-darwin still quits when all windows close (platform convention).
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
@@ -832,32 +853,100 @@ const beginSignalCanvasFlush = (): void => {
     });
 };
 
+const collectLiveWorkSnapshot = () =>
+  assessLiveWork({
+    armed: getArmed(),
+    nextFireKeys: getNextFire().keys(),
+    attachedHerdrStreamCount: herdrActiveControlCount(),
+  });
+
 app.on("before-quit", (event) => {
   if (runtimeDisposed) return;
   event.preventDefault();
   if (quitPreparation !== undefined) return;
 
-  const mainWindow = trustedMainWindow;
-  const flush =
-    mainWindow === undefined || mainWindow.isDestroyed()
-      ? Promise.resolve()
-      : requestCanvasFlush(mainWindow);
+  // Sacred order lives inside this handler (flush, then runtime detach, then dispose).
+  const beginQuitPreparation = (): void => {
+    const mainWindow = trustedMainWindow;
+    const flush =
+      mainWindow === undefined || mainWindow.isDestroyed()
+        ? Promise.resolve()
+        : requestCanvasFlush(mainWindow);
 
-  quitPreparation = flush
-    .then(() => {
-      nodeRefRelayWatcher?.close();
-      nodeRefRelayWatcher = undefined;
-      detachRuntimeOnQuit("before-quit");
-      return disposeRuntime();
-    })
-    .then(() => {
-      runtimeDisposed = true;
-      closeWindowsWithoutCanvasFlush = true;
-      app.quit();
+    quitPreparation = flush
+      .then(() => {
+        nodeRefRelayWatcher?.close();
+        nodeRefRelayWatcher = undefined;
+        detachRuntimeOnQuit("before-quit");
+        return disposeRuntime();
+      })
+      .then(() => {
+        runtimeDisposed = true;
+        closeWindowsWithoutCanvasFlush = true;
+        app.quit();
+      })
+      .catch((error) => {
+        quitPreparation = undefined;
+        quitConfirmed = false;
+        console.error("[canvas] quit blocked:", error);
+      });
+  };
+
+  // Signal / headless / already-confirmed: no dialog; same flush→detach path.
+  if (skipQuitConfirm || headless || quitConfirmed) {
+    quitConfirmed = true;
+    beginQuitPreparation();
+    return;
+  }
+
+  const live = collectLiveWorkSnapshot();
+  if (!hasLiveWork(live)) {
+    quitConfirmed = true;
+    beginQuitPreparation();
+    return;
+  }
+
+  // Honest quit: one confirm naming what pauses vs what survives (herdr never killed).
+  const prompt = buildQuitConfirmPrompt(live);
+  const parent = trustedMainWindow;
+  const box =
+    parent !== undefined && !parent.isDestroyed()
+      ? dialog.showMessageBox(parent, {
+          type: prompt.type,
+          title: prompt.title,
+          message: prompt.message,
+          detail: prompt.detail,
+          buttons: [...prompt.buttons],
+          defaultId: prompt.defaultId,
+          cancelId: prompt.cancelId,
+          noLink: prompt.noLink,
+        })
+      : dialog.showMessageBox({
+          type: prompt.type,
+          title: prompt.title,
+          message: prompt.message,
+          detail: prompt.detail,
+          buttons: [...prompt.buttons],
+          defaultId: prompt.defaultId,
+          cancelId: prompt.cancelId,
+          noLink: prompt.noLink,
+        });
+
+  quitPreparation = box
+    .then((result) => {
+      if (result.response !== QUIT_CONFIRM_ACCEPT_INDEX) {
+        quitPreparation = undefined;
+        quitConfirmed = false;
+        return;
+      }
+      quitConfirmed = true;
+      quitPreparation = undefined;
+      beginQuitPreparation();
     })
     .catch((error) => {
       quitPreparation = undefined;
-      console.error("[canvas] quit blocked:", error);
+      quitConfirmed = false;
+      console.error("[quit] confirm dialog failed:", error);
     });
 });
 
@@ -871,6 +960,8 @@ app.on("will-quit", () => {
 installProcessSignalTermination({
   app,
   cleanup: (signal) => {
+    // Signals are forced exits — never the honest-quit dialog.
+    skipQuitConfirm = true;
     beginSignalCanvasFlush();
     detachRuntimeOnQuit(signal);
   },

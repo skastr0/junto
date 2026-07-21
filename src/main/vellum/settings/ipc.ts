@@ -1,4 +1,5 @@
 import type { IpcMain } from "electron";
+import { app } from "electron";
 import { Effect, Either } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import {
@@ -9,6 +10,12 @@ import {
 } from "@shared/settings";
 import { Schema } from "effect";
 import { AppRuntime } from "../../runtime";
+import {
+  loginItemOpFail,
+  loginItemOpOk,
+  readLoginItemState,
+  setLoginItemOpenAtLogin,
+} from "../login-item";
 import { SettingsService } from "./service";
 
 const decodeSection = Schema.decodeUnknownEither(SettingsSectionKey);
@@ -69,6 +76,27 @@ export const registerSettingsIpc = (
       }),
     ),
   );
+
+  // Login item: OS is source of truth. Read real state on demand; set only on
+  // explicit toggle — never enroll at boot or on settings load.
+  ipcMain.handle(IPC_CHANNELS.loginItemGet, () => {
+    try {
+      return loginItemOpOk(readLoginItemState(app));
+    } catch (error) {
+      return loginItemOpFail(error instanceof Error ? error.message : String(error));
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.loginItemSet, (_event, openAtLogin: unknown) => {
+    if (typeof openAtLogin !== "boolean") {
+      return loginItemOpFail("openAtLogin must be a boolean");
+    }
+    try {
+      return loginItemOpOk(setLoginItemOpenAtLogin(app, openAtLogin));
+    } catch (error) {
+      return loginItemOpFail(error instanceof Error ? error.message : String(error));
+    }
+  });
 
   void AppRuntime.runPromise(
     Effect.gen(function* () {

@@ -364,6 +364,69 @@ function BrowserSection() {
 
 function AdvancedSection() {
   const advanced = use$(state$.settings.advanced);
+  const [openAtLogin, setOpenAtLogin] = useState(false);
+  const [loginItemLoading, setLoginItemLoading] = useState(true);
+  const [loginItemError, setLoginItemError] = useState<string | undefined>();
+  const [loginItemBusy, setLoginItemBusy] = useState(false);
+
+  // OS is source of truth — read real getLoginItemSettings on every open; never assume.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const api = getVellumApi();
+      if (!api?.loginItemGet) {
+        if (!cancelled) {
+          setLoginItemLoading(false);
+          setLoginItemError("Login item API unavailable.");
+        }
+        return;
+      }
+      setLoginItemLoading(true);
+      try {
+        const result = await api.loginItemGet();
+        if (cancelled) return;
+        if (result.ok && result.state) {
+          setOpenAtLogin(result.state.openAtLogin);
+          setLoginItemError(undefined);
+        } else {
+          setLoginItemError(result.message ?? "Could not read login item state.");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLoginItemError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled) setLoginItemLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onToggleLoginItem = async (next: boolean) => {
+    const api = getVellumApi();
+    if (!api?.loginItemSet) {
+      setLoginItemError("Login item API unavailable.");
+      return;
+    }
+    setLoginItemBusy(true);
+    try {
+      const result = await api.loginItemSet(next);
+      if (result.ok && result.state) {
+        setOpenAtLogin(result.state.openAtLogin);
+        setLoginItemError(undefined);
+      } else {
+        setLoginItemError(result.message ?? "Could not update login item.");
+      }
+    } catch (error) {
+      setLoginItemError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoginItemBusy(false);
+    }
+  };
+
   return (
     <div className="settings-section">
       <FieldRow label="Open last canvas" hint="resume the previous surface on launch">
@@ -376,6 +439,23 @@ function AdvancedSection() {
           }
         />
       </FieldRow>
+      <FieldRow
+        label="Start Vellum at login"
+        hint="macOS Login Items — opt-in only; never enrolled silently"
+      >
+        <input
+          type="checkbox"
+          checked={openAtLogin}
+          disabled={loginItemLoading || loginItemBusy}
+          aria-label="Start Vellum at login"
+          onChange={(event) => void onToggleLoginItem(event.target.checked)}
+        />
+      </FieldRow>
+      {loginItemError ? (
+        <p className="settings-note" style={{ color: HUE.crimson }} role="status">
+          {loginItemError}
+        </p>
+      ) : null}
     </div>
   );
 }

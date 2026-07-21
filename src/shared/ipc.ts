@@ -137,6 +137,9 @@ export const IPC_CHANNELS = {
   settingsGet: "vellum:settings-get",
   settingsPatch: "vellum:settings-patch",
   settingsReset: "vellum:settings-reset",
+  // OS login item (Electron get/setLoginItemSettings — not settings.json)
+  loginItemGet: "vellum:login-item-get",
+  loginItemSet: "vellum:login-item-set",
   // remote host registry (~/.vellum/hosts.json)
   hostsList: "vellum:hosts-list",
   hostsUpsert: "vellum:hosts-upsert",
@@ -481,6 +484,10 @@ export interface VellumApi {
   readonly settingsPatch: (patch: SettingsPatch) => Promise<SettingsOpResult>;
   readonly settingsReset: (section?: SettingsSectionKey) => Promise<SettingsOpResult>;
   readonly onSettingsChanged: (listener: (settings: Settings) => void) => () => void;
+  /** OS login item — read real state; never assume. */
+  readonly loginItemGet: () => Promise<LoginItemOpResult>;
+  /** Explicit toggle only; no silent enrollment. */
+  readonly loginItemSet: (openAtLogin: boolean) => Promise<LoginItemOpResult>;
   // Remote host registry (SSH fleet surface).
   readonly hostsList: () => Promise<HostsOpResult>;
   readonly hostsUpsert: (host: unknown) => Promise<HostsOpResult>;
@@ -501,6 +508,20 @@ export interface HostsOpResult {
     readonly hermesId?: string;
   }>;
   readonly code?: string;
+  readonly message?: string;
+}
+
+/** OS login-item state from Electron getLoginItemSettings (not settings.json). */
+export interface LoginItemState {
+  readonly openAtLogin: boolean;
+  readonly openAsHidden: boolean;
+  readonly wasOpenedAtLogin: boolean;
+  readonly wasOpenedAsHidden: boolean;
+}
+
+export interface LoginItemOpResult {
+  readonly ok: boolean;
+  readonly state?: LoginItemState;
   readonly message?: string;
 }
 

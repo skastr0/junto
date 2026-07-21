@@ -185,6 +185,11 @@ export class HerdrStreamManager {
     return this.streams.keys().next().value;
   }
 
+  /** Count of attached control streams (quit affordance / live-work gate). */
+  activeControlCount(): number {
+    return this.streams.size;
+  }
+
   open(input: {
     readonly hostId: string;
     readonly session?: string | null;
