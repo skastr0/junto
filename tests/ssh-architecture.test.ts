@@ -56,6 +56,9 @@ describe("SSH architecture", () => {
       "src/main/vellum/herdr/plane.ts",
       "src/main/vellum/hermes/transport.ts",
       "src/main/vellum/hosts/doctor.ts",
+      // Remote station pull + host configure: product policy over shared SSH kernel.
+      "src/main/vellum/canvas-pull.ts",
+      "src/main/vellum/hosts/configure-remote.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
     const violations = files.flatMap((path) => {

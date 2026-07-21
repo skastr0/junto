@@ -44,7 +44,10 @@ const watcherNode = (id: string) => ({
   y: 0,
   width: 120,
   height: 40,
-  ether: { watch: { kind: "stat_threshold" as const, source: "tower" as const, key: "proj", stat: "signals", op: "gt" as const, value: 10 } },
+  ether: {
+    entity: { kind: "watcher" as const },
+    watch: { kind: "stat_threshold" as const, source: "tower" as const, key: "proj", stat: "signals", op: "gt" as const, value: 10 },
+  },
 });
 
 const timerNode = (id: string) => ({
@@ -55,7 +58,7 @@ const timerNode = (id: string) => ({
   y: 200,
   width: 120,
   height: 40,
-  ether: { timer: { everyMinutes: 10 } },
+  ether: { entity: { kind: "timer" as const }, timer: { everyMinutes: 10 } },
 });
 
 const plainNode = (id: string) => ({ id, type: "text" as const, text: "note", x: 0, y: 400, width: 120, height: 40 });

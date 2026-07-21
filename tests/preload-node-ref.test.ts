@@ -189,21 +189,11 @@ describe("preload canvas close gate", () => {
 });
 
 describe("preload browser automation bridge", () => {
-  it("exposes only enable, list, and revoke request arguments", async () => {
+  it("does not expose enable/list/revoke — process-bind replaced the ceremony", async () => {
     const api = await loadPreload();
-    const ref = formatNodeRef({ canvasName: "portfolio", nodeId: "page" });
-    const automationId = "00000000-0000-4000-8000-000000000001";
-
-    await api.browserAutomationEnable({ kind: "hermes", ref });
-    await api.browserAutomationEnable({ kind: "herdr", ref, agent: "codex" });
-    await api.browserAutomationList();
-    await api.browserAutomationRevoke(automationId);
-
-    expect(electron.invoked).toEqual([
-      [IPC_CHANNELS.browserAutomationEnable, { kind: "hermes", ref }],
-      [IPC_CHANNELS.browserAutomationEnable, { kind: "herdr", ref, agent: "codex" }],
-      [IPC_CHANNELS.browserAutomationList],
-      [IPC_CHANNELS.browserAutomationRevoke, automationId],
-    ]);
+    // Ceremony deleted (process-bind + edges only). Preload must not re-surface it.
+    expect(typeof api.browserAutomationEnable).toBe("undefined");
+    expect(typeof api.browserAutomationList).toBe("undefined");
+    expect(typeof api.browserAutomationRevoke).toBe("undefined");
   });
 });

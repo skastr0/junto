@@ -49,7 +49,10 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
         y: 40,
         width: 120,
         height: 40,
-        ether: { watch: { kind: "stat_threshold", source: "tower", key: "proj", stat: "signals", op: "gt", value: 10 } },
+        ether: {
+          entity: { kind: "watcher" },
+          watch: { kind: "stat_threshold", source: "tower", key: "proj", stat: "signals", op: "gt", value: 10 },
+        },
       },
       {
         id: "agent-a",
@@ -59,10 +62,12 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
         y: 140,
         width: 100,
         height: 50,
-        ether: { entity: { kind: "agent", name: "remote-a:vega" } },
+        // local host so command-center station scope (default) may fire + deliver
+        ether: { entity: { kind: "agent", name: "local:vega" } },
       },
     ],
-    edges: [],
+    // Host-scoped fire routes on edges, not region membership alone.
+    edges: [{ id: "e-watch-agent", fromNode: "watcher-1", toNode: "agent-a" }],
   };
 
   beforeEach(() => {

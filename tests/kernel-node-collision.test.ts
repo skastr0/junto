@@ -40,7 +40,10 @@ const docWithWatcher = (nodeId: string): CanvasDoc => ({
       y: 0,
       width: 120,
       height: 40,
-      ether: { watch: { kind: "stat_threshold", source: "tower", key: "proj", stat: "signals", op: "gt", value: 10, flagOnUnsatisfied: true } },
+      ether: {
+        entity: { kind: "watcher" },
+        watch: { kind: "stat_threshold", source: "tower", key: "proj", stat: "signals", op: "gt", value: 10, flagOnUnsatisfied: true },
+      },
     },
   ],
   edges: [],

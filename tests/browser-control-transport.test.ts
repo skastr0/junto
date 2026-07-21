@@ -7,8 +7,6 @@ import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  CONTROL_CAPABILITY_ENV,
-  CONTROL_CAPABILITY_HEADER,
   CONTROL_MAX_BODY_BYTES,
   CONTROL_MAX_HEADER_BYTES,
   CONTROL_REQUEST_ID_HEADER,
@@ -24,6 +22,7 @@ import {
   type BrowserControlRuntime,
   type BrowserControlServer,
 } from "../src/main/vellum/browser/control";
+import type { EdgeGrantService } from "../src/main/vellum/browser/edge-grant";
 import { makeBrowserProfileService } from "../src/main/vellum/browser/profiles";
 import {
   BrowserSessionService,
@@ -36,6 +35,7 @@ import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
 } from "../src/main/vellum/browser/capabilities";
+import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const TEST_ROOT_PREFIX = "/tmp/vct-";
@@ -44,6 +44,7 @@ const servers: BrowserControlServer[] = [];
 const capabilityRegistries: BrowserCapabilityRegistry[] = [];
 const rogueServers: HttpServer[] = [];
 const PAGE_REF = "vellum://canvas/work?node=cli-node";
+const AGENT_KEY = "local:cli";
 const resolvePageTarget: PageTargetResolver = async (ref) =>
   ref === PAGE_REF
     ? {
@@ -56,6 +57,39 @@ const resolvePageTarget: PageTargetResolver = async (ref) =>
         },
       }
     : { ok: false, code: "not_found", message: "page not found" };
+
+/** Transport tests: admit every socket with a pre-minted internal lease. */
+const admittingEdgeGrant = (secret: string): EdgeGrantService => ({
+  processMap: makeProcessIdentityMap(),
+  admitSocket: async () => ({
+    ok: true,
+    secret,
+    principal: { kind: "agent", agentKey: AGENT_KEY },
+    targetCount: 1,
+  }),
+  admitPrincipal: async () => ({
+    ok: true,
+    secret,
+    principal: { kind: "agent", agentKey: AGENT_KEY },
+    targetCount: 1,
+  }),
+  clear: () => {},
+});
+
+const denyingEdgeGrant = (): EdgeGrantService => ({
+  processMap: makeProcessIdentityMap(),
+  admitSocket: async () => ({
+    ok: false,
+    denial: "process_unbound",
+    message: "connecting process is not a registered agent or herdr process",
+  }),
+  admitPrincipal: async () => ({
+    ok: false,
+    denial: "process_unbound",
+    message: "connecting process is not a registered agent or herdr process",
+  }),
+  clear: () => {},
+});
 
 const mode = async (path: string): Promise<number> => (await stat(path)).mode & 0o777;
 
@@ -91,6 +125,7 @@ const startStack = async (
   root: string,
   runtime?: BrowserControlRuntime,
   resolver: PageTargetResolver = resolvePageTarget,
+  edgeGrantMode: "admit" | "deny" = "admit",
 ): Promise<{
   readonly server: BrowserControlServer;
   readonly sessions: BrowserSessionService;
@@ -102,6 +137,7 @@ const startStack = async (
   const sessions = makeSessions(root);
   const capabilities = makeBrowserCapabilityRegistry();
   capabilityRegistries.push(capabilities);
+  // Internal lease the process-bind stub returns — not a client-presented secret.
   const principal = capabilities.createPrincipal();
   const grant = capabilities.issue(principal, {
     actions: BROWSER_CAPABILITY_ACTIONS,
@@ -114,6 +150,8 @@ const startStack = async (
     maxUses: 10_000,
     maxInFlight: 32,
   });
+  const edgeGrant =
+    edgeGrantMode === "admit" ? admittingEdgeGrant(grant.secret) : denyingEdgeGrant();
   const server = await startBrowserControlServer(
     {
       sessions,
@@ -121,6 +159,7 @@ const startStack = async (
       resolvePageTarget: resolver,
       version: "transport-test",
       home: root,
+      edgeGrant,
     },
     runtime,
   );
@@ -135,14 +174,19 @@ const startStack = async (
   };
 };
 
-const capabilityHeaders = (
+/** Protected-route headers: token + request id. Capability secrets are not identity. */
+const protectedHeaders = (
   token: string,
-  capability: string,
 ): ReadonlyArray<readonly [string, string]> => [
   [CONTROL_TOKEN_HEADER, token],
-  [CONTROL_CAPABILITY_HEADER, capability],
   [CONTROL_REQUEST_ID_HEADER, randomUUID()],
 ];
+
+/** @deprecated alias — keep until call sites fully migrate */
+const capabilityHeaders = (
+  token: string,
+  _capability?: string,
+): ReadonlyArray<readonly [string, string]> => protectedHeaders(token);
 
 const rawExchange = (
   socketPath: string,
@@ -326,22 +370,25 @@ describe("browser control Unix transport", () => {
     });
   });
 
-  it("rejects missing capability metadata before waiting for a protected body", async () => {
+  it("rejects unbound process / invalid request id before waiting for a protected body", async () => {
     const root = await newRoot();
-    const { server, token, capability } = await startStack(root);
+    // Deny process-bind so protected auth fails without reading the body.
+    const { server, token } = await startStack(root, undefined, resolvePageTarget, "deny");
     const cases = [
       {
+        // Missing request id fails before process-bind.
         headers: [[CONTROL_TOKEN_HEADER, token]] as const,
-        status: 401,
-        tag: "unauthorized",
-      },
-      {
-        headers: [
-          [CONTROL_TOKEN_HEADER, token],
-          [CONTROL_CAPABILITY_HEADER, capability],
-        ] as const,
         status: 400,
         tag: "bad_request",
+      },
+      {
+        // Valid request id, process unbound → 401 without body wait.
+        headers: [
+          [CONTROL_TOKEN_HEADER, token],
+          [CONTROL_REQUEST_ID_HEADER, randomUUID()],
+        ] as const,
+        status: 401,
+        tag: "unauthorized",
       },
     ];
     for (const testCase of cases) {
@@ -750,12 +797,13 @@ describe("browser control Unix transport", () => {
 
   it("keeps the installed browser CLI compatible with under-cap chunked JSON", async () => {
     const root = await newRoot();
-    const { sessions, capability, auditId } = await startStack(root);
+    // CLI is process-bind only — no capability env. Stub edge-grant admits the child.
+    const { sessions, auditId } = await startStack(root);
     const result = await runCli(root, [
       "open",
       PAGE_REF,
       "--json",
-    ], { [CONTROL_CAPABILITY_ENV]: capability });
+    ]);
 
     expect(result.code, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
