@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync } from "node:fs";
+import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { access, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { createConnection } from "node:net";
@@ -369,6 +369,56 @@ describe("browser control Unix transport", () => {
     await expect(access(server.socketPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("preserves a replacement Unix socket while closing its original listener", async () => {
+    const root = await newRoot();
+    const { server } = await startStack(root, {
+      chmodSocket: chmodSync,
+      shutdownGraceMs: 5,
+      shutdownDeadlineMs: 100,
+    });
+    unlinkSync(server.socketPath);
+    const replacement = createHttpServer((_req, res) => res.end("replacement"));
+    rogueServers.push(replacement);
+    await new Promise<void>((resolveListen, rejectListen) => {
+      replacement.once("error", rejectListen);
+      replacement.listen(server.socketPath, resolveListen);
+    });
+
+    await expect(server.close()).resolves.toMatchObject({
+      clean: true,
+      retainedCounts: { socketPaths: 0 },
+    });
+    await expect(access(server.socketPath)).resolves.toBeUndefined();
+  });
+
+  it("fails closed on an unpreservable replacement and retries after it is removed", async () => {
+    const root = await newRoot();
+    const { server } = await startStack(root, {
+      chmodSocket: chmodSync,
+      shutdownGraceMs: 5,
+      shutdownDeadlineMs: 30,
+    });
+    unlinkSync(server.socketPath);
+    await mkdir(server.socketPath);
+
+    const refused = await server.close();
+    expect(refused.clean).toBe(false);
+    expect(refused.retainedCounts).toMatchObject({
+      listenerClosures: 1,
+      socketPaths: 1,
+    });
+    expect(refused.retainedLabels).toEqual(
+      expect.arrayContaining(["listener", "socket-path"]),
+    );
+
+    await rm(server.socketPath, { recursive: true });
+    await expect(server.close()).resolves.toMatchObject({
+      clean: true,
+      retainedCounts: { listenerClosures: 0, socketPaths: 0 },
+      retainedLabels: [],
+    });
+  });
+
   it("retains the actual route promise after request cancellation and reports it at deadline", async () => {
     const root = await newRoot();
     const routeStarted = deferred<void>();
@@ -543,6 +593,35 @@ describe("browser control Unix transport", () => {
       ),
     ).rejects.toThrow("injected chmod failure");
     await expect(access(controlSocketPath(root))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("does not unlink a replacement path when permission hardening fails", async () => {
+    const root = await newRoot();
+    const capabilities = makeBrowserCapabilityRegistry();
+    capabilityRegistries.push(capabilities);
+    const replacement = "replacement sentinel\n";
+    const runtime: BrowserControlRuntime = {
+      chmodSocket: (path) => {
+        unlinkSync(path);
+        writeFileSync(path, replacement, { mode: 0o600 });
+        throw new Error("injected chmod replacement failure");
+      },
+      shutdownDeadlineMs: 30,
+    };
+
+    await expect(
+      startBrowserControlServer(
+        {
+          sessions: makeSessions(root),
+          capabilities,
+          resolvePageTarget,
+          version: "transport-test",
+          home: root,
+        },
+        runtime,
+      ),
+    ).rejects.toThrow("injected chmod replacement failure");
+    await expect(readFile(controlSocketPath(root), "utf8")).resolves.toBe(replacement);
   });
 
   it("authenticates before waiting for or parsing a request body", async () => {

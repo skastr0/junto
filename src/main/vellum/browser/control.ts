@@ -3,6 +3,7 @@ import {
   chmodSync,
   constants as fsConstants,
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   renameSync,
@@ -1326,6 +1327,7 @@ export const startBrowserControlServer = async (
   let nextFlightId = 0;
   let nextControllerId = 0;
   let nextSocketId = 0;
+  let listenerCloseFlight: Promise<void> | undefined;
   let drainFlight: Promise<BrowserControlShutdownReceipt> | undefined;
   const activeFlights = new Map<number, BrowserControlFlight>();
   const shutdownJournal = new Map<number, BrowserControlFlight>();
@@ -1648,31 +1650,36 @@ export const startBrowserControlServer = async (
   const socketPath = controlSocketPath(home);
   unlinkSocket(socketPath);
   await listenOnSocket(server, socketPath);
-  try {
-    runtime.chmodSocket(socketPath, 0o600);
-  } catch (error) {
-    await closeServer(server);
-    unlinkSocket(socketPath);
-    throw error;
-  }
-  let socketIdentity: Readonly<{ dev: number; ino: number }>;
-  try {
-    const info = lstatSync(socketPath);
-    if (!info.isSocket()) throw new Error("browser control path is not a Unix socket");
-    socketIdentity = Object.freeze({ dev: info.dev, ino: info.ino });
-  } catch (error) {
-    await closeServer(server);
-    try {
-      unlinkSocket(socketPath);
-    } catch {
-      // Startup remains failed closed even if a raced path cannot be removed.
-    }
-    throw error;
-  }
+  type SocketPathIdentity = Readonly<{
+    dev: bigint;
+    ino: bigint;
+    birthtimeNs: bigint;
+  }>;
+  const readSocketPathIdentity = (path: string): SocketPathIdentity => {
+    const info = lstatSync(path, { bigint: true });
+    return Object.freeze({
+      dev: info.dev,
+      ino: info.ino,
+      birthtimeNs: info.birthtimeNs,
+    });
+  };
+  const sameStablePathIdentity = (
+    left: SocketPathIdentity,
+    right: SocketPathIdentity,
+  ): boolean =>
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.birthtimeNs === right.birthtimeNs;
+  let socketIdentity: SocketPathIdentity | undefined;
+  let socketPathCleanupBlocked = false;
   const ownsSocketPath = (): boolean => {
+    if (socketIdentity === undefined) return false;
     try {
-      const current = lstatSync(socketPath);
-      return current.dev === socketIdentity.dev && current.ino === socketIdentity.ino;
+      const current = lstatSync(socketPath, { bigint: true });
+      return current.isSocket() &&
+        current.dev === socketIdentity.dev &&
+        current.ino === socketIdentity.ino &&
+        current.birthtimeNs === socketIdentity.birthtimeNs;
     } catch {
       return false;
     }
@@ -1680,6 +1687,113 @@ export const startBrowserControlServer = async (
   const unlinkOwnedSocket = (): void => {
     if (ownsSocketPath()) unlinkSync(socketPath);
   };
+  const closeListenerWithoutDeletingReplacement = async (): Promise<void> => {
+    if (!existsSync(socketPath) || ownsSocketPath()) {
+      await closeServer(server);
+      socketPathCleanupBlocked = false;
+      return;
+    }
+
+    // Node/libuv unlinks the originally-bound pathname during Server.close,
+    // even when another same-user process has replaced that directory entry.
+    // Preserve the replacement through a same-inode hard link, then restore it
+    // after the listener handle has closed. If preservation is impossible, do
+    // not close destructively: leave an explicit retained listener receipt.
+    const preservationPath = `${socketPath}.preserve.${randomBytes(24).toString("hex")}`;
+    let preservedIdentity: SocketPathIdentity;
+    try {
+      const replacement = lstatSync(socketPath, { bigint: true });
+      if (!replacement.isFile() && !replacement.isSocket()) {
+        throw new Error("replacement path is not safely hard-linkable");
+      }
+      linkSync(socketPath, preservationPath);
+      preservedIdentity = readSocketPathIdentity(preservationPath);
+    } catch (error) {
+      socketPathCleanupBlocked = true;
+      server.unref();
+      throw new Error("refusing to close browser listener over an unpreserved replacement", {
+        cause: error,
+      });
+    }
+
+    let closeFailure: unknown;
+    try {
+      await closeServer(server);
+    } catch (error) {
+      closeFailure = error;
+    }
+    try {
+      if (!existsSync(socketPath)) {
+        renameSync(preservationPath, socketPath);
+      } else {
+        const current = readSocketPathIdentity(socketPath);
+        if (!sameStablePathIdentity(current, preservedIdentity)) {
+          throw new Error("browser control path changed again while restoring its replacement");
+        }
+        unlinkSync(preservationPath);
+      }
+      socketPathCleanupBlocked = false;
+    } catch (error) {
+      socketPathCleanupBlocked = true;
+      throw new Error("browser control replacement path could not be restored", { cause: error });
+    }
+    if (closeFailure !== undefined) throw closeFailure;
+  };
+  const ensureListenerClose = (): void => {
+    if (!server.listening || listenerCloseFlight !== undefined) return;
+    const close = closeListenerWithoutDeletingReplacement();
+    listenerCloseFlight = close;
+    void retainFlight("listener-close", "listener", close);
+    void close.then(
+      () => {
+        if (listenerCloseFlight === close) listenerCloseFlight = undefined;
+      },
+      () => {
+        if (listenerCloseFlight === close) listenerCloseFlight = undefined;
+      },
+    );
+  };
+  try {
+    // Capture before invoking the chmod seam: a failing implementation must
+    // not replace the path and trick cleanup into deleting a foreign file.
+    const info = lstatSync(socketPath, { bigint: true });
+    if (!info.isSocket()) throw new Error("browser control path is not a Unix socket");
+    socketIdentity = Object.freeze({
+      dev: info.dev,
+      ino: info.ino,
+      birthtimeNs: info.birthtimeNs,
+    });
+  } catch (error) {
+    await closeListenerWithoutDeletingReplacement();
+    throw error;
+  }
+  try {
+    runtime.chmodSocket(socketPath, 0o600);
+    const hardened = lstatSync(socketPath, { bigint: true });
+    if (
+      !hardened.isSocket() ||
+      hardened.dev !== socketIdentity.dev ||
+      hardened.ino !== socketIdentity.ino ||
+      hardened.birthtimeNs !== socketIdentity.birthtimeNs
+    ) {
+      throw new Error("browser control socket identity changed during permission hardening");
+    }
+    // Publish the hardened identity only after the original inode/birth
+    // witness has remained stable.
+    socketIdentity = Object.freeze({
+      dev: hardened.dev,
+      ino: hardened.ino,
+      birthtimeNs: hardened.birthtimeNs,
+    });
+  } catch (error) {
+    await closeListenerWithoutDeletingReplacement();
+    try {
+      unlinkOwnedSocket();
+    } catch {
+      // Startup remains failed closed without deleting a replacement path.
+    }
+    throw error;
+  }
   server.on("error", (error) => {
     console.error("[browser-control] server error:", error);
   });
@@ -1700,7 +1814,7 @@ export const startBrowserControlServer = async (
     for (const controller of requestControllers.values()) {
       if (!controller.signal.aborted) controller.abort("browser control shutdown");
     }
-    void retainFlight("listener-close", "listener", closeServer(server));
+    ensureListenerClose();
     try {
       unlinkOwnedSocket();
     } catch {
@@ -1726,7 +1840,7 @@ export const startBrowserControlServer = async (
       countKind("listener-close"),
       server.listening ? 1 : 0,
     );
-    const socketPaths = ownsSocketPath() ? 1 : 0;
+    const socketPaths = ownsSocketPath() || socketPathCleanupBlocked ? 1 : 0;
     const counts: BrowserControlRetainedCounts = {
       requests: countKind("request"),
       edgeAdmissions: countKind("edge-admission"),
@@ -1752,6 +1866,9 @@ export const startBrowserControlServer = async (
   const drainOnQuit = (): Promise<BrowserControlShutdownReceipt> => {
     beginShutdown();
     if (drainFlight !== undefined) return drainFlight;
+    // A previous bounded attempt may have refused a destructive close because
+    // a replacement could not be preserved. Retry once per explicit drain.
+    ensureListenerClose();
     const currentDrain = (async (): Promise<BrowserControlShutdownReceipt> => {
       const deadline = Date.now() + shutdownDeadlineMs;
       let rounds = 0;
