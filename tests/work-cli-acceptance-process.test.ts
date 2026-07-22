@@ -201,25 +201,30 @@ describe("work CLI acceptance process safety", () => {
   });
 
   it("escalates a deadline through TERM then KILL and still observes close", async () => {
-    const started = Date.now();
-    const command = runSnippet(
-      makePlane(),
-      'process.on("SIGTERM", () => {}); process.stdout.write("ready"); setInterval(() => {}, 1000);',
-      {
-        timeoutMs: 120,
-        outputLimitBytes: 64,
-        termGraceMs: 50,
-        killCloseGraceMs: 500,
-      },
-    );
+    const fake = makeFakeLeasePlane();
+    fake.forceTerminate.mockImplementation(() => {
+      fake.resolveClose({ code: null, signal: "SIGKILL" });
+      return { attempted: true };
+    });
+    const command = runBoundedWorkCliCommand(fake.plane, {
+      command: "unused-deadline-child",
+      args: [],
+      cwd: process.cwd(),
+      env: { ...process.env },
+      timeoutMs: 20,
+      outputLimitBytes: 64,
+      termGraceMs: 10,
+      killCloseGraceMs: 250,
+    });
+    fake.stdout.write("ready");
 
     await expect(command).rejects.toMatchObject({
       name: "WorkCliCommandFailure",
       kind: "timeout",
       stdout: "ready",
     });
-    expect(Date.now() - started).toBeGreaterThanOrEqual(150);
-    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(fake.terminate).toHaveBeenCalledTimes(1);
+    expect(fake.forceTerminate).toHaveBeenCalledTimes(1);
   });
 
   it("turns spawn failure into a typed failure instead of an apparent exit", async () => {
