@@ -109,4 +109,18 @@ describe("main authoring architecture", () => {
       expect(source(path)).not.toContain("runFinalWrite");
     }
   });
+
+  it("confines the private final-write wire envelope to main IPC and preload", () => {
+    const holders = filesUnder(join(root, "src"))
+      .filter((path) => readFileSync(path, "utf8").includes("__vellumFinalWrite"))
+      .map((path) => relative(root, path))
+      .sort();
+
+    expect(holders).toEqual([
+      "src/main/vellum/ipc.ts",
+      "src/preload/index.ts",
+    ]);
+    expect(source("src/shared/ipc.ts")).not.toContain("__vellumFinalWrite");
+    expect(source("src/renderer/App.tsx")).not.toContain("__vellumFinalWrite");
+  });
 });
