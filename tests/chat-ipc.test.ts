@@ -23,12 +23,20 @@ describe("chat IPC event delivery", () => {
       isDestroyed: () => false,
       send: vi.fn(),
     } as unknown as WebContents;
-    let getterThrows = false;
+    let getterMode: "healthy" | "throws" | "iterator-throws" = "healthy";
 
     await registerChatIpc(
       ipcMain,
       () => {
-        if (getterThrows) throw new Error("window enumeration failed");
+        if (getterMode === "throws") throw new Error("window enumeration failed");
+        if (getterMode === "iterator-throws") {
+          return {
+            *[Symbol.iterator](): Iterator<WebContents> {
+              yield healthy;
+              throw new Error("window iterator failed");
+            },
+          };
+        }
         return [destroyed, throwing, healthy];
       },
       service,
@@ -44,7 +52,10 @@ describe("chat IPC event delivery", () => {
     expect(throwing.send).toHaveBeenCalledWith(IPC_CHANNELS.chatEvent, event);
     expect(healthy.send).toHaveBeenCalledWith(IPC_CHANNELS.chatEvent, event);
 
-    getterThrows = true;
+    getterMode = "throws";
     expect(() => sink?.(event)).not.toThrow();
+    getterMode = "iterator-throws";
+    expect(() => sink?.(event)).not.toThrow();
+    expect(healthy.send).toHaveBeenCalledTimes(1);
   });
 });

@@ -14,9 +14,9 @@ export const registerChatIpc = (
   const service = Promise.resolve(serviceSource);
   void service.then((resolved) => {
     resolved.setEventSink((event) => {
-      let recipients: Iterable<WebContents>;
+      let recipients: ReadonlyArray<WebContents>;
       try {
-        recipients = webContentsGetter();
+        recipients = [...webContentsGetter()];
       } catch {
         return;
       }
