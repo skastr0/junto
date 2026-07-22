@@ -262,7 +262,7 @@ describe("electron-builder role-specific signing", () => {
     ).toBe("none");
     expect(() =>
       signingProfileForPath(appPath, "/tmp/outside", MACOS_RUNTIME_POLICY),
-    ).toThrow(/outside Vellum\.app/u);
+    ).toThrow(/outside (?:Vellum\.app|the app bundle)/u);
   });
 
   it("wires the custom signer, explicit profiles, audit, and verify-only smoke", async () => {

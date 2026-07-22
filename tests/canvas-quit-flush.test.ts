@@ -22,7 +22,10 @@ describe("canvas quit durability wiring", () => {
     const block = source.slice(start, source.indexOf("});", start) + 3);
 
     expect(block).toContain("beginSignalCanvasFlush()");
-    expect(block).toContain("allowForceExit: () => signalCanvasFlushDurable");
+    // Force-exit requires both canvas flush durability AND local terminal shutdown.
+    expect(block).toContain("allowForceExit:");
+    expect(block).toContain("signalCanvasFlushDurable");
+    expect(block).toContain("signalTerminalShutdownComplete");
   });
 
   it("keys fallback authorization to each signal flush, independent of hung disposal", () => {
