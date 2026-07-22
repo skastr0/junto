@@ -28,6 +28,10 @@ import {
   createAppProcessPlane,
   type AppProcessLease,
 } from "../src/main/vellum/app-process-plane";
+import {
+  setProcessEpochReaderForTests,
+  type ProcessEpochRow,
+} from "../src/main/vellum/process-epoch";
 
 class FakeChild extends EventEmitter {
   readonly stdin = new PassThrough();
@@ -119,6 +123,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setProcessEpochReaderForTests(undefined);
   vi.useRealTimers();
 });
 
@@ -128,6 +133,13 @@ const spec = (purpose = "test operation") => ({
   command: "/usr/bin/example",
   args: ["--probe"],
 });
+
+const epochRow = (
+  pid: number,
+  processGroupId: number,
+  sessionId: number,
+  startKey: string,
+): ProcessEpochRow => ({ pid, processGroupId, sessionId, startKey });
 
 describe("app process plane admission", () => {
   it("closes child, group, and daemon admission synchronously and monotonically", () => {
@@ -187,6 +199,61 @@ describe("app process plane admission", () => {
     expect(plane.terminate(lease, "operation timeout").attempted).toBe(true);
     expect(originalKill).toHaveBeenCalledWith("SIGTERM");
     expect(redirectedKill).not.toHaveBeenCalled();
+  });
+
+  it("passes only typed SSH identity options while retaining plane-owned spawn controls", () => {
+    const child = new FakeChild();
+    mocks.spawnDetachedProcessGroup.mockReturnValue({
+      child,
+      process: mintOwned({ kill: child.kill.bind(child) }),
+      mode: "child",
+    });
+    const plane = createAppProcessPlane();
+    plane.spawnGroup({
+      ...spec("SSH command"),
+      shell: "/bin/zsh",
+      uid: 501,
+      gid: 20,
+    });
+
+    expect(mocks.spawnDetachedProcessGroup).toHaveBeenCalledWith({
+      source: "test.app-process-plane",
+      command: "/usr/bin/example",
+      args: ["--probe"],
+      options: {
+        cwd: undefined,
+        env: undefined,
+        shell: "/bin/zsh",
+        uid: 501,
+        gid: 20,
+      },
+    });
+    const options = mocks.spawnDetachedProcessGroup.mock.calls[0]?.[0]?.options;
+    expect(options).not.toHaveProperty("detached");
+    expect(options).not.toHaveProperty("stdio");
+  });
+
+  it("settles close-only terminal promises without fabricating an exit callback", async () => {
+    const child = new FakeChild();
+    mocks.spawn.mockReturnValue(child);
+    const plane = createAppProcessPlane();
+    const lease = plane.spawnChild(spec());
+    const onExit = vi.fn();
+    const onClose = vi.fn();
+    lease.io.onExit(onExit);
+    lease.io.onClose(onClose);
+
+    child.close(1, null);
+
+    await expect(lease.io.exited).resolves.toEqual({ code: 1, signal: null });
+    await expect(lease.io.closed).resolves.toEqual({ code: 1, signal: null });
+    expect(onExit).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledWith({ code: 1, signal: null });
+    expect(child.listenerCount("error")).toBe(0);
+
+    const lateExit = vi.fn();
+    lease.io.onExit(lateExit);
+    expect(lateExit).not.toHaveBeenCalled();
   });
 
   it("observes a synchronous close before returning the lease", async () => {
@@ -350,9 +417,97 @@ describe("app process plane drain", () => {
     expect(mocks.releaseOwned).toHaveBeenCalledOnce();
   });
 
-  it("retains a non-signalable group tombstone after leader close", async () => {
+  it("observes descendant drainage and converges without signaling an exited leader", async () => {
     vi.useFakeTimers();
     const child = new FakeChild();
+    const descendantPid = child.pid! + 1;
+    let snapshot: readonly ProcessEpochRow[] | undefined = [
+      epochRow(child.pid!, child.pid!, 77, "leader-a"),
+      epochRow(descendantPid, child.pid!, 77, "descendant-a"),
+    ];
+    setProcessEpochReaderForTests({ snapshot: () => snapshot });
+    const owned = mintOwned({ kill: child.kill.bind(child) });
+    mocks.spawnDetachedProcessGroup.mockReturnValue({
+      child,
+      process: owned,
+      mode: "group",
+    });
+    mocks.signalOwned.mockImplementation((handle: FakeOwned, signal: NodeJS.Signals) => {
+      handle.sink.kill(signal);
+      return successfulSignal("group");
+    });
+    child.kill.mockImplementation((signal) => {
+      snapshot = [epochRow(descendantPid, child.pid!, 77, "descendant-a")];
+      child.exitAndClose(null, signal ?? null);
+      setTimeout(() => {
+        snapshot = [];
+      }, 12);
+      return true;
+    });
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    const lease = plane.spawnGroup(spec("detached worker tree"));
+
+    const draining = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(lease.io.closed).resolves.toEqual({
+      code: null,
+      signal: "SIGTERM",
+    });
+    await expect(draining).resolves.toEqual({ clean: true, stragglers: [] });
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(mocks.releaseOwned).toHaveBeenCalledOnce();
+    expect(child.listenerCount("error")).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("refreshes a retained group tombstone on a later drain retry", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    const descendantPid = child.pid! + 1;
+    let snapshot: readonly ProcessEpochRow[] | undefined = [
+      epochRow(child.pid!, child.pid!, 78, "leader-a"),
+      epochRow(descendantPid, child.pid!, 78, "descendant-a"),
+    ];
+    setProcessEpochReaderForTests({ snapshot: () => snapshot });
+    const owned = mintOwned({ kill: child.kill.bind(child) });
+    mocks.spawnDetachedProcessGroup.mockReturnValue({
+      child,
+      process: owned,
+      mode: "group",
+    });
+    mocks.signalOwned.mockImplementation((handle: FakeOwned, signal: NodeJS.Signals) => {
+      handle.sink.kill(signal);
+      return successfulSignal("group");
+    });
+    child.kill.mockImplementation((signal) => {
+      snapshot = [epochRow(descendantPid, child.pid!, 78, "descendant-a")];
+      child.exitAndClose(null, signal ?? null);
+      return true;
+    });
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    plane.spawnGroup(spec("late descendant"));
+
+    const first = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(first).resolves.toMatchObject({
+      clean: false,
+      stragglers: [{ state: "leaderless-group" }],
+    });
+
+    snapshot = [];
+    const retry = plane.drainOnQuit();
+    expect(retry).not.toBe(first);
+    await expect(retry).resolves.toEqual({ clean: true, stragglers: [] });
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps unavailable capture ownership explicitly unverified forever", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    let snapshot: readonly ProcessEpochRow[] | undefined;
+    setProcessEpochReaderForTests({ snapshot: () => snapshot });
     const owned = mintOwned({ kill: child.kill.bind(child) });
     mocks.spawnDetachedProcessGroup.mockReturnValue({
       child,
@@ -368,24 +523,57 @@ describe("app process plane drain", () => {
       return true;
     });
     const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
-    const lease = plane.spawnGroup(spec("detached worker tree"));
+    plane.spawnGroup(spec("unverified group"));
+
+    const first = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(first).resolves.toMatchObject({
+      clean: false,
+      stragglers: [{ state: "ownership-unverified" }],
+    });
+
+    snapshot = [];
+    const retry = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(retry).resolves.toMatchObject({
+      clean: false,
+      stragglers: [{ state: "ownership-unverified" }],
+    });
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps a verified tombstone unclean when refresh is unavailable", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    let snapshot: readonly ProcessEpochRow[] | undefined = [
+      epochRow(child.pid!, child.pid!, 79, "leader-a"),
+    ];
+    setProcessEpochReaderForTests({ snapshot: () => snapshot });
+    const owned = mintOwned({ kill: child.kill.bind(child) });
+    mocks.spawnDetachedProcessGroup.mockReturnValue({
+      child,
+      process: owned,
+      mode: "group",
+    });
+    mocks.signalOwned.mockImplementation((handle: FakeOwned, signal: NodeJS.Signals) => {
+      handle.sink.kill(signal);
+      return successfulSignal("group");
+    });
+    child.kill.mockImplementation((signal) => {
+      snapshot = undefined;
+      child.exitAndClose(null, signal ?? null);
+      return true;
+    });
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    plane.spawnGroup(spec("unavailable refresh"));
 
     const draining = plane.drainOnQuit();
     await vi.advanceTimersByTimeAsync(25);
-    await expect(lease.io.closed).resolves.toEqual({
-      code: null,
-      signal: "SIGTERM",
-    });
     await expect(draining).resolves.toMatchObject({
       clean: false,
-      stragglers: [{
-        mode: "group",
-        state: "leaderless-group",
-      }],
+      stragglers: [{ state: "leaderless-group" }],
     });
-    expect(child.kill).toHaveBeenCalledTimes(1);
-    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
-    expect(mocks.releaseOwned).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -5,6 +5,12 @@ import {
 } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import {
+  captureProcessGroupObservation,
+  refreshProcessGroupObservations,
+  type ProcessGroupObservation,
+  type ProcessGroupObservationRefresh,
+} from "./process-epoch";
+import {
   admitChildProcess,
   releaseOwned,
   signalOwned,
@@ -65,6 +71,9 @@ export interface AppProcessSpawnSpec {
   readonly args?: readonly string[];
   readonly cwd?: string;
   readonly env?: Readonly<NodeJS.ProcessEnv>;
+  readonly shell?: boolean | string;
+  readonly uid?: number;
+  readonly gid?: number;
 }
 
 export interface AppOutlivingDaemonSpec extends AppProcessSpawnSpec {
@@ -90,6 +99,7 @@ export type AppProcessStragglerState =
   | "running"
   | "exited-awaiting-close"
   | "leaderless-group"
+  | "ownership-unverified"
   | "refused";
 
 export interface AppProcessStraggler {
@@ -145,6 +155,7 @@ interface AppProcessRecord {
   readonly errorListeners: Set<(error: Error) => void>;
   exitEvent: AppProcessExit | undefined;
   closeEvent: AppProcessClose | undefined;
+  groupObservation: ProcessGroupObservation | undefined;
   authorityReleased: boolean;
   term: AppProcessSignalReceipt | undefined;
   kill: AppProcessSignalReceipt | undefined;
@@ -202,6 +213,9 @@ const makeSignalSink = (
 const spawnOptions = (spec: AppProcessSpawnSpec) => ({
   cwd: spec.cwd,
   env: spec.env === undefined ? undefined : { ...spec.env },
+  shell: spec.shell,
+  uid: spec.uid,
+  gid: spec.gid,
 });
 
 const rejectedSignalReceipt = (
@@ -223,6 +237,9 @@ const withSignalReceipt = (
 ): AppProcessSignalReceipt => Object.freeze({ signal, reason, ...result });
 
 const stragglerState = (record: AppProcessRecord): AppProcessStragglerState => {
+  if (record.mode === "group" && record.groupObservation === undefined) {
+    return "ownership-unverified";
+  }
   if (record.mode === "group" && record.closeEvent !== undefined) {
     return "leaderless-group";
   }
@@ -249,6 +266,41 @@ const summarizeStraggler = (record: AppProcessRecord): AppProcessStraggler =>
 
 const quiescingError = (): Error =>
   new Error(APP_PROCESS_PLANE_QUIESCING_ERROR);
+
+const validMemberEpoch = (
+  value: unknown,
+): boolean => typeof value === "object" && value !== null &&
+  "pid" in value && typeof value.pid === "number" &&
+  Number.isSafeInteger(value.pid) && value.pid > 0 &&
+  "startKey" in value && typeof value.startKey === "string" &&
+  value.startKey.length > 0;
+
+const validCapturedGroupObservation = (
+  value: ProcessGroupObservation | undefined,
+  leaderPid: number,
+): value is ProcessGroupObservation => value !== undefined &&
+  value.originalProcessGroupId === leaderPid &&
+  Number.isSafeInteger(value.sessionId) && value.sessionId >= 0 &&
+  Array.isArray(value.observedMemberEpochs) &&
+  value.observedMemberEpochs.every(validMemberEpoch) &&
+  value.observedMemberEpochs.some((member) => member.pid === leaderPid);
+
+const validGroupRefresh = (
+  previous: ProcessGroupObservation,
+  value: ProcessGroupObservationRefresh | undefined,
+): value is ProcessGroupObservationRefresh => value !== undefined &&
+  typeof value === "object" && value !== null &&
+  typeof value.clean === "boolean" &&
+  typeof value.observation === "object" && value.observation !== null &&
+  value.observation.originalProcessGroupId === previous.originalProcessGroupId &&
+  value.observation.sessionId === previous.sessionId &&
+  Array.isArray(value.observation.observedMemberEpochs) &&
+  value.observation.observedMemberEpochs.every(validMemberEpoch) &&
+  previous.observedMemberEpochs.every((prior) =>
+    value.observation.observedMemberEpochs.some((next) =>
+      next.pid === prior.pid && next.startKey === prior.startKey
+    )
+  );
 
 /**
  * Central lifetime registry for every process owned by the desktop app.
@@ -301,6 +353,58 @@ export const createAppProcessPlane = (
     registryEmptyWaiters.clear();
   };
 
+  const retireRecord = (record: AppProcessRecord): void => {
+    if (!records.delete(record)) return;
+    notifyRegistryEmpty();
+  };
+
+  const captureGroupObservation = (
+    leaderPid: number | undefined,
+  ): ProcessGroupObservation | undefined => {
+    if (leaderPid === undefined) return undefined;
+    try {
+      const observation = captureProcessGroupObservation(leaderPid);
+      return observation !== undefined &&
+          validCapturedGroupObservation(observation, leaderPid)
+        ? observation
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  /**
+   * Refresh every verified group from one coherent process table. A failed or
+   * malformed refresh mutates nothing. Only close plus verified emptiness can
+   * retire a group tombstone; this function never restores signal authority.
+   */
+  const refreshObservedGroups = (): void => {
+    const observed = [...records].filter(
+      (record): record is AppProcessRecord & {
+        groupObservation: ProcessGroupObservation;
+      } => record.mode === "group" && record.groupObservation !== undefined,
+    );
+    if (observed.length === 0) return;
+
+    let refreshed: readonly ProcessGroupObservationRefresh[] | undefined;
+    try {
+      refreshed = refreshProcessGroupObservations(
+        observed.map((record) => record.groupObservation),
+      );
+    } catch {
+      return;
+    }
+    if (refreshed === undefined || refreshed.length !== observed.length) return;
+
+    for (let index = 0; index < observed.length; index += 1) {
+      const record = observed[index]!;
+      const next = refreshed[index]!;
+      if (!validGroupRefresh(record.groupObservation, next)) continue;
+      record.groupObservation = next.observation;
+      if (next.clean && record.closeEvent !== undefined) retireRecord(record);
+    }
+  };
+
   const makeIo = (record: AppProcessRecord): AppChildIo => {
     let resolveExit!: (event: AppProcessExit) => void;
     let resolveClose!: (event: AppProcessClose) => void;
@@ -328,24 +432,22 @@ export const createAppProcessPlane = (
       const event = frozenExit(code, signal);
       record.closeEvent = event;
       record.child.off("exit", onExit);
+      record.child.off("error", onError);
       if (record.exitEvent === undefined) {
-        // Node may report close directly for a failed spawn. Close is the
-        // terminal witness for both promises, but remains distinct in state.
-        record.exitEvent = event;
+        // Close is enough to settle the terminal promise, but it is not an
+        // observed exit event. Keep onExit diagnostic callbacks distinct.
         resolveExit(event);
-        notify(record.exitListeners, event);
       }
       releaseRecordAuthority(record);
       // A group leader's close proves only that its pipes drained, not that
       // every descendant in the process group is gone. Retain a non-signalable
       // tombstone until a future group-empty observer can prove convergence.
-      if (record.mode === "child") records.delete(record);
+      if (record.mode === "child") retireRecord(record);
       resolveClose(event);
       notify(record.closeListeners, event);
       record.closeListeners.clear();
       record.exitListeners.clear();
       record.errorListeners.clear();
-      notifyRegistryEmpty();
     };
 
     const onError = (error: Error): void => {
@@ -388,8 +490,10 @@ export const createAppProcessPlane = (
       pidForDiagnostics: record.pidForDiagnostics,
       exited,
       closed,
-      onExit: (listener) =>
-        subscribe(record.exitListeners, () => record.exitEvent, listener),
+      onExit: (listener) => record.closeEvent !== undefined &&
+          record.exitEvent === undefined
+        ? () => undefined
+        : subscribe(record.exitListeners, () => record.exitEvent, listener),
       onClose: (listener) =>
         subscribe(record.closeListeners, () => record.closeEvent, listener),
       onError: (listener) => {
@@ -423,6 +527,7 @@ export const createAppProcessPlane = (
       errorListeners: new Set(),
       exitEvent: undefined,
       closeEvent: undefined,
+      groupObservation: undefined,
       authorityReleased: false,
       term: undefined,
       kill: undefined,
@@ -469,13 +574,20 @@ export const createAppProcessPlane = (
       args: spec.args ?? [],
       options: spawnOptions(spec),
     });
-    return register({
+    const lease = register({
       source: spec.source,
       purpose: spec.purpose,
       child: spawned.child,
       owned: spawned.process,
       mode: spawned.mode,
     });
+    if (spawned.mode === "group") {
+      // Lifecycle listeners are already attached. Capture before exposing the
+      // lease so the observed/unverified ownership state is immutable in time.
+      const record = leases.get(lease)!;
+      record.groupObservation = captureGroupObservation(spawned.child.pid);
+    }
+    return lease;
   };
 
   const spawnOutlivingDaemon = (
@@ -558,13 +670,20 @@ export const createAppProcessPlane = (
     // invoking any kill callback, which may re-enter spawn or drain.
     beginShutdown();
     const flight: Promise<AppProcessDrainResult> = Promise.resolve().then(async () => {
+      // A retry can retire tombstones whose descendants exited after an
+      // earlier bounded receipt. Refresh before issuing any new signal.
+      refreshObservedGroups();
+      if (records.size === 0) return { clean: true, stragglers: [] };
+
       for (const record of [...records]) {
         if (record.exitEvent === undefined && record.closeEvent === undefined) {
           signalRecord(record, "SIGTERM", "app-quit-drain");
         }
       }
 
-      if (await waitForRegistryEmpty(termGraceMs)) {
+      await waitForRegistryEmpty(termGraceMs);
+      refreshObservedGroups();
+      if (records.size === 0) {
         return { clean: true, stragglers: [] };
       }
 
@@ -574,7 +693,9 @@ export const createAppProcessPlane = (
         }
       }
 
-      if (await waitForRegistryEmpty(killGraceMs)) {
+      await waitForRegistryEmpty(killGraceMs);
+      refreshObservedGroups();
+      if (records.size === 0) {
         return { clean: true, stragglers: [] };
       }
 
