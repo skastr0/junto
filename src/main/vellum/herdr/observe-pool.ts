@@ -7,12 +7,14 @@ import {
   type OwnedProcess,
 } from "../process-signal";
 
+const OBSERVE_CHILD_TERMINATION_GRACE_MS = 1_500;
+
 /**
  * LRU pool of read-only `herdr terminal session observe` children with
  * main-process frame retention. Observers never take input/resize/scroll
  * ownership on the host (stock herdr 0.7.x: multiple observers allowed), so
- * killing one is always safe — plain SIGTERM, no `terminal.release` (that is
- * a control-stream concept).
+ * terminating one is always safe — bounded child-only SIGTERM → SIGKILL, no
+ * `terminal.release` (that is a control-stream concept).
  *
  * Frames are retained only — never forwarded to the renderer. The retained
  * [full, ...deltas] buffer is handed to the renderer when a control stream
@@ -48,6 +50,15 @@ export interface ObserveInput {
   readonly rows: number;
 }
 
+/** One exact observe child generation, retained while TERM is in flight. */
+interface ObserveGeneration {
+  readonly child: ObserveChildLike;
+  readonly ownedProcess: OwnedProcess;
+  terminationRequested: boolean;
+  authorityReleased: boolean;
+  terminationTimer?: ReturnType<typeof setTimeout>;
+}
+
 interface ObserveEntry {
   readonly terminalId: string;
   /** Observer is a bounded read lease, not a daemon or terminal owner. */
@@ -72,8 +83,7 @@ interface ObserveEntry {
    * spawnCols/Rows, which may already point at a not-yet-spawned request. */
   retainedCols: number | undefined;
   retainedRows: number | undefined;
-  child: ObserveChildLike | undefined;
-  ownedProcess: OwnedProcess | undefined;
+  generation: ObserveGeneration | undefined;
   live: boolean;
   stale: boolean;
   full: string | undefined;
@@ -151,8 +161,7 @@ export class HerdrObservePool {
       childRows: undefined,
       retainedCols: undefined,
       retainedRows: undefined,
-      child: undefined,
-      ownedProcess: undefined,
+      generation: undefined,
       live: false,
       stale: false,
       full: undefined,
@@ -246,8 +255,8 @@ export class HerdrObservePool {
     }
   }
 
-  /** App quit: SIGTERM every observe child. Observers own nothing on the
-   * host — plain kill is safe (never `terminal.release`, control-only). */
+  /** App quit: terminate every observe child. Observers own nothing on the
+   * host — bounded child-only teardown is safe (never `terminal.release`). */
   stopAll(): void {
     this.shutDown = true;
     for (const entry of this.entries.values()) this.killChild(entry);
@@ -372,8 +381,13 @@ export class HerdrObservePool {
     } catch {
       return false;
     }
-    entry.child = child;
-    entry.ownedProcess = ownedProcess;
+    const generation: ObserveGeneration = {
+      child,
+      ownedProcess,
+      terminationRequested: false,
+      authorityReleased: false,
+    };
+    entry.generation = generation;
     entry.childCols = cols;
     entry.childRows = rows;
     entry.live = true;
@@ -387,10 +401,10 @@ export class HerdrObservePool {
 
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
-      if (entry.child !== child) return; // superseded by a respawn
-      entry.buffer = feedNdjson(entry.buffer, chunk, (line) => this.handleLine(entry, line), {
+      if (entry.generation !== generation) return; // superseded by a respawn
+      entry.buffer = feedNdjson(entry.buffer, chunk, (line) => this.handleLine(entry, generation, line), {
         onOverflow: () => {
-          if (entry.child !== child) return;
+          if (entry.generation !== generation) return;
           // Defective/wedged observer: kill outright and mark stale rather
           // than eagerly respawning (unlike the deltaBytes self-heal below)
           // — a child spewing unterminated garbage would just repeat. The
@@ -404,10 +418,9 @@ export class HerdrObservePool {
     });
 
     const onGone = (): void => {
-      releaseOwned(ownedProcess);
-      if (entry.child !== child) return; // already respawned/killed deliberately
-      entry.child = undefined;
-      entry.ownedProcess = undefined;
+      this.releaseGeneration(generation);
+      if (entry.generation !== generation) return; // already respawned/killed deliberately
+      entry.generation = undefined;
       entry.live = false;
       entry.stale = true; // retention kept; next ensureObserve respawns
     };
@@ -416,7 +429,12 @@ export class HerdrObservePool {
     return true;
   }
 
-  private handleLine(entry: ObserveEntry, line: string): void {
+  private handleLine(
+    entry: ObserveEntry,
+    generation: ObserveGeneration,
+    line: string,
+  ): void {
+    if (entry.generation !== generation) return;
     let obj: Record<string, unknown>;
     try {
       obj = JSON.parse(line) as Record<string, unknown>;
@@ -454,12 +472,36 @@ export class HerdrObservePool {
   }
 
   private killChild(entry: ObserveEntry): void {
-    const child = entry.child;
-    const ownedProcess = entry.ownedProcess;
-    if (!child || !ownedProcess) return;
-    entry.child = undefined; // detach handlers' identity check first
-    entry.ownedProcess = undefined;
-    signalOwned(ownedProcess, "SIGTERM");
-    releaseOwned(ownedProcess);
+    const generation = entry.generation;
+    if (!generation) return;
+    entry.generation = undefined; // detach handlers' identity check first
+    this.terminateGeneration(generation);
+  }
+
+  /** Observed exit/error retires only the generation that emitted it. */
+  private releaseGeneration(generation: ObserveGeneration): void {
+    if (generation.authorityReleased) return;
+    generation.authorityReleased = true;
+    if (generation.terminationTimer !== undefined) {
+      clearTimeout(generation.terminationTimer);
+      generation.terminationTimer = undefined;
+    }
+    releaseOwned(generation.ownedProcess);
+  }
+
+  /** Bounded child-only teardown; never follows the entry to a replacement. */
+  private terminateGeneration(generation: ObserveGeneration): void {
+    if (generation.terminationRequested || generation.authorityReleased) return;
+    generation.terminationRequested = true;
+    signalOwned(generation.ownedProcess, "SIGTERM");
+    if (generation.authorityReleased) return;
+    const timer = setTimeout(() => {
+      generation.terminationTimer = undefined;
+      if (generation.authorityReleased) return;
+      signalOwned(generation.ownedProcess, "SIGKILL");
+      this.releaseGeneration(generation);
+    }, OBSERVE_CHILD_TERMINATION_GRACE_MS);
+    generation.terminationTimer = timer;
+    (timer as unknown as { unref?: () => void }).unref?.();
   }
 }

@@ -21,7 +21,8 @@ describe("herdr detach-on-quit product lock", () => {
     // The exact spawned control child is admitted as a session-owned
     // capability. This surface must never acquire pid/group authority.
     expect(streamSrc).toMatch(/admitChildProcess\(\{[\s\S]*?source:\s*"herdr-control:session-owned"[\s\S]*?child/);
-    expect(streamSrc).toMatch(/signalOwned\(active\.ownedProcess,\s*"SIGTERM"\)/);
+    expect(streamSrc).toMatch(/signalOwned\(stream\.ownedProcess,\s*"SIGTERM"\)/);
+    expect(streamSrc).toMatch(/signalOwned\(stream\.ownedProcess,\s*"SIGKILL"\)/);
     expect(streamSrc).not.toMatch(/spawnDetachedProcessGroup|admitSpawnedProcess|signalChildHandleOnly/);
     expect(streamSrc).not.toMatch(/process\.kill|\.child\.kill\s*\(/);
   });
@@ -42,10 +43,24 @@ describe("herdr detach-on-quit product lock", () => {
     expect(detachBlock).not.toMatch(/\btab\s+close\b/);
     expect(detachBlock).not.toMatch(/\bsession\s+stop\b/);
     expect(detachBlock).not.toMatch(/killPane|killTab/);
-    // Only the admitted control-client capability is signalled and retired.
-    expect(detachBlock).toMatch(/signalOwned\(active\.ownedProcess,\s*"SIGTERM"\)/);
-    expect(detachBlock).toMatch(/releaseOwned\(active\.ownedProcess\)/);
+    // Only the admitted control-client capability is handed to the bounded
+    // teardown state machine; detach itself has no pid/group or raw kill.
+    expect(detachBlock).toMatch(/this\.terminateControl\(active\)/);
+    expect(detachBlock).not.toMatch(/signalOwned|releaseOwned/);
     expect(detachBlock).not.toMatch(/\.kill\s*\(|\bpid\b|spawnDetachedProcessGroup/);
+  });
+
+  it("keeps exact child authority through TERM grace and bounded KILL escalation", () => {
+    const start = streamSrc.indexOf("private terminateControl(");
+    const end = streamSrc.indexOf("\n  private writeJson(", start);
+    const terminationBlock = streamSrc.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(terminationBlock).toMatch(/signalOwned\(stream\.ownedProcess,\s*"SIGTERM"\)/);
+    expect(terminationBlock).toMatch(/setTimeout/);
+    expect(terminationBlock).toMatch(/signalOwned\(stream\.ownedProcess,\s*"SIGKILL"\)/);
+    expect(terminationBlock).toMatch(/releaseControlAuthority\(stream\)/);
+    expect(terminationBlock).not.toMatch(/process\.kill|\bpid\b|spawnDetachedProcessGroup/);
   });
 
   it("main process detaches herdr on quit and signals", () => {

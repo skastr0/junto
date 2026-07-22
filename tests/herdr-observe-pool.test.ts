@@ -301,6 +301,8 @@ describe("HerdrObservePool idle leases", () => {
     expect(vi.getTimerCount()).toBe(1);
 
     pool.releaseObserve("t1");
+    expect(vi.getTimerCount()).toBe(1); // TERM grace timer replaces idle sweep
+    vi.advanceTimersByTime(1_500);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -312,7 +314,7 @@ describe("HerdrObservePool idle leases", () => {
     expect(pool.entryState("t1")?.live).toBe(true);
 
     vi.advanceTimersByTime(5 * 60_000 + 60_000); // past the lease, one sweep tick beyond
-    expect(calls[0]!.child.kills).toEqual(["SIGTERM"]);
+    expect(calls[0]!.child.kills).toEqual(["SIGTERM", "SIGKILL"]);
     expect(pool.entryState("t1")).toEqual({ live: false, stale: true });
     // Retention and its geometry survive the idle release — last pixels are still true.
     expect(pool.retainedFrames("t1")).toEqual({ frames: ["F1"], cols: 80, rows: 24 });
@@ -355,13 +357,39 @@ describe("HerdrObservePool idle leases", () => {
   });
 
   it("stopAll clears the sweep timer", () => {
-    const { spawnFn } = makeSpawner();
+    const { calls, spawnFn } = makeSpawner();
     const pool = new HerdrObservePool({ spawnFn });
     touch(pool, "t1");
     expect(vi.getTimerCount()).toBe(1);
 
     pool.stopAll();
+    expect(vi.getTimerCount()).toBe(1); // bounded child termination remains
+    vi.advanceTimersByTime(1_500);
     expect(vi.getTimerCount()).toBe(0);
+    expect(calls[0]!.child.kills).toEqual(["SIGTERM", "SIGKILL"]);
+  });
+
+  it("escalates only a retired TERM-resistant generation after an observe respawn", () => {
+    const { calls, spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn });
+    touch(pool, "t1");
+    const first = calls[0]!.child;
+
+    pool.pauseForControl("t1");
+    expect(first.kills).toEqual(["SIGTERM"]);
+    expect(touch(pool, "t1")).toEqual({ pooled: true });
+    const replacement = calls[1]!.child;
+    expect(replacement.kills).toEqual([]);
+
+    vi.advanceTimersByTime(1_500);
+    expect(first.kills).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(replacement.kills).toEqual([]);
+    expect(pool.entryState("t1")).toEqual({ live: true, stale: false });
+
+    pool.stopAll();
+    replacement.emit("close", 0);
+    vi.advanceTimersByTime(1_500);
+    expect(replacement.kills).toEqual(["SIGTERM"]);
   });
 });
 

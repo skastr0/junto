@@ -24,6 +24,8 @@ export interface HerdrStreamFrame {
 
 export type StreamSink = (frame: HerdrStreamFrame) => void;
 
+const CONTROL_CHILD_TERMINATION_GRACE_MS = 1_500;
+
 interface ActiveStream {
   readonly streamId: string;
   readonly hostId: string;
@@ -33,6 +35,9 @@ interface ActiveStream {
   /** The control client belongs to this attached session, never the host pane. */
   readonly lifetime: "session-owned";
   readonly ownedProcess: OwnedProcess;
+  terminationRequested: boolean;
+  authorityReleased: boolean;
+  terminationTimer?: ReturnType<typeof setTimeout>;
   readonly openedAt: number;
   /** Last known geometry — reused when handing the terminal back to the observe pool. */
   cols: number;
@@ -164,7 +169,8 @@ export const writeChunked = (
  *
  * Closing a stream (modal close, same-PTY re-open, app quit, launchd unload) ONLY:
  *   1. sends `terminal.release` to herdr
- *   2. SIGTERM the local/ssh *control client* process (`herdr terminal session control …`)
+ *   2. SIGTERM the local/ssh *control client* process (`herdr terminal session control …`),
+ *      with bounded SIGKILL escalation against that same child capability
  *
  * It NEVER runs `pane close`, `tab close`, `workspace close`, or `session stop`.
  * Herdr panes and agents keep running on the host when Vellum exits. Rebuilding
@@ -277,6 +283,8 @@ export class HerdrStreamManager {
       child,
       lifetime: "session-owned",
       ownedProcess,
+      terminationRequested: false,
+      authorityReleased: false,
       openedAt: Date.now(),
       cols: Math.max(20, Math.floor(input.cols || 80)),
       rows: Math.max(5, Math.floor(input.rows || 24)),
@@ -308,7 +316,7 @@ export class HerdrStreamManager {
     });
 
     child.on("close", (code) => {
-      releaseOwned(ownedProcess);
+      this.releaseControlAuthority(active);
       const closing = this.streams.get(streamId);
       if (!closing) return;
       this.removeStream(streamId, closing.terminalId);
@@ -321,7 +329,7 @@ export class HerdrStreamManager {
     });
 
     child.on("error", (error) => {
-      releaseOwned(ownedProcess);
+      this.releaseControlAuthority(active);
       const closing = this.streams.get(streamId);
       if (!closing) return;
       this.removeStream(streamId, closing.terminalId);
@@ -509,9 +517,10 @@ export class HerdrStreamManager {
       // ignore
     }
     // Signal only the sealed child capability — never a pid or process group.
-    signalOwned(active.ownedProcess, "SIGTERM");
-    releaseOwned(active.ownedProcess);
+    // Keep that exact generation's authority until it exits or bounded
+    // escalation has attempted SIGKILL.
     this.removeStream(streamId, active.terminalId);
+    this.terminateControl(active);
     if (handBack) this.handBackToObservePool(active);
     this.emit({ streamId, type: "closed", reason });
     return { ok: true };
@@ -531,7 +540,8 @@ export class HerdrStreamManager {
         // every other exact child capability still gets its detach attempt.
       }
     }
-    // Observers own nothing on the host — plain SIGTERM, no terminal.release.
+    // Observers own nothing on the host — bounded child-only teardown, with
+    // no terminal.release (control-only).
     try {
       this.pool.stopAll();
     } catch {
@@ -577,6 +587,37 @@ export class HerdrStreamManager {
     if (this.byTerminal.get(terminalId) === streamId) {
       this.byTerminal.delete(terminalId);
     }
+  }
+
+  /** Retire one exact control generation after observed exit/error. */
+  private releaseControlAuthority(stream: ActiveStream): void {
+    if (stream.authorityReleased) return;
+    stream.authorityReleased = true;
+    if (stream.terminationTimer !== undefined) {
+      clearTimeout(stream.terminationTimer);
+      stream.terminationTimer = undefined;
+    }
+    releaseOwned(stream.ownedProcess);
+  }
+
+  /**
+   * Bounded child-only teardown. The ActiveStream object is the generation
+   * key captured by the timer, so a superseding stream can never be signalled.
+   */
+  private terminateControl(stream: ActiveStream): void {
+    if (stream.terminationRequested || stream.authorityReleased) return;
+    stream.terminationRequested = true;
+    signalOwned(stream.ownedProcess, "SIGTERM");
+    // Some child fakes and adapters report close synchronously from kill().
+    if (stream.authorityReleased) return;
+    const timer = setTimeout(() => {
+      stream.terminationTimer = undefined;
+      if (stream.authorityReleased) return;
+      signalOwned(stream.ownedProcess, "SIGKILL");
+      this.releaseControlAuthority(stream);
+    }, CONTROL_CHILD_TERMINATION_GRACE_MS);
+    stream.terminationTimer = timer;
+    (timer as unknown as { unref?: () => void }).unref?.();
   }
 
   private writeJson(
@@ -634,7 +675,7 @@ export class HerdrStreamManager {
       type: "error",
       message: "herdr control stream exceeded max NDJSON buffer — killing unresponsive child",
     });
-    signalOwned(active.ownedProcess, "SIGTERM");
+    this.terminateControl(active);
   }
 
   private handleLine(streamId: string, line: string): void {
@@ -679,9 +720,8 @@ export class HerdrStreamManager {
       });
       const closing = this.streams.get(streamId);
       if (closing) {
-        signalOwned(closing.ownedProcess, "SIGTERM");
-        releaseOwned(closing.ownedProcess);
         this.removeStream(streamId, closing.terminalId);
+        this.terminateControl(closing);
         // Host reported the terminal genuinely closed — do NOT re-observe a
         // dead terminal; drop its pooled entry and retention instead.
         if (!this.shutDown) this.pool.releaseObserve(closing.terminalId);

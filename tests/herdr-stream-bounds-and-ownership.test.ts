@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HerdrStreamManager, type HerdrProcessLike, type ObservePoolHooks } from "../src/main/vellum/herdr/stream";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
@@ -254,6 +254,53 @@ describe("HerdrStreamManager multi-stream concurrency", () => {
     expect(children[0]!.killCalls).toBe(1);
     expect(children[0]!.killedSignal).toBe("SIGTERM");
     expect(closed).toEqual([{ streamId: opened.streamId, reason: "client_close" }]);
+  });
+});
+
+describe("HerdrStreamManager bounded child termination", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("escalates a TERM-resistant superseded generation without signalling its replacement", () => {
+    const children: FakeProcess[] = [];
+    const mgr = new HerdrStreamManager(
+      mockPool,
+      () => {
+        const child = new FakeProcess();
+        children.push(child);
+        return child;
+      },
+      async () => "/tmp/img",
+    );
+    const first = mgr.open({ hostId: "local", terminalId: "same", cols: 80, rows: 24 });
+    const replacement = mgr.open({ hostId: "local", terminalId: "same", cols: 100, rows: 30 });
+    expect(first.ok && replacement.ok).toBe(true);
+    if (!first.ok || !replacement.ok) return;
+
+    expect(children[0]!.killedSignal).toBe("SIGTERM");
+    expect(children[0]!.killCalls).toBe(1);
+    expect(children[1]!.killCalls).toBe(0);
+    vi.advanceTimersByTime(1_499);
+    expect(children[0]!.killCalls).toBe(1);
+
+    vi.advanceTimersByTime(1);
+    expect(children[0]!.killCalls).toBe(2);
+    expect(children[0]!.killedSignal).toBe("SIGKILL");
+    expect(children[1]!.killCalls).toBe(0);
+    expect(mgr.inputText(replacement.streamId, "still-current").ok).toBe(true);
+
+    // Observed close releases the replacement during TERM grace, canceling
+    // its escalation timer.
+    mgr.close(replacement.streamId);
+    children[1]!.emit("close", 0);
+    vi.advanceTimersByTime(1_500);
+    expect(children[1]!.killCalls).toBe(1);
   });
 });
 
