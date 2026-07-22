@@ -46,16 +46,14 @@ import {
 import { CanvasesService } from "../canvases";
 import { WorkService, type WorkOpResult } from "./service";
 import {
+  admitWorkTarget,
   connectedCapabilities,
   containingRegion,
+  factoryRoleOfNode,
   findNode,
-  kindAllowsOp,
   nodeKind,
   regionVisibility,
-  requiresConnection,
-  scopeError,
   summarizeNode,
-  visibilityOf,
 } from "./authz";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
 import {
@@ -238,37 +236,10 @@ const requireTarget = (
   targetId: string,
   op: WorkOp,
 ): WorkErrorBody | { readonly node: ReturnType<typeof findNode> } => {
-  const target = findNode(doc, targetId);
-  if (!target) {
-    // Invisible / unknown — do not leak existence for non-connected targets
-    // when the id is simply missing; still UnknownTarget for honest misses
-    // only if connected or region-visible would have shown it. Spec: ops on
-    // non-connected fail ScopeError naming the missing edge.
-    const vis = visibilityOf(doc, callerId, targetId);
-    if (vis === "none") {
-      return scopeError(callerId, targetId, "invisible");
-    }
-    return {
-      type: "UnknownTarget",
-      message: `target "${targetId}" not found`,
-      details: { target: targetId, retryable: false },
-    };
-  }
-  if (requiresConnection(op)) {
-    const vis = visibilityOf(doc, callerId, targetId);
-    if (vis !== "connected") {
-      return scopeError(
-        callerId,
-        targetId,
-        vis === "region" ? "not_connected" : "invisible",
-      );
-    }
-  }
-  const kind = nodeKind(target);
-  if (!kindAllowsOp(kind, op)) {
-    return scopeError(callerId, targetId, "wrong_kind", { kind, op });
-  }
-  return { node: target };
+  // Target-scoped ops: factory physics admit (edge + role law + port facet).
+  const admitted = admitWorkTarget(doc, callerId, targetId, op);
+  if (Either.isLeft(admitted)) return admitted.left;
+  return { node: admitted.right.node };
 };
 
 const dispatchOp = (
@@ -316,10 +287,13 @@ const dispatchOp = (
 
     if (op === "capabilities") {
       const self = findNode(board, caller.nodeId)!;
+      const connected = connectedCapabilities(board, caller.nodeId);
       return {
         node: summarizeNode(self),
+        // Additive: derived factory role of the process-bound seat.
+        role: factoryRoleOfNode(self),
         protocol_version: WORK_PROTOCOL_VERSION,
-        connected: connectedCapabilities(board, caller.nodeId),
+        connected,
         co_members: regionVisibility(board, caller.nodeId),
       };
     }
@@ -334,12 +308,17 @@ const dispatchOp = (
           nodeId: caller.nodeId,
         }),
         node: summarizeNode(self),
+        // Additive: derived factory role of the process-bound seat.
+        role: factoryRoleOfNode(self),
         region: region ?? null,
         connected: connected.map((c) => ({
           id: c.id,
           kind: c.kind,
           title: c.title,
           summary: c.summary,
+          // Additive: role + held port grants (ops list remains for compat).
+          role: c.role,
+          grants: c.grants,
         })),
         co_members: regionVisibility(board, caller.nodeId),
         capabilities: {

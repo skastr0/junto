@@ -11,8 +11,9 @@ import {
 import type { ProcessPrincipal } from "../process-identity";
 
 // Browser process-bind: map a registered process principal onto a canvas
-// agent|herdr node and its edge-reachable pages. Identity itself is owned by
-// process-identity (peer PID); this module only does canvas resolution.
+// actor node (agent|terminal|herdr) and its edge-reachable pages. Identity
+// itself is owned by process-identity (peer PID); this module only does
+// canvas resolution.
 
 export type BrowserProcessBindDenial =
   | "not_found"
@@ -38,6 +39,14 @@ const matchesProcessPrincipal = (
     if (kind !== "agent") return false;
     if (principal.nodeId !== undefined) return node.id === principal.nodeId;
     return node.ether?.entity?.name === principal.agentKey;
+  }
+  if (principal.kind === "terminal") {
+    if (kind !== "terminal") return false;
+    if (principal.nodeId !== undefined) return node.id === principal.nodeId;
+    if (principal.bindingId !== undefined) {
+      return node.ether?.terminal?.bindingId === principal.bindingId;
+    }
+    return false;
   }
   if (kind !== "herdr") return false;
   if (principal.nodeId !== undefined) return node.id === principal.nodeId;
@@ -72,7 +81,9 @@ export const resolveBrowserCallerFromProcess = (
       message:
         principal.kind === "agent"
           ? `no agent node for ${principal.agentKey ?? "unknown"} on canvas "${canvasName}"`
-          : `no herdr node for process on canvas "${canvasName}"`,
+          : principal.kind === "terminal"
+            ? `no terminal node for process on canvas "${canvasName}"`
+            : `no herdr node for process on canvas "${canvasName}"`,
     };
   }
   if (hits.length > 1) {
@@ -89,7 +100,7 @@ export const resolveBrowserCallerFromProcess = (
     return {
       ok: false,
       denial: "caller_wrong_kind",
-      message: "matched node is not an agent or herdr caller",
+      message: "matched node is not an actor browser caller (agent|terminal|herdr)",
     };
   }
 

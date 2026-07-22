@@ -1,11 +1,25 @@
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { groupMembers, isGroup } from "@shared/graph";
+import {
+  ALL_PORTS,
+  admitPure,
+  asNodeId,
+  canvasDocToCapabilityView,
+  isTargetWorkOp,
+  portForWorkOp,
+  resolveSpec,
+  roleOf,
+  type FactoryRole,
+  type Port,
+  type ScopeDenial,
+  type TargetWorkOpName,
+} from "@shared/physics";
 import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
+import { Either } from "effect";
 
-// Edges are the capability system. Kernel-enforced per call:
-//   CONNECTED (any undirected edge): full interaction for the target kind
-//   REGION co-members (same group, no edge): {id, kind, title} visibility only
-//   Everything else: invisible — ops fail as ScopeError naming the missing edge
+// Edges are the capability system. Kernel-enforced per call via factory physics
+// (admitPure + ports). Region co-members: {id, kind, title} visibility only.
+// Everything else: invisible — ops fail as ScopeError naming the missing edge.
 
 export type AuthzVisibility = "connected" | "region" | "none";
 
@@ -103,6 +117,7 @@ export const requiresConnection = (op: WorkOpName): boolean => {
   }
 };
 
+/** Work-plane ops offered by kind (compat list; physics KindSpecs is authority). */
 const OPS_BY_KIND: Readonly<Record<string, ReadonlyArray<WorkOpName>>> = {
   task: ["tasks.list", "tasks.claim", "tasks.update", "msg.list", "msg.send"],
   agent: ["msg.list", "msg.send"],
@@ -169,6 +184,76 @@ export const scopeError = (
   };
 };
 
+/**
+ * Map physics ScopeDenial → wire-compatible WorkErrorBody ScopeError.
+ * Messages/details match the pre-physics surface for not_connected / invisible /
+ * wrong_kind so CLIs and tests stay stable.
+ */
+export const scopeDenialToWorkError = (
+  denial: ScopeDenial,
+  extra?: { readonly kind?: string; readonly op?: WorkOpName },
+): WorkErrorBody => {
+  switch (denial.reason) {
+    case "invisible":
+      return scopeError(denial.caller, denial.target, "invisible");
+    case "not_connected":
+      return scopeError(denial.caller, denial.target, "not_connected");
+    case "no_port":
+    case "role_law":
+      return scopeError(denial.caller, denial.target, "wrong_kind", {
+        kind: extra?.kind,
+        op: extra?.op,
+      });
+    case "unknown_node":
+      return scopeError(denial.caller, denial.target, "invisible");
+  }
+};
+
+/**
+ * Admit a target-scoped work op via factory physics (edge + role law + port).
+ * Missing target still uses visibility-aware UnknownTarget / invisible.
+ */
+export const admitWorkTarget = (
+  doc: CanvasDoc,
+  callerId: string,
+  targetId: string,
+  op: WorkOpName,
+): Either.Either<{ readonly node: CanvasNode }, WorkErrorBody> => {
+  const target = findNode(doc, targetId);
+  if (!target) {
+    const vis = visibilityOf(doc, callerId, targetId);
+    if (vis === "none") {
+      return Either.left(scopeError(callerId, targetId, "invisible"));
+    }
+    return Either.left({
+      type: "UnknownTarget",
+      message: `target "${targetId}" not found`,
+      details: { target: targetId, retryable: false },
+    });
+  }
+
+  if (!requiresConnection(op) || !isTargetWorkOp(op)) {
+    return Either.right({ node: target });
+  }
+
+  const view = canvasDocToCapabilityView(doc);
+  const result = admitPure(
+    view,
+    asNodeId(callerId),
+    asNodeId(targetId),
+    portForWorkOp(op as TargetWorkOpName),
+  );
+  if (Either.isLeft(result)) {
+    return Either.left(
+      scopeDenialToWorkError(result.left, {
+        kind: nodeKind(target),
+        op,
+      }),
+    );
+  }
+  return Either.right({ node: target });
+};
+
 export type VisibleNode = {
   readonly id: string;
   readonly kind: string | undefined;
@@ -181,9 +266,30 @@ export const summarizeNode = (node: CanvasNode): VisibleNode => ({
   title: nodeTitle(node),
 });
 
+export const factoryRoleOfNode = (node: CanvasNode): FactoryRole =>
+  roleOf(resolveSpec({ kind: nodeKind(node), isGroup: isGroup(node) }));
+
+/** Ports the caller holds on the undirected edge to target (physics admit). */
+export const heldGrantsOnEdge = (
+  doc: CanvasDoc,
+  callerId: string,
+  targetId: string,
+): ReadonlyArray<Port> => {
+  const view = canvasDocToCapabilityView(doc);
+  const caller = asNodeId(callerId);
+  const target = asNodeId(targetId);
+  return ALL_PORTS.filter((port) =>
+    Either.isRight(admitPure(view, caller, target, port)),
+  );
+};
+
 export type ConnectedCapability = VisibleNode & {
   readonly summary: string;
   readonly ops: ReadonlyArray<WorkOpName>;
+  /** Derived factory role of the target (additive). */
+  readonly role: FactoryRole;
+  /** Ports held via the undirected edge (additive). */
+  readonly grants: ReadonlyArray<Port>;
 };
 
 export const connectedCapabilities = (
@@ -205,10 +311,13 @@ export const connectedCapabilities = (
     if (!node) continue;
     const kind = nodeKind(node);
     const ops = opsForKind(kind);
+    const grants = heldGrantsOnEdge(doc, callerId, other);
     out.push({
       ...summarizeNode(node),
       summary: ops.length > 0 ? ops.join(", ") : "connected (no work ops)",
       ops,
+      role: factoryRoleOfNode(node),
+      grants,
     });
   }
   return out.sort((a, b) => a.id.localeCompare(b.id));

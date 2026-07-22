@@ -12,14 +12,18 @@ import {
   WORK_PROTOCOL_VERSION,
 } from "../src/shared/work-control";
 import {
+  admitWorkTarget,
   areConnected,
   connectedCapabilities,
+  factoryRoleOfNode,
   kindAllowsOp,
   regionCoMemberIds,
+  scopeDenialToWorkError,
   scopeError,
   visibilityOf,
 } from "../src/main/vellum/work/authz";
 import type { CanvasDoc } from "../src/shared/canvas";
+import { ScopeDenial } from "../src/shared/physics";
 
 const doc = (nodes: CanvasDoc["nodes"], edges: CanvasDoc["edges"] = []): CanvasDoc => ({
   nodes,
@@ -184,6 +188,83 @@ describe("work authz — edges as capability", () => {
     expect(caps).toHaveLength(1);
     expect(caps[0]?.id).toBe("tasks");
     expect(caps[0]?.ops).toContain("tasks.claim");
+  });
+
+  it("connectedCapabilities includes additive role + held grants", () => {
+    const caps = connectedCapabilities(board, "agent");
+    expect(caps[0]?.role).toBe("sink");
+    expect(caps[0]?.grants).toEqual(
+      expect.arrayContaining([
+        "tasks.list",
+        "tasks.claim",
+        "tasks.update",
+        "msg.list",
+        "msg.send",
+      ]),
+    );
+    expect(caps[0]?.grants).not.toContain("browser.automate");
+    expect(caps[0]?.grants).not.toContain("artifact.publish");
+  });
+
+  it("admitWorkTarget uses physics for edge + port", () => {
+    const ok = admitWorkTarget(board, "agent", "tasks", "tasks.claim");
+    expect(Either.isRight(ok)).toBe(true);
+
+    const regionOnly = admitWorkTarget(board, "agent", "req", "request.create");
+    expect(Either.isLeft(regionOnly)).toBe(true);
+    if (Either.isLeft(regionOnly)) {
+      expect(regionOnly.left.type).toBe("ScopeError");
+      expect(regionOnly.left.message).toContain("missing edge");
+    }
+
+    const invisible = admitWorkTarget(board, "agent", "stranger", "tasks.list");
+    expect(Either.isLeft(invisible)).toBe(true);
+    if (Either.isLeft(invisible)) {
+      expect(invisible.left.type).toBe("ScopeError");
+      expect(invisible.left.message).toMatch(/not visible/);
+    }
+
+    const wrongKind = admitWorkTarget(board, "agent", "tasks", "artifact.publish");
+    expect(Either.isLeft(wrongKind)).toBe(true);
+    if (Either.isLeft(wrongKind)) {
+      expect(wrongKind.left.type).toBe("ScopeError");
+      expect(wrongKind.left.message).toMatch(/does not support/);
+    }
+  });
+
+  it("scopeDenialToWorkError keeps wire-compatible ScopeError bodies", () => {
+    const notConnected = scopeDenialToWorkError(
+      new ScopeDenial({
+        reason: "not_connected",
+        caller: "agent",
+        target: "req",
+        message: "physics msg",
+        port: "request.create",
+      }),
+    );
+    expect(notConnected.type).toBe("ScopeError");
+    expect(notConnected.message).toBe(
+      'missing edge between "agent" and "req" — connect the nodes',
+    );
+
+    const noPort = scopeDenialToWorkError(
+      new ScopeDenial({
+        reason: "no_port",
+        caller: "agent",
+        target: "tasks",
+        message: "physics msg",
+        port: "artifact.publish",
+      }),
+      { kind: "task", op: "artifact.publish" },
+    );
+    expect(noPort.message).toContain("does not support artifact.publish");
+  });
+
+  it("factoryRoleOfNode derives actor for agent seats", () => {
+    const agent = board.nodes.find((n) => n.id === "agent")!;
+    expect(factoryRoleOfNode(agent)).toBe("actor");
+    const tasks = board.nodes.find((n) => n.id === "tasks")!;
+    expect(factoryRoleOfNode(tasks)).toBe("sink");
   });
 
   it("scopeError names the missing edge", () => {
