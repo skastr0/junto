@@ -27,6 +27,7 @@ describe("canvas quit durability wiring", () => {
     expect(block).toContain("await beginSignalCanvasFlush(generation)");
     // Force-exit requires both canvas flush durability AND local terminal shutdown.
     expect(block).toContain("allowForceExit:");
+    expect(block).toContain("signalDurabilityGeneration === signalShutdownGeneration");
     expect(block).toContain("signalCanvasFlushDurable");
     expect(block).toContain("signalTerminalShutdownComplete");
   });

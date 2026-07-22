@@ -1039,5 +1039,8 @@ signalTermination = installProcessSignalTermination({
   // after the renderer has acknowledged a durable canvas flush. Runtime
   // disposal may itself hang; once the document is safe, the bounded fallback
   // can still terminate that native/service teardown stall.
-  allowForceExit: () => signalCanvasFlushDurable && signalTerminalShutdownComplete,
+  allowForceExit: () =>
+    signalDurabilityGeneration === signalShutdownGeneration &&
+    signalCanvasFlushDurable &&
+    signalTerminalShutdownComplete,
 });
