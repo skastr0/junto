@@ -30,10 +30,19 @@ if ((mode === "parent" || mode === "parent-ignore-term") && outputPath !== undef
   );
   hardExitAfter(2_000);
   setInterval(() => undefined, 1_000);
-} else if (mode === "leader-exits-first-ignore-term" && outputPath !== undefined) {
-  // Bounded orphan fixture: it outlives the leader briefly, then self-expires.
-  const grandchild = spawn("node", ["-e", "process.on('SIGTERM', () => {}); setTimeout(() => process.exit(0), 2000)"], {
-    stdio: ["ignore", "inherit", "inherit"],
+} else if (
+  (mode === "leader-exits-first-ignore-term" || mode === "leader-exits-first-closed") &&
+  outputPath !== undefined
+) {
+  // Both bounded grandchildren remain in the leader's original process group.
+  // One inherits output pipes; the other closes stdio before the leader exits.
+  const grandchild = spawn("node", [
+    "-e",
+    "process.on('SIGTERM', () => {}); setTimeout(() => process.exit(0), 3500)",
+  ], {
+    stdio: mode === "leader-exits-first-ignore-term"
+      ? ["ignore", "inherit", "inherit"]
+      : "ignore",
   });
   if (grandchild.pid === undefined) throw new Error("fixture grandchild has no pid");
   grandchild.unref();

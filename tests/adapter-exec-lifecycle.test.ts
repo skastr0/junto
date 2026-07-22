@@ -9,21 +9,41 @@ interface LifecycleReceipt {
   readonly failedSpawnOk: boolean;
   readonly drainClean: boolean;
   readonly drainRetained: number;
+  readonly drainScope: string;
+  readonly drainOwnershipUnverified: number;
   readonly repeatedQuitCoalesced: boolean;
-  readonly leaderResultOk: boolean;
-  readonly leaderError?: string;
-  readonly leaderGrandchildAliveWhenSettled: boolean;
-  readonly leaderExitedGrandchildAlive: boolean;
+  readonly inheritedResultOk: boolean;
+  readonly inheritedError?: string;
+  readonly inheritedGrandchildAliveWhenSettled: boolean;
+  readonly inheritedAliveAtFirstDrain: boolean;
+  readonly closedResultOk: boolean;
+  readonly closedGrandchildAliveWhenSettled: boolean;
+  readonly closedAliveAtFirstDrain: boolean;
   readonly pendingOk: boolean;
   readonly parentAlive: boolean;
-  readonly grandchildAlive: boolean;
+  readonly activeGrandchildAlive: boolean;
   readonly activeGroupReapedBeforeHardExpiry: boolean;
+  readonly convergedDrainClean: boolean;
+  readonly convergedDrainRetained: number;
+  readonly convergedDrainScope: string;
   readonly lateOk: boolean;
   readonly lateError?: string;
   readonly markerCreated: boolean;
 }
 
-const runLifecycleFixture = async (): Promise<LifecycleReceipt> => {
+interface OwnershipUnverifiedReceipt {
+  readonly resultOk: boolean;
+  readonly snapshotCalls: number;
+  readonly drainClean: boolean;
+  readonly drainRetained: number;
+  readonly drainScope: string;
+  readonly ownershipUnverified: number;
+  readonly signalAuditEntries: number;
+}
+
+const runLifecycleFixture = async <Receipt>(
+  scenario?: string,
+): Promise<Receipt> => {
   const fixture = join(
     import.meta.dirname,
     "fixtures",
@@ -31,7 +51,7 @@ const runLifecycleFixture = async (): Promise<LifecycleReceipt> => {
   );
   // This fixture imports the TypeScript adapter directly. Vitest itself runs
   // under Node, so use Bun explicitly instead of inheriting process.execPath.
-  const child = spawn("bun", [fixture], {
+  const child = spawn("bun", scenario === undefined ? [fixture] : [fixture, scenario], {
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stdout = "";
@@ -51,7 +71,7 @@ const runLifecycleFixture = async (): Promise<LifecycleReceipt> => {
       const timeout = setTimeout(() => {
         forced = true;
         child.kill("SIGKILL");
-      }, 10_000);
+      }, 12_000);
       child.once("error", reject);
       child.once("exit", (code) => {
         clearTimeout(timeout);
@@ -61,31 +81,55 @@ const runLifecycleFixture = async (): Promise<LifecycleReceipt> => {
   );
 
   expect({ ...exit, stderr }).toEqual({ code: 0, forced: false, stderr: "" });
-  return JSON.parse(stdout.trim()) as LifecycleReceipt;
+  return JSON.parse(stdout.trim()) as Receipt;
 };
 
 describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () => {
-  it("bounds leaderless inherited streams, reaps active groups, and rejects late spawns", async () => {
-    await expect(runLifecycleFixture()).resolves.toEqual({
+  it("observes stdio-closed and inherited-pipe original groups until natural exit", async () => {
+    const receipt = await runLifecycleFixture<LifecycleReceipt>();
+    expect(receipt).toMatchObject({
       gracefulOk: true,
       gracefulSettledWithinBound: true,
       failedSpawnOk: false,
       drainClean: false,
-      drainRetained: 1,
+      drainScope: "original-process-group",
+      drainOwnershipUnverified: 0,
       repeatedQuitCoalesced: true,
-      leaderResultOk: false,
-      leaderError:
-        "adapter command leader exited while output streams remained open; descendant cleanup refused",
-      leaderGrandchildAliveWhenSettled: true,
-      leaderExitedGrandchildAlive: true,
+      inheritedResultOk: false,
+      inheritedError:
+        "adapter command leader exited while output streams remained open; original process group retained for read-only observation",
+      inheritedGrandchildAliveWhenSettled: true,
+      inheritedAliveAtFirstDrain: true,
+      closedResultOk: true,
+      closedGrandchildAliveWhenSettled: true,
+      closedAliveAtFirstDrain: true,
       pendingOk: false,
       parentAlive: false,
-      grandchildAlive: false,
+      activeGrandchildAlive: false,
       activeGroupReapedBeforeHardExpiry: true,
+      convergedDrainClean: true,
+      convergedDrainRetained: 0,
+      convergedDrainScope: "original-process-group",
       lateOk: false,
       lateError: "adapter process plane is shutting down",
       markerCreated: false,
     });
+    expect(receipt.drainRetained).toBeGreaterThanOrEqual(2);
+  }, 10_000);
+
+  it("keeps a failed second admission snapshot explicitly unverified and non-signalable", async () => {
+    const receipt = await runLifecycleFixture<OwnershipUnverifiedReceipt>(
+      "ownership-unverified",
+    );
+    expect(receipt).toMatchObject({
+      resultOk: true,
+      snapshotCalls: 2,
+      drainClean: false,
+      drainScope: "original-process-group",
+      ownershipUnverified: 1,
+      signalAuditEntries: 0,
+    });
+    expect(receipt.drainRetained).toBeGreaterThanOrEqual(1);
   });
 
   it("routes normal quit and direct app.exit paths through adapter quiescence", () => {

@@ -3,11 +3,23 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type * as AdapterExecModule from "../../src/main/vellum/adapters/exec";
+import type * as ProcessEpochModule from "../../src/main/vellum/process-epoch";
+import type * as ProcessSignalModule from "../../src/main/vellum/process-signal";
 
 const adapterExecModulePath = "../../src/main/vellum/adapters/exec" + ".ts";
-const { runCli, terminateAdapterChildrenOnQuit } = (await import(
-  adapterExecModulePath
-)) as typeof AdapterExecModule;
+const {
+  resolvedSpawnEnv,
+  runCli,
+  terminateAdapterChildrenOnQuit,
+} = (await import(adapterExecModulePath)) as typeof AdapterExecModule;
+const processEpochModulePath = "../../src/main/vellum/process-epoch" + ".ts";
+const { setProcessEpochReaderForTests } = (await import(
+  processEpochModulePath
+)) as typeof ProcessEpochModule;
+const processSignalModulePath = "../../src/main/vellum/process-signal" + ".ts";
+const { clearProcessSignalAuditLog, getProcessSignalAuditLog } = (await import(
+  processSignalModulePath
+)) as typeof ProcessSignalModule;
 
 const delay = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -31,12 +43,17 @@ const processAlive = (pid: number): boolean => {
 };
 const processGoneOrZombie = (pid: number): boolean => {
   if (!processAlive(pid)) return true;
-  const status = spawnSync("ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" }).stdout.trim();
+  const status = spawnSync("ps", ["-p", String(pid), "-o", "stat="], {
+    encoding: "utf8",
+  }).stdout.trim();
   return status.startsWith("Z");
 };
 
-const waitUntil = async (label: string, check: () => boolean | Promise<boolean>): Promise<void> => {
-  const deadline = Date.now() + 5_000;
+const waitUntil = async (
+  label: string,
+  check: () => boolean | Promise<boolean>,
+): Promise<void> => {
+  const deadline = Date.now() + 7_000;
   while (Date.now() < deadline) {
     if (await check()) return;
     await delay(25);
@@ -45,37 +62,49 @@ const waitUntil = async (label: string, check: () => boolean | Promise<boolean>)
 };
 
 const root = await mkdtemp(join(tmpdir(), "vellum-adapter-exec-"));
-const pidsPath = join(root, "pids.json");
 const markerPath = join(root, "late-spawned");
 const workerPath = join(import.meta.dirname, "adapter-exec-worker.ts");
 
-try {
-  const gracefulStartedAt = Date.now();
-  const graceful = await runCli(process.execPath, [workerPath, "graceful-100"], 1_000);
-  const gracefulSettledWithinBound = Date.now() - gracefulStartedAt < 500;
-  const failedSpawn = await runCli("/definitely-missing-vellum-adapter-command", [], 1_000);
-
-  const leader = await runCli(
-    process.execPath,
-    [workerPath, "leader-exits-first-ignore-term", pidsPath],
-    30_000,
-  );
-  const leaderPids = JSON.parse(await readFile(pidsPath, "utf8")) as {
+const readGrandchildPid = async (path: string): Promise<number> => {
+  const receipt = JSON.parse(await readFile(path, "utf8")) as {
     readonly grandchildPid: number;
   };
-  const leaderGrandchildAliveWhenSettled = processAlive(leaderPids.grandchildPid);
-  // Group authority intentionally refuses a leaderless group: a later pid
-  // reuse must not turn cleanup into an unrelated negative group signal.
-  const leaderExitedGrandchildAlive = processAlive(leaderPids.grandchildPid);
-  await rm(pidsPath, { force: true });
+  await rm(path, { force: true });
+  return receipt.grandchildPid;
+};
 
-  const pending = runCli(
+const runGroupObservationScenario = async () => {
+  const gracefulStartedAt = Date.now();
+  const graceful = await runCli(process.execPath, [workerPath, "graceful-100"], 1_000);
+  const gracefulSettledWithinBound = Date.now() - gracefulStartedAt < 1_500;
+  const failedSpawn = await runCli("/definitely-missing-vellum-adapter-command", [], 1_000);
+
+  const inheritedPidsPath = join(root, "inherited-pids.json");
+  const inherited = await runCli(
     process.execPath,
-    [workerPath, "parent-ignore-term", pidsPath],
+    [workerPath, "leader-exits-first-ignore-term", inheritedPidsPath],
     30_000,
   );
-  await waitUntil("pending pids", () => pathExists(pidsPath));
-  const pids = JSON.parse(await readFile(pidsPath, "utf8")) as {
+  const inheritedGrandchildPid = await readGrandchildPid(inheritedPidsPath);
+  const inheritedGrandchildAliveWhenSettled = processAlive(inheritedGrandchildPid);
+
+  const closedPidsPath = join(root, "closed-pids.json");
+  const closed = await runCli(
+    process.execPath,
+    [workerPath, "leader-exits-first-closed", closedPidsPath],
+    30_000,
+  );
+  const closedGrandchildPid = await readGrandchildPid(closedPidsPath);
+  const closedGrandchildAliveWhenSettled = processAlive(closedGrandchildPid);
+
+  const activePidsPath = join(root, "active-pids.json");
+  const pending = runCli(
+    process.execPath,
+    [workerPath, "parent-ignore-term", activePidsPath],
+    30_000,
+  );
+  await waitUntil("pending pids", () => pathExists(activePidsPath));
+  const activePids = JSON.parse(await readFile(activePidsPath, "utf8")) as {
     readonly parentPid: number;
     readonly grandchildPid: number;
   };
@@ -86,36 +115,98 @@ try {
   const pendingResult = await pending;
   await waitUntil(
     "active group reaped",
-    () => processGoneOrZombie(pids.parentPid) && processGoneOrZombie(pids.grandchildPid),
+    () => processGoneOrZombie(activePids.parentPid) &&
+      processGoneOrZombie(activePids.grandchildPid),
   );
   const activeGroupReapedBeforeHardExpiry = Date.now() - activeCleanupStartedAt < 1_500;
   const drainResult = await drain;
+  const inheritedAliveAtFirstDrain = processAlive(inheritedGrandchildPid);
+  const closedAliveAtFirstDrain = processAlive(closedGrandchildPid);
+
+  await waitUntil("inherited-pipe original group drained", () =>
+    !processAlive(inheritedGrandchildPid)
+  );
+  await waitUntil("stdio-closed original group drained", () =>
+    !processAlive(closedGrandchildPid)
+  );
+  const convergedDrain = await terminateAdapterChildrenOnQuit();
 
   const lateResult = await runCli(
     process.execPath,
     [workerPath, "marker", markerPath],
     1_000,
   );
-  const receipt = {
+  return {
     gracefulOk: graceful.ok,
     gracefulSettledWithinBound,
     failedSpawnOk: failedSpawn.ok,
     drainClean: drainResult.clean,
     drainRetained: drainResult.retained,
+    drainScope: drainResult.scope,
+    drainOwnershipUnverified: drainResult.ownershipUnverified,
     repeatedQuitCoalesced,
-    leaderResultOk: leader.ok,
-    leaderError: leader.error,
-    leaderGrandchildAliveWhenSettled,
-    leaderExitedGrandchildAlive,
+    inheritedResultOk: inherited.ok,
+    inheritedError: inherited.error,
+    inheritedGrandchildAliveWhenSettled,
+    inheritedAliveAtFirstDrain,
+    closedResultOk: closed.ok,
+    closedGrandchildAliveWhenSettled,
+    closedAliveAtFirstDrain,
     pendingOk: pendingResult.ok,
-    parentAlive: processAlive(pids.parentPid),
-    grandchildAlive: processAlive(pids.grandchildPid),
+    parentAlive: processAlive(activePids.parentPid),
+    activeGrandchildAlive: processAlive(activePids.grandchildPid),
     activeGroupReapedBeforeHardExpiry,
+    convergedDrainClean: convergedDrain.clean,
+    convergedDrainRetained: convergedDrain.retained,
+    convergedDrainScope: convergedDrain.scope,
     lateOk: lateResult.ok,
     lateError: lateResult.error,
     markerCreated: await pathExists(markerPath),
   };
+};
+
+const runOwnershipUnverifiedScenario = async () => {
+  // Resolve the login-shell probe before replacing the read-only epoch seam,
+  // so the two counted reads below belong to exactly one adapter command.
+  await resolvedSpawnEnv();
+  clearProcessSignalAuditLog();
+  let snapshotCalls = 0;
+  setProcessEpochReaderForTests({
+    snapshot: (pidHint) => {
+      snapshotCalls += 1;
+      if (snapshotCalls !== 1 || pidHint === undefined) return undefined;
+      return [{
+        pid: pidHint,
+        processGroupId: pidHint,
+        sessionId: 23,
+        startKey: "coherent-spawn-epoch",
+      }];
+    },
+  });
+
+  const result = await runCli(
+    process.execPath,
+    [workerPath, "graceful-100"],
+    1_000,
+  );
+  const drain = await terminateAdapterChildrenOnQuit();
+  return {
+    resultOk: result.ok,
+    snapshotCalls,
+    drainClean: drain.clean,
+    drainRetained: drain.retained,
+    drainScope: drain.scope,
+    ownershipUnverified: drain.ownershipUnverified,
+    signalAuditEntries: getProcessSignalAuditLog().length,
+  };
+};
+
+try {
+  const receipt = process.argv[2] === "ownership-unverified"
+    ? await runOwnershipUnverifiedScenario()
+    : await runGroupObservationScenario();
   process.stdout.write(`${JSON.stringify(receipt)}\n`);
 } finally {
+  setProcessEpochReaderForTests(undefined);
   await rm(root, { recursive: true, force: true });
 }

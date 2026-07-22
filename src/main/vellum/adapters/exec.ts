@@ -8,6 +8,12 @@ import {
   type OwnedProcess,
   type TerminatingSignal,
 } from "../process-signal";
+import {
+  captureProcessGroupObservation,
+  refreshProcessGroupObservations,
+  type ChildProcessEpoch,
+  type ProcessGroupObservation,
+} from "../process-epoch";
 
 // Shared shell-out helper for the read-only adapter plane. Every adapter
 // call goes through here so the timeout, resolved environment, and buffer
@@ -28,15 +34,30 @@ const ADAPTER_QUIESCING_ERROR = "adapter process plane is shutting down";
 
 interface OwnedAdapterChild {
   readonly child: ChildProcessWithoutNullStreams;
-  readonly owned: OwnedProcess;
-  readonly mode: "group" | "child";
+  owned: OwnedProcess | undefined;
+  groupObservation: AdapterProcessGroupTombstone | undefined;
   readonly spawned: boolean;
   cleanupTimer?: ReturnType<typeof setTimeout>;
-  retainedStraggler?: boolean;
   released?: boolean;
 }
 
 const ownedAdapterChildren = new Set<OwnedAdapterChild>();
+type ObservedAdapterProcessGroup = {
+  readonly kind: "observed";
+  readonly originalProcessGroupId: number;
+  readonly sessionId: number;
+  readonly observedMemberEpochs: readonly ChildProcessEpoch[];
+};
+type UnverifiedAdapterProcessGroup = {
+  readonly kind: "ownership-unverified";
+  readonly originalProcessGroupId: number;
+  readonly sessionId: undefined;
+  readonly observedMemberEpochs: readonly [];
+};
+type AdapterProcessGroupTombstone =
+  | ObservedAdapterProcessGroup
+  | UnverifiedAdapterProcessGroup;
+const adapterProcessGroupTombstones = new Set<AdapterProcessGroupTombstone>();
 let adapterProcessesQuiescing = false;
 let adapterQuitDrain: Promise<AdapterQuitDrainResult> | undefined;
 
@@ -50,33 +71,67 @@ const signalOwnedAdapterChild = (
   owned: OwnedAdapterChild,
   signal: NodeJS.Signals,
 ): void => {
-  signalOwned(owned.owned, signal as TerminatingSignal);
+  if (owned.owned !== undefined) {
+    signalOwned(owned.owned, signal as TerminatingSignal);
+  }
 };
 
-const releaseOwnedAdapterChild = (owned: OwnedAdapterChild): void => {
+const observedTombstone = (
+  observation: ProcessGroupObservation,
+): ObservedAdapterProcessGroup => ({
+  kind: "observed",
+  originalProcessGroupId: observation.originalProcessGroupId,
+  sessionId: observation.sessionId,
+  observedMemberEpochs: observation.observedMemberEpochs,
+});
+
+const refreshAdapterProcessGroupTombstones = (): void => {
+  const observed = [...adapterProcessGroupTombstones]
+    .filter((tombstone): tombstone is ObservedAdapterProcessGroup =>
+      tombstone.kind === "observed"
+    );
+  if (observed.length === 0) return;
+  const refreshed = refreshProcessGroupObservations(observed);
+  // One unavailable or malformed table proves nothing. Keep every prior
+  // observation unclean and unchanged until a later drain can read a full one.
+  if (!refreshed) return;
+  refreshed.forEach((result, index) => {
+    const previous = observed[index]!;
+    adapterProcessGroupTombstones.delete(previous);
+    if (!result.clean) {
+      adapterProcessGroupTombstones.add(observedTombstone(result.observation));
+    }
+  });
+};
+
+const retireOwnedAdapterLeader = (owned: OwnedAdapterChild): void => {
   if (owned.released) return;
   owned.released = true;
   if (owned.cleanupTimer !== undefined) clearTimeout(owned.cleanupTimer);
-  releaseOwned(owned.owned);
-  // Pipe close only witnesses the leader. A previously reported leaderless
-  // descendant has no trustworthy terminal witness, so keep its tombstone in
-  // the drain registry while releasing the unusable signal authority.
-  if (!owned.retainedStraggler) ownedAdapterChildren.delete(owned);
-};
-
-const cancelOwnedAdapterCleanup = (owned: OwnedAdapterChild): void => {
-  if (owned.cleanupTimer === undefined) return;
-  clearTimeout(owned.cleanupTimer);
   owned.cleanupTimer = undefined;
+  const capability = owned.owned;
+  owned.owned = undefined;
+  releaseOwned(capability);
+  ownedAdapterChildren.delete(owned);
+
+  // From this point onward the global registry contains only read-only facts:
+  // original pgid, session, and exact member epochs. It retains neither an
+  // OwnedProcess nor a ChildProcess handle and therefore cannot signal.
+  const tombstone = owned.groupObservation;
+  owned.groupObservation = undefined;
+  if (owned.spawned && tombstone !== undefined) {
+    adapterProcessGroupTombstones.add(tombstone);
+    refreshAdapterProcessGroupTombstones();
+  }
 };
 
 const QUIT_KILL_GRACE_MS = 1_000;
 const LEADER_STREAM_DRAIN_GRACE_MS = 100;
 const LEADERLESS_STREAM_ERROR =
-  "adapter command leader exited while output streams remained open; descendant cleanup refused";
+  "adapter command leader exited while output streams remained open; original process group retained for read-only observation";
 
 const retainOwnedAdapterChildUntilKill = (owned: OwnedAdapterChild): void => {
-  if (owned.released) return;
+  if (owned.released || owned.owned === undefined) return;
   if (owned.cleanupTimer === undefined) {
     owned.cleanupTimer = setTimeout(() => {
       signalOwnedAdapterChild(owned, "SIGKILL");
@@ -95,32 +150,47 @@ const terminateOwnedAdapterChild = (owned: OwnedAdapterChild): void => {
 /**
  * Monotonically close the read-only adapter process plane during app quit.
  *
- * Each adapter command owns a distinct POSIX process group, so signalling it
- * cannot touch the intentionally persistent Herdr server/session plane. The
- * registry stores child handles and group ids only — never argv, which may
- * contain user prompt material for Hermes calls.
+ * Each live adapter command owns a distinct POSIX process group, so signalling
+ * it cannot touch the intentionally persistent Herdr server/session plane.
+ * Once its leader exits, only capability-free facts about that original group
+ * survive. This observes the original process group, never a process tree.
  */
 export interface AdapterQuitDrainResult {
+  readonly scope: "original-process-group";
   readonly clean: boolean;
   readonly retained: number;
+  readonly ownershipUnverified: number;
 }
+
+const observeAdapterQuitDrain = (): AdapterQuitDrainResult => {
+  refreshAdapterProcessGroupTombstones();
+  const ownershipUnverified = [...adapterProcessGroupTombstones]
+    .filter((tombstone) => tombstone.kind === "ownership-unverified")
+    .length;
+  const retained = ownedAdapterChildren.size + adapterProcessGroupTombstones.size;
+  return {
+    scope: "original-process-group",
+    clean: retained === 0,
+    retained,
+    ownershipUnverified,
+  };
+};
 
 export const terminateAdapterChildrenOnQuit = (): Promise<AdapterQuitDrainResult> => {
   if (adapterQuitDrain) return adapterQuitDrain;
   adapterProcessesQuiescing = true;
-  if (ownedAdapterChildren.size === 0) {
-    return Promise.resolve({ clean: true, retained: 0 });
-  }
+  const activeAtQuiesce = ownedAdapterChildren.size;
   for (const owned of ownedAdapterChildren) {
     terminateOwnedAdapterChild(owned);
   }
-  const inFlight = new Promise<AdapterQuitDrainResult>((resolve) => {
-    const drainTimer = setTimeout(() => {
-      const retained = ownedAdapterChildren.size;
-      resolve({ clean: retained === 0, retained });
-    }, QUIT_KILL_GRACE_MS + LEADER_STREAM_DRAIN_GRACE_MS);
-    drainTimer.unref?.();
-  });
+  const inFlight = activeAtQuiesce === 0
+    ? Promise.resolve().then(observeAdapterQuitDrain)
+    : new Promise<AdapterQuitDrainResult>((resolve) => {
+      const drainTimer = setTimeout(() => {
+        resolve(observeAdapterQuitDrain());
+      }, QUIT_KILL_GRACE_MS + LEADER_STREAM_DRAIN_GRACE_MS);
+      drainTimer.unref?.();
+    });
   adapterQuitDrain = inFlight.finally(() => {
     // Quiescence is permanent, but a later retry must observe exact records
     // that closed after an earlier bounded drain reported them retained.
@@ -162,7 +232,19 @@ const runOwnedFile = (
       const owned: OwnedAdapterChild = {
         child,
         owned: spawned.process,
-        mode: spawned.mode,
+        groupObservation: process.platform === "win32" || child.pid === undefined
+          ? undefined
+          : (() => {
+            const observation = captureProcessGroupObservation(child.pid!);
+            return observation === undefined
+              ? {
+                kind: "ownership-unverified" as const,
+                originalProcessGroupId: child.pid!,
+                sessionId: undefined,
+                observedMemberEpochs: [] as const,
+              }
+              : observedTombstone(observation);
+          })(),
         spawned: child.pid !== undefined,
       };
       ownedAdapterChildren.add(owned);
@@ -231,15 +313,14 @@ const runRegisteredAdapterChild = (
       closeObserved = true;
       clearTimeout(timer);
       if (leaderExitTimer !== undefined) clearTimeout(leaderExitTimer);
-      // Close is the only conclusive witness that the spawned leader has
-      // ended. Any pending KILL would now be a leaderless group signal.
-      releaseOwnedAdapterChild(owned);
+      // Close may settle I/O, but it never erases an original-group tombstone.
+      // This call is only a fallback for spawn-error paths without `exit`.
+      retireOwnedAdapterLeader(owned);
     };
 
     const abandonLeaderlessGroup = (): void => {
       clearTimeout(timer);
       if (leaderExitTimer !== undefined) clearTimeout(leaderExitTimer);
-      owned.retainedStraggler = true;
       settleResult({ ok: false, stdout, error: LEADERLESS_STREAM_ERROR });
     };
 
@@ -271,7 +352,7 @@ const runRegisteredAdapterChild = (
       // repeated events so EventEmitter never throws an unhandled error.
       if (!owned.spawned) {
         settleResult({ ok: false, stdout: "", error: error.message });
-        releaseOwnedAdapterChild(owned);
+        retireOwnedAdapterLeader(owned);
         return;
       }
       if (closeObserved || leaderExited) return;
@@ -281,12 +362,12 @@ const runRegisteredAdapterChild = (
     child.once("exit", () => {
       if (closeObserved) return;
       leaderExited = true;
-      // Group authority ends with its leader. Cancel an in-flight quit KILL
-      // now, rather than attempting a guaranteed-refused signal after grace.
-      cancelOwnedAdapterCleanup(owned);
+      clearTimeout(timer);
+      // Revoke all signal authority synchronously with leader exit. From here,
+      // only capability-free original-group observations survive.
+      retireOwnedAdapterLeader(owned);
       // A normal leader drains its pipes and reaches `close` first. If an
-      // inherited pipe stays open, a leaderless group is no longer safe to
-      // signal; stop waiting, report the refusal, and detach our endpoints.
+      // inherited pipe stays open, stop waiting and detach our endpoints.
       leaderExitTimer = setTimeout(() => {
         abandonLeaderlessGroup();
       }, LEADER_STREAM_DRAIN_GRACE_MS);
