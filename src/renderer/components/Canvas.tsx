@@ -37,6 +37,7 @@ import {
   makePageNode,
   makeRequestsNode,
   makeTasksNode,
+  makeTerminalNode,
   makeTextNode,
 } from "../lib/node-factories";
 import { openHerdrWizard } from "../lib/herdr-state";
@@ -362,6 +363,7 @@ interface AddActions {
   readonly addTasks: () => void;
   readonly addRequests: () => void;
   readonly addArtifacts: () => void;
+  readonly addTerminal: () => void;
   readonly addHerdr: () => void;
   readonly addPage: () => void;
 }
@@ -476,6 +478,14 @@ const makeAddActions = (
     state$.focusNodeId.set(node.id);
     dismiss();
   },
+  addTerminal: () => {
+    const position = positionFor({ width: 260, height: 110 });
+    const stationHost = state$.settings.station.hostId.peek() || "local";
+    const node = makeTerminalNode(position.x, position.y, stationHost);
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
   addHerdr: () => {
     const position = positionFor({ width: 260, height: 110 });
     openHerdrWizard(position);
@@ -568,7 +578,8 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
       { key: "tasks", label: "tasks", sub: "A2A task list · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", onSelect: () => actions.addTasks() },
       { key: "requests", label: "requests", sub: "input-required · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add requests", onSelect: () => actions.addRequests() },
       { key: "artifacts", label: "artifacts", sub: "published parts shelf", icon: <FileText size={14} />, ariaLabel: "Add artifacts", onSelect: () => actions.addArtifacts() },
-      { key: "herdr", label: "herdr", sub: "work surface · attach live pane", icon: <Terminal size={14} />, ariaLabel: "Add herdr work surface", onSelect: () => actions.addHerdr() },
+      { key: "terminal", label: "terminal", sub: "native work surface · default", icon: <Terminal size={14} />, ariaLabel: "Add native terminal work surface", onSelect: () => actions.addTerminal() },
+      { key: "herdr", label: "Herdr (legacy)", sub: "optional · attach existing pane", icon: <Terminal size={14} />, ariaLabel: "Add legacy herdr work surface", onSelect: () => actions.addHerdr() },
       { key: "page", label: "page", sub: "work surface · browser session", icon: <Globe size={14} />, ariaLabel: "Add browser page work surface", onSelect: () => actions.addPage() },
       { key: "agent", label: "agent", sub: "hermes profile", icon: <Bot size={14} />, ariaLabel: "Add agent", onSelect: () => setPicker("agent") },
     ]
