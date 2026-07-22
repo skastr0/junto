@@ -17,7 +17,7 @@ import {
   shell,
   type IpcMainEvent,
 } from "electron";
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 import { classifyBrowserTarget } from "@shared/browser-policy";
 import {
   IPC_CHANNELS,
@@ -29,6 +29,7 @@ import {
   resolvedSpawnEnv,
   terminateAdapterChildrenOnQuit,
 } from "./vellum/adapters/exec";
+import { appProcessPlane } from "./vellum/app-process-plane";
 import { AppRuntime } from "./runtime";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./vellum/canvases";
@@ -39,6 +40,7 @@ import {
   type BrowserComposition,
 } from "./vellum/browser/composition";
 import { HerdrPlane } from "./vellum/herdr/plane";
+import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane } from "./vellum/term/plane";
 import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
@@ -71,6 +73,7 @@ import {
   QUIT_CONFIRM_ACCEPT_INDEX,
 } from "./vellum/quit-live-work";
 import { getArmed, getNextFire } from "./vellum/kernel/cycle";
+import { mainAuthoringGate } from "./vellum/main-authoring-gate";
 import {
   installTrustedRendererPermissionPolicy,
   installTrustedRendererProtocol,
@@ -85,6 +88,7 @@ import {
   launchAgentTargetForCurrentUser,
   printLaunchAgent,
 } from "./vellum/settings/launchctl-runner";
+import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
 
 // Browser sessions must resolve and connect directly. An inherited system
 // proxy can perform independent DNS resolution and bypass Vellum's URL/DNS
@@ -117,6 +121,7 @@ let nodeRefRelayWatcher: FSWatcher | undefined;
 let activeNodeRefRelay: NodeRefRelayRecord | undefined;
 let activeNodeRefNeedsRetry = false;
 let nodeRefPublicationTail: Promise<void> = Promise.resolve();
+let disconnectNodeRefIngress = (): void => undefined;
 
 const reportNodeRefResult = (result: Awaited<ReturnType<typeof nodeRefIngress.accept>>): void => {
   if (!result.ok && result.code !== "superseded") {
@@ -164,6 +169,7 @@ const activateNodeRefRelay = async (record: NodeRefRelayRecord): Promise<void> =
 };
 
 const startNodeRefRelayWatcher = (): void => {
+  if (shutdownAdmissionClosed) return;
   if (nodeRefRelayWatcher !== undefined) return;
   try {
     const watcher = watch(nodeRefRelayDirectory(), { persistent: false }, () => {
@@ -206,6 +212,7 @@ const drainNodeRefRelays = async (): Promise<void> => {
 };
 
 function requestNodeRefDrain(): void {
+  if (shutdownAdmissionClosed) return;
   nodeRefDrainRequested = true;
   if (!nodeRefOwnerReady || nodeRefDrainRunning !== undefined) return;
   const run = drainNodeRefRelays().catch(() => {
@@ -256,6 +263,29 @@ let trustedRendererOrigin: TrustedRendererOrigin | undefined;
 let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
 let workControl: WorkControlServer | undefined;
+type HerdrPlaneService = Context.Tag.Service<typeof HerdrPlane>;
+type HermesPlaneService = Context.Tag.Service<typeof HermesPlane>;
+let herdrPlaneService: HerdrPlaneService | undefined;
+let hermesPlaneService: HermesPlaneService | undefined;
+let shutdownAdmissionClosed = false;
+let shutdownReason = "app_quit";
+let browserShutdown: Promise<Awaited<ReturnType<BrowserComposition["drainOnQuit"]>>> | undefined;
+let workControlShutdown: Promise<Awaited<ReturnType<WorkControlServer["drainOnQuit"]>>> | undefined;
+let hostOperationsDrain:
+  | Promise<Awaited<ReturnType<typeof hostOperationsShutdown.drainOnQuit>>>
+  | undefined;
+let termPlaneShutdown: Promise<Awaited<ReturnType<typeof termPlane.drainOnQuit>>> | undefined;
+let herdrShutdown: Promise<Awaited<ReturnType<HerdrPlaneService["drainOnQuit"]>>> | undefined;
+let hermesShutdown:
+  | Promise<Awaited<ReturnType<HermesPlaneService["shutdown"]["drainOnQuit"]>>>
+  | undefined;
+let adapterShutdown:
+  | Promise<Awaited<ReturnType<typeof terminateAdapterChildrenOnQuit>>>
+  | undefined;
+let appProcessShutdown:
+  | Promise<Awaited<ReturnType<typeof appProcessPlane.drainOnQuit>>>
+  | undefined;
+let mainAuthoringPrecommitEpoch: number | undefined;
 const signalQuitState = createSignalQuitState();
 const quitPreparationArbiter = createQuitPreparationArbiter();
 const signalQuiescedWindows = new WeakSet<BrowserWindow>();
@@ -377,7 +407,10 @@ ipcMain.on(IPC_CHANNELS.canvasFlushComplete, (event, payload: unknown) => {
   else pending.reject(new Error("renderer rejected close because canvas save failed"));
 });
 
-const requestCanvasQuiesceAndFlush = (mainWindow: BrowserWindow): Promise<void> => {
+const requestCanvasQuiesceAndFlush = (
+  mainWindow: BrowserWindow,
+  finalWriteEpoch?: number,
+): Promise<void> => {
   if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
     return Promise.reject(new CanvasQuiesceAndFlushError(
       "renderer unavailable before canvas quiesce request",
@@ -414,17 +447,38 @@ const requestCanvasQuiesceAndFlush = (mainWindow: BrowserWindow): Promise<void> 
     timer,
     quiesced: false,
   });
+  const finalWriteBinding = finalWriteEpoch === undefined
+    ? undefined
+    : { senderId: mainWindow.webContents.id, requestId };
   try {
+    if (finalWriteBinding !== undefined) {
+      mainAuthoringGate.mintFinalWritePermit(finalWriteEpoch!, finalWriteBinding);
+    }
     mainWindow.webContents.send(IPC_CHANNELS.canvasQuiesceAndFlushRequested, { requestId });
   } catch (error) {
     clearTimeout(timer);
     pendingCanvasQuiesceAndFlushes.delete(webContentsId);
+    if (finalWriteBinding !== undefined) {
+      try {
+        mainAuthoringGate.revokeFinalWritePermit(finalWriteEpoch!, finalWriteBinding);
+      } catch {
+        // A failed send is already blocking quit. Permit revocation stays best-effort.
+      }
+    }
     reject(new CanvasQuiesceAndFlushError(
       error instanceof Error ? error.message : String(error),
       false,
     ));
   }
-  return promise;
+  if (finalWriteBinding === undefined) return promise;
+  return promise.finally(() => {
+    try {
+      mainAuthoringGate.revokeFinalWritePermit(finalWriteEpoch!, finalWriteBinding);
+    } catch {
+      // The caller still performs the post-flush drain and surfaces any retained
+      // final authority there. This revocation cannot silently mark the flush clean.
+    }
+  });
 };
 
 ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushStarted, (event, payload: unknown) => {
@@ -561,6 +615,7 @@ const createWindow = () => {
   // activate/second-instance events must not resurrect an authoring renderer
   // while the bounded fallback is finishing a partially torn-down runtime.
   if (
+    shutdownAdmissionClosed ||
     signalRendererDestroyInProgress ||
     signalQuitState.rendererQuiesced() ||
     quitPreparationArbiter.rendererGateQuiesced() ||
@@ -662,6 +717,7 @@ const createWindow = () => {
   const disconnect = (): void => {
     disconnectNodeRefSink();
     disconnectNodeRefSink = () => undefined;
+    if (disconnectNodeRefIngress === disconnect) disconnectNodeRefIngress = () => undefined;
   };
   const acknowledgeDelivery = (event: IpcMainEvent, deliveryId: unknown): void => {
     const record = activeNodeRefRelay;
@@ -706,6 +762,7 @@ const createWindow = () => {
       mainWindow.show();
       mainWindow.focus();
     });
+    disconnectNodeRefIngress = disconnect;
   });
   mainWindow.on("closed", () => {
     const pending = pendingCanvasFlushes.get(mainWebContentsId);
@@ -807,6 +864,7 @@ if (!gotSingleInstanceLock) {
 
   void app.whenReady().then(async () => {
     if (!(await ensureSupervised())) return;
+    if (shutdownAdmissionClosed) return;
 
     try {
       // Treat ELECTRON_RENDERER_URL as hostile boot input. Parse it before any
@@ -840,6 +898,7 @@ if (!gotSingleInstanceLock) {
     // process.env.PATH is fixed before any adapter/service spawns a CLI. Never
     // rejects; adapters also await it lazily, so this is belt-and-suspenders.
     await resolvedSpawnEnv();
+    if (shutdownAdmissionClosed) return;
 
     // Seal process-bind peer-PID helper roots before any UDS control server starts.
     // Packaged: electron-builder extraResources → resources/bin/unix-peer-pid.py
@@ -857,6 +916,7 @@ if (!gotSingleInstanceLock) {
 
     registerIpcHandlers();
     registerDemoIpcHandlers();
+    if (shutdownAdmissionClosed) return;
 
     // Work control socket: agent protocol surface over the A2A work plane.
     // Independent of browser composition; owns ~/.vellum/work/{control.sock,token}.
@@ -865,16 +925,26 @@ if (!gotSingleInstanceLock) {
         version: app.getVersion(),
         run: (effect) => AppRuntime.runPromise(effect),
       });
+      if (shutdownAdmissionClosed) workControl.beginShutdown();
     } catch (error) {
       console.error("[work-control] failed to start:", error);
       exitAfterDetach(1, "work-control-startup-failure");
       return;
     }
 
-    const [herdr, chat] = await Promise.all([
+    const [herdr, chat, hermes] = await Promise.all([
       AppRuntime.runPromise(HerdrPlane),
       AppRuntime.runPromise(ChatServiceContext),
+      AppRuntime.runPromise(HermesPlane),
     ]);
+    void chat;
+    herdrPlaneService = herdr;
+    hermesPlaneService = hermes;
+    if (shutdownAdmissionClosed) {
+      herdr.beginShutdown();
+      hermesShutdown ??= hermes.shutdown.drainOnQuit();
+      return;
+    }
     herdrActiveControlCount = () => herdr.streams.activeControlCount();
     await AppRuntime.runPromise(herdr.start);
     // Local term control UDS — Remote stations expose this for CC SSH forward.
@@ -921,6 +991,10 @@ if (!gotSingleInstanceLock) {
           registerBrowserIpcHandlers(composition.sessions);
         },
       );
+      if (shutdownAdmissionClosed) {
+        browserShutdown ??= browserComposition?.drainOnQuit(shutdownReason);
+        return;
+      }
     } catch {
       browserComposition = undefined;
       try {
@@ -966,15 +1040,68 @@ app.on("window-all-closed", () => {
   ) app.quit();
 });
 
-const detachBrowserOnQuit = (reason: string) => {
-  // Browser product lock: quit detaches WebContentsViews only — warm sessions
-  // are dropped with the process but profile partitions (cookies) are never
-  // wiped and no session is explicitly destroyed.
+const beginShutdownAdmission = (reason: string): void => {
+  shutdownReason = reason;
+  if (shutdownAdmissionClosed) return;
+  shutdownAdmissionClosed = true;
+  nodeRefOwnerReady = false;
+  nodeRefDrainRequested = false;
+  nodeRefRelayWatcher?.close();
+  nodeRefRelayWatcher = undefined;
+  disconnectNodeRefIngress();
+  disconnectNodeRefIngress = () => undefined;
+
+  // Browser product lock: quit detaches owned browser views and closes
+  // automation/control admission only through the aggregate composition drain.
+  browserShutdown ??= browserComposition?.drainOnQuit(reason);
+  hermesShutdown ??= hermesPlaneService?.shutdown.drainOnQuit();
+  adapterShutdown ??= terminateAdapterChildrenOnQuit();
+
+  workControl?.beginShutdown();
+  hostOperationsShutdown.beginShutdown();
+  termPlane.beginShutdown(reason);
+  herdrPlaneService?.beginShutdown();
+  appProcessPlane.beginShutdown();
+};
+
+const ensureMainAuthoringPrecommit = (): number => {
+  if (mainAuthoringPrecommitEpoch !== undefined) return mainAuthoringPrecommitEpoch;
+  const precommit = mainAuthoringGate.beginPrecommit();
+  mainAuthoringPrecommitEpoch = precommit.epoch;
+  return precommit.epoch;
+};
+
+const recoverMainAuthoringPrecommit = (): void => {
+  const epoch = mainAuthoringPrecommitEpoch;
+  if (epoch === undefined) return;
+  mainAuthoringPrecommitEpoch = undefined;
   try {
-    browserComposition?.sessions.detachAllOnQuit(reason);
-  } catch (error) {
-    console.error(`[browser] detach on quit failed (${reason}):`, error);
+    mainAuthoringGate.recover(epoch);
+  } catch {
+    // Recovery is best-effort only after a failed quit attempt. The caller
+    // still uses quiesced/committed state to decide whether authoring may reopen.
   }
+};
+
+const commitMainAuthoringOnQuit = async (): Promise<void> => {
+  const epoch = ensureMainAuthoringPrecommit();
+  const preDrain = await mainAuthoringGate.drain(epoch);
+  if (!preDrain.clean) {
+    throw new Error(
+      `main authoring pre-drain retained ${preDrain.activeLabels.join(", ") || "unknown work"}`,
+    );
+  }
+  const mainWindow = trustedMainWindow;
+  if (mainWindow !== undefined && !mainWindow.isDestroyed()) {
+    await requestCanvasQuiesceAndFlush(mainWindow, epoch);
+  }
+  const postDrain = await mainAuthoringGate.drain(epoch);
+  if (!postDrain.clean) {
+    throw new Error(
+      `main authoring post-drain retained ${postDrain.activeLabels.join(", ") || "final write authority"}`,
+    );
+  }
+  mainAuthoringGate.commit(epoch);
 };
 
 let runtimeDetachedForQuit = false;
@@ -985,72 +1112,134 @@ const detachRuntimeOnQuit = (reason: string): void => {
     throw new Error("runtime detach blocked before signal durability commit");
   }
   runtimeDetachedForQuit = true;
-
-  // Stop the read-only adapter plane first. Its one-shot CLI groups are
-  // Vellum-owned and must never outlive the app; Herdr sessions use a separate
-  // explicitly detached server plane and remain untouched below.
-  terminateAdapterChildrenOnQuit();
-
-  // Revoke authority before closing the socket or detaching browser views.
-  // Registry termination destroys only automation-owner WebContentsViews;
-  // profile partitions and unrelated renderer-owned views remain intact.
-  try {
-    browserComposition?.close();
-  } catch (error) {
-    console.error(`[browser-automation] close on quit failed (${reason}):`, error);
-  }
-
-  try {
-    browserControl?.close();
-  } catch (error) {
-    console.error(`[browser-control] close on quit failed (${reason}):`, error);
-  }
-  browserControl = undefined;
-
-  try {
-    workControl?.close();
-  } catch (error) {
-    console.error(`[work-control] close on quit failed (${reason}):`, error);
-  }
-  workControl = undefined;
-
-  // Herdr control/observe/forward children are owned by AppRuntime's scoped
-  // layer; disposing it detaches clients without touching remote panes.
-  detachBrowserOnQuit(reason);
-  browserComposition = undefined;
+  beginShutdownAdmission(reason);
+  nodeRefOwnerReady = false;
+  nodeRefDrainRequested = false;
+  nodeRefRelayWatcher?.close();
+  nodeRefRelayWatcher = undefined;
+  disconnectNodeRefIngress();
+  disconnectNodeRefIngress = () => undefined;
 };
 
 let runtimeDispose: Promise<void> | undefined;
 let runtimeDisposed = false;
 
+const requireCleanBrowserShutdown = async (reason: string): Promise<void> => {
+  if (browserComposition === undefined && browserShutdown === undefined) return;
+  const receipt = await (browserShutdown ??= browserComposition?.drainOnQuit(reason));
+  if (receipt === undefined) return;
+  if (!receipt.clean) {
+    throw new Error(
+      `browser shutdown retained automation state${receipt.timedOut ? " (deadline)" : ""}`,
+    );
+  }
+  browserControl = undefined;
+  browserComposition = undefined;
+};
+
+const requireCleanWorkControlShutdown = async (): Promise<void> => {
+  if (workControl === undefined && workControlShutdown === undefined) return;
+  const receipt = await (workControlShutdown ??= workControl?.drainOnQuit());
+  if (receipt === undefined) return;
+  if (!receipt.clean) {
+    throw new Error(
+      `work control shutdown retained ${receipt.retainedLabels.join(", ") || "transport state"}`,
+    );
+  }
+  workControl = undefined;
+};
+
+const requireCleanHostOperationsShutdown = async (): Promise<void> => {
+  const receipt = await (hostOperationsDrain ??= hostOperationsShutdown.drainOnQuit());
+  if (!receipt.clean) {
+    throw new Error(
+      `host operations shutdown retained ${receipt.retainedLabels.join(", ") || "active work"}`,
+    );
+  }
+};
+
+const requireCleanTermPlaneShutdown = async (reason: string): Promise<void> => {
+  const receipt = await (termPlaneShutdown ??= termPlane.drainOnQuit(reason));
+  if (!receipt.clean) {
+    throw new Error(
+      `terminal plane shutdown retained ${receipt.retainedLabels.join(", ") || receipt.diagnostics.join(", ") || "unknown resource"}`,
+    );
+  }
+};
+
+const requireCleanHerdrShutdown = async (): Promise<void> => {
+  if (herdrPlaneService === undefined && herdrShutdown === undefined) return;
+  const receipt = await (herdrShutdown ??= herdrPlaneService?.drainOnQuit());
+  if (receipt === undefined) return;
+  if (!receipt.clean) {
+    throw new Error(
+      `herdr shutdown retained ${receipt.retained} component resource(s)`,
+    );
+  }
+};
+
+const requireCleanHermesShutdown = async (): Promise<void> => {
+  if (hermesPlaneService === undefined && hermesShutdown === undefined) return;
+  const receipt = await (hermesShutdown ??= hermesPlaneService?.shutdown.drainOnQuit());
+  if (receipt === undefined) return;
+  if (!receipt.clean) {
+    throw new Error(
+      `hermes shutdown retained ${receipt.teardowns.length} teardown receipt(s)`,
+    );
+  }
+};
+
+const requireCleanAdapterShutdown = async (): Promise<void> => {
+  const receipt = await (adapterShutdown ??= terminateAdapterChildrenOnQuit());
+  if (!receipt.settled) {
+    throw new Error(`adapter shutdown retained ${receipt.pending} operation(s)`);
+  }
+};
+
+const requireCleanAppProcessShutdown = async (): Promise<void> => {
+  const receipt = await (appProcessShutdown ??= appProcessPlane.drainOnQuit());
+  if (!receipt.clean) {
+    const retained = receipt.stragglers
+      .map((rec) =>
+        `${rec.source}:${rec.purpose}@${rec.generation}${rec.pid === undefined ? "" : ` pid=${rec.pid}`}`
+      )
+      .join(", ");
+    throw new Error(
+      `app process shutdown retained ${receipt.stragglers.length} child generation(s): ${retained}`,
+    );
+  }
+};
+
+const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
+  await requireCleanTermPlaneShutdown(reason);
+  await requireCleanWorkControlShutdown();
+  await requireCleanHostOperationsShutdown();
+  await requireCleanBrowserShutdown(reason);
+  await requireCleanHermesShutdown();
+  await requireCleanHerdrShutdown();
+  await requireCleanAdapterShutdown();
+  await requireCleanAppProcessShutdown();
+};
+
 const disposeRuntime = (): Promise<void> => {
-  runtimeDispose ??= AppRuntime.dispose().catch((error) => {
-    console.error("[runtime] dispose failed:", error);
-  });
+  runtimeDispose ??= drainRuntimeOnQuit(shutdownReason)
+    .then(() => AppRuntime.dispose())
+    .catch((error) => {
+      console.error("[runtime] dispose failed:", error);
+    });
   return runtimeDispose;
 };
 
 /** An app exit is authorized only after every owned local child reports exit. */
-const requireCleanLocalTerminalShutdown = async (
-  reason: string,
-  stopPlane: boolean,
-): Promise<void> => {
-  const result = await termPlane.router.shutdownAllLocal(reason);
-  if (!result.clean) {
-    const retained = result.stragglers
-      .map((rec) => `${rec.bindingId}@${rec.epoch}${rec.pid === undefined ? "" : ` pid=${rec.pid}`}`)
-      .join(", ");
-    throw new Error(
-      `local terminal shutdown retained ${result.stragglers.length} child generation(s): ${retained}`,
-    );
-  }
-  if (stopPlane) await termPlane.stop();
+const requireCleanLocalTerminalShutdown = async (reason: string): Promise<void> => {
+  beginShutdownAdmission(reason);
+  await requireCleanTermPlaneShutdown(reason);
 };
 
 // Electron app.exit() bypasses before-quit and will-quit. Every direct exit
 // therefore routes through the same authority/process teardown explicitly.
 const exitAfterDetach = (exitCode: number, reason: string): void => {
-  void requireCleanLocalTerminalShutdown(reason, true)
+  void requireCleanLocalTerminalShutdown(reason)
     .then(() => {
       detachRuntimeOnQuit(reason);
       return disposeRuntime();
@@ -1073,11 +1262,7 @@ const beginSignalCanvasQuiesceAndFlush = async (generation: number): Promise<voi
   // Authorization belongs to this signal attempt, never to an earlier normal
   // quit. A second signal after the app remained open must prove current
   // renderer state durable again.
-  const mainWindow = trustedMainWindow;
-  const flush = mainWindow === undefined || mainWindow.isDestroyed()
-    ? Promise.resolve()
-    : requestCanvasQuiesceAndFlush(mainWindow);
-  await flush;
+  await commitMainAuthoringOnQuit();
   if (!signalQuitState.isCurrent(generation)) {
     throw new Error("signal shutdown attempt superseded");
   }
@@ -1161,13 +1346,10 @@ app.on("before-quit", (event) => {
       quitPreparationArbiter,
       preparationGeneration,
       {
-        terminalClean: () => requireCleanLocalTerminalShutdown("before-quit", true),
+        terminalClean: () => requireCleanLocalTerminalShutdown("before-quit"),
         finalRendererQuiesce: async () => {
           if (canvasAlreadyDurable) return;
-          const mainWindow = trustedMainWindow;
-          if (mainWindow !== undefined && !mainWindow.isDestroyed()) {
-            await requestCanvasQuiesceAndFlush(mainWindow);
-          }
+          await commitMainAuthoringOnQuit();
         },
         destroyRenderer: destroyQuiescedRenderer,
         detachRuntime: () => {
@@ -1214,6 +1396,7 @@ app.on("before-quit", (event) => {
           console.error("[canvas] quiesced canvas drain must retry before normal quit:", error);
           return;
         }
+        recoverMainAuthoringPrecommit();
         recreateWindowIfEmpty();
         console.error("[canvas] quit blocked:", error);
       });
@@ -1317,7 +1500,7 @@ installProcessSignalTermination({
     // open confirm so accept after cancel race cannot fight the force path.
     invalidateQuitConfirm();
     try {
-      await requireCleanLocalTerminalShutdown(signal, false);
+      await requireCleanLocalTerminalShutdown(signal);
       signalQuitState.markTerminalClean(generation);
       // This is the final canvas boundary for the signal attempt. The
       // renderer closes authoring and drains admitted writes before its ack;
@@ -1341,6 +1524,7 @@ installProcessSignalTermination({
       }
       const disposition = signalQuitState.fail(generation);
       if (disposition === "recover") {
+        recoverMainAuthoringPrecommit();
         quitPreparationArbiter.recoverSignal();
         skipQuitConfirm = false;
         quitConfirmed = false;

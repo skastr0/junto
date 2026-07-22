@@ -87,7 +87,7 @@ describe("herdr detach-on-quit product lock", () => {
   });
 
   it("main process detaches herdr on quit and signals", () => {
-    expect(indexSrc).toMatch(/detachAllOnQuit|detachHerdrOnQuit/);
+    expect(indexSrc).toMatch(/herdrPlaneService\?\.beginShutdown\(\)|requireCleanHerdrShutdown/);
     expect(indexSrc).toMatch(/before-quit/);
     expect(indexSrc).toMatch(/will-quit/);
     expect(indexSrc).toMatch(/SIGTERM/);

@@ -166,14 +166,14 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
       join(import.meta.dirname, "..", "src/main/index.ts"),
       "utf8",
     );
-    const detachStart = indexSource.indexOf("const detachRuntimeOnQuit");
-    const detachEnd = indexSource.indexOf("const exitAfterDetach", detachStart);
-    const detachBlock = indexSource.slice(detachStart, detachEnd);
+    const admissionStart = indexSource.indexOf("const beginShutdownAdmission");
+    const admissionEnd = indexSource.indexOf("const ensureMainAuthoringPrecommit", admissionStart);
+    const admissionBlock = indexSource.slice(admissionStart, admissionEnd);
 
-    expect(detachBlock.indexOf("terminateAdapterChildrenOnQuit()"))
+    expect(admissionBlock.indexOf("terminateAdapterChildrenOnQuit()"))
       .toBeGreaterThanOrEqual(0);
-    expect(detachBlock.indexOf("terminateAdapterChildrenOnQuit()"))
-      .toBeLessThan(detachBlock.indexOf("browserComposition?.close()"));
+    expect(admissionBlock.indexOf("terminateAdapterChildrenOnQuit()"))
+      .toBeLessThan(admissionBlock.indexOf("appProcessPlane.beginShutdown()"));
     expect(indexSource).toMatch(
       /app\.on\("before-quit",[\s\S]*detachRuntimeOnQuit\("before-quit"\)/u,
     );

@@ -15,11 +15,10 @@ describe("browser detach-on-quit product lock", () => {
   const adapterSrc = readFileSync(join(root, "src/main/vellum/browser/view-adapter.ts"), "utf8");
 
   it("main process quit path detaches browser sessions", () => {
-    expect(indexSrc).toMatch(/browserComposition\?\.sessions\.detachAllOnQuit/);
-    // Browser detach and scoped Herdr/SSH disposal share the same quit fan-out.
-    expect(indexSrc).toMatch(
-      /detachRuntimeOnQuit[\s\S]*detachBrowserOnQuit/,
-    );
+    expect(indexSrc).toMatch(/beginShutdownAdmission[\s\S]*browserComposition\?\.drainOnQuit/);
+    expect(indexSrc).toMatch(/requireCleanBrowserShutdown/);
+    // Browser aggregate drain and scoped Herdr/SSH disposal share the same quit fan-out.
+    expect(indexSrc).toMatch(/drainRuntimeOnQuit[\s\S]*requireCleanBrowserShutdown/);
     expect(indexSrc).toMatch(/AppRuntime\.dispose\(\)/);
   });
 

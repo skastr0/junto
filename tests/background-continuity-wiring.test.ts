@@ -44,10 +44,15 @@ describe("background continuity wiring", () => {
     const start = indexSrc.indexOf('app.on("before-quit"');
     const end = indexSrc.indexOf('app.on("will-quit"', start);
     const block = indexSrc.slice(start, end);
+    const commitStart = indexSrc.indexOf("const commitMainAuthoringOnQuit");
+    const commitEnd = indexSrc.indexOf("let runtimeDetachedForQuit", commitStart);
+    const commitBlock = indexSrc.slice(commitStart, commitEnd);
     expect(block).toMatch(/assessLiveWork|hasLiveWork|buildQuitConfirmPrompt/);
     expect(block).toMatch(/QUIT_CONFIRM_ACCEPT_INDEX|showMessageBox/);
     expect(block).toMatch(/runNormalQuitPreparation/);
-    expect(block).toMatch(/finalRendererQuiesce[\s\S]*requestCanvasQuiesceAndFlush/);
+    expect(block).toMatch(/finalRendererQuiesce[\s\S]*commitMainAuthoringOnQuit/);
+    expect(commitBlock).toMatch(/requestCanvasQuiesceAndFlush\(mainWindow,\s*epoch\)/);
+    expect(commitBlock).toMatch(/mainAuthoringGate\.commit\(epoch\)/);
     expect(block).toMatch(/detachRuntime[\s\S]*detachRuntimeOnQuit\("before-quit"\)/);
 
     // Sacred ordering is centralized in the normal-quit runner.

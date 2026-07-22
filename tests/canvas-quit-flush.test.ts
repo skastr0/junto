@@ -13,13 +13,18 @@ describe("canvas quit durability wiring", () => {
     const start = source.indexOf('app.on("before-quit"');
     const end = source.indexOf('app.on("will-quit"', start);
     const block = source.slice(start, end);
+    const commitStart = source.indexOf("const commitMainAuthoringOnQuit");
+    const commitEnd = source.indexOf("let runtimeDetachedForQuit", commitStart);
+    const commitBlock = source.slice(commitStart, commitEnd);
     const runnerStart = terminationSource.indexOf("export const runNormalQuitPreparation");
     const runnerEnd = terminationSource.indexOf("/**\n * Generation-scoped", runnerStart);
     const runner = terminationSource.slice(runnerStart, runnerEnd);
 
-    expect(block.indexOf('requireCleanLocalTerminalShutdown("before-quit", true)'))
+    expect(block.indexOf('requireCleanLocalTerminalShutdown("before-quit")'))
       .toBeGreaterThanOrEqual(0);
-    expect(block).toContain("requestCanvasQuiesceAndFlush(mainWindow)");
+    expect(block).toContain("commitMainAuthoringOnQuit()");
+    expect(commitBlock).toContain("requestCanvasQuiesceAndFlush(mainWindow, epoch)");
+    expect(commitBlock).toContain("mainAuthoringGate.commit(epoch)");
     expect(block).toContain("destroyRenderer: destroyQuiescedRenderer");
     expect(runner.indexOf("await steps.terminalClean()"))
       .toBeLessThan(runner.indexOf("await steps.finalRendererQuiesce()"));
@@ -61,7 +66,7 @@ describe("canvas quit durability wiring", () => {
     const standardStart = source.indexOf("// Existing normal continuations", signalStart);
     const signal = source.slice(standardStart);
 
-    expect(signal.indexOf("requireCleanLocalTerminalShutdown(signal, false)"))
+    expect(signal.indexOf("requireCleanLocalTerminalShutdown(signal)"))
       .toBeLessThan(signal.indexOf("signalQuitState.markTerminalClean(generation)"));
     expect(signal.indexOf("signalQuitState.markTerminalClean(generation)"))
       .toBeLessThan(signal.indexOf("await beginSignalCanvasQuiesceAndFlush(generation)"));
@@ -82,7 +87,7 @@ describe("canvas quit durability wiring", () => {
   });
 
   it("blocks every exit path after the bounded terminal shutdown returns unclean", () => {
-    const helperStart = source.indexOf("const requireCleanLocalTerminalShutdown");
+    const helperStart = source.indexOf("const requireCleanTermPlaneShutdown");
     const helperEnd = source.indexOf("const exitAfterDetach", helperStart);
     const helper = source.slice(helperStart, helperEnd);
     const directEnd = source.indexOf("let quitPreparation", helperEnd);
@@ -91,16 +96,16 @@ describe("canvas quit durability wiring", () => {
     const standardStart = source.indexOf("// Existing normal continuations", signalStart);
     const signalBlock = source.slice(standardStart);
 
-    expect(helper).toContain("if (!result.clean)");
+    expect(helper).toContain("if (!receipt.clean)");
     expect(helper).toContain("throw new Error");
     expect(helper).not.toContain("waitForAllLocalExited");
-    expect(directExit.indexOf("requireCleanLocalTerminalShutdown(reason, true)"))
+    expect(directExit.indexOf("requireCleanLocalTerminalShutdown(reason)"))
       .toBeLessThan(directExit.indexOf("detachRuntimeOnQuit(reason)"));
-    expect(directExit.indexOf("requireCleanLocalTerminalShutdown(reason, true)"))
+    expect(directExit.indexOf("requireCleanLocalTerminalShutdown(reason)"))
       .toBeLessThan(directExit.indexOf("app.exit(exitCode)"));
     expect(directExit).not.toContain(".finally(");
     expect(directExit).toContain("recreateWindowIfEmpty()");
-    expect(signalBlock.indexOf("requireCleanLocalTerminalShutdown(signal, false)"))
+    expect(signalBlock.indexOf("requireCleanLocalTerminalShutdown(signal)"))
       .toBeLessThan(signalBlock.indexOf("signalQuitState.markTerminalClean(generation)"));
     expect(signalBlock.indexOf("signalQuitState.markTerminalClean(generation)"))
       .toBeLessThan(signalBlock.indexOf("detachRuntimeOnQuit(signal)"));
@@ -123,11 +128,15 @@ describe("canvas quit durability wiring", () => {
     const start = source.indexOf("const beginSignalCanvasQuiesceAndFlush");
     const end = source.indexOf("const quiesceSignalRenderer", start);
     const block = source.slice(start, end);
+    const commitStart = source.indexOf("const commitMainAuthoringOnQuit");
+    const commitEnd = source.indexOf("let runtimeDetachedForQuit", commitStart);
+    const commitHelper = source.slice(commitStart, commitEnd);
 
-    expect(block).toContain("requestCanvasQuiesceAndFlush(mainWindow)");
+    expect(block).toContain("commitMainAuthoringOnQuit()");
+    expect(commitHelper).toContain("requestCanvasQuiesceAndFlush(mainWindow, epoch)");
     expect(block).not.toContain("requestCanvasFlush(mainWindow)");
     expect(block.indexOf("signalQuitState.isCurrent(generation)"))
-      .toBeGreaterThan(block.indexOf("requestCanvasQuiesceAndFlush(mainWindow)"));
+      .toBeGreaterThan(block.indexOf("commitMainAuthoringOnQuit()"));
     expect(block).not.toContain("disposeRuntime");
   });
 
@@ -249,7 +258,7 @@ describe("canvas quit durability wiring", () => {
       .toBeLessThan(beforeQuit.indexOf("if (quitPreparation !== undefined)"));
     expect(beforeQuit).toContain("runNormalQuitPreparation(");
     expect(signal.indexOf("quitPreparationArbiter.claimSignal()"))
-      .toBeLessThan(signal.indexOf("await requireCleanLocalTerminalShutdown(signal, false)"));
+      .toBeLessThan(signal.indexOf("await requireCleanLocalTerminalShutdown(signal)"));
     expect(standardSignal.indexOf("signalQuitState.authorizeForceExit(generation)"))
       .toBeLessThan(standardSignal.indexOf("quitPreparationArbiter.commitSignal()"));
     expect(standardSignal.indexOf("quitPreparationArbiter.commitSignal()"))
@@ -267,7 +276,7 @@ describe("canvas quit durability wiring", () => {
     const signalStart = source.indexOf("installProcessSignalTermination({");
     const signal = source.slice(signalStart);
 
-    expect(beforeQuit).toContain("requestCanvasQuiesceAndFlush(mainWindow)");
+    expect(beforeQuit).toContain("commitMainAuthoringOnQuit()");
     expect(runner.indexOf("await steps.finalRendererQuiesce()"))
       .toBeLessThan(runner.indexOf("arbiter.commitNormal(generation)"));
     expect(beforeQuit).toContain("quitPreparationArbiter.normalCommitted(preparationGeneration)");
@@ -281,6 +290,19 @@ describe("canvas quit durability wiring", () => {
     expect(joined).not.toContain("detachRuntimeOnQuit(signal)");
     expect(joined).not.toContain("recreateWindowIfEmpty()");
     expect(signal).toContain("quitPreparationArbiter.committed()");
+  });
+
+  it("mints an exact final-write permit around renderer quiesce", () => {
+    const start = source.indexOf("const requestCanvasQuiesceAndFlush");
+    const end = source.indexOf(
+      "ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushStarted",
+      start,
+    );
+    const block = source.slice(start, end);
+
+    expect(block).toContain("mainAuthoringGate.mintFinalWritePermit");
+    expect(block).toContain("mainAuthoringGate.revokeFinalWritePermit");
+    expect(block).toContain("finalWriteEpoch");
   });
 
   it("blocks window teardown until a canvas flush acknowledgement arrives", () => {
