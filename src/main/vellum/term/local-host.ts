@@ -10,6 +10,7 @@ import { spawn as cpSpawn, type ChildProcessWithoutNullStreams } from "node:chil
 import * as os from "node:os";
 import { randomBytes } from "node:crypto";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import { getProcessIdentityMap } from "../process-identity";
 
 export type LocalHostCreateInput = {
   readonly bindingId: string;
@@ -316,6 +317,7 @@ export class LocalSessionHost extends EventEmitter {
       rec.child = child;
       rec.pid = child.pid;
       rec.status = "running";
+      this.bindProcessIdentity(rec);
       this.emitEvent({
         type: "session",
         bindingId,
@@ -340,6 +342,7 @@ export class LocalSessionHost extends EventEmitter {
       child.onExit((code, signal) => {
         if (rec.epoch !== epoch) return;
         rec.status = "exited";
+        getProcessIdentityMap().unbindTerminalBinding(rec.bindingId);
         rec.child = undefined;
         rec.seq = rec.seq + 1n;
         this.pushJournal(rec, {
@@ -403,6 +406,7 @@ export class LocalSessionHost extends EventEmitter {
     const rec = this.sessions.get(bindingId);
     if (!rec) return;
     if (!ref || !ref.canvasName || !ref.nodeId) {
+      getProcessIdentityMap().unbindTerminalBinding(rec.bindingId);
       rec.canvasName = undefined;
       rec.nodeId = undefined;
       rec.detached = true;
@@ -411,6 +415,7 @@ export class LocalSessionHost extends EventEmitter {
     rec.canvasName = ref.canvasName;
     rec.nodeId = ref.nodeId;
     rec.detached = false;
+    this.bindProcessIdentity(rec);
   }
 
   attach(input: {
@@ -597,6 +602,18 @@ export class LocalSessionHost extends EventEmitter {
       const dropped = rec.journal.shift();
       if (dropped?.type === "output") rec.journalBytes -= dropped.data.length;
     }
+  }
+
+  private bindProcessIdentity(rec: SessionRec): void {
+    if (!rec.pid || !rec.canvasName || !rec.nodeId || rec.status !== "running") return;
+    const identities = getProcessIdentityMap();
+    identities.unbindTerminalBinding(rec.bindingId);
+    identities.bind(rec.pid, {
+      kind: "terminal",
+      bindingId: rec.bindingId,
+      canvasName: rec.canvasName,
+      nodeId: rec.nodeId,
+    });
   }
 
   private summaryOf(rec: SessionRec): TerminalSessionSummary {

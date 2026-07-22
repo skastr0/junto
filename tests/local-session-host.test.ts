@@ -4,6 +4,10 @@ import {
   type TermChild,
   type TermSpawnFn,
 } from "../src/main/vellum/term/local-host";
+import {
+  makeProcessIdentityMap,
+  setProcessIdentityMapForTests,
+} from "../src/main/vellum/process-identity";
 
 const hosts: LocalSessionHost[] = [];
 
@@ -11,6 +15,7 @@ afterEach(async () => {
   for (const h of hosts.splice(0)) {
     await h.shutdownAll("test_cleanup");
   }
+  setProcessIdentityMapForTests(undefined);
 });
 
 const fakeSpawn = (opts?: {
@@ -128,6 +133,22 @@ describe("LocalSessionHost", () => {
     host.bindCanvas("bind-det", null);
     expect(host.get("bind-det")?.detached).toBe(true);
     expect(host.detachedRunning().some((s) => s.bindingId === "bind-det")).toBe(true);
+  });
+
+  it("process-binds an anchored session and unbinds it on exit", async () => {
+    const identities = makeProcessIdentityMap();
+    setProcessIdentityMapForTests(identities);
+    const host = new LocalSessionHost(fakeSpawn({ pid: process.pid, exitDelayMs: 20 }));
+    hosts.push(host);
+    host.create({ bindingId: "bind-process", canvasName: "main", nodeId: "term-node" });
+    expect(identities.resolve(process.pid)).toMatchObject({
+      kind: "terminal",
+      bindingId: "bind-process",
+      canvasName: "main",
+      nodeId: "term-node",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(identities.resolve(process.pid)).toBeUndefined();
   });
 
   it("shutdownAll stops running sessions", async () => {

@@ -50,6 +50,25 @@ describe("process identity epoch", () => {
     expect(map.bind(pid, { kind: "agent", agentKey: "local:a" })).toBe(true);
     map.clear();
   });
+
+  it("binds and unbinds canvas-anchored terminal principals", () => {
+    const map = makeProcessIdentityMap();
+    const principal = {
+      kind: "terminal" as const,
+      bindingId: "term-1",
+      canvasName: "main",
+      nodeId: "node-1",
+    };
+    expect(map.bind(process.pid, principal)).toBe(true);
+    expect(map.resolve(process.pid)).toEqual(principal);
+    map.unbindTerminalBinding("term-1");
+    expect(map.resolve(process.pid)).toBeUndefined();
+  });
+
+  it("rejects terminal principals without a canvas anchor", () => {
+    const map = makeProcessIdentityMap();
+    expect(map.bind(process.pid, { kind: "terminal", bindingId: "term-1" })).toBe(false);
+  });
 });
 
 describe("process identity peer PID (real UDS)", () => {

@@ -15,7 +15,7 @@ import type { Socket } from "node:net";
 //
 // Client-supplied nodeRef / capability secrets are not identity.
 
-export type ProcessPrincipalKind = "agent" | "herdr";
+export type ProcessPrincipalKind = "agent" | "herdr" | "terminal";
 
 export interface ProcessPrincipal {
   readonly kind: ProcessPrincipalKind;
@@ -23,6 +23,8 @@ export interface ProcessPrincipal {
   readonly agentKey?: string;
   /** Herdr pane id when kind is herdr. */
   readonly paneId?: string;
+  /** Stable native terminal binding when kind is terminal. */
+  readonly bindingId?: string;
   /** Optional canvas anchor when known at bind time. */
   readonly canvasName?: string;
   readonly nodeId?: string;
@@ -42,6 +44,8 @@ export interface ProcessIdentityMap {
   readonly unbindAgentKey: (agentKey: string) => void;
   /** Drop every bind for this herdr pane. */
   readonly unbindHerdrPane: (paneId: string) => void;
+  /** Drop every bind for this native terminal binding. */
+  readonly unbindTerminalBinding: (bindingId: string) => void;
   readonly resolve: (pid: number) => ProcessPrincipal | undefined;
   /** Walk pid → ppid … looking for a bound ancestor (inclusive). */
   readonly resolveInTree: (pid: number, maxDepth?: number) => ProcessPrincipal | undefined;
@@ -58,6 +62,7 @@ const samePrincipal = (a: ProcessPrincipal, b: ProcessPrincipal): boolean =>
   a.kind === b.kind &&
   a.agentKey === b.agentKey &&
   a.paneId === b.paneId &&
+  a.bindingId === b.bindingId &&
   a.canvasName === b.canvasName &&
   a.nodeId === b.nodeId;
 
@@ -99,6 +104,10 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
     if (!Number.isInteger(pid) || pid <= 0) return false;
     if (principal.kind === "agent" && !principal.agentKey) return false;
     if (principal.kind === "herdr" && !principal.paneId && !principal.nodeId) return false;
+    if (
+      principal.kind === "terminal" &&
+      (!principal.bindingId || !principal.canvasName || !principal.nodeId)
+    ) return false;
     if (!processAlive(pid)) return false;
     const startKey = readProcessStartKey(pid);
     if (startKey === undefined) return false;
@@ -143,6 +152,14 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
     }
   };
 
+  const unbindTerminalBinding = (bindingId: string): void => {
+    for (const [pid, record] of byPid) {
+      if (record.principal.kind === "terminal" && record.principal.bindingId === bindingId) {
+        byPid.delete(pid);
+      }
+    }
+  };
+
   const resolveLive = (pid: number): ProcessPrincipal | undefined => {
     const record = byPid.get(pid);
     if (record === undefined) return undefined;
@@ -174,6 +191,7 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
     unbindPrincipal,
     unbindAgentKey,
     unbindHerdrPane,
+    unbindTerminalBinding,
     resolve: resolveLive,
     resolveInTree,
     clear: () => byPid.clear(),
