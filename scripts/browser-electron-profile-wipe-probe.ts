@@ -1,14 +1,11 @@
 #!/usr/bin/env bun
-import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import {
   access,
   mkdir,
-  mkdtemp,
   readFile,
   readdir,
-  rm,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -16,6 +13,12 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { browserProfileQuarantinePath } from "../src/main/vellum/browser/profile-storage";
+import {
+  createProbeSandbox,
+  createProbeProcessSupervisor,
+  removeProbeSandboxIfClean,
+  type ProbeSandbox,
+} from "./probe-process-supervisor";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fixturePath = join(repoRoot, "tests/fixtures/browser/profile-wipe-sentinel.html");
@@ -30,6 +33,7 @@ const LAUNCH_TIMEOUT_MS = 60_000;
 const PROBE_TIMEOUT_MS = 190_000;
 const PHASE_B_EXIT = 86;
 const DISK_MARKER_NAME = ".vellum-profile-wipe-sentinel";
+const probeSupervisor = createProbeProcessSupervisor({ maxLogBytes: MAX_LOG_BYTES });
 const storageKeys = [
   "cookie",
   "localStorage",
@@ -53,13 +57,16 @@ interface LaunchResult {
   readonly signal: NodeJS.Signals | null;
   readonly stdout: string;
   readonly stderr: string;
+  readonly diagnostics: readonly string[];
   readonly arguments: ReadonlyArray<string>;
 }
 
 let probeStage = "setup";
-let activeChild: ChildProcess | undefined;
 let activeServer: Server | undefined;
-let activeRoot: string | undefined;
+let activeSandbox: ProbeSandbox | undefined;
+let watchdogExitRequested = false;
+let normalCleanupCompleted = false;
+let successfulProbeOutput: string | undefined;
 
 function ensure(condition: unknown, code: string): asserts condition {
   if (!condition) throw new Error(code);
@@ -67,9 +74,6 @@ function ensure(condition: unknown, code: string): asserts condition {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-
-const appendBounded = (current: string, chunk: Buffer): string =>
-  (current + chunk.toString("utf8")).slice(-MAX_LOG_BYTES);
 
 const makeSentinels = (): SentinelSet =>
   Object.freeze(
@@ -197,9 +201,11 @@ const buildDedicatedElectronEntry = async (root: string): Promise<{
   readonly stderr: string;
 }> => {
   const outputPath = join(root, "electron-profile-wipe-main.mjs");
-  const build = spawn(
-    process.execPath,
-    [
+  const build = probeSupervisor.spawnGroup({
+    source: "browser-electron-profile-wipe-probe",
+    purpose: "build dedicated Electron profile wipe entry",
+    command: process.execPath,
+    args: [
       "build",
       testMainEntryPath,
       "--target=node",
@@ -208,37 +214,17 @@ const buildDedicatedElectronEntry = async (root: string): Promise<{
       `--outfile=${outputPath}`,
       "--sourcemap=none",
     ],
-    {
-      cwd: repoRoot,
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-    },
+    cwd: repoRoot,
+    env: process.env,
+  });
+  const { exitCode, signal, stdout, stderr } = await probeSupervisor.waitForClose(
+    build,
+    LAUNCH_TIMEOUT_MS,
+    "electron_fixture_build_timeout",
   );
-  let stdout = "";
-  let stderr = "";
-  build.stdout.on("data", (chunk: Buffer) => {
-    stdout = appendBounded(stdout, chunk);
-  });
-  build.stderr.on("data", (chunk: Buffer) => {
-    stderr = appendBounded(stderr, chunk);
-  });
-  const [exitCode, signal] = (await once(build, "close")) as [
-    number | null,
-    NodeJS.Signals | null,
-  ];
   ensure(exitCode === 0 && signal === null, "electron_fixture_build_failed");
   await access(outputPath);
   return { path: outputPath, stdout, stderr };
-};
-
-const stopChild = async (child: ChildProcess): Promise<void> => {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  child.kill("SIGTERM");
-  await Promise.race([
-    once(child, "close"),
-    new Promise((resolveDelay) => setTimeout(resolveDelay, 2_000)),
-  ]);
-  if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
 };
 
 const launchElectron = async (options: {
@@ -274,34 +260,24 @@ const launchElectron = async (options: {
   delete env.ELECTRON_RENDERER_URL;
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.NODE_OPTIONS;
-  const child = spawn(electronPath, args, {
+  const child = probeSupervisor.spawnGroup({
+    source: "browser-electron-profile-wipe-probe",
+    purpose: `run Electron profile wipe phase ${options.phase}`,
+    command: electronPath,
+    args,
     cwd: repoRoot,
     env,
-    stdio: ["ignore", "pipe", "pipe"],
   });
-  activeChild = child;
-  let stdout = "";
-  let stderr = "";
-  child.stdout.on("data", (chunk: Buffer) => {
-    stdout = appendBounded(stdout, chunk);
-  });
-  child.stderr.on("data", (chunk: Buffer) => {
-    stderr = appendBounded(stderr, chunk);
-  });
-  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const closed = once(child, "close") as Promise<[number | null, NodeJS.Signals | null]>;
-    const expired = new Promise<never>((_resolve, reject) => {
-      timeout = setTimeout(() => reject(new Error("electron_launch_timeout")), LAUNCH_TIMEOUT_MS);
-    });
-    const [exitCode, signal] = await Promise.race([closed, expired]);
-    return { exitCode, signal, stdout, stderr, arguments: args };
+    const close = await probeSupervisor.waitForClose(
+      child,
+      LAUNCH_TIMEOUT_MS,
+      "electron_launch_timeout",
+    );
+    return { ...close, arguments: args };
   } catch (error) {
-    await stopChild(child);
+    await probeSupervisor.stop(child, `profile-wipe-phase-${options.phase}-failed`);
     throw error;
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-    if (activeChild === child) activeChild = undefined;
   }
 };
 
@@ -410,6 +386,7 @@ const publicLaunchArtifacts = (
 ): ReadonlyArray<readonly [string, string]> => [
   [`${phase}_stdout`, launch.stdout],
   [`${phase}_stderr`, launch.stderr],
+  [`${phase}_diagnostics`, JSON.stringify(launch.diagnostics)],
   [`${phase}_arguments`, JSON.stringify(launch.arguments)],
   [`${phase}_report`, report],
 ];
@@ -425,8 +402,9 @@ const main = async (): Promise<void> => {
   });
   const secrets = [...allSentinels(sentinels), diskMarkers.personal, diskMarkers.work];
   ensure(new Set(secrets).size === secrets.length, "sentinels_not_unique");
-  const root = await mkdtemp(PROBE_TEMP_PREFIX);
-  activeRoot = root;
+  const sandbox = await createProbeSandbox(PROBE_TEMP_PREFIX);
+  const root = sandbox.root;
+  activeSandbox = sandbox;
   const home = join(root, "home");
   const userData = join(root, "electron");
   const browserRoot = join(root, "browser");
@@ -661,27 +639,48 @@ const main = async (): Promise<void> => {
       },
     });
     assertAbsent(prohibited, [["success_output", success]]);
-    console.log(success);
+    successfulProbeOutput = success;
   } finally {
     fixtureServer.server.closeAllConnections();
     await closeServer(fixtureServer.server);
     if (activeServer === fixtureServer.server) activeServer = undefined;
-    ensure(root.startsWith(PROBE_TEMP_PREFIX), "unsafe_probe_cleanup_refused");
-    await rm(root, { recursive: true, force: true });
-    if (activeRoot === root) activeRoot = undefined;
+    probeStage = "verify_process_group_drain";
+    const drainReceipt = await probeSupervisor.shutdown(
+      "profile-wipe-probe-finalize",
+    );
+    const removed = await removeProbeSandboxIfClean({
+      sandbox,
+      receipt: drainReceipt,
+      label: "Electron profile wipe probe",
+    });
+    if (removed && activeSandbox === sandbox) activeSandbox = undefined;
+    if (!drainReceipt.clean && !watchdogExitRequested && (process.exitCode ?? 0) === 0) {
+      process.exitCode = 2;
+    }
+    normalCleanupCompleted = true;
   }
 };
 
 const watchdog = setTimeout(() => {
+  watchdogExitRequested = true;
   console.error(JSON.stringify({ ok: false, stage: probeStage, error: "probe_timeout" }));
   void (async () => {
-    if (activeChild !== undefined) await stopChild(activeChild);
+    const drainReceipt = await probeSupervisor.shutdown(
+      "profile-wipe-probe-watchdog",
+    );
     activeServer?.closeAllConnections();
     activeServer?.close();
-    if (activeRoot !== undefined && activeRoot.startsWith(PROBE_TEMP_PREFIX)) {
-      await rm(activeRoot, { recursive: true, force: true }).catch(() => undefined);
+    if (activeSandbox !== undefined) {
+      await removeProbeSandboxIfClean({
+        sandbox: activeSandbox,
+        receipt: drainReceipt,
+        label: "Electron profile wipe probe watchdog",
+      }).catch((error) => {
+        console.error(error instanceof Error ? error.message : String(error));
+        return false;
+      });
     }
-    process.exit(124);
+    process.exitCode = 124;
   })();
 }, PROBE_TIMEOUT_MS);
 watchdog.unref();
@@ -694,7 +693,33 @@ try {
       ? error.message
       : "profile_wipe_probe_failed";
   console.error(JSON.stringify({ ok: false, stage: probeStage, error: failure }));
-  process.exitCode = 2;
+  if (!watchdogExitRequested) process.exitCode = 2;
 } finally {
   clearTimeout(watchdog);
+  const finalReceipt = await probeSupervisor.shutdown(
+    "profile-wipe-probe-top-level-finalize",
+  );
+  if (!normalCleanupCompleted) {
+    activeServer?.closeAllConnections();
+    activeServer?.close();
+    if (activeSandbox !== undefined) {
+      const removed = await removeProbeSandboxIfClean({
+        sandbox: activeSandbox,
+        receipt: finalReceipt,
+        label: "Electron profile wipe top-level cleanup",
+      });
+      if (removed) activeSandbox = undefined;
+    }
+  }
+  if (!finalReceipt.clean && !watchdogExitRequested && (process.exitCode ?? 0) === 0) {
+    process.exitCode = 2;
+  }
+  if (
+    successfulProbeOutput !== undefined &&
+    finalReceipt.clean &&
+    !watchdogExitRequested &&
+    (process.exitCode ?? 0) === 0
+  ) {
+    console.log(successfulProbeOutput);
+  }
 }

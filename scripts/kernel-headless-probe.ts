@@ -29,10 +29,16 @@
 //
 // Exit 0 if both passes hold; exit 2 with a diagnosis otherwise.
 
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  createProbeSandbox,
+  createProbeProcessSupervisor,
+  removeProbeSandboxIfClean,
+  type ProbeProcessHandle,
+  type ProbeSandbox,
+} from "./probe-process-supervisor";
 
 // Scripts in this repo are always invoked from the repo root (`bun run
 // scripts/...` / `bun scripts/...`), matching every other script here — no
@@ -56,6 +62,13 @@ const TIMER_EVERY_MINUTES = 0.02; // ~1.2s — fast enough for a probe, still a
 const BOOT_POLL_MS = 500;
 const ARMED_DELIVERY_TIMEOUT_MS = 90_000; // headroom for a real model turn
 const DRY_PULSE_TIMEOUT_MS = 15_000;
+const PROBE_RUNTIME_TIMEOUT_MS = 130_000;
+const PROBE_LOG_BYTES = 256 * 1024;
+const PROBE_TEMP_PREFIX = join(tmpdir(), "vellum-kernel-probe-");
+const probeSupervisor = createProbeProcessSupervisor({ maxLogBytes: PROBE_LOG_BYTES });
+const activeSandboxes = new Set<ProbeSandbox>();
+let watchdogExitRequested = false;
+let mainSucceeded = false;
 
 interface PulseRecordLike {
   readonly kind: string;
@@ -124,7 +137,9 @@ interface Fixture {
 }
 
 const setUpFixture = async (armed: boolean): Promise<Fixture> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-kernel-probe-"));
+  const sandbox = await createProbeSandbox(PROBE_TEMP_PREFIX);
+  activeSandboxes.add(sandbox);
+  const root = sandbox.root;
   const userDataDir = join(root, "userData");
   const canvasesDir = join(root, "canvases");
   await mkdir(canvasesDir, { recursive: true });
@@ -135,17 +150,19 @@ const setUpFixture = async (armed: boolean): Promise<Fixture> => {
   return { userDataDir, canvasesDir };
 };
 
-const spawnApp = (fixture: Fixture): ChildProcess => {
-  const child = spawn(
-    ELECTRON_BIN,
-    [MAIN_ENTRY, `--user-data-dir=${fixture.userDataDir}`, "--vellum-headless"],
-    {
-      env: { ...process.env, VELLUM_CANVASES_DIR: fixture.canvasesDir },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-  child.stdout?.on("data", (chunk: Buffer) => process.stdout.write(`[app] ${chunk}`));
-  child.stderr?.on("data", (chunk: Buffer) => process.stderr.write(`[app] ${chunk}`));
+const spawnApp = (fixture: Fixture): ProbeProcessHandle => {
+  const child = probeSupervisor.spawnGroup({
+    source: "kernel-headless-probe",
+    purpose: "run isolated headless Vellum fixture",
+    command: ELECTRON_BIN,
+    args: [MAIN_ENTRY, `--user-data-dir=${fixture.userDataDir}`, "--vellum-headless"],
+    cwd: REPO_ROOT,
+    env: { ...process.env, VELLUM_CANVASES_DIR: fixture.canvasesDir },
+  });
+  child.onOutput((source, _snapshot, chunk) => {
+    const destination = source === "stdout" ? process.stdout : process.stderr;
+    destination.write(`[app] ${chunk}`);
+  });
   return child;
 };
 
@@ -156,6 +173,7 @@ const waitForPulse = async (
 ): Promise<PulseRecordLike> => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (watchdogExitRequested) throw new Error("kernel probe watchdog expired");
     const store = await readStore(fixture.userDataDir);
     const debug = store["kernel.debug"] as { pulseLog?: ReadonlyArray<PulseRecordLike> } | undefined;
     const match = debug?.pulseLog?.find((record) => record.canvasName === FIXTURE_CANVAS && predicate(record));
@@ -163,16 +181,6 @@ const waitForPulse = async (
     await sleep(BOOT_POLL_MS);
   }
   throw new Error(`no matching PulseRecord landed within ${timeoutMs}ms`);
-};
-
-const killChild = async (child: ChildProcess): Promise<void> => {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  child.kill("SIGTERM");
-  await Promise.race([
-    new Promise<void>((resolve) => child.once("exit", () => resolve())),
-    sleep(5_000),
-  ]);
-  if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
 };
 
 const runPass = async (
@@ -188,8 +196,15 @@ const runPass = async (
     await assert(fixture);
     console.log(`[probe] ${label}: PASS`);
   } finally {
-    await killChild(child);
-    await rm(join(fixture.userDataDir, ".."), { recursive: true, force: true }).catch(() => undefined);
+    const receipt = await probeSupervisor.stop(
+      child,
+      `kernel-headless-pass-finalize:${label}`,
+    );
+    if (!receipt.closed) {
+      throw new Error(
+        `headless fixture did not close (${JSON.stringify(receipt)})`,
+      );
+    }
   }
 };
 
@@ -212,11 +227,55 @@ const main = async (): Promise<void> => {
     console.log("[probe] dry PulseRecord:", record);
   });
 
-  console.log("\nkernel-headless-probe: ALL PASSES GREEN");
+  mainSucceeded = true;
 };
 
-main().catch((err) => {
+const finalize = async (reason: string): Promise<boolean> => {
+  const drainReceipt = await probeSupervisor.shutdown(reason);
+  let allRemoved = true;
+  for (const sandbox of activeSandboxes) {
+    const removed = await removeProbeSandboxIfClean({
+      sandbox,
+      receipt: drainReceipt,
+      label: "kernel headless probe",
+    });
+    if (removed) activeSandboxes.delete(sandbox);
+    else allRemoved = false;
+  }
+  return drainReceipt.clean && allRemoved;
+};
+
+const watchdog = setTimeout(() => {
+  watchdogExitRequested = true;
+  console.error("\nkernel-headless-probe: GLOBAL WATCHDOG EXPIRED");
+  void (async () => {
+    await finalize("kernel-headless-probe-watchdog").catch((error) => {
+      console.error(error instanceof Error ? error.stack ?? error.message : error);
+      return false;
+    });
+    process.exitCode = 124;
+  })();
+}, PROBE_RUNTIME_TIMEOUT_MS);
+watchdog.unref();
+
+try {
+  await main();
+} catch (err) {
   console.error("\nkernel-headless-probe: FAILED");
   console.error(err instanceof Error ? err.stack ?? err.message : err);
-  process.exit(2);
-});
+  if (!watchdogExitRequested) process.exitCode = 2;
+} finally {
+  const clean = await finalize("kernel-headless-probe-finalize");
+  if (!clean && !watchdogExitRequested && (process.exitCode ?? 0) === 0) {
+    process.exitCode = 2;
+  }
+  if (
+    mainSucceeded &&
+    clean &&
+    !watchdogExitRequested &&
+    (process.exitCode ?? 0) === 0
+  ) {
+    console.log("\nkernel-headless-probe: ALL PASSES GREEN");
+  }
+  clearTimeout(watchdog);
+}

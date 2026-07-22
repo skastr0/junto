@@ -1,14 +1,11 @@
 #!/usr/bin/env bun
-import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import {
   access,
   mkdir,
-  mkdtemp,
   readFile,
   readdir,
-  rm,
   stat,
   unlink,
   writeFile,
@@ -30,6 +27,13 @@ import {
 } from "../src/shared/browser-control";
 import { BROWSER_EVAL_TIMEOUT_MS } from "../src/shared/browser-limits";
 import { formatNodeRef } from "../src/shared/node-ref";
+import {
+  createProbeSandbox,
+  createProbeProcessSupervisor,
+  removeProbeSandboxIfClean,
+  type ProbeProcessHandle,
+  type ProbeSandbox,
+} from "./probe-process-supervisor";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fixturePath = join(repoRoot, "tests/fixtures/browser/hostile-containment.html");
@@ -44,11 +48,14 @@ const CONTROL_TIMEOUT_MS = 5_000;
 const EVAL_INVALIDATION_TIMEOUT_MS = BROWSER_EVAL_TIMEOUT_MS + 10_000;
 const PROBE_RUNTIME_TIMEOUT_MS = 120_000;
 const MAX_LOG_BYTES = 256 * 1024;
+const probeSupervisor = createProbeProcessSupervisor({ maxLogBytes: MAX_LOG_BYTES });
 let probeStage = "setup";
-let activeProbeChild: ChildProcess | undefined;
 let activeProbeServer: Server | undefined;
 let activeSentinelServer: Server | undefined;
-let activeProbeRoot: string | undefined;
+let activeProbeSandbox: ProbeSandbox | undefined;
+let watchdogExitRequested = false;
+let normalCleanupCompleted = false;
+let successfulProbeOutput: string | undefined;
 const observedControlResponseJson: string[] = [];
 // macOS limits AF_UNIX paths to roughly 104 bytes. os.tmpdir() expands to a
 // long /var/folders path, so this hermetic probe deliberately uses /tmp.
@@ -262,28 +269,27 @@ const assertRuntimeDevToolsAbsent = (audit: ProbeAudit, stage: string): void => 
 const buildDedicatedElectronEntry = async (root: string): Promise<string> => {
   const outputName = "electron-containment-main.mjs";
   const outputPath = join(root, outputName);
-  const build = spawn(process.execPath, [
-    "build",
-    testMainEntryPath,
-    "--target=node",
-    "--format=esm",
-    "--external=electron",
-    `--outfile=${outputPath}`,
-    "--sourcemap=none",
-  ], {
+  const build = probeSupervisor.spawnGroup({
+    source: "browser-electron-containment-probe",
+    purpose: "build dedicated Electron containment entry",
+    command: process.execPath,
+    args: [
+      "build",
+      testMainEntryPath,
+      "--target=node",
+      "--format=esm",
+      "--external=electron",
+      `--outfile=${outputPath}`,
+      "--sourcemap=none",
+    ],
     cwd: repoRoot,
     env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
   });
-  let stdout = "";
-  let stderr = "";
-  build.stdout.on("data", (chunk: Buffer) => {
-    stdout = appendBounded(stdout, chunk);
-  });
-  build.stderr.on("data", (chunk: Buffer) => {
-    stderr = appendBounded(stderr, chunk);
-  });
-  const [exitCode, signal] = await once(build, "exit") as [number | null, NodeJS.Signals | null];
+  const { exitCode, signal, stdout, stderr } = await probeSupervisor.waitForClose(
+    build,
+    STARTUP_TIMEOUT_MS,
+    "dedicated Electron entry build timed out",
+  );
   if (exitCode !== 0) {
     throw new Error(
       `dedicated Electron entry build failed (${String(exitCode ?? signal)}): ${stderr || stdout}`,
@@ -293,11 +299,8 @@ const buildDedicatedElectronEntry = async (root: string): Promise<string> => {
   return outputPath;
 };
 
-const appendBounded = (current: string, chunk: Buffer): string =>
-  (current + chunk.toString("utf8")).slice(-MAX_LOG_BYTES);
-
 interface ElectronLaunch {
-  readonly child: ChildProcess;
+  readonly process: ProbeProcessHandle;
   readonly exited: () => boolean;
   readonly setKnownCapabilities: (capabilities: ReadonlyArray<string>) => void;
   readonly output: () => {
@@ -311,53 +314,41 @@ const launchDedicatedElectron = (
   electronArguments: ReadonlyArray<string>,
   env: NodeJS.ProcessEnv,
 ): ElectronLaunch => {
-  const child = spawn(
-    electronPath,
-    [electronArguments[0]!, "--proxy-server=http://127.0.0.1:9", ...electronArguments.slice(1)],
-    {
-      cwd: repoRoot,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-  activeProbeChild = child;
-  let stdout = "";
-  let stderr = "";
-  let didExit = false;
+  const probeProcess = probeSupervisor.spawnGroup({
+    source: "browser-electron-containment-probe",
+    purpose: "run dedicated Electron containment fixture",
+    command: electronPath,
+    args: [
+      electronArguments[0]!,
+      "--proxy-server=http://127.0.0.1:9",
+      ...electronArguments.slice(1),
+    ],
+    cwd: repoRoot,
+    env,
+  });
   let knownCapabilities: ReadonlyArray<string> = [];
   let capabilityLeak: "stdout" | "stderr" | undefined;
-  const captureChildOutput = (
-    source: "stdout" | "stderr",
-    current: string,
-    chunk: Buffer,
-  ): string => {
-    const next = appendBounded(current, chunk);
-    if (knownCapabilities.some((secret) => next.includes(secret))) {
+  probeProcess.onOutput((source, output) => {
+    if (knownCapabilities.some((secret) => output[source].includes(secret))) {
       capabilityLeak ??= source;
     }
-    return next;
-  };
-  child.stdout?.on("data", (chunk: Buffer) => {
-    stdout = captureChildOutput("stdout", stdout, chunk);
-  });
-  child.stderr?.on("data", (chunk: Buffer) => {
-    stderr = captureChildOutput("stderr", stderr, chunk);
-  });
-  child.once("exit", () => {
-    didExit = true;
   });
   return {
-    child,
-    exited: () => didExit,
+    process: probeProcess,
+    exited: probeProcess.exited,
     setKnownCapabilities: (capabilities) => {
       knownCapabilities = [...capabilities];
+      const { stdout, stderr } = probeProcess.output();
       if (knownCapabilities.some((secret) => stdout.includes(secret))) {
         capabilityLeak ??= "stdout";
       } else if (knownCapabilities.some((secret) => stderr.includes(secret))) {
         capabilityLeak ??= "stderr";
       }
     },
-    output: () => ({ stdout, stderr, capabilityLeak }),
+    output: () => {
+      const { stdout, stderr } = probeProcess.output();
+      return { stdout, stderr, capabilityLeak };
+    },
   };
 };
 
@@ -747,13 +738,10 @@ const assertTcpControlAbsent = (
     req.end();
   });
 
-const stopChild = async (child: ChildProcess): Promise<void> => {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  child.kill("SIGTERM");
-  await Promise.race([once(child, "exit"), delay(5_000)]);
-  if (child.exitCode === null && child.signalCode === null) {
-    child.kill("SIGKILL");
-    await Promise.race([once(child, "exit"), delay(2_000)]);
+const stopLaunch = async (launch: ElectronLaunch, reason: string): Promise<void> => {
+  const receipt = await probeSupervisor.stop(launch.process, reason);
+  if (!receipt.closed) {
+    throw new Error(`Electron fixture did not close: ${JSON.stringify(receipt)}`);
   }
 };
 
@@ -1117,8 +1105,9 @@ const qualifyCapabilityNonDisclosure = async (options: {
 };
 
 const main = async (): Promise<void> => {
-  const root = await mkdtemp(PROBE_TEMP_PREFIX);
-  activeProbeRoot = root;
+  const sandbox = await createProbeSandbox(PROBE_TEMP_PREFIX);
+  const root = sandbox.root;
+  activeProbeSandbox = sandbox;
   const home = join(root, "home");
   const userData = join(root, "electron-user-data");
   const browserDir = join(root, "browser");
@@ -1452,7 +1441,7 @@ const main = async (): Promise<void> => {
     });
 
     probeStage = "first fixture shutdown";
-    await stopChild(firstLaunch.child);
+    await stopLaunch(firstLaunch, "containment-first-fixture-complete");
     if (!(await markerAbsent(socketPath))) {
       throw new Error("browser control socket remained after Electron quit");
     }
@@ -1570,7 +1559,7 @@ const main = async (): Promise<void> => {
     await assertTcpControlAbsent(legacyTcpPort, restartControl.token);
 
     probeStage = "second fixture shutdown";
-    await stopChild(restartLaunch.child);
+    await stopLaunch(restartLaunch, "containment-second-fixture-complete");
     if (!(await markerAbsent(restartControl.socketPath))) {
       throw new Error("browser control socket remained after restarted Electron quit");
     }
@@ -1588,8 +1577,7 @@ const main = async (): Promise<void> => {
       electronArguments: [electronArguments, restartElectronArguments],
     });
 
-    console.log(
-      JSON.stringify({
+    successfulProbeOutput = JSON.stringify({
         ok: true,
         assertions: {
           privilegedGlobalsAbsent: true,
@@ -1624,8 +1612,7 @@ const main = async (): Promise<void> => {
           privateLoopbackSentinelUnreached: true,
           dedicatedEntryBuiltHermetically: true,
         },
-      }),
-    );
+      });
   } catch (error) {
     const firstOutput = firstLaunch.output();
     const restartOutput = restartLaunch?.output();
@@ -1643,34 +1630,52 @@ const main = async (): Promise<void> => {
         stderr: redactKnownSecrets(combinedStderr, knownCapabilities),
       }),
     );
-    process.exitCode = 2;
+    if (!watchdogExitRequested) process.exitCode = 2;
   } finally {
+    let cleanupFailed = false;
     probeStage = "cleanup children";
-    if (restartLaunch !== undefined) await stopChild(restartLaunch.child);
-    await stopChild(firstLaunch.child);
+    for (const [launch, reason] of [
+      [restartLaunch, "containment-restart-finalize"],
+      [firstLaunch, "containment-first-finalize"],
+    ] as const) {
+      if (launch === undefined) continue;
+      try {
+        await stopLaunch(launch, reason);
+      } catch (error) {
+        cleanupFailed = true;
+        console.error(error instanceof Error ? error.message : String(error));
+      }
+    }
     probeStage = "cleanup fixture server";
     server.closeAllConnections();
     await Promise.race([closeServer(server), delay(2_000)]);
     probeStage = "cleanup sentinel server";
     sentinelServer.closeAllConnections();
     await Promise.race([closeServer(sentinelServer), delay(2_000)]);
-    if (!root.startsWith(PROBE_TEMP_PREFIX)) {
-      throw new Error(`refusing unsafe probe cleanup: ${root}`);
-    }
-    await rm(root, { recursive: true, force: true });
-    if (
-      activeProbeChild === firstLaunch.child ||
-      activeProbeChild === restartLaunch?.child
-    ) {
-      activeProbeChild = undefined;
+    probeStage = "verify process group drain";
+    const drainReceipt = await probeSupervisor.shutdown(
+      "containment-probe-finalize",
+    );
+    if (!drainReceipt.clean) cleanupFailed = true;
+    const removed = await removeProbeSandboxIfClean({
+      sandbox,
+      receipt: drainReceipt,
+      label: "Electron containment probe",
+    });
+    if (removed && activeProbeSandbox === sandbox) {
+      activeProbeSandbox = undefined;
     }
     if (activeProbeServer === server) activeProbeServer = undefined;
     if (activeSentinelServer === sentinelServer) activeSentinelServer = undefined;
-    if (activeProbeRoot === root) activeProbeRoot = undefined;
+    if (cleanupFailed && !watchdogExitRequested && (process.exitCode ?? 0) === 0) {
+      process.exitCode = 2;
+    }
+    normalCleanupCompleted = true;
   }
 };
 
 const watchdog = setTimeout(() => {
+  watchdogExitRequested = true;
   console.error(
     JSON.stringify({
       ok: false,
@@ -1678,12 +1683,9 @@ const watchdog = setTimeout(() => {
     }),
   );
   void (async () => {
-    const child = activeProbeChild;
-    if (child !== undefined && child.exitCode === null && child.signalCode === null) {
-      child.kill("SIGTERM");
-      await Promise.race([once(child, "exit"), delay(750)]);
-      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    }
+    const drainReceipt = await probeSupervisor.shutdown(
+      "containment-probe-watchdog",
+    );
     try {
       activeProbeServer?.closeAllConnections();
       activeProbeServer?.close();
@@ -1692,19 +1694,59 @@ const watchdog = setTimeout(() => {
     } catch {
       // Watchdog cleanup is best effort; process termination is the final bound.
     }
-    const root = activeProbeRoot;
-    if (root !== undefined && root.startsWith(PROBE_TEMP_PREFIX)) {
-      await Promise.race([
-        rm(root, { recursive: true, force: true }).catch(() => undefined),
-        delay(1_000),
-      ]);
+    const sandbox = activeProbeSandbox;
+    if (sandbox !== undefined) {
+      await removeProbeSandboxIfClean({
+        sandbox,
+        receipt: drainReceipt,
+        label: "Electron containment probe watchdog",
+      }).catch((error) => {
+        console.error(error instanceof Error ? error.message : String(error));
+        return false;
+      });
     }
-    process.exit(124);
+    process.exitCode = 124;
   })();
 }, PROBE_RUNTIME_TIMEOUT_MS);
 watchdog.unref();
 try {
   await main();
+} catch (error) {
+  console.error(JSON.stringify({
+    ok: false,
+    stage: probeStage,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  if (!watchdogExitRequested) process.exitCode = 2;
 } finally {
   clearTimeout(watchdog);
+  const finalReceipt = await probeSupervisor.shutdown(
+    "containment-probe-top-level-finalize",
+  );
+  if (!normalCleanupCompleted) {
+    for (const server of [activeProbeServer, activeSentinelServer]) {
+      if (server === undefined) continue;
+      server.closeAllConnections();
+      await Promise.race([closeServer(server), delay(2_000)]).catch(() => undefined);
+    }
+    if (activeProbeSandbox !== undefined) {
+      const removed = await removeProbeSandboxIfClean({
+        sandbox: activeProbeSandbox,
+        receipt: finalReceipt,
+        label: "Electron containment top-level cleanup",
+      });
+      if (removed) activeProbeSandbox = undefined;
+    }
+  }
+  if (!finalReceipt.clean && !watchdogExitRequested && (process.exitCode ?? 0) === 0) {
+    process.exitCode = 2;
+  }
+  if (
+    successfulProbeOutput !== undefined &&
+    finalReceipt.clean &&
+    !watchdogExitRequested &&
+    (process.exitCode ?? 0) === 0
+  ) {
+    console.log(successfulProbeOutput);
+  }
 }
