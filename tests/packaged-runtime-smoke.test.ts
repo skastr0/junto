@@ -1,6 +1,24 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { lstat, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PassThrough } from "node:stream";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const processMocks = vi.hoisted(() => ({
+  spawnDetachedProcessGroup: vi.fn(),
+  signalOwned: vi.fn(),
+  releaseOwned: vi.fn(),
+}));
+
+vi.mock("../src/main/vellum/process-signal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/vellum/process-signal")>()),
+  spawnDetachedProcessGroup: processMocks.spawnDetachedProcessGroup,
+  signalOwned: processMocks.signalOwned,
+  releaseOwned: processMocks.releaseOwned,
+}));
+
 import {
   DARWIN_UNIX_SOCKET_PATH_MAX_BYTES,
   assertDarwinUnixSocketPathFits,
@@ -8,18 +26,30 @@ import {
   assertNoTcpListeners,
   boundedProcessKind,
   descendantRows,
+  finalizePackagedRuntimeSandbox,
   hasDebugAuthority,
   modeString,
-  observeSpawnedRuntimeChild,
+  observeSpawnedRuntimeLease,
   parseDoctorReceipt,
   parseProcessRows,
   processRoles,
   survivingProcessRows,
   terminateSpawnedRuntime,
 } from "../scripts/packaged-runtime-smoke";
-import { admitChildProcess, releaseOwned } from "../src/main/vellum/process-signal";
+import {
+  createAppProcessPlane,
+  type AppProcessLease,
+} from "../src/main/vellum/app-process-plane";
+import {
+  setProcessEpochReaderForTests,
+  type ProcessEpochRow,
+} from "../src/main/vellum/process-epoch";
 
 class FakeRuntimeChild extends EventEmitter {
+  readonly stdin = new PassThrough();
+  readonly stdout = new PassThrough();
+  readonly stderr = new PassThrough();
+  pid: number | undefined = 42_900;
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
   readonly signals: NodeJS.Signals[] = [];
@@ -34,6 +64,7 @@ class FakeRuntimeChild extends EventEmitter {
   close(code: number | null, signal: NodeJS.Signals | null): void {
     this.exitCode = code;
     this.signalCode = signal;
+    this.emit("exit", code, signal);
     this.emit("close", code, signal);
   }
 
@@ -42,8 +73,58 @@ class FakeRuntimeChild extends EventEmitter {
   }
 }
 
-afterEach(() => {
+interface FakeOwned {
+  readonly child: FakeRuntimeChild;
+  released: boolean;
+}
+
+const tempRoots = new Set<string>();
+
+const epochRow = (
+  pid: number,
+  processGroupId: number,
+  sessionId: number,
+  startKey: string,
+): ProcessEpochRow => ({ pid, processGroupId, sessionId, startKey });
+
+const spawnGroupLease = (
+  child: FakeRuntimeChild,
+  mode: "group" | "child" = "group",
+): { readonly plane: ReturnType<typeof createAppProcessPlane>; readonly lease: AppProcessLease } => {
+  const owned: FakeOwned = { child, released: false };
+  processMocks.spawnDetachedProcessGroup.mockReturnValue({
+    child: child.asChild(),
+    process: owned,
+    mode,
+  });
+  const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+  const lease = plane.spawnGroup({
+    source: "packaged-runtime-smoke-test",
+    purpose: "test packaged runtime",
+    command: "/Applications/Vellum Command.app/Contents/MacOS/Vellum Command",
+  });
+  return { plane, lease };
+};
+
+beforeEach(() => {
+  processMocks.spawnDetachedProcessGroup.mockReset();
+  processMocks.signalOwned.mockReset();
+  processMocks.releaseOwned.mockReset();
+  processMocks.releaseOwned.mockImplementation((owned: FakeOwned) => {
+    owned.released = true;
+  });
+  setProcessEpochReaderForTests({
+    snapshot: () => [epochRow(42_900, 42_900, 77, "runtime-a")],
+  });
+});
+
+afterEach(async () => {
+  setProcessEpochReaderForTests(undefined);
   vi.useRealTimers();
+  await Promise.all([...tempRoots].map(async (root) => {
+    await rm(root, { recursive: true, force: true });
+    tempRoots.delete(root);
+  }));
 });
 
 const processFixture = `
@@ -163,7 +244,8 @@ describe("packaged runtime smoke child lifecycle", () => {
   it("records error-before-close without treating the error as terminal", async () => {
     vi.useFakeTimers();
     const child = new FakeRuntimeChild();
-    const lifecycle = observeSpawnedRuntimeChild(child.asChild());
+    const { lease } = spawnGroupLease(child);
+    const lifecycle = observeSpawnedRuntimeLease(lease);
     let settled = false;
     const terminal = lifecycle.waitForClose(1_000).then((result) => {
       settled = true;
@@ -189,53 +271,166 @@ describe("packaged runtime smoke child lifecycle", () => {
   it("contains an error during TERM and still waits for close", async () => {
     vi.useFakeTimers();
     const child = new FakeRuntimeChild();
-    const lifecycle = observeSpawnedRuntimeChild(child.asChild());
-    const owned = admitChildProcess({ source: "packaged-smoke-test", child });
+    const { plane, lease } = spawnGroupLease(child);
+    const lifecycle = observeSpawnedRuntimeLease(lease);
+    processMocks.signalOwned.mockImplementation((owned: FakeOwned, signal: NodeJS.Signals) => {
+      owned.child.kill(signal);
+      return {
+        attempted: true,
+        decision: { ok: true, mode: "group" },
+        via: "process.kill-group",
+      };
+    });
     child.onSignal = (signal) => {
       if (signal === "SIGTERM") child.emit("error", new Error("TERM delivery failed"));
     };
 
-    try {
-      const cleanup = terminateSpawnedRuntime(lifecycle, owned, "child", 1_000);
-      await Promise.resolve();
-      expect(child.signals).toEqual(["SIGTERM"]);
-      expect(lifecycle.terminal()).toBeUndefined();
-      expect(lifecycle.error()?.message).toBe("TERM delivery failed");
-      expect(vi.getTimerCount()).toBe(1);
+    const cleanup = terminateSpawnedRuntime(plane, lifecycle, lease, 1_000);
+    await Promise.resolve();
+    expect(child.signals).toEqual(["SIGTERM"]);
+    expect(lifecycle.terminal()).toBeUndefined();
+    expect(lifecycle.error()?.message).toBe("TERM delivery failed");
+    expect(vi.getTimerCount()).toBe(1);
 
-      child.close(0, null);
-      await cleanup;
-      expect(child.signals).toEqual(["SIGTERM"]);
-      expect(child.listenerCount("error")).toBe(0);
-      expect(vi.getTimerCount()).toBe(0);
-    } finally {
-      releaseOwned(owned);
-    }
+    child.close(0, null);
+    await cleanup;
+    expect(child.signals).toEqual(["SIGTERM"]);
+    expect(child.listenerCount("error")).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("forces a TERM-resistant child fallback only through its exact handle", async () => {
+  it("forces a TERM-resistant runtime only through its central group lease", async () => {
     vi.useFakeTimers();
     const child = new FakeRuntimeChild();
-    const lifecycle = observeSpawnedRuntimeChild(child.asChild());
-    const owned = admitChildProcess({ source: "packaged-smoke-test", child });
+    const { plane, lease } = spawnGroupLease(child);
+    const lifecycle = observeSpawnedRuntimeLease(lease);
+    processMocks.signalOwned.mockImplementation((owned: FakeOwned, signal: NodeJS.Signals) => {
+      owned.child.kill(signal);
+      return {
+        attempted: true,
+        decision: { ok: true, mode: "group" },
+        via: "process.kill-group",
+      };
+    });
     child.onSignal = (signal) => {
       if (signal === "SIGKILL") child.close(null, "SIGKILL");
     };
 
-    try {
-      const cleanup = terminateSpawnedRuntime(lifecycle, owned, "child", 100);
-      expect(child.signals).toEqual(["SIGTERM"]);
-      expect(vi.getTimerCount()).toBe(1);
+    const cleanup = terminateSpawnedRuntime(plane, lifecycle, lease, 100);
+    expect(child.signals).toEqual(["SIGTERM"]);
+    expect(vi.getTimerCount()).toBe(1);
 
-      vi.advanceTimersByTime(100);
-      await Promise.resolve();
-      await cleanup;
-      expect(child.signals).toEqual(["SIGTERM", "SIGKILL"]);
-      expect(lifecycle.terminal()).toMatchObject({ code: null, signal: "SIGKILL" });
-      expect(child.listenerCount("error")).toBe(0);
-      expect(vi.getTimerCount()).toBe(0);
-    } finally {
-      releaseOwned(owned);
-    }
+    await vi.advanceTimersByTimeAsync(100);
+    await cleanup;
+    expect(child.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(lifecycle.terminal()).toMatchObject({ code: null, signal: "SIGKILL" });
+    expect(child.listenerCount("error")).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retains the sandbox and returns a bounded straggler when group admission was refused", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-smoke-refused-"));
+    tempRoots.add(tempRoot);
+    vi.useFakeTimers();
+    const child = new FakeRuntimeChild();
+    const { plane, lease } = spawnGroupLease(child, "child");
+    processMocks.signalOwned.mockReturnValue({
+      attempted: false,
+      decision: { ok: false, reason: "child-epoch-unavailable" },
+      via: "none",
+    });
+
+    const finalizing = finalizePackagedRuntimeSandbox(plane, lease, tempRoot);
+    await vi.advanceTimersByTimeAsync(25);
+    const result = await finalizing;
+
+    expect(result).toMatchObject({
+      tempRootRemoved: false,
+      drain: {
+        clean: false,
+        stragglers: [{
+          mode: "child",
+          state: "refused",
+          term: { attempted: false, decision: { reason: "child-epoch-unavailable" } },
+          kill: { attempted: false, decision: { reason: "child-epoch-unavailable" } },
+        }],
+      },
+    });
+    await expect(lstat(tempRoot)).resolves.toBeDefined();
+    expect(child.signals).toEqual([]);
+    expect(child.stdin.destroyed).toBe(true);
+    expect(child.stdout.destroyed).toBe(true);
+    expect(child.stderr.destroyed).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retains an unclosed runtime after epoch revalidation refuses both signal phases", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-smoke-epoch-"));
+    tempRoots.add(tempRoot);
+    vi.useFakeTimers();
+    const child = new FakeRuntimeChild();
+    const { plane, lease } = spawnGroupLease(child);
+    processMocks.signalOwned.mockReturnValue({
+      attempted: false,
+      decision: { ok: false, reason: "group-epoch-mismatch" },
+      via: "none",
+    });
+
+    const finalizing = finalizePackagedRuntimeSandbox(plane, lease, tempRoot);
+    await vi.advanceTimersByTimeAsync(25);
+    const result = await finalizing;
+
+    expect(result).toMatchObject({
+      tempRootRemoved: false,
+      drain: {
+        clean: false,
+        stragglers: [{
+          mode: "group",
+          state: "refused",
+          term: { attempted: false, decision: { reason: "group-epoch-mismatch" } },
+          kill: { attempted: false, decision: { reason: "group-epoch-mismatch" } },
+        }],
+      },
+    });
+    await expect(lstat(tempRoot)).resolves.toBeDefined();
+    expect(child.stdin.destroyed).toBe(true);
+    expect(child.stdout.destroyed).toBe(true);
+    expect(child.stderr.destroyed).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("removes the sandbox only after a clean central group drain", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-smoke-clean-"));
+    tempRoots.add(tempRoot);
+    vi.useFakeTimers();
+    const child = new FakeRuntimeChild();
+    let snapshot: readonly ProcessEpochRow[] = [
+      epochRow(child.pid!, child.pid!, 77, "runtime-a"),
+    ];
+    setProcessEpochReaderForTests({ snapshot: () => snapshot });
+    const { plane, lease } = spawnGroupLease(child);
+    processMocks.signalOwned.mockImplementation((owned: FakeOwned, signal: NodeJS.Signals) => {
+      owned.child.kill(signal);
+      snapshot = [];
+      owned.child.close(null, signal);
+      return {
+        attempted: true,
+        decision: { ok: true, mode: "group" },
+        via: "process.kill-group",
+      };
+    });
+
+    const finalizing = finalizePackagedRuntimeSandbox(plane, lease, tempRoot);
+    await vi.advanceTimersByTimeAsync(10);
+    const result = await finalizing;
+
+    expect(result).toEqual({
+      drain: { clean: true, stragglers: [] },
+      tempRootRemoved: true,
+    });
+    await expect(lstat(tempRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    tempRoots.delete(tempRoot);
+    expect(child.signals).toEqual(["SIGTERM"]);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

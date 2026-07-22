@@ -1,5 +1,5 @@
-import { spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { watch, type FSWatcher } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { watch, writeSync, type FSWatcher } from "node:fs";
 import {
   chmod,
   lstat,
@@ -20,11 +20,12 @@ import {
   controlTokenPath,
 } from "../src/shared/browser-control";
 import {
-  releaseOwned,
-  signalOwned,
-  spawnDetachedProcessGroup,
-  type OwnedProcess,
-} from "../src/main/vellum/process-signal";
+  createAppProcessPlane,
+  type AppChildIo,
+  type AppProcessDrainResult,
+  type AppProcessLease,
+  type AppProcessPlane,
+} from "../src/main/vellum/app-process-plane";
 
 const SMOKE_TIMEOUT_MS = 45_000;
 const STARTUP_TIMEOUT_MS = 25_000;
@@ -334,7 +335,7 @@ const pathExists = async (targetPath: string): Promise<boolean> =>
   );
 
 const drainBounded = (
-  child: ChildProcessWithoutNullStreams,
+  io: Pick<AppChildIo, "stdout" | "stderr">,
 ): {
   readonly overflowed: () => boolean;
   readonly startupMarker: () => "browser-security" | "initialization" | "none";
@@ -351,8 +352,8 @@ const drainBounded = (
       marker = "initialization";
     }
   };
-  child.stdout.on("data", consume);
-  child.stderr.on("data", consume);
+  io.stdout.on("data", consume);
+  io.stderr.on("data", consume);
   return {
     overflowed: () => bytes > CHILD_OUTPUT_LIMIT_BYTES,
     startupMarker: () => marker,
@@ -373,46 +374,33 @@ export interface SpawnedRuntimeLifecycle {
 
 /** Install immediately after spawn. An `error` is diagnostic, not proof that
  * the process is gone: only `close` proves the child and its stdio are done. */
-export const observeSpawnedRuntimeChild = (
-  child: ChildProcessWithoutNullStreams,
+export const observeSpawnedRuntimeLease = (
+  lease: AppProcessLease,
 ): SpawnedRuntimeLifecycle => {
   let recordedError: Error | undefined;
   let observedTerminal: SpawnedRuntimeTerminal | undefined;
   const onError = (error: Error): void => {
     recordedError = error;
   };
-  const onClose = (
-    code: number | null,
-    signal: NodeJS.Signals | null,
-  ): void => {
+  const removeErrorListener = lease.io.onError(onError);
+  lease.io.onClose(({ code, signal }) => {
     observedTerminal = { code, signal, error: recordedError };
-    child.off("error", onError);
-  };
-  child.on("error", onError);
-  child.once("close", onClose);
+    removeErrorListener();
+  });
 
   const waitForClose = (timeoutMs: number): Promise<SpawnedRuntimeTerminal> => {
     if (observedTerminal !== undefined) return Promise.resolve(observedTerminal);
     return new Promise((resolve, reject) => {
-      const onObservedClose = (): void => {
-        cleanup();
-        resolve(
-          observedTerminal ?? {
-            code: child.exitCode,
-            signal: child.signalCode,
-            error: recordedError,
-          },
-        );
-      };
       const timer = setTimeout(() => {
-        cleanup();
         reject(new Error("packaged Vellum did not close inside the shutdown bound"));
       }, timeoutMs);
-      const cleanup = (): void => {
+      void lease.io.closed.then(({ code, signal }) => {
         clearTimeout(timer);
-        child.off("close", onObservedClose);
-      };
-      child.once("close", onObservedClose);
+        const terminal = observedTerminal ?? { code, signal, error: recordedError };
+        observedTerminal = terminal;
+        removeErrorListener();
+        resolve(terminal);
+      });
     });
   };
 
@@ -424,13 +412,13 @@ export const observeSpawnedRuntimeChild = (
 };
 
 export const terminateSpawnedRuntime = async (
+  processPlane: AppProcessPlane,
   lifecycle: SpawnedRuntimeLifecycle,
-  ownedProcess: OwnedProcess,
-  mode: "group" | "child",
+  lease: AppProcessLease,
   shutdownTimeoutMs: number = SHUTDOWN_TIMEOUT_MS,
 ): Promise<void> => {
   if (lifecycle.terminal() === undefined) {
-    const graceful = signalOwned(ownedProcess, "SIGTERM");
+    const graceful = processPlane.terminate(lease, "packaged-smoke-normal-shutdown");
     if (!graceful.attempted) {
       try {
         await lifecycle.waitForClose(shutdownTimeoutMs);
@@ -443,17 +431,65 @@ export const terminateSpawnedRuntime = async (
   try {
     await lifecycle.waitForClose(shutdownTimeoutMs);
   } catch {
-    const forced = signalOwned(ownedProcess, "SIGKILL");
-    const expectedVia = mode === "group" ? "process.kill-group" : "child.kill";
+    const forced = processPlane.forceTerminate(lease, "packaged-smoke-shutdown-timeout");
+    const expectedVia = lease.mode === "group" ? "process.kill-group" : "child.kill";
     if (!forced.attempted || forced.via !== expectedVia) {
       throw new Error(
-        mode === "group"
+        lease.mode === "group"
           ? "packaged Vellum cleanup refused an unverified forced group signal"
           : "packaged Vellum cleanup could not force its exact child handle",
       );
     }
     await lifecycle.waitForClose(shutdownTimeoutMs);
   }
+};
+
+export interface PackagedRuntimeSandboxFinalization {
+  readonly drain: AppProcessDrainResult;
+  readonly tempRootRemoved: boolean;
+}
+
+const closeSmokeIo = (lease: AppProcessLease | undefined): void => {
+  if (lease === undefined) return;
+  // An unclean receipt deliberately retains the sandbox and the central
+  // straggler. Closing only this CLI's pipe endpoints prevents inherited stdio
+  // from pinning the smoke runner forever; it does not retire or signal the
+  // process-plane record.
+  for (const stream of [lease.io.stdin, lease.io.stdout, lease.io.stderr]) {
+    try {
+      stream.destroy();
+    } catch {
+      // Cleanup remains fail-closed even when a stream wrapper misbehaves.
+    }
+  }
+};
+
+export const finalizePackagedRuntimeSandbox = async (
+  processPlane: AppProcessPlane,
+  lease: AppProcessLease | undefined,
+  tempRoot: string,
+): Promise<PackagedRuntimeSandboxFinalization> => {
+  processPlane.beginShutdown();
+  let drain: AppProcessDrainResult;
+  try {
+    drain = await processPlane.drainOnQuit();
+  } catch (error) {
+    closeSmokeIo(lease);
+    throw new Error(
+      `packaged runtime process drain failed; isolated sandbox retained at ${tempRoot}`,
+      { cause: error },
+    );
+  }
+  if (!drain.clean) {
+    closeSmokeIo(lease);
+    return { drain, tempRootRemoved: false };
+  }
+  await rm(tempRoot, { recursive: true, force: true, maxRetries: 2 });
+  const tempRootRemoved = await lstat(tempRoot).then(
+    () => false,
+    (error: NodeJS.ErrnoException) => error.code === "ENOENT",
+  );
+  return { drain, tempRootRemoved };
 };
 
 const requireOwnerMode = async (
@@ -553,35 +589,30 @@ export const smokePackagedRuntime = async (
     VELLUM_CANVASES_DIR: canvases,
   };
 
-  let childLifecycle: SpawnedRuntimeLifecycle | undefined;
-  let ownedProcess: OwnedProcess | undefined;
-  let processMode: "group" | "child" | undefined;
+  const processPlane = createAppProcessPlane();
+  let runtimeLease: AppProcessLease | undefined;
   let knownRows: ReadonlyArray<ProcessRow> = [];
   let success: Omit<PackagedRuntimeSmokeReceipt, "tempRootRemoved"> | undefined;
   let watchdog: NodeJS.Timeout | undefined;
   let watchdogFailure: string | undefined;
-  let cleanupAttempted = false;
+  let primaryFailure: unknown;
+  let failed = false;
+  let finalization: PackagedRuntimeSandboxFinalization | undefined;
 
   try {
-    const launched = spawnDetachedProcessGroup({
+    const launched = processPlane.spawnGroup({
       source: "packaged-runtime-smoke",
+      purpose: "verify packaged Vellum runtime",
       command: executable,
       args: [`--user-data-dir=${userData}`],
-      options: {
-        cwd: tempRoot,
-        env: childEnvironment,
-        shell: false,
-      },
+      cwd: tempRoot,
+      env: childEnvironment,
+      shell: false,
     });
-    const spawned = launched.child;
-    const lifecycle = observeSpawnedRuntimeChild(spawned);
-    spawned.stdin.end();
-    childLifecycle = lifecycle;
-    ownedProcess = launched.process;
-    processMode = launched.mode;
+    runtimeLease = launched;
+    const lifecycle = observeSpawnedRuntimeLease(launched);
+    launched.io.stdin.end();
     if (launched.mode !== "group") {
-      cleanupAttempted = true;
-      await terminateSpawnedRuntime(lifecycle, launched.process, launched.mode);
       const childError = lifecycle.error();
       throw new Error(
         `packaged runtime smoke requires a verified detached process-group capability${childError === undefined ? "" : ` (${childError.message})`}`,
@@ -589,15 +620,18 @@ export const smokePackagedRuntime = async (
     }
     watchdog = setTimeout(() => {
       if (lifecycle.terminal() !== undefined) return;
-      const forced = signalOwned(launched.process, "SIGKILL");
+      const forced = processPlane.forceTerminate(
+        launched,
+        "packaged-smoke-global-timeout",
+      );
       watchdogFailure =
         forced.attempted && forced.via === "process.kill-group"
           ? "packaged runtime smoke exceeded its global timeout"
           : "packaged runtime smoke global timeout refused an unverified group signal";
     }, SMOKE_TIMEOUT_MS);
-    const output = drainBounded(spawned);
-    if (spawned.pid === undefined) throw new Error("packaged Vellum did not produce a process id");
-    const rootPid = spawned.pid;
+    const output = drainBounded(launched.io);
+    const rootPid = launched.io.pidForDiagnostics;
+    if (rootPid === undefined) throw new Error("packaged Vellum did not produce a process id");
     const controlHome = isolatedHome;
 
     await waitUntil("control startup", STARTUP_TIMEOUT_MS, async () => {
@@ -671,7 +705,10 @@ export const smokePackagedRuntime = async (
     }
 
     if (watchdogFailure !== undefined) throw new Error(watchdogFailure);
-    const shutdownSignal = signalOwned(launched.process, "SIGTERM");
+    const shutdownSignal = processPlane.terminate(
+      launched,
+      "packaged-smoke-normal-shutdown",
+    );
     if (!shutdownSignal.attempted || shutdownSignal.via !== "process.kill-group") {
       throw new Error("packaged Vellum normal shutdown lost its verified group authority");
     }
@@ -734,31 +771,33 @@ export const smokePackagedRuntime = async (
       socketRemoved: true,
       realRootsUntouched: true,
     };
+  } catch (error) {
+    failed = true;
+    primaryFailure = error;
   } finally {
     if (watchdog !== undefined) clearTimeout(watchdog);
     for (const watcher of watchers) watcher.close();
-    try {
-      if (
-        childLifecycle !== undefined &&
-        ownedProcess !== undefined &&
-        processMode !== undefined &&
-        !cleanupAttempted
-      ) {
-        cleanupAttempted = true;
-        await terminateSpawnedRuntime(childLifecycle, ownedProcess, processMode);
-      }
-    } finally {
-      releaseOwned(ownedProcess);
-      await rm(tempRoot, { recursive: true, force: true, maxRetries: 2 });
-    }
+    finalization = await finalizePackagedRuntimeSandbox(
+      processPlane,
+      runtimeLease,
+      tempRoot,
+    );
   }
 
+  if (!finalization.drain.clean) {
+    const summary = finalization.drain.stragglers
+      .map((straggler) => `${straggler.purpose}:${straggler.state}`)
+      .join(",");
+    throw new Error(
+      `packaged runtime process drain remained unclean (${summary || "unknown"}); isolated sandbox retained at ${tempRoot}`,
+      { cause: failed ? primaryFailure : undefined },
+    );
+  }
+  if (!finalization.tempRootRemoved) {
+    throw new Error("packaged runtime smoke temp root survived verified cleanup");
+  }
+  if (failed) throw primaryFailure;
   if (success === undefined) throw new Error("packaged runtime smoke did not complete");
-  const tempRootRemoved = await lstat(tempRoot).then(
-    () => false,
-    (error: NodeJS.ErrnoException) => error.code === "ENOENT",
-  );
-  if (!tempRootRemoved) throw new Error("packaged runtime smoke temp root survived cleanup");
   return { ...success, tempRootRemoved: true };
 };
 
@@ -777,8 +816,18 @@ if (invokedPath === modulePath) {
         const sanitized = rawMessage
           .replaceAll(homedir(), "<real-home>")
           .slice(0, 1_000);
-        console.error(`vellum packaged runtime smoke failed: ${sanitized}`);
-        process.exitCode = 1;
+        // An unclean detached runtime intentionally remains registered and its
+        // sandbox remains on disk. Its process handle must not turn this
+        // bounded verifier into an indefinitely hanging CLI, so synchronously
+        // publish the receipt and terminate only this smoke-runner process.
+        try {
+          writeSync(
+            process.stderr.fd,
+            `vellum packaged runtime smoke failed: ${sanitized}\n`,
+          );
+        } finally {
+          process.exit(1);
+        }
       });
   }
 }

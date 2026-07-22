@@ -173,20 +173,50 @@ describe("tooling process-safety architecture", () => {
     expect(violations).toEqual([]);
   });
 
-  it("launches packaged smoke only through detached-group authority", () => {
+  it("launches and drains packaged smoke only through an isolated central process plane", () => {
+    const smokeSource = readFileSync(
+      join(root, "scripts", "packaged-runtime-smoke.ts"),
+      "utf8",
+    );
     const source = ts.createSourceFile(
       "packaged-runtime-smoke.ts",
-      readFileSync(join(root, "scripts", "packaged-runtime-smoke.ts"), "utf8"),
+      smokeSource,
       ts.ScriptTarget.Latest,
       true,
       ts.ScriptKind.TS,
     );
-    expect(containsCall(source, (call) => call.expression.getText(source) === "spawnDetachedProcessGroup"))
+    expect(containsCall(source, (call) => call.expression.getText(source) === "createAppProcessPlane"))
       .toBe(true);
-    expect(containsCall(source, (call) => call.expression.getText(source) === "signalOwned")).toBe(true);
-    expect(containsCall(source, (call) => call.expression.getText(source) === "releaseOwned")).toBe(true);
+    for (const method of [
+      "spawnGroup",
+      "terminate",
+      "forceTerminate",
+      "beginShutdown",
+      "drainOnQuit",
+    ]) {
+      expect(containsCall(source, (call) => accessedName(call.expression) === method))
+        .toBe(true);
+    }
+    for (const forbidden of [
+      "spawnDetachedProcessGroup",
+      "signalOwned",
+      "releaseOwned",
+      "admitChildProcess",
+    ]) {
+      expect(containsCall(source, (call) => call.expression.getText(source) === forbidden))
+        .toBe(false);
+    }
+    expect(smokeSource).not.toMatch(
+      /\b(?:spawnDetachedProcessGroup|signalOwned|releaseOwned|admitChildProcess|OwnedProcess)\b|from\s+["'][^"']*process-signal["']/u,
+    );
     expect(containsCall(source, (call) => accessedName(call.expression) === "spawn")).toBe(false);
     expect(containsCall(source, (call) => accessedName(call.expression) === "kill")).toBe(false);
+    expect(containsCall(source, (call) => call.expression.getText(source) === "writeSync"))
+      .toBe(true);
+    expect(containsCall(source, (call) =>
+      call.expression.getText(source) === "process.exit" &&
+      call.arguments.length === 1 && call.arguments[0]?.getText(source) === "1"
+    )).toBe(true);
   });
 
   it("shuts down sandbox herdr through its fake-only RPC without pid discovery", () => {
