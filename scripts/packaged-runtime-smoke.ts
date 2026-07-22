@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { watch, type FSWatcher } from "node:fs";
 import {
   chmod,
@@ -19,6 +19,12 @@ import {
   controlSocketPath,
   controlTokenPath,
 } from "../src/shared/browser-control";
+import {
+  releaseOwned,
+  signalOwned,
+  spawnDetachedProcessGroup,
+  type OwnedProcess,
+} from "../src/main/vellum/process-signal";
 
 const SMOKE_TIMEOUT_MS = 45_000;
 const STARTUP_TIMEOUT_MS = 25_000;
@@ -379,20 +385,30 @@ const waitForExit = (
 
 const terminateSpawnedRuntime = async (
   child: ChildProcessWithoutNullStreams,
-  knownRows: ReadonlyArray<ProcessRow>,
+  ownedProcess: OwnedProcess,
+  mode: "group" | "child",
 ): Promise<void> => {
-  if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+  if (child.exitCode === null && child.signalCode === null) {
+    const graceful = signalOwned(ownedProcess, "SIGTERM");
+    if (!graceful.attempted) {
+      throw new Error("packaged Vellum cleanup could not signal its owned process");
+    }
+  }
   try {
     await waitForExit(child, SHUTDOWN_TIMEOUT_MS);
   } catch {
-    const survivors = survivingProcessRows(knownRows, currentProcessRows());
-    for (const row of survivors) {
-      try {
-        process.kill(row.pid, "SIGKILL");
-      } catch {
-        // The bounded canary process may have exited between the liveness check and kill.
-      }
+    if (mode !== "group" || child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(
+        "packaged Vellum cleanup timed out without a live verified group capability",
+      );
     }
+    const forced = signalOwned(ownedProcess, "SIGKILL");
+    if (!forced.attempted || forced.via !== "process.kill-group") {
+      throw new Error(
+        "packaged Vellum cleanup refused an unverified forced group signal",
+      );
+    }
+    await waitForExit(child, SHUTDOWN_TIMEOUT_MS);
   }
 };
 
@@ -494,23 +510,46 @@ export const smokePackagedRuntime = async (
   };
 
   let child: ChildProcessWithoutNullStreams | undefined;
+  let ownedProcess: OwnedProcess | undefined;
+  let processMode: "group" | "child" | undefined;
   let knownRows: ReadonlyArray<ProcessRow> = [];
   let success: Omit<PackagedRuntimeSmokeReceipt, "tempRootRemoved"> | undefined;
-  const watchdog = setTimeout(() => {
-    if (child !== undefined && child.exitCode === null && child.signalCode === null) {
-      child.kill("SIGTERM");
-    }
-  }, SMOKE_TIMEOUT_MS);
+  let watchdog: NodeJS.Timeout | undefined;
+  let watchdogFailure: string | undefined;
 
   try {
-    const spawned = spawn(executable, [`--user-data-dir=${userData}`], {
-      cwd: tempRoot,
-      env: childEnvironment,
-      shell: false,
-      stdio: ["pipe", "pipe", "pipe"],
+    const launched = spawnDetachedProcessGroup({
+      source: "packaged-runtime-smoke",
+      command: executable,
+      args: [`--user-data-dir=${userData}`],
+      options: {
+        cwd: tempRoot,
+        env: childEnvironment,
+        shell: false,
+      },
     });
+    const spawned = launched.child;
     spawned.stdin.end();
     child = spawned;
+    ownedProcess = launched.process;
+    processMode = launched.mode;
+    if (launched.mode !== "group") {
+      const refusedLaunch = signalOwned(launched.process, "SIGTERM");
+      if (refusedLaunch.attempted) {
+        await waitForExit(spawned, SHUTDOWN_TIMEOUT_MS);
+      }
+      throw new Error(
+        "packaged runtime smoke requires a verified detached process-group capability",
+      );
+    }
+    watchdog = setTimeout(() => {
+      if (spawned.exitCode !== null || spawned.signalCode !== null) return;
+      const forced = signalOwned(launched.process, "SIGKILL");
+      watchdogFailure =
+        forced.attempted && forced.via === "process.kill-group"
+          ? "packaged runtime smoke exceeded its global timeout"
+          : "packaged runtime smoke global timeout refused an unverified group signal";
+    }, SMOKE_TIMEOUT_MS);
     const output = drainBounded(spawned);
     if (spawned.pid === undefined) throw new Error("packaged Vellum did not produce a process id");
     const rootPid = spawned.pid;
@@ -579,7 +618,11 @@ export const smokePackagedRuntime = async (
       throw new Error("packaged Vellum exceeded the bounded smoke output budget");
     }
 
-    spawned.kill("SIGTERM");
+    if (watchdogFailure !== undefined) throw new Error(watchdogFailure);
+    const shutdownSignal = signalOwned(launched.process, "SIGTERM");
+    if (!shutdownSignal.attempted || shutdownSignal.via !== "process.kill-group") {
+      throw new Error("packaged Vellum normal shutdown lost its verified group authority");
+    }
     const exited = await waitForExit(spawned, SHUTDOWN_TIMEOUT_MS);
     if (exited.code !== 0 || exited.signal !== null) {
       throw new Error("packaged Vellum did not complete its normal SIGTERM contract");
@@ -637,10 +680,16 @@ export const smokePackagedRuntime = async (
       realRootsUntouched: true,
     };
   } finally {
-    clearTimeout(watchdog);
+    if (watchdog !== undefined) clearTimeout(watchdog);
     for (const watcher of watchers) watcher.close();
-    if (child !== undefined) await terminateSpawnedRuntime(child, knownRows);
-    await rm(tempRoot, { recursive: true, force: true, maxRetries: 2 });
+    try {
+      if (child !== undefined && ownedProcess !== undefined && processMode !== undefined) {
+        await terminateSpawnedRuntime(child, ownedProcess, processMode);
+      }
+    } finally {
+      releaseOwned(ownedProcess);
+      await rm(tempRoot, { recursive: true, force: true, maxRetries: 2 });
+    }
   }
 
   if (success === undefined) throw new Error("packaged runtime smoke did not complete");
