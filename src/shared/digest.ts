@@ -3,19 +3,42 @@ import { buildConnectionIndex, resolveConnections, type Connection } from "./con
 import type { EntitySource, SnapshotState } from "./entities";
 import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
 import { groupMembers, isGroup } from "./graph";
+import { resolveSpec, roleOf, type FactoryRole } from "./physics";
 import { deriveRegionRollups } from "./region-rollup";
 
 // Deterministic text projection of a canvas + snapshots for agent consumption.
 // Contract: same doc + same snapshots (+ same glyph view) -> byte-identical
 // output. No timestamps, no randomness. Sections: regions (with members),
-// region rollups (severity), entities (with stats), edges (live phase),
-// blockers (with closure), seeds (unbound entity nodes), sources.
+// region rollups (severity), factory physics (role counts + soft/criteria
+// edges), entities (with stats), edges (live phase), blockers (with
+// closure), seeds (unbound entity nodes), sources.
 // Ordering is document order throughout; the one place input order is
 // unstable (which adapter bundle landed first) is sorted to a fixed source
 // order instead.
+//
+// Factory physics is headless and pure document: roles via roleOf/resolveSpec
+// (never authorial ether.role), capability summary = edge criteria vs soft.
+// No live PIDs / process-bind / occupancy.
 
 // Fixed rendering order for the sources section, independent of fetch order.
 const SOURCE_ORDER: ReadonlyArray<EntitySource> = ["tower", "quasar", "booth", "hermes"];
+
+// Fixed role count key order for the factory physics section.
+const ROLE_ORDER: ReadonlyArray<FactoryRole> = [
+  "actor",
+  "sink",
+  "scheduler",
+  "region",
+  "furniture",
+];
+
+const ROLE_COUNT_KEY: Record<FactoryRole, string> = {
+  actor: "actors",
+  sink: "sinks",
+  scheduler: "schedulers",
+  region: "regions",
+  furniture: "furniture",
+};
 
 const titleOf = (node: CanvasNode): string => {
   switch (node.type) {
@@ -112,6 +135,42 @@ export const digestCanvas = (
       }
     }
     sections.push(rollupLines);
+  }
+
+  // factory physics — derived roles (kind → roleOf/resolveSpec) + cheap
+  // held-capability summary (criteria edges vs soft relates). Pure document;
+  // no live process-bind / PIDs / occupancy.
+  {
+    const roleCounts: Record<FactoryRole, number> = {
+      actor: 0,
+      sink: 0,
+      scheduler: 0,
+      region: 0,
+      furniture: 0,
+    };
+    for (const node of doc.nodes) {
+      const role = roleOf(
+        resolveSpec({
+          kind: node.ether?.entity?.kind,
+          isGroup: isGroup(node),
+        }),
+      );
+      roleCounts[role] += 1;
+    }
+    let criteriaEdges = 0;
+    let softEdges = 0;
+    for (const edge of doc.edges) {
+      if (edge.ether?.criteria) criteriaEdges += 1;
+      else softEdges += 1;
+    }
+    const roleParts = ROLE_ORDER.map(
+      (role) => `${ROLE_COUNT_KEY[role]}=${roleCounts[role]}`,
+    );
+    sections.push([
+      "factory physics",
+      `roles :: ${roleParts.join(" ")}`,
+      `capabilities :: criteria=${criteriaEdges} soft=${softEdges}`,
+    ]);
   }
 
   // entities

@@ -121,6 +121,10 @@ region rollups
 team :: blocked · 2 members (1 blocked)
   Bar :: blocked · flag:blocker
 
+factory physics
+roles :: actors=0 sinks=3 schedulers=0 regions=1 furniture=1
+capabilities :: criteria=1 soft=3
+
 entities
 Foo :: project
   tower: a=1 b=x
@@ -214,6 +218,10 @@ const expected2 = [
   "solo :: idle · 1 member",
   "unnamed region :: idle · 0 members",
   "",
+  "factory physics",
+  "roles :: actors=0 sinks=1 schedulers=0 regions=3 furniture=4",
+  "capabilities :: criteria=0 soft=0",
+  "",
   "entities",
   "W1 :: project",
   "",
@@ -229,6 +237,124 @@ const expected2 = [
 describe("digestCanvas — region rollups formatting", () => {
   it("pins singular counts, empty region, multi-bucket join, and member lines", () => {
     expect(digestCanvas("fixture2", doc2, { bundles: [] }, glyphs2)).toBe(expected2);
+  });
+});
+
+// Factory physics: roles derived from kind (roleOf/resolveSpec), never
+// authorial ether.role; capabilities are criteria vs soft edge counts only.
+// Headless — no PIDs / process-bind / occupancy in the projection.
+const physicsDoc: CanvasDoc = {
+  nodes: [
+    { id: "g1", type: "group", label: "bay", x: 0, y: 0, width: 400, height: 300 },
+    {
+      id: "agent1",
+      type: "text",
+      text: "hermes",
+      x: 10,
+      y: 10,
+      width: 100,
+      height: 40,
+      ether: { entity: { kind: "agent" } },
+    },
+    {
+      id: "term1",
+      type: "text",
+      text: "tty",
+      x: 120,
+      y: 10,
+      width: 100,
+      height: 40,
+      ether: { entity: { kind: "terminal" } },
+    },
+    {
+      id: "task1",
+      type: "text",
+      text: "inbox",
+      x: 10,
+      y: 60,
+      width: 100,
+      height: 40,
+      ether: { entity: { kind: "task" } },
+    },
+    {
+      id: "page1",
+      type: "text",
+      text: "docs",
+      x: 120,
+      y: 60,
+      width: 100,
+      height: 40,
+      ether: { entity: { kind: "page" } },
+    },
+    {
+      id: "watch1",
+      type: "text",
+      text: "pulse",
+      x: 230,
+      y: 10,
+      width: 100,
+      height: 40,
+      ether: { entity: { kind: "watcher" } },
+    },
+    {
+      id: "timer1",
+      type: "text",
+      text: "tick",
+      x: 230,
+      y: 60,
+      width: 100,
+      height: 40,
+      ether: { entity: { kind: "timer" } },
+    },
+    { id: "note1", type: "text", text: "sticky", x: 10, y: 120, width: 80, height: 30 },
+  ],
+  edges: [
+    { id: "e-soft", fromNode: "agent1", toNode: "note1" },
+    {
+      id: "e-crit",
+      fromNode: "agent1",
+      toNode: "task1",
+      ether: { criteria: { mode: "tasks" } },
+    },
+    {
+      id: "e-crit2",
+      fromNode: "term1",
+      toNode: "page1",
+      ether: { criteria: { mode: "glyphs", glyphIds: ["g1"] } },
+    },
+  ],
+};
+
+describe("digestCanvas — factory physics", () => {
+  it("projects role counts via roleOf/resolveSpec and criteria vs soft edges", () => {
+    const out = digestCanvas("physics", physicsDoc, { bundles: [] });
+    expect(out).toContain(
+      [
+        "factory physics",
+        "roles :: actors=2 sinks=2 schedulers=2 regions=1 furniture=1",
+        "capabilities :: criteria=2 soft=1",
+      ].join("\n"),
+    );
+    // Never leaks live occupancy / process-bind identity.
+    expect(out).not.toMatch(/\bpid\b/i);
+    expect(out).not.toContain("process-bind");
+    expect(out).not.toContain("occupancy");
+  });
+
+  it("always emits factory physics even on an empty board", () => {
+    const out = digestCanvas("empty", { nodes: [], edges: [] }, { bundles: [] });
+    expect(out).toBe(
+      [
+        "canvas :: empty",
+        "nodes :: 0",
+        "edges :: 0",
+        "",
+        "factory physics",
+        "roles :: actors=0 sinks=0 schedulers=0 regions=0 furniture=0",
+        "capabilities :: criteria=0 soft=0",
+        "",
+      ].join("\n"),
+    );
   });
 });
 
