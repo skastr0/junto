@@ -3,7 +3,6 @@
 // first import in this file — see the module's own header for why.
 import "./vellum/demo/canvases-env";
 
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
@@ -81,6 +80,11 @@ import {
   resolveTrustedRendererOrigin,
   type TrustedRendererOrigin,
 } from "@shared/trusted-renderer-origin";
+import {
+  kickstartLaunchAgent,
+  launchAgentTargetForCurrentUser,
+  printLaunchAgent,
+} from "./vellum/settings/launchctl-runner";
 
 // Browser sessions must resolve and connect directly. An inherited system
 // proxy can perform independent DNS resolution and bypass Vellum's URL/DNS
@@ -746,28 +750,13 @@ const createWindow = () => {
 // through launchd via kickstart and exits, so crash supervision is never
 // silently absent for the session the operator just started. Detection is by
 // pid identity against `launchctl print`, never argv — immune to stale plists.
-const LAUNCHD_LABEL = "skastr0.vellum";
-// getuid is absent on non-POSIX platforms (where launchd cannot exist anyway);
-// callers bail to standalone when no target can be formed.
-const launchdTarget = (): string | undefined => {
-  const uid = process.getuid?.();
-  return uid === undefined ? undefined : `gui/${uid}/${LAUNCHD_LABEL}`;
-};
-
-const launchctl = (args: ReadonlyArray<string>): Promise<{ ok: boolean; stdout: string }> =>
-  new Promise((resolve) => {
-    execFile("/bin/launchctl", args as string[], (error, stdout) =>
-      resolve({ ok: !error, stdout: stdout?.toString() ?? "" }),
-    );
-  });
-
 // Returns true when THIS process should keep running (it is the supervised
 // instance, or no LaunchAgent is installed, or the handoff failed safely).
 const ensureSupervised = async (): Promise<boolean> => {
   if (!app.isPackaged) return true; // dev runs are never rerouted
-  const target = launchdTarget();
+  const target = launchAgentTargetForCurrentUser();
   if (target === undefined) return true;
-  const print = await launchctl(["print", target]);
+  const print = await printLaunchAgent(target);
   if (!print.ok) return true; // no LaunchAgent — standalone launch is legitimate
   const pidMatch = print.stdout.match(/\bpid = (\d+)/);
   if (pidMatch && Number(pidMatch[1]) === process.pid) return true; // we ARE supervised
@@ -777,7 +766,7 @@ const ensureSupervised = async (): Promise<boolean> => {
   await flushNodeRefPublications();
   // Hand off: release the lock so the kickstarted instance can take it.
   app.releaseSingleInstanceLock();
-  const kick = await launchctl(["kickstart", target]);
+  const kick = await kickstartLaunchAgent(target);
   if (kick.ok) {
     await flushNodeRefPublications();
     exitAfterDetach(0, "launchd-handoff");
@@ -928,6 +917,7 @@ if (!gotSingleInstanceLock) {
               }
             },
           });
+          composition.bindControlShutdown(browserControl);
           registerBrowserIpcHandlers(composition.sessions);
         },
       );
