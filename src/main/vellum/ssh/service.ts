@@ -49,6 +49,21 @@ export interface SshCommandResult {
   readonly stderr: string;
 }
 
+/** A non-zero transfer exit retains bounded diagnostic output for its caller. */
+export class SshTransferExitError extends Error {
+  readonly _tag = "SshTransferExitError";
+
+  constructor(
+    readonly endpoint: SshEndpoint,
+    readonly code: number,
+    readonly stdout: string,
+    readonly stderr: string,
+  ) {
+    super(`SSH transfer exited with code ${code}`);
+    this.name = "SshTransferExitError";
+  }
+}
+
 export interface SshLease {
   readonly write: (bytes: Uint8Array) => Effect.Effect<void, SshError>;
   readonly closeInput: Effect.Effect<void, SshError>;
@@ -92,7 +107,7 @@ export class SshTransport extends Context.Tag("@vellum/SshTransport")<
       program: ScopedStreamProgram,
       input: Stream.Stream<Uint8Array, E, R>,
       timeoutMs: number,
-    ) => Effect.Effect<SshCommandResult, SshError | E, R>;
+    ) => Effect.Effect<SshCommandResult, SshError | SshTransferExitError | E, R>;
     readonly connect: <A, E, R>(
       program: ScopedStreamProgram,
       awaitReady: (
@@ -609,24 +624,14 @@ export const SshTransportLayer = Layer.scoped(
                   openLease(compiled.endpoint, "transfer", compiled.command),
                 ),
                 Effect.flatMap((lease) => {
-                  const exitedDuringInput: Effect.Effect<never, SshError> =
-                    lease.exitCode.pipe(
-                      Effect.flatMap((code) =>
-                        Effect.fail(
-                          new SshExitError({
-                            endpoint: compiled.endpoint,
-                            operation: "transfer",
-                            code,
-                          }),
-                        ),
-                      ),
-                    );
-                  const writeInput = Stream.run(
-                    input,
-                    Sink.forEach(lease.write),
-                  ).pipe(
-                    Effect.zipRight(lease.closeInput),
-                    Effect.raceFirst(exitedDuringInput),
+                const writeInput = Stream.run(
+                  input,
+                  Sink.forEach(lease.write),
+                ).pipe(
+                  Effect.zipRight(lease.closeInput),
+                  // If the remote command exits first, interrupt the local
+                  // producer now but keep draining its bounded diagnostics.
+                  Effect.raceFirst(lease.exitCode.pipe(Effect.asVoid)),
                   );
                   return Effect.all(
                     {
@@ -655,13 +660,14 @@ export const SshTransportLayer = Layer.scoped(
                             stdout: asText(stdout),
                             stderr: asText(stderr),
                           })
-                        : Effect.fail(
-                            new SshExitError({
-                              endpoint: compiled.endpoint,
-                              operation: "transfer",
-                              code,
-                            }),
+                      : Effect.fail(
+                          new SshTransferExitError(
+                            compiled.endpoint,
+                            code,
+                            asText(stdout),
+                            asText(stderr),
                           ),
+                        ),
                     ),
                     Effect.timeoutFail({
                       duration: timeoutMs,

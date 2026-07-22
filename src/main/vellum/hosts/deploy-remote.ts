@@ -10,7 +10,7 @@
  * browser-capable until an offscreen parent window lands.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Context } from "effect";
@@ -25,8 +25,12 @@ import {
   type SshEndpoint,
 } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
-import { SshTransport } from "../ssh/service";
-import { signalChildHandleOnly } from "../process-signal";
+import { SshTransferExitError, SshTransport } from "../ssh/service";
+import {
+  admitChildProcess,
+  releaseOwned,
+  signalOwned,
+} from "../process-signal";
 
 const PRODUCT_NAME = "Vellum Command";
 const APP_BUNDLE_NAME = `${PRODUCT_NAME}.app`;
@@ -114,6 +118,43 @@ export const parseDeployTransferResult = (input: {
     detail:
       "app installed and started (control sockets not fully observed — station may still be warming)",
   };
+};
+
+export type TarExitSettlement =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: Error };
+
+/** Attach terminal listeners at spawn time, before the remote transfer starts. */
+export const settleTarExit = (
+  tar: Pick<ChildProcess, "once">,
+  onSettled: () => void = () => {},
+): Promise<TarExitSettlement> =>
+  new Promise((resolve) => {
+    const settle = (result: TarExitSettlement): void => {
+      onSettled();
+      resolve(result);
+    };
+    tar.once("error", (error) => {
+      settle({ ok: false, error });
+    });
+    tar.once("close", (code) => {
+      settle(
+        code === 0
+          ? { ok: true }
+          : { ok: false, error: new Error(`local tar exited ${String(code)}`) },
+      );
+    });
+  });
+
+export const describeDeployTransferFailure = (error: unknown): string => {
+  if (error instanceof SshTransferExitError) {
+    const diagnostic = (error.stderr || error.stdout).trim().slice(0, 900);
+    if (diagnostic.includes("REMOTE_NOT_DARWIN")) {
+      return "remote host is not macOS — full-app Deploy Remote is Darwin-only (Linux Electron station is a separate track)";
+    }
+    return diagnostic || error.message;
+  }
+  return error instanceof Error ? error.message : String(error);
 };
 
 const streamAppToRemote = (
@@ -208,36 +249,28 @@ exit 2
 `.trim();
 
       const tar = yield* Effect.acquireRelease(
-        Effect.sync(() =>
-          spawn("tar", ["-C", parent, "-cf", "-", bundle], {
+        Effect.sync(() => {
+          const child = spawn("tar", ["-C", parent, "-cf", "-", bundle], {
             stdio: ["ignore", "pipe", "pipe"],
-          }),
-        ),
-        (child) =>
+          });
+          const owned = admitChildProcess({
+            source: "hosts.deploy-remote.tar",
+            child,
+          });
+          return { child, owned };
+        }),
+        ({ owned }) =>
           Effect.sync(() => {
-            signalChildHandleOnly(child, "SIGKILL", "hosts.deploy-remote.tar");
+            if (owned) signalOwned(owned, "SIGKILL");
+            releaseOwned(owned);
           }),
       );
-      const tarExit = Effect.tryPromise({
-        try: () =>
-          new Promise<void>((resolve, reject) => {
-            tar.once("error", reject);
-            tar.once("close", (code) =>
-              code === 0
-                ? resolve()
-                : reject(new Error(`local tar exited ${String(code)}`)),
-            );
-          }),
-        catch: (error) =>
-          new Error(
-            `local tar failed: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-      });
+      const tarExit = settleTarExit(tar.child, () => releaseOwned(tar.owned));
       const command = yield* makeRemoteCommand("bash", ["-lc", remoteScript]);
       const output = yield* ssh.transfer(
         sharedStream(endpoint, command),
         Stream.fromAsyncIterable(
-          tar.stdout,
+          tar.child.stdout,
           (error) =>
             new Error(
               `local tar stream failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -245,7 +278,12 @@ exit 2
         ).pipe(Stream.map((chunk) => Uint8Array.from(chunk))),
         DEPLOY_TIMEOUT_MS,
       );
-      yield* tarExit;
+      const tarResult = yield* Effect.promise(() => tarExit);
+      if (!tarResult.ok) {
+        return yield* Effect.fail(
+          new Error(`local tar failed: ${tarResult.error.message}`),
+        );
+      }
       return parseDeployTransferResult(output);
     }),
   );
@@ -368,9 +406,9 @@ export const deployRemoteHost = (
     if (streamed._tag === "Left") {
       return {
         ok: false,
-        detail: `${host.label}: ${streamed.left.message}`,
+        detail: `${host.label}: ${describeDeployTransferFailure(streamed.left)}`,
         code: "io" as const,
-        message: streamed.left.message,
+        message: describeDeployTransferFailure(streamed.left),
         stages,
       };
     }

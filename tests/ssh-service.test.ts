@@ -41,6 +41,7 @@ import {
   type ProcessHandle,
 } from "../src/main/vellum/ssh/process-spawner";
 import {
+  SshTransferExitError,
   SshTransportConfig,
   SshTransportLayer,
 } from "../src/main/vellum/ssh/service";
@@ -338,6 +339,43 @@ describe("SshTransport", () => {
       expect(result.left).toBeInstanceOf(SshTimeoutError);
     expect(calls).toHaveLength(1);
     expect(releases.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("retains bounded remote diagnostics when a transfer exits non-zero", async () => {
+    const calls: Command.StandardCommand[] = [];
+    const releases: Command.StandardCommand[] = [];
+    const layer = await testLayer(
+      () => ({
+        code: 2,
+        stdout: encoder.encode("TERM_SOCK_TIMEOUT\n"),
+        stderr: encoder.encode("STATION_PARTIAL term=0 browser=0\n"),
+      }),
+      calls,
+      releases,
+    );
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        Effect.gen(function* () {
+          const endpoint = yield* parseSshEndpoint("remote-a");
+          const remote = yield* makeRemoteCommand("remote-install");
+          return yield* (yield* SshTransport).transfer(
+            sharedStream(endpoint, remote),
+            Stream.empty,
+            1_000,
+          );
+        }).pipe(Effect.provide(layer)),
+      ),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toBeInstanceOf(SshTransferExitError);
+      const failure = result.left as SshTransferExitError;
+      expect(failure.code).toBe(2);
+      expect(failure.stdout).toContain("TERM_SOCK_TIMEOUT");
+      expect(failure.stderr).toContain("STATION_PARTIAL");
+    }
   });
 
   it("releases the process as soon as bounded stdout is exceeded", async () => {
