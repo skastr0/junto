@@ -17,8 +17,8 @@ const steps = (overrides: Partial<ShutdownCoordinatorSteps> = {}): ShutdownCoord
   drainDocument: () => ({ clean: true, durable: true, authoringCommitted: true }),
   finalizeRenderer: () => ({ clean: true, finalized: true }),
   drainLocalResources: () => ({ terminals: clean() }),
-  destroyRenderer: () => undefined,
-  detachRuntimeIngress: () => undefined,
+  destroyRenderer: clean,
+  detachRuntimeIngress: clean,
   disposeRuntime: clean,
   ...overrides,
 });
@@ -60,8 +60,8 @@ describe("shutdown coordinator", () => {
     let destroys = 0;
     let detaches = 0;
     const coordinator = createShutdownCoordinator(steps({
-      destroyRenderer: () => { destroys += 1; },
-      detachRuntimeIngress: () => { detaches += 1; if (detaches === 1) throw new Error("detach"); },
+      destroyRenderer: () => { destroys += 1; return clean(); },
+      detachRuntimeIngress: () => { detaches += 1; if (detaches === 1) throw new Error("detach"); return clean(); },
     }));
     const transaction = coordinator.request("normal");
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -125,5 +125,34 @@ describe("shutdown coordinator", () => {
       transaction.retry();
       expect(transaction.snapshot()).toMatchObject({ attempt: 0, phase: "complete" });
     }
+  });
+
+  it("rejects async/rejected cut and teardown barriers without false-clean authority", async () => {
+    const rejected = Promise.reject(new Error("late failure"));
+    const asyncClean = Promise.resolve(clean());
+    const cases: ReadonlyArray<Partial<ShutdownCoordinatorSteps>> = [
+      { cutAdmission: { async: () => rejected as unknown as ShutdownCleanReceipt } },
+      { destroyRenderer: () => asyncClean as unknown as ShutdownCleanReceipt },
+      { detachRuntimeIngress: () => asyncClean as unknown as ShutdownCleanReceipt },
+    ];
+    for (const overrides of cases) {
+      const transaction = createShutdownCoordinator(steps(overrides)).request("normal");
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(transaction.snapshot()).toMatchObject({ safeToForce: false });
+      if (overrides.cutAdmission !== undefined) {
+        await expect(transaction.complete).resolves.toMatchObject({ complete: false });
+      } else {
+        expect(transaction.snapshot()).toMatchObject({ phase: "retryable" });
+      }
+    }
+  });
+
+  it("fails closed on an empty local-resource map", async () => {
+    const transaction = createShutdownCoordinator(steps({ drainLocalResources: () => ({}) })).request("normal");
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(transaction.snapshot()).toMatchObject({ phase: "retryable", safeToForce: false });
+    expect(transaction.snapshot().lastAttempt?.receipts).toContainEqual(
+      expect.objectContaining({ name: "local resources", clean: false }),
+    );
   });
 });

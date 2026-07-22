@@ -56,9 +56,9 @@ export interface ShutdownCoordinatorSteps {
     | Readonly<Record<string, ShutdownCleanReceipt | Promise<ShutdownCleanReceipt>>>
     | Promise<Readonly<Record<string, ShutdownCleanReceipt | Promise<ShutdownCleanReceipt>>>>;
   /** Destroy the renderer only after all pre-safe receipts are clean. */
-  readonly destroyRenderer: () => void;
+  readonly destroyRenderer: () => ShutdownCleanReceipt;
   /** Detach future runtime ingress before disposal begins. */
-  readonly detachRuntimeIngress: () => void;
+  readonly detachRuntimeIngress: () => ShutdownCleanReceipt;
   /** Complete only if this disposal receipt is clean. */
   readonly disposeRuntime: () => ShutdownCleanReceipt | Promise<ShutdownCleanReceipt>;
 }
@@ -158,10 +158,14 @@ const settled = async <A>(
   }
 };
 
-const performed = async (stage: string, operation: () => void): Promise<ShutdownNamedReceipt> => {
+const synchronousBarrier = (stage: string, operation: () => unknown): ShutdownNamedReceipt => {
   try {
-    operation();
-    return Object.freeze({ name: stage, clean: true });
+    const receipt = operation();
+    if (typeof receipt === "object" && receipt !== null && "then" in receipt) {
+      if (receipt instanceof Promise) void receipt.catch(() => undefined);
+      return frozenReceipt({ name: stage, clean: false, receipt });
+    }
+    return frozenReceipt({ name: stage, clean: cleanReceipt(receipt), receipt });
   } catch (error) {
     return frozenReceipt({
       name: stage,
@@ -224,6 +228,7 @@ const admissionCutReceipts = (
       // A cut is synchronous. Thenables are malformed even if they also carry
       // a `clean` field, because they leave an unbounded admission interval.
       if (typeof receipt === "object" && receipt !== null && "then" in receipt) {
+        if (receipt instanceof Promise) void receipt.catch(() => undefined);
         return Object.freeze({ name: stage, clean: false, receipt });
       }
       return Object.freeze({ name: stage, clean: cleanReceipt(receipt), receipt });
@@ -276,7 +281,7 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
     try {
       const resources = await Promise.resolve().then(steps.drainLocalResources);
       const named = Object.entries(resources);
-      if (named.length === 0) return Object.freeze([]);
+      if (named.length === 0) return Object.freeze([Object.freeze({ name: "local resources", clean: false })]);
       const pending = new Set(named.map(([name]) => name));
       const outcomes = named.map(([name, operation]) =>
         Promise.resolve(operation).then(
@@ -331,14 +336,14 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
       if (receipts.every((receipt) => receipt.clean)) {
         receipts.push(rendererDestroyed
           ? Object.freeze({ name: "renderer destruction", clean: true, receipt: Object.freeze({ checkpoint: true }) })
-          : await performed("renderer destruction", steps.destroyRenderer));
+          : synchronousBarrier("renderer destruction", steps.destroyRenderer));
         if (receipts.at(-1)?.clean) rendererDestroyed = true;
         if (!isCurrent(thisAttempt)) return;
       }
       if (receipts.every((receipt) => receipt.clean)) {
         receipts.push(runtimeIngressDetached
           ? Object.freeze({ name: "runtime ingress detachment", clean: true, receipt: Object.freeze({ checkpoint: true }) })
-          : await performed("runtime ingress detachment", steps.detachRuntimeIngress));
+          : synchronousBarrier("runtime ingress detachment", steps.detachRuntimeIngress));
         if (receipts.at(-1)?.clean) runtimeIngressDetached = true;
         if (!isCurrent(thisAttempt)) return;
       }
