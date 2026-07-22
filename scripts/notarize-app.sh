@@ -24,14 +24,30 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Notarization is allowed to replace only the artifacts produced in this
+# checkout's release directory.  Do not let an ambient RELEASE_DIR redirect
+# the write authority inherited from app-paths.sh.
+if [[ -n "${VELLUM_RELEASE_DIR+x}" ]]; then
+  printf 'vellum: error: VELLUM_RELEASE_DIR is not configurable for notarization\n' >&2
+  exit 1
+fi
+
+# These are read-only candidate selectors, not destination capabilities.  Keep
+# their values long enough to parse the CLI, then hide them from app-paths.sh
+# so its general-purpose APP_SRC selection cannot widen this script's scope.
+ENV_ZIP_SOURCE="${VELLUM_ZIP_SRC:-}"
+ENV_APP_SOURCE="${VELLUM_APP_SRC:-}"
+unset VELLUM_ZIP_SRC VELLUM_APP_SRC
 # shellcheck source=app-paths.sh
 source "$SCRIPT_DIR/app-paths.sh"
 
-ZIP_SRC="${VELLUM_ZIP_SRC:-}"
-APP_PATH="${VELLUM_APP_SRC:-}"
+ZIP_SRC="$ENV_ZIP_SOURCE"
+APP_PATH="$ENV_APP_SOURCE"
 SKIP_SPCTL=0
 TIMEOUT="${VELLUM_NOTARY_TIMEOUT:-45m}"
 POLL="${VELLUM_NOTARY_POLL:-15s}"
+RELEASE_ROOT="$REPO_ROOT/release"
+STAGING_DIR=""
 
 usage() {
   sed -n '2,24p' "$0" | sed 's/^# \?//'
@@ -71,6 +87,123 @@ require_cmd python3
 require_cmd ditto
 require_cmd shasum
 
+canonical_existing_nonlink_directory() {
+  local description="$1"
+  local path="$2"
+  local canonical
+  [[ "$path" == /* && -d "$path" && ! -L "$path" ]] || {
+    err "$description must be an existing absolute non-symlink directory"
+    return 1
+  }
+  canonical="$(cd "$path" && pwd -P)" || return 1
+  [[ "$canonical" == "$path" ]] || {
+    err "$description must already be canonical: $path -> $canonical"
+    return 1
+  }
+  printf '%s' "$canonical"
+}
+
+RELEASE_ROOT="$(canonical_existing_nonlink_directory "release root" "$RELEASE_ROOT")" || exit 1
+RELEASE_ROOT_ID="$(path_identity "$RELEASE_ROOT")"
+# app-paths.sh is intentionally reusable by installer tooling; notarization is
+# stricter and always writes the canonical release root.
+RELEASE_DIR="$RELEASE_ROOT"
+
+assert_release_zip_capability() {
+  local path="$1"
+  local canonical base parent
+  [[ -f "$path" && ! -L "$path" ]] || {
+    err "zip must be an existing non-symlink file"
+    return 1
+  }
+  parent="$(cd "$(dirname "$path")" && pwd -P)" || return 1
+  canonical="$parent/$(basename "$path")"
+  [[ "$path" == "$canonical" && "$parent" == "$RELEASE_ROOT" ]] || {
+    err "zip must be a canonical direct child of $RELEASE_ROOT"
+    return 1
+  }
+  base="$(basename "$path")"
+  [[ "$base" == "${PRODUCT_NAME}-"*-mac.zip ]] || {
+    err "zip must be a Vellum macOS release artifact"
+    return 1
+  }
+}
+
+assert_release_app_capability() {
+  local path="$1"
+  local canonical parent parent_base
+  [[ -d "$path" && ! -L "$path" ]] || {
+    err "app must be an existing non-symlink bundle"
+    return 1
+  }
+  canonical="$(cd "$path" && pwd -P)" || return 1
+  [[ "$canonical" == "$path" ]] || {
+    err "app must already be canonical: $path -> $canonical"
+    return 1
+  }
+  parent="$(dirname "$path")"
+  parent_base="${parent##*/}"
+  [[ "$parent" == "$RELEASE_ROOT"/mac-arm64 || "$parent" == "$RELEASE_ROOT"/mac || "$parent" == "$RELEASE_ROOT"/mac-x64 ]] || {
+    err "app must be a direct bundle in a canonical release mac directory"
+    return 1
+  }
+  [[ "$(basename "$path")" == "${PRODUCT_NAME}.app" && "$parent_base" != . ]] || {
+    err "app must have the exact product bundle name ${PRODUCT_NAME}.app"
+    return 1
+  }
+  assert_app_bundle "$path"
+}
+
+path_id() {
+  path_identity "$1"
+}
+
+assert_same_identity() {
+  local description="$1"
+  local path="$2"
+  local expected="$3"
+  [[ -n "$expected" && ! -L "$path" && "$(path_id "$path" 2>/dev/null)" == "$expected" ]] || {
+    err "$description changed identity; refusing replacement"
+    return 1
+  }
+}
+
+output_identity() {
+  local path="$1"
+  if [[ -e "$path" ]]; then
+    [[ -f "$path" && ! -L "$path" ]] || {
+      err "release output must be absent or a non-symlink regular file: $path"
+      return 1
+    }
+    path_id "$path"
+  else
+    printf '%s' "absent"
+  fi
+}
+
+assert_output_unchanged() {
+  local path="$1"
+  local expected="$2"
+  local actual
+  actual="$(output_identity "$path")" || return 1
+  [[ "$actual" == "$expected" ]] || {
+    err "release output changed identity; refusing replacement: $path"
+    return 1
+  }
+}
+
+cleanup_staging() {
+  local staging_id
+  [[ -n "$STAGING_DIR" ]] || return 0
+  staging_id="${STAGING_ID:-}"
+  if [[ -n "$staging_id" && -d "$STAGING_DIR" && ! -L "$STAGING_DIR" && "$(path_id "$STAGING_DIR" 2>/dev/null)" == "$staging_id" ]]; then
+    rm -rf -- "$STAGING_DIR"
+  else
+    err "notarization staging changed identity; retaining $STAGING_DIR"
+  fi
+}
+trap cleanup_staging EXIT
+
 if [[ -z "$APP_PATH" ]]; then
   APP_PATH="$(detect_app_src)"
 fi
@@ -81,28 +214,55 @@ if [[ -z "$ZIP_SRC" ]]; then
   fi
 fi
 
-assert_app_bundle "$APP_PATH"
-[[ -f "$ZIP_SRC" ]] || { err "missing zip: $ZIP_SRC"; exit 1; }
+assert_release_app_capability "$APP_PATH" || exit 1
+assert_release_zip_capability "$ZIP_SRC" || exit 1
+APP_ID="$(path_id "$APP_PATH")"
+ZIP_ID="$(path_id "$ZIP_SRC")"
+RECEIPT_PATH="$RELEASE_ROOT/notarization-receipt.json"
+SUBMIT_RECEIPT_PATH="$RELEASE_ROOT/notarization-submit.json"
+assert_release_zip_capability "$ZIP_SRC" || exit 1
+assert_same_identity "release app" "$APP_PATH" "$APP_ID" || exit 1
+STAGING_DIR="$(mktemp -d "$RELEASE_ROOT/.notarize-stage.XXXXXXXX")"
+chmod 700 "$STAGING_DIR"
+STAGING_ID="$(path_id "$STAGING_DIR")"
+STAGED_APP="$STAGING_DIR/${PRODUCT_NAME}.app"
+STAGED_ZIP="$STAGING_DIR/$(basename "$ZIP_SRC")"
+SUBMITTED_ZIP="$STAGING_DIR/submitted.zip"
+SUBMIT_LOG="$STAGING_DIR/notarization-submit.json"
+SUBMIT_ERR="$STAGING_DIR/notarization-submit.err"
+NOTARY_LOG="$STAGING_DIR/notarization-log.json"
+STAGED_RECEIPT="$STAGING_DIR/notarization-receipt.json"
+SUBMIT_RECEIPT_ID="$(output_identity "$SUBMIT_RECEIPT_PATH")"
+RECEIPT_ID="$(output_identity "$RECEIPT_PATH")"
+ZIP_SHA="$(shasum -a 256 "$ZIP_SRC" | awk '{print $1}')"
 
-log "preflight: codesign --verify --deep --strict …"
-codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+# The submitted/stapled artifacts are private copies.  Everything that is
+# verified, uploaded, stapled, and published originates from this 0700 stage;
+# the release paths are only later replacement targets.
+ditto --rsrc "$APP_PATH" "$STAGED_APP"
+assert_same_identity "release app" "$APP_PATH" "$APP_ID" || exit 1
+assert_app_bundle "$STAGED_APP"
+log "preflight staged app: codesign --verify --deep --strict …"
+codesign --verify --deep --strict --verbose=2 "$STAGED_APP"
+STAGED_APP_CDHASH="$(codesign -dv --verbose=4 "$STAGED_APP" 2>&1 | awk -F= '/^CDHash=/{print $2}')"
+STAGED_APP_CDHASH="$(printf '%s\n' "$STAGED_APP_CDHASH" | head -n1)"
+APP_CDHASH="$STAGED_APP_CDHASH"
+# Freeze the exact archive that authorization submits.  The public release zip
+# is read-only input until the final publish transaction; a replaced artifact
+# cannot become an accidental notarization upload.
+ditto "$ZIP_SRC" "$SUBMITTED_ZIP"
+assert_same_identity "release zip" "$ZIP_SRC" "$ZIP_ID" || exit 1
+[[ -f "$SUBMITTED_ZIP" && ! -L "$SUBMITTED_ZIP" ]] || { err "submitted zip missing or unsafe"; exit 1; }
+[[ "$(shasum -a 256 "$SUBMITTED_ZIP" | awk '{print $1}')" == "$ZIP_SHA" ]] || {
+  err "submitted zip did not preserve the admitted release content"
+  exit 1
+}
 
 log "preflight: asc auth …"
 if ! asc doctor >/dev/null; then
   err "asc doctor failed — run: asc doctor && asc auth status"
   exit 1
 fi
-
-ZIP_SHA="$(shasum -a 256 "$ZIP_SRC" | awk '{print $1}')"
-# pipefail + early-exit awk SIGPIPEs codesign (exit 141). Drain full codesign
-# output, then parse — never short-circuit the writer.
-APP_CDHASH="$(
-  codesign -dv --verbose=4 "$APP_PATH" 2>&1 | awk -F= '/^CDHash=/{print $2}'
-)"
-APP_CDHASH="$(printf '%s\n' "$APP_CDHASH" | head -n1)"
-RECEIPT_PATH="$RELEASE_DIR/notarization-receipt.json"
-SUBMIT_LOG="$RELEASE_DIR/notarization-submit.json"
-mkdir -p "$RELEASE_DIR"
 
 log "submitting for notarization via asc …"
 log "  zip: $ZIP_SRC"
@@ -112,19 +272,19 @@ log "  timeout: $TIMEOUT"
 
 set +e
 asc notarization submit \
-  --file "$ZIP_SRC" \
+  --file "$SUBMITTED_ZIP" \
   --wait \
   --timeout "$TIMEOUT" \
   --poll-interval "$POLL" \
   --output json \
-  >"$SUBMIT_LOG" 2>"$RELEASE_DIR/notarization-submit.err"
+  >"$SUBMIT_LOG" 2>"$SUBMIT_ERR"
 submit_status=$?
 set -e
 
 if [[ "$submit_status" -ne 0 ]]; then
   err "asc notarization submit failed (exit $submit_status)"
-  if [[ -s "$RELEASE_DIR/notarization-submit.err" ]]; then
-    tail -n 40 "$RELEASE_DIR/notarization-submit.err" >&2 || true
+  if [[ -s "$SUBMIT_ERR" ]]; then
+    tail -n 40 "$SUBMIT_ERR" >&2 || true
   fi
   if [[ -s "$SUBMIT_LOG" ]]; then
     tail -n 40 "$SUBMIT_LOG" >&2 || true
@@ -191,29 +351,48 @@ if [[ "$NOTARY_STATUS" != "Accepted" ]]; then
   if [[ -n "$SUBMISSION_ID" ]]; then
     log "fetching notary log …"
     asc notarization log --id "$SUBMISSION_ID" --output json \
-      >"$RELEASE_DIR/notarization-log.json" 2>/dev/null || true
-    if [[ -s "$RELEASE_DIR/notarization-log.json" ]]; then
-      tail -n 80 "$RELEASE_DIR/notarization-log.json" >&2 || true
+      >"$NOTARY_LOG" 2>/dev/null || true
+    if [[ -s "$NOTARY_LOG" ]]; then
+      tail -n 80 "$NOTARY_LOG" >&2 || true
     fi
   fi
   exit 1
 fi
 
-log "stapling ticket onto app …"
-xcrun stapler staple "$APP_PATH"
-xcrun stapler validate "$APP_PATH"
+log "stapling ticket onto staged app …"
+xcrun stapler staple "$STAGED_APP"
+xcrun stapler validate "$STAGED_APP"
 
-log "re-zipping stapled app → $ZIP_SRC …"
+log "re-zipping stapled app into exclusive staging …"
 # Zip cannot hold a staple; ship the ticket inside a fresh archive of the stapled .app.
-stage_zip="${ZIP_SRC}.stapled.$$"
 # Parent of .app is the directory to zip from so the archive root is Vellum.app.
-app_parent="$(dirname "$APP_PATH")"
-app_base="$(basename "$APP_PATH")"
+app_parent="$STAGING_DIR"
+app_base="$(basename "$STAGED_APP")"
 (
   cd "$app_parent"
-  ditto -c -k --keepParent "$app_base" "$stage_zip"
+  ditto -c -k --keepParent "$app_base" "$STAGED_ZIP"
 )
-mv -f "$stage_zip" "$ZIP_SRC"
+[[ -f "$STAGED_ZIP" && ! -L "$STAGED_ZIP" ]] || { err "staged zip missing or unsafe"; exit 1; }
+STAGED_APP_ID="$(path_id "$STAGED_APP")"
+STAGED_ZIP_ID="$(path_id "$STAGED_ZIP")"
+
+# Re-check the named canonical targets immediately before their rename
+# transaction.  A replaced/symlinked target never receives a staple or zip.
+assert_release_app_capability "$APP_PATH" || exit 1
+assert_same_identity "release app" "$APP_PATH" "$APP_ID" || exit 1
+assert_release_zip_capability "$ZIP_SRC" || exit 1
+assert_same_identity "release zip" "$ZIP_SRC" "$ZIP_ID" || exit 1
+assert_same_identity "release root" "$RELEASE_ROOT" "$RELEASE_ROOT_ID" || exit 1
+
+APP_BACKUP="$STAGING_DIR/original.app"
+mv "$APP_PATH" "$APP_BACKUP"
+if ! mv "$STAGED_APP" "$APP_PATH"; then
+  mv "$APP_BACKUP" "$APP_PATH" || err "could not restore original release app"
+  exit 1
+fi
+assert_same_identity "replaced release app" "$APP_PATH" "$STAGED_APP_ID" || exit 1
+mv -f "$STAGED_ZIP" "$ZIP_SRC"
+assert_same_identity "replaced release zip" "$ZIP_SRC" "$STAGED_ZIP_ID" || exit 1
 ZIP_SHA_STAPLED="$(shasum -a 256 "$ZIP_SRC" | awk '{print $1}')"
 
 if [[ "$SKIP_SPCTL" -eq 0 ]]; then
@@ -232,26 +411,36 @@ else
   log "skipping spctl (--skip-spctl)"
 fi
 
-python3 - "$RECEIPT_PATH" <<PY
-import json, datetime, pathlib
-path = pathlib.Path("$RECEIPT_PATH")
+python3 - "$STAGED_RECEIPT" "$PRODUCT_NAME" "$APP_BUNDLE_ID" "$APP_PATH" "$ZIP_SRC" "$ZIP_SHA" "$ZIP_SHA_STAPLED" "$APP_CDHASH" "$SUBMISSION_ID" "$NOTARY_STATUS" "$SUBMIT_NAME" <<'PY'
+import datetime
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
 receipt = {
-    "product": "$PRODUCT_NAME",
-    "bundleId": "$APP_BUNDLE_ID",
-    "appPath": "$APP_PATH",
-    "zipPath": "$ZIP_SRC",
-    "zipSha256Submitted": "$ZIP_SHA",
-    "zipSha256Stapled": "$ZIP_SHA_STAPLED",
-    "appCdHash": "$APP_CDHASH",
-    "submissionId": "$SUBMISSION_ID",
-    "status": "$NOTARY_STATUS",
-    "submittedName": "$SUBMIT_NAME",
+    "product": sys.argv[2],
+    "bundleId": sys.argv[3],
+    "appPath": sys.argv[4],
+    "zipPath": sys.argv[5],
+    "zipSha256Submitted": sys.argv[6],
+    "zipSha256Stapled": sys.argv[7],
+    "appCdHash": sys.argv[8],
+    "submissionId": sys.argv[9],
+    "status": sys.argv[10],
+    "submittedName": sys.argv[11],
     "tool": "asc notarization submit",
     "completedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
 }
 path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 print(path)
 PY
+
+assert_output_unchanged "$SUBMIT_RECEIPT_PATH" "$SUBMIT_RECEIPT_ID" || exit 1
+assert_output_unchanged "$RECEIPT_PATH" "$RECEIPT_ID" || exit 1
+assert_same_identity "release root" "$RELEASE_ROOT" "$RELEASE_ROOT_ID" || exit 1
+mv -f "$SUBMIT_LOG" "$SUBMIT_RECEIPT_PATH"
+mv -f "$STAGED_RECEIPT" "$RECEIPT_PATH"
 
 log "notarization complete"
 log "  receipt: $RECEIPT_PATH"
