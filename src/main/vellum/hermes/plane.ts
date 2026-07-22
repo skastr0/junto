@@ -1,4 +1,3 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import type { AgentIdentity, AgentReply } from "@shared/ipc";
@@ -23,7 +22,7 @@ import {
   fetchAgentIdentity,
   type HermesIdentityOperations,
 } from "../adapters/hermes-identity";
-import { admitChildProcess } from "../process-signal";
+import { appProcessPlane } from "../app-process-plane";
 import type {
   AcpChildEnvironmentOverlay,
   AcpChildLike,
@@ -303,17 +302,17 @@ export const HermesPlaneLive = Layer.scoped(
       const env = options?.environmentOverlay === undefined
         ? resolvedSpawnEnvSync()
         : { ...resolvedSpawnEnvSync(), ...options.environmentOverlay };
-      const child = spawn("hermes", [...acpArgs(target.profile)], {
-        stdio: ["pipe", "pipe", "pipe"],
+      const lease = appProcessPlane.spawnChild({
+        source: `hermes-acp:${target.profile}`,
+        purpose: `local ACP session for ${target.profile}`,
+        command: "hermes",
+        args: acpArgs(target.profile),
         env,
-      }) as ChildProcessWithoutNullStreams;
+      });
       return {
         kind: "local-process",
-        child,
-        process: admitChildProcess({
-          source: `hermes-acp:${target.profile}`,
-          child,
-        }),
+        lease,
+        processPlane: appProcessPlane,
       };
     };
 

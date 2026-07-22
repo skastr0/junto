@@ -1,14 +1,17 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatService } from "../src/main/vellum/chat/service";
-import type { LocalAcpProcessChild, SpawnFn } from "../src/main/vellum/chat/acp-client";
+import type { SpawnFn } from "../src/main/vellum/chat/acp-client";
 import type { ChatEvent } from "../src/shared/ipc";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
-import { spawnedLocalAcp } from "./helpers/acp-child";
+import {
+  spawnedLocalAcp,
+  type TestLocalAcpChild,
+} from "./helpers/acp-child";
 
-const makeChild = (): LocalAcpProcessChild => {
-  const child = new EventEmitter() as LocalAcpProcessChild & EventEmitter;
+const makeChild = (): TestLocalAcpChild => {
+  const child = new EventEmitter() as TestLocalAcpChild & EventEmitter;
   (child as { stdin: { write: (chunk: string) => boolean } }).stdin = {
     write: () => true,
   };
@@ -139,7 +142,7 @@ describe("ChatService remote session policy", () => {
   it("counts an in-flight remote handshake before admitting another child", async () => {
     process.env.VELLUM_ACP_MAX_REMOTE_SESSIONS_PER_HOST = "1";
     process.env.VELLUM_ACP_IDLE_MS = "0";
-    const children: LocalAcpProcessChild[] = [];
+    const children: TestLocalAcpChild[] = [];
     const service = new ChatService(() => {
       const child = makeChild();
       children.push(child);

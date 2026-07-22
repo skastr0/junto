@@ -5,12 +5,19 @@ const source = (relative: string): string =>
   readFileSync(new URL(`../${relative}`, import.meta.url), "utf8");
 
 describe("ACP lifecycle architecture", () => {
-  it("mints local child authority once at the Hermes spawn boundary", () => {
+  it("routes local ACP spawn and signaling only through the central app process plane", () => {
     const client = source("src/main/vellum/chat/acp-client.ts");
     const plane = source("src/main/vellum/hermes/plane.ts");
 
     expect(client).not.toContain("admitChildProcess");
-    expect(plane.match(/admitChildProcess\s*\(/gu) ?? []).toHaveLength(1);
+    expect(client).not.toContain("OwnedProcess");
+    expect(client).not.toContain("signalOwned");
+    expect(client).not.toContain("releaseOwned");
+    expect(client).not.toMatch(/\.kill\s*\(/u);
+    expect(plane).not.toContain("admitChildProcess");
+    expect(plane).toContain("appProcessPlane.spawnChild({");
+    expect(plane).toContain("processPlane: appProcessPlane");
+    expect(plane).not.toMatch(/\bspawn\s*\(/u);
     expect(plane).not.toContain("localChildren");
     expect(plane).not.toContain("terminateLocalAcpChild");
   });

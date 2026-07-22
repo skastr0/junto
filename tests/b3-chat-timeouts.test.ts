@@ -8,7 +8,6 @@ import {
   type SpawnFn,
 } from "../src/main/vellum/chat/acp-client";
 import { ChatService } from "../src/main/vellum/chat/service";
-import { signalOwned } from "../src/main/vellum/process-signal";
 import { buildAcpSpawnTarget, type AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
 import { spawnedLocalAcp } from "./helpers/acp-child";
 
@@ -253,7 +252,12 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
     const firstOwned = spawned[0]!;
     expect(firstOwned.kind).toBe("local-process");
     if (firstOwned.kind !== "local-process") throw new Error("expected local child");
-    expect(signalOwned(firstOwned.process, "SIGTERM").attempted).toBe(true);
+    expect(
+      firstOwned.processPlane.terminate(
+        firstOwned.lease,
+        "test retained generation",
+      ).attempted,
+    ).toBe(true);
 
     const completion = client.close();
     replacement.emit("close", 0);
@@ -265,7 +269,12 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
 
     first.emit("close", 0);
     expect(client.retainedGenerationCount).toBe(0);
-    expect(signalOwned(firstOwned.process, "SIGTERM").attempted).toBe(false);
+    expect(
+      firstOwned.processPlane.terminate(
+        firstOwned.lease,
+        "test retired generation",
+      ).attempted,
+    ).toBe(false);
   });
 
   it("returns a bounded result when neither TERM nor KILL is accepted", async () => {

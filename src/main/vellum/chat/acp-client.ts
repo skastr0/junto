@@ -1,9 +1,9 @@
 import { isAbsolute } from "node:path";
-import {
-  releaseOwned,
-  signalOwned,
-  type OwnedProcess,
-} from "../process-signal";
+import type {
+  AppChildIo,
+  AppProcessLease,
+  AppProcessPlane,
+} from "../app-process-plane";
 import type { AcpSpawnTarget } from "./spawn";
 
 // One long-lived `hermes acp` (or ssh-wrapped remote) child process, speaking
@@ -76,9 +76,8 @@ export interface AcpClientHandlers {
   readonly onLifecycle: (event: AcpLifecycleEvent) => void;
 }
 
-// The minimal shape of a child process this client needs — satisfied by
-// node:child_process's ChildProcessWithoutNullStreams, and by the fake
-// EventEmitter-based child the unit tests inject in its place.
+// The minimal shape of the independently scoped remote transport child.
+// Local OS children expose only AppProcessLease.io through the central plane.
 export type AcpChildLike = {
   readonly pid?: number;
   readonly stdin: { write(chunk: string): boolean };
@@ -89,16 +88,16 @@ export type AcpChildLike = {
   on(event: "close", listener: (code: number | null) => void): unknown;
 };
 
-export type LocalAcpProcessChild = AcpChildLike & {
-  readonly pid?: number;
-  kill(signal?: NodeJS.Signals): unknown;
-};
+type LocalAcpProcessControl = Pick<
+  AppProcessPlane,
+  "terminate" | "forceTerminate"
+>;
 
 export type SpawnedAcpChild =
   | {
       readonly kind: "local-process";
-      readonly child: LocalAcpProcessChild;
-      readonly process: OwnedProcess;
+      readonly lease: AppProcessLease;
+      readonly processPlane: LocalAcpProcessControl;
     }
   | {
       readonly kind: "remote-scope";
@@ -227,8 +226,15 @@ export type AcpTeardownResult =
       readonly reason: "remote-scope-close-failed";
     };
 
+interface AcpWireIo {
+  readonly stdin: AcpChildLike["stdin"];
+  readonly stdout: AcpChildLike["stdout"];
+  readonly stderr: AcpChildLike["stderr"];
+}
+
 interface AcpGenerationBase {
-  readonly child: AcpChildLike;
+  readonly io: AcpWireIo;
+  readonly pidForDiagnostics: number | undefined;
   buffer: string;
   terminalObserved: boolean;
   teardown?: AcpTeardown;
@@ -237,7 +243,8 @@ interface AcpGenerationBase {
 type AcpGeneration =
   | (AcpGenerationBase & {
       readonly kind: "local-process";
-      readonly process: OwnedProcess;
+      readonly lease: AppProcessLease;
+      readonly processPlane: LocalAcpProcessControl;
     })
   | (AcpGenerationBase & {
       readonly kind: "remote-scope";
@@ -299,7 +306,7 @@ export class AcpClient {
 
   /** OS pid of the local ACP child after start(); undefined when remote/closed. */
   get childPid(): number | undefined {
-    const pid = this.current?.child.pid;
+    const pid = this.current?.pidForDiagnostics;
     return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : undefined;
   }
 
@@ -326,34 +333,45 @@ export class AcpClient {
       this.target,
       environmentOverlay === undefined ? undefined : { environmentOverlay },
     );
-    const child = spawned.child;
-    const generation: AcpGeneration = spawned.kind === "local-process"
-      ? {
-          kind: "local-process",
-          child,
-          process: spawned.process,
-          buffer: "",
-          terminalObserved: false,
-        }
-      : {
-          kind: "remote-scope",
-          child,
-          closeScope: spawned.close,
-          isScopeClean: spawned.isClean,
-          buffer: "",
-          terminalObserved: false,
-        };
+    let generation: AcpGeneration;
+    if (spawned.kind === "local-process") {
+      generation = {
+        kind: "local-process",
+        io: spawned.lease.io,
+        pidForDiagnostics: spawned.lease.io.pidForDiagnostics,
+        lease: spawned.lease,
+        processPlane: spawned.processPlane,
+        buffer: "",
+        terminalObserved: false,
+      };
+    } else {
+      generation = {
+        kind: "remote-scope",
+        io: spawned.child,
+        pidForDiagnostics: spawned.child.pid,
+        closeScope: spawned.close,
+        isScopeClean: spawned.isClean,
+        buffer: "",
+        terminalObserved: false,
+      };
+    }
     this.current = generation;
 
-    child.stdout.on("data", (chunk: unknown) => {
+    generation.io.stdout.on("data", (chunk: unknown) => {
       if (this.isCurrentGeneration(generation)) this.onStdout(generation, String(chunk));
     });
-    child.stderr.on("data", (chunk: unknown) => {
+    generation.io.stderr.on("data", (chunk: unknown) => {
       if (this.isCurrentGeneration(generation)) this.onStderr(String(chunk));
     });
-    child.on("error", (error) => this.onChildError(generation, error));
-    child.on("exit", (code) => this.onChildTerminal(generation, "exit", code));
-    child.on("close", (code) => this.onChildTerminal(generation, "close", code));
+    if (spawned.kind === "local-process") {
+      this.observeLocalProcess(generation, spawned.lease.io);
+    } else {
+      spawned.child.on("error", (error) => this.onChildError(generation, error));
+      spawned.child.on("exit", (code) =>
+        this.onChildTerminal(generation, "exit", code));
+      spawned.child.on("close", (code) =>
+        this.onChildTerminal(generation, "close", code));
+    }
 
     try {
       return await this.withTimeout(
@@ -437,8 +455,8 @@ export class AcpClient {
   }
 
   // Arm both deadlines before the first signal. A child may synchronously
-  // emit a terminal event from kill(), and signalOwned may safely refuse the
-  // attempt; neither case is allowed to strand authority or the close awaiter.
+  // observe a terminal event from a plane signal, and the plane may safely
+  // refuse the attempt; neither case is allowed to strand the close awaiter.
   private beginTeardown(generation: AcpGeneration): Promise<AcpTeardownResult> {
     if (generation.teardown !== undefined) return generation.teardown.promise;
     if (generation.terminalObserved) {
@@ -453,7 +471,14 @@ export class AcpClient {
     const forceTimer = generation.kind === "local-process"
       ? setTimeout(() => {
           if (generation.terminalObserved || teardown.settled) return;
-          teardown.killAttempted = signalOwned(generation.process, "SIGKILL").attempted;
+          try {
+            teardown.killAttempted = generation.processPlane.forceTerminate(
+              generation.lease,
+              "ACP generation teardown escalation",
+            ).attempted;
+          } catch {
+            teardown.killAttempted = false;
+          }
         }, SIGTERM_GRACE_MS)
       : undefined;
     const boundTimer = setTimeout(() => {
@@ -475,7 +500,14 @@ export class AcpClient {
     void promise.then(() => this.teardownFlights.delete(promise));
 
     if (generation.kind === "local-process") {
-      teardown.termAttempted = signalOwned(generation.process, "SIGTERM").attempted;
+      try {
+        teardown.termAttempted = generation.processPlane.terminate(
+          generation.lease,
+          "ACP generation teardown",
+        ).attempted;
+      } catch {
+        teardown.termAttempted = false;
+      }
     } else {
       try {
         void generation.closeScope().catch(() => {
@@ -533,6 +565,17 @@ export class AcpClient {
     return this.current === generation;
   }
 
+  private observeLocalProcess(
+    generation: AcpGeneration,
+    io: AppChildIo,
+  ): void {
+    io.onError((error) => this.onChildError(generation, error));
+    io.onExit((event) =>
+      this.onChildTerminal(generation, "exit", event.code));
+    io.onClose((event) =>
+      this.onChildTerminal(generation, "close", event.code));
+  }
+
   // A fatal transport condition (timeout or oversized inbound frame) means
   // the whole child is unusable — tear the client down the
   // same way an unexpected exit would (kill the child, notify onLifecycle)
@@ -580,7 +623,7 @@ export class AcpClient {
   ): void {
     if (generation === undefined || !this.isCurrentGeneration(generation)) return;
     try {
-      generation.child.stdin.write(`${JSON.stringify(message)}\n`);
+      generation.io.stdin.write(`${JSON.stringify(message)}\n`);
     } catch (error) {
       if (this.isCurrentGeneration(generation)) {
         this.handleFatalFailure(
@@ -689,7 +732,6 @@ export class AcpClient {
     const current = this.isCurrentGeneration(generation);
     generation.terminalObserved = true;
     this.retainedGenerations.delete(generation);
-    if (generation.kind === "local-process") releaseOwned(generation.process);
     const teardown = generation.teardown;
     if (teardown !== undefined && !teardown.settled) {
       if (teardown.forceTimer !== undefined) clearTimeout(teardown.forceTimer);
