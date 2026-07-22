@@ -77,6 +77,8 @@ export const startTermControlServer = async (
   const leaseSockets = new Map<string, Set<Socket>>();
   const socketLeases = new Map<Socket, Set<string>>();
   const leaseById = new Map<string, ControlLease>();
+  /** Accepted clients must be explicitly drained on close; Server.close alone waits forever. */
+  const sockets = new Set<Socket>();
 
   const trackLease = (socket: Socket, lease: ControlLease): void => {
     leaseById.set(lease.leaseId, lease);
@@ -229,6 +231,7 @@ export const startTermControlServer = async (
   };
 
   const server: Server = createServer((socket) => {
+    sockets.add(socket);
     let buf = "";
     let authed = false;
     let closed = false;
@@ -297,10 +300,12 @@ export const startTermControlServer = async (
     });
     socket.on("close", () => {
       closed = true;
+      sockets.delete(socket);
       dropSocket(socket);
     });
     socket.on("error", () => {
       closed = true;
+      sockets.delete(socket);
       dropSocket(socket);
     });
   });
@@ -322,6 +327,11 @@ export const startTermControlServer = async (
     token,
     close: async () => {
       host.off("event", onHostEvent);
+      // Ask ordinary clients to finish first, then force a bounded shutdown for
+      // peers that keep a UDS connection open indefinitely.
+      for (const socket of sockets) socket.end();
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      for (const socket of sockets) socket.destroy();
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
       });

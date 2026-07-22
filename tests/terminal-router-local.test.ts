@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LocalSessionHost,
   type TermChild,
@@ -9,14 +9,17 @@ import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
 } from "../src/main/vellum/process-identity";
+import { hostsSnapshot, setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 
 const hosts: LocalSessionHost[] = [];
+const initialHosts = hostsSnapshot();
 
 afterEach(async () => {
   for (const h of hosts.splice(0)) {
     await h.shutdownAll("test");
   }
   setProcessIdentityMapForTests(undefined);
+  setHostsSnapshot(initialHosts);
 });
 
 const fakeSpawn = (pid = 55_010): TermSpawnFn => () => {
@@ -87,13 +90,90 @@ describe("TerminalRouter local path", () => {
     expect(router.runningCount()).toBe(0);
   });
 
-  it("isLocalHostId treats missing registry host as local-safe", () => {
+  it("only absent, empty, and an explicit local registry host are local", () => {
     const local = new LocalSessionHost(fakeSpawn());
     hosts.push(local);
     const router = new TerminalRouter(local);
     expect(router.isLocalHostId("local")).toBe(true);
     expect(router.isLocalHostId(undefined)).toBe(true);
     expect(router.isLocalHostId("")).toBe(true);
+    expect(router.isLocalHostId("missing-host")).toBe(false);
+  });
+
+  it("unknown nonempty host IDs cannot acquire local terminal authority", async () => {
+    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    const local = new LocalSessionHost(fakeSpawn());
+    hosts.push(local);
+    const router = new TerminalRouter(local);
+    const lease = { leaseId: "lease", bindingId: "unknown", epoch: "1", mode: "control" as const };
+
+    await expect(router.create({ bindingId: "unknown", hostId: "missing-host" })).rejects.toThrow(
+      /not a remote SSH endpoint/,
+    );
+    expect(await router.list("missing-host")).toEqual([]);
+    expect(await router.get("unknown", "missing-host")).toBeUndefined();
+    expect(await router.kill("unknown", "missing-host")).toBe(false);
+    await expect(router.bindCanvas("unknown", null, "missing-host")).rejects.toThrow(
+      /not a remote SSH endpoint/,
+    );
+    expect(await router.attach({ bindingId: "unknown", mode: "control", hostId: "missing-host" })).toMatchObject({ ok: false });
+    expect(await router.write(lease, "x", "missing-host")).toBe(false);
+    expect(await router.resize(lease, 80, 24, "missing-host")).toBe(false);
+    expect(local.list()).toEqual([]);
+  });
+
+  it("revokes a cached remote lease when its host endpoint changes", async () => {
+    const local = new LocalSessionHost(fakeSpawn());
+    hosts.push(local);
+    const router = new TerminalRouter(local);
+    setHostsSnapshot([
+      ...initialHosts,
+      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio-new", capabilities: ["terminal"] },
+    ]);
+    const close = vi.fn();
+    (router as unknown as { remotes: Map<string, unknown> }).remotes.set("studio", {
+      client: { close },
+      endpoint: "studio-old",
+      scope: {},
+      leaseMap: new Map([["lease", "remote-lease"]]),
+      reverseLease: new Map([["remote-lease", "lease"]]),
+    });
+
+    const lease = { leaseId: "lease", bindingId: "remote", epoch: "1", mode: "control" as const };
+    expect(await router.write(lease, "x", "studio")).toBe(false);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("quiesces before waiting for an in-flight remote connection", async () => {
+    const local = new LocalSessionHost(fakeSpawn());
+    hosts.push(local);
+    const router = new TerminalRouter(local);
+    setHostsSnapshot([
+      ...initialHosts,
+      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["terminal"] },
+    ]);
+    let releaseConnect: (() => void) | undefined;
+    const connectGate = new Promise<void>((resolve) => {
+      releaseConnect = resolve;
+    });
+    (router as unknown as { connectRemote: (...args: unknown[]) => Promise<never> }).connectRemote = async (
+      _hostId,
+      _endpoint,
+      _generation,
+      admit,
+    ) => {
+      await connectGate;
+      if (!(admit as () => boolean)()) throw new Error("connection revoked");
+      throw new Error("test connection should not be admitted");
+    };
+
+    const creating = router.create({ bindingId: "remote", hostId: "studio" });
+    await Promise.resolve();
+    const closing = router.closeRemotes();
+    releaseConnect?.();
+    await expect(creating).rejects.toThrow(/revoked/);
+    await expect(closing).resolves.toBeUndefined();
+    await expect(router.create({ bindingId: "later", hostId: "studio" })).rejects.toThrow(/stopping/);
   });
 
   it("shutdownAllLocal does not require remotes", async () => {

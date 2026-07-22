@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createConnection } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   LocalSessionHost,
@@ -133,5 +134,28 @@ describe("term control UDS", () => {
         timeoutMs: 3_000,
       }),
     ).rejects.toThrow(/unauth|auth/i);
+  });
+
+  it("boundedly drains an active client when the control server closes", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vellum-term-close-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeSpawn());
+    cleanups.push(() => host.shutdownAll("test"));
+    const server = await startTermControlServer(host, { home });
+
+    const socket = createConnection(server.socketPath);
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+    socket.write(`${JSON.stringify({ token: server.token })}\n`);
+
+    await expect(
+      Promise.race([
+        server.close(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("close timed out")), 1_000)),
+      ]),
+    ).resolves.toBeUndefined();
+    expect(socket.destroyed).toBe(true);
   });
 });
