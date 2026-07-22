@@ -5,6 +5,7 @@ import type {
   VellumApi,
   VellumBrowserAutomationApi,
 } from "../src/shared/ipc";
+import type { CanvasDoc } from "../src/shared/canvas";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { formatNodeRef } from "../src/shared/node-ref";
 
@@ -195,6 +196,107 @@ describe("preload canvas close gate", () => {
 });
 
 describe("preload canvas quiesce gate", () => {
+  it("binds write/create privately to only the active main request and clears in finally", async () => {
+    const api = await loadPreload();
+    const doc = { nodes: [], edges: [] } as CanvasDoc;
+
+    const rendererForgedMetadata = {
+      __vellumFinalWrite: {
+        requestId: "00000000-0000-4000-8000-000000000099",
+        operation: "canvas.write",
+      },
+    };
+    await (api.writeCanvas as unknown as (...args: ReadonlyArray<unknown>) => Promise<unknown>)(
+      "ordinary",
+      doc,
+      "r0",
+      rendererForgedMetadata,
+    );
+    await (api.createCanvas as unknown as (...args: ReadonlyArray<unknown>) => Promise<unknown>)(
+      "ordinary-create",
+      rendererForgedMetadata,
+    );
+    expect(electron.invoked).toEqual([
+      [IPC_CHANNELS.writeCanvas, "ordinary", doc, "r0"],
+      [IPC_CHANNELS.createCanvas, "ordinary-create"],
+    ]);
+    electron.invoked.length = 0;
+
+    const durable = deferred();
+    api.onCanvasQuiesceAndFlushRequested(async (acknowledgeQuiesced) => {
+      acknowledgeQuiesced();
+      await api.writeCanvas("final", doc, "r1");
+      await api.createCanvas("final-create");
+      await durable.promise;
+      return { ok: true, quiesced: true };
+    });
+
+    const requestId = "00000000-0000-4000-8000-000000000020";
+    emitCanvasQuiesceAndFlush({ requestId });
+    await settle();
+
+    expect(electron.invoked).toEqual([
+      [
+        IPC_CHANNELS.writeCanvas,
+        "final",
+        doc,
+        "r1",
+        { __vellumFinalWrite: { requestId, operation: "canvas.write" } },
+      ],
+      [
+        IPC_CHANNELS.createCanvas,
+        "final-create",
+        { __vellumFinalWrite: { requestId, operation: "canvas.create" } },
+      ],
+    ]);
+    expect(Object.keys(api)).not.toContain("__vellumFinalWrite");
+
+    durable.resolve();
+    await settle();
+    electron.invoked.length = 0;
+    await api.writeCanvas("after-finally", doc, "r2");
+    await api.createCanvas("after-finally-create");
+    expect(electron.invoked).toEqual([
+      [IPC_CHANNELS.writeCanvas, "after-finally", doc, "r2"],
+      [IPC_CHANNELS.createCanvas, "after-finally-create"],
+    ]);
+  });
+
+  it("refuses overlapping and replayed quiesce deliveries without rebinding authority", async () => {
+    const api = await loadPreload();
+    const durable = deferred();
+    const listener = vi.fn(async () => {
+      await durable.promise;
+      return { ok: true, quiesced: true } as const;
+    });
+    api.onCanvasQuiesceAndFlushRequested(listener);
+
+    const activeRequestId = "00000000-0000-4000-8000-000000000021";
+    const overlapRequestId = "00000000-0000-4000-8000-000000000022";
+    emitCanvasQuiesceAndFlush({ requestId: activeRequestId });
+    emitCanvasQuiesceAndFlush({ requestId: overlapRequestId });
+    emitCanvasQuiesceAndFlush({ requestId: activeRequestId });
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(electron.sent).toEqual([
+      [
+        IPC_CHANNELS.canvasQuiesceAndFlushComplete,
+        { requestId: overlapRequestId, ok: false, quiesced: false },
+      ],
+    ]);
+
+    durable.resolve();
+    await settle();
+    emitCanvasQuiesceAndFlush({ requestId: overlapRequestId });
+    emitCanvasQuiesceAndFlush({ requestId: activeRequestId });
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(electron.sent.at(-1)).toEqual([
+      IPC_CHANNELS.canvasQuiesceAndFlushComplete,
+      { requestId: activeRequestId, ok: false, quiesced: false },
+    ]);
+  });
+
   it("keeps signal quiesce distinct and acknowledges only after renderer durability", async () => {
     const api = await loadPreload();
     const ordinaryFlush = vi.fn(async () => undefined);

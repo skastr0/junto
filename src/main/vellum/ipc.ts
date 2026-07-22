@@ -32,7 +32,9 @@ import { getTrustedMainWebContents } from "./trusted-main-webcontents";
 import type { A2AMetadata, Artifact, Message, TaskState } from "@shared/canvas";
 import {
   MainAuthoringRefused,
+  MainAuthoringTransitionError,
   mainAuthoringGate,
+  type MainAuthoringFinalOperation,
   type MainAuthoringLabel,
 } from "./main-authoring-gate";
 
@@ -49,6 +51,69 @@ const runMainAuthoring = <A>(
   label: MainAuthoringLabel,
   operation: () => Promise<A>,
 ): Promise<A> => mainAuthoringGate.run(label, operation);
+
+interface RendererFinalWriteMetadata {
+  readonly requestId: string;
+  readonly operation: MainAuthoringFinalOperation;
+}
+
+const decodeRendererFinalWriteMetadata = (
+  value: unknown,
+): RendererFinalWriteMetadata | undefined => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  if (Object.keys(value).join(",") !== "__vellumFinalWrite") return undefined;
+  if (!("__vellumFinalWrite" in value)) return undefined;
+  const metadata = value.__vellumFinalWrite;
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
+    return undefined;
+  }
+  if (Object.keys(metadata).sort().join(",") !== "operation,requestId") return undefined;
+  if (!("requestId" in metadata) || typeof metadata.requestId !== "string") return undefined;
+  if (!("operation" in metadata)) return undefined;
+  if (metadata.operation !== "canvas.write" && metadata.operation !== "canvas.create") {
+    return undefined;
+  }
+  return {
+    requestId: metadata.requestId,
+    operation: metadata.operation,
+  };
+};
+
+const runRendererCanvasAuthoring = <A>(
+  label: Extract<MainAuthoringLabel, "ipc.canvas.write" | "ipc.canvas.create">,
+  senderId: number,
+  rawMetadata: unknown,
+  operation: MainAuthoringFinalOperation,
+  task: () => Promise<A>,
+): Promise<A> => {
+  // Metadata is absent on every ordinary renderer call. Once admission has
+  // closed, those calls must continue through run() so they are refused.
+  if (rawMetadata === undefined) return runMainAuthoring(label, task);
+
+  const metadata = decodeRendererFinalWriteMetadata(rawMetadata);
+  if (metadata === undefined) {
+    return Promise.reject(
+      new MainAuthoringTransitionError(
+        "invalid_final_permit",
+        "renderer final-write metadata must be an exact preload-issued envelope",
+      ),
+    );
+  }
+  if (metadata.operation !== operation) {
+    return Promise.reject(
+      new MainAuthoringTransitionError(
+        "unsupported_final_operation",
+        `renderer final-write metadata for ${metadata.operation} cannot authorize ${operation}`,
+      ),
+    );
+  }
+  return mainAuthoringGate.runFinalWrite(
+    { senderId, requestId: metadata.requestId },
+    operation,
+    label,
+    task,
+  );
+};
 
 const runRendererWorkAuthoring = <A>(
   label: MainAuthoringLabel,
@@ -98,9 +163,18 @@ export const registerVellumIpc = (): void => {
     AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.read(name))),
   );
 
-  ipcMain.handle(IPC_CHANNELS.writeCanvas, (_event, name: string, doc: CanvasDoc, expectedRevision?: string) =>
-    runMainAuthoring(
+  ipcMain.handle(IPC_CHANNELS.writeCanvas, (
+    event,
+    name: string,
+    doc: CanvasDoc,
+    expectedRevision?: string,
+    finalWriteMetadata?: unknown,
+  ) =>
+    runRendererCanvasAuthoring(
       "ipc.canvas.write",
+      event.sender.id,
+      finalWriteMetadata,
+      "canvas.write",
       () => AppRuntime.runPromise(
         Effect.gen(function* () {
           yield* denyIfRemoteAuthorial;
@@ -111,9 +185,12 @@ export const registerVellumIpc = (): void => {
     ),
   );
 
-  ipcMain.handle(IPC_CHANNELS.createCanvas, (_event, name: string) =>
-    runMainAuthoring(
+  ipcMain.handle(IPC_CHANNELS.createCanvas, (event, name: string, finalWriteMetadata?: unknown) =>
+    runRendererCanvasAuthoring(
       "ipc.canvas.create",
+      event.sender.id,
+      finalWriteMetadata,
+      "canvas.create",
       () => AppRuntime.runPromise(
         Effect.gen(function* () {
           yield* denyIfRemoteAuthorial;

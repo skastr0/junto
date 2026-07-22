@@ -230,6 +230,50 @@ let canvasQuiesceAndFlushListener:
     ) => CanvasQuiesceAndFlushOutcome | Promise<CanvasQuiesceAndFlushOutcome>)
   | undefined;
 let pendingCanvasQuiesceAndFlush: CanvasQuiesceAndFlushRequest | undefined;
+let activeCanvasQuiesceAndFlushRequestId: string | undefined;
+const seenCanvasQuiesceAndFlushRequestIds = new Set<string>();
+
+type PrivateFinalWriteOperation = "canvas.write" | "canvas.create";
+
+const finalWriteMetadata = (
+  operation: PrivateFinalWriteOperation,
+): Readonly<{
+  __vellumFinalWrite: Readonly<{
+    requestId: string;
+    operation: PrivateFinalWriteOperation;
+  }>;
+}> | undefined => {
+  const requestId = activeCanvasQuiesceAndFlushRequestId;
+  if (requestId === undefined) return undefined;
+  return Object.freeze({
+    __vellumFinalWrite: Object.freeze({ requestId, operation }),
+  });
+};
+
+const invokeCanvasWrite = <T>(
+  name: string,
+  doc: unknown,
+  expectedRevision: string | undefined,
+): Promise<T> => {
+  const metadata = finalWriteMetadata("canvas.write");
+  if (metadata === undefined) {
+    return invoke(IPC_CHANNELS.writeCanvas, IPC_TIMEOUT_MS, name, doc, expectedRevision);
+  }
+  return invoke(
+    IPC_CHANNELS.writeCanvas,
+    IPC_TIMEOUT_MS,
+    name,
+    doc,
+    expectedRevision,
+    metadata,
+  );
+};
+
+const invokeCanvasCreate = <T>(name: string): Promise<T> => {
+  const metadata = finalWriteMetadata("canvas.create");
+  if (metadata === undefined) return invoke(IPC_CHANNELS.createCanvas, IPC_TIMEOUT_MS, name);
+  return invoke(IPC_CHANNELS.createCanvas, IPC_TIMEOUT_MS, name, metadata);
+};
 
 const decodeCanvasQuiesceAndFlushRequest = (
   payload: unknown,
@@ -243,6 +287,15 @@ const deliverCanvasQuiesceAndFlush = async (
     pendingCanvasQuiesceAndFlush = request;
     return;
   }
+  if (activeCanvasQuiesceAndFlushRequestId !== undefined) {
+    ipcRenderer.send(IPC_CHANNELS.canvasQuiesceAndFlushComplete, {
+      requestId: request.requestId,
+      ok: false,
+      quiesced: false,
+    });
+    return;
+  }
+  activeCanvasQuiesceAndFlushRequestId = request.requestId;
   let quiesced = false;
   const acknowledgeQuiesced = (): void => {
     if (quiesced) return;
@@ -262,6 +315,9 @@ const deliverCanvasQuiesceAndFlush = async (
   } catch {
     outcome = { ok: false, quiesced };
   } finally {
+    if (activeCanvasQuiesceAndFlushRequestId === request.requestId) {
+      activeCanvasQuiesceAndFlushRequestId = undefined;
+    }
     ipcRenderer.send(IPC_CHANNELS.canvasQuiesceAndFlushComplete, {
       requestId: request.requestId,
       ...outcome,
@@ -272,6 +328,31 @@ const deliverCanvasQuiesceAndFlush = async (
 ipcRenderer.on(IPC_CHANNELS.canvasQuiesceAndFlushRequested, (_event, payload: unknown) => {
   const request = decodeCanvasQuiesceAndFlushRequest(payload);
   if (request === undefined) return;
+  const inFlightRequestId =
+    activeCanvasQuiesceAndFlushRequestId ?? pendingCanvasQuiesceAndFlush?.requestId;
+  if (inFlightRequestId !== undefined) {
+    // A duplicate delivery cannot supersede the active request. Do not emit a
+    // negative completion for that same id: main could mistake it for the
+    // active delivery's outcome. A distinct overlap is explicitly refused.
+    if (request.requestId !== inFlightRequestId) {
+      seenCanvasQuiesceAndFlushRequestIds.add(request.requestId);
+      ipcRenderer.send(IPC_CHANNELS.canvasQuiesceAndFlushComplete, {
+        requestId: request.requestId,
+        ok: false,
+        quiesced: false,
+      });
+    }
+    return;
+  }
+  if (seenCanvasQuiesceAndFlushRequestIds.has(request.requestId)) {
+    ipcRenderer.send(IPC_CHANNELS.canvasQuiesceAndFlushComplete, {
+      requestId: request.requestId,
+      ok: false,
+      quiesced: false,
+    });
+    return;
+  }
+  seenCanvasQuiesceAndFlushRequestIds.add(request.requestId);
   pendingCanvasQuiesceAndFlush = request;
   if (canvasQuiesceAndFlushListener === undefined) return;
   pendingCanvasQuiesceAndFlush = undefined;
@@ -300,8 +381,8 @@ const vellumApi: VellumApi = {
   listCanvases: () => invoke(IPC_CHANNELS.listCanvases, IPC_TIMEOUT_MS),
   readCanvas: (name) => invoke(IPC_CHANNELS.readCanvas, IPC_TIMEOUT_MS, name),
   writeCanvas: (name, doc, expectedRevision) =>
-    invoke(IPC_CHANNELS.writeCanvas, IPC_TIMEOUT_MS, name, doc, expectedRevision),
-  createCanvas: (name) => invoke(IPC_CHANNELS.createCanvas, IPC_TIMEOUT_MS, name),
+    invokeCanvasWrite(name, doc, expectedRevision),
+  createCanvas: (name) => invokeCanvasCreate(name),
   deleteCanvas: (name) => invoke(IPC_CHANNELS.deleteCanvas, IPC_TIMEOUT_MS, name),
   pullCanvases: () => invoke(IPC_CHANNELS.pullCanvases, IPC_TIMEOUT_MS * 4),
   exportDigest: (name) => invoke(IPC_CHANNELS.exportDigest, IPC_TIMEOUT_MS, name),

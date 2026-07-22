@@ -42,7 +42,11 @@ describe("main authoring architecture", () => {
     const ipcPath = join(mainRoot, "vellum", "ipc.ts");
     const labels = stringArgumentsForCalls(
       ipcPath,
-      new Set(["runMainAuthoring", "runRendererWorkAuthoring"]),
+      new Set([
+        "runMainAuthoring",
+        "runRendererCanvasAuthoring",
+        "runRendererWorkAuthoring",
+      ]),
     );
     expect([...labels].sort()).toEqual([
       "delivery.message-stamp",
