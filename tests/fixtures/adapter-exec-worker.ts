@@ -38,7 +38,7 @@ if ((mode === "parent" || mode === "parent-ignore-term") && outputPath !== undef
   // One inherits output pipes; the other closes stdio before the leader exits.
   const grandchild = spawn("node", [
     "-e",
-    "process.on('SIGTERM', () => {}); setTimeout(() => process.exit(0), 3500)",
+    "process.on('SIGTERM', () => {}); setTimeout(() => process.exit(0), 5000)",
   ], {
     stdio: mode === "leader-exits-first-ignore-term"
       ? ["ignore", "inherit", "inherit"]

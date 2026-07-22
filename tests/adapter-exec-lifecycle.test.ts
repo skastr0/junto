@@ -7,25 +7,31 @@ interface LifecycleReceipt {
   readonly gracefulOk: boolean;
   readonly gracefulSettledWithinBound: boolean;
   readonly failedSpawnOk: boolean;
-  readonly drainClean: boolean;
-  readonly drainRetained: number;
-  readonly drainScope: string;
-  readonly drainOwnershipUnverified: number;
+  readonly adapterDrainSettled: boolean;
+  readonly adapterDrainPending: number;
+  readonly adapterDrainScope: string;
   readonly repeatedQuitCoalesced: boolean;
   readonly inheritedResultOk: boolean;
   readonly inheritedError?: string;
   readonly inheritedGrandchildAliveWhenSettled: boolean;
-  readonly inheritedAliveAtFirstDrain: boolean;
+  readonly inheritedAliveAtAdapterDrain: boolean;
+  readonly inheritedAliveAtAppDrain: boolean;
   readonly closedResultOk: boolean;
   readonly closedGrandchildAliveWhenSettled: boolean;
-  readonly closedAliveAtFirstDrain: boolean;
+  readonly closedAliveAtAdapterDrain: boolean;
+  readonly closedAliveAtAppDrain: boolean;
   readonly pendingOk: boolean;
+  readonly pendingError?: string;
   readonly parentAlive: boolean;
   readonly activeGrandchildAlive: boolean;
   readonly activeGroupReapedBeforeHardExpiry: boolean;
-  readonly convergedDrainClean: boolean;
-  readonly convergedDrainRetained: number;
-  readonly convergedDrainScope: string;
+  readonly appDrainClean: boolean;
+  readonly appDrainStragglerStates: readonly string[];
+  readonly adapterRetrySettled: boolean;
+  readonly adapterRetryPending: number;
+  readonly adapterRetryScope: string;
+  readonly appConvergedDrainClean: boolean;
+  readonly appConvergedStragglers: number;
   readonly lateOk: boolean;
   readonly lateError?: string;
   readonly markerCreated: boolean;
@@ -34,11 +40,11 @@ interface LifecycleReceipt {
 interface OwnershipUnverifiedReceipt {
   readonly resultOk: boolean;
   readonly snapshotCalls: number;
-  readonly drainClean: boolean;
-  readonly drainRetained: number;
-  readonly drainScope: string;
-  readonly ownershipUnverified: number;
-  readonly signalAuditEntries: number;
+  readonly adapterDrainSettled: boolean;
+  readonly adapterDrainPending: number;
+  readonly adapterDrainScope: string;
+  readonly appDrainClean: boolean;
+  readonly appDrainStragglerStates: readonly string[];
 }
 
 const runLifecycleFixture = async <Receipt>(
@@ -85,51 +91,74 @@ const runLifecycleFixture = async <Receipt>(
 };
 
 describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () => {
-  it("observes stdio-closed and inherited-pipe original groups until natural exit", async () => {
+  it("settles adapter operations while the central plane retains OS group truth", async () => {
     const receipt = await runLifecycleFixture<LifecycleReceipt>();
     expect(receipt).toMatchObject({
       gracefulOk: true,
       gracefulSettledWithinBound: true,
       failedSpawnOk: false,
-      drainClean: false,
-      drainScope: "original-process-group",
-      drainOwnershipUnverified: 0,
+      adapterDrainSettled: true,
+      adapterDrainPending: 0,
+      adapterDrainScope: "adapter-operations",
       repeatedQuitCoalesced: true,
       inheritedResultOk: false,
       inheritedError:
-        "adapter command leader exited while output streams remained open; original process group retained for read-only observation",
+        "adapter command leader exited while output streams remained open; adapter operation stopped waiting for stream closure",
       inheritedGrandchildAliveWhenSettled: true,
-      inheritedAliveAtFirstDrain: true,
+      inheritedAliveAtAdapterDrain: true,
+      inheritedAliveAtAppDrain: true,
       closedResultOk: true,
       closedGrandchildAliveWhenSettled: true,
-      closedAliveAtFirstDrain: true,
+      closedAliveAtAdapterDrain: true,
+      closedAliveAtAppDrain: true,
       pendingOk: false,
+      pendingError: "adapter process plane is shutting down",
       parentAlive: false,
       activeGrandchildAlive: false,
       activeGroupReapedBeforeHardExpiry: true,
-      convergedDrainClean: true,
-      convergedDrainRetained: 0,
-      convergedDrainScope: "original-process-group",
+      appDrainClean: false,
+      adapterRetrySettled: true,
+      adapterRetryPending: 0,
+      adapterRetryScope: "adapter-operations",
+      appConvergedDrainClean: true,
+      appConvergedStragglers: 0,
       lateOk: false,
       lateError: "adapter process plane is shutting down",
       markerCreated: false,
     });
-    expect(receipt.drainRetained).toBeGreaterThanOrEqual(2);
+    expect(receipt.appDrainStragglerStates.filter(
+      (state) => state === "leaderless-group"
+    ).length).toBeGreaterThanOrEqual(2);
   }, 10_000);
 
-  it("keeps a failed second admission snapshot explicitly unverified and non-signalable", async () => {
+  it("leaves failed group ownership observation solely in the central receipt", async () => {
     const receipt = await runLifecycleFixture<OwnershipUnverifiedReceipt>(
       "ownership-unverified",
     );
     expect(receipt).toMatchObject({
       resultOk: true,
-      snapshotCalls: 2,
-      drainClean: false,
-      drainScope: "original-process-group",
-      ownershipUnverified: 1,
-      signalAuditEntries: 0,
+      adapterDrainSettled: true,
+      adapterDrainPending: 0,
+      adapterDrainScope: "adapter-operations",
+      appDrainClean: false,
     });
-    expect(receipt.drainRetained).toBeGreaterThanOrEqual(1);
+    expect(receipt.snapshotCalls).toBeGreaterThanOrEqual(2);
+    expect(receipt.appDrainStragglerStates).toContain("ownership-unverified");
+  });
+
+  it("delegates group spawn and all OS lifecycle authority to appProcessPlane", () => {
+    const source = readFileSync(
+      join(import.meta.dirname, "..", "src/main/vellum/adapters/exec.ts"),
+      "utf8",
+    );
+    expect(source).toContain("appProcessPlane.spawnGroup({");
+    expect(source).toContain("appProcessPlane.terminate(");
+    expect(source).toContain("appProcessPlane.forceTerminate(");
+    expect(source).not.toMatch(/process-signal|process-epoch/u);
+    expect(source).not.toMatch(
+      /spawnDetachedProcessGroup|signalOwned|releaseOwned|OwnedProcess/u,
+    );
+    expect(source).not.toMatch(/original-process-group|process-tree.*clean/iu);
   });
 
   it("routes normal quit and direct app.exit paths through adapter quiescence", () => {

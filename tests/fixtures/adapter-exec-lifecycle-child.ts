@@ -3,8 +3,8 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type * as AdapterExecModule from "../../src/main/vellum/adapters/exec";
+import type * as AppProcessPlaneModule from "../../src/main/vellum/app-process-plane";
 import type * as ProcessEpochModule from "../../src/main/vellum/process-epoch";
-import type * as ProcessSignalModule from "../../src/main/vellum/process-signal";
 
 const adapterExecModulePath = "../../src/main/vellum/adapters/exec" + ".ts";
 const {
@@ -12,14 +12,14 @@ const {
   runCli,
   terminateAdapterChildrenOnQuit,
 } = (await import(adapterExecModulePath)) as typeof AdapterExecModule;
+const appProcessPlaneModulePath = "../../src/main/vellum/app-process-plane" + ".ts";
+const { appProcessPlane } = (await import(
+  appProcessPlaneModulePath
+)) as typeof AppProcessPlaneModule;
 const processEpochModulePath = "../../src/main/vellum/process-epoch" + ".ts";
 const { setProcessEpochReaderForTests } = (await import(
   processEpochModulePath
 )) as typeof ProcessEpochModule;
-const processSignalModulePath = "../../src/main/vellum/process-signal" + ".ts";
-const { clearProcessSignalAuditLog, getProcessSignalAuditLog } = (await import(
-  processSignalModulePath
-)) as typeof ProcessSignalModule;
 
 const delay = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -112,16 +112,20 @@ const runGroupObservationScenario = async () => {
   const activeCleanupStartedAt = Date.now();
   const drain = terminateAdapterChildrenOnQuit();
   const repeatedQuitCoalesced = drain === terminateAdapterChildrenOnQuit();
+  const appDrain = appProcessPlane.drainOnQuit();
   const pendingResult = await pending;
+  const drainResult = await drain;
+  const inheritedAliveAtAdapterDrain = processAlive(inheritedGrandchildPid);
+  const closedAliveAtAdapterDrain = processAlive(closedGrandchildPid);
   await waitUntil(
     "active group reaped",
     () => processGoneOrZombie(activePids.parentPid) &&
       processGoneOrZombie(activePids.grandchildPid),
   );
   const activeGroupReapedBeforeHardExpiry = Date.now() - activeCleanupStartedAt < 1_500;
-  const drainResult = await drain;
-  const inheritedAliveAtFirstDrain = processAlive(inheritedGrandchildPid);
-  const closedAliveAtFirstDrain = processAlive(closedGrandchildPid);
+  const appDrainResult = await appDrain;
+  const inheritedAliveAtAppDrain = processAlive(inheritedGrandchildPid);
+  const closedAliveAtAppDrain = processAlive(closedGrandchildPid);
 
   await waitUntil("inherited-pipe original group drained", () =>
     !processAlive(inheritedGrandchildPid)
@@ -129,7 +133,8 @@ const runGroupObservationScenario = async () => {
   await waitUntil("stdio-closed original group drained", () =>
     !processAlive(closedGrandchildPid)
   );
-  const convergedDrain = await terminateAdapterChildrenOnQuit();
+  const adapterRetry = await terminateAdapterChildrenOnQuit();
+  const appConvergedDrain = await appProcessPlane.drainOnQuit();
 
   const lateResult = await runCli(
     process.execPath,
@@ -140,25 +145,31 @@ const runGroupObservationScenario = async () => {
     gracefulOk: graceful.ok,
     gracefulSettledWithinBound,
     failedSpawnOk: failedSpawn.ok,
-    drainClean: drainResult.clean,
-    drainRetained: drainResult.retained,
-    drainScope: drainResult.scope,
-    drainOwnershipUnverified: drainResult.ownershipUnverified,
+    adapterDrainSettled: drainResult.settled,
+    adapterDrainPending: drainResult.pending,
+    adapterDrainScope: drainResult.scope,
     repeatedQuitCoalesced,
     inheritedResultOk: inherited.ok,
     inheritedError: inherited.error,
     inheritedGrandchildAliveWhenSettled,
-    inheritedAliveAtFirstDrain,
+    inheritedAliveAtAdapterDrain,
+    inheritedAliveAtAppDrain,
     closedResultOk: closed.ok,
     closedGrandchildAliveWhenSettled,
-    closedAliveAtFirstDrain,
+    closedAliveAtAdapterDrain,
+    closedAliveAtAppDrain,
     pendingOk: pendingResult.ok,
+    pendingError: pendingResult.error,
     parentAlive: processAlive(activePids.parentPid),
     activeGrandchildAlive: processAlive(activePids.grandchildPid),
     activeGroupReapedBeforeHardExpiry,
-    convergedDrainClean: convergedDrain.clean,
-    convergedDrainRetained: convergedDrain.retained,
-    convergedDrainScope: convergedDrain.scope,
+    appDrainClean: appDrainResult.clean,
+    appDrainStragglerStates: appDrainResult.stragglers.map((entry) => entry.state),
+    adapterRetrySettled: adapterRetry.settled,
+    adapterRetryPending: adapterRetry.pending,
+    adapterRetryScope: adapterRetry.scope,
+    appConvergedDrainClean: appConvergedDrain.clean,
+    appConvergedStragglers: appConvergedDrain.stragglers.length,
     lateOk: lateResult.ok,
     lateError: lateResult.error,
     markerCreated: await pathExists(markerPath),
@@ -166,10 +177,10 @@ const runGroupObservationScenario = async () => {
 };
 
 const runOwnershipUnverifiedScenario = async () => {
-  // Resolve the login-shell probe before replacing the read-only epoch seam,
-  // so the two counted reads below belong to exactly one adapter command.
+  // Resolve the login-shell probe before replacing the read-only epoch seam.
+  // Its already-closed central tombstone may also be visible in the later
+  // global receipt; adapter-domain settlement must remain independent of it.
   await resolvedSpawnEnv();
-  clearProcessSignalAuditLog();
   let snapshotCalls = 0;
   setProcessEpochReaderForTests({
     snapshot: (pidHint) => {
@@ -189,15 +200,16 @@ const runOwnershipUnverifiedScenario = async () => {
     [workerPath, "graceful-100"],
     1_000,
   );
-  const drain = await terminateAdapterChildrenOnQuit();
+  const adapterDrain = await terminateAdapterChildrenOnQuit();
+  const appDrain = await appProcessPlane.drainOnQuit();
   return {
     resultOk: result.ok,
     snapshotCalls,
-    drainClean: drain.clean,
-    drainRetained: drain.retained,
-    drainScope: drain.scope,
-    ownershipUnverified: drain.ownershipUnverified,
-    signalAuditEntries: getProcessSignalAuditLog().length,
+    adapterDrainSettled: adapterDrain.settled,
+    adapterDrainPending: adapterDrain.pending,
+    adapterDrainScope: adapterDrain.scope,
+    appDrainClean: appDrain.clean,
+    appDrainStragglerStates: appDrain.stragglers.map((entry) => entry.state),
   };
 };
 

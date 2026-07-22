@@ -1,19 +1,9 @@
-import { type ChildProcessWithoutNullStreams } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
-  releaseOwned,
-  signalOwned,
-  spawnDetachedProcessGroup,
-  type OwnedProcess,
-  type TerminatingSignal,
-} from "../process-signal";
-import {
-  captureProcessGroupObservation,
-  refreshProcessGroupObservations,
-  type ChildProcessEpoch,
-  type ProcessGroupObservation,
-} from "../process-epoch";
+  appProcessPlane,
+  type AppProcessLease,
+} from "../app-process-plane";
 
 // Shared shell-out helper for the read-only adapter plane. Every adapter
 // call goes through here so the timeout, resolved environment, and buffer
@@ -32,32 +22,13 @@ const MAX_BUFFER = 16 * 1024 * 1024;
 const LOGIN_SHELL_TIMEOUT_MS = 4_000;
 const ADAPTER_QUIESCING_ERROR = "adapter process plane is shutting down";
 
-interface OwnedAdapterChild {
-  readonly child: ChildProcessWithoutNullStreams;
-  owned: OwnedProcess | undefined;
-  groupObservation: AdapterProcessGroupTombstone | undefined;
-  readonly spawned: boolean;
-  cleanupTimer?: ReturnType<typeof setTimeout>;
-  released?: boolean;
+interface AdapterOperation {
+  readonly process: AppProcessLease;
+  settled: boolean;
+  settleForShutdown: () => void;
 }
 
-const ownedAdapterChildren = new Set<OwnedAdapterChild>();
-type ObservedAdapterProcessGroup = {
-  readonly kind: "observed";
-  readonly originalProcessGroupId: number;
-  readonly sessionId: number;
-  readonly observedMemberEpochs: readonly ChildProcessEpoch[];
-};
-type UnverifiedAdapterProcessGroup = {
-  readonly kind: "ownership-unverified";
-  readonly originalProcessGroupId: number;
-  readonly sessionId: undefined;
-  readonly observedMemberEpochs: readonly [];
-};
-type AdapterProcessGroupTombstone =
-  | ObservedAdapterProcessGroup
-  | UnverifiedAdapterProcessGroup;
-const adapterProcessGroupTombstones = new Set<AdapterProcessGroupTombstone>();
+const adapterOperations = new Set<AdapterOperation>();
 let adapterProcessesQuiescing = false;
 let adapterQuitDrain: Promise<AdapterQuitDrainResult> | undefined;
 
@@ -67,136 +38,65 @@ export interface CliResult {
   readonly error?: string;
 }
 
-const signalOwnedAdapterChild = (
-  owned: OwnedAdapterChild,
-  signal: NodeJS.Signals,
-): void => {
-  if (owned.owned !== undefined) {
-    signalOwned(owned.owned, signal as TerminatingSignal);
-  }
-};
-
-const observedTombstone = (
-  observation: ProcessGroupObservation,
-): ObservedAdapterProcessGroup => ({
-  kind: "observed",
-  originalProcessGroupId: observation.originalProcessGroupId,
-  sessionId: observation.sessionId,
-  observedMemberEpochs: observation.observedMemberEpochs,
-});
-
-const refreshAdapterProcessGroupTombstones = (): void => {
-  const observed = [...adapterProcessGroupTombstones]
-    .filter((tombstone): tombstone is ObservedAdapterProcessGroup =>
-      tombstone.kind === "observed"
-    );
-  if (observed.length === 0) return;
-  const refreshed = refreshProcessGroupObservations(observed);
-  // One unavailable or malformed table proves nothing. Keep every prior
-  // observation unclean and unchanged until a later drain can read a full one.
-  if (!refreshed) return;
-  refreshed.forEach((result, index) => {
-    const previous = observed[index]!;
-    adapterProcessGroupTombstones.delete(previous);
-    if (!result.clean) {
-      adapterProcessGroupTombstones.add(observedTombstone(result.observation));
-    }
-  });
-};
-
-const retireOwnedAdapterLeader = (owned: OwnedAdapterChild): void => {
-  if (owned.released) return;
-  owned.released = true;
-  if (owned.cleanupTimer !== undefined) clearTimeout(owned.cleanupTimer);
-  owned.cleanupTimer = undefined;
-  const capability = owned.owned;
-  owned.owned = undefined;
-  releaseOwned(capability);
-  ownedAdapterChildren.delete(owned);
-
-  // From this point onward the global registry contains only read-only facts:
-  // original pgid, session, and exact member epochs. It retains neither an
-  // OwnedProcess nor a ChildProcess handle and therefore cannot signal.
-  const tombstone = owned.groupObservation;
-  owned.groupObservation = undefined;
-  if (owned.spawned && tombstone !== undefined) {
-    adapterProcessGroupTombstones.add(tombstone);
-    refreshAdapterProcessGroupTombstones();
-  }
-};
-
-const QUIT_KILL_GRACE_MS = 1_000;
 const LEADER_STREAM_DRAIN_GRACE_MS = 100;
 const LEADERLESS_STREAM_ERROR =
-  "adapter command leader exited while output streams remained open; original process group retained for read-only observation";
+  "adapter command leader exited while output streams remained open; adapter operation stopped waiting for stream closure";
 
-const retainOwnedAdapterChildUntilKill = (owned: OwnedAdapterChild): void => {
-  if (owned.released || owned.owned === undefined) return;
-  if (owned.cleanupTimer === undefined) {
-    owned.cleanupTimer = setTimeout(() => {
-      signalOwnedAdapterChild(owned, "SIGKILL");
-      owned.cleanupTimer = undefined;
-    }, QUIT_KILL_GRACE_MS);
-    owned.cleanupTimer.unref?.();
-  }
+const settleAdapterOperation = (operation: AdapterOperation): void => {
+  if (operation.settled) return;
+  operation.settled = true;
+  adapterOperations.delete(operation);
 };
 
-const terminateOwnedAdapterChild = (owned: OwnedAdapterChild): void => {
-  retainOwnedAdapterChildUntilKill(owned);
-  if (owned.released) return;
-  signalOwnedAdapterChild(owned, "SIGTERM");
+const requestAdapterOperationTermination = (operation: AdapterOperation): void => {
+  try {
+    appProcessPlane.terminate(operation.process, "adapter operation quit");
+  } catch {
+    // The global process plane retains the lease for its authoritative drain.
+  }
 };
 
 /**
  * Monotonically close the read-only adapter process plane during app quit.
  *
- * Each live adapter command owns a distinct POSIX process group, so signalling
- * it cannot touch the intentionally persistent Herdr server/session plane.
- * Once its leader exits, only capability-free facts about that original group
- * survive. This observes the original process group, never a process tree.
+ * This receipt covers only adapter-domain operation settlement. It says
+ * nothing about process-group or process-tree drainage; appProcessPlane owns
+ * that OS truth and publishes it separately from drainOnQuit().
  */
 export interface AdapterQuitDrainResult {
-  readonly scope: "original-process-group";
-  readonly clean: boolean;
-  readonly retained: number;
-  readonly ownershipUnverified: number;
+  readonly scope: "adapter-operations";
+  readonly settled: boolean;
+  readonly pending: number;
 }
-
-const observeAdapterQuitDrain = (): AdapterQuitDrainResult => {
-  refreshAdapterProcessGroupTombstones();
-  const ownershipUnverified = [...adapterProcessGroupTombstones]
-    .filter((tombstone) => tombstone.kind === "ownership-unverified")
-    .length;
-  const retained = ownedAdapterChildren.size + adapterProcessGroupTombstones.size;
-  return {
-    scope: "original-process-group",
-    clean: retained === 0,
-    retained,
-    ownershipUnverified,
-  };
-};
 
 export const terminateAdapterChildrenOnQuit = (): Promise<AdapterQuitDrainResult> => {
   if (adapterQuitDrain) return adapterQuitDrain;
   adapterProcessesQuiescing = true;
-  const activeAtQuiesce = ownedAdapterChildren.size;
-  for (const owned of ownedAdapterChildren) {
-    terminateOwnedAdapterChild(owned);
-  }
-  const inFlight = activeAtQuiesce === 0
-    ? Promise.resolve().then(observeAdapterQuitDrain)
-    : new Promise<AdapterQuitDrainResult>((resolve) => {
-      const drainTimer = setTimeout(() => {
-        resolve(observeAdapterQuitDrain());
-      }, QUIT_KILL_GRACE_MS + LEADER_STREAM_DRAIN_GRACE_MS);
-      drainTimer.unref?.();
-    });
-  adapterQuitDrain = inFlight.finally(() => {
-    // Quiescence is permanent, but a later retry must observe exact records
-    // that closed after an earlier bounded drain reported them retained.
-    adapterQuitDrain = undefined;
+  const flight = Promise.resolve().then((): AdapterQuitDrainResult => {
+    for (const operation of [...adapterOperations]) {
+      // Settle caller-facing work first. This receipt owns only domain state;
+      // the central plane retains and drains the OS lease independently.
+      operation.settleForShutdown();
+      requestAdapterOperationTermination(operation);
+    }
+    const pending = adapterOperations.size;
+    return {
+      scope: "adapter-operations",
+      settled: pending === 0,
+      pending,
+    };
   });
-  return adapterQuitDrain;
+  // Publish the flight before any terminating callback can re-enter.
+  adapterQuitDrain = flight;
+  void flight.then(
+    () => {
+      if (adapterQuitDrain === flight) adapterQuitDrain = undefined;
+    },
+    () => {
+      if (adapterQuitDrain === flight) adapterQuitDrain = undefined;
+    },
+  );
+  return flight;
 };
 
 const runOwnedFile = (
@@ -220,35 +120,23 @@ const runOwnedFile = (
       return;
     }
 
-    let child: ChildProcessWithoutNullStreams;
+    let processLease: AppProcessLease;
     try {
-      const spawned = spawnDetachedProcessGroup({
+      processLease = appProcessPlane.spawnGroup({
         source: "adapter.cli",
+        purpose: "read-only adapter command",
         command,
         args,
-        options: options.env === undefined ? undefined : { env: options.env },
+        ...(options.env === undefined ? {} : { env: options.env }),
       });
-      child = spawned.child;
-      const owned: OwnedAdapterChild = {
-        child,
-        owned: spawned.process,
-        groupObservation: process.platform === "win32" || child.pid === undefined
-          ? undefined
-          : (() => {
-            const observation = captureProcessGroupObservation(child.pid!);
-            return observation === undefined
-              ? {
-                kind: "ownership-unverified" as const,
-                originalProcessGroupId: child.pid!,
-                sessionId: undefined,
-                observedMemberEpochs: [] as const,
-              }
-              : observedTombstone(observation);
-          })(),
-        spawned: child.pid !== undefined,
+      const operation: AdapterOperation = {
+        process: processLease,
+        settled: false,
+        settleForShutdown: () => undefined,
       };
-      ownedAdapterChildren.add(owned);
-      return runRegisteredAdapterChild(owned, options, resolve);
+      // No await occurs between central admission and domain registration.
+      adapterOperations.add(operation);
+      return runRegisteredAdapterOperation(operation, options, resolve);
     } catch (error) {
       resolve({
         ok: false,
@@ -258,17 +146,17 @@ const runOwnedFile = (
       return;
     }
 
-    // spawnDetachedProcessGroup registers before this point; late-spawn is closed.
+    // appProcessPlane registers before this point; late-spawn is closed.
   });
 };
 
-const runRegisteredAdapterChild = (
-  owned: OwnedAdapterChild,
+const runRegisteredAdapterOperation = (
+  operation: AdapterOperation,
   options: { readonly timeoutMs: number; readonly maxBuffer: number },
   resolve: (result: CliResult) => void,
 ): void => {
-    const child = owned.child;
-    child.stdin.end();
+    const io = operation.process.io;
+    io.stdin.end();
     let stdout = "";
     let stderr = "";
     let stdoutBytes = 0;
@@ -278,49 +166,55 @@ const runRegisteredAdapterChild = (
     let leaderExited = false;
     let timedOut = false;
     let bufferExceeded = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let leaderExitTimer: ReturnType<typeof setTimeout> | undefined;
+    let unsubscribeError = (): void => undefined;
+    let unsubscribeExit = (): void => undefined;
+    let unsubscribeClose = (): void => undefined;
 
-    const detachChildStreams = (): void => {
-      child.stdout.removeAllListeners("data");
-      child.stderr.removeAllListeners("data");
-      child.stdout.on("error", () => undefined);
-      child.stderr.on("error", () => undefined);
-      child.stdin.destroy();
-      child.stdout.destroy();
-      child.stderr.destroy();
+    const clearTimers = (): void => {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      if (leaderExitTimer !== undefined) {
+        clearTimeout(leaderExitTimer);
+        leaderExitTimer = undefined;
+      }
     };
 
-    const timer = setTimeout(() => {
-      timedOut = true;
-      signalOwnedAdapterChild(owned, "SIGKILL");
-      retainOwnedAdapterChildUntilKill(owned);
-      settleResult({
-        ok: false,
-        stdout,
-        error: `adapter command timed out after ${options.timeoutMs}ms`,
-      });
-    }, options.timeoutMs);
-    timer.unref?.();
+    const detachObservers = (): void => {
+      unsubscribeError();
+      unsubscribeExit();
+      unsubscribeClose();
+      unsubscribeError = () => undefined;
+      unsubscribeExit = () => undefined;
+      unsubscribeClose = () => undefined;
+    };
+
+    const ignoreStreamError = (): void => undefined;
+
+    const detachStreams = (): void => {
+      io.stdout.off("data", onStdoutData);
+      io.stderr.off("data", onStderrData);
+      io.stdout.on("error", ignoreStreamError);
+      io.stderr.on("error", ignoreStreamError);
+      io.stdin.destroy();
+      io.stdout.destroy();
+      io.stderr.destroy();
+    };
 
     const settleResult = (result: CliResult): void => {
       if (resultSettled) return;
       resultSettled = true;
-      detachChildStreams();
+      clearTimers();
+      detachObservers();
+      settleAdapterOperation(operation);
+      detachStreams();
       resolve(result);
     };
 
-    const releaseAfterClose = (): void => {
-      closeObserved = true;
-      clearTimeout(timer);
-      if (leaderExitTimer !== undefined) clearTimeout(leaderExitTimer);
-      // Close may settle I/O, but it never erases an original-group tombstone.
-      // This call is only a fallback for spawn-error paths without `exit`.
-      retireOwnedAdapterLeader(owned);
-    };
-
     const abandonLeaderlessGroup = (): void => {
-      clearTimeout(timer);
-      if (leaderExitTimer !== undefined) clearTimeout(leaderExitTimer);
       settleResult({ ok: false, stdout, error: LEADERLESS_STREAM_ERROR });
     };
 
@@ -337,46 +231,78 @@ const runRegisteredAdapterChild = (
       }
       if (stdoutBytes <= options.maxBuffer && stderrBytes <= options.maxBuffer) return;
       bufferExceeded = true;
-      signalOwnedAdapterChild(owned, "SIGKILL");
-      retainOwnedAdapterChildUntilKill(owned);
+      try {
+        appProcessPlane.forceTerminate(
+          operation.process,
+          "adapter command output limit",
+        );
+      } catch {
+        // The lease remains registered for the global process drain.
+      }
       settleResult({ ok: false, stdout, error: "adapter command exceeded the output limit" });
     };
 
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: unknown) => append("stdout", chunk));
-    child.stderr.on("data", (chunk: unknown) => append("stderr", chunk));
-    child.on("error", (error) => {
-      // A failed spawn has no live leader or group to tear down. Later errors
-      // are not exit witnesses: retain bounded teardown and keep consuming
-      // repeated events so EventEmitter never throws an unhandled error.
-      if (!owned.spawned) {
-        settleResult({ ok: false, stdout: "", error: error.message });
-        retireOwnedAdapterLeader(owned);
-        return;
+    const onStdoutData = (chunk: unknown): void => append("stdout", chunk);
+    const onStderrData = (chunk: unknown): void => append("stderr", chunk);
+
+    operation.settleForShutdown = () => {
+      settleResult({
+        ok: false,
+        stdout,
+        error: ADAPTER_QUIESCING_ERROR,
+      });
+    };
+
+    timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        appProcessPlane.forceTerminate(operation.process, "adapter command timeout");
+      } catch {
+        // The lease remains registered for the global process drain.
       }
-      if (closeObserved || leaderExited) return;
-      terminateOwnedAdapterChild(owned);
+      settleResult({
+        ok: false,
+        stdout,
+        error: `adapter command timed out after ${options.timeoutMs}ms`,
+      });
+    }, options.timeoutMs);
+    timer.unref?.();
+
+    io.stdout.setEncoding("utf8");
+    io.stderr.setEncoding("utf8");
+    io.stdout.on("data", onStdoutData);
+    io.stderr.on("data", onStderrData);
+
+    unsubscribeError = io.onError((error) => {
+      if (closeObserved || leaderExited || resultSettled) return;
+      try {
+        appProcessPlane.terminate(operation.process, "adapter command process error");
+      } catch {
+        // The global process plane remains responsible for any live lease.
+      }
       settleResult({ ok: false, stdout, error: error.message });
     });
-    child.once("exit", () => {
-      if (closeObserved) return;
+
+    unsubscribeExit = io.onExit(() => {
+      if (closeObserved || resultSettled) return;
       leaderExited = true;
-      clearTimeout(timer);
-      // Revoke all signal authority synchronously with leader exit. From here,
-      // only capability-free original-group observations survive.
-      retireOwnedAdapterLeader(owned);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
       // A normal leader drains its pipes and reaches `close` first. If an
-      // inherited pipe stays open, stop waiting and detach our endpoints.
+      // inherited pipe stays open, bound only the caller-facing stream wait.
       leaderExitTimer = setTimeout(() => {
         abandonLeaderlessGroup();
       }, LEADER_STREAM_DRAIN_GRACE_MS);
       leaderExitTimer.unref?.();
     });
-    child.once("close", (code, signal) => {
+
+    unsubscribeClose = io.onClose(({ code, signal }) => {
+      if (resultSettled) return;
+      closeObserved = true;
       if (code === 0 && signal === null && !timedOut && !bufferExceeded) {
         settleResult({ ok: true, stdout });
-        releaseAfterClose();
         return;
       }
       const error = stderr.trim() ||
@@ -391,7 +317,6 @@ const runRegisteredAdapterChild = (
       // non-zero when a single provider errors while still emitting a useful
       // JSON payload on stdout. Callers decide whether to recover from it.
       settleResult({ ok: false, stdout, error });
-      releaseAfterClose();
     });
 };
 
