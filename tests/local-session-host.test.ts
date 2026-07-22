@@ -467,6 +467,70 @@ describe("LocalSessionHost", () => {
     error.mockRestore();
   });
 
+  it("coalesces concurrent shutdown callers into one admission gate", async () => {
+    vi.useFakeTimers();
+    const children: Array<{
+      readonly signals: NodeJS.Signals[];
+      exit(): void;
+    }> = [];
+    const spawn: TermSpawnFn = () => {
+      const exitListeners = new Set<
+        (code: number | undefined, signal: number | undefined) => void
+      >();
+      let exited = false;
+      const controller = {
+        signals: [] as NodeJS.Signals[],
+        exit() {
+          if (exited) return;
+          exited = true;
+          for (const listener of exitListeners) listener(0, undefined);
+        },
+      };
+      children.push(controller);
+      return {
+        pid: 83_000 + children.length,
+        write() {},
+        kill(signal = "SIGTERM") {
+          controller.signals.push(signal);
+        },
+        onData() {},
+        onExit(listener) {
+          exitListeners.add(listener);
+        },
+      };
+    };
+    const host = new LocalSessionHost(spawn, {
+      killGraceMs: 2,
+      shutdownGraceMs: 8,
+      lateExitGraceMs: 8,
+    });
+    hosts.push(host);
+    host.create({ bindingId: "single-flight" });
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const first = host.shutdownAll("first");
+    expect(() => host.create({ bindingId: "too-early-sync" })).toThrow(/shutting down/);
+    const second = host.shutdownAll("second");
+    expect(second).toBe(first);
+    await vi.advanceTimersByTimeAsync(16);
+    expect(() => host.create({ bindingId: "too-early" })).toThrow(/shutting down/);
+    await vi.advanceTimersByTimeAsync(8);
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(firstResult).toEqual(secondResult);
+    expect(firstResult.clean).toBe(false);
+    expect(children[0]?.signals.filter((signal) => signal === "SIGTERM")).toHaveLength(1);
+    expect(children[0]?.signals.filter((signal) => signal === "SIGKILL")).toHaveLength(2);
+    expect(() => host.create({ bindingId: "recovered-after-flight" })).not.toThrow();
+
+    children[0]?.exit();
+    children[1]?.exit();
+    expect(host.runningCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+    error.mockRestore();
+  });
+
   it("write requires control lease", () => {
     const writes: string[] = [];
     const spawn: TermSpawnFn = () => {

@@ -329,6 +329,7 @@ export class LocalSessionHost extends EventEmitter {
   /** Bounded waiters used only after shutdown has prevented further creates. */
   private readonly allExitedWaiters = new Set<AllExitedWaiter>();
   private shuttingDown = false;
+  private shutdownFlight: Promise<LocalHostShutdownResult> | undefined;
   private readonly spawnFn: TermSpawnFn;
   private readonly killGraceMs: number;
   private readonly shutdownGraceMs: number;
@@ -585,8 +586,21 @@ export class LocalSessionHost extends EventEmitter {
       .map((s) => this.summaryOf(s));
   }
 
-  async shutdownAll(reason = "app_quit"): Promise<LocalHostShutdownResult> {
+  shutdownAll(reason = "app_quit"): Promise<LocalHostShutdownResult> {
+    if (this.shutdownFlight !== undefined) return this.shutdownFlight;
+    // Close admission synchronously, then defer signaling until the shared
+    // promise is published. A child.kill callback can re-enter this host.
     this.shuttingDown = true;
+    const flight = Promise.resolve()
+      .then(() => this.performShutdown(reason))
+      .finally(() => {
+        if (this.shutdownFlight === flight) this.shutdownFlight = undefined;
+      });
+    this.shutdownFlight = flight;
+    return flight;
+  }
+
+  private async performShutdown(reason: string): Promise<LocalHostShutdownResult> {
     for (const rec of [...this.liveRecords]) {
       this.requestStop(rec);
     }
