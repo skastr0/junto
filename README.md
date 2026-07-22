@@ -642,7 +642,7 @@ vellum-browser goto | eval | shot | close | stop
 
 ## License
 
-MIT © Guilherme Castro. See [`LICENSE`](LICENSE).
+Proprietary — © 2026 Guilherme Castro, all rights reserved. See [`LICENSE`](LICENSE).
 
 ## Security
 

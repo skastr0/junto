@@ -4,7 +4,7 @@
   "description": "Vellum Command — the deep-field station for multi-agent fleets on macOS.",
   "type": "module",
   "private": true,
-  "license": "MIT",
+  "license": "UNLICENSED",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/skastr0/vellum.git"
