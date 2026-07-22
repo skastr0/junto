@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   renameSync,
   unlinkSync,
@@ -512,7 +513,30 @@ export interface WorkControlServer {
   readonly socketPath: string;
   readonly tokenPath: string;
   readonly workHome: string;
-  close(): void;
+  /** Synchronously closes transport admission before any async teardown. */
+  beginShutdown(): void;
+  /** Bounded, retryable fixed-point drain of every admitted transport lifetime. */
+  drainOnQuit(): Promise<WorkControlShutdownReceipt>;
+  /** beginShutdown + drainOnQuit. */
+  close(): Promise<WorkControlShutdownReceipt>;
+}
+
+export interface WorkControlRetainedCounts {
+  readonly lineHandlers: number;
+  readonly dispatches: number;
+  readonly listenerClosures: number;
+  readonly sockets: number;
+  readonly socketPaths: number;
+}
+
+export interface WorkControlShutdownReceipt {
+  readonly clean: boolean;
+  readonly rounds: number;
+  readonly settled: number;
+  readonly fulfilled: number;
+  readonly rejected: number;
+  readonly retainedCounts: WorkControlRetainedCounts;
+  readonly retainedLabels: ReadonlyArray<string>;
 }
 
 export interface WorkControlServerOptions {
@@ -530,6 +554,122 @@ export interface WorkControlServerOptions {
   readonly authoringGate?: MainAuthoringGate;
 }
 
+export interface WorkControlRuntime {
+  /** Tests may lower, never raise, the graceful peer-close window. */
+  readonly shutdownGraceMs?: number;
+  /** Tests may lower, never raise, the complete transport drain deadline. */
+  readonly shutdownDeadlineMs?: number;
+}
+
+const WORK_CONTROL_SHUTDOWN_GRACE_MS = 100;
+const WORK_CONTROL_SHUTDOWN_DEADLINE_MS = 2_000;
+
+type WorkControlFlightKind =
+  | "line-handler"
+  | "dispatch"
+  | "listener-close"
+  | "socket-close";
+
+interface WorkControlFlight {
+  readonly id: number;
+  readonly kind: WorkControlFlightKind;
+  readonly label: string;
+  promise: Promise<unknown>;
+  status: "pending" | "fulfilled" | "rejected";
+}
+
+interface WorkControlSocket {
+  readonly id: number;
+  readonly socket: Socket;
+  readonly closed: Promise<void>;
+}
+
+const boundedRuntimeValue = (value: number | undefined, ceiling: number): number =>
+  value === undefined || !Number.isFinite(value) || value <= 0
+    ? ceiling
+    : Math.min(Math.floor(value), ceiling);
+
+interface WorkControlDeadline {
+  readonly elapsed: Promise<void>;
+  readonly hasElapsed: () => boolean;
+  readonly cancel: () => void;
+}
+
+/** One process-timer deadline; never recomputed from the mutable wall clock. */
+const startDeadline = (durationMs: number): WorkControlDeadline => {
+  let elapsed = false;
+  let resolveElapsed!: () => void;
+  const elapsedPromise = new Promise<void>((resolve) => {
+    resolveElapsed = resolve;
+  });
+  const timer = setTimeout(() => {
+    elapsed = true;
+    resolveElapsed();
+  }, durationMs);
+  return Object.freeze({
+    elapsed: elapsedPromise,
+    hasElapsed: () => elapsed,
+    cancel: () => clearTimeout(timer),
+  });
+};
+
+const waitBeforeDeadline = async (
+  durationMs: number,
+  deadline: WorkControlDeadline,
+): Promise<void> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      new Promise<void>((resolveWait) => {
+        timer = setTimeout(resolveWait, durationMs);
+      }),
+      deadline.elapsed,
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+};
+
+const yieldBeforeDeadline = async (deadline: WorkControlDeadline): Promise<void> => {
+  let immediate: ReturnType<typeof setImmediate> | undefined;
+  try {
+    await Promise.race([
+      new Promise<void>((resolveTurn) => {
+        immediate = setImmediate(resolveTurn);
+      }),
+      deadline.elapsed,
+    ]);
+  } finally {
+    if (immediate !== undefined) clearImmediate(immediate);
+  }
+};
+
+const allSettledBefore = async (
+  promises: ReadonlyArray<Promise<unknown>>,
+  deadline: WorkControlDeadline,
+): Promise<
+  | { readonly timedOut: true }
+  | { readonly timedOut: false; readonly outcomes: ReadonlyArray<PromiseSettledResult<unknown>> }
+> => {
+  if (deadline.hasElapsed()) return { timedOut: true };
+  return Promise.race([
+    Promise.allSettled(promises).then((outcomes) => ({
+      timedOut: false as const,
+      outcomes,
+    })),
+    deadline.elapsed.then(() => ({ timedOut: true as const })),
+  ]);
+};
+
+const closeServer = (server: Server): Promise<void> =>
+  new Promise((resolveClose) => {
+    if (!server.listening) {
+      resolveClose();
+      return;
+    }
+    server.close(() => resolveClose());
+  });
+
 const unlinkSocket = (socketPath: string): void => {
   if (existsSync(socketPath)) unlinkSync(socketPath);
 };
@@ -545,6 +685,7 @@ const respond = (socket: Socket, envelope: WorkResponseEnvelope): void => {
 
 export const startWorkControlServer = async (
   options: WorkControlServerOptions,
+  runtime: WorkControlRuntime = {},
 ): Promise<WorkControlServer> => {
   const workHome = resolveWorkHome(options.home, options.workHome);
   mkdirSync(workHome, { recursive: true, mode: 0o700 });
@@ -560,7 +701,103 @@ export const startWorkControlServer = async (
   const canvasesDir =
     options.canvasesDir ?? join(options.home ?? homedir(), ".vellum", "canvases");
 
+  const shutdownGraceMs = boundedRuntimeValue(
+    runtime.shutdownGraceMs,
+    WORK_CONTROL_SHUTDOWN_GRACE_MS,
+  );
+  const shutdownDeadlineMs = boundedRuntimeValue(
+    runtime.shutdownDeadlineMs,
+    WORK_CONTROL_SHUTDOWN_DEADLINE_MS,
+  );
+  let shuttingDown = false;
+  let nextFlightId = 0;
+  let nextSocketId = 0;
+  let listenerCloseFlight: Promise<void> | undefined;
+  let drainFlight: Promise<WorkControlShutdownReceipt> | undefined;
+  const activeFlights = new Map<number, WorkControlFlight>();
+  const shutdownJournal = new Map<number, WorkControlFlight>();
+  const sockets = new Map<number, WorkControlSocket>();
+
+  const retainFlight = <A>(
+    kind: WorkControlFlightKind,
+    label: string,
+    promise: Promise<A>,
+  ): Promise<A> => {
+    const flight: WorkControlFlight = {
+      id: ++nextFlightId,
+      kind,
+      label,
+      promise,
+      status: "pending",
+    };
+    activeFlights.set(flight.id, flight);
+    if (shuttingDown) shutdownJournal.set(flight.id, flight);
+    void promise.then(
+      () => {
+        flight.status = "fulfilled";
+        activeFlights.delete(flight.id);
+      },
+      () => {
+        flight.status = "rejected";
+        activeFlights.delete(flight.id);
+      },
+    );
+    return promise;
+  };
+
+  const retainOperation = <A>(
+    kind: Extract<WorkControlFlightKind, "line-handler" | "dispatch">,
+    label: string,
+    operation: () => Promise<A>,
+  ): Promise<A> => {
+    // Publish a settlement token before invoking caller-controlled code. The
+    // operation factory may synchronously re-enter shutdown, so the registry
+    // must already contain this exact lifetime before that call is possible.
+    let resolveStarted!: (value: A) => void;
+    let rejectStarted!: (error: unknown) => void;
+    const started = new Promise<A>((resolve, reject) => {
+      resolveStarted = resolve;
+      rejectStarted = reject;
+    });
+    void started.catch(() => undefined);
+    const flight: WorkControlFlight = {
+      id: ++nextFlightId,
+      kind,
+      label,
+      promise: started,
+      status: "pending",
+    };
+    activeFlights.set(flight.id, flight);
+    if (shuttingDown) shutdownJournal.set(flight.id, flight);
+
+    let promise: Promise<A>;
+    try {
+      promise = Promise.resolve(operation());
+    } catch (error) {
+      promise = Promise.reject(error);
+    }
+    // Retain the actual task once caller code returns it; the pre-publication
+    // token above mirrors only the otherwise-unavoidable synchronous gap.
+    flight.promise = promise;
+    void promise.then(resolveStarted, rejectStarted);
+    void promise.then(
+      () => {
+        flight.status = "fulfilled";
+        activeFlights.delete(flight.id);
+      },
+      () => {
+        flight.status = "rejected";
+        activeFlights.delete(flight.id);
+      },
+    );
+    return promise;
+  };
+
   const server: Server = createServer((socket) => {
+    if (shuttingDown) {
+      socket.end();
+      return;
+    }
     let buffer = Buffer.alloc(0);
     let closed = false;
     // Peer PID is stable for the life of the connection — read once.
@@ -669,13 +906,18 @@ export const startWorkControlServer = async (
       };
 
       try {
-        const run = () => options.run(
-          dispatchOp(req.op, req.args, caller, options.version).pipe(Effect.either),
+        const run = () => retainOperation(
+          "dispatch",
+          `dispatch:${req.op}`,
+          () => options.run(
+            dispatchOp(req.op, req.args, caller, options.version).pipe(Effect.either),
+          ),
         );
         const authoringLabel = mainAuthoringLabelForWorkOperation(req.op);
-        // Read operations intentionally remain available while quit drains.
-        // Mutations retain the actual runtime promise even if this socket goes
-        // away before the response can be written.
+        // Both read and authorial operations retain their actual runtime
+        // promise even if this socket goes away before the response is written.
+        // The main authoring gate remains the mutation authority; this
+        // transport registry additionally supplies native-loop finality.
         const outcome = authoringLabel === undefined
           ? await run()
           : await authoringGate.run(authoringLabel, run);
@@ -720,7 +962,11 @@ export const startWorkControlServer = async (
     };
 
     socket.on("data", (chunk: Buffer) => {
-      if (closed) return;
+      if (closed || shuttingDown) {
+        buffer = Buffer.alloc(0);
+        if (!socket.destroyed) socket.end();
+        return;
+      }
       buffer = Buffer.concat([buffer, chunk]);
       if (buffer.byteLength > WORK_MAX_FRAME_BYTES) {
         respond(
@@ -734,13 +980,32 @@ export const startWorkControlServer = async (
         return;
       }
       while (true) {
+        if (shuttingDown) {
+          buffer = Buffer.alloc(0);
+          if (!socket.destroyed) socket.end();
+          break;
+        }
         const nl = buffer.indexOf(0x0a);
         if (nl < 0) break;
         const lineBuf = buffer.subarray(0, nl);
         buffer = buffer.subarray(nl + 1);
         const line = lineBuf.toString("utf8").replace(/\r$/, "").trim();
         if (line.length === 0) continue;
-        void handleLine(line);
+        const retained = retainOperation(
+          "line-handler",
+          "line-handler",
+          () => handleLine(line),
+        );
+        void retained.catch(() => {
+          if (!shuttingDown) {
+            respond(
+              socket,
+              workErr("InternalError", "work control request failed", {
+                retryable: false,
+              }),
+            );
+          }
+        });
       }
     });
 
@@ -754,31 +1019,327 @@ export const startWorkControlServer = async (
     void WorkOpName;
   });
 
-  await new Promise<void>((resolveListen, rejectListen) => {
-    const onError = (error: Error): void => rejectListen(error);
-    server.once("error", onError);
-    server.listen({ path: socketPath, readableAll: false, writableAll: false }, () => {
-      server.off("error", onError);
-      try {
-        chmodSync(socketPath, 0o600);
-      } catch {
-        // best-effort owner-only socket
-      }
-      resolveListen();
+  server.on("connection", (socket: Socket) => {
+    const id = ++nextSocketId;
+    let resolveClosed!: () => void;
+    const closed = new Promise<void>((resolveSocketClosed) => {
+      resolveClosed = resolveSocketClosed;
     });
+    const record: WorkControlSocket = { id, socket, closed };
+    sockets.set(id, record);
+    void retainFlight("socket-close", "socket", closed);
+    socket.once("close", () => {
+      sockets.delete(id);
+      resolveClosed();
+    });
+    if (shuttingDown && !socket.destroyed) socket.end();
   });
+
+  type SocketPathIdentity = Readonly<{
+    dev: bigint;
+    ino: bigint;
+    birthtimeNs: bigint;
+  }>;
+  let socketIdentity: SocketPathIdentity | undefined;
+  let socketPathCleanupBlocked = false;
+
+  const ownsSocketPath = (): boolean => {
+    if (socketIdentity === undefined) return false;
+    try {
+      const current = lstatSync(socketPath, { bigint: true });
+      return current.isSocket() &&
+        current.dev === socketIdentity.dev &&
+        current.ino === socketIdentity.ino &&
+        current.birthtimeNs === socketIdentity.birthtimeNs;
+    } catch {
+      return false;
+    }
+  };
+
+  const unlinkOwnedSocket = (): void => {
+    if (ownsSocketPath()) unlinkSync(socketPath);
+  };
+
+  const closeListenerWithoutDeletingReplacement = async (): Promise<void> => {
+    if (existsSync(socketPath) && !ownsSocketPath()) {
+      // Node/libuv may unlink the originally-bound pathname during close even
+      // when another process has replaced that directory entry. Node exposes
+      // no identity-checked unlink/close primitive, so an observed replacement
+      // makes listener close unsafe until that path leaves. Keep this check and
+      // close call adjacent with no await or caller-controlled seam; scheduler
+      // preemption between them is the irreducible Node pathname race.
+      socketPathCleanupBlocked = true;
+      server.unref();
+      throw new Error("refusing to close work listener over a replacement path");
+    }
+    await closeServer(server);
+    socketPathCleanupBlocked = false;
+  };
+
+  const ensureListenerClose = (): void => {
+    if (!server.listening || listenerCloseFlight !== undefined) return;
+    const close = closeListenerWithoutDeletingReplacement();
+    listenerCloseFlight = close;
+    void retainFlight("listener-close", "listener", close);
+    void close.then(
+      () => {
+        if (listenerCloseFlight === close) listenerCloseFlight = undefined;
+      },
+      () => {
+        if (listenerCloseFlight === close) listenerCloseFlight = undefined;
+      },
+    );
+  };
+
+  try {
+    await new Promise<void>((resolveListen, rejectListen) => {
+      const onError = (error: Error): void => rejectListen(error);
+      server.once("error", onError);
+      server.listen({ path: socketPath, readableAll: false, writableAll: false }, () => {
+        server.off("error", onError);
+        try {
+          // Learn and harden the just-published pathname in the listen callback
+          // itself: no promise turn or caller-controlled code may intervene.
+          const info = lstatSync(socketPath, { bigint: true });
+          if (!info.isSocket()) {
+            throw new Error("work control path is not a Unix socket");
+          }
+          socketIdentity = Object.freeze({
+            dev: info.dev,
+            ino: info.ino,
+            birthtimeNs: info.birthtimeNs,
+          });
+          chmodSync(socketPath, 0o600);
+          const hardened = lstatSync(socketPath, { bigint: true });
+          if (
+            !hardened.isSocket() ||
+            hardened.dev !== socketIdentity.dev ||
+            hardened.ino !== socketIdentity.ino ||
+            hardened.birthtimeNs !== socketIdentity.birthtimeNs
+          ) {
+            throw new Error(
+              "work control socket identity changed during permission hardening",
+            );
+          }
+          resolveListen();
+        } catch (error) {
+          rejectListen(error);
+        }
+      });
+    });
+  } catch (error) {
+    await closeListenerWithoutDeletingReplacement().catch(() => undefined);
+    try {
+      unlinkOwnedSocket();
+    } catch {
+      // Startup remains failed closed without deleting a replacement path.
+    }
+    throw error;
+  }
+
+  server.on("error", (error) => {
+    console.error("[work-control] server error:", error);
+  });
+
+  const beginShutdown = (): void => {
+    if (shuttingDown) return;
+    // This state flip is the cut line. It precedes every async close step and
+    // is checked both at socket acceptance and at each NDJSON frame boundary.
+    shuttingDown = true;
+    for (const flight of activeFlights.values()) {
+      shutdownJournal.set(flight.id, flight);
+    }
+    ensureListenerClose();
+    try {
+      unlinkOwnedSocket();
+    } catch {
+      // The bounded receipt retains the path and retries on the next drain.
+    }
+    for (const { socket } of sockets.values()) {
+      if (!socket.destroyed) socket.end();
+    }
+  };
+
+  const retainedSnapshot = (): {
+    readonly counts: WorkControlRetainedCounts;
+    readonly labels: ReadonlyArray<string>;
+  } => {
+    const pending = [...shutdownJournal.values()].filter(
+      (flight) => flight.status === "pending",
+    );
+    const countKind = (kind: WorkControlFlightKind): number =>
+      pending.filter((flight) => flight.kind === kind).length;
+    const listenerClosures = Math.max(
+      countKind("listener-close"),
+      server.listening ? 1 : 0,
+    );
+    const socketPaths = ownsSocketPath() || socketPathCleanupBlocked ? 1 : 0;
+    const counts: WorkControlRetainedCounts = {
+      lineHandlers: countKind("line-handler"),
+      dispatches: countKind("dispatch"),
+      listenerClosures,
+      sockets: sockets.size,
+      socketPaths,
+    };
+    const labels = new Set(
+      pending
+        .filter((flight) => flight.kind !== "socket-close")
+        .map((flight) => flight.label),
+    );
+    if (sockets.size > 0) labels.add("socket");
+    if (server.listening) labels.add("listener");
+    if (socketPaths > 0) labels.add("socket-path");
+    return { counts, labels: [...labels].sort() };
+  };
+
+  const runDrain = async (
+    deadline: WorkControlDeadline,
+  ): Promise<WorkControlShutdownReceipt> => {
+    let rounds = 0;
+    let settled = 0;
+    let fulfilled = 0;
+    let rejected = 0;
+
+    const gracefulSocketFlights = [...sockets.values()].map((entry) => entry.closed);
+    if (gracefulSocketFlights.length > 0) {
+      const graceDeadline = startDeadline(
+        Math.min(shutdownGraceMs, shutdownDeadlineMs),
+      );
+      try {
+        await Promise.race([
+          Promise.allSettled(gracefulSocketFlights),
+          graceDeadline.elapsed,
+          deadline.elapsed,
+        ]);
+      } finally {
+        graceDeadline.cancel();
+      }
+    }
+    for (const { socket } of sockets.values()) {
+      if (!socket.destroyed) socket.destroy();
+    }
+
+    for (;;) {
+      for (const { socket } of sockets.values()) {
+        if (!socket.destroyed) socket.destroy();
+      }
+      try {
+        unlinkOwnedSocket();
+      } catch {
+        // Retained in the explicit deadline receipt below.
+      }
+
+      const round = [...shutdownJournal.values()];
+      if (round.length > 0) {
+        const outcome = await allSettledBefore(
+          round.map((flight) => flight.promise),
+          deadline,
+        );
+        if (outcome.timedOut) break;
+        rounds += 1;
+        settled += outcome.outcomes.length;
+        fulfilled += outcome.outcomes.filter((entry) => entry.status === "fulfilled").length;
+        rejected += outcome.outcomes.filter((entry) => entry.status === "rejected").length;
+        for (const flight of round) shutdownJournal.delete(flight.id);
+        // A settling handler may publish its dispatch in a continuation.
+        // Give that continuation one native turn before testing the fixed point.
+        await yieldBeforeDeadline(deadline);
+        continue;
+      }
+
+      const retained = retainedSnapshot();
+      const clean = Object.values(retained.counts).every((count) => count === 0);
+      if (clean) {
+        return Object.freeze({
+          clean: true,
+          rounds,
+          settled,
+          fulfilled,
+          rejected,
+          retainedCounts: Object.freeze(retained.counts),
+          retainedLabels: Object.freeze(retained.labels),
+        });
+      }
+      if (deadline.hasElapsed()) break;
+      await waitBeforeDeadline(5, deadline);
+    }
+
+    const settledAtDeadline = [...shutdownJournal.values()].filter(
+      (flight) => flight.status !== "pending",
+    );
+    if (settledAtDeadline.length > 0) {
+      const outcomes = await Promise.allSettled(
+        settledAtDeadline.map((flight) => flight.promise),
+      );
+      rounds += 1;
+      settled += outcomes.length;
+      fulfilled += outcomes.filter((entry) => entry.status === "fulfilled").length;
+      rejected += outcomes.filter((entry) => entry.status === "rejected").length;
+      for (const flight of settledAtDeadline) shutdownJournal.delete(flight.id);
+    }
+    const retained = retainedSnapshot();
+    const clean = Object.values(retained.counts).every((count) => count === 0);
+    return Object.freeze({
+      clean,
+      rounds,
+      settled,
+      fulfilled,
+      rejected,
+      retainedCounts: Object.freeze(retained.counts),
+      retainedLabels: Object.freeze(retained.labels),
+    });
+  };
+
+  const drainOnQuit = (): Promise<WorkControlShutdownReceipt> => {
+    if (drainFlight !== undefined) return drainFlight;
+
+    let resolveDrain!: (receipt: WorkControlShutdownReceipt) => void;
+    let rejectDrain!: (error: unknown) => void;
+    const publishedDrain = new Promise<WorkControlShutdownReceipt>((resolve, reject) => {
+      resolveDrain = resolve;
+      rejectDrain = reject;
+    });
+    // Publish before beginShutdown: Server.close(), socket.end(), and peer
+    // listeners are callback seams that may synchronously re-enter this API.
+    drainFlight = publishedDrain;
+    void publishedDrain.then(
+      () => {
+        if (drainFlight === publishedDrain) drainFlight = undefined;
+      },
+      () => {
+        if (drainFlight === publishedDrain) drainFlight = undefined;
+      },
+    );
+
+    const deadline = startDeadline(shutdownDeadlineMs);
+    try {
+      beginShutdown();
+      // An earlier bounded attempt may have refused listener close to preserve
+      // a foreign replacement. Each explicit retry re-evaluates ownership.
+      ensureListenerClose();
+      void runDrain(deadline).then(
+        (receipt) => {
+          deadline.cancel();
+          resolveDrain(receipt);
+        },
+        (error) => {
+          deadline.cancel();
+          rejectDrain(error);
+        },
+      );
+    } catch (error) {
+      deadline.cancel();
+      rejectDrain(error);
+    }
+    return publishedDrain;
+  };
 
   return {
     socketPath,
     tokenPath,
     workHome,
-    close: () => {
-      try {
-        server.close();
-      } catch {
-        // already closed
-      }
-      unlinkSocket(socketPath);
-    },
+    beginShutdown,
+    drainOnQuit,
+    close: drainOnQuit,
   };
 };

@@ -1,9 +1,13 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
-import { createConnection } from "node:net";
+import {
+  createConnection,
+  createServer as createNetServer,
+  type Server as NetServer,
+} from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { formatNodeRef } from "../src/shared/node-ref";
 import {
@@ -15,7 +19,9 @@ import {
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import {
   startWorkControlServer,
+  type WorkControlRuntime,
   type WorkControlServer,
+  type WorkControlServerOptions,
 } from "../src/main/vellum/work/control";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
@@ -27,10 +33,21 @@ import {
 
 const roots: string[] = [];
 const servers: WorkControlServer[] = [];
+const rogueServers: NetServer[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<WorkService | CanvasesService, never>> = [];
 const authoringGates: MainAuthoringGate[] = [];
 /** Peer PID for transport tests — must be a live process (epoch-checked). */
 const TEST_PEER_PID = process.pid;
+
+const deferred = <A>() => {
+  let resolve!: (value: A | PromiseLike<A>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<A>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+};
 
 const seedDoc = (): CanvasDoc => ({
   nodes: [
@@ -117,7 +134,15 @@ const call = (
     });
   });
 
-beforeEach(async () => {
+const startTestServer = async (options: {
+  readonly runtime?: WorkControlRuntime;
+  readonly decorateRun?: (
+    base: WorkControlServerOptions["run"],
+  ) => WorkControlServerOptions["run"];
+} = {}): Promise<{
+  readonly server: WorkControlServer;
+  readonly authoringGate: MainAuthoringGate;
+}> => {
   const root = await mkdtemp(join(tmpdir(), "vellum-work-ctl-"));
   roots.push(root);
   const canvasesDir = join(root, "canvases");
@@ -133,6 +158,8 @@ beforeEach(async () => {
 
   const runtime = ManagedRuntime.make(Layer.provideMerge(WorkLive, CanvasesLive));
   runtimes.push(runtime);
+  const baseRun: WorkControlServerOptions["run"] = (effect) =>
+    runtime.runPromise(effect);
 
   const processMap = makeProcessIdentityMap();
   processMap.bind(TEST_PEER_PID, {
@@ -149,14 +176,28 @@ beforeEach(async () => {
     canvasesDir,
     processMap,
     readPeerPid: () => TEST_PEER_PID,
-    run: (effect) => runtime.runPromise(effect),
+    run: options.decorateRun?.(baseRun) ?? baseRun,
     authoringGate,
-  });
+  }, options.runtime);
   servers.push(server);
+  return { server, authoringGate };
+};
+
+beforeEach(async () => {
+  await startTestServer();
 });
 
 afterEach(async () => {
-  while (servers.length > 0) servers.pop()?.close();
+  while (rogueServers.length > 0) {
+    const rogue = rogueServers.pop();
+    if (rogue?.listening) {
+      await new Promise<void>((resolveClose) => rogue.close(() => resolveClose()));
+    }
+  }
+  while (servers.length > 0) {
+    const server = servers.pop();
+    if (server) await server.close();
+  }
   while (runtimes.length > 0) {
     const rt = runtimes.pop();
     if (rt) await rt.dispose();
@@ -184,6 +225,230 @@ describe("work control transport", () => {
     const tokMode = (await stat(server.tokenPath)).mode & 0o777;
     expect(sockMode).toBe(0o600);
     expect(tokMode).toBe(0o600);
+  });
+
+  it("idempotently closes admission and drains accepted sockets to a fixed point", async () => {
+    const server = servers[0]!;
+    const socket = createConnection({ path: server.socketPath });
+    socket.on("error", () => undefined);
+    await new Promise<void>((resolveConnect, rejectConnect) => {
+      socket.once("connect", resolveConnect);
+      socket.once("error", rejectConnect);
+    });
+
+    server.beginShutdown();
+    server.beginShutdown();
+    const first = server.drainOnQuit();
+    expect(server.close()).toBe(first);
+
+    const latePeer = await new Promise<"connected" | "refused">((resolveLate) => {
+      const peer = createConnection({ path: server.socketPath });
+      peer.once("connect", () => {
+        peer.destroy();
+        resolveLate("connected");
+      });
+      peer.once("error", () => resolveLate("refused"));
+    });
+    expect(latePeer).toBe("refused");
+    await expect(first).resolves.toEqual({
+      clean: true,
+      rounds: expect.any(Number),
+      settled: expect.any(Number),
+      fulfilled: expect.any(Number),
+      rejected: 0,
+      retainedCounts: {
+        lineHandlers: 0,
+        dispatches: 0,
+        listenerClosures: 0,
+        sockets: 0,
+        socketPaths: 0,
+      },
+      retainedLabels: [],
+    });
+    expect(socket.destroyed).toBe(true);
+  });
+
+  it("refuses frames written by an already-accepted peer after the shutdown cut line", async () => {
+    let dispatches = 0;
+    const { server } = await startTestServer({
+      runtime: { shutdownGraceMs: 5, shutdownDeadlineMs: 50 },
+      decorateRun: (base) => async (effect) => {
+        dispatches += 1;
+        return base(effect);
+      },
+    });
+    const socket = createConnection({ path: server.socketPath });
+    socket.on("error", () => undefined);
+    await new Promise<void>((resolveConnect, rejectConnect) => {
+      socket.once("connect", resolveConnect);
+      socket.once("error", rejectConnect);
+    });
+
+    server.beginShutdown();
+    socket.write(encodeWorkFrame({
+      token: readFileSync(server.tokenPath, "utf8").trim(),
+      op: "ping",
+    }));
+    await expect(server.drainOnQuit()).resolves.toMatchObject({ clean: true });
+    expect(dispatches).toBe(0);
+  });
+
+  it("retains hung line and dispatch promises after their peer is destroyed", async () => {
+    const dispatchStarted = deferred<void>();
+    const releaseDispatch = deferred<void>();
+    const { server } = await startTestServer({
+      runtime: { shutdownGraceMs: 5, shutdownDeadlineMs: 30 },
+      decorateRun: (base) => async (effect) => {
+        dispatchStarted.resolve();
+        await releaseDispatch.promise;
+        return base(effect);
+      },
+    });
+    const socket = createConnection({ path: server.socketPath });
+    socket.on("error", () => undefined);
+    await new Promise<void>((resolveConnect, rejectConnect) => {
+      socket.once("connect", resolveConnect);
+      socket.once("error", rejectConnect);
+    });
+    socket.write(encodeWorkFrame({
+      token: readFileSync(server.tokenPath, "utf8").trim(),
+      op: "ping",
+    }));
+    await dispatchStarted.promise;
+
+    const receipt = await server.drainOnQuit();
+    expect(receipt.clean).toBe(false);
+    expect(receipt.retainedCounts).toMatchObject({
+      lineHandlers: 1,
+      dispatches: 1,
+      listenerClosures: 0,
+      sockets: 0,
+      socketPaths: 0,
+    });
+    expect(receipt.retainedLabels).toEqual(
+      expect.arrayContaining(["line-handler", "dispatch:ping"]),
+    );
+
+    releaseDispatch.resolve();
+    await expect(server.close()).resolves.toMatchObject({
+      clean: true,
+      retainedLabels: [],
+    });
+  });
+
+  it("keeps the shutdown deadline bounded when the wall clock moves backward", async () => {
+    const dispatchStarted = deferred<void>();
+    const releaseDispatch = deferred<void>();
+    const { server } = await startTestServer({
+      runtime: { shutdownGraceMs: 5, shutdownDeadlineMs: 30 },
+      decorateRun: (base) => async (effect) => {
+        dispatchStarted.resolve();
+        await releaseDispatch.promise;
+        return base(effect);
+      },
+    });
+    const socket = createConnection({ path: server.socketPath });
+    socket.on("error", () => undefined);
+    await new Promise<void>((resolveConnect, rejectConnect) => {
+      socket.once("connect", resolveConnect);
+      socket.once("error", rejectConnect);
+    });
+    socket.write(encodeWorkFrame({
+      token: readFileSync(server.tokenPath, "utf8").trim(),
+      op: "ping",
+    }));
+    await dispatchStarted.promise;
+
+    let wallClock = 1_000_000;
+    const wallClockSpy = vi.spyOn(Date, "now").mockImplementation(() => {
+      wallClock -= 60_000;
+      return wallClock;
+    });
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const receipt = await Promise.race([
+        server.close(),
+        new Promise<never>((_resolve, reject) => {
+          watchdog = setTimeout(
+            () => reject(new Error("work control drain exceeded its bounded deadline")),
+            250,
+          );
+        }),
+      ]);
+      expect(receipt).toMatchObject({
+        clean: false,
+        retainedCounts: { lineHandlers: 1, dispatches: 1 },
+      });
+    } finally {
+      if (watchdog !== undefined) clearTimeout(watchdog);
+      wallClockSpy.mockRestore();
+      releaseDispatch.resolve();
+    }
+    await expect(server.close()).resolves.toMatchObject({ clean: true });
+  });
+
+  it("publishes dispatch lifetime before caller code can re-enter shutdown", async () => {
+    const entered = deferred<void>();
+    let target!: WorkControlServer;
+    let reentrantDrain: ReturnType<WorkControlServer["drainOnQuit"]> | undefined;
+    let concurrentWasSame = false;
+    const started = await startTestServer({
+      runtime: { shutdownGraceMs: 5, shutdownDeadlineMs: 100 },
+      decorateRun: (base) => async (effect) => {
+        target.beginShutdown();
+        reentrantDrain = target.drainOnQuit();
+        concurrentWasSame = target.close() === reentrantDrain;
+        entered.resolve();
+        return base(effect);
+      },
+    });
+    target = started.server;
+    const socket = createConnection({ path: target.socketPath });
+    socket.on("error", () => undefined);
+    await new Promise<void>((resolveConnect, rejectConnect) => {
+      socket.once("connect", resolveConnect);
+      socket.once("error", rejectConnect);
+    });
+    socket.write(encodeWorkFrame({
+      token: readFileSync(target.tokenPath, "utf8").trim(),
+      op: "ping",
+    }));
+
+    await entered.promise;
+    expect(concurrentWasSame).toBe(true);
+    await expect(reentrantDrain).resolves.toMatchObject({
+      clean: true,
+      retainedCounts: { lineHandlers: 0, dispatches: 0 },
+    });
+  });
+
+  it("preserves a replacement socket path and retries listener close after it leaves", async () => {
+    const { server } = await startTestServer({
+      runtime: { shutdownGraceMs: 5, shutdownDeadlineMs: 30 },
+    });
+    unlinkSync(server.socketPath);
+    const replacement = createNetServer();
+    rogueServers.push(replacement);
+    await new Promise<void>((resolveListen, rejectListen) => {
+      replacement.once("error", rejectListen);
+      replacement.listen(server.socketPath, resolveListen);
+    });
+
+    const refused = await server.close();
+    expect(refused.clean).toBe(false);
+    expect(refused.retainedCounts).toMatchObject({
+      listenerClosures: 1,
+      socketPaths: 1,
+    });
+    expect((await stat(server.socketPath)).isSocket()).toBe(true);
+
+    await new Promise<void>((resolveClose) => replacement.close(() => resolveClose()));
+    rogueServers.splice(rogueServers.indexOf(replacement), 1);
+    await expect(server.close()).resolves.toMatchObject({
+      clean: true,
+      retainedCounts: { listenerClosures: 0, socketPaths: 0 },
+      retainedLabels: [],
+    });
   });
 
   it("ping + doctor over NDJSON", async () => {
