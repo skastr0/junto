@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 
-type InvokeEvent = Readonly<{ sender: Readonly<{ id: number }> }>;
+type InvokeEvent = Readonly<{
+  sender: Readonly<{
+    id: number;
+    isDestroyed?: () => boolean;
+    getURL?: () => string;
+  }>;
+}>;
 type InvokeHandler = (event: InvokeEvent, ...args: ReadonlyArray<unknown>) => unknown;
 
 const electron = vi.hoisted(() => ({
