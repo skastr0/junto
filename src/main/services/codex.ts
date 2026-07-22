@@ -3,12 +3,11 @@ import { Context, Effect, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import { resolvedSpawnEnv } from "../vellum/adapters/exec";
 import {
-  admitChildProcess,
-  releaseOwned,
-  signalOwned,
-  type OwnedProcess,
-} from "../vellum/process-signal";
-import { runProcess } from "./process";
+  assertServiceChildSpawnAllowed,
+  registerServiceChild,
+  runProcess,
+  SERVICE_CHILD_PLANE_QUIESCING_ERROR,
+} from "./process";
 
 export class CodexError extends Schema.TaggedError<CodexError>()("CodexError", {
   message: Schema.String,
@@ -36,10 +35,15 @@ const checkCodexCli = Effect.tryPromise({
     }),
 });
 
-const APP_SERVER_TERMINATION_GRACE_MS = 1_000;
+const APP_SERVER_JSONL_REMAINDER_LIMIT_BYTES = 256 * 1024;
+const APP_SERVER_STDERR_LIMIT_BYTES = 256 * 1024;
 
 const initializeAppServer = async (): Promise<string> => {
+  assertServiceChildSpawnAllowed();
   const env = await resolvedSpawnEnv();
+  // Environment resolution crosses an await; close the late-spawn window
+  // again before entering the synchronous spawn + registration section.
+  assertServiceChildSpawnAllowed();
   return new Promise((resolve, reject) => {
     const child = spawn("codex", ["app-server"], {
       env,
@@ -48,49 +52,58 @@ const initializeAppServer = async (): Promise<string> => {
     // The Codex service owns this app-server only for the initialize probe.
     // It is deliberately child-only: probing Codex never grants Vellum a
     // process-group or bare-pid signal capability.
-    const owned: OwnedProcess = admitChildProcess({
+    const lease = registerServiceChild({
       source: "services.codex-app-server:service-probe",
       child,
     });
 
     let stdoutBuffer = "";
     let stderr = "";
+    let stderrBytes = 0;
     let settled = false;
-    let shutdownStarted = false;
-    let authorityReleased = false;
+    let outputStopped = false;
     let observedExit:
       | { readonly code: number | null; readonly signal: NodeJS.Signals | null }
       | undefined;
-    let escalationTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const releaseAuthority = (): void => {
-      if (authorityReleased) return;
-      authorityReleased = true;
-      if (escalationTimer !== undefined) {
-        clearTimeout(escalationTimer);
-        escalationTimer = undefined;
-      }
-      releaseOwned(owned);
+    const ignoreClosedPipeError = (): void => {
+      // Destroyed local pipes may still report one final asynchronous error.
     };
 
-    const terminateOwnedChild = (): void => {
-      if (shutdownStarted || authorityReleased) return;
-      shutdownStarted = true;
-      escalationTimer = setTimeout(() => {
-        escalationTimer = undefined;
-        signalOwned(owned, "SIGKILL");
-        // Keep the service probe bounded if the child never reports exit.
-        releaseAuthority();
-      }, APP_SERVER_TERMINATION_GRACE_MS);
-      escalationTimer.unref?.();
-      // Arm the bound before signalling so an error emitted synchronously by
-      // the child handle cannot cancel or recursively restart teardown.
-      signalOwned(owned, "SIGTERM");
+    const stopOutput = (): void => {
+      if (outputStopped) return;
+      outputStopped = true;
+
+      child.stdin?.off("error", onStdinError);
+      child.stdin?.on("error", ignoreClosedPipeError);
+      child.stdout?.off("data", onStdoutData);
+      child.stdout?.off("error", onStdoutError);
+      child.stdout?.on("error", ignoreClosedPipeError);
+      child.stderr?.off("data", onStderrData);
+      child.stderr?.off("error", onStderrError);
+      child.stderr?.on("error", ignoreClosedPipeError);
+
+      try {
+        child.stdin?.destroy();
+      } catch {
+        // The probe is settled; local endpoint cleanup is best effort.
+      }
+      try {
+        child.stdout?.destroy();
+      } catch {
+        // The probe is settled; local endpoint cleanup is best effort.
+      }
+      try {
+        child.stderr?.destroy();
+      } catch {
+        // The probe is settled; local endpoint cleanup is best effort.
+      }
     };
 
     const cleanup = () => {
       clearTimeout(timer);
-      terminateOwnedChild();
+      void lease.requestTermination();
+      stopOutput();
     };
 
     const failAndTerminate = (message: string) => {
@@ -110,12 +123,12 @@ const initializeAppServer = async (): Promise<string> => {
     };
 
     const settleTerminalFailure = (message: string): void => {
-      // exit/close proves the child is gone. Release its capability directly;
-      // attempting another signal here could only obscure terminal status.
-      releaseAuthority();
+      // close proves the stdio drain is over; the shared registry independently
+      // releases this exact child generation before this listener settles.
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      stopOutput();
       reject(new Error(`${message}${stderr.trim() ? `: ${stderr.trim()}` : ""}`));
     };
 
@@ -128,7 +141,6 @@ const initializeAppServer = async (): Promise<string> => {
       // drain until close. Keep the probe pending so a buffered initialize
       // response delivered in that window can still complete successfully.
       observedExit = { code, signal };
-      releaseAuthority();
     });
     child.once("close", (code, signal) => {
       const message = observedExit === undefined
@@ -146,18 +158,34 @@ const initializeAppServer = async (): Promise<string> => {
       );
     };
 
-    child.on("error", (error) => {
-      failChannel("child", error);
-    });
-    child.stdin?.on("error", (error) => failChannel("stdin", error));
-    child.stdout?.on("error", (error) => failChannel("stdout", error));
-    child.stderr?.on("error", (error) => failChannel("stderr", error));
+    function onStdinError(error: Error): void {
+      failChannel("stdin", error);
+    }
 
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
+    function onStdoutError(error: Error): void {
+      failChannel("stdout", error);
+    }
 
-    child.stdout?.on("data", (chunk: Buffer) => {
+    function onStderrError(error: Error): void {
+      failChannel("stderr", error);
+    }
+
+    function onStderrData(chunk: Buffer): void {
+      if (settled || outputStopped) return;
+      const text = chunk.toString("utf8");
+      const nextBytes = stderrBytes + Buffer.byteLength(text);
+      if (nextBytes > APP_SERVER_STDERR_LIMIT_BYTES) {
+        failAndTerminate(
+          `codex app-server stderr exceeded ${APP_SERVER_STDERR_LIMIT_BYTES} bytes`,
+        );
+        return;
+      }
+      stderrBytes = nextBytes;
+      stderr += text;
+    }
+
+    function onStdoutData(chunk: Buffer): void {
+      if (settled || outputStopped) return;
       stdoutBuffer += chunk.toString("utf8");
       const lines = stdoutBuffer.split(/\r?\n/u);
       stdoutBuffer = lines.pop() ?? "";
@@ -178,6 +206,24 @@ const initializeAppServer = async (): Promise<string> => {
           // Keep reading; app-server logs must not break the protocol reader.
         }
       }
+
+      if (Buffer.byteLength(stdoutBuffer) > APP_SERVER_JSONL_REMAINDER_LIMIT_BYTES) {
+        failAndTerminate(
+          `codex app-server unterminated JSONL exceeded ${APP_SERVER_JSONL_REMAINDER_LIMIT_BYTES} bytes`,
+        );
+      }
+    }
+
+    child.on("error", (error) => {
+      failChannel("child", error);
+    });
+    child.stdin?.on("error", onStdinError);
+    child.stdout?.on("error", onStdoutError);
+    child.stdout?.on("data", onStdoutData);
+    child.stderr?.on("error", onStderrError);
+    child.stderr?.on("data", onStderrData);
+    lease.onQuiesce(() => {
+      failAndTerminate(SERVICE_CHILD_PLANE_QUIESCING_ERROR);
     });
 
     try {

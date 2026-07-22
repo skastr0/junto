@@ -31,11 +31,16 @@ vi.mock("../src/main/vellum/process-signal", async (importOriginal) => {
 });
 
 import { CodexLive, CodexService } from "../src/main/services/codex";
-import { runProcess } from "../src/main/services/process";
+import {
+  quiesceServiceChildrenOnQuit,
+  runProcess,
+  SERVICE_CHILD_PLANE_QUIESCING_ERROR,
+} from "../src/main/services/process";
 import { signalOwned, type OwnedProcess } from "../src/main/vellum/process-signal";
 
 class FakeWritable extends EventEmitter {
   readonly write = vi.fn(() => true);
+  readonly destroy = vi.fn(() => this);
 }
 
 class FakeChild extends EventEmitter {
@@ -54,6 +59,15 @@ const capturedHandle = (): OwnedProcess => {
   const handle = mocks.handles.at(-1);
   if (handle === undefined) throw new Error("expected a captured process authority");
   return handle as OwnedProcess;
+};
+
+const closeChild = (
+  child: FakeChild,
+  code: number | null = 0,
+  signal: NodeJS.Signals | null = null,
+): void => {
+  child.emit("exit", code, signal);
+  child.emit("close", code, signal);
 };
 
 beforeEach(() => {
@@ -114,6 +128,7 @@ describe("legacy service child authority", () => {
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    child.emit("close", null, "SIGKILL");
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
     expect(child.kill).toHaveBeenCalledTimes(2);
     expect(child.stdout.listenerCount("data")).toBe(0);
@@ -134,6 +149,7 @@ describe("legacy service child authority", () => {
 
     expect(child.kill).toHaveBeenCalledTimes(1);
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    child.emit("close", null, "SIGTERM");
     expect(signalOwned(capturedHandle(), "SIGKILL").attempted).toBe(false);
   });
 
@@ -151,6 +167,7 @@ describe("legacy service child authority", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     expect(vi.getTimerCount()).toBe(0);
+    child.emit("close", null, "SIGKILL");
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
   });
 
@@ -178,6 +195,36 @@ describe("legacy service child authority", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
       expect(vi.getTimerCount()).toBe(0);
+      child.emit("close", null, "SIGKILL");
+      expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
+    },
+  );
+
+  it.each(["stdout", "stderr"] as const)(
+    "rejects runProcess %s overflow without retaining output listeners",
+    async (channel) => {
+      vi.useFakeTimers();
+      const child = new FakeChild();
+      mocks.spawn.mockReturnValue(child);
+
+      const resultPromise = runProcess("bounded", [], {
+        maxOutputBytes: 8,
+      }).catch((error) => error);
+      child[channel].write("123456789");
+
+      expect(await resultPromise).toEqual(
+        new Error(`bounded ${channel} exceeded 8 bytes`),
+      );
+      expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+      expect(child.stdout.listenerCount("data")).toBe(0);
+      expect(child.stderr.listenerCount("data")).toBe(0);
+      expect(child.stdout.destroyed).toBe(true);
+      expect(child.stderr.destroyed).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+      child.emit("close", null, "SIGKILL");
+      expect(vi.getTimerCount()).toBe(0);
       expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
     },
   );
@@ -201,6 +248,7 @@ describe("legacy service child authority", () => {
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     expect(child.kill).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
+    child.emit("close", null, "SIGKILL");
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
   });
 
@@ -217,7 +265,7 @@ describe("legacy service child authority", () => {
       status: "ok",
     });
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
-    child.emit("exit", 0, null);
+    closeChild(child, 0, null);
     expect(signalOwned(capturedHandle(), "SIGKILL").attempted).toBe(false);
     expect(child.kill).toHaveBeenCalledTimes(1);
   });
@@ -242,7 +290,6 @@ describe("legacy service child authority", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(probeSettled).toBe(false);
     expect(vi.getTimerCount()).toBe(1);
-    expect(signalOwned(capturedHandle(), "SIGKILL").attempted).toBe(false);
 
     // Node normally follows exit with close; the second terminal event must
     // neither replace the original diagnostic nor trigger another teardown.
@@ -270,7 +317,6 @@ describe("legacy service child authority", () => {
     expect(mocks.spawn).toHaveBeenCalledOnce();
 
     child.emit("exit", 0, null);
-    expect(signalOwned(capturedHandle(), "SIGKILL").attempted).toBe(false);
     child.stdout.write('{"id":0,"result":{"drained":true}}\n');
     child.emit("close", 0, null);
 
@@ -328,6 +374,7 @@ describe("legacy service child authority", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     expect(vi.getTimerCount()).toBe(0);
+    child.emit("close", null, "SIGKILL");
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
   });
 
@@ -354,6 +401,7 @@ describe("legacy service child authority", () => {
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     expect(child.kill).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
+    child.emit("close", null, "SIGKILL");
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
   });
 
@@ -382,8 +430,42 @@ describe("legacy service child authority", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     expect(vi.getTimerCount()).toBe(0);
+    child.emit("close", null, "SIGKILL");
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
   });
+
+  it.each([
+    ["stdout", "codex app-server unterminated JSONL exceeded 262144 bytes"],
+    ["stderr", "codex app-server stderr exceeded 262144 bytes"],
+  ] as const)(
+    "bounds Codex %s accumulation and tears down the exact child",
+    async (channel, expectedMessage) => {
+      vi.useFakeTimers();
+      const child = new FakeChild();
+      mocks.spawn.mockReturnValue(child);
+
+      const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+      await vi.advanceTimersByTimeAsync(0);
+      child[channel].write(Buffer.alloc(262_145, "x"));
+      const result = await resultPromise;
+
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left.message).toBe(expectedMessage);
+      }
+      expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+      expect(child.stdout.listenerCount("data")).toBe(0);
+      expect(child.stderr.listenerCount("data")).toBe(0);
+      expect(child.stdout.destroyed).toBe(true);
+      expect(child.stderr.destroyed).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+      child.emit("close", null, "SIGKILL");
+      expect(vi.getTimerCount()).toBe(0);
+      expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
+    },
+  );
 
   it("bounds a non-responsive Codex app-server probe and releases authority", async () => {
     vi.useFakeTimers();
@@ -401,7 +483,102 @@ describe("legacy service child authority", () => {
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    child.emit("close", null, "SIGKILL");
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
     expect(child.kill).toHaveBeenCalledTimes(2);
+  });
+
+  it("coalesces quit, drains in-flight services, rejects late spawns, and reports refusal", async () => {
+    vi.useFakeTimers();
+    const resistantRun = new FakeChild();
+    resistantRun.kill.mockReturnValue(false);
+    const closingCodex = new FakeChild();
+    closingCodex.kill.mockImplementation((signal) => {
+      if (signal === "SIGTERM") closeChild(closingCodex, null, "SIGTERM");
+      return true;
+    });
+    mocks.spawn
+      .mockReturnValueOnce(resistantRun)
+      .mockReturnValueOnce(closingCodex);
+
+    const runningProcess = runProcess("resistant-service", []).catch((error) => error);
+    const runningCodex = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.spawn).toHaveBeenCalledTimes(2);
+
+    const first = quiesceServiceChildrenOnQuit();
+    const second = quiesceServiceChildrenOnQuit();
+    expect(second).toBe(first);
+
+    const lateProcess = runProcess("late-service", []).catch((error) => error);
+    const lateCodex = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(await runningProcess).toEqual(
+      new Error(SERVICE_CHILD_PLANE_QUIESCING_ERROR),
+    );
+    const runningCodexResult = await runningCodex;
+    expect(Either.isLeft(runningCodexResult)).toBe(true);
+    if (Either.isLeft(runningCodexResult)) {
+      expect(runningCodexResult.left.message).toBe(
+        SERVICE_CHILD_PLANE_QUIESCING_ERROR,
+      );
+    }
+    expect(await lateProcess).toEqual(
+      new Error(SERVICE_CHILD_PLANE_QUIESCING_ERROR),
+    );
+    const lateCodexResult = await lateCodex;
+    expect(Either.isLeft(lateCodexResult)).toBe(true);
+    if (Either.isLeft(lateCodexResult)) {
+      expect(lateCodexResult.left.message).toBe(
+        SERVICE_CHILD_PLANE_QUIESCING_ERROR,
+      );
+    }
+    expect(mocks.spawn).toHaveBeenCalledTimes(2);
+    expect(closingCodex.kill).toHaveBeenCalledTimes(1);
+    expect(closingCodex.kill).toHaveBeenCalledWith("SIGTERM");
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(resistantRun.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    await vi.advanceTimersByTimeAsync(250);
+
+    await expect(first).resolves.toEqual({
+      clean: false,
+      stragglers: [
+        {
+          generation: expect.any(Number),
+          source: "services.run-process:operation:resistant-service",
+          exited: false,
+          refusals: [
+            { signal: "SIGTERM", reason: "child-signal-refused" },
+            { signal: "SIGKILL", reason: "child-signal-refused" },
+          ],
+        },
+      ],
+    });
+    expect(resistantRun.stdout.listenerCount("data")).toBe(0);
+    expect(resistantRun.stderr.listenerCount("data")).toBe(0);
+    expect(resistantRun.stdout.destroyed).toBe(true);
+    expect(resistantRun.stderr.destroyed).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+
+    const codexHandle = mocks.handles[1] as OwnedProcess;
+    expect(signalOwned(codexHandle, "SIGTERM").decision).toMatchObject({
+      ok: false,
+      reason: "handle-not-registered",
+    });
+
+    resistantRun.emit("close", null, "SIGKILL");
+    const converged = quiesceServiceChildrenOnQuit();
+    expect(converged).not.toBe(first);
+    await expect(converged).resolves.toEqual({ clean: true, stragglers: [] });
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Closing a retained record may converge the receipt, but quit admission
+    // remains monotonic and cannot reopen service spawning.
+    await expect(runProcess("still-late", [])).rejects.toThrow(
+      SERVICE_CHILD_PLANE_QUIESCING_ERROR,
+    );
+    expect(mocks.spawn).toHaveBeenCalledTimes(2);
   });
 });
