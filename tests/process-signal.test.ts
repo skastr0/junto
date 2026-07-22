@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
+import { once } from "node:events";
 import {
   admitChildProcess,
   clearProcessSignalAuditLog,
@@ -180,25 +181,28 @@ describe("process-signal authority", () => {
     const source = await import("node:child_process");
     const original = source.spawn;
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const spawned = spawnDetachedProcessGroup({ source: "test", command: "/bin/sh", args: ["-c", "sleep 1"] });
+    const spawned = spawnDetachedProcessGroup({ source: "test", command: "/bin/sh", args: ["-c", "sleep 0.2"] });
+    const closed = once(spawned.child, "close");
     expect(spawned.child.pid).toBeTypeOf("number");
     expect(spawned.mode).toBe("group");
     expect(signalOwned(spawned.process, "SIGTERM").via).toBe("process.kill-group");
     expect(spy).toHaveBeenCalledWith(-spawned.child.pid!, "SIGTERM");
+    // The mocked group signal does not terminate the real child. Keep its
+    // authority until the bounded fixture exits naturally and close is seen.
+    await closed;
     releaseOwned(spawned.process);
-    // The mocked group signal does not terminate the real child.
-    spawned.child.kill("SIGKILL");
     expect(original).toBeTypeOf("function");
   });
 
-  it("epoch drift refuses group kill without signaling its child", () => {
+  it("epoch drift refuses group kill without signaling its child", async () => {
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const spawned = spawnDetachedProcessGroup({ source: "test", command: "/bin/sh", args: ["-c", "sleep 1"] });
+    const spawned = spawnDetachedProcessGroup({ source: "test", command: "/bin/sh", args: ["-c", "sleep 0.2"] });
+    const closed = once(spawned.child, "close");
     setProcessEpochReaderForTests({ snapshot: () => [{ pid: spawned.child.pid!, processGroupId: spawned.child.pid!, sessionId: 42, startKey: "epoch-b" }] });
     expect(signalOwned(spawned.process, "SIGTERM").via).toBe("none");
     expect(spy).not.toHaveBeenCalled();
+    await closed;
     releaseOwned(spawned.process);
-    spawned.child.kill("SIGKILL");
   });
 
   it("refuses a leaderless group even when members remain", () => {
@@ -234,32 +238,34 @@ describe("process-signal authority", () => {
     expect(childProcessEpochIsCurrent(56, epoch)).toBe(false);
   });
 
-  it("reuses a verified child epoch when detached group identity is unavailable", () => {
+  it("reuses a verified child epoch when detached group identity is unavailable", async () => {
     setProcessEpochReaderForTests({
       snapshot: (pid) => pid === undefined ? [] : [row(pid, "verified-child", pid + 1, 3)],
     });
-    const spawned = spawnDetachedProcessGroup({ source: "fallback", command: "/bin/sh", args: ["-c", "sleep 30"] });
+    const spawned = spawnDetachedProcessGroup({ source: "fallback", command: "/bin/sh", args: ["-c", "sleep 0.2"] });
+    const closed = once(spawned.child, "close");
     expect(spawned.mode).toBe("child");
     expect(signalOwned(spawned.process, "SIGTERM")).toMatchObject({
       attempted: true,
       decision: { ok: true, mode: "child" },
       via: "child.kill",
     });
+    await closed;
     releaseOwned(spawned.process);
-    if (spawned.child.exitCode === null) spawned.child.kill("SIGKILL");
   });
 
-  it("reports an inert child fallback when no detached identity can be captured", () => {
+  it("reports an inert child fallback when no detached identity can be captured", async () => {
     setProcessEpochReaderForTests({ snapshot: () => [] });
-    const spawned = spawnDetachedProcessGroup({ source: "fallback-inert", command: "/bin/sh", args: ["-c", "sleep 30"] });
+    const spawned = spawnDetachedProcessGroup({ source: "fallback-inert", command: "/bin/sh", args: ["-c", "sleep 0.2"] });
+    const closed = once(spawned.child, "close");
     expect(spawned.mode).toBe("child");
     expect(signalOwned(spawned.process, "SIGTERM")).toMatchObject({
       attempted: false,
       decision: { ok: false, reason: "child-epoch-unavailable" },
       via: "none",
     });
+    await closed;
     releaseOwned(spawned.process);
-    spawned.child.kill("SIGKILL");
   });
 
   it("release is idempotent and loses authority", () => {
