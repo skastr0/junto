@@ -381,11 +381,12 @@ const browserApi: VellumBrowserApi = {
 };
 
 const terminalApi: VellumTerminalApi = {
-  terminalList: () => invoke(IPC_CHANNELS.terminalList, IPC_TIMEOUT_MS),
+  terminalList: (hostId) => invoke(IPC_CHANNELS.terminalList, IPC_TIMEOUT_MS, hostId),
   terminalCreate: (input) => invoke(IPC_CHANNELS.terminalCreate, IPC_TIMEOUT_MS, input),
-  terminalGet: (bindingId) => invoke(IPC_CHANNELS.terminalGet, IPC_TIMEOUT_MS, bindingId),
-  terminalKill: (bindingId) => invoke(IPC_CHANNELS.terminalKill, IPC_TIMEOUT_MS, bindingId),
-  terminalBindCanvas: (bindingId, ref) => invoke(IPC_CHANNELS.terminalBindCanvas, IPC_TIMEOUT_MS, bindingId, ref),
+  terminalGet: (bindingId, hostId) => invoke(IPC_CHANNELS.terminalGet, IPC_TIMEOUT_MS, bindingId, hostId),
+  terminalKill: (bindingId, hostId) => invoke(IPC_CHANNELS.terminalKill, IPC_TIMEOUT_MS, bindingId, hostId),
+  terminalBindCanvas: (bindingId, ref, hostId) =>
+    invoke(IPC_CHANNELS.terminalBindCanvas, IPC_TIMEOUT_MS, bindingId, ref, hostId),
   terminalAttach: (input) => invoke(IPC_CHANNELS.terminalAttach, IPC_TIMEOUT_MS, input),
   terminalRelease: (leaseId) => invoke(IPC_CHANNELS.terminalRelease, IPC_TIMEOUT_MS, leaseId),
   terminalWrite: (leaseId, data, encoding) => invoke(IPC_CHANNELS.terminalWrite, IPC_TIMEOUT_MS, leaseId, data, encoding),

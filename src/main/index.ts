@@ -651,6 +651,12 @@ if (!gotSingleInstanceLock) {
     ]);
     herdrActiveControlCount = () => herdr.streams.activeControlCount();
     await AppRuntime.runPromise(herdr.start);
+    // Local term control UDS — Remote stations expose this for CC SSH forward.
+    try {
+      await termPlane.start();
+    } catch (error) {
+      console.error("[term] control socket failed to start:", error);
+    }
     powerMonitor.on("resume", () => {
       void AppRuntime.runPromise(Effect.flatMap(HerdrPlane, (plane) => plane.warm)).catch(() => {
         console.error("[herdr] resume warm failed");
@@ -793,7 +799,10 @@ const disposeRuntime = (): Promise<void> => {
 // therefore routes through the same authority/process teardown explicitly.
 const exitAfterDetach = (exitCode: number, reason: string): void => {
   detachRuntimeOnQuit(reason);
-  void Promise.all([disposeRuntime(), termPlane.host.shutdownAll(reason)]).finally(() => {
+  void Promise.all([
+    disposeRuntime(),
+    termPlane.router.shutdownAllLocal(reason).then(() => termPlane.stop()),
+  ]).finally(() => {
     runtimeDisposed = true;
     app.exit(exitCode);
   });
@@ -832,7 +841,7 @@ const collectLiveWorkSnapshot = () =>
     armed: getArmed(),
     nextFireKeys: getNextFire().keys(),
     attachedHerdrStreamCount: herdrActiveControlCount(),
-    localTerminalSessionCount: termPlane.host.runningCount(),
+    localTerminalSessionCount: termPlane.router.runningCount(),
   });
 
 /** Cancel left the process with no UI — give the operator a surface back. */
@@ -863,7 +872,9 @@ app.on("before-quit", (event) => {
         : requestCanvasFlush(mainWindow);
 
     quitPreparation = flush
-      .then(() => termPlane.host.shutdownAll("before-quit"))
+      .then(() =>
+        termPlane.router.shutdownAllLocal("before-quit").then(() => termPlane.stop()),
+      )
       .then(() => {
         nodeRefRelayWatcher?.close();
         nodeRefRelayWatcher = undefined;
@@ -964,7 +975,7 @@ installProcessSignalTermination({
     signalTerminalShutdownComplete = false;
     invalidateQuitConfirm();
     beginSignalCanvasFlush();
-    void termPlane.host.shutdownAll(signal).then(() => {
+    void termPlane.router.shutdownAllLocal(signal).then(() => {
       signalTerminalShutdownComplete = true;
     });
     detachRuntimeOnQuit(signal);

@@ -164,7 +164,7 @@ export const buildDoctorReport = Effect.gen(function* () {
     id: "terminal",
     label: "Native terminal",
     status: "ok",
-    detail: `local session host ready (${termPlane.host.runningCount()} running)`,
+    detail: `local session host ready (${termPlane.router.runningCount()} running)`,
   };
   const services: ReadonlyArray<ServiceCheck> = [
     ...serviceResults,

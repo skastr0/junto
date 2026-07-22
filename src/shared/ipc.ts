@@ -894,14 +894,20 @@ export interface TerminalAttachInput {
   readonly bindingId: string;
   readonly mode: "control" | "observe";
   readonly takeover?: boolean;
+  /** Route to remote station when not local. */
+  readonly hostId?: string;
 }
 
 export interface VellumTerminalApi {
-  readonly terminalList: () => Promise<readonly TerminalSessionSummary[]>;
+  readonly terminalList: (hostId?: string) => Promise<readonly TerminalSessionSummary[]>;
   readonly terminalCreate: (input: TerminalCreateInput) => Promise<TerminalSessionSummary>;
-  readonly terminalGet: (bindingId: string) => Promise<TerminalSessionSummary | undefined>;
-  readonly terminalKill: (bindingId: string) => Promise<boolean>;
-  readonly terminalBindCanvas: (bindingId: string, ref: { canvasName?: string; nodeId?: string } | null) => Promise<void>;
+  readonly terminalGet: (bindingId: string, hostId?: string) => Promise<TerminalSessionSummary | undefined>;
+  readonly terminalKill: (bindingId: string, hostId?: string) => Promise<boolean>;
+  readonly terminalBindCanvas: (
+    bindingId: string,
+    ref: { canvasName?: string; nodeId?: string } | null,
+    hostId?: string,
+  ) => Promise<void>;
   readonly terminalAttach: (input: TerminalAttachInput) => Promise<unknown>;
   readonly terminalRelease: (leaseId: string) => Promise<boolean>;
   readonly terminalWrite: (leaseId: string, data: string, encoding?: "utf8" | "base64") => Promise<boolean>;

@@ -43,6 +43,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const [status, setStatus] = useState("attaching…");
   const binding = resolveTerminalBinding(node);
   const bindingId = binding?.kind === "native" ? binding.bindingId : "";
+  const hostId = binding?.kind === "native" ? binding.hostId : "local";
 
   /** Fit xterm to the host and push cols/rows to the PTY when geometry changes. */
   const pushResize = (): void => {
@@ -154,7 +155,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     });
 
     void api
-      .terminalAttach({ bindingId, mode: "control", takeover: true })
+      .terminalAttach({ bindingId, mode: "control", takeover: true, hostId })
       .then((raw) => {
         const result = raw as AttachResult;
         if (!alive) {
@@ -202,7 +203,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       leaseRef.current = undefined;
       if (lease) void api.terminalRelease(lease);
     };
-  }, [bindingId]);
+  }, [bindingId, hostId]);
 
   return (
     <div
