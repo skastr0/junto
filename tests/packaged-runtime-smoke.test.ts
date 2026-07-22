@@ -227,7 +227,8 @@ describe("packaged runtime smoke child lifecycle", () => {
       expect(child.signals).toEqual(["SIGTERM"]);
       expect(vi.getTimerCount()).toBe(1);
 
-      await vi.advanceTimersByTimeAsync(100);
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
       await cleanup;
       expect(child.signals).toEqual(["SIGTERM", "SIGKILL"]);
       expect(lifecycle.terminal()).toMatchObject({ code: null, signal: "SIGKILL" });
