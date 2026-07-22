@@ -28,6 +28,7 @@ import { stampMessageDelivered } from "@shared/message-delivery";
 import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
 import { termPlane } from "./term/plane";
+import { getTrustedMainWebContents } from "./trusted-main-webcontents";
 import type { A2AMetadata, Artifact, Message, TaskState } from "@shared/canvas";
 
 const broadcast = (channel: string, payload: unknown) => {
@@ -56,8 +57,6 @@ export const registerVellumIpc = (): void => {
   registerHerdrIpc(ipcMain, () => BrowserWindow.getAllWindows().map((w) => w.webContents));
   registerTerminalIpc(ipcMain, termPlane, {
     isTrustedSender: (sender) => {
-      const { getTrustedMainWebContents } =
-        require("./trusted-main-webcontents") as typeof import("./trusted-main-webcontents");
       const trusted = getTrustedMainWebContents();
       // Headless / pre-window: no trusted WC yet — admit live senders for tests.
       if (trusted === undefined) return !sender.isDestroyed();

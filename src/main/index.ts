@@ -55,6 +55,7 @@ import {
 } from "./vellum/node-ref-ingress";
 import { resolveNodeRef } from "./vellum/node-ref-resolver";
 import { installProcessSignalTermination } from "./vellum/process-signal-termination";
+import { setTrustedMainWebContents } from "./vellum/trusted-main-webcontents";
 import {
   assessLiveWork,
   buildQuitConfirmPrompt,
@@ -392,9 +393,7 @@ const createWindow = () => {
     },
   });
   trustedMainWindow = mainWindow;
-  void import("./vellum/trusted-main-webcontents").then(({ setTrustedMainWebContents }) => {
-    setTrustedMainWebContents(mainWindow.webContents);
-  });
+  setTrustedMainWebContents(mainWindow.webContents);
   // BrowserWindow's `closed` event fires after its native object and
   // WebContents have been destroyed. Capture the routing identity while it is
   // live; dereferencing mainWindow.webContents inside `closed` throws.
@@ -487,9 +486,7 @@ const createWindow = () => {
       pending.reject(new Error("renderer closed before canvas flush completed"));
     }
     if (trustedMainWindow === mainWindow) trustedMainWindow = undefined;
-    void import("./vellum/trusted-main-webcontents").then(({ setTrustedMainWebContents }) => {
-      setTrustedMainWebContents(undefined);
-    });
+    setTrustedMainWebContents(undefined);
     disconnect();
     ipcMain.removeListener(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
   });

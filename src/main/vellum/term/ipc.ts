@@ -1,5 +1,6 @@
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { IPC_CHANNELS, type TerminalAttachInput } from "@shared/ipc";
+import { messageDelivery } from "../work/message-delivery";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import type { TermPlane } from "./plane";
 
@@ -129,13 +130,7 @@ export const registerTerminalIpc = (
       controlByBinding.set(result.lease.bindingId, leaseId);
     }
     // Message delivery retry when a native terminal becomes controllable.
-    try {
-      // Lazy import to avoid circular deps at module load.
-      const { messageDelivery } = require("../work/message-delivery") as typeof import("../work/message-delivery");
-      messageDelivery.onTerminalAttached(result.lease.bindingId);
-    } catch {
-      // optional
-    }
+    messageDelivery.onTerminalAttached(result.lease.bindingId);
     return result;
   });
   ipcMain.handle(IPC_CHANNELS.terminalRelease, (event, leaseId: string) => {
