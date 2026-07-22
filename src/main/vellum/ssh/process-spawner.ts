@@ -2,7 +2,10 @@ import * as Command from "@effect/platform/Command";
 import * as NodeSink from "@effect/platform-node/NodeSink";
 import * as NodeStream from "@effect/platform-node/NodeStream";
 import { Context, Effect, HashMap, Layer, Option, Scope, Sink, Stream } from "effect";
-import { releaseOwned, signalOwned, spawnDetachedProcessGroup, type OwnedProcess, type TerminatingSignal } from "../process-signal";
+import {
+  appProcessPlane,
+  type AppProcessLease,
+} from "../app-process-plane";
 
 export class ProcessFailure { readonly _tag = "ProcessFailure"; }
 export interface ProcessHandle {
@@ -16,47 +19,67 @@ export interface ProcessHandle {
 export class ProcessSpawner extends Context.Tag("@vellum/ssh/ProcessSpawner")<ProcessSpawner, { readonly start: (command: Command.Command) => Effect.Effect<ProcessHandle, ProcessFailure, Scope.Scope> }>() {}
 const failure = (): ProcessFailure => new ProcessFailure();
 
-type SpawnOutcome = { readonly _tag: "exit"; readonly code: number } | { readonly _tag: "pre-spawn-error"; readonly error: unknown };
-type TrackedSshChild = { readonly child: ReturnType<typeof spawnDetachedProcessGroup>["child"]; readonly owned: OwnedProcess; readonly mode: "group" | "child"; readonly outcome: Promise<SpawnOutcome>; readonly preSpawnFailed: () => boolean };
+const SSH_PROCESS_TERM_GRACE_MS = 1_500;
+const SSH_PROCESS_KILL_GRACE_MS = 1_500;
+
+type SpawnOutcome =
+  | { readonly _tag: "exit"; readonly code: number }
+  | { readonly _tag: "pre-spawn-error"; readonly error: unknown }
+  | { readonly _tag: "closed-without-exit" };
+
+type TrackedSshChild = {
+  readonly lease: AppProcessLease;
+  readonly outcome: Promise<SpawnOutcome>;
+  readonly terminalObservation: Promise<void>;
+  readonly preSpawnFailed: () => boolean;
+  readonly terminalObserved: () => boolean;
+};
+
+const waitBounded = (
+  observation: Promise<void>,
+  milliseconds: number,
+): Promise<boolean> => new Promise((resolve) => {
+  let settled = false;
+  const finish = (observed: boolean): void => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    resolve(observed);
+  };
+  const timer = setTimeout(() => finish(false), milliseconds);
+  void observation.then(
+    () => finish(true),
+    () => finish(false),
+  );
+});
+
 const stopProcess = (tracked: TrackedSshChild): Effect.Effect<void> =>
-  Effect.suspend(() => {
+  Effect.promise(async () => {
+    if (tracked.terminalObserved()) return;
+
+    // An asynchronous spawn error with no pid proves that no process was
+    // admitted. It is not an exit/close witness, so still give the central
+    // plane's close observer a short bounded opportunity to settle its record.
     if (tracked.preSpawnFailed()) {
-      releaseOwned(tracked.owned);
-      return Effect.void;
+      await waitBounded(tracked.terminalObservation, SSH_PROCESS_TERM_GRACE_MS);
+      return;
     }
-    if (tracked.child.exitCode !== null || tracked.child.signalCode !== null) {
-      releaseOwned(tracked.owned);
-      return Effect.void;
-    }
-    const signal = (value: TerminatingSignal) => Effect.sync(() => signalOwned(tracked.owned, value));
-    const observeSettlement = () => new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), 50);
-      tracked.outcome.then(() => { clearTimeout(timer); resolve(true); });
-    });
-    const waitForOutcome = (milliseconds: number) => new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), milliseconds);
-      tracked.outcome.then(() => { clearTimeout(timer); resolve(true); });
-    });
-    return Effect.promise(observeSettlement).pipe(
-      Effect.flatMap((settled) => settled
-        ? Effect.sync(() => releaseOwned(tracked.owned))
-        : signal("SIGTERM").pipe(
-          Effect.zipRight(Effect.sleep("50 millis")),
-          Effect.zipRight(Effect.suspend(() =>
-            tracked.child.exitCode === null && tracked.child.signalCode === null
-              ? Effect.promise(() => waitForOutcome(1400)).pipe(
-                Effect.zipRight(Effect.suspend(() =>
-                  tracked.child.exitCode === null && tracked.child.signalCode === null
-                    ? signal("SIGKILL")
-                    : Effect.void,
-                )),
-              )
-              : Effect.void,
-          )),
-          Effect.ensuring(Effect.sync(() => releaseOwned(tracked.owned))),
-          Effect.timeout("3 seconds"),
-          Effect.ignore,
-        )),
+
+    appProcessPlane.terminate(tracked.lease, "SSH Effect scope finalized");
+    if (await waitBounded(
+      tracked.terminalObservation,
+      SSH_PROCESS_TERM_GRACE_MS,
+    )) return;
+
+    // The lease, not a pid or raw ChildProcess, decides whether authority is
+    // still live. A refused receipt remains visible to the aggregate app drain.
+    appProcessPlane.forceTerminate(
+      tracked.lease,
+      "SSH Effect scope exceeded TERM grace",
+    );
+    await waitBounded(
+      tracked.terminalObservation,
+      SSH_PROCESS_KILL_GRACE_MS,
     );
   });
 
@@ -64,28 +87,65 @@ const startStandard = (command: Command.StandardCommand): Effect.Effect<TrackedS
   Effect.try({
     try: () => {
       const environment = HashMap.reduce(command.env, { ...process.env } as Record<string, string | undefined>, (acc, value, key) => ({ ...acc, [key]: value }));
-      const spawned = spawnDetachedProcessGroup({
+      const lease = appProcessPlane.spawnGroup({
         source: "ssh.process-spawner",
+        purpose: "SSH transport command",
         command: command.command,
         args: command.args,
-        options: { cwd: Option.getOrUndefined(command.cwd), env: environment, shell: command.shell, uid: Option.getOrUndefined(command.uid), gid: Option.getOrUndefined(command.gid) },
+        cwd: Option.getOrUndefined(command.cwd),
+        env: environment,
+        shell: command.shell,
+        uid: Option.getOrUndefined(command.uid),
+        gid: Option.getOrUndefined(command.gid),
       });
       let preSpawnFailed = false;
+      let terminalObserved = false;
+      let outcomeSettled = false;
+      let resolveOutcome!: (outcome: SpawnOutcome) => void;
+      let resolveTerminal!: () => void;
+      const outcome = new Promise<SpawnOutcome>((resolve) => {
+        resolveOutcome = resolve;
+      });
+      const terminalObservation = new Promise<void>((resolve) => {
+        resolveTerminal = resolve;
+      });
+      const settleOutcome = (value: SpawnOutcome): void => {
+        if (outcomeSettled) return;
+        outcomeSettled = true;
+        resolveOutcome(value);
+      };
+      const settleTerminal = (): void => {
+        if (terminalObserved) return;
+        terminalObserved = true;
+        resolveTerminal();
+      };
+
       // Resolve, never reject: async spawn errors can occur before a consumer
       // asks for exitCode, and must never become process-wide rejections.
-      const outcome = new Promise<SpawnOutcome>((resolve) => {
-        spawned.child.once("exit", (code) => resolve({ _tag: "exit", code: code ?? -1 }));
-        spawned.child.on("error", (error) => {
-          // A missing executable has no child pid: it is the sole error that
-          // proves no owned child ever started. Later errors are not exit
-          // witnesses and must leave TERM→KILL authority intact.
-          if (spawned.child.pid === undefined) {
-            preSpawnFailed = true;
-            resolve({ _tag: "pre-spawn-error", error });
-          }
-        });
+      lease.io.onExit(({ code }) => {
+        settleOutcome({ _tag: "exit", code: code ?? -1 });
+        settleTerminal();
       });
-      return { child: spawned.child, owned: spawned.process, mode: spawned.mode, outcome, preSpawnFailed: () => preSpawnFailed };
+      lease.io.onClose(() => {
+        settleOutcome({ _tag: "closed-without-exit" });
+        settleTerminal();
+      });
+      lease.io.onError((error) => {
+        // A missing executable has no child pid: it is the sole error that
+        // proves no owned child ever started. Later errors are diagnostic and
+        // must not fabricate an exit/close witness or cancel TERM→KILL.
+        if (lease.io.pidForDiagnostics === undefined) {
+          preSpawnFailed = true;
+          settleOutcome({ _tag: "pre-spawn-error", error });
+        }
+      });
+      return {
+        lease,
+        outcome,
+        terminalObservation,
+        preSpawnFailed: () => preSpawnFailed,
+        terminalObserved: () => terminalObserved,
+      };
     },
     catch: failure,
   });
@@ -94,14 +154,16 @@ export const ProcessSpawnerLive = Layer.succeed(ProcessSpawner, ProcessSpawner.o
   start: (command) => {
     if (command._tag !== "StandardCommand") return Effect.fail(failure());
     return Effect.acquireRelease(startStandard(command), stopProcess).pipe(Effect.map((tracked): ProcessHandle => ({
-      pid: tracked.child.pid ?? -1,
+      pid: tracked.lease.io.pidForDiagnostics ?? -1,
       exitCode: Effect.promise(() => tracked.outcome).pipe(
         Effect.flatMap((outcome) => outcome._tag === "exit" ? Effect.succeed(outcome.code) : Effect.fail(failure())),
       ),
-      isRunning: Effect.sync(() => !tracked.preSpawnFailed() && tracked.child.exitCode === null && tracked.child.signalCode === null),
-      stdin: NodeSink.fromWritable(() => tracked.child.stdin, failure, { endOnDone: true }),
-      stdout: NodeStream.fromReadable(() => tracked.child.stdout, failure),
-      stderr: NodeStream.fromReadable(() => tracked.child.stderr, failure),
+      isRunning: Effect.sync(() =>
+        !tracked.preSpawnFailed() && !tracked.terminalObserved()
+      ),
+      stdin: NodeSink.fromWritable(() => tracked.lease.io.stdin, failure, { endOnDone: true }),
+      stdout: NodeStream.fromReadable(() => tracked.lease.io.stdout, failure),
+      stderr: NodeStream.fromReadable(() => tracked.lease.io.stderr, failure),
     })));
   },
 }));

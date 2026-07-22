@@ -83,10 +83,22 @@ describe("ProcessSpawnerLive", () => {
     }
   });
 
-  it("does not treat post-spawn child errors as an exit witness", async () => {
+  it("uses only the central process lease and keeps errors distinct from terminal witnesses", async () => {
     const source = await readFile("src/main/vellum/ssh/process-spawner.ts", "utf8");
-    expect(source).toMatch(/if \(spawned\.child\.pid === undefined\)/u);
-    expect(source).toMatch(/Later errors are not exit[\s\S]*TERM→KILL authority intact/u);
+    expect(source).toContain("appProcessPlane.spawnGroup({");
+    expect(source).toMatch(/if \(lease\.io\.pidForDiagnostics === undefined\)/u);
+    expect(source).toMatch(/Later errors are diagnostic[\s\S]*must not fabricate an exit\/close witness or cancel TERM→KILL/u);
+    expect(source).not.toMatch(/\bspawnDetachedProcessGroup\b|\bsignalOwned\b|\breleaseOwned\b|\bOwnedProcess\b/u);
+    expect(source).not.toMatch(/tracked\.child|lease\.child|\.kill\s*\(/u);
+  });
+
+  it("forwards StandardCommand identity options through the central spawn spec", async () => {
+    const source = await readFile("src/main/vellum/ssh/process-spawner.ts", "utf8");
+    expect(source).toMatch(/cwd: Option\.getOrUndefined\(command\.cwd\)/u);
+    expect(source).toMatch(/env: environment/u);
+    expect(source).toMatch(/shell: command\.shell/u);
+    expect(source).toMatch(/uid: Option\.getOrUndefined\(command\.uid\)/u);
+    expect(source).toMatch(/gid: Option\.getOrUndefined\(command\.gid\)/u);
   });
 
   it("terminates a responsive owned process without waiting through the grace period", async () => {
