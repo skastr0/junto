@@ -318,18 +318,22 @@ exit 2
 `.trim();
 
       const tar = yield* Effect.acquireRelease(
-        Effect.sync(() => {
-          const lease = appProcessPlane.spawnChild({
-            source: "hosts.deploy-remote.tar",
-            purpose: "stream app bundle to remote host",
-            command: "tar",
-            args: ["-C", parent, "-cf", "-", bundle],
-          });
-          return {
-            lease,
-            exit: watchTarExit(lease.io),
-            stderr: captureTarStderr(lease.io.stderr),
-          };
+        Effect.try({
+          try: () => {
+            const lease = appProcessPlane.spawnChild({
+              source: "hosts.deploy-remote.tar",
+              purpose: "stream app bundle to remote host",
+              command: "tar",
+              args: ["-C", parent, "-cf", "-", bundle],
+            });
+            return {
+              lease,
+              exit: watchTarExit(lease.io),
+              stderr: captureTarStderr(lease.io.stderr),
+            };
+          },
+          catch: (error) =>
+            error instanceof Error ? error : new Error(String(error)),
         }),
         ({ lease, exit }) =>
           exit.isClosed()
