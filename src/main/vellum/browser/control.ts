@@ -1212,29 +1212,45 @@ interface BrowserControlSocket {
 const wait = (durationMs: number): Promise<void> =>
   new Promise((resolveWait) => setTimeout(resolveWait, durationMs));
 
+interface BrowserControlDeadline {
+  readonly elapsed: Promise<void>;
+  readonly hasElapsed: () => boolean;
+  readonly cancel: () => void;
+}
+
+/** One process-timer deadline; never recomputed from the mutable wall clock. */
+const startDeadline = (durationMs: number): BrowserControlDeadline => {
+  let elapsed = false;
+  let resolveElapsed!: () => void;
+  const elapsedPromise = new Promise<void>((resolve) => {
+    resolveElapsed = resolve;
+  });
+  const timer = setTimeout(() => {
+    elapsed = true;
+    resolveElapsed();
+  }, durationMs);
+  return Object.freeze({
+    elapsed: elapsedPromise,
+    hasElapsed: () => elapsed,
+    cancel: () => clearTimeout(timer),
+  });
+};
+
 const allSettledBefore = async (
   promises: ReadonlyArray<Promise<unknown>>,
-  deadline: number,
+  deadline: BrowserControlDeadline,
 ): Promise<
   | { readonly timedOut: true }
   | { readonly timedOut: false; readonly outcomes: ReadonlyArray<PromiseSettledResult<unknown>> }
 > => {
-  const remainingMs = Math.max(0, deadline - Date.now());
-  if (remainingMs === 0) return { timedOut: true };
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      Promise.allSettled(promises).then((outcomes) => ({
-        timedOut: false as const,
-        outcomes,
-      })),
-      new Promise<{ readonly timedOut: true }>((resolveTimeout) => {
-        timer = setTimeout(() => resolveTimeout({ timedOut: true }), remainingMs);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
+  if (deadline.hasElapsed()) return { timedOut: true };
+  return Promise.race([
+    Promise.allSettled(promises).then((outcomes) => ({
+      timedOut: false as const,
+      outcomes,
+    })),
+    deadline.elapsed.then(() => ({ timedOut: true as const })),
+  ]);
 };
 
 const closeServer = (server: Server): Promise<void> =>
@@ -1808,117 +1824,156 @@ export const startBrowserControlServer = async (
     return { counts, labels: [...labels].sort() };
   };
 
-  const drainOnQuit = (): Promise<BrowserControlShutdownReceipt> => {
-    beginShutdown();
-    if (drainFlight !== undefined) return drainFlight;
-    // A previous bounded attempt may have refused a destructive close because
-    // a replacement could not be preserved. Retry once per explicit drain.
-    ensureListenerClose();
-    const currentDrain = (async (): Promise<BrowserControlShutdownReceipt> => {
-      const deadline = Date.now() + shutdownDeadlineMs;
-      let rounds = 0;
-      let settled = 0;
-      let fulfilled = 0;
-      let rejected = 0;
+  const runDrain = async (
+    deadline: BrowserControlDeadline,
+  ): Promise<BrowserControlShutdownReceipt> => {
+    let rounds = 0;
+    let settled = 0;
+    let fulfilled = 0;
+    let rejected = 0;
 
-      const gracefulSocketFlights = [...sockets.values()].map((entry) => entry.closed);
-      if (gracefulSocketFlights.length > 0) {
-        await allSettledBefore(
-          gracefulSocketFlights,
-          Math.min(deadline, Date.now() + shutdownGraceMs),
-        );
+    const gracefulSocketFlights = [...sockets.values()].map((entry) => entry.closed);
+    if (gracefulSocketFlights.length > 0) {
+      const graceDeadline = startDeadline(
+        Math.min(shutdownGraceMs, shutdownDeadlineMs),
+      );
+      try {
+        await Promise.race([
+          Promise.allSettled(gracefulSocketFlights),
+          graceDeadline.elapsed,
+          deadline.elapsed,
+        ]);
+      } finally {
+        graceDeadline.cancel();
+      }
+    }
+    for (const { socket } of sockets.values()) {
+      if (!socket.destroyed) socket.destroy();
+    }
+
+    for (;;) {
+      for (const controller of requestControllers.values()) {
+        if (!controller.signal.aborted) controller.abort("browser control shutdown");
       }
       for (const { socket } of sockets.values()) {
         if (!socket.destroyed) socket.destroy();
       }
-
-      for (;;) {
-        for (const controller of requestControllers.values()) {
-          if (!controller.signal.aborted) controller.abort("browser control shutdown");
-        }
-        for (const { socket } of sockets.values()) {
-          if (!socket.destroyed) socket.destroy();
-        }
-        try {
-          unlinkOwnedSocket();
-        } catch {
-          // Retained in the explicit deadline receipt below.
-        }
-
-        const round = [...shutdownJournal.values()];
-        if (round.length > 0) {
-          const outcome = await allSettledBefore(
-            round.map((flight) => flight.promise),
-            deadline,
-          );
-          if (outcome.timedOut) break;
-          rounds += 1;
-          settled += outcome.outcomes.length;
-          fulfilled += outcome.outcomes.filter((entry) => entry.status === "fulfilled").length;
-          rejected += outcome.outcomes.filter((entry) => entry.status === "rejected").length;
-          for (const flight of round) shutdownJournal.delete(flight.id);
-          // Give close/finally callbacks one event-loop turn to publish any
-          // nested flight before deciding the fixed point is empty.
-          await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
-          continue;
-        }
-
-        const retained = retainedSnapshot();
-        const clean = Object.values(retained.counts).every((count) => count === 0);
-        if (clean) {
-          return Object.freeze({
-            clean: true,
-            rounds,
-            settled,
-            fulfilled,
-            rejected,
-            retainedCounts: Object.freeze(retained.counts),
-            retainedLabels: Object.freeze(retained.labels),
-          });
-        }
-        const remainingMs = deadline - Date.now();
-        if (remainingMs <= 0) break;
-        await wait(Math.min(5, remainingMs));
+      try {
+        unlinkOwnedSocket();
+      } catch {
+        // Retained in the explicit deadline receipt below.
       }
 
-      // If the deadline raced a just-settled batch, observe that batch through
-      // allSettled before producing the final receipt. Pending records remain
-      // strongly retained and are reported below for a retry.
-      const settledAtDeadline = [...shutdownJournal.values()].filter(
-        (flight) => flight.status !== "pending",
-      );
-      if (settledAtDeadline.length > 0) {
-        const outcomes = await Promise.allSettled(
-          settledAtDeadline.map((flight) => flight.promise),
+      const round = [...shutdownJournal.values()];
+      if (round.length > 0) {
+        const outcome = await allSettledBefore(
+          round.map((flight) => flight.promise),
+          deadline,
         );
+        if (outcome.timedOut) break;
         rounds += 1;
-        settled += outcomes.length;
-        fulfilled += outcomes.filter((entry) => entry.status === "fulfilled").length;
-        rejected += outcomes.filter((entry) => entry.status === "rejected").length;
-        for (const flight of settledAtDeadline) shutdownJournal.delete(flight.id);
+        settled += outcome.outcomes.length;
+        fulfilled += outcome.outcomes.filter((entry) => entry.status === "fulfilled").length;
+        rejected += outcome.outcomes.filter((entry) => entry.status === "rejected").length;
+        for (const flight of round) shutdownJournal.delete(flight.id);
+        // Give close/finally callbacks one event-loop turn to publish any
+        // nested flight before deciding the fixed point is empty.
+        await Promise.race([
+          new Promise<void>((resolveTurn) => setImmediate(resolveTurn)),
+          deadline.elapsed,
+        ]);
+        continue;
       }
+
       const retained = retainedSnapshot();
       const clean = Object.values(retained.counts).every((count) => count === 0);
-      return Object.freeze({
-        clean,
-        rounds,
-        settled,
-        fulfilled,
-        rejected,
-        retainedCounts: Object.freeze(retained.counts),
-        retainedLabels: Object.freeze(retained.labels),
-      });
-    })();
-    drainFlight = currentDrain;
-    void currentDrain.then(
+      if (clean) {
+        return Object.freeze({
+          clean: true,
+          rounds,
+          settled,
+          fulfilled,
+          rejected,
+          retainedCounts: Object.freeze(retained.counts),
+          retainedLabels: Object.freeze(retained.labels),
+        });
+      }
+      if (deadline.hasElapsed()) break;
+      await Promise.race([wait(5), deadline.elapsed]);
+    }
+
+    // If the deadline raced a just-settled batch, observe that batch through
+    // allSettled before producing the final receipt. Pending records remain
+    // strongly retained and are reported below for a retry.
+    const settledAtDeadline = [...shutdownJournal.values()].filter(
+      (flight) => flight.status !== "pending",
+    );
+    if (settledAtDeadline.length > 0) {
+      const outcomes = await Promise.allSettled(
+        settledAtDeadline.map((flight) => flight.promise),
+      );
+      rounds += 1;
+      settled += outcomes.length;
+      fulfilled += outcomes.filter((entry) => entry.status === "fulfilled").length;
+      rejected += outcomes.filter((entry) => entry.status === "rejected").length;
+      for (const flight of settledAtDeadline) shutdownJournal.delete(flight.id);
+    }
+    const retained = retainedSnapshot();
+    const clean = Object.values(retained.counts).every((count) => count === 0);
+    return Object.freeze({
+      clean,
+      rounds,
+      settled,
+      fulfilled,
+      rejected,
+      retainedCounts: Object.freeze(retained.counts),
+      retainedLabels: Object.freeze(retained.labels),
+    });
+  };
+
+  const drainOnQuit = (): Promise<BrowserControlShutdownReceipt> => {
+    if (drainFlight !== undefined) return drainFlight;
+
+    let resolveDrain!: (receipt: BrowserControlShutdownReceipt) => void;
+    let rejectDrain!: (error: unknown) => void;
+    const publishedDrain = new Promise<BrowserControlShutdownReceipt>((resolve, reject) => {
+      resolveDrain = resolve;
+      rejectDrain = reject;
+    });
+    // Publish before beginShutdown: edgeGrant.clear(), AbortController
+    // listeners, Server.close(), and socket.end() are all callback seams that
+    // may reenter drainOnQuit synchronously.
+    drainFlight = publishedDrain;
+    void publishedDrain.then(
       () => {
-        if (drainFlight === currentDrain) drainFlight = undefined;
+        if (drainFlight === publishedDrain) drainFlight = undefined;
       },
       () => {
-        if (drainFlight === currentDrain) drainFlight = undefined;
+        if (drainFlight === publishedDrain) drainFlight = undefined;
       },
     );
-    return currentDrain;
+
+    const deadline = startDeadline(shutdownDeadlineMs);
+    try {
+      beginShutdown();
+      // A previous bounded attempt may have refused a destructive close over a
+      // replacement path. Retry once per explicit drain.
+      ensureListenerClose();
+      void runDrain(deadline).then(
+        (receipt) => {
+          deadline.cancel();
+          resolveDrain(receipt);
+        },
+        (error) => {
+          deadline.cancel();
+          rejectDrain(error);
+        },
+      );
+    } catch (error) {
+      deadline.cancel();
+      rejectDrain(error);
+    }
+    return publishedDrain;
   };
 
   return {

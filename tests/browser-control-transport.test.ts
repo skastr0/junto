@@ -369,6 +369,54 @@ describe("browser control Unix transport", () => {
     await expect(access(server.socketPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("publishes one drain promise before edge-grant shutdown can reenter", async () => {
+    const root = await newRoot();
+    const capabilities = makeBrowserCapabilityRegistry();
+    capabilityRegistries.push(capabilities);
+    let server: BrowserControlServer | undefined;
+    let reentered: Promise<unknown> | undefined;
+    let clearCalls = 0;
+    const edgeGrant: EdgeGrantService = {
+      processMap: makeProcessIdentityMap(),
+      admitSocket: async () => ({
+        ok: false,
+        denial: "closed",
+        message: "browser control is closing",
+      }),
+      admitPrincipal: async () => ({
+        ok: false,
+        denial: "closed",
+        message: "browser control is closing",
+      }),
+      clear: () => {
+        clearCalls += 1;
+        reentered = server?.drainOnQuit();
+      },
+    };
+    server = await startBrowserControlServer(
+      {
+        sessions: makeSessions(root),
+        capabilities,
+        resolvePageTarget,
+        version: "transport-test",
+        home: root,
+        edgeGrant,
+      },
+      {
+        chmodSocket: chmodSync,
+        shutdownGraceMs: 5,
+        shutdownDeadlineMs: 100,
+      },
+    );
+    servers.push(server);
+
+    const first = server.drainOnQuit();
+    expect(reentered).toBe(first);
+    expect(server.close()).toBe(first);
+    await expect(first).resolves.toMatchObject({ clean: true });
+    expect(clearCalls).toBe(1);
+  });
+
   it("refuses to close over a replacement Unix socket and retries after it leaves", async () => {
     const root = await newRoot();
     const { server } = await startStack(root, {
@@ -474,6 +522,66 @@ describe("browser control Unix transport", () => {
       clean: true,
       retainedLabels: [],
     });
+  });
+
+  it("keeps the shutdown deadline bounded when the wall clock moves backward", async () => {
+    const root = await newRoot();
+    const routeStarted = deferred<void>();
+    const releaseRoute = deferred<void>();
+    const delayedResolver: PageTargetResolver = async (ref) => {
+      routeStarted.resolve();
+      await releaseRoute.promise;
+      return resolvePageTarget(ref);
+    };
+    const { server, token, capability } = await startStack(
+      root,
+      {
+        chmodSocket: chmodSync,
+        handlerTimeoutMs: 100,
+        shutdownGraceMs: 5,
+        shutdownDeadlineMs: 30,
+      },
+      delayedResolver,
+    );
+    const body = JSON.stringify({ ref: PAGE_REF });
+    const response = rawExchange(server.socketPath, [
+      requestHead("POST", "/open", [
+        ...capabilityHeaders(token, capability),
+        ["Content-Type", "application/json"],
+        ["Content-Length", String(Buffer.byteLength(body))],
+      ]),
+      body,
+    ]).catch(() => "");
+    await routeStarted.promise;
+
+    let wallClock = 1_000_000;
+    const wallClockSpy = vi.spyOn(Date, "now").mockImplementation(() => {
+      wallClock -= 60_000;
+      return wallClock;
+    });
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const receipt = await Promise.race([
+        server.close(),
+        new Promise<never>((_resolve, reject) => {
+          watchdog = setTimeout(
+            () => reject(new Error("browser control drain exceeded its bounded deadline")),
+            250,
+          );
+        }),
+      ]);
+      expect(receipt).toMatchObject({
+        clean: false,
+        retainedCounts: { routeOperations: 1 },
+      });
+      expect(receipt.retainedLabels).toContain("route:open");
+    } finally {
+      if (watchdog !== undefined) clearTimeout(watchdog);
+      wallClockSpy.mockRestore();
+      releaseRoute.resolve();
+    }
+    await response;
+    await expect(server.close()).resolves.toMatchObject({ clean: true });
   });
 
   it("tracks in-flight edge admission, refuses late peers, and never signals their pid", async () => {
