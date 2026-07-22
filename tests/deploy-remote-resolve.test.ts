@@ -69,6 +69,22 @@ describe("deploy transfer lifecycle", () => {
     expect(released).toBe(1);
   });
 
+  it("releases a failed tar spawn only once when error is followed by close", async () => {
+    const tar = new EventEmitter();
+    let released = 0;
+    const settlement = settleTarExit(tar as never, () => {
+      released += 1;
+    });
+    tar.emit("error", new Error("spawn failed"));
+    tar.emit("close", 1);
+
+    await expect(settlement).resolves.toMatchObject({
+      ok: false,
+      error: { message: "spawn failed" },
+    });
+    expect(released).toBe(1);
+  });
+
   it("surfaces bounded remote readiness diagnostics on a failed transfer", () => {
     const darwin = new SshTransferExitError(
       "remote" as never,

@@ -130,7 +130,10 @@ export const settleTarExit = (
   onSettled: () => void = () => {},
 ): Promise<TarExitSettlement> =>
   new Promise((resolve) => {
+    let settled = false;
     const settle = (result: TarExitSettlement): void => {
+      if (settled) return;
+      settled = true;
       onSettled();
       resolve(result);
     };
