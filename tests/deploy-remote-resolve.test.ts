@@ -2,9 +2,10 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import {
   describeDeployTransferFailure,
+  captureTarStderr,
   parseDeployTransferResult,
   resolveLocalAppBundle,
-  settleTarExit,
+  watchTarExit,
 } from "../src/main/vellum/hosts/deploy-remote";
 import { SshTransferExitError } from "../src/main/vellum/ssh/service";
 
@@ -54,35 +55,44 @@ describe("parseDeployTransferResult", () => {
 });
 
 describe("deploy transfer lifecycle", () => {
-  it("settles tar exit even when it happens before remote readiness is awaited", async () => {
+  it("records tar exit even when it happens before remote readiness is awaited", async () => {
     const tar = new EventEmitter();
-    let released = 0;
-    const settlement = settleTarExit(tar as never, () => {
-      released += 1;
-    });
+    const exit = watchTarExit(tar as never);
     tar.emit("close", 1);
 
-    await expect(settlement).resolves.toMatchObject({
+    await expect(exit.settlement).resolves.toMatchObject({
       ok: false,
       error: { message: "local tar exited 1" },
     });
-    expect(released).toBe(1);
+    await expect(exit.closed).resolves.toBeUndefined();
   });
 
-  it("releases a failed tar spawn only once when error is followed by close", async () => {
+  it("does not treat a tar error as a terminal-close witness", async () => {
     const tar = new EventEmitter();
-    let released = 0;
-    const settlement = settleTarExit(tar as never, () => {
-      released += 1;
+    const exit = watchTarExit(tar as never);
+    let closed = false;
+    void exit.closed.then(() => {
+      closed = true;
     });
     tar.emit("error", new Error("spawn failed"));
-    tar.emit("close", 1);
 
-    await expect(settlement).resolves.toMatchObject({
+    await expect(exit.settlement).resolves.toMatchObject({
       ok: false,
       error: { message: "spawn failed" },
     });
-    expect(released).toBe(1);
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    tar.emit("close", 1);
+    await expect(exit.closed).resolves.toBeUndefined();
+  });
+
+  it("captures bounded tar stderr while draining the stream", () => {
+    const stderr = new EventEmitter();
+    const captured = captureTarStderr(stderr as never);
+    stderr.emit("data", Buffer.alloc(64 * 1024, "a"));
+    stderr.emit("data", Buffer.from("discarded"));
+
+    expect(Buffer.byteLength(captured(), "utf8")).toBe(64 * 1024);
   });
 
   it("surfaces bounded remote readiness diagnostics on a failed transfer", () => {

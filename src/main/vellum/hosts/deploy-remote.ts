@@ -124,30 +124,58 @@ export type TarExitSettlement =
   | { readonly ok: true }
   | { readonly ok: false; readonly error: Error };
 
-/** Attach terminal listeners at spawn time, before the remote transfer starts. */
-export const settleTarExit = (
-  tar: Pick<ChildProcess, "once">,
-  onSettled: () => void = () => {},
-): Promise<TarExitSettlement> =>
-  new Promise((resolve) => {
-    let settled = false;
-    const settle = (result: TarExitSettlement): void => {
-      if (settled) return;
-      settled = true;
-      onSettled();
-      resolve(result);
-    };
-    tar.once("error", (error) => {
-      settle({ ok: false, error });
-    });
-    tar.once("close", (code) => {
-      settle(
-        code === 0
-          ? { ok: true }
-          : { ok: false, error: new Error(`local tar exited ${String(code)}`) },
-      );
-    });
+export type TarExitWatch = {
+  readonly settlement: Promise<TarExitSettlement>;
+  readonly closed: Promise<void>;
+};
+
+const TAR_STDERR_LIMIT_BYTES = 64 * 1024;
+
+/** Attach both listeners at spawn time: an error is not proof the child has exited. */
+export const watchTarExit = (tar: Pick<ChildProcess, "once">): TarExitWatch => {
+  let settle: (result: TarExitSettlement) => void = () => {};
+  let close: () => void = () => {};
+  const settlement = new Promise<TarExitSettlement>((resolve) => {
+    settle = resolve;
   });
+  const closed = new Promise<void>((resolve) => {
+    close = resolve;
+  });
+  let reported = false;
+  const report = (result: TarExitSettlement): void => {
+    if (reported) return;
+    reported = true;
+    settle(result);
+  };
+
+  tar.once("error", (error) => {
+    report({ ok: false, error });
+  });
+  tar.once("close", (code) => {
+    report(
+      code === 0
+        ? { ok: true }
+        : { ok: false, error: new Error(`local tar exited ${String(code)}`) },
+    );
+    close();
+  });
+  return { settlement, closed };
+};
+
+export const captureTarStderr = (stream: {
+  readonly on: (event: "data", listener: (chunk: Buffer) => void) => unknown;
+}): (() => string) => {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  stream.on("data", (chunk) => {
+    const remaining = TAR_STDERR_LIMIT_BYTES - bytes;
+    if (remaining <= 0) return;
+    const bounded = Buffer.from(chunk).subarray(0, remaining);
+    chunks.push(bounded);
+    bytes += bounded.byteLength;
+  });
+  return () => Buffer.concat(chunks, bytes).toString("utf8");
+};
 
 export const describeDeployTransferFailure = (error: unknown): string => {
   if (error instanceof SshTransferExitError) {
@@ -260,15 +288,23 @@ exit 2
             source: "hosts.deploy-remote.tar",
             child,
           });
-          return { child, owned };
+          return {
+            child,
+            owned,
+            exit: watchTarExit(child),
+            stderr: captureTarStderr(child.stderr),
+          };
         }),
-        ({ owned }) =>
+        ({ owned, exit }) =>
           Effect.sync(() => {
-            if (owned) signalOwned(owned, "SIGKILL");
-            releaseOwned(owned);
-          }),
+            signalOwned(owned, "SIGKILL");
+          }).pipe(
+            Effect.zipRight(Effect.promise(() => exit.closed)),
+            Effect.timeout("2 seconds"),
+            Effect.ignore,
+            Effect.ensuring(Effect.sync(() => releaseOwned(owned))),
+          ),
       );
-      const tarExit = settleTarExit(tar.child, () => releaseOwned(tar.owned));
       const command = yield* makeRemoteCommand("bash", ["-lc", remoteScript]);
       const output = yield* ssh.transfer(
         sharedStream(endpoint, command),
@@ -281,10 +317,12 @@ exit 2
         ).pipe(Stream.map((chunk) => Uint8Array.from(chunk))),
         DEPLOY_TIMEOUT_MS,
       );
-      const tarResult = yield* Effect.promise(() => tarExit);
+      const tarResult = yield* Effect.promise(() => tar.exit.settlement);
       if (!tarResult.ok) {
         return yield* Effect.fail(
-          new Error(`local tar failed: ${tarResult.error.message}`),
+          new Error(
+            `local tar failed: ${tarResult.error.message}${tar.stderr() ? `: ${tar.stderr()}` : ""}`,
+          ),
         );
       }
       return parseDeployTransferResult(output);
