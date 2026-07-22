@@ -73,9 +73,12 @@ describe("resolveTerminalBinding", () => {
       ether: {
         entity: { kind: "terminal" },
         host: "remote-a",
-        terminal: { bindingId: "bind-1", launch: { kind: "command", argv: ["zsh"] } },
+        terminal: {
+          bindingId: "bind-1",
+          launch: { kind: "command" as const, argv: ["zsh"] },
+        },
       },
-    };
+    } satisfies CanvasNode;
     const b = resolveTerminalBinding(node);
     expect(b?.kind).toBe("native");
     if (b?.kind === "native") {
@@ -100,7 +103,7 @@ describe("resolveTerminalBinding", () => {
         entity: { kind: "herdr" },
         herdr: { host: "local", paneId: "p1", terminalId: "t1" },
       },
-    };
+    } satisfies CanvasNode;
     const b = resolveTerminalBinding(node);
     expect(b?.kind).toBe("herdr");
     if (b?.kind === "herdr") {
@@ -119,7 +122,7 @@ describe("resolveTerminalBinding", () => {
       width: 1,
       height: 1,
       ether: { entity: { kind: "terminal" } },
-    };
+    } satisfies CanvasNode;
     expect(resolveTerminalBinding(node)).toBeUndefined();
   });
 });
