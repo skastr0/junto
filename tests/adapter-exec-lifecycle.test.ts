@@ -7,6 +7,8 @@ interface LifecycleReceipt {
   readonly gracefulOk: boolean;
   readonly gracefulSettledWithinBound: boolean;
   readonly failedSpawnOk: boolean;
+  readonly drainClean: boolean;
+  readonly repeatedQuitCoalesced: boolean;
   readonly leaderResultOk: boolean;
   readonly leaderError?: string;
   readonly leaderGrandchildAliveWhenSettled: boolean;
@@ -67,6 +69,8 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
       gracefulOk: true,
       gracefulSettledWithinBound: true,
       failedSpawnOk: false,
+      drainClean: false,
+      repeatedQuitCoalesced: true,
       leaderResultOk: false,
       leaderError:
         "adapter command leader exited while output streams remained open; descendant cleanup refused",

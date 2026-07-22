@@ -81,13 +81,15 @@ try {
   };
 
   const activeCleanupStartedAt = Date.now();
-  terminateAdapterChildrenOnQuit();
+  const drain = terminateAdapterChildrenOnQuit();
+  const repeatedQuitCoalesced = drain === terminateAdapterChildrenOnQuit();
   const pendingResult = await pending;
   await waitUntil(
     "active group reaped",
     () => processGoneOrZombie(pids.parentPid) && processGoneOrZombie(pids.grandchildPid),
   );
   const activeGroupReapedBeforeHardExpiry = Date.now() - activeCleanupStartedAt < 1_500;
+  const drainResult = await drain;
 
   const lateResult = await runCli(
     process.execPath,
@@ -98,6 +100,8 @@ try {
     gracefulOk: graceful.ok,
     gracefulSettledWithinBound,
     failedSpawnOk: failedSpawn.ok,
+    drainClean: drainResult.clean,
+    repeatedQuitCoalesced,
     leaderResultOk: leader.ok,
     leaderError: leader.error,
     leaderGrandchildAliveWhenSettled,

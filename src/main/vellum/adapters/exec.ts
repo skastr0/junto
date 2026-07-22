@@ -37,6 +37,7 @@ interface OwnedAdapterChild {
 
 const ownedAdapterChildren = new Set<OwnedAdapterChild>();
 let adapterProcessesQuiescing = false;
+let adapterQuitDrain: Promise<AdapterQuitDrainResult> | undefined;
 
 export interface CliResult {
   readonly ok: boolean;
@@ -59,6 +60,12 @@ const releaseOwnedAdapterChild = (owned: OwnedAdapterChild): void => {
   ownedAdapterChildren.delete(owned);
 };
 
+const cancelOwnedAdapterCleanup = (owned: OwnedAdapterChild): void => {
+  if (owned.cleanupTimer === undefined) return;
+  clearTimeout(owned.cleanupTimer);
+  owned.cleanupTimer = undefined;
+};
+
 const QUIT_KILL_GRACE_MS = 1_000;
 const LEADER_STREAM_DRAIN_GRACE_MS = 100;
 const LEADERLESS_STREAM_ERROR =
@@ -69,7 +76,7 @@ const retainOwnedAdapterChildUntilKill = (owned: OwnedAdapterChild): void => {
   if (owned.cleanupTimer === undefined) {
     owned.cleanupTimer = setTimeout(() => {
       signalOwnedAdapterChild(owned, "SIGKILL");
-      releaseOwnedAdapterChild(owned);
+      owned.cleanupTimer = undefined;
     }, QUIT_KILL_GRACE_MS);
     owned.cleanupTimer.unref?.();
   }
@@ -89,12 +96,25 @@ const terminateOwnedAdapterChild = (owned: OwnedAdapterChild): void => {
  * registry stores child handles and group ids only — never argv, which may
  * contain user prompt material for Hermes calls.
  */
-export const terminateAdapterChildrenOnQuit = (): void => {
-  if (adapterProcessesQuiescing) return;
+export interface AdapterQuitDrainResult {
+  readonly clean: boolean;
+  readonly retained: number;
+}
+
+export const terminateAdapterChildrenOnQuit = (): Promise<AdapterQuitDrainResult> => {
+  if (adapterQuitDrain) return adapterQuitDrain;
   adapterProcessesQuiescing = true;
   for (const owned of ownedAdapterChildren) {
     terminateOwnedAdapterChild(owned);
   }
+  adapterQuitDrain = new Promise((resolve) => {
+    const drainTimer = setTimeout(() => {
+      const retained = ownedAdapterChildren.size;
+      resolve({ clean: retained === 0, retained });
+    }, QUIT_KILL_GRACE_MS + LEADER_STREAM_DRAIN_GRACE_MS);
+    drainTimer.unref?.();
+  });
+  return adapterQuitDrain;
 };
 
 const runOwnedFile = (
@@ -162,6 +182,7 @@ const runRegisteredAdapterChild = (
     let resultSettled = false;
     let closeObserved = false;
     let leaderExited = false;
+    let retainedStraggler = false;
     let timedOut = false;
     let bufferExceeded = false;
     let leaderExitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -207,8 +228,8 @@ const runRegisteredAdapterChild = (
     const abandonLeaderlessGroup = (): void => {
       clearTimeout(timer);
       if (leaderExitTimer !== undefined) clearTimeout(leaderExitTimer);
+      retainedStraggler = true;
       settleResult({ ok: false, stdout, error: LEADERLESS_STREAM_ERROR });
-      releaseOwnedAdapterChild(owned);
     };
 
     const append = (target: "stdout" | "stderr", chunk: unknown): void => {
@@ -251,7 +272,7 @@ const runRegisteredAdapterChild = (
       leaderExited = true;
       // Group authority ends with its leader. Cancel an in-flight quit KILL
       // now, rather than attempting a guaranteed-refused signal after grace.
-      releaseOwnedAdapterChild(owned);
+      cancelOwnedAdapterCleanup(owned);
       // A normal leader drains its pipes and reaches `close` first. If an
       // inherited pipe stays open, a leaderless group is no longer safe to
       // signal; stop waiting, report the refusal, and detach our endpoints.
@@ -263,7 +284,7 @@ const runRegisteredAdapterChild = (
     child.once("close", (code, signal) => {
       if (code === 0 && signal === null && !timedOut && !bufferExceeded) {
         settleResult({ ok: true, stdout });
-        releaseAfterClose();
+        if (!retainedStraggler) releaseAfterClose();
         return;
       }
       const error = stderr.trim() ||
@@ -278,7 +299,7 @@ const runRegisteredAdapterChild = (
       // non-zero when a single provider errors while still emitting a useful
       // JSON payload on stdout. Callers decide whether to recover from it.
       settleResult({ ok: false, stdout, error });
-      releaseAfterClose();
+      if (!retainedStraggler) releaseAfterClose();
     });
 };
 
