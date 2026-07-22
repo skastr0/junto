@@ -2048,6 +2048,61 @@ describe("BrowserSessionService", () => {
     expect(service.listForOwner("orphan-owner")).toEqual({ ok: true, data: [] });
   });
 
+  it("times out unclean while an invalidated automation open remains pending", async () => {
+    const base = makeBrowserProfileService(root);
+    await Effect.runPromise(base.ensureDefaults);
+    const partition = deferred<string>();
+    let partitionReads = 0;
+    const profiles: BrowserProfileServiceApi = {
+      ...base,
+      partitionName: (profile) =>
+        profile === "personal"
+          ? Effect.promise(() => {
+              partitionReads += 1;
+              return partition.promise;
+            })
+          : base.partitionName(profile),
+    };
+    const { adapter, views } = makeSpyAdapter();
+    const service = new BrowserSessionService(
+      adapter,
+      profiles,
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      5,
+      5,
+    );
+
+    const opening = service.openForOwner(
+      "orphan-owner",
+      target("stuck-owner-shutdown-open"),
+    );
+    await vi.waitFor(() => expect(partitionReads).toBe(1));
+
+    await expect(service.drainUiOnQuit("test shutdown")).resolves.toMatchObject({
+      clean: false,
+      operations: ["open"],
+      settled: 0,
+      fulfilled: 0,
+      rejected: 0,
+      timedOut: true,
+      activeOperations: ["open"],
+      sessionsDestroyed: 0,
+    });
+    expect(views).toHaveLength(0);
+
+    partition.resolve("persist:vellum-profile-personal");
+    await expect(opening).resolves.toMatchObject({ ok: false, code: "cancelled" });
+    await expect(service.drainUiOnQuit("retry shutdown")).resolves.toMatchObject({
+      clean: true,
+      timedOut: false,
+      activeOperations: [],
+    });
+    expect(views).toHaveLength(0);
+  });
+
   it("closes automation mutation admission with the UI shutdown gate", async () => {
     const { service, views } = makeDefaultService();
     const opened = await service.openForOwner(
