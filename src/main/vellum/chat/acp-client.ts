@@ -1,4 +1,10 @@
 import { isAbsolute } from "node:path";
+import {
+  admitChildProcess,
+  releaseOwned,
+  signalOwned,
+  type OwnedProcess,
+} from "../process-signal";
 import type { AcpSpawnTarget } from "./spawn";
 
 // One long-lived `hermes acp` (or ssh-wrapped remote) child process, speaking
@@ -190,6 +196,7 @@ export interface AcpInitializeResult {
 
 export class AcpClient {
   private child: AcpChildLike | undefined;
+  private childProcess: OwnedProcess | undefined;
   private buffer = "";
   private nextId = 1;
   private closedFlag = false;
@@ -236,12 +243,21 @@ export class AcpClient {
       this.target,
       environmentOverlay === undefined ? undefined : { environmentOverlay },
     );
+    const childProcess = admitChildProcess({
+      source: `chat-acp:${this.target.host}:${this.target.profile}`,
+      child,
+    });
     this.child = child;
+    this.childProcess = childProcess;
 
     child.stdout.on("data", (chunk: unknown) => this.onStdout(String(chunk)));
     child.stderr.on("data", (chunk: unknown) => this.onStderr(String(chunk)));
-    child.on("error", (err) => this.onChildDown({ kind: "error", message: err.message }));
-    child.on("exit", (code) => this.onChildDown({ kind: "closed", code }));
+    child.on("error", (err) =>
+      this.onChildDown(child, childProcess, { kind: "error", message: err.message }),
+    );
+    child.on("exit", (code) =>
+      this.onChildDown(child, childProcess, { kind: "closed", code }),
+    );
 
     try {
       return await this.withTimeout(
@@ -303,31 +319,33 @@ export class AcpClient {
     this.closedFlag = true;
     this.rejectAllPending(new Error("ACP client closed"));
     const child = this.child;
+    const childProcess = this.childProcess;
     this.child = undefined;
-    if (child) this.killChild(child);
+    this.childProcess = undefined;
+    if (child && childProcess) this.killChild(child, childProcess);
   }
 
   // Sends SIGTERM, then escalates to SIGKILL if the child hasn't exited
   // within SIGTERM_GRACE_MS. Shared by close() and a post-handshake request
   // timeout (handleFatalFailure) — both need the same hard-kill guarantee
   // for a child that ignores or is too wedged to process the polite signal.
-  private killChild(child: AcpChildLike): void {
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      // best-effort — the child may already be gone
-    }
-    let exited = false;
-    child.on("exit", () => {
-      exited = true;
-    });
-    const timer = setTimeout(() => {
-      if (exited) return;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // best-effort — the child may already be gone
-      }
+  private killChild(child: AcpChildLike, childProcess: OwnedProcess): void {
+    let finished = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (): void => {
+      if (finished) return;
+      finished = true;
+      if (timer !== undefined) clearTimeout(timer);
+      releaseOwned(childProcess);
+    };
+    child.on("exit", finish);
+    child.on("error", finish);
+    signalOwned(childProcess, "SIGTERM");
+    if (finished) return;
+    timer = setTimeout(() => {
+      if (finished) return;
+      signalOwned(childProcess, "SIGKILL");
+      finish();
     }, SIGTERM_GRACE_MS);
     (timer as unknown as { unref?: () => void }).unref?.();
   }
@@ -345,8 +363,10 @@ export class AcpClient {
     this.closedFlag = true;
     this.rejectAllPending(new Error(message));
     const child = this.child;
+    const childProcess = this.childProcess;
     this.child = undefined;
-    if (child) this.killChild(child);
+    this.childProcess = undefined;
+    if (child && childProcess) this.killChild(child, childProcess);
     this.handlers.onLifecycle({ kind: "error", message });
   }
 
@@ -439,13 +459,21 @@ export class AcpClient {
     }
   }
 
-  private onChildDown(event: AcpLifecycleEvent): void {
+  private onChildDown(
+    child: AcpChildLike,
+    childProcess: OwnedProcess,
+    event: AcpLifecycleEvent,
+  ): void {
+    releaseOwned(childProcess);
+    if (this.child === child) {
+      this.child = undefined;
+      if (this.childProcess === childProcess) this.childProcess = undefined;
+    }
     if (this.closedFlag) return; // already torn down intentionally
     this.closedFlag = true;
     this.rejectAllPending(
       new Error(event.kind === "error" ? event.message : `ACP child exited (code ${event.code ?? "unknown"})`),
     );
-    this.child = undefined;
     this.handlers.onLifecycle(event);
   }
 

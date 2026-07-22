@@ -81,6 +81,7 @@ afterEach(() => {
 describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
   it("close() sends SIGTERM, then escalates to SIGKILL after the grace window if the child never exits", async () => {
     vi.useFakeTimers();
+    const ambientKill = vi.spyOn(process, "kill").mockImplementation(() => true);
     const child = new FakeChild();
     const client = new AcpClient(TARGET, noopHandlers(), () => child);
 
@@ -94,6 +95,7 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
 
     await vi.advanceTimersByTimeAsync(2_000); // SIGTERM_GRACE_MS
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    expect(ambientKill).not.toHaveBeenCalled();
   });
 
   it("does not escalate if the child exits within the grace window", async () => {

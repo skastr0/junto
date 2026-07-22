@@ -309,6 +309,8 @@ describe("crash handling", () => {
     await expect(pending).rejects.toThrow(/exited/);
     expect(onLifecycle).toHaveBeenCalledWith({ kind: "closed", code: 1 });
     expect(client.closed).toBe(true);
+    client.close();
+    expect(child.kill).not.toHaveBeenCalled();
   });
 
   it("child error fires onLifecycle('error') with the underlying message", async () => {
@@ -319,6 +321,8 @@ describe("crash handling", () => {
 
     expect(onLifecycle).toHaveBeenCalledWith({ kind: "error", message: "ENOENT: hermes not found" });
     expect(client.closed).toBe(true);
+    client.close();
+    expect(child.kill).not.toHaveBeenCalled();
   });
 
   it("an intentional close() never fires onLifecycle", async () => {

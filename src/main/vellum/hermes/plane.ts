@@ -23,6 +23,12 @@ import {
   fetchAgentIdentity,
   type HermesIdentityOperations,
 } from "../adapters/hermes-identity";
+import {
+  admitChildProcess,
+  releaseOwned,
+  signalOwned,
+  type OwnedProcess,
+} from "../process-signal";
 import type {
   AcpChildEnvironmentOverlay,
   AcpChildLike,
@@ -48,10 +54,16 @@ type RunPromise = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 const acpArgs = (profile: HermesProfileName): ReadonlyArray<string> =>
   isDefaultHermesProfile(profile) ? ["acp"] : ["-p", profile, "acp"];
 
-const terminateLocalAcpChild = (
-  child: ChildProcessWithoutNullStreams,
-): Promise<void> => {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+interface LocalAcpChild {
+  readonly child: ChildProcessWithoutNullStreams;
+  readonly process: OwnedProcess;
+}
+
+const terminateLocalAcpChild = ({ child, process }: LocalAcpChild): Promise<void> => {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    releaseOwned(process);
+    return Promise.resolve();
+  }
   return new Promise((resolve) => {
     let settled = false;
     let forceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -61,22 +73,14 @@ const terminateLocalAcpChild = (
       settled = true;
       if (forceTimer !== undefined) clearTimeout(forceTimer);
       if (boundTimer !== undefined) clearTimeout(boundTimer);
+      releaseOwned(process);
       resolve();
     };
     child.once("close", finish);
     child.once("error", finish);
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      finish();
-      return;
-    }
+    signalOwned(process, "SIGTERM");
     forceTimer = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        finish();
-      }
+      signalOwned(process, "SIGKILL");
     }, 2_000);
     boundTimer = setTimeout(finish, 4_000);
   });
@@ -266,7 +270,7 @@ export const HermesPlaneLive = Layer.scoped(
       avatar: (host, profile) => runOwned(transport.avatar(host, profile)),
     };
 
-    const localChildren = new Set<ChildProcessWithoutNullStreams>();
+    const localChildren = new Set<LocalAcpChild>();
 
     const spawnAcp: SpawnFn = (
       target: AcpSpawnTarget,
@@ -294,9 +298,18 @@ export const HermesPlaneLive = Layer.scoped(
         stdio: ["pipe", "pipe", "pipe"],
         env,
       }) as ChildProcessWithoutNullStreams;
-      localChildren.add(child);
-      child.once("close", () => localChildren.delete(child));
-      child.once("error", () => localChildren.delete(child));
+      const process = admitChildProcess({
+        source: `hermes-acp:${target.profile}`,
+        child,
+      });
+      const localChild = { child, process } satisfies LocalAcpChild;
+      localChildren.add(localChild);
+      const release = (): void => {
+        localChildren.delete(localChild);
+        releaseOwned(process);
+      };
+      child.once("close", release);
+      child.once("error", release);
       return child;
     };
 
