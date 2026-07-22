@@ -2,10 +2,11 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
-  registerOwnedProcess,
-  releaseOwnedProcess,
-  signalOwnedHandle,
-  type OwnedProcessHandle,
+  admitSpawnedProcess,
+  releaseOwned,
+  signalOwned,
+  type OwnedProcess,
+  type TerminatingSignal,
 } from "../process-signal";
 
 // Shared shell-out helper for the read-only adapter plane. Every adapter
@@ -28,7 +29,7 @@ const ADAPTER_QUIESCING_ERROR = "adapter process plane is shutting down";
 interface OwnedAdapterChild {
   readonly child: ChildProcessWithoutNullStreams;
   readonly processGroupId?: number;
-  readonly ownedHandle?: OwnedProcessHandle;
+  readonly owned?: OwnedProcess;
 }
 
 const ownedAdapterChildren = new Set<OwnedAdapterChild>();
@@ -45,11 +46,11 @@ const signalOwnedAdapterChild = (
   signal: NodeJS.Signals,
 ): void => {
   if (owned.child.exitCode !== null || owned.child.signalCode !== null) return;
-  if (owned.ownedHandle) {
-    signalOwnedHandle(owned.ownedHandle, signal);
+  if (owned.owned) {
+    signalOwned(owned.owned, signal as TerminatingSignal);
     return;
   }
-  // No capability — refuse OS kill; best-effort direct child handle only.
+  // No branded capability — child handle only (no pid / no process.kill).
   try {
     owned.child.kill(signal);
   } catch {
@@ -111,7 +112,7 @@ const runOwnedFile = (
 
     child.stdin.end();
     const wantsGroup = process.platform !== "win32" && child.pid !== undefined;
-    const reg = registerOwnedProcess({
+    const admitted = admitSpawnedProcess({
       source: "adapter.cli",
       pid: child.pid,
       ownsProcessGroup: wantsGroup,
@@ -120,7 +121,7 @@ const runOwnedFile = (
     const owned: OwnedAdapterChild = {
       child,
       ...(wantsGroup ? { processGroupId: child.pid } : {}),
-      ...(reg.ok ? { ownedHandle: reg.handle } : {}),
+      ...(admitted.ok ? { owned: admitted.process } : {}),
     };
     ownedAdapterChildren.add(owned);
 
@@ -145,7 +146,7 @@ const runOwnedFile = (
       // A one-shot adapter command never owns a persistent descendant. Reap
       // anything that outlived its group leader before forgetting the group.
       signalOwnedAdapterChild(owned, "SIGTERM");
-      releaseOwnedProcess(owned.ownedHandle);
+      releaseOwned(owned.owned);
       ownedAdapterChildren.delete(owned);
       resolve(result);
     };

@@ -104,9 +104,10 @@ Region activation gated by three structures (`src/shared/canvas.ts`):
 **Attached agent chat** — one live ACP session per agent node (`<host>:<profile>`); resumable across app sessions (channels: `chatOpen`, `chatPrompt`, `chatPermission`, `chatSetModel`, `chatClose`). Main process owns the `hermes acp` child; renders in the canvas as inline composition. The file remains the agent API.
 
 **Native terminals** — `terminal` is the default terminal entity. TermPlane owns
-local sessions and app quit kills all of them, including detached sessions; use
-a Remote station when work must survive Command Center quit. Herdr is an optional
-legacy bridge for existing panes and must not be required for local health.
+local sessions and app quit stops local sessions only through the sealed
+process-signal capability plane (never bare `process.kill(pid)`); use a Remote
+station when work must survive Command Center quit. Herdr is an optional legacy
+bridge for existing panes and must not be required for local health.
 
 **Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one herdr pane, one page). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.
 
@@ -127,11 +128,28 @@ Techniques baked in: dim+blur backdrop, titlebar-aware padding, enter animation 
 - `src/renderer/` — the canvas surface.
 - `scripts/` — the headless CLIs above.
 
+## Machine safety (architecture north star)
+
+**Vellum must never threaten the user's machine.** Host-destructive power is not
+“handled carefully in tests” — it is made **unrepresentable** without a capability
+Vellum mints when it owns the resource.
+
+- **Law:** no ambient `kill(pid)` / open host wipe APIs. Domain types + Effect
+  Schema + branded handles only.
+- **Process signals:** `src/main/vellum/process-signal.ts` — sole site for
+  `process.kill(-pid)`. Flow: `admitSpawnedProcess` → `OwnedProcess` (unique
+  symbol + WeakMap authority) → `signalOwned` / `releaseOwned`.
+- **Full doctrine:** [`docs/architecture-machine-safety.md`](docs/architecture-machine-safety.md).
+
+PR test: *Can a confused agent or bad test pass a bare pid/path into a
+host-destructive call? If yes, the change is not done.*
+
 ## Discipline
 
 - Adapters are read-only. The document is the only thing the user (or an agent) mutates.
 - Board/source IDs and tokens never leak into committed source.
 - `bun run typecheck && bun run test` gate every change.
+- Host-touching code follows Machine safety (above) — fail closed, capability-first.
 
 ## Multi-agent tree (for builders)
 

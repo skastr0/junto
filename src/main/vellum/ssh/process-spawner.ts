@@ -2,10 +2,11 @@ import * as Command from "@effect/platform/Command";
 import * as CommandExecutor from "@effect/platform/CommandExecutor";
 import { Context, Effect, Layer, Scope, Sink, Stream } from "effect";
 import {
-  registerOwnedProcess,
-  releaseOwnedProcess,
-  signalOwnedHandle,
-  type OwnedProcessHandle,
+  admitSpawnedProcess,
+  releaseOwned,
+  signalOwned,
+  type OwnedProcess,
+  type TerminatingSignal,
 } from "../process-signal";
 
 export class ProcessFailure {
@@ -32,23 +33,23 @@ const failure = (): ProcessFailure => new ProcessFailure();
 
 type TrackedSshChild = {
   readonly child: CommandExecutor.Process;
-  readonly ownedHandle: OwnedProcessHandle | undefined;
+  readonly owned: OwnedProcess | undefined;
 };
 
 const stopProcess = (tracked: TrackedSshChild): Effect.Effect<void> =>
   tracked.child.isRunning.pipe(
     Effect.flatMap((running) => {
       if (!running) {
-        releaseOwnedProcess(tracked.ownedHandle);
+        releaseOwned(tracked.owned);
         return Effect.void;
       }
       const awaitExit = tracked.child.exitCode.pipe(Effect.exit, Effect.asVoid);
-      const sig = (signal: NodeJS.Signals) =>
+      const sig = (signal: TerminatingSignal) =>
         Effect.sync(() => {
-          if (tracked.ownedHandle) {
-            signalOwnedHandle(tracked.ownedHandle, signal);
+          if (tracked.owned) {
+            signalOwned(tracked.owned, signal);
           }
-          // No bare-pid fallback — unregistered means no OS kill.
+          // No bare-pid fallback — unadmitted means no OS kill.
         });
       const forceAfterGrace = Effect.sleep("2 seconds").pipe(
         Effect.zipRight(sig("SIGKILL")),
@@ -58,7 +59,7 @@ const stopProcess = (tracked: TrackedSshChild): Effect.Effect<void> =>
         Effect.zipRight(
           Effect.raceFirst(awaitExit, forceAfterGrace).pipe(Effect.interruptible),
         ),
-        Effect.ensuring(Effect.sync(() => releaseOwnedProcess(tracked.ownedHandle))),
+        Effect.ensuring(Effect.sync(() => releaseOwned(tracked.owned))),
       );
     }),
     Effect.timeout("5 seconds"),
@@ -77,7 +78,7 @@ export const ProcessSpawnerLive = Layer.effect(
             Effect.mapError(failure),
             Effect.map((child) => {
               const pid = Number(child.pid);
-              const reg = registerOwnedProcess({
+              const admitted = admitSpawnedProcess({
                 source: "ssh.process-spawner",
                 pid: Number.isFinite(pid) ? pid : undefined,
                 // SSH ControlMaster children are process-group leaders we own.
@@ -85,7 +86,7 @@ export const ProcessSpawnerLive = Layer.effect(
               });
               return {
                 child,
-                ownedHandle: reg.ok ? reg.handle : undefined,
+                owned: admitted.ok ? admitted.process : undefined,
               } satisfies TrackedSshChild;
             }),
           ),

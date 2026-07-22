@@ -12,16 +12,16 @@ import { randomBytes } from "node:crypto";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { getProcessIdentityMap } from "../process-identity";
 import {
+  admitSpawnedProcess,
   classifyProcessSignalTarget,
-  clearOwnedProcessRegistryForTests,
   clearProcessSignalAuditLog,
   getProcessSignalAuditLog,
-  registerOwnedProcess,
-  releaseOwnedProcess,
+  releaseOwned,
   signalChildHandleOnly,
-  signalOwnedHandle,
-  type OwnedProcessHandle,
+  signalOwned,
+  type OwnedProcess,
   type ProcessSignalAudit,
+  type TerminatingSignal,
 } from "../process-signal";
 
 export type LocalHostCreateInput = {
@@ -125,8 +125,8 @@ type SessionRec = {
   journalBytes: number;
   controlLeaseId: string | undefined;
   killed: boolean;
-  /** Capability from process-signal registry — required for OS kill. */
-  ownedHandle: OwnedProcessHandle | undefined;
+  /** Branded capability — only admitSpawnedProcess can mint. */
+  owned: OwnedProcess | undefined;
 };
 
 const DEFAULT_COLS = 120;
@@ -137,10 +137,7 @@ const SHUTDOWN_GRACE_MS = 1500;
 /** @deprecated use ProcessSignalAudit from process-signal */
 export type TermKillAudit = ProcessSignalAudit;
 export const getTermKillAuditLog = getProcessSignalAuditLog;
-export const clearTermKillAuditLog = (): void => {
-  clearProcessSignalAuditLog();
-  clearOwnedProcessRegistryForTests();
-};
+export const clearTermKillAuditLog = clearProcessSignalAuditLog;
 
 /** Thin wrapper kept for term tests — maps to sealed classifier. */
 export const classifyTermKillTarget = (input: {
@@ -341,7 +338,7 @@ export class LocalSessionHost extends EventEmitter {
       journalBytes: 0,
       controlLeaseId: undefined,
       killed: false,
-      ownedHandle: undefined,
+      owned: undefined,
     };
     this.sessions.set(bindingId, rec);
     this.emitEvent({ type: "session", bindingId, epoch, status: "starting" });
@@ -358,14 +355,14 @@ export class LocalSessionHost extends EventEmitter {
       rec.child = child;
       rec.pid = child.pid;
       rec.status = "running";
-      // Register only safe pids. Fakes with pid=self/1 get child.kill-only path.
-      const reg = registerOwnedProcess({
+      // Admit only KillablePid. Fakes with pid=self/1 → child.kill-only path.
+      const admitted = admitSpawnedProcess({
         source: `term:${bindingId}`,
         pid: child.pid,
         ownsProcessGroup: false,
         child,
       });
-      rec.ownedHandle = reg.ok ? reg.handle : undefined;
+      rec.owned = admitted.ok ? admitted.process : undefined;
       this.bindProcessIdentity(rec);
       this.emitEvent({
         type: "session",
@@ -393,8 +390,8 @@ export class LocalSessionHost extends EventEmitter {
         if (rec.epoch !== epoch) return;
         if (this.sessions.get(bindingId) !== rec) return;
         rec.status = "exited";
-        releaseOwnedProcess(rec.ownedHandle);
-        rec.ownedHandle = undefined;
+        releaseOwned(rec.owned);
+        rec.owned = undefined;
         if (rec.pid !== undefined) getProcessIdentityMap().unbind(rec.pid);
         rec.child = undefined;
         rec.seq = rec.seq + 1n;
@@ -651,22 +648,22 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   /**
-   * Kill ONLY via capability handle registered at spawn, else child.kill only.
-   * Never bare process.kill(pid). Never process-group (terminals register with
-   * ownsProcessGroup: false).
+   * Kill via branded OwnedProcess only. Parameter type cannot be a bare pid.
+   * Terminals admit with ownsProcessGroup:false → child.kill path inside seal.
    */
   private forceKill(rec: SessionRec, signal: NodeJS.Signals): void {
     const child = rec.child;
-    if (!child && !rec.ownedHandle) {
+    if (!child && !rec.owned) {
       rec.status = "exited";
       return;
     }
-    if (rec.ownedHandle) {
-      signalOwnedHandle(rec.ownedHandle, signal);
+    const termSignal = signal as TerminatingSignal;
+    if (rec.owned) {
+      signalOwned(rec.owned, termSignal);
       return;
     }
-    // Registration failed (dangerous fake pid, etc.) — handle only, no OS kill.
-    signalChildHandleOnly(child, signal, `term.forceKill-child-only:${rec.bindingId}`);
+    // Admit failed (dangerous pid) — child handle only; API takes no pid.
+    signalChildHandleOnly(child, termSignal, `term.forceKill-child-only:${rec.bindingId}`);
   }
 
   private pushJournal(rec: SessionRec, entry: JournalEntry): void {
