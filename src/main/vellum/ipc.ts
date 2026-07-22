@@ -26,6 +26,8 @@ import { WorkService } from "./work/service";
 import { messageDelivery } from "./work/message-delivery";
 import { stampMessageDelivered } from "@shared/message-delivery";
 import { HerdrPlane } from "./herdr/plane";
+import { registerTerminalIpc } from "./term/ipc";
+import { termPlane } from "./term/plane";
 import type { A2AMetadata, Artifact, Message, TaskState } from "@shared/canvas";
 
 const broadcast = (channel: string, payload: unknown) => {
@@ -52,6 +54,7 @@ const denyIfRemoteAuthorial = Effect.gen(function* () {
 
 export const registerVellumIpc = (): void => {
   registerHerdrIpc(ipcMain, () => BrowserWindow.getAllWindows().map((w) => w.webContents));
+  registerTerminalIpc(ipcMain, termPlane);
   registerSettingsIpc(ipcMain, broadcast);
   registerHostsIpc(ipcMain);
   ipcMain.handle(IPC_CHANNELS.listCanvases, () =>

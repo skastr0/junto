@@ -18,6 +18,7 @@ import {
   type VellumChatApi,
   type VellumDemoApi,
   type VellumHerdrApi,
+  type VellumTerminalApi,
   type KernelSnapshot,
   type NodeRefOpenedDelivery,
   type NodeRefOpenedEvent,
@@ -379,6 +380,20 @@ const browserApi: VellumBrowserApi = {
     subscribe<BrowserSessionInfo>(IPC_CHANNELS.browserSessionChanged, listener),
 };
 
+const terminalApi: VellumTerminalApi = {
+  terminalList: () => invoke(IPC_CHANNELS.terminalList, IPC_TIMEOUT_MS),
+  terminalCreate: (input) => invoke(IPC_CHANNELS.terminalCreate, IPC_TIMEOUT_MS, input),
+  terminalGet: (bindingId) => invoke(IPC_CHANNELS.terminalGet, IPC_TIMEOUT_MS, bindingId),
+  terminalKill: (bindingId) => invoke(IPC_CHANNELS.terminalKill, IPC_TIMEOUT_MS, bindingId),
+  terminalBindCanvas: (bindingId, ref) => invoke(IPC_CHANNELS.terminalBindCanvas, IPC_TIMEOUT_MS, bindingId, ref),
+  terminalAttach: (input) => invoke(IPC_CHANNELS.terminalAttach, IPC_TIMEOUT_MS, input),
+  terminalRelease: (leaseId) => invoke(IPC_CHANNELS.terminalRelease, IPC_TIMEOUT_MS, leaseId),
+  terminalWrite: (leaseId, data, encoding) => invoke(IPC_CHANNELS.terminalWrite, IPC_TIMEOUT_MS, leaseId, data, encoding),
+  terminalResize: (leaseId, cols, rows) => invoke(IPC_CHANNELS.terminalResize, IPC_TIMEOUT_MS, leaseId, cols, rows),
+  terminalShutdown: () => invoke(IPC_CHANNELS.terminalShutdown, IPC_TIMEOUT_MS),
+  onTerminalEvent: (listener) => subscribe(IPC_CHANNELS.terminalEvent, listener),
+};
+
 const demoApi: VellumDemoApi = {
   demoState: () => invoke(IPC_CHANNELS.demoState, IPC_TIMEOUT_MS),
   demoCommand: (command) => invoke(IPC_CHANNELS.demoCommand, IPC_TIMEOUT_MS, command),
@@ -391,6 +406,7 @@ contextBridge.exposeInMainWorld("vellum", {
   ...vellumApi,
   ...chatApi,
   ...herdrApi,
+  ...terminalApi,
   ...browserApi,
   ...demoApi,
 });

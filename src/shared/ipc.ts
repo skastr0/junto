@@ -36,6 +36,7 @@ import type {
 } from "./settings";
 import type { UsageState } from "./usage";
 import type { CanvasPullResult } from "./canvas-pull";
+import type { TerminalSessionSummary, TerminalLaunch } from "./terminal";
 export type {
   CanvasPullResult,
   CanvasPullStatus,
@@ -160,6 +161,17 @@ export const IPC_CHANNELS = {
   kernelChanged: "vellum:kernel-changed",
   herdrStreamEvent: "vellum:herdr-stream-event",
   herdrMirrorEvent: "vellum:herdr-mirror-event",
+  terminalList: "vellum:terminal-list",
+  terminalCreate: "vellum:terminal-create",
+  terminalGet: "vellum:terminal-get",
+  terminalKill: "vellum:terminal-kill",
+  terminalBindCanvas: "vellum:terminal-bind-canvas",
+  terminalAttach: "vellum:terminal-attach",
+  terminalRelease: "vellum:terminal-release",
+  terminalWrite: "vellum:terminal-write",
+  terminalResize: "vellum:terminal-resize",
+  terminalShutdown: "vellum:terminal-shutdown",
+  terminalEvent: "vellum:terminal-event",
   browserSessionChanged: "vellum:browser-session-changed",
 } as const;
 
@@ -864,6 +876,38 @@ export interface VellumHerdrApi {
   readonly onHerdrStreamEvent: (listener: (event: HerdrStreamEvent) => void) => () => void;
   readonly herdrMirrorState: () => Promise<ReadonlyArray<HerdrMirrorStateInfo>>;
   readonly onHerdrMirrorEvent: (listener: (event: HerdrMirrorEvent) => void) => () => void;
+}
+
+export interface TerminalCreateInput {
+  readonly bindingId: string;
+  readonly hostId?: string;
+  readonly launch?: TerminalLaunch;
+  readonly cols?: number;
+  readonly rows?: number;
+  readonly canvasName?: string;
+  readonly nodeId?: string;
+  readonly label?: string;
+  readonly title?: string;
+}
+
+export interface TerminalAttachInput {
+  readonly bindingId: string;
+  readonly mode: "control" | "observe";
+  readonly takeover?: boolean;
+}
+
+export interface VellumTerminalApi {
+  readonly terminalList: () => Promise<readonly TerminalSessionSummary[]>;
+  readonly terminalCreate: (input: TerminalCreateInput) => Promise<TerminalSessionSummary>;
+  readonly terminalGet: (bindingId: string) => Promise<TerminalSessionSummary | undefined>;
+  readonly terminalKill: (bindingId: string) => Promise<boolean>;
+  readonly terminalBindCanvas: (bindingId: string, ref: { canvasName?: string; nodeId?: string } | null) => Promise<void>;
+  readonly terminalAttach: (input: TerminalAttachInput) => Promise<unknown>;
+  readonly terminalRelease: (leaseId: string) => Promise<boolean>;
+  readonly terminalWrite: (leaseId: string, data: string, encoding?: "utf8" | "base64") => Promise<boolean>;
+  readonly terminalResize: (leaseId: string, cols: number, rows: number) => Promise<boolean>;
+  readonly terminalShutdown: () => Promise<void>;
+  readonly onTerminalEvent: (listener: (event: unknown) => void) => () => void;
 }
 
 // --- demo/scripting engine (--vellum-demo only) ------------------------------
