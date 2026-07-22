@@ -1,7 +1,7 @@
 /**
  * App-scoped local terminal session authority.
  * Owns child processes (PTY when available, pipe fallback otherwise).
- * Presentation (Ghostty/xterm) is a consumer — never co-located as process owner.
+ * Presentation (xterm) is a consumer — never co-located as process owner.
  * Product law: app quit stops all local sessions (no LaunchAgent survive-quit).
  */
 
@@ -17,7 +17,6 @@ import {
   clearProcessSignalAuditLog,
   getProcessSignalAuditLog,
   releaseOwned,
-  signalChildHandleOnly,
   signalOwned,
   type OwnedProcess,
   type ProcessSignalAudit,
@@ -649,8 +648,7 @@ export class LocalSessionHost extends EventEmitter {
       signalOwned(rec.owned, termSignal);
       return;
     }
-    // Admit failed (dangerous pid) — child handle only; API takes no pid.
-    signalChildHandleOnly(child, termSignal, `term.forceKill-child-only:${rec.bindingId}`);
+    // Every live terminal child receives a total child-only capability at spawn.
   }
 
   private pushJournal(rec: SessionRec, entry: JournalEntry): void {

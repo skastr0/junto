@@ -10,7 +10,6 @@ import {
   resolveTerminalBinding,
   isTerminalNode,
   xtermCapabilities,
-  ghosttyCapabilities,
 } from "../src/shared/terminal";
 import { resolveNodeHostId, isExecutableEntityKind } from "../src/shared/station";
 
@@ -134,6 +133,5 @@ describe("station + capabilities", () => {
 
   it("exposes honest capability presets", () => {
     expect(xtermCapabilities().presentation).toBe("xterm");
-    expect(ghosttyCapabilities().graphics).toBe(true);
   });
 });

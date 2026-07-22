@@ -97,7 +97,7 @@ export const TerminalCapabilities = Schema.Struct({
   graphics: Schema.Boolean,
   durable: Schema.Boolean,
   ownsKill: Schema.Boolean,
-  presentation: Schema.Literal("ghostty", "xterm", "herdr-stream"),
+  presentation: Schema.Literal("xterm", "herdr-stream"),
 });
 export type TerminalCapabilities = typeof TerminalCapabilities.Type;
 
@@ -109,16 +109,6 @@ export const xtermCapabilities = (): TerminalCapabilities => ({
   durable: false,
   ownsKill: true,
   presentation: "xterm",
-});
-
-export const ghosttyCapabilities = (): TerminalCapabilities => ({
-  mouse: true,
-  selectionNative: true,
-  ime: true,
-  graphics: true,
-  durable: false,
-  ownsKill: true,
-  presentation: "ghostty",
 });
 
 export const herdrStreamCapabilities = (): TerminalCapabilities => ({
