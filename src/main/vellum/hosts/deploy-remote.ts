@@ -127,12 +127,18 @@ export type TarExitSettlement =
 export type TarExitWatch = {
   readonly settlement: Promise<TarExitSettlement>;
   readonly closed: Promise<void>;
+  readonly isClosed: () => boolean;
+  readonly isReleased: () => boolean;
+  readonly release: () => void;
 };
 
 const TAR_STDERR_LIMIT_BYTES = 64 * 1024;
 
 /** Attach both listeners at spawn time: an error is not proof the child has exited. */
-export const watchTarExit = (tar: Pick<ChildProcess, "once">): TarExitWatch => {
+export const watchTarExit = (
+  tar: Pick<ChildProcess, "once" | "removeListener">,
+  onClose: () => void = () => {},
+): TarExitWatch => {
   let settle: (result: TarExitSettlement) => void = () => {};
   let close: () => void = () => {};
   const settlement = new Promise<TarExitSettlement>((resolve) => {
@@ -142,25 +148,58 @@ export const watchTarExit = (tar: Pick<ChildProcess, "once">): TarExitWatch => {
     close = resolve;
   });
   let reported = false;
+  let didClose = false;
+  let didRelease = false;
+  const release = (): void => {
+    if (didRelease) return;
+    didRelease = true;
+    onClose();
+  };
   const report = (result: TarExitSettlement): void => {
     if (reported) return;
     reported = true;
     settle(result);
   };
 
-  tar.once("error", (error) => {
+  const onError = (error: Error): void => {
     report({ ok: false, error });
-  });
-  tar.once("close", (code) => {
+  };
+  const onCloseEvent = (code: number | null): void => {
+    didClose = true;
+    tar.removeListener("error", onError);
     report(
       code === 0
         ? { ok: true }
         : { ok: false, error: new Error(`local tar exited ${String(code)}`) },
     );
     close();
-  });
-  return { settlement, closed };
+    release();
+  };
+  tar.once("error", onError);
+  tar.once("close", onCloseEvent);
+  return {
+    settlement,
+    closed,
+    isClosed: () => didClose,
+    isReleased: () => didRelease,
+    release,
+  };
 };
+
+/** Native timer race: completes even while an Effect finalizer is uninterruptible. */
+export const awaitTarCloseBounded = (exit: TarExitWatch, timeoutMs: number): Promise<void> =>
+  new Promise((resolve) => {
+    let done = false;
+    const finish = (): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    timer.unref?.();
+    void exit.closed.then(finish);
+  });
 
 export const captureTarStderr = (stream: {
   readonly on: (event: "data", listener: (chunk: Buffer) => void) => unknown;
@@ -291,19 +330,19 @@ exit 2
           return {
             child,
             owned,
-            exit: watchTarExit(child),
+            exit: watchTarExit(child, () => releaseOwned(owned)),
             stderr: captureTarStderr(child.stderr),
           };
         }),
         ({ owned, exit }) =>
-          Effect.sync(() => {
-            signalOwned(owned, "SIGKILL");
-          }).pipe(
-            Effect.zipRight(Effect.promise(() => exit.closed)),
-            Effect.timeout("2 seconds"),
-            Effect.ignore,
-            Effect.ensuring(Effect.sync(() => releaseOwned(owned))),
-          ),
+          exit.isReleased() || exit.isClosed()
+            ? Effect.void
+            : Effect.sync(() => {
+                signalOwned(owned, "SIGKILL");
+              }).pipe(
+                Effect.zipRight(Effect.promise(() => awaitTarCloseBounded(exit, 2_000))),
+                Effect.ensuring(Effect.sync(() => exit.release())),
+              ),
       );
       const command = yield* makeRemoteCommand("bash", ["-lc", remoteScript]);
       const output = yield* ssh.transfer(

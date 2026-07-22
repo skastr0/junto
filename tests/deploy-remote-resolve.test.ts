@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   describeDeployTransferFailure,
   captureTarStderr,
+  awaitTarCloseBounded,
   parseDeployTransferResult,
   resolveLocalAppBundle,
   watchTarExit,
@@ -57,7 +58,10 @@ describe("parseDeployTransferResult", () => {
 describe("deploy transfer lifecycle", () => {
   it("records tar exit even when it happens before remote readiness is awaited", async () => {
     const tar = new EventEmitter();
-    const exit = watchTarExit(tar as never);
+    let released = 0;
+    const exit = watchTarExit(tar as never, () => {
+      released += 1;
+    });
     tar.emit("close", 1);
 
     await expect(exit.settlement).resolves.toMatchObject({
@@ -65,6 +69,9 @@ describe("deploy transfer lifecycle", () => {
       error: { message: "local tar exited 1" },
     });
     await expect(exit.closed).resolves.toBeUndefined();
+    expect(exit.isClosed()).toBe(true);
+    expect(exit.isReleased()).toBe(true);
+    expect(released).toBe(1);
   });
 
   it("does not treat a tar error as a terminal-close witness", async () => {
@@ -84,6 +91,20 @@ describe("deploy transfer lifecycle", () => {
     expect(closed).toBe(false);
     tar.emit("close", 1);
     await expect(exit.closed).resolves.toBeUndefined();
+    expect(exit.isReleased()).toBe(true);
+    expect(tar.listenerCount("error")).toBe(0);
+    expect(tar.listenerCount("close")).toBe(0);
+  });
+
+  it("bounds a never-closing tar wait and clears its timer", async () => {
+    const tar = new EventEmitter();
+    const exit = watchTarExit(tar as never);
+    const started = Date.now();
+    await awaitTarCloseBounded(exit, 10);
+
+    expect(Date.now() - started).toBeLessThan(250);
+    expect(exit.isClosed()).toBe(false);
+    expect(exit.isReleased()).toBe(false);
   });
 
   it("captures bounded tar stderr while draining the stream", () => {
