@@ -29,15 +29,20 @@ const stopProcess = (tracked: TrackedSshChild): Effect.Effect<void> =>
       return Effect.void;
     }
     const signal = (value: TerminatingSignal) => Effect.sync(() => signalOwned(tracked.owned, value));
-    return signal("SIGTERM").pipe(
-      Effect.zipRight(Effect.sleep("50 millis")),
-      Effect.zipRight(Effect.suspend(() => tracked.child.exitCode === null && tracked.child.signalCode === null ? Effect.sleep("1450 millis") : Effect.void)),
-      // The finalizer is bounded: after escalation, process exit is observed
-      // by the shared promise but does not hold scope release indefinitely.
-      Effect.zipRight(Effect.suspend(() => tracked.child.exitCode === null && tracked.child.signalCode === null ? signal("SIGKILL") : Effect.void)),
-      Effect.ensuring(Effect.sync(() => releaseOwned(tracked.owned))),
-      Effect.timeout("3 seconds"),
-      Effect.ignore,
+    const observeSettlement = () => new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 50);
+      tracked.outcome.then(() => { clearTimeout(timer); resolve(true); });
+    });
+    return Effect.promise(observeSettlement).pipe(
+      Effect.flatMap((settled) => settled
+        ? Effect.sync(() => releaseOwned(tracked.owned))
+        : signal("SIGTERM").pipe(
+          Effect.zipRight(Effect.sleep("50 millis")),
+          Effect.zipRight(Effect.suspend(() => tracked.child.exitCode === null && tracked.child.signalCode === null ? Effect.sleep("1400 millis").pipe(Effect.zipRight(signal("SIGKILL"))) : Effect.void)),
+          Effect.ensuring(Effect.sync(() => releaseOwned(tracked.owned))),
+          Effect.timeout("3 seconds"),
+          Effect.ignore,
+        )),
     );
   });
 
@@ -71,7 +76,7 @@ export const ProcessSpawnerLive = Layer.succeed(ProcessSpawner, ProcessSpawner.o
       exitCode: Effect.promise(() => tracked.outcome).pipe(
         Effect.flatMap((outcome) => outcome._tag === "exit" ? Effect.succeed(outcome.code) : Effect.fail(failure())),
       ),
-      isRunning: Effect.sync(() => tracked.child.exitCode === null && tracked.child.signalCode === null),
+      isRunning: Effect.sync(() => !tracked.spawnFailed() && tracked.child.exitCode === null && tracked.child.signalCode === null),
       stdin: NodeSink.fromWritable(() => tracked.child.stdin, failure, { endOnDone: true }),
       stdout: NodeStream.fromReadable(() => tracked.child.stdout, failure),
       stderr: NodeStream.fromReadable(() => tracked.child.stderr, failure),

@@ -63,6 +63,24 @@ describe("ProcessSpawnerLive", () => {
     }
   });
 
+  it("immediately closes a missing executable scope without a signal grace", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    const startedAt = Date.now();
+    try {
+      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const child = yield* (yield* ProcessSpawner).start(Command.make("/definitely/not-a-vellum-command-immediate"));
+        // Deliberately no sleep or exitCode await: this is the finalizer race.
+        yield* child.isRunning;
+      })).pipe(Effect.provide(SpawnerLive)));
+      expect(Date.now() - startedAt).toBeLessThan(500);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
   it("terminates a responsive owned process without waiting through the grace period", async () => {
     const startedAt = Date.now();
     await Effect.runPromise(
