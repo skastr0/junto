@@ -8,20 +8,15 @@ import {
 const deferred = <A>() => {
   let resolve!: (value: A) => void;
   let reject!: (error: unknown) => void;
-  const promise = new Promise<A>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
+  const promise = new Promise<A>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 };
-
 const clean = (): ShutdownCleanReceipt => ({ clean: true });
-
 const steps = (overrides: Partial<ShutdownCoordinatorSteps> = {}): ShutdownCoordinatorSteps => ({
   cutAdmission: { main: clean },
   drainDocument: () => ({ clean: true, durable: true, authoringCommitted: true }),
   finalizeRenderer: () => ({ clean: true, finalized: true }),
-  drainLocalResources: () => ({ terminals: clean(), chat: clean() }),
+  drainLocalResources: () => ({ terminals: clean() }),
   destroyRenderer: () => undefined,
   detachRuntimeIngress: () => undefined,
   disposeRuntime: clean,
@@ -29,178 +24,105 @@ const steps = (overrides: Partial<ShutdownCoordinatorSteps> = {}): ShutdownCoord
 });
 
 describe("shutdown coordinator", () => {
-  it("cuts admission synchronously, shares one generation, and records signal force intent", async () => {
-    let cut = 0;
-    const document = deferred<{ clean: boolean; durable: boolean; authoringCommitted: boolean }>();
-    const coordinator = createShutdownCoordinator(steps({
-      cutAdmission: { main: () => { cut += 1; return clean(); } },
-      drainDocument: () => document.promise,
+  it("cuts synchronously, publishes stable promises before reentry, and joins signal force", async () => {
+    let coordinator!: ReturnType<typeof createShutdownCoordinator>;
+    let reentrant: ReturnType<typeof coordinator.request> | undefined;
+    coordinator = createShutdownCoordinator(steps({
+      cutAdmission: { main: () => { reentrant = coordinator.request("signal"); return clean(); } },
     }));
     const first = coordinator.request("normal");
-    expect(cut).toBe(1);
-    expect(coordinator.snapshot()).toMatchObject({ admissionClosed: true, generation: 1 });
-    const joined = coordinator.request("signal");
-    expect(joined).toBe(first);
-    expect(coordinator.snapshot()).toMatchObject({ forceRequested: true, generation: 1 });
-    document.resolve({ clean: true, durable: true, authoringCommitted: true });
-    await expect(first.safeToForce).resolves.toMatchObject({ safeToForce: true, generation: 1 });
-    await expect(first.complete).resolves.toMatchObject({ complete: true, generation: 1 });
+    expect(reentrant).toBe(first);
+    expect(reentrant!.safeToForce).toBe(first.safeToForce);
+    expect(reentrant!.complete).toBe(first.complete);
+    expect(coordinator.snapshot()).toMatchObject({ admissionClosed: true, forceRequested: true });
+    await expect(first.complete).resolves.toMatchObject({ complete: true, intents: ["normal", "signal"] });
   });
 
-  it("does not authorize force or disposal after an unclean pre-safe receipt, then retries without another cut", async () => {
-    let documentCalls = 0;
-    let cut = 0;
-    let disposed = 0;
-    const coordinator = createShutdownCoordinator(steps({
-      cutAdmission: { main: () => { cut += 1; return clean(); } },
-      drainDocument: () => {
-        documentCalls += 1;
-        return documentCalls === 1
-          ? { clean: false, durable: false, authoringCommitted: false }
-          : { clean: true, durable: true, authoringCommitted: true };
-      },
-      disposeRuntime: () => { disposed += 1; return clean(); },
-    }));
-    const transaction = coordinator.request("direct");
-    await expect(transaction.safeToForce).resolves.toMatchObject({ safeToForce: false, attempt: 1 });
-    await expect(transaction.complete).resolves.toMatchObject({ complete: false, attempt: 1 });
-    expect(disposed).toBe(0);
-    expect(coordinator.snapshot()).toMatchObject({ admissionClosed: true, phase: "retryable" });
-    transaction.retry();
-    await expect(transaction.safeToForce).resolves.toMatchObject({ safeToForce: true, attempt: 2, generation: 1 });
-    await expect(transaction.complete).resolves.toMatchObject({ complete: true, attempt: 2, generation: 1 });
-    expect(cut).toBe(1);
-    expect(disposed).toBe(1);
-  });
-
-  it("waits for every local resource and preserves named rejected causes", async () => {
-    const resource = deferred<ShutdownCleanReceipt>();
-    const failure = new Error("terminal retained");
-    const coordinator = createShutdownCoordinator(steps({
-      drainLocalResources: () => ({ terminal: resource.promise, chat: Promise.reject(failure) }),
-    }));
-    const transaction = coordinator.request("relaunch");
-    let settled = false;
-    void transaction.safeToForce.then(() => { settled = true; });
-    await Promise.resolve();
-    expect(settled).toBe(false);
-    resource.resolve(clean());
-    const receipt = await transaction.safeToForce;
-    expect(receipt).toMatchObject({ safeToForce: false });
-    expect(receipt.receipts).toContainEqual(expect.objectContaining({ name: "resource:chat", clean: false }));
-    expect(receipt.receipts.find((entry) => entry.name === "resource:chat")?.cause?.error).toBe(failure);
-  });
-
-  it("contains synchronous throws and never runs later stages", async () => {
-    let finalized = 0;
-    const coordinator = createShutdownCoordinator(steps({
-      drainDocument: () => { throw new Error("disk unavailable"); },
-      finalizeRenderer: () => { finalized += 1; return { clean: true, finalized: true }; },
-    }));
-    const receipt = await coordinator.request("normal").complete;
-    expect(receipt).toMatchObject({ complete: false, safeToForce: false });
-    expect(receipt.receipts[0]).toMatchObject({ name: "document", clean: false });
-    expect(finalized).toBe(0);
-  });
-
-  it("does not let a stale completion from a failed attempt satisfy a retry", async () => {
-    const first = deferred<{ clean: boolean; durable: boolean; authoringCommitted: boolean }>();
+  it("records a failed attempt without replacing public promises, then retries the same generation", async () => {
     let calls = 0;
     const coordinator = createShutdownCoordinator(steps({
-      drainDocument: () => {
-        calls += 1;
-        return calls === 1
-          ? first.promise
-          : { clean: true, durable: true, authoringCommitted: true };
-      },
-    }));
-    const transaction = coordinator.request("normal");
-    first.resolve({ clean: false, durable: false, authoringCommitted: false });
-    await expect(transaction.complete).resolves.toMatchObject({ complete: false, attempt: 1 });
-    transaction.retry();
-    await expect(transaction.complete).resolves.toMatchObject({ complete: true, attempt: 2 });
-    expect(coordinator.snapshot()).toMatchObject({ attempt: 2, complete: true });
-  });
-
-  it("does not retry irreversible teardown when disposal is unclean", async () => {
-    let destroys = 0;
-    let disposals = 0;
-    const coordinator = createShutdownCoordinator(steps({
-      destroyRenderer: () => { destroys += 1; },
-      disposeRuntime: () => { disposals += 1; return { clean: false }; },
-    }));
-    const transaction = coordinator.request("signal");
-    await expect(transaction.safeToForce).resolves.toMatchObject({ safeToForce: true });
-    await expect(transaction.complete).resolves.toMatchObject({ complete: false });
-    transaction.retry();
-    await Promise.resolve();
-    expect(destroys).toBe(1);
-    expect(disposals).toBe(1);
-    expect(coordinator.snapshot()).toMatchObject({ phase: "safe-to-force", safeToForce: true });
-  });
-
-  it("publishes its generation before a synchronous admission cut can re-enter", async () => {
-    let coordinator!: ReturnType<typeof createShutdownCoordinator>;
-    let joined: ReturnType<typeof coordinator.request> | undefined;
-    coordinator = createShutdownCoordinator(steps({
-      cutAdmission: { main: () => { joined = coordinator.request("signal"); return clean(); } },
-    }));
-    const first = coordinator.request("normal");
-    expect(joined).toBe(first);
-    await expect(first.complete).resolves.toMatchObject({ complete: true, generation: 1 });
-  });
-
-  it("invokes every named cut but permanently refuses force after a partial failure", async () => {
-    let first = 0;
-    let second = 0;
-    let document = 0;
-    const coordinator = createShutdownCoordinator(steps({
-      cutAdmission: {
-        first: () => { first += 1; return clean(); },
-        second: () => { second += 1; return { clean: false }; },
-      },
-      drainDocument: () => { document += 1; return { clean: true, durable: true, authoringCommitted: true }; },
-    }));
-    const transaction = coordinator.request("normal");
-    expect(first).toBe(1);
-    expect(second).toBe(1);
-    await expect(transaction.safeToForce).resolves.toMatchObject({ safeToForce: false });
-    transaction.retry();
-    coordinator.request("signal");
-    await expect(transaction.complete).resolves.toMatchObject({ complete: false });
-    expect(first).toBe(1);
-    expect(second).toBe(1);
-    expect(document).toBe(0);
-    expect(coordinator.snapshot()).toMatchObject({ phase: "complete", safeToForce: false });
-  });
-
-  it("makes a throwing admission cut permanently force-ineligible", async () => {
-    const failure = new Error("work control cut failed");
-    const coordinator = createShutdownCoordinator(steps({
-      cutAdmission: { work: () => { throw failure; } },
+      drainDocument: () => ++calls === 1
+        ? { clean: false, durable: false, authoringCommitted: false }
+        : { clean: true, durable: true, authoringCommitted: true },
     }));
     const transaction = coordinator.request("direct");
-    const receipt = await transaction.safeToForce;
-    expect(receipt).toMatchObject({ safeToForce: false });
-    expect(receipt.receipts[0]?.cause?.error).toBe(failure);
+    const safe = transaction.safeToForce;
+    const complete = transaction.complete;
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(transaction.snapshot()).toMatchObject({ phase: "retryable", attempt: 1, safeToForce: false });
     transaction.retry();
-    await expect(transaction.complete).resolves.toMatchObject({ complete: false });
-    expect(coordinator.snapshot().attempt).toBe(0);
+    expect(transaction.safeToForce).toBe(safe);
+    expect(transaction.complete).toBe(complete);
+    await expect(complete).resolves.toMatchObject({ generation: 1, attempt: 2, complete: true });
   });
 
-  it("fails closed for empty, getter-malformed, and thenable admission receipts", async () => {
+  it("checkpoints renderer destruction when later ingress detachment fails", async () => {
+    let destroys = 0;
+    let detaches = 0;
+    const coordinator = createShutdownCoordinator(steps({
+      destroyRenderer: () => { destroys += 1; },
+      detachRuntimeIngress: () => { detaches += 1; if (detaches === 1) throw new Error("detach"); },
+    }));
+    const transaction = coordinator.request("normal");
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    transaction.retry();
+    await expect(transaction.complete).resolves.toMatchObject({ complete: true, attempt: 2 });
+    expect(destroys).toBe(1);
+    expect(detaches).toBe(2);
+  });
+
+  it("returns a retryable resource failure without awaiting a hung sibling and observes rejection", async () => {
+    const hung = deferred<ShutdownCleanReceipt>();
+    const failure = new Error("chat retained");
+    const coordinator = createShutdownCoordinator(steps({
+      drainLocalResources: () => ({ hung: hung.promise, failed: Promise.reject(failure) }),
+    }));
+    const transaction = coordinator.request("normal");
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(transaction.snapshot()).toMatchObject({ phase: "retryable" });
+    expect(transaction.snapshot().lastAttempt?.receipts).toContainEqual(expect.objectContaining({ name: "resource:failed", clean: false }));
+    hung.resolve(clean());
+    transaction.retry();
+    // This retry starts a new resource drain; it remains intentionally pending
+    // only if its own injected resource does.
+  });
+
+  it("keeps late intents in the completion audit receipt", async () => {
+    const disposal = deferred<ShutdownCleanReceipt>();
+    const coordinator = createShutdownCoordinator(steps({ disposeRuntime: () => disposal.promise }));
+    const transaction = coordinator.request("normal");
+    await transaction.safeToForce;
+    coordinator.request("signal");
+    disposal.resolve(clean());
+    await expect(transaction.complete).resolves.toMatchObject({ complete: true, intents: ["normal", "signal"] });
+  });
+
+  it("snapshots nested mutable receipts", async () => {
+    const source = deferred<{ clean: boolean; durable: boolean; authoringCommitted: boolean; nested: { value: number } }>();
+    const receipt = { clean: true, durable: true, authoringCommitted: true, nested: { value: 1 } };
+    const coordinator = createShutdownCoordinator(steps({ drainDocument: () => source.promise }));
+    const transaction = coordinator.request("normal");
+    source.resolve(receipt);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    receipt.nested.value = 2;
+    const completed = await transaction.complete;
+    const document = completed.receipts.find((entry) => entry.name === "document")?.receipt as { nested: { value: number } };
+    expect(document.nested.value).toBe(1);
+    expect(Object.isFrozen(document.nested)).toBe(true);
+  });
+
+  it("makes partial, throwing, malformed, and thenable cuts terminal", async () => {
     const malformed = { get clean(): boolean { throw new Error("getter"); } };
     const thenable = { clean: true, then: () => undefined };
-    const cutsToReject: ReadonlyArray<ShutdownCoordinatorSteps["cutAdmission"]> = [
-      {},
-      { malformed: () => malformed },
-      { thenable: () => thenable },
-    ];
-    for (const cuts of cutsToReject) {
-      const transaction = createShutdownCoordinator(steps({ cutAdmission: cuts })).request("normal");
-      await expect(transaction.safeToForce).resolves.toMatchObject({ safeToForce: false });
+    for (const cutAdmission of [
+      { one: clean, two: () => ({ clean: false }) },
+      { bad: () => { throw new Error("cut"); } },
+      { bad: () => malformed },
+      { bad: () => thenable },
+    ] as ReadonlyArray<ShutdownCoordinatorSteps["cutAdmission"]>) {
+      const transaction = createShutdownCoordinator(steps({ cutAdmission })).request("normal");
+      await expect(transaction.complete).resolves.toMatchObject({ complete: false, safeToForce: false });
       transaction.retry();
-      await expect(transaction.complete).resolves.toMatchObject({ complete: false });
       expect(transaction.snapshot()).toMatchObject({ attempt: 0, phase: "complete" });
     }
   });

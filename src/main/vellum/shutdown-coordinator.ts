@@ -23,6 +23,7 @@ export interface ShutdownCause {
 export interface ShutdownNamedReceipt {
   readonly name: string;
   readonly clean: boolean;
+  readonly pending?: boolean;
   readonly receipt?: unknown;
   readonly cause?: ShutdownCause;
 }
@@ -71,6 +72,7 @@ export interface ShutdownCoordinatorSnapshot {
   readonly phase: ShutdownPhase;
   readonly safeToForce: boolean;
   readonly complete: boolean;
+  readonly lastAttempt?: ShutdownSafeToForceReceipt;
 }
 
 export interface ShutdownTransaction {
@@ -114,15 +116,41 @@ const ownBoolean = (value: unknown, key: string): boolean | undefined => {
 
 const cleanReceipt = (value: unknown): boolean => ownBoolean(value, "clean") === true;
 
+const snapshotValue = (value: unknown, seen = new WeakMap<object, unknown>()): unknown => {
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return seen.get(value);
+  if (value instanceof Error) return Object.freeze({ name: value.name, message: value.message });
+  const copy: Record<string, unknown> = {};
+  seen.set(value, copy);
+  try {
+    for (const key of Object.keys(value)) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor !== undefined && "value" in descriptor) copy[key] = snapshotValue(descriptor.value, seen);
+    }
+  } catch {
+    copy.unreadable = true;
+  }
+  return Object.freeze(copy);
+};
+
+const frozenReceipt = (receipt: ShutdownNamedReceipt): ShutdownNamedReceipt =>
+  Object.freeze({
+    ...receipt,
+    receipt: receipt.receipt === undefined ? undefined : snapshotValue(receipt.receipt),
+    cause: receipt.cause === undefined
+      ? undefined
+      : Object.freeze({ ...receipt.cause, error: snapshotValue(receipt.cause.error) }),
+  });
+
 const settled = async <A>(
   stage: string,
   operation: () => A | Promise<A>,
 ): Promise<ShutdownNamedReceipt> => {
   try {
     const receipt = await Promise.resolve().then(operation);
-    return Object.freeze({ name: stage, clean: cleanReceipt(receipt), receipt });
+    return frozenReceipt({ name: stage, clean: cleanReceipt(receipt), receipt });
   } catch (error) {
-    return Object.freeze({
+    return frozenReceipt({
       name: stage,
       clean: false,
       cause: Object.freeze({ stage, error }),
@@ -135,7 +163,7 @@ const performed = async (stage: string, operation: () => void): Promise<Shutdown
     operation();
     return Object.freeze({ name: stage, clean: true });
   } catch (error) {
-    return Object.freeze({
+    return frozenReceipt({
       name: stage,
       clean: false,
       cause: Object.freeze({ stage, error }),
@@ -227,6 +255,9 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
   let activeAttempt: number | undefined;
   let safeDeferred: Deferred<ShutdownSafeToForceReceipt> | undefined;
   let completeDeferred: Deferred<ShutdownCompleteReceipt> | undefined;
+  let lastAttempt: ShutdownSafeToForceReceipt | undefined;
+  let rendererDestroyed = false;
+  let runtimeIngressDetached = false;
 
   const snapshot = (): ShutdownCoordinatorSnapshot =>
     Object.freeze({
@@ -238,16 +269,43 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
       phase,
       safeToForce: safe,
       complete: completed,
+      lastAttempt,
     });
 
-  const currentSafe = (): ShutdownSafeToForceReceipt =>
-    Object.freeze({
-      generation,
-      attempt,
-      safeToForce: safe,
-      intents: Object.freeze([...intents]),
-      receipts: Object.freeze([]),
-    });
+  const resourceReceipts = async (): Promise<ReadonlyArray<ShutdownNamedReceipt>> => {
+    try {
+      const resources = await Promise.resolve().then(steps.drainLocalResources);
+      const named = Object.entries(resources);
+      if (named.length === 0) return Object.freeze([]);
+      const pending = new Set(named.map(([name]) => name));
+      const outcomes = named.map(([name, operation]) =>
+        Promise.resolve(operation).then(
+          (receipt) => frozenReceipt({ name: `resource:${name}`, clean: cleanReceipt(receipt), receipt }),
+          (error) => frozenReceipt({ name: `resource:${name}`, clean: false, cause: { stage: `resource:${name}`, error } }),
+        ).then((receipt) => ({ name, receipt })),
+      );
+      // Observe every started resource forever; an early bad receipt must not
+      // await an unrelated hung sibling or leak its later rejection.
+      void Promise.allSettled(outcomes);
+      return await new Promise<ReadonlyArray<ShutdownNamedReceipt>>((resolve) => {
+        const known: ShutdownNamedReceipt[] = [];
+        for (const outcome of outcomes) {
+          void outcome.then(({ name, receipt }) => {
+            pending.delete(name);
+            known.push(receipt);
+            if (!receipt.clean) {
+              resolve(Object.freeze([
+                ...known,
+                ...[...pending].map((pendingName) => Object.freeze({ name: `resource:${pendingName}`, clean: false, pending: true })),
+              ]));
+            } else if (pending.size === 0) resolve(Object.freeze(known));
+          });
+        }
+      });
+    } catch (error) {
+      return Object.freeze([frozenReceipt({ name: "local resources", clean: false, cause: { stage: "local resources", error } })]);
+    }
+  };
 
   const beginAttempt = (): void => {
     if (activeAttempt !== undefined || completed) return;
@@ -255,8 +313,6 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
     activeAttempt = thisAttempt;
     phase = "draining";
     safe = false;
-    safeDeferred = deferred<ShutdownSafeToForceReceipt>();
-    completeDeferred = deferred<ShutdownCompleteReceipt>();
 
     void (async () => {
       const receipts: ShutdownNamedReceipt[] = [];
@@ -267,52 +323,23 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
       }
       if (!isCurrent(thisAttempt)) return;
       if (receipts.every((receipt) => receipt.clean)) {
-        let resources: Readonly<Record<string, ShutdownCleanReceipt | Promise<ShutdownCleanReceipt>>>;
-        let resourceStartCause: ShutdownCause | undefined;
-        try {
-          resources = await Promise.resolve().then(steps.drainLocalResources);
-        } catch (error) {
-          resources = {};
-          resourceStartCause = Object.freeze({ stage: "local resources", error });
-        }
+        const resources = await resourceReceipts();
         if (!isCurrent(thisAttempt)) return;
-        if (resourceStartCause !== undefined) {
-          receipts.push(Object.freeze({
-            name: "local resources",
-            clean: false,
-            cause: resourceStartCause,
-          }));
-        } else {
-          const named = Object.entries(resources);
-          const outcomes = await Promise.allSettled(
-            named.map(([name, operation]) =>
-              Promise.resolve(operation).then(
-                (receipt) => Object.freeze({ name: `resource:${name}`, clean: cleanReceipt(receipt), receipt }),
-              ),
-            ),
-          );
-          if (!isCurrent(thisAttempt)) return;
-          for (let index = 0; index < outcomes.length; index += 1) {
-            const outcome = outcomes[index];
-            if (outcome.status === "fulfilled") receipts.push(outcome.value);
-            else {
-              const name = named[index]?.[0] ?? "unknown";
-              receipts.push(Object.freeze({
-                name: `resource:${name}`,
-                clean: false,
-                cause: Object.freeze({ stage: `resource:${name}`, error: outcome.reason }),
-              }));
-            }
-          }
-        }
+        receipts.push(...resources);
       }
       if (!isCurrent(thisAttempt)) return;
       if (receipts.every((receipt) => receipt.clean)) {
-        receipts.push(await performed("renderer destruction", steps.destroyRenderer));
+        receipts.push(rendererDestroyed
+          ? Object.freeze({ name: "renderer destruction", clean: true, receipt: Object.freeze({ checkpoint: true }) })
+          : await performed("renderer destruction", steps.destroyRenderer));
+        if (receipts.at(-1)?.clean) rendererDestroyed = true;
         if (!isCurrent(thisAttempt)) return;
       }
       if (receipts.every((receipt) => receipt.clean)) {
-        receipts.push(await performed("runtime ingress detachment", steps.detachRuntimeIngress));
+        receipts.push(runtimeIngressDetached
+          ? Object.freeze({ name: "runtime ingress detachment", clean: true, receipt: Object.freeze({ checkpoint: true }) })
+          : await performed("runtime ingress detachment", steps.detachRuntimeIngress));
+        if (receipts.at(-1)?.clean) runtimeIngressDetached = true;
         if (!isCurrent(thisAttempt)) return;
       }
 
@@ -326,8 +353,7 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
           intents: Object.freeze([...intents]),
           receipts: Object.freeze(receipts),
         });
-        safeDeferred?.resolve(receipt);
-        completeDeferred?.resolve(Object.freeze({ ...receipt, complete: false }));
+        lastAttempt = receipt;
         return;
       }
 
@@ -340,11 +366,12 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
         intents: Object.freeze([...intents]),
         receipts: Object.freeze(receipts),
       });
-      safeDeferred?.resolve(safeReceipt);
+      safeDeferred!.resolve(safeReceipt);
       const disposal = await settled("runtime disposal", steps.disposeRuntime);
       if (!isCurrent(thisAttempt)) return;
       const completeReceipt = Object.freeze({
         ...safeReceipt,
+        intents: Object.freeze([...intents]),
         receipts: Object.freeze([...receipts, disposal]),
         complete: disposal.clean,
       });
@@ -354,7 +381,7 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
       // never turned into a second pre-safe drain that could re-run teardown.
       phase = disposal.clean ? "complete" : "safe-to-force";
       activeAttempt = undefined;
-      completeDeferred?.resolve(completeReceipt);
+      completeDeferred!.resolve(completeReceipt);
     })().catch((error) => {
       if (!isCurrent(thisAttempt)) return;
       const receipt = Object.freeze({
@@ -369,8 +396,7 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
       safe = false;
       phase = "retryable";
       activeAttempt = undefined;
-      safeDeferred?.resolve(receipt);
-      completeDeferred?.resolve(Object.freeze({ ...receipt, complete: false }));
+      lastAttempt = receipt;
     });
   };
 
@@ -388,12 +414,8 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
     admissionClosed = true;
     transaction = Object.freeze({
       generation,
-      get safeToForce() {
-        return safeDeferred?.promise ?? Promise.resolve(currentSafe());
-      },
-      get complete() {
-        return completeDeferred?.promise ?? Promise.resolve(Object.freeze({ ...currentSafe(), complete: completed }));
-      },
+      get safeToForce() { return safeDeferred!.promise; },
+      get complete() { return completeDeferred!.promise; },
       retry: () => {
         if (phase === "retryable" && activeAttempt === undefined) beginAttempt();
         return transaction!;
@@ -401,14 +423,16 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
       snapshot,
     });
 
+    // Publish the exact generation promises before any cut callback can
+    // synchronously re-enter `request`.
+    safeDeferred = deferred<ShutdownSafeToForceReceipt>();
+    completeDeferred = deferred<ShutdownCompleteReceipt>();
     const cutReceipts = admissionCutReceipts(steps.cutAdmission);
     if (!cutReceipts.every((receipt) => receipt.clean)) {
       // A cut may have closed only part of the ingress set. Retrying the
       // downstream drains would convert that unknown partial boundary into
       // exit authority, so this generation can only report failure and join.
       phase = "complete";
-      safeDeferred = deferred<ShutdownSafeToForceReceipt>();
-      completeDeferred = deferred<ShutdownCompleteReceipt>();
       const receipt = Object.freeze({
         generation,
         attempt,
