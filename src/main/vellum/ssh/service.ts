@@ -370,10 +370,17 @@ export const SshTransportLayer = Layer.scoped(
       endpoint: SshEndpoint,
       operation: string,
       command: Command.Command,
+      cleanupAfterProcess?: Effect.Effect<void>,
     ): Effect.Effect<InternalLease, SshSpawnError, Scope.Scope> =>
       Effect.gen(function* () {
         const caller = yield* Scope.Scope;
         const child = yield* Scope.fork(caller, ExecutionStrategy.sequential);
+        // Sequential scopes close finalizers in LIFO order. Register owned-file
+        // cleanup before process acquisition so the ProcessSpawner release
+        // stops/reaps the child before its socket paths are unlinked.
+        if (cleanupAfterProcess !== undefined) {
+          yield* Scope.addFinalizer(child, cleanupAfterProcess);
+        }
         const process = yield* acquire(endpoint, operation, command).pipe(
           Scope.extend(child),
           Effect.catchAll((error) =>
@@ -710,32 +717,25 @@ export const SshTransportLayer = Layer.scoped(
             yield* fs
               .remove(compiled.controlSocket, { force: true })
               .pipe(Effect.ignore);
+            // App shutdown quiesces process admission before runtime scopes.
+            // Finalization therefore releases this existing ControlPersist=no
+            // master lease and unlinks its files without spawning -O helpers.
+            const cleanupSocketFiles = fs
+              .remove(compiled.localSocket, { force: true })
+              .pipe(
+                Effect.ignore,
+                Effect.zipRight(
+                  fs
+                    .remove(compiled.controlSocket, { force: true })
+                    .pipe(Effect.ignore),
+                ),
+              );
             const master = yield* openLease(
               compiled.endpoint,
               "forward-master",
               compiled.master,
+              cleanupSocketFiles,
             );
-            const cleanup = Effect.gen(function* () {
-              yield* runChecked(
-                compiled.endpoint,
-                "forward-cancel",
-                compiled.cancel,
-                2_000,
-              ).pipe(Effect.interruptible, Effect.ignore);
-              yield* runChecked(
-                compiled.endpoint,
-                "forward-exit",
-                compiled.exit,
-                2_000,
-              ).pipe(Effect.interruptible, Effect.ignore);
-              yield* fs
-                .remove(compiled.localSocket, { force: true })
-                .pipe(Effect.ignore);
-              yield* fs
-                .remove(compiled.controlSocket, { force: true })
-                .pipe(Effect.ignore);
-            });
-            yield* Scope.addFinalizer(master.scope, cleanup);
             yield* Effect.forkIn(
               Stream.runDrain(master.stdout).pipe(Effect.ignore),
               master.scope,

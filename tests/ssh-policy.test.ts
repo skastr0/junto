@@ -59,22 +59,39 @@ const handle = (options?: {
   stderr: Stream.empty,
 });
 
-const recordingLayer = async (calls: Command.StandardCommand[]) => {
+interface MasterReleaseSnapshot {
+  readonly controlSocketExists: boolean;
+  readonly localSocketExists: boolean;
+}
+
+const recordingLayer = async (
+  calls: Command.StandardCommand[],
+  masterReleases?: MasterReleaseSnapshot[],
+) => {
   const root = await mkdtemp("/tmp/vellum-ssh-policy-");
   temporaryDirs.push(root);
   const controlDir = join(root, "control");
+  const forwardedLocalSockets = new Map<string, string>();
   const spawner = ProcessSpawner.of({
-    start: (command) =>
-      Effect.acquireRelease(
+    start: (command) => {
+      let ownedMasterControlSocket: string | undefined;
+      return Effect.acquireRelease(
         Effect.promise(async () => {
           const flattened = standard(command);
           calls.push(flattened);
           const args = sshArgs(flattened);
           const isMaster = args.includes("-M");
+          if (isMaster) {
+            const controlSocket = args[args.indexOf("-S") + 1] ?? "";
+            await writeFile(controlSocket, "owned-master");
+            ownedMasterControlSocket = controlSocket;
+          }
           const controlOperation = args[args.indexOf("-O") + 1];
           if (controlOperation === "forward") {
             const spec = args[args.indexOf("-L") + 1] ?? "";
             const localSocket = spec.slice(0, spec.indexOf(":"));
+            const controlSocket = args[args.indexOf("-S") + 1] ?? "";
+            forwardedLocalSockets.set(controlSocket, localSocket);
             await mkdir(dirname(localSocket), { recursive: true });
             await writeFile(localSocket, "owned-forward");
           }
@@ -84,8 +101,21 @@ const recordingLayer = async (calls: Command.StandardCommand[]) => {
             stdout: remoteText.includes("nohup") ? encoder.encode("4242\n") : undefined,
           });
         }),
-        () => Effect.void,
-      ),
+        () =>
+          Effect.sync(() => {
+            if (ownedMasterControlSocket !== undefined) {
+              const localSocket = forwardedLocalSockets.get(
+                ownedMasterControlSocket,
+              );
+              masterReleases?.push({
+                controlSocketExists: existsSync(ownedMasterControlSocket),
+                localSocketExists:
+                  localSocket !== undefined && existsSync(localSocket),
+              });
+            }
+          }),
+      );
+    },
   });
   return SshTransportLayer.pipe(
     Layer.provide(Layer.succeed(ProcessSpawner, spawner)),
@@ -231,8 +261,11 @@ describe("SSH policy surface", () => {
 
   it("creates Unix forwarding through a dedicated owned mux generation", async () => {
     const calls: Command.StandardCommand[] = [];
-    const layer = await recordingLayer(calls);
+    const masterReleases: MasterReleaseSnapshot[] = [];
+    const layer = await recordingLayer(calls, masterReleases);
     let ownedSocket = "";
+    let ownedControlSocket = "";
+    let callsBeforeClose = 0;
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -241,6 +274,13 @@ describe("SSH policy surface", () => {
           const lease = yield* (yield* SshTransport).forward(unixForward(endpoint, remote));
           ownedSocket = String(lease.localSocket);
           expect(String(lease.localSocket)).toContain("/control/f-");
+          const master = calls.find((call) => sshArgs(call).includes("-M"));
+          const masterArgs = sshArgs(master!);
+          ownedControlSocket = masterArgs[masterArgs.indexOf("-S") + 1] ?? "";
+          callsBeforeClose = calls.length;
+          yield* Effect.all([lease.close, lease.close], {
+            concurrency: "unbounded",
+          });
         }),
       ).pipe(Effect.provide(layer)),
     );
@@ -268,9 +308,19 @@ describe("SSH policy surface", () => {
     expect(requestArgs[requestArgs.indexOf("-L") + 1]).toMatch(
       /\/control\/f-[a-f0-9]{32}:\/Users\/ops\/\.herdr\/herdr\.sock/u,
     );
-    expect(calls.some((call) => sshArgs(call).includes("cancel"))).toBe(true);
-    expect(calls.some((call) => sshArgs(call).includes("exit"))).toBe(true);
+    expect(calls).toHaveLength(callsBeforeClose);
+    expect(
+      calls.flatMap((call) => {
+        const args = sshArgs(call);
+        const operation = args[args.indexOf("-O") + 1];
+        return args.includes("-O") && operation !== undefined ? [operation] : [];
+      }),
+    ).toEqual(["check", "forward"]);
+    expect(masterReleases).toEqual([
+      { controlSocketExists: true, localSocketExists: true },
+    ]);
     expect(existsSync(ownedSocket)).toBe(false);
+    expect(existsSync(ownedControlSocket)).toBe(false);
   });
 
   it("builds the daemon handoff script only from quoted command tokens", async () => {

@@ -213,8 +213,6 @@ export interface CompiledForward {
   readonly master: Command.Command;
   readonly check: Command.Command;
   readonly request: Command.Command;
-  readonly cancel: Command.Command;
-  readonly exit: Command.Command;
 }
 
 const quoteRemoteToken = (token: string): string =>
@@ -400,8 +398,6 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
         ]),
         check: control(controlSocket, "-O", "check"),
         request: control(controlSocket, "-O", "forward", "-L", forwardSpec),
-        cancel: control(controlSocket, "-O", "cancel", "-L", forwardSpec),
-        exit: control(controlSocket, "-O", "exit"),
       };
     },
 
