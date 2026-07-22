@@ -54,7 +54,10 @@ import {
   type NodeRefRelayRecord,
 } from "./vellum/node-ref-ingress";
 import { resolveNodeRef } from "./vellum/node-ref-resolver";
-import { installProcessSignalTermination } from "./vellum/process-signal-termination";
+import {
+  installProcessSignalTermination,
+  type ProcessSignalTermination,
+} from "./vellum/process-signal-termination";
 import { setTrustedMainWebContents } from "./vellum/trusted-main-webcontents";
 import {
   assessLiveWork,
@@ -836,6 +839,8 @@ let quitPreparation: Promise<void> | undefined;
 let signalCanvasFlushDurable = false;
 let signalTerminalShutdownComplete = false;
 let signalShutdownGeneration = 0;
+let signalDurabilityGeneration: number | undefined;
+let signalTermination: ProcessSignalTermination | undefined;
 
 const beginSignalCanvasFlush = async (generation: number): Promise<void> => {
   // Authorization belongs to this signal attempt, never to an earlier normal
@@ -880,11 +885,12 @@ app.on("before-quit", (event) => {
   if (quitPreparation !== undefined) return;
 
   // Sacred order lives inside this handler (flush, then runtime detach, then dispose).
-  const beginQuitPreparation = (): void => {
+  const beginQuitPreparation = (canvasAlreadyDurable = false): void => {
     if (runtimeDisposed || quitPreparation !== undefined) return;
     const mainWindow = trustedMainWindow;
-    const flush =
-      mainWindow === undefined || mainWindow.isDestroyed()
+    const flush = canvasAlreadyDurable
+      ? Promise.resolve()
+      : mainWindow === undefined || mainWindow.isDestroyed()
         ? Promise.resolve()
         : requestCanvasFlush(mainWindow);
 
@@ -906,6 +912,12 @@ app.on("before-quit", (event) => {
         quitConfirmed = false;
         // Never leave skip sticky after a failed prep — next Cmd+Q must be honest.
         skipQuitConfirm = false;
+        if (canvasAlreadyDurable) {
+          signalCanvasFlushDurable = false;
+          signalTerminalShutdownComplete = false;
+          signalDurabilityGeneration = undefined;
+          signalTermination?.cancel();
+        }
         recreateWindowIfEmpty();
         console.error("[canvas] quit blocked:", error);
       });
@@ -915,10 +927,15 @@ app.on("before-quit", (event) => {
   // skipQuitConfirm is consumed once so a failed signal quit cannot permanently
   // silence the honest affordance on a later Cmd+Q.
   if (skipQuitConfirm || headless || quitConfirmed) {
+    const reuseSignalDurability =
+      skipQuitConfirm &&
+      signalDurabilityGeneration === signalShutdownGeneration &&
+      signalCanvasFlushDurable &&
+      signalTerminalShutdownComplete;
     invalidateQuitConfirm();
     skipQuitConfirm = false;
     quitConfirmed = true;
-    beginQuitPreparation();
+    beginQuitPreparation(reuseSignalDurability);
     return;
   }
 
@@ -982,7 +999,7 @@ app.on("will-quit", () => {
 // Registered SIGTERM/SIGINT listeners suppress Node's default process exit.
 // Detach authority first, request Electron's normal quit sequence, and retain
 // a bounded hard-exit fallback if another listener prevents that sequence.
-installProcessSignalTermination({
+signalTermination = installProcessSignalTermination({
   app,
   cleanup: async (signal) => {
     const generation = ++signalShutdownGeneration;
@@ -991,20 +1008,25 @@ installProcessSignalTermination({
     skipQuitConfirm = true;
     signalCanvasFlushDurable = false;
     signalTerminalShutdownComplete = false;
+    signalDurabilityGeneration = undefined;
     invalidateQuitConfirm();
     try {
-      await beginSignalCanvasFlush(generation);
       await requireCleanLocalTerminalShutdown(signal, false);
+      signalTerminalShutdownComplete = true;
+      // This is the final canvas boundary for the signal attempt. The
+      // subsequent before-quit path reuses this exact generation proof.
+      await beginSignalCanvasFlush(generation);
       if (generation !== signalShutdownGeneration) {
         throw new Error("signal shutdown attempt superseded");
       }
-      signalTerminalShutdownComplete = true;
+      signalDurabilityGeneration = generation;
       // Runtime services remain available if either durability boundary fails.
       detachRuntimeOnQuit(signal);
     } catch (error) {
       if (generation === signalShutdownGeneration) {
         signalCanvasFlushDurable = false;
         signalTerminalShutdownComplete = false;
+        signalDurabilityGeneration = undefined;
         skipQuitConfirm = false;
         quitConfirmed = false;
         recreateWindowIfEmpty();

@@ -211,4 +211,43 @@ describe("process signal termination", () => {
     expect(exit).not.toHaveBeenCalled();
     expect(installed.requested()).toBe(false);
   });
+
+  it("revokes a force fallback when a later durability boundary fails", async () => {
+    vi.useFakeTimers();
+    const listeners = new Map<string, () => void>();
+    const processTarget = {
+      on: vi.fn((signal: "SIGINT" | "SIGTERM", listener: () => void) => {
+        listeners.set(signal, listener);
+      }),
+      off: vi.fn((signal: "SIGINT" | "SIGTERM") => {
+        listeners.delete(signal);
+      }),
+    };
+    const cleanup = vi.fn();
+    const exit = vi.fn();
+    let durable = true;
+    const installed = installProcessSignalTermination({
+      app: {
+        quit: () => {
+          // Synthetic later before-quit failure revokes the final proof.
+          durable = false;
+        },
+        exit,
+      },
+      cleanup,
+      processTarget,
+      exitGraceMs: 10,
+      allowForceExit: () => durable,
+    });
+
+    listeners.get("SIGTERM")?.();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(30);
+
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(exit).not.toHaveBeenCalled();
+    installed.cancel();
+    expect(installed.requested()).toBe(false);
+    installed.dispose();
+  });
 });

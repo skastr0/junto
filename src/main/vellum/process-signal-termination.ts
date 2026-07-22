@@ -28,6 +28,8 @@ export interface ProcessSignalTerminationOptions {
 
 export interface ProcessSignalTermination {
   readonly dispose: () => void;
+  /** Revoke the current attempt without uninstalling signal listeners. */
+  readonly cancel: () => void;
   readonly requested: () => boolean;
 }
 
@@ -59,6 +61,12 @@ export const installProcessSignalTermination = (
     if (exitTimer === undefined) return;
     clearTimeout(exitTimer);
     exitTimer = undefined;
+  };
+
+  const cancelActiveAttempt = (): void => {
+    attemptGeneration += 1;
+    activeAttempt = undefined;
+    clearExitTimer();
   };
 
   const forceExitWhenSafe = (generation: number): void => {
@@ -118,11 +126,13 @@ export const installProcessSignalTermination = (
     dispose: () => {
       if (disposed) return;
       disposed = true;
-      attemptGeneration += 1;
-      activeAttempt = undefined;
-      clearExitTimer();
+      cancelActiveAttempt();
       processTarget.off("SIGTERM", onSigterm);
       processTarget.off("SIGINT", onSigint);
+    },
+    cancel: () => {
+      if (disposed) return;
+      cancelActiveAttempt();
     },
     requested: () => activeAttempt !== undefined,
   };

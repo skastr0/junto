@@ -31,6 +31,25 @@ describe("canvas quit durability wiring", () => {
     expect(block).toContain("signalTerminalShutdownComplete");
   });
 
+  it("uses the generation-current signal flush as the final quit durability proof", () => {
+    const beforeStart = source.indexOf('app.on("before-quit"');
+    const beforeEnd = source.indexOf('app.on("will-quit"', beforeStart);
+    const beforeQuit = source.slice(beforeStart, beforeEnd);
+    const signalStart = source.indexOf("signalTermination = installProcessSignalTermination({");
+    const signal = source.slice(signalStart);
+
+    expect(signal.indexOf("requireCleanLocalTerminalShutdown(signal, false)"))
+      .toBeLessThan(signal.indexOf("await beginSignalCanvasFlush(generation)"));
+    expect(signal.indexOf("await beginSignalCanvasFlush(generation)"))
+      .toBeLessThan(signal.indexOf("signalDurabilityGeneration = generation"));
+    expect(signal.indexOf("signalDurabilityGeneration = generation"))
+      .toBeLessThan(signal.indexOf("detachRuntimeOnQuit(signal)"));
+    expect(beforeQuit).toContain("canvasAlreadyDurable");
+    expect(beforeQuit).toContain("? Promise.resolve()");
+    expect(beforeQuit).toContain("signalDurabilityGeneration === signalShutdownGeneration");
+    expect(beforeQuit).toContain("signalTermination?.cancel()");
+  });
+
   it("blocks every exit path after the bounded terminal shutdown returns unclean", () => {
     const helperStart = source.indexOf("const requireCleanLocalTerminalShutdown");
     const helperEnd = source.indexOf("const exitAfterDetach", helperStart);
