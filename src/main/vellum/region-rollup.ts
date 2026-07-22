@@ -6,6 +6,20 @@ import { CanvasesService, type CanvasError } from "./canvases";
 import { ChatServiceContext, type ChatService } from "./chat/service";
 import { HerdrPlane } from "./herdr/plane";
 import { SnapshotsService } from "./snapshots";
+import type { WorkSurfaceActivity } from "@shared/terminal";
+
+/** Herdr vocabulary stops at this adapter boundary. */
+export const herdrAgentStatusActivity = (status: string): WorkSurfaceActivity => {
+  const normalized = status.toLowerCase();
+  const harness = normalized === "working" || normalized === "blocked"
+    ? normalized
+    : normalized === "done"
+      ? "attention"
+      : normalized === "idle"
+        ? "idle"
+        : "unknown";
+  return { session: "running", harness, source: "herdr" };
+};
 
 // Region severity rollups for the RTS bottom bar. Derived per request from
 // the document + snapshots + ACP chat plane + herdr mirrors. No private-source
@@ -53,7 +67,7 @@ export const makeRegionRollupLive = (
               });
             }
 
-            const herdrStatusByNodeId = new Map<string, string>();
+            const terminalStatusByNodeId = new Map<string, WorkSurfaceActivity>();
             for (const node of doc.nodes) {
               const herdr = node.ether?.herdr;
               if (herdr?.paneId === undefined || herdr.paneId.length === 0) continue;
@@ -65,7 +79,7 @@ export const makeRegionRollupLive = (
                 (typeof rec.agent_status === "string" && rec.agent_status) ||
                 (typeof rec.agentStatus === "string" && rec.agentStatus) ||
                 undefined;
-              if (status) herdrStatusByNodeId.set(node.id, status);
+              if (status) terminalStatusByNodeId.set(node.id, herdrAgentStatusActivity(status));
             }
 
             return deriveRegionRollups({
@@ -73,7 +87,7 @@ export const makeRegionRollupLive = (
               snapshots: state,
               glyphs,
               agentActivity,
-              herdrStatusByNodeId,
+              terminalStatusByNodeId,
             });
           }),
       });

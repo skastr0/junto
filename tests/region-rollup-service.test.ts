@@ -11,6 +11,7 @@ import type { HerdrObservePool } from "../src/main/vellum/herdr/observe-pool";
 import type { HerdrService } from "../src/main/vellum/herdr/service";
 import type { HerdrStreamManager } from "../src/main/vellum/herdr/stream";
 import {
+  herdrAgentStatusActivity,
   makeRegionRollupLive,
   RegionRollupService,
 } from "../src/main/vellum/region-rollup";
@@ -175,7 +176,14 @@ const rollups = (runtime: ReturnType<typeof makeRuntime>, canvasName: string) =>
   runtime.runPromise(Effect.flatMap(RegionRollupService, (service) => service.rollups(canvasName)));
 
 describe("RegionRollupService — activity wiring", () => {
-  it("isLive maps to session:live/working, keyed by ether.entity.name, agents only", async () => {
+  it("translates herdr agent_status only at the main adapter boundary", () => {
+    expect(herdrAgentStatusActivity("working")).toMatchObject({ harness: "working", source: "herdr" });
+    expect(herdrAgentStatusActivity("blocked").harness).toBe("blocked");
+    expect(herdrAgentStatusActivity("done").harness).toBe("attention");
+    expect(herdrAgentStatusActivity("other").harness).toBe("unknown");
+  });
+
+  it("isLive does not fabricate harness work", async () => {
     const { spawnFn, children } = fakeSpawn();
     const chat = new ChatService(spawnFn);
     await openHappyPath(chat, children, "local:default");
@@ -184,7 +192,7 @@ describe("RegionRollupService — activity wiring", () => {
     try {
       const [rollup] = await rollups(runtime, "ops");
       const byId = new Map(rollup?.members.map((member) => [member.nodeId, member]));
-      expect(byId.get("a1")).toMatchObject({ severity: "working", reasons: ["session:live"] });
+      expect(byId.get("a1")).toMatchObject({ severity: "idle", reasons: [] });
       expect(byId.get("a2")).toMatchObject({ severity: "idle", reasons: [] });
       expect(byId.get("p1")).toMatchObject({ severity: "idle", reasons: [] });
     } finally {
@@ -213,7 +221,7 @@ describe("RegionRollupService — activity wiring", () => {
       const [rollup] = await rollups(runtime, "ops");
       const agent = rollup?.members.find((member) => member.nodeId === "a1");
       expect(agent?.severity).toBe("attention");
-      expect(agent?.reasons).toEqual(["permission:pending", "session:live"]);
+      expect(agent?.reasons).toEqual(["permission:pending"]);
     } finally {
       await runtime.dispose();
     }
@@ -238,4 +246,3 @@ describe("RegionRollupService — error channel", () => {
     }
   });
 });
-

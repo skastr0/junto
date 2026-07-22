@@ -134,16 +134,6 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   const herdrMirrors = use$(herdr$.mirrorByHost) as Record<string, { fresh?: boolean; lastSyncAt?: number }>;
   const herdrKey = herdrCoarseKey(herdrMeta ?? {}, herdrMirrors ?? {});
 
-  // Same herdr status the cards/inspector show.
-  const herdrStatusByNodeId = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const [nodeId, cache] of Object.entries(herdrMeta ?? {})) {
-      const status = cache?.meta?.agentStatus;
-      if (status) m.set(nodeId, status);
-    }
-    return m;
-  }, [herdrMeta, herdrKey]);
-
   // ACP chat plane for hermes agent nodes (keyed by agent key).
   const agentActivity = useMemo(() => {
     const m = new Map<string, { sessionLive?: boolean; permissionPending?: boolean }>();
@@ -161,12 +151,11 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     () =>
       deriveRegionRollups({
         doc,
-        herdrStatusByNodeId,
         agentActivity,
       }),
     // docVersion/docEpoch bound doc identity; herdr/chat via maps above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [docVersion, docEpoch, canvasName, herdrStatusByNodeId, agentActivity],
+    [docVersion, docEpoch, canvasName, herdrKey, agentActivity],
   );
 
   const [live, setLive] = useState<ReadonlyArray<RegionRollup>>([]);

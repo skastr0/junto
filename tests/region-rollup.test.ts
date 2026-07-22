@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { A2ATask, CanvasDoc } from "../src/shared/canvas";
 import type { GlyphRow, GlyphView } from "../src/shared/execution-graph";
 import { deriveRegionRollups, type AgentActivity } from "../src/shared/region-rollup";
+import type { WorkSurfaceActivity } from "../src/shared/terminal";
 import { a2aTask } from "./helpers/a2a-fixtures";
 
 type Node = CanvasDoc["nodes"][number];
@@ -170,7 +171,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(rollup?.counts).toEqual({ total: 2, blocked: 0, attention: 2, working: 0 });
   });
 
-  it("working via a live ACP session on an agent", () => {
+  it("session liveness alone does not imply harness work", () => {
     const doc: CanvasDoc = {
       nodes: [group("r", 0, 0, 500, 500, "ops"), agentNode("a", 10, 10, "MIRA", "remote-a:mira")],
       edges: [],
@@ -179,8 +180,16 @@ describe("deriveRegionRollups — member severity ladder", () => {
       doc,
       agentActivity: activityOf(["remote-a:mira", { sessionLive: true }]),
     });
-    expect(rollup?.members[0]).toMatchObject({ severity: "working", reasons: ["session:live"] });
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 1 });
+    expect(rollup?.members[0]).toMatchObject({ severity: "idle", reasons: [] });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 0 });
+  });
+
+  it("maps backend-neutral harness activity without knowing terminal backend", () => {
+    const terminal = node("term", 10, 10, "shell", { entity: { kind: "terminal" }, terminal: { bindingId: "b1" } });
+    const doc: CanvasDoc = { nodes: [group("r", 0, 0, 500, 500, "ops"), terminal], edges: [] };
+    const activity: WorkSurfaceActivity = { session: "running", harness: "working", source: "native" };
+    const [rollup] = deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["term", activity]]) });
+    expect(rollup?.members[0]).toMatchObject({ severity: "working", reasons: ["activity:working"] });
   });
 
   it("working via WIP glyphs on a project node, first such state", () => {
@@ -235,7 +244,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     });
     const member = rollup?.members[0];
     expect(member?.severity).toBe("blocked");
-    expect(member?.reasons).toEqual(["flag:blocker", "flag:attention", "session:live"]);
+    expect(member?.reasons).toEqual(["flag:blocker", "flag:attention"]);
     expect(rollup?.counts).toEqual({ total: 1, blocked: 1, attention: 0, working: 0 });
   });
 });
@@ -402,7 +411,7 @@ describe("deriveRegionRollups — member ordering", () => {
     const [rollup] = deriveRegionRollups({
       doc,
       glyphs,
-      agentActivity: activityOf(["remote-a:mira", { sessionLive: true }]),
+      terminalStatusByNodeId: new Map([["working-agent", { session: "running", harness: "working" }]]),
     });
     expect(rollup?.members.map((member) => member.nodeId)).toEqual([
       "blocked-note",
@@ -448,7 +457,7 @@ describe("deriveRegionRollups — derivation edges", () => {
     });
     const agent = rollup?.members[0];
     expect(agent?.severity).toBe("attention");
-    expect(agent?.reasons).toEqual(["permission:pending", "session:live"]);
+    expect(agent?.reasons).toEqual(["permission:pending"]);
     expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 1, working: 0 });
   });
 
@@ -470,7 +479,7 @@ describe("deriveRegionRollups — derivation edges", () => {
   });
 });
 
-describe("deriveRegionRollups — herdr status", () => {
+describe("deriveRegionRollups — backend-neutral terminal status", () => {
   const herdrNode = (
     id: string,
     x: number,
@@ -495,13 +504,13 @@ describe("deriveRegionRollups — herdr status", () => {
     };
     const [rollup] = deriveRegionRollups({
       doc,
-      herdrStatusByNodeId: new Map([["h1", "working"]]),
+      terminalStatusByNodeId: new Map([["h1", { session: "running", harness: "working", source: "herdr" }]]),
     });
     expect(rollup?.severity).toBe("working");
     expect(rollup?.members[0]).toMatchObject({
       severity: "working",
       kind: "herdr",
-      reasons: ["herdr:working"],
+      reasons: ["activity:working"],
     });
     expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 1 });
   });
@@ -517,9 +526,9 @@ describe("deriveRegionRollups — herdr status", () => {
     };
     const [rollup] = deriveRegionRollups({
       doc,
-      herdrStatusByNodeId: new Map([
-        ["h1", "blocked"],
-        ["h2", "done"],
+      terminalStatusByNodeId: new Map([
+        ["h1", { session: "running", harness: "blocked", source: "herdr" } as const],
+        ["h2", { session: "running", harness: "attention", source: "herdr" } as const],
       ]),
     });
     expect(rollup?.severity).toBe("blocked");
@@ -534,7 +543,7 @@ describe("deriveRegionRollups — herdr status", () => {
     };
     expect(deriveRegionRollups({ doc })[0]?.severity).toBe("idle");
     expect(
-      deriveRegionRollups({ doc, herdrStatusByNodeId: new Map([["h1", "idle"]]) })[0]?.severity,
+      deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["h1", { session: "running", harness: "idle" }]]) })[0]?.severity,
     ).toBe("idle");
   });
 });
