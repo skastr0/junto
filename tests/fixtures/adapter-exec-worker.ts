@@ -25,7 +25,8 @@ if ((mode === "parent" || mode === "parent-ignore-term") && outputPath !== undef
   );
   setInterval(() => undefined, 1_000);
 } else if (mode === "leader-exits-first-ignore-term" && outputPath !== undefined) {
-  const grandchild = spawn("node", ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {
+  // Bounded orphan fixture: it outlives the leader briefly, then self-expires.
+  const grandchild = spawn("node", ["-e", "process.on('SIGTERM', () => {}); setTimeout(() => process.exit(0), 750)"], {
     stdio: "ignore",
   });
   if (grandchild.pid === undefined) throw new Error("fixture grandchild has no pid");

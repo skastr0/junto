@@ -16,9 +16,13 @@ export interface ProcessHandle {
 export class ProcessSpawner extends Context.Tag("@vellum/ssh/ProcessSpawner")<ProcessSpawner, { readonly start: (command: Command.Command) => Effect.Effect<ProcessHandle, ProcessFailure, Scope.Scope> }>() {}
 const failure = (): ProcessFailure => new ProcessFailure();
 
-type TrackedSshChild = { readonly child: ReturnType<typeof spawnDetachedProcessGroup>["child"]; readonly owned: OwnedProcess; readonly exited: Promise<number> };
+type TrackedSshChild = { readonly child: ReturnType<typeof spawnDetachedProcessGroup>["child"]; readonly owned: OwnedProcess; readonly mode: "group" | "child"; readonly exited: Promise<number> };
 const stopProcess = (tracked: TrackedSshChild): Effect.Effect<void> =>
   Effect.suspend(() => {
+    if (tracked.child.exitCode !== null || tracked.child.signalCode !== null) {
+      releaseOwned(tracked.owned);
+      return Effect.void;
+    }
     const signal = (value: TerminatingSignal) => Effect.sync(() => signalOwned(tracked.owned, value));
     return signal("SIGTERM").pipe(
       Effect.zipRight(Effect.sleep("50 millis")),
@@ -46,7 +50,7 @@ const startStandard = (command: Command.StandardCommand): Effect.Effect<TrackedS
         spawned.child.once("exit", (code) => resolve(code ?? -1));
         spawned.child.once("error", reject);
       });
-      return { child: spawned.child, owned: spawned.process, exited };
+      return { child: spawned.child, owned: spawned.process, mode: spawned.mode, exited };
     },
     catch: failure,
   });

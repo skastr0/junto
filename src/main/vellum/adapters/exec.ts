@@ -29,6 +29,7 @@ const ADAPTER_QUIESCING_ERROR = "adapter process plane is shutting down";
 interface OwnedAdapterChild {
   readonly child: ChildProcessWithoutNullStreams;
   readonly owned: OwnedProcess;
+  readonly mode: "group" | "child";
   cleanupTimer?: ReturnType<typeof setTimeout>;
   released?: boolean;
 }
@@ -119,7 +120,7 @@ const runOwnedFile = (
         options: options.env === undefined ? undefined : { env: options.env },
       });
       child = spawned.child;
-      const owned: OwnedAdapterChild = { child, owned: spawned.process };
+      const owned: OwnedAdapterChild = { child, owned: spawned.process, mode: spawned.mode };
       ownedAdapterChildren.add(owned);
       return runRegisteredAdapterChild(owned, options, resolve);
     } catch (error) {
@@ -160,18 +161,9 @@ const runRegisteredAdapterChild = (
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      // A one-shot adapter command never owns a persistent descendant. Reap
-      // anything that outlived its group leader before forgetting the group.
-      // `close` only proves the leader and its inherited stdio are closed;
-      // it says nothing about a detached descendant in the same group.
-      if (timedOut || bufferExceeded) {
-        signalOwnedAdapterChild(owned, "SIGKILL");
-        releaseOwnedAdapterChild(owned);
-      } else {
-        // Resolve the caller now, while retaining the branded group authority
-        // through a bounded TERM -> KILL cleanup for leader-first exits.
-        terminateOwnedAdapterChild(owned);
-      }
+      // `close` is observed leader exit. Never signal after it: group
+      // authority refuses leaderless groups, and child authority is released.
+      releaseOwnedAdapterChild(owned);
       resolve(result);
     };
 

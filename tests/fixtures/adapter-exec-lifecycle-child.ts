@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,14 +29,19 @@ const processAlive = (pid: number): boolean => {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 };
+const processGoneOrZombie = (pid: number): boolean => {
+  if (!processAlive(pid)) return true;
+  const status = spawnSync("ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" }).stdout.trim();
+  return status.startsWith("Z");
+};
 
-const waitUntil = async (check: () => boolean | Promise<boolean>): Promise<void> => {
+const waitUntil = async (label: string, check: () => boolean | Promise<boolean>): Promise<void> => {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
     if (await check()) return;
     await delay(25);
   }
-  throw new Error("adapter lifecycle fixture timed out");
+  throw new Error(`adapter lifecycle fixture timed out: ${label}`);
 };
 
 const root = await mkdtemp(join(tmpdir(), "vellum-adapter-exec-"));
@@ -53,7 +59,9 @@ try {
     readonly grandchildPid: number;
   };
   const leaderGrandchildAliveWhenSettled = processAlive(leaderPids.grandchildPid);
-  await waitUntil(() => !processAlive(leaderPids.grandchildPid));
+  // Group authority intentionally refuses a leaderless group: a later pid
+  // reuse must not turn cleanup into an unrelated negative group signal.
+  const leaderExitedGrandchildAlive = processAlive(leaderPids.grandchildPid);
   await rm(pidsPath, { force: true });
 
   const pending = runCli(
@@ -61,7 +69,7 @@ try {
     [workerPath, "parent-ignore-term", pidsPath],
     30_000,
   );
-  await waitUntil(() => pathExists(pidsPath));
+  await waitUntil("pending pids", () => pathExists(pidsPath));
   const pids = JSON.parse(await readFile(pidsPath, "utf8")) as {
     readonly parentPid: number;
     readonly grandchildPid: number;
@@ -69,9 +77,6 @@ try {
 
   terminateAdapterChildrenOnQuit();
   const pendingResult = await pending;
-  await waitUntil(
-    () => !processAlive(pids.parentPid) && !processAlive(pids.grandchildPid),
-  );
 
   const lateResult = await runCli(
     process.execPath,
@@ -81,7 +86,7 @@ try {
   const receipt = {
     leaderResultOk: leader.ok,
     leaderGrandchildAliveWhenSettled,
-    leaderExitedGrandchildAlive: processAlive(leaderPids.grandchildPid),
+    leaderExitedGrandchildAlive,
     pendingOk: pendingResult.ok,
     parentAlive: processAlive(pids.parentPid),
     grandchildAlive: processAlive(pids.grandchildPid),

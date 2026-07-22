@@ -48,7 +48,7 @@ const mint = (source: string, rec: OwnedAuthority): OwnedProcess => {
 export const admitChildProcess = (input: { readonly source: string; readonly child: SignalChildHandle }): OwnedProcess =>
   mint(input.source, { kind: "child", child: input.child, source: input.source, released: false });
 
-export type DetachedProcessGroup = { readonly child: ChildProcessWithoutNullStreams; readonly process: OwnedProcess };
+export type DetachedProcessGroup = { readonly child: ChildProcessWithoutNullStreams; readonly process: OwnedProcess; readonly mode: "group" | "child" };
 /** The sole mint site for POSIX process-group authority. Detached is not caller-configurable. */
 export const spawnDetachedProcessGroup = (input: { readonly source: string; readonly command: string; readonly args: readonly string[]; readonly options?: Omit<SpawnOptionsWithoutStdio, "detached"> }): DetachedProcessGroup => {
   const child = spawn(input.command, [...input.args], { ...input.options, detached: true, stdio: "pipe" });
@@ -58,7 +58,7 @@ export const spawnDetachedProcessGroup = (input: { readonly source: string; read
   const ownedProcess = epoch && decoded._tag === "Right"
     ? mint(input.source, { kind: "group", child, pid: decoded.right, epoch, source: input.source, released: false })
     : admitChildProcess({ source: input.source, child });
-  return { child, process: ownedProcess };
+  return { child, process: ownedProcess, mode: epoch && decoded._tag === "Right" ? "group" : "child" };
 };
 
 export type SignalOwnedResult = { readonly attempted: boolean; readonly decision: ProcessSignalDecision; readonly via: "child.kill" | "process.kill-group" | "none" };
@@ -73,15 +73,17 @@ export const signalOwned = (process: OwnedProcess, signal: TerminatingSignal): S
   if (rec.kind === "child") return signalChild(rec, signal);
   if (!processGroupEpochIsCurrent(rec.pid, rec.epoch)) {
     pushAudit({ source: rec.source, pid: rec.pid, signal, requestedGroup: true, decision: { ok: false, reason: "group-epoch-mismatch" } });
-    return signalChild(rec, signal);
+    return { attempted: false, decision: { ok: false, reason: "group-epoch-mismatch" }, via: "none" };
   }
   try {
     // Sole terminating process.kill in Vellum: negative verified group leader only.
     globalThis.process.kill(-rec.pid, signal);
     return { attempted: true, decision: { ok: true, mode: "group" }, via: "process.kill-group" };
-  } catch { return signalChild(rec, signal); }
+  } catch {
+    pushAudit({ source: rec.source, pid: rec.pid, signal, requestedGroup: true, decision: { ok: false, reason: "group-signal-failed" } });
+    return { attempted: false, decision: { ok: false, reason: "group-signal-failed" }, via: "none" };
+  }
 };
 export const releaseOwned = (process: OwnedProcess | undefined): void => { if (!process) return; const rec = authority.get(process); if (!rec) return; rec.released = true; authority.delete(process); };
-export const signalChildHandleOnly = (child: SignalChildHandle | undefined, signal: TerminatingSignal, _source: string): SignalOwnedResult => child ? signalChild({ kind: "child", child, source: _source, released: false }, signal) : { attempted: false, decision: { ok: false, reason: "child-missing" }, via: "none" };
 /** Existence probe only, never a terminating signal. */
 export const probeProcessAlive = (pid: number | undefined): boolean => { try { return pid !== undefined && pid > 0 ? globalThis.process.kill(pid, 0) : false; } catch { return false; } };

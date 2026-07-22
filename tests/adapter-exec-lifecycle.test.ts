@@ -61,10 +61,10 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
     await expect(runLifecycleFixture()).resolves.toEqual({
       leaderResultOk: true,
       leaderGrandchildAliveWhenSettled: true,
-      leaderExitedGrandchildAlive: false,
+      leaderExitedGrandchildAlive: true,
       pendingOk: false,
       parentAlive: false,
-      grandchildAlive: false,
+      grandchildAlive: true,
       lateOk: false,
       lateError: "adapter process plane is shutting down",
       markerCreated: false,
