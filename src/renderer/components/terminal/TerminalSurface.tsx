@@ -30,13 +30,57 @@ type LiveEvent = {
 };
 
 const FONT_SIZE = MONO_CELL.fontSizePx;
-/** Same cell estimate herdr uses when FitAddon under-reports. */
-const CELL_W = MONO_CELL.fontSizePx * MONO_CELL.ratio;
-const CELL_H = MONO_CELL.fontSizePx * 1.2;
+/** Fallback cell when xterm has not measured fonts yet (13×0.6 / 13×1.2). */
+const FALLBACK_CELL_W = MONO_CELL.fontSizePx * MONO_CELL.ratio;
+const FALLBACK_CELL_H = MONO_CELL.fontSizePx * 1.2;
+/** Must match CSS padding on `.native-terminal-surface__xterm .xterm`. */
+const XTERM_PAD_X = 16; // 8 + 8
+const XTERM_PAD_Y = 12; // 6 + 6
 /** Debounce layout thrash from pin/focus/dock animations. */
-const RESIZE_DEBOUNCE_MS = 80;
-/** After open/attach, wait for focus shell CSS animation (~160ms) then fit hard. */
-const SETTLE_FIT_MS = 200;
+const RESIZE_DEBOUNCE_MS = 48;
+/** After open/attach, wait for focus-shell enter + stored size apply. */
+const SETTLE_FITS_MS = [0, 50, 160, 320, 600] as const;
+
+type XtermCore = {
+  readonly _renderService?: {
+    readonly dimensions?: {
+      readonly css?: {
+        readonly cell?: { readonly width?: number; readonly height?: number };
+      };
+    };
+  };
+};
+
+const readCellSize = (term: Terminal): { cellW: number; cellH: number } => {
+  const core = term as unknown as { _core?: XtermCore };
+  const cell = core._core?._renderService?.dimensions?.css?.cell;
+  const cellW = cell?.width && cell.width > 1 ? cell.width : FALLBACK_CELL_W;
+  const cellH = cell?.height && cell.height > 1 ? cell.height : FALLBACK_CELL_H;
+  return { cellW, cellH };
+};
+
+/**
+ * Geometry authority: host box → cols×rows.
+ * Never trust FitAddon alone — when the flex chain is content-sized to the
+ * default 80×24 canvas, FitAddon and a clientWidth floor both freeze on that
+ * island. getBoundingClientRect on a flex:1;height:0 host is the real pane.
+ */
+const measureHost = (
+  host: HTMLElement,
+  term: Terminal,
+): { cols: number; rows: number; w: number; h: number } | null => {
+  const rect = host.getBoundingClientRect();
+  const w = rect.width;
+  const h = rect.height;
+  if (w < 40 || h < 40) return null;
+
+  const { cellW, cellH } = readCellSize(term);
+  const innerW = Math.max(0, w - XTERM_PAD_X);
+  const innerH = Math.max(0, h - XTERM_PAD_Y);
+  const cols = Math.max(20, Math.min(300, Math.floor(innerW / cellW)));
+  const rows = Math.max(5, Math.min(120, Math.floor(innerH / cellH)));
+  return { cols, rows, w, h };
+};
 
 export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -53,36 +97,35 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const bindingId = binding?.kind === "native" ? binding.bindingId : "";
   const hostId = binding?.kind === "native" ? binding.hostId : "local";
 
-  /**
-   * Measure host → set xterm cols/rows → PTY resize.
-   * Single authority for geometry (no parallel onResize→PTY path).
-   */
   const pushResize = (): void => {
     const term = termRef.current;
-    const fit = fitRef.current;
     const host = hostRef.current;
-    if (!term || !fit || !host) return;
+    const fit = fitRef.current;
+    if (!term || !host) return;
 
-    const w = host.clientWidth;
-    const h = host.clientHeight;
-    // Hidden / zero-size during zone transitions — skip (avoid 0×0 PTY).
-    if (w < 40 || h < 40) return;
+    const measured = measureHost(host, term);
+    if (!measured) return;
 
-    try {
-      fit.fit();
-    } catch {
-      // fall through to pixel fallback
+    let { cols, rows } = measured;
+
+    // FitAddon as a secondary vote once the host already has a real box.
+    // Prefer the larger of host-pixels vs fit so we never shrink to an island.
+    if (fit) {
+      try {
+        const proposed = fit.proposeDimensions();
+        if (proposed && !Number.isNaN(proposed.cols) && !Number.isNaN(proposed.rows)) {
+          cols = Math.max(cols, Math.min(300, proposed.cols | 0));
+          rows = Math.max(rows, Math.min(120, proposed.rows | 0));
+        }
+      } catch {
+        // ignore — host measure is enough
+      }
     }
 
-    let cols = term.cols | 0;
-    let rows = term.rows | 0;
+    cols = Math.max(20, Math.min(300, cols));
+    rows = Math.max(5, Math.min(120, rows));
 
-    // FitAddon sometimes under-measures before layout settles. Floor from pixels.
-    const minCols = Math.max(20, Math.floor(w / CELL_W));
-    const minRows = Math.max(5, Math.floor(h / CELL_H));
-    if (cols < minCols * 0.85 || rows < minRows * 0.85) {
-      cols = Math.min(300, minCols);
-      rows = Math.min(120, minRows);
+    if (term.cols !== cols || term.rows !== rows) {
       try {
         term.resize(cols, rows);
       } catch {
@@ -90,8 +133,6 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       }
     }
 
-    cols = Math.max(20, Math.min(300, cols));
-    rows = Math.max(5, Math.min(120, rows));
     if (lastGeom.current.cols === cols && lastGeom.current.rows === rows) {
       setGeomLabel(`${cols}×${rows}`);
       return;
@@ -125,11 +166,13 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    host.replaceChildren();
     term.open(host);
     termRef.current = term;
     fitRef.current = fit;
 
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const settleTimers: ReturnType<typeof setTimeout>[] = [];
     const scheduleResize = (): void => {
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
@@ -137,25 +180,38 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         pushResize();
       }, RESIZE_DEBOUNCE_MS);
     };
+    const hardFitBurst = (): void => {
+      for (const ms of SETTLE_FITS_MS) {
+        settleTimers.push(setTimeout(() => pushResize(), ms));
+      }
+    };
 
-    // Initial + post-animation settle (focus-surface-enter is 160ms).
     requestAnimationFrame(() => {
       pushResize();
-      setTimeout(() => pushResize(), SETTLE_FIT_MS);
+      hardFitBurst();
     });
 
     window.addEventListener("resize", scheduleResize);
     const observer = new ResizeObserver(() => scheduleResize());
     observer.observe(host);
     if (root) observer.observe(root);
-    // Focus panel itself often resizes after mount (stored focusSize).
-    const panel = root?.closest(".focus-surface__panel") ?? null;
-    if (panel) observer.observe(panel);
+    // Focus panel + workbench panes reflow on pin/split/stored focusSize.
+    const ancestors = [
+      root?.closest(".focus-surface__panel"),
+      root?.closest(".workbench-pane"),
+      root?.closest(".workbench-panes"),
+      root?.closest(".work-focus-shell"),
+      root?.closest(".dock-slot"),
+    ];
+    for (const el of ancestors) {
+      if (el instanceof Element) observer.observe(el);
+    }
 
     return () => {
       window.removeEventListener("resize", scheduleResize);
       observer.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
+      for (const t of settleTimers) clearTimeout(t);
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
@@ -179,8 +235,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       if (lease) void api.terminalWrite(lease, data);
     });
 
-    // Do NOT wire term.onResize → PTY. pushResize is the only path (avoids
-    // double-fire and thrash with FitAddon).
+    // Do NOT wire term.onResize → PTY. pushResize is the only path.
 
     const offEvent = api.onTerminalEvent((raw) => {
       const event = raw as LiveEvent;
@@ -223,12 +278,12 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         }
         pending.length = 0;
         setStatus("control");
-        // Layout settles after attach + focus animation.
         requestAnimationFrame(() => {
           pushResize();
           term.focus();
-          setTimeout(() => pushResize(), SETTLE_FIT_MS);
-          setTimeout(() => pushResize(), SETTLE_FIT_MS + 150);
+          for (const ms of SETTLE_FITS_MS) {
+            setTimeout(() => pushResize(), ms);
+          }
         });
       })
       .catch((error: unknown) =>

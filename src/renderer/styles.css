@@ -441,10 +441,12 @@ body {
   flex-direction: column;
 }
 .workbench-pane > .dock-slot > .native-terminal-surface {
-  flex: 1 1 auto;
+  /* height:0 + flex:1 forces flex-assigned box, not content-sized 80×24 island */
+  flex: 1 1 0;
   min-height: 0;
+  min-width: 0;
   width: 100%;
-  height: 100%;
+  height: 0;
 }
 .workbench-surface__herdr-actions {
   position: absolute;
@@ -1801,19 +1803,25 @@ ol.note-md__list > .note-md__li::before {
   .vellum-tooltip { transition: none; }
 }
 
-/* Native terminal — fill focus/dock body the same way herdr-xterm does. */
+/* Native terminal — fill focus/dock body.
+   Critical: flex:1 1 0 + height:0 so the host gets the pane's flex-assigned
+   box. Without height:0, the chain content-sizes to xterm's default 80×24
+   canvas and FitAddon freezes on that island forever. */
 .native-terminal-surface {
-  height: 100%;
-  min-height: 0;
-  width: 100%;
+  position: relative;
   display: flex;
   flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  height: 0;
   background: #0b0d0c;
   overflow: hidden;
 }
 .native-terminal-surface__status {
   height: 28px;
-  flex: none;
+  flex: 0 0 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1824,6 +1832,7 @@ ol.note-md__list > .note-md__li::before {
   font: 10px ui-monospace, monospace;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  z-index: 1;
 }
 .native-terminal-surface__title {
   overflow: hidden;
@@ -1836,14 +1845,18 @@ ol.note-md__list > .note-md__li::before {
 }
 .native-terminal-surface__xterm {
   position: relative;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
+  min-width: 0;
   width: 100%;
+  height: 0;
   overflow: hidden;
   outline: none;
 }
-/* Match .herdr-xterm so FitAddon sees a full box, not a content-sized island. */
+/* Absolute fill so .xterm never drives host content height. */
 .native-terminal-surface__xterm .xterm {
+  position: absolute !important;
+  inset: 0;
   width: 100% !important;
   height: 100% !important;
   padding: 6px 8px;
@@ -1852,6 +1865,7 @@ ol.note-md__list > .note-md__li::before {
 .native-terminal-surface__xterm .xterm-viewport {
   width: 100% !important;
   height: 100% !important;
+  overflow-y: auto !important;
 }
 .native-terminal-surface__xterm .xterm-screen {
   width: 100% !important;
