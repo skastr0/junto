@@ -126,6 +126,34 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
     client.close();
     expect(child.kill).toHaveBeenCalledTimes(1);
   });
+
+  it("a stale child exit after restart cannot close or strand the replacement", async () => {
+    vi.useFakeTimers();
+    const { spawnFn, children } = fakeSpawn();
+    const client = new AcpClient(TARGET, noopHandlers(), spawnFn);
+
+    const firstStart = client.start();
+    const first = children[0]!;
+    respondOk(first, lastSentId(first), INIT_RESULT);
+    await firstStart;
+
+    const replacementStart = client.start();
+    const replacement = children[1]!;
+    expect(first.kill).toHaveBeenCalledExactlyOnceWith("SIGTERM");
+
+    // The superseded process settles after replacement has become current.
+    // Its callback may release only its own authority.
+    first.emit("exit", 0);
+    respondOk(replacement, lastSentId(replacement), INIT_RESULT);
+    await replacementStart;
+    expect(client.closed).toBe(false);
+
+    client.close();
+    expect(replacement.kill).toHaveBeenCalledExactlyOnceWith("SIGTERM");
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(replacement.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    expect(first.kill).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("ChatService — a stalled session/new times out and tears the session down", () => {

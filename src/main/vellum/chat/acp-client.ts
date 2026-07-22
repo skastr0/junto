@@ -234,6 +234,24 @@ export class AcpClient {
   // Spawns the child and performs the initialize handshake. Rejects (and
   // tears down the child) if the handshake doesn't complete within 20s.
   async start(): Promise<AcpInitializeResult> {
+    if (this.closedFlag) throw new Error("ACP client is closed");
+
+    // A restart supersedes the exact prior child. Detach it from client state
+    // before signaling so a synchronous/late exit cannot close the replacement.
+    const previousChild = this.child;
+    const previousProcess = this.childProcess;
+    if (previousChild !== undefined || previousProcess !== undefined) {
+      this.child = undefined;
+      this.childProcess = undefined;
+      this.buffer = "";
+      this.rejectAllPending(new Error("ACP client restarted"));
+      if (previousChild !== undefined && previousProcess !== undefined) {
+        this.killChild(previousChild, previousProcess);
+      } else {
+        releaseOwned(previousProcess);
+      }
+    }
+
     const environmentOverlay = this.environmentOverlay;
     this.environmentOverlay = undefined;
     if (environmentOverlay !== undefined && this.target.host !== "local") {
@@ -250,8 +268,12 @@ export class AcpClient {
     this.child = child;
     this.childProcess = childProcess;
 
-    child.stdout.on("data", (chunk: unknown) => this.onStdout(String(chunk)));
-    child.stderr.on("data", (chunk: unknown) => this.onStderr(String(chunk)));
+    child.stdout.on("data", (chunk: unknown) => {
+      if (this.isCurrentChild(child, childProcess)) this.onStdout(String(chunk));
+    });
+    child.stderr.on("data", (chunk: unknown) => {
+      if (this.isCurrentChild(child, childProcess)) this.onStderr(String(chunk));
+    });
     child.on("error", (err) =>
       this.onChildDown(child, childProcess, { kind: "error", message: err.message }),
     );
@@ -269,7 +291,7 @@ export class AcpClient {
         "ACP initialize timed out after 20s",
       );
     } catch (err) {
-      this.close();
+      if (this.isCurrentChild(child, childProcess)) this.close();
       throw err;
     }
   }
@@ -348,6 +370,10 @@ export class AcpClient {
       finish();
     }, SIGTERM_GRACE_MS);
     (timer as unknown as { unref?: () => void }).unref?.();
+  }
+
+  private isCurrentChild(child: AcpChildLike, childProcess: OwnedProcess): boolean {
+    return this.child === child && this.childProcess === childProcess;
   }
 
   // A fatal transport condition (timeout or oversized inbound frame) means
@@ -465,10 +491,9 @@ export class AcpClient {
     event: AcpLifecycleEvent,
   ): void {
     releaseOwned(childProcess);
-    if (this.child === child) {
-      this.child = undefined;
-      if (this.childProcess === childProcess) this.childProcess = undefined;
-    }
+    if (!this.isCurrentChild(child, childProcess)) return;
+    this.child = undefined;
+    this.childProcess = undefined;
     if (this.closedFlag) return; // already torn down intentionally
     this.closedFlag = true;
     this.rejectAllPending(
