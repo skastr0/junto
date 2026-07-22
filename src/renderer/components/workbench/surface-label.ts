@@ -2,6 +2,8 @@ import { parseHerdrSurfaceId } from "../../lib/dock-state";
 import { dock$ } from "../../lib/dock-state";
 import { getHerdrTerminal, herdr$ } from "../../lib/herdr-state";
 import type { WorkbenchState, WorkSurface } from "../../lib/surface-registry";
+import { parseTerminalSurfaceId } from "../../lib/dock-state";
+import { terminal$ } from "../../lib/terminal-state";
 
 /** Short tab/header label for a surface. */
 export function surfaceLabel(
@@ -21,6 +23,11 @@ export function surfaceLabel(
       return `herdr · ${nodeId.slice(0, 12)}`;
     }
     return "herdr";
+  }
+  if (surface.kind === "terminal") {
+    const nodeId = parseTerminalSurfaceId(surface.id);
+    const node = nodeId ? terminal$.openByNodeId[nodeId].peek() : undefined;
+    return node?.type === "text" ? node.text : "terminal";
   }
   return surface.kind;
 }

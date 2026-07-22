@@ -11,7 +11,7 @@
 // - Multiple herdr surfaces allowed (focus-on-click routes keyboard).
 //   Per-terminal control exclusivity is host-side; not a global UI lock.
 
-export type SurfaceKind = "browser" | "herdr" | "chat";
+export type SurfaceKind = "browser" | "herdr" | "terminal" | "chat";
 export type WorkZone = "focus" | "pinned";
 export type LayoutMode = "solo" | "split-v" | "split-h";
 

@@ -34,6 +34,7 @@ import {
   type WorkZone,
 } from "./surface-registry";
 import { getVellumApi } from "./vellum-api";
+import { closeTerminalSurface, terminal$, terminalNodeIds } from "./terminal-state";
 
 // Workbench side effects: pure transitions live in surface-registry.ts; this
 // module owns the observable + detach/stream cleanup. Every close DETACHES
@@ -48,6 +49,9 @@ export interface DockBrowserPayload {
 }
 
 const HERDR_SURFACE_PREFIX = "herdr:";
+const TERMINAL_SURFACE_PREFIX = "terminal:";
+export const terminalSurfaceId = (nodeId: string): string => `${TERMINAL_SURFACE_PREFIX}${nodeId}`;
+export const parseTerminalSurfaceId = (id: string): string | null => id.startsWith(TERMINAL_SURFACE_PREFIX) && id.length > TERMINAL_SURFACE_PREFIX.length ? id.slice(TERMINAL_SURFACE_PREFIX.length) : null;
 
 /** Surface id for a herdr terminal bound to a canvas node. */
 export const herdrSurfaceId = (nodeId: string): string => `${HERDR_SURFACE_PREFIX}${nodeId}`;
@@ -114,6 +118,9 @@ const applyTransition = (transition: WorkbenchTransition): void => {
       // not when merely moving zones (pin/unpin never emit herdr in evicted).
       const nodeId = parseHerdrSurfaceId(closed.id);
       if (nodeId) closeHerdrTerminal(nodeId);
+    } else if (closed.kind === "terminal") {
+      const nodeId = parseTerminalSurfaceId(closed.id);
+      if (nodeId) closeTerminalSurface(nodeId);
     }
   }
 };
@@ -240,6 +247,23 @@ observe(() => {
   herdr$.terminals.get();
   herdr$.focusedNodeId.get();
   syncHerdrWorkbenchSlot();
+});
+
+observe(() => {
+  terminal$.openByNodeId.get();
+  const openIds = new Set(terminalNodeIds());
+  let registry = dock$.registry.peek();
+  for (const surface of registry.surfaces) {
+    if (surface.kind !== "terminal") continue;
+    const nodeId = parseTerminalSurfaceId(surface.id);
+    if (!nodeId || !openIds.has(nodeId)) registry = closeSurface(registry, surface.id).state;
+  }
+  for (const nodeId of openIds) {
+    const id = terminalSurfaceId(nodeId);
+    if (!surfaceById(registry, id)) registry = openSurface(registry, { id, kind: "terminal" }, "focus").state;
+    else registry = focusSurface(registry, id).state;
+  }
+  dock$.registry.set(registry);
 });
 
 export const pinWorkbenchSurface = (id: string): void => {

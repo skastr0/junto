@@ -35,6 +35,7 @@ import { HerdrToast } from "./components/herdr/HerdrToast";
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { WorkFocusShell } from "./components/workbench";
 import { TooltipLayer } from "./components/TooltipLayer";
+import { TerminalInventory } from "./components/terminal/TerminalInventory";
 import { DemoCameraBridge } from "./demo/camera-bridge";
 import { DemoLayer } from "./demo/demo-layer";
 import { SEED_CANVAS_NAME } from "@shared/seed";
@@ -431,6 +432,7 @@ export function App() {
         <WorkFocusShell />
         <HerdrToast />
         <DemoLayer />
+        <TerminalInventory />
         </div>
         <WorkSurfaceDock />
       </div>

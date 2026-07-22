@@ -24,9 +24,9 @@ export function WorkFocusShell() {
 
   const hasFocus = zoneHasSurfaces(registry, "focus");
   const focusSurfaces = registry.surfaces.filter((s) => s.zone === "focus");
-  const onlyHerdr =
-    focusSurfaces.length > 0 && focusSurfaces.every((s) => s.kind === "herdr");
-  const measure = onlyHerdr ? "terminal" : "workspace";
+  const onlyTerminals =
+    focusSurfaces.length > 0 && focusSurfaces.every((s) => s.kind === "herdr" || s.kind === "terminal");
+  const measure = onlyTerminals ? "terminal" : "workspace";
 
   const panes = visiblePanes(registry, "focus");
   const activeId = panes.pane0;

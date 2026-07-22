@@ -15,6 +15,9 @@ import {
 import { HerdrTerminalPanel } from "../herdr/HerdrTerminalModal";
 import { BrowserSurfaceSlot } from "./BrowserSurfaceSlot";
 import { parseHerdrNodeId } from "./surface-label";
+import { parseTerminalSurfaceId } from "../../lib/dock-state";
+import { terminal$ } from "../../lib/terminal-state";
+import { TerminalSurface } from "../terminal/TerminalSurface";
 
 function HerdrSurfaceSlot({
   surface,
@@ -95,6 +98,11 @@ function resolveSurfaceBody(
         onActivate={onActivate}
       />
     );
+  }
+  if (surface.kind === "terminal") {
+    const nodeId = parseTerminalSurfaceId(surface.id);
+    const node = nodeId ? terminal$.openByNodeId[nodeId].peek() : undefined;
+    return <section className="dock-slot workbench-surface" onMouseDown={onActivate}>{node ? <TerminalSurface node={node} /> : <div className="workbench-surface__placeholder">terminal · unbound</div>}</section>;
   }
   return (
     <section className="dock-slot workbench-surface" onMouseDown={onActivate}>

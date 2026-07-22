@@ -2,6 +2,7 @@ import { ulid } from "ulid";
 import type {
   EtherBrowser,
   EtherHerdr,
+  EtherTerminalLaunch,
   FileNode,
   GroupNode,
   LinkNode,
@@ -148,29 +149,27 @@ export const makeHerdrNode = (
   };
 };
 
-// Native terminal is the default terminal surface. Local sessions are owned
-// by Vellum and intentionally end when the app quits.
-export const makeTerminalNode = (x: number, y: number, host = "local"): TextNode => {
-  const bindingId = `term-${ulid()}`;
-  return {
-    id: `terminal-${ulid()}`,
-    type: "text",
-    text: "terminal",
-    x: Math.round(x),
-    y: Math.round(y),
-    width: 260,
-    height: 110,
-    ether: {
-      entity: { kind: "terminal" },
-      host,
-      terminal: {
-        bindingId,
-        launch: { kind: "shell" },
-        onDelete: "kill",
-      },
-    },
-  };
-};
+/** Vellum-owned local terminal. Launch is inert until the operator presses Start. */
+export const makeTerminalNode = (
+  x: number,
+  y: number,
+  launch?: EtherTerminalLaunch,
+  label = "terminal",
+  host = "local",
+): TextNode => ({
+  id: `terminal-${ulid()}`,
+  type: "text",
+  text: label,
+  x: Math.round(x),
+  y: Math.round(y),
+  width: 260,
+  height: 110,
+  ether: {
+    entity: { kind: "terminal" },
+    host,
+    terminal: { bindingId: ulid(), label, ...(launch ? { launch } : {}) },
+  },
+});
 
 // A browser page work-surface node — JSON Canvas `link` + ether.browser.
 // Profile name only in the document; cookies stay in the browser runtime.

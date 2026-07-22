@@ -20,6 +20,7 @@ import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { openHerdrTerminal } from "../../lib/herdr-state";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
+import { TerminalCard } from "../terminal/TerminalCard";
 import { HerdrToolbarActions } from "../herdr/HerdrToolbarActions";
 import {
   ArtifactsCard,
@@ -438,6 +439,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
                     onRenameDone={() => setRenaming(false)}
                   />
                 )
+                : entityKind === "terminal" ? <TerminalCard node={node} />
                 : entityKind === "agent" ? <EntityCard node={node} kind="agent" />
                 : <NoteMarkdown source={text} />}
         </div>

@@ -37,7 +37,6 @@ import {
   makePageNode,
   makeRequestsNode,
   makeTasksNode,
-  makeTerminalNode,
   makeTextNode,
 } from "../lib/node-factories";
 import { openHerdrWizard } from "../lib/herdr-state";
@@ -47,6 +46,7 @@ import { minimapFill, signalMark } from "../lib/signal-mark";
 import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
+import { TerminalWizard } from "./terminal/TerminalWizard";
 
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
 type CanvasFlow = {
@@ -480,10 +480,7 @@ const makeAddActions = (
   },
   addTerminal: () => {
     const position = positionFor({ width: 260, height: 110 });
-    const stationHost = state$.settings.station.hostId.peek() || "local";
-    const node = makeTerminalNode(position.x, position.y, { kind: "shell" }, "terminal", stationHost);
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
+    window.dispatchEvent(new CustomEvent("vellum:new-terminal", { detail: position }));
     dismiss();
   },
   addHerdr: () => {
@@ -975,6 +972,12 @@ function CanvasGraph() {
   // discoverable mid-gesture.
   const connecting = useConnection((connection) => connection.inProgress);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [terminalAnchor, setTerminalAnchor] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const open = (event: Event) => setTerminalAnchor((event as CustomEvent<{ x: number; y: number }>).detail);
+    window.addEventListener("vellum:new-terminal", open);
+    return () => window.removeEventListener("vellum:new-terminal", open);
+  }, []);
   const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);
   const [connectMenu, setConnectMenu] = useState<{
     readonly x: number;
@@ -1054,6 +1057,7 @@ function CanvasGraph() {
     interactions.onPaneClick(event);
   }, [interactions.onPaneClick, closeMenus]);
   return <>
+    {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
     <ReactFlow className={connecting ? "is-connecting" : undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} onPaneClick={onPaneClick} onPaneContextMenu={onPaneContextMenu} onNodeContextMenu={onNodeContextMenu} onSelectionContextMenu={onSelectionContextMenu} onMoveStart={closeMenus} connectionMode={ConnectionMode.Loose} connectionRadius={42} panOnScroll panOnScrollSpeed={1.2} panOnDrag={[1]} selectionOnDrag selectionMode={SelectionMode.Partial} zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.15} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
