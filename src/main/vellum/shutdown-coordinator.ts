@@ -40,8 +40,12 @@ export interface ShutdownCompleteReceipt extends ShutdownSafeToForceReceipt {
 }
 
 export interface ShutdownCoordinatorSteps {
-  /** Must close every ingress synchronously and monotonically. */
-  readonly cutAdmission: () => void;
+  /**
+   * Every ingress cut. The coordinator invokes every named function
+   * synchronously before it returns the shared transaction. A failed cut is
+   * terminal for the generation: partial closure cannot be retried safely.
+   */
+  readonly cutAdmission: Readonly<Record<string, () => ShutdownCleanReceipt>>;
   /** Must attest both final document durability and committed authoring closure. */
   readonly drainDocument: () => ShutdownDocumentReceipt | Promise<ShutdownDocumentReceipt>;
   /** Must attest renderer/headless finalization. */
@@ -153,6 +157,57 @@ const rendererReceipt = (receipt: ShutdownNamedReceipt): ShutdownNamedReceipt =>
     ...receipt,
     clean: receipt.clean && ownBoolean(receipt.receipt, "finalized") === true,
   });
+
+const admissionCutReceipts = (
+  cuts: ShutdownCoordinatorSteps["cutAdmission"],
+): ReadonlyArray<ShutdownNamedReceipt> => {
+  let names: string[];
+  try {
+    names = Object.keys(cuts);
+  } catch (error) {
+    return Object.freeze([
+      Object.freeze({
+        name: "admission cuts",
+        clean: false,
+        cause: Object.freeze({ stage: "admission cuts", error }),
+      }),
+    ]);
+  }
+  if (names.length === 0) {
+    return Object.freeze([Object.freeze({ name: "admission cuts", clean: false })]);
+  }
+  return Object.freeze(names.map((name) => {
+    const stage = `admission cut:${name}`;
+    if (name.length === 0) return Object.freeze({ name: stage, clean: false });
+    let cut: unknown;
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(cuts, name);
+      cut = descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
+    } catch (error) {
+      return Object.freeze({
+        name: stage,
+        clean: false,
+        cause: Object.freeze({ stage, error }),
+      });
+    }
+    if (typeof cut !== "function") return Object.freeze({ name: stage, clean: false });
+    try {
+      const receipt = cut();
+      // A cut is synchronous. Thenables are malformed even if they also carry
+      // a `clean` field, because they leave an unbounded admission interval.
+      if (typeof receipt === "object" && receipt !== null && "then" in receipt) {
+        return Object.freeze({ name: stage, clean: false, receipt });
+      }
+      return Object.freeze({ name: stage, clean: cleanReceipt(receipt), receipt });
+    } catch (error) {
+      return Object.freeze({
+        name: stage,
+        clean: false,
+        cause: Object.freeze({ stage, error }),
+      });
+    }
+  }));
+};
 
 /**
  * A pure, injected shutdown transaction. Admission closes once, synchronously;
@@ -346,10 +401,12 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
       snapshot,
     });
 
-    try {
-      steps.cutAdmission();
-    } catch (error) {
-      phase = "retryable";
+    const cutReceipts = admissionCutReceipts(steps.cutAdmission);
+    if (!cutReceipts.every((receipt) => receipt.clean)) {
+      // A cut may have closed only part of the ingress set. Retrying the
+      // downstream drains would convert that unknown partial boundary into
+      // exit authority, so this generation can only report failure and join.
+      phase = "complete";
       safeDeferred = deferred<ShutdownSafeToForceReceipt>();
       completeDeferred = deferred<ShutdownCompleteReceipt>();
       const receipt = Object.freeze({
@@ -357,9 +414,7 @@ export const createShutdownCoordinator = (steps: ShutdownCoordinatorSteps): Shut
         attempt,
         safeToForce: false,
         intents: Object.freeze([...intents]),
-        receipts: Object.freeze([
-          { name: "admission cut", clean: false, cause: Object.freeze({ stage: "admission cut", error }) },
-        ]),
+        receipts: cutReceipts,
       });
       safeDeferred.resolve(receipt);
       completeDeferred.resolve(Object.freeze({ ...receipt, complete: false }));

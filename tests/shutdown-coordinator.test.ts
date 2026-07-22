@@ -18,7 +18,7 @@ const deferred = <A>() => {
 const clean = (): ShutdownCleanReceipt => ({ clean: true });
 
 const steps = (overrides: Partial<ShutdownCoordinatorSteps> = {}): ShutdownCoordinatorSteps => ({
-  cutAdmission: () => undefined,
+  cutAdmission: { main: clean },
   drainDocument: () => ({ clean: true, durable: true, authoringCommitted: true }),
   finalizeRenderer: () => ({ clean: true, finalized: true }),
   drainLocalResources: () => ({ terminals: clean(), chat: clean() }),
@@ -33,7 +33,7 @@ describe("shutdown coordinator", () => {
     let cut = 0;
     const document = deferred<{ clean: boolean; durable: boolean; authoringCommitted: boolean }>();
     const coordinator = createShutdownCoordinator(steps({
-      cutAdmission: () => { cut += 1; },
+      cutAdmission: { main: () => { cut += 1; return clean(); } },
       drainDocument: () => document.promise,
     }));
     const first = coordinator.request("normal");
@@ -52,7 +52,7 @@ describe("shutdown coordinator", () => {
     let cut = 0;
     let disposed = 0;
     const coordinator = createShutdownCoordinator(steps({
-      cutAdmission: () => { cut += 1; },
+      cutAdmission: { main: () => { cut += 1; return clean(); } },
       drainDocument: () => {
         documentCalls += 1;
         return documentCalls === 1
@@ -143,10 +143,65 @@ describe("shutdown coordinator", () => {
     let coordinator!: ReturnType<typeof createShutdownCoordinator>;
     let joined: ReturnType<typeof coordinator.request> | undefined;
     coordinator = createShutdownCoordinator(steps({
-      cutAdmission: () => { joined = coordinator.request("signal"); },
+      cutAdmission: { main: () => { joined = coordinator.request("signal"); return clean(); } },
     }));
     const first = coordinator.request("normal");
     expect(joined).toBe(first);
     await expect(first.complete).resolves.toMatchObject({ complete: true, generation: 1 });
+  });
+
+  it("invokes every named cut but permanently refuses force after a partial failure", async () => {
+    let first = 0;
+    let second = 0;
+    let document = 0;
+    const coordinator = createShutdownCoordinator(steps({
+      cutAdmission: {
+        first: () => { first += 1; return clean(); },
+        second: () => { second += 1; return { clean: false }; },
+      },
+      drainDocument: () => { document += 1; return { clean: true, durable: true, authoringCommitted: true }; },
+    }));
+    const transaction = coordinator.request("normal");
+    expect(first).toBe(1);
+    expect(second).toBe(1);
+    await expect(transaction.safeToForce).resolves.toMatchObject({ safeToForce: false });
+    transaction.retry();
+    coordinator.request("signal");
+    await expect(transaction.complete).resolves.toMatchObject({ complete: false });
+    expect(first).toBe(1);
+    expect(second).toBe(1);
+    expect(document).toBe(0);
+    expect(coordinator.snapshot()).toMatchObject({ phase: "complete", safeToForce: false });
+  });
+
+  it("makes a throwing admission cut permanently force-ineligible", async () => {
+    const failure = new Error("work control cut failed");
+    const coordinator = createShutdownCoordinator(steps({
+      cutAdmission: { work: () => { throw failure; } },
+    }));
+    const transaction = coordinator.request("direct");
+    const receipt = await transaction.safeToForce;
+    expect(receipt).toMatchObject({ safeToForce: false });
+    expect(receipt.receipts[0]?.cause?.error).toBe(failure);
+    transaction.retry();
+    await expect(transaction.complete).resolves.toMatchObject({ complete: false });
+    expect(coordinator.snapshot().attempt).toBe(0);
+  });
+
+  it("fails closed for empty, getter-malformed, and thenable admission receipts", async () => {
+    const malformed = { get clean(): boolean { throw new Error("getter"); } };
+    const thenable = { clean: true, then: () => undefined };
+    const cutsToReject: ReadonlyArray<ShutdownCoordinatorSteps["cutAdmission"]> = [
+      {},
+      { malformed: () => malformed },
+      { thenable: () => thenable },
+    ];
+    for (const cuts of cutsToReject) {
+      const transaction = createShutdownCoordinator(steps({ cutAdmission: cuts })).request("normal");
+      await expect(transaction.safeToForce).resolves.toMatchObject({ safeToForce: false });
+      transaction.retry();
+      await expect(transaction.complete).resolves.toMatchObject({ complete: false });
+      expect(transaction.snapshot()).toMatchObject({ attempt: 0, phase: "complete" });
+    }
   });
 });
