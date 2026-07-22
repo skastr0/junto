@@ -3,6 +3,7 @@ import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
 } from "./browser-limits";
+import { CANVAS_NAME_INPUT_PATTERN, CANVAS_NAME_MAX_LENGTH } from "./canvas-name";
 import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
 
 // Settings plane: one schema-validated durable document under
@@ -39,8 +40,8 @@ export type AppearanceSettings = typeof AppearanceSettings.Type;
 // Canvas document names: empty (no preference) or the same charset canvases
 // accept — bounded so a patch cannot bloat the durable document.
 export const DefaultCanvasName = Schema.String.pipe(
-  Schema.maxLength(64),
-  Schema.pattern(/^$|^[a-z0-9][a-z0-9_-]*$/i),
+  Schema.maxLength(CANVAS_NAME_MAX_LENGTH),
+  Schema.pattern(new RegExp(`^$|${CANVAS_NAME_INPUT_PATTERN.source}`)),
 );
 export type DefaultCanvasName = typeof DefaultCanvasName.Type;
 

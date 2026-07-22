@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, ManagedRuntime } from "effect";
@@ -20,6 +20,7 @@ import {
   CanvasesService,
   canvasDocumentPath,
   canvasNameFrom,
+  writeCanvasSidecar,
 } from "../src/main/vellum/canvases";
 
 const runtime = ManagedRuntime.make(CanvasesLive);
@@ -64,6 +65,8 @@ afterAll(async () => {
 describe("canvas path capability boundary", () => {
   it("mints only one ASCII basename and never normalizes a path into authority", () => {
     expect(canvasNameFrom("  Portfolio-2026  ")).toBe("portfolio-2026");
+    expect(canvasNameFrom("Work_Board")).toBe("work_board");
+    expect(canvasNameFrom("a".repeat(64))).toBe("a".repeat(64));
     for (const raw of [
       "../outside",
       "..",
@@ -75,9 +78,55 @@ describe("canvas path capability boundary", () => {
       "name%5cchild",
       "ｐｏｒｔｆｏｌｉｏ",
       "name\u0000suffix",
+      "K",
+      "a".repeat(65),
     ]) {
       expect(() => canvasNameFrom(raw)).toThrow("invalid canvas name");
     }
+  });
+
+  it("validates the sidecar suffix inside the filesystem sink", async () => {
+    await runtime.runPromise(canvases.create("sidecar-sink"));
+    const documentPath = canvasDocumentPath("sidecar-sink");
+    const before = await readFile(documentPath, "utf8");
+
+    await expect(
+      writeCanvasSidecar("sidecar-sink", "canvas" as never, "not-json"),
+    ).rejects.toThrow("unsupported canvas sidecar suffix");
+
+    expect(await readFile(documentPath, "utf8")).toBe(before);
+  });
+
+  it("keeps one checked repository root for the complete sidecar write", async () => {
+    const previousRoot = process.env.VELLUM_CANVASES_DIR;
+    const rootA = join(mockCanvasesHome, "root-a");
+    const outside = join(mockCanvasesHome, "outside-root");
+    const swapped = join(mockCanvasesHome, "swapped-root");
+    await mkdir(rootA, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    await symlink(outside, swapped);
+    process.env.VELLUM_CANVASES_DIR = rootA;
+    try {
+      await runtime.runPromise(canvases.create("stable-root"));
+      const pending = writeCanvasSidecar("stable-root", "svg", "<svg/>");
+      process.env.VELLUM_CANVASES_DIR = swapped;
+      const written = await pending;
+
+      expect(written).toBe(join(rootA, "stable-root.svg"));
+      await expect(access(join(outside, "stable-root.svg"))).rejects.toThrow();
+    } finally {
+      if (previousRoot === undefined) delete process.env.VELLUM_CANVASES_DIR;
+      else process.env.VELLUM_CANVASES_DIR = previousRoot;
+    }
+  });
+
+  it("allows only one concurrent creator to publish a canvas", async () => {
+    const results = await Promise.allSettled([
+      runtime.runPromise(canvases.create("exclusive-create")),
+      runtime.runPromise(canvases.create("exclusive-create")),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
   });
 
   it("rejects traversal and weird names before every document or sidecar operation", async () => {

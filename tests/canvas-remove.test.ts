@@ -111,6 +111,39 @@ describe("canvases.ts remove()", () => {
     expect(seen).toContain(name);
   });
 
+  it("does not report a committed write as failed when a listener throws", async () => {
+    const name = "listener-write";
+    await runtime.runPromise(canvases.create(name));
+    const unsubscribe = canvases.subscribeChanges(() => {
+      throw new Error("listener failed");
+    });
+
+    await expect(
+      runtime.runPromise(
+        canvases.write(name, {
+          nodes: [{ id: "n1", type: "text", text: "committed", x: 0, y: 0, width: 100, height: 50 }],
+          edges: [],
+        }),
+      ),
+    ).resolves.toBeDefined();
+    unsubscribe();
+    const written = await runtime.runPromise(canvases.read(name));
+    expect(written.doc.nodes).toHaveLength(1);
+  });
+
+  it("does not report a committed removal as failed when a listener throws", async () => {
+    const name = "listener-remove";
+    await runtime.runPromise(canvases.create(name));
+    const unsubscribe = canvases.subscribeChanges(() => {
+      throw new Error("listener failed");
+    });
+
+    await expect(runtime.runPromise(canvases.remove(name))).resolves.toEqual({ name });
+    unsubscribe();
+    const dir = join(mockCanvasesHome, ".vellum", "canvases");
+    expect(await pathExists(join(dir, `${name}.canvas`))).toBe(false);
+  });
+
   it("notifies subscribeChanges listeners after mutate", async () => {
     const name = "mutate-notify";
     await runtime.runPromise(canvases.create(name));

@@ -63,7 +63,7 @@ describe("canonical Vellum node references", () => {
   it("round-trips simple, Unicode, percent, and dot-only node ids", () => {
     const refs: ReadonlyArray<NodeRef> = [
       { canvasName: "portfolio", nodeId: "page-01K123" },
-      { canvasName: "work-2026", nodeId: "résumé 100%" },
+      { canvasName: "work_2026", nodeId: "résumé 100%" },
       { canvasName: "portfolio", nodeId: "folder/page\\draft" },
       { canvasName: "portfolio", nodeId: "." },
       { canvasName: "portfolio", nodeId: ".." },

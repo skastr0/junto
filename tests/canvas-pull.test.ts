@@ -29,6 +29,8 @@ describe("canvas pull pure helpers", () => {
     expect(isValidCanvasPullName("portfolio")).toBe(true);
     expect(isValidCanvasPullName("a")).toBe(true);
     expect(isValidCanvasPullName("my-board-2")).toBe(true);
+    expect(isValidCanvasPullName("work_board")).toBe(true);
+    expect(isValidCanvasPullName("a".repeat(64))).toBe(true);
   });
 
   it("rejects invalid canvas names", () => {
@@ -37,6 +39,7 @@ describe("canvas pull pure helpers", () => {
     expect(isValidCanvasPullName("has space")).toBe(false);
     expect(isValidCanvasPullName("../etc")).toBe(false);
     expect(isValidCanvasPullName("foo.bar")).toBe(false);
+    expect(isValidCanvasPullName("a".repeat(65))).toBe(false);
   });
 
   it("builds canvas file names", () => {
@@ -129,15 +132,39 @@ describe("preparePulledCanvasBody + atomicInstall", () => {
     if (!prepared.ok) return;
 
     const dir = await mkdtemp(join(tmpdir(), "vellum-canvas-pull-"));
-    const first = await atomicInstallCanvasFile("portfolio", prepared.body, dir);
-    expect(first.changed).toBe(true);
-    expect(first.bytes).toBeGreaterThan(0);
+    const previousRoot = process.env.VELLUM_CANVASES_DIR;
+    process.env.VELLUM_CANVASES_DIR = dir;
+    try {
+      const first = await atomicInstallCanvasFile("portfolio", prepared.body);
+      expect(first.changed).toBe(true);
+      expect(first.bytes).toBeGreaterThan(0);
 
-    const second = await atomicInstallCanvasFile("portfolio", prepared.body, dir);
-    expect(second.changed).toBe(false);
+      const second = await atomicInstallCanvasFile("portfolio", prepared.body);
+      expect(second.changed).toBe(false);
 
-    const onDisk = await readFile(join(dir, "portfolio.canvas"), "utf8");
-    expect(onDisk).toBe(serializeCanvas(applyMirrorLaw(doc)));
+      const onDisk = await readFile(join(dir, "portfolio.canvas"), "utf8");
+      expect(onDisk).toBe(serializeCanvas(applyMirrorLaw(doc)));
+    } finally {
+      if (previousRoot === undefined) delete process.env.VELLUM_CANVASES_DIR;
+      else process.env.VELLUM_CANVASES_DIR = previousRoot;
+    }
+  });
+
+  it("refuses traversal at the atomic install sink", async () => {
+    const doc: CanvasDoc = { nodes: [], edges: [] };
+    const body = serializeCanvas(applyMirrorLaw(doc));
+    const root = await mkdtemp(join(tmpdir(), "vellum-canvas-pull-root-"));
+    const previousRoot = process.env.VELLUM_CANVASES_DIR;
+    process.env.VELLUM_CANVASES_DIR = root;
+    try {
+      await expect(atomicInstallCanvasFile("../outside", body)).rejects.toThrow(
+        "invalid canvas name",
+      );
+      await expect(readFile(join(root, "..", "outside.canvas"), "utf8")).rejects.toThrow();
+    } finally {
+      if (previousRoot === undefined) delete process.env.VELLUM_CANVASES_DIR;
+      else process.env.VELLUM_CANVASES_DIR = previousRoot;
+    }
   });
 });
 

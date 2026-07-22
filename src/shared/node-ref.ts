@@ -2,6 +2,8 @@
 // A Vellum URI identifies a document-local node; it carries no authority and
 // never encodes an action, URL, browser profile, token, path, or capability.
 
+import { isCanonicalCanvasName } from "./canvas-name";
+
 export interface NodeRef {
   readonly canvasName: string;
   readonly nodeId: string;
@@ -41,7 +43,6 @@ export class NodeRefFormatError extends Error {
 
 const SCHEME = "vellum";
 const AUTHORITY = "canvas";
-const CANVAS_NAME = /^[a-z0-9-]{1,63}$/;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 const MAX_URI_LENGTH = 4_096;
 const MAX_NODE_ID_BYTES = 512;
@@ -55,7 +56,7 @@ const fail = (
   error: { code, message, ...(canonical === undefined ? {} : { canonical }) },
 });
 
-const validateCanvasName = (canvasName: string): boolean => CANVAS_NAME.test(canvasName);
+const validateCanvasName = (canvasName: string): boolean => isCanonicalCanvasName(canvasName);
 
 const validateNodeId = (nodeId: string): boolean =>
   nodeId.length > 0 &&
@@ -71,7 +72,7 @@ export const formatNodeRef = (ref: NodeRef): NodeRefKey => {
   if (!validateCanvasName(ref.canvasName)) {
     throw new NodeRefFormatError(
       "canvas_name",
-      "canvas name must use lowercase letters, numbers, and hyphens",
+      "canvas name must use at most 64 lowercase letters, numbers, hyphens, and underscores",
     );
   }
   if (!validateNodeId(ref.nodeId)) {

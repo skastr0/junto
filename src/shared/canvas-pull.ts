@@ -5,11 +5,10 @@
  * Pure helpers — no I/O, no board IDs.
  */
 
-/** Same alphabet as canvases.ts / node-ref (lowercase letters, digits, hyphens). */
-export const CANVAS_PULL_NAME_PATTERN = /^[a-z0-9-]+$/;
+import { isCanonicalCanvasName } from "./canvas-name";
 
 export const isValidCanvasPullName = (name: string): boolean =>
-  name.length > 0 && name.length <= 128 && CANVAS_PULL_NAME_PATTERN.test(name);
+  isCanonicalCanvasName(name);
 
 /** Basename of a canvas document file (`portfolio` → `portfolio.canvas`). */
 export const canvasPullFileName = (name: string): string => `${name}.canvas`;

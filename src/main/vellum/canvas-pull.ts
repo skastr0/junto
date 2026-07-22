@@ -6,7 +6,7 @@
  * Authorial writeCanvas remains denied for role=remote (ipc denyIfRemoteAuthorial).
  */
 
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { lstat, open, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { posix } from "node:path";
@@ -26,7 +26,11 @@ import { applyMirrorLaw, decodeCanvasDoc, serializeCanvas } from "@shared/canvas
 import type { RemoteHost } from "@shared/remote-hosts";
 import { SettingsService } from "./settings/service";
 import { HostsService } from "./hosts/service";
-import { canvasesDir } from "./canvases";
+import {
+  CanvasError,
+  canvasNameFrom,
+  ensureCanvasesDir,
+} from "./canvases";
 import { recordStationPull } from "./station-status-store";
 import {
   makeRemoteCommand,
@@ -89,23 +93,58 @@ const formatUnknown = (error: unknown): string => {
 export const atomicInstallCanvasFile = async (
   name: string,
   contents: string,
-  targetDir: string = canvasesDir(),
 ): Promise<{ readonly bytes: number; readonly changed: boolean }> => {
-  await mkdir(targetDir, { recursive: true });
-  const path = join(targetDir, canvasPullFileName(name));
+  const canonicalName = canvasNameFrom(name);
+  const prepared = preparePulledCanvasBody(canonicalName, contents);
+  if (!prepared.ok) throw new CanvasError({ message: prepared.detail });
+
+  const targetDir = await ensureCanvasesDir();
+  const path = join(targetDir, canvasPullFileName(canonicalName));
+  try {
+    const info = await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink()) {
+      throw new CanvasError({
+        message: `refusing non-regular canvas file: ${canvasPullFileName(canonicalName)}`,
+      });
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+
   let previous: string | undefined;
   try {
     previous = await readFile(path, "utf8");
-  } catch {
-    previous = undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  if (previous === contents) {
-    return { bytes: Buffer.byteLength(contents, "utf8"), changed: false };
+  if (previous === prepared.body) {
+    return { bytes: Buffer.byteLength(prepared.body, "utf8"), changed: false };
   }
   const tmpPath = `${path}.${randomUUID()}.tmp`;
-  await writeFile(tmpPath, contents, "utf8");
-  await rename(tmpPath, path);
-  return { bytes: Buffer.byteLength(contents, "utf8"), changed: true };
+  const file = await open(tmpPath, "wx", 0o600);
+  let ownsTemp = true;
+  try {
+    await file.writeFile(prepared.body, { encoding: "utf8" });
+    await file.sync();
+    await file.close();
+    await rename(tmpPath, path);
+    ownsTemp = false;
+  } catch (error) {
+    await file.close().catch(() => undefined);
+    if (ownsTemp) await rm(tmpPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+
+  let directory: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    directory = await open(targetDir, "r");
+    await directory.sync();
+  } catch (error) {
+    console.error("[canvas-pull] directory sync failed after committed install:", error);
+  } finally {
+    await directory?.close().catch(() => undefined);
+  }
+  return { bytes: Buffer.byteLength(prepared.body, "utf8"), changed: true };
 };
 
 /**
