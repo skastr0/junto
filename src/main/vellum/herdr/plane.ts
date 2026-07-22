@@ -30,7 +30,13 @@ import { HerdrObservePool } from "./observe-pool";
 import { HerdrService, type HerdrRunner, type HerdrServerStarter } from "./service";
 import type { HerdrServerRoute } from "./route";
 import { HerdrServiceMap, type HostShellRunner } from "./service-map";
-import { HerdrStreamManager, type HerdrProcessLike, type HerdrSpawnFn } from "./stream";
+import {
+  HerdrStreamManager,
+  type HerdrClientIo,
+  type HerdrProcessLike,
+  type HerdrSpawnFn,
+  type RemoteScopeCloseReceipt,
+} from "./stream";
 import { HerdrTransport } from "./transport";
 import { parseCliEnvelope, parseProcessInfo } from "./parse";
 import { findHostById } from "../hosts/snapshot";
@@ -48,15 +54,63 @@ export type HerdrServerLifetime = "daemon-outlives-app";
 
 const HERDR_SERVER_LIFETIME: HerdrServerLifetime = "daemon-outlives-app";
 
-/** Run every independent Herdr cleanup component even when one is defective. */
-export const runHerdrCleanupSteps = (steps: ReadonlyArray<() => void>): void => {
-  for (const step of steps) {
+/** Start every independent Herdr cleanup before awaiting any one component. */
+export const runHerdrCleanupSteps = async (
+  steps: ReadonlyArray<() => void | Promise<void>>,
+): Promise<void> => {
+  const pending = steps.map((step): Promise<void> => {
     try {
-      step();
+      return Promise.resolve(step()).catch(() => undefined);
     } catch {
-      // Finalization is best-effort fan-out. Later components must still run.
+      // Finalization is contained fan-out. Later components must still start.
+      return Promise.resolve();
     }
-  }
+  });
+  await Promise.all(pending);
+};
+
+const REMOTE_SCOPE_CLOSE_TIMEOUT_MS = 1_500;
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+/**
+ * A remote stream owns an Effect scope, not an operating-system pid. Its
+ * closer is idempotent and always produces an honest bounded receipt, even
+ * if an SSH finalizer defects or never settles.
+ */
+export const makeBoundedRemoteClose = (
+  closeScope: () => Promise<void>,
+  timeoutMs = REMOTE_SCOPE_CLOSE_TIMEOUT_MS,
+): (() => Promise<RemoteScopeCloseReceipt>) => {
+  let flight: Promise<RemoteScopeCloseReceipt> | undefined;
+  return () => {
+    if (flight) return flight;
+    flight = new Promise<RemoteScopeCloseReceipt>((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const settle = (receipt: RemoteScopeCloseReceipt): void => {
+        if (settled) return;
+        settled = true;
+        if (timer !== undefined) clearTimeout(timer);
+        resolve(receipt);
+      };
+      timer = setTimeout(
+        () => settle({ status: "timed-out", timeoutMs }),
+        timeoutMs,
+      );
+      (timer as unknown as { unref?: () => void }).unref?.();
+      try {
+        void Promise.resolve(closeScope()).then(
+          () => settle({ status: "closed" }),
+          (error) => settle({ status: "failed", message: errorMessage(error) }),
+        );
+      } catch (error) {
+        settle({ status: "failed", message: errorMessage(error) });
+      }
+    });
+    return flight;
+  };
 };
 
 const herdrArgs = (
@@ -79,7 +133,8 @@ const serverRunning = (result: CliResult): boolean => {
   }
 };
 
-class EffectHerdrChild extends EventEmitter implements HerdrProcessLike {
+/** Remote SSH stream facade. Deliberately has no `kill` method or pid. */
+class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
   readonly stdin = {
@@ -88,13 +143,17 @@ class EffectHerdrChild extends EventEmitter implements HerdrProcessLike {
       return true;
     },
   };
+  readonly close: () => Promise<RemoteScopeCloseReceipt>;
 
-  private scope: Scope.CloseableScope | undefined;
   private lease: SshLease | undefined;
   private pending: Uint8Array[] = [];
   private writes = Promise.resolve();
-  private killed = false;
+  private closeRequested = false;
   private settled = false;
+  private scopeReadySettled = false;
+  private readonly scopeReady: Promise<Scope.CloseableScope | undefined>;
+  private resolveScopeReady!: (scope: Scope.CloseableScope | undefined) => void;
+  private scopeCloseFlight: Promise<void> | undefined;
 
   constructor(
     private readonly runPromise: RunPromise,
@@ -105,17 +164,36 @@ class EffectHerdrChild extends EventEmitter implements HerdrProcessLike {
     private readonly session?: string | null,
   ) {
     super();
+    this.scopeReady = new Promise((resolve) => {
+      this.resolveScopeReady = resolve;
+    });
+    const boundedClose = makeBoundedRemoteClose(async () => {
+      try {
+        await this.closeScope();
+      } finally {
+        this.finish(null);
+      }
+    });
+    this.close = () => {
+      this.closeRequested = true;
+      return boundedClose();
+    };
     queueMicrotask(() => { void this.start(); });
   }
 
-  kill(_signal?: NodeJS.Signals): boolean {
-    if (this.killed) return true;
-    this.killed = true;
-    const close = this.scope
-      ? this.runPromise(Scope.close(this.scope, Exit.void))
-      : Promise.resolve();
-    void close.finally(() => this.finish(null));
-    return true;
+  private markScopeReady(scope: Scope.CloseableScope | undefined): void {
+    if (this.scopeReadySettled) return;
+    this.scopeReadySettled = true;
+    this.resolveScopeReady(scope);
+  }
+
+  private closeScope(): Promise<void> {
+    this.scopeCloseFlight ??= this.scopeReady.then((scope) =>
+      scope
+        ? this.runPromise(Scope.close(scope, Exit.void))
+        : undefined,
+    );
+    return this.scopeCloseFlight;
   }
 
   private async start(): Promise<void> {
@@ -123,9 +201,9 @@ class EffectHerdrChild extends EventEmitter implements HerdrProcessLike {
       const scope = await this.runPromise(
         Scope.fork(this.owner, ExecutionStrategy.sequential),
       );
-      this.scope = scope;
-      if (this.killed) {
-        await this.runPromise(Scope.close(scope, Exit.void));
+      this.markScopeReady(scope);
+      if (this.closeRequested) {
+        await this.closeScope().catch(() => undefined);
         this.finish(null);
         return;
       }
@@ -160,23 +238,29 @@ class EffectHerdrChild extends EventEmitter implements HerdrProcessLike {
         ).pipe(Scope.extend(scope)),
       );
 
+      // Close can race the async connect after the pre-connect check. Never
+      // flush queued user input into a lease once its scope is retiring.
+      if (this.closeRequested) {
+        await this.closeScope().catch(() => undefined);
+        this.finish(null);
+        return;
+      }
       const pending = this.pending;
       this.pending = [];
       for (const bytes of pending) this.dispatch(bytes);
     } catch (error) {
-      if (this.killed) {
+      this.markScopeReady(undefined);
+      if (this.closeRequested) {
         this.finish(null);
         return;
       }
-      if (this.scope) {
-        await this.runPromise(Scope.close(this.scope, Exit.void));
-      }
       this.emit("error", error instanceof Error ? error : new Error(String(error)));
+      this.finish(null);
     }
   }
 
   private enqueue(bytes: Uint8Array): void {
-    if (this.killed) throw new Error("herdr stream is closed");
+    if (this.closeRequested || this.settled) throw new Error("herdr stream is closed");
     if (!this.lease) {
       this.pending.push(Uint8Array.from(bytes));
       return;
@@ -188,7 +272,7 @@ class EffectHerdrChild extends EventEmitter implements HerdrProcessLike {
     const lease = this.lease;
     if (!lease) return;
     this.writes = this.writes.then(() => this.runPromise(lease.write(bytes))).catch((error) => {
-      if (!this.killed) {
+      if (!this.closeRequested && !this.settled) {
         this.emit("error", error instanceof Error ? error : new Error(String(error)));
       }
     });
@@ -197,13 +281,11 @@ class EffectHerdrChild extends EventEmitter implements HerdrProcessLike {
   private finish(code: number | null): void {
     if (this.settled) return;
     this.settled = true;
+    this.pending = [];
     this.stdout.end();
     this.stderr.end();
     this.emit("close", code);
-    if (!this.killed && this.scope) {
-      this.killed = true;
-      void this.runPromise(Scope.close(this.scope, Exit.void));
-    }
+    void this.closeScope().catch(() => undefined);
   }
 }
 
@@ -327,12 +409,29 @@ export const HerdrPlaneLive = Layer.scoped(
       const known = asHostId(hostId);
       if (!known) throw new Error(`unknown herdr host: ${hostId}`);
       if (known === "local") {
-        return spawn("herdr", [...herdrArgs(args, session)], {
+        const child = spawn("herdr", [...herdrArgs(args, session)], {
           stdio: ["pipe", "pipe", "pipe"],
           env: resolvedSpawnEnvSync(),
-        }) as unknown as HerdrProcessLike;
+        });
+        if (!Number.isInteger(child.pid) || child.pid === undefined || child.pid <= 1) {
+          child.once("error", () => undefined);
+          throw new Error("herdr local spawn did not yield a killable pid");
+        }
+        return {
+          kind: "local-process",
+          pid: child.pid,
+          child: child as unknown as HerdrProcessLike,
+        };
       }
-      return new EffectHerdrChild(runPromise, owner, transport, known, args, session);
+      const child = new EffectHerdrScopeClient(
+        runPromise,
+        owner,
+        transport,
+        known,
+        args,
+        session,
+      );
+      return { kind: "remote-scope", child, close: child.close };
     };
 
     const observePool = new HerdrObservePool({ spawnFn: spawnHerdr });
@@ -483,13 +582,13 @@ export const HerdrPlaneLive = Layer.scoped(
     void tailscalePeerCache.refresh();
 
     yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
+      Effect.promise(() =>
         runHerdrCleanupSteps([
           () => streams.detachAllOnQuit("runtime_dispose"),
           () => mirrors.stopAll(),
           () => serviceMap.stop(),
-        ]);
-      }),
+        ]),
+      ),
     );
 
     const warm = transport.warm.pipe(Effect.ignore);

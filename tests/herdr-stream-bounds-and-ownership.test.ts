@@ -1,6 +1,13 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HerdrStreamManager, type HerdrProcessLike, type ObservePoolHooks } from "../src/main/vellum/herdr/stream";
+import {
+  HerdrStreamManager,
+  type HerdrClientIo,
+  type HerdrProcessLike,
+  type HerdrSpawnedClient,
+  type ObservePoolHooks,
+  type RemoteScopeCloseReceipt,
+} from "../src/main/vellum/herdr/stream";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 
@@ -28,6 +35,36 @@ class FakeProcess extends EventEmitter implements HerdrProcessLike {
   }
 }
 
+let nextFakePid = 900_000_000;
+const localClient = (child: HerdrProcessLike): HerdrSpawnedClient => ({
+  kind: "local-process",
+  pid: nextFakePid++,
+  child,
+});
+
+class FakeRemoteClient extends EventEmitter implements HerdrClientIo {
+  written: string[] = [];
+  closeCalls = 0;
+  readonly stdin = {
+    write: (chunk: string): boolean => {
+      this.written.push(chunk);
+      return true;
+    },
+  };
+  readonly stdout = { setEncoding: () => undefined, on: () => undefined };
+  readonly stderr = { setEncoding: () => undefined, on: () => undefined };
+  readonly close = async (): Promise<RemoteScopeCloseReceipt> => {
+    this.closeCalls += 1;
+    return { status: "closed" };
+  };
+}
+
+const remoteClient = (child: FakeRemoteClient): HerdrSpawnedClient => ({
+  kind: "remote-scope",
+  child,
+  close: child.close,
+});
+
 const mockPool: ObservePoolHooks = {
   ensureObserve: () => ({ pooled: true }),
   retainedFrames: () => ({ frames: ["F1"], cols: 120, rows: 32 }),
@@ -44,7 +81,7 @@ describe("HerdrStreamManager geometry bounds normalization", () => {
       mockPool,
       () => {
         proc = new FakeProcess();
-        return proc;
+        return localClient(proc);
       },
       async () => "/tmp/img",
     );
@@ -80,7 +117,7 @@ describe("HerdrStreamManager geometry bounds normalization", () => {
       mockPool,
       () => {
         proc = new FakeProcess();
-        return proc;
+        return localClient(proc);
       },
       async () => "/tmp/img",
     );
@@ -112,7 +149,7 @@ describe("HerdrStreamManager multi-stream concurrency", () => {
       () => {
         const proc = new FakeProcess();
         children.push(proc);
-        return proc;
+        return localClient(proc);
       },
       async () => "/tmp/img",
     );
@@ -191,14 +228,14 @@ describe("HerdrStreamManager multi-stream concurrency", () => {
     expect(closed).toEqual([{ streamId: first.streamId, reason: "superseded" }]);
   });
 
-  it("detachAllOnQuit detaches every concurrent control stream", () => {
+  it("detachAllOnQuit detaches every concurrent control stream", async () => {
     const { mgr, children, closed } = makeMgr();
     const a = mgr.open({ hostId: "local", terminalId: "t1", cols: 80, rows: 24 });
     const b = mgr.open({ hostId: "local", terminalId: "t2", cols: 80, rows: 24 });
     expect(a.ok && b.ok).toBe(true);
     if (!a.ok || !b.ok) return;
 
-    mgr.detachAllOnQuit("app_quit");
+    await mgr.detachAllOnQuit("app_quit");
     expect(children[0]!.killedSignal).toBe("SIGTERM");
     expect(children[1]!.killedSignal).toBe("SIGTERM");
     expect(closed.map((c) => c.reason)).toEqual(["app_quit", "app_quit"]);
@@ -208,7 +245,7 @@ describe("HerdrStreamManager multi-stream concurrency", () => {
     expect(mgr.open({ hostId: "local", terminalId: "t3", cols: 80, rows: 24 }).ok).toBe(false);
   });
 
-  it("contains a throwing event sink while detaching every concurrent stream", () => {
+  it("contains a throwing event sink while detaching every concurrent stream", async () => {
     const children: FakeProcess[] = [];
     let observersStopped = 0;
     const mgr = new HerdrStreamManager(
@@ -221,7 +258,7 @@ describe("HerdrStreamManager multi-stream concurrency", () => {
       () => {
         const child = new FakeProcess();
         children.push(child);
-        return child;
+        return localClient(child);
       },
       async () => "/tmp/img",
     );
@@ -231,7 +268,7 @@ describe("HerdrStreamManager multi-stream concurrency", () => {
     expect(mgr.open({ hostId: "local", terminalId: "t1", cols: 80, rows: 24 }).ok).toBe(true);
     expect(mgr.open({ hostId: "local", terminalId: "t2", cols: 80, rows: 24 }).ok).toBe(true);
 
-    expect(() => mgr.detachAllOnQuit("app_quit")).not.toThrow();
+    await expect(mgr.detachAllOnQuit("app_quit")).resolves.toBeUndefined();
 
     expect(children.map((child) => child.killedSignal)).toEqual(["SIGTERM", "SIGTERM"]);
     expect(children.map((child) => child.killCalls)).toEqual([1, 1]);
@@ -274,7 +311,7 @@ describe("HerdrStreamManager bounded child termination", () => {
       () => {
         const child = new FakeProcess();
         children.push(child);
-        return child;
+        return localClient(child);
       },
       async () => "/tmp/img",
     );
@@ -313,7 +350,7 @@ describe("HerdrStreamManager bounded child termination", () => {
       () => {
         const child = new FakeProcess();
         children.push(child);
-        return child;
+        return localClient(child);
       },
       async () => "/tmp/img",
     );
@@ -344,6 +381,55 @@ describe("HerdrStreamManager bounded child termination", () => {
   });
 });
 
+describe("HerdrStreamManager remote scope lifecycle", () => {
+  it("has no kill capability, coalesces natural-exit/detach, and awaits the close receipt", async () => {
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["herdr"] },
+    ]);
+    try {
+      const child = new FakeRemoteClient();
+      let resolveClose!: (receipt: RemoteScopeCloseReceipt) => void;
+      const closeReceipt = new Promise<RemoteScopeCloseReceipt>((resolve) => {
+        resolveClose = resolve;
+      });
+      let closeCalls = 0;
+      const mgr = new HerdrStreamManager(
+        mockPool,
+        () => ({
+          kind: "remote-scope",
+          child,
+          close: () => {
+            closeCalls += 1;
+            return closeReceipt;
+          },
+        }),
+        async () => "/tmp/img",
+      );
+      const opened = mgr.open({ hostId: "studio", terminalId: "t1", cols: 80, rows: 24 });
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) return;
+      expect("kill" in child).toBe(false);
+
+      child.emit("close", 0);
+      expect(mgr.close(opened.streamId)).toEqual({ ok: true });
+      let detached = false;
+      const detaching = mgr.detachAllOnQuit().then(() => {
+        detached = true;
+      });
+      await Promise.resolve();
+      expect(closeCalls).toBe(1);
+      expect(detached).toBe(false);
+
+      resolveClose({ status: "closed" });
+      await detaching;
+      expect(detached).toBe(true);
+    } finally {
+      setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+    }
+  });
+});
+
 describe("HerdrStreamManager host revocation", () => {
   it("detachByHost detaches every stream for that host only, without re-pooling", () => {
     setHostsSnapshot([
@@ -351,7 +437,8 @@ describe("HerdrStreamManager host revocation", () => {
       { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["herdr"] },
     ]);
     try {
-      const spawnedBy: Record<string, FakeProcess[]> = {};
+      const localChildren: FakeProcess[] = [];
+      const remoteChildren: FakeRemoteClient[] = [];
       const pooled: string[] = [];
       const pool: ObservePoolHooks = {
         ...mockPool,
@@ -363,9 +450,14 @@ describe("HerdrStreamManager host revocation", () => {
       const mgr = new HerdrStreamManager(
         pool,
         (hostId) => {
-          const proc = new FakeProcess();
-          (spawnedBy[hostId] ??= []).push(proc);
-          return proc;
+          if (hostId === "local") {
+            const child = new FakeProcess();
+            localChildren.push(child);
+            return localClient(child);
+          }
+          const child = new FakeRemoteClient();
+          remoteChildren.push(child);
+          return remoteClient(child);
         },
         async () => "/tmp/img",
       );
@@ -382,8 +474,8 @@ describe("HerdrStreamManager host revocation", () => {
 
       mgr.detachByHost("studio", "host_revoked");
 
-      expect(spawnedBy.studio?.every((proc) => proc.killedSignal === "SIGTERM")).toBe(true);
-      expect(spawnedBy.local?.[0]!.killedSignal).toBeUndefined();
+      expect(remoteChildren.every((child) => child.closeCalls === 1)).toBe(true);
+      expect(localChildren[0]!.killedSignal).toBeUndefined();
       expect(closed).toEqual([
         { streamId: s1.streamId, reason: "host_revoked" },
         { streamId: s2.streamId, reason: "host_revoked" },

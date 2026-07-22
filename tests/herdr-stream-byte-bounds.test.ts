@@ -9,6 +9,7 @@ import { DEFAULT_MAX_BUFFER_BYTES, feedNdjson } from "../src/main/vellum/herdr/n
 import {
   HerdrStreamManager,
   type HerdrProcessLike,
+  type HerdrSpawnedClient,
   type HerdrStreamFrame,
   type ObservePoolHooks,
 } from "../src/main/vellum/herdr/stream";
@@ -77,6 +78,13 @@ const mockPool: ObservePoolHooks = {
   stopAll: () => undefined,
 };
 
+let nextFakePid = 910_000_000;
+const localClient = (child: HerdrProcessLike): HerdrSpawnedClient => ({
+  kind: "local-process",
+  pid: nextFakePid++,
+  child,
+});
+
 /** EventEmitter-based control child so `child.on("close"/"error")` actually fires. */
 class FakeControlChild extends EventEmitter implements HerdrProcessLike {
   killedSignal: NodeJS.Signals | undefined;
@@ -143,7 +151,7 @@ describe("HerdrStreamManager inbound NDJSON overflow", () => {
       mockPool,
       () => {
         child = new FakeControlChild();
-        return child;
+        return localClient(child);
       },
       async () => "/tmp/img",
     );
@@ -176,7 +184,7 @@ describe("HerdrObservePool inbound NDJSON overflow", () => {
     const spawnFn: ObserveSpawnFn = () => {
       const child = new FakeControlChild();
       children.push(child);
-      return child as unknown as ObserveChildLike;
+      return localClient(child as unknown as ObserveChildLike);
     };
     const pool = new HerdrObservePool({ spawnFn });
     pool.ensureObserve({ hostId: "local", terminalId: "t1", cols: 80, rows: 24 });
@@ -200,7 +208,7 @@ describe("HerdrObservePool inbound NDJSON overflow", () => {
 describe("HerdrStreamManager outbound write chunking", () => {
   it("a small command is written as a single stdin write", () => {
     const child = new CapturingStdinChild();
-    const mgr = new HerdrStreamManager(mockPool, () => child, async () => "/tmp/img");
+    const mgr = new HerdrStreamManager(mockPool, () => localClient(child), async () => "/tmp/img");
     const opened = mgr.open({ hostId: "local", terminalId: "t1", cols: 80, rows: 24 });
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
@@ -213,7 +221,7 @@ describe("HerdrStreamManager outbound write chunking", () => {
 
   it("a 1 MiB+ outbound payload is sliced into multiple writes and arrives intact and in order", async () => {
     const child = new CapturingStdinChild(16 * 1024);
-    const mgr = new HerdrStreamManager(mockPool, () => child, async () => "/tmp/img");
+    const mgr = new HerdrStreamManager(mockPool, () => localClient(child), async () => "/tmp/img");
     const opened = mgr.open({ hostId: "local", terminalId: "t1", cols: 80, rows: 24 });
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
@@ -232,7 +240,7 @@ describe("HerdrStreamManager outbound write chunking", () => {
 
   it("interleaved ordering is preserved under backpressure — a resize issued mid-paste writes only after the paste completes", async () => {
     const child = new CapturingStdinChild(16 * 1024);
-    const mgr = new HerdrStreamManager(mockPool, () => child, async () => "/tmp/img");
+    const mgr = new HerdrStreamManager(mockPool, () => localClient(child), async () => "/tmp/img");
     const opened = mgr.open({ hostId: "local", terminalId: "t1", cols: 80, rows: 24 });
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;

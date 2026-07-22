@@ -3,10 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import {
   HerdrObservePool,
-  type ObserveChildLike,
   type ObserveSpawnFn,
 } from "../src/main/vellum/herdr/observe-pool";
-import { HerdrStreamManager, type HerdrStreamFrame } from "../src/main/vellum/herdr/stream";
+import {
+  HerdrStreamManager,
+  type HerdrClientIo,
+  type HerdrProcessLike,
+  type HerdrSpawnedClient,
+  type HerdrStreamFrame,
+  type RemoteScopeCloseReceipt,
+} from "../src/main/vellum/herdr/stream";
 import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 
 beforeEach(() => {
@@ -26,7 +32,7 @@ afterEach(() => {
   setHostsSnapshot(defaultRemoteHostsDocument().hosts);
 });
 
-class FakeChild extends EventEmitter {
+class FakeChild extends EventEmitter implements HerdrProcessLike {
   readonly stdout = Object.assign(new EventEmitter(), {
     setEncoding: (): void => {},
   });
@@ -35,10 +41,15 @@ class FakeChild extends EventEmitter {
     setEncoding: (): void => {},
   });
   readonly kills: string[] = [];
+  closeCalls = 0;
   kill(signal?: string): boolean {
     this.kills.push(signal ?? "SIGTERM");
     return true;
   }
+  readonly closeRemote = async (): Promise<RemoteScopeCloseReceipt> => {
+    this.closeCalls += 1;
+    return { status: "closed" };
+  };
   frame(bytes: string, full?: boolean): void {
     this.stdout.emit("data", `${JSON.stringify({ type: "terminal.frame", bytes, full })}\n`);
   }
@@ -46,6 +57,27 @@ class FakeChild extends EventEmitter {
     this.stdout.emit("data", `${JSON.stringify(payload)}\n`);
   }
 }
+
+class FakeRemoteIo extends EventEmitter implements HerdrClientIo {
+  readonly stdout = Object.assign(new EventEmitter(), {
+    setEncoding: (): void => {},
+  });
+  readonly stdin = { write: (_data: string): boolean => true };
+  readonly stderr = Object.assign(new EventEmitter(), {
+    setEncoding: (): void => {},
+  });
+}
+
+let nextFakePid = 920_000_000;
+const localClient = (child: HerdrProcessLike): HerdrSpawnedClient => ({
+  kind: "local-process",
+  pid: nextFakePid++,
+  child,
+});
+const remoteClient = (
+  child: HerdrClientIo,
+  close: () => Promise<RemoteScopeCloseReceipt>,
+): HerdrSpawnedClient => ({ kind: "remote-scope", child, close });
 
 interface SpawnCall {
   readonly hostId: string;
@@ -59,7 +91,9 @@ const makeSpawner = (): { calls: SpawnCall[]; spawnFn: ObserveSpawnFn } => {
   const spawnFn: ObserveSpawnFn = (hostId, args, session) => {
     const child = new FakeChild();
     calls.push({ hostId, args, session, child });
-    return child as unknown as ObserveChildLike;
+    return hostId === "local"
+      ? localClient(child)
+      : remoteClient(child, child.closeRemote);
   };
   return { calls, spawnFn };
 };
@@ -246,7 +280,7 @@ describe("HerdrObservePool lifecycle", () => {
     expect(replacement.kills).toEqual(["SIGTERM"]);
   });
 
-  it("releaseByHost kills and drops every entry for that host only", () => {
+  it("releaseByHost closes and drops every remote entry for that host only", () => {
     const { calls, spawnFn } = makeSpawner();
     const pool = new HerdrObservePool({ spawnFn });
     touch(pool, "l1", "local");
@@ -259,11 +293,11 @@ describe("HerdrObservePool lifecycle", () => {
     expect(pool.entryState("m2")).toBeUndefined();
     expect(pool.retainedFrames("m1").frames).toEqual([]);
     expect(pool.entryState("l1")?.live).toBe(true);
-    const killedTerminals = calls
-      .filter((call) => call.child.kills.length > 0)
+    const closedTerminals = calls
+      .filter((call) => call.child.closeCalls > 0)
       .map(observedTerminal)
       .sort();
-    expect(killedTerminals).toEqual(["m1", "m2"]);
+    expect(closedTerminals).toEqual(["m1", "m2"]);
   });
 
   it("releaseObserve kills and drops; stopAll kills everything and refuses new observes", () => {
@@ -441,13 +475,46 @@ describe("HerdrObservePool process intent", () => {
   });
 });
 
+describe("HerdrObservePool remote scope lifecycle", () => {
+  it("has no kill capability, coalesces error/stop, and awaits the close receipt", async () => {
+    const child = new FakeRemoteIo();
+    let resolveClose!: (receipt: RemoteScopeCloseReceipt) => void;
+    const closeReceipt = new Promise<RemoteScopeCloseReceipt>((resolve) => {
+      resolveClose = resolve;
+    });
+    let closeCalls = 0;
+    const pool = new HerdrObservePool({
+      spawnFn: () => remoteClient(child, () => {
+        closeCalls += 1;
+        return closeReceipt;
+      }),
+    });
+
+    expect(touch(pool, "remote", "remote-a")).toEqual({ pooled: true });
+    expect("kill" in child).toBe(false);
+    child.emit("error", new Error("remote lease failed"));
+
+    let stopped = false;
+    const stopping = pool.stopAll().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(closeCalls).toBe(1);
+    expect(stopped).toBe(false);
+
+    resolveClose({ status: "closed" });
+    await stopping;
+    expect(stopped).toBe(true);
+  });
+});
+
 describe("control stream ↔ observe pool handoff", () => {
   const makeStreams = (pool: HerdrObservePool) => {
     const controlChildren: FakeChild[] = [];
     const controlSpawn = (() => {
       const child = new FakeChild();
       controlChildren.push(child);
-      return child;
+      return localClient(child);
     });
     const streams = new HerdrStreamManager(pool, controlSpawn, async (name) => `/tmp/${name}`);
     const events: HerdrStreamFrame[] = [];

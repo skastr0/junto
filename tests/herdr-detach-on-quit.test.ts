@@ -19,11 +19,12 @@ describe("herdr detach-on-quit product lock", () => {
     expect(streamSrc).toMatch(/terminal\.release/);
     expect(streamSrc).toMatch(/detachAllOnQuit/);
     expect(streamSrc).toMatch(/NEVER runs `pane close`|never pane close/i);
-    // The exact spawned control child is admitted as a session-owned
-    // capability. This surface must never acquire pid/group authority.
-    expect(streamSrc).toMatch(/admitChildProcess\(\{[\s\S]*?source:\s*"herdr-control:session-owned"[\s\S]*?child/);
-    expect(streamSrc).toMatch(/signalOwned\(stream\.ownedProcess,\s*"SIGTERM"\)/);
-    expect(streamSrc).toMatch(/signalOwned\(stream\.ownedProcess,\s*"SIGKILL"\)/);
+    // Only the tagged local child is admitted as a session-owned process
+    // capability. Remote streams retain an Effect-scope closer instead.
+    expect(streamSrc).toMatch(/spawned\.kind === "local-process"[\s\S]*?admitChildProcess\(\{[\s\S]*?source:\s*"herdr-control:session-owned"[\s\S]*?child/);
+    expect(streamSrc).toMatch(/signalOwned\(lifecycle\.ownedProcess,\s*"SIGTERM"\)/);
+    expect(streamSrc).toMatch(/signalOwned\(lifecycle\.ownedProcess,\s*"SIGKILL"\)/);
+    expect(streamSrc).toMatch(/lifecycle\.kind === "remote-scope"[\s\S]*?trackRemoteClose\(lifecycle\.close\)/);
     expect(streamSrc).not.toMatch(/spawnDetachedProcessGroup|admitSpawnedProcess|signalChildHandleOnly/);
     expect(streamSrc).not.toMatch(/process\.kill|\.child\.kill\s*\(/);
   });
@@ -57,9 +58,10 @@ describe("herdr detach-on-quit product lock", () => {
     const terminationBlock = streamSrc.slice(start, end);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
-    expect(terminationBlock).toMatch(/signalOwned\(stream\.ownedProcess,\s*"SIGTERM"\)/);
+    expect(terminationBlock).toMatch(/lifecycle\.kind === "remote-scope"[\s\S]*?trackRemoteClose\(lifecycle\.close\)/);
+    expect(terminationBlock).toMatch(/signalOwned\(lifecycle\.ownedProcess,\s*"SIGTERM"\)/);
     expect(terminationBlock).toMatch(/setTimeout/);
-    expect(terminationBlock).toMatch(/signalOwned\(stream\.ownedProcess,\s*"SIGKILL"\)/);
+    expect(terminationBlock).toMatch(/signalOwned\(lifecycle\.ownedProcess,\s*"SIGKILL"\)/);
     expect(terminationBlock).toMatch(/releaseControlAuthority\(stream\)/);
     expect(terminationBlock).not.toMatch(/process\.kill|\bpid\b|spawnDetachedProcessGroup/);
   });
@@ -101,5 +103,14 @@ describe("herdr detach-on-quit product lock", () => {
     expect(planeSrc).toMatch(/serverLifetime:\s*HERDR_SERVER_LIFETIME/);
     expect(planeSrc).toMatch(/transport\.handoffServer/);
     expect(planeSrc).toMatch(/Effect\.addFinalizer/);
+    const remoteClientStart = planeSrc.indexOf("class EffectHerdrScopeClient");
+    const remoteClientEnd = planeSrc.indexOf("\nexport class HerdrPlane", remoteClientStart);
+    const remoteClientBlock = planeSrc
+      .slice(remoteClientStart, remoteClientEnd)
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
+    expect(remoteClientStart).toBeGreaterThan(-1);
+    expect(remoteClientBlock).toMatch(/makeBoundedRemoteClose/);
+    expect(remoteClientBlock).not.toMatch(/\bkill\s*\(|\bpid\b|OwnedProcess|signalOwned/);
   });
 });

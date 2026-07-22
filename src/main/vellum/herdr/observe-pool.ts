@@ -2,10 +2,17 @@ import { feedNdjson } from "./ndjson";
 import { isKnownHerdrHost } from "./hosts";
 import {
   admitChildProcess,
+  classifyProcessSignalTarget,
   releaseOwned,
   signalOwned,
   type OwnedProcess,
 } from "../process-signal";
+import type {
+  HerdrClientIo,
+  HerdrProcessLike,
+  HerdrSpawnFn,
+  RemoteScopeCloseReceipt,
+} from "./stream";
 
 const OBSERVE_CHILD_TERMINATION_GRACE_MS = 1_500;
 
@@ -13,8 +20,9 @@ const OBSERVE_CHILD_TERMINATION_GRACE_MS = 1_500;
  * LRU pool of read-only `herdr terminal session observe` children with
  * main-process frame retention. Observers never take input/resize/scroll
  * ownership on the host (stock herdr 0.7.x: multiple observers allowed), so
- * terminating one is always safe — bounded child-only SIGTERM → SIGKILL, no
- * `terminal.release` (that is a control-stream concept).
+ * terminating one is always safe. Local observers use bounded child-only
+ * SIGTERM → SIGKILL; remote observers close only their captured Effect scope.
+ * Neither lifecycle sends `terminal.release` (that is a control-stream concept).
  *
  * Frames are retained only — never forwarded to the renderer. The retained
  * [full, ...deltas] buffer is handed to the renderer when a control stream
@@ -25,22 +33,9 @@ const OBSERVE_CHILD_TERMINATION_GRACE_MS = 1_500;
  * observe capacity remains explicit here because these leases are long-lived.
  */
 
-/** Minimal structural child shape so tests can inject EventEmitter fakes. */
-export interface ObserveChildLike {
-  readonly stdout: {
-    setEncoding(encoding: string): unknown;
-    on(event: "data", listener: (chunk: string) => void): unknown;
-  };
-  kill(signal?: NodeJS.Signals): unknown;
-  on(event: "close", listener: (code: number | null) => void): unknown;
-  on(event: "error", listener: (error: Error) => void): unknown;
-}
-
-export type ObserveSpawnFn = (
-  hostId: string,
-  args: ReadonlyArray<string>,
-  session?: string | null,
-) => ObserveChildLike;
+/** Compatibility names for focused tests; production uses the tagged union. */
+export type ObserveChildLike = HerdrProcessLike;
+export type ObserveSpawnFn = HerdrSpawnFn;
 
 export interface ObserveInput {
   readonly hostId: string;
@@ -51,12 +46,24 @@ export interface ObserveInput {
 }
 
 /** One exact observe child generation, retained while TERM is in flight. */
-interface ObserveGeneration {
-  readonly child: ObserveChildLike;
+type LocalObserveLifecycle = {
+  readonly kind: "local-process";
   readonly ownedProcess: OwnedProcess;
   terminationRequested: boolean;
   authorityReleased: boolean;
   terminationTimer?: ReturnType<typeof setTimeout>;
+};
+
+type RemoteObserveLifecycle = {
+  readonly kind: "remote-scope";
+  readonly close: () => Promise<RemoteScopeCloseReceipt>;
+  closeRequested: boolean;
+};
+
+/** One exact observe generation, independently local-process or remote-scope. */
+interface ObserveGeneration {
+  readonly child: HerdrClientIo;
+  readonly lifecycle: LocalObserveLifecycle | RemoteObserveLifecycle;
 }
 
 interface ObserveEntry {
@@ -107,6 +114,7 @@ export class HerdrObservePool {
   private readonly idleSweepMs: number;
   private readonly spawnFn: ObserveSpawnFn;
   private readonly entries = new Map<string, ObserveEntry>();
+  private readonly pendingRemoteCloses = new Set<Promise<RemoteScopeCloseReceipt>>();
   private touchSeq = 0;
   private shutDown = false;
   private idleTimer: ReturnType<typeof setInterval> | undefined;
@@ -255,16 +263,23 @@ export class HerdrObservePool {
     }
   }
 
-  /** App quit: terminate every observe child. Observers own nothing on the
-   * host — bounded child-only teardown is safe (never `terminal.release`). */
-  stopAll(): void {
+  /** App quit: initiate every independent teardown, then await all bounded
+   * remote-scope receipts. Observers never send `terminal.release`. */
+  async stopAll(): Promise<void> {
     this.shutDown = true;
-    for (const entry of this.entries.values()) this.killChild(entry);
+    for (const entry of [...this.entries.values()]) {
+      try {
+        this.killChild(entry);
+      } catch {
+        // One defective lifecycle must not prevent the rest from starting.
+      }
+    }
     this.entries.clear();
     if (this.idleTimer) {
       clearInterval(this.idleTimer);
       this.idleTimer = undefined;
     }
+    await this.awaitRemoteCloses();
   }
 
   /** Test/inspection surface: pool entry liveness for a terminal. */
@@ -368,24 +383,39 @@ export class HerdrObservePool {
       "--rows",
       String(rows),
     ];
-    let child: ObserveChildLike;
-    let ownedProcess: OwnedProcess;
+    let child: HerdrClientIo;
+    let lifecycle: LocalObserveLifecycle | RemoteObserveLifecycle;
     try {
-      child = this.spawnFn(entry.hostId, args, entry.session);
-      // Observe children own no host terminal state. Their authority is
-      // intentionally limited to the exact child handle returned by spawn.
-      ownedProcess = admitChildProcess({
-        source: "herdr-observe:observation-owned",
-        child,
-      });
+      const spawned = this.spawnFn(entry.hostId, args, entry.session);
+      if ((entry.hostId === "local") !== (spawned.kind === "local-process")) {
+        return false;
+      }
+      child = spawned.child;
+      if (spawned.kind === "local-process") {
+        const decision = classifyProcessSignalTarget({ pid: spawned.pid });
+        if (!decision.ok) return false;
+        lifecycle = {
+          kind: "local-process",
+          ownedProcess: admitChildProcess({
+            source: "herdr-observe:observation-owned",
+            child: spawned.child,
+          }),
+          terminationRequested: false,
+          authorityReleased: false,
+        };
+      } else {
+        lifecycle = {
+          kind: "remote-scope",
+          close: spawned.close,
+          closeRequested: false,
+        };
+      }
     } catch {
       return false;
     }
     const generation: ObserveGeneration = {
       child,
-      ownedProcess,
-      terminationRequested: false,
-      authorityReleased: false,
+      lifecycle,
     };
     entry.generation = generation;
     entry.childCols = cols;
@@ -418,7 +448,13 @@ export class HerdrObservePool {
     });
 
     const onClose = (): void => {
-      this.releaseGeneration(generation);
+      if (generation.lifecycle.kind === "remote-scope") {
+        // A natural SSH exit still needs to drain that generation's scope
+        // finalizers through the bounded receipt path.
+        this.terminateGeneration(generation);
+      } else {
+        this.releaseGeneration(generation);
+      }
       if (entry.generation !== generation) return; // already respawned/killed deliberately
       entry.generation = undefined;
       entry.live = false;
@@ -490,28 +526,61 @@ export class HerdrObservePool {
 
   /** Observed exit/error retires only the generation that emitted it. */
   private releaseGeneration(generation: ObserveGeneration): void {
-    if (generation.authorityReleased) return;
-    generation.authorityReleased = true;
-    if (generation.terminationTimer !== undefined) {
-      clearTimeout(generation.terminationTimer);
-      generation.terminationTimer = undefined;
+    const lifecycle = generation.lifecycle;
+    if (lifecycle.kind === "remote-scope" || lifecycle.authorityReleased) return;
+    lifecycle.authorityReleased = true;
+    if (lifecycle.terminationTimer !== undefined) {
+      clearTimeout(lifecycle.terminationTimer);
+      lifecycle.terminationTimer = undefined;
     }
-    releaseOwned(generation.ownedProcess);
+    releaseOwned(lifecycle.ownedProcess);
   }
 
-  /** Bounded child-only teardown; never follows the entry to a replacement. */
+  /** Tagged teardown; never follows the entry to a replacement generation. */
   private terminateGeneration(generation: ObserveGeneration): void {
-    if (generation.terminationRequested || generation.authorityReleased) return;
-    generation.terminationRequested = true;
-    signalOwned(generation.ownedProcess, "SIGTERM");
-    if (generation.authorityReleased) return;
+    const lifecycle = generation.lifecycle;
+    if (lifecycle.kind === "remote-scope") {
+      if (lifecycle.closeRequested) return;
+      lifecycle.closeRequested = true;
+      this.trackRemoteClose(lifecycle.close);
+      return;
+    }
+    if (lifecycle.terminationRequested || lifecycle.authorityReleased) return;
+    lifecycle.terminationRequested = true;
+    signalOwned(lifecycle.ownedProcess, "SIGTERM");
+    if (lifecycle.authorityReleased) return;
     const timer = setTimeout(() => {
-      generation.terminationTimer = undefined;
-      if (generation.authorityReleased) return;
-      signalOwned(generation.ownedProcess, "SIGKILL");
+      lifecycle.terminationTimer = undefined;
+      if (lifecycle.authorityReleased) return;
+      signalOwned(lifecycle.ownedProcess, "SIGKILL");
       this.releaseGeneration(generation);
     }, OBSERVE_CHILD_TERMINATION_GRACE_MS);
-    generation.terminationTimer = timer;
+    lifecycle.terminationTimer = timer;
     (timer as unknown as { unref?: () => void }).unref?.();
+  }
+
+  private trackRemoteClose(close: () => Promise<RemoteScopeCloseReceipt>): void {
+    let closeFlight: Promise<RemoteScopeCloseReceipt>;
+    try {
+      closeFlight = Promise.resolve(close()).catch((error): RemoteScopeCloseReceipt => ({
+        status: "failed",
+        message: error instanceof Error ? error.message : String(error),
+      }));
+    } catch (error) {
+      closeFlight = Promise.resolve<RemoteScopeCloseReceipt>({
+        status: "failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    this.pendingRemoteCloses.add(closeFlight);
+    void closeFlight.finally(() => {
+      this.pendingRemoteCloses.delete(closeFlight);
+    });
+  }
+
+  private async awaitRemoteCloses(): Promise<void> {
+    while (this.pendingRemoteCloses.size > 0) {
+      await Promise.all([...this.pendingRemoteCloses]);
+    }
   }
 }

@@ -1,6 +1,7 @@
 import type { HerdrPointerCell, HerdrRetainedPayload } from "@shared/ipc";
 import {
   admitChildProcess,
+  classifyProcessSignalTarget,
   releaseOwned,
   signalOwned,
   type OwnedProcess,
@@ -26,18 +27,29 @@ export type StreamSink = (frame: HerdrStreamFrame) => void;
 
 const CONTROL_CHILD_TERMINATION_GRACE_MS = 1_500;
 
+type LocalControlLifecycle = {
+  readonly kind: "local-process";
+  readonly ownedProcess: OwnedProcess;
+  terminationRequested: boolean;
+  authorityReleased: boolean;
+  terminationTimer?: ReturnType<typeof setTimeout>;
+};
+
+type RemoteControlLifecycle = {
+  readonly kind: "remote-scope";
+  readonly close: () => Promise<RemoteScopeCloseReceipt>;
+  closeRequested: boolean;
+};
+
 interface ActiveStream {
   readonly streamId: string;
   readonly hostId: string;
   readonly session?: string | null;
   readonly terminalId: string;
-  readonly child: HerdrProcessLike;
+  readonly child: HerdrClientIo;
   /** The control client belongs to this attached session, never the host pane. */
   readonly lifetime: "session-owned";
-  readonly ownedProcess: OwnedProcess;
-  terminationRequested: boolean;
-  authorityReleased: boolean;
-  terminationTimer?: ReturnType<typeof setTimeout>;
+  readonly lifecycle: LocalControlLifecycle | RemoteControlLifecycle;
   readonly openedAt: number;
   /** Last known geometry — reused when handing the terminal back to the observe pool. */
   cols: number;
@@ -63,7 +75,7 @@ interface ActiveStream {
   overflowed?: boolean;
 }
 
-export interface HerdrProcessLike {
+export interface HerdrClientIo {
   readonly stdin: {
     write(chunk: string): boolean;
     /** Real Node Writables (local spawn) and test PassThroughs support this;
@@ -78,16 +90,36 @@ export interface HerdrProcessLike {
     setEncoding(encoding: string): unknown;
     on(event: "data", listener: (chunk: string) => void): unknown;
   };
-  kill(signal?: NodeJS.Signals): unknown;
   on(event: "close", listener: (code: number | null) => void): unknown;
   on(event: "error", listener: (error: Error) => void): unknown;
 }
+
+export interface HerdrProcessLike extends HerdrClientIo {
+  kill(signal?: NodeJS.Signals): unknown;
+}
+
+export type RemoteScopeCloseReceipt =
+  | { readonly status: "closed" }
+  | { readonly status: "timed-out"; readonly timeoutMs: number }
+  | { readonly status: "failed"; readonly message: string };
+
+export type HerdrSpawnedClient =
+  | {
+      readonly kind: "local-process";
+      readonly pid: number;
+      readonly child: HerdrProcessLike;
+    }
+  | {
+      readonly kind: "remote-scope";
+      readonly child: HerdrClientIo;
+      readonly close: () => Promise<RemoteScopeCloseReceipt>;
+    };
 
 export type HerdrSpawnFn = (
   hostId: string,
   args: ReadonlyArray<string>,
   session?: string | null,
-) => HerdrProcessLike;
+) => HerdrSpawnedClient;
 
 /** Observe-pool hooks the stream manager drives (injectable for tests). */
 export interface ObservePoolHooks {
@@ -102,7 +134,7 @@ export interface ObservePoolHooks {
   pauseForControl(terminalId: string): void;
   clearRetention(terminalId: string): void;
   releaseObserve(terminalId: string): void;
-  stopAll(): void;
+  stopAll(): void | Promise<void>;
 }
 
 /**
@@ -135,7 +167,7 @@ const chunkSliceEnd = (payload: string, start: number, maxChars: number): number
  * Resolves once every slice has been handed to the stream.
  */
 export const writeChunked = (
-  stdin: HerdrProcessLike["stdin"],
+  stdin: HerdrClientIo["stdin"],
   payload: string,
   chunkChars = DEFAULT_WRITE_CHUNK_CHARS,
 ): Promise<void> =>
@@ -169,8 +201,8 @@ export const writeChunked = (
  *
  * Closing a stream (modal close, same-PTY re-open, app quit, launchd unload) ONLY:
  *   1. sends `terminal.release` to herdr
- *   2. SIGTERM the local/ssh *control client* process (`herdr terminal session control …`),
- *      with bounded SIGKILL escalation against that same child capability
+ *   2. SIGTERM the exact local control client with bounded SIGKILL escalation,
+ *      or close the exact remote SSH Effect scope with a bounded receipt
  *
  * It NEVER runs `pane close`, `tab close`, `workspace close`, or `session stop`.
  * Herdr panes and agents keep running on the host when Vellum exits. Rebuilding
@@ -184,6 +216,8 @@ export class HerdrStreamManager {
   private seq = 0;
   private sink: StreamSink | undefined;
   private shutDown = false;
+  /** Bounded close receipts retained after streams leave the active indexes. */
+  private readonly pendingRemoteCloses = new Set<Promise<RemoteScopeCloseReceipt>>();
   /** Fires once a control stream is live for a terminal (message-delivery retry). */
   private openHook: ((terminalId: string) => void) | undefined;
 
@@ -256,16 +290,35 @@ export class HerdrStreamManager {
     // the renderer paints these synchronously while live frames spin up.
     const retained = this.pool.retainedFrames(input.terminalId);
 
-    let child: HerdrProcessLike;
-    let ownedProcess: OwnedProcess;
+    let child: HerdrClientIo;
+    let lifecycle: LocalControlLifecycle | RemoteControlLifecycle;
     try {
-      child = this.spawnFn(input.hostId, args, input.session);
-      // Mint authority at the spawn boundary. This is deliberately child-only:
-      // detaching a control client must never signal its host process group.
-      ownedProcess = admitChildProcess({
-        source: "herdr-control:session-owned",
-        child,
-      });
+      const spawned = this.spawnFn(input.hostId, args, input.session);
+      if ((input.hostId === "local") !== (spawned.kind === "local-process")) {
+        throw new Error(`herdr spawn kind does not match host ${input.hostId}`);
+      }
+      child = spawned.child;
+      if (spawned.kind === "local-process") {
+        const decision = classifyProcessSignalTarget({ pid: spawned.pid });
+        if (!decision.ok) throw new Error(`herdr local child refused: ${decision.reason}`);
+        // Temporary local mint: central spawn-factory ownership will move this
+        // beside node:child_process.spawn. Remote scopes never enter this API.
+        lifecycle = {
+          kind: "local-process",
+          ownedProcess: admitChildProcess({
+            source: "herdr-control:session-owned",
+            child: spawned.child,
+          }),
+          terminationRequested: false,
+          authorityReleased: false,
+        };
+      } else {
+        lifecycle = {
+          kind: "remote-scope",
+          close: spawned.close,
+          closeRequested: false,
+        };
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, message: `failed to spawn control stream: ${message}` };
@@ -282,9 +335,7 @@ export class HerdrStreamManager {
       terminalId: input.terminalId,
       child,
       lifetime: "session-owned",
-      ownedProcess,
-      terminationRequested: false,
-      authorityReleased: false,
+      lifecycle,
       openedAt: Date.now(),
       cols: Math.max(20, Math.floor(input.cols || 80)),
       rows: Math.max(5, Math.floor(input.rows || 24)),
@@ -316,7 +367,13 @@ export class HerdrStreamManager {
     });
 
     child.on("close", (code) => {
-      this.releaseControlAuthority(active);
+      if (active.lifecycle.kind === "remote-scope") {
+        // Natural remote exit still owns scope finalizers. Route it through
+        // the same bounded receipt flight used by explicit detach.
+        this.terminateControl(active);
+      } else {
+        this.releaseControlAuthority(active);
+      }
       const closing = this.streams.get(streamId);
       if (!closing) return;
       this.removeStream(streamId, closing.terminalId);
@@ -522,9 +579,8 @@ export class HerdrStreamManager {
     } catch {
       // ignore
     }
-    // Signal only the sealed child capability — never a pid or process group.
-    // Keep that exact generation's authority until it exits or bounded
-    // escalation has attempted SIGKILL.
+    // Local clients use their sealed child capability; remote clients close
+    // only their captured Effect scope. Neither branch accepts a bare pid.
     this.removeStream(streamId, active.terminalId);
     this.terminateControl(active);
     if (handBack) this.handBackToObservePool(active);
@@ -536,7 +592,7 @@ export class HerdrStreamManager {
    * App/launchd shutdown: detach every control stream. Idempotent.
    * Product lock: quitting Vellum must not mass-kill herdr sessions.
    */
-  detachAllOnQuit(reason = "app_quit"): void {
+  async detachAllOnQuit(reason = "app_quit"): Promise<void> {
     this.shutDown = true;
     for (const streamId of [...this.streams.keys()]) {
       try {
@@ -546,19 +602,21 @@ export class HerdrStreamManager {
         // every other exact child capability still gets its detach attempt.
       }
     }
-    // Observers own nothing on the host — bounded child-only teardown, with
-    // no terminal.release (control-only).
+    // Observers own nothing on the host. Their tagged teardown is started
+    // independently and never sends terminal.release (control-only).
+    let poolStop: Promise<void> = Promise.resolve();
     try {
-      this.pool.stopAll();
+      poolStop = Promise.resolve(this.pool.stopAll()).catch(() => undefined);
     } catch {
       // Event/control cleanup above is already complete; never rethrow from
       // the app-quit boundary because an observe implementation misbehaved.
     }
+    await Promise.all([poolStop, this.awaitRemoteCloses()]);
   }
 
   /** @deprecated use detachAllOnQuit — name kept so greps for closeAll still find the intent */
   closeAll(): void {
-    this.detachAllOnQuit("shutdown");
+    void this.detachAllOnQuit("shutdown");
   }
 
   /**
@@ -597,33 +655,67 @@ export class HerdrStreamManager {
 
   /** Retire one exact control generation after observed exit/error. */
   private releaseControlAuthority(stream: ActiveStream): void {
-    if (stream.authorityReleased) return;
-    stream.authorityReleased = true;
-    if (stream.terminationTimer !== undefined) {
-      clearTimeout(stream.terminationTimer);
-      stream.terminationTimer = undefined;
+    const lifecycle = stream.lifecycle;
+    if (lifecycle.kind === "remote-scope" || lifecycle.authorityReleased) return;
+    lifecycle.authorityReleased = true;
+    if (lifecycle.terminationTimer !== undefined) {
+      clearTimeout(lifecycle.terminationTimer);
+      lifecycle.terminationTimer = undefined;
     }
-    releaseOwned(stream.ownedProcess);
+    releaseOwned(lifecycle.ownedProcess);
   }
 
   /**
-   * Bounded child-only teardown. The ActiveStream object is the generation
-   * key captured by the timer, so a superseding stream can never be signalled.
+   * Tagged teardown. The ActiveStream object is the generation key, so a
+   * superseding stream can never be signalled or have its scope closed.
    */
   private terminateControl(stream: ActiveStream): void {
-    if (stream.terminationRequested || stream.authorityReleased) return;
-    stream.terminationRequested = true;
-    signalOwned(stream.ownedProcess, "SIGTERM");
+    const lifecycle = stream.lifecycle;
+    if (lifecycle.kind === "remote-scope") {
+      if (lifecycle.closeRequested) return;
+      lifecycle.closeRequested = true;
+      this.trackRemoteClose(lifecycle.close);
+      return;
+    }
+    if (lifecycle.terminationRequested || lifecycle.authorityReleased) return;
+    lifecycle.terminationRequested = true;
+    signalOwned(lifecycle.ownedProcess, "SIGTERM");
     // Some child fakes and adapters report close synchronously from kill().
-    if (stream.authorityReleased) return;
+    if (lifecycle.authorityReleased) return;
     const timer = setTimeout(() => {
-      stream.terminationTimer = undefined;
-      if (stream.authorityReleased) return;
-      signalOwned(stream.ownedProcess, "SIGKILL");
+      lifecycle.terminationTimer = undefined;
+      if (lifecycle.authorityReleased) return;
+      signalOwned(lifecycle.ownedProcess, "SIGKILL");
       this.releaseControlAuthority(stream);
     }, CONTROL_CHILD_TERMINATION_GRACE_MS);
-    stream.terminationTimer = timer;
+    lifecycle.terminationTimer = timer;
     (timer as unknown as { unref?: () => void }).unref?.();
+  }
+
+  /** Normalize a structural remote closer into a contained receipt flight. */
+  private trackRemoteClose(close: () => Promise<RemoteScopeCloseReceipt>): void {
+    let closeFlight: Promise<RemoteScopeCloseReceipt>;
+    try {
+      closeFlight = Promise.resolve(close()).catch((error): RemoteScopeCloseReceipt => ({
+        status: "failed",
+        message: error instanceof Error ? error.message : String(error),
+      }));
+    } catch (error) {
+      closeFlight = Promise.resolve<RemoteScopeCloseReceipt>({
+        status: "failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    this.pendingRemoteCloses.add(closeFlight);
+    void closeFlight.finally(() => {
+      this.pendingRemoteCloses.delete(closeFlight);
+    });
+  }
+
+  private async awaitRemoteCloses(): Promise<void> {
+    while (this.pendingRemoteCloses.size > 0) {
+      await Promise.all([...this.pendingRemoteCloses]);
+    }
   }
 
   private writeJson(
