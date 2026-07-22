@@ -3,6 +3,7 @@ import { Effect, Layer, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import { ProcessSpawner, ProcessSpawnerLive } from "../src/main/vellum/ssh/process-spawner";
+import { clearProcessSignalAuditLog, getProcessSignalAuditLog, probeProcessAlive } from "../src/main/vellum/process-signal";
 
 const SpawnerLive = ProcessSpawnerLive;
 
@@ -102,8 +103,28 @@ describe("ProcessSpawnerLive", () => {
     expect(Date.now() - startedAt).toBeLessThan(1_500);
   });
 
+  it("cancels escalation when TERM exits during the grace window", async () => {
+    clearProcessSignalAuditLog();
+    const startedAt = Date.now();
+    let pid: number | undefined;
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const child = yield* (yield* ProcessSpawner).start(Command.make(
+        process.execPath,
+        "-e",
+        "process.on('SIGTERM', () => setTimeout(() => process.exit(0), 100)); setInterval(() => {}, 1000)",
+      ));
+      pid = child.pid;
+      yield* Effect.sleep(20);
+    })).pipe(Effect.provide(SpawnerLive)));
+    expect(Date.now() - startedAt).toBeLessThan(700);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(probeProcessAlive(pid)).toBe(false);
+    expect(getProcessSignalAuditLog().some((entry) => entry.signal === "SIGKILL")).toBe(false);
+  });
+
   it("escalates from SIGTERM to SIGKILL after a bounded grace period", async () => {
     const startedAt = Date.now();
+    let pid: number | undefined;
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -111,9 +132,10 @@ describe("ProcessSpawnerLive", () => {
             Command.make(
               "/bin/sh",
               "-c",
-              "trap '' TERM; printf ready; while :; do sleep 1; done",
+              "trap '' TERM; (sleep 4; kill -KILL $$) & printf ready; while :; do sleep 1; done",
             ),
           );
+          pid = child.pid;
           yield* Stream.runHead(child.stdout);
         }),
       ).pipe(Effect.provide(SpawnerLive)),
@@ -122,5 +144,7 @@ describe("ProcessSpawnerLive", () => {
 
     expect(elapsed).toBeGreaterThanOrEqual(1_500);
     expect(elapsed).toBeLessThan(4_500);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(probeProcessAlive(pid)).toBe(false);
   });
 });

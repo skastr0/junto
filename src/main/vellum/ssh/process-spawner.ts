@@ -33,12 +33,26 @@ const stopProcess = (tracked: TrackedSshChild): Effect.Effect<void> =>
       const timer = setTimeout(() => resolve(false), 50);
       tracked.outcome.then(() => { clearTimeout(timer); resolve(true); });
     });
+    const waitForOutcome = (milliseconds: number) => new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), milliseconds);
+      tracked.outcome.then(() => { clearTimeout(timer); resolve(true); });
+    });
     return Effect.promise(observeSettlement).pipe(
       Effect.flatMap((settled) => settled
         ? Effect.sync(() => releaseOwned(tracked.owned))
         : signal("SIGTERM").pipe(
           Effect.zipRight(Effect.sleep("50 millis")),
-          Effect.zipRight(Effect.suspend(() => tracked.child.exitCode === null && tracked.child.signalCode === null ? Effect.sleep("1400 millis").pipe(Effect.zipRight(signal("SIGKILL"))) : Effect.void)),
+          Effect.zipRight(Effect.suspend(() =>
+            tracked.child.exitCode === null && tracked.child.signalCode === null
+              ? Effect.promise(() => waitForOutcome(1400)).pipe(
+                Effect.zipRight(Effect.suspend(() =>
+                  tracked.child.exitCode === null && tracked.child.signalCode === null
+                    ? signal("SIGKILL")
+                    : Effect.void,
+                )),
+              )
+              : Effect.void,
+          )),
           Effect.ensuring(Effect.sync(() => releaseOwned(tracked.owned))),
           Effect.timeout("3 seconds"),
           Effect.ignore,
