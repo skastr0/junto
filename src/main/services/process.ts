@@ -1,11 +1,9 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import {
-  admitChildProcess,
-  releaseOwned,
-  signalOwned,
-  type OwnedProcess,
-  type SignalOwnedResult,
-} from "../vellum/process-signal";
+  appProcessPlane,
+  type AppChildIo,
+  type AppProcessLease,
+  type AppProcessSignalReceipt,
+} from "../vellum/app-process-plane";
 
 export interface ProcessResult {
   readonly code: number | null;
@@ -22,13 +20,13 @@ const SERVICE_CHILD_CLOSE_DRAIN_MS = 250;
 
 type ServiceChildSignalAttempt = {
   readonly signal: "SIGTERM" | "SIGKILL";
-  readonly result: SignalOwnedResult;
+  readonly result: AppProcessSignalReceipt;
 };
 
 interface ServiceChildRecord {
   readonly generation: number;
   readonly source: string;
-  readonly owned: OwnedProcess;
+  readonly process: AppProcessLease;
   closed: boolean;
   exited: boolean;
   quiesceHandlerDelivered: boolean;
@@ -40,10 +38,23 @@ interface ServiceChildRecord {
   killAttempt: ServiceChildSignalAttempt | undefined;
 }
 
+export type ServiceChildIo = Omit<AppChildIo, "pidForDiagnostics">;
+
 export interface ServiceChildLease {
   readonly generation: number;
+  readonly io: ServiceChildIo;
   readonly requestTermination: () => Promise<void>;
+  readonly terminateAndWaitForClose: () => Promise<boolean>;
   readonly onQuiesce: (handler: () => void) => void;
+}
+
+export interface ServiceChildSpawnSpec {
+  readonly source: string;
+  readonly purpose?: string;
+  readonly command: string;
+  readonly args?: readonly string[];
+  readonly cwd?: string;
+  readonly env?: Readonly<NodeJS.ProcessEnv>;
 }
 
 export interface ServiceChildShutdownStraggler {
@@ -70,12 +81,11 @@ type RegistryEmptyWaiter = {
 
 const serviceChildren = new Set<ServiceChildRecord>();
 const registryEmptyWaiters = new Set<RegistryEmptyWaiter>();
-let nextServiceChildGeneration = 1;
 let serviceChildrenQuiescing = false;
 let serviceChildQuiesceFlight: Promise<ServiceChildQuiesceResult> | undefined;
 
 export const assertServiceChildSpawnAllowed = (): void => {
-  if (serviceChildrenQuiescing) {
+  if (serviceChildrenQuiescing || appProcessPlane.isQuiescing()) {
     throw new Error(SERVICE_CHILD_PLANE_QUIESCING_ERROR);
   }
 };
@@ -112,7 +122,6 @@ const observeServiceChildClose = (record: ServiceChildRecord): void => {
   record.closed = true;
   finishTerminationPhase(record);
   record.onQuiesce = undefined;
-  releaseOwned(record.owned);
   serviceChildren.delete(record);
   notifyRegistryEmpty();
 };
@@ -122,7 +131,9 @@ const signalServiceChild = (
   signal: "SIGTERM" | "SIGKILL",
 ): ServiceChildSignalAttempt => ({
   signal,
-  result: signalOwned(record.owned, signal),
+  result: signal === "SIGTERM"
+    ? appProcessPlane.terminate(record.process, "service-operation-termination")
+    : appProcessPlane.forceTerminate(record.process, "service-operation-termination"),
 });
 
 const requestServiceChildTermination = (
@@ -146,21 +157,58 @@ const requestServiceChildTermination = (
     }
     finishTerminationPhase(record);
   }, SERVICE_CHILD_TERM_GRACE_MS);
-  record.killTimer.unref?.();
   record.termAttempt = signalServiceChild(record, "SIGTERM");
   return flight;
 };
 
-/** @internal Capability lease used by service helpers after an owned spawn. */
-export const registerServiceChild = (input: {
-  readonly source: string;
-  readonly child: ChildProcess;
-}): ServiceChildLease => {
+const waitForServiceChildToClose = (
+  record: ServiceChildRecord,
+  timeoutMs: number,
+): Promise<boolean> => {
+  if (record.closed) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (clean: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(clean);
+    };
+    // Deliberately referenced: a success or quit receipt may not outrun the
+    // terminal close witness it claims to have observed.
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    void record.process.io.closed.then(
+      () => finish(true),
+      () => finish(false),
+    );
+  });
+};
+
+const terminateAndWaitForServiceChildClose = async (
+  record: ServiceChildRecord,
+): Promise<boolean> => {
+  await requestServiceChildTermination(record);
+  return waitForServiceChildToClose(record, SERVICE_CHILD_CLOSE_DRAIN_MS);
+};
+
+/**
+ * Spawn an app-owned service operation through the central process plane.
+ *
+ * The returned facade contains streams and domain cancellation only. It never
+ * exposes a ChildProcess, pid signal authority, or a low-level ownership mint.
+ */
+export const spawnServiceChild = (
+  input: ServiceChildSpawnSpec,
+): ServiceChildLease => {
   assertServiceChildSpawnAllowed();
+  const process = appProcessPlane.spawnChild({
+    ...input,
+    purpose: input.purpose ?? "service operation",
+  });
   const record: ServiceChildRecord = {
-    generation: nextServiceChildGeneration++,
+    generation: process.generation,
     source: input.source,
-    owned: admitChildProcess({ source: input.source, child: input.child }),
+    process,
     closed: false,
     exited: false,
     quiesceHandlerDelivered: false,
@@ -172,15 +220,26 @@ export const registerServiceChild = (input: {
     killAttempt: undefined,
   };
   serviceChildren.add(record);
-  input.child.once("exit", () => observeServiceChildExit(record));
-  input.child.once("close", () => observeServiceChildClose(record));
-  // A ChildProcess error is not terminal, but it must always have a sink even
-  // during the narrow interval before an operation installs diagnostics.
-  input.child.on("error", () => undefined);
+  process.io.onExit(() => observeServiceChildExit(record));
+  process.io.onClose(() => observeServiceChildClose(record));
+
+  const io: ServiceChildIo = Object.freeze({
+    stdin: process.io.stdin,
+    stdout: process.io.stdout,
+    stderr: process.io.stderr,
+    exited: process.io.exited,
+    closed: process.io.closed,
+    onExit: process.io.onExit,
+    onClose: process.io.onClose,
+    onError: process.io.onError,
+  });
 
   return {
     generation: record.generation,
+    io,
     requestTermination: () => requestServiceChildTermination(record),
+    terminateAndWaitForClose: () =>
+      terminateAndWaitForServiceChildClose(record),
     onQuiesce: (handler) => {
       if (record.closed) return;
       record.onQuiesce = handler;
@@ -207,7 +266,6 @@ const waitForServiceChildrenToClose = (timeoutMs: number): Promise<boolean> => {
         resolve(false);
       }, timeoutMs),
     };
-    waiter.timer.unref?.();
     registryEmptyWaiters.add(waiter);
   });
 };
@@ -295,18 +353,19 @@ export const runProcess = (
   }
 
   return new Promise((resolve, reject) => {
-    const child = spawn(command, [...args], {
+    const lease = spawnServiceChild({
+      source: `services.run-process:operation:${command}`,
+      purpose: `run ${command}`,
+      command,
+      args,
       cwd: options.cwd,
       env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
     });
-    // runProcess owns this child for exactly one command invocation. The
-    // capability contains only the ChildProcess handle: this helper never
-    // acquires process-group authority and cannot signal an ambient pid.
-    const lease = registerServiceChild({
-      source: `services.run-process:operation:${command}`,
-      child,
-    });
+    const {
+      stdin,
+      stdout: stdoutStream,
+      stderr: stderrStream,
+    } = lease.io;
 
     let stdout = "";
     let stderr = "";
@@ -351,20 +410,20 @@ export const runProcess = (
       if (outputStopped) return;
       outputStopped = true;
 
-      child.stdout?.off("data", onStdoutData);
-      child.stdout?.off("error", onStdoutError);
-      child.stdout?.on("error", ignoreClosedPipeError);
-      child.stderr?.off("data", onStderrData);
-      child.stderr?.off("error", onStderrError);
-      child.stderr?.on("error", ignoreClosedPipeError);
+      stdoutStream.off("data", onStdoutData);
+      stdoutStream.off("error", onStdoutError);
+      stdoutStream.on("error", ignoreClosedPipeError);
+      stderrStream.off("data", onStderrData);
+      stderrStream.off("error", onStderrError);
+      stderrStream.on("error", ignoreClosedPipeError);
 
       try {
-        child.stdout?.destroy();
+        stdoutStream.destroy();
       } catch {
         // The operation is already settled; local endpoint cleanup is best effort.
       }
       try {
-        child.stderr?.destroy();
+        stderrStream.destroy();
       } catch {
         // The operation is already settled; local endpoint cleanup is best effort.
       }
@@ -396,23 +455,36 @@ export const runProcess = (
             failOperation(new Error(`${command} timed out after ${options.timeoutMs}ms`));
           }, options.timeoutMs);
 
-    child.stdout?.on("data", onStdoutData);
-    child.stdout?.on("error", onStdoutError);
-    child.stderr?.on("data", onStderrData);
-    child.stderr?.on("error", onStderrError);
+    stdoutStream.on("data", onStdoutData);
+    stdoutStream.on("error", onStdoutError);
+    stderrStream.on("data", onStderrData);
+    stderrStream.on("error", onStderrError);
 
     lease.onQuiesce(() => {
       failOperation(new Error(SERVICE_CHILD_PLANE_QUIESCING_ERROR));
     });
 
-    child.on("error", (error) => {
+    lease.io.onError((error) => {
       // ChildProcess "error" is not proof of process death (kill/send and
       // stream failures can emit it while the child is still alive). Reject
       // promptly, but retain exact-child authority through bounded teardown.
       failOperation(error);
     });
 
-    child.on("close", (code) => {
+    // Match the former `stdin: "ignore"` contract: service commands receive
+    // EOF and cannot remain alive waiting on an unused app-owned input pipe.
+    // The central process plane keeps child errors contained; the unused pipe
+    // needs its own sink because an asynchronous EPIPE is not a child event.
+    stdin.on("error", ignoreClosedPipeError);
+    try {
+      stdin.end();
+    } catch (error) {
+      failOperation(
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+
+    lease.io.onClose(({ code }) => {
       if (settled) {
         stopOutput();
         return;

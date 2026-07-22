@@ -9,6 +9,21 @@ const mocks = vi.hoisted(() => ({
   handles: [] as unknown[],
 }));
 
+vi.mock("../src/main/vellum/process-epoch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/main/vellum/process-epoch")>();
+  return {
+    ...actual,
+    captureChildProcessEpoch: (pid: number) => ({
+      pid,
+      startKey: `test-child-${pid}`,
+    }),
+    childProcessEpochIsCurrent: (
+      pid: number,
+      epoch: { readonly pid: number; readonly startKey: string },
+    ) => epoch.pid === pid && epoch.startKey === `test-child-${pid}`,
+  };
+});
+
 vi.mock("node:child_process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:child_process")>()),
   spawn: mocks.spawn,
@@ -35,19 +50,24 @@ import {
   quiesceServiceChildrenOnQuit,
   runProcess,
   SERVICE_CHILD_PLANE_QUIESCING_ERROR,
+  spawnServiceChild,
 } from "../src/main/services/process";
 import { signalOwned, type OwnedProcess } from "../src/main/vellum/process-signal";
 
 class FakeWritable extends EventEmitter {
   readonly write = vi.fn(() => true);
+  readonly end = vi.fn(() => this);
   readonly destroy = vi.fn(() => this);
 }
+
+let nextFakePid = 42_001;
 
 class FakeChild extends EventEmitter {
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
   readonly stdin = new FakeWritable();
   readonly kill = vi.fn((_signal?: NodeJS.Signals) => true);
+  readonly pid = nextFakePid++;
 }
 
 const probeCodexAppServer = Effect.gen(function* () {
@@ -80,7 +100,25 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("legacy service child authority", () => {
+describe("central service child authority", () => {
+  it("exposes a frozen stream facade without child or pid authority", () => {
+    const child = new FakeChild();
+    mocks.spawn.mockReturnValue(child);
+
+    const lease = spawnServiceChild({
+      source: "services.test:opaque-facade",
+      command: "example",
+    });
+
+    expect(Object.isFrozen(lease.io)).toBe(true);
+    expect("pidForDiagnostics" in lease.io).toBe(false);
+    expect("pid" in lease.io).toBe(false);
+    expect("kill" in lease.io).toBe(false);
+    expect("child" in lease).toBe(false);
+    expect("process" in lease).toBe(false);
+    closeChild(child);
+  });
+
   it("releases runProcess authority when the operation closes", async () => {
     const child = new FakeChild();
     mocks.spawn.mockReturnValue(child);
@@ -254,6 +292,10 @@ describe("legacy service child authority", () => {
 
   it("terminates and releases the Codex app-server after its handshake", async () => {
     const child = new FakeChild();
+    child.kill.mockImplementation((signal) => {
+      if (signal === "SIGTERM") closeChild(child, null, "SIGTERM");
+      return true;
+    });
     mocks.spawn.mockReturnValue(child);
 
     const resultPromise = Effect.runPromise(probeCodexAppServer);
@@ -265,8 +307,54 @@ describe("legacy service child authority", () => {
       status: "ok",
     });
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
-    closeChild(child, 0, null);
     expect(signalOwned(capturedHandle(), "SIGKILL").attempted).toBe(false);
+    expect(child.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report Codex success without a bounded close witness", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    child.kill.mockReturnValue(false);
+    mocks.spawn.mockReturnValue(child);
+
+    const resultPromise = Effect.runPromise(
+      probeCodexAppServer.pipe(Effect.either),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    child.stdout.write('{"id":0,"result":{"protocol":"ok"}}\n');
+
+    await vi.advanceTimersByTimeAsync(1_250);
+    const result = await resultPromise;
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.message).toBe(
+        "codex app-server did not close after initialize response",
+      );
+    }
+    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    expect(vi.getTimerCount()).toBe(0);
+    child.emit("close", null, "SIGKILL");
+  });
+
+  it("coalesces concurrent Codex app-server probes", async () => {
+    const child = new FakeChild();
+    child.kill.mockImplementation((signal) => {
+      if (signal === "SIGTERM") closeChild(child, null, "SIGTERM");
+      return true;
+    });
+    mocks.spawn.mockReturnValue(child);
+
+    const first = Effect.runPromise(probeCodexAppServer);
+    const second = Effect.runPromise(probeCodexAppServer);
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+    child.stdout.write('{"id":0,"result":{"coalesced":true}}\n');
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ status: "ok" }),
+      expect.objectContaining({ status: "ok" }),
+    ]);
+    expect(mocks.spawn).toHaveBeenCalledOnce();
     expect(child.kill).toHaveBeenCalledTimes(1);
   });
 

@@ -1,12 +1,11 @@
-import { spawn } from "node:child_process";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import { resolvedSpawnEnv } from "../vellum/adapters/exec";
 import {
   assertServiceChildSpawnAllowed,
-  registerServiceChild,
   runProcess,
   SERVICE_CHILD_PLANE_QUIESCING_ERROR,
+  spawnServiceChild,
 } from "./process";
 
 export class CodexError extends Schema.TaggedError<CodexError>()("CodexError", {
@@ -38,24 +37,21 @@ const checkCodexCli = Effect.tryPromise({
 const APP_SERVER_JSONL_REMAINDER_LIMIT_BYTES = 256 * 1024;
 const APP_SERVER_STDERR_LIMIT_BYTES = 256 * 1024;
 
-const initializeAppServer = async (): Promise<string> => {
+const runAppServerInitializeProbe = async (): Promise<string> => {
   assertServiceChildSpawnAllowed();
   const env = await resolvedSpawnEnv();
   // Environment resolution crosses an await; close the late-spawn window
   // again before entering the synchronous spawn + registration section.
   assertServiceChildSpawnAllowed();
   return new Promise((resolve, reject) => {
-    const child = spawn("codex", ["app-server"], {
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    // The Codex service owns this app-server only for the initialize probe.
-    // It is deliberately child-only: probing Codex never grants Vellum a
-    // process-group or bare-pid signal capability.
-    const lease = registerServiceChild({
+    const lease = spawnServiceChild({
       source: "services.codex-app-server:service-probe",
-      child,
+      purpose: "Codex App Server initialize probe",
+      command: "codex",
+      args: ["app-server"],
+      env,
     });
+    const { stdin, stdout, stderr: stderrStream } = lease.io;
 
     let stdoutBuffer = "";
     let stderr = "";
@@ -74,27 +70,27 @@ const initializeAppServer = async (): Promise<string> => {
       if (outputStopped) return;
       outputStopped = true;
 
-      child.stdin?.off("error", onStdinError);
-      child.stdin?.on("error", ignoreClosedPipeError);
-      child.stdout?.off("data", onStdoutData);
-      child.stdout?.off("error", onStdoutError);
-      child.stdout?.on("error", ignoreClosedPipeError);
-      child.stderr?.off("data", onStderrData);
-      child.stderr?.off("error", onStderrError);
-      child.stderr?.on("error", ignoreClosedPipeError);
+      stdin.off("error", onStdinError);
+      stdin.on("error", ignoreClosedPipeError);
+      stdout.off("data", onStdoutData);
+      stdout.off("error", onStdoutError);
+      stdout.on("error", ignoreClosedPipeError);
+      stderrStream.off("data", onStderrData);
+      stderrStream.off("error", onStderrError);
+      stderrStream.on("error", ignoreClosedPipeError);
 
       try {
-        child.stdin?.destroy();
+        stdin.destroy();
       } catch {
         // The probe is settled; local endpoint cleanup is best effort.
       }
       try {
-        child.stdout?.destroy();
+        stdout.destroy();
       } catch {
         // The probe is settled; local endpoint cleanup is best effort.
       }
       try {
-        child.stderr?.destroy();
+        stderrStream.destroy();
       } catch {
         // The probe is settled; local endpoint cleanup is best effort.
       }
@@ -104,6 +100,31 @@ const initializeAppServer = async (): Promise<string> => {
       clearTimeout(timer);
       void lease.requestTermination();
       stopOutput();
+    };
+
+    const settleSuccessfulHandshake = (result: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      stopOutput();
+      void lease.terminateAndWaitForClose().then(
+        (clean) => {
+          if (clean) {
+            resolve(result);
+            return;
+          }
+          reject(
+            new Error(
+              "codex app-server did not close after initialize response",
+            ),
+          );
+        },
+        (error) => {
+          reject(
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        },
+      );
     };
 
     const failAndTerminate = (message: string) => {
@@ -136,13 +157,13 @@ const initializeAppServer = async (): Promise<string> => {
       failAndTerminate(`codex app-server initialize timed out${stderr ? `: ${stderr}` : ""}`);
     }, 6_000);
 
-    child.once("exit", (code, signal) => {
+    lease.io.onExit(({ code, signal }) => {
       // exit proves signal authority is over, but stdout/stderr can still
       // drain until close. Keep the probe pending so a buffered initialize
       // response delivered in that window can still complete successfully.
       observedExit = { code, signal };
     });
-    child.once("close", (code, signal) => {
+    lease.io.onClose(({ code, signal }) => {
       const message = observedExit === undefined
         ? `codex app-server closed before initialize response (${terminalStatus(code, signal)})`
         : `codex app-server exited before initialize response (${terminalStatus(observedExit.code, observedExit.signal)})`;
@@ -196,10 +217,7 @@ const initializeAppServer = async (): Promise<string> => {
         try {
           const message = JSON.parse(line) as { readonly id?: number; readonly result?: unknown };
           if (message.id === 0) {
-            if (settled) return;
-            settled = true;
-            cleanup();
-            resolve(JSON.stringify(message.result ?? {}));
+            settleSuccessfulHandshake(JSON.stringify(message.result ?? {}));
             return;
           }
         } catch {
@@ -214,20 +232,20 @@ const initializeAppServer = async (): Promise<string> => {
       }
     }
 
-    child.on("error", (error) => {
+    lease.io.onError((error) => {
       failChannel("child", error);
     });
-    child.stdin?.on("error", onStdinError);
-    child.stdout?.on("error", onStdoutError);
-    child.stdout?.on("data", onStdoutData);
-    child.stderr?.on("error", onStderrError);
-    child.stderr?.on("data", onStderrData);
+    stdin.on("error", onStdinError);
+    stdout.on("error", onStdoutError);
+    stdout.on("data", onStdoutData);
+    stderrStream.on("error", onStderrError);
+    stderrStream.on("data", onStderrData);
     lease.onQuiesce(() => {
       failAndTerminate(SERVICE_CHILD_PLANE_QUIESCING_ERROR);
     });
 
     try {
-      child.stdin?.write(
+      stdin.write(
         `${JSON.stringify({
           id: 0,
           method: "initialize",
@@ -241,7 +259,7 @@ const initializeAppServer = async (): Promise<string> => {
         })}\n`,
       );
       if (!settled) {
-        child.stdin?.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
+        stdin.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
       }
     } catch (error) {
       failChannel(
@@ -250,6 +268,23 @@ const initializeAppServer = async (): Promise<string> => {
       );
     }
   });
+};
+
+let appServerProbeFlight: Promise<string> | undefined;
+
+const initializeAppServer = (): Promise<string> => {
+  if (appServerProbeFlight !== undefined) return appServerProbeFlight;
+  const flight = runAppServerInitializeProbe();
+  appServerProbeFlight = flight;
+  void flight.then(
+    () => {
+      if (appServerProbeFlight === flight) appServerProbeFlight = undefined;
+    },
+    () => {
+      if (appServerProbeFlight === flight) appServerProbeFlight = undefined;
+    },
+  );
+  return flight;
 };
 
 export const CodexLive = Layer.succeed(
