@@ -444,10 +444,47 @@ export const terminateSpawnedRuntime = async (
   }
 };
 
+export type PackagedRuntimeSandboxProof =
+  | {
+      readonly clean: true;
+      readonly groupAdmission: "verified";
+      readonly descendants: "proven-gone";
+    }
+  | {
+      readonly clean: false;
+      readonly reason: "group-admission-refused";
+      readonly groupAdmission: "refused";
+      readonly descendants: "unproven";
+    }
+  | {
+      readonly clean: false;
+      readonly reason: "descendants-unproven";
+      readonly groupAdmission: "verified";
+      readonly descendants: "unproven";
+    };
+
 export interface PackagedRuntimeSandboxFinalization {
+  readonly proof: PackagedRuntimeSandboxProof;
   readonly drain: AppProcessDrainResult;
   readonly tempRootRemoved: boolean;
 }
+
+const uncleanSandboxProof = (
+  groupAdmissionVerified: boolean,
+): Exclude<PackagedRuntimeSandboxProof, { readonly clean: true }> =>
+  groupAdmissionVerified
+    ? {
+        clean: false,
+        reason: "descendants-unproven",
+        groupAdmission: "verified",
+        descendants: "unproven",
+      }
+    : {
+        clean: false,
+        reason: "group-admission-refused",
+        groupAdmission: "refused",
+        descendants: "unproven",
+      };
 
 const closeSmokeIo = (lease: AppProcessLease | undefined): void => {
   if (lease === undefined) return;
@@ -469,6 +506,11 @@ export const finalizePackagedRuntimeSandbox = async (
   lease: AppProcessLease | undefined,
   tempRoot: string,
 ): Promise<PackagedRuntimeSandboxFinalization> => {
+  // A child-mode fallback can prove that the Electron root closed, but it
+  // cannot prove that helpers which escaped the root are gone. Keep admission
+  // proof independent from the central drain receipt so root closure alone can
+  // never authorize sandbox deletion.
+  const groupAdmissionVerified = lease?.mode === "group";
   processPlane.beginShutdown();
   let drain: AppProcessDrainResult;
   try {
@@ -482,14 +524,34 @@ export const finalizePackagedRuntimeSandbox = async (
   }
   if (!drain.clean) {
     closeSmokeIo(lease);
-    return { drain, tempRootRemoved: false };
+    return {
+      proof: uncleanSandboxProof(groupAdmissionVerified),
+      drain,
+      tempRootRemoved: false,
+    };
+  }
+  if (!groupAdmissionVerified) {
+    closeSmokeIo(lease);
+    return {
+      proof: uncleanSandboxProof(false),
+      drain,
+      tempRootRemoved: false,
+    };
   }
   await rm(tempRoot, { recursive: true, force: true, maxRetries: 2 });
   const tempRootRemoved = await lstat(tempRoot).then(
     () => false,
     (error: NodeJS.ErrnoException) => error.code === "ENOENT",
   );
-  return { drain, tempRootRemoved };
+  return {
+    proof: {
+      clean: true,
+      groupAdmission: "verified",
+      descendants: "proven-gone",
+    },
+    drain,
+    tempRootRemoved,
+  };
 };
 
 const requireOwnerMode = async (
@@ -784,12 +846,14 @@ export const smokePackagedRuntime = async (
     );
   }
 
-  if (!finalization.drain.clean) {
-    const summary = finalization.drain.stragglers
-      .map((straggler) => `${straggler.purpose}:${straggler.state}`)
-      .join(",");
+  if (finalization.proof.clean === false) {
+    const summary = finalization.drain.clean
+      ? "root-clean-descendants-unproven"
+      : finalization.drain.stragglers
+          .map((straggler) => `${straggler.purpose}:${straggler.state}`)
+          .join(",");
     throw new Error(
-      `packaged runtime process drain remained unclean (${summary || "unknown"}); isolated sandbox retained at ${tempRoot}`,
+      `packaged runtime cleanup remained unclean (${finalization.proof.reason}/descendants-${finalization.proof.descendants}; ${summary || "unknown"}); isolated sandbox retained at ${tempRoot}`,
       { cause: failed ? primaryFailure : undefined },
     );
   }

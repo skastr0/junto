@@ -345,6 +345,12 @@ describe("packaged runtime smoke child lifecycle", () => {
     const result = await finalizing;
 
     expect(result).toMatchObject({
+      proof: {
+        clean: false,
+        reason: "group-admission-refused",
+        groupAdmission: "refused",
+        descendants: "unproven",
+      },
       tempRootRemoved: false,
       drain: {
         clean: false,
@@ -358,6 +364,44 @@ describe("packaged runtime smoke child lifecycle", () => {
     });
     await expect(lstat(tempRoot)).resolves.toBeDefined();
     expect(child.signals).toEqual([]);
+    expect(child.stdin.destroyed).toBe(true);
+    expect(child.stdout.destroyed).toBe(true);
+    expect(child.stderr.destroyed).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retains the sandbox when a fallback root closes but descendants remain unproven", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-smoke-root-only-"));
+    tempRoots.add(tempRoot);
+    vi.useFakeTimers();
+    const child = new FakeRuntimeChild();
+    const { plane, lease } = spawnGroupLease(child, "child");
+    processMocks.signalOwned.mockImplementation((owned: FakeOwned, signal: NodeJS.Signals) => {
+      owned.child.kill(signal);
+      owned.child.close(0, null);
+      return {
+        attempted: true,
+        decision: { ok: true, mode: "child" },
+        via: "child.kill",
+      };
+    });
+
+    const finalizing = finalizePackagedRuntimeSandbox(plane, lease, tempRoot);
+    await vi.advanceTimersByTimeAsync(10);
+    const result = await finalizing;
+
+    expect(result).toEqual({
+      proof: {
+        clean: false,
+        reason: "group-admission-refused",
+        groupAdmission: "refused",
+        descendants: "unproven",
+      },
+      drain: { clean: true, stragglers: [] },
+      tempRootRemoved: false,
+    });
+    await expect(lstat(tempRoot)).resolves.toBeDefined();
+    expect(child.signals).toEqual(["SIGTERM"]);
     expect(child.stdin.destroyed).toBe(true);
     expect(child.stdout.destroyed).toBe(true);
     expect(child.stderr.destroyed).toBe(true);
@@ -381,6 +425,12 @@ describe("packaged runtime smoke child lifecycle", () => {
     const result = await finalizing;
 
     expect(result).toMatchObject({
+      proof: {
+        clean: false,
+        reason: "descendants-unproven",
+        groupAdmission: "verified",
+        descendants: "unproven",
+      },
       tempRootRemoved: false,
       drain: {
         clean: false,
@@ -425,6 +475,11 @@ describe("packaged runtime smoke child lifecycle", () => {
     const result = await finalizing;
 
     expect(result).toEqual({
+      proof: {
+        clean: true,
+        groupAdmission: "verified",
+        descendants: "proven-gone",
+      },
       drain: { clean: true, stragglers: [] },
       tempRootRemoved: true,
     });
