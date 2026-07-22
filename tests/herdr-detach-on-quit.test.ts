@@ -18,23 +18,34 @@ describe("herdr detach-on-quit product lock", () => {
     expect(streamSrc).toMatch(/terminal\.release/);
     expect(streamSrc).toMatch(/detachAllOnQuit/);
     expect(streamSrc).toMatch(/NEVER runs `pane close`|never pane close/i);
-    // control-client kill only
-    expect(streamSrc).toMatch(/active\.child\.kill\("SIGTERM"\)/);
+    // The exact spawned control child is admitted as a session-owned
+    // capability. This surface must never acquire pid/group authority.
+    expect(streamSrc).toMatch(/admitChildProcess\(\{[\s\S]*?source:\s*"herdr-control:session-owned"[\s\S]*?child/);
+    expect(streamSrc).toMatch(/signalOwned\(active\.ownedProcess,\s*"SIGTERM"\)/);
+    expect(streamSrc).not.toMatch(/spawnDetachedProcessGroup|admitSpawnedProcess|signalChildHandleOnly/);
+    expect(streamSrc).not.toMatch(/process\.kill|\.child\.kill\s*\(/);
   });
 
   it("stream close path does not shell pane/tab/session kill", () => {
     // Strip comments so doc lines like "never pane close" do not false-fail.
+    const detachStart = streamSrc.indexOf("private detachControlInternal(");
+    const detachEnd = streamSrc.indexOf("\n  /**\n   * App/launchd shutdown", detachStart);
     const detachBlock = streamSrc
-      .slice(streamSrc.indexOf("detachControl("), streamSrc.indexOf("detachAllOnQuit"))
+      .slice(detachStart, detachEnd)
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/\/\/[^\n]*/g, "");
+    expect(detachStart).toBeGreaterThan(-1);
+    expect(detachEnd).toBeGreaterThan(detachStart);
+    expect(detachBlock).toMatch(/terminal\.release/);
     expect(detachBlock).not.toMatch(/["']pane["']\s*,\s*["']close["']/);
     expect(detachBlock).not.toMatch(/\bpane\s+close\b/);
     expect(detachBlock).not.toMatch(/\btab\s+close\b/);
     expect(detachBlock).not.toMatch(/\bsession\s+stop\b/);
     expect(detachBlock).not.toMatch(/killPane|killTab/);
-    // Only the control client is signalled.
-    expect(detachBlock).toMatch(/active\.child\.kill/);
+    // Only the admitted control-client capability is signalled and retired.
+    expect(detachBlock).toMatch(/signalOwned\(active\.ownedProcess,\s*"SIGTERM"\)/);
+    expect(detachBlock).toMatch(/releaseOwned\(active\.ownedProcess\)/);
+    expect(detachBlock).not.toMatch(/\.kill\s*\(|\bpid\b|spawnDetachedProcessGroup/);
   });
 
   it("main process detaches herdr on quit and signals", () => {

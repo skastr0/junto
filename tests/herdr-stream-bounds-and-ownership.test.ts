@@ -179,6 +179,16 @@ describe("HerdrStreamManager multi-stream concurrency", () => {
     expect(mgr.inputText(keep.streamId, "other").ok).toBe(true);
     expect(children[0]!.written.some((w) => w.includes("other"))).toBe(true);
     expect(children[2]!.written.some((w) => w.includes("fresh"))).toBe(true);
+
+    // OS close/error delivery from the superseded generation can arrive long
+    // after the replacement is active. It must retire only the old sealed
+    // capability and leave the current stream/indexes untouched.
+    children[1]!.emit("close", 0);
+    children[1]!.emit("error", new Error("late superseded-generation error"));
+    expect(children[1]!.killCalls).toBe(1);
+    expect(children[2]!.killCalls).toBe(0);
+    expect(mgr.inputText(second.streamId, "still-current").ok).toBe(true);
+    expect(closed).toEqual([{ streamId: first.streamId, reason: "superseded" }]);
   });
 
   it("detachAllOnQuit detaches every concurrent control stream", () => {
