@@ -450,6 +450,7 @@ export class LocalSessionHost extends EventEmitter {
   ): void {
     const rec = this.sessions.get(bindingId);
     if (!rec) return;
+    if (rec.killed) return;
     if (!ref || !ref.canvasName || !ref.nodeId) {
       if (rec.pid !== undefined) getProcessIdentityMap().unbind(rec.pid);
       rec.canvasName = undefined;
@@ -480,6 +481,9 @@ export class LocalSessionHost extends EventEmitter {
     | { readonly ok: false; readonly message: string } {
     const rec = this.sessions.get(input.bindingId);
     if (!rec) return { ok: false, message: "session not found" };
+    if (rec.killed) {
+      return { ok: false, message: "session interaction revoked during stop" };
+    }
 
     if (input.mode === "control") {
       if (rec.controlLeaseId && !input.takeover) {
@@ -528,7 +532,7 @@ export class LocalSessionHost extends EventEmitter {
 
   write(lease: ControlLease, data: string): boolean {
     const rec = this.sessions.get(lease.bindingId);
-    if (!rec || !rec.child || rec.status !== "running") return false;
+    if (!rec || rec.killed || !rec.child || rec.status !== "running") return false;
     if (lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId) return false;
     if (lease.epoch !== rec.epoch) return false;
     try {
@@ -541,7 +545,7 @@ export class LocalSessionHost extends EventEmitter {
 
   resize(lease: ControlLease, cols: number, rows: number): boolean {
     const rec = this.sessions.get(lease.bindingId);
-    if (!rec || !rec.child || rec.status !== "running") return false;
+    if (!rec || rec.killed || !rec.child || rec.status !== "running") return false;
     if (lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId) return false;
     if (lease.epoch !== rec.epoch) return false;
     const c = Math.max(20, Math.min(300, cols | 0));
@@ -628,6 +632,14 @@ export class LocalSessionHost extends EventEmitter {
   private requestStop(rec: SessionRec): void {
     if (rec.status === "exited") return;
     rec.killed = true;
+    rec.controlLeaseId = undefined;
+    if (rec.pid !== undefined) {
+      try {
+        getProcessIdentityMap().unbind(rec.pid);
+      } catch (error) {
+        console.error(`[term] identity revoke failed for ${rec.bindingId}@${rec.epoch}:`, error);
+      }
+    }
     this.forceKill(rec, "SIGTERM");
     if (rec.escalationTimer === undefined && this.liveRecords.has(rec)) {
       rec.escalationTimer = setTimeout(() => {

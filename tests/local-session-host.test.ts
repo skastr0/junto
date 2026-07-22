@@ -405,6 +405,68 @@ describe("LocalSessionHost", () => {
     error.mockRestore();
   });
 
+  it("makes a retained killed generation strictly noninteractive", async () => {
+    vi.useFakeTimers();
+    const writes: string[] = [];
+    const dataListeners = new Set<(data: string) => void>();
+    const exitListeners = new Set<
+      (code: number | undefined, signal: number | undefined) => void
+    >();
+    const spawn: TermSpawnFn = () => ({
+      pid: 82_500,
+      write(data) {
+        writes.push(data);
+      },
+      resize() {},
+      kill() {
+        // Deliberately retained beyond the bounded shutdown.
+      },
+      onData(listener) {
+        dataListeners.add(listener);
+      },
+      onExit(listener) {
+        exitListeners.add(listener);
+      },
+    });
+    const host = new LocalSessionHost(spawn, {
+      killGraceMs: 2,
+      shutdownGraceMs: 8,
+      lateExitGraceMs: 8,
+    });
+    hosts.push(host);
+    const outputs: string[] = [];
+    host.on("event", (event) => {
+      if (event.type === "output") outputs.push(event.data);
+    });
+    host.create({ bindingId: "retained-noninteractive" });
+    const attached = host.attach({
+      bindingId: "retained-noninteractive",
+      mode: "control",
+    });
+    expect(attached.ok).toBe(true);
+    if (!attached.ok) return;
+
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const shutdown = host.shutdownAll("noninteractive-test");
+    await vi.advanceTimersByTimeAsync(24);
+    await expect(shutdown).resolves.toMatchObject({ clean: false });
+
+    expect(host.write(attached.lease, "must-not-write")).toBe(false);
+    expect(host.resize(attached.lease, 90, 30)).toBe(false);
+    expect(host.attach({ bindingId: "retained-noninteractive", mode: "control" }))
+      .toEqual({ ok: false, message: "session interaction revoked during stop" });
+    expect(host.attach({ bindingId: "retained-noninteractive", mode: "observe" }))
+      .toEqual({ ok: false, message: "session interaction revoked during stop" });
+    for (const listener of dataListeners) listener("ignored-after-stop");
+    expect(writes).toEqual([]);
+    expect(outputs).toEqual([]);
+
+    for (const listener of exitListeners) listener(0, undefined);
+    expect(host.runningCount()).toBe(0);
+    vi.useRealTimers();
+    error.mockRestore();
+  });
+
   it("write requires control lease", () => {
     const writes: string[] = [];
     const spawn: TermSpawnFn = () => {
