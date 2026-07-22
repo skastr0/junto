@@ -43,6 +43,8 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "herdr",
   "terminal",
   "page",
+  "watcher",
+  "timer",
 ] as const;
 
 // Bound herdr work surface (PTY pane on a host). Not a hermes agent binding —
