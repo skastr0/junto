@@ -10,7 +10,6 @@
  * browser-capable until an offscreen parent window lands.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Context } from "effect";
@@ -27,10 +26,9 @@ import {
 import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
 import { SshTransferExitError, SshTransport } from "../ssh/service";
 import {
-  admitChildProcess,
-  releaseOwned,
-  signalOwned,
-} from "../process-signal";
+  appProcessPlane,
+  type AppChildIo,
+} from "../app-process-plane";
 
 const PRODUCT_NAME = "Vellum Command";
 const APP_BUNDLE_NAME = `${PRODUCT_NAME}.app`;
@@ -128,16 +126,13 @@ export type TarExitWatch = {
   readonly settlement: Promise<TarExitSettlement>;
   readonly closed: Promise<void>;
   readonly isClosed: () => boolean;
-  readonly isReleased: () => boolean;
-  readonly release: () => void;
 };
 
 const TAR_STDERR_LIMIT_BYTES = 64 * 1024;
 
 /** Attach both listeners at spawn time: an error is not proof the child has exited. */
 export const watchTarExit = (
-  tar: Pick<ChildProcess, "once" | "removeListener">,
-  onClose: () => void = () => {},
+  tar: Pick<AppChildIo, "onError" | "onClose">,
 ): TarExitWatch => {
   let settle: (result: TarExitSettlement) => void = () => {};
   let close: () => void = () => {};
@@ -149,12 +144,8 @@ export const watchTarExit = (
   });
   let reported = false;
   let didClose = false;
-  let didRelease = false;
-  const release = (): void => {
-    if (didRelease) return;
-    didRelease = true;
-    onClose();
-  };
+  let removeError = (): void => {};
+  let removeClose = (): void => {};
   const report = (result: TarExitSettlement): void => {
     if (reported) return;
     reported = true;
@@ -164,25 +155,33 @@ export const watchTarExit = (
   const onError = (error: Error): void => {
     report({ ok: false, error });
   };
-  const onCloseEvent = (code: number | null): void => {
+  const onCloseEvent = (event: { readonly code: number | null }): void => {
     didClose = true;
-    tar.removeListener("error", onError);
+    removeError();
+    removeClose();
     report(
-      code === 0
+      event.code === 0
         ? { ok: true }
-        : { ok: false, error: new Error(`local tar exited ${String(code)}`) },
+        : {
+            ok: false,
+            error: new Error(`local tar exited ${String(event.code)}`),
+          },
     );
     close();
-    release();
   };
-  tar.once("error", onError);
-  tar.once("close", onCloseEvent);
+  removeError = tar.onError(onError);
+  removeClose = tar.onClose(onCloseEvent);
+  // A child may close between central admission and observer registration.
+  // The facade immediately replays that witness, before the unsubscribe
+  // closures above have both been assigned.
+  if (didClose) {
+    removeError();
+    removeClose();
+  }
   return {
     settlement,
     closed,
     isClosed: () => didClose,
-    isReleased: () => didRelease,
-    release,
   };
 };
 
@@ -320,35 +319,35 @@ exit 2
 
       const tar = yield* Effect.acquireRelease(
         Effect.sync(() => {
-          const child = spawn("tar", ["-C", parent, "-cf", "-", bundle], {
-            stdio: ["ignore", "pipe", "pipe"],
-          });
-          const owned = admitChildProcess({
+          const lease = appProcessPlane.spawnChild({
             source: "hosts.deploy-remote.tar",
-            child,
+            purpose: "stream app bundle to remote host",
+            command: "tar",
+            args: ["-C", parent, "-cf", "-", bundle],
           });
           return {
-            child,
-            owned,
-            exit: watchTarExit(child, () => releaseOwned(owned)),
-            stderr: captureTarStderr(child.stderr),
+            lease,
+            exit: watchTarExit(lease.io),
+            stderr: captureTarStderr(lease.io.stderr),
           };
         }),
-        ({ owned, exit }) =>
-          exit.isReleased() || exit.isClosed()
+        ({ lease, exit }) =>
+          exit.isClosed()
             ? Effect.void
-            : Effect.sync(() => {
-                signalOwned(owned, "SIGKILL");
-              }).pipe(
+            : Effect.sync(() =>
+                appProcessPlane.forceTerminate(
+                  lease,
+                  "deploy tar scope finalized",
+                ),
+              ).pipe(
                 Effect.zipRight(Effect.promise(() => awaitTarCloseBounded(exit, 2_000))),
-                Effect.ensuring(Effect.sync(() => exit.release())),
               ),
       );
       const command = yield* makeRemoteCommand("bash", ["-lc", remoteScript]);
       const output = yield* ssh.transfer(
         sharedStream(endpoint, command),
         Stream.fromAsyncIterable(
-          tar.child.stdout,
+          tar.lease.io.stdout,
           (error) =>
             new Error(
               `local tar stream failed: ${error instanceof Error ? error.message : String(error)}`,

@@ -56,13 +56,32 @@ describe("parseDeployTransferResult", () => {
 });
 
 describe("deploy transfer lifecycle", () => {
+  const tarEvents = () => {
+    const emitter = new EventEmitter();
+    return {
+      emitter,
+      io: {
+        onError: (listener: (error: Error) => void) => {
+          emitter.on("error", listener);
+          return () => emitter.off("error", listener);
+        },
+        onClose: (
+          listener: (event: {
+            readonly code: number | null;
+            readonly signal: NodeJS.Signals | null;
+          }) => void,
+        ) => {
+          emitter.on("close", listener);
+          return () => emitter.off("close", listener);
+        },
+      },
+    };
+  };
+
   it("records tar exit even when it happens before remote readiness is awaited", async () => {
-    const tar = new EventEmitter();
-    let released = 0;
-    const exit = watchTarExit(tar as never, () => {
-      released += 1;
-    });
-    tar.emit("close", 1);
+    const tar = tarEvents();
+    const exit = watchTarExit(tar.io);
+    tar.emitter.emit("close", { code: 1, signal: null });
 
     await expect(exit.settlement).resolves.toMatchObject({
       ok: false,
@@ -70,18 +89,30 @@ describe("deploy transfer lifecycle", () => {
     });
     await expect(exit.closed).resolves.toBeUndefined();
     expect(exit.isClosed()).toBe(true);
-    expect(exit.isReleased()).toBe(true);
-    expect(released).toBe(1);
+  });
+
+  it("accepts a close witness replayed during central observer registration", async () => {
+    const exit = watchTarExit({
+      onError: () => () => undefined,
+      onClose: (listener) => {
+        listener({ code: 0, signal: null });
+        return () => undefined;
+      },
+    });
+
+    await expect(exit.settlement).resolves.toEqual({ ok: true });
+    await expect(exit.closed).resolves.toBeUndefined();
+    expect(exit.isClosed()).toBe(true);
   });
 
   it("does not treat a tar error as a terminal-close witness", async () => {
-    const tar = new EventEmitter();
-    const exit = watchTarExit(tar as never);
+    const tar = tarEvents();
+    const exit = watchTarExit(tar.io);
     let closed = false;
     void exit.closed.then(() => {
       closed = true;
     });
-    tar.emit("error", new Error("spawn failed"));
+    tar.emitter.emit("error", new Error("spawn failed"));
 
     await expect(exit.settlement).resolves.toMatchObject({
       ok: false,
@@ -89,22 +120,20 @@ describe("deploy transfer lifecycle", () => {
     });
     await Promise.resolve();
     expect(closed).toBe(false);
-    tar.emit("close", 1);
+    tar.emitter.emit("close", { code: 1, signal: null });
     await expect(exit.closed).resolves.toBeUndefined();
-    expect(exit.isReleased()).toBe(true);
-    expect(tar.listenerCount("error")).toBe(0);
-    expect(tar.listenerCount("close")).toBe(0);
+    expect(tar.emitter.listenerCount("error")).toBe(0);
+    expect(tar.emitter.listenerCount("close")).toBe(0);
   });
 
   it("bounds a never-closing tar wait and clears its timer", async () => {
-    const tar = new EventEmitter();
-    const exit = watchTarExit(tar as never);
+    const tar = tarEvents();
+    const exit = watchTarExit(tar.io);
     const started = Date.now();
     await awaitTarCloseBounded(exit, 10);
 
     expect(Date.now() - started).toBeLessThan(250);
     expect(exit.isClosed()).toBe(false);
-    expect(exit.isReleased()).toBe(false);
   });
 
   it("captures bounded tar stderr while draining the stream", () => {
