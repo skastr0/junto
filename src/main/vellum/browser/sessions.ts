@@ -52,11 +52,14 @@ import {
  * a spy. destroy() releases only the runtime view; profile storage persists.
  */
 export interface BrowserViewHandle {
-  loadUrl(url: string, expectedSessionId: string): void;
+  /** Resolves only when Electron's load request itself settles. */
+  loadUrl(url: string, expectedSessionId: string): Promise<void>;
   setTopLevelOriginGuard?(origin: string): void;
   attach(bounds: BrowserSurfaceBounds): void;
   setBounds(bounds: BrowserSurfaceBounds): void;
   detach(): void;
+  /** Synchronously asks Electron to abort any provisional/network load. */
+  stopLoading?(): void;
   destroy(): void;
   /** Production resolves this only after Electron emits `destroyed`. */
   whenDestroyed?(): Promise<void>;
@@ -121,6 +124,44 @@ export interface BrowserResultErr {
 export type BrowserResult<T> = BrowserResultOk<T> | BrowserResultErr;
 
 export const BROWSER_PROFILE_VIEW_DESTROY_TIMEOUT_MS = 5_000;
+export const BROWSER_UI_SHUTDOWN_DRAIN_TIMEOUT_MS = 50_000;
+
+export type BrowserUiOperationKind =
+  | "open"
+  | "goto"
+  | "eval"
+  | "screenshot"
+  | "stop"
+  | "profile-wipe"
+  | "view-destroy"
+  | "page-resolve"
+  | "profile-wipe-confirmation"
+  | "profiles-read"
+  | "surface-config";
+
+export interface BrowserUiAdmissionSnapshot {
+  readonly epoch: number;
+}
+
+export interface BrowserUiShutdownPrecommitReceipt {
+  readonly epoch: number;
+  readonly closedAt: number;
+  readonly activeOperations: ReadonlyArray<BrowserUiOperationKind>;
+}
+
+export interface BrowserUiShutdownDrainReceipt {
+  readonly epoch: number;
+  readonly clean: boolean;
+  readonly operations: ReadonlyArray<BrowserUiOperationKind>;
+  readonly settled: number;
+  readonly fulfilled: number;
+  readonly rejected: number;
+  readonly rounds: number;
+  readonly timedOut: boolean;
+  readonly activeOperations: ReadonlyArray<BrowserUiOperationKind>;
+  readonly sessionsDestroyed: number;
+  readonly teardownWitnessFailures: number;
+}
 
 export interface BrowserProfileQuiescenceSummary {
   readonly pendingOpensInvalidated: number;
@@ -212,6 +253,22 @@ interface BrowserStopRecord {
   readonly acknowledgement: Promise<void> | undefined;
   completion: Promise<BrowserResult<BrowserStopReceipt>> | undefined;
   lastResult: BrowserResult<BrowserStopReceipt> | undefined;
+}
+
+interface BrowserUiOperation {
+  readonly id: number;
+  readonly kind: BrowserUiOperationKind;
+  readonly promise: Promise<unknown>;
+}
+
+const MISSING_VIEW_DESTROY_WITNESS = Symbol("missing-view-destroy-witness");
+type RetainedViewDestroyWitness =
+  | Promise<void>
+  | typeof MISSING_VIEW_DESTROY_WITNESS;
+
+interface PendingViewTeardown {
+  readonly view: BrowserViewHandle;
+  readonly witness: Promise<void>;
 }
 
 /** Main-process-only view used by capability authorization. */
@@ -496,9 +553,23 @@ export class BrowserSessionService {
   private readonly ownerEpochs = new Map<string, number>();
   private readonly pendingStops = new Map<string, BrowserStopRecord>();
   private readonly stoppedSessions = new Map<string, BrowserStopRecord>();
+  private readonly activeUiOperations = new Map<number, BrowserUiOperation>();
+  private readonly closedUiAdmissions = new Map<number, BrowserUiOperation>();
+  private readonly uiDetachFailures = new Set<string>();
+  private readonly viewDestroyWitnesses = new WeakMap<
+    BrowserViewHandle,
+    RetainedViewDestroyWitness
+  >();
+  private readonly pendingViewTeardowns = new Set<PendingViewTeardown>();
   private activeOperationCount = 0;
+  private nextUiOperationId = 0;
+  private uiShutdownEpoch = 0;
+  private uiShutdownClosedAt: number | undefined;
+  private uiShutdownDrainFlight: Promise<BrowserUiShutdownDrainReceipt> | undefined;
+  private teardownWitnessFailures = 0;
   private sink: ((session: BrowserSessionInfo) => void) | undefined;
   private readonly viewDestroyTimeoutMs: number;
+  private readonly uiShutdownDrainTimeoutMs: number;
   // Sole durable SoT for these numbers is Settings.browser; profiles.config
   // remains fallback for tests that never install a limits provider.
   private poolLimits: (() => Promise<BrowserPoolLimits>) | undefined;
@@ -511,11 +582,90 @@ export class BrowserSessionService {
     private readonly targetAdmission: BrowserTargetAdmission = isAllowedBrowserUrl,
     private readonly profileGate: BrowserProfileGate = makeBrowserProfileGate(),
     viewDestroyTimeoutMs: number = BROWSER_PROFILE_VIEW_DESTROY_TIMEOUT_MS,
+    uiShutdownDrainTimeoutMs: number = BROWSER_UI_SHUTDOWN_DRAIN_TIMEOUT_MS,
   ) {
     this.viewDestroyTimeoutMs =
       Number.isFinite(viewDestroyTimeoutMs) && viewDestroyTimeoutMs > 0
         ? Math.min(Math.floor(viewDestroyTimeoutMs), BROWSER_PROFILE_VIEW_DESTROY_TIMEOUT_MS)
         : BROWSER_PROFILE_VIEW_DESTROY_TIMEOUT_MS;
+    this.uiShutdownDrainTimeoutMs =
+      Number.isFinite(uiShutdownDrainTimeoutMs) && uiShutdownDrainTimeoutMs > 0
+        ? Math.min(
+            Math.floor(uiShutdownDrainTimeoutMs),
+            BROWSER_UI_SHUTDOWN_DRAIN_TIMEOUT_MS,
+          )
+        : BROWSER_UI_SHUTDOWN_DRAIN_TIMEOUT_MS;
+  }
+
+  private uiShutdownRefusal(): BrowserResultErr {
+    return err("cancelled", "browser UI is shutting down");
+  }
+
+  uiAdmissionSnapshot(): BrowserUiAdmissionSnapshot | undefined {
+    return this.uiShutdownClosedAt === undefined
+      ? Object.freeze({ epoch: this.uiShutdownEpoch })
+      : undefined;
+  }
+
+  isUiAdmissionCurrent(snapshot: BrowserUiAdmissionSnapshot): boolean {
+    return (
+      this.uiShutdownClosedAt === undefined &&
+      snapshot.epoch === this.uiShutdownEpoch
+    );
+  }
+
+  private retainUiOperation<A>(
+    kind: BrowserUiOperationKind,
+    operation: () => Promise<A>,
+  ): Promise<A> {
+    const id = ++this.nextUiOperationId;
+    let promise: Promise<A>;
+    try {
+      // Preserve the actual domain promise. Renderer IPC timeouts or abandoned
+      // caller continuations cannot retire work that remains live in main.
+      promise = Promise.resolve(operation());
+    } catch (error) {
+      promise = Promise.reject(error);
+    }
+    const record: BrowserUiOperation = { id, kind, promise };
+    this.activeUiOperations.set(id, record);
+    if (this.uiShutdownClosedAt !== undefined) {
+      this.closedUiAdmissions.set(id, record);
+    }
+    const retire = (): void => {
+      if (this.activeUiOperations.get(id)?.promise === promise) {
+        this.activeUiOperations.delete(id);
+      }
+    };
+    void promise.then(retire, retire);
+    return promise;
+  }
+
+  private runUiOperation<A>(
+    kind: BrowserUiOperationKind,
+    operation: () => Promise<BrowserResult<A>>,
+  ): Promise<BrowserResult<A>> {
+    if (this.uiShutdownClosedAt !== undefined) {
+      return Promise.resolve(this.uiShutdownRefusal());
+    }
+    return this.retainUiOperation(kind, operation);
+  }
+
+  /** Retain an already-started IPC preflight across a concurrent gate close. */
+  retainUiIngress<A>(
+    kind: Extract<
+      BrowserUiOperationKind,
+      "page-resolve" | "profile-wipe-confirmation"
+    >,
+    operation: Promise<A>,
+  ): Promise<A> {
+    return this.retainUiOperation(kind, () => operation);
+  }
+
+  private activeUiOperationKinds(): ReadonlyArray<BrowserUiOperationKind> {
+    return [...this.activeUiOperations.values()]
+      .sort((left, right) => left.id - right.id)
+      .map((operation) => operation.kind);
   }
 
   setSink(sink: (session: BrowserSessionInfo) => void): void {
@@ -723,9 +873,15 @@ export class BrowserSessionService {
     );
     if (!admitted.ok) return admitted;
     const operation = admitted.data;
+    const running = Promise.resolve().then(input.run);
+    // The adapter promise is the actual Electron operation. Retain it for UI
+    // and automation owners independently of the bounded/raced public result,
+    // so neither renderer IPC nor control-socket cancellation can fabricate a
+    // settled browser domain during quit.
+    void this.retainUiOperation(input.kind, () => running);
 
     try {
-      const value = await Promise.race([Promise.resolve().then(input.run), failed]);
+      const value = await Promise.race([running, failed]);
       if (
         !this.isCurrent(input.entry) ||
         input.entry.owner !== input.owner ||
@@ -935,6 +1091,9 @@ export class BrowserSessionService {
     },
   ): string | undefined {
     if (!this.isCurrent(entry)) return undefined;
+    if (entry.owner === BROWSER_UI_SESSION_OWNER && this.uiShutdownClosedAt !== undefined) {
+      return undefined;
+    }
     if (event.isSameDocument) {
       this.updateGenerationUrl(entry, entry.sessionId, event.url);
       return entry.sessionId;
@@ -983,6 +1142,9 @@ export class BrowserSessionService {
     }
     entry.navigationInFlight = rotated.data;
     this.reduceCurrent(entry, { type: "load_start" });
+    if (entry.owner === BROWSER_UI_SESSION_OWNER && active === undefined) {
+      this.trackUiNavigation("goto", rotated.data);
+    }
     return rotated.data;
   }
 
@@ -1005,7 +1167,13 @@ export class BrowserSessionService {
     }
   }
 
-  async listProfiles(): Promise<
+  listProfiles(): Promise<
+    BrowserResult<ReadonlyArray<{ id: string; label?: string; default?: boolean }>>
+  > {
+    return this.runUiOperation("profiles-read", () => this.listProfilesAdmitted());
+  }
+
+  private async listProfilesAdmitted(): Promise<
     BrowserResult<ReadonlyArray<{ id: string; label?: string; default?: boolean }>>
   > {
     try {
@@ -1023,7 +1191,16 @@ export class BrowserSessionService {
     }
   }
 
-  async wipeProfile(profileId: string): Promise<BrowserResult<BrowserProfileWipeReceipt>> {
+  wipeProfile(profileId: string): Promise<BrowserResult<BrowserProfileWipeReceipt>> {
+    if (!isValidProfileId(profileId)) {
+      return Promise.resolve(err("invalid", "invalid browser profile id"));
+    }
+    return this.runUiOperation("profile-wipe", () => this.wipeProfileAdmitted(profileId));
+  }
+
+  private async wipeProfileAdmitted(
+    profileId: string,
+  ): Promise<BrowserResult<BrowserProfileWipeReceipt>> {
     if (!isValidProfileId(profileId)) return err("invalid", "invalid browser profile id");
     try {
       const outcome = await Effect.runPromise(Effect.either(this.profiles.wipeProfile(profileId)));
@@ -1059,7 +1236,13 @@ export class BrowserSessionService {
     }
   }
 
-  async surfaceConfig(): Promise<
+  surfaceConfig(): Promise<
+    BrowserResult<{ maxVisibleSurfaces: number; maxWarmSessions: number }>
+  > {
+    return this.runUiOperation("surface-config", () => this.surfaceConfigAdmitted());
+  }
+
+  private async surfaceConfigAdmitted(): Promise<
     BrowserResult<{ maxVisibleSurfaces: number; maxWarmSessions: number }>
   > {
     try {
@@ -1085,7 +1268,17 @@ export class BrowserSessionService {
   }
 
   /** Same owner+ref callers share one creation attempt; owners never share a view. */
-  async openForOwner(
+  openForOwner(
+    owner: string,
+    target: ResolvedPageTarget,
+    signal?: AbortSignal,
+  ): Promise<BrowserResult<BrowserSessionInfo>> {
+    return owner === BROWSER_UI_SESSION_OWNER
+      ? this.runUiOperation("open", () => this.openForOwnerAdmitted(owner, target, signal))
+      : this.openForOwnerAdmitted(owner, target, signal);
+  }
+
+  private async openForOwnerAdmitted(
     owner: string,
     target: ResolvedPageTarget,
     signal?: AbortSignal,
@@ -1246,7 +1439,7 @@ export class BrowserSessionService {
           : { exactTopLevelOrigin: entry.currentOrigin },
       );
       if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
-        entry.view.destroy();
+        this.requestViewDestruction(entry);
         return err("cancelled", "navigation cancelled");
       }
       this.register(entry);
@@ -1263,16 +1456,23 @@ export class BrowserSessionService {
       }
       entry.navigationInFlight = entry.sessionId;
       this.reduceCurrent(entry, { type: "open" });
-      entry.view.loadUrl(target.url, entry.sessionId);
+      const loading = entry.view.loadUrl(target.url, entry.sessionId);
+      this.trackViewLoad("open", loading);
+      if (owner === BROWSER_UI_SESSION_OWNER) {
+        this.trackUiNavigation("open", entry.sessionId);
+      }
     } catch (error) {
       if (this.isCurrent(entry)) {
         this.destroySession(entry.sessionId);
       } else {
         this.unregister(entry);
         try {
-          entry.view?.destroy();
+          if (entry.view !== undefined) {
+            this.requestViewDestruction(entry);
+          }
         } catch {
-          // Runtime construction already failed; cleanup remains best effort.
+          // The retained physical witness, rather than this fallible callback,
+          // remains authoritative for shutdown convergence.
         }
       }
       return err("failed", error instanceof Error ? error.message : String(error));
@@ -1292,6 +1492,25 @@ export class BrowserSessionService {
   }
 
   gotoForOwner(
+    owner: string,
+    sessionId: string,
+    url: string,
+    signal?: AbortSignal,
+  ): BrowserResult<BrowserSessionInfo> {
+    if (owner === BROWSER_UI_SESSION_OWNER && this.uiShutdownClosedAt !== undefined) {
+      return this.uiShutdownRefusal();
+    }
+    const result = this.gotoForOwnerAdmitted(owner, sessionId, url, signal);
+    if (owner === BROWSER_UI_SESSION_OWNER && result.ok) {
+      const entry = this.entryForOwner(owner, result.data.sessionId);
+      if (entry?.navigationInFlight !== undefined) {
+        this.trackUiNavigation("goto", entry.navigationInFlight);
+      }
+    }
+    return result;
+  }
+
+  private gotoForOwnerAdmitted(
     owner: string,
     sessionId: string,
     url: string,
@@ -1341,7 +1560,8 @@ export class BrowserSessionService {
         entry.currentUrl = nextExactUrl;
         entry.currentOrigin = nextOrigin;
         entry.url = clampUtf8Bytes(url, BROWSER_MAX_METADATA_BYTES);
-        entry.view.loadUrl(url, entry.sessionId);
+        const loading = entry.view.loadUrl(url, entry.sessionId);
+        this.trackViewLoad("goto", loading);
         this.releaseOperation(entry, operation);
         return { ok: true, data: this.info(entry) };
       } catch (error) {
@@ -1362,7 +1582,8 @@ export class BrowserSessionService {
         entry.view.setTopLevelOriginGuard?.(nextOrigin);
       }
       this.reduceCurrent(entry, { type: "reload" });
-      entry.view.loadUrl(url, entry.sessionId);
+      const loading = entry.view.loadUrl(url, entry.sessionId);
+      this.trackViewLoad("goto", loading);
       if (!this.isCurrent(entry)) return err("not_found", `no session for ${sessionId}`);
       return { ok: true, data: this.info(entry) };
     } catch (error) {
@@ -1375,6 +1596,7 @@ export class BrowserSessionService {
     sessionId: string,
     bounds: BrowserSurfaceBounds,
   ): BrowserResult<BrowserSessionInfo> {
+    if (this.uiShutdownClosedAt !== undefined) return this.uiShutdownRefusal();
     const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     entry.lastActiveAt = this.now();
@@ -1423,7 +1645,16 @@ export class BrowserSessionService {
     return this.stopForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
   }
 
-  async stopForOwner(
+  stopForOwner(
+    owner: string,
+    sessionId: string,
+  ): Promise<BrowserResult<BrowserStopReceipt>> {
+    return owner === BROWSER_UI_SESSION_OWNER
+      ? this.runUiOperation("stop", () => this.stopForOwnerAdmitted(owner, sessionId))
+      : this.stopForOwnerAdmitted(owner, sessionId);
+  }
+
+  private async stopForOwnerAdmitted(
     owner: string,
     sessionId: string,
   ): Promise<BrowserResult<BrowserStopReceipt>> {
@@ -1456,13 +1687,10 @@ export class BrowserSessionService {
       stopped: true,
       alreadyStopped: false,
     });
-    let acknowledgement: Promise<void> | undefined;
-    try {
-      const observed = entry.view.whenDestroyed?.();
-      if (observed !== undefined) acknowledgement = Promise.resolve(observed);
-    } catch {
-      acknowledgement = undefined;
-    }
+    // The bounded stop receipt may time out while Electron's destruction
+    // witness is still live. The shared view witness remains in the shutdown
+    // set independently of the public Stop Page result.
+    const acknowledgement = this.retainViewDestroyWitness(entry);
     const record: BrowserStopRecord = {
       owner,
       snapshot,
@@ -1547,7 +1775,20 @@ export class BrowserSessionService {
     return this.evalForOwner(BROWSER_UI_SESSION_OWNER, sessionId, code, signal);
   }
 
-  async evalForOwner(
+  evalForOwner(
+    owner: string,
+    sessionId: string,
+    code: string,
+    signal?: AbortSignal,
+  ): Promise<BrowserResult<{ result: unknown }>> {
+    return owner === BROWSER_UI_SESSION_OWNER
+      ? this.runUiOperation("eval", () =>
+          this.evalForOwnerAdmitted(owner, sessionId, code, signal),
+        )
+      : this.evalForOwnerAdmitted(owner, sessionId, code, signal);
+  }
+
+  private async evalForOwnerAdmitted(
     owner: string,
     sessionId: string,
     code: string,
@@ -1584,7 +1825,19 @@ export class BrowserSessionService {
     return this.screenshotForOwner(BROWSER_UI_SESSION_OWNER, sessionId, signal);
   }
 
-  async screenshotForOwner(
+  screenshotForOwner(
+    owner: string,
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<BrowserResult<{ png: Uint8Array }>> {
+    return owner === BROWSER_UI_SESSION_OWNER
+      ? this.runUiOperation("screenshot", () =>
+          this.screenshotForOwnerAdmitted(owner, sessionId, signal),
+        )
+      : this.screenshotForOwnerAdmitted(owner, sessionId, signal);
+  }
+
+  private async screenshotForOwnerAdmitted(
     owner: string,
     sessionId: string,
     signal?: AbortSignal,
@@ -1739,6 +1992,24 @@ export class BrowserSessionService {
     });
   }
 
+  private trackUiNavigation(
+    kind: Extract<BrowserUiOperationKind, "open" | "goto">,
+    sessionId: string,
+  ): void {
+    const completion = this.awaitNavigationTerminalForOwner(
+      BROWSER_UI_SESSION_OWNER,
+      sessionId,
+    );
+    void this.retainUiOperation(kind, () => completion);
+  }
+
+  private trackViewLoad(
+    kind: Extract<BrowserUiOperationKind, "open" | "goto">,
+    loading: Promise<void>,
+  ): void {
+    void this.retainUiOperation(kind, () => loading);
+  }
+
   /**
    * Synchronously closes admission for one profile, invalidates matching
    * pending opens, and logically destroys every matching UI/automation view.
@@ -1785,20 +2056,13 @@ export class BrowserSessionService {
     );
 
     for (const entry of entries) {
-      try {
-        if (entry.view.whenDestroyed === undefined) {
-          teardownFailures += 1;
-        } else {
-          acknowledgements.push(Promise.resolve(entry.view.whenDestroyed()));
-        }
-      } catch {
-        teardownFailures += 1;
-      }
+      const acknowledgement = this.retainViewDestroyWitness(entry);
+      if (acknowledgement === undefined) teardownFailures += 1;
+      else acknowledgements.push(acknowledgement);
       try {
         this.destroySession(entry.sessionId, failure);
       } catch {
-        // Logical invalidation must continue across every matching view.
-        teardownFailures += 1;
+        // The retained physical witness decides whether deletion may proceed.
       }
     }
 
@@ -1879,12 +2143,15 @@ export class BrowserSessionService {
     );
     let teardownFailures = 0;
     for (const sessionId of ownedSessionIds) {
+      const entry = this.sessions.get(sessionId);
+      if (entry === undefined || this.retainViewDestroyWitness(entry) === undefined) {
+        teardownFailures += 1;
+      }
       try {
         this.destroySession(sessionId, failure);
       } catch {
-        // Continue through the exact owner snapshot. destroySession unregisters
-        // logically before invoking the fallible adapter teardown methods.
-        teardownFailures += 1;
+        // Continue through the exact owner snapshot. The physical witness is
+        // authoritative: an adapter may close successfully and then throw.
       }
     }
     if (teardownFailures > 0) {
@@ -1893,10 +2160,76 @@ export class BrowserSessionService {
     return ownedSessionIds.length;
   }
 
+  private retainViewDestroyWitness(entry: SessionEntry): Promise<void> | undefined {
+    if (this.viewDestroyWitnesses.has(entry.view)) {
+      const retained = this.viewDestroyWitnesses.get(entry.view);
+      return retained === MISSING_VIEW_DESTROY_WITNESS ? undefined : retained;
+    }
+    let acknowledgement: Promise<void> | undefined;
+    try {
+      const observed = entry.view.whenDestroyed?.();
+      if (observed !== undefined) acknowledgement = Promise.resolve(observed);
+    } catch {
+      acknowledgement = undefined;
+    }
+    if (acknowledgement === undefined) {
+      this.viewDestroyWitnesses.set(entry.view, MISSING_VIEW_DESTROY_WITNESS);
+      this.teardownWitnessFailures += 1;
+      return undefined;
+    }
+    const witnessed = acknowledgement.catch((error) => {
+      this.teardownWitnessFailures += 1;
+      throw error;
+    });
+    this.viewDestroyWitnesses.set(entry.view, witnessed);
+    const teardown: PendingViewTeardown = { view: entry.view, witness: witnessed };
+    this.pendingViewTeardowns.add(teardown);
+    const retireTeardown = (): void => {
+      this.pendingViewTeardowns.delete(teardown);
+    };
+    void witnessed.then(retireTeardown, retireTeardown);
+    // Every physical view termination is retained, including warm eviction,
+    // navigation failure, and pre-shutdown capability revocation. A view that
+    // leaves the logical registry one tick before quit therefore cannot vanish
+    // from the aggregate receipt.
+    void this.retainUiOperation("view-destroy", () => witnessed);
+    return witnessed;
+  }
+
+  private retryPendingViewDestructions(): void {
+    for (const teardown of this.pendingViewTeardowns) {
+      try {
+        teardown.view.stopLoading?.();
+      } catch {
+        // The next explicit drain may retry while the witness remains pending.
+      }
+      try {
+        teardown.view.destroy();
+      } catch {
+        // Keep the teardown tombstone until its physical witness settles.
+      }
+    }
+  }
+
+  private requestViewDestruction(entry: SessionEntry): void {
+    this.retainViewDestroyWitness(entry);
+    try {
+      entry.view.stopLoading?.();
+    } catch {
+      // Destruction is still mandatory and its witness remains authoritative.
+    }
+    try {
+      entry.view.destroy();
+    } catch {
+      // The retained destroyed-event promise is the teardown authority.
+    }
+  }
+
   /** Warm-pool eviction only. Profile partition data persists. */
   private destroySession(sessionId: string, failure?: BrowserOperationFailure): void {
     const entry = this.sessions.get(sessionId);
     if (entry === undefined) return;
+    this.retainViewDestroyWitness(entry);
     const operation = entry.activeOperation;
     if (operation !== undefined) {
       this.releaseOperation(
@@ -1912,19 +2245,235 @@ export class BrowserSessionService {
     );
     try {
       this.reduceCurrent(entry, { type: "destroy" });
-    } finally {
-      this.unregister(entry);
+    } catch {
+      // Logical state publication cannot prevent physical teardown.
+    }
+    this.unregister(entry);
+    try {
+      if (entry.attached) entry.view.detach();
+    } catch {
+      // Detach is best-effort; destroy remains mandatory.
+    }
+    this.requestViewDestruction(entry);
+    this.uiDetachFailures.delete(sessionId);
+  }
+
+  private destroyAllSessionsOnQuit(reason: string): number {
+    const sessionIds = [...this.sessions.values()]
+      .map((entry) => entry.sessionId);
+    const failure = new BrowserOperationFailure(
+      "cancelled",
+      clampUtf8Bytes(reason, BROWSER_MAX_ERROR_BYTES),
+    );
+    let destroyed = 0;
+    for (const sessionId of sessionIds) {
+      const entry = this.sessions.get(sessionId);
+      if (entry === undefined) continue;
+      this.retainViewDestroyWitness(entry);
       try {
-        if (entry.attached) entry.view.detach();
-      } finally {
-        entry.view.destroy();
+        this.destroySession(sessionId, failure);
+      } catch (error) {
+        // destroySession invalidates logical authority before crossing the
+        // fallible adapter seam. The retained destroyed-event promise decides
+        // whether shutdown can report clean.
+        console.error(`[browser] runtime teardown on quit failed (${reason}):`, error);
+      }
+      if (!this.isCurrent(entry)) destroyed += 1;
+    }
+    return destroyed;
+  }
+
+  /**
+   * Close UI admission synchronously and invalidate every delayed opener. The
+   * transition is monotonic: a failed quit remains fail-closed and can retry
+   * its drain without making browser work reachable again.
+   */
+  beginUiShutdown(_reason = "browser UI shutdown"): BrowserUiShutdownPrecommitReceipt {
+    if (this.uiShutdownClosedAt === undefined) {
+      this.uiShutdownEpoch += 1;
+      this.uiShutdownClosedAt = Date.now();
+      this.ownerEpochs.set(
+        BROWSER_UI_SESSION_OWNER,
+        this.ownerEpoch(BROWSER_UI_SESSION_OWNER) + 1,
+      );
+      this.pendingOpenByOwnerRef.delete(BROWSER_UI_SESSION_OWNER);
+      for (const [id, operation] of this.activeUiOperations) {
+        this.closedUiAdmissions.set(id, operation);
       }
     }
+    return Object.freeze({
+      epoch: this.uiShutdownEpoch,
+      closedAt: this.uiShutdownClosedAt!,
+      activeOperations: Object.freeze([...this.activeUiOperationKinds()]),
+    });
+  }
+
+  private detachUiSessionsOnQuit(reason: string): {
+    readonly sessionsDetached: number;
+    readonly detachFailures: number;
+  } {
+    let sessionsDetached = 0;
+    for (const entry of [...this.sessions.values()]) {
+      if (entry.owner !== BROWSER_UI_SESSION_OWNER) continue;
+      try {
+        const operation = entry.activeOperation;
+        if (operation !== undefined) {
+          const operationSessionId = operation.sessionId;
+          this.releaseOperation(
+            entry,
+            operation,
+            new BrowserOperationFailure("cancelled", `${operation.kind} cancelled during quit`),
+          );
+          entry.navigationInFlight = undefined;
+          if (operation.kind === "navigation") {
+            this.settleNavigationWaiters(
+              entry,
+              operationSessionId,
+              err("cancelled", "navigation cancelled during quit"),
+            );
+          }
+        }
+        const physicalDetachRequired = entry.attached || this.uiDetachFailures.has(entry.sessionId);
+        entry.attached = false;
+        if (physicalDetachRequired) entry.view.detach();
+        this.reduceCurrent(entry, { type: "detach" });
+        this.uiDetachFailures.delete(entry.sessionId);
+        sessionsDetached += 1;
+      } catch (error) {
+        this.uiDetachFailures.add(entry.sessionId);
+        console.error(`[browser] detach on quit failed (${reason}, ${entry.sessionId}):`, error);
+      }
+    }
+    return Object.freeze({
+      sessionsDetached,
+      detachFailures: this.uiDetachFailures.size,
+    });
+  }
+
+  /**
+   * Await the real promises admitted before the UI gate closed. A timeout
+   * returns an unclean receipt without dropping strong references; a retry can
+   * later observe convergence.
+   */
+  drainUiOnQuit(reason = "browser UI shutdown"): Promise<BrowserUiShutdownDrainReceipt> {
+    const precommit = this.beginUiShutdown(reason);
+    if (this.uiShutdownDrainFlight !== undefined) return this.uiShutdownDrainFlight;
+
+    let resolveFlight!: (receipt: BrowserUiShutdownDrainReceipt) => void;
+    let rejectFlight!: (error: unknown) => void;
+    const flight = new Promise<BrowserUiShutdownDrainReceipt>((resolve, reject) => {
+      resolveFlight = resolve;
+      rejectFlight = reject;
+    });
+    // Publish before invoking adapter destroy(), whose implementation is an
+    // external seam and may synchronously re-enter shutdown.
+    this.uiShutdownDrainFlight = flight;
+    void flight.then(
+      () => {
+        if (this.uiShutdownDrainFlight === flight) this.uiShutdownDrainFlight = undefined;
+      },
+      () => {
+        if (this.uiShutdownDrainFlight === flight) this.uiShutdownDrainFlight = undefined;
+      },
+    );
+
+    let sessionsDestroyed: number;
+    try {
+      this.retryPendingViewDestructions();
+      sessionsDestroyed = this.destroyAllSessionsOnQuit(reason);
+    } catch (error) {
+      rejectFlight(error);
+      return flight;
+    }
+    const work = (async (): Promise<BrowserUiShutdownDrainReceipt> => {
+      const deadline = performance.now() + this.uiShutdownDrainTimeoutMs;
+      const observed = new Set<number>();
+      const operations: BrowserUiOperationKind[] = [];
+      let settled = 0;
+      let fulfilled = 0;
+      let rejected = 0;
+      let rounds = 0;
+      let timedOut = false;
+
+      while (true) {
+        // A delayed opener that crossed its final synchronous seam just before
+        // the epoch bump is still caught here. Destroying it can itself add a
+        // new physical witness to this fixed-point round.
+        sessionsDestroyed += this.destroyAllSessionsOnQuit(reason);
+        const round = [...this.closedUiAdmissions.values()]
+          .filter((operation) => !observed.has(operation.id))
+          .sort((left, right) => left.id - right.id);
+        if (round.length === 0) {
+          await Promise.resolve();
+          if (
+            ![...this.closedUiAdmissions.values()].some(
+              (operation) => !observed.has(operation.id),
+            )
+          ) {
+            break;
+          }
+          continue;
+        }
+        rounds += 1;
+        for (const operation of round) {
+          observed.add(operation.id);
+          operations.push(operation.kind);
+        }
+
+        const remainingMs = Math.max(0, deadline - performance.now());
+        if (remainingMs === 0) {
+          timedOut = true;
+          break;
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<undefined>((resolve) => {
+          timer = setTimeout(() => resolve(undefined), remainingMs);
+        });
+        const outcomes = await Promise.race([
+          Promise.allSettled(round.map((operation) => operation.promise)),
+          timeout,
+        ]);
+        if (timer !== undefined) clearTimeout(timer);
+        if (outcomes === undefined) {
+          timedOut = true;
+          break;
+        }
+        settled += outcomes.length;
+        for (const outcome of outcomes) {
+          if (outcome.status === "fulfilled") fulfilled += 1;
+          else rejected += 1;
+        }
+        for (const operation of round) this.closedUiAdmissions.delete(operation.id);
+      }
+
+      const activeOperations = this.activeUiOperationKinds();
+      return Object.freeze({
+        epoch: precommit.epoch,
+        clean:
+          !timedOut &&
+          activeOperations.length === 0 &&
+          this.teardownWitnessFailures === 0,
+        operations: Object.freeze(operations),
+        settled,
+        fulfilled,
+        rejected,
+        rounds,
+        timedOut,
+        activeOperations: Object.freeze([...activeOperations]),
+        sessionsDestroyed,
+        teardownWitnessFailures: this.teardownWitnessFailures,
+      });
+    })();
+    void work.then(resolveFlight, rejectFlight);
+    return flight;
   }
 
   /** Quit detaches views only; profile partitions are never touched. */
   detachAllOnQuit(reason: string): void {
-    for (const entry of this.sessions.values()) {
+    this.beginUiShutdown(reason);
+    this.detachUiSessionsOnQuit(reason);
+    for (const entry of [...this.sessions.values()]) {
+      if (entry.owner === BROWSER_UI_SESSION_OWNER) continue;
       try {
         const operation = entry.activeOperation;
         if (operation !== undefined) {

@@ -6,6 +6,7 @@ import {
   browserProfileWipeDialogOptions,
   registerBrowserIpc,
 } from "../src/main/vellum/browser/ipc";
+import type { PageTargetResolver } from "../src/main/vellum/browser/page-target";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
@@ -24,10 +25,18 @@ const session = (): BrowserSessionInfo => ({
   attached: true,
 });
 
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
 describe("browser IPC bounds ingress", () => {
   const handlers = new Map<string, InvokeHandler>();
   let browserSessions: BrowserSessionService;
-  const resolvePageTarget = vi.fn(async (_ref: unknown) => ({
+  const resolvePageTarget = vi.fn<PageTargetResolver>(async (_ref: unknown) => ({
     ok: false as const,
     code: "not_found" as const,
     message: "test resolver",
@@ -137,6 +146,46 @@ describe("browser IPC bounds ingress", () => {
     expect(resolvePageTarget).toHaveBeenCalledWith(PAGE_REF);
   });
 
+  it("invalidates a delayed page resolver before it can create a UI view", async () => {
+    const resolution = deferred<{
+      readonly ok: true;
+      readonly data: {
+        readonly ref: string;
+        readonly nodeId: string;
+        readonly url: string;
+        readonly profile: string;
+      };
+    }>();
+    resolvePageTarget.mockImplementationOnce(() => resolution.promise);
+    const open = vi.spyOn(browserSessions, "open");
+
+    const pending = invoke(IPC_CHANNELS.browserOpen, { ref: PAGE_REF });
+    await vi.waitFor(() => expect(resolvePageTarget).toHaveBeenCalledOnce());
+    browserSessions.beginUiShutdown("test shutdown");
+    const draining = browserSessions.drainUiOnQuit("test shutdown");
+    resolution.resolve({
+      ok: true,
+      data: {
+        ref: PAGE_REF,
+        nodeId: "page-1",
+        url: "https://example.com",
+        profile: "default",
+      },
+    });
+
+    await expect(pending).resolves.toEqual({
+      ok: false,
+      code: "cancelled",
+      message: "browser UI is shutting down",
+    });
+    expect(open).not.toHaveBeenCalled();
+    await expect(draining).resolves.toMatchObject({
+      clean: true,
+      operations: ["page-resolve"],
+      activeOperations: [],
+    });
+  });
+
   it.each([
     [IPC_CHANNELS.browserClose, "close", []],
     [IPC_CHANNELS.browserClose, "close", ["session-1", "surplus"]],
@@ -218,6 +267,33 @@ describe("browser IPC bounds ingress", () => {
 
     expect(result).toMatchObject({ ok: false, code: "cancelled" });
     expect(wipeProfile).not.toHaveBeenCalled();
+  });
+
+  it("cancels a confirmation-pending wipe when quit closes UI admission", async () => {
+    const confirmation = deferred<boolean>();
+    confirmProfileWipe.mockImplementationOnce(() => confirmation.promise);
+    const wipeProfile = vi.spyOn(browserSessions, "wipeProfile");
+
+    const pending = invoke(IPC_CHANNELS.browserWipeProfile, {
+      profileId: "personal",
+      confirmation: "personal",
+    });
+    await vi.waitFor(() => expect(confirmProfileWipe).toHaveBeenCalledOnce());
+    browserSessions.beginUiShutdown("test shutdown");
+    const draining = browserSessions.drainUiOnQuit("test shutdown");
+    confirmation.resolve(true);
+
+    await expect(pending).resolves.toEqual({
+      ok: false,
+      code: "cancelled",
+      message: "browser UI is shutting down",
+    });
+    expect(wipeProfile).not.toHaveBeenCalled();
+    await expect(draining).resolves.toMatchObject({
+      clean: true,
+      operations: ["profile-wipe-confirmation"],
+      activeOperations: [],
+    });
   });
 
   it("passes an exact confirmed profile wipe to the service unchanged", async () => {

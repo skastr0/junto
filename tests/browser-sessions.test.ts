@@ -102,11 +102,14 @@ const makeSpyAdapter = (acknowledgeDestroy = true, throwAfterDestroy = false) =>
     };
     views.push(spy);
     return {
-      loadUrl: (url) => spy.calls.push(`load:${url}`),
+      loadUrl: async (url) => {
+        spy.calls.push(`load:${url}`);
+      },
       setTopLevelOriginGuard: (origin) => spy.calls.push(`guard:${origin}`),
       attach: () => spy.calls.push("attach"),
       setBounds: () => spy.calls.push("bounds"),
       detach: () => spy.calls.push("detach"),
+      stopLoading: () => spy.calls.push("stop-loading"),
       destroy: () => {
         spy.destroyed = true;
         spy.calls.push("destroy");
@@ -376,7 +379,7 @@ describe("BrowserSessionService", () => {
   it("enforces the eval envelope byte cap at exactly N/N+1", async () => {
     let json = JSON.stringify("x".repeat(BROWSER_MAX_EVAL_RESULT_BYTES - 2));
     const adapter: BrowserViewAdapter = (_partition, events) => ({
-      loadUrl: (_url, expectedSessionId) => events.onLoadOk(expectedSessionId),
+      loadUrl: async (_url, expectedSessionId) => events.onLoadOk(expectedSessionId),
       attach: () => {},
       setBounds: () => {},
       detach: () => {},
@@ -399,7 +402,7 @@ describe("BrowserSessionService", () => {
   it("independently rechecks eval result depth, node count, and finite numbers", async () => {
     let json = "null";
     const adapter: BrowserViewAdapter = (_partition, events) => ({
-      loadUrl: (_url, expectedSessionId) => events.onLoadOk(expectedSessionId),
+      loadUrl: async (_url, expectedSessionId) => events.onLoadOk(expectedSessionId),
       attach: () => {},
       setBounds: () => {},
       detach: () => {},
@@ -435,7 +438,7 @@ describe("BrowserSessionService", () => {
   it("rejects malformed/foreign envelopes and preserves typed bounded failures", async () => {
     let response: unknown = { result: "raw" };
     const adapter: BrowserViewAdapter = (_partition, events) => ({
-      loadUrl: (_url, expectedSessionId) => events.onLoadOk(expectedSessionId),
+      loadUrl: async (_url, expectedSessionId) => events.onLoadOk(expectedSessionId),
       attach: () => {},
       setBounds: () => {},
       detach: () => {},
@@ -465,7 +468,7 @@ describe("BrowserSessionService", () => {
     let bytes = BROWSER_MAX_SCREENSHOT_BYTES;
     let captures = 0;
     const adapter: BrowserViewAdapter = (_partition, events) => ({
-      loadUrl: (_url, expectedSessionId) => events.onLoadOk(expectedSessionId),
+      loadUrl: async (_url, expectedSessionId) => events.onLoadOk(expectedSessionId),
       attach: () => {},
       setBounds: () => {},
       detach: () => {},
@@ -777,7 +780,7 @@ describe("BrowserSessionService", () => {
   it("destroys and unregisters exactly one view when eval reaches its deadline, then reopens cleanly", async () => {
     const evaluation = deferred<unknown>();
     const neverAdapter: BrowserViewAdapter = (_partition, events) => ({
-      loadUrl: (url, expectedSessionId) => {
+      loadUrl: async (url, expectedSessionId) => {
         events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
         events.onLoadOk(expectedSessionId);
       },
@@ -831,7 +834,7 @@ describe("BrowserSessionService", () => {
       const record = { events, destroys: 0 };
       views.push(record);
       return {
-        loadUrl: (url, expectedSessionId) => {
+        loadUrl: async (url, expectedSessionId) => {
           events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
           events.onLoadOk(expectedSessionId);
         },
@@ -865,7 +868,7 @@ describe("BrowserSessionService", () => {
     const capture = deferred<Uint8Array>();
     let destroys = 0;
     const adapter: BrowserViewAdapter = (_partition, events) => ({
-      loadUrl: (url, expectedSessionId) => {
+      loadUrl: async (url, expectedSessionId) => {
         events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
         events.onLoadOk(expectedSessionId);
       },
@@ -900,7 +903,7 @@ describe("BrowserSessionService", () => {
       const record = { events, destroys: 0, loads: 0 };
       views.push(record);
       return {
-        loadUrl: (url, expectedSessionId) => {
+        loadUrl: async (url, expectedSessionId) => {
           record.loads += 1;
           events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
           if (record.loads === 1) events.onLoadOk(expectedSessionId);
@@ -948,7 +951,7 @@ describe("BrowserSessionService", () => {
   it("allows only one powerful operation per session", async () => {
     const evaluation = deferred<unknown>();
     const adapter: BrowserViewAdapter = (_partition, events) => ({
-      loadUrl: (url, expectedSessionId) => {
+      loadUrl: async (url, expectedSessionId) => {
         events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
         events.onLoadOk(expectedSessionId);
       },
@@ -987,7 +990,7 @@ describe("BrowserSessionService", () => {
       const destroy = vi.fn();
       views.push({ events, destroy });
       return {
-        loadUrl: (url, expectedSessionId) => {
+        loadUrl: async (url, expectedSessionId) => {
           events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
           events.onLoadOk(expectedSessionId);
         },
@@ -1090,7 +1093,7 @@ describe("BrowserSessionService", () => {
       const operation = deferred<unknown>();
       views.push({ events });
       return {
-        loadUrl: (url, expectedSessionId) => {
+        loadUrl: async (url, expectedSessionId) => {
           events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
           events.onLoadOk(expectedSessionId);
         },
@@ -1182,7 +1185,7 @@ describe("BrowserSessionService", () => {
     const adapter: BrowserViewAdapter = (_partition, events) => {
       const number = viewNumber++;
       return {
-        loadUrl: (url, expectedSessionId) => {
+        loadUrl: async (url, expectedSessionId) => {
           events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
           events.onLoadOk(expectedSessionId);
         },
@@ -1210,7 +1213,7 @@ describe("BrowserSessionService", () => {
     const adapter: BrowserViewAdapter = (_partition, events) => {
       const number = viewNumber++;
       return {
-        loadUrl: (url, expectedSessionId) => {
+        loadUrl: async (url, expectedSessionId) => {
           events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
           events.onLoadOk(expectedSessionId);
         },
@@ -1396,7 +1399,7 @@ describe("BrowserSessionService", () => {
     await expect(siblingTerminal).resolves.toMatchObject({ ok: true });
   });
 
-  it("continues exact-owner teardown after one view fails without disclosing the adapter error", async () => {
+  it("uses the physical destroy witness when an adapter throws after closing", async () => {
     const { adapter: spyAdapter, views } = makeSpyAdapter();
     let viewIndex = 0;
     const adapter: BrowserViewAdapter = (partition, events, options) => {
@@ -1425,17 +1428,7 @@ describe("BrowserSessionService", () => {
       teardownFailure = error;
     }
 
-    expect(teardownFailure).toBeInstanceOf(BrowserOwnerSessionTeardownFailure);
-    expect(teardownFailure).toMatchObject({
-      name: "BrowserOwnerSessionTeardownFailure",
-      code: "browser_owner_session_teardown_failed",
-      failureCount: 1,
-      message: "browser owner session teardown did not complete cleanly",
-    });
-    expect(String(teardownFailure)).not.toContain("raw adapter teardown sentinel");
-    expect(utf8ByteLength((teardownFailure as Error).message)).toBeLessThanOrEqual(
-      BROWSER_MAX_ERROR_BYTES,
-    );
+    expect(teardownFailure).toBeUndefined();
 
     expect(service.stateForOwner("job-a", firstOwned.data.sessionId))
       .toMatchObject({ ok: false, code: "not_found" });
@@ -1645,7 +1638,7 @@ describe("BrowserSessionService", () => {
     });
   });
 
-  it("continues profile teardown after one view destroy throws and fails closed", async () => {
+  it("lets an acknowledged profile teardown converge after destroy throws", async () => {
     const gate = new BrowserProfileGate();
     const spies = makeSpyAdapter();
     let viewIndex = 0;
@@ -1683,8 +1676,11 @@ describe("BrowserSessionService", () => {
     expect(started.ok).toBe(true);
     if (!started.ok) return;
     await expect(started.data.completion).resolves.toMatchObject({
-      ok: false,
-      code: "failed",
+      ok: true,
+      data: {
+        sessionsDestroyed: 2,
+        viewsDestroyed: 2,
+      },
     });
 
     expect(spies.views.map((view) => view.destroyed)).toEqual([true, true, false]);
@@ -1848,9 +1844,433 @@ describe("BrowserSessionService", () => {
     expect(views[0]?.destroyed).toBe(false);
   });
 
+  it("closes UI admission monotonically and rejects every powerful UI operation", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.open(target("shutdown-gate"));
+    if (!opened.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(opened.data.sessionId, "ready");
+    service.setBounds(opened.data.sessionId, bounds);
+    await Promise.resolve();
+
+    const admission = service.uiAdmissionSnapshot();
+    if (admission === undefined) throw new Error("UI admission unexpectedly closed");
+    const precommit = service.beginUiShutdown("test shutdown");
+
+    expect(service.uiAdmissionSnapshot()).toBeUndefined();
+    expect(service.isUiAdmissionCurrent(admission)).toBe(false);
+    expect(service.setBounds(opened.data.sessionId, bounds))
+      .toMatchObject({ ok: false, code: "cancelled" });
+    expect(service.goto(opened.data.sessionId, "https://next.example.com"))
+      .toMatchObject({ ok: false, code: "cancelled" });
+    expect(views[0]?.events.onNavigationStart({
+      url: "https://page.example.com",
+      isSameDocument: false,
+    })).toBeUndefined();
+    await expect(service.eval(opened.data.sessionId, "1"))
+      .resolves.toMatchObject({ ok: false, code: "cancelled" });
+    await expect(service.screenshot(opened.data.sessionId))
+      .resolves.toMatchObject({ ok: false, code: "cancelled" });
+    await expect(service.stop(opened.data.sessionId))
+      .resolves.toMatchObject({ ok: false, code: "cancelled" });
+    await expect(service.wipeProfile("personal"))
+      .resolves.toMatchObject({ ok: false, code: "cancelled" });
+    await expect(service.listProfiles())
+      .resolves.toMatchObject({ ok: false, code: "cancelled" });
+    await expect(service.surfaceConfig())
+      .resolves.toMatchObject({ ok: false, code: "cancelled" });
+    await expect(service.open(target("after-shutdown")))
+      .resolves.toMatchObject({ ok: false, code: "cancelled" });
+
+    const drained = await service.drainUiOnQuit("test shutdown");
+    expect(drained).toMatchObject({
+      epoch: precommit.epoch,
+      clean: true,
+      timedOut: false,
+      activeOperations: [],
+      sessionsDestroyed: 1,
+    });
+    expect(views[0]?.calls).toContain("detach");
+    expect(views[0]?.destroyed).toBe(true);
+    const teardownCalls = views[0]?.calls ?? [];
+    expect(teardownCalls.indexOf("stop-loading"))
+      .toBeLessThan(teardownCalls.indexOf("destroy"));
+  });
+
+  it("publishes the UI drain before a reentrant adapter destroy callback", async () => {
+    const destruction = deferred<void>();
+    let service!: BrowserSessionService;
+    let reentered: Promise<unknown> | undefined;
+    const adapter: BrowserViewAdapter = (_partition, events) => ({
+      loadUrl: async (url, expectedSessionId) => {
+        events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
+        events.onLoadOk(expectedSessionId);
+      },
+      attach: () => {},
+      setBounds: () => {},
+      detach: () => {},
+      destroy: () => {
+        reentered = service.drainUiOnQuit("reentrant adapter");
+        destruction.resolve();
+      },
+      whenDestroyed: () => destruction.promise,
+    });
+    service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      5,
+      5,
+    );
+    const opened = await service.open(target("reentrant-destroy"));
+    if (!opened.ok) throw new Error("open failed");
+
+    const draining = service.drainUiOnQuit("outer shutdown");
+
+    expect(reentered).toBe(draining);
+    await expect(draining).resolves.toMatchObject({
+      clean: true,
+      sessionsDestroyed: 1,
+      teardownWitnessFailures: 0,
+    });
+  });
+
+  it("retains an automation destruction witness admitted before shutdown", async () => {
+    const { adapter, views } = makeSpyAdapter(false);
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      5,
+      5,
+    );
+    const opened = await service.openForOwner("job-a", target("pre-shutdown-revoke"));
+    if (!opened.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(opened.data.sessionId);
+
+    expect(service.destroyOwnerSessions("job-a", "capability revoked")).toBe(1);
+    await expect(service.drainUiOnQuit("later shutdown")).resolves.toMatchObject({
+      clean: false,
+      timedOut: true,
+      activeOperations: ["view-destroy"],
+    });
+
+    views[0]?.resolveDestroyed();
+    await Promise.resolve();
+    await expect(service.drainUiOnQuit("later shutdown")).resolves.toMatchObject({
+      clean: true,
+      activeOperations: [],
+      teardownWitnessFailures: 0,
+    });
+  });
+
+  it("destroys every remaining automation runtime as a quit backstop", async () => {
+    const { adapter, views } = makeSpyAdapter();
+    const { service } = makeService(adapter);
+    const opened = await service.openForOwner("orphan-owner", target("orphan-runtime"));
+    if (!opened.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(opened.data.sessionId);
+
+    await expect(service.drainUiOnQuit("test shutdown")).resolves.toMatchObject({
+      clean: true,
+      sessionsDestroyed: 1,
+      teardownWitnessFailures: 0,
+    });
+    expect(service.stateForOwner("orphan-owner", opened.data.sessionId))
+      .toMatchObject({ ok: false, code: "not_found" });
+    expect(views[0]?.destroyed).toBe(true);
+  });
+
+  it("fails closed when a destroyed view provides no physical witness", async () => {
+    const adapter: BrowserViewAdapter = (_partition, events) => ({
+      loadUrl: async (url, expectedSessionId) => {
+        events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
+        events.onLoadOk(expectedSessionId);
+      },
+      attach: () => {},
+      setBounds: () => {},
+      detach: () => {},
+      destroy: () => {},
+    });
+    const { service } = makeService(adapter);
+    const opened = await service.openForOwner("job-a", target("missing-destroy-witness"));
+    if (!opened.ok) throw new Error("open failed");
+
+    expect(() => service.destroyOwnerSessions("job-a", "capability revoked"))
+      .toThrowError(BrowserOwnerSessionTeardownFailure);
+    await expect(service.drainUiOnQuit("later shutdown")).resolves.toMatchObject({
+      clean: false,
+      timedOut: false,
+      activeOperations: [],
+      teardownWitnessFailures: 1,
+    });
+  });
+
+  it("keeps a rejected physical destroy witness permanently unclean", async () => {
+    const adapter: BrowserViewAdapter = (_partition, events) => ({
+      loadUrl: async (url, expectedSessionId) => {
+        events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
+        events.onLoadOk(expectedSessionId);
+      },
+      attach: () => {},
+      setBounds: () => {},
+      detach: () => {},
+      destroy: () => {},
+      whenDestroyed: () => Promise.reject(new Error("destroy witness rejected")),
+    });
+    const { service } = makeService(adapter);
+    const opened = await service.openForOwner("job-a", target("rejected-destroy-witness"));
+    if (!opened.ok) throw new Error("open failed");
+
+    expect(service.destroyOwnerSessions("job-a", "capability revoked")).toBe(1);
+    await expect(service.drainUiOnQuit("later shutdown")).resolves.toMatchObject({
+      clean: false,
+      rejected: 1,
+      activeOperations: [],
+      teardownWitnessFailures: 1,
+    });
+    await expect(service.drainUiOnQuit("later shutdown")).resolves.toMatchObject({
+      clean: false,
+      activeOperations: [],
+      teardownWitnessFailures: 1,
+    });
+  });
+
+  it("retries a retained teardown tombstone after destroy throws before closing", async () => {
+    const destruction = deferred<void>();
+    let destroyCalls = 0;
+    const adapter: BrowserViewAdapter = (_partition, events) => ({
+      loadUrl: async (url, expectedSessionId) => {
+        events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
+        events.onLoadOk(expectedSessionId);
+      },
+      attach: () => {},
+      setBounds: () => {},
+      detach: () => {},
+      stopLoading: () => {},
+      destroy: () => {
+        destroyCalls += 1;
+        if (destroyCalls === 1) throw new Error("transient close refusal");
+        destruction.resolve();
+      },
+      whenDestroyed: () => destruction.promise,
+    });
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      5,
+      5,
+    );
+    const opened = await service.open(target("retry-destroy-tombstone"));
+    if (!opened.ok) throw new Error("open failed");
+
+    await expect(service.drainUiOnQuit("first shutdown")).resolves.toMatchObject({
+      clean: false,
+      timedOut: true,
+      activeOperations: ["view-destroy"],
+      sessionsDestroyed: 1,
+    });
+    expect(destroyCalls).toBe(1);
+
+    await expect(service.drainUiOnQuit("retry shutdown")).resolves.toMatchObject({
+      clean: true,
+      timedOut: false,
+      activeOperations: [],
+      teardownWitnessFailures: 0,
+    });
+    expect(destroyCalls).toBe(2);
+  });
+
+  it("invalidates a delayed UI opener and drains its actual admitted promise", async () => {
+    const base = makeBrowserProfileService(root);
+    await Effect.runPromise(base.ensureDefaults);
+    const partition = deferred<string>();
+    let partitionReads = 0;
+    const profiles: BrowserProfileServiceApi = {
+      ...base,
+      partitionName: (profile) =>
+        profile === "personal"
+          ? Effect.promise(() => {
+              partitionReads += 1;
+              return partition.promise;
+            })
+          : base.partitionName(profile),
+    };
+    const { adapter, views } = makeSpyAdapter();
+    const service = new BrowserSessionService(
+      adapter,
+      profiles,
+      () => ++clock,
+      () => `session-${++idCounter}`,
+    );
+
+    const opening = service.open(target("delayed-shutdown-open"));
+    await vi.waitFor(() => expect(partitionReads).toBe(1));
+    service.beginUiShutdown("test shutdown");
+    const draining = service.drainUiOnQuit("test shutdown");
+    partition.resolve("persist:vellum-profile-personal");
+
+    await expect(opening).resolves.toMatchObject({ ok: false, code: "cancelled" });
+    await expect(draining).resolves.toMatchObject({
+      clean: true,
+      operations: ["open"],
+      settled: 1,
+      timedOut: false,
+    });
+    expect(views).toHaveLength(0);
+  });
+
+  it("retains a confirmed profile wipe across an unclean bounded drain", async () => {
+    const base = makeBrowserProfileService(root);
+    const wipe = deferred<{ readonly status: "complete" }>();
+    let wipeStarts = 0;
+    const profiles: BrowserProfileServiceApi = {
+      ...base,
+      wipeProfile: () => Effect.promise(() => {
+        wipeStarts += 1;
+        return wipe.promise;
+      }),
+    };
+    const { adapter } = makeSpyAdapter();
+    const service = new BrowserSessionService(
+      adapter,
+      profiles,
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      5,
+      5,
+    );
+
+    const wiping = service.wipeProfile("personal");
+    await vi.waitFor(() => expect(wipeStarts).toBe(1));
+    await expect(service.drainUiOnQuit("test shutdown")).resolves.toMatchObject({
+      clean: false,
+      timedOut: true,
+      activeOperations: ["profile-wipe"],
+    });
+
+    wipe.resolve({ status: "complete" });
+    await expect(wiping).resolves.toEqual({
+      ok: true,
+      data: { profileId: "personal", status: "complete", recovery: "complete" },
+    });
+    await Promise.resolve();
+    await expect(service.drainUiOnQuit("test shutdown")).resolves.toMatchObject({
+      clean: true,
+      timedOut: false,
+      activeOperations: [],
+    });
+  });
+
+  it("does not let a raced public eval hide its still-live Electron promise", async () => {
+    const evaluation = deferred<unknown>();
+    const destruction = deferred<void>();
+    const adapter: BrowserViewAdapter = (_partition, events) => ({
+      loadUrl: async (url, expectedSessionId) => {
+        events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
+        events.onLoadOk(expectedSessionId);
+      },
+      attach: () => {},
+      setBounds: () => {},
+      detach: () => {},
+      destroy: () => destruction.resolve(),
+      whenDestroyed: () => destruction.promise,
+      executeJavaScript: () => evaluation.promise,
+    });
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      5,
+      5,
+    );
+    const opened = await service.open(target("shutdown-eval"));
+    if (!opened.ok) throw new Error("open failed");
+    const evaluating = service.eval(opened.data.sessionId, "pending()");
+    await Promise.resolve();
+
+    await expect(service.drainUiOnQuit("test shutdown")).resolves.toMatchObject({
+      clean: false,
+      timedOut: true,
+      activeOperations: ["eval"],
+    });
+    await expect(evaluating).resolves.toMatchObject({ ok: false, code: "cancelled" });
+
+    evaluation.resolve({ __vellumEval: 1, status: "ok", json: "null" });
+    await Promise.resolve();
+    await expect(service.drainUiOnQuit("test shutdown")).resolves.toMatchObject({
+      clean: true,
+      activeOperations: [],
+    });
+  });
+
+  it("does not let a same-document load promise escape the shutdown fixed point", async () => {
+    const sameDocumentLoad = deferred<void>();
+    const destruction = deferred<void>();
+    let loads = 0;
+    const adapter: BrowserViewAdapter = (_partition, events) => ({
+      loadUrl: (url, expectedSessionId) => {
+        loads += 1;
+        if (loads === 1) {
+          events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
+          events.onLoadOk(expectedSessionId);
+          return Promise.resolve();
+        }
+        return sameDocumentLoad.promise;
+      },
+      attach: () => {},
+      setBounds: () => {},
+      detach: () => {},
+      destroy: () => destruction.resolve(),
+      whenDestroyed: () => destruction.promise,
+    });
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      5,
+      5,
+    );
+    const opened = await service.open(target("same-document-shutdown"));
+    if (!opened.ok) throw new Error("open failed");
+    await Promise.resolve();
+
+    expect(service.goto(opened.data.sessionId, `${opened.data.url}#section`))
+      .toMatchObject({ ok: true });
+    await expect(service.drainUiOnQuit("test shutdown")).resolves.toMatchObject({
+      clean: false,
+      timedOut: true,
+      activeOperations: ["goto"],
+    });
+
+    sameDocumentLoad.resolve();
+    await Promise.resolve();
+    await expect(service.drainUiOnQuit("test shutdown")).resolves.toMatchObject({
+      clean: true,
+      activeOperations: [],
+    });
+  });
+
   it("lists configured profiles and rejects empty detached captures", async () => {
     const emptyAdapter: BrowserViewAdapter = (_partition, events) => ({
-      loadUrl: (url, expectedSessionId) => {
+      loadUrl: async (url, expectedSessionId) => {
         events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
         events.onLoadOk(expectedSessionId);
       },

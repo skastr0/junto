@@ -382,7 +382,8 @@ const makeElectronViewAdapter = (
     options?.exactTopLevelOrigin === undefined
       ? undefined
       : canonicalBrowserOrigin(options.exactTopLevelOrigin);
-  let releaseWebPolicy: () => void;
+  let releaseWebPolicy: (() => void) | undefined;
+  let initializationFailure: Error | undefined;
   try {
     releaseWebPolicy = installBrowserWebPolicy(
       view.webContents,
@@ -404,10 +405,17 @@ const makeElectronViewAdapter = (
             isAllowedByBrowserExactOrigin(url, exactTopLevelOrigin),
     );
   } catch (error) {
-    view.webContents.close();
-    throw error;
+    // Return a teardown-capable failed handle instead of throwing after the
+    // WebContents already exists. BrowserSessionService will retain its
+    // destroyed witness before requesting close, so factory cleanup cannot
+    // disappear from the app shutdown receipt.
+    initializationFailure = error instanceof Error
+      ? error
+      : new Error("browser view policy initialization failed");
   }
-  view.webContents.once("destroyed", releaseWebPolicy);
+  if (releaseWebPolicy !== undefined) {
+    view.webContents.once("destroyed", releaseWebPolicy);
+  }
 
   view.webContents.on("did-start-navigation", (details) => {
     if (!details.isMainFrame) return;
@@ -475,6 +483,7 @@ const makeElectronViewAdapter = (
 
   const handle: BrowserViewHandle = {
     loadUrl: (url, expectedSessionId) => {
+      if (initializationFailure !== undefined) throw initializationFailure;
       const pending = { url: normalizeUrl(url), sessionId: expectedSessionId };
       expectedNavigation = pending;
 
@@ -532,11 +541,22 @@ const makeElectronViewAdapter = (
       }
       attachedWindow = undefined;
     },
+    stopLoading: () => {
+      if (!view.webContents.isDestroyed()) view.webContents.stop();
+    },
     destroy: () => {
       // Runtime teardown only — the persist: partition (cookies) is on disk.
       if (terminationExpected) return;
       terminationExpected = true;
-      if (!view.webContents.isDestroyed()) view.webContents.close();
+      try {
+        if (!view.webContents.isDestroyed()) view.webContents.close();
+      } catch (error) {
+        // Keep loss events suppressed during the close attempt, but allow the
+        // session teardown tombstone to retry if Electron refused the close
+        // before the WebContents was actually destroyed.
+        if (!view.webContents.isDestroyed()) terminationExpected = false;
+        throw error;
+      }
     },
     whenDestroyed: () => destroyed,
     // Hardened automation runs in a dedicated isolated world. DOM and Web APIs

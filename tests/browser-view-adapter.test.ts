@@ -10,6 +10,7 @@ import {
 
 const electron = vi.hoisted(() => {
   type Listener = (...args: ReadonlyArray<unknown>) => void;
+  let nextPolicyError: Error | undefined;
 
   class FakeSession {
     readonly listeners = new Map<string, Listener[]>();
@@ -48,6 +49,8 @@ const electron = vi.hoisted(() => {
     }> = [];
     mainWorldEvalCalls = 0;
     closeCalls = 0;
+    closeError: Error | undefined;
+    stopCalls = 0;
     destroyed = false;
 
     constructor(readonly session: FakeSession) {}
@@ -93,11 +96,21 @@ const electron = vi.hoisted(() => {
       return this.title;
     }
 
-    setWindowOpenHandler(): void {}
+    setWindowOpenHandler(): void {
+      const error = nextPolicyError;
+      nextPolicyError = undefined;
+      if (error !== undefined) throw error;
+    }
     setWebRTCIPHandlingPolicy(): void {}
 
     close(): void {
       this.closeCalls += 1;
+      const error = this.closeError;
+      this.closeError = undefined;
+      if (error !== undefined) throw error;
+    }
+    stop(): void {
+      this.stopCalls += 1;
     }
     isDestroyed(): boolean {
       return this.destroyed;
@@ -133,6 +146,9 @@ const electron = vi.hoisted(() => {
     sessions: new Map<string, FakeSession>(),
     FakeSession,
     FakeWebContentsView,
+    failNextPolicyInstall: (error: Error) => {
+      nextPolicyError = error;
+    },
   };
 });
 
@@ -235,6 +251,42 @@ describe("electron browser view generation seam", () => {
     intentional.webContents.emit("destroyed");
     expect(intentional.webContents.closeCalls).toBe(1);
     expect(intentional.unexpectedTerminations).toEqual([]);
+  });
+
+  it("exposes a synchronous load-stop seam before runtime destruction", () => {
+    const { handle, webContents } = setup();
+
+    handle.stopLoading?.();
+    handle.destroy();
+
+    expect(webContents.stopCalls).toBe(1);
+    expect(webContents.closeCalls).toBe(1);
+  });
+
+  it("allows a retained teardown tombstone to retry a refused close", () => {
+    const { handle, webContents } = setup();
+    webContents.closeError = new Error("transient close refusal");
+
+    expect(() => handle.destroy()).toThrow("transient close refusal");
+    handle.destroy();
+
+    expect(webContents.closeCalls).toBe(2);
+  });
+
+  it("returns a teardown-capable handle when policy installation fails", async () => {
+    electron.failNextPolicyInstall(new Error("policy install failed"));
+    const { handle, webContents } = setup();
+
+    expect(() => handle.loadUrl("https://example.com", "session-1"))
+      .toThrow("policy install failed");
+    const destroyed = handle.whenDestroyed?.();
+    if (destroyed === undefined) throw new Error("destruction acknowledgement unavailable");
+    handle.destroy();
+    expect(webContents.closeCalls).toBe(1);
+
+    webContents.destroyed = true;
+    webContents.emit("destroyed");
+    await expect(destroyed).resolves.toBeUndefined();
   });
 
   it("normalizes a programmatic URL before matching its expected generation", () => {

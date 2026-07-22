@@ -36,6 +36,12 @@ const invalidArguments = (message = "unexpected arguments") => ({
   message,
 });
 
+const browserUiShuttingDown = () => ({
+  ok: false as const,
+  code: "cancelled" as const,
+  message: "browser UI is shutting down",
+});
+
 const isBrowserOpenInput = (input: unknown): input is BrowserOpenInput =>
   typeof input === "object" &&
   input !== null &&
@@ -134,7 +140,15 @@ export const registerBrowserIpc = (
     if (!isBrowserOpenInput(input)) {
       return invalidArguments("canonical bounded page ref required");
     }
-    const target = await pageTargetResolver(input.ref);
+    const admission = browserSessions.uiAdmissionSnapshot();
+    if (admission === undefined) return browserUiShuttingDown();
+    const target = await browserSessions.retainUiIngress(
+      "page-resolve",
+      pageTargetResolver(input.ref),
+    );
+    if (!browserSessions.isUiAdmissionCurrent(admission)) {
+      return browserUiShuttingDown();
+    }
     return target.ok ? browserSessions.open(target.data) : target;
   });
 
@@ -154,8 +168,16 @@ export const registerBrowserIpc = (
     if (args.length !== 1 || !isBrowserProfileWipeInput(args[0])) {
       return invalidArguments("exact profile confirmation required");
     }
+    const admission = browserSessions.uiAdmissionSnapshot();
+    if (admission === undefined) return browserUiShuttingDown();
     const profileId = args[0].profileId;
-    const confirmed = await profileWipeConfirmation(event, profileId).catch(() => false);
+    const confirmed = await browserSessions.retainUiIngress(
+      "profile-wipe-confirmation",
+      profileWipeConfirmation(event, profileId),
+    ).catch(() => false);
+    if (!browserSessions.isUiAdmissionCurrent(admission)) {
+      return browserUiShuttingDown();
+    }
     return confirmed
       ? browserSessions.wipeProfile(profileId)
       : {
