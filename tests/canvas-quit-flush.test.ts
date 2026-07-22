@@ -19,7 +19,10 @@ describe("canvas quit durability wiring", () => {
 
   it("never lets the signal fallback bypass an incomplete canvas flush", () => {
     const start = source.indexOf("installProcessSignalTermination({");
-    const block = source.slice(start, source.indexOf("});", start) + 3);
+    const allowIdx = source.indexOf("allowForceExit:", start);
+    expect(allowIdx).toBeGreaterThan(start);
+    // Include through the allowForceExit predicate (async shutdown may insert `});` earlier).
+    const block = source.slice(start, allowIdx + 120);
 
     expect(block).toContain("beginSignalCanvasFlush()");
     // Force-exit requires both canvas flush durability AND local terminal shutdown.
