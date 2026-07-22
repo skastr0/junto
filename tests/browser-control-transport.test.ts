@@ -105,7 +105,7 @@ const mode = async (path: string): Promise<number> => (await stat(path)).mode & 
 const makeSessions = (root: string): BrowserSessionService => {
   const adapter: BrowserViewAdapter = (_partition, events) => {
     const handle: BrowserViewHandle = {
-      loadUrl: (url, expectedSessionId) => {
+      loadUrl: async (url, expectedSessionId) => {
         const sessionId = events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
         if (sessionId !== undefined) events.onLoadOk(sessionId);
       },

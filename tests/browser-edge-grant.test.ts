@@ -40,7 +40,7 @@ const makeSpyAdapter = (): BrowserViewAdapter => {
       resolveDestroyed = resolve;
     });
     const handle: BrowserViewHandle = {
-      loadUrl: (url, expectedSessionId) => {
+      loadUrl: async (url, expectedSessionId) => {
         const sessionId = events.onNavigationStart({
           url: new URL(url).href,
           isSameDocument: false,

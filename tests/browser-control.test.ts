@@ -85,7 +85,7 @@ const makeSpyAdapter = (options: {
       resolveDestroyed = resolve;
     });
     const handle: BrowserViewHandle = {
-      loadUrl: (url, expectedSessionId) => {
+      loadUrl: async (url, expectedSessionId) => {
         const sessionId = events.onNavigationStart({
           url: new URL(url).href,
           isSameDocument: false,
@@ -984,7 +984,7 @@ describe("control route handlers", () => {
     const adapter: BrowserViewAdapter = (_partition, nextEvents) => {
       events = nextEvents;
       return {
-        loadUrl: (url, expectedSessionId) => {
+        loadUrl: async (url, expectedSessionId) => {
           const id = nextEvents.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
           if (id !== undefined) nextEvents.onLoadOk(id);
         },
@@ -1020,7 +1020,7 @@ describe("control route handlers", () => {
     const adapter: BrowserViewAdapter = (_partition, nextEvents) => {
       events = nextEvents;
       return {
-        loadUrl: (url, expectedSessionId) => {
+        loadUrl: async (url, expectedSessionId) => {
           const id = nextEvents.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
           if (id !== undefined) nextEvents.onLoadOk(id);
         },
