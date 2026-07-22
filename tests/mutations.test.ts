@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
 import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, renameGroup, setNodeColor, setNodeView, setRegionDefaults, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
-import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
+import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
@@ -370,6 +370,41 @@ describe("renderer graph mutations", () => {
 
     setEdgeCriteria("edge-1", undefined);
     expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
+    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+  });
+
+  it("setEdgePorts attenuates and clear removes the field", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      ...doc,
+      edges: [
+        {
+          id: "edge-1",
+          fromNode: "source",
+          toNode: "target",
+          ether: { criteria: { mode: "tasks" } },
+        },
+      ],
+    });
+
+    setEdgePorts("edge-1", ["msg.send", "browser.automate"]);
+    expect(state$.doc.peek().edges[0]?.ether?.ports).toEqual([
+      "msg.send",
+      "browser.automate",
+    ]);
+    expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({ mode: "tasks" });
+    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+
+    setEdgePorts("edge-1", undefined);
+    expect(state$.doc.peek().edges[0]?.ether?.ports).toBeUndefined();
+    expect(Object.hasOwn(state$.doc.peek().edges[0]?.ether ?? {}, "ports")).toBe(false);
+    expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({ mode: "tasks" });
+
+    setEdgePorts("edge-1", ["msg.list"]);
+    expect(state$.doc.peek().edges[0]?.ether?.ports).toEqual(["msg.list"]);
+    setEdgePorts("edge-1", []);
+    expect(state$.doc.peek().edges[0]?.ether?.ports).toBeUndefined();
+    expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({ mode: "tasks" });
     expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 

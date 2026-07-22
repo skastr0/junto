@@ -1,5 +1,6 @@
 import { ulid } from "ulid";
 import type { CanvasEdge, CanvasNode, EdgeCriteria, EdgeEnd } from "@shared/canvas";
+import type { Port } from "@shared/physics";
 import { state$ } from "./state";
 import { commitDoc, parseSide } from "./mutations";
 
@@ -46,6 +47,33 @@ export const setEdgeCriteria = (id: string, criteria: EdgeCriteria | undefined):
       }
       const rest = edge.ether ? without(edge.ether, "kind") : {};
       return { ...edge, ether: { ...rest, criteria: cleaned } };
+    }),
+  });
+};
+
+/**
+ * Set or clear edge.ether.ports (ocap attenuation).
+ * `undefined` or empty array removes the field; absence ⇒ full offers at admit.
+ * Does not strip criteria / derived kind.
+ */
+export const setEdgePorts = (
+  id: string,
+  ports: ReadonlyArray<Port> | undefined,
+): void => {
+  const doc = state$.doc.peek();
+  const cleaned = ports && ports.length > 0 ? [...ports] : undefined;
+  commitDoc({
+    ...doc,
+    edges: doc.edges.map((edge) => {
+      if (edge.id !== id) return edge;
+      if (!cleaned) {
+        if (!edge.ether || edge.ether.ports === undefined) return edge;
+        const rest = without(edge.ether, "ports");
+        return Object.keys(rest).length > 0
+          ? { ...edge, ether: rest }
+          : without(edge, "ether");
+      }
+      return { ...edge, ether: { ...(edge.ether ?? {}), ports: cleaned } };
     }),
   });
 };

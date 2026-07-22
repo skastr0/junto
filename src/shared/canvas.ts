@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { Port } from "./physics/schema";
 
 // JSON Canvas 1.0 (https://jsoncanvas.org/spec/1.0/) plus the namespaced
 // `ether` extension. Invariant: a document stripped of every `ether` key must
@@ -401,6 +402,9 @@ export const EtherEdgeExtension = Schema.Struct({
   // Derived mirror of last live phase for offline JSON Canvas readers.
   // Written only by applyPhaseMirror — never set by authoring UI.
   kind: Schema.optionalWith(EdgePhase, { exact: true }),
+  // Authorial ocap attenuation: subset of Port strings. Absence = full offers
+  // (default grant). Strip ether → still valid JSON Canvas 1.0.
+  ports: Schema.optionalWith(Schema.Array(Port), { exact: true }),
 });
 export type EtherEdgeExtension = typeof EtherEdgeExtension.Type;
 

@@ -323,21 +323,20 @@ describe("physics admitPure", () => {
     }
   });
 
-  it("attenuates via edge port mask when present", () => {
-    const doc = {
+  it("attenuates via edge port mask when present (drops browser.automate)", () => {
+    const doc: CanvasDoc = {
       nodes: [textNode("agent", "agent"), pageNode("p1")],
       edges: [
         {
           id: "e1",
           fromNode: "agent",
           toNode: "p1",
-          // Future field — not yet on EtherEdgeExtension schema.
+          // Mask is only msg.send — not browser.automate (read-only-style attenuation).
           ether: { ports: ["msg.send"] },
         },
       ],
-    } as unknown as CanvasDoc;
+    };
     const view = canvasDocToCapabilityView(doc);
-    // browser.automate not in mask
     const denied = admitPure(
       view,
       asNodeId("agent"),
@@ -350,13 +349,44 @@ describe("physics admitPure", () => {
     }
   });
 
-  it("view leaves edgePortMask empty when ports field absent", () => {
+  it("absent ports = full offers (browser.automate still admitted)", () => {
     const doc: CanvasDoc = {
       nodes: [textNode("agent", "agent"), pageNode("p1")],
       edges: [{ id: "e1", fromNode: "agent", toNode: "p1" }],
     };
     const view = canvasDocToCapabilityView(doc);
     expect(HashMap.size(view.edgePortMask)).toBe(0);
+    const admitted = admitPure(
+      view,
+      asNodeId("agent"),
+      asNodeId("p1"),
+      "browser.automate",
+    );
+    expect(Either.isRight(admitted)).toBe(true);
+  });
+
+  it("ignores invalid port strings (no mask ⇒ full offers)", () => {
+    const doc = {
+      nodes: [textNode("agent", "agent"), pageNode("p1")],
+      edges: [
+        {
+          id: "e1",
+          fromNode: "agent",
+          toNode: "p1",
+          // Not a Port literal — skipped fail-closed for the token only.
+          ether: { ports: ["browser.read"] },
+        },
+      ],
+    } as unknown as CanvasDoc;
+    const view = canvasDocToCapabilityView(doc);
+    expect(HashMap.size(view.edgePortMask)).toBe(0);
+    const admitted = admitPure(
+      view,
+      asNodeId("agent"),
+      asNodeId("p1"),
+      "browser.automate",
+    );
+    expect(Either.isRight(admitted)).toBe(true);
   });
 });
 

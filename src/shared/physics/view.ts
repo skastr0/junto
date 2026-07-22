@@ -6,8 +6,6 @@ import { undirectedEdgeKey } from "./admit";
 import { Port, asNodeId, type NodeId } from "./schema";
 
 // Pure canvas → CapabilityView adapter. No Node, no live process-bind.
-// edge.ports is not on the canvas schema yet; if a future/raw ports array is
-// present on ether we accept only Port-valid strings, otherwise mask is absent.
 
 const decodePort = Schema.decodeUnknownOption(Port);
 
@@ -16,14 +14,17 @@ const nodeMetaOf = (node: CanvasNode): NodeMeta => ({
   isGroup: isGroup(node),
 });
 
-/** Read optional future edge.ether.ports without requiring canvas schema. */
+/**
+ * Read edge.ether.ports into a Port set.
+ * Invalid / unknown strings are skipped (fail-closed for those tokens only).
+ * Absent, empty, or all-invalid → no mask (full offers).
+ */
 const readEdgePorts = (
   edge: CanvasEdge,
-): HashSet.HashSet<typeof Port.Type> | undefined => {
-  const raw = edge.ether as { readonly ports?: unknown } | undefined;
-  const ports = raw?.ports;
-  if (!Array.isArray(ports) || ports.length === 0) return undefined;
-  let set = HashSet.empty<typeof Port.Type>();
+): HashSet.HashSet<Port> | undefined => {
+  const ports = edge.ether?.ports;
+  if (!ports || ports.length === 0) return undefined;
+  let set = HashSet.empty<Port>();
   let any = false;
   for (const p of ports) {
     const decoded = decodePort(p);
@@ -40,7 +41,7 @@ const readEdgePorts = (
  * - connected: adjacency from edges (undirected)
  * - regionPeers: group co-members (excluding self), geometry-derived
  * - nodeMeta: kind + isGroup
- * - edgePortMask: only when ether.ports is present and non-empty
+ * - edgePortMask: only when ether.ports is present and yields ≥1 valid Port
  */
 export const canvasDocToCapabilityView = (doc: CanvasDoc): CapabilityView => {
   let nodeMeta = HashMap.empty<NodeId, NodeMeta>();
@@ -61,7 +62,7 @@ export const canvasDocToCapabilityView = (doc: CanvasDoc): CapabilityView => {
   // When every declaring edge has ports: intersect masks.
   const pairState = new Map<
     string,
-    { unmasked: boolean; mask: HashSet.HashSet<typeof Port.Type> | undefined }
+    { unmasked: boolean; mask: HashSet.HashSet<Port> | undefined }
   >();
 
   for (const edge of doc.edges) {
@@ -88,7 +89,7 @@ export const canvasDocToCapabilityView = (doc: CanvasDoc): CapabilityView => {
     }
   }
 
-  let edgePortMask = HashMap.empty<string, HashSet.HashSet<typeof Port.Type>>();
+  let edgePortMask = HashMap.empty<string, HashSet.HashSet<Port>>();
   for (const [key, state] of pairState) {
     if (!state.unmasked && state.mask !== undefined) {
       edgePortMask = HashMap.set(edgePortMask, key, state.mask);
