@@ -1,6 +1,6 @@
 import * as Command from "@effect/platform/Command";
 import { Effect, Layer, Stream } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ProcessSpawner, ProcessSpawnerLive } from "../src/main/vellum/ssh/process-spawner";
 
 const SpawnerLive = ProcessSpawnerLive;
@@ -42,6 +42,25 @@ describe("ProcessSpawnerLive", () => {
       return yield* Effect.scoped((yield* ProcessSpawner).start(pipeline));
     }).pipe(Effect.provide(SpawnerLive), Effect.either));
     expect(result._tag).toBe("Left");
+  });
+
+  it("handles async missing-executable errors without a rejection or shutdown grace", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    const startedAt = Date.now();
+    try {
+      const result = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const child = yield* (yield* ProcessSpawner).start(Command.make("/definitely/not/a-vellum-command"));
+        yield* Effect.sleep(30);
+        return yield* Effect.either(child.exitCode);
+      })).pipe(Effect.provide(SpawnerLive)));
+      expect(result._tag).toBe("Left");
+      expect(Date.now() - startedAt).toBeLessThan(500);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
   });
 
   it("terminates a responsive owned process without waiting through the grace period", async () => {
