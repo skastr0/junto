@@ -1,0 +1,380 @@
+/**
+ * NDJSON client for a term control socket (local path or SSH-forwarded path).
+ */
+
+import { createConnection, type Socket } from "node:net";
+import { randomBytes } from "node:crypto";
+import { EventEmitter } from "node:events";
+import type {
+  TermControlRequest,
+  TermControlResponse,
+} from "@shared/term-control";
+import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import type { ControlLease, JournalEntry, LocalHostEvent } from "./local-host";
+
+type Pending = {
+  resolve: (v: TermControlResponse) => void;
+  reject: (e: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+const reviveSeq = (value: unknown): bigint | undefined => {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === "string" && /^-?\d+$/.test(value)) return BigInt(value);
+  return undefined;
+};
+
+const reviveJournal = (raw: unknown): JournalEntry[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: JournalEntry[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const seq = reviveSeq(rec.seq);
+    if (seq === undefined) continue;
+    if (rec.type === "output" && typeof rec.data === "string") {
+      out.push({ seq, type: "output", data: rec.data });
+    } else if (
+      rec.type === "resize" &&
+      typeof rec.cols === "number" &&
+      typeof rec.rows === "number"
+    ) {
+      out.push({ seq, type: "resize", cols: rec.cols, rows: rec.rows });
+    } else if (rec.type === "exit") {
+      out.push({
+        seq,
+        type: "exit",
+        code: typeof rec.code === "number" ? rec.code : undefined,
+        signal: typeof rec.signal === "number" ? rec.signal : undefined,
+      });
+    }
+  }
+  return out;
+};
+
+const reviveHostEvent = (raw: unknown): LocalHostEvent | undefined => {
+  if (!raw || typeof raw !== "object") return undefined;
+  const rec = raw as Record<string, unknown>;
+  const bindingId = typeof rec.bindingId === "string" ? rec.bindingId : "";
+  const epoch = typeof rec.epoch === "string" ? rec.epoch : "";
+  if (!bindingId || !epoch) return undefined;
+  if (rec.type === "output" && typeof rec.data === "string") {
+    return {
+      type: "output",
+      bindingId,
+      epoch,
+      seq: reviveSeq(rec.seq) ?? 0n,
+      data: rec.data,
+    };
+  }
+  if (rec.type === "resize" && typeof rec.cols === "number" && typeof rec.rows === "number") {
+    return {
+      type: "resize",
+      bindingId,
+      epoch,
+      seq: reviveSeq(rec.seq) ?? 0n,
+      cols: rec.cols,
+      rows: rec.rows,
+    };
+  }
+  if (rec.type === "exit") {
+    return {
+      type: "exit",
+      bindingId,
+      epoch,
+      seq: reviveSeq(rec.seq) ?? 0n,
+      code: typeof rec.code === "number" ? rec.code : undefined,
+      signal: typeof rec.signal === "number" ? rec.signal : undefined,
+    };
+  }
+  if (rec.type === "session" && typeof rec.status === "string") {
+    return {
+      type: "session",
+      bindingId,
+      epoch,
+      status: rec.status as "starting" | "running" | "exited",
+      pid: typeof rec.pid === "number" ? rec.pid : undefined,
+    };
+  }
+  return undefined;
+};
+
+export class TermControlClient extends EventEmitter {
+  private socket: Socket | undefined;
+  private buf = "";
+  private authed = false;
+  private readonly pending = new Map<string, Pending>();
+  private closed = false;
+
+  private constructor(
+    private readonly socketPath: string,
+    private readonly token: string,
+  ) {
+    super();
+  }
+
+  static async connect(input: {
+    readonly socketPath: string;
+    readonly token: string;
+    readonly timeoutMs?: number;
+  }): Promise<TermControlClient> {
+    const client = new TermControlClient(input.socketPath, input.token);
+    await client.open(input.timeoutMs ?? 8_000);
+    return client;
+  }
+
+  private open(timeoutMs: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const sock = createConnection({ path: this.socketPath });
+      this.socket = sock;
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        sock.destroy();
+        reject(new Error(`term control connect timeout: ${this.socketPath}`));
+      }, timeoutMs);
+
+      sock.setEncoding("utf8");
+      sock.on("connect", () => {
+        sock.write(`${JSON.stringify({ token: this.token })}\n`);
+      });
+      sock.on("data", (chunk: string) => {
+        this.buf += chunk;
+        for (;;) {
+          const nl = this.buf.indexOf("\n");
+          if (nl < 0) break;
+          const line = this.buf.slice(0, nl).trim();
+          this.buf = this.buf.slice(nl + 1);
+          if (!line) continue;
+          let msg: unknown;
+          try {
+            msg = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          const rec = msg as Record<string, unknown>;
+          if (!this.authed) {
+            if (rec.ok === true && rec.id === "auth") {
+              this.authed = true;
+              if (!settled) {
+                settled = true;
+                clearTimeout(timer);
+                resolve();
+              }
+            } else if (rec.ok === false) {
+              if (!settled) {
+                settled = true;
+                clearTimeout(timer);
+                reject(new Error(String(rec.error ?? "auth failed")));
+              }
+              sock.destroy();
+            }
+            continue;
+          }
+          if (rec.type === "event") {
+            const event = reviveHostEvent(rec.payload);
+            if (event) this.emit("event", event);
+            continue;
+          }
+          const id = typeof rec.id === "string" ? rec.id : "";
+          const p = this.pending.get(id);
+          if (p) {
+            this.pending.delete(id);
+            clearTimeout(p.timer);
+            p.resolve(rec as TermControlResponse);
+          }
+        }
+      });
+      sock.on("error", (err) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(err);
+        }
+        this.failAll(err instanceof Error ? err : new Error(String(err)));
+      });
+      sock.on("close", () => {
+        this.closed = true;
+        this.failAll(new Error("term control socket closed"));
+      });
+    });
+  }
+
+  private failAll(err: Error): void {
+    for (const [id, p] of this.pending) {
+      this.pending.delete(id);
+      clearTimeout(p.timer);
+      p.reject(err);
+    }
+  }
+
+  private call(body: TermControlRequest, timeoutMs = 15_000): Promise<TermControlResponse> {
+    if (this.closed || !this.socket || this.socket.destroyed) {
+      return Promise.reject(new Error("term control client closed"));
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(body.id);
+        reject(new Error(`term control timeout op=${body.op}`));
+      }, timeoutMs);
+      this.pending.set(body.id, { resolve, reject, timer });
+      try {
+        this.socket!.write(`${JSON.stringify(body)}\n`);
+      } catch (err) {
+        this.pending.delete(body.id);
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  private nextId(): string {
+    return randomBytes(8).toString("hex");
+  }
+
+  async create(input: {
+    bindingId: string;
+    launch?: TerminalLaunch;
+    cols?: number;
+    rows?: number;
+    canvasName?: string;
+    nodeId?: string;
+    label?: string;
+  }): Promise<TerminalSessionSummary> {
+    const res = await this.call({
+      v: 1,
+      id: this.nextId(),
+      op: "create",
+      bindingId: input.bindingId,
+      launch: input.launch,
+      cols: input.cols,
+      rows: input.rows,
+      canvasName: input.canvasName,
+      nodeId: input.nodeId,
+      label: input.label,
+    });
+    if (!res.ok) throw new Error(res.error);
+    return res.data as TerminalSessionSummary;
+  }
+
+  async list(): Promise<readonly TerminalSessionSummary[]> {
+    const res = await this.call({ v: 1, id: this.nextId(), op: "list" });
+    if (!res.ok) throw new Error(res.error);
+    const data = res.data as { sessions?: TerminalSessionSummary[] };
+    return data.sessions ?? [];
+  }
+
+  async get(bindingId: string): Promise<TerminalSessionSummary | undefined> {
+    const res = await this.call({ v: 1, id: this.nextId(), op: "get", bindingId });
+    if (!res.ok) throw new Error(res.error);
+    return (res.data as TerminalSessionSummary | null) ?? undefined;
+  }
+
+  async kill(bindingId: string): Promise<boolean> {
+    const res = await this.call({ v: 1, id: this.nextId(), op: "kill", bindingId });
+    if (!res.ok) throw new Error(res.error);
+    return Boolean(res.data);
+  }
+
+  async bindCanvas(
+    bindingId: string,
+    ref: { canvasName?: string; nodeId?: string } | null,
+  ): Promise<void> {
+    const res = await this.call({
+      v: 1,
+      id: this.nextId(),
+      op: "bindCanvas",
+      bindingId,
+      ref,
+    });
+    if (!res.ok) throw new Error(res.error);
+  }
+
+  async attach(input: {
+    bindingId: string;
+    mode: "control" | "observe";
+    takeover?: boolean;
+  }): Promise<
+    | {
+        ok: true;
+        lease: ControlLease;
+        cols: number;
+        rows: number;
+        journal: readonly JournalEntry[];
+        status: string;
+        pid?: number;
+      }
+    | { ok: false; message: string }
+  > {
+    const res = await this.call({
+      v: 1,
+      id: this.nextId(),
+      op: "attach",
+      bindingId: input.bindingId,
+      mode: input.mode,
+      takeover: input.takeover,
+    });
+    if (!res.ok) return { ok: false, message: res.error };
+    const data = res.data as {
+      leaseId: string;
+      bindingId: string;
+      epoch: string;
+      mode: "control" | "observe";
+      cols: number;
+      rows: number;
+      journal: unknown;
+      status: string;
+      pid?: number;
+    };
+    return {
+      ok: true,
+      lease: {
+        leaseId: data.leaseId,
+        bindingId: data.bindingId,
+        epoch: data.epoch,
+        mode: data.mode,
+      },
+      cols: data.cols,
+      rows: data.rows,
+      journal: reviveJournal(data.journal),
+      status: data.status,
+      pid: data.pid,
+    };
+  }
+
+  async release(leaseId: string): Promise<void> {
+    const res = await this.call({ v: 1, id: this.nextId(), op: "release", leaseId });
+    if (!res.ok) throw new Error(res.error);
+  }
+
+  async write(leaseId: string, data: string): Promise<boolean> {
+    const res = await this.call({ v: 1, id: this.nextId(), op: "write", leaseId, data });
+    if (!res.ok) throw new Error(res.error);
+    return Boolean(res.data);
+  }
+
+  async resize(leaseId: string, cols: number, rows: number): Promise<boolean> {
+    const res = await this.call({
+      v: 1,
+      id: this.nextId(),
+      op: "resize",
+      leaseId,
+      cols,
+      rows,
+    });
+    if (!res.ok) throw new Error(res.error);
+    return Boolean(res.data);
+  }
+
+  close(): void {
+    this.closed = true;
+    this.failAll(new Error("client closed"));
+    try {
+      this.socket?.destroy();
+    } catch {
+      // ignore
+    }
+  }
+}

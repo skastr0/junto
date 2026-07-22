@@ -147,7 +147,6 @@ export const classifyTermKillTarget = (input: {
 }): { readonly allowed: boolean; readonly reason?: string } => {
   const d = classifyProcessSignalTarget({
     pid: input.pid,
-    asProcessGroup: false,
     selfPid: input.selfPid,
     ppid: input.ppid,
   });
