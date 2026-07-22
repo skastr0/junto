@@ -32,6 +32,7 @@ interface OwnedAdapterChild {
   readonly mode: "group" | "child";
   readonly spawned: boolean;
   cleanupTimer?: ReturnType<typeof setTimeout>;
+  retainedStraggler?: boolean;
   released?: boolean;
 }
 
@@ -104,12 +105,19 @@ export interface AdapterQuitDrainResult {
 export const terminateAdapterChildrenOnQuit = (): Promise<AdapterQuitDrainResult> => {
   if (adapterQuitDrain) return adapterQuitDrain;
   adapterProcessesQuiescing = true;
+  const retainedAtQuiesce = [...ownedAdapterChildren]
+    .filter((owned) => owned.retainedStraggler)
+    .length;
+  if (ownedAdapterChildren.size === 0) {
+    adapterQuitDrain = Promise.resolve({ clean: true, retained: 0 });
+    return adapterQuitDrain;
+  }
   for (const owned of ownedAdapterChildren) {
     terminateOwnedAdapterChild(owned);
   }
   adapterQuitDrain = new Promise((resolve) => {
     const drainTimer = setTimeout(() => {
-      const retained = ownedAdapterChildren.size;
+      const retained = Math.max(retainedAtQuiesce, ownedAdapterChildren.size);
       resolve({ clean: retained === 0, retained });
     }, QUIT_KILL_GRACE_MS + LEADER_STREAM_DRAIN_GRACE_MS);
     drainTimer.unref?.();
@@ -182,7 +190,6 @@ const runRegisteredAdapterChild = (
     let resultSettled = false;
     let closeObserved = false;
     let leaderExited = false;
-    let retainedStraggler = false;
     let timedOut = false;
     let bufferExceeded = false;
     let leaderExitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -228,7 +235,7 @@ const runRegisteredAdapterChild = (
     const abandonLeaderlessGroup = (): void => {
       clearTimeout(timer);
       if (leaderExitTimer !== undefined) clearTimeout(leaderExitTimer);
-      retainedStraggler = true;
+      owned.retainedStraggler = true;
       settleResult({ ok: false, stdout, error: LEADERLESS_STREAM_ERROR });
     };
 
@@ -284,7 +291,7 @@ const runRegisteredAdapterChild = (
     child.once("close", (code, signal) => {
       if (code === 0 && signal === null && !timedOut && !bufferExceeded) {
         settleResult({ ok: true, stdout });
-        if (!retainedStraggler) releaseAfterClose();
+        releaseAfterClose();
         return;
       }
       const error = stderr.trim() ||
@@ -299,7 +306,7 @@ const runRegisteredAdapterChild = (
       // non-zero when a single provider errors while still emitting a useful
       // JSON payload on stdout. Callers decide whether to recover from it.
       settleResult({ ok: false, stdout, error });
-      if (!retainedStraggler) releaseAfterClose();
+      releaseAfterClose();
     });
 };
 

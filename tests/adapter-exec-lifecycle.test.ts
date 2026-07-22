@@ -69,7 +69,7 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
       gracefulOk: true,
       gracefulSettledWithinBound: true,
       failedSpawnOk: false,
-      drainClean: false,
+      drainClean: true,
       repeatedQuitCoalesced: true,
       leaderResultOk: false,
       leaderError:
