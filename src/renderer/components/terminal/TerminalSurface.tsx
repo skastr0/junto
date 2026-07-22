@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { CanvasNode } from "@shared/canvas";
 import type { VellumTerminalApi } from "@shared/ipc";
 import { resolveTerminalBinding } from "@shared/terminal";
+import { MONO_CELL } from "../../lib/focus-measure";
 import { getVellumApi } from "../../lib/vellum-api";
 
 type AttachResult = {
@@ -28,8 +29,14 @@ type LiveEvent = {
   readonly seq?: bigint;
 };
 
-/** Debounce layout thrash from pin/focus/dock animations (same idea as herdr). */
-const RESIZE_DEBOUNCE_MS = 60;
+const FONT_SIZE = MONO_CELL.fontSizePx;
+/** Same cell estimate herdr uses when FitAddon under-reports. */
+const CELL_W = MONO_CELL.fontSizePx * MONO_CELL.ratio;
+const CELL_H = MONO_CELL.fontSizePx * 1.2;
+/** Debounce layout thrash from pin/focus/dock animations. */
+const RESIZE_DEBOUNCE_MS = 80;
+/** After open/attach, wait for focus shell CSS animation (~160ms) then fit hard. */
+const SETTLE_FIT_MS = 200;
 
 export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -41,28 +48,57 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const apiRef = useRef<VellumTerminalApi | undefined>(undefined);
   const lastGeom = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
   const [status, setStatus] = useState("attaching…");
+  const [geomLabel, setGeomLabel] = useState("");
   const binding = resolveTerminalBinding(node);
   const bindingId = binding?.kind === "native" ? binding.bindingId : "";
   const hostId = binding?.kind === "native" ? binding.hostId : "local";
 
-  /** Fit xterm to the host and push cols/rows to the PTY when geometry changes. */
+  /**
+   * Measure host → set xterm cols/rows → PTY resize.
+   * Single authority for geometry (no parallel onResize→PTY path).
+   */
   const pushResize = (): void => {
     const term = termRef.current;
     const fit = fitRef.current;
     const host = hostRef.current;
     if (!term || !fit || !host) return;
-    // Hidden / zero-size during zone transitions — skip (avoid 0x0 PTY).
-    if (host.clientWidth < 20 || host.clientHeight < 20) return;
+
+    const w = host.clientWidth;
+    const h = host.clientHeight;
+    // Hidden / zero-size during zone transitions — skip (avoid 0×0 PTY).
+    if (w < 40 || h < 40) return;
+
     try {
       fit.fit();
     } catch {
+      // fall through to pixel fallback
+    }
+
+    let cols = term.cols | 0;
+    let rows = term.rows | 0;
+
+    // FitAddon sometimes under-measures before layout settles. Floor from pixels.
+    const minCols = Math.max(20, Math.floor(w / CELL_W));
+    const minRows = Math.max(5, Math.floor(h / CELL_H));
+    if (cols < minCols * 0.85 || rows < minRows * 0.85) {
+      cols = Math.min(300, minCols);
+      rows = Math.min(120, minRows);
+      try {
+        term.resize(cols, rows);
+      } catch {
+        return;
+      }
+    }
+
+    cols = Math.max(20, Math.min(300, cols));
+    rows = Math.max(5, Math.min(120, rows));
+    if (lastGeom.current.cols === cols && lastGeom.current.rows === rows) {
+      setGeomLabel(`${cols}×${rows}`);
       return;
     }
-    const cols = term.cols | 0;
-    const rows = term.rows | 0;
-    if (cols < 20 || rows < 5) return;
-    if (lastGeom.current.cols === cols && lastGeom.current.rows === rows) return;
     lastGeom.current = { cols, rows };
+    setGeomLabel(`${cols}×${rows}`);
+
     const lease = leaseRef.current;
     const api = apiRef.current;
     if (lease && api) void api.terminalResize(lease, cols, rows);
@@ -72,12 +108,14 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     const host = hostRef.current;
     const root = rootRef.current;
     if (!host) return;
+
     const term = new Terminal({
       cursorBlink: true,
       scrollback: 10_000,
       allowProposedApi: true,
-      fontFamily: "SFMono-Regular, Menlo, monospace",
-      fontSize: 13,
+      fontFamily: "SFMono-Regular, Menlo, ui-monospace, monospace",
+      fontSize: FONT_SIZE,
+      lineHeight: 1.2,
       theme: {
         background: "#0b0d0c",
         foreground: "#e7e0d3",
@@ -100,12 +138,19 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       }, RESIZE_DEBOUNCE_MS);
     };
 
-    requestAnimationFrame(() => pushResize());
+    // Initial + post-animation settle (focus-surface-enter is 160ms).
+    requestAnimationFrame(() => {
+      pushResize();
+      setTimeout(() => pushResize(), SETTLE_FIT_MS);
+    });
+
     window.addEventListener("resize", scheduleResize);
-    // Observe the outer surface (flex parent) — pin/dock changes its box first.
     const observer = new ResizeObserver(() => scheduleResize());
     observer.observe(host);
     if (root) observer.observe(root);
+    // Focus panel itself often resizes after mount (stored focusSize).
+    const panel = root?.closest(".focus-surface__panel") ?? null;
+    if (panel) observer.observe(panel);
 
     return () => {
       window.removeEventListener("resize", scheduleResize);
@@ -133,15 +178,10 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       const lease = leaseRef.current;
       if (lease) void api.terminalWrite(lease, data);
     });
-    // Prefer pushResize as the single PTY resize path (debounced). Keep onResize
-    // as a backup when xterm itself changes geometry without our observer.
-    const offResize = term.onResize(({ cols, rows }) => {
-      const lease = leaseRef.current;
-      if (!lease) return;
-      if (lastGeom.current.cols === cols && lastGeom.current.rows === rows) return;
-      lastGeom.current = { cols, rows };
-      void api.terminalResize(lease, cols, rows);
-    });
+
+    // Do NOT wire term.onResize → PTY. pushResize is the only path (avoids
+    // double-fire and thrash with FitAddon).
+
     const offEvent = api.onTerminalEvent((raw) => {
       const event = raw as LiveEvent;
       if (event.bindingId !== bindingId) return;
@@ -183,11 +223,12 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         }
         pending.length = 0;
         setStatus("control");
-        // Layout often settles after first paint / pin animation — fit twice.
+        // Layout settles after attach + focus animation.
         requestAnimationFrame(() => {
           pushResize();
           term.focus();
-          setTimeout(() => pushResize(), 120);
+          setTimeout(() => pushResize(), SETTLE_FIT_MS);
+          setTimeout(() => pushResize(), SETTLE_FIT_MS + 150);
         });
       })
       .catch((error: unknown) =>
@@ -197,7 +238,6 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     return () => {
       alive = false;
       offData.dispose();
-      offResize.dispose();
       offEvent();
       const lease = leaseRef.current;
       leaseRef.current = undefined;
@@ -212,8 +252,13 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       onMouseDown={() => termRef.current?.focus()}
     >
       <div className="native-terminal-surface__status">
-        {node.type === "text" ? node.text : "terminal"}
-        <span>{status}</span>
+        <span className="native-terminal-surface__title">
+          {node.type === "text" ? node.text : "terminal"}
+        </span>
+        <span>
+          {status}
+          {geomLabel ? ` · ${geomLabel}` : ""}
+        </span>
       </div>
       <div ref={hostRef} className="native-terminal-surface__xterm" />
     </div>
