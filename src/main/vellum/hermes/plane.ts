@@ -77,7 +77,6 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
 
   constructor(
     private readonly runPromise: RunPromise,
-    private readonly owner: Scope.Scope,
     private readonly transport: Context.Tag.Service<typeof HermesTransport>,
     private readonly host: string,
     private readonly profile: HermesProfileName,
@@ -100,7 +99,7 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
   private async start(): Promise<void> {
     try {
       const scope = await this.runPromise(
-        Scope.fork(this.owner, ExecutionStrategy.sequential),
+        Scope.make(ExecutionStrategy.sequential),
       );
       this.scope = scope;
       if (this.killed) return;
@@ -288,7 +287,6 @@ export const HermesPlaneLive = Layer.scoped(
         }
         const child = new EffectAcpChild(
           runPromise,
-          owner,
           transport,
           target.host,
           target.profile,

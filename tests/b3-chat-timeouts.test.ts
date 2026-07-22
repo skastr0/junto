@@ -22,6 +22,7 @@ import { spawnedLocalAcp } from "./helpers/acp-child";
 //     grace window if the child never exits.
 
 const TARGET: AcpSpawnTarget = buildAcpSpawnTarget("local:default")!;
+const REMOTE_TARGET: AcpSpawnTarget = buildAcpSpawnTarget("studio:default")!;
 
 class FakeChild extends EventEmitter implements AcpChildLike {
   readonly stdout = new EventEmitter();
@@ -258,6 +259,30 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
     await expect(completion).resolves.toEqual([
       { kind: "bounded", termAttempted: true, killAttempted: true },
     ]);
+  });
+
+  it("bounds a hung remote scope without crossing into the OS signal plane", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    const closeScope = vi.fn(() => new Promise<void>(() => undefined));
+    const client = new AcpClient(REMOTE_TARGET, noopHandlers(), () => ({
+      kind: "remote-scope",
+      child,
+      close: closeScope,
+      isClean: () => true,
+    }));
+    const start = client.start();
+    respondOk(child, lastSentId(child), INIT_RESULT);
+    await start;
+
+    const completion = client.close();
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    await expect(completion).resolves.toEqual([
+      { kind: "bounded", termAttempted: false, killAttempted: false },
+    ]);
+    expect(closeScope).toHaveBeenCalledTimes(1);
+    expect(child.kill).not.toHaveBeenCalled();
   });
 });
 

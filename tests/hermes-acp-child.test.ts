@@ -1,4 +1,4 @@
-import { Effect, Exit, Scope, Stream } from "effect";
+import { Effect, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { EffectAcpChild } from "../src/main/vellum/hermes/plane";
 import { parseHermesProfileName } from "../src/main/vellum/hermes/domain";
@@ -14,7 +14,6 @@ describe("EffectAcpChild scoped teardown", () => {
     const order: string[] = [];
     const unhandled = vi.fn();
     process.on("unhandledRejection", unhandled);
-    const owner = await Effect.runPromise(Scope.make());
     let connected!: () => void;
     const connectedPromise = new Promise<void>((resolve) => { connected = resolve; });
     const lease: SshLease = {
@@ -51,7 +50,6 @@ describe("EffectAcpChild scoped teardown", () => {
       Effect.runPromise(effect);
     const child = new EffectAcpChild(
       runPromise,
-      owner,
       transport,
       "studio",
       parseHermesProfileName("default")!,
@@ -76,7 +74,6 @@ describe("EffectAcpChild scoped teardown", () => {
       expect(unhandled).not.toHaveBeenCalled();
     } finally {
       process.off("unhandledRejection", unhandled);
-      await Effect.runPromise(Scope.close(owner, Exit.void)).catch(() => undefined);
     }
   });
 });
