@@ -10,8 +10,9 @@
  * browser-capable until an offscreen parent window lands.
  */
 
-import { existsSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { constants as fsConstants, existsSync } from "node:fs";
+import { access, lstat, realpath } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import type { Context } from "effect";
 import { Effect, Stream } from "effect";
 import type { RemoteHost } from "@shared/remote-hosts";
@@ -29,11 +30,229 @@ import {
   appProcessPlane,
   type AppChildIo,
 } from "../app-process-plane";
+import { runProcess } from "../../services/process";
 
 const PRODUCT_NAME = "Vellum Command";
 const APP_BUNDLE_NAME = `${PRODUCT_NAME}.app`;
 const LABEL = "skastr0.vellum";
+const TEAM_IDENTIFIER = "EXAMP12345";
+const SIGNING_AUTHORITY =
+  "Developer ID Application: Example Maintainer (EXAMP12345)";
+const DEVELOPER_ID_REQUIREMENT =
+  '=anchor apple generic and identifier "skastr0.vellum" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"';
 const DEPLOY_TIMEOUT_MS = 20 * 60 * 1000;
+const REMOTE_APP_PATH = `/Applications/${APP_BUNDLE_NAME}`;
+
+const shellLiteral = (value: string): string =>
+  `'${value.replaceAll("'", `'"'"'`)}'`;
+
+const xmlText = (value: string): string =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+
+export const isSafeRemoteHomePath = (value: string): boolean => {
+  if (
+    !value.startsWith("/") ||
+    value === "/" ||
+    /[\u0000-\u001f\u007f]/u.test(value)
+  ) {
+    return false;
+  }
+  const segments = value.slice(1).split("/");
+  return segments.every(
+    (segment) => segment.length > 0 && segment !== "." && segment !== "..",
+  );
+};
+
+export type LocalBundleProvenanceReceipt = {
+  readonly appPath: string;
+  readonly bundleIdentifier: typeof LABEL;
+  readonly bundleExecutable: typeof PRODUCT_NAME;
+  readonly teamIdentifier: typeof TEAM_IDENTIFIER;
+  readonly signingAuthority: typeof SIGNING_AUTHORITY;
+  readonly cdHash: string;
+};
+
+const singleCodesignValue = (output: string, key: string): string => {
+  const prefix = `${key}=`;
+  const values = output
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith(prefix))
+    .map((line) => line.slice(prefix.length).trim())
+    .filter((value) => value.length > 0);
+  if (values.length !== 1) {
+    throw new Error(`code signature must contain exactly one ${key}`);
+  }
+  return values[0];
+};
+
+export const validateLocalBundleProvenance = (input: {
+  readonly appPath: string;
+  readonly executablePath: string;
+  readonly bundleIdentifier: string;
+  readonly bundleExecutable: string;
+  readonly codesignMetadata: string;
+}): LocalBundleProvenanceReceipt => {
+  if (basename(input.appPath) !== APP_BUNDLE_NAME) {
+    throw new Error(`local bundle must be named ${APP_BUNDLE_NAME}`);
+  }
+  if (input.bundleIdentifier.trim() !== LABEL) {
+    throw new Error("local bundle identifier does not match Vellum");
+  }
+  if (input.bundleExecutable.trim() !== PRODUCT_NAME) {
+    throw new Error("local bundle executable identity does not match Vellum");
+  }
+  if (
+    singleCodesignValue(input.codesignMetadata, "Executable") !==
+    input.executablePath
+  ) {
+    throw new Error("code signature executable path does not match the bundle");
+  }
+  if (singleCodesignValue(input.codesignMetadata, "Identifier") !== LABEL) {
+    throw new Error("code signature identifier does not match Vellum");
+  }
+  if (
+    singleCodesignValue(input.codesignMetadata, "TeamIdentifier") !==
+    TEAM_IDENTIFIER
+  ) {
+    throw new Error("code signature team does not match Vellum");
+  }
+  const codeDirectories = input.codesignMetadata
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith("CodeDirectory "));
+  if (codeDirectories.length !== 1) {
+    throw new Error("code signature must contain exactly one CodeDirectory");
+  }
+  const flags = codeDirectories[0];
+  if (!/\([^)]*\bruntime\b[^)]*\)/u.test(flags) || /\badhoc\b/u.test(flags)) {
+    throw new Error("code signature must use hardened runtime and may not be ad-hoc");
+  }
+  const authorities = input.codesignMetadata
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith("Authority="))
+    .map((line) => line.slice("Authority=".length).trim());
+  if (authorities[0] !== SIGNING_AUTHORITY) {
+    throw new Error("code signature authority does not match Vellum policy");
+  }
+  const signatureSize = singleCodesignValue(
+    input.codesignMetadata,
+    "Signature size",
+  );
+  if (!/^[1-9][0-9]*$/u.test(signatureSize)) {
+    throw new Error("code signature must be a non-empty Developer ID signature");
+  }
+  const cdHash = singleCodesignValue(input.codesignMetadata, "CDHash");
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(cdHash)) {
+    throw new Error("code signature must contain one valid code-directory hash");
+  }
+  return Object.freeze({
+    appPath: input.appPath,
+    bundleIdentifier: LABEL,
+    bundleExecutable: PRODUCT_NAME,
+    teamIdentifier: TEAM_IDENTIFIER,
+    signingAuthority: SIGNING_AUTHORITY,
+    cdHash: cdHash.toLowerCase(),
+  });
+};
+
+const runBundleAdmissionCommand = async (
+  command: string,
+  args: readonly string[],
+): Promise<{ readonly stdout: string; readonly stderr: string }> => {
+  const result = await runProcess(command, args, {
+    timeoutMs: 30_000,
+    maxOutputBytes: 128 * 1024,
+  });
+  if (result.code !== 0) {
+    const detail = `${result.stderr}\n${result.stdout}`.trim().slice(0, 1_000);
+    throw new Error(
+      `${basename(command)} rejected local bundle${detail ? `: ${detail}` : ""}`,
+    );
+  }
+  return result;
+};
+
+export const admitLocalAppBundle = async (
+  requestedPath: string,
+): Promise<LocalBundleProvenanceReceipt> => {
+  const requestedAbsolute = resolve(requestedPath);
+  const canonicalPath = await realpath(requestedAbsolute);
+  if (canonicalPath !== requestedAbsolute) {
+    throw new Error("local bundle root may not be a symlink or path alias");
+  }
+  const root = await lstat(canonicalPath);
+  if (!root.isDirectory() || root.isSymbolicLink()) {
+    throw new Error("local bundle root must be a directory");
+  }
+  if (basename(canonicalPath) !== APP_BUNDLE_NAME) {
+    throw new Error(`local bundle must be named ${APP_BUNDLE_NAME}`);
+  }
+
+  const infoPlistPath = join(canonicalPath, "Contents", "Info.plist");
+  const executablePath = join(
+    canonicalPath,
+    "Contents",
+    "MacOS",
+    PRODUCT_NAME,
+  );
+  const [plistMetadata, executableMetadata] = await Promise.all([
+    lstat(infoPlistPath),
+    lstat(executablePath),
+  ]);
+  if (
+    !plistMetadata.isFile() ||
+    plistMetadata.isSymbolicLink() ||
+    !executableMetadata.isFile() ||
+    executableMetadata.isSymbolicLink()
+  ) {
+    throw new Error("local bundle identity files must be regular files");
+  }
+  await access(executablePath, fsConstants.X_OK);
+
+  await runBundleAdmissionCommand("/usr/bin/codesign", [
+    "--verify",
+    "--deep",
+    "--strict",
+    "--verbose=2",
+    "-R",
+    DEVELOPER_ID_REQUIREMENT,
+    canonicalPath,
+  ]);
+  const [codesign, bundleIdentifier, bundleExecutable] = await Promise.all([
+    runBundleAdmissionCommand("/usr/bin/codesign", [
+      "-d",
+      "--verbose=4",
+      canonicalPath,
+    ]),
+    runBundleAdmissionCommand("/usr/bin/plutil", [
+      "-extract",
+      "CFBundleIdentifier",
+      "raw",
+      "-o",
+      "-",
+      infoPlistPath,
+    ]),
+    runBundleAdmissionCommand("/usr/bin/plutil", [
+      "-extract",
+      "CFBundleExecutable",
+      "raw",
+      "-o",
+      "-",
+      infoPlistPath,
+    ]),
+  ]);
+  return validateLocalBundleProvenance({
+    appPath: canonicalPath,
+    executablePath,
+    bundleIdentifier: bundleIdentifier.stdout,
+    bundleExecutable: bundleExecutable.stdout,
+    codesignMetadata: `${codesign.stdout}\n${codesign.stderr}`,
+  });
+};
 
 /** Lazy electron app — avoid import-time electron in unit tests. */
 const tryPackagedAppPath = (): string | null => {
@@ -98,23 +317,16 @@ export const parseDeployTransferResult = (input: {
   readonly stdout: string;
   readonly stderr: string;
 }): { readonly ok: boolean; readonly detail: string } => {
-  if (input.stdout.includes("STATION_READY")) {
+  if (/^STATION_READY pid=[1-9][0-9]* term=1 browser=1$/mu.test(input.stdout)) {
     return {
       ok: true,
       detail: "app installed; term + browser control sockets ready",
     };
   }
-  if (input.stdout.includes("TERM_SOCK_OK")) {
-    return {
-      ok: true,
-      detail:
-        "app installed; term control ready (browser control socket not observed yet — open Remote UI/session if needed)",
-    };
-  }
   return {
-    ok: true,
+    ok: false,
     detail:
-      "app installed and started (control sockets not fully observed — station may still be warming)",
+      "remote install did not prove a fresh launchd process generation and control socket",
   };
 };
 
@@ -226,11 +438,517 @@ export const describeDeployTransferFailure = (error: unknown): string => {
   return error instanceof Error ? error.message : String(error);
 };
 
+type RemoteDeployScriptCommands = {
+  readonly uname: string;
+  readonly id: string;
+  readonly launchctl: string;
+  readonly lsof: string;
+  readonly uuidgen: string;
+  readonly tar: string;
+  readonly codesign: string;
+  readonly plutil: string;
+  readonly osascript: string;
+  readonly sleep: string;
+};
+
+type RemoteDeployScriptRuntime = {
+  readonly appPath: string;
+  readonly lockPath: string;
+  readonly commands: RemoteDeployScriptCommands;
+};
+
+const PRODUCTION_DEPLOY_SCRIPT_RUNTIME: RemoteDeployScriptRuntime = {
+  appPath: REMOTE_APP_PATH,
+  lockPath: "/Applications/.vellum-command-deploy.lock",
+  commands: {
+    uname: "/usr/bin/uname",
+    id: "/usr/bin/id",
+    launchctl: "/bin/launchctl",
+    lsof: "/usr/sbin/lsof",
+    uuidgen: "/usr/bin/uuidgen",
+    tar: "/usr/bin/tar",
+    codesign: "/usr/bin/codesign",
+    plutil: "/usr/bin/plutil",
+    osascript: "/usr/bin/osascript",
+    sleep: "/bin/sleep",
+  },
+};
+
+/** Explicit hermetic seam; production always uses the frozen runtime above. */
+export type RemoteDeployScriptTestRuntime = RemoteDeployScriptRuntime & {
+  readonly testOnly: true;
+};
+
+const buildRemoteDeployScriptWithRuntime = (
+  remoteHome: string,
+  expectedCdHash: string,
+  runtime: RemoteDeployScriptRuntime,
+): string => {
+  if (!isSafeRemoteHomePath(remoteHome)) {
+    throw new Error("remote home must be a canonical absolute path");
+  }
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(expectedCdHash)) {
+    throw new Error("expected code-directory hash is invalid");
+  }
+  const remoteAppPath = runtime.appPath;
+  const remoteExecutablePath = `${remoteAppPath}/Contents/MacOS/${PRODUCT_NAME}`;
+  const appParentPath = dirname(remoteAppPath);
+  const plistPath = `${remoteHome}/Library/LaunchAgents/${LABEL}.plist`;
+  const logDir = `${remoteHome}/Library/Logs/${PRODUCT_NAME}`;
+  const termSock = `${remoteHome}/${TERM_REMOTE_SOCK_REL}`;
+  const browserSock = browserControlSocketPath(remoteHome);
+  const incomingPath = `${remoteAppPath}.incoming`;
+
+  // No --vellum-headless: WebContentsView needs a GUI-domain LaunchAgent.
+  const plistBody = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>${LABEL}</string>
+<key>ProgramArguments</key><array>
+<string>${xmlText(remoteExecutablePath)}</string>
+</array>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+<key>ProcessType</key><string>Interactive</string>
+<key>StandardOutPath</key><string>${xmlText(logDir)}/vellum.out.log</string>
+<key>StandardErrorPath</key><string>${xmlText(logDir)}/vellum.err.log</string>
+</dict></plist>
+`;
+  const plistB64 = Buffer.from(plistBody, "utf8").toString("base64");
+
+  // Every interpolated path is a shell-safe literal. APP/IN/EXE are compile-
+  // time product paths; remoteHome only scopes Vellum's own plist/log/sockets.
+  return `
+set -euo pipefail
+umask 022
+UNAME=${shellLiteral(runtime.commands.uname)}
+ID=${shellLiteral(runtime.commands.id)}
+LAUNCHCTL=${shellLiteral(runtime.commands.launchctl)}
+LSOF=${shellLiteral(runtime.commands.lsof)}
+UUIDGEN=${shellLiteral(runtime.commands.uuidgen)}
+TAR=${shellLiteral(runtime.commands.tar)}
+CODESIGN=${shellLiteral(runtime.commands.codesign)}
+PLUTIL=${shellLiteral(runtime.commands.plutil)}
+OSASCRIPT=${shellLiteral(runtime.commands.osascript)}
+SLEEP=${shellLiteral(runtime.commands.sleep)}
+test "$("$UNAME" -s)" = "Darwin" || { echo "REMOTE_NOT_DARWIN $("$UNAME" -s)" >&2; exit 3; }
+APP=${shellLiteral(remoteAppPath)}
+IN=${shellLiteral(incomingPath)}
+BUNDLE=${shellLiteral(APP_BUNDLE_NAME)}
+EXE=${shellLiteral(remoteExecutablePath)}
+IN_EXE=${shellLiteral(`${incomingPath}/${APP_BUNDLE_NAME}/Contents/MacOS/${PRODUCT_NAME}`)}
+TERM_SOCK=${shellLiteral(termSock)}
+BROWSER_SOCK=${shellLiteral(browserSock)}
+PLIST=${shellLiteral(plistPath)}
+PLIST_IN=${shellLiteral(`${plistPath}.incoming`)}
+PLIST_PREVIOUS=${shellLiteral(`${plistPath}.previous`)}
+LOGDIR=${shellLiteral(logDir)}
+APP_PARENT=${shellLiteral(appParentPath)}
+APP_PREVIOUS=${shellLiteral(`${remoteAppPath}.previous`)}
+DEPLOY_LOCK=${shellLiteral(runtime.lockPath)}
+DEPLOY_LOCK_OWNER=${shellLiteral(`${runtime.lockPath}/owner`)}
+LSOF_ERROR=${shellLiteral(`${runtime.lockPath}/lsof.error`)}
+EXPECTED_CDHASH=${shellLiteral(expectedCdHash.toLowerCase())}
+DEVELOPER_ID_REQUIREMENT=${shellLiteral(DEVELOPER_ID_REQUIREMENT)}
+UID_VALUE="$("$ID" -u)"
+DOMAIN="gui/$UID_VALUE"
+JOB="$DOMAIN/${LABEL}"
+LOCK_HELD=0
+ROLLBACK_ARMED=0
+COMMITTED=0
+APP_BACKED_UP=0
+PLIST_BACKED_UP=0
+NEW_APP_INSTALLED=0
+NEW_PLIST_INSTALLED=0
+OLD_JOB_PRESENT=0
+OLD_PID=""
+
+valid_pid() {
+  case "$1" in
+    ""|*[!0-9]*) return 1 ;;
+  esac
+  [ "$1" -gt 1 ]
+}
+
+job_exists() {
+  "$LAUNCHCTL" print "$JOB" >/dev/null 2>&1
+}
+
+exact_exe_pids() {
+  ALL_LSOF_OUTPUT="$("$LSOF" -n -d txt -Fp -Fn 2>"$LSOF_ERROR")" || return 2
+  [ ! -s "$LSOF_ERROR" ] || return 2
+  printf '%s\n' "$ALL_LSOF_OUTPUT" | /usr/bin/awk -v exe="$EXE" '
+    /^p[0-9]+$/ { pid = substr($0, 2); next }
+    /^n/ {
+      name = substr($0, 2)
+      if ((name == exe || name == exe " (deleted)") && !seen[pid]++) print pid
+    }
+  '
+}
+
+exact_exe_has_pid() {
+  PID_LSOF_OUTPUT="$("$LSOF" -n -a -p "$1" -d txt -Fn 2>"$LSOF_ERROR")" || return 1
+  [ ! -s "$LSOF_ERROR" ] || return 1
+  printf '%s\n' "$PID_LSOF_OUTPUT" | /usr/bin/awk -v exe="$EXE" '
+    /^n/ {
+      name = substr($0, 2)
+      if (name == exe || name == exe " (deleted)") found = 1
+    }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+single_metadata_value() {
+  METADATA="$1"
+  METADATA_KEY="$2"
+  printf '%s\n' "$METADATA" | /usr/bin/awk -v prefix="$METADATA_KEY=" '
+    index($0, prefix) == 1 {
+      count += 1
+      value = substr($0, length(prefix) + 1)
+    }
+    END {
+      if (count == 1 && length(value) > 0) print value
+      else exit 1
+    }
+  '
+}
+
+first_signing_authority() {
+  printf '%s\n' "$1" | /usr/bin/awk '
+    /^Authority=/ && !found {
+      print substr($0, length("Authority=") + 1)
+      found = 1
+    }
+    END { if (!found) exit 1 }
+  '
+}
+
+remove_fixed_socket() {
+  SOCKET_PATH="$1"
+  if [ -e "$SOCKET_PATH" ] || [ -L "$SOCKET_PATH" ]; then
+    if [ ! -S "$SOCKET_PATH" ]; then
+      echo "CONTROL_PATH_NOT_SOCKET $SOCKET_PATH" >&2
+      exit 5
+    fi
+    /bin/rm -f -- "$SOCKET_PATH"
+  fi
+  if [ -e "$SOCKET_PATH" ] || [ -L "$SOCKET_PATH" ]; then
+    echo "CONTROL_SOCKET_REMOVE_FAILED $SOCKET_PATH" >&2
+    exit 5
+  fi
+}
+
+socket_owned_by_pid() {
+  [ -S "$1" ] || return 1
+  "$LSOF" -n -a -U -Fp -- "$1" 2>/dev/null | /usr/bin/grep -F -x -q -- "p$2"
+}
+
+wait_until_job_and_executable_gone() {
+  WAIT_LIMIT="$1"
+  WAIT_INDEX=0
+  while [ "$WAIT_INDEX" -lt "$WAIT_LIMIT" ]; do
+    if ! job_exists; then
+      OBSERVED_EXE_PIDS=""
+      if ! OBSERVED_EXE_PIDS="$(exact_exe_pids)"; then
+        echo "PROCESS_OBSERVATION_FAILED" >&2
+        return 2
+      fi
+      if [ -z "$OBSERVED_EXE_PIDS" ]; then return 0; fi
+    fi
+    WAIT_INDEX=$((WAIT_INDEX + 1))
+    "$SLEEP" 1
+  done
+  return 1
+}
+
+release_deploy_lock() {
+  if [ "$LOCK_HELD" != "1" ]; then return 0; fi
+  CURRENT_LOCK_TOKEN="$(/bin/cat "$DEPLOY_LOCK_OWNER" 2>/dev/null || true)"
+  if [ -n "$CURRENT_LOCK_TOKEN" ] && [ "$CURRENT_LOCK_TOKEN" = "$LOCK_TOKEN" ]; then
+    /bin/rm -f -- "$LSOF_ERROR" || return 1
+    /bin/rm -f -- "$DEPLOY_LOCK_OWNER" || return 1
+    /bin/rmdir "$DEPLOY_LOCK" || return 1
+  elif [ ! -e "$DEPLOY_LOCK_OWNER" ] && [ ! -L "$DEPLOY_LOCK_OWNER" ]; then
+    /bin/rmdir "$DEPLOY_LOCK" 2>/dev/null || return 1
+  else
+    return 1
+  fi
+  LOCK_HELD=0
+  return 0
+}
+
+rollback_deploy() {
+  if [ "$ROLLBACK_ARMED" != "1" ] || [ "$COMMITTED" = "1" ]; then return 0; fi
+  "$LAUNCHCTL" bootout "$JOB" >/dev/null 2>&1 || true
+  if ! wait_until_job_and_executable_gone 30; then
+    echo "ROLLBACK_REFUSED_LIVE_GENERATION app_backup=$APP_PREVIOUS plist_backup=$PLIST_PREVIOUS" >&2
+    return 1
+  fi
+  if [ -e "$APP_PREVIOUS" ] || [ -L "$APP_PREVIOUS" ]; then
+    if [ -e "$APP" ] || [ -L "$APP" ]; then
+      /bin/rm -rf -- "$APP" || return 1
+    fi
+    /bin/mv "$APP_PREVIOUS" "$APP" || return 1
+  elif [ "$APP_BACKED_UP" = "1" ]; then
+    echo "ROLLBACK_APP_BACKUP_MISSING $APP_PREVIOUS" >&2
+    return 1
+  elif [ "$NEW_APP_INSTALLED" = "1" ] && { [ -e "$APP" ] || [ -L "$APP" ]; }; then
+    /bin/rm -rf -- "$APP" || return 1
+  fi
+  if [ -e "$PLIST_PREVIOUS" ] || [ -L "$PLIST_PREVIOUS" ]; then
+    if [ -e "$PLIST" ] || [ -L "$PLIST" ]; then
+      /bin/rm -f -- "$PLIST" || return 1
+    fi
+    /bin/mv "$PLIST_PREVIOUS" "$PLIST" || return 1
+  elif [ "$PLIST_BACKED_UP" = "1" ]; then
+    echo "ROLLBACK_PLIST_BACKUP_MISSING $PLIST_PREVIOUS" >&2
+    return 1
+  elif [ "$NEW_PLIST_INSTALLED" = "1" ] && { [ -e "$PLIST" ] || [ -L "$PLIST" ]; }; then
+    /bin/rm -f -- "$PLIST" || return 1
+  fi
+  if [ "$OLD_JOB_PRESENT" = "1" ]; then
+    [ -d "$APP" ] && [ -f "$PLIST" ] || return 1
+    "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" >/dev/null 2>&1 || return 1
+    RESTORED_PID="$("$LAUNCHCTL" kickstart -p "$JOB" 2>/dev/null)" || return 1
+    valid_pid "$RESTORED_PID" && exact_exe_has_pid "$RESTORED_PID" || return 1
+  fi
+  ROLLBACK_ARMED=0
+  return 0
+}
+
+on_deploy_exit() {
+  EXIT_CODE=$?
+  trap - EXIT
+  trap '' HUP INT TERM
+  set +e
+  if [ "$EXIT_CODE" -ne 0 ] && ! rollback_deploy; then EXIT_CODE=9; fi
+  if [ "$EXIT_CODE" -ne 0 ]; then
+    /bin/rm -rf -- "$IN" >/dev/null 2>&1 || true
+    /bin/rm -f -- "$PLIST_IN" >/dev/null 2>&1 || true
+  fi
+  if ! release_deploy_lock; then
+    echo "DEPLOY_LOCK_RELEASE_FAILED $DEPLOY_LOCK" >&2
+    if [ "$EXIT_CODE" -eq 0 ]; then EXIT_CODE=10; fi
+  fi
+  exit "$EXIT_CODE"
+}
+
+commit_deploy() {
+  COMMITTED=1
+  /bin/rm -rf -- "$APP_PREVIOUS" >/dev/null 2>&1 || echo "APP_BACKUP_CLEANUP_FAILED $APP_PREVIOUS" >&2
+  /bin/rm -f -- "$PLIST_PREVIOUS" >/dev/null 2>&1 || echo "PLIST_BACKUP_CLEANUP_FAILED $PLIST_PREVIOUS" >&2
+}
+
+[ -x "$LSOF" ] || { echo "PROCESS_OBSERVER_UNAVAILABLE" >&2; exit 3; }
+LOCK_TOKEN="$("$UUIDGEN")"
+test -n "$LOCK_TOKEN"
+if ! /bin/mkdir "$DEPLOY_LOCK" 2>/dev/null; then
+  echo "DEPLOY_ALREADY_IN_PROGRESS $DEPLOY_LOCK" >&2
+  exit 8
+fi
+LOCK_HELD=1
+trap on_deploy_exit EXIT
+trap 'exit 130' HUP INT TERM
+/usr/bin/printf '%s\n' "$LOCK_TOKEN" > "$DEPLOY_LOCK_OWNER"
+/bin/chmod 600 "$DEPLOY_LOCK_OWNER"
+
+if [ -e "$APP_PREVIOUS" ] || [ -L "$APP_PREVIOUS" ] || [ -e "$PLIST_PREVIOUS" ] || [ -L "$PLIST_PREVIOUS" ]; then
+  echo "DEPLOY_RECOVERY_REQUIRED app_backup=$APP_PREVIOUS plist_backup=$PLIST_PREVIOUS" >&2
+  exit 8
+fi
+
+# Extract and verify the incoming signed artifact while the old generation is
+# still running. Archive or signature failures therefore leave it untouched.
+/bin/mkdir -p "$APP_PARENT"
+/bin/rm -rf -- "$IN"
+/bin/mkdir -p "$IN/$BUNDLE"
+"$TAR" -C "$IN/$BUNDLE" -xf -
+test -x "$IN_EXE"
+"$CODESIGN" --verify --deep --strict --verbose=2 -R "$DEVELOPER_ID_REQUIREMENT" "$IN/$BUNDLE"
+REMOTE_CODESIGN_METADATA="$("$CODESIGN" -d --verbose=4 "$IN/$BUNDLE" 2>&1)" || {
+  echo "REMOTE_SIGNATURE_METADATA_UNAVAILABLE" >&2
+  exit 3
+}
+REMOTE_SIGNED_EXE="$(single_metadata_value "$REMOTE_CODESIGN_METADATA" "Executable")" || {
+  echo "REMOTE_SIGNATURE_EXECUTABLE_AMBIGUOUS" >&2
+  exit 3
+}
+REMOTE_SIGNED_ID="$(single_metadata_value "$REMOTE_CODESIGN_METADATA" "Identifier")" || {
+  echo "REMOTE_SIGNATURE_IDENTIFIER_AMBIGUOUS" >&2
+  exit 3
+}
+REMOTE_SIGNED_TEAM="$(single_metadata_value "$REMOTE_CODESIGN_METADATA" "TeamIdentifier")" || {
+  echo "REMOTE_SIGNATURE_TEAM_AMBIGUOUS" >&2
+  exit 3
+}
+REMOTE_SIGNED_CDHASH="$(single_metadata_value "$REMOTE_CODESIGN_METADATA" "CDHash")" || {
+  echo "REMOTE_SIGNATURE_CDHASH_AMBIGUOUS" >&2
+  exit 3
+}
+REMOTE_SIGNED_AUTHORITY="$(first_signing_authority "$REMOTE_CODESIGN_METADATA")" || {
+  echo "REMOTE_SIGNATURE_AUTHORITY_MISSING" >&2
+  exit 3
+}
+[ "$REMOTE_SIGNED_EXE" = "$IN_EXE" ] || { echo "REMOTE_SIGNATURE_EXECUTABLE_MISMATCH" >&2; exit 3; }
+[ "$REMOTE_SIGNED_ID" = "${LABEL}" ] || { echo "REMOTE_SIGNATURE_IDENTIFIER_MISMATCH" >&2; exit 3; }
+[ "$REMOTE_SIGNED_TEAM" = "${TEAM_IDENTIFIER}" ] || { echo "REMOTE_SIGNATURE_TEAM_MISMATCH" >&2; exit 3; }
+[ "$REMOTE_SIGNED_AUTHORITY" = "${SIGNING_AUTHORITY}" ] || { echo "REMOTE_SIGNATURE_AUTHORITY_MISMATCH" >&2; exit 3; }
+[ "$(/usr/bin/printf '%s' "$REMOTE_SIGNED_CDHASH" | /usr/bin/tr '[:upper:]' '[:lower:]')" = "$EXPECTED_CDHASH" ] || {
+  echo "REMOTE_SIGNATURE_GENERATION_MISMATCH" >&2
+  exit 3
+}
+REMOTE_BUNDLE_ID="$("$PLUTIL" -extract CFBundleIdentifier raw -o - "$IN/$BUNDLE/Contents/Info.plist")"
+REMOTE_BUNDLE_EXE="$("$PLUTIL" -extract CFBundleExecutable raw -o - "$IN/$BUNDLE/Contents/Info.plist")"
+[ "$REMOTE_BUNDLE_ID" = "${LABEL}" ] && [ "$REMOTE_BUNDLE_EXE" = "${PRODUCT_NAME}" ]
+
+# print output is intentionally never parsed. kickstart -p is the documented
+# PID-producing launchctl operation and starts a loaded-but-idle old job so its
+# generation can be captured before bootout.
+if job_exists; then
+  OLD_JOB_PRESENT=1
+  OLD_PID="$("$LAUNCHCTL" kickstart -p "$JOB")" || { echo "OLD_LAUNCHD_PID_NOT_PROVEN" >&2; exit 4; }
+  valid_pid "$OLD_PID" || { echo "OLD_LAUNCHD_PID_INVALID $OLD_PID" >&2; exit 4; }
+  OLD_IDENTITY_OK=0
+  WAIT_INDEX=0
+  while [ "$WAIT_INDEX" -lt 10 ]; do
+    if exact_exe_has_pid "$OLD_PID"; then OLD_IDENTITY_OK=1; break; fi
+    WAIT_INDEX=$((WAIT_INDEX + 1))
+    "$SLEEP" 1
+  done
+  [ "$OLD_IDENTITY_OK" = "1" ] || { echo "OLD_LAUNCHD_EXECUTABLE_NOT_PROVEN pid=$OLD_PID" >&2; exit 4; }
+fi
+
+# Ask both the app and launchd to retire the old generation. Neither command is
+# treated as proof; the bounded observation below is the destructive gate.
+ROLLBACK_ARMED=1
+"$OSASCRIPT" -e ${shellLiteral(`with timeout of 5 seconds
+  tell application "${PRODUCT_NAME}" to quit
+end timeout`)} >/dev/null 2>&1 || true
+"$LAUNCHCTL" bootout "$JOB" >/dev/null 2>&1 || true
+
+if ! wait_until_job_and_executable_gone 30; then
+  CURRENT_EXE_PIDS="$(exact_exe_pids | /usr/bin/tr '\n' ',' || true)"
+  echo "OLD_GENERATION_STILL_PRESENT exe_pids=$CURRENT_EXE_PIDS" >&2
+  exit 4
+fi
+
+# Stale sockets are removed only after the old job and exact executable are
+# both absent. Their later existence therefore witnesses a new listener.
+remove_fixed_socket "$TERM_SOCK"
+remove_fixed_socket "$BROWSER_SOCK"
+
+# Preserve the exact old bundle and plist until the new generation proves
+# readiness. Any later failure runs rollback_deploy from the EXIT trap.
+if [ -e "$APP" ] || [ -L "$APP" ]; then
+  /bin/mv "$APP" "$APP_PREVIOUS"
+  APP_BACKED_UP=1
+fi
+if [ -e "$PLIST" ] || [ -L "$PLIST" ]; then
+  /bin/mv "$PLIST" "$PLIST_PREVIOUS"
+  PLIST_BACKED_UP=1
+fi
+NEW_APP_INSTALLED=1
+/bin/mv "$IN/$BUNDLE" "$APP"
+/bin/rm -rf -- "$IN"
+test -x "$EXE"
+
+/bin/mkdir -p "$(/usr/bin/dirname "$PLIST")" "$LOGDIR"
+/bin/rm -f -- "$PLIST_IN"
+/usr/bin/printf '%s' ${shellLiteral(plistB64)} | /usr/bin/base64 -d > "$PLIST_IN"
+NEW_PLIST_INSTALLED=1
+/bin/mv "$PLIST_IN" "$PLIST"
+if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
+  "$LAUNCHCTL" load -w "$PLIST"
+fi
+
+NEW_PID="$("$LAUNCHCTL" kickstart -p "$JOB")" || { echo "NEW_LAUNCHD_PID_NOT_PROVEN" >&2; exit 6; }
+valid_pid "$NEW_PID" || { echo "NEW_LAUNCHD_PID_INVALID $NEW_PID" >&2; exit 6; }
+if [ -n "$OLD_PID" ] && [ "$NEW_PID" = "$OLD_PID" ]; then
+  echo "NEW_LAUNCHD_PID_REUSED old_pid=$OLD_PID" >&2
+  exit 6
+fi
+NEW_IDENTITY_OK=0
+WAIT_INDEX=0
+while [ "$WAIT_INDEX" -lt 30 ]; do
+  if exact_exe_has_pid "$NEW_PID"; then NEW_IDENTITY_OK=1; break; fi
+  WAIT_INDEX=$((WAIT_INDEX + 1))
+  "$SLEEP" 1
+done
+[ "$NEW_IDENTITY_OK" = "1" ] || {
+  echo "NEW_LAUNCHD_GENERATION_NOT_PROVEN old_pid=$OLD_PID" >&2
+  exit 6
+}
+
+TERM_OK=0
+BROWSER_OK=0
+WAIT_INDEX=0
+while [ "$WAIT_INDEX" -lt 60 ]; do
+  if ! job_exists || ! exact_exe_has_pid "$NEW_PID"; then
+    echo "NEW_LAUNCHD_GENERATION_LOST expected_pid=$NEW_PID" >&2
+    exit 7
+  fi
+  TERM_OK=0
+  BROWSER_OK=0
+  if socket_owned_by_pid "$TERM_SOCK" "$NEW_PID"; then TERM_OK=1; fi
+  if socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then BROWSER_OK=1; fi
+  if [ "$TERM_OK" = "1" ] && [ "$BROWSER_OK" = "1" ]; then
+    if job_exists && exact_exe_has_pid "$NEW_PID" && socket_owned_by_pid "$TERM_SOCK" "$NEW_PID" && socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then
+      commit_deploy
+      echo "STATION_READY pid=$NEW_PID term=1 browser=1"
+      exit 0
+    fi
+  fi
+  WAIT_INDEX=$((WAIT_INDEX + 1))
+  "$SLEEP" 1
+done
+if ! job_exists || ! exact_exe_has_pid "$NEW_PID"; then
+  echo "NEW_LAUNCHD_GENERATION_LOST expected_pid=$NEW_PID" >&2
+  exit 7
+fi
+TERM_OK=0
+BROWSER_OK=0
+if socket_owned_by_pid "$TERM_SOCK" "$NEW_PID"; then TERM_OK=1; fi
+if socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then BROWSER_OK=1; fi
+echo "STATION_PARTIAL pid=$NEW_PID term=$TERM_OK browser=$BROWSER_OK" >&2
+echo "CONTROL_SOCKET_TIMEOUT pid=$NEW_PID term=$TERM_OK browser=$BROWSER_OK" >&2
+exit 2
+`.trim();
+};
+
+export const buildRemoteDeployScript = (
+  remoteHome: string,
+  expectedCdHash: string,
+): string =>
+  buildRemoteDeployScriptWithRuntime(
+    remoteHome,
+    expectedCdHash,
+    PRODUCTION_DEPLOY_SCRIPT_RUNTIME,
+  );
+
+export const buildRemoteDeployScriptForTest = (
+  remoteHome: string,
+  expectedCdHash: string,
+  runtime: RemoteDeployScriptTestRuntime,
+): string => {
+  if (process.env.NODE_ENV !== "test" || runtime.testOnly !== true) {
+    throw new Error("remote deploy runtime overrides are test-only");
+  }
+  if (
+    !runtime.appPath.startsWith("/") ||
+    basename(runtime.appPath) !== APP_BUNDLE_NAME ||
+    !runtime.lockPath.startsWith("/") ||
+    Object.values(runtime.commands).some((command) => !command.startsWith("/"))
+  ) {
+    throw new Error("test deploy runtime requires absolute fixed paths");
+  }
+  return buildRemoteDeployScriptWithRuntime(remoteHome, expectedCdHash, runtime);
+};
+
 const streamAppToRemote = (
   ssh: Ssh,
   endpoint: SshEndpoint,
   input: {
-    readonly localApp: string;
+    readonly localApp: LocalBundleProvenanceReceipt;
     readonly remoteHome: string;
   },
 ): Effect.Effect<
@@ -239,83 +957,10 @@ const streamAppToRemote = (
 > =>
   Effect.scoped(
     Effect.gen(function* () {
-      const parent = dirname(input.localApp);
-      const bundle = basename(input.localApp);
-      const remoteApp = `/Applications/${bundle}`;
-      const remoteExe = `${remoteApp}/Contents/MacOS/${PRODUCT_NAME}`;
-      const plistPath = `${input.remoteHome}/Library/LaunchAgents/${LABEL}.plist`;
-      const logDir = `${input.remoteHome}/Library/Logs/${PRODUCT_NAME}`;
-      const termSock = `${input.remoteHome}/${TERM_REMOTE_SOCK_REL}`;
-      const browserSock = browserControlSocketPath(input.remoteHome);
-
-      // No --vellum-headless: WebContentsView needs a BrowserWindow parent.
-      const plistBody = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>${LABEL}</string>
-<key>ProgramArguments</key><array>
-<string>${remoteExe}</string>
-</array>
-<key>RunAtLoad</key><true/>
-<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
-<key>ProcessType</key><string>Interactive</string>
-<key>StandardOutPath</key><string>${logDir}/vellum.out.log</string>
-<key>StandardErrorPath</key><string>${logDir}/vellum.err.log</string>
-</dict></plist>
-`;
-      const plistB64 = Buffer.from(plistBody, "utf8").toString("base64");
-
-      // Paths embedded via JSON.stringify so they are shell-safe literals.
-      const remoteScript = `
-set -euo pipefail
-umask 022
-# Full-app Remote is macOS-only (LaunchAgent + .app).
-test "$(uname -s)" = "Darwin" || { echo "REMOTE_NOT_DARWIN $(uname -s)" >&2; exit 3; }
-osascript -e 'tell application ${JSON.stringify(PRODUCT_NAME)} to quit' >/dev/null 2>&1 || true
-sleep 1
-launchctl bootout "gui/$(id -u)/${LABEL}" >/dev/null 2>&1 || true
-mkdir -p /Applications
-IN=${JSON.stringify(`${remoteApp}.incoming`)}
-APP=${JSON.stringify(remoteApp)}
-BUNDLE=${JSON.stringify(bundle)}
-EXE=${JSON.stringify(remoteExe)}
-TERM_SOCK=${JSON.stringify(termSock)}
-BROWSER_SOCK=${JSON.stringify(browserSock)}
-PLIST=${JSON.stringify(plistPath)}
-LOGDIR=${JSON.stringify(logDir)}
-rm -rf "$IN"
-mkdir -p "$IN"
-tar -C "$IN" -xf -
-test -x "$IN/$BUNDLE/Contents/MacOS/${PRODUCT_NAME}"
-rm -rf "$APP"
-mv "$IN/$BUNDLE" "$APP"
-rm -rf "$IN"
-test -x "$EXE"
-mkdir -p "$(dirname "$PLIST")" "$LOGDIR"
-echo ${JSON.stringify(plistB64)} | base64 -d > "$PLIST"
-launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl load -w "$PLIST" 2>/dev/null || true
-# GUI session required for WebContentsView parenting (browser automation).
-open -a "$APP" >/dev/null 2>&1 || ("$EXE" >/dev/null 2>&1 &)
-TERM_OK=0
-BROWSER_OK=0
-for i in $(seq 1 60); do
-  if [ -S "$TERM_SOCK" ]; then TERM_OK=1; fi
-  if [ -S "$BROWSER_SOCK" ]; then BROWSER_OK=1; fi
-  if [ "$TERM_OK" = "1" ] && [ "$BROWSER_OK" = "1" ]; then
-    echo "STATION_READY term=1 browser=1"
-    exit 0
-  fi
-  sleep 1
-done
-echo "STATION_PARTIAL term=$TERM_OK browser=$BROWSER_OK" >&2
-# Term sock is enough for native remote terminals; browser may lag.
-if [ "$TERM_OK" = "1" ]; then
-  echo "TERM_SOCK_OK browser=$BROWSER_OK"
-  exit 0
-fi
-echo "TERM_SOCK_TIMEOUT" >&2
-exit 2
-`.trim();
+      const remoteScript = buildRemoteDeployScript(
+        input.remoteHome,
+        input.localApp.cdHash,
+      );
 
       const tar = yield* Effect.acquireRelease(
         Effect.try({
@@ -324,7 +969,7 @@ exit 2
               source: "hosts.deploy-remote.tar",
               purpose: "stream app bundle to remote host",
               command: "tar",
-              args: ["-C", parent, "-cf", "-", bundle],
+              args: ["-C", input.localApp.appPath, "-cf", "-", "."],
             });
             return {
               lease,
@@ -395,8 +1040,8 @@ export const deployRemoteHost = (
       };
     }
 
-    const localApp = resolveLocalAppBundle();
-    if (!localApp) {
+    const resolvedLocalApp = resolveLocalAppBundle();
+    if (!resolvedLocalApp) {
       return {
         ok: false,
         detail:
@@ -406,7 +1051,27 @@ export const deployRemoteHost = (
         stages,
       };
     }
-    push(stages, `local bundle ${localApp}`);
+    push(stages, `local bundle candidate ${resolvedLocalApp}`);
+
+    const admittedLocalApp = yield* Effect.tryPromise({
+      try: () => admitLocalAppBundle(resolvedLocalApp),
+      catch: (error) =>
+        error instanceof Error ? error : new Error(String(error)),
+    }).pipe(Effect.either);
+    if (admittedLocalApp._tag === "Left") {
+      return {
+        ok: false,
+        detail: `${host.label}: local bundle provenance refused — ${admittedLocalApp.left.message}`,
+        code: "validation" as const,
+        message: admittedLocalApp.left.message,
+        stages,
+      };
+    }
+    const localApp = admittedLocalApp.right;
+    push(
+      stages,
+      `local bundle admitted id=${admittedLocalApp.right.bundleIdentifier} team=${admittedLocalApp.right.teamIdentifier}`,
+    );
 
     const endpoint = yield* parseSshEndpoint(host.endpoint).pipe(
       Effect.mapError(
@@ -471,10 +1136,10 @@ export const deployRemoteHost = (
       };
     }
     const home = homeResult.right.stdout.trim();
-    if (!home.startsWith("/")) {
+    if (!isSafeRemoteHomePath(home)) {
       return {
         ok: false,
-        detail: `${host.label}: could not read remote home`,
+        detail: `${host.label}: remote home is not a canonical absolute path`,
         code: "io" as const,
         stages,
       };
