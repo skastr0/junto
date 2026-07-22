@@ -37,6 +37,28 @@ const controlShutdownReceipt = (clean = true) => Object.freeze({
   retainedLabels: Object.freeze([] as string[]),
 });
 
+const storageShutdownReceipt = (clean = true) => Object.freeze({
+  epoch: 1,
+  clean,
+  operations: Object.freeze([]),
+  settled: 0,
+  fulfilled: 0,
+  rejected: 0,
+  rounds: 0,
+  timedOut: false,
+  activeOperations: Object.freeze([]),
+  activeRawClearOperations: Object.freeze([]),
+});
+
+const storageShutdownPort = () => ({
+  beginShutdown: () => ({
+    epoch: 1,
+    activeOperations: Object.freeze([]),
+    activeRawClearOperations: Object.freeze([]),
+  }),
+  drainOnQuit: async () => storageShutdownReceipt(),
+});
+
 describe("browser composition (no ceremony)", () => {
   it("source no longer wires grant delivery / agent product", () => {
     const root = join(import.meta.dirname, "..");
@@ -103,12 +125,19 @@ describe("browser composition (no ceremony)", () => {
       readonly teardownWitnessFailures: number;
     }>();
     const control = deferred<ReturnType<typeof controlShutdownReceipt>>();
+    const storage = deferred<ReturnType<typeof storageShutdownReceipt>>();
     const beginUiShutdown = vi.fn(() => ({
       epoch: 1,
       closedAt: 1,
       activeOperations: [] as const,
     }));
     const drainUiOnQuit = vi.fn(() => ui.promise);
+    const beginStorageShutdown = vi.fn(() => ({
+      epoch: 1,
+      activeOperations: [] as const,
+      activeRawClearOperations: [] as const,
+    }));
+    const drainStorageOnQuit = vi.fn(() => storage.promise);
     const sessions = {
       beginUiShutdown,
       drainUiOnQuit,
@@ -117,6 +146,10 @@ describe("browser composition (no ceremony)", () => {
     const drainControl = vi.fn(() => control.promise);
     const coordinator = makeBrowserShutdownCoordinator({
       sessions,
+      storage: {
+        beginShutdown: beginStorageShutdown,
+        drainOnQuit: drainStorageOnQuit,
+      },
       registry: { close: closeRegistry },
       registryTerminationFailures: () => 0,
     });
@@ -127,6 +160,8 @@ describe("browser composition (no ceremony)", () => {
 
     expect(concurrent).toBe(first);
     expect(beginUiShutdown).toHaveBeenCalledOnce();
+    expect(beginStorageShutdown).toHaveBeenCalledOnce();
+    expect(drainStorageOnQuit).toHaveBeenCalledOnce();
     expect(drainControl).toHaveBeenCalledOnce();
     expect(closeRegistry).toHaveBeenCalledOnce();
     expect(drainUiOnQuit).toHaveBeenCalledOnce();
@@ -145,11 +180,13 @@ describe("browser composition (no ceremony)", () => {
       teardownWitnessFailures: 0,
     });
     control.resolve(controlShutdownReceipt());
+    storage.resolve(storageShutdownReceipt());
 
     await expect(first).resolves.toEqual({
       clean: true,
       timedOut: false,
       registry: { clean: true, capabilitiesRevoked: 3, terminationFailures: 0 },
+      storage: storageShutdownReceipt(),
       ui: {
         epoch: 1,
         clean: true,
@@ -194,6 +231,7 @@ describe("browser composition (no ceremony)", () => {
     } as unknown as BrowserSessionService;
     const coordinator = makeBrowserShutdownCoordinator({
       sessions,
+      storage: storageShutdownPort(),
       registry: { close: () => 0 },
       registryTerminationFailures: () => 0,
     });
@@ -216,6 +254,7 @@ describe("browser composition (no ceremony)", () => {
     } as unknown as BrowserSessionService;
     const coordinator = makeBrowserShutdownCoordinator({
       sessions,
+      storage: storageShutdownPort(),
       registry: { close: () => 0 },
       registryTerminationFailures: () => 0,
     });
@@ -248,6 +287,7 @@ describe("browser composition (no ceremony)", () => {
     } as unknown as BrowserSessionService;
     const coordinator = makeBrowserShutdownCoordinator({
       sessions,
+      storage: storageShutdownPort(),
       registry: { close: () => 0 },
       registryTerminationFailures: () => 0,
       drainTimeoutMs: 5,
@@ -267,6 +307,60 @@ describe("browser composition (no ceremony)", () => {
         timedOut: true,
         activeOperations: ["profile-wipe"],
       },
+      control: { clean: true },
+    });
+  });
+
+  it("keeps a retained raw profile clear authoritative in the aggregate", async () => {
+    const sessions = {
+      beginUiShutdown: () => ({ epoch: 1, closedAt: 1, activeOperations: [] }),
+      drainUiOnQuit: async () => ({
+        epoch: 1,
+        clean: true as const,
+        operations: [] as const,
+        settled: 0,
+        fulfilled: 0,
+        rejected: 0,
+        rounds: 0,
+        timedOut: false as const,
+        activeOperations: [] as const,
+        sessionsDestroyed: 0,
+        teardownWitnessFailures: 0,
+      }),
+    } as unknown as BrowserSessionService;
+    const retainedClear = Object.freeze({
+      ...storageShutdownReceipt(false),
+      operations: Object.freeze(["execute_live", "clear:http_cache"] as const),
+      timedOut: true,
+      activeOperations: Object.freeze(["execute_live"] as const),
+      activeRawClearOperations: Object.freeze(["http_cache"] as const),
+    });
+    const coordinator = makeBrowserShutdownCoordinator({
+      sessions,
+      storage: {
+        beginShutdown: () => ({
+          epoch: 1,
+          activeOperations: ["execute_live"] as const,
+          activeRawClearOperations: ["http_cache"] as const,
+        }),
+        drainOnQuit: async () => retainedClear,
+      },
+      registry: { close: () => 0 },
+      registryTerminationFailures: () => 0,
+    });
+    coordinator.bindControlShutdown({
+      drainOnQuit: async () => controlShutdownReceipt(),
+    });
+
+    await expect(coordinator.drainOnQuit()).resolves.toMatchObject({
+      clean: false,
+      timedOut: false,
+      storage: {
+        clean: false,
+        timedOut: true,
+        activeRawClearOperations: ["http_cache"],
+      },
+      ui: { clean: true },
       control: { clean: true },
     });
   });
@@ -294,6 +388,7 @@ describe("browser composition (no ceremony)", () => {
     } as unknown as BrowserSessionService;
     const coordinator = makeBrowserShutdownCoordinator({
       sessions,
+      storage: storageShutdownPort(),
       registry: { close: () => 0 },
       registryTerminationFailures: () => 0,
     });
@@ -328,6 +423,7 @@ describe("browser composition (no ceremony)", () => {
     } as unknown as BrowserSessionService;
     const coordinator = makeBrowserShutdownCoordinator({
       sessions,
+      storage: storageShutdownPort(),
       registry: { close: () => 0 },
       registryTerminationFailures: () => 0,
       drainTimeoutMs: 5,
@@ -380,6 +476,7 @@ describe("browser composition (no ceremony)", () => {
     } as unknown as BrowserSessionService;
     const coordinator = makeBrowserShutdownCoordinator({
       sessions,
+      storage: storageShutdownPort(),
       registry: { close: () => 0 },
       registryTerminationFailures: () => 0,
     });
@@ -413,6 +510,7 @@ describe("browser composition (no ceremony)", () => {
     } as unknown as BrowserSessionService;
     const coordinator = makeBrowserShutdownCoordinator({
       sessions,
+      storage: storageShutdownPort(),
       registry: { close: () => 2 },
       registryTerminationFailures: () => 1,
     });
@@ -447,6 +545,7 @@ describe("browser composition (no ceremony)", () => {
     } as unknown as BrowserSessionService;
     const coordinator = makeBrowserShutdownCoordinator({
       sessions,
+      storage: storageShutdownPort(),
       registry: { close: () => 0 },
       registryTerminationFailures: () => 0,
     });

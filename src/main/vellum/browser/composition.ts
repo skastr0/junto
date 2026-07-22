@@ -5,18 +5,22 @@ import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
 } from "./capabilities";
+import type {
+  BrowserControlShutdownReceipt as RuntimeBrowserControlShutdownReceipt,
+} from "./control";
 import { makeBrowserProfileGate, type BrowserProfileGate } from "./profile-gate";
 import {
   makeBrowserProfileStorageLifecycle,
   type BrowserProfileStorageCapabilityControl,
   type BrowserProfileStorageDependencies,
+  type BrowserProfileStorageLifecycle,
   type BrowserProfileStoragePlatform,
   type BrowserProfileStorageSessionControl,
+  type BrowserProfileStorageShutdownReceipt,
 } from "./profile-storage";
 import {
   makeBrowserProfileService,
   type BrowserProfileServiceApi,
-  type BrowserProfileWipeLifecycle,
 } from "./profiles";
 import {
   BrowserSessionService,
@@ -44,7 +48,7 @@ export interface BrowserComposition {
   readonly profileGate: BrowserProfileGate;
   readonly profiles: BrowserProfileServiceApi;
   readonly sessions: BrowserSessionService;
-  readonly storage: BrowserProfileWipeLifecycle;
+  readonly storage: BrowserProfileStorageLifecycle;
   /** Internal edge-grant lease registry — not a product grant surface. */
   readonly registry: BrowserCapabilityRegistry;
   /** Bind the local control socket's future monotonic drain before shutdown. */
@@ -55,24 +59,7 @@ export interface BrowserComposition {
   readonly close: (reason?: string) => Promise<BrowserCompositionShutdownReceipt>;
 }
 
-export interface BrowserControlShutdownReceipt {
-  readonly clean: boolean;
-  readonly rounds: number;
-  readonly settled: number;
-  readonly fulfilled: number;
-  readonly rejected: number;
-  readonly retainedCounts: Readonly<{
-    requests: number;
-    edgeAdmissions: number;
-    dispatches: number;
-    routeOperations: number;
-    listenerClosures: number;
-    sockets: number;
-    requestControllers: number;
-    socketPaths: number;
-  }>;
-  readonly retainedLabels: ReadonlyArray<string>;
-}
+export type BrowserControlShutdownReceipt = RuntimeBrowserControlShutdownReceipt;
 
 /** Structural port so browser/control.ts can add a drain without a cycle. */
 export interface BrowserControlShutdownPort {
@@ -88,6 +75,7 @@ export interface BrowserCompositionShutdownReceipt {
     capabilitiesRevoked: number;
     terminationFailures: number;
   }>;
+  readonly storage: BrowserProfileStorageShutdownReceipt;
   readonly ui: BrowserUiShutdownDrainReceipt;
   readonly control:
     | Readonly<{ available: false; clean: false }>
@@ -177,6 +165,7 @@ const normalizeControlShutdownReceipt = (
 
 export const makeBrowserShutdownCoordinator = (input: {
   readonly sessions: BrowserSessionService;
+  readonly storage: Pick<BrowserProfileStorageLifecycle, "beginShutdown" | "drainOnQuit">;
   readonly registry: Pick<BrowserCapabilityRegistry, "close">;
   readonly registryTerminationFailures: () => number;
   /** Tests may lower, never raise, the aggregate deadline. */
@@ -262,10 +251,12 @@ export const makeBrowserShutdownCoordinator = (input: {
     );
 
     const work = (async (): Promise<BrowserCompositionShutdownReceipt> => {
-      // Every ingress closes in this synchronous preamble. Starting the
-      // control drain first aborts future socket admissions; registry close
-      // then revokes already-minted leases before any asynchronous wait.
+      // Every ingress closes in this synchronous preamble. Storage and UI
+      // close before any external wait; starting the control drain aborts
+      // future socket admissions; registry close then revokes already-minted
+      // leases before any asynchronous wait.
       const uiPrecommit = input.sessions.beginUiShutdown(reason);
+      const storagePrecommit = input.storage.beginShutdown();
       let controlFlight: Promise<BrowserControlShutdownReceipt> | undefined;
       let controlStartFailed = false;
       if (control !== undefined) {
@@ -281,6 +272,17 @@ export const makeBrowserShutdownCoordinator = (input: {
         }
       }
       const registry = closeRegistry();
+      let storageFlight: Promise<BrowserProfileStorageShutdownReceipt>;
+      try {
+        const candidate = input.storage.drainOnQuit();
+        storageFlight = Object.is(candidate, flight)
+          ? Promise.reject(
+              new Error("browser storage drain returned its aggregate shutdown promise"),
+            )
+          : candidate;
+      } catch (error) {
+        storageFlight = Promise.reject(error);
+      }
       let uiFlight: Promise<BrowserUiShutdownDrainReceipt>;
       try {
         const candidate = input.sessions.drainUiOnQuit(reason);
@@ -299,6 +301,17 @@ export const makeBrowserShutdownCoordinator = (input: {
           uiOutcome = { status: "rejected", reason };
         },
       );
+      let storageOutcome:
+        | PromiseSettledResult<BrowserProfileStorageShutdownReceipt>
+        | undefined;
+      void storageFlight.then(
+        (value) => {
+          storageOutcome = { status: "fulfilled", value };
+        },
+        (reason) => {
+          storageOutcome = { status: "rejected", reason };
+        },
+      );
       let controlOutcome: PromiseSettledResult<BrowserControlShutdownReceipt> | undefined;
       if (controlFlight !== undefined) {
         void controlFlight.then(
@@ -312,6 +325,7 @@ export const makeBrowserShutdownCoordinator = (input: {
       }
       const allSettled = Promise.allSettled([
         uiFlight,
+        storageFlight,
         ...(controlFlight === undefined ? [] : [controlFlight]),
       ]);
       let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -339,7 +353,22 @@ export const makeBrowserShutdownCoordinator = (input: {
               timedOut: uiOutcome === undefined && timedOut,
               activeOperations: uiPrecommit.activeOperations,
               sessionsDestroyed: 0,
-              teardownWitnessFailures: 1,
+              teardownWitnessFailures: 0,
+            });
+      const storage: BrowserProfileStorageShutdownReceipt =
+        storageOutcome !== undefined && storageOutcome.status === "fulfilled"
+          ? storageOutcome.value
+          : Object.freeze({
+              epoch: storagePrecommit.epoch,
+              clean: false,
+              operations: Object.freeze([]),
+              settled: storageOutcome?.status === "rejected" ? 1 : 0,
+              fulfilled: 0,
+              rejected: storageOutcome?.status === "rejected" ? 1 : 0,
+              rounds: 0,
+              timedOut: storageOutcome === undefined && timedOut,
+              activeOperations: storagePrecommit.activeOperations,
+              activeRawClearOperations: storagePrecommit.activeRawClearOperations,
             });
       let controlReceipt: BrowserCompositionShutdownReceipt["control"];
       if (control === undefined) {
@@ -359,9 +388,15 @@ export const makeBrowserShutdownCoordinator = (input: {
             });
       }
       return Object.freeze({
-        clean: !timedOut && registry.clean && ui.clean && controlReceipt.clean,
+        clean:
+          !timedOut &&
+          registry.clean &&
+          storage.clean &&
+          ui.clean &&
+          controlReceipt.clean,
         timedOut,
         registry,
+        storage,
         ui,
         control: controlReceipt,
       });
@@ -384,7 +419,7 @@ export interface BrowserCompositionRuntime {
   readonly viewAdapter?: BrowserViewAdapter;
   readonly makeStorageLifecycle?: (
     dependencies: BrowserProfileStorageDependencies,
-  ) => BrowserProfileWipeLifecycle;
+  ) => BrowserProfileStorageLifecycle;
 }
 
 class BindOnce<T extends object> {
@@ -472,6 +507,7 @@ export const startBrowserComposition = async (
 
     const shutdown = makeBrowserShutdownCoordinator({
       sessions,
+      storage,
       registry,
       registryTerminationFailures: () => registryTerminationFailures,
     });
