@@ -171,13 +171,16 @@ const runRegisteredAdapterChild = (
       clearTimeout(timer);
       // A one-shot adapter command never owns a persistent descendant. Reap
       // anything that outlived its group leader before forgetting the group.
-      signalOwnedAdapterChild(
-        owned,
-        timedOut || bufferExceeded ? "SIGKILL" : "SIGTERM",
-      );
-      // During app shutdown the capability must survive a leader exit long
-      // enough to perform the bounded TERM -> KILL group cleanup.
-      if (owned.cleanupTimer === undefined) releaseOwnedAdapterChild(owned);
+      // `close` only proves the leader and its inherited stdio are closed;
+      // it says nothing about a detached descendant in the same group.
+      if (timedOut || bufferExceeded) {
+        signalOwnedAdapterChild(owned, "SIGKILL");
+        releaseOwnedAdapterChild(owned);
+      } else {
+        // Resolve the caller now, while retaining the branded group authority
+        // through a bounded TERM -> KILL cleanup for leader-first exits.
+        terminateOwnedAdapterChild(owned);
+      }
       resolve(result);
     };
 

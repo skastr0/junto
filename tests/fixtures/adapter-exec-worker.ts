@@ -24,12 +24,13 @@ if ((mode === "parent" || mode === "parent-ignore-term") && outputPath !== undef
     { mode: 0o600 },
   );
   setInterval(() => undefined, 1_000);
-} else if (mode === "leader-exits-first" && outputPath !== undefined) {
-  const grandchild = spawn(process.execPath, [self, "grandchild"], {
+} else if (mode === "leader-exits-first-ignore-term" && outputPath !== undefined) {
+  const grandchild = spawn("node", ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {
     stdio: "ignore",
   });
   if (grandchild.pid === undefined) throw new Error("fixture grandchild has no pid");
   grandchild.unref();
+  await new Promise((resolve) => setTimeout(resolve, 100));
   await writeFile(
     outputPath,
     JSON.stringify({ grandchildPid: grandchild.pid }),

@@ -46,12 +46,13 @@ const workerPath = join(import.meta.dirname, "adapter-exec-worker.ts");
 try {
   const leader = await runCli(
     process.execPath,
-    [workerPath, "leader-exits-first", pidsPath],
+    [workerPath, "leader-exits-first-ignore-term", pidsPath],
     30_000,
   );
   const leaderPids = JSON.parse(await readFile(pidsPath, "utf8")) as {
     readonly grandchildPid: number;
   };
+  const leaderGrandchildAliveWhenSettled = processAlive(leaderPids.grandchildPid);
   await waitUntil(() => !processAlive(leaderPids.grandchildPid));
   await rm(pidsPath, { force: true });
 
@@ -79,6 +80,7 @@ try {
   );
   const receipt = {
     leaderResultOk: leader.ok,
+    leaderGrandchildAliveWhenSettled,
     leaderExitedGrandchildAlive: processAlive(leaderPids.grandchildPid),
     pendingOk: pendingResult.ok,
     parentAlive: processAlive(pids.parentPid),

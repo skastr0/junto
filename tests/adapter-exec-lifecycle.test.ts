@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 interface LifecycleReceipt {
   readonly leaderResultOk: boolean;
+  readonly leaderGrandchildAliveWhenSettled: boolean;
   readonly leaderExitedGrandchildAlive: boolean;
   readonly pendingOk: boolean;
   readonly parentAlive: boolean;
@@ -59,6 +60,7 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
   it("terminates an owned parent and grandchild and rejects every late spawn", async () => {
     await expect(runLifecycleFixture()).resolves.toEqual({
       leaderResultOk: true,
+      leaderGrandchildAliveWhenSettled: true,
       leaderExitedGrandchildAlive: false,
       pendingOk: false,
       parentAlive: false,
