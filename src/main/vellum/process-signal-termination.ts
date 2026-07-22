@@ -62,6 +62,55 @@ export interface SignalQuitState {
   }>;
 }
 
+export interface QuitPreparationArbiter {
+  /** Returns an epoch, or refuses while signal durability is still precommit. */
+  readonly beginNormal: () => number | undefined;
+  /** Atomically blocks new normal preparation and invalidates old continuations. */
+  readonly claimSignal: () => void;
+  readonly commitSignal: () => void;
+  readonly recoverSignal: () => void;
+  readonly signalPrecommit: () => boolean;
+  readonly normalMayDetach: (generation: number) => boolean;
+}
+
+/** Serializes normal Electron quit continuations against signal finality. */
+export const createQuitPreparationArbiter = (): QuitPreparationArbiter => {
+  let normalGeneration = 0;
+  let signalPhase: "idle" | "precommit" | "committed" = "idle";
+
+  return {
+    beginNormal: () => {
+      if (signalPhase === "precommit") return undefined;
+      normalGeneration += 1;
+      return normalGeneration;
+    },
+    claimSignal: () => {
+      if (signalPhase !== "idle") {
+        throw new Error(`signal already owns quit in phase ${signalPhase}`);
+      }
+      signalPhase = "precommit";
+      // Promise continuations retain their epoch. Bumping here makes every
+      // normal flush/terminal continuation fail closed before runtime detach.
+      normalGeneration += 1;
+    },
+    commitSignal: () => {
+      if (signalPhase !== "precommit") {
+        throw new Error(`cannot commit signal quit from phase ${signalPhase}`);
+      }
+      signalPhase = "committed";
+    },
+    recoverSignal: () => {
+      if (signalPhase !== "precommit") {
+        throw new Error(`cannot recover signal quit from phase ${signalPhase}`);
+      }
+      signalPhase = "idle";
+    },
+    signalPrecommit: () => signalPhase === "precommit",
+    normalMayDetach: (generation) =>
+      signalPhase !== "precommit" && generation === normalGeneration,
+  };
+};
+
 /**
  * Generation-scoped commit boundary for signal-driven quit.
  *

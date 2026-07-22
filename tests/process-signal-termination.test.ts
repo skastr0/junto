@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createQuitPreparationArbiter,
   createSignalQuitState,
   installProcessSignalTermination,
 } from "../src/main/vellum/process-signal-termination";
@@ -333,5 +334,44 @@ describe("signal quit commit state", () => {
       generation: second,
       phase: "preparing",
     });
+  });
+});
+
+describe("quit preparation arbitration", () => {
+  it("blocks new normal quit preparation until signal precommit resolves", () => {
+    const arbiter = createQuitPreparationArbiter();
+
+    arbiter.claimSignal();
+    expect(arbiter.beginNormal()).toBeUndefined();
+    expect(arbiter.signalPrecommit()).toBe(true);
+
+    arbiter.recoverSignal();
+    const normal = arbiter.beginNormal();
+    expect(normal).toBeTypeOf("number");
+    expect(arbiter.normalMayDetach(normal!)).toBe(true);
+  });
+
+  it("invalidates a normal continuation that was awaiting shutdown when signal claims quit", async () => {
+    const arbiter = createQuitPreparationArbiter();
+    const normal = arbiter.beginNormal();
+    if (normal === undefined) throw new Error("normal preparation unexpectedly blocked");
+    let finishTerminal!: () => void;
+    const terminal = new Promise<void>((resolve) => {
+      finishTerminal = resolve;
+    });
+    const detach = vi.fn();
+    const normalContinuation = terminal.then(() => {
+      if (arbiter.normalMayDetach(normal)) detach();
+    });
+
+    arbiter.claimSignal();
+    finishTerminal();
+    await normalContinuation;
+
+    expect(detach).not.toHaveBeenCalled();
+    arbiter.commitSignal();
+    const committedSignalPreparation = arbiter.beginNormal();
+    expect(committedSignalPreparation).toBeTypeOf("number");
+    expect(arbiter.normalMayDetach(committedSignalPreparation!)).toBe(true);
   });
 });

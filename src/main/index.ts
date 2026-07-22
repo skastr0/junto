@@ -55,6 +55,7 @@ import {
 } from "./vellum/node-ref-ingress";
 import { resolveNodeRef } from "./vellum/node-ref-resolver";
 import {
+  createQuitPreparationArbiter,
   createSignalQuitState,
   installProcessSignalTermination,
 } from "./vellum/process-signal-termination";
@@ -241,6 +242,7 @@ let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
 let workControl: WorkControlServer | undefined;
 const signalQuitState = createSignalQuitState();
+const quitPreparationArbiter = createQuitPreparationArbiter();
 const signalQuiescedWindows = new WeakSet<BrowserWindow>();
 let signalRendererDestroyInProgress = false;
 /** Active herdr control-stream count provider for the quit live-work gate. */
@@ -768,6 +770,9 @@ let runtimeDetachedForQuit = false;
 
 const detachRuntimeOnQuit = (reason: string): void => {
   if (runtimeDetachedForQuit) return;
+  if (quitPreparationArbiter.signalPrecommit()) {
+    throw new Error("runtime detach blocked before signal durability commit");
+  }
   runtimeDetachedForQuit = true;
 
   // Stop the read-only adapter plane first. Its one-shot CLI groups are
@@ -921,6 +926,10 @@ const invalidateQuitConfirm = (): void => {
 app.on("before-quit", (event) => {
   if (runtimeDisposed) return;
   event.preventDefault();
+  // A signal owns the global quit sequence until its terminal + renderer
+  // durability boundaries commit. Do not consume its intent or start a
+  // competing normal continuation during either async precommit interval.
+  if (quitPreparationArbiter.signalPrecommit()) return;
   // Flush/dispose already running — do not re-enter. Confirm dialog does NOT
   // own quitPreparation, so a signal can still force through while a dialog is open.
   if (quitPreparation !== undefined) return;
@@ -928,6 +937,8 @@ app.on("before-quit", (event) => {
   // Sacred order lives inside this handler (flush, then runtime detach, then dispose).
   const beginQuitPreparation = (durableSignalGeneration?: number): void => {
     if (runtimeDisposed || quitPreparation !== undefined) return;
+    const preparationGeneration = quitPreparationArbiter.beginNormal();
+    if (preparationGeneration === undefined) return;
     const canvasAlreadyDurable =
       durableSignalGeneration !== undefined &&
       signalQuitState.reusableDurabilityGeneration() === durableSignalGeneration;
@@ -941,17 +952,23 @@ app.on("before-quit", (event) => {
     quitPreparation = flush
       .then(() => requireCleanLocalTerminalShutdown("before-quit", true))
       .then(() => {
+        if (!quitPreparationArbiter.normalMayDetach(preparationGeneration)) return false;
         nodeRefRelayWatcher?.close();
         nodeRefRelayWatcher = undefined;
         detachRuntimeOnQuit("before-quit");
-        return disposeRuntime();
+        return disposeRuntime().then(() => true);
       })
-      .then(() => {
+      .then((mayFinish) => {
+        if (
+          !mayFinish ||
+          !quitPreparationArbiter.normalMayDetach(preparationGeneration)
+        ) return;
         runtimeDisposed = true;
         closeWindowsWithoutCanvasFlush = true;
         app.quit();
       })
       .catch((error) => {
+        if (!quitPreparationArbiter.normalMayDetach(preparationGeneration)) return;
         // Renderer quiescence is the irreversible signal commit point. Once
         // crossed, rebuilding UI over a detached/partially disposed runtime is
         // unsafe; retain the durable generation and let the bounded fallback
@@ -1047,9 +1064,12 @@ installProcessSignalTermination({
   app,
   cleanup: async (signal) => {
     const generation = signalQuitState.begin();
+    quitPreparationArbiter.claimSignal();
+    // Existing normal continuations retain an invalidated arbiter epoch, but
+    // the shared slot must be free for the committed signal's later app.quit.
+    quitPreparation = undefined;
     // Signals are forced exits — never the honest-quit dialog. Invalidate any
     // open confirm so accept after cancel race cannot fight the force path.
-    skipQuitConfirm = true;
     invalidateQuitConfirm();
     try {
       await requireCleanLocalTerminalShutdown(signal, false);
@@ -1061,18 +1081,30 @@ installProcessSignalTermination({
       signalQuitState.markCanvasDurable(generation);
       quiesceSignalRenderer(generation);
       signalQuitState.authorizeForceExit(generation);
+      quitPreparationArbiter.commitSignal();
+      skipQuitConfirm = true;
       detachRuntimeOnQuit(signal);
       signalQuitState.markRuntimeDetached(generation);
     } catch (error) {
       const disposition = signalQuitState.fail(generation);
       if (disposition === "recover") {
+        quitPreparationArbiter.recoverSignal();
         skipQuitConfirm = false;
         quitConfirmed = false;
         recreateWindowIfEmpty();
         console.error(`[quit] signal attempt blocked (${signal}):`, error);
         throw error;
       }
-      if (disposition === "stale") throw error;
+      if (disposition === "stale") {
+        if (quitPreparationArbiter.signalPrecommit()) {
+          quitPreparationArbiter.recoverSignal();
+        }
+        throw error;
+      }
+      if (quitPreparationArbiter.signalPrecommit()) {
+        quitPreparationArbiter.commitSignal();
+      }
+      skipQuitConfirm = true;
       // Quiescence made the document final. Resolve cleanup so the installer
       // arms its referenced fallback even if runtime detachment threw midway.
       console.error(`[quit] committed signal teardown stalled (${signal}):`, error);

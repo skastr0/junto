@@ -152,6 +152,29 @@ describe("canvas quit durability wiring", () => {
     expect(beforeQuit).not.toContain("signalTermination?.cancel()");
   });
 
+  it("serializes normal quit continuations behind signal precommit", () => {
+    const beforeStart = source.indexOf('app.on("before-quit"');
+    const beforeEnd = source.indexOf('app.on("will-quit"', beforeStart);
+    const beforeQuit = source.slice(beforeStart, beforeEnd);
+    const signalStart = source.indexOf("installProcessSignalTermination({");
+    const signal = source.slice(signalStart);
+    const detachStart = source.indexOf("const detachRuntimeOnQuit");
+    const detachEnd = source.indexOf("let runtimeDispose", detachStart);
+    const detach = source.slice(detachStart, detachEnd);
+
+    expect(beforeQuit.indexOf("quitPreparationArbiter.signalPrecommit()"))
+      .toBeLessThan(beforeQuit.indexOf("if (quitPreparation !== undefined)"));
+    expect(beforeQuit.indexOf("quitPreparationArbiter.normalMayDetach(preparationGeneration)"))
+      .toBeLessThan(beforeQuit.indexOf('detachRuntimeOnQuit("before-quit")'));
+    expect(signal.indexOf("quitPreparationArbiter.claimSignal()"))
+      .toBeLessThan(signal.indexOf("await requireCleanLocalTerminalShutdown(signal, false)"));
+    expect(signal.indexOf("signalQuitState.authorizeForceExit(generation)"))
+      .toBeLessThan(signal.indexOf("quitPreparationArbiter.commitSignal()"));
+    expect(signal.indexOf("quitPreparationArbiter.commitSignal()"))
+      .toBeLessThan(signal.indexOf("skipQuitConfirm = true"));
+    expect(detach).toContain("quitPreparationArbiter.signalPrecommit()");
+  });
+
   it("blocks window teardown until a canvas flush acknowledgement arrives", () => {
     const start = source.indexOf('mainWindow.on("close"');
     const end = source.indexOf('mainWindow.webContents.setWindowOpenHandler', start);
