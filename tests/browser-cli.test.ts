@@ -287,7 +287,7 @@ describe("packaged browser CLI contract", () => {
 });
 
 describe("browser CLI packaging contract", () => {
-  it("packages only the standalone helper and installs both stable command names atomically", async () => {
+  it("packages only the standalone helper and installs both stable command names exclusively", async () => {
     const pkg = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as {
       readonly build: {
         readonly files: ReadonlyArray<string>;
@@ -309,7 +309,9 @@ describe("browser CLI packaging contract", () => {
     );
     expect(installScript).toContain('install_cli_link "vellum"');
     expect(installScript).toContain('install_cli_link "vellum-browser"');
-    expect(installScript).toContain('mv -f "$stage" "$target"');
+    expect(installScript).toContain('ln -s "$helper" "$target"');
+    expect(installScript).toContain('CLI link changed identity during creation');
+    expect(installScript).not.toContain('mv -f "$stage" "$target"');
     expect(installScript).toContain("refusing to replace non-symlink command");
     expect(installScript).toContain('[[ "$existing" != "$helper" ]]');
     expect(installScript).not.toContain('!= *"/${PRODUCT_NAME}.app/Contents/Resources/bin/vellum-browser"');
