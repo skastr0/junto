@@ -46,6 +46,8 @@ if ((mode === "parent" || mode === "parent-ignore-term") && outputPath !== undef
 } else if (mode === "grandchild") {
   hardExitAfter(2_000);
   setInterval(() => undefined, 1_000);
+} else if (mode === "graceful-100") {
+  await new Promise((resolve) => setTimeout(resolve, 100));
 } else if (mode === "marker" && outputPath !== undefined) {
   await writeFile(outputPath, "spawned", { mode: 0o600 });
 } else {

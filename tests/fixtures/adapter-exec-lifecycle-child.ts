@@ -50,6 +50,11 @@ const markerPath = join(root, "late-spawned");
 const workerPath = join(import.meta.dirname, "adapter-exec-worker.ts");
 
 try {
+  const gracefulStartedAt = Date.now();
+  const graceful = await runCli(process.execPath, [workerPath, "graceful-100"], 1_000);
+  const gracefulSettledWithinBound = Date.now() - gracefulStartedAt < 500;
+  const failedSpawn = await runCli("/definitely-missing-vellum-adapter-command", [], 1_000);
+
   const leader = await runCli(
     process.execPath,
     [workerPath, "leader-exits-first-ignore-term", pidsPath],
@@ -90,6 +95,9 @@ try {
     1_000,
   );
   const receipt = {
+    gracefulOk: graceful.ok,
+    gracefulSettledWithinBound,
+    failedSpawnOk: failedSpawn.ok,
     leaderResultOk: leader.ok,
     leaderError: leader.error,
     leaderGrandchildAliveWhenSettled,

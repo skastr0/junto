@@ -30,6 +30,7 @@ interface OwnedAdapterChild {
   readonly child: ChildProcessWithoutNullStreams;
   readonly owned: OwnedProcess;
   readonly mode: "group" | "child";
+  readonly spawned: boolean;
   cleanupTimer?: ReturnType<typeof setTimeout>;
   released?: boolean;
 }
@@ -63,17 +64,20 @@ const LEADER_STREAM_DRAIN_GRACE_MS = 100;
 const LEADERLESS_STREAM_ERROR =
   "adapter command leader exited while output streams remained open; descendant cleanup refused";
 
-const terminateOwnedAdapterChild = (owned: OwnedAdapterChild): void => {
+const retainOwnedAdapterChildUntilKill = (owned: OwnedAdapterChild): void => {
   if (owned.released) return;
   if (owned.cleanupTimer === undefined) {
     owned.cleanupTimer = setTimeout(() => {
-      // The group can outlive its leader. Keep the branded capability until
-      // this bounded escalation has signalled any remaining descendants.
       signalOwnedAdapterChild(owned, "SIGKILL");
       releaseOwnedAdapterChild(owned);
     }, QUIT_KILL_GRACE_MS);
     owned.cleanupTimer.unref?.();
   }
+};
+
+const terminateOwnedAdapterChild = (owned: OwnedAdapterChild): void => {
+  retainOwnedAdapterChildUntilKill(owned);
+  if (owned.released) return;
   signalOwnedAdapterChild(owned, "SIGTERM");
 };
 
@@ -123,7 +127,12 @@ const runOwnedFile = (
         options: options.env === undefined ? undefined : { env: options.env },
       });
       child = spawned.child;
-      const owned: OwnedAdapterChild = { child, owned: spawned.process, mode: spawned.mode };
+      const owned: OwnedAdapterChild = {
+        child,
+        owned: spawned.process,
+        mode: spawned.mode,
+        spawned: child.pid !== undefined,
+      };
       ownedAdapterChildren.add(owned);
       return runRegisteredAdapterChild(owned, options, resolve);
     } catch (error) {
@@ -150,7 +159,9 @@ const runRegisteredAdapterChild = (
     let stderr = "";
     let stdoutBytes = 0;
     let stderrBytes = 0;
-    let settled = false;
+    let resultSettled = false;
+    let closeObserved = false;
+    let leaderExited = false;
     let timedOut = false;
     let bufferExceeded = false;
     let leaderExitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -168,7 +179,8 @@ const runRegisteredAdapterChild = (
     const timer = setTimeout(() => {
       timedOut = true;
       signalOwnedAdapterChild(owned, "SIGKILL");
-      settle({
+      retainOwnedAdapterChildUntilKill(owned);
+      settleResult({
         ok: false,
         stdout,
         error: `adapter command timed out after ${options.timeoutMs}ms`,
@@ -176,18 +188,27 @@ const runRegisteredAdapterChild = (
     }, options.timeoutMs);
     timer.unref?.();
 
-    const settle = (result: CliResult): void => {
-      if (settled) return;
-      settled = true;
+    const settleResult = (result: CliResult): void => {
+      if (resultSettled) return;
+      resultSettled = true;
+      detachChildStreams();
+      resolve(result);
+    };
+
+    const releaseAfterClose = (): void => {
+      closeObserved = true;
       clearTimeout(timer);
       if (leaderExitTimer !== undefined) clearTimeout(leaderExitTimer);
-      detachChildStreams();
-      // `close` is observed leader exit. Never signal after it: group
-      // authority refuses leaderless groups, and child authority is released.
-      // A quit that began while the leader was alive retains its already
-      // armed TERM -> KILL cleanup through the grace window.
-      if (owned.cleanupTimer === undefined) releaseOwnedAdapterChild(owned);
-      resolve(result);
+      // Close is the only conclusive witness that the spawned leader has
+      // ended. Any pending KILL would now be a leaderless group signal.
+      releaseOwnedAdapterChild(owned);
+    };
+
+    const abandonLeaderlessGroup = (): void => {
+      clearTimeout(timer);
+      if (leaderExitTimer !== undefined) clearTimeout(leaderExitTimer);
+      settleResult({ ok: false, stdout, error: LEADERLESS_STREAM_ERROR });
+      releaseOwnedAdapterChild(owned);
     };
 
     const append = (target: "stdout" | "stderr", chunk: unknown): void => {
@@ -204,29 +225,45 @@ const runRegisteredAdapterChild = (
       if (stdoutBytes <= options.maxBuffer && stderrBytes <= options.maxBuffer) return;
       bufferExceeded = true;
       signalOwnedAdapterChild(owned, "SIGKILL");
-      settle({ ok: false, stdout, error: "adapter command exceeded the output limit" });
+      retainOwnedAdapterChildUntilKill(owned);
+      settleResult({ ok: false, stdout, error: "adapter command exceeded the output limit" });
     };
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: unknown) => append("stdout", chunk));
     child.stderr.on("data", (chunk: unknown) => append("stderr", chunk));
-    child.once("error", (error) => {
-      settle({ ok: false, stdout: "", error: error.message });
+    child.on("error", (error) => {
+      // A failed spawn has no live leader or group to tear down. Later errors
+      // are not exit witnesses: retain bounded teardown and keep consuming
+      // repeated events so EventEmitter never throws an unhandled error.
+      if (!owned.spawned) {
+        settleResult({ ok: false, stdout: "", error: error.message });
+        releaseOwnedAdapterChild(owned);
+        return;
+      }
+      if (closeObserved || leaderExited) return;
+      terminateOwnedAdapterChild(owned);
+      settleResult({ ok: false, stdout, error: error.message });
     });
     child.once("exit", () => {
-      if (settled) return;
+      if (closeObserved) return;
+      leaderExited = true;
+      // Group authority ends with its leader. Cancel an in-flight quit KILL
+      // now, rather than attempting a guaranteed-refused signal after grace.
+      releaseOwnedAdapterChild(owned);
       // A normal leader drains its pipes and reaches `close` first. If an
       // inherited pipe stays open, a leaderless group is no longer safe to
       // signal; stop waiting, report the refusal, and detach our endpoints.
       leaderExitTimer = setTimeout(() => {
-        settle({ ok: false, stdout, error: LEADERLESS_STREAM_ERROR });
+        abandonLeaderlessGroup();
       }, LEADER_STREAM_DRAIN_GRACE_MS);
       leaderExitTimer.unref?.();
     });
     child.once("close", (code, signal) => {
       if (code === 0 && signal === null && !timedOut && !bufferExceeded) {
-        settle({ ok: true, stdout });
+        settleResult({ ok: true, stdout });
+        releaseAfterClose();
         return;
       }
       const error = stderr.trim() ||
@@ -240,7 +277,8 @@ const runRegisteredAdapterChild = (
       // Keep stdout on failure: tools like `codexbar usage --json` often exit
       // non-zero when a single provider errors while still emitting a useful
       // JSON payload on stdout. Callers decide whether to recover from it.
-      settle({ ok: false, stdout, error });
+      settleResult({ ok: false, stdout, error });
+      releaseAfterClose();
     });
 };
 

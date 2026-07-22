@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 interface LifecycleReceipt {
+  readonly gracefulOk: boolean;
+  readonly gracefulSettledWithinBound: boolean;
+  readonly failedSpawnOk: boolean;
   readonly leaderResultOk: boolean;
   readonly leaderError?: string;
   readonly leaderGrandchildAliveWhenSettled: boolean;
@@ -61,6 +64,9 @@ const runLifecycleFixture = async (): Promise<LifecycleReceipt> => {
 describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () => {
   it("bounds leaderless inherited streams, reaps active groups, and rejects late spawns", async () => {
     await expect(runLifecycleFixture()).resolves.toEqual({
+      gracefulOk: true,
+      gracefulSettledWithinBound: true,
+      failedSpawnOk: false,
       leaderResultOk: false,
       leaderError:
         "adapter command leader exited while output streams remained open; descendant cleanup refused",
