@@ -500,8 +500,12 @@ const runServer = () => {
   }
 
   const subscribers = new Set();
+  const connections = new Set();
+  let shuttingDown = false;
+  let forcedExit;
 
   const server = net.createServer((conn) => {
+    connections.add(conn);
     let buf = "";
     conn.on("data", (chunk) => {
       buf += chunk;
@@ -513,9 +517,50 @@ const runServer = () => {
         idx = buf.indexOf("\n");
       }
     });
-    conn.on("close", () => subscribers.delete(conn));
-    conn.on("error", () => subscribers.delete(conn));
+    conn.on("close", () => {
+      subscribers.delete(conn);
+      connections.delete(conn);
+    });
+    conn.on("error", () => {
+      subscribers.delete(conn);
+      connections.delete(conn);
+    });
   });
+
+  const unlinkSocket = () => {
+    try {
+      unlinkSync(socketPath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        process.stderr.write(`fake herdr server: could not unlink socket: ${error}\n`);
+      }
+    }
+  };
+
+  const finishShutdown = () => {
+    if (forcedExit) clearTimeout(forcedExit);
+    unlinkSocket();
+    process.exit(0);
+  };
+
+  const shutdown = (acknowledgedConnection) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    server.close(finishShutdown);
+    unlinkSocket();
+
+    for (const connection of connections) {
+      if (connection === acknowledgedConnection) continue;
+      connection.destroy();
+    }
+    if (acknowledgedConnection) acknowledgedConnection.end();
+
+    forcedExit = setTimeout(() => {
+      for (const connection of connections) connection.destroy();
+      finishShutdown();
+    }, 750);
+    forcedExit.unref();
+  };
 
   const handleRequest = (conn, line) => {
     let msg;
@@ -534,6 +579,13 @@ const runServer = () => {
       conn.write(`${JSON.stringify({ id, result: {} })}\n`);
       return;
     }
+    if (method === "server.shutdown") {
+      conn.write(
+        `${JSON.stringify({ id, result: { shutting_down: true } })}\n`,
+        () => shutdown(conn),
+      );
+      return;
+    }
     conn.write(`${JSON.stringify({ id, error: { code: "unknown_method", message: `unknown method ${method}` } })}\n`);
   };
 
@@ -543,17 +595,8 @@ const runServer = () => {
     process.exit(1);
   });
 
-  const shutdown = () => {
-    server.close();
-    try {
-      unlinkSync(socketPath);
-    } catch {
-      // fine
-    }
-    process.exit(0);
-  };
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", () => shutdown(undefined));
+  process.on("SIGINT", () => shutdown(undefined));
 
   void runEventPump(subscribers);
 };

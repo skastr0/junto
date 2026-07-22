@@ -46,6 +46,26 @@ const waitFor = async (cond: () => boolean, ms = 3_000): Promise<void> => {
   }
 };
 
+const waitForProcessExit = (
+  child: ReturnType<typeof spawn>,
+  ms = 3_000,
+): Promise<{ readonly code: number | null; readonly signal: NodeJS.Signals | null }> =>
+  new Promise((resolve, reject) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve({ code: child.exitCode, signal: child.signalCode });
+      return;
+    }
+    const timer = setTimeout(() => {
+      child.off("exit", onExit);
+      reject(new Error("fake herdr server did not exit inside the bound"));
+    }, ms);
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    };
+    child.once("exit", onExit);
+  });
+
 let cleanup: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
   for (const fn of cleanup.reverse()) await fn();
@@ -126,6 +146,36 @@ describe("fake herdr — CLI envelope decodes via the real parse.ts", () => {
 });
 
 describe("fake herdr server — real socket protocol decodes via mirror.ts + event-normalize.ts", () => {
+  it("acknowledges server.shutdown, closes subscriptions, unlinks its socket, and exits", async () => {
+    const sandbox = await makeSandbox();
+    await writeScenario(sandbox.scenarioPath, { world: oneWorkspaceWorld() });
+    const socketPath = join(sandbox.home, ".config", "herdr", "herdr.sock");
+    const server = spawn(FAKE_HERDR, ["server"], { env: sandbox.env, stdio: "ignore" });
+    cleanup.push(() => {
+      if (server.exitCode === null && server.signalCode === null) server.kill("SIGTERM");
+    });
+
+    await waitFor(() => existsSync(socketPath));
+    let subscriptionClosed = false;
+    const events = new LocalMirrorTransport(socketPath);
+    const closeEvents = await events.openEvents(
+      [],
+      () => undefined,
+      () => {
+        subscriptionClosed = true;
+      },
+    );
+    cleanup.push(closeEvents);
+
+    const control = new LocalMirrorTransport(socketPath);
+    await expect(control.request("server.shutdown", {}, 2_000)).resolves.toEqual({
+      shutting_down: true,
+    });
+    await waitFor(() => subscriptionClosed);
+    await waitFor(() => !existsSync(socketPath));
+    await expect(waitForProcessExit(server)).resolves.toEqual({ code: 0, signal: null });
+  });
+
   it("bootstraps a real HerdrMirror from the fake's session.snapshot, then applies a pushed lifecycle event", async () => {
     const world = oneWorkspaceWorld();
     const sandbox = await makeSandbox();

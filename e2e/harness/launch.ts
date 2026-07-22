@@ -13,9 +13,9 @@
  *  - renderer served from a local static server (127.0.0.1, ephemeral port)
  *    since the trusted renderer protocol only installs when app.isPackaged
  */
-import { exec } from "node:child_process";
+import { lstat, unlink } from "node:fs/promises";
+import { connect } from "node:net";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { CanvasDoc } from "../../src/shared/canvas";
@@ -82,29 +82,101 @@ const dismissStationRoleGate = async (page: Page): Promise<void> => {
   await gate.waitFor({ state: "hidden", timeout: 20_000 });
 };
 
-const execAsync = promisify(exec);
-
 // The (fake or real) herdr server is intentionally detached + unref'd by the
 // product (src/main/vellum/herdr/plane.ts's startServer) — it's meant to
 // outlive any one app session. That's correct product behavior, but an e2e
 // sandbox's fake daemon has nothing left to serve once its temp HOME is
-// gone; leaving it running leaks a process per test. Kill whatever is
-// listening on this sandbox's own herdr socket (never anything else) before
-// the temp dir is removed out from under it.
-const killOrphanedHerdrServer = async (sandbox: Sandbox): Promise<void> => {
-  const socketPath = join(sandbox.homeDir, ".config", "herdr", "herdr.sock");
-  try {
-    const { stdout } = await execAsync(`lsof -t "${socketPath}"`);
-    for (const pid of stdout.split("\n").map((line) => line.trim()).filter(Boolean)) {
-      try {
-        process.kill(Number(pid), "SIGTERM");
-      } catch {
-        // already gone
-      }
+// gone; leaving it running leaks a process per test. The fake alone exposes
+// an explicit shutdown RPC on this random sandbox socket. No process is ever
+// discovered or signaled by pid.
+const FAKE_HERDR_SHUTDOWN_TIMEOUT_MS = 2_000;
+
+const socketExists = async (socketPath: string): Promise<boolean> =>
+  lstat(socketPath).then(
+    () => true,
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    },
+  );
+
+const waitForSocketRemoval = async (socketPath: string): Promise<void> => {
+  const deadline = Date.now() + FAKE_HERDR_SHUTDOWN_TIMEOUT_MS;
+  while (await socketExists(socketPath)) {
+    if (Date.now() >= deadline) {
+      throw new Error("fake herdr shutdown left its sandbox socket behind");
     }
-  } catch {
-    // lsof exits non-zero when nothing holds the socket — nothing to clean up.
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
+};
+
+export const shutdownSandboxHerdrServer = async (sandbox: Sandbox): Promise<void> => {
+  const socketPath = join(sandbox.homeDir, ".config", "herdr", "herdr.sock");
+  if (!(await socketExists(socketPath))) return;
+
+  const requestId = "vellum-e2e-server-shutdown";
+  const acknowledged = await new Promise<boolean>((resolve, reject) => {
+    const socket = connect(socketPath);
+    let buffer = "";
+    let settled = false;
+    const settle = (result: { readonly ok: true; readonly acknowledged: boolean } | { readonly ok: false; readonly error: Error }): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      if (result.ok) resolve(result.acknowledged);
+      else reject(result.error);
+    };
+    const timer = setTimeout(() => {
+      settle({ ok: false, error: new Error("fake herdr shutdown RPC timed out") });
+    }, FAKE_HERDR_SHUTDOWN_TIMEOUT_MS);
+
+    socket.setEncoding("utf8");
+    socket.once("connect", () => {
+      socket.write(`${JSON.stringify({ id: requestId, method: "server.shutdown", params: {} })}\n`);
+    });
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      const lineEnd = buffer.indexOf("\n");
+      if (lineEnd < 0) return;
+      let response: unknown;
+      try {
+        response = JSON.parse(buffer.slice(0, lineEnd));
+      } catch {
+        settle({ ok: false, error: new Error("fake herdr shutdown returned invalid JSON") });
+        return;
+      }
+      const result =
+        typeof response === "object" && response !== null
+          ? (response as { readonly id?: unknown; readonly result?: unknown })
+          : undefined;
+      const body =
+        typeof result?.result === "object" && result.result !== null
+          ? (result.result as { readonly shutting_down?: unknown })
+          : undefined;
+      if (result?.id !== requestId || body?.shutting_down !== true) {
+        settle({ ok: false, error: new Error("fake herdr shutdown returned the wrong acknowledgement") });
+        return;
+      }
+      socket.end();
+      settle({ ok: true, acknowledged: true });
+    });
+    socket.once("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT" || error.code === "ECONNREFUSED") {
+        settle({ ok: true, acknowledged: false });
+        return;
+      }
+      settle({ ok: false, error });
+    });
+  });
+
+  if (!acknowledged) {
+    // A stale socket in this throwaway sandbox has no server to unlink it.
+    await unlink(socketPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
+  await waitForSocketRemoval(socketPath);
 };
 
 export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumHandle> => {
@@ -144,10 +216,13 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
   await dismissStationRoleGate(page);
 
   const close = async (): Promise<void> => {
-    await app.close().catch(() => undefined);
-    await server.close().catch(() => undefined);
-    await killOrphanedHerdrServer(sandbox);
-    await destroySandbox(sandbox);
+    try {
+      await app.close().catch(() => undefined);
+      await server.close().catch(() => undefined);
+      await shutdownSandboxHerdrServer(sandbox);
+    } finally {
+      await destroySandbox(sandbox);
+    }
   };
 
   return { app, page, sandbox, close };
