@@ -172,6 +172,49 @@ export interface BrowserProfileStorageDependencies {
   readonly liveClearAggregateTimeoutMs?: number;
 }
 
+export type BrowserProfileStorageOperationKind =
+  | "prepare"
+  | "execute_live"
+  | "recover_cold";
+
+export type BrowserProfileStorageClearOperation = Extract<
+  BrowserProfileStorageStage,
+  "flush" | "connections" | "browser_data" | "auth_cache" | "http_cache"
+>;
+
+export interface BrowserProfileStorageShutdownPrecommitReceipt {
+  readonly epoch: number;
+  readonly activeOperations: ReadonlyArray<BrowserProfileStorageOperationKind>;
+  readonly activeRawClearOperations: ReadonlyArray<BrowserProfileStorageClearOperation>;
+}
+
+export interface BrowserProfileStorageShutdownReceipt {
+  readonly epoch: number;
+  readonly clean: boolean;
+  readonly operations: ReadonlyArray<
+    BrowserProfileStorageOperationKind | `clear:${BrowserProfileStorageClearOperation}`
+  >;
+  readonly settled: number;
+  readonly fulfilled: number;
+  readonly rejected: number;
+  readonly rounds: number;
+  readonly timedOut: boolean;
+  readonly activeOperations: ReadonlyArray<BrowserProfileStorageOperationKind>;
+  readonly activeRawClearOperations: ReadonlyArray<BrowserProfileStorageClearOperation>;
+}
+
+/**
+ * Browser-profile storage authority with a monotonic shutdown gate.
+ *
+ * A false drain receipt may be retried after the bounded call returns. The
+ * gate never reopens, and a later call can report clean only after every exact
+ * Electron clear promise admitted before shutdown has terminally settled.
+ */
+export interface BrowserProfileStorageLifecycle extends BrowserProfileWipeLifecycle {
+  readonly beginShutdown: () => BrowserProfileStorageShutdownPrecommitReceipt;
+  readonly drainOnQuit: () => Promise<BrowserProfileStorageShutdownReceipt>;
+}
+
 interface DirectoryIdentity {
   readonly path: string;
   readonly dev: number;
@@ -209,6 +252,22 @@ interface ColdRecoveryStorage {
 
 interface DeleteBudget {
   entries: number;
+}
+
+type TrackedSettlement = "fulfilled" | "rejected";
+
+interface TrackedStorageOperation {
+  readonly id: number;
+  readonly kind: BrowserProfileStorageOperationKind;
+  readonly settlement: Promise<TrackedSettlement>;
+  exact?: Promise<unknown>;
+}
+
+interface TrackedRawClearOperation {
+  readonly id: number;
+  readonly stage: BrowserProfileStorageClearOperation;
+  readonly exact: PromiseLike<void>;
+  readonly settlement: Promise<TrackedSettlement>;
 }
 
 const DEFAULT_FILE_SYSTEM: BrowserProfileStorageFileSystem = Object.freeze({
@@ -304,7 +363,7 @@ export const browserProfileQuarantinePath = (
   return isCanonicalAbsolutePath(quarantine) ? quarantine : undefined;
 };
 
-class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
+class BrowserProfileStorageLifecycleImpl implements BrowserProfileStorageLifecycle {
   readonly #platform: BrowserProfileStoragePlatform;
   readonly #sessions: BrowserProfileStorageSessionControl;
   readonly #capabilities: BrowserProfileStorageCapabilityControl;
@@ -313,8 +372,14 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
   readonly #failpoints: BrowserProfileStorageFailpoints;
   readonly #liveClearStepTimeoutMs: number;
   readonly #liveClearAggregateTimeoutMs: number;
+  readonly #activeOperations = new Map<number, TrackedStorageOperation>();
+  readonly #activeRawClearOperations = new Map<number, TrackedRawClearOperation>();
   #prepared: PreparedWipe | undefined;
   #retainedBlock: RetainedBlock | undefined;
+  #nextOperationId = 1;
+  #shutdownEpoch = 0;
+  #shutdownStarted = false;
+  #shutdownDrainFlight: Promise<BrowserProfileStorageShutdownReceipt> | undefined;
 
   constructor(dependencies: BrowserProfileStorageDependencies) {
     this.#platform = dependencies.platform;
@@ -336,7 +401,15 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
     );
   }
 
-  async prepare(input: {
+  prepare(input: {
+    readonly wipeId: string;
+    readonly profileId: string;
+    readonly partition: string;
+  }): Promise<BrowserProfileWipePaths> {
+    return this.#runTrackedOperation("prepare", "prepare", () => this.#prepare(input));
+  }
+
+  async #prepare(input: {
     readonly wipeId: string;
     readonly profileId: string;
     readonly partition: string;
@@ -374,7 +447,13 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
     return paths;
   }
 
-  async executeLive(pending: BrowserProfilePendingWipe): Promise<BrowserProfileWipeOutcome> {
+  executeLive(pending: BrowserProfilePendingWipe): Promise<BrowserProfileWipeOutcome> {
+    return this.#runTrackedOperation("execute_live", "quiesce", () =>
+      this.#executeLive(pending),
+    );
+  }
+
+  async #executeLive(pending: BrowserProfilePendingWipe): Promise<BrowserProfileWipeOutcome> {
     this.#validatePending(pending, "quiesce");
     if (pending.stage !== "live_clear_pending") {
       throw storageError("quiesce", "invalid_input", false);
@@ -424,13 +503,229 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
     }
   }
 
-  async recoverCold(pending: BrowserProfilePendingWipe): Promise<void> {
+  recoverCold(pending: BrowserProfilePendingWipe): Promise<void> {
+    return this.#runTrackedOperation("recover_cold", "cold_validate", () =>
+      this.#recoverCold(pending),
+    );
+  }
+
+  async #recoverCold(pending: BrowserProfilePendingWipe): Promise<void> {
     this.#validatePending(pending, "cold_validate");
     const block = this.#beginOrRetainBlock(pending);
     const storage = await this.#validateColdRecoveryStorage(pending);
     const quarantine = await this.#quarantineColdRecoveryStorage(pending, storage);
     await this.#deleteColdRecoveryStorage(pending.storagePath, storage, quarantine);
     this.#commitColdRecovery(pending.profileId, block);
+  }
+
+  beginShutdown(): BrowserProfileStorageShutdownPrecommitReceipt {
+    if (!this.#shutdownStarted) {
+      this.#shutdownStarted = true;
+      this.#shutdownEpoch += 1;
+      this.#prepared = undefined;
+    }
+    return Object.freeze({
+      epoch: this.#shutdownEpoch,
+      activeOperations: this.#activeOperationKinds(),
+      activeRawClearOperations: this.#activeRawClearStages(),
+    });
+  }
+
+  drainOnQuit(): Promise<BrowserProfileStorageShutdownReceipt> {
+    const precommit = this.beginShutdown();
+    if (this.#shutdownDrainFlight !== undefined) return this.#shutdownDrainFlight;
+
+    let resolveFlight!: (receipt: BrowserProfileStorageShutdownReceipt) => void;
+    let rejectFlight!: (error: unknown) => void;
+    const flight = new Promise<BrowserProfileStorageShutdownReceipt>((resolve, reject) => {
+      resolveFlight = resolve;
+      rejectFlight = reject;
+    });
+    // Publish before any await. An admitted Electron seam may synchronously
+    // re-enter shutdown while its tracked lifecycle reservation has no exact
+    // promise assigned yet.
+    this.#shutdownDrainFlight = flight;
+    void flight.then(
+      () => {
+        if (this.#shutdownDrainFlight === flight) this.#shutdownDrainFlight = undefined;
+      },
+      () => {
+        if (this.#shutdownDrainFlight === flight) this.#shutdownDrainFlight = undefined;
+      },
+    );
+
+    const work = this.#drainTrackedOperations(precommit);
+    void work.then(resolveFlight, rejectFlight);
+    return flight;
+  }
+
+  #runTrackedOperation<T>(
+    kind: BrowserProfileStorageOperationKind,
+    stage: BrowserProfileStorageStage,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (this.#shutdownStarted) {
+      return Promise.reject(storageError(stage, "gate_blocked", false));
+    }
+    if (this.#activeOperations.size > 0 || this.#activeRawClearOperations.size > 0) {
+      return Promise.reject(storageError(stage, "gate_blocked", true));
+    }
+
+    const id = this.#allocateOperationId();
+    let settle!: (outcome: TrackedSettlement) => void;
+    const settlement = new Promise<TrackedSettlement>((resolveSettlement) => {
+      settle = resolveSettlement;
+    });
+    const tracked: TrackedStorageOperation = {
+      id,
+      kind,
+      settlement,
+    };
+    // Reserve synchronously before invoking any platform, session, gate, or
+    // filesystem seam. Re-entrant admission and shutdown see this operation.
+    this.#activeOperations.set(id, tracked);
+
+    let exact: Promise<T>;
+    try {
+      exact = operation();
+      tracked.exact = exact;
+    } catch (error) {
+      this.#activeOperations.delete(id);
+      settle("rejected");
+      return Promise.reject(error);
+    }
+    void exact.then(
+      () => {
+        this.#activeOperations.delete(id);
+        settle("fulfilled");
+      },
+      () => {
+        this.#activeOperations.delete(id);
+        settle("rejected");
+      },
+    );
+    return exact;
+  }
+
+  async #drainTrackedOperations(
+    precommit: BrowserProfileStorageShutdownPrecommitReceipt,
+  ): Promise<BrowserProfileStorageShutdownReceipt> {
+    const deadline = performance.now() + this.#liveClearAggregateTimeoutMs;
+    const observed = new Set<number>();
+    const operations: Array<
+      BrowserProfileStorageOperationKind | `clear:${BrowserProfileStorageClearOperation}`
+    > = [];
+    let settled = 0;
+    let fulfilled = 0;
+    let rejected = 0;
+    let rounds = 0;
+    let timedOut = false;
+
+    while (true) {
+      const round = this.#activeTrackedOperations()
+        .filter((operation) => !observed.has(operation.id))
+        .sort((left, right) => left.id - right.id);
+      if (round.length === 0) {
+        // A lifecycle promise can settle and admit its raw Electron promise in
+        // adjacent microtasks. Require a fixed point before claiming clean.
+        await Promise.resolve();
+        if (!this.#activeTrackedOperations().some((operation) => !observed.has(operation.id))) {
+          break;
+        }
+        continue;
+      }
+
+      rounds += 1;
+      for (const operation of round) {
+        observed.add(operation.id);
+        operations.push(operation.label);
+      }
+
+      const remainingMs = Math.max(0, deadline - performance.now());
+      if (remainingMs === 0) {
+        timedOut = true;
+        break;
+      }
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<undefined>((resolveTimeout) => {
+        timer = setTimeout(() => resolveTimeout(undefined), remainingMs);
+      });
+      const outcomes = await Promise.race([
+        Promise.all(round.map((operation) => operation.settlement)),
+        timeout,
+      ]);
+      if (timer !== undefined) clearTimeout(timer);
+      if (outcomes === undefined) {
+        timedOut = true;
+        break;
+      }
+      settled += outcomes.length;
+      for (const outcome of outcomes) {
+        if (outcome === "fulfilled") fulfilled += 1;
+        else rejected += 1;
+      }
+    }
+
+    const activeOperations = this.#activeOperationKinds();
+    const activeRawClearOperations = this.#activeRawClearStages();
+    return Object.freeze({
+      epoch: precommit.epoch,
+      clean:
+        !timedOut &&
+        activeOperations.length === 0 &&
+        activeRawClearOperations.length === 0,
+      operations: Object.freeze(operations),
+      settled,
+      fulfilled,
+      rejected,
+      rounds,
+      timedOut,
+      activeOperations,
+      activeRawClearOperations,
+    });
+  }
+
+  #activeTrackedOperations(): ReadonlyArray<{
+    readonly id: number;
+    readonly label:
+      | BrowserProfileStorageOperationKind
+      | `clear:${BrowserProfileStorageClearOperation}`;
+    readonly settlement: Promise<TrackedSettlement>;
+  }> {
+    return [
+      ...[...this.#activeOperations.values()].map((operation) => ({
+        id: operation.id,
+        label: operation.kind,
+        settlement: operation.settlement,
+      })),
+      ...[...this.#activeRawClearOperations.values()].map((operation) => ({
+        id: operation.id,
+        label: `clear:${operation.stage}` as const,
+        settlement: operation.settlement,
+      })),
+    ];
+  }
+
+  #activeOperationKinds(): ReadonlyArray<BrowserProfileStorageOperationKind> {
+    return Object.freeze(
+      [...this.#activeOperations.values()]
+        .sort((left, right) => left.id - right.id)
+        .map((operation) => operation.kind),
+    );
+  }
+
+  #activeRawClearStages(): ReadonlyArray<BrowserProfileStorageClearOperation> {
+    return Object.freeze(
+      [...this.#activeRawClearOperations.values()]
+        .sort((left, right) => left.id - right.id)
+        .map((operation) => operation.stage),
+    );
+  }
+
+  #allocateOperationId(): number {
+    const id = this.#nextOperationId;
+    this.#nextOperationId += 1;
+    return id;
   }
 
   async #validateColdRecoveryStorage(
@@ -809,10 +1104,7 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
   }
 
   async #runClearBarrier(
-    stage: Extract<
-      BrowserProfileStorageStage,
-      "flush" | "connections" | "browser_data" | "auth_cache" | "http_cache"
-    >,
+    stage: BrowserProfileStorageClearOperation,
     aggregateDeadline: number,
     operation: () => void | Promise<void>,
   ): Promise<void> {
@@ -824,23 +1116,57 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
       throw storageError(stage, "storage_clear_timeout", true);
     }
 
-    const observed = Promise.resolve()
-      .then(operation)
-      .then(
-        () => ({ status: "complete" as const }),
-        () => ({ status: "failed" as const }),
-      );
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const expired = new Promise<{ readonly status: "timeout" }>((resolveTimeout) => {
-      timeout = setTimeout(() => resolveTimeout({ status: "timeout" }), timeoutMs);
+    let raw: void | Promise<void>;
+    try {
+      raw = operation();
+    } catch {
+      throw storageError(stage, "storage_clear_failed", true);
+    }
+    if (raw === undefined) return;
+
+    let promiseLike: PromiseLike<void>;
+    try {
+      if (
+        (typeof raw !== "object" && typeof raw !== "function") ||
+        raw === null ||
+        typeof raw.then !== "function"
+      ) {
+        throw new Error("storage clear returned an invalid completion witness");
+      }
+      promiseLike = raw;
+    } catch {
+      throw storageError(stage, "storage_clear_failed", true);
+    }
+
+    const settlement = Promise.resolve(promiseLike).then(
+      () => "fulfilled" as const,
+      () => "rejected" as const,
+    );
+    const id = this.#allocateOperationId();
+    const tracked: TrackedRawClearOperation = Object.freeze({
+      id,
+      stage,
+      exact: promiseLike,
+      settlement,
     });
-    const outcome = await Promise.race([observed, expired]);
+    // Keep the exact Electron promise strongly reachable until its terminal
+    // settlement. A bounded caller may stop awaiting it; authority does not.
+    this.#activeRawClearOperations.set(id, tracked);
+    void settlement.then(() => {
+      this.#activeRawClearOperations.delete(id);
+    });
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<"timeout">((resolveTimeout) => {
+      timeout = setTimeout(() => resolveTimeout("timeout"), timeoutMs);
+    });
+    const outcome = await Promise.race([settlement, expired]);
     if (timeout !== undefined) clearTimeout(timeout);
 
-    if (outcome.status === "timeout") {
+    if (outcome === "timeout") {
       throw storageError(stage, "storage_clear_timeout", true);
     }
-    if (outcome.status === "failed") {
+    if (outcome === "rejected") {
       throw storageError(stage, "storage_clear_failed", true);
     }
   }
@@ -1012,4 +1338,4 @@ class BrowserProfileStorageLifecycle implements BrowserProfileWipeLifecycle {
 
 export const makeBrowserProfileStorageLifecycle = (
   dependencies: BrowserProfileStorageDependencies,
-): BrowserProfileWipeLifecycle => new BrowserProfileStorageLifecycle(dependencies);
+): BrowserProfileStorageLifecycle => new BrowserProfileStorageLifecycleImpl(dependencies);

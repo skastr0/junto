@@ -309,6 +309,45 @@ describe("browser profile storage lifecycle", () => {
     ]);
   });
 
+  it("publishes lifecycle admission before a platform seam can re-enter shutdown", async () => {
+    const layout = await createLayout();
+    const harness = makeHarness(layout);
+    let lifecycle!: ReturnType<typeof makeBrowserProfileStorageLifecycle>;
+    let reentrantDrain: ReturnType<typeof lifecycle.drainOnQuit> | undefined;
+    const platform: BrowserProfileStoragePlatform = {
+      ...harness.platform,
+      currentRoots: () => {
+        reentrantDrain ??= lifecycle.drainOnQuit();
+        return harness.platform.currentRoots();
+      },
+    };
+    lifecycle = lifecycleFor(harness, {
+      platform,
+      liveClearAggregateTimeoutMs: 100,
+    });
+
+    await lifecycle.prepare({ wipeId: WIPE_ID, profileId: PROFILE, partition: PARTITION });
+    if (reentrantDrain === undefined) throw new Error("shutdown did not re-enter");
+    const receipt = await reentrantDrain;
+
+    expect(receipt).toMatchObject({
+      epoch: 1,
+      clean: true,
+      operations: ["prepare"],
+      settled: 1,
+      fulfilled: 1,
+      rejected: 0,
+      timedOut: false,
+      activeOperations: [],
+      activeRawClearOperations: [],
+    });
+    const shutdownBlocked = await expectStorageError(
+      lifecycle.prepare({ wipeId: SECOND_WIPE_ID, profileId: PROFILE, partition: PARTITION }),
+      "gate_blocked",
+    );
+    expect(shutdownBlocked.retryable).toBe(false);
+  });
+
   it("rejects a non-persistent Electron Session before journaling paths", async () => {
     const layout = await createLayout();
     const harness = makeHarness(layout);
@@ -557,6 +596,123 @@ describe("browser profile storage lifecycle", () => {
     expect(error.message).not.toContain("credential");
     expect(error.message).not.toContain(layout.root);
     expect(harness.gate.disposition(PROFILE)).toBe("quiescing");
+  });
+
+  it("refuses cold recovery until a timed-out Electron clear promise really settles", async () => {
+    const layout = await createLayout();
+    const harness = makeHarness(layout);
+    let resolveLate!: () => void;
+    const exactClear = new Promise<void>((resolve) => {
+      resolveLate = resolve;
+    });
+    harness.session.pendingAt = "clearData";
+    harness.session.pendingOperation = exactClear;
+    const lifecycle = lifecycleFor(harness, {
+      liveClearStepTimeoutMs: 10,
+      liveClearAggregateTimeoutMs: 100,
+    });
+    const { pending } = await preparePending(layout, harness, lifecycle);
+
+    await expectStorageError(lifecycle.executeLive(pending), "storage_clear_timeout");
+    const blocked = await expectStorageError(
+      lifecycle.recoverCold(pendingFor(layout, "restart_delete_pending")),
+      "gate_blocked",
+    );
+
+    expect(blocked).toMatchObject({ stage: "cold_validate", retryable: true });
+    expect(harness.gate.disposition(PROFILE)).toBe("quiescing");
+
+    resolveLate();
+    await exactClear;
+    await new Promise<void>((resolveTick) => setTimeout(resolveTick, 0));
+    await lifecycle.recoverCold(pendingFor(layout, "restart_delete_pending"));
+
+    expect(harness.gate.disposition(PROFILE)).toBe("deleted");
+  });
+
+  it("keeps shutdown unclean until a timed-out exact clear promise settles", async () => {
+    const layout = await createLayout();
+    const harness = makeHarness(layout);
+    let resolveLate!: () => void;
+    const exactClear = new Promise<void>((resolve) => {
+      resolveLate = resolve;
+    });
+    harness.session.pendingAt = "clearData";
+    harness.session.pendingOperation = exactClear;
+    const lifecycle = lifecycleFor(harness, {
+      liveClearStepTimeoutMs: 5,
+      liveClearAggregateTimeoutMs: 25,
+    });
+    const { pending } = await preparePending(layout, harness, lifecycle);
+    await expectStorageError(lifecycle.executeLive(pending), "storage_clear_timeout");
+
+    expect(lifecycle.beginShutdown()).toMatchObject({
+      epoch: 1,
+      activeOperations: [],
+      activeRawClearOperations: ["browser_data"],
+    });
+    const firstDrain = lifecycle.drainOnQuit();
+    expect(lifecycle.drainOnQuit()).toBe(firstDrain);
+    const timedOut = await firstDrain;
+
+    expect(timedOut).toMatchObject({
+      epoch: 1,
+      clean: false,
+      operations: ["clear:browser_data"],
+      settled: 0,
+      timedOut: true,
+      activeOperations: [],
+      activeRawClearOperations: ["browser_data"],
+    });
+
+    resolveLate();
+    await exactClear;
+    await Promise.resolve();
+    const converged = await lifecycle.drainOnQuit();
+
+    expect(converged).toMatchObject({
+      epoch: 1,
+      clean: true,
+      timedOut: false,
+      activeOperations: [],
+      activeRawClearOperations: [],
+    });
+    await expectStorageError(
+      lifecycle.prepare({ wipeId: SECOND_WIPE_ID, profileId: PROFILE, partition: PARTITION }),
+      "gate_blocked",
+    );
+  });
+
+  it("observes a late clear rejection through shutdown without an unhandled rejection", async () => {
+    const layout = await createLayout();
+    const harness = makeHarness(layout);
+    let rejectLate!: (reason: Error) => void;
+    harness.session.pendingAt = "clearData";
+    harness.session.pendingOperation = new Promise<void>((_resolve, reject) => {
+      rejectLate = reject;
+    });
+    const lifecycle = lifecycleFor(harness, {
+      liveClearStepTimeoutMs: 5,
+      liveClearAggregateTimeoutMs: 100,
+    });
+    const { pending } = await preparePending(layout, harness, lifecycle);
+    await expectStorageError(lifecycle.executeLive(pending), "storage_clear_timeout");
+
+    const drain = lifecycle.drainOnQuit();
+    rejectLate(new Error("private cache rejection"));
+    const receipt = await drain;
+    await Promise.resolve();
+
+    expect(receipt).toMatchObject({
+      clean: true,
+      operations: ["clear:browser_data"],
+      settled: 1,
+      fulfilled: 0,
+      rejected: 1,
+      timedOut: false,
+      activeOperations: [],
+      activeRawClearOperations: [],
+    });
   });
 
   it("releases the profile registry mutation chain after a live clear timeout", async () => {
