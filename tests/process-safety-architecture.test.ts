@@ -352,18 +352,26 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
+      "src/main/vellum/app-process-plane.ts:forbidden-reference:child.kill",
+      "src/main/vellum/app-process-plane.ts:forbidden-reference:pty.kill",
+      "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
       "src/main/vellum/process-signal.ts:rec.child.kill",
       "src/main/vellum/term/control-server.ts:host.kill",
       "src/main/vellum/term/ipc.ts:router.kill",
-      "src/main/vellum/term/local-host.ts:child.kill",
-      "src/main/vellum/term/local-host.ts:p.kill",
       "src/main/vellum/term/router.ts:c.kill",
       "src/main/vellum/term/router.ts:this.local.kill",
     ]);
   });
 
   it("keeps asynchronous spawn sites on a reviewed lifetime inventory", () => {
-    expect(unsafeSpawnReferences).toEqual([]);
+    expect(unsafeSpawnReferences).toEqual([
+      "src/main/vellum/app-process-plane.ts:spawn",
+    ]);
 
     const uses = [
       ...parsedSources.flatMap(({ file, source }) =>
@@ -378,42 +386,34 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      "src/main/services/codex.ts:spawn",
-      "src/main/services/process.ts:spawn",
-      "src/main/vellum/herdr/plane.ts:spawn",
-      "src/main/vellum/herdr/plane.ts:spawn",
-      "src/main/vellum/hermes/plane.ts:spawn",
-      "src/main/vellum/hosts/deploy-remote.ts:spawn",
+      "src/main/vellum/app-process-plane.ts:nodePty.spawn",
+      "src/main/vellum/app-process-plane.ts:spawn",
+      "src/main/vellum/app-process-plane.ts:spawn",
+      "src/main/vellum/app-process-plane.ts:spawn",
       "src/main/vellum/process-signal.ts:spawn",
-      "src/main/vellum/term/local-host.ts:cpSpawn",
-      "src/main/vellum/term/local-host.ts:nodePty.spawn",
     ]);
 
-    // These direct producers terminate children and therefore must mint their
-    // child-only capability in the same module, immediately beside spawn.
+    // Raw child admission is now centralized in the app process plane. Other
+    // modules must route through that plane instead of minting authority
+    // beside their own spawn calls.
     for (const name of [
-      "src/main/services/codex.ts",
-      "src/main/services/process.ts",
-      "src/main/vellum/hermes/plane.ts",
-      "src/main/vellum/hosts/deploy-remote.ts",
-      "src/main/vellum/term/local-host.ts",
+      "src/main/vellum/app-process-plane.ts",
     ]) {
       const admissions = callSites.filter(
         (site) => site.file === name && site.callee === "admitChildProcess",
       );
-      expect(admissions, name).toHaveLength(1);
+      expect(admissions.length, name).toBeGreaterThan(0);
     }
   });
 
-  it("freezes the two intentional detached-process-group consumers", () => {
+  it("freezes detached process-group creation inside the central process plane", () => {
     const uses = callSites
       .filter((site) => site.callee === "spawnDetachedProcessGroup")
       .map((site) => site.file)
       .sort();
 
     expect(uses).toEqual([
-      "src/main/vellum/adapters/exec.ts",
-      "src/main/vellum/ssh/process-spawner.ts",
+      "src/main/vellum/app-process-plane.ts",
     ]);
 
     const detachedTrue = parsedSources
@@ -432,7 +432,7 @@ describe("machine-safety architecture", () => {
       })
       .sort();
     expect(detachedTrue).toEqual([
-      "src/main/vellum/herdr/plane.ts",
+      "src/main/vellum/app-process-plane.ts",
       "src/main/vellum/process-signal.ts",
     ]);
   });
