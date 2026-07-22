@@ -52,6 +52,11 @@ const herdrNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"][nu
   },
 });
 
+const terminalNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"][number] => ({
+  id: "terminal", type: "text", text: "shell", x: 0, y: 0, width: 200, height: 100,
+  ether: { entity: { kind: "terminal" }, terminal: { bindingId: "binding-1" }, messages: { items: [...messages] } },
+});
+
 describe("message-delivery pure helpers", () => {
   it("formats one-line payload with role and optional taskId", () => {
     expect(composeMessageDeliveryPayload(userMsg())).toBe("[message · user] ping the lane");
@@ -103,7 +108,7 @@ describe("message-delivery pure helpers", () => {
     expect(stampMessageDelivered(stamped!, "agent", "m-a", 99)).toBeNull();
   });
 
-  it("resolves agent and herdr targets; skips incomplete bindings", () => {
+  it("resolves agent, herdr, and native terminal targets; skips incomplete bindings", () => {
     expect(deliveryTargetOf(agentNode())).toEqual({
       kind: "agent",
       agentKey: "local:mira",
@@ -112,6 +117,7 @@ describe("message-delivery pure helpers", () => {
       kind: "herdr",
       terminalId: "term-1",
     });
+    expect(deliveryTargetOf(terminalNode())).toEqual({ kind: "terminal", bindingId: "binding-1" });
     const bare: CanvasDoc["nodes"][number] = {
       id: "x",
       type: "text",

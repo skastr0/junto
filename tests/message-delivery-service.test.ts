@@ -212,6 +212,39 @@ describe("MessageDeliveryService", () => {
       return doc?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt === 9;
     });
     expect(herdrPayloads.some((p) => p.includes("[message · user] wake"))).toBe(true);
+    expect(herdrPayloads.at(-1)).toBe("\u001b[200~[message · user] wake\u001b[201~");
+    expect(herdrPayloads.at(-1)).not.toContain("\n");
+  });
+
+  it("terminal fallback pastes metacharacters without newline or shell submission", async () => {
+    const msg = userMsg("safe", "echo owned; $(touch /tmp/nope) && rm -rf ~");
+    const base = herdrDoc([msg]);
+    const doc: CanvasDoc = {
+      ...base,
+      nodes: [{
+        ...base.nodes[0]!, id: "terminal",
+        ether: { entity: { kind: "terminal" }, terminal: { bindingId: "binding-1" }, messages: { items: [msg] } },
+      }],
+    };
+    const store = makeStore({ c: doc });
+    const pastes: Array<{ text: string; messageId: string }> = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        isAgentLive: () => false,
+        sendAgentPrompt: async () => false,
+        sendHerdrText: () => false,
+        sendTerminalPaste: (_bindingId, text, messageId) => {
+          pastes.push({ text, messageId });
+          return true;
+        },
+      },
+      store,
+    });
+    service.notifyAppended("c", "terminal", msg);
+    await waitUntil(() => pastes.length === 1);
+    expect(pastes).toEqual([{ text: "[message · user] echo owned; $(touch /tmp/nope) && rm -rf ~", messageId: "safe" }]);
+    expect(pastes[0]!.text).not.toContain("\n");
   });
 
   it("formatting includes role and taskId; metadata.sender spoof ignored", async () => {

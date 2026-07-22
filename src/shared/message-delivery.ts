@@ -59,7 +59,8 @@ export const isPendingDelivery = (message: Message): boolean =>
 
 export type DeliveryTarget =
   | { readonly kind: "agent"; readonly agentKey: string }
-  | { readonly kind: "herdr"; readonly terminalId: string };
+  | { readonly kind: "herdr"; readonly terminalId: string }
+  | { readonly kind: "terminal"; readonly bindingId: string };
 
 /** Resolve transport target from an agent/herdr node. Undefined = unreachable. */
 export const deliveryTargetOf = (node: CanvasNode): DeliveryTarget | undefined => {
@@ -73,6 +74,11 @@ export const deliveryTargetOf = (node: CanvasNode): DeliveryTarget | undefined =
     const terminalId = node.ether?.herdr?.terminalId?.trim();
     if (!terminalId) return undefined;
     return { kind: "herdr", terminalId };
+  }
+  if (kind === "terminal") {
+    const bindingId = node.ether?.terminal?.bindingId?.trim();
+    if (!bindingId) return undefined;
+    return { kind: "terminal", bindingId };
   }
   return undefined;
 };
@@ -117,7 +123,7 @@ export const stampMessageDelivered = (
   };
 };
 
-/** Collect pending (foreign, unstamped) messages on agent/herdr nodes. */
+/** Collect pending (foreign, unstamped) messages on reachable work surfaces. */
 export const listPendingDeliveries = (
   doc: CanvasDoc,
 ): ReadonlyArray<{
@@ -132,7 +138,7 @@ export const listPendingDeliveries = (
   }> = [];
   for (const node of doc.nodes) {
     const kind = node.ether?.entity?.kind;
-    if (kind !== "agent" && kind !== "herdr") continue;
+    if (kind !== "agent" && kind !== "herdr" && kind !== "terminal") continue;
     const target = deliveryTargetOf(node);
     if (!target) continue;
     for (const message of node.ether?.messages?.items ?? []) {

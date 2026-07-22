@@ -22,6 +22,8 @@ export type MessageDeliveryTransport = {
    * Returns false when no stream is attached.
    */
   readonly sendHerdrText: (terminalId: string, text: string) => boolean;
+  /** Paste without submitting. A future harness-aware transport may consume messageId. */
+  readonly sendTerminalPaste?: (bindingId: string, text: string, messageId: string) => boolean;
 };
 
 export type MessageDeliveryStore = {
@@ -95,6 +97,13 @@ export class MessageDeliveryService {
     );
   }
 
+  /** Native terminal session attached — offer pending messages as unsubmitted paste. */
+  onTerminalAttached(bindingId: string): void {
+    void this.scanAndDeliver(
+      (target) => target.kind === "terminal" && target.bindingId === bindingId,
+    );
+  }
+
   private async scanAndDeliver(
     match: (target: DeliveryTarget) => boolean,
   ): Promise<void> {
@@ -155,7 +164,7 @@ export class MessageDeliveryService {
       // At-most-once: never re-hit the transport after a prior accept.
       if (!this.transportAccepted.has(key)) {
         const payload = composeMessageDeliveryPayload(live);
-        const delivered = await this.deliver(transport, target, payload);
+        const delivered = await this.deliver(transport, target, payload, live.messageId);
         if (!delivered) return;
         this.transportAccepted.add(key);
       }
@@ -175,15 +184,19 @@ export class MessageDeliveryService {
     transport: MessageDeliveryTransport,
     target: DeliveryTarget,
     payload: string,
+    messageId: string,
   ): Promise<boolean> {
     if (target.kind === "agent") {
       if (!transport.isAgentLive(target.agentKey)) return false;
       return transport.sendAgentPrompt(target.agentKey, payload);
     }
-    // Herdr: one line + newline so a TTY agent sees a submitted line.
-    // Still plain terminal.input text — no control sequences.
-    const line = payload.endsWith("\n") ? payload : `${payload}\n`;
-    return transport.sendHerdrText(target.terminalId, line);
+    if (target.kind === "terminal") {
+      return transport.sendTerminalPaste?.(target.bindingId, payload, messageId) ?? false;
+    }
+    // Terminal input is never implicitly submitted. Bracketed paste lets an
+    // interactive harness distinguish the payload while shell metacharacters
+    // remain inert until a human explicitly accepts/submits it.
+    return transport.sendHerdrText(target.terminalId, `\u001b[200~${payload}\u001b[201~`);
   }
 }
 
