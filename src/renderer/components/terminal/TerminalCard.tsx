@@ -14,8 +14,17 @@ export function TerminalCard({ node }: { readonly node: CanvasNode }) {
   useEffect(() => {
     void refresh();
     const api = getVellumApi();
-    const off = api?.onTerminalEvent?.((raw) => { if ((raw as { bindingId?: string }).bindingId === native?.bindingId) void refresh(); });
-    return off;
+    const off = api?.onTerminalEvent?.((raw) => {
+      if ((raw as { bindingId?: string }).bindingId === native?.bindingId) void refresh();
+    });
+    // Poll while running — lease-scoped events don't reach cards without an open surface.
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, 2500);
+    return () => {
+      off?.();
+      window.clearInterval(timer);
+    };
   }, [native?.bindingId]);
   if (!native) return <div className="terminal-card">unbound terminal</div>;
   const running = session?.status === "running" || session?.status === "starting";

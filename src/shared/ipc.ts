@@ -906,7 +906,6 @@ export interface VellumTerminalApi {
   readonly terminalRelease: (leaseId: string) => Promise<boolean>;
   readonly terminalWrite: (leaseId: string, data: string, encoding?: "utf8" | "base64") => Promise<boolean>;
   readonly terminalResize: (leaseId: string, cols: number, rows: number) => Promise<boolean>;
-  readonly terminalShutdown: () => Promise<void>;
   readonly onTerminalEvent: (listener: (event: unknown) => void) => () => void;
 }
 

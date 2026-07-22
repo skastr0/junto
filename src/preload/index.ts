@@ -390,7 +390,6 @@ const terminalApi: VellumTerminalApi = {
   terminalRelease: (leaseId) => invoke(IPC_CHANNELS.terminalRelease, IPC_TIMEOUT_MS, leaseId),
   terminalWrite: (leaseId, data, encoding) => invoke(IPC_CHANNELS.terminalWrite, IPC_TIMEOUT_MS, leaseId, data, encoding),
   terminalResize: (leaseId, cols, rows) => invoke(IPC_CHANNELS.terminalResize, IPC_TIMEOUT_MS, leaseId, cols, rows),
-  terminalShutdown: () => invoke(IPC_CHANNELS.terminalShutdown, IPC_TIMEOUT_MS),
   onTerminalEvent: (listener) => subscribe(IPC_CHANNELS.terminalEvent, listener),
 };
 

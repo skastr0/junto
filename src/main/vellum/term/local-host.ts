@@ -249,6 +249,8 @@ export const defaultTermSpawn: TermSpawnFn = (input) => {
       cwd: input.cwd,
       env: input.env,
       stdio: ["pipe", "pipe", "pipe"],
+      // Own process group so quit can signal the whole tree (-pid).
+      detached: process.platform !== "win32",
     }) as ChildProcessWithoutNullStreams;
     return wrapPipeChild(child);
   }
@@ -340,9 +342,11 @@ export class LocalSessionHost extends EventEmitter {
       });
 
       child.onExit((code, signal) => {
+        // Only the active epoch for this binding may mutate identity / status.
         if (rec.epoch !== epoch) return;
+        if (this.sessions.get(bindingId) !== rec) return;
         rec.status = "exited";
-        getProcessIdentityMap().unbindTerminalBinding(rec.bindingId);
+        if (rec.pid !== undefined) getProcessIdentityMap().unbind(rec.pid);
         rec.child = undefined;
         rec.seq = rec.seq + 1n;
         this.pushJournal(rec, {
@@ -406,14 +410,14 @@ export class LocalSessionHost extends EventEmitter {
     const rec = this.sessions.get(bindingId);
     if (!rec) return;
     if (!ref || !ref.canvasName || !ref.nodeId) {
-      getProcessIdentityMap().unbindTerminalBinding(rec.bindingId);
+      if (rec.pid !== undefined) getProcessIdentityMap().unbind(rec.pid);
       rec.canvasName = undefined;
       rec.nodeId = undefined;
       rec.detached = true;
       return;
     }
-    rec.canvasName = ref.canvasName;
-    rec.nodeId = ref.nodeId;
+    rec.canvasName = ref.canvasName.trim();
+    rec.nodeId = ref.nodeId.trim();
     rec.detached = false;
     this.bindProcessIdentity(rec);
   }
@@ -548,17 +552,34 @@ export class LocalSessionHost extends EventEmitter {
     for (const s of live) {
       this.killBinding(s.bindingId);
     }
-    const deadline = Date.now() + SHUTDOWN_GRACE_MS;
-    while (Date.now() < deadline) {
+    const softDeadline = Date.now() + SHUTDOWN_GRACE_MS;
+    while (Date.now() < softDeadline) {
       const still = [...this.sessions.values()].some(
         (s) => s.status === "running" || s.status === "starting",
       );
-      if (!still) break;
+      if (!still) return;
       await new Promise((r) => setTimeout(r, 50));
     }
     for (const s of this.sessions.values()) {
       if (s.status === "running" || s.status === "starting") {
         this.forceKill(s, "SIGKILL");
+      }
+    }
+    // Second bounded wait so force-exit gates do not claim completion early.
+    const hardDeadline = Date.now() + SHUTDOWN_GRACE_MS;
+    while (Date.now() < hardDeadline) {
+      const still = [...this.sessions.values()].some(
+        (s) => s.status === "running" || s.status === "starting",
+      );
+      if (!still) return;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    // Mark stragglers exited so quit can proceed; best-effort after SIGKILL.
+    for (const s of this.sessions.values()) {
+      if (s.status === "running" || s.status === "starting") {
+        s.status = "exited";
+        s.child = undefined;
+        if (s.pid !== undefined) getProcessIdentityMap().unbind(s.pid);
       }
     }
   }
@@ -587,6 +608,16 @@ export class LocalSessionHost extends EventEmitter {
       return;
     }
     try {
+      // Prefer process-group kill on POSIX when we know the leader pid.
+      const pid = rec.pid ?? child.pid;
+      if (pid && process.platform !== "win32") {
+        try {
+          process.kill(-pid, signal);
+          return;
+        } catch {
+          // fall through to direct kill
+        }
+      }
       child.kill(signal);
     } catch {
       // ignore
@@ -596,18 +627,27 @@ export class LocalSessionHost extends EventEmitter {
   private pushJournal(rec: SessionRec, entry: JournalEntry): void {
     rec.journal.push(entry);
     if (entry.type === "output") {
-      rec.journalBytes += entry.data.length;
+      rec.journalBytes += Buffer.byteLength(entry.data, "utf8");
     }
-    while (rec.journalBytes > MAX_JOURNAL_BYTES && rec.journal.length > 1) {
+    while (rec.journalBytes > MAX_JOURNAL_BYTES && rec.journal.length > 0) {
       const dropped = rec.journal.shift();
-      if (dropped?.type === "output") rec.journalBytes -= dropped.data.length;
+      if (dropped?.type === "output") {
+        rec.journalBytes -= Buffer.byteLength(dropped.data, "utf8");
+      }
+      if (rec.journal.length === 1 && rec.journalBytes > MAX_JOURNAL_BYTES) {
+        // Single oversized entry — drop it entirely.
+        const last = rec.journal.shift();
+        if (last?.type === "output") rec.journalBytes = 0;
+        break;
+      }
     }
   }
 
   private bindProcessIdentity(rec: SessionRec): void {
     if (!rec.pid || !rec.canvasName || !rec.nodeId || rec.status !== "running") return;
     const identities = getProcessIdentityMap();
-    identities.unbindTerminalBinding(rec.bindingId);
+    // Unbind only this PID so a replaced epoch's late exit cannot wipe the new bind.
+    identities.unbind(rec.pid);
     identities.bind(rec.pid, {
       kind: "terminal",
       bindingId: rec.bindingId,

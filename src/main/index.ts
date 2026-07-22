@@ -392,6 +392,9 @@ const createWindow = () => {
     },
   });
   trustedMainWindow = mainWindow;
+  void import("./vellum/trusted-main-webcontents").then(({ setTrustedMainWebContents }) => {
+    setTrustedMainWebContents(mainWindow.webContents);
+  });
   // BrowserWindow's `closed` event fires after its native object and
   // WebContents have been destroyed. Capture the routing identity while it is
   // live; dereferencing mainWindow.webContents inside `closed` throws.
@@ -484,6 +487,9 @@ const createWindow = () => {
       pending.reject(new Error("renderer closed before canvas flush completed"));
     }
     if (trustedMainWindow === mainWindow) trustedMainWindow = undefined;
+    void import("./vellum/trusted-main-webcontents").then(({ setTrustedMainWebContents }) => {
+      setTrustedMainWebContents(undefined);
+    });
     disconnect();
     ipcMain.removeListener(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
   });

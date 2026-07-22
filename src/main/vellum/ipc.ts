@@ -54,7 +54,16 @@ const denyIfRemoteAuthorial = Effect.gen(function* () {
 
 export const registerVellumIpc = (): void => {
   registerHerdrIpc(ipcMain, () => BrowserWindow.getAllWindows().map((w) => w.webContents));
-  registerTerminalIpc(ipcMain, termPlane);
+  registerTerminalIpc(ipcMain, termPlane, {
+    isTrustedSender: (sender) => {
+      const { getTrustedMainWebContents } =
+        require("./trusted-main-webcontents") as typeof import("./trusted-main-webcontents");
+      const trusted = getTrustedMainWebContents();
+      // Headless / pre-window: no trusted WC yet — admit live senders for tests.
+      if (trusted === undefined) return !sender.isDestroyed();
+      return trusted === sender;
+    },
+  });
   registerSettingsIpc(ipcMain, broadcast);
   registerHostsIpc(ipcMain);
   ipcMain.handle(IPC_CHANNELS.listCanvases, () =>
@@ -355,6 +364,10 @@ export const registerVellumIpc = (): void => {
             const written = herdr.streams.inputText(streamId, text);
             return written.ok;
           },
+          // Native terminals never auto-submit shell text (no Enter). Delivery
+          // remains pending until a harness-aware path lands; returning false
+          // keeps at-most-once stamp logic from marking undeliverable messages done.
+          sendTerminalPaste: (_bindingId, _text, _messageId) => false,
         },
         store: {
           listCanvasNames: () =>
