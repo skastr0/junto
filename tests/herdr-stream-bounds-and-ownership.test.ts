@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   HerdrStreamManager,
   type HerdrClientIo,
-  type HerdrProcessLike,
   type HerdrSpawnedClient,
   type ObservePoolHooks,
   type RemoteScopeCloseReceipt,
@@ -11,7 +10,7 @@ import {
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 
-class FakeProcess extends EventEmitter implements HerdrProcessLike {
+class FakeProcess extends EventEmitter implements HerdrClientIo {
   written: string[] = [];
   killCalls = 0;
   killedSignal: NodeJS.Signals | undefined;
@@ -35,11 +34,11 @@ class FakeProcess extends EventEmitter implements HerdrProcessLike {
   }
 }
 
-let nextFakePid = 900_000_000;
-const localClient = (child: HerdrProcessLike): HerdrSpawnedClient => ({
+const localClient = (child: FakeProcess): HerdrSpawnedClient => ({
   kind: "local-process",
-  pid: nextFakePid++,
   child,
+  terminate: () => child.kill("SIGTERM"),
+  forceTerminate: () => child.kill("SIGKILL"),
 });
 
 class FakeRemoteClient extends EventEmitter implements HerdrClientIo {

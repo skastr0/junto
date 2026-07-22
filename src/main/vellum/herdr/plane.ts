@@ -1,5 +1,4 @@
 import { EventEmitter } from "node:events";
-import { spawn } from "node:child_process";
 import { PassThrough } from "node:stream";
 import {
   Context,
@@ -13,6 +12,10 @@ import {
 } from "effect";
 import type { CliResult } from "../adapters/exec";
 import { resolvedSpawnEnvSync } from "../adapters/exec";
+import {
+  appProcessPlane,
+  type AppChildIo,
+} from "../app-process-plane";
 import { isDemoMode } from "../demo/mode";
 import { scriptedTransportFor } from "../demo/service";
 import {
@@ -33,7 +36,6 @@ import { HerdrServiceMap, type HostShellRunner } from "./service-map";
 import {
   HerdrStreamManager,
   type HerdrClientIo,
-  type HerdrProcessLike,
   type HerdrSpawnFn,
   type RemoteScopeCloseReceipt,
 } from "./stream";
@@ -132,6 +134,57 @@ const serverRunning = (result: CliResult): boolean => {
     return false;
   }
 };
+
+/**
+ * OS spawn/handoff is necessary but never sufficient for server readiness.
+ * Only Herdr's bounded status protocol probe can prove the daemon is usable.
+ */
+export const proveHerdrProtocolReadyAfterOsHandoff = async (
+  osHandoff: Promise<unknown>,
+  protocolProbe: () => Promise<boolean>,
+): Promise<boolean> => {
+  await osHandoff;
+  return protocolProbe();
+};
+
+/**
+ * Narrow the central process plane's stream-only I/O facade to the Herdr
+ * protocol client. Close remains replayable through AppChildIo, so a very
+ * short-lived child cannot exit between spawn and listener attachment.
+ */
+class AppProcessHerdrClient implements HerdrClientIo {
+  readonly stdin: HerdrClientIo["stdin"];
+  readonly stdout: HerdrClientIo["stdout"];
+  readonly stderr: HerdrClientIo["stderr"];
+
+  constructor(private readonly io: AppChildIo) {
+    this.stdin = {
+      write: (chunk) => io.stdin.write(chunk),
+      once: (event, listener) => io.stdin.once(event, listener),
+    };
+    this.stdout = {
+      setEncoding: (encoding) => io.stdout.setEncoding(encoding as BufferEncoding),
+      on: (event, listener) => io.stdout.on(event, listener),
+    };
+    this.stderr = {
+      setEncoding: (encoding) => io.stderr.setEncoding(encoding as BufferEncoding),
+      on: (event, listener) => io.stderr.on(event, listener),
+    };
+  }
+
+  on(event: "close", listener: (code: number | null) => void): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
+  on(
+    event: "close" | "error",
+    listener: ((code: number | null) => void) | ((error: Error) => void),
+  ): unknown {
+    if (event === "close") {
+      const onClose = listener as (code: number | null) => void;
+      return this.io.onClose(({ code }) => onClose(code));
+    }
+    return this.io.onError(listener as (error: Error) => void);
+  }
+}
 
 /** Remote SSH stream facade. Deliberately has no `kill` method or pid. */
 class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
@@ -342,14 +395,21 @@ export const HerdrPlaneLive = Layer.scoped(
       if (!known) return { ok: false, stdout: "", error: `unknown herdr host: ${hostId}` };
       if (known === "local") {
         try {
-          const child = spawn("herdr", [...herdrArgs(["server"], session)], {
-            detached: true,
-            stdio: "ignore",
+          // This receipt proves only OS spawn/handoff. Herdr readiness is a
+          // separate protocol fact and is never inferred from the spawn event.
+          const osHandoff = appProcessPlane.spawnOutlivingDaemon({
+            source: "herdr-server",
+            purpose: "herdr-server:daemon-outlives-app",
+            command: "herdr",
+            args: herdrArgs(["server"], session),
             env: resolvedSpawnEnvSync(),
+            lifetime: "outlives-app",
           });
-          child.unref();
-          const ready = await runOwned(awaitServer(known, session, route));
-          return ready
+          const protocolReady = await proveHerdrProtocolReadyAfterOsHandoff(
+            osHandoff.readiness,
+            () => runOwned(awaitServer(known, session, route)),
+          );
+          return protocolReady
             ? { ok: true, stdout: "" }
             : { ok: false, stdout: "", error: "herdr server did not become ready" };
         } catch (error) {
@@ -409,19 +469,25 @@ export const HerdrPlaneLive = Layer.scoped(
       const known = asHostId(hostId);
       if (!known) throw new Error(`unknown herdr host: ${hostId}`);
       if (known === "local") {
-        const child = spawn("herdr", [...herdrArgs(args, session)], {
-          stdio: ["pipe", "pipe", "pipe"],
+        const purpose = args.includes("control")
+          ? "herdr-control:session-owned"
+          : args.includes("observe")
+            ? "herdr-observe:observation-owned"
+            : "herdr-client:app-owned";
+        const process = appProcessPlane.spawnChild({
+          source: "herdr-client",
+          purpose,
+          command: "herdr",
+          args: herdrArgs(args, session),
           env: resolvedSpawnEnvSync(),
         });
-        if (!Number.isInteger(child.pid) || child.pid === undefined || child.pid <= 1) {
-          child.once("error", () => undefined);
-          throw new Error("herdr local spawn did not yield a killable pid");
-        }
-        return {
+        return Object.freeze({
           kind: "local-process",
-          pid: child.pid,
-          child: child as unknown as HerdrProcessLike,
-        };
+          child: new AppProcessHerdrClient(process.io),
+          terminate: (reason) => appProcessPlane.terminate(process, reason),
+          forceTerminate: (reason) =>
+            appProcessPlane.forceTerminate(process, reason),
+        });
       }
       const child = new EffectHerdrScopeClient(
         runPromise,

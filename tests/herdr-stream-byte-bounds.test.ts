@@ -8,14 +8,13 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_MAX_BUFFER_BYTES, feedNdjson } from "../src/main/vellum/herdr/ndjson";
 import {
   HerdrStreamManager,
-  type HerdrProcessLike,
+  type HerdrClientIo,
   type HerdrSpawnedClient,
   type HerdrStreamFrame,
   type ObservePoolHooks,
 } from "../src/main/vellum/herdr/stream";
 import {
   HerdrObservePool,
-  type ObserveChildLike,
   type ObserveSpawnFn,
 } from "../src/main/vellum/herdr/observe-pool";
 import { LocalMirrorTransport } from "../src/main/vellum/herdr/mirror-transport";
@@ -78,15 +77,19 @@ const mockPool: ObservePoolHooks = {
   stopAll: () => undefined,
 };
 
-let nextFakePid = 910_000_000;
-const localClient = (child: HerdrProcessLike): HerdrSpawnedClient => ({
+interface FakeLocalClient extends HerdrClientIo {
+  kill(signal?: NodeJS.Signals): unknown;
+}
+
+const localClient = (child: FakeLocalClient): HerdrSpawnedClient => ({
   kind: "local-process",
-  pid: nextFakePid++,
   child,
+  terminate: () => child.kill("SIGTERM"),
+  forceTerminate: () => child.kill("SIGKILL"),
 });
 
 /** EventEmitter-based control child so `child.on("close"/"error")` actually fires. */
-class FakeControlChild extends EventEmitter implements HerdrProcessLike {
+class FakeControlChild extends EventEmitter implements FakeLocalClient {
   killedSignal: NodeJS.Signals | undefined;
   readonly stdin = {
     write: (_chunk: string): boolean => true,
@@ -105,11 +108,11 @@ class FakeControlChild extends EventEmitter implements HerdrProcessLike {
  * `rawChunks` records exactly what was handed to write(), in call order,
  * independent of the PassThrough's own (async) 'data' delivery timing.
  */
-class CapturingStdinChild extends EventEmitter implements HerdrProcessLike {
+class CapturingStdinChild extends EventEmitter implements FakeLocalClient {
   readonly sink: PassThrough;
   readonly rawChunks: string[] = [];
   writeCalls = 0;
-  readonly stdin: HerdrProcessLike["stdin"];
+  readonly stdin: HerdrClientIo["stdin"];
   readonly stdout = Object.assign(new EventEmitter(), { setEncoding: (): void => undefined });
   readonly stderr = Object.assign(new EventEmitter(), { setEncoding: (): void => undefined });
 
@@ -184,7 +187,7 @@ describe("HerdrObservePool inbound NDJSON overflow", () => {
     const spawnFn: ObserveSpawnFn = () => {
       const child = new FakeControlChild();
       children.push(child);
-      return localClient(child as unknown as ObserveChildLike);
+      return localClient(child);
     };
     const pool = new HerdrObservePool({ spawnFn });
     pool.ensureObserve({ hostId: "local", terminalId: "t1", cols: 80, rows: 24 });

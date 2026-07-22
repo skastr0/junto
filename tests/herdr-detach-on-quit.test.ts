@@ -16,17 +16,20 @@ describe("herdr detach-on-quit product lock", () => {
   const planeSrc = readFileSync(join(root, "src/main/vellum/herdr/plane.ts"), "utf8");
 
   it("stream manager documents detach-only and implements terminal.release", () => {
+    const streamCode = streamSrc
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
     expect(streamSrc).toMatch(/terminal\.release/);
     expect(streamSrc).toMatch(/detachAllOnQuit/);
     expect(streamSrc).toMatch(/NEVER runs `pane close`|never pane close/i);
-    // Only the tagged local child is admitted as a session-owned process
-    // capability. Remote streams retain an Effect-scope closer instead.
-    expect(streamSrc).toMatch(/spawned\.kind === "local-process"[\s\S]*?admitChildProcess\(\{[\s\S]*?source:\s*"herdr-control:session-owned"[\s\S]*?child/);
-    expect(streamSrc).toMatch(/signalOwned\(lifecycle\.ownedProcess,\s*"SIGTERM"\)/);
-    expect(streamSrc).toMatch(/signalOwned\(lifecycle\.ownedProcess,\s*"SIGKILL"\)/);
+    // Only the central factory binds local termination authority; the stream
+    // manager receives no pid, raw child kill, admit, signal, or release API.
+    expect(streamSrc).toMatch(/spawned\.kind === "local-process"[\s\S]*?terminate:\s*spawned\.terminate[\s\S]*?forceTerminate:\s*spawned\.forceTerminate/);
+    expect(streamSrc).toMatch(/lifecycle\.terminate\("herdr-control-detach"\)/);
+    expect(streamSrc).toMatch(/lifecycle\.forceTerminate\("herdr-control-grace-expired"\)/);
     expect(streamSrc).toMatch(/lifecycle\.kind === "remote-scope"[\s\S]*?trackRemoteClose\(lifecycle\.close\)/);
-    expect(streamSrc).not.toMatch(/spawnDetachedProcessGroup|admitSpawnedProcess|signalChildHandleOnly/);
-    expect(streamSrc).not.toMatch(/process\.kill|\.child\.kill\s*\(/);
+    expect(streamSrc).not.toMatch(/spawnDetachedProcessGroup|admitSpawnedProcess|admitChildProcess|signalOwned|releaseOwned|signalChildHandleOnly/);
+    expect(streamCode).not.toMatch(/process\.kill|\.child\.kill\s*\(|\bpid\b/);
   });
 
   it("stream close path does not shell pane/tab/session kill", () => {
@@ -59,11 +62,10 @@ describe("herdr detach-on-quit product lock", () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     expect(terminationBlock).toMatch(/lifecycle\.kind === "remote-scope"[\s\S]*?trackRemoteClose\(lifecycle\.close\)/);
-    expect(terminationBlock).toMatch(/signalOwned\(lifecycle\.ownedProcess,\s*"SIGTERM"\)/);
+    expect(terminationBlock).toMatch(/lifecycle\.terminate\("herdr-control-detach"\)/);
     expect(terminationBlock).toMatch(/setTimeout/);
-    expect(terminationBlock).toMatch(/signalOwned\(lifecycle\.ownedProcess,\s*"SIGKILL"\)/);
-    expect(terminationBlock).toMatch(/releaseControlAuthority\(stream\)/);
-    expect(terminationBlock).not.toMatch(/process\.kill|\bpid\b|spawnDetachedProcessGroup/);
+    expect(terminationBlock).toMatch(/lifecycle\.forceTerminate\("herdr-control-grace-expired"\)/);
+    expect(terminationBlock).not.toMatch(/process\.kill|\bpid\b|spawnDetachedProcessGroup|signalOwned|releaseOwned/);
   });
 
   it("does not treat generic control or observe errors as proof of exit", () => {
@@ -73,7 +75,7 @@ describe("herdr detach-on-quit product lock", () => {
     expect(controlStart).toBeGreaterThan(-1);
     expect(controlEnd).toBeGreaterThan(controlStart);
     expect(controlErrorBlock).toMatch(/terminateControl\(active\)/);
-    expect(controlErrorBlock).not.toMatch(/releaseControlAuthority|releaseOwned/);
+    expect(controlErrorBlock).not.toMatch(/settleLocalControl|releaseOwned/);
 
     const observeStart = observeSrc.indexOf("const onError =");
     const observeEnd = observeSrc.indexOf('child.on("close"', observeStart);
@@ -81,7 +83,7 @@ describe("herdr detach-on-quit product lock", () => {
     expect(observeStart).toBeGreaterThan(-1);
     expect(observeEnd).toBeGreaterThan(observeStart);
     expect(observeErrorBlock).toMatch(/terminateGeneration\(generation\)/);
-    expect(observeErrorBlock).not.toMatch(/releaseGeneration|releaseOwned/);
+    expect(observeErrorBlock).not.toMatch(/settleLocalGeneration|releaseOwned/);
   });
 
   it("main process detaches herdr on quit and signals", () => {
@@ -97,8 +99,20 @@ describe("herdr detach-on-quit product lock", () => {
   it("killPane/killTab remain explicit while the scoped plane owns server detach", () => {
     expect(serviceSrc).toMatch(/async killPane/);
     expect(serviceSrc).toMatch(/async killTab/);
-    expect(planeSrc).toMatch(/detached:\s*true/);
-    expect(planeSrc).toMatch(/child\.unref\(\)/);
+    expect(planeSrc).toMatch(/appProcessPlane\.spawnOutlivingDaemon/);
+    expect(planeSrc).toMatch(/proveHerdrProtocolReadyAfterOsHandoff\([\s\S]*?osHandoff\.readiness[\s\S]*?runOwned\(awaitServer/);
+    expect(planeSrc).toMatch(/return protocolReady/);
+    expect(planeSrc).toMatch(/appProcessPlane\.spawnChild/);
+    expect(planeSrc).not.toMatch(/from "node:child_process"|\bspawn\(/);
+    const localFactoryStart = planeSrc.indexOf("const spawnHerdr:");
+    const localFactoryEnd = planeSrc.indexOf("\n\n    const observePool", localFactoryStart);
+    const localFactory = planeSrc.slice(localFactoryStart, localFactoryEnd);
+    expect(localFactoryStart).toBeGreaterThan(-1);
+    expect(localFactoryEnd).toBeGreaterThan(localFactoryStart);
+    expect(localFactory).toMatch(/appProcessPlane\.spawnChild/);
+    expect(localFactory).toMatch(/appProcessPlane\.terminate\(process, reason\)/);
+    expect(localFactory).toMatch(/appProcessPlane\.forceTerminate\(process, reason\)/);
+    expect(localFactory).not.toMatch(/\bpid\b|\.kill\s*\(|admitChildProcess|signalOwned|releaseOwned/);
     expect(planeSrc).toMatch(/HerdrServerLifetime\s*=\s*"daemon-outlives-app"/);
     expect(planeSrc).toMatch(/serverLifetime:\s*HERDR_SERVER_LIFETIME/);
     expect(planeSrc).toMatch(/transport\.handoffServer/);

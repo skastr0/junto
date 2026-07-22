@@ -1,8 +1,35 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   makeBoundedRemoteClose,
+  proveHerdrProtocolReadyAfterOsHandoff,
   runHerdrCleanupSteps,
 } from "../src/main/vellum/herdr/plane";
+
+describe("local Herdr daemon readiness", () => {
+  it("does not confuse OS handoff with successful protocol readiness", async () => {
+    const protocolProbe = vi.fn(async () => false);
+
+    await expect(
+      proveHerdrProtocolReadyAfterOsHandoff(
+        Promise.resolve({ ready: true }),
+        protocolProbe,
+      ),
+    ).resolves.toBe(false);
+    expect(protocolProbe).toHaveBeenCalledOnce();
+  });
+
+  it("does not probe when OS handoff itself fails", async () => {
+    const protocolProbe = vi.fn(async () => true);
+
+    await expect(
+      proveHerdrProtocolReadyAfterOsHandoff(
+        Promise.reject(new Error("spawn failed")),
+        protocolProbe,
+      ),
+    ).rejects.toThrow("spawn failed");
+    expect(protocolProbe).not.toHaveBeenCalled();
+  });
+});
 
 describe("Herdr plane cleanup fan-out", () => {
   it("runs every finalizer component when an earlier component throws", async () => {

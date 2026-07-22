@@ -1,11 +1,4 @@
 import type { HerdrPointerCell, HerdrRetainedPayload } from "@shared/ipc";
-import {
-  admitChildProcess,
-  classifyProcessSignalTarget,
-  releaseOwned,
-  signalOwned,
-  type OwnedProcess,
-} from "../process-signal";
 import { isKnownHerdrHost } from "./hosts";
 import { feedNdjson } from "./ndjson";
 import { pastePathPayload, stageImageOnHost, type StageRemoteImage } from "./stage-image";
@@ -29,9 +22,10 @@ const CONTROL_CHILD_TERMINATION_GRACE_MS = 1_500;
 
 type LocalControlLifecycle = {
   readonly kind: "local-process";
-  readonly ownedProcess: OwnedProcess;
+  readonly terminate: (reason: string) => unknown;
+  readonly forceTerminate: (reason: string) => unknown;
   terminationRequested: boolean;
-  authorityReleased: boolean;
+  closed: boolean;
   terminationTimer?: ReturnType<typeof setTimeout>;
 };
 
@@ -94,10 +88,6 @@ export interface HerdrClientIo {
   on(event: "error", listener: (error: Error) => void): unknown;
 }
 
-export interface HerdrProcessLike extends HerdrClientIo {
-  kill(signal?: NodeJS.Signals): unknown;
-}
-
 export type RemoteScopeCloseReceipt =
   | { readonly status: "closed" }
   | { readonly status: "timed-out"; readonly timeoutMs: number }
@@ -106,8 +96,10 @@ export type RemoteScopeCloseReceipt =
 export type HerdrSpawnedClient =
   | {
       readonly kind: "local-process";
-      readonly pid: number;
-      readonly child: HerdrProcessLike;
+      readonly child: HerdrClientIo;
+      /** Exact central app-process capability, bound by the spawn factory. */
+      readonly terminate: (reason: string) => unknown;
+      readonly forceTerminate: (reason: string) => unknown;
     }
   | {
       readonly kind: "remote-scope";
@@ -299,18 +291,12 @@ export class HerdrStreamManager {
       }
       child = spawned.child;
       if (spawned.kind === "local-process") {
-        const decision = classifyProcessSignalTarget({ pid: spawned.pid });
-        if (!decision.ok) throw new Error(`herdr local child refused: ${decision.reason}`);
-        // Temporary local mint: central spawn-factory ownership will move this
-        // beside node:child_process.spawn. Remote scopes never enter this API.
         lifecycle = {
           kind: "local-process",
-          ownedProcess: admitChildProcess({
-            source: "herdr-control:session-owned",
-            child: spawned.child,
-          }),
+          terminate: spawned.terminate,
+          forceTerminate: spawned.forceTerminate,
           terminationRequested: false,
-          authorityReleased: false,
+          closed: false,
         };
       } else {
         lifecycle = {
@@ -372,7 +358,7 @@ export class HerdrStreamManager {
         // the same bounded receipt flight used by explicit detach.
         this.terminateControl(active);
       } else {
-        this.releaseControlAuthority(active);
+        this.settleLocalControl(active);
       }
       const closing = this.streams.get(streamId);
       if (!closing) return;
@@ -653,16 +639,15 @@ export class HerdrStreamManager {
     }
   }
 
-  /** Retire one exact control generation after observed exit/error. */
-  private releaseControlAuthority(stream: ActiveStream): void {
+  /** Record the central plane's close witness for one exact generation. */
+  private settleLocalControl(stream: ActiveStream): void {
     const lifecycle = stream.lifecycle;
-    if (lifecycle.kind === "remote-scope" || lifecycle.authorityReleased) return;
-    lifecycle.authorityReleased = true;
+    if (lifecycle.kind === "remote-scope" || lifecycle.closed) return;
+    lifecycle.closed = true;
     if (lifecycle.terminationTimer !== undefined) {
       clearTimeout(lifecycle.terminationTimer);
       lifecycle.terminationTimer = undefined;
     }
-    releaseOwned(lifecycle.ownedProcess);
   }
 
   /**
@@ -677,16 +662,15 @@ export class HerdrStreamManager {
       this.trackRemoteClose(lifecycle.close);
       return;
     }
-    if (lifecycle.terminationRequested || lifecycle.authorityReleased) return;
+    if (lifecycle.terminationRequested || lifecycle.closed) return;
     lifecycle.terminationRequested = true;
-    signalOwned(lifecycle.ownedProcess, "SIGTERM");
-    // Some child fakes and adapters report close synchronously from kill().
-    if (lifecycle.authorityReleased) return;
+    lifecycle.terminate("herdr-control-detach");
+    // Some test clients report close synchronously from termination.
+    if (lifecycle.closed) return;
     const timer = setTimeout(() => {
       lifecycle.terminationTimer = undefined;
-      if (lifecycle.authorityReleased) return;
-      signalOwned(lifecycle.ownedProcess, "SIGKILL");
-      this.releaseControlAuthority(stream);
+      if (lifecycle.closed) return;
+      lifecycle.forceTerminate("herdr-control-grace-expired");
     }, CONTROL_CHILD_TERMINATION_GRACE_MS);
     lifecycle.terminationTimer = timer;
     (timer as unknown as { unref?: () => void }).unref?.();

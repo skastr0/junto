@@ -1,15 +1,7 @@
 import { feedNdjson } from "./ndjson";
 import { isKnownHerdrHost } from "./hosts";
-import {
-  admitChildProcess,
-  classifyProcessSignalTarget,
-  releaseOwned,
-  signalOwned,
-  type OwnedProcess,
-} from "../process-signal";
 import type {
   HerdrClientIo,
-  HerdrProcessLike,
   HerdrSpawnFn,
   RemoteScopeCloseReceipt,
 } from "./stream";
@@ -33,8 +25,6 @@ const OBSERVE_CHILD_TERMINATION_GRACE_MS = 1_500;
  * observe capacity remains explicit here because these leases are long-lived.
  */
 
-/** Compatibility names for focused tests; production uses the tagged union. */
-export type ObserveChildLike = HerdrProcessLike;
 export type ObserveSpawnFn = HerdrSpawnFn;
 
 export interface ObserveInput {
@@ -48,9 +38,10 @@ export interface ObserveInput {
 /** One exact observe child generation, retained while TERM is in flight. */
 type LocalObserveLifecycle = {
   readonly kind: "local-process";
-  readonly ownedProcess: OwnedProcess;
+  readonly terminate: (reason: string) => unknown;
+  readonly forceTerminate: (reason: string) => unknown;
   terminationRequested: boolean;
-  authorityReleased: boolean;
+  closed: boolean;
   terminationTimer?: ReturnType<typeof setTimeout>;
 };
 
@@ -392,16 +383,12 @@ export class HerdrObservePool {
       }
       child = spawned.child;
       if (spawned.kind === "local-process") {
-        const decision = classifyProcessSignalTarget({ pid: spawned.pid });
-        if (!decision.ok) return false;
         lifecycle = {
           kind: "local-process",
-          ownedProcess: admitChildProcess({
-            source: "herdr-observe:observation-owned",
-            child: spawned.child,
-          }),
+          terminate: spawned.terminate,
+          forceTerminate: spawned.forceTerminate,
           terminationRequested: false,
-          authorityReleased: false,
+          closed: false,
         };
       } else {
         lifecycle = {
@@ -453,7 +440,7 @@ export class HerdrObservePool {
         // finalizers through the bounded receipt path.
         this.terminateGeneration(generation);
       } else {
-        this.releaseGeneration(generation);
+        this.settleLocalGeneration(generation);
       }
       if (entry.generation !== generation) return; // already respawned/killed deliberately
       entry.generation = undefined;
@@ -524,16 +511,15 @@ export class HerdrObservePool {
     this.terminateGeneration(generation);
   }
 
-  /** Observed exit/error retires only the generation that emitted it. */
-  private releaseGeneration(generation: ObserveGeneration): void {
+  /** Record the central plane's close witness for one exact generation. */
+  private settleLocalGeneration(generation: ObserveGeneration): void {
     const lifecycle = generation.lifecycle;
-    if (lifecycle.kind === "remote-scope" || lifecycle.authorityReleased) return;
-    lifecycle.authorityReleased = true;
+    if (lifecycle.kind === "remote-scope" || lifecycle.closed) return;
+    lifecycle.closed = true;
     if (lifecycle.terminationTimer !== undefined) {
       clearTimeout(lifecycle.terminationTimer);
       lifecycle.terminationTimer = undefined;
     }
-    releaseOwned(lifecycle.ownedProcess);
   }
 
   /** Tagged teardown; never follows the entry to a replacement generation. */
@@ -545,15 +531,14 @@ export class HerdrObservePool {
       this.trackRemoteClose(lifecycle.close);
       return;
     }
-    if (lifecycle.terminationRequested || lifecycle.authorityReleased) return;
+    if (lifecycle.terminationRequested || lifecycle.closed) return;
     lifecycle.terminationRequested = true;
-    signalOwned(lifecycle.ownedProcess, "SIGTERM");
-    if (lifecycle.authorityReleased) return;
+    lifecycle.terminate("herdr-observe-release");
+    if (lifecycle.closed) return;
     const timer = setTimeout(() => {
       lifecycle.terminationTimer = undefined;
-      if (lifecycle.authorityReleased) return;
-      signalOwned(lifecycle.ownedProcess, "SIGKILL");
-      this.releaseGeneration(generation);
+      if (lifecycle.closed) return;
+      lifecycle.forceTerminate("herdr-observe-grace-expired");
     }, OBSERVE_CHILD_TERMINATION_GRACE_MS);
     lifecycle.terminationTimer = timer;
     (timer as unknown as { unref?: () => void }).unref?.();

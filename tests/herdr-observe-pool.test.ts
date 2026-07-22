@@ -8,7 +8,6 @@ import {
 import {
   HerdrStreamManager,
   type HerdrClientIo,
-  type HerdrProcessLike,
   type HerdrSpawnedClient,
   type HerdrStreamFrame,
   type RemoteScopeCloseReceipt,
@@ -32,7 +31,7 @@ afterEach(() => {
   setHostsSnapshot(defaultRemoteHostsDocument().hosts);
 });
 
-class FakeChild extends EventEmitter implements HerdrProcessLike {
+class FakeChild extends EventEmitter implements HerdrClientIo {
   readonly stdout = Object.assign(new EventEmitter(), {
     setEncoding: (): void => {},
   });
@@ -68,11 +67,11 @@ class FakeRemoteIo extends EventEmitter implements HerdrClientIo {
   });
 }
 
-let nextFakePid = 920_000_000;
-const localClient = (child: HerdrProcessLike): HerdrSpawnedClient => ({
+const localClient = (child: FakeChild): HerdrSpawnedClient => ({
   kind: "local-process",
-  pid: nextFakePid++,
   child,
+  terminate: () => child.kill("SIGTERM"),
+  forceTerminate: () => child.kill("SIGKILL"),
 });
 const remoteClient = (
   child: HerdrClientIo,
