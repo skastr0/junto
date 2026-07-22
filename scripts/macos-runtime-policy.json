@@ -28,6 +28,36 @@
       "profile": "none"
     },
     {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node",
+      "identifier": "pty",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/build/Release/spawn-helper",
+      "identifier": "spawn-helper",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-arm64/pty.node",
+      "identifier": "pty",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper",
+      "identifier": "spawn-helper",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-x64/pty.node",
+      "identifier": "pty",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-x64/spawn-helper",
+      "identifier": "spawn-helper",
+      "profile": "none"
+    },
+    {
       "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework",
       "identifier": "com.github.Electron.framework",
       "profile": "none"
