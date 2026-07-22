@@ -55,8 +55,8 @@ import {
 } from "./vellum/node-ref-ingress";
 import { resolveNodeRef } from "./vellum/node-ref-resolver";
 import {
+  createSignalQuitState,
   installProcessSignalTermination,
-  type ProcessSignalTermination,
 } from "./vellum/process-signal-termination";
 import { setTrustedMainWebContents } from "./vellum/trusted-main-webcontents";
 import {
@@ -240,6 +240,9 @@ let trustedMainWindow: BrowserWindow | undefined;
 let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
 let workControl: WorkControlServer | undefined;
+const signalQuitState = createSignalQuitState();
+const signalQuiescedWindows = new WeakSet<BrowserWindow>();
+let signalRendererDestroyInProgress = false;
 /** Active herdr control-stream count provider for the quit live-work gate. */
 let herdrActiveControlCount: () => number = () => 0;
 let closeWindowsWithoutCanvasFlush = false;
@@ -248,7 +251,8 @@ let quitConfirmed = false;
 /**
  * Signal / forced-exit path: skip the honest-quit dialog for the next before-quit
  * entry only (consumed once). Cmd+Q still gates on live work. Set from
- * installProcessSignalTermination cleanup; cleared on consume or prep failure.
+ * installProcessSignalTermination cleanup; cleared on consume or recoverable
+ * pre-commit failure, but retained across the irreversible quiesced boundary.
  */
 let skipQuitConfirm = false;
 /**
@@ -380,6 +384,10 @@ const registerCrashRecovery = (mainWindow: BrowserWindow) => {
 };
 
 const createWindow = () => {
+  // Signal quit has crossed an irreversible durability boundary. Native
+  // activate/second-instance events must not resurrect an authoring renderer
+  // while the bounded fallback is finishing a partially torn-down runtime.
+  if (signalRendererDestroyInProgress || signalQuitState.rendererQuiesced()) return;
   const mainWindow = new BrowserWindow({
     width: 1320,
     height: 900,
@@ -405,7 +413,11 @@ const createWindow = () => {
   let closeAfterCanvasFlush = false;
   let closeFlush: Promise<void> | undefined;
   mainWindow.on("close", (event) => {
-    if (closeWindowsWithoutCanvasFlush || closeAfterCanvasFlush) return;
+    if (
+      closeWindowsWithoutCanvasFlush ||
+      closeAfterCanvasFlush ||
+      signalQuiescedWindows.has(mainWindow)
+    ) return;
     event.preventDefault();
     closeFlush ??= requestCanvasFlush(mainWindow)
       .then(() => {
@@ -734,7 +746,11 @@ if (!gotSingleInstanceLock) {
 // with zero windows. Dock icon remains; activate recreates the window.
 // Non-darwin still quits when all windows close (platform convention).
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (
+    process.platform !== "darwin" &&
+    !signalRendererDestroyInProgress &&
+    !signalQuitState.rendererQuiesced()
+  ) app.quit();
 });
 
 const detachBrowserOnQuit = (reason: string) => {
@@ -836,26 +852,51 @@ const exitAfterDetach = (exitCode: number, reason: string): void => {
 };
 
 let quitPreparation: Promise<void> | undefined;
-let signalCanvasFlushDurable = false;
-let signalTerminalShutdownComplete = false;
-let signalShutdownGeneration = 0;
-let signalDurabilityGeneration: number | undefined;
-let signalTermination: ProcessSignalTermination | undefined;
 
 const beginSignalCanvasFlush = async (generation: number): Promise<void> => {
   // Authorization belongs to this signal attempt, never to an earlier normal
   // quit. A second signal after the app remained open must prove current
   // renderer state durable again.
-  signalCanvasFlushDurable = false;
   const mainWindow = trustedMainWindow;
   const flush = mainWindow === undefined || mainWindow.isDestroyed()
     ? Promise.resolve()
     : requestCanvasFlush(mainWindow);
   await flush;
-  if (generation !== signalShutdownGeneration) {
+  if (!signalQuitState.isCurrent(generation)) {
     throw new Error("signal shutdown attempt superseded");
   }
-  signalCanvasFlushDurable = true;
+};
+
+/** Stop trusted renderer authoring synchronously after its final flush ack. */
+const quiesceSignalRenderer = (generation: number): void => {
+  if (!signalQuitState.isCurrent(generation)) {
+    throw new Error("signal shutdown attempt superseded");
+  }
+  const mainWindow = trustedMainWindow;
+  if (mainWindow !== undefined && !mainWindow.isDestroyed()) {
+    signalQuiescedWindows.add(mainWindow);
+    signalRendererDestroyInProgress = true;
+    try {
+      try {
+        // destroy() is synchronous and bypasses the renderer unload path. The
+        // WeakSet bypass above also prevents the ordinary close-flush handler
+        // from starting a second, no-longer-final flush.
+        mainWindow.destroy();
+      } catch (error) {
+        if (!mainWindow.isDestroyed()) throw error;
+      }
+      if (!mainWindow.isDestroyed()) {
+        signalQuiescedWindows.delete(mainWindow);
+        throw new Error("trusted renderer did not quiesce synchronously");
+      }
+      signalQuitState.markRendererQuiesced(generation);
+    } finally {
+      signalRendererDestroyInProgress = false;
+    }
+    return;
+  }
+  // Headless and already-windowless stations have no authoring renderer.
+  signalQuitState.markRendererQuiesced(generation);
 };
 
 const collectLiveWorkSnapshot = () =>
@@ -885,8 +926,11 @@ app.on("before-quit", (event) => {
   if (quitPreparation !== undefined) return;
 
   // Sacred order lives inside this handler (flush, then runtime detach, then dispose).
-  const beginQuitPreparation = (canvasAlreadyDurable = false): void => {
+  const beginQuitPreparation = (durableSignalGeneration?: number): void => {
     if (runtimeDisposed || quitPreparation !== undefined) return;
+    const canvasAlreadyDurable =
+      durableSignalGeneration !== undefined &&
+      signalQuitState.reusableDurabilityGeneration() === durableSignalGeneration;
     const mainWindow = trustedMainWindow;
     const flush = canvasAlreadyDurable
       ? Promise.resolve()
@@ -908,16 +952,18 @@ app.on("before-quit", (event) => {
         app.quit();
       })
       .catch((error) => {
+        // Renderer quiescence is the irreversible signal commit point. Once
+        // crossed, rebuilding UI over a detached/partially disposed runtime is
+        // unsafe; retain the durable generation and let the bounded fallback
+        // finish even when native stop/dispose rejects or stalls.
+        if (signalQuitState.forceExitAllowed()) {
+          console.error("[quit] committed signal teardown stalled; fallback retained:", error);
+          return;
+        }
         quitPreparation = undefined;
         quitConfirmed = false;
         // Never leave skip sticky after a failed prep — next Cmd+Q must be honest.
         skipQuitConfirm = false;
-        if (canvasAlreadyDurable) {
-          signalCanvasFlushDurable = false;
-          signalTerminalShutdownComplete = false;
-          signalDurabilityGeneration = undefined;
-          signalTermination?.cancel();
-        }
         recreateWindowIfEmpty();
         console.error("[canvas] quit blocked:", error);
       });
@@ -927,15 +973,13 @@ app.on("before-quit", (event) => {
   // skipQuitConfirm is consumed once so a failed signal quit cannot permanently
   // silence the honest affordance on a later Cmd+Q.
   if (skipQuitConfirm || headless || quitConfirmed) {
-    const reuseSignalDurability =
-      skipQuitConfirm &&
-      signalDurabilityGeneration === signalShutdownGeneration &&
-      signalCanvasFlushDurable &&
-      signalTerminalShutdownComplete;
+    const durableSignalGeneration = skipQuitConfirm
+      ? signalQuitState.reusableDurabilityGeneration()
+      : undefined;
     invalidateQuitConfirm();
     skipQuitConfirm = false;
     quitConfirmed = true;
-    beginQuitPreparation(reuseSignalDurability);
+    beginQuitPreparation(durableSignalGeneration);
     return;
   }
 
@@ -999,48 +1043,44 @@ app.on("will-quit", () => {
 // Registered SIGTERM/SIGINT listeners suppress Node's default process exit.
 // Detach authority first, request Electron's normal quit sequence, and retain
 // a bounded hard-exit fallback if another listener prevents that sequence.
-signalTermination = installProcessSignalTermination({
+installProcessSignalTermination({
   app,
   cleanup: async (signal) => {
-    const generation = ++signalShutdownGeneration;
+    const generation = signalQuitState.begin();
     // Signals are forced exits — never the honest-quit dialog. Invalidate any
     // open confirm so accept after cancel race cannot fight the force path.
     skipQuitConfirm = true;
-    signalCanvasFlushDurable = false;
-    signalTerminalShutdownComplete = false;
-    signalDurabilityGeneration = undefined;
     invalidateQuitConfirm();
     try {
       await requireCleanLocalTerminalShutdown(signal, false);
-      signalTerminalShutdownComplete = true;
+      signalQuitState.markTerminalClean(generation);
       // This is the final canvas boundary for the signal attempt. The
-      // subsequent before-quit path reuses this exact generation proof.
+      // renderer is destroyed synchronously immediately after its ack, so no
+      // authoring can make this generation stale before fallback authority.
       await beginSignalCanvasFlush(generation);
-      if (generation !== signalShutdownGeneration) {
-        throw new Error("signal shutdown attempt superseded");
-      }
-      signalDurabilityGeneration = generation;
-      // Runtime services remain available if either durability boundary fails.
+      signalQuitState.markCanvasDurable(generation);
+      quiesceSignalRenderer(generation);
+      signalQuitState.authorizeForceExit(generation);
       detachRuntimeOnQuit(signal);
+      signalQuitState.markRuntimeDetached(generation);
     } catch (error) {
-      if (generation === signalShutdownGeneration) {
-        signalCanvasFlushDurable = false;
-        signalTerminalShutdownComplete = false;
-        signalDurabilityGeneration = undefined;
+      const disposition = signalQuitState.fail(generation);
+      if (disposition === "recover") {
         skipQuitConfirm = false;
         quitConfirmed = false;
         recreateWindowIfEmpty();
+        console.error(`[quit] signal attempt blocked (${signal}):`, error);
+        throw error;
       }
-      console.error(`[quit] signal attempt blocked (${signal}):`, error);
-      throw error;
+      if (disposition === "stale") throw error;
+      // Quiescence made the document final. Resolve cleanup so the installer
+      // arms its referenced fallback even if runtime detachment threw midway.
+      console.error(`[quit] committed signal teardown stalled (${signal}):`, error);
     }
   },
   // app.exit bypasses before-quit. A signal may force the native loop only
   // after the renderer has acknowledged a durable canvas flush. Runtime
   // disposal may itself hang; once the document is safe, the bounded fallback
   // can still terminate that native/service teardown stall.
-  allowForceExit: () =>
-    signalDurabilityGeneration === signalShutdownGeneration &&
-    signalCanvasFlushDurable &&
-    signalTerminalShutdownComplete,
+  allowForceExit: () => signalQuitState.forceExitAllowed(),
 });

@@ -17,7 +17,7 @@ describe("canvas quit durability wiring", () => {
       .toBeLessThan(block.indexOf("disposeRuntime()"));
   });
 
-  it("never lets the signal fallback bypass an incomplete canvas flush", () => {
+  it("never authorizes the signal fallback before final flush and renderer quiesce", () => {
     const start = source.indexOf("installProcessSignalTermination({");
     const allowIdx = source.indexOf("allowForceExit:", start);
     expect(allowIdx).toBeGreaterThan(start);
@@ -25,30 +25,41 @@ describe("canvas quit durability wiring", () => {
     const block = source.slice(start, allowIdx + 120);
 
     expect(block).toContain("await beginSignalCanvasFlush(generation)");
-    // Force-exit requires both canvas flush durability AND local terminal shutdown.
+    expect(block.indexOf("await beginSignalCanvasFlush(generation)"))
+      .toBeLessThan(block.indexOf("signalQuitState.markCanvasDurable(generation)"));
+    expect(block.indexOf("signalQuitState.markCanvasDurable(generation)"))
+      .toBeLessThan(block.indexOf("quiesceSignalRenderer(generation)"));
+    expect(block.indexOf("quiesceSignalRenderer(generation)"))
+      .toBeLessThan(block.indexOf("signalQuitState.authorizeForceExit(generation)"));
     expect(block).toContain("allowForceExit:");
-    expect(block).toContain("signalDurabilityGeneration === signalShutdownGeneration");
-    expect(block).toContain("signalCanvasFlushDurable");
-    expect(block).toContain("signalTerminalShutdownComplete");
+    expect(block).toContain("signalQuitState.forceExitAllowed()");
   });
 
-  it("uses the generation-current signal flush as the final quit durability proof", () => {
+  it("commits signal quit in terminal, flush, quiesce, authorize, detach order", () => {
     const beforeStart = source.indexOf('app.on("before-quit"');
     const beforeEnd = source.indexOf('app.on("will-quit"', beforeStart);
     const beforeQuit = source.slice(beforeStart, beforeEnd);
-    const signalStart = source.indexOf("signalTermination = installProcessSignalTermination({");
+    const signalStart = source.indexOf("installProcessSignalTermination({");
     const signal = source.slice(signalStart);
 
     expect(signal.indexOf("requireCleanLocalTerminalShutdown(signal, false)"))
+      .toBeLessThan(signal.indexOf("signalQuitState.markTerminalClean(generation)"));
+    expect(signal.indexOf("signalQuitState.markTerminalClean(generation)"))
       .toBeLessThan(signal.indexOf("await beginSignalCanvasFlush(generation)"));
     expect(signal.indexOf("await beginSignalCanvasFlush(generation)"))
-      .toBeLessThan(signal.indexOf("signalDurabilityGeneration = generation"));
-    expect(signal.indexOf("signalDurabilityGeneration = generation"))
+      .toBeLessThan(signal.indexOf("signalQuitState.markCanvasDurable(generation)"));
+    expect(signal.indexOf("signalQuitState.markCanvasDurable(generation)"))
+      .toBeLessThan(signal.indexOf("quiesceSignalRenderer(generation)"));
+    expect(signal.indexOf("quiesceSignalRenderer(generation)"))
+      .toBeLessThan(signal.indexOf("signalQuitState.authorizeForceExit(generation)"));
+    expect(signal.indexOf("signalQuitState.authorizeForceExit(generation)"))
       .toBeLessThan(signal.indexOf("detachRuntimeOnQuit(signal)"));
-    expect(beforeQuit).toContain("canvasAlreadyDurable");
+    expect(signal.indexOf("detachRuntimeOnQuit(signal)"))
+      .toBeLessThan(signal.indexOf("signalQuitState.markRuntimeDetached(generation)"));
+    expect(beforeQuit).toContain("durableSignalGeneration");
     expect(beforeQuit).toContain("? Promise.resolve()");
-    expect(beforeQuit).toContain("signalDurabilityGeneration === signalShutdownGeneration");
-    expect(beforeQuit).toContain("signalTermination?.cancel()");
+    expect(beforeQuit).toContain("signalQuitState.reusableDurabilityGeneration()");
+    expect(beforeQuit).not.toContain("signalTermination?.cancel()");
   });
 
   it("blocks every exit path after the bounded terminal shutdown returns unclean", () => {
@@ -70,8 +81,8 @@ describe("canvas quit durability wiring", () => {
     expect(directExit).not.toContain(".finally(");
     expect(directExit).toContain("recreateWindowIfEmpty()");
     expect(signalBlock.indexOf("requireCleanLocalTerminalShutdown(signal, false)"))
-      .toBeLessThan(signalBlock.indexOf("signalTerminalShutdownComplete = true"));
-    expect(signalBlock.indexOf("signalTerminalShutdownComplete = true"))
+      .toBeLessThan(signalBlock.indexOf("signalQuitState.markTerminalClean(generation)"));
+    expect(signalBlock.indexOf("signalQuitState.markTerminalClean(generation)"))
       .toBeLessThan(signalBlock.indexOf("detachRuntimeOnQuit(signal)"));
     expect(signalBlock).toContain("catch (error)");
   });
@@ -80,24 +91,65 @@ describe("canvas quit durability wiring", () => {
     const start = source.indexOf("installProcessSignalTermination({");
     const block = source.slice(start);
 
-    expect(block).toContain("const generation = ++signalShutdownGeneration");
-    expect(block).toContain("generation !== signalShutdownGeneration");
-    expect(block).toContain("signalCanvasFlushDurable = false");
-    expect(block).toContain("signalTerminalShutdownComplete = false");
+    expect(block).toContain("const generation = signalQuitState.begin()");
+    expect(source).toContain("signalQuitState.isCurrent(generation)");
+    expect(block).toContain("const disposition = signalQuitState.fail(generation)");
+    expect(block).toContain('disposition === "recover"');
     expect(block).toContain("skipQuitConfirm = false");
     expect(block).toContain("recreateWindowIfEmpty()");
   });
 
-  it("keys fallback authorization to each signal flush, independent of hung disposal", () => {
+  it("revalidates the active generation after each signal flush", () => {
     const start = source.indexOf("const beginSignalCanvasFlush");
-    const end = source.indexOf('app.on("before-quit"', start);
+    const end = source.indexOf("const quiesceSignalRenderer", start);
     const block = source.slice(start, end);
 
-    expect(block.indexOf("signalCanvasFlushDurable = false"))
-      .toBeLessThan(block.indexOf("requestCanvasFlush(mainWindow)"));
-    expect(block.indexOf("signalCanvasFlushDurable = true"))
+    expect(block).toContain("requestCanvasFlush(mainWindow)");
+    expect(block.indexOf("signalQuitState.isCurrent(generation)"))
       .toBeGreaterThan(block.indexOf("requestCanvasFlush(mainWindow)"));
     expect(block).not.toContain("disposeRuntime");
+  });
+
+  it("destroys the trusted renderer without re-flushing before authorization", () => {
+    const quiesceStart = source.indexOf("const quiesceSignalRenderer");
+    const quiesceEnd = source.indexOf("const collectLiveWorkSnapshot", quiesceStart);
+    const quiesce = source.slice(quiesceStart, quiesceEnd);
+    const closeStart = source.indexOf('mainWindow.on("close"');
+    const closeEnd = source.indexOf("mainWindow.webContents.setWindowOpenHandler", closeStart);
+    const close = source.slice(closeStart, closeEnd);
+
+    expect(quiesce.indexOf("signalQuiescedWindows.add(mainWindow)"))
+      .toBeLessThan(quiesce.indexOf("mainWindow.destroy()"));
+    expect(quiesce.indexOf("mainWindow.destroy()"))
+      .toBeLessThan(quiesce.indexOf("signalQuitState.markRendererQuiesced(generation)"));
+    expect(quiesce).not.toContain("requestCanvasFlush");
+    expect(close).toContain("signalQuiescedWindows.has(mainWindow)");
+    expect(close).toContain("requestCanvasFlush(mainWindow)");
+  });
+
+  it("prevents native activation from recreating authoring after quiesce", () => {
+    const createStart = source.indexOf("const createWindow = () =>");
+    const createEnd = source.indexOf("const LAUNCHD_LABEL", createStart);
+    const create = source.slice(createStart, createEnd);
+
+    expect(create).toContain("signalRendererDestroyInProgress");
+    expect(create).toContain("signalQuitState.rendererQuiesced()");
+    expect(create.indexOf("signalQuitState.rendererQuiesced()"))
+      .toBeLessThan(create.indexOf("new BrowserWindow"));
+  });
+
+  it("retains fallback authorization on teardown failure after signal commit", () => {
+    const beforeStart = source.indexOf('app.on("before-quit"');
+    const beforeEnd = source.indexOf('app.on("will-quit"', beforeStart);
+    const beforeQuit = source.slice(beforeStart, beforeEnd);
+    const committed = beforeQuit.indexOf("if (signalQuitState.forceExitAllowed())");
+    const recover = beforeQuit.indexOf("quitPreparation = undefined", committed);
+
+    expect(committed).toBeGreaterThanOrEqual(0);
+    expect(recover).toBeGreaterThan(committed);
+    expect(beforeQuit.slice(committed, recover)).not.toContain("recreateWindowIfEmpty()");
+    expect(beforeQuit.slice(committed, recover)).not.toContain("skipQuitConfirm = false");
+    expect(beforeQuit).not.toContain("signalTermination?.cancel()");
   });
 
   it("blocks window teardown until a canvas flush acknowledgement arrives", () => {

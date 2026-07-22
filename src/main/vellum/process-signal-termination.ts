@@ -33,6 +33,108 @@ export interface ProcessSignalTermination {
   readonly requested: () => boolean;
 }
 
+export type SignalQuitPhase =
+  | "idle"
+  | "preparing"
+  | "terminal-clean"
+  | "canvas-durable"
+  | "renderer-quiesced"
+  | "force-authorized"
+  | "runtime-detached";
+
+export type SignalQuitFailureDisposition = "recover" | "finish" | "stale";
+
+export interface SignalQuitState {
+  readonly begin: () => number;
+  readonly markTerminalClean: (generation: number) => void;
+  readonly markCanvasDurable: (generation: number) => void;
+  readonly markRendererQuiesced: (generation: number) => void;
+  readonly authorizeForceExit: (generation: number) => void;
+  readonly markRuntimeDetached: (generation: number) => void;
+  readonly fail: (generation: number) => SignalQuitFailureDisposition;
+  readonly isCurrent: (generation: number) => boolean;
+  readonly rendererQuiesced: () => boolean;
+  readonly forceExitAllowed: () => boolean;
+  readonly reusableDurabilityGeneration: () => number | undefined;
+  readonly snapshot: () => Readonly<{
+    generation: number;
+    phase: SignalQuitPhase;
+  }>;
+}
+
+/**
+ * Generation-scoped commit boundary for signal-driven quit.
+ *
+ * Before the renderer is synchronously quiesced, a failed attempt may restore
+ * the UI and retry. Once quiesced, the final canvas acknowledgement cannot be
+ * invalidated by new authoring, so recovery would create a half-torn runtime;
+ * failures instead retain force-exit authority and finish the bounded exit.
+ */
+export const createSignalQuitState = (): SignalQuitState => {
+  let generation = 0;
+  let phase: SignalQuitPhase = "idle";
+
+  const advance = (
+    attemptedGeneration: number,
+    expected: SignalQuitPhase,
+    next: SignalQuitPhase,
+  ): void => {
+    if (attemptedGeneration !== generation || phase !== expected) {
+      throw new Error(
+        `invalid signal quit transition ${phase} -> ${next} for generation ${attemptedGeneration}`,
+      );
+    }
+    phase = next;
+  };
+
+  const rendererQuiesced = (): boolean =>
+    phase === "renderer-quiesced" ||
+    phase === "force-authorized" ||
+    phase === "runtime-detached";
+
+  const forceExitAllowed = (): boolean =>
+    phase === "force-authorized" || phase === "runtime-detached";
+
+  return {
+    begin: () => {
+      if (phase !== "idle") {
+        throw new Error(`signal quit attempt already active in phase ${phase}`);
+      }
+      generation += 1;
+      phase = "preparing";
+      return generation;
+    },
+    markTerminalClean: (attemptedGeneration) =>
+      advance(attemptedGeneration, "preparing", "terminal-clean"),
+    markCanvasDurable: (attemptedGeneration) =>
+      advance(attemptedGeneration, "terminal-clean", "canvas-durable"),
+    markRendererQuiesced: (attemptedGeneration) =>
+      advance(attemptedGeneration, "canvas-durable", "renderer-quiesced"),
+    authorizeForceExit: (attemptedGeneration) =>
+      advance(attemptedGeneration, "renderer-quiesced", "force-authorized"),
+    markRuntimeDetached: (attemptedGeneration) =>
+      advance(attemptedGeneration, "force-authorized", "runtime-detached"),
+    fail: (attemptedGeneration) => {
+      if (attemptedGeneration !== generation || phase === "idle") return "stale";
+      if (rendererQuiesced()) {
+        // Quiescence is the irreversible boundary. Promote an interruption
+        // between renderer destruction and explicit authorization so cleanup
+        // can resolve and arm the same bounded fallback.
+        if (phase === "renderer-quiesced") phase = "force-authorized";
+        return "finish";
+      }
+      phase = "idle";
+      return "recover";
+    },
+    isCurrent: (attemptedGeneration) =>
+      attemptedGeneration === generation && phase !== "idle",
+    rendererQuiesced,
+    forceExitAllowed,
+    reusableDurabilityGeneration: () => forceExitAllowed() ? generation : undefined,
+    snapshot: () => ({ generation, phase }),
+  };
+};
+
 const validatedExitGraceMs = (value: number | undefined): number => {
   if (value === undefined) return PROCESS_SIGNAL_EXIT_GRACE_MS;
   if (!Number.isSafeInteger(value) || value <= 0 || value > PROCESS_SIGNAL_EXIT_GRACE_MS) {

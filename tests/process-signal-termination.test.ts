@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { installProcessSignalTermination } from "../src/main/vellum/process-signal-termination";
+import {
+  createSignalQuitState,
+  installProcessSignalTermination,
+} from "../src/main/vellum/process-signal-termination";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -212,7 +215,7 @@ describe("process signal termination", () => {
     expect(installed.requested()).toBe(false);
   });
 
-  it("revokes a force fallback when a later durability boundary fails", async () => {
+  it("keeps the fallback authorized when later quit teardown fails after commit", async () => {
     vi.useFakeTimers();
     const listeners = new Map<string, () => void>();
     const processTarget = {
@@ -223,31 +226,112 @@ describe("process signal termination", () => {
         listeners.delete(signal);
       }),
     };
-    const cleanup = vi.fn();
+    const state = createSignalQuitState();
+    let generation = 0;
+    const cleanup = vi.fn(() => {
+      generation = state.begin();
+      state.markTerminalClean(generation);
+      state.markCanvasDurable(generation);
+      state.markRendererQuiesced(generation);
+      state.authorizeForceExit(generation);
+      state.markRuntimeDetached(generation);
+    });
     const exit = vi.fn();
-    let durable = true;
+    let teardownFailure: ReturnType<typeof state.fail> | undefined;
     const installed = installProcessSignalTermination({
       app: {
         quit: () => {
-          // Synthetic later before-quit failure revokes the final proof.
-          durable = false;
+          // Model a later before-quit stop/dispose rejection. The renderer is
+          // already gone and the durable generation must remain authorized.
+          teardownFailure = state.fail(generation);
         },
         exit,
       },
       cleanup,
       processTarget,
       exitGraceMs: 10,
-      allowForceExit: () => durable,
+      allowForceExit: () => state.forceExitAllowed(),
     });
 
     listeners.get("SIGTERM")?.();
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(30);
+    expect(teardownFailure).toBe("finish");
+    expect(state.forceExitAllowed()).toBe(true);
 
+    await vi.advanceTimersByTimeAsync(10);
     expect(cleanup).toHaveBeenCalledOnce();
-    expect(exit).not.toHaveBeenCalled();
-    installed.cancel();
-    expect(installed.requested()).toBe(false);
+    expect(exit).toHaveBeenCalledOnce();
+    expect(exit).toHaveBeenCalledWith(0);
     installed.dispose();
+  });
+});
+
+describe("signal quit commit state", () => {
+  it("enforces terminal, flush, renderer quiesce, authorization, then detach", () => {
+    const state = createSignalQuitState();
+    const generation = state.begin();
+
+    expect(() => state.markCanvasDurable(generation)).toThrow();
+    state.markTerminalClean(generation);
+    expect(() => state.markRendererQuiesced(generation)).toThrow();
+    state.markCanvasDurable(generation);
+    expect(() => state.authorizeForceExit(generation)).toThrow();
+    state.markRendererQuiesced(generation);
+    expect(state.forceExitAllowed()).toBe(false);
+    state.authorizeForceExit(generation);
+    expect(() => state.markCanvasDurable(generation)).toThrow();
+    state.markRuntimeDetached(generation);
+
+    expect(state.snapshot()).toEqual({
+      generation,
+      phase: "runtime-detached",
+    });
+    expect(state.reusableDurabilityGeneration()).toBe(generation);
+    expect(state.forceExitAllowed()).toBe(true);
+  });
+
+  it("recovers UI and permits a fresh generation only before renderer quiesce", () => {
+    const state = createSignalQuitState();
+    const first = state.begin();
+    state.markTerminalClean(first);
+    state.markCanvasDurable(first);
+
+    expect(state.fail(first)).toBe("recover");
+    expect(state.snapshot()).toEqual({ generation: first, phase: "idle" });
+    expect(state.rendererQuiesced()).toBe(false);
+    expect(state.forceExitAllowed()).toBe(false);
+
+    const second = state.begin();
+    expect(second).toBe(first + 1);
+  });
+
+  it("finishes exit instead of recovering a renderer-quiesced attempt", () => {
+    const state = createSignalQuitState();
+    const generation = state.begin();
+    state.markTerminalClean(generation);
+    state.markCanvasDurable(generation);
+    state.markRendererQuiesced(generation);
+
+    expect(state.fail(generation)).toBe("finish");
+    expect(state.snapshot()).toEqual({
+      generation,
+      phase: "force-authorized",
+    });
+    expect(state.rendererQuiesced()).toBe(true);
+    expect(state.reusableDurabilityGeneration()).toBe(generation);
+    expect(state.forceExitAllowed()).toBe(true);
+  });
+
+  it("ignores stale failure callbacks from an earlier generation", () => {
+    const state = createSignalQuitState();
+    const first = state.begin();
+    expect(state.fail(first)).toBe("recover");
+    const second = state.begin();
+
+    expect(state.fail(first)).toBe("stale");
+    expect(state.snapshot()).toEqual({
+      generation: second,
+      phase: "preparing",
+    });
   });
 });
