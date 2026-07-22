@@ -140,8 +140,14 @@ const normalizeControlShutdownReceipt = (
       if (!Number.isSafeInteger(count) || Number(count) < 0) return undefined;
       retainedCounts[key] = Number(count);
     }
+    if (Number(settled) !== Number(fulfilled) + Number(rejected)) return undefined;
+    const noRetainedCounts = CONTROL_RETAINED_COUNT_KEYS.every(
+      (key) => retainedCounts[key] === 0,
+    );
+    const normalizedClean =
+      clean && noRetainedCounts && retainedLabelsValue.length === 0;
     return Object.freeze({
-      clean,
+      clean: normalizedClean,
       rounds: Number(rounds),
       settled: Number(settled),
       fulfilled: Number(fulfilled),

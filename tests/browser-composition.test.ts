@@ -443,6 +443,10 @@ describe("browser composition (no ceremony)", () => {
   it.each([
     ["undefined", undefined],
     ["non-boolean", { clean: "yes" }],
+    [
+      "contradictory accounting",
+      { ...controlShutdownReceipt(), settled: 1, fulfilled: 0, rejected: 0 },
+    ],
     ["throwing getter", Object.defineProperty({}, "clean", {
       get: () => {
         throw new Error("malformed control receipt");
@@ -488,6 +492,55 @@ describe("browser composition (no ceremony)", () => {
       clean: false,
       timedOut: false,
       control: { available: true, clean: false },
+    });
+  });
+
+  it("cannot normalize retained control resources into a clean aggregate", async () => {
+    const sessions = {
+      beginUiShutdown: () => ({ epoch: 1, closedAt: 1, activeOperations: [] }),
+      drainUiOnQuit: async () => ({
+        epoch: 1,
+        clean: true as const,
+        operations: [] as const,
+        settled: 0,
+        fulfilled: 0,
+        rejected: 0,
+        rounds: 0,
+        timedOut: false as const,
+        activeOperations: [] as const,
+        sessionsDestroyed: 0,
+        teardownWitnessFailures: 0,
+      }),
+    } as unknown as BrowserSessionService;
+    const retainedControl = {
+      ...controlShutdownReceipt(),
+      retainedCounts: {
+        ...controlShutdownReceipt().retainedCounts,
+        requests: 1,
+      },
+      retainedLabels: ["request"],
+    };
+    const coordinator = makeBrowserShutdownCoordinator({
+      sessions,
+      storage: storageShutdownPort(),
+      registry: { close: () => 0 },
+      registryTerminationFailures: () => 0,
+    });
+    coordinator.bindControlShutdown({
+      drainOnQuit: async () => retainedControl,
+    });
+
+    await expect(coordinator.drainOnQuit()).resolves.toMatchObject({
+      clean: false,
+      control: {
+        available: true,
+        clean: false,
+        receipt: {
+          clean: false,
+          retainedCounts: { requests: 1 },
+          retainedLabels: ["request"],
+        },
+      },
     });
   });
 
