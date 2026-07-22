@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { Effect } from "effect";
-import { IPC_CHANNELS, type BindingHint } from "@shared/ipc";
+import { IPC_CHANNELS, type BindingHint, type WorkOpResult } from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
 import { digestCanvas } from "@shared/digest";
 import { buildGlyphView } from "@shared/glyph-view";
@@ -30,6 +30,11 @@ import { registerTerminalIpc } from "./term/ipc";
 import { termPlane } from "./term/plane";
 import { getTrustedMainWebContents } from "./trusted-main-webcontents";
 import type { A2AMetadata, Artifact, Message, TaskState } from "@shared/canvas";
+import {
+  MainAuthoringRefused,
+  mainAuthoringGate,
+  type MainAuthoringLabel,
+} from "./main-authoring-gate";
 
 const broadcast = (channel: string, payload: unknown) => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -39,6 +44,26 @@ const broadcast = (channel: string, payload: unknown) => {
     window.webContents.send(channel, payload);
   }
 };
+
+const runMainAuthoring = <A>(
+  label: MainAuthoringLabel,
+  operation: () => Promise<A>,
+): Promise<A> => mainAuthoringGate.run(label, operation);
+
+const runRendererWorkAuthoring = <A>(
+  label: MainAuthoringLabel,
+  operation: () => Promise<WorkOpResult<A>>,
+): Promise<WorkOpResult<A>> =>
+  runMainAuthoring(label, operation).catch((error: unknown) => {
+    if (error instanceof MainAuthoringRefused) {
+      return {
+        ok: false as const,
+        code: "invalid" as const,
+        message: error.message,
+      };
+    }
+    return Promise.reject(error);
+  });
 
 /** Remote stations pull canvases; they must not rewrite authorial SoT. */
 const denyIfRemoteAuthorial = Effect.gen(function* () {
@@ -74,38 +99,50 @@ export const registerVellumIpc = (): void => {
   );
 
   ipcMain.handle(IPC_CHANNELS.writeCanvas, (_event, name: string, doc: CanvasDoc, expectedRevision?: string) =>
-    AppRuntime.runPromise(
-      Effect.gen(function* () {
-        yield* denyIfRemoteAuthorial;
-        const canvases = yield* CanvasesService;
-        return yield* canvases.write(name, doc, expectedRevision);
-      }),
+    runMainAuthoring(
+      "ipc.canvas.write",
+      () => AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* denyIfRemoteAuthorial;
+          const canvases = yield* CanvasesService;
+          return yield* canvases.write(name, doc, expectedRevision);
+        }),
+      ),
     ),
   );
 
   ipcMain.handle(IPC_CHANNELS.createCanvas, (_event, name: string) =>
-    AppRuntime.runPromise(
-      Effect.gen(function* () {
-        yield* denyIfRemoteAuthorial;
-        const canvases = yield* CanvasesService;
-        return yield* canvases.create(name);
-      }),
+    runMainAuthoring(
+      "ipc.canvas.create",
+      () => AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* denyIfRemoteAuthorial;
+          const canvases = yield* CanvasesService;
+          return yield* canvases.create(name);
+        }),
+      ),
     ),
   );
 
   ipcMain.handle(IPC_CHANNELS.deleteCanvas, (_event, name: string) =>
-    AppRuntime.runPromise(
-      Effect.gen(function* () {
-        yield* denyIfRemoteAuthorial;
-        const canvases = yield* CanvasesService;
-        return yield* canvases.remove(name);
-      }),
+    runMainAuthoring(
+      "ipc.canvas.delete",
+      () => AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* denyIfRemoteAuthorial;
+          const canvases = yield* CanvasesService;
+          return yield* canvases.remove(name);
+        }),
+      ),
     ),
   );
 
   // Remote → Command Center canvas pull (read-only; never mutates CC).
   ipcMain.handle(IPC_CHANNELS.pullCanvases, () =>
-    AppRuntime.runPromise(pullCanvasesFromCommandCenter),
+    runMainAuthoring(
+      "ipc.canvas.pull",
+      () => AppRuntime.runPromise(pullCanvasesFromCommandCenter),
+    ),
   );
 
   ipcMain.handle(IPC_CHANNELS.exportDigest, (_event, name: string) =>
@@ -127,20 +164,23 @@ export const registerVellumIpc = (): void => {
   ipcMain.handle(
     IPC_CHANNELS.generatePortfolio,
     (_event, name: string, options?: { all?: boolean }) =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const canvases = yield* CanvasesService;
-          const snapshots = yield* SnapshotsService;
-          // Fresh full-corpus pull (no hints = base project lists from each source).
-          const state = yield* snapshots.refresh([]);
-          // mergePortfolioInto is idempotent. Run it through the retrying
-          // document mutation boundary so a direct-file edit during refresh
-          // is merged into, never overwritten by a stale pre-refresh read.
-          yield* canvases.mutate(name, (doc) =>
-            mergePortfolioInto(doc, state, { all: options?.all ?? false }),
-          );
-          return yield* canvases.read(name);
-        }),
+      runMainAuthoring(
+        "ipc.canvas.portfolio",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const canvases = yield* CanvasesService;
+            const snapshots = yield* SnapshotsService;
+            // Fresh full-corpus pull (no hints = base project lists from each source).
+            const state = yield* snapshots.refresh([]);
+            // mergePortfolioInto is idempotent. Run it through the retrying
+            // document mutation boundary so a direct-file edit during refresh
+            // is merged into, never overwritten by a stale pre-refresh read.
+            yield* canvases.mutate(name, (doc) =>
+              mergePortfolioInto(doc, state, { all: options?.all ?? false }),
+            );
+            return yield* canvases.read(name);
+          }),
+        ),
       ),
   );
 
@@ -227,13 +267,16 @@ export const registerVellumIpc = (): void => {
   ipcMain.handle(
     IPC_CHANNELS.workTaskCreate,
     (_event, canvas: string, nodeId: string, brief: string, metadata?: A2AMetadata) =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const denied = yield* denyRemoteWork;
-          if (denied) return denied;
-          const work = yield* WorkService;
-          return yield* work.workTaskCreate(canvas, nodeId, brief, metadata);
-        }),
+      runRendererWorkAuthoring(
+        "ipc.work.task-create",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workTaskCreate(canvas, nodeId, brief, metadata);
+          }),
+        ),
       ),
   );
   ipcMain.handle(
@@ -246,49 +289,61 @@ export const registerVellumIpc = (): void => {
       state: TaskState,
       note?: string,
     ) =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const denied = yield* denyRemoteWork;
-          if (denied) return denied;
-          const work = yield* WorkService;
-          return yield* work.workTaskTransition(canvas, nodeId, taskId, state, note);
-        }),
+      runRendererWorkAuthoring(
+        "ipc.work.task-transition",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workTaskTransition(canvas, nodeId, taskId, state, note);
+          }),
+        ),
       ),
   );
   ipcMain.handle(
     IPC_CHANNELS.workTaskClaim,
     (_event, canvas: string, nodeId: string, taskId: string, actor: string) =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const denied = yield* denyRemoteWork;
-          if (denied) return denied;
-          const work = yield* WorkService;
-          return yield* work.workTaskClaim(canvas, nodeId, taskId, actor);
-        }),
+      runRendererWorkAuthoring(
+        "ipc.work.task-claim",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workTaskClaim(canvas, nodeId, taskId, actor);
+          }),
+        ),
       ),
   );
   ipcMain.handle(
     IPC_CHANNELS.workMessageAppend,
     (_event, canvas: string, nodeId: string, taskId: string | null, message: Message) =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const denied = yield* denyRemoteWork;
-          if (denied) return denied;
-          const work = yield* WorkService;
-          return yield* work.workMessageAppend(canvas, nodeId, taskId, message);
-        }),
+      runRendererWorkAuthoring(
+        "ipc.work.message-append",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workMessageAppend(canvas, nodeId, taskId, message);
+          }),
+        ),
       ),
   );
   ipcMain.handle(
     IPC_CHANNELS.workRequestCreate,
     (_event, canvas: string, nodeId: string, brief: string, metadata?: A2AMetadata) =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const denied = yield* denyRemoteWork;
-          if (denied) return denied;
-          const work = yield* WorkService;
-          return yield* work.workRequestCreate(canvas, nodeId, brief, metadata);
-        }),
+      runRendererWorkAuthoring(
+        "ipc.work.request-create",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workRequestCreate(canvas, nodeId, brief, metadata);
+          }),
+        ),
       ),
   );
   ipcMain.handle(
@@ -301,31 +356,37 @@ export const registerVellumIpc = (): void => {
       responseText: string,
       disposition: "completed" | "rejected",
     ) =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const denied = yield* denyRemoteWork;
-          if (denied) return denied;
-          const work = yield* WorkService;
-          return yield* work.workRequestResolve(
-            canvas,
-            nodeId,
-            taskId,
-            responseText,
-            disposition,
-          );
-        }),
+      runRendererWorkAuthoring(
+        "ipc.work.request-resolve",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workRequestResolve(
+              canvas,
+              nodeId,
+              taskId,
+              responseText,
+              disposition,
+            );
+          }),
+        ),
       ),
   );
   ipcMain.handle(
     IPC_CHANNELS.workArtifactPublish,
     (_event, canvas: string, nodeId: string, artifact: Artifact) =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const denied = yield* denyRemoteWork;
-          if (denied) return denied;
-          const work = yield* WorkService;
-          return yield* work.workArtifactPublish(canvas, nodeId, artifact);
-        }),
+      runRendererWorkAuthoring(
+        "ipc.work.artifact-publish",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workArtifactPublish(canvas, nodeId, artifact);
+          }),
+        ),
       ),
   );
 
@@ -380,26 +441,27 @@ export const registerVellumIpc = (): void => {
                 Effect.catchAll(() => Effect.succeed(undefined as CanvasDoc | undefined)),
               ),
             ),
-          stampDelivered: async (canvas, nodeId, messageId, deliveredAt) => {
-            for (let attempt = 0; attempt < 8; attempt += 1) {
-              const read = await AppRuntime.runPromise(
-                canvases.read(canvas).pipe(Effect.either),
-              );
-              if (read._tag === "Left") return false;
-              const next = stampMessageDelivered(read.right.doc, nodeId, messageId, deliveredAt);
-              if (!next) return false; // already stamped or missing
-              const written = await AppRuntime.runPromise(
-                canvases.write(canvas, next, read.right.revision).pipe(Effect.either),
-              );
-              if (written._tag === "Right") return true;
-              const msg =
-                written.left instanceof Error ? written.left.message : String(written.left);
-              if (!msg.includes("changed on disk") && !msg.includes("reload before saving")) {
-                return false;
+          stampDelivered: (canvas, nodeId, messageId, deliveredAt) =>
+            runMainAuthoring("delivery.message-stamp", async () => {
+              for (let attempt = 0; attempt < 8; attempt += 1) {
+                const read = await AppRuntime.runPromise(
+                  canvases.read(canvas).pipe(Effect.either),
+                );
+                if (read._tag === "Left") return false;
+                const next = stampMessageDelivered(read.right.doc, nodeId, messageId, deliveredAt);
+                if (!next) return false; // already stamped or missing
+                const written = await AppRuntime.runPromise(
+                  canvases.write(canvas, next, read.right.revision).pipe(Effect.either),
+                );
+                if (written._tag === "Right") return true;
+                const msg =
+                  written.left instanceof Error ? written.left.message : String(written.left);
+                if (!msg.includes("changed on disk") && !msg.includes("reload before saving")) {
+                  return false;
+                }
               }
-            }
-            return false;
-          },
+              return false;
+            }),
         },
       });
       chat.setSessionLiveHook((agentKey) => messageDelivery.onAgentLive(agentKey));

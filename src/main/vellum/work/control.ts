@@ -64,6 +64,12 @@ import {
   type ProcessIdentityMap,
   readUnixPeerPid,
 } from "../process-identity";
+import {
+  MainAuthoringRefused,
+  mainAuthoringGate,
+  mainAuthoringLabelForWorkOperation,
+  type MainAuthoringGate,
+} from "../main-authoring-gate";
 
 // Local work control plane for agents: NDJSON over a Unix domain socket at
 // ~/.vellum/work/control.sock. Token + process-bind identity + edge authz;
@@ -520,6 +526,8 @@ export interface WorkControlServerOptions {
   readonly readPeerPid?: PeerPidReader;
   /** Canvases directory for principal → node resolution. */
   readonly canvasesDir?: string;
+  /** Test seam; production uses the process-global main authoring authority. */
+  readonly authoringGate?: MainAuthoringGate;
 }
 
 const unlinkSocket = (socketPath: string): void => {
@@ -548,6 +556,7 @@ export const startWorkControlServer = async (
   unlinkSocket(socketPath);
   const processMap = options.processMap ?? getProcessIdentityMap();
   const readPeerPid = options.readPeerPid ?? readUnixPeerPid;
+  const authoringGate = options.authoringGate ?? mainAuthoringGate;
   const canvasesDir =
     options.canvasesDir ?? join(options.home ?? homedir(), ".vellum", "canvases");
 
@@ -660,11 +669,16 @@ export const startWorkControlServer = async (
       };
 
       try {
-        const outcome = await options.run(
-          dispatchOp(req.op, req.args, caller, options.version).pipe(
-            Effect.either,
-          ),
+        const run = () => options.run(
+          dispatchOp(req.op, req.args, caller, options.version).pipe(Effect.either),
         );
+        const authoringLabel = mainAuthoringLabelForWorkOperation(req.op);
+        // Read operations intentionally remain available while quit drains.
+        // Mutations retain the actual runtime promise even if this socket goes
+        // away before the response can be written.
+        const outcome = authoringLabel === undefined
+          ? await run()
+          : await authoringGate.run(authoringLabel, run);
 
         if (Either.isLeft(outcome)) {
           const body = outcome.left;
@@ -676,6 +690,22 @@ export const startWorkControlServer = async (
         }
         respond(socket, workOk(req.op, outcome.right, req.id));
       } catch (error) {
+        if (error instanceof MainAuthoringRefused) {
+          respond(
+            socket,
+            workErr(
+              "RuntimeDown",
+              error.message,
+              {
+                retryable: false,
+                next_step: "wait for Vellum shutdown to finish or restart Vellum",
+              },
+              req.op,
+              req.id,
+            ),
+          );
+          return;
+        }
         respond(
           socket,
           workErr(

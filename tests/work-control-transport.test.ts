@@ -20,10 +20,15 @@ import {
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
 import type { CanvasDoc } from "../src/shared/canvas";
+import {
+  createMainAuthoringGate,
+  type MainAuthoringGate,
+} from "../src/main/vellum/main-authoring-gate";
 
 const roots: string[] = [];
 const servers: WorkControlServer[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<WorkService | CanvasesService, never>> = [];
+const authoringGates: MainAuthoringGate[] = [];
 /** Peer PID for transport tests — must be a live process (epoch-checked). */
 const TEST_PEER_PID = process.pid;
 
@@ -135,6 +140,8 @@ beforeEach(async () => {
     agentKey: "local:agent",
   });
 
+  const authoringGate = createMainAuthoringGate();
+  authoringGates.push(authoringGate);
   const server = await startWorkControlServer({
     version: "test",
     workHome,
@@ -143,6 +150,7 @@ beforeEach(async () => {
     processMap,
     readPeerPid: () => TEST_PEER_PID,
     run: (effect) => runtime.runPromise(effect),
+    authoringGate,
   });
   servers.push(server);
 });
@@ -153,6 +161,7 @@ afterEach(async () => {
     const rt = runtimes.pop();
     if (rt) await rt.dispose();
   }
+  authoringGates.length = 0;
   while (roots.length > 0) {
     const root = roots.pop();
     if (root) await rm(root, { recursive: true, force: true });
@@ -193,6 +202,39 @@ describe("work control transport", () => {
         );
       }
     }
+  });
+
+  it("keeps reads available while returning typed RuntimeDown for authorial ops", async () => {
+    const server = servers[0]!;
+    const gate = authoringGates[0]!;
+    const precommit = gate.beginPrecommit();
+
+    const ping = (await call(server.socketPath, {
+      token: token(),
+      op: "ping",
+    })) as { ok: boolean };
+    expect(ping.ok).toBe(true);
+
+    const refused = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.claim",
+      args: { target: "tasks", task: "t1", actor: "agent" },
+    })) as {
+      ok: false;
+      error: { type: string; message: string; details?: { retryable?: boolean } };
+    };
+    expect(refused.ok).toBe(false);
+    expect(refused.error.type).toBe("RuntimeDown");
+    expect(refused.error.message).toMatch(/precommit-closed|refused/);
+    expect(refused.error.details?.retryable).toBe(false);
+
+    gate.recover(precommit.epoch);
+    const admitted = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.claim",
+      args: { target: "tasks", task: "t1", actor: "agent" },
+    })) as { ok: boolean };
+    expect(admitted.ok).toBe(true);
   });
 
   it("ignores forged nodeRef — process principal wins", async () => {

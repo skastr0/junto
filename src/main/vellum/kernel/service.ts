@@ -27,6 +27,7 @@ import { ChatServiceContext, type ChatService } from "../chat/service";
 import { SnapshotsService } from "../snapshots";
 import { StoreService } from "../../services/store";
 import { SettingsService } from "../settings/service";
+import { MainAuthoringRefused, mainAuthoringGate } from "../main-authoring-gate";
 import {
   checkTimers,
   deliverPulse,
@@ -279,30 +280,41 @@ const makeKernelService = (
   // now routes to the right document instead of being safe-dropped.
   __setFlagWriterForTest({
     setFlag: (canvasName, nodeId, flag, enabled) => {
-      void Effect.runPromise(canvases.mutate(canvasName, (doc) => setFlagInDoc(doc, nodeId, flag, enabled)))
-        .then(() => Effect.runPromise(Effect.either(canvases.read(canvasName))))
-        .then((result) => {
+      void mainAuthoringGate.run("kernel.flag-mirror", async () => {
+        await Effect.runPromise(
+          canvases.mutate(canvasName, (doc) => setFlagInDoc(doc, nodeId, flag, enabled)),
+        );
+        const result = await Effect.runPromise(Effect.either(canvases.read(canvasName)));
           if (result._tag === "Right") docs.set(canvasName, result.right.doc);
           for (const listener of canvasMutatedListeners) listener(canvasName);
           emitSnapshot();
-        })
-        .catch((err) => console.error(`[kernel] flag write failed for ${canvasName}/${nodeId}:`, err));
+      }).catch((error: unknown) => {
+        // Refusal is the expected result of the synchronous quit fence. Other
+        // failures remain visible because the kernel write itself failed.
+        if (error instanceof MainAuthoringRefused) return;
+        console.error(`[kernel] flag write failed for ${canvasName}/${nodeId}:`, error);
+      });
     },
   });
 
   // Mirror derived criteria-edge phases into ether.kind for offline readers.
   __setPhaseMirrorForTest({
     mirrorPhases: (canvasName, phaseByEdgeId) => {
-      void Effect.runPromise(
-        canvases.mutate(canvasName, (doc) => applyPhaseMirror(doc, phaseByEdgeId as ReadonlyMap<string, EdgePhase>)),
-      )
-        .then(() => Effect.runPromise(Effect.either(canvases.read(canvasName))))
-        .then((result) => {
+      void mainAuthoringGate.run("kernel.phase-mirror", async () => {
+        await Effect.runPromise(
+          canvases.mutate(
+            canvasName,
+            (doc) => applyPhaseMirror(doc, phaseByEdgeId as ReadonlyMap<string, EdgePhase>),
+          ),
+        );
+        const result = await Effect.runPromise(Effect.either(canvases.read(canvasName)));
           if (result._tag === "Right") docs.set(canvasName, result.right.doc);
           for (const listener of canvasMutatedListeners) listener(canvasName);
           emitSnapshot();
-        })
-        .catch((err) => console.error(`[kernel] phase mirror failed for ${canvasName}:`, err));
+      }).catch((error: unknown) => {
+        if (error instanceof MainAuthoringRefused) return;
+        console.error(`[kernel] phase mirror failed for ${canvasName}:`, error);
+      });
     },
   });
 
