@@ -28,7 +28,7 @@ import { stampMessageDelivered } from "@shared/message-delivery";
 import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
 import { termPlane } from "./term/plane";
-import { getTrustedMainWebContents } from "./trusted-main-webcontents";
+import { isTrustedMainWebContents, trustedRendererIpc } from "./trusted-main-webcontents";
 import type { A2AMetadata, Artifact, Message, TaskState } from "@shared/canvas";
 import {
   MainAuthoringRefused,
@@ -42,7 +42,11 @@ const broadcast = (channel: string, payload: unknown) => {
   for (const window of BrowserWindow.getAllWindows()) {
     // Guard: close/reopen races can leave a BrowserWindow whose webContents
     // is already destroyed (Object has been destroyed in main).
-    if (window.isDestroyed() || window.webContents.isDestroyed()) continue;
+    if (
+      window.isDestroyed() ||
+      window.webContents.isDestroyed() ||
+      !isTrustedMainWebContents(window.webContents)
+    ) continue;
     window.webContents.send(channel, payload);
   }
 };
@@ -144,26 +148,24 @@ const denyIfRemoteAuthorial = Effect.gen(function* () {
 });
 
 export const registerVellumIpc = (): void => {
-  registerHerdrIpc(ipcMain, () => BrowserWindow.getAllWindows().map((w) => w.webContents));
-  registerTerminalIpc(ipcMain, termPlane, {
-    isTrustedSender: (sender) => {
-      const trusted = getTrustedMainWebContents();
-      // Headless / pre-window: no trusted WC yet — admit live senders for tests.
-      if (trusted === undefined) return !sender.isDestroyed();
-      return trusted === sender;
-    },
-  });
-  registerSettingsIpc(ipcMain, broadcast);
-  registerHostsIpc(ipcMain);
-  ipcMain.handle(IPC_CHANNELS.listCanvases, () =>
+  const privilegedIpc = trustedRendererIpc(ipcMain);
+  registerHerdrIpc(privilegedIpc, () =>
+    BrowserWindow.getAllWindows()
+      .map((window) => window.webContents)
+      .filter(isTrustedMainWebContents),
+  );
+  registerTerminalIpc(privilegedIpc, termPlane);
+  registerSettingsIpc(privilegedIpc, broadcast);
+  registerHostsIpc(privilegedIpc);
+  privilegedIpc.handle(IPC_CHANNELS.listCanvases, () =>
     AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.list)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.readCanvas, (_event, name: string) =>
+  privilegedIpc.handle(IPC_CHANNELS.readCanvas, (_event, name: string) =>
     AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.read(name))),
   );
 
-  ipcMain.handle(IPC_CHANNELS.writeCanvas, (
+  privilegedIpc.handle(IPC_CHANNELS.writeCanvas, (
     event,
     name: string,
     doc: CanvasDoc,
@@ -185,7 +187,7 @@ export const registerVellumIpc = (): void => {
     ),
   );
 
-  ipcMain.handle(IPC_CHANNELS.createCanvas, (event, name: string, finalWriteMetadata?: unknown) =>
+  privilegedIpc.handle(IPC_CHANNELS.createCanvas, (event, name: string, finalWriteMetadata?: unknown) =>
     runRendererCanvasAuthoring(
       "ipc.canvas.create",
       event.sender.id,
@@ -201,7 +203,7 @@ export const registerVellumIpc = (): void => {
     ),
   );
 
-  ipcMain.handle(IPC_CHANNELS.deleteCanvas, (_event, name: string) =>
+  privilegedIpc.handle(IPC_CHANNELS.deleteCanvas, (_event, name: string) =>
     runMainAuthoring(
       "ipc.canvas.delete",
       () => AppRuntime.runPromise(
@@ -215,14 +217,14 @@ export const registerVellumIpc = (): void => {
   );
 
   // Remote → Command Center canvas pull (read-only; never mutates CC).
-  ipcMain.handle(IPC_CHANNELS.pullCanvases, () =>
+  privilegedIpc.handle(IPC_CHANNELS.pullCanvases, () =>
     runMainAuthoring(
       "ipc.canvas.pull",
       () => AppRuntime.runPromise(pullCanvasesFromCommandCenter),
     ),
   );
 
-  ipcMain.handle(IPC_CHANNELS.exportDigest, (_event, name: string) =>
+  privilegedIpc.handle(IPC_CHANNELS.exportDigest, (_event, name: string) =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
         const canvases = yield* CanvasesService;
@@ -238,7 +240,7 @@ export const registerVellumIpc = (): void => {
     ),
   );
 
-  ipcMain.handle(
+  privilegedIpc.handle(
     IPC_CHANNELS.generatePortfolio,
     (_event, name: string, options?: { all?: boolean }) =>
       runMainAuthoring(
@@ -261,11 +263,11 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  ipcMain.handle(IPC_CHANNELS.getSnapshots, () =>
+  privilegedIpc.handle(IPC_CHANNELS.getSnapshots, () =>
     AppRuntime.runPromise(Effect.flatMap(SnapshotsService, (snapshots) => snapshots.current)),
   );
 
-  ipcMain.handle(
+  privilegedIpc.handle(
     IPC_CHANNELS.refreshSnapshots,
     (_event, hints?: ReadonlyArray<BindingHint>) =>
       AppRuntime.runPromise(
@@ -273,24 +275,24 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  ipcMain.handle(IPC_CHANNELS.getUsage, () =>
+  privilegedIpc.handle(IPC_CHANNELS.getUsage, () =>
     AppRuntime.runPromise(Effect.flatMap(UsageService, (usage) => usage.current)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.refreshUsage, () =>
+  privilegedIpc.handle(IPC_CHANNELS.refreshUsage, () =>
     AppRuntime.runPromise(Effect.flatMap(UsageService, (usage) => usage.refresh())),
   );
 
 
-  ipcMain.handle(IPC_CHANNELS.agentIdentity, (_event, key: string) =>
+  privilegedIpc.handle(IPC_CHANNELS.agentIdentity, (_event, key: string) =>
     AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentIdentity(key)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.agentAvatar, (_event, key: string) =>
+  privilegedIpc.handle(IPC_CHANNELS.agentAvatar, (_event, key: string) =>
     AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentAvatar(key)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.agentMessage, (_event, key: string, text: string) =>
+  privilegedIpc.handle(IPC_CHANNELS.agentMessage, (_event, key: string, text: string) =>
     AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentMessage(key, text)),
   );
 
@@ -298,22 +300,24 @@ export const registerVellumIpc = (): void => {
   // ChatService instance with KernelService below — a pulse-driven turn and
   // a human reuse the same live ACP session per agent.
   void registerChatIpc(
-    ipcMain,
-    () => BrowserWindow.getAllWindows().map((window) => window.webContents),
+    privilegedIpc,
+    () => BrowserWindow.getAllWindows()
+      .map((window) => window.webContents)
+      .filter(isTrustedMainWebContents),
     AppRuntime.runPromise(ChatServiceContext),
   );
 
   // The kernel plane: watcher/timer evaluation over every hydrated canvas,
   // running continuously in main regardless of window state.
-  ipcMain.handle(IPC_CHANNELS.getKernelState, () =>
+  privilegedIpc.handle(IPC_CHANNELS.getKernelState, () =>
     AppRuntime.runPromise(Effect.map(KernelService, (kernel) => kernel.getSnapshot())),
   );
 
-  ipcMain.handle(IPC_CHANNELS.armRegion, (_event, canvasName: string, regionId: string, armed: boolean) =>
+  privilegedIpc.handle(IPC_CHANNELS.armRegion, (_event, canvasName: string, regionId: string, armed: boolean) =>
     AppRuntime.runPromise(Effect.flatMap(KernelService, (kernel) => kernel.armRegion(canvasName, regionId, armed))),
   );
 
-  ipcMain.handle(
+  privilegedIpc.handle(
     IPC_CHANNELS.pulseRegion,
     (_event, canvasName: string, regionId: string, opts?: PulseRegionOptions) =>
       AppRuntime.runPromise(Effect.flatMap(KernelService, (kernel) => kernel.pulseRegion(canvasName, regionId, opts))),
@@ -321,7 +325,7 @@ export const registerVellumIpc = (): void => {
 
   // Region rollups for the bottom bar: derived per call from the current
   // document + snapshots + the chat plane's session/permission state.
-  ipcMain.handle(IPC_CHANNELS.regionRollups, (_event, name: string) =>
+  privilegedIpc.handle(IPC_CHANNELS.regionRollups, (_event, name: string) =>
     AppRuntime.runPromise(Effect.flatMap(RegionRollupService, (service) => service.rollups(name))),
   );
 
@@ -341,7 +345,7 @@ export const registerVellumIpc = (): void => {
     return null;
   });
 
-  ipcMain.handle(
+  privilegedIpc.handle(
     IPC_CHANNELS.workTaskCreate,
     (_event, canvas: string, nodeId: string, brief: string, metadata?: A2AMetadata) =>
       runRendererWorkAuthoring(
@@ -356,7 +360,7 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  ipcMain.handle(
+  privilegedIpc.handle(
     IPC_CHANNELS.workTaskTransition,
     (
       _event,
@@ -378,7 +382,7 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  ipcMain.handle(
+  privilegedIpc.handle(
     IPC_CHANNELS.workTaskClaim,
     (_event, canvas: string, nodeId: string, taskId: string, actor: string) =>
       runRendererWorkAuthoring(
@@ -393,7 +397,7 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  ipcMain.handle(
+  privilegedIpc.handle(
     IPC_CHANNELS.workMessageAppend,
     (_event, canvas: string, nodeId: string, taskId: string | null, message: Message) =>
       runRendererWorkAuthoring(
@@ -408,7 +412,7 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  ipcMain.handle(
+  privilegedIpc.handle(
     IPC_CHANNELS.workRequestCreate,
     (_event, canvas: string, nodeId: string, brief: string, metadata?: A2AMetadata) =>
       runRendererWorkAuthoring(
@@ -423,7 +427,7 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  ipcMain.handle(
+  privilegedIpc.handle(
     IPC_CHANNELS.workRequestResolve,
     (
       _event,
@@ -451,7 +455,7 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  ipcMain.handle(
+  privilegedIpc.handle(
     IPC_CHANNELS.workArtifactPublish,
     (_event, canvas: string, nodeId: string, artifact: Artifact) =>
       runRendererWorkAuthoring(
@@ -563,8 +567,10 @@ export const registerVellumIpc = (): void => {
 /** Browser-only IPC is installed after cold profile recovery succeeds. */
 export const registerVellumBrowserIpc = (sessions: BrowserSessionService): void => {
   registerBrowserIpc(
-    ipcMain,
+    trustedRendererIpc(ipcMain),
     sessions,
-    () => BrowserWindow.getAllWindows().map((window) => window.webContents),
+    () => BrowserWindow.getAllWindows()
+      .map((window) => window.webContents)
+      .filter(isTrustedMainWebContents),
   );
 };

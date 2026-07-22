@@ -90,6 +90,22 @@ beforeEach(() => {
 });
 
 describe("preload node-reference delivery", () => {
+  it("does not expose the product bridge to a remote document", async () => {
+    const prior = Object.getOwnPropertyDescriptor(globalThis, "location");
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: { href: "https://attacker.invalid/" },
+    });
+    try {
+      await import("../src/preload/index");
+      expect(electron.exposed.has("vellum")).toBe(false);
+      expect(electron.exposed.has("chassis")).toBe(false);
+    } finally {
+      if (prior === undefined) delete (globalThis as { location?: unknown }).location;
+      else Object.defineProperty(globalThis, "location", prior);
+    }
+  });
+
   it("buffers one delivery and acknowledges only after renderer focus resolves", async () => {
     const api = await loadPreload();
     const target = delivery("page", "00000000-0000-4000-8000-000000000001");

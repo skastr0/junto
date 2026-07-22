@@ -1,10 +1,15 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { BrowserWindow, Protocol, Session, WebContents } from "electron";
+import {
+  TRUSTED_RENDERER_HOST,
+  TRUSTED_RENDERER_SCHEME,
+  TRUSTED_RENDERER_URL,
+  type TrustedRendererOrigin,
+} from "@shared/trusted-renderer-origin";
+import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 
-export const TRUSTED_RENDERER_SCHEME = "vellum-app";
-export const TRUSTED_RENDERER_HOST = "renderer";
-export const TRUSTED_RENDERER_URL = `${TRUSTED_RENDERER_SCHEME}://${TRUSTED_RENDERER_HOST}/index.html`;
+export { TRUSTED_RENDERER_HOST, TRUSTED_RENDERER_SCHEME, TRUSTED_RENDERER_URL };
 
 const MIME_TYPES = new Map<string, string>([
   [".css", "text/css; charset=utf-8"],
@@ -222,6 +227,7 @@ const trustedClipboardRequest = (
     !mainWindow.isDestroyed() &&
     !mainWindow.webContents.isDestroyed() &&
     webContents === mainWindow.webContents &&
+    isTrustedMainWebContents(webContents) &&
     isMainFrame &&
     (sameAuthority(requestingUrl, TRUSTED_RENDERER_URL) ||
       (developmentRendererUrl !== undefined &&
@@ -232,8 +238,14 @@ const trustedClipboardRequest = (
 export const installTrustedRendererPermissionPolicy = (
   target: Session,
   getTrustedWindow: () => BrowserWindow | undefined,
-  developmentRendererUrl?: string,
+  developmentRenderer?: TrustedRendererOrigin | string,
 ): void => {
+  // The string form is retained for isolated policy tests. Production boot
+  // passes the parsed object from resolveTrustedRendererOrigin above.
+  const developmentRendererUrl =
+    typeof developmentRenderer === "string"
+      ? developmentRenderer
+      : developmentRenderer?.initialUrl;
   target.setPermissionCheckHandler(
     (webContents, permission, requestingOrigin, details) =>
       trustedClipboardRequest(

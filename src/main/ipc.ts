@@ -8,6 +8,7 @@ import { StoreService } from "./services/store";
 import { AppRuntime, buildDoctorReport } from "./runtime";
 import type { BrowserSessionService } from "./vellum/browser/sessions";
 import { registerVellumBrowserIpc, registerVellumIpc } from "./vellum/ipc";
+import { trustedRendererIpc } from "./vellum/trusted-main-webcontents";
 
 export const registerBrowserIpcHandlers = (sessions: BrowserSessionService): void => {
   registerVellumBrowserIpc(sessions);
@@ -15,9 +16,10 @@ export const registerBrowserIpcHandlers = (sessions: BrowserSessionService): voi
 
 export const registerIpcHandlers = (): void => {
   registerVellumIpc();
-  ipcMain.handle(IPC_CHANNELS.doctor, () => AppRuntime.runPromise(buildDoctorReport));
+  const privilegedIpc = trustedRendererIpc(ipcMain);
+  privilegedIpc.handle(IPC_CHANNELS.doctor, () => AppRuntime.runPromise(buildDoctorReport));
 
-  ipcMain.handle(IPC_CHANNELS.selectFolder, async () => {
+  privilegedIpc.handle(IPC_CHANNELS.selectFolder, async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openDirectory"],
       title: "Open a local folder",
@@ -40,7 +42,7 @@ export const registerIpcHandlers = (): void => {
     return { root, entries };
   });
 
-  ipcMain.handle(IPC_CHANNELS.readDirectory, (_event, path: string) =>
+  privilegedIpc.handle(IPC_CHANNELS.readDirectory, (_event, path: string) =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
         const folder = yield* FolderService;
@@ -49,7 +51,7 @@ export const registerIpcHandlers = (): void => {
     ),
   );
 
-  ipcMain.handle(IPC_CHANNELS.probeCodex, () =>
+  privilegedIpc.handle(IPC_CHANNELS.probeCodex, () =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
         const codex = yield* CodexService;
@@ -58,7 +60,7 @@ export const registerIpcHandlers = (): void => {
     ),
   );
 
-  ipcMain.handle(IPC_CHANNELS.prismDryRun, () =>
+  privilegedIpc.handle(IPC_CHANNELS.prismDryRun, () =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
         const prism = yield* PrismService;

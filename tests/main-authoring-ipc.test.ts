@@ -54,11 +54,23 @@ describe("renderer canvas final-write IPC", () => {
       MainAuthoringRefused,
       mainAuthoringGate,
     } = await import("../src/main/vellum/main-authoring-gate");
+    const { setTrustedMainWebContents, TrustedRendererRefused } = await import(
+      "../src/main/vellum/trusted-main-webcontents"
+    );
+    const trustedSender = {
+      id: 71,
+      isDestroyed: () => false,
+      getURL: () => "vellum-app://renderer/index.html",
+    };
+    setTrustedMainWebContents(trustedSender as never, {
+      initialUrl: "vellum-app://renderer/index.html",
+      allows: (url) => url === "vellum-app://renderer/index.html",
+    });
     registerVellumIpc();
 
     const write = handlerFor(IPC_CHANNELS.writeCanvas);
     const create = handlerFor(IPC_CHANNELS.createCanvas);
-    const sender = { sender: { id: 71 } } as const;
+    const sender = { sender: trustedSender } as const;
     const doc = { nodes: [], edges: [] } as CanvasDoc;
 
     // No private metadata is the ordinary renderer path while admission is open.
@@ -91,10 +103,6 @@ describe("renderer canvas final-write IPC", () => {
           senderId: sender.sender.id,
         },
       }),
-      write({ sender: { id: 72 } }, "cross-sender", doc, "r1", finalMetadata(
-        requestId,
-        "canvas.write",
-      )),
       write(sender, "stale-request", doc, "r1", finalMetadata(
         "00000000-0000-4000-8000-000000000032",
         "canvas.write",
@@ -111,9 +119,18 @@ describe("renderer canvas final-write IPC", () => {
 
     for (const refusal of rejected) {
       await expect(refusal).rejects.toMatchObject({
-        code: expect.stringMatching(/invalid_final_permit|unsupported_final_operation/u),
+        name: expect.stringMatching(/MainAuthoringTransitionError|TrustedRendererRefused/u),
       });
     }
+    expect(() =>
+      write(
+        { sender: { id: 72, isDestroyed: () => false, getURL: () => "vellum-app://renderer/index.html" } },
+        "cross-sender",
+        doc,
+        "r1",
+        finalMetadata(requestId, "canvas.write"),
+      ),
+    ).toThrow(TrustedRendererRefused);
     expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary);
 
     await expect(

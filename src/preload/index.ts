@@ -29,6 +29,7 @@ import type { SnapshotState } from "@shared/entities";
 import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
+import { isRendererPreloadCandidate } from "@shared/trusted-renderer-origin";
 
 // Every real handler answers in well under this; only a dead/wedged main
 // process (e.g. killed during a dev restart) never responds. Rejecting then
@@ -559,12 +560,22 @@ const demoApi: VellumDemoApi = {
 };
 
 
-contextBridge.exposeInMainWorld("chassis", chassisApi);
-contextBridge.exposeInMainWorld("vellum", {
-  ...vellumApi,
-  ...chatApi,
-  ...herdrApi,
-  ...terminalApi,
-  ...browserApi,
-  ...demoApi,
-});
+// A preload is attached before Chromium has committed a document. Do not hand
+// a remote page the product API during that interval. Main independently
+// checks the exact WebContents + committed authority, which is what protects
+// a hostile loopback service in development.
+const preloadLocation = typeof globalThis.location === "undefined"
+  ? undefined // Node-only preload unit tests have no document.
+  : globalThis.location.href;
+
+if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)) {
+  contextBridge.exposeInMainWorld("chassis", chassisApi);
+  contextBridge.exposeInMainWorld("vellum", {
+    ...vellumApi,
+    ...chatApi,
+    ...herdrApi,
+    ...terminalApi,
+    ...browserApi,
+    ...demoApi,
+  });
+}

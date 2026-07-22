@@ -9,19 +9,21 @@ import type { DemoCommand, DemoEdl } from "@shared/demo";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { isDemoMode } from "./mode";
 import { applyDemoCommand, writeDemoEdl } from "./service";
+import { trustedRendererIpc } from "../trusted-main-webcontents";
 
 export const registerDemoIpcHandlers = (): void => {
-  ipcMain.handle(IPC_CHANNELS.demoState, () => ({
+  const privilegedIpc = trustedRendererIpc(ipcMain);
+  privilegedIpc.handle(IPC_CHANNELS.demoState, () => ({
     active: isDemoMode(),
     autoroll: isDemoMode() && process.env.VELLUM_DEMO_AUTOROLL === "1",
   }));
 
-  ipcMain.handle(IPC_CHANNELS.demoCommand, (_event, command: DemoCommand) => {
+  privilegedIpc.handle(IPC_CHANNELS.demoCommand, (_event, command: DemoCommand) => {
     if (!isDemoMode()) return { ok: false, error: "demo mode off" };
     return applyDemoCommand(command);
   });
 
-  ipcMain.handle(IPC_CHANNELS.demoWriteEdl, (_event, edl: DemoEdl) => {
+  privilegedIpc.handle(IPC_CHANNELS.demoWriteEdl, (_event, edl: DemoEdl) => {
     if (!isDemoMode()) return { ok: false, error: "demo mode off" };
     return writeDemoEdl(edl);
   });

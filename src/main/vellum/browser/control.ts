@@ -1453,10 +1453,6 @@ export const startBrowserControlServer = async (
         // lease after process admission.
         let processCapability: string | undefined;
         if (handler.action !== null) {
-          if (!isValidControlRequestId(presentedRequestId ?? "")) {
-            respond(400, controlErr("bad_request", "invalid request id"), true);
-            return;
-          }
           const edge = await retainFlight(
             "edge-admission",
             "edge-admission",
@@ -1482,6 +1478,13 @@ export const startBrowserControlServer = async (
               capabilityDenied(admitted.denial),
               true,
             );
+            return;
+          }
+          // Request ids and bodies are protected-route protocol details. Do
+          // not validate or disclose them until Unix peer process-bind and
+          // edge-scoped capability admission have both succeeded.
+          if (!isValidControlRequestId(presentedRequestId ?? "")) {
+            respond(400, controlErr("bad_request", "invalid request id"), true);
             return;
           }
         }

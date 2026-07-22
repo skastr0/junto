@@ -16,6 +16,7 @@ import {
   TRUSTED_RENDERER_SCHEME,
   TRUSTED_RENDERER_URL,
 } from "../src/main/vellum/trusted-renderer-protocol";
+import { setTrustedMainWebContents } from "../src/main/vellum/trusted-main-webcontents";
 
 describe("trusted renderer protocol", () => {
   let root = "";
@@ -159,12 +160,19 @@ describe("trusted renderer permissions", () => {
         request = handler;
       },
     };
-    const trustedContents = { isDestroyed: () => false };
+    const trustedContents = {
+      isDestroyed: () => false,
+      getURL: () => TRUSTED_RENDERER_URL,
+    };
     const otherContents = { isDestroyed: () => false };
     const trustedWindow = {
       isDestroyed: () => false,
       webContents: trustedContents,
     };
+    setTrustedMainWebContents(trustedContents as never, {
+      initialUrl: TRUSTED_RENDERER_URL,
+      allows: (url) => url === TRUSTED_RENDERER_URL,
+    });
 
     installTrustedRendererPermissionPolicy(
       target as never,
@@ -217,11 +225,18 @@ describe("trusted renderer permissions", () => {
       },
       setPermissionRequestHandler: () => undefined,
     };
-    const trustedContents = { isDestroyed: () => false };
+    const trustedContents = {
+      isDestroyed: () => false,
+      getURL: () => "http://127.0.0.1:5173/app",
+    };
     const trustedWindow = {
       isDestroyed: () => false,
       webContents: trustedContents,
     };
+    setTrustedMainWebContents(trustedContents as never, {
+      initialUrl: "http://127.0.0.1:5173/",
+      allows: (url) => url?.startsWith("http://127.0.0.1:5173/") ?? false,
+    });
     installTrustedRendererPermissionPolicy(
       target as never,
       () => trustedWindow as never,

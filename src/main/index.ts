@@ -61,7 +61,10 @@ import {
   installProcessSignalTermination,
   runNormalQuitPreparation,
 } from "./vellum/process-signal-termination";
-import { setTrustedMainWebContents } from "./vellum/trusted-main-webcontents";
+import {
+  isTrustedMainWebContents,
+  setTrustedMainWebContents,
+} from "./vellum/trusted-main-webcontents";
 import {
   assessLiveWork,
   buildQuitConfirmPrompt,
@@ -73,8 +76,11 @@ import {
   installTrustedRendererPermissionPolicy,
   installTrustedRendererProtocol,
   registerTrustedRendererScheme,
-  TRUSTED_RENDERER_URL,
 } from "./vellum/trusted-renderer-protocol";
+import {
+  resolveTrustedRendererOrigin,
+  type TrustedRendererOrigin,
+} from "@shared/trusted-renderer-origin";
 
 // Browser sessions must resolve and connect directly. An inherited system
 // proxy can perform independent DNS resolution and bypass Vellum's URL/DNS
@@ -240,6 +246,9 @@ app.on("open-url", (event, uri) => {
 const headless = process.argv.includes("--vellum-headless");
 
 let trustedMainWindow: BrowserWindow | undefined;
+// Parsed before BrowserWindow construction. A renderer never becomes trusted
+// merely because it happens to be the application's first WebContents.
+let trustedRendererOrigin: TrustedRendererOrigin | undefined;
 let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
 let workControl: WorkControlServer | undefined;
@@ -353,6 +362,7 @@ const requestCanvasFlush = (mainWindow: BrowserWindow): Promise<void> => {
 };
 
 ipcMain.on(IPC_CHANNELS.canvasFlushComplete, (event, payload: unknown) => {
+  if (!isTrustedMainWebContents(event.sender)) return;
   const result = decodeCanvasFlushResult(payload);
   if (result === undefined) return;
   const pending = pendingCanvasFlushes.get(event.sender.id);
@@ -414,6 +424,7 @@ const requestCanvasQuiesceAndFlush = (mainWindow: BrowserWindow): Promise<void> 
 };
 
 ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushStarted, (event, payload: unknown) => {
+  if (!isTrustedMainWebContents(event.sender)) return;
   const started = decodeCanvasQuiesceStarted(payload);
   if (started === undefined) return;
   const pending = pendingCanvasQuiesceAndFlushes.get(event.sender.id);
@@ -423,6 +434,7 @@ ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushStarted, (event, payload: unknown) 
 });
 
 ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushComplete, (event, payload: unknown) => {
+  if (!isTrustedMainWebContents(event.sender)) return;
   const result = decodeCanvasQuiesceAndFlushResult(payload);
   if (result === undefined) return;
   const pending = pendingCanvasQuiesceAndFlushes.get(event.sender.id);
@@ -550,6 +562,12 @@ const createWindow = () => {
     quitPreparationArbiter.rendererGateQuiesced() ||
     quitPreparationArbiter.committed()
   ) return;
+  const rendererOrigin = trustedRendererOrigin;
+  if (rendererOrigin === undefined) {
+    console.error("[window] trusted renderer authority was not resolved before window construction");
+    exitAfterDetach(1, "trusted-renderer-authority-missing");
+    return;
+  }
   const mainWindow = new BrowserWindow({
     width: 1320,
     height: 900,
@@ -566,7 +584,6 @@ const createWindow = () => {
     },
   });
   trustedMainWindow = mainWindow;
-  setTrustedMainWebContents(mainWindow.webContents);
   // BrowserWindow's `closed` event fires after its native object and
   // WebContents have been destroyed. Capture the routing identity while it is
   // live; dereferencing mainWindow.webContents inside `closed` throws.
@@ -609,7 +626,33 @@ const createWindow = () => {
     }
     return { action: "deny" };
   });
-  mainWindow.webContents.on("will-navigate", (event) => event.preventDefault());
+  const clearRendererTrust = (): void => {
+    if (trustedMainWindow === mainWindow) setTrustedMainWebContents(undefined);
+  };
+  // Trust is revoked at the first navigation edge, then reacquired only after
+  // a successful load of the boot authority. Redirects are never part of the
+  // boot contract: even a same-origin redirect could swap the application
+  // document beneath a previously privileged preload generation.
+  mainWindow.webContents.on("did-start-navigation", (_event, _url, _inPlace, isMainFrame) => {
+    if (isMainFrame) clearRendererTrust();
+  });
+  mainWindow.webContents.on("will-navigate", (event) => {
+    clearRendererTrust();
+    event.preventDefault();
+  });
+  mainWindow.webContents.on("will-redirect", (event) => {
+    clearRendererTrust();
+    event.preventDefault();
+  });
+  mainWindow.webContents.on("did-finish-load", () => {
+    if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+    if (!rendererOrigin.allows(mainWindow.webContents.getURL())) {
+      clearRendererTrust();
+      mainWindow.destroy();
+      return;
+    }
+    setTrustedMainWebContents(mainWindow.webContents, rendererOrigin);
+  });
 
   let disconnectNodeRefSink = (): void => undefined;
   const disconnect = (): void => {
@@ -619,7 +662,7 @@ const createWindow = () => {
   const acknowledgeDelivery = (event: IpcMainEvent, deliveryId: unknown): void => {
     const record = activeNodeRefRelay;
     if (
-      event.sender !== mainWindow.webContents ||
+      !isTrustedMainWebContents(event.sender) ||
       typeof deliveryId !== "string" ||
       record?.id !== deliveryId
     ) {
@@ -640,6 +683,7 @@ const createWindow = () => {
     }
   });
   mainWindow.webContents.on("did-finish-load", () => {
+    if (!isTrustedMainWebContents(mainWindow.webContents)) return;
     disconnect();
     disconnectNodeRefSink = nodeRefIngress.connect((target) => {
       if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
@@ -681,17 +725,15 @@ const createWindow = () => {
 
   registerCrashRecovery(mainWindow);
 
-  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL).catch(() => {
-      console.error("[window] renderer URL load failed");
-    });
-  } else {
-    void mainWindow.loadURL(TRUSTED_RENDERER_URL).catch(() => {
+  void mainWindow.loadURL(rendererOrigin.initialUrl).catch(() => {
+    if (app.isPackaged) {
       console.error("[window] trusted renderer load failed");
-      if (!mainWindow.isDestroyed()) mainWindow.destroy();
-      exitAfterDetach(1, "renderer-load-failure");
-    });
-  }
+    } else {
+      console.error("[window] development renderer load failed");
+    }
+    if (!mainWindow.isDestroyed()) mainWindow.destroy();
+    exitAfterDetach(1, "renderer-load-failure");
+  });
 
   return mainWindow;
 };
@@ -778,6 +820,13 @@ if (!gotSingleInstanceLock) {
     if (!(await ensureSupervised())) return;
 
     try {
+      // Treat ELECTRON_RENDERER_URL as hostile boot input. Parse it before any
+      // BrowserWindow exists, and retain the resulting policy instead of the
+      // ambient environment value for all later permission/trust decisions.
+      trustedRendererOrigin = resolveTrustedRendererOrigin(
+        app.isPackaged,
+        process.env.ELECTRON_RENDERER_URL,
+      );
       if (app.isPackaged) {
         await installTrustedRendererProtocol(
           session.defaultSession.protocol,
@@ -787,7 +836,7 @@ if (!gotSingleInstanceLock) {
       installTrustedRendererPermissionPolicy(
         session.defaultSession,
         () => trustedMainWindow,
-        app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL,
+        trustedRendererOrigin,
       );
     } catch {
       console.error("[window] trusted renderer protocol setup failed");

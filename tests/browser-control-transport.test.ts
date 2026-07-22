@@ -134,7 +134,7 @@ const startStack = async (
   root: string,
   runtime?: BrowserControlRuntime,
   resolver: PageTargetResolver = resolvePageTarget,
-  edgeGrantMode: "admit" | "deny" = "admit",
+  edgeGrantMode: "admit" | "deny" | "profiles-only" = "admit",
 ): Promise<{
   readonly server: BrowserControlServer;
   readonly sessions: BrowserSessionService;
@@ -149,7 +149,7 @@ const startStack = async (
   // Internal lease the process-bind stub returns — not a client-presented secret.
   const principal = capabilities.createPrincipal();
   const grant = capabilities.issue(principal, {
-    actions: BROWSER_CAPABILITY_ACTIONS,
+    actions: edgeGrantMode === "profiles-only" ? ["profiles"] : BROWSER_CAPABILITY_ACTIONS,
     targets: [{
       ref: PAGE_REF,
       profile: "personal",
@@ -159,8 +159,9 @@ const startStack = async (
     maxUses: 10_000,
     maxInFlight: 32,
   });
-  const edgeGrant =
-    edgeGrantMode === "admit" ? admittingEdgeGrant(grant.secret) : denyingEdgeGrant();
+  const edgeGrant = edgeGrantMode === "deny"
+    ? denyingEdgeGrant()
+    : admittingEdgeGrant(grant.secret);
   const server = await startBrowserControlServer(
     {
       sessions,
@@ -764,25 +765,38 @@ describe("browser control Unix transport", () => {
     });
   });
 
-  it("rejects unbound process / invalid request id before waiting for a protected body", async () => {
+  it("process-binds protected routes before validating request ids or waiting for a body", async () => {
     const root = await newRoot();
-    // Deny process-bind so protected auth fails without reading the body.
+    // Missing or malformed request metadata must not disclose protected-route
+    // validation details until the connecting process itself is admitted.
     const { server, token } = await startStack(root, undefined, resolvePageTarget, "deny");
+    const tokenOnly = await rawExchange(server.socketPath, [
+      requestHead("GET", "/profiles", [[CONTROL_TOKEN_HEADER, token]]),
+    ]);
+    expect(statusOf(tokenOnly)).toBe(401);
+    expect(envelopeOf(tokenOnly)).toEqual({
+      ok: false,
+      error: {
+        _tag: "unauthorized",
+        message: "connecting process is not a registered agent or herdr process",
+      },
+    });
+
     const cases = [
       {
-        // Missing request id fails before process-bind.
         headers: [[CONTROL_TOKEN_HEADER, token]] as const,
-        status: 400,
-        tag: "bad_request",
       },
       {
-        // Valid request id, process unbound → 401 without body wait.
+        headers: [
+          [CONTROL_TOKEN_HEADER, token],
+          [CONTROL_REQUEST_ID_HEADER, "not-a-request-id"],
+        ] as const,
+      },
+      {
         headers: [
           [CONTROL_TOKEN_HEADER, token],
           [CONTROL_REQUEST_ID_HEADER, randomUUID()],
         ] as const,
-        status: 401,
-        tag: "unauthorized",
       },
     ];
     for (const testCase of cases) {
@@ -800,12 +814,64 @@ describe("browser control Unix transport", () => {
         false,
       );
       expect(Date.now() - started).toBeLessThan(3_000);
-      expect(statusOf(response)).toBe(testCase.status);
-      expect(envelopeOf(response)).toMatchObject({
+      expect(statusOf(response)).toBe(401);
+      expect(envelopeOf(response)).toEqual({
         ok: false,
-        error: { _tag: testCase.tag },
+        error: {
+          _tag: "unauthorized",
+          message: "connecting process is not a registered agent or herdr process",
+        },
       });
     }
+
+    // Once process identity is admitted, malformed request metadata is safe to
+    // report as a bad request, still without waiting for the declared body.
+    const admittedRoot = await newRoot();
+    const admitted = await startStack(admittedRoot);
+    const response = await rawExchange(
+      admitted.server.socketPath,
+      [
+        requestHead("POST", "/open", [
+          [CONTROL_TOKEN_HEADER, admitted.token],
+          ["Content-Type", "application/json"],
+          ["Content-Length", "100"],
+        ]),
+        "{",
+      ],
+      false,
+    );
+    expect(statusOf(response)).toBe(400);
+    expect(envelopeOf(response)).toMatchObject({
+      ok: false,
+      error: { _tag: "bad_request", message: "invalid request id" },
+    });
+
+    // Edge admission alone is insufficient: action authorization also
+    // outranks protected-route request metadata validation.
+    const scopedRoot = await newRoot();
+    const scoped = await startStack(
+      scopedRoot,
+      undefined,
+      resolvePageTarget,
+      "profiles-only",
+    );
+    const forbidden = await rawExchange(
+      scoped.server.socketPath,
+      [
+        requestHead("POST", "/open", [
+          [CONTROL_TOKEN_HEADER, scoped.token],
+          ["Content-Type", "application/json"],
+          ["Content-Length", "100"],
+        ]),
+        "{",
+      ],
+      false,
+    );
+    expect(statusOf(forbidden)).toBe(403);
+    expect(envelopeOf(forbidden)).toMatchObject({
+      ok: false,
+      error: { _tag: "forbidden" },
+    });
   });
 
   it("keeps doctor token-only and rejects non-origin-form or decorated targets", async () => {
