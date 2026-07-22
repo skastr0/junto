@@ -28,6 +28,7 @@ import { LocalMirrorTransport, RemoteMirrorTransport } from "./mirror-transport"
 import { HerdrMirrorRegistry, type HerdrHostRevocationHooks } from "./mirrors";
 import { HerdrObservePool } from "./observe-pool";
 import { HerdrService, type HerdrRunner, type HerdrServerStarter } from "./service";
+import type { HerdrServerRoute } from "./route";
 import { HerdrServiceMap, type HostShellRunner } from "./service-map";
 import { HerdrStreamManager, type HerdrProcessLike, type HerdrSpawnFn } from "./stream";
 import { HerdrTransport } from "./transport";
@@ -223,24 +224,28 @@ export const HerdrPlaneLive = Layer.scoped(
     const runPromise: RunPromise = (effect) => Runtime.runPromise(runtime)(effect);
     const runOwned = makeScopedPromiseRunner(runtime, owner);
 
-    const runner: HerdrRunner = async (hostId, args, session, timeoutMs = 12_000) => {
-      const known = asHostId(hostId);
+    const runner: HerdrRunner = async (hostId, args, session, timeoutMs = 12_000, route) => {
+      const known = route?.hostId === hostId ? hostId as HerdrHostId : asHostId(hostId);
       if (!known) return { ok: false, stdout: "", error: `unknown herdr host: ${hostId}` };
-      return runOwned(transport.run(known, args, session, timeoutMs));
+      return runOwned(transport.run(known, args, session, timeoutMs, route));
     };
 
-    const awaitServer = (hostId: HerdrHostId, session?: string | null) =>
+    const awaitServer = (
+      hostId: HerdrHostId,
+      session?: string | null,
+      route?: HerdrServerRoute,
+    ) =>
       Effect.gen(function* () {
         for (let attempt = 0; attempt < 12; attempt += 1) {
           yield* Effect.sleep(250);
-          const status = yield* transport.run(hostId, ["status", "--json"], session, 6_000);
+          const status = yield* transport.run(hostId, ["status", "--json"], session, 6_000, route);
           if (serverRunning(status)) return true;
         }
         return false;
       });
 
-    const startServer: HerdrServerStarter = async (hostId, session) => {
-      const known = asHostId(hostId);
+    const startServer: HerdrServerStarter = async (hostId, session, route) => {
+      const known = route?.hostId === hostId ? hostId as HerdrHostId : asHostId(hostId);
       if (!known) return { ok: false, stdout: "", error: `unknown herdr host: ${hostId}` };
       if (known === "local") {
         try {
@@ -250,7 +255,7 @@ export const HerdrPlaneLive = Layer.scoped(
             env: resolvedSpawnEnvSync(),
           });
           child.unref();
-          const ready = await runOwned(awaitServer(known, session));
+          const ready = await runOwned(awaitServer(known, session, route));
           return ready
             ? { ok: true, stdout: "" }
             : { ok: false, stdout: "", error: "herdr server did not become ready" };
@@ -266,13 +271,14 @@ export const HerdrPlaneLive = Layer.scoped(
       try {
         await runOwned(
           transport.handoffServer(known, session, (confirm) =>
-            awaitServer(known, session).pipe(
+            awaitServer(known, session, route).pipe(
               Effect.flatMap((ready) =>
                 ready
                   ? Effect.succeed(confirm(undefined))
                   : Effect.fail(new Error("herdr server did not become ready")),
               ),
             ),
+            route,
           ),
         );
         return { ok: true, stdout: "" };

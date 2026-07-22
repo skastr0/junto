@@ -29,6 +29,7 @@ import {
   type SshReady,
 } from "../ssh/service";
 import { isKnownHerdrHost, type HerdrHostId } from "./hosts";
+import type { HerdrServerRoute } from "./route";
 
 const REMOTE_STAGE_DIR = "/tmp/vellum-herdr-images";
 const REMOTE_STAGE_SCRIPT = [
@@ -63,7 +64,14 @@ const sshFailure = (error: SshError | SshInputError): string => {
 
 const resolveRemoteEndpoint = (
   hostId: HerdrHostId,
+  route?: HerdrServerRoute,
 ): Effect.Effect<SshEndpoint, SshInputError> => {
+  if (route) {
+    if (route.hostId !== hostId || route.kind !== "remote" || !route.endpoint) {
+      return Effect.fail(new SshInputError({ message: `invalid captured herdr route for ${hostId}` }));
+    }
+    return parseSshEndpoint(route.endpoint);
+  }
   const host = findHostById(hostId);
   if (!host || host.kind !== "remote" || !host.endpoint) {
     return Effect.fail(
@@ -89,6 +97,7 @@ export class HerdrTransport extends Context.Tag("@vellum/HerdrTransport")<
       args: ReadonlyArray<string>,
       session?: string | null,
       timeoutMs?: number,
+      route?: HerdrServerRoute,
     ) => Effect.Effect<CliResult>;
     readonly warm: Effect.Effect<void, SshError | SshInputError>;
     readonly connect: <A, E, R>(
@@ -105,6 +114,7 @@ export class HerdrTransport extends Context.Tag("@vellum/HerdrTransport")<
       hostId: HerdrHostId,
       session: string | null | undefined,
       awaitReady: (confirm: ConfirmSshReady) => Effect.Effect<SshReady<A>, E, R>,
+      route?: HerdrServerRoute,
     ) => Effect.Effect<A, SshError | SshInputError | E, R>;
     readonly stageImage: (
       hostId: HerdrHostId,
@@ -140,8 +150,9 @@ export const HerdrTransportLive = Layer.effect(
       args: ReadonlyArray<string>,
       session?: string | null,
       timeoutMs = 12_000,
+      route?: HerdrServerRoute,
     ): Effect.Effect<CliResult> => {
-      if (!isKnownHerdrHost(hostId)) {
+      if (!route && !isKnownHerdrHost(hostId)) {
         return Effect.succeed({
           ok: false,
           stdout: "",
@@ -161,7 +172,7 @@ export const HerdrTransportLive = Layer.effect(
           ),
         );
       }
-      return resolveRemoteEndpoint(hostId).pipe(
+      return resolveRemoteEndpoint(hostId, route).pipe(
         Effect.flatMap((endpoint) => runRemote(endpoint, args, session, timeoutMs)),
         Effect.catchAll((error) =>
           Effect.succeed({ ok: false, stdout: "", error: sshFailure(error) }),
@@ -211,8 +222,9 @@ export const HerdrTransportLive = Layer.effect(
       hostId,
       session,
       awaitReady,
+      route,
     ) =>
-      resolveRemoteEndpoint(hostId).pipe(
+      resolveRemoteEndpoint(hostId, route).pipe(
         Effect.flatMap((endpoint) =>
           makeRemoteCommand("herdr", withSession(["server"], session)).pipe(
             Effect.flatMap((command) =>

@@ -484,8 +484,8 @@ describe("HerdrService with mock runner", () => {
     expect(startCalls).toBe(2);
   });
 
-  it("ensureServer does not share a flight after a same-id host endpoint edit", async () => {
-    const { findHostById, setHostsSnapshot } = await import("../src/main/vellum/hosts/snapshot");
+  it("ensureServer keeps pending status and startup on their captured endpoint", async () => {
+    const { setHostsSnapshot } = await import("../src/main/vellum/hosts/snapshot");
     const { defaultRemoteHostsDocument } = await import("../src/shared/remote-hosts");
     const baseHosts = defaultRemoteHostsDocument().hosts;
     const withEndpoint = (endpoint: string) => [
@@ -494,44 +494,40 @@ describe("HerdrService with mock runner", () => {
     ];
     setHostsSnapshot(withEndpoint("studio-a"));
 
-    let releaseOld: (() => void) | undefined;
-    const oldReady = new Promise<void>((resolve) => {
-      releaseOld = resolve;
+    let releaseOldStatus: (() => void) | undefined;
+    const oldStatusReady = new Promise<void>((resolve) => {
+      releaseOldStatus = resolve;
     });
-    let releaseNew: (() => void) | undefined;
-    const newReady = new Promise<void>((resolve) => {
-      releaseNew = resolve;
-    });
+    const statusEndpoints: string[] = [];
     const startedEndpoints: string[] = [];
-    const runner: HerdrRunner = async (_host, args) => {
-      if (args[0] === "status") return ok(JSON.stringify({ server: { running: false } }));
+    const runner: HerdrRunner = async (_host, args, _session, _timeout, route) => {
+      if (args[0] === "status") {
+        const endpoint = route?.endpoint ?? "missing";
+        statusEndpoints.push(endpoint);
+        if (endpoint === "studio-a") await oldStatusReady;
+        return ok(JSON.stringify({ server: { running: false } }));
+      }
       return fail("unexpected");
     };
-    const starter = async () => {
-      const host = findHostById("studio");
-      const endpoint = host?.kind === "remote" ? host.endpoint : undefined;
-      startedEndpoints.push(endpoint ?? "missing");
-      if (endpoint === "studio-a") await oldReady;
-      if (endpoint === "studio-b") await newReady;
+    const starter = async (_host: string, _session?: string | null, route?: { readonly endpoint: string | null }) => {
+      startedEndpoints.push(route?.endpoint ?? "missing");
       return ok("");
     };
     const svc = new HerdrService(runner, () => undefined, starter);
 
     try {
       const oldFlight = svc.ensureServer("studio");
-      await vi.waitFor(() => expect(startedEndpoints).toEqual(["studio-a"]));
+      await vi.waitFor(() => expect(statusEndpoints).toEqual(["studio-a"]));
 
       setHostsSnapshot(withEndpoint("studio-b"));
       const newFlight = svc.ensureServer("studio");
-      await vi.waitFor(() => expect(startedEndpoints).toEqual(["studio-a", "studio-b"]));
-
-      releaseOld?.();
-      await expect(oldFlight).resolves.toEqual({ ok: true, data: { running: true, started: true } });
-      // The old completion must not clear the current-route flight.
-      expect(svc.ensureServer("studio")).toBe(newFlight);
-
-      releaseNew?.();
       await expect(newFlight).resolves.toEqual({ ok: true, data: { running: true, started: true } });
+      expect(statusEndpoints).toEqual(["studio-a", "studio-b"]);
+      expect(startedEndpoints).toEqual(["studio-b"]);
+
+      releaseOldStatus?.();
+      await expect(oldFlight).resolves.toEqual({ ok: true, data: { running: true, started: true } });
+      expect(startedEndpoints).toEqual(["studio-b", "studio-a"]);
     } finally {
       setHostsSnapshot(baseHosts);
     }

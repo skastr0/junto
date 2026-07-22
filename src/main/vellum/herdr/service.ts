@@ -3,6 +3,7 @@ import { getProcessIdentityMap } from "../process-identity";
 import { findHostById } from "../hosts/snapshot";
 import { isKnownHerdrHost, listHerdrHosts, UnknownHerdrHostError, type HerdrHostDef } from "./hosts";
 import type { HerdrMirrorReads } from "./mirror";
+import type { HerdrServerRoute } from "./route";
 import {
   parseCliEnvelope,
   parseCreateIds,
@@ -52,11 +53,13 @@ export type HerdrRunner = (
   args: ReadonlyArray<string>,
   session?: string | null,
   timeoutMs?: number,
+  route?: HerdrServerRoute,
 ) => Promise<CliResult>;
 
 export type HerdrServerStarter = (
   hostId: string,
   session?: string | null,
+  route?: HerdrServerRoute,
 ) => Promise<CliResult>;
 
 const unavailableServerStarter: HerdrServerStarter = async () => ({
@@ -87,14 +90,18 @@ const requireHost = (hostId: string): HerdrResultErr | null => {
 };
 
 /** Captures the route that a host id resolved to when a startup flight began. */
-const hostRouteIdentity = (hostId: string): string => {
+const captureServerRoute = (hostId: string): HerdrServerRoute | undefined => {
   const host = findHostById(hostId);
-  return JSON.stringify([
+  if (!host) return undefined;
+  return Object.freeze({
     hostId,
-    host?.kind ?? null,
-    host?.kind === "remote" ? host.endpoint ?? null : null,
-  ]);
+    kind: host.kind,
+    endpoint: host.kind === "remote" ? host.endpoint ?? null : null,
+  });
 };
+
+const serverRouteKey = (route: HerdrServerRoute, session: string | null): string =>
+  JSON.stringify([route.hostId, route.kind, route.endpoint, session]);
 
 const runEnvelope = async (
   runner: HerdrRunner,
@@ -168,16 +175,18 @@ export class HerdrService {
     const bad = requireHost(hostId);
     if (bad) return Promise.resolve(bad);
     const normalizedSession = session || null;
+    const route = captureServerRoute(hostId);
+    if (!route) return Promise.resolve({ ok: false, code: "invalid", message: `unknown herdr host: ${hostId}` });
     // A fresh mirror is itself live proof the server is running.
     if (this.mirrorIfFresh(hostId, normalizedSession)) {
       return Promise.resolve({ ok: true, data: { running: true, started: false } });
     }
 
-    const key = JSON.stringify([hostRouteIdentity(hostId), normalizedSession]);
+    const key = serverRouteKey(route, normalizedSession);
     const existing = this.serverEnsures.get(key);
     if (existing) return existing;
 
-    const flight = this.ensureServerOnce(hostId, normalizedSession);
+    const flight = this.ensureServerOnce(route, normalizedSession);
     this.serverEnsures.set(key, flight);
     const clear = () => {
       if (this.serverEnsures.get(key) === flight) this.serverEnsures.delete(key);
@@ -187,13 +196,14 @@ export class HerdrService {
   }
 
   private async ensureServerOnce(
-    hostId: string,
+    route: HerdrServerRoute,
     session?: string | null,
   ): Promise<HerdrResult<{ readonly running: boolean; readonly started: boolean }>> {
+    const { hostId } = route;
     // status is cheap; if server is up we're done.
     let status: CliResult;
     try {
-      status = await this.runner(hostId, ["status", "--json"], session, 8_000);
+      status = await this.runner(hostId, ["status", "--json"], session, 8_000, route);
     } catch (error) {
       if (error instanceof UnknownHerdrHostError) {
         return { ok: false, code: "invalid", message: error.message };
@@ -220,7 +230,7 @@ export class HerdrService {
     // The injected starter owns local detach or remote SSH daemon handoff and
     // returns only after the same bounded status probe accepts.
     try {
-      const started = await this.startServer(hostId, session);
+      const started = await this.startServer(hostId, session, route);
       if (!started.ok) return mapCliFailure(started, hostId);
       return { ok: true, data: { running: true, started: true } };
     } catch (error) {
