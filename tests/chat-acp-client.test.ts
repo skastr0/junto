@@ -237,6 +237,23 @@ describe("AcpClient.request", () => {
     child.stdout.emit("data", `${lineA}\n${lineB}\n`);
     expect(onNotification).toHaveBeenCalledTimes(2);
   });
+
+  it("contains a throwing notification sink inside the child event callback", async () => {
+    const { child } = await startedClient({
+      onNotification: () => {
+        throw new Error("sink failed");
+      },
+      onAgentRequest: vi.fn(),
+      onLifecycle: vi.fn(),
+    });
+    const line = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: { update: { sessionUpdate: "agent_message_chunk" } },
+    });
+
+    expect(() => child.stdout.emit("data", `${line}\n`)).not.toThrow();
+  });
 });
 
 describe("agent -> client requests and notifications", () => {
@@ -322,7 +339,20 @@ describe("crash handling", () => {
     expect(onLifecycle).toHaveBeenCalledWith({ kind: "error", message: "ENOENT: hermes not found" });
     expect(client.closed).toBe(true);
     client.close();
-    expect(child.kill).not.toHaveBeenCalled();
+    expect(child.kill).toHaveBeenCalledExactlyOnceWith("SIGTERM");
+  });
+
+  it("contains a throwing lifecycle sink while teardown remains armed", async () => {
+    const { child } = await startedClient({
+      onNotification: vi.fn(),
+      onAgentRequest: vi.fn(),
+      onLifecycle: () => {
+        throw new Error("lifecycle sink failed");
+      },
+    });
+
+    expect(() => child.emit("error", new Error("transport diagnostic"))).not.toThrow();
+    expect(child.kill).toHaveBeenCalledExactlyOnceWith("SIGTERM");
   });
 
   it("an intentional close() never fires onLifecycle", async () => {

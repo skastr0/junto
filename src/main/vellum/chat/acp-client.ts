@@ -87,6 +87,7 @@ export type AcpChildLike = {
   readonly stderr: NodeJS.EventEmitter;
   on(event: "error", listener: (err: Error) => void): unknown;
   on(event: "exit", listener: (code: number | null) => void): unknown;
+  on(event: "close", listener: (code: number | null) => void): unknown;
   kill(signal?: NodeJS.Signals): unknown;
 };
 
@@ -160,7 +161,7 @@ const MAX_INBOUND_FRAME_BYTES = 1024 * 1024;
 
 // Grace window between SIGTERM and a SIGKILL escalation for a child that
 // ignores (or is too wedged to process) the polite signal. Shared by close()
-// and a post-handshake request timeout (killChild below).
+// and post-handshake fatal teardown.
 const SIGTERM_GRACE_MS = 2_000;
 
 // Per-method budget for post-handshake requests (session/new, session/load,
@@ -194,16 +195,48 @@ export interface AcpInitializeResult {
   readonly authMethods?: ReadonlyArray<AcpAuthMethod>;
 }
 
+export type AcpTeardownResult =
+  | {
+      readonly kind: "terminal";
+      readonly event: "exit" | "close";
+      readonly code: number | null;
+    }
+  | {
+      readonly kind: "bounded";
+      readonly termAttempted: boolean;
+      readonly killAttempted: boolean;
+    };
+
+interface AcpGeneration {
+  readonly child: AcpChildLike;
+  readonly process: OwnedProcess;
+  buffer: string;
+  finalized: boolean;
+  teardown?: AcpTeardown;
+}
+
+interface AcpTeardown {
+  readonly promise: Promise<AcpTeardownResult>;
+  readonly resolve: (result: AcpTeardownResult) => void;
+  readonly forceTimer: ReturnType<typeof setTimeout>;
+  readonly boundTimer: ReturnType<typeof setTimeout>;
+  termAttempted: boolean;
+  killAttempted: boolean;
+}
+
 export class AcpClient {
-  private child: AcpChildLike | undefined;
-  private childProcess: OwnedProcess | undefined;
-  private buffer = "";
+  private current: AcpGeneration | undefined;
+  private readonly teardownFlights = new Set<Promise<AcpTeardownResult>>();
   private nextId = 1;
   private closedFlag = false;
   private environmentOverlay: AcpChildEnvironmentOverlay | undefined;
   private readonly pending = new Map<
     JsonRpcId,
-    { readonly resolve: (value: unknown) => void; readonly reject: (err: Error) => void }
+    {
+      readonly generation: AcpGeneration;
+      readonly resolve: (value: unknown) => void;
+      readonly reject: (err: Error) => void;
+    }
   >();
 
   constructor(
@@ -227,7 +260,7 @@ export class AcpClient {
 
   /** OS pid of the local ACP child after start(); undefined when remote/closed. */
   get childPid(): number | undefined {
-    const pid = this.child?.pid;
+    const pid = this.current?.child.pid;
     return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : undefined;
   }
 
@@ -238,18 +271,11 @@ export class AcpClient {
 
     // A restart supersedes the exact prior child. Detach it from client state
     // before signaling so a synchronous/late exit cannot close the replacement.
-    const previousChild = this.child;
-    const previousProcess = this.childProcess;
-    if (previousChild !== undefined || previousProcess !== undefined) {
-      this.child = undefined;
-      this.childProcess = undefined;
-      this.buffer = "";
+    const previous = this.current;
+    if (previous !== undefined) {
+      this.current = undefined;
       this.rejectAllPending(new Error("ACP client restarted"));
-      if (previousChild !== undefined && previousProcess !== undefined) {
-        this.killChild(previousChild, previousProcess);
-      } else {
-        releaseOwned(previousProcess);
-      }
+      this.beginTeardown(previous);
     }
 
     const environmentOverlay = this.environmentOverlay;
@@ -261,25 +287,26 @@ export class AcpClient {
       this.target,
       environmentOverlay === undefined ? undefined : { environmentOverlay },
     );
-    const childProcess = admitChildProcess({
-      source: `chat-acp:${this.target.host}:${this.target.profile}`,
+    const generation: AcpGeneration = {
       child,
-    });
-    this.child = child;
-    this.childProcess = childProcess;
+      process: admitChildProcess({
+        source: `chat-acp:${this.target.host}:${this.target.profile}`,
+        child,
+      }),
+      buffer: "",
+      finalized: false,
+    };
+    this.current = generation;
 
     child.stdout.on("data", (chunk: unknown) => {
-      if (this.isCurrentChild(child, childProcess)) this.onStdout(String(chunk));
+      if (this.isCurrentGeneration(generation)) this.onStdout(generation, String(chunk));
     });
     child.stderr.on("data", (chunk: unknown) => {
-      if (this.isCurrentChild(child, childProcess)) this.onStderr(String(chunk));
+      if (this.isCurrentGeneration(generation)) this.onStderr(String(chunk));
     });
-    child.on("error", (err) =>
-      this.onChildDown(child, childProcess, { kind: "error", message: err.message }),
-    );
-    child.on("exit", (code) =>
-      this.onChildDown(child, childProcess, { kind: "closed", code }),
-    );
+    child.on("error", (error) => this.onChildError(generation, error));
+    child.on("exit", (code) => this.onChildTerminal(generation, "exit", code));
+    child.on("close", (code) => this.onChildTerminal(generation, "close", code));
 
     try {
       return await this.withTimeout(
@@ -291,7 +318,14 @@ export class AcpClient {
         "ACP initialize timed out after 20s",
       );
     } catch (err) {
-      if (this.isCurrentChild(child, childProcess)) this.close();
+      if (this.isCurrentGeneration(generation)) {
+        this.closedFlag = true;
+        this.rejectAllPending(
+          new Error(err instanceof Error ? err.message : String(err)),
+        );
+        this.current = undefined;
+        this.beginTeardown(generation);
+      }
       throw err;
     }
   }
@@ -300,16 +334,20 @@ export class AcpClient {
   // AcpRpcError when the agent answers with a JSON-RPC error. Post-handshake
   // methods listed in REQUEST_TIMEOUT_MS are bounded: a timeout rejects this
   // call AND presumes the whole child wedged — it tears the client down
-  // (killChild) and fires onLifecycle so ChatService cleans up the session,
+  // and fires onLifecycle so ChatService cleans up the session,
   // exactly like an unexpected exit, instead of latching promptInFlight/the
   // session map forever.
   request<T = unknown>(method: string, params?: unknown): Promise<T> {
-    const child = this.child;
-    if (!child || this.closedFlag) return Promise.reject(new Error("ACP client is not running"));
+    const generation = this.current;
+    if (!generation || this.closedFlag) return Promise.reject(new Error("ACP client is not running"));
     const id = this.nextId++;
     const raw = new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
-      this.write({ jsonrpc: "2.0", id, method, params });
+      this.pending.set(id, {
+        generation,
+        resolve: resolve as (value: unknown) => void,
+        reject,
+      });
+      this.write({ jsonrpc: "2.0", id, method, params }, generation);
     });
 
     const timeoutMs = REQUEST_TIMEOUT_MS[method];
@@ -317,7 +355,9 @@ export class AcpClient {
 
     const message = `ACP request '${method}' timed out after ${timeoutMs}ms`;
     return this.withTimeout(raw, timeoutMs, message).catch((err: unknown) => {
-      if (err instanceof Error && err.message === message) this.handleFatalFailure(message);
+      if (err instanceof Error && err.message === message) {
+        this.handleFatalFailure(message, generation);
+      }
       throw err;
     });
   }
@@ -336,44 +376,83 @@ export class AcpClient {
   // Intentional teardown — never fires onLifecycle (the caller already
   // knows). Idempotent: a second call is a no-op. SIGTERM first, SIGKILL
   // after a short grace window if the child hasn't actually exited.
-  close(): void {
-    if (this.closedFlag) return;
-    this.closedFlag = true;
-    this.rejectAllPending(new Error("ACP client closed"));
-    const child = this.child;
-    const childProcess = this.childProcess;
-    this.child = undefined;
-    this.childProcess = undefined;
-    if (child && childProcess) this.killChild(child, childProcess);
+  close(): Promise<ReadonlyArray<AcpTeardownResult>> {
+    if (!this.closedFlag) {
+      this.closedFlag = true;
+      this.rejectAllPending(new Error("ACP client closed"));
+      const generation = this.current;
+      this.current = undefined;
+      if (generation !== undefined) this.beginTeardown(generation);
+    }
+    return this.awaitTeardowns();
   }
 
-  // Sends SIGTERM, then escalates to SIGKILL if the child hasn't exited
-  // within SIGTERM_GRACE_MS. Shared by close() and a post-handshake request
-  // timeout (handleFatalFailure) — both need the same hard-kill guarantee
-  // for a child that ignores or is too wedged to process the polite signal.
-  private killChild(child: AcpChildLike, childProcess: OwnedProcess): void {
-    let finished = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (): void => {
-      if (finished) return;
-      finished = true;
-      if (timer !== undefined) clearTimeout(timer);
-      releaseOwned(childProcess);
-    };
-    child.on("exit", finish);
-    child.on("error", finish);
-    signalOwned(childProcess, "SIGTERM");
-    if (finished) return;
-    timer = setTimeout(() => {
-      if (finished) return;
-      signalOwned(childProcess, "SIGKILL");
-      finish();
+  // Arm both deadlines before the first signal. A child may synchronously
+  // emit a terminal event from kill(), and signalOwned may safely refuse the
+  // attempt; neither case is allowed to strand authority or the close awaiter.
+  private beginTeardown(generation: AcpGeneration): Promise<AcpTeardownResult> {
+    if (generation.teardown !== undefined) return generation.teardown.promise;
+    if (generation.finalized) {
+      return Promise.resolve({ kind: "terminal", event: "close", code: null });
+    }
+
+    let resolve!: (result: AcpTeardownResult) => void;
+    const promise = new Promise<AcpTeardownResult>((done) => {
+      resolve = done;
+    });
+    let teardown!: AcpTeardown;
+    const forceTimer = setTimeout(() => {
+      if (generation.finalized) return;
+      teardown.killAttempted = signalOwned(generation.process, "SIGKILL").attempted;
     }, SIGTERM_GRACE_MS);
-    (timer as unknown as { unref?: () => void }).unref?.();
+    const boundTimer = setTimeout(() => {
+      this.finalizeBounded(generation);
+    }, SIGTERM_GRACE_MS * 2);
+    forceTimer.unref?.();
+    boundTimer.unref?.();
+    teardown = {
+      promise,
+      resolve,
+      forceTimer,
+      boundTimer,
+      termAttempted: false,
+      killAttempted: false,
+    };
+    generation.teardown = teardown;
+    this.teardownFlights.add(promise);
+    void promise.then(() => this.teardownFlights.delete(promise));
+
+    teardown.termAttempted = signalOwned(generation.process, "SIGTERM").attempted;
+    return promise;
   }
 
-  private isCurrentChild(child: AcpChildLike, childProcess: OwnedProcess): boolean {
-    return this.child === child && this.childProcess === childProcess;
+  private finalizeBounded(generation: AcpGeneration): void {
+    if (generation.finalized) return;
+    generation.finalized = true;
+    releaseOwned(generation.process);
+    const teardown = generation.teardown;
+    if (teardown === undefined) return;
+    clearTimeout(teardown.forceTimer);
+    clearTimeout(teardown.boundTimer);
+    teardown.resolve({
+      kind: "bounded",
+      termAttempted: teardown.termAttempted,
+      killAttempted: teardown.killAttempted,
+    });
+  }
+
+  private async awaitTeardowns(): Promise<ReadonlyArray<AcpTeardownResult>> {
+    const results: AcpTeardownResult[] = [];
+    while (this.teardownFlights.size > 0) {
+      const batch = [...this.teardownFlights];
+      results.push(...(await Promise.all(batch)));
+      for (const flight of batch) this.teardownFlights.delete(flight);
+    }
+    return results;
+  }
+
+  private isCurrentGeneration(generation: AcpGeneration): boolean {
+    return this.current === generation;
   }
 
   // A fatal transport condition (timeout or oversized inbound frame) means
@@ -384,16 +463,20 @@ export class AcpClient {
   // instead of latching "turn in flight" or a live-but-empty session
   // forever. Idempotent — a second failure (or a concurrent close()) after
   // teardown has already started is a no-op.
-  private handleFatalFailure(message: string): void {
-    if (this.closedFlag) return;
+  private handleFatalFailure(
+    message: string,
+    generation = this.current,
+  ): void {
+    if (
+      this.closedFlag ||
+      generation === undefined ||
+      !this.isCurrentGeneration(generation)
+    ) return;
     this.closedFlag = true;
     this.rejectAllPending(new Error(message));
-    const child = this.child;
-    const childProcess = this.childProcess;
-    this.child = undefined;
-    this.childProcess = undefined;
-    if (child && childProcess) this.killChild(child, childProcess);
-    this.handlers.onLifecycle({ kind: "error", message });
+    this.current = undefined;
+    this.beginTeardown(generation);
+    this.invokeHandler(() => this.handlers.onLifecycle({ kind: "error", message }));
   }
 
   private withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -413,26 +496,41 @@ export class AcpClient {
     });
   }
 
-  private write(message: JsonRpcOutboundRequest | JsonRpcOutboundResponse): void {
-    if (!this.child) return;
-    this.child.stdin.write(`${JSON.stringify(message)}\n`);
+  private write(
+    message: JsonRpcOutboundRequest | JsonRpcOutboundResponse,
+    generation = this.current,
+  ): void {
+    if (generation === undefined || !this.isCurrentGeneration(generation)) return;
+    try {
+      generation.child.stdin.write(`${JSON.stringify(message)}\n`);
+    } catch (error) {
+      if (this.isCurrentGeneration(generation)) {
+        this.handleFatalFailure(
+          `ACP stdin write failed: ${error instanceof Error ? error.message : String(error)}`,
+          generation,
+        );
+      }
+    }
   }
 
-  private onStdout(chunk: string): void {
-    this.buffer += chunk;
+  private onStdout(generation: AcpGeneration, chunk: string): void {
+    if (!this.isCurrentGeneration(generation)) return;
+    generation.buffer += chunk;
     let idx: number;
-    while ((idx = this.buffer.indexOf("\n")) >= 0) {
-      const rawLine = this.buffer.slice(0, idx);
-      this.buffer = this.buffer.slice(idx + 1);
+    while ((idx = generation.buffer.indexOf("\n")) >= 0) {
+      if (!this.isCurrentGeneration(generation)) return;
+      const rawLine = generation.buffer.slice(0, idx);
+      generation.buffer = generation.buffer.slice(idx + 1);
       if (Buffer.byteLength(rawLine, "utf8") > MAX_INBOUND_FRAME_BYTES) {
-        this.handleFatalFailure("ACP inbound frame exceeded the 1 MiB limit");
+        this.handleFatalFailure("ACP inbound frame exceeded the 1 MiB limit", generation);
         return;
       }
       const line = rawLine.trim();
-      if (line.length > 0) this.handleLine(line);
+      if (line.length > 0) this.handleLine(generation, line);
     }
-    if (Buffer.byteLength(this.buffer, "utf8") > MAX_INBOUND_FRAME_BYTES) {
-      this.handleFatalFailure("ACP inbound frame exceeded the 1 MiB limit");
+    if (!this.isCurrentGeneration(generation)) return;
+    if (Buffer.byteLength(generation.buffer, "utf8") > MAX_INBOUND_FRAME_BYTES) {
+      this.handleFatalFailure("ACP inbound frame exceeded the 1 MiB limit", generation);
     }
   }
 
@@ -447,7 +545,8 @@ export class AcpClient {
     }
   }
 
-  private handleLine(line: string): void {
+  private handleLine(generation: AcpGeneration, line: string): void {
+    if (!this.isCurrentGeneration(generation)) return;
     let msg: InboundMessage;
     try {
       msg = JSON.parse(line) as InboundMessage;
@@ -465,17 +564,19 @@ export class AcpClient {
     if (hasMethod && hasId) {
       // Agent -> client request: distinct from a notification (no id) and
       // from a response to one of our own requests (no method).
-      this.handlers.onAgentRequest(msg.method as string, msg.id as JsonRpcId, msg.params);
+      this.invokeHandler(() =>
+        this.handlers.onAgentRequest(msg.method as string, msg.id as JsonRpcId, msg.params),
+      );
       return;
     }
     if (hasMethod) {
-      this.handlers.onNotification(msg.method as string, msg.params);
+      this.invokeHandler(() => this.handlers.onNotification(msg.method as string, msg.params));
       return;
     }
     if (hasId) {
       const id = msg.id as JsonRpcId;
       const pending = this.pending.get(id);
-      if (!pending) return; // stale/unknown id — nothing waiting on it
+      if (!pending || pending.generation !== generation) return;
       this.pending.delete(id);
       if (msg.error) {
         pending.reject(new AcpRpcError(msg.error.code, msg.error.message));
@@ -485,21 +586,54 @@ export class AcpClient {
     }
   }
 
-  private onChildDown(
-    child: AcpChildLike,
-    childProcess: OwnedProcess,
-    event: AcpLifecycleEvent,
+  private onChildError(generation: AcpGeneration, error: Error): void {
+    if (generation.finalized) return;
+    const current = this.isCurrentGeneration(generation);
+    if (current) {
+      this.current = undefined;
+      this.closedFlag = true;
+      this.rejectAllPending(new Error(error.message));
+    }
+    this.beginTeardown(generation);
+    if (current) {
+      this.invokeHandler(() =>
+        this.handlers.onLifecycle({ kind: "error", message: error.message }),
+      );
+    }
+  }
+
+  private onChildTerminal(
+    generation: AcpGeneration,
+    event: "exit" | "close",
+    code: number | null,
   ): void {
-    releaseOwned(childProcess);
-    if (!this.isCurrentChild(child, childProcess)) return;
-    this.child = undefined;
-    this.childProcess = undefined;
-    if (this.closedFlag) return; // already torn down intentionally
+    if (generation.finalized) return;
+    const current = this.isCurrentGeneration(generation);
+    generation.finalized = true;
+    releaseOwned(generation.process);
+    const teardown = generation.teardown;
+    if (teardown !== undefined) {
+      clearTimeout(teardown.forceTimer);
+      clearTimeout(teardown.boundTimer);
+      teardown.resolve({ kind: "terminal", event, code });
+    }
+    if (!current) return;
+    this.current = undefined;
+    if (this.closedFlag) return;
     this.closedFlag = true;
     this.rejectAllPending(
-      new Error(event.kind === "error" ? event.message : `ACP child exited (code ${event.code ?? "unknown"})`),
+      new Error(`ACP child exited (code ${code ?? "unknown"})`),
     );
-    this.handlers.onLifecycle(event);
+    this.invokeHandler(() => this.handlers.onLifecycle({ kind: "closed", code }));
+  }
+
+  private invokeHandler(handler: () => void): void {
+    try {
+      handler();
+    } catch {
+      // Product/event sinks are observers. They cannot interrupt process
+      // cleanup or escape an EventEmitter callback into the main loop.
+    }
   }
 
   private rejectAllPending(err: Error): void {

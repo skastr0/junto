@@ -154,6 +154,110 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
     expect(replacement.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     expect(first.kill).toHaveBeenCalledTimes(1);
   });
+
+  it("an error before close keeps authority until a terminal close event", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    const handlers = noopHandlers();
+    const client = new AcpClient(TARGET, handlers, () => child);
+    const start = client.start();
+    respondOk(child, lastSentId(child), INIT_RESULT);
+    await start;
+
+    child.emit("error", new Error("diagnostic only"));
+    expect(child.kill).toHaveBeenCalledExactlyOnceWith("SIGTERM");
+    const completion = client.close();
+    child.emit("close", null);
+
+    await expect(completion).resolves.toEqual([
+      { kind: "terminal", event: "close", code: null },
+    ]);
+    expect(handlers.onLifecycle).toHaveBeenCalledWith({
+      kind: "error",
+      message: "diagnostic only",
+    });
+  });
+
+  it("an error during SIGTERM does not cancel SIGKILL escalation", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    const client = new AcpClient(TARGET, noopHandlers(), () => child);
+    const start = client.start();
+    respondOk(child, lastSentId(child), INIT_RESULT);
+    await start;
+
+    const completion = client.close();
+    child.emit("error", new Error("late diagnostic"));
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    child.emit("exit", null);
+
+    await expect(completion).resolves.toEqual([
+      { kind: "terminal", event: "exit", code: null },
+    ]);
+  });
+
+  it("a stale error cannot release or close the replacement generation", async () => {
+    vi.useFakeTimers();
+    const { spawnFn, children } = fakeSpawn();
+    const client = new AcpClient(TARGET, noopHandlers(), spawnFn);
+    const firstStart = client.start();
+    const first = children[0]!;
+    respondOk(first, lastSentId(first), INIT_RESULT);
+    await firstStart;
+
+    const replacementStart = client.start();
+    const replacement = children[1]!;
+    first.emit("error", new Error("stale diagnostic"));
+    respondOk(replacement, lastSentId(replacement), INIT_RESULT);
+    await replacementStart;
+    expect(client.closed).toBe(false);
+
+    const completion = client.close();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(first.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    expect(replacement.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(completion).resolves.toEqual([
+      { kind: "bounded", termAttempted: true, killAttempted: true },
+      { kind: "bounded", termAttempted: true, killAttempted: true },
+    ]);
+  });
+
+  it("returns a bounded result when neither TERM nor KILL is accepted", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    child.kill.mockReturnValue(false);
+    const client = new AcpClient(TARGET, noopHandlers(), () => child);
+    const start = client.start();
+    respondOk(child, lastSentId(child), INIT_RESULT);
+    await start;
+
+    const completion = client.close();
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    await expect(completion).resolves.toEqual([
+      { kind: "bounded", termAttempted: false, killAttempted: false },
+    ]);
+    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+  });
+
+  it("bounds close when a signaled child never emits exit or close", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    const client = new AcpClient(TARGET, noopHandlers(), () => child);
+    const start = client.start();
+    respondOk(child, lastSentId(child), INIT_RESULT);
+    await start;
+
+    const completion = client.close();
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    await expect(completion).resolves.toEqual([
+      { kind: "bounded", termAttempted: true, killAttempted: true },
+    ]);
+  });
 });
 
 describe("ChatService — a stalled session/new times out and tears the session down", () => {
