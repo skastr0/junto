@@ -112,6 +112,43 @@ describe("main authoring gate", () => {
     expect(gate.recover(precommit.epoch).phase).toBe("open");
   });
 
+  it("does not reuse a completed drain while its cleanup microtask is pending", async () => {
+    const gate = createMainAuthoringGate();
+    const precommit = gate.beginPrecommit();
+    const firstDrain = gate.drain(precommit.epoch);
+    const binding = { senderId: 55, requestId: "flush-after-drain" } as const;
+    const pending = deferred<string>();
+    let secondDrain: Promise<Awaited<typeof firstDrain>> | undefined;
+
+    // The empty drain continuation runs first and completes its receipt. This
+    // queued microtask then admits new work before the old flight's `.then`
+    // cleanup has had a chance to remove its published entry.
+    await new Promise<void>((resolve) => {
+      queueMicrotask(() => {
+        gate.mintFinalWritePermit(precommit.epoch, binding);
+        void gate.runFinalWrite(
+          binding,
+          "canvas.write",
+          "ipc.canvas.write",
+          () => pending.promise,
+        );
+        secondDrain = gate.drain(precommit.epoch);
+        gate.revokeFinalWritePermit(precommit.epoch, binding);
+        resolve();
+      });
+    });
+
+    expect(secondDrain).toBeDefined();
+    expect(secondDrain).not.toBe(firstDrain);
+    await expect(firstDrain).resolves.toMatchObject({ clean: true, settled: 0 });
+    pending.resolve("saved");
+    await expect(secondDrain!).resolves.toMatchObject({
+      clean: true,
+      labels: ["ipc.canvas.write"],
+      settled: 1,
+    });
+  });
+
   it("uses allSettled fixed-point drainage, including a fast permit write between rounds", async () => {
     const gate = createMainAuthoringGate();
     const initial = deferred<void>();

@@ -251,7 +251,11 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
   const closedAdmissions = new Map<number, ActiveOperation>();
   const finalPermits = new Map<string, FinalPermitRecord>();
   let drainFlight:
-    | { readonly epoch: number; readonly promise: Promise<MainAuthoringDrainReceipt> }
+    | {
+        readonly epoch: number;
+        promise: Promise<MainAuthoringDrainReceipt>;
+        completed: boolean;
+      }
     | undefined;
 
   const activeLabels = (): ReadonlyArray<MainAuthoringLabel> =>
@@ -430,7 +434,19 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
 
   const drain = (attemptedEpoch: number): Promise<MainAuthoringDrainReceipt> => {
     requireClosedEpoch(attemptedEpoch);
-    if (drainFlight?.epoch === attemptedEpoch) return drainFlight.promise;
+    if (drainFlight?.epoch === attemptedEpoch && !drainFlight.completed) {
+      return drainFlight.promise;
+    }
+
+    // Publish the mutable flight before its async body can settle. New work in
+    // the promise-resolution microtask window must see `completed` and start a
+    // fresh drain rather than inherit the just-completed receipt.
+    const flight: NonNullable<typeof drainFlight> = {
+      epoch: attemptedEpoch,
+      promise: Promise.resolve(undefined as never),
+      completed: false,
+    };
+    drainFlight = flight;
 
     const promise = (async (): Promise<MainAuthoringDrainReceipt> => {
       const observedIds = new Set<number>();
@@ -478,6 +494,7 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
           admissionVersion,
         };
       }
+      flight.completed = true;
       return Object.freeze({
         epoch: attemptedEpoch,
         phase: phase as Exclude<MainAuthoringPhase, "open">,
@@ -492,7 +509,7 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
       });
     })();
 
-    drainFlight = { epoch: attemptedEpoch, promise };
+    flight.promise = promise;
     void promise.then(
       () => {
         if (drainFlight?.promise === promise) drainFlight = undefined;
