@@ -4,12 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   spawnChild: vi.fn(),
   terminate: vi.fn(),
+  forceTerminate: vi.fn(),
 }));
 
 vi.mock("../src/main/vellum/app-process-plane", () => ({
+  APP_PROCESS_TERM_GRACE_MS: 1_000,
+  APP_PROCESS_KILL_GRACE_MS: 1_500,
   appProcessPlane: {
     spawnChild: mocks.spawnChild,
     terminate: mocks.terminate,
+    forceTerminate: mocks.forceTerminate,
   },
 }));
 
@@ -23,6 +27,8 @@ interface ProbeHarness {
   readonly stderr: PassThrough;
   readonly close: (code: number | null, signal: NodeJS.Signals | null) => void;
   readonly error: (error: Error) => void;
+  readonly hasCloseListener: () => boolean;
+  readonly hasErrorListener: () => boolean;
   readonly lease: object;
 }
 
@@ -57,6 +63,8 @@ const makeHarness = (): ProbeHarness => {
     lease,
     close: (code, signal) => closeListener?.({ code, signal }),
     error: (error) => errorListener?.(error),
+    hasCloseListener: () => closeListener !== undefined,
+    hasErrorListener: () => errorListener !== undefined,
   };
 };
 
@@ -65,6 +73,7 @@ beforeEach(() => {
   vi.spyOn(process, "getuid").mockReturnValue(501);
   mocks.spawnChild.mockReset();
   mocks.terminate.mockReset();
+  mocks.forceTerminate.mockReset();
 });
 
 afterEach(() => {
@@ -104,6 +113,9 @@ describe("supervised launch-agent probe", () => {
     harness.close(0, null);
     await expect(result).resolves.toBe("installed");
     expect(mocks.terminate).not.toHaveBeenCalled();
+    expect(mocks.forceTerminate).not.toHaveBeenCalled();
+    expect(harness.hasCloseListener()).toBe(false);
+    expect(harness.hasErrorListener()).toBe(false);
   });
 
   it("preserves absent and signaled close classifications", async () => {
@@ -126,6 +138,10 @@ describe("supervised launch-agent probe", () => {
     const missing = probeLaunchAgentLoaded();
     missingHarness.error(Object.assign(new Error("missing"), { code: "ENOENT" }));
     await expect(missing).resolves.toBe("unknown");
+    expect(mocks.terminate).toHaveBeenCalledWith(
+      missingHarness.lease,
+      "supervised probe process error",
+    );
     expect(missingHarness.stdout.destroyed).toBe(true);
     expect(missingHarness.stderr.destroyed).toBe(true);
 
@@ -136,10 +152,31 @@ describe("supervised launch-agent probe", () => {
     await expect(denied).resolves.toBe("absent");
   });
 
+  it("terminates a live child after a generic post-spawn error", async () => {
+    const harness = makeHarness();
+    mocks.spawnChild.mockReturnValue(harness.lease);
+
+    const result = probeLaunchAgentLoaded();
+    harness.error(Object.assign(new Error("late I/O fault"), { code: "EIO" }));
+
+    await expect(result).resolves.toBe("absent");
+    expect(mocks.terminate).toHaveBeenCalledWith(
+      harness.lease,
+      "supervised probe process error",
+    );
+    expect(mocks.forceTerminate).not.toHaveBeenCalled();
+    expect(harness.hasCloseListener()).toBe(false);
+    expect(harness.hasErrorListener()).toBe(false);
+    expect(() => harness.close(null, "SIGTERM")).not.toThrow();
+  });
+
   it("requests central termination on timeout and waits for close", async () => {
     vi.useFakeTimers();
     const harness = makeHarness();
     mocks.spawnChild.mockReturnValue(harness.lease);
+    mocks.terminate.mockImplementation(() => {
+      harness.close(null, "SIGTERM");
+    });
 
     const result = probeLaunchAgentLoaded();
     await vi.advanceTimersByTimeAsync(3_000);
@@ -148,8 +185,63 @@ describe("supervised launch-agent probe", () => {
       "supervised probe timeout",
     );
 
-    harness.close(null, "SIGTERM");
     await expect(result).resolves.toBe("unknown");
+    expect(mocks.forceTerminate).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("bounds timeout through TERM, KILL, and a late-close window", async () => {
+    vi.useFakeTimers();
+    const harness = makeHarness();
+    mocks.spawnChild.mockReturnValue(harness.lease);
+
+    const result = probeLaunchAgentLoaded();
+    let resolved = false;
+    void result.then(() => {
+      resolved = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(mocks.terminate).toHaveBeenCalledWith(
+      harness.lease,
+      "supervised probe timeout",
+    );
+    expect(mocks.forceTerminate).not.toHaveBeenCalled();
+    expect(resolved).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mocks.forceTerminate).toHaveBeenCalledWith(
+      harness.lease,
+      "supervised probe timeout escalation",
+    );
+    expect(resolved).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1_500);
+    await expect(result).resolves.toBe("unknown");
+    expect(resolved).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(harness.hasCloseListener()).toBe(false);
+    expect(harness.hasErrorListener()).toBe(false);
+    expect(() => harness.close(null, "SIGKILL")).not.toThrow();
+  });
+
+  it("does not arm a late-close timer when KILL closes synchronously", async () => {
+    vi.useFakeTimers();
+    const harness = makeHarness();
+    mocks.spawnChild.mockReturnValue(harness.lease);
+    mocks.forceTerminate.mockImplementation(() => {
+      harness.close(null, "SIGKILL");
+    });
+
+    const result = probeLaunchAgentLoaded();
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    await expect(result).resolves.toBe("unknown");
+    expect(mocks.forceTerminate).toHaveBeenCalledWith(
+      harness.lease,
+      "supervised probe timeout escalation",
+    );
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("retains execFile's success result when a timeout races a zero exit", async () => {

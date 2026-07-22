@@ -1,5 +1,7 @@
 import type { SupervisedInstallState } from "@shared/station";
 import {
+  APP_PROCESS_KILL_GRACE_MS,
+  APP_PROCESS_TERM_GRACE_MS,
   appProcessPlane,
   type AppProcessClose,
   type AppProcessLease,
@@ -65,10 +67,21 @@ export const probeLaunchAgentLoaded: SupervisedProbe = () => {
     const settle = (state: SupervisedInstallState): void => {
       if (settled) return;
       settled = true;
-      if (timer !== undefined) clearTimeout(timer);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
       unsubscribeError();
       unsubscribeClose();
       resolve(state);
+    };
+
+    const schedule = (delayMs: number, action: () => void): void => {
+      if (settled) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        action();
+      }, delayMs);
     };
 
     // execFile consumed both pipes even though this probe ignores their
@@ -78,10 +91,17 @@ export const probeLaunchAgentLoaded: SupervisedProbe = () => {
 
     const removeErrorListener = lease.io.onError((error) => {
       // Match execFile's error path: destroy its output pipes and classify the
-      // spawn failure immediately. The central plane still retains the child
-      // until its terminal close witness.
+      // diagnostic immediately. Error is not a terminal witness, so request
+      // TERM for this exact lease before returning; the central plane retains
+      // it, including any refusal receipt, until its terminal close witness.
       lease.io.stdout.destroy();
       lease.io.stderr.destroy();
+      try {
+        appProcessPlane.terminate(lease, "supervised probe process error");
+      } catch {
+        // The original probe result is still determined by the process error.
+        // Central admission remains strongly registered for global quit drain.
+      }
       settle(classifyProbeError(error));
     });
     if (settled) removeErrorListener();
@@ -95,16 +115,27 @@ export const probeLaunchAgentLoaded: SupervisedProbe = () => {
     else unsubscribeClose = removeCloseListener;
 
     if (settled) return;
-    timer = setTimeout(() => {
+    schedule(SUPERVISED_PROBE_TIMEOUT_MS, () => {
       timedOut = true;
       lease.io.stdout.destroy();
       lease.io.stderr.destroy();
       try {
         appProcessPlane.terminate(lease, "supervised probe timeout");
-      } catch (error) {
-        // execFile completed immediately when its kill callback threw.
-        settle(classifyProbeError(error as Error));
+      } catch {
+        // Continue to the bounded force phase. The central registry remains
+        // the authority for any still-live process.
       }
-    }, SUPERVISED_PROBE_TIMEOUT_MS);
+      schedule(APP_PROCESS_TERM_GRACE_MS, () => {
+        try {
+          appProcessPlane.forceTerminate(
+            lease,
+            "supervised probe timeout escalation",
+          );
+        } catch {
+          // The late-close window still bounds the caller-facing probe.
+        }
+        schedule(APP_PROCESS_KILL_GRACE_MS, () => settle("unknown"));
+      });
+    });
   });
 };
