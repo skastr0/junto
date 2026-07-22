@@ -10,6 +10,7 @@ describe("herdr detach-on-quit product lock", () => {
   const root = join(import.meta.dirname, "..");
 
   const streamSrc = readFileSync(join(root, "src/main/vellum/herdr/stream.ts"), "utf8");
+  const observeSrc = readFileSync(join(root, "src/main/vellum/herdr/observe-pool.ts"), "utf8");
   const indexSrc = readFileSync(join(root, "src/main/index.ts"), "utf8");
   const serviceSrc = readFileSync(join(root, "src/main/vellum/herdr/service.ts"), "utf8");
   const planeSrc = readFileSync(join(root, "src/main/vellum/herdr/plane.ts"), "utf8");
@@ -61,6 +62,24 @@ describe("herdr detach-on-quit product lock", () => {
     expect(terminationBlock).toMatch(/signalOwned\(stream\.ownedProcess,\s*"SIGKILL"\)/);
     expect(terminationBlock).toMatch(/releaseControlAuthority\(stream\)/);
     expect(terminationBlock).not.toMatch(/process\.kill|\bpid\b|spawnDetachedProcessGroup/);
+  });
+
+  it("does not treat generic control or observe errors as proof of exit", () => {
+    const controlStart = streamSrc.indexOf('child.on("error"');
+    const controlEnd = streamSrc.indexOf("\n\n    return { ok: true", controlStart);
+    const controlErrorBlock = streamSrc.slice(controlStart, controlEnd);
+    expect(controlStart).toBeGreaterThan(-1);
+    expect(controlEnd).toBeGreaterThan(controlStart);
+    expect(controlErrorBlock).toMatch(/terminateControl\(active\)/);
+    expect(controlErrorBlock).not.toMatch(/releaseControlAuthority|releaseOwned/);
+
+    const observeStart = observeSrc.indexOf("const onError =");
+    const observeEnd = observeSrc.indexOf('child.on("close"', observeStart);
+    const observeErrorBlock = observeSrc.slice(observeStart, observeEnd);
+    expect(observeStart).toBeGreaterThan(-1);
+    expect(observeEnd).toBeGreaterThan(observeStart);
+    expect(observeErrorBlock).toMatch(/terminateGeneration\(generation\)/);
+    expect(observeErrorBlock).not.toMatch(/releaseGeneration|releaseOwned/);
   });
 
   it("main process detaches herdr on quit and signals", () => {

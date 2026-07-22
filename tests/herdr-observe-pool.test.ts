@@ -381,6 +381,10 @@ describe("HerdrObservePool idle leases", () => {
     const replacement = calls[1]!.child;
     expect(replacement.kills).toEqual([]);
 
+    // Generic error during TERM is not terminal proof: old authority remains
+    // live for escalation and cannot follow the entry to its replacement.
+    first.emit("error", new Error("TERM delivery uncertain"));
+
     vi.advanceTimersByTime(1_500);
     expect(first.kills).toEqual(["SIGTERM", "SIGKILL"]);
     expect(replacement.kills).toEqual([]);
@@ -390,6 +394,29 @@ describe("HerdrObservePool idle leases", () => {
     replacement.emit("close", 0);
     vi.advanceTimersByTime(1_500);
     expect(replacement.kills).toEqual(["SIGTERM"]);
+  });
+
+  it("turns an observe error-before-close into exact bounded teardown", () => {
+    const { calls, spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn });
+    touch(pool, "t1");
+    const first = calls[0]!.child;
+
+    first.emit("error", new Error("observe transport failed"));
+    expect(first.kills).toEqual(["SIGTERM"]);
+    expect(pool.entryState("t1")).toEqual({ live: false, stale: true });
+    expect(touch(pool, "t1")).toEqual({ pooled: true });
+    const replacement = calls[1]!.child;
+
+    vi.advanceTimersByTime(1_500);
+    expect(first.kills).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(replacement.kills).toEqual([]);
+    expect(pool.entryState("t1")).toEqual({ live: true, stale: false });
+
+    first.emit("close", 1);
+    expect(pool.entryState("t1")).toEqual({ live: true, stale: false });
+    pool.stopAll();
+    replacement.emit("close", 0);
   });
 });
 
@@ -475,7 +502,7 @@ describe("control stream ↔ observe pool handoff", () => {
     expect(observedTerminal(calls[0]!)).toBe("t1");
     expect(pool.entryState("t1")?.live).toBe(true);
     expect(events.map((e) => e.type)).toEqual(["error", "closed"]);
-    expect(events[1]!.reason).toBe("spawn_error");
+    expect(events[1]!.reason).toBe("child_error");
     expect(streams.getActiveStreamId()).toBeUndefined();
   });
 

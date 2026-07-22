@@ -329,17 +329,23 @@ export class HerdrStreamManager {
     });
 
     child.on("error", (error) => {
-      this.releaseControlAuthority(active);
       const closing = this.streams.get(streamId);
-      if (!closing) return;
+      if (!closing) {
+        // Generic ChildProcess errors are not proof of exit (kill/send and
+        // remote lease writes can fail). Preserve the already-retained exact
+        // generation authority so its TERM grace can still reach SIGKILL.
+        this.terminateControl(active);
+        return;
+      }
       this.removeStream(streamId, closing.terminalId);
-      this.handBackToObservePool(closing);
+      this.terminateControl(active);
+      this.handBackToObservePool(active);
       this.emit({
         streamId,
         type: "error",
         message: error.message,
       });
-      this.emit({ streamId, type: "closed", reason: "spawn_error" });
+      this.emit({ streamId, type: "closed", reason: "child_error" });
     });
 
     return { ok: true, streamId, retained };

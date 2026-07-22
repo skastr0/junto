@@ -417,15 +417,25 @@ export class HerdrObservePool {
       });
     });
 
-    const onGone = (): void => {
+    const onClose = (): void => {
       this.releaseGeneration(generation);
       if (entry.generation !== generation) return; // already respawned/killed deliberately
       entry.generation = undefined;
       entry.live = false;
       entry.stale = true; // retention kept; next ensureObserve respawns
     };
-    child.on("close", onGone);
-    child.on("error", onGone);
+    const onError = (): void => {
+      // Error is not proof the process exited. Logically retire this observe
+      // lease, but retain its exact authority through bounded termination.
+      if (entry.generation === generation) {
+        entry.generation = undefined;
+        entry.live = false;
+        entry.stale = true;
+      }
+      this.terminateGeneration(generation);
+    };
+    child.on("close", onClose);
+    child.on("error", onError);
     return true;
   }
 
