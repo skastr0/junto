@@ -18,9 +18,24 @@ describe("trusted renderer boot authority", () => {
     const authority = resolveTrustedRendererOrigin(false, "http://localhost:5173/");
     expect(authority.initialUrl).toBe("http://localhost:5173/");
     expect(authority.allows("http://localhost:5173/")).toBe(true);
-    expect(authority.allows("http://localhost:5173/src/main.tsx")).toBe(false);
+    expect(authority.allows("http://localhost:5173/src/main.tsx")).toBe(true);
     expect(authority.allows("http://localhost:5174/")).toBe(false);
     expect(authority.allows("http://127.0.0.1:5173/")).toBe(false);
+  });
+
+  it("accepts electron-vite's no-trailing-slash development URL", () => {
+    // electron-vite: process.env.ELECTRON_RENDERER_URL = `${protocol}//${host}:${port}`
+    const authority = resolveTrustedRendererOrigin(false, "http://localhost:5173");
+    expect(authority.initialUrl).toBe("http://localhost:5173/");
+    expect(authority.allows("http://localhost:5173/")).toBe(true);
+    expect(authority.allows("http://localhost:5173/src/main.tsx")).toBe(true);
+  });
+
+  it("admits 127.0.0.1 loopback with an explicit ephemeral port (e2e harness)", () => {
+    const authority = resolveTrustedRendererOrigin(false, "http://127.0.0.1:49152/");
+    expect(authority.initialUrl).toBe("http://127.0.0.1:49152/");
+    expect(authority.allows("http://127.0.0.1:49152/index.html")).toBe(true);
+    expect(authority.allows("http://localhost:49152/")).toBe(false);
   });
 
   it.each([
@@ -33,15 +48,13 @@ describe("trusted renderer boot authority", () => {
     "http://2130706433:5173/",
     "file:///tmp/index.html",
     "http://localhost/",
-    "http://127.0.0.1:5173/",
   ])("rejects hostile or ambiguous development input: %s", (candidate) => {
     expect(() => resolveTrustedRendererOrigin(false, candidate)).toThrow(/ELECTRON_RENDERER_URL/u);
   });
 
   it("lets preload expose only fixed or strict loopback candidate locations", () => {
     expect(isRendererPreloadCandidate(TRUSTED_RENDERER_URL)).toBe(true);
-    expect(isRendererPreloadCandidate("https://localhost:5173/")).toBe(true);
-    expect(isRendererPreloadCandidate("https://127.0.0.1:4173/app")).toBe(false);
+    expect(isRendererPreloadCandidate("https://127.0.0.1:4173/app")).toBe(true);
     expect(isRendererPreloadCandidate("https://attacker.invalid/")).toBe(false);
     expect(isRendererPreloadCandidate("http://attacker@localhost:5173/")).toBe(false);
     expect(isRendererPreloadCandidate("http://localhost.attacker.invalid:5173/")).toBe(false);

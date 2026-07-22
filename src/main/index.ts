@@ -885,8 +885,9 @@ if (!gotSingleInstanceLock) {
         () => trustedMainWindow,
         trustedRendererOrigin,
       );
-    } catch {
+    } catch (error) {
       console.error("[window] trusted renderer protocol setup failed");
+      console.error(error);
       exitAfterDetach(1, "trusted-renderer-startup-failure");
       return;
     }
