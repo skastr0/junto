@@ -162,6 +162,48 @@ group that may have been recycled. The remaining `ps`-to-signal interval is an
 operating-system TOCTOU limit; macOS does not offer Vellum a pidfd-style atomic
 process-group signal primitive.
 
+## Current enforced posture
+
+- `app-process-plane.ts` is the application-wide spawn and lifetime registry.
+  App shutdown closes admission first, then performs bounded TERM/KILL phases
+  and reports retained stragglers instead of manufacturing a clean result.
+- SSH process scopes wait for the child's `close` witness, not merely `exit`.
+  Shared SSH commands use `ControlPersist=no`; `-O exit` remains confined to
+  the explicit host removal/edit operation and is never a scope finalizer.
+- Canvas names share one bounded ASCII contract across settings, node refs,
+  pull, and the repository. Document and sidecar writes use exclusive
+  same-directory temporary files, file sync, atomic publication, and a
+  best-effort directory sync. The sidecar sink enforces its runtime allowlist,
+  and remote pull has no caller-selected destination root.
+- The Electron quit transaction synchronously closes authoring and resource
+  admission, then awaits the canvas, browser, work-control, terminal, host,
+  Hermes/Herdr, launchctl, and central process drains before deciding whether
+  shutdown is clean.
+- Architecture fitness tests inventory every asynchronous spawn,
+  `process.kill`, direct `.kill`, detached group creation, and the SSH process
+  implementation boundary.
+
+## Explicit residual limits
+
+These are not represented as solved guarantees:
+
+- POSIX group signaling is still intentional for Vellum-created detached
+  groups. Identity is revalidated immediately before signaling, but the final
+  process-table-observation-to-signal interval is not atomic on macOS.
+- Node pathname APIs cannot make same-UID ancestor replacement impossible.
+  Canvas operations reject stable symlinks and retain one validated root per
+  operation, but a future opaque storage-root plus fd-relative native layer is
+  required to close that kernel race by construction.
+- Canvas expected-revision writes retain the documented final
+  read-to-rename window against external writers that do not share the service
+  mutex.
+- The `VELLUM_CANVASES_DIR` test/demo override remains ambient rather than an
+  unforgeable storage capability. The operator-only `canvas:rm` CLI still has
+  parallel name/path handling outside the canonical repository boundary and
+  must be migrated before that boundary can be called complete.
+- Explicit host removal/edit may close a concurrently shared SSH master by
+  design. Ordinary operation and app shutdown do not issue `-O exit`.
+
 ---
 
 ## Where this applies next
@@ -189,11 +231,14 @@ Code review question for every PR:
 | Area | Module |
 |------|--------|
 | Process kill seal | `src/main/vellum/process-signal.ts` |
+| Central process lifetime | `src/main/vellum/app-process-plane.ts` |
 | Terminal sessions | `src/main/vellum/term/local-host.ts` |
 | Adapter CLI children | `src/main/vellum/adapters/exec.ts` |
 | SSH child stop | `src/main/vellum/ssh/process-spawner.ts` |
 | SSH brand precedent | `src/main/vellum/ssh/domain.ts` |
-| Tests | `tests/process-signal.test.ts` |
+| Canvas repository boundary | `src/main/vellum/canvases.ts` |
+| Architecture fitness | `tests/process-safety-architecture.test.ts` |
+| Runtime safety tests | `tests/process-signal.test.ts`, `tests/canvas-path-capabilities.test.ts` |
 
 ---
 
