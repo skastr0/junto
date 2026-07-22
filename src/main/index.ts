@@ -59,6 +59,7 @@ import {
   createQuitPreparationArbiter,
   createSignalQuitState,
   installProcessSignalTermination,
+  runNormalQuitPreparation,
 } from "./vellum/process-signal-termination";
 import { setTrustedMainWebContents } from "./vellum/trusted-main-webcontents";
 import {
@@ -293,8 +294,13 @@ const pendingCanvasQuiesceAndFlushes = new Map<
     readonly resolve: () => void;
     readonly reject: (error: CanvasQuiesceAndFlushError) => void;
     readonly timer: ReturnType<typeof setTimeout>;
+    quiesced: boolean;
   }
 >();
+// A successful final ACK is a narrow synchronous gap before the cleanup
+// continuation destroys the renderer. Crash recovery must never reload an
+// authoring surface inside that already-durable interval.
+const acknowledgedCanvasQuiesceWebContents = new Set<number>();
 
 const decodeCanvasFlushResult = (payload: unknown): CanvasFlushResult | undefined => {
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return undefined;
@@ -313,6 +319,13 @@ const decodeCanvasQuiesceAndFlushResult = (
   if (!("ok" in payload) || typeof payload.ok !== "boolean") return undefined;
   if (!("quiesced" in payload) || typeof payload.quiesced !== "boolean") return undefined;
   return { requestId: payload.requestId, ok: payload.ok, quiesced: payload.quiesced };
+};
+
+const decodeCanvasQuiesceStarted = (payload: unknown): { readonly requestId: string } | undefined => {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return undefined;
+  if (Object.keys(payload).join(",") !== "requestId") return undefined;
+  if (!("requestId" in payload) || typeof payload.requestId !== "string") return undefined;
+  return { requestId: payload.requestId };
 };
 
 const requestCanvasFlush = (mainWindow: BrowserWindow): Promise<void> => {
@@ -351,7 +364,12 @@ ipcMain.on(IPC_CHANNELS.canvasFlushComplete, (event, payload: unknown) => {
 });
 
 const requestCanvasQuiesceAndFlush = (mainWindow: BrowserWindow): Promise<void> => {
-  if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return Promise.resolve();
+  if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+    return Promise.reject(new CanvasQuiesceAndFlushError(
+      "renderer unavailable before canvas quiesce request",
+      false,
+    ));
+  }
   const webContentsId = mainWindow.webContents.id;
   const existing = pendingCanvasQuiesceAndFlushes.get(webContentsId);
   if (existing !== undefined) return existing.promise;
@@ -369,7 +387,10 @@ const requestCanvasQuiesceAndFlush = (mainWindow: BrowserWindow): Promise<void> 
     pendingCanvasQuiesceAndFlushes.delete(webContentsId);
     // The request may have reached the renderer and closed its monotonic gate;
     // timeout cannot safely authorize either UI recovery or force exit.
-    reject(new CanvasQuiesceAndFlushError("renderer canvas quiesce timed out", true));
+    reject(new CanvasQuiesceAndFlushError(
+      "renderer canvas quiesce timed out",
+      pending.quiesced,
+    ));
   }, CANVAS_FLUSH_TIMEOUT_MS);
   pendingCanvasQuiesceAndFlushes.set(webContentsId, {
     requestId,
@@ -377,6 +398,7 @@ const requestCanvasQuiesceAndFlush = (mainWindow: BrowserWindow): Promise<void> 
     resolve,
     reject,
     timer,
+    quiesced: false,
   });
   try {
     mainWindow.webContents.send(IPC_CHANNELS.canvasQuiesceAndFlushRequested, { requestId });
@@ -391,6 +413,15 @@ const requestCanvasQuiesceAndFlush = (mainWindow: BrowserWindow): Promise<void> 
   return promise;
 };
 
+ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushStarted, (event, payload: unknown) => {
+  const started = decodeCanvasQuiesceStarted(payload);
+  if (started === undefined) return;
+  const pending = pendingCanvasQuiesceAndFlushes.get(event.sender.id);
+  if (pending === undefined || pending.requestId !== started.requestId) return;
+  pending.quiesced = true;
+  quitPreparationArbiter.observeRendererGateQuiesced();
+});
+
 ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushComplete, (event, payload: unknown) => {
   const result = decodeCanvasQuiesceAndFlushResult(payload);
   if (result === undefined) return;
@@ -398,15 +429,31 @@ ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushComplete, (event, payload: unknown)
   if (pending === undefined || pending.requestId !== result.requestId) return;
   clearTimeout(pending.timer);
   pendingCanvasQuiesceAndFlushes.delete(event.sender.id);
-  if (result.ok && result.quiesced) {
+  const quiesced = pending.quiesced || result.quiesced;
+  if (quiesced) quitPreparationArbiter.observeRendererGateQuiesced();
+  if (result.ok && quiesced) {
+    acknowledgedCanvasQuiesceWebContents.add(event.sender.id);
     pending.resolve();
     return;
   }
   pending.reject(new CanvasQuiesceAndFlushError(
-    "renderer rejected signal quit because canvas save failed",
-    result.quiesced,
+    "renderer rejected quit because canvas save failed",
+    quiesced,
   ));
 });
+
+const rejectPendingCanvasQuiesce = (
+  webContentsId: number,
+  message: string,
+  quiesced: boolean,
+): boolean => {
+  const pending = pendingCanvasQuiesceAndFlushes.get(webContentsId);
+  if (pending === undefined) return false;
+  clearTimeout(pending.timer);
+  pendingCanvasQuiesceAndFlushes.delete(webContentsId);
+  pending.reject(new CanvasQuiesceAndFlushError(message, quiesced));
+  return true;
+};
 
 // Bounded renderer crash recovery. A renderer that dies (GPU reset, OOM kill,
 // Chromium crash) is first reloaded in place — that recovers the common
@@ -434,11 +481,27 @@ const registerCrashRecovery = (mainWindow: BrowserWindow) => {
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     console.error(`[renderer:gone] ${details.reason} (exitCode ${details.exitCode})`);
-    if (details.reason === "clean-exit" || mainWindow.isDestroyed()) return;
-    // A signal handshake may have closed renderer mutation admission before a
-    // save error/timeout. Reloading would create a fresh open gate and violate
-    // that monotonic boundary; only a later signal may retry the durable drain.
-    if (signalQuitState.rendererQuiesced()) return;
+    if (mainWindow.isDestroyed()) return;
+    const webContentsId = mainWindow.webContents.id;
+    // Final ACK is the only renderer-durability receipt. Once observed, never
+    // reload in the narrow continuation gap before synchronous destruction.
+    if (acknowledgedCanvasQuiesceWebContents.has(webContentsId)) return;
+
+    // A dead renderer has no surviving admission gate. Reject any pending
+    // handshake as recoverable, reset a gate remembered from an earlier timed
+    // out attempt, then reload a fresh renderer generation from durable disk.
+    rejectPendingCanvasQuiesce(
+      webContentsId,
+      "renderer crashed before canvas quiesce acknowledgement",
+      false,
+    );
+    signalQuitState.forgetRendererGateAfterProcessLoss();
+    quitPreparationArbiter.forgetRendererGateAfterProcessLoss();
+
+    // Clean renderer exit is still process loss: a replacement preload owns a
+    // fresh process-local admission latch. Do not carry the old Started receipt
+    // into that generation, even when Electron performs its own replacement.
+    if (details.reason === "clean-exit") return;
 
     const now = Date.now();
     if (now - recoveryWindowStart > RECOVERY_WINDOW_MS) {
@@ -481,7 +544,12 @@ const createWindow = () => {
   // Signal quit has crossed an irreversible durability boundary. Native
   // activate/second-instance events must not resurrect an authoring renderer
   // while the bounded fallback is finishing a partially torn-down runtime.
-  if (signalRendererDestroyInProgress || signalQuitState.rendererQuiesced()) return;
+  if (
+    signalRendererDestroyInProgress ||
+    signalQuitState.rendererQuiesced() ||
+    quitPreparationArbiter.rendererGateQuiesced() ||
+    quitPreparationArbiter.committed()
+  ) return;
   const mainWindow = new BrowserWindow({
     width: 1320,
     height: 900,
@@ -513,8 +581,12 @@ const createWindow = () => {
       signalQuiescedWindows.has(mainWindow)
     ) return;
     event.preventDefault();
+    if (quitPreparationArbiter.signalPrecommit()) return;
     closeFlush ??= requestCanvasFlush(mainWindow)
       .then(() => {
+        // A signal may claim global quit while this ordinary flush is in
+        // flight. Its renderer handshake now owns the only close authority.
+        if (quitPreparationArbiter.signalPrecommit()) return;
         closeAfterCanvasFlush = true;
         mainWindow.close();
       })
@@ -594,15 +666,13 @@ const createWindow = () => {
       pendingCanvasFlushes.delete(mainWebContentsId);
       pending.reject(new Error("renderer closed before canvas flush completed"));
     }
-    const pendingQuiesce = pendingCanvasQuiesceAndFlushes.get(mainWebContentsId);
-    if (pendingQuiesce !== undefined) {
-      clearTimeout(pendingQuiesce.timer);
-      pendingCanvasQuiesceAndFlushes.delete(mainWebContentsId);
-      pendingQuiesce.reject(new CanvasQuiesceAndFlushError(
-        "renderer closed before canvas quiesce completed",
-        true,
-      ));
-    }
+    rejectPendingCanvasQuiesce(
+      mainWebContentsId,
+      "renderer closed before canvas quiesce completed",
+      false,
+    );
+    quitPreparationArbiter.forgetRendererGateAfterProcessLoss();
+    acknowledgedCanvasQuiesceWebContents.delete(mainWebContentsId);
     if (trustedMainWindow === mainWindow) trustedMainWindow = undefined;
     setTrustedMainWebContents(undefined);
     disconnect();
@@ -852,7 +922,8 @@ app.on("window-all-closed", () => {
   if (
     process.platform !== "darwin" &&
     !signalRendererDestroyInProgress &&
-    !signalQuitState.rendererQuiesced()
+    !signalQuitState.rendererQuiesced() &&
+    !quitPreparationArbiter.committed()
   ) app.quit();
 });
 
@@ -973,11 +1044,8 @@ const beginSignalCanvasQuiesceAndFlush = async (generation: number): Promise<voi
   }
 };
 
-/** Stop trusted renderer authoring synchronously after its final flush ack. */
-const quiesceSignalRenderer = (generation: number): void => {
-  if (!signalQuitState.isCurrent(generation)) {
-    throw new Error("signal shutdown attempt superseded");
-  }
+/** Destroy the already-gated renderer synchronously after its final ACK. */
+const destroyQuiescedRenderer = (): void => {
   const mainWindow = trustedMainWindow;
   if (mainWindow !== undefined && !mainWindow.isDestroyed()) {
     signalQuiescedWindows.add(mainWindow);
@@ -995,12 +1063,18 @@ const quiesceSignalRenderer = (generation: number): void => {
         signalQuiescedWindows.delete(mainWindow);
         throw new Error("trusted renderer did not quiesce synchronously");
       }
-      signalQuitState.markRendererQuiesced(generation);
     } finally {
       signalRendererDestroyInProgress = false;
     }
-    return;
   }
+};
+
+/** Stop trusted renderer authoring synchronously after its signal final ACK. */
+const quiesceSignalRenderer = (generation: number): void => {
+  if (!signalQuitState.isCurrent(generation)) {
+    throw new Error("signal shutdown attempt superseded");
+  }
+  destroyQuiescedRenderer();
   // Headless and already-windowless stations have no authoring renderer.
   signalQuitState.markRendererQuiesced(generation);
 };
@@ -1035,7 +1109,8 @@ app.on("before-quit", (event) => {
   // own quitPreparation, so a signal can still force through while a dialog is open.
   if (quitPreparation !== undefined) return;
 
-  // Sacred order lives inside this handler (flush, then runtime detach, then dispose).
+  // Sacred order: terminal clean, final renderer gate+drain, synchronous
+  // commit/destroy, runtime detach, then dispose.
   const beginQuitPreparation = (durableSignalGeneration?: number): void => {
     if (runtimeDisposed || quitPreparation !== undefined) return;
     const preparationGeneration = quitPreparationArbiter.beginNormal();
@@ -1043,37 +1118,48 @@ app.on("before-quit", (event) => {
     const canvasAlreadyDurable =
       durableSignalGeneration !== undefined &&
       signalQuitState.reusableDurabilityGeneration() === durableSignalGeneration;
-    const mainWindow = trustedMainWindow;
-    const flush = canvasAlreadyDurable
-      ? Promise.resolve()
-      : mainWindow === undefined || mainWindow.isDestroyed()
-        ? Promise.resolve()
-        : requestCanvasFlush(mainWindow);
-
-    quitPreparation = flush
-      .then(() => requireCleanLocalTerminalShutdown("before-quit", true))
-      .then(() => {
-        if (!quitPreparationArbiter.normalMayDetach(preparationGeneration)) return false;
-        nodeRefRelayWatcher?.close();
-        nodeRefRelayWatcher = undefined;
-        detachRuntimeOnQuit("before-quit");
-        return disposeRuntime().then(() => true);
-      })
+    quitPreparation = runNormalQuitPreparation(
+      quitPreparationArbiter,
+      preparationGeneration,
+      {
+        terminalClean: () => requireCleanLocalTerminalShutdown("before-quit", true),
+        finalRendererQuiesce: async () => {
+          if (canvasAlreadyDurable) return;
+          const mainWindow = trustedMainWindow;
+          if (mainWindow !== undefined && !mainWindow.isDestroyed()) {
+            await requestCanvasQuiesceAndFlush(mainWindow);
+          }
+        },
+        destroyRenderer: destroyQuiescedRenderer,
+        detachRuntime: () => {
+          nodeRefRelayWatcher?.close();
+          nodeRefRelayWatcher = undefined;
+          detachRuntimeOnQuit("before-quit");
+        },
+        disposeRuntime,
+      },
+    )
       .then((mayFinish) => {
-        if (
-          !mayFinish ||
-          !quitPreparationArbiter.normalMayDetach(preparationGeneration)
-        ) return;
+        if (!mayFinish) return;
         runtimeDisposed = true;
         closeWindowsWithoutCanvasFlush = true;
         app.quit();
       })
       .catch((error) => {
-        if (!quitPreparationArbiter.normalMayDetach(preparationGeneration)) return;
-        // Renderer quiescence is the irreversible signal commit point. Once
-        // crossed, rebuilding UI over a detached/partially disposed runtime is
-        // unsafe; retain the durable generation and let the bounded fallback
-        // finish even when native stop/dispose rejects or stalls.
+        if (quitPreparationArbiter.normalCommitted(preparationGeneration)) {
+          // Renderer admission is closed and runtime teardown may already be
+          // partial. Never resurrect a writable UI over that committed state;
+          // a later signal joins this proof and supplies the bounded fallback.
+          console.error("[quit] committed normal teardown stalled:", error);
+          return;
+        }
+        if (error instanceof CanvasQuiesceAndFlushError && error.quiesced) {
+          quitPreparationArbiter.observeRendererGateQuiesced();
+        }
+        quitPreparationArbiter.recoverNormal(preparationGeneration);
+        if (quitPreparationArbiter.signalPrecommit()) return;
+        // A committed signal may have entered this normal continuation through
+        // app.quit(). Preserve its durable generation and bounded fallback.
         if (signalQuitState.forceExitAllowed()) {
           console.error("[quit] committed signal teardown stalled; fallback retained:", error);
           return;
@@ -1082,6 +1168,13 @@ app.on("before-quit", (event) => {
         quitConfirmed = false;
         // Never leave skip sticky after a failed prep — next Cmd+Q must be honest.
         skipQuitConfirm = false;
+        if (quitPreparationArbiter.rendererGateQuiesced()) {
+          // The renderer latch is process-lifetime and cannot honestly reopen.
+          // Retain the surface for a retry (or a later signal takeover), but
+          // never represent this as restored authoring or recreate a new gate.
+          console.error("[canvas] quiesced canvas drain must retry before normal quit:", error);
+          return;
+        }
         recreateWindowIfEmpty();
         console.error("[canvas] quit blocked:", error);
       });
@@ -1164,8 +1257,20 @@ app.on("will-quit", () => {
 installProcessSignalTermination({
   app,
   cleanup: async (signal) => {
-    const generation = signalQuitState.begin();
-    quitPreparationArbiter.claimSignal();
+    const signalClaim = quitPreparationArbiter.claimSignal();
+    if (signalClaim === "joined-normal") {
+      // Normal quit already committed renderer destruction + runtime detach
+      // synchronously. Preserve its in-flight dispose promise; resolving this
+      // cleanup adds only the signal's bounded native-loop fallback.
+      return;
+    }
+    let generation: number;
+    try {
+      generation = signalQuitState.begin();
+    } catch (error) {
+      quitPreparationArbiter.recoverSignal();
+      throw error;
+    }
     // Existing normal continuations retain an invalidated arbiter epoch, but
     // the shared slot must be free for the committed signal's later app.quit.
     quitPreparation = undefined;
@@ -1230,5 +1335,6 @@ installProcessSignalTermination({
   // after the renderer has acknowledged a durable canvas flush. Runtime
   // disposal may itself hang; once the document is safe, the bounded fallback
   // can still terminate that native/service teardown stall.
-  allowForceExit: () => signalQuitState.forceExitAllowed(),
+  allowForceExit: () =>
+    signalQuitState.forceExitAllowed() || quitPreparationArbiter.committed(),
 });

@@ -156,6 +156,7 @@ export const IPC_CHANNELS = {
   canvasFlushRequested: "vellum:canvas-flush-requested",
   canvasFlushComplete: "vellum:canvas-flush-complete",
   canvasQuiesceAndFlushRequested: "vellum:canvas-quiesce-and-flush-requested",
+  canvasQuiesceAndFlushStarted: "vellum:canvas-quiesce-and-flush-started",
   canvasQuiesceAndFlushComplete: "vellum:canvas-quiesce-and-flush-complete",
   canvasChanged: "vellum:canvas-changed",
   snapshotsChanged: "vellum:snapshots-changed",
@@ -509,7 +510,9 @@ export interface VellumApi {
   readonly onCanvasFlushRequested: (listener: () => void | Promise<void>) => () => void;
   /** Signal-only gate: closes renderer authoring, then drains admitted writes. */
   readonly onCanvasQuiesceAndFlushRequested: (
-    listener: () => CanvasQuiesceAndFlushOutcome | Promise<CanvasQuiesceAndFlushOutcome>,
+    listener: (
+      acknowledgeQuiesced: () => void,
+    ) => CanvasQuiesceAndFlushOutcome | Promise<CanvasQuiesceAndFlushOutcome>,
   ) => () => void;
   readonly onCanvasChanged: (listener: (name: string) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;

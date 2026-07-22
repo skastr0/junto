@@ -90,26 +90,35 @@ const canvasNavigationClock = makeNavigationClock();
 // Read a canvas, load it as the source of truth, and prime the adapter plane
 // with just this document's bindings.
 const openCanvas = async (name: string) => {
-  if (!window.vellum) return;
-  let request: number | undefined;
-  state$.canvasLoading.set(true);
-  try {
-    await flushCanvasEdits();
-    request = canvasNavigationClock.begin();
-    const result = await window.vellum.readCanvas(name);
-    if (!canvasNavigationClock.isCurrent(request)) return;
-    clearAbandonedCanvas(result.name);
-    state$.canvasName.set(result.name);
-    resetCanvasView();
-    loadDoc(result.doc, result.revision, result.name);
-    state$.error.set("");
-    await refreshSnapshotsSoft(result.doc);
-  } catch (error) {
-    if (request === undefined || canvasNavigationClock.isCurrent(request)) setError(error);
-  } finally {
-    if (request === undefined || canvasNavigationClock.isCurrent(request)) {
-      state$.canvasLoading.set(false);
+  await runCanvasAuthoringOperation(async () => {
+    if (!window.vellum) return;
+    let request: number | undefined;
+    state$.canvasLoading.set(true);
+    try {
+      await flushCanvasEdits();
+      if (canvasMutationsQuiesced()) return;
+      request = canvasNavigationClock.begin();
+      const result = await window.vellum.readCanvas(name);
+      if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) return;
+      clearAbandonedCanvas(result.name);
+      state$.canvasName.set(result.name);
+      resetCanvasView();
+      loadDoc(result.doc, result.revision, result.name);
+      state$.error.set("");
+      await refreshSnapshotsSoft(result.doc);
+    } catch (error) {
+      if (request === undefined || canvasNavigationClock.isCurrent(request)) setError(error);
+    } finally {
+      if (request === undefined || canvasNavigationClock.isCurrent(request)) {
+        state$.canvasLoading.set(false);
+      }
     }
+  });
+};
+
+const assertCanvasNavigationAdmitted = (): void => {
+  if (canvasMutationsQuiesced()) {
+    throw new Error("Canvas navigation is unavailable while Vellum is quitting.");
   }
 };
 
@@ -120,6 +129,7 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
     if (!vellum) throw new Error("Electron preload bridge is not available.");
     return vellum.readCanvas(name);
   },
+  assertCanApply: assertCanvasNavigationAdmitted,
   apply: (event, result) => {
     clearAbandonedCanvas(result.name);
     state$.canvasName.set(result.name);
@@ -161,11 +171,13 @@ const createCanvas = async (name: string) => {
     state$.canvasLoading.set(true);
     try {
       await flushCanvasEdits();
+      if (canvasMutationsQuiesced()) return;
       request = canvasNavigationClock.begin();
       const result = await window.vellum.createCanvas(name);
+      if (canvasMutationsQuiesced()) return;
       clearAbandonedCanvas(result.name);
       await refreshList();
-      if (!canvasNavigationClock.isCurrent(request)) return;
+      if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) return;
       state$.canvasName.set(result.name);
       resetCanvasView();
       state$.digestOpen.set(false);
@@ -189,11 +201,15 @@ const deleteCanvas = async (name: string) => {
     try {
       const wasOpen = state$.canvasName.peek() === name;
       await flushCanvasEdits();
+      if (canvasMutationsQuiesced()) return;
       // Mark the name abandoned after its last pending edit is durable so the
       // delete wins over any already-returning watcher echo.
       await prepareCanvasRemoval(name);
+      if (canvasMutationsQuiesced()) return;
       await window.vellum.deleteCanvas(name);
+      if (canvasMutationsQuiesced()) return;
       await refreshList();
+      if (canvasMutationsQuiesced()) return;
       const remaining = state$.canvases.peek();
       state$.error.set("");
       if (!wasOpen) return;
@@ -281,14 +297,18 @@ export function App() {
     // buffered cold-start locator synchronously from this call; returning the
     // navigation promise delays its durable relay ACK until focus is applied.
     const offNodeRef = vellum.onNodeRefOpened(async (event) => {
+      assertCanvasNavigationAdmitted();
       state$.canvasLoading.set(true);
-      try {
-        await flushCanvasEdits();
-        return await nodeRefNavigation.navigate(event);
-      } catch (error) {
-        state$.canvasLoading.set(false);
-        throw error;
-      }
+      await runCanvasAuthoringOperation(async () => {
+        try {
+          await flushCanvasEdits();
+          assertCanvasNavigationAdmitted();
+          await nodeRefNavigation.navigate(event);
+        } catch (error) {
+          state$.canvasLoading.set(false);
+          throw error;
+        }
+      });
     });
 
     // Usage: subscribe first so no push is lost. getUsage is instant (main
@@ -343,9 +363,14 @@ export function App() {
     const offCanvasFlush = vellum.onCanvasFlushRequested(async () => {
       await flushCanvasEdits();
     });
-    const offCanvasQuiesceAndFlush = vellum.onCanvasQuiesceAndFlushRequested(async () => {
+    const offCanvasQuiesceAndFlush = vellum.onCanvasQuiesceAndFlushRequested(async (acknowledgeQuiesced) => {
       try {
-        await quiesceAndFlushCanvasEdits();
+        const flush = quiesceAndFlushCanvasEdits();
+        // quiesceAndFlushCanvasEdits closes admission synchronously before its
+        // first await. Publish that boundary separately from final durability
+        // so main can classify timeout/crash recovery without guessing.
+        if (canvasMutationsQuiesced()) acknowledgeQuiesced();
+        await flush;
         return { ok: true, quiesced: true };
       } catch {
         return { ok: false, quiesced: canvasMutationsQuiesced() };

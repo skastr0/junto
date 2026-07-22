@@ -5,6 +5,7 @@ import {
   createQuitPreparationArbiter,
   createSignalQuitState,
   installProcessSignalTermination,
+  runNormalQuitPreparation,
 } from "../src/main/vellum/process-signal-termination";
 
 afterEach(() => {
@@ -341,6 +342,24 @@ describe("signal quit commit state", () => {
     expect(state.forceExitAllowed()).toBe(true);
   });
 
+  it("forgets only a pre-durable gate when that renderer process is gone", () => {
+    const state = createSignalQuitState();
+    const first = state.begin();
+    state.markTerminalClean(first);
+    state.markRendererGateQuiesced(first);
+    expect(state.fail(first)).toBe("retry");
+
+    state.forgetRendererGateAfterProcessLoss();
+    expect(state.rendererQuiesced()).toBe(false);
+
+    const replacement = state.begin();
+    state.markTerminalClean(replacement);
+    state.markCanvasDurable(replacement);
+    state.forgetRendererGateAfterProcessLoss();
+    expect(state.rendererQuiesced()).toBe(true);
+    expect(state.snapshot().phase).toBe("canvas-durable");
+  });
+
   it("ignores stale failure callbacks from an earlier generation", () => {
     const state = createSignalQuitState();
     const first = state.begin();
@@ -359,14 +378,16 @@ describe("quit preparation arbitration", () => {
   it("blocks new normal quit preparation until signal precommit resolves", () => {
     const arbiter = createQuitPreparationArbiter();
 
-    arbiter.claimSignal();
+    expect(arbiter.claimSignal()).toBe("claimed");
     expect(arbiter.beginNormal()).toBeUndefined();
     expect(arbiter.signalPrecommit()).toBe(true);
 
     arbiter.recoverSignal();
     const normal = arbiter.beginNormal();
     expect(normal).toBeTypeOf("number");
-    expect(arbiter.normalMayDetach(normal!)).toBe(true);
+    expect(arbiter.normalCurrent(normal!)).toBe(true);
+    expect(arbiter.commitNormal(normal!)).toBe(true);
+    expect(arbiter.committed()).toBe(true);
   });
 
   it("invalidates a normal continuation that was awaiting shutdown when signal claims quit", async () => {
@@ -379,10 +400,10 @@ describe("quit preparation arbitration", () => {
     });
     const detach = vi.fn();
     const normalContinuation = terminal.then(() => {
-      if (arbiter.normalMayDetach(normal)) detach();
+      if (arbiter.normalCurrent(normal) && arbiter.commitNormal(normal)) detach();
     });
 
-    arbiter.claimSignal();
+    expect(arbiter.claimSignal()).toBe("claimed");
     finishTerminal();
     await normalContinuation;
 
@@ -390,6 +411,229 @@ describe("quit preparation arbitration", () => {
     arbiter.commitSignal();
     const committedSignalPreparation = arbiter.beginNormal();
     expect(committedSignalPreparation).toBeTypeOf("number");
-    expect(arbiter.normalMayDetach(committedSignalPreparation!)).toBe(true);
+    expect(arbiter.commitNormal(committedSignalPreparation!)).toBe(true);
+    expect(arbiter.committed()).toBe(true);
+  });
+
+  it("joins a committed normal quit instead of invalidating its teardown", () => {
+    const arbiter = createQuitPreparationArbiter();
+    const normal = arbiter.beginNormal();
+    if (normal === undefined) throw new Error("normal preparation unexpectedly blocked");
+
+    expect(arbiter.commitNormal(normal)).toBe(true);
+    expect(arbiter.normalCommitted(normal)).toBe(true);
+    expect(arbiter.claimSignal()).toBe("joined-normal");
+    expect(arbiter.signalPrecommit()).toBe(false);
+    expect(arbiter.committed()).toBe(true);
+    expect(arbiter.beginNormal()).toBeUndefined();
+  });
+
+  it("lets signal win while normal final quiesce is awaiting its ACK", async () => {
+    const arbiter = createQuitPreparationArbiter();
+    const normal = arbiter.beginNormal();
+    if (normal === undefined) throw new Error("normal preparation unexpectedly blocked");
+    let finishQuiesce!: () => void;
+    const quiesce = new Promise<void>((resolve) => {
+      finishQuiesce = resolve;
+    });
+    const detach = vi.fn();
+    const normalPreparation = Promise.resolve()
+      .then(async () => {
+        if (!arbiter.normalCurrent(normal)) return false;
+        await quiesce;
+        return arbiter.commitNormal(normal);
+      })
+      .then((committed) => {
+        if (committed) detach();
+      });
+
+    await Promise.resolve();
+    expect(arbiter.claimSignal()).toBe("claimed");
+    finishQuiesce();
+    await normalPreparation;
+
+    expect(detach).not.toHaveBeenCalled();
+    expect(arbiter.committed()).toBe(false);
+  });
+
+  it("keeps a normal teardown committed when signal arrives after its CAS", () => {
+    const arbiter = createQuitPreparationArbiter();
+    const normal = arbiter.beginNormal();
+    if (normal === undefined) throw new Error("normal preparation unexpectedly blocked");
+    expect(arbiter.normalCurrent(normal)).toBe(true);
+    expect(arbiter.commitNormal(normal)).toBe(true);
+
+    const detach = vi.fn();
+    if (arbiter.committed()) detach();
+    expect(arbiter.claimSignal()).toBe("joined-normal");
+
+    expect(detach).toHaveBeenCalledOnce();
+    expect(arbiter.normalCommitted(normal)).toBe(true);
+    expect(arbiter.committed()).toBe(true);
+  });
+
+  it("recovers only a normal preparation that has not committed", () => {
+    const arbiter = createQuitPreparationArbiter();
+    const first = arbiter.beginNormal();
+    if (first === undefined) throw new Error("normal preparation unexpectedly blocked");
+    arbiter.recoverNormal(first);
+
+    const retry = arbiter.beginNormal();
+    if (retry === undefined) throw new Error("normal retry unexpectedly blocked");
+    expect(arbiter.commitNormal(retry)).toBe(true);
+    arbiter.recoverNormal(retry);
+    expect(arbiter.normalCommitted(retry)).toBe(true);
+  });
+
+  it("retains a normal renderer latch across drain retries until process loss", () => {
+    const arbiter = createQuitPreparationArbiter();
+    const first = arbiter.beginNormal();
+    if (first === undefined) throw new Error("normal preparation unexpectedly blocked");
+
+    arbiter.observeRendererGateQuiesced();
+    arbiter.recoverNormal(first);
+    expect(arbiter.rendererGateQuiesced()).toBe(true);
+
+    const retry = arbiter.beginNormal();
+    expect(retry).toBeTypeOf("number");
+    arbiter.recoverNormal(retry!);
+    arbiter.forgetRendererGateAfterProcessLoss();
+    expect(arbiter.rendererGateQuiesced()).toBe(false);
+  });
+
+  it("retains renderer gate evidence reported after signal supersedes normal ownership", () => {
+    const arbiter = createQuitPreparationArbiter();
+    const normal = arbiter.beginNormal();
+    if (normal === undefined) throw new Error("normal preparation unexpectedly blocked");
+
+    expect(arbiter.claimSignal()).toBe("claimed");
+    arbiter.observeRendererGateQuiesced();
+    arbiter.recoverSignal();
+
+    expect(arbiter.rendererGateQuiesced()).toBe(true);
+    expect(arbiter.normalCurrent(normal)).toBe(false);
+  });
+
+  it("never forgets normal renderer finality after the commit CAS", () => {
+    const arbiter = createQuitPreparationArbiter();
+    const generation = arbiter.beginNormal();
+    if (generation === undefined) throw new Error("normal preparation unexpectedly blocked");
+
+    expect(arbiter.commitNormal(generation)).toBe(true);
+    arbiter.forgetRendererGateAfterProcessLoss();
+
+    expect(arbiter.rendererGateQuiesced()).toBe(true);
+    expect(arbiter.normalCommitted(generation)).toBe(true);
+  });
+});
+
+describe("normal quit preparation", () => {
+  it("runs terminal, final renderer ACK, commit/destroy, detach, and dispose in order", async () => {
+    const arbiter = createQuitPreparationArbiter();
+    const generation = arbiter.beginNormal();
+    if (generation === undefined) throw new Error("normal preparation unexpectedly blocked");
+    const calls: string[] = [];
+
+    await expect(runNormalQuitPreparation(arbiter, generation, {
+      terminalClean: async () => { calls.push("terminal"); },
+      finalRendererQuiesce: async () => { calls.push("renderer-ack"); },
+      destroyRenderer: () => { calls.push("destroy"); },
+      detachRuntime: () => { calls.push("detach"); },
+      disposeRuntime: async () => { calls.push("dispose"); },
+    })).resolves.toBe(true);
+
+    expect(calls).toEqual(["terminal", "renderer-ack", "destroy", "detach", "dispose"]);
+    expect(arbiter.normalCommitted(generation)).toBe(true);
+  });
+
+  it("never starts renderer finality when signal claims during terminal cleanup", async () => {
+    const arbiter = createQuitPreparationArbiter();
+    const generation = arbiter.beginNormal();
+    if (generation === undefined) throw new Error("normal preparation unexpectedly blocked");
+    let finishTerminal!: () => void;
+    const terminal = new Promise<void>((resolve) => { finishTerminal = resolve; });
+    const renderer = vi.fn(async () => undefined);
+    const detach = vi.fn();
+    const preparation = runNormalQuitPreparation(arbiter, generation, {
+      terminalClean: () => terminal,
+      finalRendererQuiesce: renderer,
+      destroyRenderer: vi.fn(),
+      detachRuntime: detach,
+      disposeRuntime: async () => undefined,
+    });
+
+    expect(arbiter.claimSignal()).toBe("claimed");
+    finishTerminal();
+    await expect(preparation).resolves.toBe(false);
+    expect(renderer).not.toHaveBeenCalled();
+    expect(detach).not.toHaveBeenCalled();
+  });
+
+  it("loses the commit CAS when signal claims during the renderer ACK", async () => {
+    const arbiter = createQuitPreparationArbiter();
+    const generation = arbiter.beginNormal();
+    if (generation === undefined) throw new Error("normal preparation unexpectedly blocked");
+    let finishRenderer!: () => void;
+    const renderer = new Promise<void>((resolve) => { finishRenderer = resolve; });
+    const destroy = vi.fn();
+    const detach = vi.fn();
+    const preparation = runNormalQuitPreparation(arbiter, generation, {
+      terminalClean: async () => undefined,
+      finalRendererQuiesce: () => renderer,
+      destroyRenderer: destroy,
+      detachRuntime: detach,
+      disposeRuntime: async () => undefined,
+    });
+
+    await Promise.resolve();
+    expect(arbiter.claimSignal()).toBe("claimed");
+    finishRenderer();
+    await expect(preparation).resolves.toBe(false);
+    expect(destroy).not.toHaveBeenCalled();
+    expect(detach).not.toHaveBeenCalled();
+  });
+
+  it("keeps committed teardown joinable while runtime disposal is pending", async () => {
+    const arbiter = createQuitPreparationArbiter();
+    const generation = arbiter.beginNormal();
+    if (generation === undefined) throw new Error("normal preparation unexpectedly blocked");
+    let finishDispose!: () => void;
+    const dispose = new Promise<void>((resolve) => { finishDispose = resolve; });
+    const destroy = vi.fn();
+    const detach = vi.fn();
+    const preparation = runNormalQuitPreparation(arbiter, generation, {
+      terminalClean: async () => undefined,
+      finalRendererQuiesce: async () => undefined,
+      destroyRenderer: destroy,
+      detachRuntime: detach,
+      disposeRuntime: () => dispose,
+    });
+
+    for (let turn = 0; turn < 4 && !arbiter.committed(); turn += 1) await Promise.resolve();
+    expect(arbiter.committed()).toBe(true);
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(detach).toHaveBeenCalledOnce();
+    expect(arbiter.claimSignal()).toBe("joined-normal");
+
+    finishDispose();
+    await expect(preparation).resolves.toBe(true);
+  });
+
+  it("retains the normal commit when disposal rejects", async () => {
+    const arbiter = createQuitPreparationArbiter();
+    const generation = arbiter.beginNormal();
+    if (generation === undefined) throw new Error("normal preparation unexpectedly blocked");
+
+    await expect(runNormalQuitPreparation(arbiter, generation, {
+      terminalClean: async () => undefined,
+      finalRendererQuiesce: async () => undefined,
+      destroyRenderer: () => undefined,
+      detachRuntime: () => undefined,
+      disposeRuntime: async () => { throw new Error("dispose stalled"); },
+    })).rejects.toThrow("dispose stalled");
+
+    expect(arbiter.normalCommitted(generation)).toBe(true);
+    expect(arbiter.claimSignal()).toBe("joined-normal");
+    expect(arbiter.committed()).toBe(true);
   });
 });

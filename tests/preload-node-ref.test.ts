@@ -200,7 +200,8 @@ describe("preload canvas quiesce gate", () => {
     const ordinaryFlush = vi.fn(async () => undefined);
     api.onCanvasFlushRequested(ordinaryFlush);
     const durable = deferred();
-    const quiesce = vi.fn(async () => {
+    const quiesce = vi.fn(async (acknowledgeQuiesced: () => void) => {
+      acknowledgeQuiesced();
       await durable.promise;
       return { ok: true, quiesced: true } as const;
     });
@@ -211,11 +212,20 @@ describe("preload canvas quiesce gate", () => {
     });
     expect(quiesce).toHaveBeenCalledOnce();
     expect(ordinaryFlush).not.toHaveBeenCalled();
-    expect(electron.sent).toEqual([]);
+    expect(electron.sent).toEqual([
+      [
+        IPC_CHANNELS.canvasQuiesceAndFlushStarted,
+        { requestId: "00000000-0000-4000-8000-000000000012" },
+      ],
+    ]);
 
     durable.resolve();
     await settle();
     expect(electron.sent).toEqual([
+      [
+        IPC_CHANNELS.canvasQuiesceAndFlushStarted,
+        { requestId: "00000000-0000-4000-8000-000000000012" },
+      ],
       [
         IPC_CHANNELS.canvasQuiesceAndFlushComplete,
         {
@@ -227,20 +237,24 @@ describe("preload canvas quiesce gate", () => {
     ]);
   });
 
-  it("buffers a cold request and preserves whether failure crossed quiescence", async () => {
+  it("buffers a cold request and never lets a result retract its Started receipt", async () => {
     const api = await loadPreload();
     emitCanvasQuiesceAndFlush({
       requestId: "00000000-0000-4000-8000-000000000013",
     });
     expect(electron.sent).toEqual([]);
 
-    api.onCanvasQuiesceAndFlushRequested(async () => ({
-      ok: false,
-      quiesced: true,
-    }));
+    api.onCanvasQuiesceAndFlushRequested(async (acknowledgeQuiesced) => {
+      acknowledgeQuiesced();
+      return { ok: false, quiesced: false };
+    });
     await settle();
 
     expect(electron.sent).toEqual([
+      [
+        IPC_CHANNELS.canvasQuiesceAndFlushStarted,
+        { requestId: "00000000-0000-4000-8000-000000000013" },
+      ],
       [
         IPC_CHANNELS.canvasQuiesceAndFlushComplete,
         {
@@ -252,7 +266,7 @@ describe("preload canvas quiesce gate", () => {
     ]);
   });
 
-  it("fails closed when a quiesce listener throws without reporting gate state", async () => {
+  it("reports a listener failure before it acknowledges gate closure as recoverable", async () => {
     const api = await loadPreload();
     api.onCanvasQuiesceAndFlushRequested(async () => {
       throw new Error("listener failed after an unknown boundary");
@@ -269,7 +283,7 @@ describe("preload canvas quiesce gate", () => {
         {
           requestId: "00000000-0000-4000-8000-000000000014",
           ok: false,
-          quiesced: true,
+          quiesced: false,
         },
       ],
     ]);

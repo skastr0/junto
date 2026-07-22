@@ -54,6 +54,8 @@ export interface SignalQuitState {
   readonly markRendererQuiesced: (generation: number) => void;
   readonly authorizeForceExit: (generation: number) => void;
   readonly markRuntimeDetached: (generation: number) => void;
+  /** A crashed renderer cannot retain its process-local admission latch. */
+  readonly forgetRendererGateAfterProcessLoss: () => void;
   readonly fail: (generation: number) => SignalQuitFailureDisposition;
   readonly isCurrent: (generation: number) => boolean;
   readonly rendererQuiesced: () => boolean;
@@ -68,33 +70,82 @@ export interface SignalQuitState {
 export interface QuitPreparationArbiter {
   /** Returns an epoch, or refuses while signal durability is still precommit. */
   readonly beginNormal: () => number | undefined;
-  /** Atomically blocks new normal preparation and invalidates old continuations. */
-  readonly claimSignal: () => void;
+  /** Commit a normal quit only while its epoch still owns precommit. */
+  readonly commitNormal: (generation: number) => boolean;
+  readonly recoverNormal: (generation: number) => void;
+  readonly normalCurrent: (generation: number) => boolean;
+  readonly normalCommitted: (generation: number) => boolean;
+  /** Retain process-local latch evidence across a recoverable drain retry. */
+  readonly observeRendererGateQuiesced: () => void;
+  readonly rendererGateQuiesced: () => boolean;
+  /** A replacement renderer starts with a fresh process-local admission latch. */
+  readonly forgetRendererGateAfterProcessLoss: () => void;
+  /** Invalidate normal precommit, or join its already-committed proof. */
+  readonly claimSignal: () => "claimed" | "joined-normal";
   readonly commitSignal: () => void;
   readonly recoverSignal: () => void;
   readonly signalPrecommit: () => boolean;
-  readonly normalMayDetach: (generation: number) => boolean;
+  /** True only after either quit route crossed its irreversible CAS. */
+  readonly committed: () => boolean;
 }
 
 /** Serializes normal Electron quit continuations against signal finality. */
 export const createQuitPreparationArbiter = (): QuitPreparationArbiter => {
   let normalGeneration = 0;
+  let normalPhase: "idle" | "precommit" | "committed" = "idle";
+  let normalRendererGateQuiesced = false;
   let signalPhase: "idle" | "precommit" | "committed" = "idle";
 
   return {
     beginNormal: () => {
-      if (signalPhase === "precommit") return undefined;
+      if (signalPhase === "precommit" || normalPhase !== "idle") return undefined;
       normalGeneration += 1;
+      normalPhase = "precommit";
       return normalGeneration;
+    },
+    commitNormal: (attemptedGeneration) => {
+      if (
+        attemptedGeneration !== normalGeneration ||
+        normalPhase !== "precommit" ||
+        signalPhase === "precommit"
+      ) return false;
+      normalPhase = "committed";
+      normalRendererGateQuiesced = true;
+      return true;
+    },
+    recoverNormal: (attemptedGeneration) => {
+      if (attemptedGeneration === normalGeneration && normalPhase === "precommit") {
+        normalPhase = "idle";
+      }
+    },
+    normalCurrent: (attemptedGeneration) =>
+      attemptedGeneration === normalGeneration &&
+      normalPhase === "precommit" &&
+      signalPhase !== "precommit",
+    normalCommitted: (attemptedGeneration) =>
+      attemptedGeneration === normalGeneration && normalPhase === "committed",
+    observeRendererGateQuiesced: () => {
+      normalRendererGateQuiesced = true;
+    },
+    rendererGateQuiesced: () => normalRendererGateQuiesced,
+    forgetRendererGateAfterProcessLoss: () => {
+      if (normalPhase === "committed" || signalPhase === "committed") return;
+      normalRendererGateQuiesced = false;
     },
     claimSignal: () => {
       if (signalPhase !== "idle") {
         throw new Error(`signal already owns quit in phase ${signalPhase}`);
       }
+      if (normalPhase === "committed") {
+        signalPhase = "committed";
+        return "joined-normal";
+      }
       signalPhase = "precommit";
       // Promise continuations retain their epoch. Bumping here makes every
       // normal flush/terminal continuation fail closed before runtime detach.
       normalGeneration += 1;
+      normalPhase = "idle";
+      return "claimed";
     },
     commitSignal: () => {
       if (signalPhase !== "precommit") {
@@ -109,9 +160,36 @@ export const createQuitPreparationArbiter = (): QuitPreparationArbiter => {
       signalPhase = "idle";
     },
     signalPrecommit: () => signalPhase === "precommit",
-    normalMayDetach: (generation) =>
-      signalPhase !== "precommit" && generation === normalGeneration,
+    committed: () => normalPhase === "committed" || signalPhase === "committed",
   };
+};
+
+export interface NormalQuitPreparationSteps {
+  readonly terminalClean: () => Promise<void>;
+  readonly finalRendererQuiesce: () => Promise<void>;
+  readonly destroyRenderer: () => void;
+  readonly detachRuntime: () => void;
+  readonly disposeRuntime: () => Promise<void>;
+}
+
+/**
+ * Run normal quit through one linearizable commit point. Signal ownership may
+ * supersede either await; once commitNormal succeeds, renderer destruction and
+ * runtime detach execute synchronously with no claimable interval between.
+ */
+export const runNormalQuitPreparation = async (
+  arbiter: QuitPreparationArbiter,
+  generation: number,
+  steps: NormalQuitPreparationSteps,
+): Promise<boolean> => {
+  await steps.terminalClean();
+  if (!arbiter.normalCurrent(generation)) return false;
+  await steps.finalRendererQuiesce();
+  if (!arbiter.commitNormal(generation)) return false;
+  steps.destroyRenderer();
+  steps.detachRuntime();
+  await steps.disposeRuntime();
+  return true;
 };
 
 /**
@@ -172,6 +250,15 @@ export const createSignalQuitState = (): SignalQuitState => {
       advance(attemptedGeneration, "renderer-quiesced", "force-authorized"),
     markRuntimeDetached: (attemptedGeneration) =>
       advance(attemptedGeneration, "force-authorized", "runtime-detached"),
+    forgetRendererGateAfterProcessLoss: () => {
+      if (
+        phase === "canvas-durable" ||
+        phase === "renderer-quiesced" ||
+        phase === "force-authorized" ||
+        phase === "runtime-detached"
+      ) return;
+      rendererGateQuiesced = false;
+    },
     fail: (attemptedGeneration) => {
       if (attemptedGeneration !== generation || phase === "idle") return "stale";
       if (

@@ -40,6 +40,8 @@ export class NodeRefNavigationError extends Error {
 export interface NodeRefNavigationDependencies {
   readonly clock: NavigationClock;
   readonly readCanvas: (name: string) => Promise<CanvasReadResult>;
+  /** Re-check process-local authoring admission immediately before apply. */
+  readonly assertCanApply?: () => void;
   readonly apply: (event: NodeRefOpenedEvent, result: CanvasReadResult) => void;
   readonly onFailure?: (error: NodeRefNavigationError) => void;
 }
@@ -125,6 +127,7 @@ export const makeNodeRefNavigationCoordinator = (
     if (!dependencies.clock.isCurrent(request)) return;
 
     try {
+      dependencies.assertCanApply?.();
       dependencies.apply(event, result);
     } catch (cause) {
       throw report(

@@ -97,6 +97,27 @@ describe("renderer Vellum node-reference navigation", () => {
     expect(failures.map((error) => error.code)).toEqual(["event", "read"]);
   });
 
+  it("rejects for durable replay when authoring quiesces during the async read", async () => {
+    const read = deferred<CanvasReadResult>();
+    const apply = vi.fn();
+    let admitted = true;
+    const coordinator = makeNodeRefNavigationCoordinator({
+      clock: makeNavigationClock(),
+      readCanvas: () => read.promise,
+      assertCanApply: () => {
+        if (!admitted) throw new Error("renderer quiesced");
+      },
+      apply,
+    });
+
+    const navigation = coordinator.navigate(event("portfolio", "page"));
+    admitted = false;
+    read.resolve(canvas("portfolio", ["page"]));
+
+    await expect(navigation).rejects.toMatchObject({ code: "apply" });
+    expect(apply).not.toHaveBeenCalled();
+  });
+
   it("lets the latest async reference win and acknowledges the obsolete read", async () => {
     const alpha = deferred<CanvasReadResult>();
     const applied: string[] = [];

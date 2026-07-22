@@ -225,7 +225,9 @@ const onCanvasFlushRequested = (
 };
 
 let canvasQuiesceAndFlushListener:
-  | (() => CanvasQuiesceAndFlushOutcome | Promise<CanvasQuiesceAndFlushOutcome>)
+  | ((
+      acknowledgeQuiesced: () => void,
+    ) => CanvasQuiesceAndFlushOutcome | Promise<CanvasQuiesceAndFlushOutcome>)
   | undefined;
 let pendingCanvasQuiesceAndFlush: CanvasQuiesceAndFlushRequest | undefined;
 
@@ -241,18 +243,24 @@ const deliverCanvasQuiesceAndFlush = async (
     pendingCanvasQuiesceAndFlush = request;
     return;
   }
-  // Unknown listener failures fail closed. The real App listener always
-  // reports its exact gate state, including recoverable draft failures before
-  // closure; if a future listener throws without doing so, main must assume
-  // the monotonic boundary may already have been crossed.
-  let outcome: CanvasQuiesceAndFlushOutcome = { ok: false, quiesced: true };
+  let quiesced = false;
+  const acknowledgeQuiesced = (): void => {
+    if (quiesced) return;
+    quiesced = true;
+    ipcRenderer.send(IPC_CHANNELS.canvasQuiesceAndFlushStarted, {
+      requestId: request.requestId,
+    });
+  };
+  let outcome: CanvasQuiesceAndFlushOutcome = { ok: false, quiesced: false };
   try {
-    const result = await listener();
+    const result = await listener(acknowledgeQuiesced);
     if (typeof result?.ok === "boolean" && typeof result.quiesced === "boolean") {
-      outcome = { ok: result.ok, quiesced: result.quiesced };
+      // Started is monotonic evidence from this preload generation. A buggy
+      // listener result may add evidence, but it can never retract that ACK.
+      outcome = { ok: result.ok, quiesced: quiesced || result.quiesced };
     }
   } catch {
-    // Keep the fail-closed default above.
+    outcome = { ok: false, quiesced };
   } finally {
     ipcRenderer.send(IPC_CHANNELS.canvasQuiesceAndFlushComplete, {
       requestId: request.requestId,
@@ -271,7 +279,9 @@ ipcRenderer.on(IPC_CHANNELS.canvasQuiesceAndFlushRequested, (_event, payload: un
 });
 
 const onCanvasQuiesceAndFlushRequested = (
-  listener: () => CanvasQuiesceAndFlushOutcome | Promise<CanvasQuiesceAndFlushOutcome>,
+  listener: (
+    acknowledgeQuiesced: () => void,
+  ) => CanvasQuiesceAndFlushOutcome | Promise<CanvasQuiesceAndFlushOutcome>,
 ): (() => void) => {
   canvasQuiesceAndFlushListener = listener;
   const pending = pendingCanvasQuiesceAndFlush;

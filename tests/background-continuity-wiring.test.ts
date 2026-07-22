@@ -10,6 +10,10 @@ import { describe, expect, it } from "vitest";
 describe("background continuity wiring", () => {
   const root = join(import.meta.dirname, "..");
   const indexSrc = readFileSync(join(root, "src/main/index.ts"), "utf8");
+  const terminationSrc = readFileSync(
+    join(root, "src/main/vellum/process-signal-termination.ts"),
+    "utf8",
+  );
 
   it("macOS window-all-closed does not quit; non-darwin does", () => {
     const start = indexSrc.indexOf('app.on("window-all-closed"');
@@ -36,20 +40,31 @@ describe("background continuity wiring", () => {
     expect(block).toMatch(/headless/);
   });
 
-  it("before-quit gates on live work before flush/detach (explicit quit only)", () => {
+  it("before-quit gates on live work before final quiesce/detach (explicit quit only)", () => {
     const start = indexSrc.indexOf('app.on("before-quit"');
     const end = indexSrc.indexOf('app.on("will-quit"', start);
     const block = indexSrc.slice(start, end);
     expect(block).toMatch(/assessLiveWork|hasLiveWork|buildQuitConfirmPrompt/);
     expect(block).toMatch(/QUIT_CONFIRM_ACCEPT_INDEX|showMessageBox/);
-    // Sacred ordering still present after the gate.
-    expect(block.indexOf("requestCanvasFlush")).toBeGreaterThanOrEqual(0);
-    expect(block.indexOf("requestCanvasFlush")).toBeLessThan(
-      block.indexOf('detachRuntimeOnQuit("before-quit")'),
-    );
-    expect(block.indexOf('detachRuntimeOnQuit("before-quit")')).toBeLessThan(
-      block.indexOf("disposeRuntime()"),
-    );
+    expect(block).toMatch(/runNormalQuitPreparation/);
+    expect(block).toMatch(/finalRendererQuiesce[\s\S]*requestCanvasQuiesceAndFlush/);
+    expect(block).toMatch(/detachRuntime[\s\S]*detachRuntimeOnQuit\("before-quit"\)/);
+
+    // Sacred ordering is centralized in the normal-quit runner.
+    const runnerStart = terminationSrc.indexOf("export const runNormalQuitPreparation");
+    const runnerEnd = terminationSrc.indexOf("export const createSignalQuitState", runnerStart);
+    const runner = terminationSrc.slice(runnerStart, runnerEnd);
+    expect(runnerStart).toBeGreaterThanOrEqual(0);
+    expect(runner.indexOf("steps.terminalClean()"))
+      .toBeLessThan(runner.indexOf("steps.finalRendererQuiesce()"));
+    expect(runner.indexOf("steps.finalRendererQuiesce()"))
+      .toBeLessThan(runner.indexOf("arbiter.commitNormal(generation)"));
+    expect(runner.indexOf("arbiter.commitNormal(generation)"))
+      .toBeLessThan(runner.indexOf("steps.destroyRenderer()"));
+    expect(runner.indexOf("steps.destroyRenderer()"))
+      .toBeLessThan(runner.indexOf("steps.detachRuntime()"));
+    expect(runner.indexOf("steps.detachRuntime()"))
+      .toBeLessThan(runner.indexOf("steps.disposeRuntime()"));
   });
 
   it("signal / forced quit paths skip the confirm affordance", () => {
