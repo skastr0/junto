@@ -28,7 +28,7 @@ const ADAPTER_QUIESCING_ERROR = "adapter process plane is shutting down";
 
 interface OwnedAdapterChild {
   readonly child: ChildProcessWithoutNullStreams;
-  readonly owned?: OwnedProcess;
+  readonly owned: OwnedProcess;
   cleanupTimer?: ReturnType<typeof setTimeout>;
   released?: boolean;
 }
@@ -46,16 +46,7 @@ const signalOwnedAdapterChild = (
   owned: OwnedAdapterChild,
   signal: NodeJS.Signals,
 ): void => {
-  if (owned.owned) {
-    signalOwned(owned.owned, signal as TerminatingSignal);
-    return;
-  }
-  // No branded capability — child handle only (no pid / no process.kill).
-  try {
-    owned.child.kill(signal);
-  } catch {
-    /* ignore */
-  }
+  signalOwned(owned.owned, signal as TerminatingSignal);
 };
 
 const releaseOwnedAdapterChild = (owned: OwnedAdapterChild): void => {
