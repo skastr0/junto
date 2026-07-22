@@ -96,12 +96,6 @@ const runAppServerInitializeProbe = async (): Promise<string> => {
       }
     };
 
-    const cleanup = () => {
-      clearTimeout(timer);
-      void lease.requestTermination();
-      stopOutput();
-    };
-
     const settleSuccessfulHandshake = (result: string): void => {
       if (settled) return;
       settled = true;
@@ -130,8 +124,15 @@ const runAppServerInitializeProbe = async (): Promise<string> => {
     const failAndTerminate = (message: string) => {
       if (settled) return;
       settled = true;
-      cleanup();
-      reject(new Error(message));
+      clearTimeout(timer);
+      stopOutput();
+      const error = new Error(message);
+      // Keep the shared probe flight occupied until bounded teardown settles.
+      // Retries therefore cannot accumulate overlapping app-server children.
+      void lease.terminateAndWaitForClose().then(
+        () => reject(error),
+        () => reject(error),
+      );
     };
 
     const terminalStatus = (

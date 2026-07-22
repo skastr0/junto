@@ -13,6 +13,8 @@ export interface ProcessResult {
 
 export const SERVICE_CHILD_PLANE_QUIESCING_ERROR =
   "service process plane is shutting down";
+export const SERVICE_CHILD_TEARDOWN_PENDING_ERROR =
+  "service process teardown is still pending";
 
 const DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES = 4 * 1024 * 1024;
 const SERVICE_CHILD_TERM_GRACE_MS = 1_000;
@@ -29,6 +31,7 @@ interface ServiceChildRecord {
   readonly process: AppProcessLease;
   closed: boolean;
   exited: boolean;
+  terminationRequested: boolean;
   quiesceHandlerDelivered: boolean;
   onQuiesce: (() => void) | undefined;
   terminationFlight: Promise<void> | undefined;
@@ -90,6 +93,20 @@ export const assertServiceChildSpawnAllowed = (): void => {
   }
 };
 
+const assertServiceChildSourceSpawnAllowed = (source: string): void => {
+  assertServiceChildSpawnAllowed();
+  if (
+    [...serviceChildren].some(
+      (record) =>
+        record.source === source &&
+        record.terminationRequested &&
+        !record.closed,
+    )
+  ) {
+    throw new Error(SERVICE_CHILD_TEARDOWN_PENDING_ERROR);
+  }
+};
+
 const finishTerminationPhase = (record: ServiceChildRecord): void => {
   if (record.killTimer !== undefined) {
     clearTimeout(record.killTimer);
@@ -139,7 +156,9 @@ const signalServiceChild = (
 const requestServiceChildTermination = (
   record: ServiceChildRecord,
 ): Promise<void> => {
-  if (record.closed || record.exited) return Promise.resolve();
+  if (record.closed) return Promise.resolve();
+  record.terminationRequested = true;
+  if (record.exited) return Promise.resolve();
   if (record.terminationFlight !== undefined) return record.terminationFlight;
 
   let finish!: () => void;
@@ -200,7 +219,7 @@ const terminateAndWaitForServiceChildClose = async (
 export const spawnServiceChild = (
   input: ServiceChildSpawnSpec,
 ): ServiceChildLease => {
-  assertServiceChildSpawnAllowed();
+  assertServiceChildSourceSpawnAllowed(input.source);
   const process = appProcessPlane.spawnChild({
     ...input,
     purpose: input.purpose ?? "service operation",
@@ -211,6 +230,7 @@ export const spawnServiceChild = (
     process,
     closed: false,
     exited: false,
+    terminationRequested: false,
     quiesceHandlerDelivered: false,
     onQuiesce: undefined,
     terminationFlight: undefined,
@@ -430,13 +450,16 @@ export const runProcess = (
     };
 
     const failOperation = (error: Error): void => {
-      if (!settled) {
-        settled = true;
-        if (timer) clearTimeout(timer);
-        stopOutput();
-        reject(error);
-      }
-      void lease.requestTermination();
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      stopOutput();
+      // Preserve the primary operation diagnostic, but do not return control
+      // to a retrying caller until bounded teardown has produced its receipt.
+      void lease.terminateAndWaitForClose().then(
+        () => reject(error),
+        () => reject(error),
+      );
     };
 
     function onStdoutError(error: Error): void {

@@ -50,6 +50,7 @@ import {
   quiesceServiceChildrenOnQuit,
   runProcess,
   SERVICE_CHILD_PLANE_QUIESCING_ERROR,
+  SERVICE_CHILD_TEARDOWN_PENDING_ERROR,
   spawnServiceChild,
 } from "../src/main/services/process";
 import { signalOwned, type OwnedProcess } from "../src/main/vellum/process-signal";
@@ -153,7 +154,6 @@ describe("central service child authority", () => {
     const resultPromise = runProcess("stuck", [], { timeoutMs: 25 }).catch((error) => error);
     await vi.advanceTimersByTimeAsync(25);
 
-    expect(await resultPromise).toEqual(new Error("stuck timed out after 25ms"));
     expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
     expect(child.stdout.destroyed).toBe(true);
     expect(child.stderr.destroyed).toBe(true);
@@ -167,10 +167,33 @@ describe("central service child authority", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     child.emit("close", null, "SIGKILL");
+    expect(await resultPromise).toEqual(new Error("stuck timed out after 25ms"));
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
     expect(child.kill).toHaveBeenCalledTimes(2);
     expect(child.stdout.listenerCount("data")).toBe(0);
     expect(child.stderr.listenerCount("data")).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("blocks a same-source runProcess retry while failed teardown is unclean", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    child.kill.mockReturnValue(false);
+    mocks.spawn.mockReturnValue(child);
+
+    const failed = runProcess("retrying", [], { timeoutMs: 25 }).catch(
+      (error) => error,
+    );
+    await vi.advanceTimersByTimeAsync(1_275);
+    expect(await failed).toEqual(new Error("retrying timed out after 25ms"));
+    expect(child.kill).toHaveBeenCalledTimes(2);
+
+    await expect(runProcess("retrying", [])).rejects.toThrow(
+      SERVICE_CHILD_TEARDOWN_PENDING_ERROR,
+    );
+    expect(mocks.spawn).toHaveBeenCalledOnce();
+
+    child.emit("close", null, "SIGKILL");
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -181,13 +204,13 @@ describe("central service child authority", () => {
 
     const resultPromise = runProcess("slow", [], { timeoutMs: 25 }).catch((error) => error);
     await vi.advanceTimersByTimeAsync(25);
-    await resultPromise;
     child.emit("exit", null, "SIGTERM");
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(child.kill).toHaveBeenCalledTimes(1);
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
     child.emit("close", null, "SIGTERM");
+    expect(await resultPromise).toEqual(new Error("slow timed out after 25ms"));
     expect(signalOwned(capturedHandle(), "SIGKILL").attempted).toBe(false);
   });
 
@@ -199,13 +222,13 @@ describe("central service child authority", () => {
     const resultPromise = runProcess("broken", []).catch((error) => error);
     child.emit("error", new Error("child channel failed"));
 
-    expect(await resultPromise).toEqual(new Error("child channel failed"));
     expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
-    expect(vi.getTimerCount()).toBe(0);
     child.emit("close", null, "SIGKILL");
+    expect(await resultPromise).toEqual(new Error("child channel failed"));
+    expect(vi.getTimerCount()).toBe(0);
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
   });
 
@@ -219,9 +242,6 @@ describe("central service child authority", () => {
       const resultPromise = runProcess("streaming", []).catch((error) => error);
       child[channel].emit("error", new Error("pipe failed"));
 
-      expect(await resultPromise).toEqual(
-        new Error(`streaming ${channel} stream failed: pipe failed`),
-      );
       expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
       expect(child.stdout.destroyed).toBe(true);
       expect(child.stderr.destroyed).toBe(true);
@@ -232,8 +252,11 @@ describe("central service child authority", () => {
 
       await vi.advanceTimersByTimeAsync(1_000);
       expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
-      expect(vi.getTimerCount()).toBe(0);
       child.emit("close", null, "SIGKILL");
+      expect(await resultPromise).toEqual(
+        new Error(`streaming ${channel} stream failed: pipe failed`),
+      );
+      expect(vi.getTimerCount()).toBe(0);
       expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
     },
   );
@@ -250,9 +273,6 @@ describe("central service child authority", () => {
       }).catch((error) => error);
       child[channel].write("123456789");
 
-      expect(await resultPromise).toEqual(
-        new Error(`bounded ${channel} exceeded 8 bytes`),
-      );
       expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
       expect(child.stdout.listenerCount("data")).toBe(0);
       expect(child.stderr.listenerCount("data")).toBe(0);
@@ -262,6 +282,9 @@ describe("central service child authority", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
       child.emit("close", null, "SIGKILL");
+      expect(await resultPromise).toEqual(
+        new Error(`bounded ${channel} exceeded 8 bytes`),
+      );
       expect(vi.getTimerCount()).toBe(0);
       expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
     },
@@ -279,14 +302,14 @@ describe("central service child authority", () => {
     const resultPromise = runProcess("stuck", [], { timeoutMs: 25 }).catch((error) => error);
     await vi.advanceTimersByTimeAsync(25);
 
-    expect(await resultPromise).toEqual(new Error("stuck timed out after 25ms"));
     expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     expect(child.kill).toHaveBeenCalledTimes(2);
-    expect(vi.getTimerCount()).toBe(0);
     child.emit("close", null, "SIGKILL");
+    expect(await resultPromise).toEqual(new Error("stuck timed out after 25ms"));
+    expect(vi.getTimerCount()).toBe(0);
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
   });
 
@@ -334,6 +357,15 @@ describe("central service child authority", () => {
     expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     expect(vi.getTimerCount()).toBe(0);
+
+    const retry = await Effect.runPromise(
+      probeCodexAppServer.pipe(Effect.either),
+    );
+    expect(Either.isLeft(retry)).toBe(true);
+    if (Either.isLeft(retry)) {
+      expect(retry.left.message).toBe(SERVICE_CHILD_TEARDOWN_PENDING_ERROR);
+    }
+    expect(mocks.spawn).toHaveBeenCalledOnce();
     child.emit("close", null, "SIGKILL");
   });
 
@@ -449,6 +481,11 @@ describe("central service child authority", () => {
     const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
     await vi.advanceTimersByTimeAsync(0);
     child.emit("error", new Error("spawn channel failed"));
+    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    child.emit("close", null, "SIGKILL");
     const result = await resultPromise;
 
     expect(Either.isLeft(result)).toBe(true);
@@ -457,12 +494,7 @@ describe("central service child authority", () => {
         "codex app-server child failed before initialize response: spawn channel failed",
       );
     }
-    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
-
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     expect(vi.getTimerCount()).toBe(0);
-    child.emit("close", null, "SIGKILL");
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
   });
 
@@ -477,19 +509,19 @@ describe("central service child authority", () => {
 
     const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
     await vi.advanceTimersByTimeAsync(6_000);
+    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    expect(child.kill).toHaveBeenCalledTimes(2);
+    child.emit("close", null, "SIGKILL");
     const result = await resultPromise;
 
     expect(Either.isLeft(result)).toBe(true);
     if (Either.isLeft(result)) {
       expect(result.left.message).toContain("initialize timed out");
     }
-    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
-
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
-    expect(child.kill).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
-    child.emit("close", null, "SIGKILL");
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
   });
 
@@ -504,6 +536,12 @@ describe("central service child authority", () => {
 
     const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
     await vi.advanceTimersByTimeAsync(0);
+    expect(child.stdin.write).toHaveBeenCalledTimes(1);
+    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    child.emit("close", null, "SIGKILL");
     const result = await resultPromise;
 
     expect(Either.isLeft(result)).toBe(true);
@@ -512,13 +550,7 @@ describe("central service child authority", () => {
         "codex app-server stdin failed before initialize response: write EPIPE",
       );
     }
-    expect(child.stdin.write).toHaveBeenCalledTimes(1);
-    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
-
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     expect(vi.getTimerCount()).toBe(0);
-    child.emit("close", null, "SIGKILL");
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
   });
 
@@ -535,12 +567,6 @@ describe("central service child authority", () => {
       const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
       await vi.advanceTimersByTimeAsync(0);
       child[channel].write(Buffer.alloc(262_145, "x"));
-      const result = await resultPromise;
-
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left.message).toBe(expectedMessage);
-      }
       expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
       expect(child.stdout.listenerCount("data")).toBe(0);
       expect(child.stderr.listenerCount("data")).toBe(0);
@@ -550,6 +576,12 @@ describe("central service child authority", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
       child.emit("close", null, "SIGKILL");
+      const result = await resultPromise;
+
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left.message).toBe(expectedMessage);
+      }
       expect(vi.getTimerCount()).toBe(0);
       expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
     },
@@ -565,13 +597,13 @@ describe("central service child authority", () => {
     expect(mocks.spawn).toHaveBeenCalledOnce();
 
     await vi.advanceTimersByTimeAsync(6_000);
-    const result = await resultPromise;
-    expect(Either.isLeft(result)).toBe(true);
     expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     child.emit("close", null, "SIGKILL");
+    const result = await resultPromise;
+    expect(Either.isLeft(result)).toBe(true);
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
     expect(child.kill).toHaveBeenCalledTimes(2);
   });
@@ -602,9 +634,6 @@ describe("central service child authority", () => {
     const lateCodex = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(await runningProcess).toEqual(
-      new Error(SERVICE_CHILD_PLANE_QUIESCING_ERROR),
-    );
     const runningCodexResult = await runningCodex;
     expect(Either.isLeft(runningCodexResult)).toBe(true);
     if (Either.isLeft(runningCodexResult)) {
@@ -629,6 +658,9 @@ describe("central service child authority", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(resistantRun.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     await vi.advanceTimersByTimeAsync(250);
+    expect(await runningProcess).toEqual(
+      new Error(SERVICE_CHILD_PLANE_QUIESCING_ERROR),
+    );
 
     await expect(first).resolves.toEqual({
       clean: false,
