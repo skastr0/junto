@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
-import { readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { Either, ManagedRuntime } from "effect";
 import { decodeCanvasDoc, type CanvasDoc } from "../src/shared/canvas";
 import { digestCanvas } from "../src/shared/digest";
@@ -9,11 +7,15 @@ import type { SnapshotBundle, SnapshotState } from "../src/shared/entities";
 import { buildGlyphView } from "../src/shared/glyph-view";
 import { HermesPlane } from "../src/main/vellum/hermes/plane";
 import { HermesStandaloneLive } from "../src/main/vellum/hermes/live";
+import {
+  canvasDocumentPathForRead,
+  canvasNameFrom,
+  writeCanvasSidecar,
+} from "../src/main/vellum/canvases";
 
 // Headless agent surface: `bun run digest [name]` — hermes snapshots only.
 // Canvases with tower/quasar bindings still decode; live private data is gone.
 
-const canvasesDir = () => join(homedir(), ".vellum", "canvases");
 const hermesRuntime = ManagedRuntime.make(HermesStandaloneLive);
 
 class DigestExit extends Error {}
@@ -65,8 +67,14 @@ const readCanvas = async (name: string, path: string): Promise<CanvasDoc> => {
 };
 
 const main = async () => {
-  const name = process.argv[2]?.trim() || "portfolio";
-  const path = join(canvasesDir(), `${name}.canvas`);
+  let name: string;
+  let path: string;
+  try {
+    name = canvasNameFrom(process.argv[2] ?? "portfolio");
+    path = await canvasDocumentPathForRead(name);
+  } catch (error) {
+    throw new DigestExit(error instanceof Error ? error.message : String(error));
+  }
 
   const doc = await readCanvas(name, path);
   const hermesPlane = await hermesRuntime.runPromise(HermesPlane);
@@ -78,8 +86,7 @@ const main = async () => {
   const digest = digestCanvas(name, doc, snapshots, glyphs);
   process.stdout.write(digest);
 
-  const sidecarPath = join(canvasesDir(), `${name}.digest.txt`);
-  await writeFile(sidecarPath, digest, "utf8");
+  await writeCanvasSidecar(name, "digest.txt", digest);
 };
 
 try {

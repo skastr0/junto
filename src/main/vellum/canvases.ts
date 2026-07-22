@@ -1,8 +1,8 @@
-import { mkdirSync, watch as watchDir } from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstatSync, mkdirSync, watch as watchDir } from "node:fs";
+import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import { applyMirrorLaw, decodeCanvasDoc, serializeCanvas, type CanvasDoc } from "@shared/canvas";
@@ -13,11 +13,101 @@ export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError"
   message: Schema.String,
 }) {}
 
+declare const canvasNameBrand: unique symbol;
+/** A filesystem-safe, canonical canvas basename minted at the repository boundary. */
+export type CanvasName = string & { readonly [canvasNameBrand]: "CanvasName" };
+
+const NAME_PATTERN = /^[a-z0-9-]+$/;
+const SIDECAR_SUFFIXES = ["digest.txt", "svg"] as const;
+type SidecarSuffix = (typeof SIDECAR_SUFFIXES)[number];
+
+/**
+ * Canonicalize the human-facing spelling used by the existing UI, then refuse
+ * anything which is not one ASCII basename. This is deliberately stricter
+ * than path normalization: traversal, separators, dot files, Unicode lookalikes
+ * and encoded separators are data, never paths.
+ */
+export const canvasNameFrom = (raw: string): CanvasName => {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized.length === 0 || !NAME_PATTERN.test(normalized)) {
+    throw new CanvasError({
+      message: `invalid canvas name "${raw}": use lowercase letters, numbers, and hyphens only`,
+    });
+  }
+  return normalized as CanvasName;
+};
+
 // Overridable for hermetic headless probes/tests (scripts/kernel-headless-probe.ts)
 // so they never touch the operator's real ~/.vellum/canvases. Unset in normal
 // (dev or packaged) operation — production behavior is unchanged.
 export const canvasesDir = () =>
-  process.env.VELLUM_CANVASES_DIR || join(homedir(), ".vellum", "canvases");
+  resolve(process.env.VELLUM_CANVASES_DIR || join(homedir(), ".vellum", "canvases"));
+
+const confinedPath = (root: string, fileName: string): string => {
+  const path = resolve(root, fileName);
+  if (dirname(path) !== root) {
+    throw new CanvasError({ message: "canvas path escaped the configured canvas directory" });
+  }
+  return path;
+};
+
+export const canvasDocumentPath = (rawName: string): string =>
+  confinedPath(canvasesDir(), `${canvasNameFrom(rawName)}.canvas`);
+
+export const canvasSidecarPath = (rawName: string, suffix: SidecarSuffix): string =>
+  confinedPath(canvasesDir(), `${canvasNameFrom(rawName)}.${suffix}`);
+
+/** Ensure the configured repository itself is a real directory, never a symlink. */
+export const ensureCanvasesDir = async (): Promise<string> => {
+  const root = canvasesDir();
+  await mkdir(root, { recursive: true });
+  const info = await lstat(root);
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new CanvasError({ message: `canvas directory is not a real directory: ${root}` });
+  }
+  return root;
+};
+
+/** Never follow a canvas-file symlink. A write refuses it rather than replacing a surprise target. */
+const assertRegularOrMissing = async (path: string): Promise<void> => {
+  try {
+    const info = await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink()) {
+      throw new CanvasError({ message: `refusing non-regular canvas file: ${basename(path)}` });
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+};
+
+/** Mint a root-confined document path only after the repository and target are safe. */
+export const canvasDocumentPathForRead = async (rawName: string): Promise<string> => {
+  await ensureCanvasesDir();
+  const path = canvasDocumentPath(rawName);
+  await assertRegularOrMissing(path);
+  return path;
+};
+
+/** Write an allowlisted derivative through a same-directory atomic rename. */
+export const writeCanvasSidecar = async (
+  rawName: string,
+  suffix: SidecarSuffix,
+  contents: string,
+): Promise<string> => {
+  await ensureCanvasesDir();
+  const path = canvasSidecarPath(rawName, suffix);
+  await assertRegularOrMissing(path);
+  const tmpPath = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tmpPath, contents, "utf8");
+    await rename(tmpPath, path);
+    return path;
+  } catch (error) {
+    await rm(tmpPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+};
 
 // The document plane. All writes go through validate -> mirror law ->
 // canonical serialize -> atomic write (tmp + rename). The watcher reports
@@ -64,13 +154,11 @@ const toCanvasError = (error: unknown): CanvasError =>
     ? error
     : new CanvasError({ message: error instanceof Error ? error.message : String(error) });
 
-const canvasFileName = (name: string) => `${name}.canvas`;
-const canvasPath = (name: string) => join(canvasesDir(), canvasFileName(name));
+const canvasFileName = (name: CanvasName) => `${name}.canvas`;
+const canvasPath = (name: CanvasName) => canvasDocumentPath(name);
 
 const WATCH_DEBOUNCE_MS = 300;
 const MAX_MUTATE_REVISION_RETRIES = 8;
-
-const NAME_PATTERN = /^[a-z0-9-]+$/;
 
 export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const listeners = new Set<(name: string) => void>();
@@ -103,20 +191,39 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
 
   const list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError> = Effect.tryPromise({
     try: async () => {
-      await mkdir(canvasesDir(), { recursive: true });
-      const files = (await readdir(canvasesDir())).filter((file) => file.endsWith(".canvas"));
+      const root = await ensureCanvasesDir();
+      const files = (await readdir(root)).filter((file) => {
+        if (!file.endsWith(".canvas")) return false;
+        try {
+          canvasNameFrom(basename(file, ".canvas"));
+          return true;
+        } catch {
+          return false;
+        }
+      });
       const summaries = await Promise.all(
-        files.map(async (file): Promise<CanvasSummary> => {
-          const path = join(canvasesDir(), file);
+        files.map(async (file): Promise<CanvasSummary | null> => {
+          const name = canvasNameFrom(basename(file, ".canvas"));
+          const path = canvasPath(name);
+          try {
+            await assertRegularOrMissing(path);
+          } catch {
+            // A directory entry is untrusted external input. Ignore a
+            // symlink/special file rather than traversing it or making the
+            // whole repository unavailable.
+            return null;
+          }
           const info = await stat(path);
           return {
-            name: basename(file, ".canvas"),
+            name,
             path,
             modifiedAt: info.mtime.toISOString(),
           };
         }),
       );
-      return summaries.slice().sort((a, b) => a.name.localeCompare(b.name));
+      return summaries
+        .filter((summary): summary is CanvasSummary => summary !== null)
+        .sort((a, b) => a.name.localeCompare(b.name));
     },
     catch: toCanvasError,
   });
@@ -127,9 +234,12 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   // Shared by read() and mutate(): parse + decode the file on disk. Thrown
   // errors are CanvasError already, so callers can let them propagate as-is.
   const readAndDecode = async (
-    name: string,
+    name: CanvasName,
   ): Promise<{ readonly doc: CanvasDoc; readonly revision: string }> => {
-    const raw = await readFile(canvasPath(name), "utf8");
+    await ensureCanvasesDir();
+    const path = canvasPath(name);
+    await assertRegularOrMissing(path);
+    const raw = await readFile(path, "utf8");
 
     let parsed: unknown;
     try {
@@ -155,8 +265,9 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const read = (name: string): Effect.Effect<CanvasReadResult, CanvasError> =>
     Effect.tryPromise({
       try: async () => {
-        const result = await readAndDecode(name);
-        return { name, path: canvasPath(name), ...result };
+        const canonicalName = canvasNameFrom(name);
+        const result = await readAndDecode(canonicalName);
+        return { name: canonicalName, path: canvasPath(canonicalName), ...result };
       },
       catch: toCanvasError,
     });
@@ -171,19 +282,21 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   ): Effect.Effect<CanvasWriteResult, CanvasError> =>
     Effect.tryPromise({
       try: () =>
-        withCanvasMutex(canvasFileName(name), async () => {
+        withCanvasMutex(canvasFileName(canvasNameFrom(name)), async () => {
+          const canonicalName = canvasNameFrom(name);
           const decoded = decodeCanvasDoc(doc);
           if (Either.isLeft(decoded)) {
             throw new CanvasError({
-              message: `cannot write ${canvasFileName(name)}: ${decoded.left.message}`,
+              message: `cannot write ${canvasFileName(canonicalName)}: ${decoded.left.message}`,
             });
           }
 
           const serialized = serializeCanvas(applyMirrorLaw(decoded.right));
           const revision = revisionOf(serialized);
 
-          await mkdir(canvasesDir(), { recursive: true });
-          const path = canvasPath(name);
+          await ensureCanvasesDir();
+          const path = canvasPath(canonicalName);
+          await assertRegularOrMissing(path);
           if (expectedRevision !== undefined) {
             let currentRevision: string | undefined;
             try {
@@ -193,7 +306,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             }
             if (currentRevision !== expectedRevision) {
               throw new CanvasError({
-                message: `${canvasFileName(name)} changed on disk; reload before saving`,
+              message: `${canvasFileName(canonicalName)} changed on disk; reload before saving`,
               });
             }
           }
@@ -218,7 +331,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             if (currentRevision !== expectedRevision) {
               await rm(tmpPath, { force: true });
               throw new CanvasError({
-                message: `${canvasFileName(name)} changed on disk; reload before saving`,
+              message: `${canvasFileName(canonicalName)} changed on disk; reload before saving`,
               });
             }
           }
@@ -228,8 +341,8 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           // kernel rehydrates immediately. Without this, own-write suppression
           // leaves kernel docs stale after normal UI writeCanvas (tasks done,
           // criteria edits) and live phase/blocked paint lies.
-          ownWrites.set(canvasFileName(name), revision);
-          for (const listener of listeners) listener(name);
+          ownWrites.set(canvasFileName(canonicalName), revision);
+          for (const listener of listeners) listener(canonicalName);
           return { revision };
         }),
       catch: toCanvasError,
@@ -243,17 +356,19 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const mutate = (name: string, fn: (doc: CanvasDoc) => CanvasDoc): Effect.Effect<void, CanvasError> =>
     Effect.tryPromise({
       try: () =>
-        withCanvasMutex(canvasFileName(name), async () => {
-          await mkdir(canvasesDir(), { recursive: true });
-          const path = canvasPath(name);
+        withCanvasMutex(canvasFileName(canvasNameFrom(name)), async () => {
+          const canonicalName = canvasNameFrom(name);
+          await ensureCanvasesDir();
+          const path = canvasPath(canonicalName);
+          await assertRegularOrMissing(path);
           for (let attempt = 0; attempt < MAX_MUTATE_REVISION_RETRIES; attempt += 1) {
-            const current = await readAndDecode(name);
+            const current = await readAndDecode(canonicalName);
             const next = fn(current.doc);
 
             const decoded = decodeCanvasDoc(next);
             if (Either.isLeft(decoded)) {
               throw new CanvasError({
-                message: `cannot mutate ${canvasFileName(name)}: ${decoded.left.message}`,
+                message: `cannot mutate ${canvasFileName(canonicalName)}: ${decoded.left.message}`,
               });
             }
 
@@ -280,29 +395,20 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
               throw error;
             }
 
-            ownWrites.set(canvasFileName(name), revision);
-            for (const listener of listeners) listener(name);
+            ownWrites.set(canvasFileName(canonicalName), revision);
+            for (const listener of listeners) listener(canonicalName);
             return;
           }
 
           throw new CanvasError({
-            message: `${canvasFileName(name)} kept changing on disk; mutation was not applied`,
+            message: `${canvasFileName(canonicalName)} kept changing on disk; mutation was not applied`,
           });
         }),
       catch: toCanvasError,
     });
 
-  const sanitizeName = (name: string): Effect.Effect<string, CanvasError> => {
-    const normalized = name.trim().toLowerCase();
-    if (normalized.length === 0 || !NAME_PATTERN.test(normalized)) {
-      return Effect.fail(
-        new CanvasError({
-          message: `invalid canvas name "${name}": use lowercase letters, numbers, and hyphens only`,
-        }),
-      );
-    }
-    return Effect.succeed(normalized);
-  };
+  const sanitizeName = (name: string): Effect.Effect<CanvasName, CanvasError> =>
+    Effect.try({ try: () => canvasNameFrom(name), catch: toCanvasError });
 
   const create = (name: string): Effect.Effect<CanvasReadResult, CanvasError> =>
     Effect.gen(function* () {
@@ -332,8 +438,6 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
 
   // Known agent-surface derivatives written next to the document. Best-effort:
   // a missing sidecar is fine; a missing .canvas is the hard failure.
-  const SIDECAR_SUFFIXES = ["digest.txt", "svg"] as const;
-
   const remove = (name: string): Effect.Effect<{ name: string }, CanvasError> =>
     Effect.gen(function* () {
       const sanitized = yield* sanitizeName(name);
@@ -341,7 +445,9 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       yield* Effect.tryPromise({
         try: () =>
           withCanvasMutex(canvasFileName(sanitized), async () => {
+            await ensureCanvasesDir();
             const path = canvasPath(sanitized);
+            await assertRegularOrMissing(path);
             try {
               await stat(path);
             } catch {
@@ -352,7 +458,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
 
             for (const suffix of SIDECAR_SUFFIXES) {
               try {
-                await rm(join(canvasesDir(), `${sanitized}.${suffix}`));
+                await rm(canvasSidecarPath(sanitized, suffix));
               } catch {
                 // sidecar may not exist
               }
@@ -373,8 +479,8 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const ensureSeed: Effect.Effect<void, CanvasError> = Effect.gen(function* () {
     const files = yield* Effect.tryPromise({
       try: async () => {
-        await mkdir(canvasesDir(), { recursive: true });
-        return (await readdir(canvasesDir())).filter((file) => file.endsWith(".canvas"));
+        const root = await ensureCanvasesDir();
+        return (await readdir(root)).filter((file) => file.endsWith(".canvas"));
       },
       catch: toCanvasError,
     });
@@ -391,10 +497,11 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   ): Effect.Effect<string, CanvasError> =>
     Effect.tryPromise({
       try: async () => {
-        await mkdir(canvasesDir(), { recursive: true });
-        const path = join(canvasesDir(), `${name}.${suffix}`);
-        await writeFile(path, contents, "utf8");
-        return path;
+        const canonicalName = canvasNameFrom(name);
+        if (!SIDECAR_SUFFIXES.includes(suffix as SidecarSuffix)) {
+          throw new CanvasError({ message: `unsupported canvas sidecar suffix "${suffix}"` });
+        }
+        return await writeCanvasSidecar(canonicalName, suffix as SidecarSuffix, contents);
       },
       catch: toCanvasError,
     });
@@ -404,6 +511,10 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
 
     try {
       mkdirSync(canvasesDir(), { recursive: true });
+      const rootInfo = lstatSync(canvasesDir());
+      if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+        throw new CanvasError({ message: `canvas directory is not a real directory: ${canvasesDir()}` });
+      }
       watcher = watchDir(canvasesDir(), (_eventType, filename) => {
         const fileName = filename?.toString();
         if (!fileName || !fileName.endsWith(".canvas")) return;
@@ -428,7 +539,12 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             if (actualRevision === expectedOwnRevision) return;
           }
 
-          const name = basename(fileName, ".canvas");
+          let name: CanvasName;
+          try {
+            name = canvasNameFrom(basename(fileName, ".canvas"));
+          } catch {
+            return;
+          }
           for (const listener of listeners) listener(name);
         }, WATCH_DEBOUNCE_MS);
 
