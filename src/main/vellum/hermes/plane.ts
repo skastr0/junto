@@ -23,12 +23,7 @@ import {
   fetchAgentIdentity,
   type HermesIdentityOperations,
 } from "../adapters/hermes-identity";
-import {
-  admitChildProcess,
-  releaseOwned,
-  signalOwned,
-  type OwnedProcess,
-} from "../process-signal";
+import { admitChildProcess } from "../process-signal";
 import type {
   AcpChildEnvironmentOverlay,
   AcpChildLike,
@@ -54,39 +49,7 @@ type RunPromise = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 const acpArgs = (profile: HermesProfileName): ReadonlyArray<string> =>
   isDefaultHermesProfile(profile) ? ["acp"] : ["-p", profile, "acp"];
 
-interface LocalAcpChild {
-  readonly child: ChildProcessWithoutNullStreams;
-  readonly process: OwnedProcess;
-}
-
-const terminateLocalAcpChild = ({ child, process }: LocalAcpChild): Promise<void> => {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    releaseOwned(process);
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    let settled = false;
-    let forceTimer: ReturnType<typeof setTimeout> | undefined;
-    let boundTimer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (): void => {
-      if (settled) return;
-      settled = true;
-      if (forceTimer !== undefined) clearTimeout(forceTimer);
-      if (boundTimer !== undefined) clearTimeout(boundTimer);
-      releaseOwned(process);
-      resolve();
-    };
-    child.once("close", finish);
-    child.once("error", finish);
-    signalOwned(process, "SIGTERM");
-    forceTimer = setTimeout(() => {
-      signalOwned(process, "SIGKILL");
-    }, 2_000);
-    boundTimer = setTimeout(finish, 4_000);
-  });
-};
-
-class EffectAcpChild extends EventEmitter implements AcpChildLike {
+export class EffectAcpChild extends EventEmitter implements AcpChildLike {
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
   readonly stdin = {
@@ -102,6 +65,15 @@ class EffectAcpChild extends EventEmitter implements AcpChildLike {
   private writes = Promise.resolve();
   private killed = false;
   private settled = false;
+  private startSettled = false;
+  private finishRequested = false;
+  private cleanupFlight: Promise<void> | undefined;
+  private finishFlight: Promise<void> | undefined;
+  private cleanupFailed = false;
+  private terminalResolve!: () => void;
+  private readonly terminalCompletion = new Promise<void>((resolve) => {
+    this.terminalResolve = resolve;
+  });
 
   constructor(
     private readonly runPromise: RunPromise,
@@ -114,14 +86,15 @@ class EffectAcpChild extends EventEmitter implements AcpChildLike {
     queueMicrotask(() => { void this.start(); });
   }
 
-  kill(_signal?: NodeJS.Signals): boolean {
-    if (this.killed) return true;
+  close(): Promise<void> {
+    if (this.settled) return this.terminalCompletion;
     this.killed = true;
-    const close = this.scope
-      ? this.runPromise(Scope.close(this.scope, Exit.void))
-      : Promise.resolve();
-    void close.finally(() => this.finish(null));
-    return true;
+    if (this.scope !== undefined || this.startSettled) this.requestFinish(null);
+    return this.terminalCompletion;
+  }
+
+  get clean(): boolean {
+    return !this.cleanupFailed;
   }
 
   private async start(): Promise<void> {
@@ -130,11 +103,7 @@ class EffectAcpChild extends EventEmitter implements AcpChildLike {
         Scope.fork(this.owner, ExecutionStrategy.sequential),
       );
       this.scope = scope;
-      if (this.killed) {
-        await this.runPromise(Scope.close(scope, Exit.void));
-        this.finish(null);
-        return;
-      }
+      if (this.killed) return;
 
       await this.runPromise(
         this.transport.connectAcp(
@@ -169,7 +138,7 @@ class EffectAcpChild extends EventEmitter implements AcpChildLike {
                 lease.exitCode.pipe(
                   Effect.match({
                     onFailure: (error) => this.deferFailure(error),
-                    onSuccess: (code) => this.finish(code),
+                    onSuccess: (code) => this.requestFinish(code),
                   }),
                 ),
                 scope,
@@ -183,14 +152,11 @@ class EffectAcpChild extends EventEmitter implements AcpChildLike {
       this.pending = [];
       for (const bytes of pending) this.dispatch(bytes);
     } catch (error) {
-      if (this.killed) {
-        this.finish(null);
-        return;
-      }
-      if (this.scope) {
-        await this.runPromise(Scope.close(this.scope, Exit.void));
-      }
-      this.fail(error);
+      if (!this.killed) this.emitDiagnostic(error);
+      this.killed = true;
+    } finally {
+      this.startSettled = true;
+      if (this.killed) this.requestFinish(null);
     }
   }
 
@@ -218,27 +184,67 @@ class EffectAcpChild extends EventEmitter implements AcpChildLike {
   }
 
   private fail(error: unknown): void {
-    if (this.settled || this.killed) return;
-    this.settled = true;
+    if (this.settled) return;
+    if (!this.killed) this.emitDiagnostic(error);
     this.killed = true;
-    this.stdout.end();
-    this.stderr.end();
-    this.emit("error", error instanceof Error ? error : new Error(String(error)));
-    if (this.scope) {
-      void this.runPromise(Scope.close(this.scope, Exit.void));
-    }
+    this.requestFinish(null);
   }
 
-  private finish(code: number | null): void {
-    if (this.settled) return;
-    this.settled = true;
-    this.stdout.end();
-    this.stderr.end();
-    this.emit("exit", code);
-    this.emit("close", code);
-    if (!this.killed && this.scope) {
-      this.killed = true;
-      void this.runPromise(Scope.close(this.scope, Exit.void));
+  private requestFinish(code: number | null): void {
+    if (this.settled || this.finishRequested) return;
+    this.finishRequested = true;
+    this.killed = true;
+    queueMicrotask(() => {
+      void this.finishAfterCleanup(code);
+    });
+  }
+
+  private closeScope(): Promise<void> {
+    if (this.cleanupFlight !== undefined) return this.cleanupFlight;
+    const scope = this.scope;
+    if (scope === undefined) return Promise.resolve();
+    let close: Promise<void>;
+    try {
+      close = this.runPromise(Scope.close(scope, Exit.void));
+    } catch (error) {
+      close = Promise.reject(error);
+    }
+    this.cleanupFlight = close.catch((error) => {
+      this.cleanupFailed = true;
+      this.emitDiagnostic(error);
+    });
+    return this.cleanupFlight;
+  }
+
+  private finishAfterCleanup(code: number | null): Promise<void> {
+    if (this.finishFlight !== undefined) return this.finishFlight;
+    this.finishFlight = (async () => {
+      await this.closeScope();
+      if (this.settled) return;
+      this.settled = true;
+      this.pending = [];
+      try { this.stdout.end(); } catch { /* observer-only stream */ }
+      try { this.stderr.end(); } catch { /* observer-only stream */ }
+      this.emitContained("exit", code);
+      this.emitContained("close", code);
+      this.terminalResolve();
+    })();
+    return this.finishFlight;
+  }
+
+  private emitDiagnostic(error: unknown): void {
+    this.emitContained(
+      "error",
+      error instanceof Error ? error : new Error(String(error)),
+    );
+  }
+
+  private emitContained(event: "error" | "exit" | "close", value: unknown): void {
+    try {
+      this.emit(event, value);
+    } catch {
+      // Consumers are observers; cleanup and the following terminal event
+      // must continue even when one listener throws.
     }
   }
 }
@@ -270,25 +276,29 @@ export const HermesPlaneLive = Layer.scoped(
       avatar: (host, profile) => runOwned(transport.avatar(host, profile)),
     };
 
-    const localChildren = new Set<LocalAcpChild>();
-
     const spawnAcp: SpawnFn = (
       target: AcpSpawnTarget,
       options?: { readonly environmentOverlay?: AcpChildEnvironmentOverlay },
-    ): AcpChildLike => {
+    ) => {
       // Local = direct hermes child. Any other host id is treated as remote
       // (must exist in the host registry with kind=remote).
       if (target.host !== "local") {
         if (options?.environmentOverlay !== undefined) {
           throw new Error("ACP child environment overlays are local-only");
         }
-        return new EffectAcpChild(
+        const child = new EffectAcpChild(
           runPromise,
           owner,
           transport,
           target.host,
           target.profile,
         );
+        return {
+          kind: "remote-scope",
+          child,
+          close: () => child.close(),
+          isClean: () => child.clean,
+        };
       }
 
       const env = options?.environmentOverlay === undefined
@@ -298,26 +308,20 @@ export const HermesPlaneLive = Layer.scoped(
         stdio: ["pipe", "pipe", "pipe"],
         env,
       }) as ChildProcessWithoutNullStreams;
-      const process = admitChildProcess({
-        source: `hermes-acp:${target.profile}`,
+      return {
+        kind: "local-process",
         child,
-      });
-      const localChild = { child, process } satisfies LocalAcpChild;
-      localChildren.add(localChild);
-      const release = (): void => {
-        localChildren.delete(localChild);
-        releaseOwned(process);
+        process: admitChildProcess({
+          source: `hermes-acp:${target.profile}`,
+          child,
+        }),
       };
-      child.once("close", release);
-      child.once("error", release);
-      return child;
     };
 
     const chat = new ChatService(spawnAcp);
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
-        chat.closeAll();
-        await Promise.all([...localChildren].map(terminateLocalAcpChild));
+        await chat.closeAll();
       }),
     );
 

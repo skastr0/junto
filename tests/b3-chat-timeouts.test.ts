@@ -9,6 +9,7 @@ import {
 } from "../src/main/vellum/chat/acp-client";
 import { ChatService } from "../src/main/vellum/chat/service";
 import { buildAcpSpawnTarget, type AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
+import { spawnedLocalAcp } from "./helpers/acp-child";
 
 // Covers batch b3-chat's timeout/race/kill-escalation contract:
 //   - every post-handshake AcpClient.request() (session/new, session/load,
@@ -68,7 +69,7 @@ function fakeSpawn(): { spawnFn: SpawnFn; children: FakeChild[] } {
   const spawnFn: SpawnFn = () => {
     const child = new FakeChild();
     children.push(child);
-    return child;
+    return spawnedLocalAcp(child);
   };
   return { spawnFn, children };
 }
@@ -83,7 +84,7 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
     vi.useFakeTimers();
     const ambientKill = vi.spyOn(process, "kill").mockImplementation(() => true);
     const child = new FakeChild();
-    const client = new AcpClient(TARGET, noopHandlers(), () => child);
+    const client = new AcpClient(TARGET, noopHandlers(), () => spawnedLocalAcp(child));
 
     const startPromise = client.start();
     respondOk(child, lastSentId(child), INIT_RESULT);
@@ -101,7 +102,7 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
   it("does not escalate if the child exits within the grace window", async () => {
     vi.useFakeTimers();
     const child = new FakeChild();
-    const client = new AcpClient(TARGET, noopHandlers(), () => child);
+    const client = new AcpClient(TARGET, noopHandlers(), () => spawnedLocalAcp(child));
 
     const startPromise = client.start();
     respondOk(child, lastSentId(child), INIT_RESULT);
@@ -116,7 +117,7 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
 
   it("close() is idempotent — a second call is a no-op", async () => {
     const child = new FakeChild();
-    const client = new AcpClient(TARGET, noopHandlers(), () => child);
+    const client = new AcpClient(TARGET, noopHandlers(), () => spawnedLocalAcp(child));
 
     const startPromise = client.start();
     respondOk(child, lastSentId(child), INIT_RESULT);
@@ -159,7 +160,7 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
     vi.useFakeTimers();
     const child = new FakeChild();
     const handlers = noopHandlers();
-    const client = new AcpClient(TARGET, handlers, () => child);
+    const client = new AcpClient(TARGET, handlers, () => spawnedLocalAcp(child));
     const start = client.start();
     respondOk(child, lastSentId(child), INIT_RESULT);
     await start;
@@ -181,7 +182,7 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
   it("an error during SIGTERM does not cancel SIGKILL escalation", async () => {
     vi.useFakeTimers();
     const child = new FakeChild();
-    const client = new AcpClient(TARGET, noopHandlers(), () => child);
+    const client = new AcpClient(TARGET, noopHandlers(), () => spawnedLocalAcp(child));
     const start = client.start();
     respondOk(child, lastSentId(child), INIT_RESULT);
     await start;
@@ -228,7 +229,7 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
     vi.useFakeTimers();
     const child = new FakeChild();
     child.kill.mockReturnValue(false);
-    const client = new AcpClient(TARGET, noopHandlers(), () => child);
+    const client = new AcpClient(TARGET, noopHandlers(), () => spawnedLocalAcp(child));
     const start = client.start();
     respondOk(child, lastSentId(child), INIT_RESULT);
     await start;
@@ -246,7 +247,7 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
   it("bounds close when a signaled child never emits exit or close", async () => {
     vi.useFakeTimers();
     const child = new FakeChild();
-    const client = new AcpClient(TARGET, noopHandlers(), () => child);
+    const client = new AcpClient(TARGET, noopHandlers(), () => spawnedLocalAcp(child));
     const start = client.start();
     respondOk(child, lastSentId(child), INIT_RESULT);
     await start;

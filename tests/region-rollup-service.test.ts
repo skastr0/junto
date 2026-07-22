@@ -16,6 +16,7 @@ import {
   RegionRollupService,
 } from "../src/main/vellum/region-rollup";
 import { SnapshotsService } from "../src/main/vellum/snapshots";
+import { spawnedLocalAcp } from "./helpers/acp-child";
 
 const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
 
@@ -56,7 +57,7 @@ function fakeSpawn(): { spawnFn: SpawnFn; children: FakeChild[] } {
   const spawnFn: SpawnFn = () => {
     const child = new FakeChild();
     children.push(child);
-    return child;
+    return spawnedLocalAcp(child);
   };
   return { spawnFn, children };
 }

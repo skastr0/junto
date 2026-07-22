@@ -14,10 +14,25 @@ export const registerChatIpc = (
   const service = Promise.resolve(serviceSource);
   void service.then((resolved) => {
     resolved.setEventSink((event) => {
-      for (const contents of webContentsGetter()) {
-        contents.send(IPC_CHANNELS.chatEvent, event);
+      let recipients: Iterable<WebContents>;
+      try {
+        recipients = webContentsGetter();
+      } catch {
+        return;
+      }
+      for (const contents of recipients) {
+        try {
+          if (contents.isDestroyed()) continue;
+          contents.send(IPC_CHANNELS.chatEvent, event);
+        } catch {
+          // One stale/crashing renderer cannot block delivery to its siblings
+          // or escape into the process lifecycle callback.
+        }
       }
     });
+  }).catch(() => {
+    // Handler registration below retains the rejected service promise for
+    // callers; this observer must not become an unhandled rejection.
   });
 
   ipcMain.handle(

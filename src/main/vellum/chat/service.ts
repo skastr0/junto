@@ -12,6 +12,7 @@ import {
   AcpClient,
   AcpRpcError,
   makeLocalBrowserChildEnvironment,
+  type AcpTeardownResult,
   type AcpChildEnvironmentOverlay,
   type AcpLifecycleEvent,
   type JsonRpcId,
@@ -91,6 +92,11 @@ interface RawModelInfo {
   readonly description?: string;
 }
 
+export interface ChatCloseAllResult {
+  readonly clean: boolean;
+  readonly teardowns: ReadonlyArray<AcpTeardownResult>;
+}
+
 interface SessionResultShape {
   readonly sessionId?: string;
   readonly models?: { readonly availableModels?: ReadonlyArray<RawModelInfo> };
@@ -121,6 +127,18 @@ export class ChatService {
   private sessionLiveHook: ((agentKey: string) => void) | undefined;
   private idleTimer: ReturnType<typeof setInterval> | undefined;
   private unsubscribeHostsSnapshot: (() => void) | undefined;
+  private readonly clients = new Set<AcpClient>();
+  private readonly closeByClient = new WeakMap<
+    AcpClient,
+    Promise<ReadonlyArray<AcpTeardownResult>>
+  >();
+  private readonly clientCloseFlights = new Set<
+    Promise<ReadonlyArray<AcpTeardownResult>>
+  >();
+  private readonly workFlights = new Set<Promise<unknown>>();
+  private readonly teardownReceipts: AcpTeardownResult[] = [];
+  private closing = false;
+  private closeAllFlight: Promise<ChatCloseAllResult> | undefined;
 
   constructor(private readonly spawnFn: SpawnFn) {
     // Sweep idle remote sessions on a fixed interval. Unref so the timer
@@ -143,6 +161,7 @@ export class ChatService {
   }
 
   private notifySessionLive(agentKey: string): void {
+    if (this.closing) return;
     try {
       this.sessionLiveHook?.(agentKey);
     } catch {
@@ -264,7 +283,49 @@ export class ChatService {
   }
 
   private emit(agentKey: string, kind: string, payload: unknown): void {
-    this.eventSink?.({ agentKey, kind, payload });
+    try {
+      this.eventSink?.({ agentKey, kind, payload });
+    } catch {
+      // Rendering/event delivery is observational and cannot break session
+      // cleanup or prevent a following lifecycle event from being emitted.
+    }
+  }
+
+  private trackWork<A>(flight: Promise<A>): Promise<A> {
+    const tracked = flight.finally(() => this.workFlights.delete(tracked));
+    this.workFlights.add(tracked);
+    return tracked;
+  }
+
+  private closeClient(
+    client: AcpClient,
+  ): Promise<ReadonlyArray<AcpTeardownResult>> {
+    const existing = this.closeByClient.get(client);
+    if (existing !== undefined) return existing;
+    let closeResult: ReturnType<AcpClient["close"]> | undefined;
+    try {
+      closeResult = client.close();
+    } catch {
+      closeResult = undefined;
+    }
+    const failedReceipt = (): ReadonlyArray<AcpTeardownResult> => [
+      { kind: "bounded", termAttempted: false, killAttempted: false },
+    ];
+    const raw = closeResult === undefined
+      ? Promise.resolve(failedReceipt())
+      : Promise.resolve(closeResult).then(
+          (results) => (Array.isArray(results) ? results : []),
+          failedReceipt,
+        );
+    const flight = raw.then((results) => {
+      this.teardownReceipts.push(...results);
+      this.clients.delete(client);
+      this.clientCloseFlights.delete(flight);
+      return results;
+    });
+    this.closeByClient.set(client, flight);
+    this.clientCloseFlights.add(flight);
+    return flight;
   }
 
   private generation(agentKey: string): number {
@@ -324,12 +385,12 @@ export class ChatService {
     session.boundPid = undefined;
   }
 
-  private closeCurrent(agentKey: string): void {
+  private closeCurrent(agentKey: string): Promise<ReadonlyArray<AcpTeardownResult>> {
     const session = this.sessions.get(agentKey);
-    if (session === undefined) return;
+    if (session === undefined) return Promise.resolve([]);
     this.unbindLocalProcess(session);
     if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
-    session.client.close();
+    return this.closeClient(session.client);
   }
 
   private makeSession(
@@ -351,6 +412,7 @@ export class ChatService {
       this.spawnFn,
       environmentOverlay,
     );
+    this.clients.add(client);
     session = {
       client,
       generation,
@@ -368,7 +430,7 @@ export class ChatService {
   private abandonSession(agentKey: string, session: AgentSession): void {
     this.unbindLocalProcess(session);
     if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
-    session.client.close();
+    void this.closeClient(session.client);
   }
 
   private supersededOpen(
@@ -412,7 +474,10 @@ export class ChatService {
     environmentOverlay?: AcpChildEnvironmentOverlay,
     generation = this.nextGeneration(agentKey),
   ): Promise<ChatOpenResult> {
-    const promise = this.openFresh(
+    if (this.closing) {
+      return Promise.resolve({ ok: false, error: "chat service is closing" });
+    }
+    const promise = this.trackWork(this.openFresh(
       agentKey,
       generation,
       resumeSessionId,
@@ -425,7 +490,7 @@ export class ChatService {
       .finally(() => {
         const current = this.openInFlight.get(agentKey);
         if (current?.generation === generation) this.openInFlight.delete(agentKey);
-      });
+      }));
     this.openInFlight.set(agentKey, { generation, promise });
     return promise;
   }
@@ -443,6 +508,7 @@ export class ChatService {
     resumeSessionId?: string,
     bindPin?: { readonly canvasName: string; readonly nodeId: string },
   ): Promise<ChatOpenResult> {
+    if (this.closing) return { ok: false, error: "chat service is closing" };
     if (bindPin !== undefined) this.setAgentBindPin(bindPin);
     const authorityRestart = this.authorityRestartInFlight.get(agentKey);
     if (authorityRestart !== undefined) return authorityRestart;
@@ -464,6 +530,7 @@ export class ChatService {
     environment: LocalBrowserChildEnvironmentInput,
     resumeSessionId?: string,
   ): Promise<ChatOpenResult> {
+    if (this.closing) return { ok: false, error: "chat service is closing" };
     const target = buildAcpSpawnTarget(agentKey);
     if (target === undefined) return { ok: false, error: `invalid agent key: ${agentKey}` };
     if (target.host !== "local") {
@@ -493,6 +560,7 @@ export class ChatService {
     environment: LocalBrowserChildEnvironmentInput,
     resumeSessionId?: string,
   ): Promise<ChatOpenResult> {
+    if (this.closing) return { ok: false, error: "chat service is closing" };
     const target = buildAcpSpawnTarget(agentKey);
     if (target === undefined) return { ok: false, error: `invalid agent key: ${agentKey}` };
     if (target.host !== "local") {
@@ -517,9 +585,9 @@ export class ChatService {
     const previousOpen = this.openInFlight.get(agentKey);
     const generation = this.nextGeneration(agentKey);
     this.closeCurrent(agentKey);
-    const restart = (async (): Promise<ChatOpenResult> => {
+    const restart = this.trackWork((async (): Promise<ChatOpenResult> => {
       if (previousOpen !== undefined) await previousOpen.promise;
-      if (this.generation(agentKey) !== generation) {
+      if (this.closing || this.generation(agentKey) !== generation) {
         return { ok: false, error: "authority restart superseded" };
       }
       return this.beginOpen(agentKey, effectiveResumeSessionId, overlay, generation);
@@ -527,7 +595,7 @@ export class ChatService {
       if (this.authorityRestartInFlight.get(agentKey) === restart) {
         this.authorityRestartInFlight.delete(agentKey);
       }
-    });
+    }));
     this.authorityRestartInFlight.set(agentKey, restart);
     return restart;
   }
@@ -535,6 +603,7 @@ export class ChatService {
   async chatRevokeLocalBrowserAuthority(
     agentKey: string,
   ): Promise<ChatEnvironmentChangeResult> {
+    if (this.closing) return { ok: false, error: "chat service is closing" };
     const target = buildAcpSpawnTarget(agentKey);
     if (target === undefined) return { ok: false, error: `invalid agent key: ${agentKey}` };
     if (target.host !== "local") {
@@ -551,6 +620,7 @@ export class ChatService {
     resumeSessionId?: string,
     environmentOverlay?: AcpChildEnvironmentOverlay,
   ): Promise<ChatOpenResult> {
+    if (this.closing) return { ok: false, error: "chat service is closing" };
     const target = buildAcpSpawnTarget(agentKey);
     if (!target) return { ok: false, error: `invalid agent key: ${agentKey}` };
     if (this.generation(agentKey) !== generation) {
@@ -609,6 +679,9 @@ export class ChatService {
     text: string,
     contextBlocks?: ReadonlyArray<string>,
   ): Promise<{ readonly turn: ChatTurnResult; readonly reply: string }> {
+    if (this.closing) {
+      return { turn: { ok: false, error: "chat service is closing" }, reply: "" };
+    }
     const session = this.sessions.get(agentKey);
     if (!session || session.client.closed) {
       return {
@@ -633,6 +706,9 @@ export class ChatService {
         sessionId: session.sessionId,
         prompt: blocks,
       });
+      if (!this.isCurrent(agentKey, session) || this.closing) {
+        return { turn: { ok: false, error: "chat session closed" }, reply: "" };
+      }
       this.touch(session);
       return {
         turn: { ok: true, stopReason: result.stopReason },
@@ -644,7 +720,7 @@ export class ChatService {
       session.promptInFlight = false;
       // Transport re-available for pending message nudges (idle re-drive).
       // Does not re-open chat; only notifies listeners that the turn slot is free.
-      this.notifySessionLive(agentKey);
+      if (this.isCurrent(agentKey, session)) this.notifySessionLive(agentKey);
     }
   }
 
@@ -653,13 +729,22 @@ export class ChatService {
     text: string,
     contextBlocks?: ReadonlyArray<string>,
   ): Promise<ChatTurnResult> {
-    return (await this.runPrompt(agentKey, text, contextBlocks)).turn;
+    if (this.closing) return { ok: false, error: "chat service is closing" };
+    return (await this.trackWork(this.runPrompt(agentKey, text, contextBlocks))).turn;
   }
 
-  async agentMessage(agentKey: string, text: string): Promise<AgentReply> {
+  agentMessage(agentKey: string, text: string): Promise<AgentReply> {
+    if (this.closing) {
+      return Promise.resolve({ ok: false, error: "chat service is closing" });
+    }
+    return this.trackWork(this.agentMessageOperation(agentKey, text));
+  }
+
+  private async agentMessageOperation(agentKey: string, text: string): Promise<AgentReply> {
     if (text.trim().length === 0) return { ok: false, error: "empty message" };
     const opened = await this.chatOpen(agentKey);
     if (!opened.ok) return opened;
+    if (this.closing) return { ok: false, error: "chat service is closing" };
     const result = await this.runPrompt(agentKey, text);
     return result.turn.ok
       ? { ok: true, reply: result.reply }
@@ -667,6 +752,7 @@ export class ChatService {
   }
 
   async chatPermission(agentKey: string, requestId: string, optionId: string): Promise<{ ok: boolean }> {
+    if (this.closing) return { ok: false };
     const session = this.sessions.get(agentKey);
     if (!session || session.client.closed) return { ok: false };
     const id = session.pendingPermissions.get(requestId);
@@ -677,12 +763,25 @@ export class ChatService {
     return { ok: true };
   }
 
-  async chatSetModel(agentKey: string, modelId: string): Promise<{ ok: boolean; error?: string }> {
+  chatSetModel(agentKey: string, modelId: string): Promise<{ ok: boolean; error?: string }> {
+    if (this.closing) {
+      return Promise.resolve({ ok: false, error: "chat service is closing" });
+    }
+    return this.trackWork(this.chatSetModelOperation(agentKey, modelId));
+  }
+
+  private async chatSetModelOperation(
+    agentKey: string,
+    modelId: string,
+  ): Promise<{ ok: boolean; error?: string }> {
     const session = this.sessions.get(agentKey);
     if (!session || session.client.closed) return { ok: false, error: "chat session not open" };
     this.touch(session);
     try {
       await session.client.request("session/set_model", { modelId, sessionId: session.sessionId });
+      if (!this.isCurrent(agentKey, session) || this.closing) {
+        return { ok: false, error: "chat session closed" };
+      }
       this.touch(session);
       return { ok: true };
     } catch (err) {
@@ -699,7 +798,9 @@ export class ChatService {
     return { ok: true };
   }
 
-  closeAll(): void {
+  closeAll(): Promise<ChatCloseAllResult> {
+    if (this.closeAllFlight !== undefined) return this.closeAllFlight;
+    this.closing = true;
     this.stopIdleSweep();
     this.unsubscribeHostsSnapshot?.();
     this.unsubscribeHostsSnapshot = undefined;
@@ -710,8 +811,29 @@ export class ChatService {
     ]);
     for (const key of keys) {
       this.nextGeneration(key);
-      this.closeCurrent(key);
+      void this.closeCurrent(key);
     }
+    for (const client of [...this.clients]) void this.closeClient(client);
+
+    this.closeAllFlight = (async (): Promise<ChatCloseAllResult> => {
+      while (true) {
+        for (const client of [...this.clients]) void this.closeClient(client);
+        const flights = new Set<Promise<unknown>>([
+          ...this.workFlights,
+          ...this.clientCloseFlights,
+          ...[...this.openInFlight.values()].map((entry) => entry.promise),
+          ...this.authorityRestartInFlight.values(),
+        ]);
+        if (flights.size === 0) break;
+        await Promise.allSettled(flights);
+      }
+      const teardowns = [...this.teardownReceipts];
+      return {
+        clean: teardowns.every((receipt) => receipt.kind === "terminal"),
+        teardowns,
+      };
+    })();
+    return this.closeAllFlight;
   }
 
   // --- ACP -> ChatEvent projection ------------------------------------------
@@ -766,6 +888,7 @@ export class ChatService {
     if (!this.isCurrent(agentKey, session)) return;
     this.unbindLocalProcess(session);
     this.sessions.delete(agentKey);
+    void this.closeClient(session.client);
     const message = event.kind === "error" ? event.message : `agent process exited (code ${event.code ?? "unknown"})`;
     this.emit(agentKey, "error", { message });
     this.emit(agentKey, "status", { status: "closed" });

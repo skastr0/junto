@@ -1,6 +1,5 @@
 import { isAbsolute } from "node:path";
 import {
-  admitChildProcess,
   releaseOwned,
   signalOwned,
   type OwnedProcess,
@@ -88,8 +87,25 @@ export type AcpChildLike = {
   on(event: "error", listener: (err: Error) => void): unknown;
   on(event: "exit", listener: (code: number | null) => void): unknown;
   on(event: "close", listener: (code: number | null) => void): unknown;
+};
+
+export type LocalAcpProcessChild = AcpChildLike & {
+  readonly pid?: number;
   kill(signal?: NodeJS.Signals): unknown;
 };
+
+export type SpawnedAcpChild =
+  | {
+      readonly kind: "local-process";
+      readonly child: LocalAcpProcessChild;
+      readonly process: OwnedProcess;
+    }
+  | {
+      readonly kind: "remote-scope";
+      readonly child: AcpChildLike;
+      readonly close: () => Promise<void>;
+      readonly isClean: () => boolean;
+    };
 
 export interface LocalBrowserChildEnvironmentInput {
   readonly capability: string;
@@ -114,7 +130,7 @@ export const acpVerboseLogging = (): boolean => {
 export type SpawnFn = (
   target: AcpSpawnTarget,
   options?: AcpSpawnOptions,
-) => AcpChildLike;
+) => SpawnedAcpChild;
 
 const BROWSER_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const BROWSER_CAPABILITY_BYTES = 32;
@@ -205,20 +221,34 @@ export type AcpTeardownResult =
       readonly kind: "bounded";
       readonly termAttempted: boolean;
       readonly killAttempted: boolean;
+    }
+  | {
+      readonly kind: "unclean";
+      readonly reason: "remote-scope-close-failed";
     };
 
-interface AcpGeneration {
+interface AcpGenerationBase {
   readonly child: AcpChildLike;
-  readonly process: OwnedProcess;
   buffer: string;
   finalized: boolean;
   teardown?: AcpTeardown;
 }
 
+type AcpGeneration =
+  | (AcpGenerationBase & {
+      readonly kind: "local-process";
+      readonly process: OwnedProcess;
+    })
+  | (AcpGenerationBase & {
+      readonly kind: "remote-scope";
+      readonly closeScope: () => Promise<void>;
+      readonly isScopeClean: () => boolean;
+    });
+
 interface AcpTeardown {
   readonly promise: Promise<AcpTeardownResult>;
   readonly resolve: (result: AcpTeardownResult) => void;
-  readonly forceTimer: ReturnType<typeof setTimeout>;
+  readonly forceTimer?: ReturnType<typeof setTimeout>;
   readonly boundTimer: ReturnType<typeof setTimeout>;
   termAttempted: boolean;
   killAttempted: boolean;
@@ -283,19 +313,27 @@ export class AcpClient {
     if (environmentOverlay !== undefined && this.target.host !== "local") {
       throw new Error("ACP child environment overlays are local-only");
     }
-    const child = this.spawnFn(
+    const spawned = this.spawnFn(
       this.target,
       environmentOverlay === undefined ? undefined : { environmentOverlay },
     );
-    const generation: AcpGeneration = {
-      child,
-      process: admitChildProcess({
-        source: `chat-acp:${this.target.host}:${this.target.profile}`,
-        child,
-      }),
-      buffer: "",
-      finalized: false,
-    };
+    const child = spawned.child;
+    const generation: AcpGeneration = spawned.kind === "local-process"
+      ? {
+          kind: "local-process",
+          child,
+          process: spawned.process,
+          buffer: "",
+          finalized: false,
+        }
+      : {
+          kind: "remote-scope",
+          child,
+          closeScope: spawned.close,
+          isScopeClean: spawned.isClean,
+          buffer: "",
+          finalized: false,
+        };
     this.current = generation;
 
     child.stdout.on("data", (chunk: unknown) => {
@@ -401,14 +439,16 @@ export class AcpClient {
       resolve = done;
     });
     let teardown!: AcpTeardown;
-    const forceTimer = setTimeout(() => {
-      if (generation.finalized) return;
-      teardown.killAttempted = signalOwned(generation.process, "SIGKILL").attempted;
-    }, SIGTERM_GRACE_MS);
+    const forceTimer = generation.kind === "local-process"
+      ? setTimeout(() => {
+          if (generation.finalized) return;
+          teardown.killAttempted = signalOwned(generation.process, "SIGKILL").attempted;
+        }, SIGTERM_GRACE_MS)
+      : undefined;
     const boundTimer = setTimeout(() => {
       this.finalizeBounded(generation);
     }, SIGTERM_GRACE_MS * 2);
-    forceTimer.unref?.();
+    forceTimer?.unref?.();
     boundTimer.unref?.();
     teardown = {
       promise,
@@ -422,17 +462,28 @@ export class AcpClient {
     this.teardownFlights.add(promise);
     void promise.then(() => this.teardownFlights.delete(promise));
 
-    teardown.termAttempted = signalOwned(generation.process, "SIGTERM").attempted;
+    if (generation.kind === "local-process") {
+      teardown.termAttempted = signalOwned(generation.process, "SIGTERM").attempted;
+    } else {
+      try {
+        void generation.closeScope().catch(() => {
+          // The absolute bound remains authoritative if the scope wrapper
+          // cannot complete its contained cleanup.
+        });
+      } catch {
+        // Same bounded retirement path as an asynchronously rejected close.
+      }
+    }
     return promise;
   }
 
   private finalizeBounded(generation: AcpGeneration): void {
     if (generation.finalized) return;
     generation.finalized = true;
-    releaseOwned(generation.process);
+    if (generation.kind === "local-process") releaseOwned(generation.process);
     const teardown = generation.teardown;
     if (teardown === undefined) return;
-    clearTimeout(teardown.forceTimer);
+    if (teardown.forceTimer !== undefined) clearTimeout(teardown.forceTimer);
     clearTimeout(teardown.boundTimer);
     teardown.resolve({
       kind: "bounded",
@@ -610,12 +661,16 @@ export class AcpClient {
     if (generation.finalized) return;
     const current = this.isCurrentGeneration(generation);
     generation.finalized = true;
-    releaseOwned(generation.process);
+    if (generation.kind === "local-process") releaseOwned(generation.process);
     const teardown = generation.teardown;
     if (teardown !== undefined) {
-      clearTimeout(teardown.forceTimer);
+      if (teardown.forceTimer !== undefined) clearTimeout(teardown.forceTimer);
       clearTimeout(teardown.boundTimer);
-      teardown.resolve({ kind: "terminal", event, code });
+      teardown.resolve(
+        generation.kind === "remote-scope" && !generation.isScopeClean()
+          ? { kind: "unclean", reason: "remote-scope-close-failed" }
+          : { kind: "terminal", event, code },
+      );
     }
     if (!current) return;
     this.current = undefined;

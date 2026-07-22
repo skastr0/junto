@@ -9,6 +9,7 @@ import {
   type JsonRpcId,
 } from "../src/main/vellum/chat/acp-client";
 import { buildAcpSpawnTarget, type AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
+import { spawnedLocalAcp } from "./helpers/acp-child";
 
 const TARGET = buildAcpSpawnTarget("local:default")!;
 
@@ -50,7 +51,7 @@ async function startedClient(
   handlers: AcpClientHandlers = noopHandlers(),
 ): Promise<{ client: AcpClient; child: FakeChild }> {
   const child = new FakeChild();
-  const client = new AcpClient(TARGET, handlers, () => child);
+  const client = new AcpClient(TARGET, handlers, () => spawnedLocalAcp(child));
   clients.push(client);
   const startPromise = client.start();
   respondOk(child, lastSentId(child), {
@@ -65,7 +66,7 @@ async function startedClient(
 describe("AcpClient.start", () => {
   it("sends the initialize handshake with the proven wire shape", () => {
     const child = new FakeChild();
-    const client = new AcpClient(TARGET, noopHandlers(), () => child);
+    const client = new AcpClient(TARGET, noopHandlers(), () => spawnedLocalAcp(child));
     clients.push(client);
 
     // This test only cares about the synchronous write; afterEach's cleanup
@@ -103,7 +104,7 @@ describe("AcpClient.start", () => {
 
   it("consumes a validated local child overlay at spawn without changing ACP intent", async () => {
     const child = new FakeChild();
-    const spawn = vi.fn(() => child);
+    const spawn = vi.fn(() => spawnedLocalAcp(child));
     const overlay = makeLocalBrowserChildEnvironment({
       capability: Buffer.alloc(32, 0xa1).toString("base64url"),
       home: "/tmp/vellum-browser",
@@ -126,7 +127,7 @@ describe("AcpClient.start", () => {
 
   it("rejects a remote child overlay before invoking spawn", async () => {
     const remote: AcpSpawnTarget = buildAcpSpawnTarget("remote-a:default")!;
-    const spawn = vi.fn(() => new FakeChild());
+    const spawn = vi.fn(() => spawnedLocalAcp(new FakeChild()));
     const client = new AcpClient(
       remote,
       noopHandlers(),
@@ -172,7 +173,7 @@ describe("AcpClient.start", () => {
   it("rejects and kills the child after 20s with no response", async () => {
     vi.useFakeTimers();
     const child = new FakeChild();
-    const client = new AcpClient(TARGET, noopHandlers(), () => child);
+    const client = new AcpClient(TARGET, noopHandlers(), () => spawnedLocalAcp(child));
     clients.push(client);
 
     const startPromise = client.start();

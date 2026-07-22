@@ -10,6 +10,7 @@ import type {
 import type { AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
 import { ChatService } from "../src/main/vellum/chat/service";
 import type { ChatEvent } from "../src/shared/ipc";
+import { spawnedLocalAcp } from "./helpers/acp-child";
 
 const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
 
@@ -75,7 +76,7 @@ function fakeSpawn(): {
     const child = new FakeChild();
     children.push(child);
     calls.push({ target, ...(options !== undefined ? { options } : {}) });
-    return child;
+    return spawnedLocalAcp(child);
   };
   return { spawnFn, children, calls };
 }
@@ -126,6 +127,7 @@ async function finishPendingOpen(
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -642,5 +644,135 @@ describe("crash / event projection", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({ agentKey: "local:default", kind: "agent_message_chunk", payload: update });
+  });
+});
+
+describe("closeAll convergence", () => {
+  it("awaits a terminal child, reports a clean receipt, and refuses new work", async () => {
+    const { spawnFn, children } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    const { child } = await openHappyPath(service, children);
+    child.kill.mockImplementation((signal?: NodeJS.Signals) => {
+      if (signal === "SIGTERM") child.emit("close", 0);
+      return true;
+    });
+
+    const first = service.closeAll();
+    const second = service.closeAll();
+
+    expect(second).toBe(first);
+    await expect(first).resolves.toEqual({
+      clean: true,
+      teardowns: [{ kind: "terminal", event: "close", code: 0 }],
+    });
+    await expect(service.chatOpen("local:default")).resolves.toEqual({
+      ok: false,
+      error: "chat service is closing",
+    });
+    await expect(service.chatPrompt("local:default", "late prompt")).resolves.toEqual({
+      ok: false,
+      error: "chat service is closing",
+    });
+  });
+
+  it("waits through SIGKILL and returns an unclean receipt at the absolute bound", async () => {
+    vi.useFakeTimers();
+    const { spawnFn, children } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    const { child } = await openHappyPath(service, children);
+
+    const shutdown = service.closeAll();
+    let settled = false;
+    void shutdown.then(() => { settled = true; });
+    await flush();
+    expect(settled).toBe(false);
+    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(shutdown).resolves.toEqual({
+      clean: false,
+      teardowns: [{ kind: "bounded", termAttempted: true, killAttempted: true }],
+    });
+  });
+
+  it("drains active prompt and model operations before resolving", async () => {
+    const { spawnFn, children } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    const { child } = await openHappyPath(service, children);
+    const prompt = service.chatPrompt("local:default", "still running");
+    const model = service.chatSetModel("local:default", "model-b");
+    await waitForWrites(child, 4);
+    child.kill.mockImplementation((signal?: NodeJS.Signals) => {
+      if (signal === "SIGTERM") queueMicrotask(() => child.emit("close", 0));
+      return true;
+    });
+
+    const shutdown = service.closeAll();
+
+    await expect(prompt).resolves.toMatchObject({ ok: false });
+    await expect(model).resolves.toMatchObject({ ok: false });
+    await expect(shutdown).resolves.toMatchObject({ clean: true });
+  });
+
+  it("drains an in-flight authority restart without allowing its replacement to survive", async () => {
+    const { spawnFn, children } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    const { child: original } = await openHappyPath(service, children);
+    original.kill.mockImplementation((signal?: NodeJS.Signals) => {
+      if (signal === "SIGTERM") original.emit("close", 0);
+      return true;
+    });
+
+    const restart = service.chatRestartWithLocalBrowserAuthority(
+      "local:default",
+      BROWSER_AUTHORITY,
+    );
+    await flush();
+    const replacement = children[1]!;
+    expect(replacement).toBeDefined();
+    replacement.kill.mockImplementation((signal?: NodeJS.Signals) => {
+      if (signal === "SIGTERM") replacement.emit("close", 0);
+      return true;
+    });
+
+    const shutdown = service.closeAll();
+
+    await expect(restart).resolves.toMatchObject({ ok: false });
+    await expect(shutdown).resolves.toEqual({
+      clean: true,
+      teardowns: [
+        { kind: "terminal", event: "close", code: 0 },
+        { kind: "terminal", event: "close", code: 0 },
+      ],
+    });
+    expect(children).toHaveLength(2);
+  });
+
+  it("contains a throwing event sink while lifecycle cleanup continues", async () => {
+    const { spawnFn, children } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    const { child } = await openHappyPath(service, children);
+    service.setEventSink(() => { throw new Error("renderer observer failed"); });
+
+    expect(() => {
+      child.stdout.emit(
+        "data",
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { update: { sessionUpdate: "agent_message_chunk", content: { text: "x" } } },
+        })}\n`,
+      );
+    }).not.toThrow();
+    child.kill.mockImplementation((signal?: NodeJS.Signals) => {
+      if (signal === "SIGTERM") child.emit("close", 0);
+      return true;
+    });
+
+    await expect(service.closeAll()).resolves.toMatchObject({ clean: true });
   });
 });
