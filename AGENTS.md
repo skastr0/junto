@@ -144,12 +144,23 @@ Vellum mints when it owns the resource.
 PR test: *Can a confused agent or bad test pass a bare pid/path into a
 host-destructive call? If yes, the change is not done.*
 
+## Factory physics (architecture north star)
+
+**The canvas is a factory floor, not an ACL spreadsheet.** Edges are ocaps
+(mint by draw, attenuate via ports, revoke by delete); process-bind wields the
+seat. Roles derive from entity kind — never authorial `ether.role`. Capability,
+phase, and attention/occupancy are separate planes.
+
+- **PR test:** no host capability without connected edge + port + process-bind.
+- **Full doctrine:** [`docs/architecture-factory-physics.md`](docs/architecture-factory-physics.md).
+
 ## Discipline
 
 - Adapters are read-only. The document is the only thing the user (or an agent) mutates.
 - Board/source IDs and tokens never leak into committed source.
 - `bun run typecheck && bun run test` gate every change.
 - Host-touching code follows Machine safety (above) — fail closed, capability-first.
+- Agent reach follows Factory physics (above) — edges + ports + process-bind; no ambient region grants.
 
 ## Multi-agent tree (for builders)
 
