@@ -433,7 +433,7 @@ describe("HerdrService with mock runner", () => {
     expect(res).toEqual({ ok: true, data: { running: true, started: false } });
   });
 
-  it("ensureServer shares one startup flight for concurrent callers on the same session", async () => {
+  it("ensureServer shares one startup flight for concurrent default-session callers", async () => {
     let startCalls = 0;
     let releaseStart: (() => void) | undefined;
     const startReady = new Promise<void>((resolve) => {
@@ -450,12 +450,16 @@ describe("HerdrService with mock runner", () => {
     };
     const svc = new HerdrService(runner, () => undefined, starter);
 
-    const callers = Array.from({ length: 5 }, () => svc.ensureServer("local", "ops"));
+    const callers = [
+      svc.ensureServer("local"),
+      svc.ensureServer("local", null),
+      svc.ensureServer("local", ""),
+    ];
     await vi.waitFor(() => expect(startCalls).toBe(1));
     releaseStart?.();
 
     await expect(Promise.all(callers)).resolves.toEqual(
-      Array.from({ length: 5 }, () => ({ ok: true, data: { running: true, started: true } })),
+      Array.from({ length: 3 }, () => ({ ok: true, data: { running: true, started: true } })),
     );
     expect(startCalls).toBe(1);
   });
@@ -478,6 +482,59 @@ describe("HerdrService with mock runner", () => {
       data: { running: true, started: true },
     });
     expect(startCalls).toBe(2);
+  });
+
+  it("ensureServer does not share a flight after a same-id host endpoint edit", async () => {
+    const { findHostById, setHostsSnapshot } = await import("../src/main/vellum/hosts/snapshot");
+    const { defaultRemoteHostsDocument } = await import("../src/shared/remote-hosts");
+    const baseHosts = defaultRemoteHostsDocument().hosts;
+    const withEndpoint = (endpoint: string) => [
+      ...baseHosts,
+      { id: "studio", label: "studio", kind: "remote" as const, endpoint, capabilities: ["herdr" as const] },
+    ];
+    setHostsSnapshot(withEndpoint("studio-a"));
+
+    let releaseOld: (() => void) | undefined;
+    const oldReady = new Promise<void>((resolve) => {
+      releaseOld = resolve;
+    });
+    let releaseNew: (() => void) | undefined;
+    const newReady = new Promise<void>((resolve) => {
+      releaseNew = resolve;
+    });
+    const startedEndpoints: string[] = [];
+    const runner: HerdrRunner = async (_host, args) => {
+      if (args[0] === "status") return ok(JSON.stringify({ server: { running: false } }));
+      return fail("unexpected");
+    };
+    const starter = async () => {
+      const host = findHostById("studio");
+      const endpoint = host?.kind === "remote" ? host.endpoint : undefined;
+      startedEndpoints.push(endpoint ?? "missing");
+      if (endpoint === "studio-a") await oldReady;
+      if (endpoint === "studio-b") await newReady;
+      return ok("");
+    };
+    const svc = new HerdrService(runner, () => undefined, starter);
+
+    try {
+      const oldFlight = svc.ensureServer("studio");
+      await vi.waitFor(() => expect(startedEndpoints).toEqual(["studio-a"]));
+
+      setHostsSnapshot(withEndpoint("studio-b"));
+      const newFlight = svc.ensureServer("studio");
+      await vi.waitFor(() => expect(startedEndpoints).toEqual(["studio-a", "studio-b"]));
+
+      releaseOld?.();
+      await expect(oldFlight).resolves.toEqual({ ok: true, data: { running: true, started: true } });
+      // The old completion must not clear the current-route flight.
+      expect(svc.ensureServer("studio")).toBe(newFlight);
+
+      releaseNew?.();
+      await expect(newFlight).resolves.toEqual({ ok: true, data: { running: true, started: true } });
+    } finally {
+      setHostsSnapshot(baseHosts);
+    }
   });
 
   it("markPaneSeen runs agent focus and returns agent_status", async () => {

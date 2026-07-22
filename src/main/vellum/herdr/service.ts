@@ -1,5 +1,6 @@
 import type { CliResult } from "../adapters/exec";
 import { getProcessIdentityMap } from "../process-identity";
+import { findHostById } from "../hosts/snapshot";
 import { isKnownHerdrHost, listHerdrHosts, UnknownHerdrHostError, type HerdrHostDef } from "./hosts";
 import type { HerdrMirrorReads } from "./mirror";
 import {
@@ -85,6 +86,16 @@ const requireHost = (hostId: string): HerdrResultErr | null => {
   return null;
 };
 
+/** Captures the route that a host id resolved to when a startup flight began. */
+const hostRouteIdentity = (hostId: string): string => {
+  const host = findHostById(hostId);
+  return JSON.stringify([
+    hostId,
+    host?.kind ?? null,
+    host?.kind === "remote" ? host.endpoint ?? null : null,
+  ]);
+};
+
 const runEnvelope = async (
   runner: HerdrRunner,
   hostId: string,
@@ -156,16 +167,17 @@ export class HerdrService {
   ): Promise<HerdrResult<{ readonly running: boolean; readonly started: boolean }>> {
     const bad = requireHost(hostId);
     if (bad) return Promise.resolve(bad);
+    const normalizedSession = session || null;
     // A fresh mirror is itself live proof the server is running.
-    if (this.mirrorIfFresh(hostId, session)) {
+    if (this.mirrorIfFresh(hostId, normalizedSession)) {
       return Promise.resolve({ ok: true, data: { running: true, started: false } });
     }
 
-    const key = JSON.stringify([hostId, session ?? null]);
+    const key = JSON.stringify([hostRouteIdentity(hostId), normalizedSession]);
     const existing = this.serverEnsures.get(key);
     if (existing) return existing;
 
-    const flight = this.ensureServerOnce(hostId, session);
+    const flight = this.ensureServerOnce(hostId, normalizedSession);
     this.serverEnsures.set(key, flight);
     const clear = () => {
       if (this.serverEnsures.get(key) === flight) this.serverEnsures.delete(key);
