@@ -399,7 +399,13 @@ export const registerVellumIpc = (): void => {
       const kernel = yield* KernelService;
       const chat = yield* ChatServiceContext;
       const herdr = yield* HerdrPlane;
-      yield* canvases.ensureSeed.pipe(Effect.catchAll(() => Effect.void));
+      yield* Effect.tryPromise({
+        try: () => runMainAuthoring(
+          "startup.canvas.ensure-seed",
+          () => Effect.runPromise(canvases.ensureSeed),
+        ),
+        catch: () => undefined,
+      }).pipe(Effect.catchAll(() => Effect.void));
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
       usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
