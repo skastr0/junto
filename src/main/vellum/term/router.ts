@@ -384,7 +384,7 @@ export class TerminalRouter extends EventEmitter {
           if (!token) {
             return yield* Effect.fail(
               new Error(
-                `no term control token on ${hostId} — start Vellum on that host`,
+                `no term control on ${hostId} — Vellum is not running there (open app or Settings → Deploy Remote)`,
               ),
             );
           }
@@ -396,11 +396,19 @@ export class TerminalRouter extends EventEmitter {
         }),
       );
 
-      const client = await TermControlClient.connect({
-        socketPath: pair.localSocket,
-        token: pair.token,
-        timeoutMs: 12_000,
-      });
+      let client: TermControlClient;
+      try {
+        client = await TermControlClient.connect({
+          socketPath: pair.localSocket,
+          token: pair.token,
+          timeoutMs: 12_000,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `cannot reach term control on ${hostId} (${msg}). Ensure Vellum Command is running on that Mac and ~/.vellum/term/control.sock exists`,
+        );
+      }
 
       const remoteEntry: RemoteEntry = {
         client,
