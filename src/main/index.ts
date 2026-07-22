@@ -96,6 +96,20 @@ import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
 app.commandLine.appendSwitch("no-proxy-server");
 registerTrustedRendererScheme(protocol);
 
+// electron-vite (and some launchd/stdio handoffs) can close the parent pipe
+// while main still logs. A bare console.* write then throws EPIPE as an
+// uncaught exception and Electron paints the "JavaScript error in main
+// process" dialog on top of a still-open window. Swallow only broken-pipe
+// IO on the process streams — real logging failures stay loud elsewhere.
+const ignoreBrokenPipe = (stream: NodeJS.WriteStream | undefined): void => {
+  stream?.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EPIPE" || error.code === "EIO") return;
+    throw error;
+  });
+};
+ignoreBrokenPipe(process.stdout);
+ignoreBrokenPipe(process.stderr);
+
 app.on(
   "select-client-certificate",
   (event, webContents, _url, _certificateList, callback) => {
@@ -541,11 +555,15 @@ let relaunchCount = 0;
 const registerCrashRecovery = (mainWindow: BrowserWindow) => {
   // Dev observability: forward the renderer console to main stdout so headless
   // failures are visible in the terminal log. Noise-only — stays dev-gated.
+  // Electron 43 deprecates the positional console-message signature; use the
+  // Event<WebContentsConsoleMessageEventParams> fields instead.
   if (!app.isPackaged) {
-    mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
-      if (level >= 2) {
-        console.log(`[renderer:${level === 3 ? "error" : "warn"}] ${message} (${sourceId}:${line})`);
-      }
+    mainWindow.webContents.on("console-message", (event) => {
+      if (event.level !== "error" && event.level !== "warning") return;
+      const severity = event.level === "error" ? "error" : "warn";
+      console.log(
+        `[renderer:${severity}] ${event.message} (${event.sourceId}:${event.lineNumber})`,
+      );
     });
   }
 
@@ -688,25 +706,40 @@ const createWindow = () => {
   const clearRendererTrust = (): void => {
     if (trustedMainWindow === mainWindow) setTrustedMainWebContents(undefined);
   };
-  // Trust is revoked at the first navigation edge, then reacquired only after
-  // a successful load of the boot authority. Redirects are never part of the
-  // boot contract: even a same-origin redirect could swap the application
-  // document beneath a previously privileged preload generation.
+  // Trust is revoked only when a main-frame navigation is actually admitted,
+  // then reacquired on did-finish-load of the boot authority.
+  //
+  // Critical: never clear trust and then preventDefault the same navigation.
+  // That left the window on the previous document with IPC permanently
+  // revoked (black/stuck UI after any Vite full reload, link click, or
+  // page-initiated navigation attempt).
   mainWindow.webContents.on("did-start-navigation", (_event, _url, _inPlace, isMainFrame) => {
     if (isMainFrame) clearRendererTrust();
   });
-  mainWindow.webContents.on("will-navigate", (event) => {
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (!rendererOrigin.allows(url)) {
+      // Deny off-authority navigation without dropping trust on the still-live
+      // document the user remains looking at.
+      event.preventDefault();
+      return;
+    }
+    // Same-authority (Vite HMR full reload, in-app path): clear trust; the
+    // subsequent did-finish-load re-mints it for the new document generation.
     clearRendererTrust();
-    event.preventDefault();
   });
   mainWindow.webContents.on("will-redirect", (event) => {
-    clearRendererTrust();
+    // Redirects are never part of the boot contract: even a same-origin
+    // redirect could swap the application document beneath a previously
+    // privileged preload generation. Cancel without revoking trust for the
+    // document that remains committed.
     event.preventDefault();
   });
   mainWindow.webContents.on("did-finish-load", () => {
     if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
-    if (!rendererOrigin.allows(mainWindow.webContents.getURL())) {
+    const loadedUrl = mainWindow.webContents.getURL();
+    if (!rendererOrigin.allows(loadedUrl)) {
       clearRendererTrust();
+      console.error(`[window] trusted renderer rejected loaded URL: ${loadedUrl}`);
       mainWindow.destroy();
       return;
     }
