@@ -9,6 +9,7 @@
 import { EventEmitter } from "node:events";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { Effect, ExecutionStrategy, Exit, Scope } from "effect";
 import {
   findHostById,
@@ -35,6 +36,7 @@ import type {
   LocalSessionHost,
 } from "./local-host";
 import { TermControlClient } from "./control-client";
+import type { TermControlClientShutdownReceipt } from "./control-client";
 
 /**
  * Lazy AppRuntime accessor — avoids importing main/runtime (Electron) when
@@ -60,8 +62,76 @@ type RemoteEntry = {
   generation: number;
   /** Forked Effect scope that owns the SSH forward finalizers. */
   scope: Scope.CloseableScope;
+  /** Parent scope must be closed too; retaining only the child leaks authority. */
+  rootScope: Scope.CloseableScope;
   leaseMap: Map<string, string>;
   reverseLease: Map<string, string>;
+  closeFlight?: Promise<RemoteCloseReceipt>;
+  closeReceipt?: RemoteCloseReceipt;
+};
+
+type RemoteCloseReceipt = {
+  readonly clean: boolean;
+  readonly client: TermControlClientShutdownReceipt;
+  readonly scopeClosed: boolean;
+  readonly diagnostics: ReadonlyArray<string>;
+};
+
+export interface TerminalRouterRetainedCounts {
+  readonly dials: number;
+  readonly remoteEntries: number;
+  readonly remoteClosures: number;
+}
+
+export interface TerminalRouterShutdownReceipt {
+  readonly clean: boolean;
+  readonly rounds: number;
+  readonly settled: number;
+  readonly fulfilled: number;
+  readonly rejected: number;
+  readonly retainedCounts: TerminalRouterRetainedCounts;
+  readonly retainedLabels: ReadonlyArray<string>;
+  readonly diagnostics: ReadonlyArray<string>;
+}
+
+export interface TerminalRouterRuntime {
+  /** Tests may lower, never raise, the complete remote drain deadline. */
+  readonly shutdownDeadlineMs?: number;
+}
+
+const ROUTER_SHUTDOWN_DEADLINE_MS = 3_000;
+
+const boundedRuntimeValue = (value: number | undefined, ceiling: number): number =>
+  value === undefined || !Number.isFinite(value) || value <= 0
+    ? ceiling
+    : Math.min(Math.floor(value), ceiling);
+
+const wait = (durationMs: number): Promise<void> =>
+  new Promise((resolveWait) => setTimeout(resolveWait, durationMs));
+
+const allSettledBefore = async (
+  promises: ReadonlyArray<Promise<unknown>>,
+  deadline: number,
+): Promise<
+  | { readonly timedOut: true }
+  | { readonly timedOut: false; readonly outcomes: ReadonlyArray<PromiseSettledResult<unknown>> }
+> => {
+  const remainingMs = Math.max(0, deadline - performance.now());
+  if (remainingMs === 0) return { timedOut: true };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.allSettled(promises).then((outcomes) => ({
+        timedOut: false as const,
+        outcomes,
+      })),
+      new Promise<{ readonly timedOut: true }>((resolveTimeout) => {
+        timer = setTimeout(() => resolveTimeout({ timedOut: true }), remainingMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 };
 
 export type AttachResult =
@@ -86,11 +156,22 @@ export class TerminalRouter extends EventEmitter {
   private readonly inFlight = new Set<Promise<RemoteEntry>>();
   /** Once shutdown begins, this router cannot acquire another remote authority. */
   private quiescing = false;
+  private unsubscribed = false;
   private generation = 0;
   private readonly unsubscribeHosts: () => void;
+  private readonly shutdownDeadlineMs: number;
+  private drainFlight: Promise<TerminalRouterShutdownReceipt> | undefined;
+  private readonly diagnostics: string[] = [];
 
-  constructor(private readonly local: LocalSessionHost) {
+  constructor(
+    private readonly local: LocalSessionHost,
+    runtime: TerminalRouterRuntime = {},
+  ) {
     super();
+    this.shutdownDeadlineMs = boundedRuntimeValue(
+      runtime.shutdownDeadlineMs,
+      ROUTER_SHUTDOWN_DEADLINE_MS,
+    );
     local.on("event", (ev: LocalHostEvent) => this.emit("event", ev));
     this.unsubscribeHosts = subscribeHostsSnapshot(() => {
       this.generation += 1;
@@ -98,9 +179,13 @@ export class TerminalRouter extends EventEmitter {
       // request reconnects against the current snapshot instead of reusing a
       // forward authorized by an earlier registry generation.
       for (const [hostId, entry] of [...this.remotes]) {
-        void this.closeRemoteEntry(hostId, entry);
+        this.beginRemoteClose(hostId, entry);
       }
     });
+  }
+
+  private assertSessionAdmission(): void {
+    if (this.quiescing) throw new Error("terminal router is stopping");
   }
 
   isLocalHostId(hostId: string | undefined | null): boolean {
@@ -112,6 +197,7 @@ export class TerminalRouter extends EventEmitter {
   async create(
     input: LocalHostCreateInput & { hostId?: string },
   ): Promise<TerminalSessionSummary> {
+    this.assertSessionAdmission();
     const hostId = input.hostId?.trim() || "local";
     if (this.isLocalHostId(hostId)) {
       return this.local.create({ ...input, hostId: "local" });
@@ -174,6 +260,7 @@ export class TerminalRouter extends EventEmitter {
   }
 
   async kill(bindingId: string, hostId?: string): Promise<boolean> {
+    if (this.quiescing) return false;
     if (!hostId || this.isLocalHostId(hostId)) return this.local.kill(bindingId);
     try {
       const c = await this.ensureRemoteClient(hostId);
@@ -188,6 +275,7 @@ export class TerminalRouter extends EventEmitter {
     ref: { canvasName?: string; nodeId?: string } | null,
     hostId?: string,
   ): Promise<void> {
+    this.assertSessionAdmission();
     if (!hostId || this.isLocalHostId(hostId)) {
       this.local.bindCanvas(bindingId, ref);
       return;
@@ -202,6 +290,9 @@ export class TerminalRouter extends EventEmitter {
     takeover?: boolean;
     hostId?: string;
   }): Promise<AttachResult> {
+    if (this.quiescing) {
+      return { ok: false, message: "terminal router is stopping" };
+    }
     const hostId = input.hostId?.trim() || "local";
     if (this.isLocalHostId(hostId)) {
       return this.local.attach(input);
@@ -253,6 +344,7 @@ export class TerminalRouter extends EventEmitter {
   }
 
   async write(lease: ControlLease, data: string, hostId?: string): Promise<boolean> {
+    if (this.quiescing) return false;
     if (!hostId || this.isLocalHostId(hostId)) return this.local.write(lease, data);
     const entry = await this.currentRemoteEntry(hostId);
     const remoteId = entry?.leaseMap.get(lease.leaseId);
@@ -270,6 +362,7 @@ export class TerminalRouter extends EventEmitter {
     rows: number,
     hostId?: string,
   ): Promise<boolean> {
+    if (this.quiescing) return false;
     if (!hostId || this.isLocalHostId(hostId)) {
       return this.local.resize(lease, cols, rows);
     }
@@ -291,15 +384,147 @@ export class TerminalRouter extends EventEmitter {
     return this.local.shutdownAll(reason);
   }
 
-  /** Close SSH forwards + control clients only. Never kills remote sessions. */
-  async closeRemotes(): Promise<void> {
+  /**
+   * Synchronously revoke dial/control admission. Remote station sessions are
+   * deliberately untouched; only local clients and SSH-forward scopes close.
+   */
+  beginShutdown(): void {
+    if (this.quiescing) return;
     this.quiescing = true;
-    this.unsubscribeHosts();
-    const inFlight = [...this.inFlight];
+    if (!this.unsubscribed) {
+      this.unsubscribed = true;
+      this.unsubscribeHosts();
+    }
     this.connecting.clear();
-    await Promise.allSettled(inFlight);
     for (const [id, entry] of [...this.remotes]) {
-      await this.closeRemoteEntry(id, entry);
+      try {
+        entry.client.beginShutdown();
+      } catch (error) {
+        this.diagnostics.push(
+          `remote:${id}:client-begin: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      this.beginRemoteClose(id, entry);
+    }
+  }
+
+  /** Bounded, retryable fixed-point drain for dials, clients, and forwards. */
+  drainOnQuit(): Promise<TerminalRouterShutdownReceipt> {
+    this.beginShutdown();
+    if (this.drainFlight !== undefined) return this.drainFlight;
+    for (const [id, entry] of [...this.remotes]) {
+      // An unclean client receipt is a bounded observation. A later socket
+      // close may now be available, so each explicit drain gets one retry.
+      if (
+        entry.closeReceipt?.clean === false &&
+        entry.closeReceipt.scopeClosed
+      ) {
+        entry.closeFlight = undefined;
+        entry.closeReceipt = undefined;
+      }
+      this.beginRemoteClose(id, entry);
+    }
+    const current = (async (): Promise<TerminalRouterShutdownReceipt> => {
+      const deadline = performance.now() + this.shutdownDeadlineMs;
+      let rounds = 0;
+      let settled = 0;
+      let fulfilled = 0;
+      let rejected = 0;
+      const processed = new Set<Promise<unknown>>();
+
+      for (;;) {
+        for (const [id, entry] of [...this.remotes]) this.beginRemoteClose(id, entry);
+        const round = [
+          ...this.inFlight,
+          ...[...this.remotes.values()]
+            .map((entry) => entry.closeFlight)
+            .filter((flight): flight is Promise<RemoteCloseReceipt> => flight !== undefined),
+        ].filter((flight) => !processed.has(flight));
+        if (round.length > 0) {
+          const outcome = await allSettledBefore(round, deadline);
+          if (outcome.timedOut) break;
+          rounds += 1;
+          settled += outcome.outcomes.length;
+          fulfilled += outcome.outcomes.filter((entry) => entry.status === "fulfilled").length;
+          rejected += outcome.outcomes.filter((entry) => entry.status === "rejected").length;
+          for (const flight of round) processed.add(flight);
+          await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+          continue;
+        }
+        if (this.inFlight.size === 0 && this.remotes.size === 0) {
+          const diagnostics = Object.freeze([...this.diagnostics]);
+          return Object.freeze({
+            // Dial promises normally reject after the admission cut. Their
+            // rejection is an operation outcome, not evidence of retained OS
+            // authority; cleanup diagnostics remain fail-closed below.
+            clean: diagnostics.length === 0,
+            rounds,
+            settled,
+            fulfilled,
+            rejected,
+            retainedCounts: Object.freeze({
+              dials: 0,
+              remoteEntries: 0,
+              remoteClosures: 0,
+            }),
+            retainedLabels: Object.freeze([]),
+            diagnostics,
+          });
+        }
+        const remainingMs = deadline - performance.now();
+        if (remainingMs <= 0) break;
+        await wait(Math.min(5, remainingMs));
+      }
+
+      const remoteClosures = [...this.remotes.values()].filter(
+        (entry) => entry.closeFlight !== undefined,
+      ).length;
+      const labels = new Set<string>();
+      if (this.inFlight.size > 0) labels.add("remote-dial");
+      if (this.remotes.size > 0) labels.add("remote-entry");
+      if (remoteClosures > 0) labels.add("remote-close");
+      const diagnostics = [
+        ...this.diagnostics,
+        ...[...this.remotes.entries()].flatMap(([hostId, entry]) =>
+          (entry.closeReceipt?.diagnostics ?? []).map(
+            (item) => `remote:${hostId}:${item}`,
+          )
+        ),
+      ];
+      return Object.freeze({
+        clean: false,
+        rounds,
+        settled,
+        fulfilled,
+        rejected,
+        retainedCounts: Object.freeze({
+          dials: this.inFlight.size,
+          remoteEntries: this.remotes.size,
+          remoteClosures,
+        }),
+        retainedLabels: Object.freeze([...labels].sort()),
+        diagnostics: Object.freeze(diagnostics),
+      });
+    })();
+    this.drainFlight = current;
+    void current.then(
+      () => {
+        if (this.drainFlight === current) this.drainFlight = undefined;
+      },
+      () => {
+        if (this.drainFlight === current) this.drainFlight = undefined;
+      },
+    );
+    return current;
+  }
+
+  /** Compatibility entry point; never hides an unclean remote drain. */
+  async closeRemotes(): Promise<void> {
+    const receipt = await this.drainOnQuit();
+    if (!receipt.clean) {
+      throw new Error(
+        `terminal remote shutdown retained: ${receipt.retainedLabels.join(", ") || receipt.diagnostics.join(", ") || "unknown resource"}`,
+      );
     }
   }
 
@@ -358,9 +583,22 @@ export class TerminalRouter extends EventEmitter {
     // Own a forked scope so the SSH forward finalizers stay alive until we
     // explicitly closeRemotes() — same pattern as herdr mirror forwards.
     const rootScope = await runAppPromise(Scope.make());
-    const scope = await runAppPromise(
-      Scope.fork(rootScope, ExecutionStrategy.sequential),
-    );
+    let scope: Scope.CloseableScope;
+    try {
+      scope = await runAppPromise(
+        Scope.fork(rootScope, ExecutionStrategy.sequential),
+      );
+    } catch (error) {
+      const closed = await Promise.allSettled([
+        runAppPromise(Scope.close(rootScope, Exit.void)),
+      ]);
+      if (closed[0]?.status === "rejected") {
+        this.diagnostics.push(
+          `dial:${hostId}:root-scope-close: ${closed[0].reason instanceof Error ? closed[0].reason.message : String(closed[0].reason)}`,
+        );
+      }
+      throw error;
+    }
 
     try {
       const pair = await runLayered(
@@ -417,6 +655,7 @@ export class TerminalRouter extends EventEmitter {
         endpoint,
         generation,
         scope,
+        rootScope,
         leaseMap: new Map(),
         reverseLease: new Map(),
       };
@@ -424,15 +663,32 @@ export class TerminalRouter extends EventEmitter {
         this.emit("event", payload);
       });
       if (!admit()) {
-        client.close();
-        await runAppPromise(Scope.close(scope, Exit.void)).catch(() => undefined);
+        const receipt = await this.beginRemoteClose(hostId, remoteEntry);
+        if (!receipt.client.closeObserved) {
+          // This entry was never inserted into `remotes`, so the dial promise
+          // is its final lifetime owner. Keep that promise in `inFlight` until
+          // the exact socket-close witness instead of discarding an unclean
+          // bounded receipt.
+          await client.whenClosed();
+        }
+        if (!receipt.clean) {
+          this.diagnostics.push(...receipt.diagnostics.map((item) => `dial:${hostId}:${item}`));
+        }
         throw new Error("terminal router is stopping or host changed");
       }
       this.remotes.set(hostId, remoteEntry);
       return remoteEntry;
     } catch (err) {
-      await runAppPromise(Scope.close(scope, Exit.void)).catch(() => undefined);
-      await runAppPromise(Scope.close(rootScope, Exit.void)).catch(() => undefined);
+      const closed = await Promise.allSettled([
+        runAppPromise(Scope.close(rootScope, Exit.void)),
+      ]);
+      for (const outcome of closed) {
+        if (outcome.status === "rejected") {
+          this.diagnostics.push(
+            `dial:${hostId}:scope-close: ${outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)}`,
+          );
+        }
+      }
       throw err;
     }
   }
@@ -453,13 +709,97 @@ export class TerminalRouter extends EventEmitter {
     return undefined;
   }
 
-  private async closeRemoteEntry(hostId: string, entry: RemoteEntry): Promise<void> {
-    entry.client.close();
+  private beginRemoteClose(
+    hostId: string,
+    entry: RemoteEntry,
+  ): Promise<RemoteCloseReceipt> {
+    if (entry.closeFlight !== undefined) return entry.closeFlight;
+    let clientFlight: Promise<TermControlClientShutdownReceipt>;
     try {
-      await runAppPromise(Scope.close(entry.scope, Exit.void));
-    } catch {
-      // Closing a transport is best-effort; its authority has already been revoked.
+      if (typeof entry.client.beginShutdown === "function") {
+        entry.client.beginShutdown();
+      } else {
+        entry.client.close();
+      }
+      clientFlight = typeof entry.client.drainOnQuit === "function"
+        ? entry.client.drainOnQuit()
+        : Promise.resolve({
+            clean: true,
+            closeObserved: true,
+            pendingRequests: 0,
+            diagnostics: [],
+          });
+    } catch (error) {
+      clientFlight = Promise.resolve({
+        clean: false,
+        closeObserved: false,
+        pendingRequests: 0,
+        diagnostics: [error instanceof Error ? error.message : String(error)],
+      });
     }
-    if (this.remotes.get(hostId) === entry) this.remotes.delete(hostId);
+
+    // Production entries always carry rootScope. The narrow fallback keeps
+    // structural test doubles from accidentally invoking Effect with a forged
+    // scope while real authorities remain fail-closed.
+    const current = (async (): Promise<RemoteCloseReceipt> => {
+      // Let the control socket obtain its exact close witness before retiring
+      // the SSH forward. Closing both concurrently can manufacture ECONNRESET
+      // and turn a clean local teardown into an ambiguous transport error.
+      const [clientOutcome] = await Promise.allSettled([clientFlight]);
+      const [scopeOutcome] = await Promise.allSettled([
+        entry.rootScope === undefined
+          ? Promise.resolve()
+          : runAppPromise(Scope.close(entry.rootScope, Exit.void)),
+      ]);
+      const diagnostics: string[] = [];
+      const client = clientOutcome.status === "fulfilled"
+        ? clientOutcome.value
+        : {
+            clean: false,
+            closeObserved: false,
+            pendingRequests: 0,
+            diagnostics: [
+              clientOutcome.reason instanceof Error
+                ? clientOutcome.reason.message
+                : String(clientOutcome.reason),
+            ],
+          };
+      diagnostics.push(...client.diagnostics.map((item) => `client: ${item}`));
+      if (scopeOutcome.status === "rejected") {
+        diagnostics.push(
+          `scope: ${scopeOutcome.reason instanceof Error ? scopeOutcome.reason.message : String(scopeOutcome.reason)}`,
+        );
+      }
+      const clean = client.clean && scopeOutcome.status === "fulfilled";
+      const receipt: RemoteCloseReceipt = Object.freeze({
+        clean,
+        client,
+        scopeClosed: scopeOutcome.status === "fulfilled",
+        diagnostics: Object.freeze(diagnostics),
+      });
+      entry.closeReceipt = receipt;
+      if (clean && this.remotes.get(hostId) === entry) this.remotes.delete(hostId);
+      return receipt;
+    })();
+    entry.closeFlight = current;
+    return current;
+  }
+
+  private async closeRemoteEntry(hostId: string, entry: RemoteEntry): Promise<void> {
+    if (
+      entry.closeReceipt?.clean === false &&
+      entry.closeReceipt.scopeClosed
+    ) {
+      // Normal host-generation recovery must be able to re-observe a client
+      // that closed just after its first bounded receipt, not only app quit.
+      entry.closeFlight = undefined;
+      entry.closeReceipt = undefined;
+    }
+    const receipt = await this.beginRemoteClose(hostId, entry);
+    if (!receipt.clean) {
+      throw new Error(
+        `terminal remote ${hostId} close unclean: ${receipt.diagnostics.join(", ") || "unknown resource"}`,
+      );
+    }
   }
 }

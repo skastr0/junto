@@ -5,6 +5,7 @@
 import { createConnection, type Socket } from "node:net";
 import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { performance } from "node:perf_hooks";
 import type {
   TermControlRequest,
   TermControlResponse,
@@ -16,6 +17,36 @@ type Pending = {
   resolve: (v: TermControlResponse) => void;
   reject: (e: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+};
+
+export interface TermControlClientShutdownReceipt {
+  readonly clean: boolean;
+  /** A `close` event is the only terminal witness for an opened socket. */
+  readonly closeObserved: boolean;
+  readonly pendingRequests: number;
+  /** Transport errors are diagnostics, never aliases for the close witness. */
+  readonly diagnostics: ReadonlyArray<string>;
+}
+
+const CLIENT_SHUTDOWN_GRACE_MS = 100;
+const CLIENT_SHUTDOWN_DEADLINE_MS = 2_000;
+
+const settlesWithin = async (
+  promise: Promise<unknown>,
+  durationMs: number,
+): Promise<boolean> => {
+  if (durationMs <= 0) return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.then(() => true),
+      new Promise<false>((resolveTimeout) => {
+        timer = setTimeout(() => resolveTimeout(false), durationMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 };
 
 const reviveSeq = (value: unknown): bigint | undefined => {
@@ -105,7 +136,14 @@ export class TermControlClient extends EventEmitter {
   private buf = "";
   private authed = false;
   private readonly pending = new Map<string, Pending>();
-  private closed = false;
+  private quiescing = false;
+  private closeObserved = false;
+  private readonly diagnostics: string[] = [];
+  private resolveCloseObserved!: () => void;
+  private readonly closeWitness = new Promise<void>((resolve) => {
+    this.resolveCloseObserved = resolve;
+  });
+  private drainFlight: Promise<TermControlClientShutdownReceipt> | undefined;
 
   private constructor(
     private readonly socketPath: string,
@@ -120,8 +158,27 @@ export class TermControlClient extends EventEmitter {
     readonly timeoutMs?: number;
   }): Promise<TermControlClient> {
     const client = new TermControlClient(input.socketPath, input.token);
-    await client.open(input.timeoutMs ?? 8_000);
-    return client;
+    try {
+      await client.open(input.timeoutMs ?? 8_000);
+      return client;
+    } catch (error) {
+      // A failed dial still owns a socket until its exact `close` witness. Do
+      // not let the rejected connect promise hide that transport lifetime.
+      if (client.socket === undefined) throw error;
+      client.beginShutdown();
+      try {
+        client.socket?.destroy();
+      } catch {
+        // The exact close witness below retains this failed dial.
+      }
+      await client.whenClosed();
+      throw error;
+    }
+  }
+
+  private recordDiagnostic(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this.diagnostics.push(message);
   }
 
   private open(timeoutMs: number): Promise<void> {
@@ -188,6 +245,7 @@ export class TermControlClient extends EventEmitter {
         }
       });
       sock.on("error", (err) => {
+        this.recordDiagnostic(err);
         if (!settled) {
           settled = true;
           clearTimeout(timer);
@@ -196,7 +254,9 @@ export class TermControlClient extends EventEmitter {
         this.failAll(err instanceof Error ? err : new Error(String(err)));
       });
       sock.on("close", () => {
-        this.closed = true;
+        this.quiescing = true;
+        this.closeObserved = true;
+        this.resolveCloseObserved();
         this.failAll(new Error("term control socket closed"));
       });
     });
@@ -211,7 +271,7 @@ export class TermControlClient extends EventEmitter {
   }
 
   private call(body: TermControlRequest, timeoutMs = 15_000): Promise<TermControlResponse> {
-    if (this.closed || !this.socket || this.socket.destroyed) {
+    if (this.quiescing || this.closeObserved || !this.socket || this.socket.destroyed) {
       return Promise.reject(new Error("term control client closed"));
     }
     return new Promise((resolve, reject) => {
@@ -368,13 +428,78 @@ export class TermControlClient extends EventEmitter {
     return Boolean(res.data);
   }
 
+  /** Synchronous admission cut; an exact socket-close witness remains required. */
+  beginShutdown(): void {
+    if (this.quiescing) return;
+    this.quiescing = true;
+    try {
+      this.socket?.end();
+    } catch (error) {
+      this.recordDiagnostic(error);
+    }
+  }
+
+  /** Exact transport finality; intentionally unbounded for lifetime owners. */
+  whenClosed(): Promise<void> {
+    return this.closeWitness;
+  }
+
+  /**
+   * Bounded, retryable transport drain. A generic `error` is diagnostic only;
+   * it cannot make the receipt clean until a later exact `close` proves that
+   * the socket finally terminated.
+   */
+  drainOnQuit(): Promise<TermControlClientShutdownReceipt> {
+    this.beginShutdown();
+    if (this.drainFlight !== undefined) return this.drainFlight;
+    const current = (async (): Promise<TermControlClientShutdownReceipt> => {
+      const deadline = performance.now() + CLIENT_SHUTDOWN_DEADLINE_MS;
+      if (!this.closeObserved) {
+        await settlesWithin(this.closeWitness, CLIENT_SHUTDOWN_GRACE_MS);
+      }
+      if (!this.closeObserved) {
+        try {
+          this.socket?.destroy();
+        } catch (error) {
+          this.recordDiagnostic(error);
+        }
+      }
+      if (!this.closeObserved) {
+        const remainingMs = Math.max(0, deadline - performance.now());
+        if (remainingMs > 0) {
+          await settlesWithin(this.closeWitness, remainingMs);
+        }
+      }
+      const diagnostics = Object.freeze([...this.diagnostics]);
+      const pendingRequests = this.pending.size;
+      return Object.freeze({
+        clean:
+          this.closeObserved &&
+          pendingRequests === 0,
+        closeObserved: this.closeObserved,
+        pendingRequests,
+        diagnostics,
+      });
+    })();
+    this.drainFlight = current;
+    void current.then(
+      () => {
+        if (this.drainFlight === current) this.drainFlight = undefined;
+      },
+      () => {
+        if (this.drainFlight === current) this.drainFlight = undefined;
+      },
+    );
+    return current;
+  }
+
+  /** Legacy eager close. Router shutdown uses drainOnQuit for the receipt. */
   close(): void {
-    this.closed = true;
-    this.failAll(new Error("client closed"));
+    this.beginShutdown();
     try {
       this.socket?.destroy();
-    } catch {
-      // ignore
+    } catch (error) {
+      this.recordDiagnostic(error);
     }
   }
 }

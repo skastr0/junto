@@ -6,14 +6,22 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
+  constants,
   existsSync,
+  fchmodSync,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
   mkdirSync,
+  openSync,
   renameSync,
   unlinkSync,
   writeFileSync,
   readFileSync,
 } from "node:fs";
-import { createServer, type Server, type Socket } from "node:net";
+import { createConnection, createServer, type Server, type Socket } from "node:net";
+import { performance } from "node:perf_hooks";
 import {
   TERM_CONTROL_PROTOCOL,
   TERM_MAX_FRAME_BYTES,
@@ -45,31 +53,260 @@ const jsonLine = (value: unknown): string =>
 export type TermControlServer = {
   readonly socketPath: string;
   readonly token: string;
+  /** Synchronous UDS/frame admission cut. */
+  readonly beginShutdown: () => void;
+  /** Bounded, retryable fixed-point drain with exact close witnesses. */
+  readonly drainOnQuit: () => Promise<TermControlServerShutdownReceipt>;
+  /** Compatibility lifecycle entry point; rejects rather than hiding an unclean drain. */
   readonly close: () => Promise<void>;
+};
+
+export interface TermControlServerRetainedCounts {
+  readonly requests: number;
+  readonly listenerClosures: number;
+  readonly sockets: number;
+  readonly socketPaths: number;
+}
+
+export interface TermControlServerShutdownReceipt {
+  readonly clean: boolean;
+  readonly rounds: number;
+  readonly settled: number;
+  readonly fulfilled: number;
+  readonly rejected: number;
+  readonly retainedCounts: TermControlServerRetainedCounts;
+  readonly retainedLabels: ReadonlyArray<string>;
+  readonly diagnostics: ReadonlyArray<string>;
+}
+
+/** A post-bind startup failure retains the exact listener authority for its caller. */
+export class TermControlStartupError extends Error {
+  readonly name = "TermControlStartupError";
+
+  constructor(
+    readonly startupCause: unknown,
+    readonly control: TermControlServer,
+    readonly receipt: TermControlServerShutdownReceipt,
+  ) {
+    super(
+      `terminal control startup failed: ${startupCause instanceof Error ? startupCause.message : String(startupCause)}`,
+    );
+  }
+}
+
+type TermControlFlight = {
+  readonly id: number;
+  readonly kind: "request" | "listener-close" | "socket-close";
+  readonly label: string;
+  readonly promise: Promise<unknown>;
+  status: "pending" | "fulfilled" | "rejected";
+};
+
+type TermControlSocket = {
+  readonly id: number;
+  readonly socket: Socket;
+  readonly closed: Promise<void>;
+};
+
+const TERM_CONTROL_SHUTDOWN_GRACE_MS = 100;
+const TERM_CONTROL_SHUTDOWN_DEADLINE_MS = 2_000;
+
+const boundedRuntimeValue = (value: number | undefined, ceiling: number): number =>
+  value === undefined || !Number.isFinite(value) || value <= 0
+    ? ceiling
+    : Math.min(Math.floor(value), ceiling);
+
+const wait = (durationMs: number): Promise<void> =>
+  new Promise((resolveWait) => setTimeout(resolveWait, durationMs));
+
+const allSettledBefore = async (
+  promises: ReadonlyArray<Promise<unknown>>,
+  deadline: number,
+): Promise<
+  | { readonly timedOut: true }
+  | { readonly timedOut: false; readonly outcomes: ReadonlyArray<PromiseSettledResult<unknown>> }
+> => {
+  const remainingMs = Math.max(0, deadline - performance.now());
+  if (remainingMs === 0) return { timedOut: true };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.allSettled(promises).then((outcomes) => ({
+        timedOut: false as const,
+        outcomes,
+      })),
+      new Promise<{ readonly timedOut: true }>((resolveTimeout) => {
+        timer = setTimeout(() => resolveTimeout({ timedOut: true }), remainingMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+};
+
+const probeExistingSocket = (
+  socketPath: string,
+): Promise<"active" | "stale" | "unknown"> =>
+  new Promise((resolve) => {
+    const socket = createConnection({ path: socketPath });
+    let outcome: "active" | "stale" | "unknown" | undefined;
+    let closeObserved = false;
+    let resolved = false;
+    const finishIfClosed = (): void => {
+      if (resolved || outcome === undefined || !closeObserved) return;
+      resolved = true;
+      resolve(outcome);
+    };
+    const finish = (candidate: "active" | "stale" | "unknown"): void => {
+      if (outcome !== undefined) return;
+      outcome = candidate;
+      clearTimeout(timer);
+      socket.destroy();
+      finishIfClosed();
+    };
+    const timer = setTimeout(() => finish("unknown"), 100);
+    socket.once("connect", () => finish("active"));
+    socket.once("error", (error: NodeJS.ErrnoException) => {
+      finish(
+        error.code === "ECONNREFUSED" || error.code === "ENOENT"
+          ? "stale"
+          : "unknown",
+      );
+    });
+    socket.once("close", () => {
+      closeObserved = true;
+      if (outcome === undefined) outcome = "unknown";
+      finishIfClosed();
+    });
+  });
+
+const publishTermToken = (tokenPath: string, token: string): void => {
+  let lastCollision: unknown;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const tmpToken = `${tokenPath}.tmp.${process.pid}.${randomBytes(12).toString("hex")}`;
+    let fd: number | undefined;
+    let identity:
+      | Readonly<{ dev: bigint; ino: bigint; birthtimeNs: bigint }>
+      | undefined;
+    try {
+      fd = openSync(
+        tmpToken,
+        constants.O_CREAT |
+          constants.O_EXCL |
+          constants.O_WRONLY |
+          (constants.O_NOFOLLOW ?? 0),
+        0o600,
+      );
+      const opened = fstatSync(fd, { bigint: true });
+      identity = Object.freeze({
+        dev: opened.dev,
+        ino: opened.ino,
+        birthtimeNs: opened.birthtimeNs,
+      });
+      fchmodSync(fd, 0o600);
+      writeFileSync(fd, `${token}\n`, { encoding: "utf8" });
+      fsyncSync(fd);
+      const current = lstatSync(tmpToken, { bigint: true });
+      if (
+        !current.isFile() ||
+        current.isSymbolicLink() ||
+        current.dev !== identity.dev ||
+        current.ino !== identity.ino ||
+        current.birthtimeNs !== identity.birthtimeNs
+      ) {
+        throw new Error("terminal token temp identity changed before publication");
+      }
+      renameSync(tmpToken, tokenPath);
+      closeSync(fd);
+      return;
+    } catch (error) {
+      lastCollision = error;
+      if (fd !== undefined) {
+        try {
+          closeSync(fd);
+        } catch {
+          // The write failure remains the primary error.
+        }
+      }
+      if (identity !== undefined) {
+        try {
+          const current = lstatSync(tmpToken, { bigint: true });
+          if (
+            current.isFile() &&
+            !current.isSymbolicLink() &&
+            current.dev === identity.dev &&
+            current.ino === identity.ino &&
+            current.birthtimeNs === identity.birthtimeNs
+          ) {
+            unlinkSync(tmpToken);
+          }
+        } catch {
+          // Never widen cleanup to a path whose exact identity was lost.
+        }
+      }
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+  throw lastCollision instanceof Error
+    ? lastCollision
+    : new Error("could not reserve terminal token temp path");
 };
 
 export const startTermControlServer = async (
   host: LocalSessionHost,
-  options?: { readonly home?: string },
+  options?: {
+    readonly home?: string;
+    /** Tests may lower, never raise, the graceful peer-close window. */
+    readonly shutdownGraceMs?: number;
+    /** Tests may lower, never raise, the complete drain deadline. */
+    readonly shutdownDeadlineMs?: number;
+    /** Test seam for path-replacement races; production uses chmodSync. */
+    readonly chmodSocket?: (path: string, mode: number) => void;
+  },
 ): Promise<TermControlServer> => {
   const home = options?.home;
   const dir = termControlDir(home);
   const socketPath = termControlSocketPath(home);
   const tokenPath = termControlTokenPath(home);
+  const shutdownGraceMs = boundedRuntimeValue(
+    options?.shutdownGraceMs,
+    TERM_CONTROL_SHUTDOWN_GRACE_MS,
+  );
+  const shutdownDeadlineMs = boundedRuntimeValue(
+    options?.shutdownDeadlineMs,
+    TERM_CONTROL_SHUTDOWN_DEADLINE_MS,
+  );
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
 
   const token = randomBytes(32).toString("hex");
-  const tmpToken = `${tokenPath}.${process.pid}.tmp`;
-  writeFileSync(tmpToken, `${token}\n`, { encoding: "utf8", mode: 0o600 });
-  renameSync(tmpToken, tokenPath);
-  chmodSync(tokenPath, 0o600);
 
   if (existsSync(socketPath)) {
-    try {
+    const observed = lstatSync(socketPath, { bigint: true });
+    if (!observed.isSocket()) {
+      throw new Error("refusing to replace non-socket terminal control path");
+    }
+    const state = await probeExistingSocket(socketPath);
+    if (state !== "stale") {
+      throw new Error(
+        state === "active"
+          ? "terminal control socket already has a live listener"
+          : "terminal control socket ownership is ambiguous",
+      );
+    }
+    if (existsSync(socketPath)) {
+      const current = lstatSync(socketPath, { bigint: true });
+      if (
+        !current.isSocket() ||
+        current.dev !== observed.dev ||
+        current.ino !== observed.ino ||
+        current.birthtimeNs !== observed.birthtimeNs
+      ) {
+        throw new Error("terminal control socket changed during stale-path probe");
+      }
+      // This is the only startup cleanup: the exact socket inode observed
+      // refusing connections above. Active and ambiguous paths fail closed.
       unlinkSync(socketPath);
-    } catch {
-      // ignore
     }
   }
 
@@ -77,10 +314,51 @@ export const startTermControlServer = async (
   const leaseSockets = new Map<string, Set<Socket>>();
   const socketLeases = new Map<Socket, Set<string>>();
   const leaseById = new Map<string, ControlLease>();
-  /** Accepted clients must be explicitly drained on close; Server.close alone waits forever. */
-  const sockets = new Set<Socket>();
+  /** Accepted clients and every admitted handler remain visible through shutdown. */
+  const sockets = new Map<number, TermControlSocket>();
+  const activeFlights = new Map<number, TermControlFlight>();
+  const shutdownJournal = new Map<number, TermControlFlight>();
+  const diagnostics: string[] = [];
+  let nextSocketId = 0;
+  let nextFlightId = 0;
   let closing = false;
-  let closePromise: Promise<void> | undefined;
+  let listenerCloseFlight: Promise<void> | undefined;
+  let drainFlight: Promise<TermControlServerShutdownReceipt> | undefined;
+
+  const recordDiagnostic = (label: string, error: unknown): void => {
+    const message = error instanceof Error ? error.message : String(error);
+    diagnostics.push(`${label}: ${message}`);
+  };
+
+  const retainFlight = <A>(
+    kind: TermControlFlight["kind"],
+    label: string,
+    promise: Promise<A>,
+  ): Promise<A> => {
+    const flight: TermControlFlight = {
+      id: ++nextFlightId,
+      kind,
+      label,
+      promise,
+      status: "pending",
+    };
+    activeFlights.set(flight.id, flight);
+    if (closing) shutdownJournal.set(flight.id, flight);
+    void promise.then(
+      () => {
+        flight.status = "fulfilled";
+        activeFlights.delete(flight.id);
+      },
+      (error) => {
+        flight.status = "rejected";
+        activeFlights.delete(flight.id);
+        // The bounded drain counts this rejection for the current receipt.
+        // Do not make a retryable listener/path refusal permanently sticky.
+        void error;
+      },
+    );
+    return promise;
+  };
 
   const trackLease = (socket: Socket, lease: ControlLease): void => {
     leaseById.set(lease.leaseId, lease);
@@ -134,8 +412,6 @@ export const startTermControlServer = async (
       }
     }
   };
-  host.on("event", onHostEvent);
-
   const handle = async (
     req: TermControlRequest,
     socket: Socket,
@@ -233,11 +509,13 @@ export const startTermControlServer = async (
   };
 
   const server: Server = createServer((socket) => {
-    if (closing) {
-      socket.destroy();
-      return;
-    }
-    sockets.add(socket);
+    const socketId = ++nextSocketId;
+    let resolveSocketClosed!: () => void;
+    const socketClosed = new Promise<void>((resolve) => {
+      resolveSocketClosed = resolve;
+    });
+    sockets.set(socketId, { id: socketId, socket, closed: socketClosed });
+    void retainFlight("socket-close", "socket", socketClosed);
     let buf = "";
     let authed = false;
     let closed = false;
@@ -297,66 +575,298 @@ export const startTermControlServer = async (
           fail("invalid request");
           return;
         }
-        void handle(req, socket).then((res) => {
-          if (socket.destroyed || closing) return;
-          try {
-            socket.write(jsonLine(res));
-          } catch {
-            dropSocket(socket);
-          }
-        });
+        const operation = Promise.resolve()
+          .then(() => handle(req, socket))
+          .then((res) => {
+            if (socket.destroyed || closing) return;
+            try {
+              socket.write(jsonLine(res));
+            } catch (error) {
+              dropSocket(socket);
+              throw error;
+            }
+          });
+        void retainFlight("request", `request:${req.op}`, operation).catch(() => undefined);
       }
     });
     socket.on("close", () => {
       closed = true;
-      sockets.delete(socket);
+      sockets.delete(socketId);
       dropSocket(socket);
+      resolveSocketClosed();
     });
-    socket.on("error", () => {
+    socket.on("error", (error) => {
       closed = true;
-      sockets.delete(socket);
       dropSocket(socket);
+      // A peer transport error is not terminal proof, so retain this socket
+      // until its `close` witness. Once that witness arrives, a reset peer has
+      // no app-owned authority left to block shutdown.
+      void error;
     });
+    if (closing) socket.destroy();
   });
 
   await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
+    const onError = (error: Error): void => reject(error);
+    server.once("error", onError);
     server.listen({ path: socketPath, readableAll: false, writableAll: false }, () => {
-      try {
-        chmodSync(socketPath, 0o600);
-      } catch {
-        // ignore
-      }
+      server.off("error", onError);
       resolve();
     });
   });
 
-  return {
+  type SocketPathIdentity = Readonly<{
+    dev: bigint;
+    ino: bigint;
+    birthtimeNs: bigint;
+  }>;
+  let socketIdentity: SocketPathIdentity | undefined;
+  let socketPathCleanupBlocked = false;
+
+  const ownsSocketPath = (): boolean => {
+    if (socketIdentity === undefined) return false;
+    try {
+      const current = lstatSync(socketPath, { bigint: true });
+      return current.isSocket() &&
+        current.dev === socketIdentity.dev &&
+        current.ino === socketIdentity.ino &&
+        current.birthtimeNs === socketIdentity.birthtimeNs;
+    } catch {
+      return false;
+    }
+  };
+
+  const unlinkOwnedSocket = (): void => {
+    if (ownsSocketPath()) unlinkSync(socketPath);
+  };
+
+  const closeListenerWithoutDeletingReplacement = (): Promise<void> => {
+    if (existsSync(socketPath) && !ownsSocketPath()) {
+      // libuv may unlink the originally-bound path as Server.close runs. Node
+      // has no identity-checked close primitive, so retain the listener rather
+      // than deleting a path another owner installed after our bind.
+      socketPathCleanupBlocked = true;
+      server.unref();
+      return Promise.reject(
+        new Error("refusing to close terminal listener over a replacement path"),
+      );
+    }
+    return new Promise<void>((resolve) => {
+      if (!server.listening) {
+        socketPathCleanupBlocked = false;
+        resolve();
+        return;
+      }
+      server.close(() => {
+        socketPathCleanupBlocked = false;
+        resolve();
+      });
+    });
+  };
+
+  const ensureListenerClose = (): void => {
+    if (!server.listening || listenerCloseFlight !== undefined) return;
+    const close = closeListenerWithoutDeletingReplacement();
+    listenerCloseFlight = close;
+    void retainFlight("listener-close", "listener", close).catch(() => undefined);
+    void close.then(
+      () => {
+        if (listenerCloseFlight === close) listenerCloseFlight = undefined;
+      },
+      () => {
+        if (listenerCloseFlight === close) listenerCloseFlight = undefined;
+      },
+    );
+  };
+
+  server.on("error", (error) => recordDiagnostic("listener", error));
+
+  const beginShutdown = (): void => {
+    if (closing) return;
+    // This assignment is the admission cut. Socket callbacks and each frame
+    // boundary check it before minting a session/control lease.
+    closing = true;
+    host.off("event", onHostEvent);
+    for (const flight of activeFlights.values()) shutdownJournal.set(flight.id, flight);
+    try {
+      unlinkOwnedSocket();
+    } catch (error) {
+      recordDiagnostic("socket-path", error);
+    }
+    ensureListenerClose();
+    for (const { socket } of sockets.values()) {
+      if (!socket.destroyed) socket.end();
+    }
+  };
+
+  const retainedSnapshot = (): {
+    readonly counts: TermControlServerRetainedCounts;
+    readonly labels: ReadonlyArray<string>;
+  } => {
+    const pending = [...shutdownJournal.values()].filter(
+      (flight) => flight.status === "pending",
+    );
+    const countKind = (kind: TermControlFlight["kind"]): number =>
+      pending.filter((flight) => flight.kind === kind).length;
+    const counts: TermControlServerRetainedCounts = {
+      requests: countKind("request"),
+      listenerClosures: Math.max(countKind("listener-close"), server.listening ? 1 : 0),
+      sockets: sockets.size,
+      socketPaths: ownsSocketPath() || socketPathCleanupBlocked ? 1 : 0,
+    };
+    const labels = new Set(
+      pending
+        .filter((flight) => flight.kind !== "socket-close")
+        .map((flight) => flight.label),
+    );
+    if (sockets.size > 0) labels.add("socket");
+    if (server.listening) labels.add("listener");
+    if (counts.socketPaths > 0) labels.add("socket-path");
+    return { counts, labels: [...labels].sort() };
+  };
+
+  const drainOnQuit = (): Promise<TermControlServerShutdownReceipt> => {
+    beginShutdown();
+    if (drainFlight !== undefined) return drainFlight;
+    // Retry a previously refused listener close after path ownership changes.
+    ensureListenerClose();
+    const current = (async (): Promise<TermControlServerShutdownReceipt> => {
+      const deadline = performance.now() + shutdownDeadlineMs;
+      let rounds = 0;
+      let settled = 0;
+      let fulfilled = 0;
+      let rejected = 0;
+
+      const graceful = [...sockets.values()].map((entry) => entry.closed);
+      if (graceful.length > 0) {
+        await allSettledBefore(
+          graceful,
+          Math.min(deadline, performance.now() + shutdownGraceMs),
+        );
+      }
+      for (const { socket } of sockets.values()) {
+        if (!socket.destroyed) socket.destroy();
+      }
+
+      for (;;) {
+        for (const { socket } of sockets.values()) {
+          if (!socket.destroyed) socket.destroy();
+        }
+        try {
+          unlinkOwnedSocket();
+        } catch (error) {
+          recordDiagnostic("socket-path", error);
+        }
+
+        const round = [...shutdownJournal.values()];
+        if (round.length > 0) {
+          const outcome = await allSettledBefore(
+            round.map((flight) => flight.promise),
+            deadline,
+          );
+          if (outcome.timedOut) break;
+          rounds += 1;
+          settled += outcome.outcomes.length;
+          fulfilled += outcome.outcomes.filter((entry) => entry.status === "fulfilled").length;
+          rejected += outcome.outcomes.filter((entry) => entry.status === "rejected").length;
+          for (const flight of round) shutdownJournal.delete(flight.id);
+          await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+          continue;
+        }
+
+        const retained = retainedSnapshot();
+        if (Object.values(retained.counts).every((count) => count === 0)) {
+          const currentDiagnostics = Object.freeze([...diagnostics]);
+          return Object.freeze({
+            clean: rejected === 0 && currentDiagnostics.length === 0,
+            rounds,
+            settled,
+            fulfilled,
+            rejected,
+            retainedCounts: Object.freeze(retained.counts),
+            retainedLabels: Object.freeze(retained.labels),
+            diagnostics: currentDiagnostics,
+          });
+        }
+        const remainingMs = deadline - performance.now();
+        if (remainingMs <= 0) break;
+        await wait(Math.min(5, remainingMs));
+      }
+
+      const retained = retainedSnapshot();
+      const currentDiagnostics = Object.freeze([...diagnostics]);
+      return Object.freeze({
+        clean: false,
+        rounds,
+        settled,
+        fulfilled,
+        rejected,
+        retainedCounts: Object.freeze(retained.counts),
+        retainedLabels: Object.freeze(retained.labels),
+        diagnostics: currentDiagnostics,
+      });
+    })();
+    drainFlight = current;
+    void current.then(
+      () => {
+        if (drainFlight === current) drainFlight = undefined;
+      },
+      () => {
+        if (drainFlight === current) drainFlight = undefined;
+      },
+    );
+    return current;
+  };
+
+  const control: TermControlServer = {
     socketPath,
     token,
+    beginShutdown,
+    drainOnQuit,
     close: async () => {
-      if (closePromise) return closePromise;
-      closing = true;
-      host.off("event", onHostEvent);
-      closePromise = (async () => {
-        // Stop accepting before draining existing peers, so no late command can
-        // arrive during the bounded grace period.
-        const serverClosed = new Promise<void>((resolve) => {
-          server.close(() => resolve());
-        });
-        for (const socket of sockets) socket.end();
-        await new Promise<void>((resolve) => setTimeout(resolve, 100));
-        for (const socket of sockets) socket.destroy();
-        await serverClosed;
-        try {
-          if (existsSync(socketPath)) unlinkSync(socketPath);
-        } catch {
-          // ignore
-        }
-      })();
-      return closePromise;
+      const receipt = await drainOnQuit();
+      if (!receipt.clean) {
+        throw new Error(
+          `terminal control shutdown retained: ${receipt.retainedLabels.join(", ") || receipt.diagnostics.join(", ") || "unknown resource"}`,
+        );
+      }
     },
   };
+
+  try {
+    const info = lstatSync(socketPath, { bigint: true });
+    if (!info.isSocket()) throw new Error("terminal control path is not a Unix socket");
+    socketIdentity = Object.freeze({
+      dev: info.dev,
+      ino: info.ino,
+      birthtimeNs: info.birthtimeNs,
+    });
+    (options?.chmodSocket ?? chmodSync)(socketPath, 0o600);
+    const hardened = lstatSync(socketPath, { bigint: true });
+    if (
+      !hardened.isSocket() ||
+      hardened.dev !== socketIdentity.dev ||
+      hardened.ino !== socketIdentity.ino ||
+      hardened.birthtimeNs !== socketIdentity.birthtimeNs
+    ) {
+      throw new Error("terminal control socket identity changed during permission hardening");
+    }
+    // Publish credentials only after the listener path is both owned and
+    // permission-hardened. A failed bind must never rotate another live
+    // station's token out from underneath it.
+    publishTermToken(tokenPath, token);
+  } catch (error) {
+    // The listener already exists. Preserve its capability in the thrown
+    // error when a foreign replacement makes immediate close unsafe; callers
+    // can bind it into their aggregate shutdown receipt instead of orphaning
+    // an unreturned Server.
+    beginShutdown();
+    const receipt = await drainOnQuit();
+    throw new TermControlStartupError(error, control, receipt);
+  }
+
+  host.on("event", onHostEvent);
+  return control;
 };
 
 /** Read token written by a live local server (same machine). */
