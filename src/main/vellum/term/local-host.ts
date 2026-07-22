@@ -126,12 +126,39 @@ type SessionRec = {
   killed: boolean;
   /** Branded child-only capability — only process-signal can mint. */
   owned: OwnedProcess | undefined;
+  /** Exact-record escalation; never follows a mutable binding lookup. */
+  escalationTimer: ReturnType<typeof setTimeout> | undefined;
+};
+
+export type LocalHostShutdownStraggler = {
+  readonly bindingId: string;
+  readonly epoch: string;
+  readonly status: "starting" | "running";
+  readonly pid?: number;
+};
+
+export type LocalHostShutdownResult =
+  | { readonly clean: true; readonly stragglers: readonly [] }
+  | {
+      readonly clean: false;
+      readonly stragglers: readonly LocalHostShutdownStraggler[];
+    };
+
+export type LocalSessionHostOptions = {
+  /** TERM-to-KILL delay for one exact child generation. */
+  readonly killGraceMs?: number;
+  /** Bounded wait after each shutdown signal phase. */
+  readonly shutdownGraceMs?: number;
+  /** Observation cadence while waiting for child exit callbacks. */
+  readonly shutdownPollMs?: number;
 };
 
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
 const MAX_JOURNAL_BYTES = 512 * 1024;
 const SHUTDOWN_GRACE_MS = 1500;
+const KILL_GRACE_MS = 400;
+const SHUTDOWN_POLL_MS = 50;
 
 /** @deprecated use ProcessSignalAudit from process-signal */
 export type TermKillAudit = ProcessSignalAudit;
@@ -290,13 +317,25 @@ export const defaultTermSpawn: TermSpawnFn = (input) => {
 };
 
 export class LocalSessionHost extends EventEmitter {
+  /** Current presentation generation by binding. */
   private readonly sessions = new Map<string, SessionRec>();
+  /** Every child generation remains owned until its exit callback is observed. */
+  private readonly liveRecords = new Set<SessionRec>();
   private shuttingDown = false;
   private readonly spawnFn: TermSpawnFn;
+  private readonly killGraceMs: number;
+  private readonly shutdownGraceMs: number;
+  private readonly shutdownPollMs: number;
 
-  constructor(spawnFn: TermSpawnFn = defaultTermSpawn) {
+  constructor(
+    spawnFn: TermSpawnFn = defaultTermSpawn,
+    options: LocalSessionHostOptions = {},
+  ) {
     super();
     this.spawnFn = spawnFn;
+    this.killGraceMs = Math.max(0, options.killGraceMs ?? KILL_GRACE_MS);
+    this.shutdownGraceMs = Math.max(0, options.shutdownGraceMs ?? SHUTDOWN_GRACE_MS);
+    this.shutdownPollMs = Math.max(1, options.shutdownPollMs ?? SHUTDOWN_POLL_MS);
   }
 
   create(input: LocalHostCreateInput): TerminalSessionSummary {
@@ -337,8 +376,10 @@ export class LocalSessionHost extends EventEmitter {
       controlLeaseId: undefined,
       killed: false,
       owned: undefined,
+      escalationTimer: undefined,
     };
     this.sessions.set(bindingId, rec);
+    this.liveRecords.add(rec);
     this.emitEvent({ type: "session", bindingId, epoch, status: "starting" });
 
     try {
@@ -380,12 +421,22 @@ export class LocalSessionHost extends EventEmitter {
       child.onExit((code, signal) => {
         // Cleanup belongs to this record even after a same-binding replacement.
         // Only presentation/map state belongs to the current binding.
+        if (rec.escalationTimer !== undefined) {
+          clearTimeout(rec.escalationTimer);
+          rec.escalationTimer = undefined;
+        }
         releaseOwned(rec.owned);
         rec.owned = undefined;
-        if (rec.pid !== undefined) getProcessIdentityMap().unbind(rec.pid);
+        this.liveRecords.delete(rec);
+        const current = this.sessions.get(bindingId);
+        // A reused numeric PID may already belong to the replacement. Never
+        // let the old generation's late exit erase that newer identity.
+        if (rec.pid !== undefined && (current === rec || current?.pid !== rec.pid)) {
+          getProcessIdentityMap().unbind(rec.pid);
+        }
         rec.status = "exited";
         rec.child = undefined;
-        if (rec.epoch !== epoch || this.sessions.get(bindingId) !== rec) return;
+        if (rec.epoch !== epoch || current !== rec) return;
         rec.seq = rec.seq + 1n;
         this.pushJournal(rec, {
           seq: rec.seq,
@@ -410,6 +461,7 @@ export class LocalSessionHost extends EventEmitter {
         });
       });
     } catch (err) {
+      this.liveRecords.delete(rec);
       rec.status = "exited";
       rec.seq = rec.seq + 1n;
       const message = err instanceof Error ? err.message : String(err);
@@ -569,11 +621,7 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   runningCount(): number {
-    let n = 0;
-    for (const s of this.sessions.values()) {
-      if (s.status === "running" || s.status === "starting") n += 1;
-    }
-    return n;
+    return this.liveRecords.size;
   }
 
   detachedRunning(): readonly TerminalSessionSummary[] {
@@ -582,55 +630,63 @@ export class LocalSessionHost extends EventEmitter {
       .map((s) => this.summaryOf(s));
   }
 
-  async shutdownAll(_reason = "app_quit"): Promise<void> {
+  async shutdownAll(reason = "app_quit"): Promise<LocalHostShutdownResult> {
     this.shuttingDown = true;
-    const live = [...this.sessions.values()].filter(
-      (s) => s.status === "running" || s.status === "starting",
+    for (const rec of [...this.liveRecords]) {
+      this.requestStop(rec);
+    }
+    if (await this.waitForAllExits(this.shutdownGraceMs)) {
+      return { clean: true, stragglers: [] };
+    }
+    for (const rec of [...this.liveRecords]) {
+      this.forceKill(rec, "SIGKILL");
+    }
+    if (await this.waitForAllExits(this.shutdownGraceMs)) {
+      return { clean: true, stragglers: [] };
+    }
+    const stragglers = [...this.liveRecords].map((rec) => ({
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      status: rec.status,
+      ...(rec.pid === undefined ? {} : { pid: rec.pid }),
+    })) as LocalHostShutdownStraggler[];
+    console.error(
+      `[term] ${reason} retained ${stragglers.length} local terminal child generation(s): ${stragglers
+        .map((rec) => `${rec.bindingId}@${rec.epoch}${rec.pid === undefined ? "" : ` pid=${rec.pid}`}`)
+        .join(", ")}`,
     );
-    for (const s of live) {
-      this.killBinding(s.bindingId);
-    }
-    const softDeadline = Date.now() + SHUTDOWN_GRACE_MS;
-    while (Date.now() < softDeadline) {
-      const still = [...this.sessions.values()].some(
-        (s) => s.status === "running" || s.status === "starting",
-      );
-      if (!still) return;
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    for (const s of this.sessions.values()) {
-      if (s.status === "running" || s.status === "starting") {
-        this.forceKill(s, "SIGKILL");
-      }
-    }
-    // Second bounded wait so force-exit gates do not claim completion early.
-    const hardDeadline = Date.now() + SHUTDOWN_GRACE_MS;
-    while (Date.now() < hardDeadline) {
-      const still = [...this.sessions.values()].some(
-        (s) => s.status === "running" || s.status === "starting",
-      );
-      if (!still) return;
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    // Return boundedly, but retain live records and their capabilities until an
-    // observed exit. Callers can report these sessions as unclean.
+    return { clean: false, stragglers };
   }
 
   private killBinding(bindingId: string): boolean {
     const rec = this.sessions.get(bindingId);
     if (!rec) return false;
     if (rec.status === "exited") return true;
+    this.requestStop(rec);
+    return true;
+  }
+
+  private requestStop(rec: SessionRec): void {
+    if (rec.status === "exited") return;
     rec.killed = true;
     this.forceKill(rec, "SIGTERM");
-    const child = rec.child;
-    if (child) {
-      setTimeout(() => {
-        if (this.sessions.get(bindingId) === rec && (rec.status === "running" || rec.status === "starting")) {
+    if (rec.escalationTimer === undefined && this.liveRecords.has(rec)) {
+      rec.escalationTimer = setTimeout(() => {
+        rec.escalationTimer = undefined;
+        if (this.liveRecords.has(rec)) {
           this.forceKill(rec, "SIGKILL");
         }
-      }, 400).unref?.();
+      }, this.killGraceMs);
+      rec.escalationTimer.unref?.();
     }
-    return true;
+  }
+
+  private async waitForAllExits(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.liveRecords.size > 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, this.shutdownPollMs));
+    }
+    return this.liveRecords.size === 0;
   }
 
   /**
@@ -638,17 +694,12 @@ export class LocalSessionHost extends EventEmitter {
    * Terminals admit with ownsProcessGroup:false → child.kill path inside seal.
    */
   private forceKill(rec: SessionRec, signal: NodeJS.Signals): void {
-    const child = rec.child;
-    if (!child && !rec.owned) {
-      rec.status = "exited";
-      return;
-    }
+    // Only an observed child exit closes a live generation. A missing
+    // capability must remain visible as an unclean shutdown, never be inferred
+    // exited from local bookkeeping alone.
+    if (!rec.owned) return;
     const termSignal = signal as TerminatingSignal;
-    if (rec.owned) {
-      signalOwned(rec.owned, termSignal);
-      return;
-    }
-    // Every live terminal child receives a total child-only capability at spawn.
+    signalOwned(rec.owned, termSignal);
   }
 
   private pushJournal(rec: SessionRec, entry: JournalEntry): void {

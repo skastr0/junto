@@ -795,17 +795,38 @@ const disposeRuntime = (): Promise<void> => {
   return runtimeDispose;
 };
 
+/** An app exit is authorized only after every owned local child reports exit. */
+const requireCleanLocalTerminalShutdown = async (
+  reason: string,
+  stopPlane: boolean,
+): Promise<void> => {
+  const result = await termPlane.router.shutdownAllLocal(reason);
+  if (!result.clean) {
+    const retained = result.stragglers
+      .map((rec) => `${rec.bindingId}@${rec.epoch}${rec.pid === undefined ? "" : ` pid=${rec.pid}`}`)
+      .join(", ");
+    throw new Error(
+      `local terminal shutdown retained ${result.stragglers.length} child generation(s): ${retained}`,
+    );
+  }
+  if (stopPlane) await termPlane.stop();
+};
+
 // Electron app.exit() bypasses before-quit and will-quit. Every direct exit
 // therefore routes through the same authority/process teardown explicitly.
 const exitAfterDetach = (exitCode: number, reason: string): void => {
-  detachRuntimeOnQuit(reason);
-  void Promise.all([
-    disposeRuntime(),
-    termPlane.router.shutdownAllLocal(reason).then(() => termPlane.stop()),
-  ]).finally(() => {
-    runtimeDisposed = true;
-    app.exit(exitCode);
-  });
+  void requireCleanLocalTerminalShutdown(reason, true)
+    .then(() => {
+      detachRuntimeOnQuit(reason);
+      return disposeRuntime();
+    })
+    .then(() => {
+      runtimeDisposed = true;
+      app.exit(exitCode);
+    })
+    .catch((error) => {
+      console.error(`[term] direct exit blocked (${reason}):`, error);
+    });
 };
 
 let quitPreparation: Promise<void> | undefined;
@@ -872,9 +893,7 @@ app.on("before-quit", (event) => {
         : requestCanvasFlush(mainWindow);
 
     quitPreparation = flush
-      .then(() =>
-        termPlane.router.shutdownAllLocal("before-quit").then(() => termPlane.stop()),
-      )
+      .then(() => requireCleanLocalTerminalShutdown("before-quit", true))
       .then(() => {
         nodeRefRelayWatcher?.close();
         nodeRefRelayWatcher = undefined;
@@ -975,9 +994,13 @@ installProcessSignalTermination({
     signalTerminalShutdownComplete = false;
     invalidateQuitConfirm();
     beginSignalCanvasFlush();
-    void termPlane.router.shutdownAllLocal(signal).then(() => {
-      signalTerminalShutdownComplete = true;
-    });
+    void requireCleanLocalTerminalShutdown(signal, false)
+      .then(() => {
+        signalTerminalShutdownComplete = true;
+      })
+      .catch((error) => {
+        console.error(`[term] signal shutdown blocked (${signal}):`, error);
+      });
     detachRuntimeOnQuit(signal);
   },
   // app.exit bypasses before-quit. A signal may force the native loop only

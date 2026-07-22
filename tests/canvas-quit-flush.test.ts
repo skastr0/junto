@@ -31,6 +31,25 @@ describe("canvas quit durability wiring", () => {
     expect(block).toContain("signalTerminalShutdownComplete");
   });
 
+  it("authorizes exit only after a clean observed local-terminal shutdown", () => {
+    const helperStart = source.indexOf("const requireCleanLocalTerminalShutdown");
+    const helperEnd = source.indexOf("const exitAfterDetach", helperStart);
+    const helper = source.slice(helperStart, helperEnd);
+    const directEnd = source.indexOf("let quitPreparation", helperEnd);
+    const directExit = source.slice(helperEnd, directEnd);
+    const signalStart = source.indexOf("installProcessSignalTermination({");
+    const signalBlock = source.slice(signalStart);
+
+    expect(helper).toContain("if (!result.clean)");
+    expect(helper).toContain("throw new Error");
+    expect(directExit.indexOf("requireCleanLocalTerminalShutdown(reason, true)"))
+      .toBeLessThan(directExit.indexOf("detachRuntimeOnQuit(reason)"));
+    expect(directExit).not.toContain(".finally(");
+    expect(signalBlock.indexOf("requireCleanLocalTerminalShutdown(signal, false)"))
+      .toBeLessThan(signalBlock.indexOf("signalTerminalShutdownComplete = true"));
+    expect(signalBlock).toContain(".catch((error)");
+  });
+
   it("keys fallback authorization to each signal flush, independent of hung disposal", () => {
     const start = source.indexOf("const beginSignalCanvasFlush");
     const end = source.indexOf('app.on("before-quit"', start);

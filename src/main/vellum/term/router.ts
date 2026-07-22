@@ -31,6 +31,7 @@ import type {
   JournalEntry,
   LocalHostCreateInput,
   LocalHostEvent,
+  LocalHostShutdownResult,
   LocalSessionHost,
 } from "./local-host";
 import { TermControlClient } from "./control-client";
@@ -286,8 +287,8 @@ export class TerminalRouter extends EventEmitter {
     return this.local.runningCount();
   }
 
-  async shutdownAllLocal(reason?: string): Promise<void> {
-    await this.local.shutdownAll(reason);
+  async shutdownAllLocal(reason?: string): Promise<LocalHostShutdownResult> {
+    return this.local.shutdownAll(reason);
   }
 
   /** Close SSH forwards + control clients only. Never kills remote sessions. */

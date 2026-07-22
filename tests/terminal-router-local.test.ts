@@ -197,7 +197,10 @@ describe("TerminalRouter local path", () => {
     hosts.push(local);
     const router = new TerminalRouter(local);
     await router.create({ bindingId: "q1", hostId: "local" });
-    await router.shutdownAllLocal("test");
+    await expect(router.shutdownAllLocal("test")).resolves.toEqual({
+      clean: true,
+      stragglers: [],
+    });
     expect(router.runningCount()).toBe(0);
   });
 });

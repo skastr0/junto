@@ -166,8 +166,122 @@ describe("LocalSessionHost", () => {
       launch: { kind: "command", argv: ["/bin/sleep", "60"] },
     });
     expect(host.runningCount()).toBe(1);
-    await host.shutdownAll("test");
+    const result = await host.shutdownAll("test");
+    expect(result).toEqual({ clean: true, stragglers: [] });
     expect(host.runningCount()).toBe(0);
+  });
+
+  it("escalates a superseded exact generation and ignores its late exit", async () => {
+    const children: Array<{
+      readonly pid: number;
+      readonly signals: NodeJS.Signals[];
+      exit(): void;
+    }> = [];
+    const spawn: TermSpawnFn = () => {
+      const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
+      let exited = false;
+      const controller = {
+        pid: 81_000 + children.length,
+        signals: [] as NodeJS.Signals[],
+        exit() {
+          if (exited) return;
+          exited = true;
+          for (const listener of exitListeners) listener(0, undefined);
+        },
+      };
+      children.push(controller);
+      return {
+        pid: controller.pid,
+        write() {},
+        kill(signal = "SIGTERM") {
+          controller.signals.push(signal);
+          // Deliberately resist both signals until the test emits a late exit.
+        },
+        onData() {},
+        onExit(listener) {
+          exitListeners.add(listener);
+        },
+      };
+    };
+    const host = new LocalSessionHost(spawn, {
+      killGraceMs: 5,
+      shutdownGraceMs: 20,
+      shutdownPollMs: 1,
+    });
+    hosts.push(host);
+    const visibleExits: string[] = [];
+    host.on("event", (event) => {
+      if (event.type === "exit") visibleExits.push(event.epoch);
+    });
+
+    const old = host.create({ bindingId: "replace-me" });
+    const replacement = host.create({ bindingId: "replace-me" });
+    expect(host.runningCount()).toBe(2);
+    expect(host.get("replace-me")?.epoch).toBe(replacement.epoch);
+
+    await vi.waitFor(() => {
+      expect(children[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    });
+    children[0]?.exit();
+
+    expect(host.runningCount()).toBe(1);
+    expect(host.get("replace-me")).toMatchObject({
+      epoch: replacement.epoch,
+      status: "running",
+    });
+    expect(visibleExits).not.toContain(old.epoch);
+    children[1]?.exit();
+    expect(host.runningCount()).toBe(0);
+  });
+
+  it("reports a TERM- and KILL-resistant child as an unclean shutdown", async () => {
+    const signals: NodeJS.Signals[] = [];
+    let emitExit: (() => void) | undefined;
+    const spawn: TermSpawnFn = () => {
+      const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
+      emitExit = () => {
+        for (const listener of exitListeners) listener(0, undefined);
+      };
+      return {
+        pid: 82_001,
+        write() {},
+        kill(signal = "SIGTERM") {
+          signals.push(signal);
+        },
+        onData() {},
+        onExit(listener) {
+          exitListeners.add(listener);
+        },
+      };
+    };
+    const host = new LocalSessionHost(spawn, {
+      killGraceMs: 2,
+      shutdownGraceMs: 8,
+      shutdownPollMs: 1,
+    });
+    hosts.push(host);
+    host.create({ bindingId: "stubborn" });
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const result = await host.shutdownAll("stubborn-test");
+
+    expect(result.clean).toBe(false);
+    if (!result.clean) {
+      expect(result.stragglers).toHaveLength(1);
+      expect(result.stragglers[0]).toMatchObject({
+        bindingId: "stubborn",
+        status: "running",
+        pid: 82_001,
+      });
+    }
+    expect(signals[0]).toBe("SIGTERM");
+    expect(signals).toContain("SIGKILL");
+    expect(host.runningCount()).toBe(1);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("retained 1 local terminal"));
+
+    emitExit?.();
+    expect(host.runningCount()).toBe(0);
+    error.mockRestore();
   });
 
   it("write requires control lease", () => {
