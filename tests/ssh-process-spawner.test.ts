@@ -1,20 +1,12 @@
 import * as Command from "@effect/platform/Command";
-import * as NodeCommandExecutor from "@effect/platform-node/NodeCommandExecutor";
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect, Layer, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { ProcessSpawner, ProcessSpawnerLive } from "../src/main/vellum/ssh/process-spawner";
 
-const NodeExecutorLive = NodeCommandExecutor.layer.pipe(
-  Layer.provide(NodeFileSystem.layer),
-);
-
-const SpawnerLive = ProcessSpawnerLive.pipe(
-  Layer.provide(NodeExecutorLive),
-);
+const SpawnerLive = ProcessSpawnerLive;
 
 describe("ProcessSpawnerLive", () => {
-  it("runs through the official scoped Node command executor", async () => {
+  it("runs through the sealed detached process-group spawner", async () => {
     const result = await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -41,6 +33,15 @@ describe("ProcessSpawnerLive", () => {
     );
 
     expect(result).toEqual({ code: 0, stdout: "effect-process-ok" });
+  });
+
+  it("explicitly rejects command pipelines", async () => {
+    const left = Command.make("/usr/bin/printf", "x");
+    const pipeline = Command.pipeTo(left, Command.make("/bin/cat"));
+    const result = await Effect.runPromise(Effect.gen(function* () {
+      return yield* Effect.scoped((yield* ProcessSpawner).start(pipeline));
+    }).pipe(Effect.provide(SpawnerLive), Effect.either));
+    expect(result._tag).toBe("Left");
   });
 
   it("terminates a responsive owned process without waiting through the grace period", async () => {

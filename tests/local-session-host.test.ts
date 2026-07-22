@@ -228,16 +228,11 @@ describe("LocalSessionHost", () => {
     host.create({ bindingId: "bind-self-pid" });
     await host.shutdownAll("probe-self-pid");
     const audit = getTermKillAuditLog();
-    // Registration of self must have been refused.
-    expect(
-      audit.some(
-        (a) => a.decision.ok === false && a.decision.reason === "pid-is-self",
-      ),
-    ).toBe(true);
+    // Local terminal authority contains no pid, so self cannot become group authority.
+    expect(audit.some((a) => a.requestedGroup)).toBe(false);
     // No OS process.kill at all for this session.
     expect(spy).not.toHaveBeenCalled();
     expect(host.runningCount()).toBe(0);
     spy.mockRestore();
   });
 });
-

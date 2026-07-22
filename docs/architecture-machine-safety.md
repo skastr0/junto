@@ -23,13 +23,14 @@ privileged port), the API **must not** accept a bare OS identifier.
 |-----------|----------|
 | `kill(pid: number)` | `signalOwned(process: OwnedProcess)` |
 | `rm(path: string)` for user trees | scoped handles / app-owned paths only |
-| “trust the caller’s flag” | freeze policy at admission time |
+| “trust the caller’s flag” | mint authority only from a constrained spawn path |
 
 ### 2. Parse, don’t trust (Effect Schema)
 
 Inputs that touch the OS cross a **Schema** boundary first.
 
-- Pids that may be signaled: `KillablePid` — integer `> 1`, not self, not parent.
+- Group pids are captured only by `spawnDetachedProcessGroup` after the child
+  actually starts, together with its start epoch and process-group identity.
 - Signals that may terminate: `TerminatingSignal` — closed literal set.
 - SSH endpoints, remote paths, etc. already follow this pattern (`SshEndpoint`,
   `RemoteCommand`). New host-touching domains copy that pattern.
@@ -51,19 +52,18 @@ only one mint function in the owning module
 
 - A plain object is **not assignable** to the branded type (TypeScript).
 - A cast impostor still fails WeakMap lookup (runtime).
-- Authority (pid, process-group flag, child handle) is **not** on the public
-  object; callers cannot flip `ownsProcessGroup` after the fact.
+- Authority is a private discriminated union. Child authority stores only a
+  child handle; group authority additionally stores the verified pid + epoch.
 
 ### 4. Single sealed implementation site
 
 There is **one** module allowed to call `process.kill` with a negative pid
 (process-group signal): `src/main/vellum/process-signal.ts`.
 
-Callers:
-
-- `admitSpawnedProcess` at spawn
-- hold `OwnedProcess`
-- `signalOwned` / `releaseOwned`
+Callers hold `OwnedProcess` and use `signalOwned` / `releaseOwned`.
+`admitChildProcess({ source, child })` cannot receive a pid. Intentional POSIX
+group authority is minted only by `spawnDetachedProcessGroup`, which hardcodes
+`detached: true` and verifies `pgid === pid` plus process start identity.
 
 No second “helper” that reopens bare pid kill.
 
@@ -71,7 +71,7 @@ No second “helper” that reopens bare pid kill.
 
 | Situation | Behavior |
 |-----------|----------|
-| Admit rejects pid | No capability; optional `signalChildHandleOnly` (no pid param) |
+| Group epoch/pgid cannot be captured or revalidated | Child-only authority / `child.kill` |
 | Unknown / released handle | No OS signal |
 | Missing child + no capability | No-op / session marked exited |
 | Tests with fake pid=self/1 | Cannot obtain `OwnedProcess`; child.kill only |
@@ -97,7 +97,7 @@ Tests must show:
 - Schema rejects dangerous pids
 - Admit refuses them
 - Forged handles never call `process.kill`
-- Group kill only after admit with `ownsProcessGroup: true`
+- Group kill only after central detached spawn and an unchanged epoch + `pgid === pid`
 
 Flaky or missing tests do not reopen the API. The **types and module boundary**
 are the seal.
@@ -108,22 +108,28 @@ are the seal.
 
 ```text
 spawn child
-    → admitSpawnedProcess({ source, pid, ownsProcessGroup, child? })
-         → Schema.decode(KillablePid)
-         → mint OwnedProcess + WeakMap authority
+    → admitChildProcess({ source, child })
+         → mint child-only OwnedProcess + WeakMap authority
+    → OR spawnDetachedProcessGroup(...)
+         → child starts detached; capture start epoch and pgid === pid
+         → mint group OwnedProcess only when verification succeeds
     → store OwnedProcess on session / adapter record
 
 kill / quit
     → signalOwned(owned, TerminatingSignal)
          → WeakMap get
-         → if ownsProcessGroup: process.kill(-pid)   // only here
-         → else child.kill / process.kill(pid)
+         → group: recheck epoch + pgid, then process.kill(-pid) // only here
+         → otherwise child.kill
 
 exit
     → releaseOwned(owned)
 ```
 
-**There is no `signalOwnedProcess({ pid: number })`.**
+**There is no raw-pid admission API, positive terminating `process.kill(pid)`,
+or caller-supplied group-ownership boolean.** This is an application boundary,
+not a claim that the operating-system kernel makes all process signaling
+impossible: Vellum's own code cannot mint the authority without owning the
+spawn path.
 
 ---
 

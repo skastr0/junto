@@ -1,10 +1,10 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
-  admitSpawnedProcess,
   releaseOwned,
   signalOwned,
+  spawnDetachedProcessGroup,
   type OwnedProcess,
   type TerminatingSignal,
 } from "../process-signal";
@@ -28,7 +28,6 @@ const ADAPTER_QUIESCING_ERROR = "adapter process plane is shutting down";
 
 interface OwnedAdapterChild {
   readonly child: ChildProcessWithoutNullStreams;
-  readonly processGroupId?: number;
   readonly owned?: OwnedProcess;
   cleanupTimer?: ReturnType<typeof setTimeout>;
   released?: boolean;
@@ -122,10 +121,16 @@ const runOwnedFile = (
 
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(command, [...args], {
-        detached: process.platform !== "win32",
-        ...(options.env === undefined ? {} : { env: options.env }),
+      const spawned = spawnDetachedProcessGroup({
+        source: "adapter.cli",
+        command,
+        args,
+        options: options.env === undefined ? undefined : { env: options.env },
       });
+      child = spawned.child;
+      const owned: OwnedAdapterChild = { child, owned: spawned.process };
+      ownedAdapterChildren.add(owned);
+      return runRegisteredAdapterChild(owned, options, resolve);
     } catch (error) {
       resolve({
         ok: false,
@@ -135,21 +140,17 @@ const runOwnedFile = (
       return;
     }
 
-    child.stdin.end();
-    const wantsGroup = process.platform !== "win32" && child.pid !== undefined;
-    const admitted = admitSpawnedProcess({
-      source: "adapter.cli",
-      pid: child.pid,
-      ownsProcessGroup: wantsGroup,
-      child,
-    });
-    const owned: OwnedAdapterChild = {
-      child,
-      ...(wantsGroup ? { processGroupId: child.pid } : {}),
-      ...(admitted.ok ? { owned: admitted.process } : {}),
-    };
-    ownedAdapterChildren.add(owned);
+    // spawnDetachedProcessGroup registers before this point; late-spawn is closed.
+  });
+};
 
+const runRegisteredAdapterChild = (
+  owned: OwnedAdapterChild,
+  options: { readonly timeoutMs: number; readonly maxBuffer: number },
+  resolve: (result: CliResult) => void,
+): void => {
+    const child = owned.child;
+    child.stdin.end();
     let stdout = "";
     let stderr = "";
     let stdoutBytes = 0;
@@ -221,7 +222,6 @@ const runOwnedFile = (
       // JSON payload on stdout. Callers decide whether to recover from it.
       settle({ ok: false, stdout, error });
     });
-  });
 };
 
 // Well-known install roots, in priority order. This is the guaranteed floor:

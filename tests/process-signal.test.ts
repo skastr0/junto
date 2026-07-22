@@ -1,118 +1,101 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Schema } from "effect";
+import { readFile } from "node:fs/promises";
 import {
-  admitSpawnedProcess,
-  classifyProcessSignalTarget,
-  clearProcessSignalAuditLog,
-  getProcessSignalAuditLog,
-  KillablePid,
+  admitChildProcess,
   releaseOwned,
   signalChildHandleOnly,
   signalOwned,
+  spawnDetachedProcessGroup,
+  KillablePid,
   type OwnedProcess,
 } from "../src/main/vellum/process-signal";
+import { captureProcessGroupEpoch, processGroupEpochIsCurrent, setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
+import { Schema } from "effect";
 
-afterEach(() => {
-  clearProcessSignalAuditLog();
-  vi.restoreAllMocks();
-});
+afterEach(() => { setProcessEpochReaderForTests(undefined); vi.restoreAllMocks(); });
 
-describe("process-signal architecture (branded OwnedProcess)", () => {
-  it("KillablePid schema rejects init, self, parent, zero, negative", () => {
-    expect(Schema.decodeUnknownEither(KillablePid)(1)._tag).toBe("Left");
+describe("process-signal authority", () => {
+  it("retains self and parent pid rejection as a group-mint defense", () => {
     expect(Schema.decodeUnknownEither(KillablePid)(process.pid)._tag).toBe("Left");
-    if (typeof process.ppid === "number") {
-      expect(Schema.decodeUnknownEither(KillablePid)(process.ppid)._tag).toBe("Left");
-    }
-    expect(Schema.decodeUnknownEither(KillablePid)(0)._tag).toBe("Left");
-    expect(Schema.decodeUnknownEither(KillablePid)(-1)._tag).toBe("Left");
-    expect(Schema.decodeUnknownEither(KillablePid)(4242)._tag).toBe("Right");
+    expect(Schema.decodeUnknownEither(KillablePid)(process.ppid)._tag).toBe("Left");
+  });
+  it("has no raw-pid admission export", async () => {
+    const surface = await import("../src/main/vellum/process-signal");
+    expect("admitSpawnedProcess" in surface).toBe(false);
+    expect("registerOwnedProcess" in surface).toBe(false);
   });
 
-  it("classifier mirrors schema refusals", () => {
-    expect(classifyProcessSignalTarget({ pid: 1 }).ok).toBe(false);
-    expect(classifyProcessSignalTarget({ pid: process.pid }).ok).toBe(false);
-    expect(classifyProcessSignalTarget({ pid: 4242 }).ok).toBe(true);
-  });
-
-  it("admit refuses pid=1 and self — no capability minted", () => {
-    const a = admitSpawnedProcess({ source: "t", pid: 1, ownsProcessGroup: true });
-    expect(a.ok).toBe(false);
-    if (!a.ok) expect(a.reason).toBe("pid-is-init-or-launchd");
-
-    const b = admitSpawnedProcess({ source: "t", pid: process.pid, ownsProcessGroup: true });
-    expect(b.ok).toBe(false);
-    if (!b.ok) expect(b.reason).toBe("pid-is-self");
-  });
-
-  it("forged plain object is not an OwnedProcess at runtime (WeakMap miss)", () => {
+  it("forged handle is refused", () => {
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    // Type system rejects this assignment in real code; cast only for runtime proof.
-    const forged = { source: "evil" } as unknown as OwnedProcess;
-    const result = signalOwned(forged, "SIGKILL");
-    expect(result.decision.ok).toBe(false);
-    expect(result.decision).toMatchObject({ reason: "handle-not-registered" });
+    expect(signalOwned({ source: "forged" } as unknown as OwnedProcess, "SIGKILL").decision).toMatchObject({ ok: false, reason: "handle-not-registered" });
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("term path: admit without group → child.kill only, never process.kill", () => {
+  it("child-only authority never calls process.kill", () => {
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const childKill = vi.fn();
-    const admitted = admitSpawnedProcess({
-      source: "term.test",
-      pid: 55_001,
-      ownsProcessGroup: false,
-      child: { kill: childKill },
-    });
-    expect(admitted.ok).toBe(true);
-    if (!admitted.ok) return;
-    const result = signalOwned(admitted.process, "SIGTERM");
-    expect(result.via).toBe("child.kill");
-    expect(childKill).toHaveBeenCalledWith("SIGTERM");
-    expect(spy).not.toHaveBeenCalled();
-    releaseOwned(admitted.process);
-  });
-
-  it("adapter path: admit with group → process.kill(-pid) only for admitted leader", () => {
-    const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const admitted = admitSpawnedProcess({
-      source: "adapter.test",
-      pid: 66_002,
-      ownsProcessGroup: true,
-    });
-    expect(admitted.ok).toBe(true);
-    if (!admitted.ok) return;
-    const result = signalOwned(admitted.process, "SIGTERM");
-    expect(result.via).toBe("process.kill-group");
-    expect(spy).toHaveBeenCalledWith(-66_002, "SIGTERM");
-    releaseOwned(admitted.process);
-  });
-
-  it("released capability loses all authority", () => {
-    const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const admitted = admitSpawnedProcess({
-      source: "t",
-      pid: 77_003,
-      ownsProcessGroup: true,
-    });
-    expect(admitted.ok).toBe(true);
-    if (!admitted.ok) return;
-    releaseOwned(admitted.process);
-    const result = signalOwned(admitted.process, "SIGTERM");
-    expect(result.decision.ok).toBe(false);
+    const kill = vi.fn();
+    const owned = admitChildProcess({ source: "term", child: { kill } });
+    expect(signalOwned(owned, "SIGTERM").via).toBe("child.kill");
+    expect(kill).toHaveBeenCalledWith("SIGTERM");
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("signalChildHandleOnly has no pid parameter — cannot OS-kill", () => {
+  it("central detached spawn mints verified group authority", async () => {
+    const source = await import("node:child_process");
+    const original = source.spawn;
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const childKill = vi.fn();
-    signalChildHandleOnly({ kill: childKill }, "SIGTERM", "test");
-    expect(childKill).toHaveBeenCalled();
-    expect(spy).not.toHaveBeenCalled();
+    setProcessEpochReaderForTests({ startKey: () => "start", processGroupId: (pid) => pid, sessionId: (pid) => pid, groupMembers: () => [] });
+    const spawned = spawnDetachedProcessGroup({ source: "test", command: "/bin/sh", args: ["-c", "sleep 1"] });
+    expect(spawned.child.pid).toBeTypeOf("number");
+    expect(signalOwned(spawned.process, "SIGTERM").via).toBe("process.kill-group");
+    expect(spy).toHaveBeenCalledWith(-spawned.child.pid!, "SIGTERM");
+    releaseOwned(spawned.process);
+    // The mocked group signal does not terminate the real child.
+    spawned.child.kill("SIGKILL");
+    expect(original).toBeTypeOf("function");
   });
 
-  it("audit records admit refusals", () => {
-    admitSpawnedProcess({ source: "x", pid: 1, ownsProcessGroup: true });
-    expect(getProcessSignalAuditLog().some((a) => a.decision.ok === false)).toBe(true);
+  it("epoch or pgid drift refuses negative group kill and falls back to child", () => {
+    const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    let current = true;
+    setProcessEpochReaderForTests({ startKey: () => current ? "epoch-a" : "epoch-b", processGroupId: (pid) => current ? pid : pid + 1, sessionId: () => 42, groupMembers: () => [] });
+    const spawned = spawnDetachedProcessGroup({ source: "test", command: "/bin/sh", args: ["-c", "sleep 1"] });
+    current = false;
+    expect(signalOwned(spawned.process, "SIGTERM").via).toBe("child.kill");
+    expect(spy).not.toHaveBeenCalled();
+    releaseOwned(spawned.process);
+    spawned.child.kill("SIGKILL");
+  });
+
+  it("accepts only an extant leaderless group in the captured session", () => {
+    let members: readonly { pid: number; processGroupId: number; sessionId: number }[] = [];
+    setProcessEpochReaderForTests({ startKey: () => undefined, processGroupId: () => undefined, sessionId: () => undefined, groupMembers: () => members });
+    const epoch = { startKey: "old", processGroupId: 77, sessionId: 9 };
+    members = [{ pid: 88, processGroupId: 77, sessionId: 9 }];
+    expect(processGroupEpochIsCurrent(77, epoch)).toBe(true);
+    members = [];
+    expect(processGroupEpochIsCurrent(77, epoch)).toBe(false);
+    members = [{ pid: 77, processGroupId: 77, sessionId: 9 }];
+    expect(processGroupEpochIsCurrent(77, epoch)).toBe(false);
+    expect(captureProcessGroupEpoch(77)).toBeUndefined();
+  });
+
+  it("release is idempotent and loses authority", () => {
+    const kill = vi.fn(); const owned = admitChildProcess({ source: "test", child: { kill } });
+    releaseOwned(owned); releaseOwned(owned);
+    expect(signalOwned(owned, "SIGTERM").decision).toMatchObject({ ok: false });
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("child-only helper has no OS kill path", () => {
+    const spy = vi.spyOn(process, "kill").mockImplementation(() => true); const kill = vi.fn();
+    signalChildHandleOnly({ kill }, "SIGTERM", "test");
+    expect(kill).toHaveBeenCalled(); expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("source contains no positive terminating process.kill branch", async () => {
+    const source = await readFile("src/main/vellum/process-signal.ts", "utf8");
+    expect(source).not.toMatch(/process\.kill\(rec\.pid/);
+    expect(source).toMatch(/process\.kill\(-rec\.pid/);
   });
 });

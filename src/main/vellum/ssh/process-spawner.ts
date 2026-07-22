@@ -1,18 +1,10 @@
 import * as Command from "@effect/platform/Command";
-import * as CommandExecutor from "@effect/platform/CommandExecutor";
-import { Context, Effect, Layer, Scope, Sink, Stream } from "effect";
-import {
-  admitSpawnedProcess,
-  releaseOwned,
-  signalOwned,
-  type OwnedProcess,
-  type TerminatingSignal,
-} from "../process-signal";
+import * as NodeSink from "@effect/platform-node/NodeSink";
+import * as NodeStream from "@effect/platform-node/NodeStream";
+import { Context, Effect, HashMap, Layer, Option, Scope, Sink, Stream } from "effect";
+import { releaseOwned, signalOwned, spawnDetachedProcessGroup, type OwnedProcess, type TerminatingSignal } from "../process-signal";
 
-export class ProcessFailure {
-  readonly _tag = "ProcessFailure";
-}
-
+export class ProcessFailure { readonly _tag = "ProcessFailure"; }
 export interface ProcessHandle {
   readonly pid: number;
   readonly exitCode: Effect.Effect<number, ProcessFailure>;
@@ -21,91 +13,54 @@ export interface ProcessHandle {
   readonly stdout: Stream.Stream<Uint8Array, ProcessFailure>;
   readonly stderr: Stream.Stream<Uint8Array, ProcessFailure>;
 }
-
-export class ProcessSpawner extends Context.Tag("@vellum/ssh/ProcessSpawner")<
-  ProcessSpawner,
-  {
-    readonly start: (command: Command.Command) => Effect.Effect<ProcessHandle, ProcessFailure, Scope.Scope>;
-  }
->() {}
-
+export class ProcessSpawner extends Context.Tag("@vellum/ssh/ProcessSpawner")<ProcessSpawner, { readonly start: (command: Command.Command) => Effect.Effect<ProcessHandle, ProcessFailure, Scope.Scope> }>() {}
 const failure = (): ProcessFailure => new ProcessFailure();
 
-type TrackedSshChild = {
-  readonly child: CommandExecutor.Process;
-  readonly owned: OwnedProcess | undefined;
-};
-
+type TrackedSshChild = { readonly child: ReturnType<typeof spawnDetachedProcessGroup>["child"]; readonly owned: OwnedProcess; readonly exited: Promise<number> };
 const stopProcess = (tracked: TrackedSshChild): Effect.Effect<void> =>
-  tracked.child.isRunning.pipe(
-    Effect.flatMap((running) => {
-      if (!running) {
-        releaseOwned(tracked.owned);
-        return Effect.void;
-      }
-      const awaitExit = tracked.child.exitCode.pipe(Effect.exit, Effect.asVoid);
-      const sig = (signal: TerminatingSignal) =>
-        Effect.sync(() => {
-          if (tracked.owned) {
-            signalOwned(tracked.owned, signal);
-          }
-          // No bare-pid fallback — unadmitted means no OS kill.
-        });
-      const forceAfterGrace = Effect.sleep("2 seconds").pipe(
-        Effect.zipRight(sig("SIGKILL")),
-        Effect.zipRight(awaitExit.pipe(Effect.timeout("2 seconds"), Effect.ignore)),
-      );
-      return sig("SIGTERM").pipe(
-        Effect.zipRight(
-          Effect.raceFirst(awaitExit, forceAfterGrace).pipe(Effect.interruptible),
-        ),
-        Effect.ensuring(Effect.sync(() => releaseOwned(tracked.owned))),
-      );
-    }),
-    Effect.timeout("5 seconds"),
-    Effect.ignore,
-  );
+  Effect.suspend(() => {
+    const signal = (value: TerminatingSignal) => Effect.sync(() => signalOwned(tracked.owned, value));
+    return signal("SIGTERM").pipe(
+      Effect.zipRight(Effect.sleep("50 millis")),
+      Effect.zipRight(Effect.suspend(() => tracked.child.exitCode === null && tracked.child.signalCode === null ? Effect.sleep("1450 millis") : Effect.void)),
+      // The finalizer is bounded: after escalation, process exit is observed
+      // by the shared promise but does not hold scope release indefinitely.
+      Effect.zipRight(Effect.suspend(() => tracked.child.exitCode === null && tracked.child.signalCode === null ? signal("SIGKILL") : Effect.void)),
+      Effect.ensuring(Effect.sync(() => releaseOwned(tracked.owned))),
+      Effect.timeout("3 seconds"),
+      Effect.ignore,
+    );
+  });
 
-export const ProcessSpawnerLive = Layer.effect(
-  ProcessSpawner,
-  Effect.gen(function* () {
-    const executor = yield* CommandExecutor.CommandExecutor;
+const startStandard = (command: Command.StandardCommand): Effect.Effect<TrackedSshChild, ProcessFailure> =>
+  Effect.try({
+    try: () => {
+      const environment = HashMap.reduce(command.env, { ...process.env } as Record<string, string | undefined>, (acc, value, key) => ({ ...acc, [key]: value }));
+      const spawned = spawnDetachedProcessGroup({
+        source: "ssh.process-spawner",
+        command: command.command,
+        args: command.args,
+        options: { cwd: Option.getOrUndefined(command.cwd), env: environment, shell: command.shell, uid: Option.getOrUndefined(command.uid), gid: Option.getOrUndefined(command.gid) },
+      });
+      const exited = new Promise<number>((resolve, reject) => {
+        spawned.child.once("exit", (code) => resolve(code ?? -1));
+        spawned.child.once("error", reject);
+      });
+      return { child: spawned.child, owned: spawned.process, exited };
+    },
+    catch: failure,
+  });
 
-    return ProcessSpawner.of({
-      start: (command) =>
-        Effect.acquireRelease(
-          executor.start(command).pipe(
-            Effect.mapError(failure),
-            Effect.map((child) => {
-              const pid = Number(child.pid);
-              const admitted = admitSpawnedProcess({
-                source: "ssh.process-spawner",
-                pid: Number.isFinite(pid) ? pid : undefined,
-                // SSH ControlMaster children are process-group leaders we own.
-                ownsProcessGroup: true,
-              });
-              return {
-                child,
-                owned: admitted.ok ? admitted.process : undefined,
-              } satisfies TrackedSshChild;
-            }),
-          ),
-          stopProcess,
-        ).pipe(
-          Effect.map(
-            (tracked): ProcessHandle => ({
-              pid: Number(tracked.child.pid),
-              exitCode: tracked.child.exitCode.pipe(
-                Effect.map(Number),
-                Effect.mapError(failure),
-              ),
-              isRunning: tracked.child.isRunning.pipe(Effect.mapError(failure)),
-              stdin: tracked.child.stdin.pipe(Sink.mapError(failure)),
-              stdout: tracked.child.stdout.pipe(Stream.mapError(failure)),
-              stderr: tracked.child.stderr.pipe(Stream.mapError(failure)),
-            }),
-          ),
-        ),
-    });
-  }),
-);
+export const ProcessSpawnerLive = Layer.succeed(ProcessSpawner, ProcessSpawner.of({
+  start: (command) => {
+    if (command._tag !== "StandardCommand") return Effect.fail(failure());
+    return Effect.acquireRelease(startStandard(command), stopProcess).pipe(Effect.map((tracked): ProcessHandle => ({
+      pid: tracked.child.pid ?? -1,
+      exitCode: Effect.tryPromise({ try: () => tracked.exited, catch: failure }),
+      isRunning: Effect.sync(() => tracked.child.exitCode === null && tracked.child.signalCode === null),
+      stdin: NodeSink.fromWritable(() => tracked.child.stdin, failure, { endOnDone: true }),
+      stdout: NodeStream.fromReadable(() => tracked.child.stdout, failure),
+      stderr: NodeStream.fromReadable(() => tracked.child.stderr, failure),
+    })));
+  },
+}));

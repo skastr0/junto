@@ -12,7 +12,7 @@ import { randomBytes } from "node:crypto";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { getProcessIdentityMap } from "../process-identity";
 import {
-  admitSpawnedProcess,
+  admitChildProcess,
   classifyProcessSignalTarget,
   clearProcessSignalAuditLog,
   getProcessSignalAuditLog,
@@ -125,7 +125,7 @@ type SessionRec = {
   journalBytes: number;
   controlLeaseId: string | undefined;
   killed: boolean;
-  /** Branded capability — only admitSpawnedProcess can mint. */
+  /** Branded child-only capability — only process-signal can mint. */
   owned: OwnedProcess | undefined;
 };
 
@@ -354,14 +354,8 @@ export class LocalSessionHost extends EventEmitter {
       rec.child = child;
       rec.pid = child.pid;
       rec.status = "running";
-      // Admit only KillablePid. Fakes with pid=self/1 → child.kill-only path.
-      const admitted = admitSpawnedProcess({
-        source: `term:${bindingId}`,
-        pid: child.pid,
-        ownsProcessGroup: false,
-        child,
-      });
-      rec.owned = admitted.ok ? admitted.process : undefined;
+      // Local terminals are always child-only; their capability contains no pid.
+      rec.owned = admitChildProcess({ source: `term:${bindingId}`, child });
       this.bindProcessIdentity(rec);
       this.emitEvent({
         type: "session",
@@ -385,14 +379,14 @@ export class LocalSessionHost extends EventEmitter {
       });
 
       child.onExit((code, signal) => {
-        // Only the active epoch for this binding may mutate identity / status.
-        if (rec.epoch !== epoch) return;
-        if (this.sessions.get(bindingId) !== rec) return;
-        rec.status = "exited";
+        // Cleanup belongs to this record even after a same-binding replacement.
+        // Only presentation/map state belongs to the current binding.
         releaseOwned(rec.owned);
         rec.owned = undefined;
         if (rec.pid !== undefined) getProcessIdentityMap().unbind(rec.pid);
+        rec.status = "exited";
         rec.child = undefined;
+        if (rec.epoch !== epoch || this.sessions.get(bindingId) !== rec) return;
         rec.seq = rec.seq + 1n;
         this.pushJournal(rec, {
           seq: rec.seq,
@@ -619,14 +613,8 @@ export class LocalSessionHost extends EventEmitter {
       if (!still) return;
       await new Promise((r) => setTimeout(r, 50));
     }
-    // Mark stragglers exited so quit can proceed; best-effort after SIGKILL.
-    for (const s of this.sessions.values()) {
-      if (s.status === "running" || s.status === "starting") {
-        s.status = "exited";
-        s.child = undefined;
-        if (s.pid !== undefined) getProcessIdentityMap().unbind(s.pid);
-      }
-    }
+    // Return boundedly, but retain live records and their capabilities until an
+    // observed exit. Callers can report these sessions as unclean.
   }
 
   private killBinding(bindingId: string): boolean {
@@ -638,7 +626,7 @@ export class LocalSessionHost extends EventEmitter {
     const child = rec.child;
     if (child) {
       setTimeout(() => {
-        if (rec.status === "running" || rec.status === "starting") {
+        if (this.sessions.get(bindingId) === rec && (rec.status === "running" || rec.status === "starting")) {
           this.forceKill(rec, "SIGKILL");
         }
       }, 400).unref?.();

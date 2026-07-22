@@ -1,4 +1,3 @@
-import * as NodeCommandExecutor from "@effect/platform-node/NodeCommandExecutor";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect, Layer } from "effect";
 import { homedir } from "node:os";
@@ -7,13 +6,6 @@ import { resolvedSpawnEnv, resolvedSpawnEnvSync } from "../adapters/exec";
 import { ProcessSpawnerLive } from "./process-spawner";
 import { SshTransportConfig, SshTransportLayer } from "./service";
 
-const NodeExecutorLive = NodeCommandExecutor.layer.pipe(
-  Layer.provide(NodeFileSystem.layer),
-);
-
-const NodeProcessSpawnerLive = ProcessSpawnerLive.pipe(
-  Layer.provide(NodeExecutorLive),
-);
 
 const allowedSshEnvironment = (source: NodeJS.ProcessEnv): Readonly<Record<string, string>> => {
   const allowed: Record<string, string> = {};
@@ -53,7 +45,7 @@ const SshConfigLive = Layer.effect(
 );
 
 export const SshTransportLive = SshTransportLayer.pipe(
-  Layer.provide(NodeProcessSpawnerLive),
+  Layer.provide(ProcessSpawnerLive),
   Layer.provide(NodeFileSystem.layer),
   Layer.provide(SshConfigLive),
 );
