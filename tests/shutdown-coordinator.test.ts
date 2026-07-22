@@ -56,7 +56,7 @@ describe("shutdown coordinator", () => {
     await expect(complete).resolves.toMatchObject({ generation: 1, attempt: 2, complete: true });
   });
 
-  it("checkpoints renderer destruction when later ingress detachment fails", async () => {
+  it("makes uncertain detachment terminal after renderer destruction", async () => {
     let destroys = 0;
     let detaches = 0;
     const coordinator = createShutdownCoordinator(steps({
@@ -66,9 +66,9 @@ describe("shutdown coordinator", () => {
     const transaction = coordinator.request("normal");
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     transaction.retry();
-    await expect(transaction.complete).resolves.toMatchObject({ complete: true, attempt: 2 });
+    await expect(transaction.complete).resolves.toMatchObject({ complete: false, attempt: 1 });
     expect(destroys).toBe(1);
-    expect(detaches).toBe(2);
+    expect(detaches).toBe(1);
   });
 
   it("returns a retryable resource failure without awaiting a hung sibling and observes rejection", async () => {
@@ -142,7 +142,7 @@ describe("shutdown coordinator", () => {
       if (overrides.cutAdmission !== undefined) {
         await expect(transaction.complete).resolves.toMatchObject({ complete: false });
       } else {
-        expect(transaction.snapshot()).toMatchObject({ phase: "retryable" });
+        expect(transaction.snapshot()).toMatchObject({ phase: "complete" });
       }
     }
   });
@@ -154,5 +154,18 @@ describe("shutdown coordinator", () => {
     expect(transaction.snapshot().lastAttempt?.receipts).toContainEqual(
       expect.objectContaining({ name: "local resources", clean: false }),
     );
+  });
+
+  it("settles a bounded attempt when a sole resource hangs", async () => {
+    const never = new Promise<ShutdownCleanReceipt>(() => undefined);
+    const transaction = createShutdownCoordinator(steps({
+      resourceDeadlineMs: 1,
+      drainLocalResources: () => ({ terminal: never }),
+    })).request("normal");
+    const attempt = transaction.snapshot().attempt;
+    const outcome = await transaction.retry().settled;
+    expect(outcome).toMatchObject({ safeToForce: false });
+    expect(transaction.snapshot()).toMatchObject({ phase: "retryable", attempt: expect.any(Number) });
+    expect(transaction.snapshot().attempt).toBeGreaterThanOrEqual(attempt);
   });
 });
