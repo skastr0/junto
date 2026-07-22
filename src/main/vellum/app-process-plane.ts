@@ -4,6 +4,7 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
+import type { IDisposable, IPty } from "node-pty";
 import {
   captureProcessGroupObservation,
   refreshProcessGroupObservations,
@@ -27,6 +28,7 @@ export const APP_PROCESS_TERM_GRACE_MS = 1_000;
 export const APP_PROCESS_KILL_GRACE_MS = 1_500;
 
 type AppProcessMode = "child" | "group";
+type AppOwnedMode = AppProcessMode | "terminal";
 type AppProcessSignal = "SIGTERM" | "SIGKILL";
 
 export interface AppProcessExit {
@@ -76,6 +78,42 @@ export interface AppProcessSpawnSpec {
   readonly gid?: number;
 }
 
+export interface AppTerminalSpawnSpec {
+  readonly source: string;
+  readonly purpose: string;
+  readonly command: string;
+  readonly args?: readonly string[];
+  readonly cwd?: string;
+  readonly env?: Readonly<NodeJS.ProcessEnv>;
+  readonly cols: number;
+  readonly rows: number;
+}
+
+export interface AppTerminalExit {
+  readonly code: number | undefined;
+  readonly signal: number | undefined;
+}
+
+export interface AppTerminalIo {
+  readonly pidForDiagnostics: number | undefined;
+  readonly exited: Promise<AppTerminalExit>;
+  readonly write: (data: string) => void;
+  readonly resize: ((cols: number, rows: number) => void) | undefined;
+  readonly onData: (listener: (data: string) => void) => () => void;
+  readonly onExit: (listener: (event: AppTerminalExit) => void) => () => void;
+  readonly onError: (listener: (error: Error) => void) => () => void;
+}
+
+const AppTerminalLeaseTypeId: unique symbol = Symbol("@vellum/AppTerminalLease");
+
+export interface AppTerminalLease {
+  readonly [AppTerminalLeaseTypeId]: typeof AppTerminalLeaseTypeId;
+  readonly generation: number;
+  readonly source: string;
+  readonly purpose: string;
+  readonly io: AppTerminalIo;
+}
+
 export interface AppOutlivingDaemonSpec extends AppProcessSpawnSpec {
   /** Makes the lifetime exception explicit at every callsite. */
   readonly lifetime: "outlives-app";
@@ -106,7 +144,7 @@ export interface AppProcessStraggler {
   readonly generation: number;
   readonly source: string;
   readonly purpose: string;
-  readonly mode: AppProcessMode;
+  readonly mode: AppOwnedMode;
   readonly state: AppProcessStragglerState;
   readonly pid?: number;
   readonly term?: AppProcessSignalReceipt;
@@ -125,15 +163,16 @@ export interface AppProcessPlaneOptions {
 export interface AppProcessPlane {
   readonly spawnChild: (spec: AppProcessSpawnSpec) => AppProcessLease;
   readonly spawnGroup: (spec: AppProcessSpawnSpec) => AppProcessLease;
+  readonly spawnTerminal: (spec: AppTerminalSpawnSpec) => AppTerminalLease;
   readonly spawnOutlivingDaemon: (
     spec: AppOutlivingDaemonSpec,
   ) => AppOutlivingDaemonHandoff;
   readonly terminate: (
-    lease: AppProcessLease,
+    lease: AppProcessLease | AppTerminalLease,
     reason: string,
   ) => AppProcessSignalReceipt;
   readonly forceTerminate: (
-    lease: AppProcessLease,
+    lease: AppProcessLease | AppTerminalLease,
     reason: string,
   ) => AppProcessSignalReceipt;
   /** Synchronously and permanently closes every spawn admission path. */
@@ -142,25 +181,63 @@ export interface AppProcessPlane {
   readonly isQuiescing: () => boolean;
 }
 
-interface AppProcessRecord {
+interface AppOwnedRecord {
   readonly generation: number;
   readonly source: string;
   readonly purpose: string;
-  readonly mode: AppProcessMode;
-  readonly child: ChildProcessWithoutNullStreams;
+  readonly mode: AppOwnedMode;
   readonly owned: OwnedProcess;
   readonly pidForDiagnostics: number | undefined;
+  exitEvent: AppProcessExit | AppTerminalExit | undefined;
+  closeEvent: AppProcessClose | AppTerminalExit | undefined;
+  authorityReleased: boolean;
+  term: AppProcessSignalReceipt | undefined;
+  kill: AppProcessSignalReceipt | undefined;
+  termInProgressReason: string | undefined;
+  killInProgressReason: string | undefined;
+}
+
+interface AppProcessRecord extends AppOwnedRecord {
+  readonly mode: AppProcessMode;
+  readonly child: ChildProcessWithoutNullStreams;
   readonly exitListeners: Set<(event: AppProcessExit) => void>;
   readonly closeListeners: Set<(event: AppProcessClose) => void>;
   readonly errorListeners: Set<(error: Error) => void>;
   exitEvent: AppProcessExit | undefined;
   closeEvent: AppProcessClose | undefined;
   groupObservation: ProcessGroupObservation | undefined;
-  authorityReleased: boolean;
-  term: AppProcessSignalReceipt | undefined;
-  kill: AppProcessSignalReceipt | undefined;
-  termInProgressReason: string | undefined;
-  killInProgressReason: string | undefined;
+}
+
+interface AppTerminalRecord extends AppOwnedRecord {
+  readonly mode: "terminal";
+  readonly backend: "pty" | "pipe";
+  readonly dataListeners: Set<(data: string) => void>;
+  readonly exitListeners: Set<(event: AppTerminalExit) => void>;
+  readonly errorListeners: Set<(error: Error) => void>;
+  exitEvent: AppTerminalExit | undefined;
+  closeEvent: AppTerminalExit | undefined;
+  cleanupListeners: () => void;
+}
+
+type AppRecord = AppProcessRecord | AppTerminalRecord;
+
+interface TerminalBackendHandlers {
+  readonly onData: (data: string) => void;
+  readonly onExit: (event: AppTerminalExit) => void;
+  readonly onClose: (event: AppTerminalExit) => void;
+  readonly onError: (error: Error) => void;
+}
+
+interface TerminalBackend {
+  readonly kind: "pty" | "pipe";
+  readonly pid: number | undefined;
+  readonly signalSink: SignalChildHandle;
+  readonly write: (data: string) => void;
+  readonly resize: ((cols: number, rows: number) => void) | undefined;
+  readonly attach: (handlers: TerminalBackendHandlers) => {
+    readonly cleanup: () => void;
+    readonly error?: Error;
+  };
 }
 
 type RegistryEmptyWaiter = {
@@ -200,6 +277,11 @@ const frozenExit = (
   signal: NodeJS.Signals | null,
 ): AppProcessExit => Object.freeze({ code, signal });
 
+const frozenTerminalExit = (
+  code: number | undefined,
+  signal: number | undefined,
+): AppTerminalExit => Object.freeze({ code, signal });
+
 const makeSignalSink = (
   child: ChildProcessWithoutNullStreams,
 ): SignalChildHandle => {
@@ -210,6 +292,125 @@ const makeSignalSink = (
   return pid === undefined
     ? Object.freeze({ kill })
     : Object.freeze({ pid, kill });
+};
+
+const disposePtyListener = (listener: IDisposable | undefined): void => {
+  try {
+    listener?.dispose();
+  } catch {
+    // Listener disposal is best-effort after the terminal witness is recorded.
+  }
+};
+
+const makePtyBackend = (pty: IPty): TerminalBackend => {
+  // Snapshot and bind every authority-bearing member before any facade exists.
+  const pid = pty.pid;
+  const killPty = pty.kill.bind(pty);
+  const signalSink: SignalChildHandle = Object.freeze({
+    ...(pid === undefined ? {} : { pid }),
+    kill: (signal?: NodeJS.Signals) => killPty(signal),
+  });
+
+  return Object.freeze({
+    kind: "pty" as const,
+    pid,
+    signalSink,
+    write: (data: string) => pty.write(data),
+    resize: (cols: number, rows: number) => pty.resize(cols, rows),
+    attach: (handlers: TerminalBackendHandlers) => {
+      let exitListener: IDisposable | undefined;
+      let dataListener: IDisposable | undefined;
+      let setupError: Error | undefined;
+      try {
+        // Install the sole PTY terminal witness before the non-terminal stream.
+        exitListener = pty.onExit(({ exitCode, signal }) => {
+          handlers.onExit(frozenTerminalExit(
+            exitCode ?? undefined,
+            signal ?? undefined,
+          ));
+        });
+      } catch (error) {
+        setupError = error instanceof Error ? error : new Error(String(error));
+      }
+      if (setupError === undefined) {
+        try {
+          dataListener = pty.onData(handlers.onData);
+        } catch (error) {
+          setupError = error instanceof Error ? error : new Error(String(error));
+        }
+      }
+      let cleaned = false;
+      const cleanup = (): void => {
+        if (cleaned) return;
+        cleaned = true;
+        disposePtyListener(dataListener);
+        disposePtyListener(exitListener);
+      };
+      return setupError === undefined ? { cleanup } : { cleanup, error: setupError };
+    },
+  });
+};
+
+const numericTerminalSignal = (signal: unknown): number | undefined =>
+  typeof signal === "number" ? signal : undefined;
+
+const makePipeBackend = (
+  child: ChildProcessWithoutNullStreams,
+): TerminalBackend => {
+  const signalSink = makeSignalSink(child);
+
+  return Object.freeze({
+    kind: "pipe" as const,
+    pid: child.pid,
+    signalSink,
+    write: (data: string) => {
+      child.stdin.write(data);
+    },
+    resize: undefined,
+    attach: (handlers: TerminalBackendHandlers) => {
+      const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+        handlers.onExit(frozenTerminalExit(
+          code ?? undefined,
+          numericTerminalSignal(signal),
+        ));
+      };
+      const onClose = (code: number | null, signal: NodeJS.Signals | null): void => {
+        handlers.onClose(frozenTerminalExit(
+          code ?? undefined,
+          numericTerminalSignal(signal),
+        ));
+      };
+      const onError = (error: Error): void => handlers.onError(error);
+      const onData = (data: string | Buffer): void => {
+        handlers.onData(typeof data === "string" ? data : data.toString("utf8"));
+      };
+
+      let setupError: Error | undefined;
+      try {
+        // Exit disables signal authority; close alone retires piped resources.
+        child.once("exit", onExit);
+        child.once("close", onClose);
+        child.on("error", onError);
+        child.stdout.setEncoding("utf8");
+        child.stderr.setEncoding("utf8");
+        child.stdout.on("data", onData);
+        child.stderr.on("data", onData);
+      } catch (error) {
+        setupError = error instanceof Error ? error : new Error(String(error));
+      }
+      let cleaned = false;
+      const cleanup = (): void => {
+        if (cleaned) return;
+        cleaned = true;
+        child.off("exit", onExit);
+        child.off("close", onClose);
+        child.off("error", onError);
+        child.stdout.off("data", onData);
+        child.stderr.off("data", onData);
+      };
+      return setupError === undefined ? { cleanup } : { cleanup, error: setupError };
+    },
+  });
 };
 
 const spawnOptions = (spec: AppProcessSpawnSpec) => ({
@@ -238,7 +439,7 @@ const withSignalReceipt = (
   result: SignalOwnedResult,
 ): AppProcessSignalReceipt => Object.freeze({ signal, reason, ...result });
 
-const stragglerState = (record: AppProcessRecord): AppProcessStragglerState => {
+const stragglerState = (record: AppRecord): AppProcessStragglerState => {
   if (record.mode === "group" && record.groupObservation === undefined) {
     return "ownership-unverified";
   }
@@ -252,7 +453,7 @@ const stragglerState = (record: AppProcessRecord): AppProcessStragglerState => {
   return "running";
 };
 
-const summarizeStraggler = (record: AppProcessRecord): AppProcessStraggler =>
+const summarizeStraggler = (record: AppRecord): AppProcessStraggler =>
   Object.freeze({
     generation: record.generation,
     source: record.source,
@@ -325,8 +526,9 @@ export const createAppProcessPlane = (
     "app process KILL grace",
   );
 
-  const records = new Set<AppProcessRecord>();
+  const records = new Set<AppRecord>();
   const leases = new WeakMap<AppProcessLease, AppProcessRecord>();
+  const terminalLeases = new WeakMap<AppTerminalLease, AppTerminalRecord>();
   const registryEmptyWaiters = new Set<RegistryEmptyWaiter>();
   let nextGeneration = 1;
   let quiescing = false;
@@ -336,7 +538,7 @@ export const createAppProcessPlane = (
     if (quiescing) throw quiescingError();
   };
 
-  const releaseRecordAuthority = (record: AppProcessRecord): void => {
+  const releaseRecordAuthority = (record: AppRecord): void => {
     if (record.authorityReleased) return;
     record.authorityReleased = true;
     try {
@@ -355,7 +557,7 @@ export const createAppProcessPlane = (
     registryEmptyWaiters.clear();
   };
 
-  const retireRecord = (record: AppProcessRecord): void => {
+  const retireRecord = (record: AppRecord): void => {
     if (!records.delete(record)) return;
     notifyRegistryEmpty();
   };
@@ -398,10 +600,13 @@ export const createAppProcessPlane = (
     }
     if (refreshed === undefined || refreshed.length !== observed.length) return;
 
+    if (observed.some((record, index) =>
+      !validGroupRefresh(record.groupObservation, refreshed?.[index])
+    )) return;
+
     for (let index = 0; index < observed.length; index += 1) {
       const record = observed[index]!;
       const next = refreshed[index]!;
-      if (!validGroupRefresh(record.groupObservation, next)) continue;
       record.groupObservation = next.observation;
       if (next.clean && record.closeEvent !== undefined) retireRecord(record);
     }
@@ -552,6 +757,202 @@ export const createAppProcessPlane = (
     return lease;
   };
 
+  const registerTerminal = (
+    spec: AppTerminalSpawnSpec,
+    backend: TerminalBackend,
+  ): AppTerminalLease => {
+    const owned = admitChildProcess({
+      source: spec.source,
+      child: backend.signalSink,
+    });
+    const record: AppTerminalRecord = {
+      generation: nextGeneration++,
+      source: spec.source,
+      purpose: spec.purpose,
+      mode: "terminal",
+      backend: backend.kind,
+      owned,
+      pidForDiagnostics: backend.pid,
+      dataListeners: new Set(),
+      exitListeners: new Set(),
+      errorListeners: new Set(),
+      exitEvent: undefined,
+      closeEvent: undefined,
+      cleanupListeners: () => undefined,
+      authorityReleased: false,
+      term: undefined,
+      kill: undefined,
+      termInProgressReason: undefined,
+      killInProgressReason: undefined,
+    };
+    records.add(record);
+
+    let resolveExit!: (event: AppTerminalExit) => void;
+    const exited = new Promise<AppTerminalExit>((resolve) => {
+      resolveExit = resolve;
+    });
+
+    const waitForExit = (timeoutMs: number): Promise<boolean> => {
+      if (record.exitEvent !== undefined || record.closeEvent !== undefined) {
+        return Promise.resolve(true);
+      }
+      return new Promise((resolve) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          resolve(false);
+        }, timeoutMs);
+        void exited.then(() => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(true);
+        });
+      });
+    };
+
+    const subscribe = <Value>(
+      listeners: Set<(value: Value) => void>,
+      observed: () => Value | undefined,
+      listener: (value: Value) => void,
+    ): (() => void) => {
+      const value = observed();
+      if (value !== undefined) {
+        try {
+          listener(value);
+        } catch {
+          // Match asynchronous delivery containment.
+        }
+        return () => undefined;
+      }
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    };
+
+    const onData = (data: string): void => {
+      if (record.closeEvent === undefined) notify(record.dataListeners, data);
+    };
+    const onExit = (event: AppTerminalExit): void => {
+      if (record.exitEvent !== undefined || record.closeEvent !== undefined) return;
+      record.exitEvent = event;
+      releaseRecordAuthority(record);
+      resolveExit(event);
+      notify(record.exitListeners, event);
+      record.exitListeners.clear();
+      if (record.backend === "pty") {
+        // node-pty exposes no separate close witness: onExit is terminal.
+        record.closeEvent = event;
+        record.cleanupListeners();
+        record.dataListeners.clear();
+        record.errorListeners.clear();
+        retireRecord(record);
+      }
+    };
+    const onClose = (event: AppTerminalExit): void => {
+      if (record.closeEvent !== undefined) return;
+      record.closeEvent = event;
+      if (record.exitEvent === undefined) {
+        // A close-only pipe settles callers but does not fabricate onExit.
+        resolveExit(event);
+      }
+      releaseRecordAuthority(record);
+      record.cleanupListeners();
+      record.dataListeners.clear();
+      record.exitListeners.clear();
+      record.errorListeners.clear();
+      retireRecord(record);
+    };
+    const onError = (error: Error): void => {
+      if (record.closeEvent === undefined) notify(record.errorListeners, error);
+    };
+
+    const ensureWritable = (): void => {
+      if (record.exitEvent !== undefined || record.closeEvent !== undefined) {
+        throw new Error("terminal process already exited");
+      }
+    };
+    const write = (data: string): void => {
+      ensureWritable();
+      try {
+        backend.write(data);
+      } catch (error) {
+        const normalized = error instanceof Error ? error : new Error(String(error));
+        onError(normalized);
+        throw normalized;
+      }
+    };
+    const resize = backend.resize === undefined
+      ? undefined
+      : (cols: number, rows: number): void => {
+        ensureWritable();
+        try {
+          backend.resize!(cols, rows);
+        } catch (error) {
+          const normalized = error instanceof Error
+            ? error
+            : new Error(String(error));
+          onError(normalized);
+          throw normalized;
+        }
+      };
+    const io: AppTerminalIo = Object.freeze({
+      pidForDiagnostics: record.pidForDiagnostics,
+      exited,
+      write,
+      resize,
+      onData: (listener: (data: string) => void) => {
+        if (record.closeEvent !== undefined) return () => undefined;
+        record.dataListeners.add(listener);
+        return () => {
+          record.dataListeners.delete(listener);
+        };
+      },
+      onExit: (listener: (event: AppTerminalExit) => void) =>
+        record.closeEvent !== undefined &&
+          record.exitEvent === undefined
+        ? () => undefined
+        : subscribe(record.exitListeners, () => record.exitEvent, listener),
+      onError: (listener: (error: Error) => void) => {
+        if (record.closeEvent !== undefined) return () => undefined;
+        record.errorListeners.add(listener);
+        return () => {
+          record.errorListeners.delete(listener);
+        };
+      },
+    });
+    const leaseValue: AppTerminalLease = {
+      [AppTerminalLeaseTypeId]: AppTerminalLeaseTypeId,
+      generation: record.generation,
+      source: record.source,
+      purpose: record.purpose,
+      io,
+    };
+    const lease = Object.freeze(leaseValue);
+    terminalLeases.set(lease, record);
+
+    const attachment = backend.attach({ onData, onExit, onClose, onError });
+    record.cleanupListeners = attachment.cleanup;
+    // A hostile backend can synchronously terminate while attaching.
+    if (record.closeEvent !== undefined) record.cleanupListeners();
+    if (attachment.error !== undefined) {
+      onError(attachment.error);
+      // Setup failure never opens an unowned fallback child. Retain this exact
+      // child in the registry and run its bounded teardown even though no lease
+      // can be returned to the caller.
+      signalRecord(record, "SIGTERM", "terminal-listener-setup-failed");
+      void (async () => {
+        if (await waitForExit(termGraceMs)) return;
+        signalRecord(record, "SIGKILL", "terminal-listener-setup-failed");
+        await waitForExit(killGraceMs);
+      })();
+      throw attachment.error;
+    }
+    return lease;
+  };
+
   const spawnChild = (spec: AppProcessSpawnSpec): AppProcessLease => {
     assertSpawnAllowed();
     const child = spawn(spec.command, [...(spec.args ?? [])], {
@@ -594,6 +995,35 @@ export const createAppProcessPlane = (
     return lease;
   };
 
+  const spawnTerminal = (spec: AppTerminalSpawnSpec): AppTerminalLease => {
+    assertSpawnAllowed();
+    let pty: IPty | undefined;
+    try {
+      // Keep the optional native dependency outside import-time graphs.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const nodePty = require("node-pty") as typeof import("node-pty");
+      pty = nodePty.spawn(spec.command, [...(spec.args ?? [])], {
+        name: "xterm-256color",
+        cols: spec.cols,
+        rows: spec.rows,
+        cwd: spec.cwd,
+        env: spec.env === undefined ? undefined : { ...spec.env },
+        handleFlowControl: true,
+      });
+    } catch {
+      const child = spawn(spec.command, [...(spec.args ?? [])], {
+        cwd: spec.cwd,
+        env: spec.env === undefined ? undefined : { ...spec.env },
+        detached: false,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      return registerTerminal(spec, makePipeBackend(child));
+    }
+    // Listener/facade setup happens outside the fallback boundary. Once PTY
+    // spawn succeeds, a setup failure tears down this exact owned process.
+    return registerTerminal(spec, makePtyBackend(pty));
+  };
+
   const spawnOutlivingDaemon = (
     spec: AppOutlivingDaemonSpec,
   ): AppOutlivingDaemonHandoff => {
@@ -624,12 +1054,15 @@ export const createAppProcessPlane = (
   };
 
   const signalRecord = (
-    record: AppProcessRecord,
+    record: AppRecord,
     signal: AppProcessSignal,
     reason: string,
   ): AppProcessSignalReceipt => {
     const existing = signal === "SIGTERM" ? record.term : record.kill;
-    if (existing !== undefined) return existing;
+    // A physically attempted delivery owns this phase forever. Refusals are
+    // retained for diagnostics but may be retried by a later bounded owner;
+    // signalOwned revalidates the exact epoch on every attempt.
+    if (existing?.attempted === true) return existing;
     const inProgressReason = signal === "SIGTERM"
       ? record.termInProgressReason
       : record.killInProgressReason;
@@ -660,18 +1093,20 @@ export const createAppProcessPlane = (
   };
 
   const signalLease = (
-    lease: AppProcessLease,
+    lease: AppProcessLease | AppTerminalLease,
     signal: AppProcessSignal,
     reason: string,
   ): AppProcessSignalReceipt => {
-    const record = leases.get(lease);
+    const record = leases.get(lease as AppProcessLease) ??
+      terminalLeases.get(lease as AppTerminalLease);
     if (record === undefined) {
       return rejectedSignalReceipt(signal, reason, "lease-not-registered");
     }
     const existing = signal === "SIGTERM" ? record.term : record.kill;
-    if (existing !== undefined) return existing;
+    if (existing?.attempted === true) return existing;
     if (record.closeEvent !== undefined) {
-      return rejectedSignalReceipt(signal, reason, "lease-not-registered");
+      return existing ??
+        rejectedSignalReceipt(signal, reason, "lease-not-registered");
     }
     return signalRecord(record, signal, reason);
   };
@@ -750,6 +1185,7 @@ export const createAppProcessPlane = (
   const plane: AppProcessPlane = {
     spawnChild,
     spawnGroup,
+    spawnTerminal,
     spawnOutlivingDaemon,
     terminate: (lease, reason) => signalLease(lease, "SIGTERM", reason),
     forceTerminate: (lease, reason) => signalLease(lease, "SIGKILL", reason),

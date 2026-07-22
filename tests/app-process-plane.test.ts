@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import type { IDisposable, IPty } from "node-pty";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -8,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   spawnDetachedProcessGroup: vi.fn(),
   signalOwned: vi.fn(),
   releaseOwned: vi.fn(),
+  refreshProcessGroupObservations: vi.fn(),
 }));
 
 vi.mock("node:child_process", async (importOriginal) => ({
@@ -23,13 +25,31 @@ vi.mock("../src/main/vellum/process-signal", async (importOriginal) => ({
   releaseOwned: mocks.releaseOwned,
 }));
 
+vi.mock("../src/main/vellum/process-epoch", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../src/main/vellum/process-epoch")
+  >();
+  return {
+    ...actual,
+    refreshProcessGroupObservations: (
+      observations: Parameters<typeof actual.refreshProcessGroupObservations>[0],
+    ) => mocks.refreshProcessGroupObservations(
+      actual.refreshProcessGroupObservations,
+      observations,
+    ),
+  };
+});
+
 import {
   APP_PROCESS_PLANE_QUIESCING_ERROR,
   createAppProcessPlane,
   type AppProcessLease,
+  type AppTerminalLease,
 } from "../src/main/vellum/app-process-plane";
 import {
   setProcessEpochReaderForTests,
+  type ProcessGroupObservation,
+  type ProcessGroupObservationRefresh,
   type ProcessEpochRow,
 } from "../src/main/vellum/process-epoch";
 
@@ -64,6 +84,43 @@ class FakeChild extends EventEmitter {
   }
 }
 
+class FakePty {
+  readonly pid = 43_001;
+  readonly write = vi.fn((_data: string) => undefined);
+  readonly resize = vi.fn((_cols: number, _rows: number) => undefined);
+  readonly kill = vi.fn((_signal?: string) => undefined);
+  readonly onData = vi.fn((listener: (data: string) => void): IDisposable => {
+    this.dataListeners.add(listener);
+    return { dispose: () => this.dataListeners.delete(listener) };
+  });
+  readonly onExit = vi.fn((listener: (event: {
+    readonly exitCode: number;
+    readonly signal?: number;
+  }) => void): IDisposable => {
+    this.exitListeners.add(listener);
+    return { dispose: () => this.exitListeners.delete(listener) };
+  });
+  private readonly dataListeners = new Set<(data: string) => void>();
+  private readonly exitListeners = new Set<(event: {
+    readonly exitCode: number;
+    readonly signal?: number;
+  }) => void>();
+
+  emitData(data: string): void {
+    for (const listener of [...this.dataListeners]) listener(data);
+  }
+
+  emitExit(exitCode = 0, signal?: number): void {
+    for (const listener of [...this.exitListeners]) {
+      listener({ exitCode, ...(signal === undefined ? {} : { signal }) });
+    }
+  }
+
+  asPty(): IPty {
+    return this as unknown as IPty;
+  }
+}
+
 interface FakeOwned {
   readonly sink: { readonly kill: (signal?: NodeJS.Signals) => unknown };
   released: boolean;
@@ -86,6 +143,7 @@ beforeEach(() => {
   mocks.spawnDetachedProcessGroup.mockReset();
   mocks.signalOwned.mockReset();
   mocks.releaseOwned.mockReset();
+  mocks.refreshProcessGroupObservations.mockReset();
 
   mocks.admitChildProcess.mockImplementation(
     (input: { readonly child: FakeOwned["sink"] }) => mintOwned(input.child),
@@ -120,10 +178,19 @@ beforeEach(() => {
   mocks.releaseOwned.mockImplementation((owned: FakeOwned) => {
     owned.released = true;
   });
+  mocks.refreshProcessGroupObservations.mockImplementation(
+    (
+      refresh: (
+        observations: readonly ProcessGroupObservation[],
+      ) => readonly ProcessGroupObservationRefresh[] | undefined,
+      observations: readonly ProcessGroupObservation[],
+    ) => refresh(observations),
+  );
 });
 
 afterEach(() => {
   setProcessEpochReaderForTests(undefined);
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -134,6 +201,14 @@ const spec = (purpose = "test operation") => ({
   args: ["--probe"],
 });
 
+const terminalSpec = (purpose = "test terminal") => ({
+  ...spec(purpose),
+  cwd: "/tmp/vellum-terminal",
+  env: { TERM: "vellum-test" },
+  cols: 120,
+  rows: 32,
+});
+
 const epochRow = (
   pid: number,
   processGroupId: number,
@@ -142,7 +217,7 @@ const epochRow = (
 ): ProcessEpochRow => ({ pid, processGroupId, sessionId, startKey });
 
 describe("app process plane admission", () => {
-  it("closes child, group, and daemon admission synchronously and monotonically", () => {
+  it("closes child, group, terminal, and daemon admission synchronously and monotonically", () => {
     const plane = createAppProcessPlane();
     plane.beginShutdown();
     plane.beginShutdown();
@@ -152,6 +227,9 @@ describe("app process plane admission", () => {
       APP_PROCESS_PLANE_QUIESCING_ERROR,
     );
     expect(() => plane.spawnGroup(spec())).toThrow(
+      APP_PROCESS_PLANE_QUIESCING_ERROR,
+    );
+    expect(() => plane.spawnTerminal(terminalSpec())).toThrow(
       APP_PROCESS_PLANE_QUIESCING_ERROR,
     );
     expect(() => plane.spawnOutlivingDaemon({
@@ -298,6 +376,228 @@ describe("app process plane admission", () => {
   });
 });
 
+describe("app terminal process plane", () => {
+  it("owns a PTY behind a frozen safe facade and retires on its exit witness", async () => {
+    const nodePty = require("node-pty") as typeof import("node-pty");
+    const pty = new FakePty();
+    const ptySpawn = vi.spyOn(nodePty, "spawn").mockReturnValue(pty.asPty());
+    const originalKill = pty.kill;
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    const lease = plane.spawnTerminal(terminalSpec("interactive shell"));
+
+    expect(ptySpawn).toHaveBeenCalledWith(
+      "/usr/bin/example",
+      ["--probe"],
+      {
+        name: "xterm-256color",
+        cols: 120,
+        rows: 32,
+        cwd: "/tmp/vellum-terminal",
+        env: { TERM: "vellum-test" },
+        handleFlowControl: true,
+      },
+    );
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(Object.isFrozen(lease)).toBe(true);
+    expect(Object.isFrozen(lease.io)).toBe(true);
+    expect(lease.io.pidForDiagnostics).toBe(43_001);
+    expect("kill" in lease.io).toBe(false);
+    expect("pty" in lease).toBe(false);
+    expect("owned" in lease).toBe(false);
+    expect("release" in lease).toBe(false);
+
+    const data = vi.fn();
+    const exited = vi.fn();
+    lease.io.onData(data);
+    lease.io.onExit(exited);
+    lease.io.write("echo vellum\n");
+    lease.io.resize?.(132, 44);
+    pty.emitData("vellum\r\n");
+    expect(pty.write).toHaveBeenCalledWith("echo vellum\n");
+    expect(pty.resize).toHaveBeenCalledWith(132, 44);
+    expect(data).toHaveBeenCalledWith("vellum\r\n");
+
+    const redirectedKill = vi.fn();
+    (pty as unknown as { kill: (signal?: string) => void }).kill = redirectedKill;
+    const term = plane.terminate(lease, "terminal timeout");
+    expect(plane.terminate(lease, "duplicate timeout")).toBe(term);
+    const kill = plane.forceTerminate(lease, "terminal force stop");
+    expect(plane.forceTerminate(lease, "duplicate force stop")).toBe(kill);
+    expect(originalKill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+    expect(redirectedKill).not.toHaveBeenCalled();
+
+    pty.emitExit(0, 15);
+    await expect(lease.io.exited).resolves.toEqual({ code: 0, signal: 15 });
+    expect(exited).toHaveBeenCalledWith({ code: 0, signal: 15 });
+    expect(mocks.releaseOwned).toHaveBeenCalledOnce();
+    expect(() => lease.io.write("late input")).toThrow(
+      "terminal process already exited",
+    );
+    await expect(plane.drainOnQuit()).resolves.toEqual({
+      clean: true,
+      stragglers: [],
+    });
+
+    const forged = { ...lease } as unknown as AppTerminalLease;
+    expect(plane.terminate(forged, "forgery probe")).toMatchObject({
+      attempted: false,
+      decision: { ok: false, reason: "lease-not-registered" },
+    });
+  });
+
+  it("uses a pipe child only when PTY loading or spawn fails", async () => {
+    vi.useFakeTimers();
+    const nodePty = require("node-pty") as typeof import("node-pty");
+    vi.spyOn(nodePty, "spawn").mockImplementation(() => {
+      throw new Error("PTY unavailable");
+    });
+    const child = new FakeChild();
+    const write = vi.spyOn(child.stdin, "write");
+    mocks.spawn.mockReturnValue(child);
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    const lease = plane.spawnTerminal(terminalSpec("pipe terminal"));
+
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      "/usr/bin/example",
+      ["--probe"],
+      {
+        cwd: "/tmp/vellum-terminal",
+        env: { TERM: "vellum-test" },
+        detached: false,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    expect(lease.io.resize).toBeUndefined();
+
+    const data = vi.fn();
+    const exit = vi.fn();
+    const error = vi.fn();
+    lease.io.onData(data);
+    lease.io.onExit(exit);
+    lease.io.onError(error);
+    lease.io.write("pipe input");
+    child.stdout.write("stdout");
+    child.stderr.write("stderr");
+    child.emit("error", new Error("diagnostic only"));
+
+    expect(write).toHaveBeenCalledWith("pipe input");
+    expect(data.mock.calls).toEqual([["stdout"], ["stderr"]]);
+    expect(error).toHaveBeenCalledWith(new Error("diagnostic only"));
+
+    child.exit(7, "SIGTERM");
+    await expect(lease.io.exited).resolves.toEqual({ code: 7, signal: undefined });
+    expect(exit).toHaveBeenCalledWith({ code: 7, signal: undefined });
+    expect(mocks.releaseOwned).toHaveBeenCalledOnce();
+    expect(plane.forceTerminate(lease, "after pipe exit")).toMatchObject({
+      attempted: false,
+      decision: { ok: false, reason: "process-already-exited" },
+    });
+
+    const firstDrain = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(firstDrain).resolves.toMatchObject({
+      clean: false,
+      stragglers: [{ mode: "terminal", state: "exited-awaiting-close" }],
+    });
+
+    child.close(7, "SIGTERM");
+    expect(child.listenerCount("error")).toBe(0);
+    await expect(plane.drainOnQuit()).resolves.toEqual({
+      clean: true,
+      stragglers: [],
+    });
+    expect(mocks.signalOwned).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retires a close-only pipe without fabricating an exit callback", async () => {
+    const nodePty = require("node-pty") as typeof import("node-pty");
+    vi.spyOn(nodePty, "spawn").mockImplementation(() => {
+      throw new Error("PTY unavailable");
+    });
+    const child = new FakeChild();
+    mocks.spawn.mockReturnValue(child);
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    const lease = plane.spawnTerminal(terminalSpec("close-only pipe"));
+    const exit = vi.fn();
+    lease.io.onExit(exit);
+
+    child.close(1, null);
+
+    await expect(lease.io.exited).resolves.toEqual({
+      code: 1,
+      signal: undefined,
+    });
+    expect(exit).not.toHaveBeenCalled();
+    expect(mocks.releaseOwned).toHaveBeenCalledOnce();
+    await expect(plane.drainOnQuit()).resolves.toEqual({
+      clean: true,
+      stragglers: [],
+    });
+  });
+
+  it("boundedly tears down listener setup failure without spawning a fallback", async () => {
+    vi.useFakeTimers();
+    const nodePty = require("node-pty") as typeof import("node-pty");
+    const pty = new FakePty();
+    const setupError = new Error("PTY data subscription failed");
+    pty.onData.mockImplementationOnce(() => {
+      throw setupError;
+    });
+    pty.kill.mockImplementation((signal) => {
+      if (signal === "SIGKILL") pty.emitExit(1, 9);
+    });
+    vi.spyOn(nodePty, "spawn").mockReturnValue(pty.asPty());
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+
+    expect(() => plane.spawnTerminal(terminalSpec("broken PTY"))).toThrow(
+      setupError,
+    );
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(pty.kill.mock.calls).toEqual([["SIGTERM"]]);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(pty.kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+    expect(mocks.releaseOwned).toHaveBeenCalledOnce();
+    await expect(plane.drainOnQuit()).resolves.toEqual({
+      clean: true,
+      stragglers: [],
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retains an unwitnessed PTY after bounded setup-failure escalation", async () => {
+    vi.useFakeTimers();
+    const nodePty = require("node-pty") as typeof import("node-pty");
+    const pty = new FakePty();
+    const setupError = new Error("PTY exit subscription failed");
+    pty.onExit.mockImplementationOnce(() => {
+      throw setupError;
+    });
+    vi.spyOn(nodePty, "spawn").mockReturnValue(pty.asPty());
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+
+    expect(() => plane.spawnTerminal(terminalSpec("unwitnessed PTY"))).toThrow(
+      setupError,
+    );
+    const draining = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(25);
+
+    await expect(draining).resolves.toMatchObject({
+      clean: false,
+      stragglers: [{
+        purpose: "unwitnessed PTY",
+        mode: "terminal",
+        state: "running",
+        term: { attempted: true, reason: "terminal-listener-setup-failed" },
+        kill: { attempted: true, reason: "terminal-listener-setup-failed" },
+      }],
+    });
+    expect(pty.kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+    expect(mocks.releaseOwned).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 describe("app process plane drain", () => {
   it("coalesces domain TERM with aggregate TERM while still issuing one KILL", async () => {
     vi.useFakeTimers();
@@ -319,6 +619,40 @@ describe("app process plane drain", () => {
 
     expect(plane.terminate(lease, "post-drain duplicate")).toBe(domainTerm);
     expect(child.kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retries an unattempted TERM and then coalesces its successful delivery", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    child.kill
+      .mockImplementationOnce(() => false)
+      .mockImplementationOnce((signal) => {
+        child.exitAndClose(null, signal ?? null);
+        return true;
+      });
+    mocks.spawn.mockReturnValue(child);
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    const lease = plane.spawnChild(spec("retrying signal refusal"));
+
+    const refused = plane.terminate(lease, "first TERM owner");
+    expect(refused).toMatchObject({
+      attempted: false,
+      reason: "first TERM owner",
+      decision: { ok: false, reason: "child-signal-refused" },
+    });
+
+    const draining = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(draining).resolves.toEqual({ clean: true, stragglers: [] });
+    const delivered = plane.terminate(lease, "post-drain duplicate");
+    expect(delivered).not.toBe(refused);
+    expect(delivered).toMatchObject({
+      attempted: true,
+      reason: "app-quit-drain",
+    });
+    expect(plane.terminate(lease, "another duplicate")).toBe(delivered);
+    expect(child.kill.mock.calls).toEqual([["SIGTERM"], ["SIGTERM"]]);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -344,13 +678,17 @@ describe("app process plane drain", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("retains exact refusal receipts after both bounded signal phases", async () => {
+  it("retains the latest refusal provenance after both bounded signal phases", async () => {
     vi.useFakeTimers();
     const child = new FakeChild();
     child.kill.mockReturnValue(false);
     mocks.spawn.mockReturnValue(child);
     const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
-    plane.spawnChild(spec("settled caller operation"));
+    const lease = plane.spawnChild(spec("settled caller operation"));
+    expect(plane.terminate(lease, "earlier domain refusal")).toMatchObject({
+      attempted: false,
+      reason: "earlier domain refusal",
+    });
 
     const draining = plane.drainOnQuit();
     await vi.advanceTimersByTimeAsync(10);
@@ -381,6 +719,11 @@ describe("app process plane drain", () => {
         },
       }],
     });
+    expect(child.kill.mock.calls).toEqual([
+      ["SIGTERM"],
+      ["SIGTERM"],
+      ["SIGKILL"],
+    ]);
     expect(mocks.releaseOwned).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -541,6 +884,79 @@ describe("app process plane drain", () => {
     expect(retry).not.toBe(first);
     await expect(retry).resolves.toEqual({ clean: true, stragglers: [] });
     expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("rejects an entire group refresh batch when one entry is malformed", async () => {
+    vi.useFakeTimers();
+    const first = new FakeChild();
+    const second = new FakeChild();
+    second.pid = 42_002;
+    let snapshot: readonly ProcessEpochRow[] = [
+      epochRow(first.pid!, first.pid!, 80, "first-leader"),
+      epochRow(second.pid!, second.pid!, 81, "second-leader"),
+    ];
+    setProcessEpochReaderForTests({ snapshot: () => snapshot });
+    mocks.spawnDetachedProcessGroup
+      .mockReturnValueOnce({
+        child: first,
+        process: mintOwned({ kill: first.kill.bind(first) }),
+        mode: "group",
+      })
+      .mockReturnValueOnce({
+        child: second,
+        process: mintOwned({ kill: second.kill.bind(second) }),
+        mode: "group",
+      });
+    const exitGroup = (child: FakeChild) => (signal?: NodeJS.Signals): boolean => {
+      snapshot = snapshot.filter((row) => row.pid !== child.pid);
+      child.exitAndClose(null, signal ?? null);
+      return true;
+    };
+    first.kill.mockImplementation(exitGroup(first));
+    second.kill.mockImplementation(exitGroup(second));
+    mocks.refreshProcessGroupObservations.mockImplementation(
+      (
+        refresh: (
+          observations: readonly ProcessGroupObservation[],
+        ) => readonly ProcessGroupObservationRefresh[] | undefined,
+        observations: readonly ProcessGroupObservation[],
+      ) => {
+        const refreshed = refresh(observations);
+        if (
+          refreshed === undefined ||
+          refreshed.length !== 2 ||
+          !refreshed.every((entry) => entry.clean)
+        ) return refreshed;
+        const malformed = refreshed[1]!;
+        return [
+          refreshed[0]!,
+          {
+            ...malformed,
+            observation: {
+              ...malformed.observation,
+              originalProcessGroupId:
+                malformed.observation.originalProcessGroupId + 1,
+            },
+          },
+        ];
+      },
+    );
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    plane.spawnGroup(spec("first retained group"));
+    plane.spawnGroup(spec("second retained group"));
+
+    const draining = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(25);
+    const result = await draining;
+    expect(result).toMatchObject({
+      clean: false,
+      stragglers: [
+        { purpose: "first retained group", state: "leaderless-group" },
+        { purpose: "second retained group", state: "leaderless-group" },
+      ],
+    });
+    expect(mocks.releaseOwned).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
   });
 
