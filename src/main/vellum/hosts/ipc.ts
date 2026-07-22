@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type {
   HostsConfigureRemoteResult,
+  HostsDeployRemoteResult,
   HostsOpResult,
   HostsTestResult,
 } from "@shared/ipc";
@@ -153,6 +154,79 @@ export const registerHostsIpc = (ipcMain: IpcMain): void => {
           code: result.right.code,
           message: result.right.message ?? result.right.detail,
         } satisfies HostsConfigureRemoteResult;
+      }),
+    ),
+  );
+
+  // Install/update Vellum.app on remote over SSH + start headless station.
+  ipcMain.handle(IPC_CHANNELS.hostsDeployRemote, (_event, id: unknown) =>
+    AppRuntime.runPromise(
+      Effect.gen(function* () {
+        if (typeof id !== "string" || id.length === 0) {
+          return {
+            ok: false,
+            detail: "host id required",
+            code: "validation",
+            message: "host id required",
+          } satisfies HostsDeployRemoteResult;
+        }
+
+        const settingsSvc = yield* SettingsService;
+        const hosts = yield* HostsService;
+
+        const settingsResult = yield* Effect.either(settingsSvc.get);
+        if (settingsResult._tag === "Left") {
+          return {
+            ok: false,
+            detail: settingsResult.left.message,
+            code: settingsResult.left.code,
+            message: settingsResult.left.message,
+          } satisfies HostsDeployRemoteResult;
+        }
+
+        if (settingsResult.right.station.role !== "command-center") {
+          return {
+            ok: false,
+            detail: "Deploy Remote is only available on Command Center",
+            code: "validation",
+            message: "Deploy Remote is only available on Command Center",
+          } satisfies HostsDeployRemoteResult;
+        }
+
+        // Stamp station role first so the launched app boots as Remote.
+        const configure = yield* Effect.either(
+          hosts.configureRemote(id, {
+            commandCenterRef: settingsResult.right.station.hostId,
+            supervisedPreferred: true,
+          }),
+        );
+        if (configure._tag === "Left") {
+          return {
+            ok: false,
+            detail: configure.left.message,
+            code: configure.left.code,
+            message: configure.left.message,
+          } satisfies HostsDeployRemoteResult;
+        }
+        if (!configure.right.ok) {
+          return {
+            ok: false,
+            detail: configure.right.detail,
+            code: configure.right.code,
+            message: configure.right.message ?? configure.right.detail,
+          } satisfies HostsDeployRemoteResult;
+        }
+
+        const deploy = yield* hosts.deployRemote(id);
+        return {
+          ok: deploy.ok,
+          detail: deploy.ok
+            ? `${configure.right.detail} · ${deploy.detail}`
+            : deploy.detail,
+          code: deploy.code,
+          message: deploy.message ?? deploy.detail,
+          stages: deploy.stages,
+        } satisfies HostsDeployRemoteResult;
       }),
     ),
   );

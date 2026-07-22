@@ -11,6 +11,7 @@ import {
   configureRemoteHost,
   type ConfigureRemoteResult,
 } from "./configure-remote";
+import { deployRemoteHost, type DeployRemoteResult } from "./deploy-remote";
 import { runRemoteHostsDoctor, testHostConnection } from "./doctor";
 import {
   getDefaultHostsRegistry,
@@ -20,7 +21,7 @@ import { setHostsSnapshot } from "./snapshot";
 
 const decodeHost = Schema.decodeUnknownEither(RemoteHost);
 
-export type { ConfigureRemoteResult };
+export type { ConfigureRemoteResult, DeployRemoteResult };
 
 export class HostsService extends Context.Tag("@vellum/HostsService")<
   HostsService,
@@ -47,6 +48,8 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
         readonly supervisedPreferred?: boolean;
       },
     ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
+    /** Command Center → install/update .app over SSH + start Remote station. */
+    readonly deployRemote: (id: string) => Effect.Effect<DeployRemoteResult>;
     readonly path: () => string;
   }
 >() {}
@@ -139,6 +142,33 @@ export const makeHostsService = (
         );
       }
       return yield* configureRemoteHost(ssh, host, options);
+    }),
+  deployRemote: (id) =>
+    Effect.gen(function* () {
+      const hostResult = yield* Effect.either(
+        Effect.tryPromise({
+          try: () => registry.get(id),
+          catch: asRemoteHostsError,
+        }),
+      );
+      if (hostResult._tag === "Left") {
+        return {
+          ok: false,
+          detail: hostResult.left.message,
+          code: hostResult.left.code,
+          stages: [],
+        } satisfies DeployRemoteResult;
+      }
+      const host = hostResult.right;
+      if (!host) {
+        return {
+          ok: false,
+          detail: `unknown host: ${id}`,
+          code: "not_found" as const,
+          stages: [],
+        } satisfies DeployRemoteResult;
+      }
+      return yield* deployRemoteHost(ssh, host);
     }),
 });
 

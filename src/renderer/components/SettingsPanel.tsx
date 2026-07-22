@@ -6,6 +6,7 @@ import type {
   BrowserProfileInfo,
   CanvasPullResult,
   HostsConfigureRemoteResult,
+  HostsDeployRemoteResult,
   HostsOpResult,
   HostsTestResult,
   VellumBrowserApi,
@@ -654,6 +655,42 @@ function HostsSection() {
     }
   };
 
+  const deployRemote = async (id: string) => {
+    const api = getVellumApi();
+    if (!api?.hostsDeployRemote) {
+      setNotice({ kind: "error", message: "Deploy Remote API unavailable." });
+      return;
+    }
+    setBusy(true);
+    setTestDetail((prev) => ({
+      ...prev,
+      [id]: "deploying Vellum Remote (app + LaunchAgent + term socket)…",
+    }));
+    try {
+      const result: HostsDeployRemoteResult = await api.hostsDeployRemote(id);
+      const stages =
+        result.stages && result.stages.length > 0
+          ? `\n${result.stages.map((s) => `· ${s}`).join("\n")}`
+          : "";
+      setTestDetail((prev) => ({
+        ...prev,
+        [id]: `${result.detail || (result.ok ? "deployed" : result.message ?? "failed")}${stages}`,
+      }));
+      setNotice({
+        kind: result.ok ? "success" : "error",
+        message: result.ok
+          ? `${id}: Remote deployed`
+          : `${id}: ${result.detail || result.message}`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setTestDetail((prev) => ({ ...prev, [id]: message }));
+      setNotice({ kind: "error", message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="settings-section">
       <p className="settings-note">
@@ -663,7 +700,7 @@ function HostsSection() {
         use the host id (or optional hermes id). Expand <strong>Services</strong> on a host to
         list Tailscale Serve / SVC URLs and open them as canvas page nodes.
         {isCommandCenter
-          ? " On Command Center, Configure as Remote stamps that machine’s station role over SSH."
+          ? " On Command Center: Configure stamps station role; Deploy installs/updates the app over SSH, starts the Remote station, and waits for the term control socket."
           : ""}
       </p>
 
@@ -694,15 +731,26 @@ function HostsSection() {
                 {host.kind === "remote" ? (
                   <>
                     {isCommandCenter ? (
-                      <button
-                        type="button"
-                        className="settings-panel__ghost"
-                        disabled={busy}
-                        title="Write station.role=remote to this host’s ~/.vellum/settings.json over SSH"
-                        onClick={() => void configureAsRemote(host.id)}
-                      >
-                        Configure as Remote
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          className="settings-panel__ghost"
+                          disabled={busy}
+                          title="Write station.role=remote to this host’s ~/.vellum/settings.json over SSH"
+                          onClick={() => void configureAsRemote(host.id)}
+                        >
+                          Configure as Remote
+                        </button>
+                        <button
+                          type="button"
+                          className="settings-panel__ghost"
+                          disabled={busy}
+                          title="macOS only: install/update Vellum Command.app over SSH, LaunchAgent, start station, wait for term + browser control sockets"
+                          onClick={() => void deployRemote(host.id)}
+                        >
+                          Deploy Remote
+                        </button>
+                      </>
                     ) : null}
                     <button
                       type="button"
