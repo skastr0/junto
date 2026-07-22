@@ -62,7 +62,9 @@ describe("term control UDS", () => {
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
 
     const host = new LocalSessionHost(fakeSpawn());
-    cleanups.push(() => host.shutdownAll("test"));
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
 
     const server = await startTermControlServer(host, { home });
     cleanups.push(() => server.close());
@@ -123,7 +125,9 @@ describe("term control UDS", () => {
     const home = mkdtempSync(join(tmpdir(), "vellum-term-bad-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const host = new LocalSessionHost(fakeSpawn());
-    cleanups.push(() => host.shutdownAll("test"));
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
     const server = await startTermControlServer(host, { home });
     cleanups.push(() => server.close());
 
@@ -140,7 +144,9 @@ describe("term control UDS", () => {
     const home = mkdtempSync(join(tmpdir(), "vellum-term-close-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const host = new LocalSessionHost(fakeSpawn());
-    cleanups.push(() => host.shutdownAll("test"));
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
     const server = await startTermControlServer(host, { home });
 
     const socket = createConnection(server.socketPath);
@@ -164,7 +170,9 @@ describe("term control UDS", () => {
     const home = mkdtempSync(join(tmpdir(), "vellum-term-late-close-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const host = new LocalSessionHost(fakeSpawn());
-    cleanups.push(() => host.shutdownAll("test"));
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
     const server = await startTermControlServer(host, { home });
     const active = createConnection(server.socketPath);
     await new Promise<void>((resolve, reject) => {
