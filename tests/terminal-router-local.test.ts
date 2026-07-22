@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  LocalSessionHost,
-  type TermChild,
-  type TermSpawnFn,
-} from "../src/main/vellum/term/local-host";
+import { LocalSessionHost } from "../src/main/vellum/term/local-host";
 import { TerminalRouter } from "../src/main/vellum/term/router";
 import {
   makeProcessIdentityMap,
@@ -11,6 +7,7 @@ import {
 } from "../src/main/vellum/process-identity";
 import { setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
 import { hostsSnapshot, setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
+import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const hosts: LocalSessionHost[] = [];
 const initialHosts = hostsSnapshot();
@@ -37,38 +34,18 @@ afterEach(async () => {
   setHostsSnapshot(initialHosts);
 });
 
-const fakeSpawn = (pid = 55_010): TermSpawnFn => () => {
+const fakeAuthority = (pid = 55_010) => {
   syntheticEpochs.set(pid, `synthetic-${pid}`);
-  const dataListeners = new Set<(d: string) => void>();
-  const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
-  let alive = true;
-  const child: TermChild = {
+  return makeFakeTerminalProcessAuthority(() => ({
     pid,
-    write() {
-      /* noop */
-    },
-    resize() {
-      /* noop */
-    },
-    kill() {
-      if (!alive) return;
-      alive = false;
-      for (const l of exitListeners) l(0, undefined);
-    },
-    onData(l) {
-      dataListeners.add(l);
-    },
-    onExit(l) {
-      exitListeners.add(l);
-    },
-  };
-  return child;
+    exitOnSignal: "SIGTERM",
+  })).authority;
 };
 
 describe("TerminalRouter local path", () => {
   it("create/get/list/attach/write/kill stay on LocalSessionHost for local hostId", async () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
-    const local = new LocalSessionHost(fakeSpawn());
+    const local = new LocalSessionHost(fakeAuthority());
     hosts.push(local);
     const router = new TerminalRouter(local);
 
@@ -107,7 +84,7 @@ describe("TerminalRouter local path", () => {
   });
 
   it("only absent, empty, and an explicit local registry host are local", () => {
-    const local = new LocalSessionHost(fakeSpawn());
+    const local = new LocalSessionHost(fakeAuthority());
     hosts.push(local);
     const router = new TerminalRouter(local);
     expect(router.isLocalHostId("local")).toBe(true);
@@ -118,7 +95,7 @@ describe("TerminalRouter local path", () => {
 
   it("unknown nonempty host IDs cannot acquire local terminal authority", async () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
-    const local = new LocalSessionHost(fakeSpawn());
+    const local = new LocalSessionHost(fakeAuthority());
     hosts.push(local);
     const router = new TerminalRouter(local);
     const lease = { leaseId: "lease", bindingId: "unknown", epoch: "1", mode: "control" as const };
@@ -139,7 +116,7 @@ describe("TerminalRouter local path", () => {
   });
 
   it("revokes a cached remote lease when its host endpoint changes", async () => {
-    const local = new LocalSessionHost(fakeSpawn());
+    const local = new LocalSessionHost(fakeAuthority());
     hosts.push(local);
     const router = new TerminalRouter(local);
     setHostsSnapshot([
@@ -161,7 +138,7 @@ describe("TerminalRouter local path", () => {
   });
 
   it("waits for superseded endpoint dials before remote shutdown returns", async () => {
-    const local = new LocalSessionHost(fakeSpawn());
+    const local = new LocalSessionHost(fakeAuthority());
     hosts.push(local);
     const router = new TerminalRouter(local);
     setHostsSnapshot([
@@ -209,7 +186,7 @@ describe("TerminalRouter local path", () => {
   });
 
   it("shutdownAllLocal does not require remotes", async () => {
-    const local = new LocalSessionHost(fakeSpawn());
+    const local = new LocalSessionHost(fakeAuthority());
     hosts.push(local);
     const router = new TerminalRouter(local);
     await router.create({ bindingId: "q1", hostId: "local" });

@@ -1,25 +1,27 @@
-import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
-import { ChildProcess } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  AppProcessSignalReceipt,
+  AppTerminalLease,
+} from "../src/main/vellum/app-process-plane";
 import {
-  defaultTermSpawn,
   LocalSessionHost,
-  classifyTermKillTarget,
-  clearTermKillAuditLog,
-  getTermKillAuditLog,
-  type TermChild,
-  type TermSpawnFn,
+  type LocalTerminalProcessAuthority,
 } from "../src/main/vellum/term/local-host";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
 } from "../src/main/vellum/process-identity";
 import { setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
+import {
+  makeFakeTerminalProcessAuthority,
+  type FakeTerminalProcessAuthority,
+} from "./helpers/fake-terminal-process-authority";
 
 const hosts: LocalSessionHost[] = [];
 const syntheticEpochs = new Map<number, string>();
 
 const trackSyntheticPid = (pid: number): number => {
-  syntheticEpochs.set(pid, `synthetic-${pid}-a`);
+  syntheticEpochs.set(pid, `synthetic-${pid}`);
   return pid;
 };
 
@@ -37,71 +39,34 @@ beforeEach(() => {
 
 afterEach(async () => {
   vi.useRealTimers();
-  for (const h of hosts.splice(0)) {
-    await h.shutdownAll("test_cleanup");
+  for (const host of hosts.splice(0)) {
+    await host.shutdownAll("test_cleanup");
   }
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
-  clearTermKillAuditLog();
   vi.restoreAllMocks();
 });
 
-const fakeSpawn = (opts?: {
-  readonly output?: string;
-  readonly exitCode?: number;
-  readonly exitDelayMs?: number;
-  readonly pid?: number;
-}): TermSpawnFn => {
-  return () => {
-    const dataListeners = new Set<(d: string) => void>();
-    const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
-    let alive = true;
-    const pid = opts?.pid ?? 4242;
-    if (pid !== process.pid && pid !== process.ppid && pid > 1) trackSyntheticPid(pid);
-    const child: TermChild = {
-      pid,
-      write(_data: string) {
-        /* noop */
-      },
-      resize() {
-        /* noop */
-      },
-      kill() {
-        if (!alive) return;
-        alive = false;
-        for (const l of exitListeners) l(0, undefined);
-      },
-      onData(listener) {
-        dataListeners.add(listener);
-      },
-      onExit(listener) {
-        exitListeners.add(listener);
-      },
-    };
-    queueMicrotask(() => {
-      if (opts?.output) {
-        for (const l of dataListeners) l(opts.output!);
-      }
-      const delay = opts?.exitDelayMs ?? 5;
-      setTimeout(() => {
-        if (!alive) return;
-        alive = false;
-        for (const l of exitListeners) l(opts?.exitCode ?? 0, undefined);
-      }, delay);
-    });
-    return child;
-  };
+const hostWith = (
+  fake: FakeTerminalProcessAuthority,
+  options: ConstructorParameters<typeof LocalSessionHost>[1] = {},
+): LocalSessionHost => {
+  const host = new LocalSessionHost(fake.authority, options);
+  hosts.push(host);
+  return host;
 };
 
 describe("LocalSessionHost", () => {
-  it("spawns, emits output, exits", async () => {
-    const host = new LocalSessionHost(
-      fakeSpawn({ output: "vellum-pty-ok\n", exitDelayMs: 10 }),
-    );
-    hosts.push(host);
+  it("delegates terminal spawn to the central authority and observes its exact witness", async () => {
+    const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+      pid: trackSyntheticPid(42_420 + index),
+      output: "vellum-pty-ok\n",
+      autoExitMs: 10,
+    }));
+    const host = hostWith(fake);
     const outputs: string[] = [];
-    host.on("event", (ev) => {
-      if (ev.type === "output") outputs.push(ev.data);
+    host.on("event", (event) => {
+      if (event.type === "output") outputs.push(event.data);
     });
 
     const summary = host.create({
@@ -112,116 +77,253 @@ describe("LocalSessionHost", () => {
       canvasName: "main",
       nodeId: "n1",
     });
-    expect(summary.bindingId).toBe("bind-test-1");
-    expect(summary.detached).toBe(false);
-    expect(summary.pid).toBe(4242);
 
-    await new Promise<void>((resolve) => {
-      const t = setTimeout(() => resolve(), 500);
-      host.on("event", (ev) => {
-        if (ev.type === "exit" && ev.bindingId === "bind-test-1") {
-          clearTimeout(t);
-          resolve();
-        }
-      });
+    expect(summary).toMatchObject({
+      bindingId: "bind-test-1",
+      detached: false,
+      pid: 42_420,
+      status: "running",
     });
+    expect(fake.controllers[0]?.spec).toMatchObject({
+      source: "term:bind-test-1",
+      command: "/bin/echo",
+      args: ["vellum-pty-ok"],
+      cols: 80,
+      rows: 24,
+    });
+    expect("kill" in (fake.controllers[0]?.lease.io ?? {})).toBe(false);
 
+    await vi.waitFor(() => expect(host.get("bind-test-1")?.status).toBe("exited"));
     expect(outputs.join("")).toContain("vellum-pty-ok");
-    expect(host.get("bind-test-1")?.status).toBe("exited");
-  });
-
-  it("enforces single control lease without takeover", async () => {
-    const host = new LocalSessionHost(
-      fakeSpawn({ exitDelayMs: 5000 }),
-    );
-    hosts.push(host);
-    host.create({
-      bindingId: "bind-lease",
-      launch: { kind: "command", argv: ["/bin/sleep", "30"] },
-    });
-    const a = host.attach({ bindingId: "bind-lease", mode: "control" });
-    expect(a.ok).toBe(true);
-    const b = host.attach({ bindingId: "bind-lease", mode: "control" });
-    expect(b.ok).toBe(false);
-    const c = host.attach({ bindingId: "bind-lease", mode: "control", takeover: true });
-    expect(c.ok).toBe(true);
-    if (a.ok) host.release(a.lease);
-    await host.shutdownAll();
     expect(host.runningCount()).toBe(0);
   });
 
-  it("marks detached when canvas binding cleared", () => {
-    const host = new LocalSessionHost(fakeSpawn({ exitDelayMs: 5000 }));
-    hosts.push(host);
-    host.create({
-      bindingId: "bind-det",
-      launch: { kind: "command", argv: ["/bin/sleep", "30"] },
-      canvasName: "c",
-      nodeId: "n",
+  it("enforces control leases and routes IO only through the lease facade", () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(42_500),
+      exitOnSignal: "SIGTERM",
+    }));
+    const host = hostWith(fake);
+    host.create({ bindingId: "lease-io" });
+
+    const observer = host.attach({ bindingId: "lease-io", mode: "observe" });
+    expect(observer.ok).toBe(true);
+    if (observer.ok) expect(host.write(observer.lease, "blocked")).toBe(false);
+
+    const first = host.attach({ bindingId: "lease-io", mode: "control" });
+    expect(first.ok).toBe(true);
+    expect(host.attach({ bindingId: "lease-io", mode: "control" })).toEqual({
+      ok: false,
+      message: "control lease held (pass takeover)",
     });
-    expect(host.get("bind-det")?.detached).toBe(false);
-    host.bindCanvas("bind-det", null);
-    expect(host.get("bind-det")?.detached).toBe(true);
-    expect(host.detachedRunning().some((s) => s.bindingId === "bind-det")).toBe(true);
+    const takeover = host.attach({ bindingId: "lease-io", mode: "control", takeover: true });
+    expect(takeover.ok).toBe(true);
+    if (!takeover.ok) return;
+
+    expect(host.write(takeover.lease, "yes\n")).toBe(true);
+    expect(host.resize(takeover.lease, 100, 40)).toBe(true);
+    expect(fake.controllers[0]?.writes).toEqual(["yes\n"]);
+    expect(fake.controllers[0]?.resizes).toEqual([{ cols: 100, rows: 40 }]);
   });
 
-  it("process-binds an anchored session and unbinds it on exit", async () => {
+  it("binds anchored terminal identity and never lets an old generation erase its replacement", async () => {
     const identities = makeProcessIdentityMap();
     setProcessIdentityMapForTests(identities);
-    // Identity bind requires a live OS pid (startKey probe). process.pid is OK
-    // here ONLY because forceKill is sealed: it refuses OS kill on self and
-    // uses the fake child.kill handle instead of process.kill(-self).
-    const host = new LocalSessionHost(fakeSpawn({ pid: process.pid, exitDelayMs: 20 }));
-    hosts.push(host);
-    host.create({ bindingId: "bind-process", canvasName: "main", nodeId: "term-node" });
-    expect(identities.resolve(process.pid)).toMatchObject({
-      kind: "terminal",
-      bindingId: "bind-process",
-      canvasName: "main",
-      nodeId: "term-node",
-    });
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(identities.resolve(process.pid)).toBeUndefined();
-  });
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      // One real pid lets ProcessIdentityMap bind; both opaque lease
+      // generations deliberately share it to exercise late-exit safety.
+      pid: process.pid,
+      exitOnSignal: false,
+    }));
+    const host = hostWith(fake, { killGraceMs: 2 });
 
-  it("shutdownAll stops running sessions", async () => {
-    const host = new LocalSessionHost(fakeSpawn({ exitDelayMs: 60_000 }));
-    hosts.push(host);
-    host.create({
-      bindingId: "bind-quit",
-      launch: { kind: "command", argv: ["/bin/sleep", "60"] },
+    const old = host.create({ bindingId: "replace", canvasName: "main", nodeId: "term" });
+    const replacement = host.create({
+      bindingId: "replace",
+      canvasName: "main",
+      nodeId: "term",
     });
-    expect(host.runningCount()).toBe(1);
-    const result = await host.shutdownAll("test");
-    expect(result).toEqual({ clean: true, stragglers: [] });
+    expect(host.runningCount()).toBe(2);
+    expect(identities.resolve(process.pid)).toMatchObject({ bindingId: "replace" });
+
+    fake.controllers[0]?.exit();
+    await Promise.resolve();
+    expect(host.get("replace")).toMatchObject({
+      epoch: replacement.epoch,
+      status: "running",
+    });
+    expect(old.epoch).not.toBe(replacement.epoch);
+    expect(identities.resolve(process.pid)).toMatchObject({ bindingId: "replace" });
+    fake.controllers[1]?.exit();
+    await Promise.resolve();
     expect(host.runningCount()).toBe(0);
   });
 
-  it.each(["listener", "bind"] as const)(
-    "retains post-spawn authority when a %s step throws",
+  it("closes create admission synchronously and coalesces concurrent shutdown callers", async () => {
+    vi.useFakeTimers();
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(44_000),
+      exitOnSignal: false,
+    }));
+    const host = hostWith(fake, {
+      killGraceMs: 2,
+      shutdownGraceMs: 8,
+      lateExitGraceMs: 8,
+    });
+    host.create({ bindingId: "single-flight" });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const first = host.shutdownAll("first");
+    expect(() => host.create({ bindingId: "late-sync" })).toThrow(/shutting down/);
+    const second = host.shutdownAll("second");
+    expect(second).toBe(first);
+    await vi.advanceTimersByTimeAsync(24);
+
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toEqual(b);
+    expect(a.clean).toBe(false);
+    expect(fake.controllers[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(() => host.create({ bindingId: "late-after-failure" })).toThrow(/shutting down/);
+
+    fake.controllers[0]?.exit();
+    await Promise.resolve();
+    expect(host.runningCount()).toBe(0);
+  });
+
+  it("returns a clean receipt only after every exact terminal witness settles", async () => {
+    vi.useFakeTimers();
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(44_100),
+      exitOnSignal: false,
+    }));
+    const host = hostWith(fake, {
+      killGraceMs: 5,
+      shutdownGraceMs: 10,
+      lateExitGraceMs: 30,
+    });
+    host.create({ bindingId: "late-but-bounded" });
+
+    let settled = false;
+    const shutdown = host.shutdownAll("late-window").then((result) => {
+      settled = true;
+      return result;
+    });
+    await vi.advanceTimersByTimeAsync(20);
+    expect(settled).toBe(false);
+    expect(fake.controllers[0]?.signals).toContain("SIGKILL");
+    fake.controllers[0]?.exit();
+
+    await expect(shutdown).resolves.toEqual({ clean: true, stragglers: [] });
+    expect(host.runningCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("reports resistant terminals with central TERM/KILL receipts and keeps them noninteractive", async () => {
+    vi.useFakeTimers();
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(44_200),
+      exitOnSignal: false,
+    }));
+    const host = hostWith(fake, {
+      killGraceMs: 2,
+      shutdownGraceMs: 8,
+      lateExitGraceMs: 8,
+    });
+    host.create({ bindingId: "stubborn" });
+    const attached = host.attach({ bindingId: "stubborn", mode: "control" });
+    expect(attached.ok).toBe(true);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const shutdown = host.shutdownAll("stubborn-test");
+    await vi.advanceTimersByTimeAsync(24);
+    const result = await shutdown;
+
+    expect(result).toMatchObject({
+      clean: false,
+      stragglers: [{
+        bindingId: "stubborn",
+        pid: 44_200,
+        term: { attempted: true, signal: "SIGTERM" },
+        kill: { attempted: true, signal: "SIGKILL" },
+      }],
+    });
+    if (attached.ok) {
+      expect(host.write(attached.lease, "must-not-write")).toBe(false);
+      expect(host.resize(attached.lease, 90, 30)).toBe(false);
+    }
+    expect(host.attach({ bindingId: "stubborn", mode: "control" })).toEqual({
+      ok: false,
+      message: "session interaction revoked during stop",
+    });
+    fake.controllers[0]?.emitData("ignored-after-stop");
+    expect(fake.controllers[0]?.writes).toEqual([]);
+    fake.controllers[0]?.exit();
+    await Promise.resolve();
+  });
+
+  it("fails closed when the central authority refuses or throws signal dispatch", async () => {
+    vi.useFakeTimers();
+    const refused = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(44_300),
+      exitOnSignal: false,
+      signalAttempted: false,
+      signalFailureReason: "child-epoch-mismatch",
+    }));
+    const refusedHost = hostWith(refused, {
+      killGraceMs: 2,
+      shutdownGraceMs: 6,
+      lateExitGraceMs: 6,
+    });
+    refusedHost.create({ bindingId: "refused" });
+
+    const throwing = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(44_301),
+      exitOnSignal: false,
+      throwOnSignal: true,
+    }));
+    const throwingHost = hostWith(throwing, {
+      killGraceMs: 2,
+      shutdownGraceMs: 6,
+      lateExitGraceMs: 6,
+    });
+    throwingHost.create({ bindingId: "throwing" });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const first = refusedHost.shutdownAll("refused");
+    const second = throwingHost.shutdownAll("throwing");
+    await vi.advanceTimersByTimeAsync(20);
+
+    await expect(first).resolves.toMatchObject({
+      clean: false,
+      stragglers: [{
+        bindingId: "refused",
+        term: { attempted: false, decision: { reason: "child-epoch-mismatch" } },
+        kill: { attempted: false, decision: { reason: "child-epoch-mismatch" } },
+      }],
+    });
+    await expect(second).resolves.toMatchObject({
+      clean: false,
+      stragglers: [{ bindingId: "throwing" }],
+    });
+    expect(refusedHost.runningCount()).toBe(1);
+    expect(throwingHost.runningCount()).toBe(1);
+    refused.controllers[0]?.exit();
+    throwing.controllers[0]?.exit();
+    await Promise.resolve();
+  });
+
+  it.each(["listener", "identity"] as const)(
+    "retains the exact central lease when post-spawn %s setup throws",
     async (failureAt) => {
-      const signals: NodeJS.Signals[] = [];
-      const exitListeners = new Set<
-        (code: number | undefined, signal: number | undefined) => void
-      >();
-      let exited = false;
-      const spawn: TermSpawnFn = () => ({
-        pid: trackSyntheticPid(80_500),
-        write() {},
-        kill(signal = "SIGTERM") {
-          signals.push(signal);
-        },
-        onData() {},
-        onExit(listener) {
-          exitListeners.add(listener);
-        },
-      });
-      const host = new LocalSessionHost(spawn, {
+      const fake = makeFakeTerminalProcessAuthority(() => ({
+        pid: trackSyntheticPid(44_400),
+        exitOnSignal: false,
+      }));
+      const host = hostWith(fake, {
         killGraceMs: 2,
         shutdownGraceMs: 6,
         lateExitGraceMs: 6,
       });
-      hosts.push(host);
       if (failureAt === "listener") {
         host.on("event", (event) => {
           if (event.type === "session" && event.status === "running") {
@@ -237,535 +339,94 @@ describe("LocalSessionHost", () => {
           },
         });
       }
-      const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
 
       const created = host.create({
         bindingId: `post-spawn-${failureAt}`,
         canvasName: "main",
         nodeId: "term-node",
       });
-
       expect(created.status).toBe("running");
-      expect(host.runningCount()).toBe(1);
-      expect(signals[0]).toBe("SIGTERM");
-      const result = await host.shutdownAll(`post-spawn-${failureAt}`);
-      expect(result.clean).toBe(false);
+      expect(fake.controllers[0]?.signals[0]).toBe("SIGTERM");
       expect(host.runningCount()).toBe(1);
 
-      if (!exited) {
-        exited = true;
-        for (const listener of exitListeners) listener(0, undefined);
-      }
+      const shutdown = host.shutdownAll(`post-spawn-${failureAt}`);
+      await new Promise((resolve) => setTimeout(resolve, 22));
+      await expect(shutdown).resolves.toMatchObject({ clean: false });
+      fake.controllers[0]?.exit();
+      await Promise.resolve();
       expect(host.runningCount()).toBe(0);
-      expect(host.get(`post-spawn-${failureAt}`)?.status).toBe("exited");
-      expect(error).toHaveBeenCalled();
     },
   );
 
-  it("escalates a superseded exact generation and ignores its late exit", async () => {
-    const children: Array<{
-      readonly pid: number;
-      readonly signals: NodeJS.Signals[];
-      exit(): void;
-    }> = [];
-    const spawn: TermSpawnFn = () => {
-      const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
-      let exited = false;
-      const controller = {
-        pid: trackSyntheticPid(81_000 + children.length),
-        signals: [] as NodeJS.Signals[],
-        exit() {
-          if (exited) return;
-          exited = true;
-          for (const listener of exitListeners) listener(0, undefined);
-        },
-      };
-      children.push(controller);
-      return {
-        pid: controller.pid,
-        write() {},
-        kill(signal = "SIGTERM") {
-          controller.signals.push(signal);
-          // Deliberately resist both signals until the test emits a late exit.
-        },
-        onData() {},
-        onExit(listener) {
-          exitListeners.add(listener);
-        },
-      };
-    };
-    const host = new LocalSessionHost(spawn, {
-      killGraceMs: 5,
-      shutdownGraceMs: 20,
-      lateExitGraceMs: 20,
-    });
-    hosts.push(host);
-    const visibleExits: string[] = [];
-    host.on("event", (event) => {
-      if (event.type === "exit") visibleExits.push(event.epoch);
-    });
-
-    const old = host.create({ bindingId: "replace-me" });
-    const replacement = host.create({ bindingId: "replace-me" });
-    expect(host.runningCount()).toBe(2);
-    expect(host.get("replace-me")?.epoch).toBe(replacement.epoch);
-
-    await vi.waitFor(() => {
-      expect(children[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
-    });
-    children[0]?.exit();
-
-    expect(host.runningCount()).toBe(1);
-    expect(host.get("replace-me")).toMatchObject({
-      epoch: replacement.epoch,
-      status: "running",
-    });
-    expect(visibleExits).not.toContain(old.epoch);
-    children[1]?.exit();
-    expect(host.runningCount()).toBe(0);
-  });
-
-  it("continues when the final owned child exits inside the bounded late window", async () => {
+  it("keeps a rejected exact witness live instead of inventing exit", async () => {
     vi.useFakeTimers();
-    const signals: NodeJS.Signals[] = [];
-    let emitExit: (() => void) | undefined;
-    const spawn: TermSpawnFn = () => {
-      const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
-      emitExit = () => {
-        for (const listener of exitListeners) listener(0, undefined);
-      };
-      return {
-        pid: trackSyntheticPid(81_500),
+    let rejectWitness!: (error: Error) => void;
+    const witness = new Promise<never>((_resolve, reject) => {
+      rejectWitness = reject;
+    });
+    const lease = {
+      io: {
+        pidForDiagnostics: 44_500,
+        exited: witness,
         write() {},
-        kill(signal = "SIGTERM") {
-          signals.push(signal);
-        },
-        onData() {},
-        onExit(listener) {
-          exitListeners.add(listener);
-        },
-      };
+        resize: undefined,
+        onData: () => () => undefined,
+        onExit: () => () => undefined,
+        onError: () => () => undefined,
+      },
+    } as unknown as AppTerminalLease;
+    const receipt = (signal: "SIGTERM" | "SIGKILL", reason: string): AppProcessSignalReceipt => ({
+      signal,
+      reason,
+      attempted: false,
+      decision: { ok: false, reason: "signal-dispatch-failed" },
+      via: "none",
+    });
+    const authority: LocalTerminalProcessAuthority = {
+      spawnTerminal: () => lease,
+      terminate: (_lease, reason) => receipt("SIGTERM", reason),
+      forceTerminate: (_lease, reason) => receipt("SIGKILL", reason),
     };
-    const host = new LocalSessionHost(spawn, {
-      killGraceMs: 5,
-      shutdownGraceMs: 10,
-      lateExitGraceMs: 30,
-    });
-    hosts.push(host);
-    host.create({ bindingId: "late-but-bounded" });
-
-    let settled = false;
-    const shutdown = host.shutdownAll("late-window").then((result) => {
-      settled = true;
-      return result;
-    });
-    await vi.advanceTimersByTimeAsync(20);
-    expect(settled).toBe(false);
-    expect(signals).toContain("SIGKILL");
-
-    emitExit?.();
-    await expect(shutdown).resolves.toEqual({ clean: true, stragglers: [] });
-    expect(vi.getTimerCount()).toBe(0);
-    expect(host.runningCount()).toBe(0);
-    vi.useRealTimers();
-  });
-
-  it("reports a TERM- and KILL-resistant child as an unclean shutdown", async () => {
-    vi.useFakeTimers();
-    const signals: NodeJS.Signals[] = [];
-    let emitExit: (() => void) | undefined;
-    const spawn: TermSpawnFn = () => {
-      const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
-      emitExit = () => {
-        for (const listener of exitListeners) listener(0, undefined);
-      };
-      return {
-        pid: trackSyntheticPid(82_001),
-        write() {},
-        kill(signal = "SIGTERM") {
-          signals.push(signal);
-        },
-        onData() {},
-        onExit(listener) {
-          exitListeners.add(listener);
-        },
-      };
-    };
-    const host = new LocalSessionHost(spawn, {
-      killGraceMs: 2,
-      shutdownGraceMs: 8,
-      lateExitGraceMs: 8,
-    });
-    hosts.push(host);
-    host.create({ bindingId: "stubborn" });
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    const shutdown = host.shutdownAll("stubborn-test");
-    await vi.advanceTimersByTimeAsync(24);
-    const result = await shutdown;
-
-    expect(result.clean).toBe(false);
-    if (!result.clean) {
-      expect(result.stragglers).toHaveLength(1);
-      expect(result.stragglers[0]).toMatchObject({
-        bindingId: "stubborn",
-        status: "running",
-        pid: 82_001,
-      });
-    }
-    expect(signals[0]).toBe("SIGTERM");
-    expect(signals).toContain("SIGKILL");
-    expect(host.runningCount()).toBe(1);
-    expect(error).toHaveBeenCalledWith(expect.stringContaining("retained 1 local terminal"));
-
-    const stubbornExit = emitExit;
-    expect(() => host.create({ bindingId: "recovery" })).not.toThrow();
-    const recoveryExit = emitExit;
-    stubbornExit?.();
-    recoveryExit?.();
-    expect(host.runningCount()).toBe(0);
-    expect(vi.getTimerCount()).toBe(0);
-    vi.useRealTimers();
-    error.mockRestore();
-  });
-
-  it("retains a pipe child when child.kill explicitly refuses the signal", async () => {
-    const nodePty = require("node-pty") as typeof import("node-pty");
-    const ptySpawn = vi.spyOn(nodePty, "spawn").mockImplementation(() => {
-      throw new Error("force pipe fallback");
-    });
-    const childKill = vi.spyOn(ChildProcess.prototype, "kill").mockReturnValue(false);
-    setProcessEpochReaderForTests({
-      snapshot: (pid) => pid === undefined
-        ? []
-        : [{
-            pid,
-            processGroupId: Math.max(2, pid - 1),
-            sessionId: 7,
-            startKey: `pipe-${pid}`,
-          }],
-    });
-    const host = new LocalSessionHost(defaultTermSpawn, {
+    const host = new LocalSessionHost(authority, {
       killGraceMs: 2,
       shutdownGraceMs: 6,
       lateExitGraceMs: 6,
     });
     hosts.push(host);
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    host.create({ bindingId: "rejected-witness" });
+    rejectWitness(new Error("unexpected witness rejection"));
+    await Promise.resolve();
 
-    try {
-      const created = host.create({
-        bindingId: "pipe-signal-refused",
-        launch: { kind: "command", argv: ["/bin/sleep", "60"] },
-      });
-      expect(created.status).toBe("running");
-      expect(ptySpawn).toHaveBeenCalledOnce();
-
-      await expect(host.shutdownAll("pipe-signal-refused")).resolves.toMatchObject({
-        clean: false,
-        stragglers: [expect.objectContaining({ bindingId: "pipe-signal-refused" })],
-      });
-      expect(childKill).toHaveBeenCalled();
-      expect(getTermKillAuditLog().some((entry) =>
-        !entry.decision.ok && entry.decision.reason === "child-signal-refused"
-      )).toBe(true);
-      expect(host.runningCount()).toBe(1);
-    } finally {
-      childKill.mockRestore();
-      host.kill("pipe-signal-refused");
-      await vi.waitFor(() => expect(host.runningCount()).toBe(0));
-      ptySpawn.mockRestore();
-      error.mockRestore();
-    }
-  });
-
-  it("retains a node-pty child when pty.kill throws", async () => {
-    const nodePty = require("node-pty") as typeof import("node-pty");
-    const exitListeners = new Set<
-      (event: { exitCode: number; signal?: number }) => void
-    >();
-    const kill = vi.fn(() => {
-      throw new Error("pty signal failed");
-    });
-    const pty = {
-      pid: trackSyntheticPid(82_250),
-      write() {},
-      resize() {},
-      kill,
-      onData() {
-        return { dispose() {} };
-      },
-      onExit(listener: (event: { exitCode: number; signal?: number }) => void) {
-        exitListeners.add(listener);
-        return { dispose() {} };
-      },
-    } as unknown as import("node-pty").IPty;
-    const ptySpawn = vi.spyOn(nodePty, "spawn").mockReturnValue(pty);
-    const host = new LocalSessionHost(defaultTermSpawn, {
-      killGraceMs: 2,
-      shutdownGraceMs: 6,
-      lateExitGraceMs: 6,
-    });
-    hosts.push(host);
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    try {
-      host.create({ bindingId: "pty-signal-failed" });
-
-      await expect(host.shutdownAll("pty-signal-failed")).resolves.toMatchObject({
-        clean: false,
-        stragglers: [expect.objectContaining({ bindingId: "pty-signal-failed" })],
-      });
-      expect(kill).toHaveBeenCalled();
-      expect(getTermKillAuditLog().some((entry) =>
-        !entry.decision.ok && entry.decision.reason === "child-signal-failed"
-      )).toBe(true);
-      expect(host.runningCount()).toBe(1);
-    } finally {
-      for (const listener of exitListeners) listener({ exitCode: 0 });
-      expect(host.runningCount()).toBe(0);
-      ptySpawn.mockRestore();
-      error.mockRestore();
-    }
-  });
-
-  it("makes a retained killed generation strictly noninteractive", async () => {
-    vi.useFakeTimers();
-    const writes: string[] = [];
-    const dataListeners = new Set<(data: string) => void>();
-    const exitListeners = new Set<
-      (code: number | undefined, signal: number | undefined) => void
-    >();
-    const spawn: TermSpawnFn = () => ({
-      pid: trackSyntheticPid(82_500),
-      write(data) {
-        writes.push(data);
-      },
-      resize() {},
-      kill() {
-        // Deliberately retained beyond the bounded shutdown.
-      },
-      onData(listener) {
-        dataListeners.add(listener);
-      },
-      onExit(listener) {
-        exitListeners.add(listener);
-      },
-    });
-    const host = new LocalSessionHost(spawn, {
-      killGraceMs: 2,
-      shutdownGraceMs: 8,
-      lateExitGraceMs: 8,
-    });
-    hosts.push(host);
-    const outputs: string[] = [];
-    host.on("event", (event) => {
-      if (event.type === "output") outputs.push(event.data);
-    });
-    host.create({ bindingId: "retained-noninteractive" });
-    const attached = host.attach({
-      bindingId: "retained-noninteractive",
-      mode: "control",
-    });
-    expect(attached.ok).toBe(true);
-    if (!attached.ok) return;
-
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const shutdown = host.shutdownAll("noninteractive-test");
-    await vi.advanceTimersByTimeAsync(24);
-    await expect(shutdown).resolves.toMatchObject({ clean: false });
-
-    expect(host.write(attached.lease, "must-not-write")).toBe(false);
-    expect(host.resize(attached.lease, 90, 30)).toBe(false);
-    expect(host.attach({ bindingId: "retained-noninteractive", mode: "control" }))
-      .toEqual({ ok: false, message: "session interaction revoked during stop" });
-    expect(host.attach({ bindingId: "retained-noninteractive", mode: "observe" }))
-      .toEqual({ ok: false, message: "session interaction revoked during stop" });
-    for (const listener of dataListeners) listener("ignored-after-stop");
-    expect(writes).toEqual([]);
-    expect(outputs).toEqual([]);
-
-    for (const listener of exitListeners) listener(0, undefined);
-    expect(host.runningCount()).toBe(0);
-    vi.useRealTimers();
-    error.mockRestore();
-  });
-
-  it("coalesces concurrent shutdown callers into one admission gate", async () => {
-    vi.useFakeTimers();
-    const children: Array<{
-      readonly signals: NodeJS.Signals[];
-      exit(): void;
-    }> = [];
-    const spawn: TermSpawnFn = () => {
-      const exitListeners = new Set<
-        (code: number | undefined, signal: number | undefined) => void
-      >();
-      let exited = false;
-      const controller = {
-        signals: [] as NodeJS.Signals[],
-        exit() {
-          if (exited) return;
-          exited = true;
-          for (const listener of exitListeners) listener(0, undefined);
-        },
-      };
-      children.push(controller);
-      return {
-        pid: trackSyntheticPid(83_000 + children.length),
-        write() {},
-        kill(signal = "SIGTERM") {
-          controller.signals.push(signal);
-        },
-        onData() {},
-        onExit(listener) {
-          exitListeners.add(listener);
-        },
-      };
-    };
-    const host = new LocalSessionHost(spawn, {
-      killGraceMs: 2,
-      shutdownGraceMs: 8,
-      lateExitGraceMs: 8,
-    });
-    hosts.push(host);
-    host.create({ bindingId: "single-flight" });
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    const first = host.shutdownAll("first");
-    expect(() => host.create({ bindingId: "too-early-sync" })).toThrow(/shutting down/);
-    const second = host.shutdownAll("second");
-    expect(second).toBe(first);
-    await vi.advanceTimersByTimeAsync(16);
-    expect(() => host.create({ bindingId: "too-early" })).toThrow(/shutting down/);
-    await vi.advanceTimersByTimeAsync(8);
-    const [firstResult, secondResult] = await Promise.all([first, second]);
-
-    expect(firstResult).toEqual(secondResult);
-    expect(firstResult.clean).toBe(false);
-    expect(children[0]?.signals.filter((signal) => signal === "SIGTERM")).toHaveLength(1);
-    expect(children[0]?.signals.filter((signal) => signal === "SIGKILL")).toHaveLength(2);
-    expect(() => host.create({ bindingId: "recovered-after-flight" })).not.toThrow();
-
-    children[0]?.exit();
-    children[1]?.exit();
-    expect(host.runningCount()).toBe(0);
-    expect(vi.getTimerCount()).toBe(0);
-    vi.useRealTimers();
-    error.mockRestore();
-  });
-
-  it("write requires control lease", () => {
-    const writes: string[] = [];
-    const spawn: TermSpawnFn = () => {
-      const dataListeners = new Set<(d: string) => void>();
-      const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
-      return {
-        // NEVER pid 1 — forceKill historically did process.kill(-1) = host-wide blast.
-        pid: trackSyntheticPid(77_001),
-        write(d) {
-          writes.push(d);
-        },
-        kill() {
-          for (const l of exitListeners) l(0, undefined);
-        },
-        onData(l) {
-          dataListeners.add(l);
-        },
-        onExit(l) {
-          exitListeners.add(l);
-        },
-      };
-    };
-    const host = new LocalSessionHost(spawn);
-    hosts.push(host);
-    host.create({ bindingId: "w1", launch: { kind: "shell" } });
-    const obs = host.attach({ bindingId: "w1", mode: "observe" });
-    expect(obs.ok).toBe(true);
-    if (obs.ok) {
-      expect(host.write(obs.lease, "nope")).toBe(false);
-    }
-    const ctl = host.attach({ bindingId: "w1", mode: "control" });
-    expect(ctl.ok).toBe(true);
-    if (ctl.ok) {
-      expect(host.write(ctl.lease, "yes\n")).toBe(true);
-    }
-    expect(writes).toEqual(["yes\n"]);
-  });
-
-  it("classifyTermKillTarget refuses init/self/parent (the historical blast radii)", () => {
-    expect(classifyTermKillTarget({ pid: 1 }).allowed).toBe(false);
-    expect(classifyTermKillTarget({ pid: process.pid }).allowed).toBe(false);
-    if (typeof process.ppid === "number") {
-      expect(classifyTermKillTarget({ pid: process.ppid }).allowed).toBe(false);
-    }
-    expect(classifyTermKillTarget({ pid: -1 }).allowed).toBe(false);
-    expect(classifyTermKillTarget({ pid: 0 }).allowed).toBe(false);
-    expect(classifyTermKillTarget({ pid: 4242 }).allowed).toBe(true);
-  });
-
-  it("shutdownAll on a session with fake pid=self never process-group-kills (audit)", async () => {
-    clearTermKillAuditLog();
-    const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    // Intentionally dangerous fake pid — admission is inert. The fake exits
-    // naturally; shutdown must never convert self into child or group signal.
-    const host = new LocalSessionHost(fakeSpawn({ pid: process.pid, exitDelayMs: 10 }));
-    hosts.push(host);
-    host.create({ bindingId: "bind-self-pid" });
-    await host.shutdownAll("probe-self-pid");
-    const audit = getTermKillAuditLog();
-    expect(audit.some((a) => a.requestedGroup)).toBe(false);
-    expect(audit.some((a) =>
-      !a.decision.ok && a.decision.reason === "child-pid-not-killable"
-    )).toBe(true);
-    // No OS process.kill at all for this session.
-    expect(spy).not.toHaveBeenCalled();
-    expect(host.runningCount()).toBe(0);
-    spy.mockRestore();
-  });
-
-  it("reports an epoch-mismatched local child as a straggler without signaling it", async () => {
-    vi.useFakeTimers();
-    const pid = trackSyntheticPid(84_001);
-    const signals: NodeJS.Signals[] = [];
-    const exitListeners = new Set<
-      (code: number | undefined, signal: number | undefined) => void
-    >();
-    const spawn: TermSpawnFn = () => ({
-      pid,
-      write() {},
-      kill(signal = "SIGTERM") {
-        signals.push(signal);
-      },
-      onData() {},
-      onExit(listener) {
-        exitListeners.add(listener);
-      },
-    });
-    const host = new LocalSessionHost(spawn, {
-      killGraceMs: 2,
-      shutdownGraceMs: 6,
-      lateExitGraceMs: 6,
-    });
-    hosts.push(host);
-    host.create({ bindingId: "epoch-mismatch" });
-    syntheticEpochs.set(pid, `synthetic-${pid}-reused`);
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    const shutdown = host.shutdownAll("epoch-mismatch");
+    const shutdown = host.shutdownAll("rejected-witness");
     await vi.advanceTimersByTimeAsync(20);
     await expect(shutdown).resolves.toMatchObject({
       clean: false,
-      stragglers: [expect.objectContaining({ bindingId: "epoch-mismatch", pid })],
+      stragglers: [{ bindingId: "rejected-witness", pid: 44_500 }],
     });
-    expect(signals).toEqual([]);
-    expect(getTermKillAuditLog().some((entry) =>
-      !entry.decision.ok && entry.decision.reason === "child-epoch-mismatch"
-    )).toBe(true);
+    expect(host.runningCount()).toBe(1);
+  });
 
-    for (const listener of exitListeners) listener(0, undefined);
+  it("turns a spawn failure into an exited session without pretending ownership", () => {
+    const authority: LocalTerminalProcessAuthority = {
+      spawnTerminal: () => {
+        throw new Error("spawn refused");
+      },
+      terminate: () => {
+        throw new Error("unreachable");
+      },
+      forceTerminate: () => {
+        throw new Error("unreachable");
+      },
+    };
+    const host = new LocalSessionHost(authority);
+    hosts.push(host);
+
+    expect(host.create({ bindingId: "spawn-failed" })).toMatchObject({
+      bindingId: "spawn-failed",
+      status: "exited",
+    });
     expect(host.runningCount()).toBe(0);
-    expect(error).toHaveBeenCalledWith(expect.stringContaining("retained 1 local terminal"));
-    vi.useRealTimers();
   });
 });

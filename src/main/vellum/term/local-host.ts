@@ -1,28 +1,23 @@
 /**
- * App-scoped local terminal session authority.
- * Owns child processes (PTY when available, pipe fallback otherwise).
+ * App-scoped local terminal session coordinator.
+ * The central app process plane exclusively owns PTY/pipe processes.
  * Presentation (xterm) is a consumer — never co-located as process owner.
  * Product law: app quit stops all local sessions (no LaunchAgent survive-quit).
  */
 
 import { EventEmitter } from "node:events";
-import { spawn as cpSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import * as os from "node:os";
 import { randomBytes } from "node:crypto";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { getProcessIdentityMap } from "../process-identity";
 import {
-  admitChildProcess,
-  classifyProcessSignalTarget,
-  clearProcessSignalAuditLog,
-  getProcessSignalAuditLog,
-  releaseOwned,
-  signalOwned,
-  type OwnedProcess,
-  type ProcessSignalAudit,
-  type SignalChildHandle,
-  type TerminatingSignal,
-} from "../process-signal";
+  appProcessPlane,
+  type AppProcessPlane,
+  type AppProcessSignalReceipt,
+  type AppTerminalExit,
+  type AppTerminalLease,
+  type AppTerminalSpawnSpec,
+} from "../app-process-plane";
 
 export type LocalHostCreateInput = {
   readonly bindingId: string;
@@ -85,30 +80,19 @@ export type JournalEntry =
       readonly signal: number | undefined;
     };
 
-/** Minimal process handle so tests can inject fakes and PTY/pipe share one path. */
-export type TermChild = SignalChildHandle & {
-  readonly pid: number | undefined;
-  write(data: string): void;
-  resize?(cols: number, rows: number): void;
-  onData(listener: (data: string) => void): void;
-  onExit(listener: (code: number | undefined, signal: number | undefined) => void): void;
-};
-
-export type TermSpawnFn = (input: {
-  readonly file: string;
-  readonly args: readonly string[];
-  readonly cwd: string;
-  readonly env: Record<string, string>;
-  readonly cols: number;
-  readonly rows: number;
-}) => TermChild;
+export type LocalTerminalProcessAuthority = Pick<
+  AppProcessPlane,
+  "spawnTerminal" | "terminate" | "forceTerminate"
+>;
 
 type SessionRec = {
   bindingId: string;
   epoch: string;
   hostId: string;
   status: "starting" | "running" | "exited";
-  child: TermChild | undefined;
+  lease: AppTerminalLease | undefined;
+  exitWitness: Promise<AppTerminalExit> | undefined;
+  listenerCleanups: Array<() => void>;
   pid: number | undefined;
   cols: number;
   rows: number;
@@ -124,8 +108,8 @@ type SessionRec = {
   journalBytes: number;
   controlLeaseId: string | undefined;
   killed: boolean;
-  /** Branded child-only capability — only process-signal can mint. */
-  owned: OwnedProcess | undefined;
+  termReceipt: AppProcessSignalReceipt | undefined;
+  killReceipt: AppProcessSignalReceipt | undefined;
   /** Exact-record escalation; never follows a mutable binding lookup. */
   escalationTimer: ReturnType<typeof setTimeout> | undefined;
 };
@@ -135,6 +119,8 @@ export type LocalHostShutdownStraggler = {
   readonly epoch: string;
   readonly status: "starting" | "running";
   readonly pid?: number;
+  readonly term?: AppProcessSignalReceipt;
+  readonly kill?: AppProcessSignalReceipt;
 };
 
 export type LocalHostShutdownResult =
@@ -145,7 +131,7 @@ export type LocalHostShutdownResult =
     };
 
 export type LocalSessionHostOptions = {
-  /** TERM-to-KILL delay for one exact child generation. */
+  /** TERM-to-KILL delay for one exact terminal generation. */
   readonly killGraceMs?: number;
   /** Bounded wait after each shutdown signal phase. */
   readonly shutdownGraceMs?: number;
@@ -164,25 +150,6 @@ const MAX_JOURNAL_BYTES = 512 * 1024;
 const SHUTDOWN_GRACE_MS = 1500;
 const KILL_GRACE_MS = 400;
 const LATE_EXIT_GRACE_MS = 1500;
-
-/** @deprecated use ProcessSignalAudit from process-signal */
-export type TermKillAudit = ProcessSignalAudit;
-export const getTermKillAuditLog = getProcessSignalAuditLog;
-export const clearTermKillAuditLog = clearProcessSignalAuditLog;
-
-/** Thin wrapper kept for term tests — maps to sealed classifier. */
-export const classifyTermKillTarget = (input: {
-  readonly pid: number | undefined;
-  readonly selfPid?: number;
-  readonly ppid?: number;
-}): { readonly allowed: boolean; readonly reason?: string } => {
-  const d = classifyProcessSignalTarget({
-    pid: input.pid,
-    selfPid: input.selfPid,
-    ppid: input.ppid,
-  });
-  return d.ok ? { allowed: true } : { allowed: false, reason: d.reason };
-};
 
 const mintEpoch = (): string =>
   `ep_${Date.now().toString(36)}_${randomBytes(4).toString("hex")}`;
@@ -219,120 +186,26 @@ export const resolveLaunch = (
   return { file: argv[0]!, args: argv.slice(1), cwd, env };
 };
 
-const wrapPipeChild = (child: ChildProcessWithoutNullStreams): TermChild => {
-  const dataListeners = new Set<(data: string) => void>();
-  const exitListeners = new Set<(code: number | undefined, signal: number | undefined) => void>();
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (d: string) => {
-    for (const l of dataListeners) l(d);
-  });
-  child.stderr.on("data", (d: string) => {
-    for (const l of dataListeners) l(d);
-  });
-  child.on("exit", (code, signal) => {
-    const sigNum =
-      typeof signal === "string"
-        ? undefined
-        : typeof signal === "number"
-          ? signal
-          : undefined;
-    for (const l of exitListeners) l(code ?? undefined, sigNum);
-  });
-  return {
-    get pid() {
-      return child.pid;
-    },
-    write(data: string) {
-      child.stdin.write(data);
-    },
-    kill(signal?: NodeJS.Signals) {
-      return child.kill(signal ?? "SIGTERM");
-    },
-    onData(listener) {
-      dataListeners.add(listener);
-    },
-    onExit(listener) {
-      exitListeners.add(listener);
-    },
-  };
-};
-
-/** Prefer node-pty; fall back to piped child_process when PTY spawn is unavailable. */
-export const defaultTermSpawn: TermSpawnFn = (input) => {
-  try {
-    // Dynamic require keeps optional native dep from breaking import graphs in tests.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const nodePty = require("node-pty") as typeof import("node-pty");
-    const p = nodePty.spawn(input.file, [...input.args], {
-      name: "xterm-256color",
-      cols: input.cols,
-      rows: input.rows,
-      cwd: input.cwd,
-      env: input.env,
-      handleFlowControl: true,
-    });
-    const dataListeners = new Set<(data: string) => void>();
-    const exitListeners = new Set<(code: number | undefined, signal: number | undefined) => void>();
-    p.onData((d) => {
-      for (const l of dataListeners) l(d);
-    });
-    p.onExit(({ exitCode, signal }) => {
-      for (const l of exitListeners) l(exitCode ?? undefined, signal ?? undefined);
-    });
-    return {
-      get pid() {
-        return p.pid;
-      },
-      write(data: string) {
-        p.write(data);
-      },
-      resize(cols: number, rows: number) {
-        p.resize(cols, rows);
-      },
-      kill(signal?: NodeJS.Signals) {
-        return p.kill(signal ?? "SIGTERM");
-      },
-      onData(listener) {
-        dataListeners.add(listener);
-      },
-      onExit(listener) {
-        exitListeners.add(listener);
-      },
-    };
-  } catch {
-    const child = cpSpawn(input.file, [...input.args], {
-      cwd: input.cwd,
-      env: input.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      // NOT detached. Detached+process.kill(-pid) was a host-wide landmine
-      // when pid was wrong (tests used 1 / process.pid). Kill only via handle.
-      detached: false,
-    }) as ChildProcessWithoutNullStreams;
-    return wrapPipeChild(child);
-  }
-};
-
 export class LocalSessionHost extends EventEmitter {
   /** Current presentation generation by binding. */
   private readonly sessions = new Map<string, SessionRec>();
-  /** Every child generation remains owned until its exit callback is observed. */
+  /** Every terminal generation remains live until its exact witness settles. */
   private readonly liveRecords = new Set<SessionRec>();
   /** Bounded waiters used only after shutdown has prevented further creates. */
   private readonly allExitedWaiters = new Set<AllExitedWaiter>();
   private shuttingDown = false;
   private shutdownFlight: Promise<LocalHostShutdownResult> | undefined;
-  private readonly spawnFn: TermSpawnFn;
+  private readonly processAuthority: LocalTerminalProcessAuthority;
   private readonly killGraceMs: number;
   private readonly shutdownGraceMs: number;
   private readonly lateExitGraceMs: number;
 
   constructor(
-    spawnFn: TermSpawnFn = defaultTermSpawn,
+    processAuthority: LocalTerminalProcessAuthority = appProcessPlane,
     options: LocalSessionHostOptions = {},
   ) {
     super();
-    this.spawnFn = spawnFn;
+    this.processAuthority = processAuthority;
     this.killGraceMs = Math.max(0, options.killGraceMs ?? KILL_GRACE_MS);
     this.shutdownGraceMs = Math.max(0, options.shutdownGraceMs ?? SHUTDOWN_GRACE_MS);
     this.lateExitGraceMs = Math.max(0, options.lateExitGraceMs ?? LATE_EXIT_GRACE_MS);
@@ -359,7 +232,9 @@ export class LocalSessionHost extends EventEmitter {
       epoch,
       hostId: input.hostId?.trim() || "local",
       status: "starting",
-      child: undefined,
+      lease: undefined,
+      exitWitness: undefined,
+      listenerCleanups: [],
       pid: undefined,
       cols,
       rows,
@@ -375,40 +250,47 @@ export class LocalSessionHost extends EventEmitter {
       journalBytes: 0,
       controlLeaseId: undefined,
       killed: false,
-      owned: undefined,
+      termReceipt: undefined,
+      killReceipt: undefined,
       escalationTimer: undefined,
     };
     this.sessions.set(bindingId, rec);
     this.liveRecords.add(rec);
 
-    let child: TermChild;
+    let lease: AppTerminalLease;
     try {
-      child = this.spawnFn({
-        file: launch.file,
+      const spec: AppTerminalSpawnSpec = {
+        source: `term:${bindingId}`,
+        purpose: `local terminal ${bindingId}@${epoch}`,
+        command: launch.file,
         args: launch.args,
         cwd: launch.cwd,
         env: launch.env,
         cols,
         rows,
-      });
+      };
+      lease = this.processAuthority.spawnTerminal(spec);
     } catch (err) {
       this.failBeforeOwnership(rec, err);
       return this.summaryOf(rec);
     }
 
     try {
-      rec.child = child;
-      rec.pid = child.pid;
+      rec.lease = lease;
+      rec.exitWitness = lease.io.exited;
+      rec.pid = lease.io.pidForDiagnostics;
       rec.status = "running";
-      // Local terminals are always child-only; their capability contains no pid.
-      rec.owned = admitChildProcess({ source: `term:${bindingId}`, child });
-
-      // Install the cleanup path before data listeners, identity binding, or
-      // EventEmitter publication. Any later exception retains this exact
-      // authority and initiates bounded teardown instead of inventing exit.
-      child.onExit((code, signal) => this.observeExit(rec, code, signal));
-      if (!this.liveRecords.has(rec)) return this.summaryOf(rec);
-      child.onData((data) => this.observeData(rec, data));
+      // Retain the central plane's exact exit-or-close witness before any
+      // fallible presentation setup. Rejection is diagnostic only: authority
+      // stays registered centrally and this generation remains a straggler.
+      void rec.exitWitness.then(
+        (event) => this.observeExit(rec, event.code, event.signal),
+        (error) => this.observeWitnessFailure(rec, error),
+      );
+      rec.listenerCleanups.push(
+        lease.io.onData((data) => this.observeData(rec, data)),
+        lease.io.onError((error) => this.observeTerminalError(rec, error)),
+      );
       if (!this.liveRecords.has(rec)) return this.summaryOf(rec);
 
       this.bindProcessIdentity(rec);
@@ -418,7 +300,7 @@ export class LocalSessionHost extends EventEmitter {
         bindingId,
         epoch,
         status: "running",
-        pid: child.pid,
+        pid: rec.pid,
       });
     } catch (err) {
       this.recordPostSpawnFailure(rec, err);
@@ -525,11 +407,11 @@ export class LocalSessionHost extends EventEmitter {
 
   write(lease: ControlLease, data: string): boolean {
     const rec = this.sessions.get(lease.bindingId);
-    if (!rec || rec.killed || !rec.child || rec.status !== "running") return false;
+    if (!rec || rec.killed || !rec.lease || rec.status !== "running") return false;
     if (lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId) return false;
     if (lease.epoch !== rec.epoch) return false;
     try {
-      rec.child.write(data);
+      rec.lease.io.write(data);
       return true;
     } catch {
       return false;
@@ -538,14 +420,14 @@ export class LocalSessionHost extends EventEmitter {
 
   resize(lease: ControlLease, cols: number, rows: number): boolean {
     const rec = this.sessions.get(lease.bindingId);
-    if (!rec || rec.killed || !rec.child || rec.status !== "running") return false;
+    if (!rec || rec.killed || !rec.lease || rec.status !== "running") return false;
     if (lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId) return false;
     if (lease.epoch !== rec.epoch) return false;
     const c = Math.max(20, Math.min(300, cols | 0));
     const r = Math.max(5, Math.min(120, rows | 0));
     if (c === rec.cols && r === rec.rows) return true;
     try {
-      rec.child.resize?.(c, r);
+      rec.lease.io.resize?.(c, r);
       rec.cols = c;
       rec.rows = r;
       rec.seq = rec.seq + 1n;
@@ -581,7 +463,7 @@ export class LocalSessionHost extends EventEmitter {
   shutdownAll(reason = "app_quit"): Promise<LocalHostShutdownResult> {
     if (this.shutdownFlight !== undefined) return this.shutdownFlight;
     // Close admission synchronously, then defer signaling until the shared
-    // promise is published. A child.kill callback can re-enter this host.
+    // promise is published. A terminal backend callback can re-enter this host.
     this.shuttingDown = true;
     const flight = Promise.resolve()
       .then(() => this.performShutdown(reason))
@@ -615,15 +497,16 @@ export class LocalSessionHost extends EventEmitter {
       epoch: rec.epoch,
       status: rec.status,
       ...(rec.pid === undefined ? {} : { pid: rec.pid }),
+      ...(rec.termReceipt === undefined ? {} : { term: rec.termReceipt }),
+      ...(rec.killReceipt === undefined ? {} : { kill: rec.killReceipt }),
     })) as LocalHostShutdownStraggler[];
     console.error(
-      `[term] ${reason} retained ${stragglers.length} local terminal child generation(s): ${stragglers
+      `[term] ${reason} retained ${stragglers.length} local terminal generation(s): ${stragglers
         .map((rec) => `${rec.bindingId}@${rec.epoch}${rec.pid === undefined ? "" : ` pid=${rec.pid}`}`)
         .join(", ")}`,
     );
-    // The quit attempt is canceled. Retained exact authorities remain live,
-    // while the app may recover and a later signal can start a fresh attempt.
-    this.shuttingDown = false;
+    // Retained exact authorities remain live. Shutdown admission is monotonic:
+    // a failed quit may retry the same records but can never spawn new ones.
     return { clean: false, stragglers };
   }
 
@@ -706,8 +589,13 @@ export class LocalSessionHost extends EventEmitter {
       clearTimeout(rec.escalationTimer);
       rec.escalationTimer = undefined;
     }
-    releaseOwned(rec.owned);
-    rec.owned = undefined;
+    for (const cleanup of rec.listenerCleanups.splice(0)) {
+      try {
+        cleanup();
+      } catch {
+        // Listener disposal never weakens the exact central exit witness.
+      }
+    }
     this.removeLiveRecord(rec);
     const current = this.sessions.get(rec.bindingId);
     // A reused numeric PID may already belong to the replacement. Never let
@@ -720,7 +608,8 @@ export class LocalSessionHost extends EventEmitter {
       }
     }
     rec.status = "exited";
-    rec.child = undefined;
+    rec.lease = undefined;
+    rec.exitWitness = undefined;
     if (current !== rec) return;
     rec.seq = rec.seq + 1n;
     this.pushJournal(rec, { seq: rec.seq, type: "exit", code, signal });
@@ -773,9 +662,25 @@ export class LocalSessionHost extends EventEmitter {
     this.pushJournal(rec, {
       seq: rec.seq,
       type: "output",
-      data: `\r\n[vellum] terminal setup failed; stopping owned child: ${message}\r\n`,
+      data: `\r\n[vellum] terminal setup failed; stopping central lease: ${message}\r\n`,
     });
-    console.error(`[term] setup failed for ${rec.bindingId}@${rec.epoch}; stopping child:`, error);
+    console.error(`[term] setup failed for ${rec.bindingId}@${rec.epoch}; stopping lease:`, error);
+  }
+
+  private observeWitnessFailure(rec: SessionRec, error: unknown): void {
+    if (!this.liveRecords.has(rec)) return;
+    console.error(
+      `[term] terminal witness rejected for ${rec.bindingId}@${rec.epoch}; retaining authority:`,
+      error,
+    );
+  }
+
+  private observeTerminalError(rec: SessionRec, error: Error): void {
+    if (!this.liveRecords.has(rec)) return;
+    console.error(
+      `[term] terminal process error for ${rec.bindingId}@${rec.epoch}; awaiting exact exit witness:`,
+      error,
+    );
   }
 
   private removeLiveRecord(rec: SessionRec): void {
@@ -796,17 +701,29 @@ export class LocalSessionHost extends EventEmitter {
     }
   }
 
-  /**
-   * Kill via branded OwnedProcess only. Parameter type cannot be a bare pid.
-   * Terminals admit with ownsProcessGroup:false → child.kill path inside seal.
-   */
   private forceKill(rec: SessionRec, signal: NodeJS.Signals): void {
-    // Only an observed child exit closes a live generation. A missing
-    // capability must remain visible as an unclean shutdown, never be inferred
-    // exited from local bookkeeping alone.
-    if (!rec.owned) return;
-    const termSignal = signal as TerminatingSignal;
-    signalOwned(rec.owned, termSignal);
+    // Only the central plane can translate this opaque lease into OS signal
+    // authority. Generic dispatch failures retain the record and therefore
+    // fail the bounded shutdown receipt closed.
+    if (!rec.lease) return;
+    try {
+      if (signal === "SIGTERM") {
+        rec.termReceipt = this.processAuthority.terminate(
+          rec.lease,
+          `local-terminal-stop:${rec.bindingId}@${rec.epoch}`,
+        );
+      } else if (signal === "SIGKILL") {
+        rec.killReceipt = this.processAuthority.forceTerminate(
+          rec.lease,
+          `local-terminal-force-stop:${rec.bindingId}@${rec.epoch}`,
+        );
+      }
+    } catch (error) {
+      console.error(
+        `[term] ${signal} dispatch failed for ${rec.bindingId}@${rec.epoch}; retaining authority:`,
+        error,
+      );
+    }
   }
 
   private pushJournal(rec: SessionRec, entry: JournalEntry): void {

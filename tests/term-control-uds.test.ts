@@ -3,11 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConnection } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  LocalSessionHost,
-  type TermChild,
-  type TermSpawnFn,
-} from "../src/main/vellum/term/local-host";
+import { LocalSessionHost } from "../src/main/vellum/term/local-host";
 import { startTermControlServer } from "../src/main/vellum/term/control-server";
 import { TermControlClient } from "../src/main/vellum/term/control-client";
 import {
@@ -15,6 +11,7 @@ import {
   setProcessIdentityMapForTests,
 } from "../src/main/vellum/process-identity";
 import { setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
+import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
@@ -37,36 +34,12 @@ afterEach(async () => {
   setProcessIdentityMapForTests(undefined);
 });
 
-const fakeSpawn = (): TermSpawnFn => {
-  return () => {
-    const dataListeners = new Set<(d: string) => void>();
-    const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
-    let alive = true;
-    const child: TermChild = {
-      pid: 9001,
-      write(data: string) {
-        // Echo back so attach/write paths are observable.
-        for (const l of dataListeners) l(`echo:${data}`);
-      },
-      resize() {
-        /* noop */
-      },
-      kill() {
-        if (!alive) return;
-        alive = false;
-        for (const l of exitListeners) l(0, undefined);
-      },
-      onData(listener) {
-        dataListeners.add(listener);
-        queueMicrotask(() => listener("ready\r\n"));
-      },
-      onExit(listener) {
-        exitListeners.add(listener);
-      },
-    };
-    return child;
-  };
-};
+const fakeAuthority = () => makeFakeTerminalProcessAuthority(() => ({
+  pid: 9001,
+  output: "ready\r\n",
+  exitOnSignal: "SIGTERM",
+  echoWrites: "echo:",
+})).authority;
 
 describe("term control UDS", () => {
   it("auth + create + attach + write + kill over NDJSON with bigint journal", async () => {
@@ -74,7 +47,7 @@ describe("term control UDS", () => {
     const home = mkdtempSync(join(tmpdir(), "vellum-term-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
 
-    const host = new LocalSessionHost(fakeSpawn());
+    const host = new LocalSessionHost(fakeAuthority());
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -137,7 +110,7 @@ describe("term control UDS", () => {
   it("rejects bad token", async () => {
     const home = mkdtempSync(join(tmpdir(), "vellum-term-bad-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeSpawn());
+    const host = new LocalSessionHost(fakeAuthority());
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -156,7 +129,7 @@ describe("term control UDS", () => {
   it("boundedly drains an active client when the control server closes", async () => {
     const home = mkdtempSync(join(tmpdir(), "vellum-term-close-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeSpawn());
+    const host = new LocalSessionHost(fakeAuthority());
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -182,7 +155,7 @@ describe("term control UDS", () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
     const home = mkdtempSync(join(tmpdir(), "vellum-term-late-close-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeSpawn());
+    const host = new LocalSessionHost(fakeAuthority());
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
