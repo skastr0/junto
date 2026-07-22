@@ -46,6 +46,7 @@ const revisionsByName = new Map<string, string>();
 // reopen API because a later mutation would invalidate the acknowledged final
 // disk boundary while main is authorized to destroy the renderer.
 let canvasMutationAdmissionOpen = true;
+const activeCanvasAuthoringOperations = new Set<Promise<void>>();
 // Names we intentionally discarded (delete). flushSave refuses to write them
 // until clearAbandonedCanvas (open/create of that name).
 const abandonedNames = new Set<string>();
@@ -297,6 +298,35 @@ export const acceptCanvasRevision = (name: string, revision: string): void => {
 export const canvasMutationsQuiesced = (): boolean => !canvasMutationAdmissionOpen;
 
 /**
+ * Admit one renderer-originated authoring operation and retain its lifetime
+ * until it settles. The completion token is published before caller code runs
+ * so a re-entrant quiesce cannot miss an operation it just admitted.
+ */
+export const runCanvasAuthoringOperation = async <T>(
+  operation: () => Promise<T>,
+): Promise<T | undefined> => {
+  if (!canvasMutationAdmissionOpen) return undefined;
+  let finish!: () => void;
+  const completion = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  activeCanvasAuthoringOperations.add(completion);
+  try {
+    return await operation();
+  } finally {
+    finish();
+    activeCanvasAuthoringOperations.delete(completion);
+  }
+};
+
+/** Await every operation admitted before the monotonic gate closed. */
+export const drainCanvasAuthoringOperations = async (): Promise<void> => {
+  while (activeCanvasAuthoringOperations.size > 0) {
+    await Promise.all([...activeCanvasAuthoringOperations]);
+  }
+};
+
+/**
  * Commit synchronous editor-local drafts, then monotonically close document
  * mutation admission in the same turn. A throwing draft commit leaves the
  * gate open, so main can treat it as a recoverable pre-quiesce failure.
@@ -511,7 +541,7 @@ export const redo = (): void => {
 };
 
 export const deleteNode = (id: string): void => {
-  deleteNodesInternal([id]);
+  startDeleteNodes([id]);
 };
 
 interface ConfirmedPageStops {
@@ -520,10 +550,11 @@ interface ConfirmedPageStops {
   readonly refs: ReadonlySet<string>;
 }
 
-const deleteNodesInternal = (
+const deleteNodesInternal = async (
   ids: ReadonlyArray<string>,
   confirmedPageStops?: ConfirmedPageStops,
-): void => {
+): Promise<void> => {
+  if (!canvasMutationAdmissionOpen) return;
   const removed = new Set(ids);
   if (removed.size === 0) return;
   const canvasName = state$.canvasName.peek();
@@ -566,30 +597,37 @@ const deleteNodesInternal = (
     (action) => action.stop && !confirmedPageStops?.refs.has(action.ref),
   );
   if (pendingStops.length > 0) {
-    void import("./dock-state")
-      .then(async ({ stopDockBrowser }) => {
-        const results = await Promise.all(
-          pendingStops.map(async (action) => ({
-            ref: action.ref,
-            stopped: await stopDockBrowser(action.ref),
-          })),
-        );
-        if (!results.every((result) => result.stopped)) {
-          state$.error.set("Stop Page failed; the page node was not deleted.");
-          return;
-        }
-        deleteNodesInternal(ids, {
-          canvasName,
-          docEpoch,
-          refs: new Set([
-            ...(confirmedPageStops?.refs ?? []),
-            ...results.map((result) => result.ref),
-          ]),
-        });
-      })
-      .catch(() => {
-        state$.error.set("Stop Page is unavailable; the page node was not deleted.");
+    try {
+      const { stopDockBrowser } = await import("./dock-state");
+      // Import resolution is an async boundary. A signal latch that closed in
+      // the meantime must prevent the destructive Stop Page call itself.
+      if (!canvasMutationAdmissionOpen) return;
+      const results = await Promise.all(
+        pendingStops.map(async (action) => ({
+          ref: action.ref,
+          stopped: await stopDockBrowser(action.ref),
+        })),
+      );
+      // A stop admitted before quiescence is drained, but its late renderer
+      // continuation cannot mutate the now-final document.
+      if (!canvasMutationAdmissionOpen) return;
+      if (!results.every((result) => result.stopped)) {
+        state$.error.set("Stop Page failed; the page node was not deleted.");
+        return;
+      }
+      await deleteNodesInternal(ids, {
+        canvasName,
+        docEpoch,
+        refs: new Set([
+          ...(confirmedPageStops?.refs ?? []),
+          ...results.map((result) => result.ref),
+        ]),
       });
+    } catch {
+      if (canvasMutationAdmissionOpen) {
+        state$.error.set("Stop Page is unavailable; the page node was not deleted.");
+      }
+    }
     return;
   }
 
@@ -598,18 +636,25 @@ const deleteNodesInternal = (
   const herdrIds = existingNodes
     .filter((n) => n.ether?.entity?.kind === "herdr")
     .map((n) => n.id);
+  const sideEffects: Array<Promise<void>> = [];
   if (herdrIds.length > 0) {
-    void import("./herdr-actions").then(({ handleHerdrNodeDelete }) => {
-      for (const id of herdrIds) void handleHerdrNodeDelete(id);
-    });
+    sideEffects.push(
+      import("./herdr-actions").then(async ({ handleHerdrNodeDelete }) => {
+        if (!canvasMutationAdmissionOpen) return;
+        await Promise.all(herdrIds.map((id) => handleHerdrNodeDelete(id)));
+      }),
+    );
   }
 
   if (pageActions.length > 0) {
-    void import("./dock-state").then(({ closeDockBrowser }) => {
-      for (const action of pageActions) {
-        if (!action.stop) closeDockBrowser(action.ref);
-      }
-    });
+    sideEffects.push(
+      import("./dock-state").then(({ closeDockBrowser }) => {
+        if (!canvasMutationAdmissionOpen) return;
+        for (const action of pageActions) {
+          if (!action.stop) closeDockBrowser(action.ref);
+        }
+      }),
+    );
   }
 
   const nonHerdr = new Set(
@@ -618,6 +663,7 @@ const deleteNodesInternal = (
   if (nonHerdr.size === 0) {
     // Pure herdr delete — async path owns the doc mutation.
     if (herdrIds.some((id) => id === state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
+    await Promise.all(sideEffects);
     return;
   }
   if (nonHerdr.has(state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
@@ -626,11 +672,18 @@ const deleteNodesInternal = (
     nodes: doc.nodes.filter((n) => !nonHerdr.has(n.id)),
     edges: doc.edges.filter((e) => !nonHerdr.has(e.fromNode) && !nonHerdr.has(e.toNode)),
   });
+  await Promise.all(sideEffects);
+};
+
+const startDeleteNodes = (ids: ReadonlyArray<string>): void => {
+  void runCanvasAuthoringOperation(() => deleteNodesInternal(ids)).catch((error) => {
+    if (canvasMutationAdmissionOpen) state$.error.set(messageOf(error));
+  });
 };
 
 /** Public deletion entrypoint; Stop Page completion state is module-private. */
 export const deleteNodes = (ids: ReadonlyArray<string>): void => {
-  deleteNodesInternal(ids);
+  startDeleteNodes(ids);
 };
 
 export const editText = (id: string, text: string): void => {

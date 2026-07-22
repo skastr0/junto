@@ -1,8 +1,11 @@
 import {
   canvasMutationsQuiesced,
+  drainCanvasAuthoringOperations,
   flushPendingCanvasSave,
   quiesceCanvasMutations,
 } from "./mutations";
+
+export { runCanvasAuthoringOperation } from "./mutations";
 
 type DraftCommit = () => void;
 
@@ -11,33 +14,6 @@ type DraftCommit = () => void;
 // live commit boundary here so navigation and native quit can still make the
 // current draft durable before the renderer acknowledges the operation.
 const draftCommits = new Set<DraftCommit>();
-const activeCanvasAuthoringOperations = new Set<Promise<void>>();
-
-/** Admit a direct create/delete operation while the renderer gate is open. */
-export const runCanvasAuthoringOperation = async <T>(
-  operation: () => Promise<T>,
-): Promise<T | undefined> => {
-  if (canvasMutationsQuiesced()) return undefined;
-  let finish!: () => void;
-  const completion = new Promise<void>((resolve) => {
-    finish = resolve;
-  });
-  // Publish the lifetime before invoking caller code so even a re-entrant
-  // quiesce observes and drains an operation that admission just accepted.
-  activeCanvasAuthoringOperations.add(completion);
-  try {
-    return await operation();
-  } finally {
-    finish();
-    activeCanvasAuthoringOperations.delete(completion);
-  }
-};
-
-const drainCanvasAuthoringOperations = async (): Promise<void> => {
-  while (activeCanvasAuthoringOperations.size > 0) {
-    await Promise.all([...activeCanvasAuthoringOperations]);
-  }
-};
 
 export const registerCanvasDraftCommit = (commit: DraftCommit): (() => void) => {
   draftCommits.add(commit);
