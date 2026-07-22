@@ -100,7 +100,7 @@ export const writeCanvasSidecar = async (
   await assertRegularOrMissing(path);
   const tmpPath = `${path}.${randomUUID()}.tmp`;
   try {
-    await writeFile(tmpPath, contents, "utf8");
+    await writeFile(tmpPath, contents, { encoding: "utf8", flag: "wx" });
     await rename(tmpPath, path);
     return path;
   } catch (error) {
@@ -314,7 +314,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           // mutex above, e.g. a separate OS process like populate.ts) never
           // share one tmp file.
           const tmpPath = `${path}.${randomUUID()}.tmp`;
-          await writeFile(tmpPath, serialized, "utf8");
+          await writeFile(tmpPath, serialized, { encoding: "utf8", flag: "wx" });
           // Recheck immediately before replacement. This rejects when an
           // external document differs at either revision read, and rename
           // guarantees the installed file is complete. It is not an atomic
@@ -375,7 +375,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             const serialized = serializeCanvas(applyMirrorLaw(decoded.right));
             const revision = revisionOf(serialized);
             const tmpPath = `${path}.${randomUUID()}.tmp`;
-            await writeFile(tmpPath, serialized, "utf8");
+            await writeFile(tmpPath, serialized, { encoding: "utf8", flag: "wx" });
 
             let observedRevision: string | undefined;
             try {
