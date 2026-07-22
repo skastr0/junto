@@ -71,7 +71,9 @@ No second “helper” that reopens bare pid kill.
 
 | Situation | Behavior |
 |-----------|----------|
-| Group epoch/pgid cannot be captured or revalidated | Child-only authority / `child.kill` |
+| Group epoch/pgid cannot be captured at spawn | Mint child-only authority; never claim the group |
+| Admitted group epoch cannot be revalidated at signal time | Refuse the signal; never fall back to `child.kill` |
+| Original process-group leader has exited | Refuse group signaling; retain/report any orphan instead of guessing from a recycled PGID |
 | Unknown / released handle | No OS signal |
 | Missing child + no capability | No-op / session marked exited |
 | Tests with fake pid=self/1 | Cannot obtain `OwnedProcess`; child.kill only |
@@ -118,8 +120,12 @@ spawn child
 kill / quit
     → signalOwned(owned, TerminatingSignal)
          → WeakMap get
-         → group: recheck epoch + pgid, then process.kill(-pid) // only here
-         → otherwise child.kill
+         → group: read one coherent process-table snapshot
+              → same live leader + start epoch + session + pgid
+                  → process.kill(-pid) // only here
+              → mismatch / leader gone / signal failure
+                  → audited refusal; no fallback signal
+         → child authority: child.kill
 
 exit
     → releaseOwned(owned)
@@ -130,6 +136,12 @@ or caller-supplied group-ownership boolean.** This is an application boundary,
 not a claim that the operating-system kernel makes all process signaling
 impossible: Vellum's own code cannot mint the authority without owning the
 spawn path.
+
+On macOS, process-table observation and the subsequent signal are not one
+atomic kernel operation. Vellum therefore requires the original group leader
+to remain live with the captured start epoch and fails closed when it cannot
+prove that identity. It deliberately accepts a possible orphan over signaling
+a leaderless numeric process group that may have been recycled.
 
 ---
 
