@@ -29,8 +29,11 @@ privileged port), the API **must not** accept a bare OS identifier.
 
 Inputs that touch the OS cross a **Schema** boundary first.
 
+- Numeric child pids are read from the spawned child handle itself and admitted
+  only with a coherently captured start epoch. Callers cannot supply a pid.
 - Group pids are captured only by `spawnDetachedProcessGroup` after the child
-  actually starts, together with its start epoch and process-group identity.
+  actually starts, together with that same child epoch and process-group
+  identity from one process-table snapshot.
 - Signals that may terminate: `TerminatingSignal` — closed literal set.
 - SSH endpoints, remote paths, etc. already follow this pattern (`SshEndpoint`,
   `RemoteCommand`). New host-touching domains copy that pattern.
@@ -52,8 +55,10 @@ only one mint function in the owning module
 
 - A plain object is **not assignable** to the branded type (TypeScript).
 - A cast impostor still fails WeakMap lookup (runtime).
-- Authority is a private discriminated union. Child authority stores only a
-  child handle; group authority additionally stores the verified pid + epoch.
+- Authority is a private discriminated union. A truly pid-less internal wrapper
+  stays opaque and handle-scoped. A numeric child stores a verified pid + start
+  epoch or an inert refusal; group authority additionally stores the verified
+  process-group/session identity.
 
 ### 4. Single sealed implementation site
 
@@ -71,12 +76,15 @@ No second “helper” that reopens bare pid kill.
 
 | Situation | Behavior |
 |-----------|----------|
-| Group epoch/pgid cannot be captured at spawn | Mint child-only authority; never claim the group |
+| Numeric child pid is invalid, dangerous, or has no start epoch | Mint inert/refused authority; never call `child.kill` |
+| Numeric child pid or start epoch changes before signal | Audit and refuse; retain/report the straggler |
+| Group epoch/pgid cannot be captured at spawn | Reuse the verified child epoch for child-only fallback; if no child epoch exists, mint inert authority |
 | Admitted group epoch cannot be revalidated at signal time | Refuse the signal; never fall back to `child.kill` |
 | Original process-group leader has exited | Refuse group signaling; retain/report any orphan instead of guessing from a recycled PGID |
 | Unknown / released handle | No OS signal |
-| Missing child + no capability | No-op / session marked exited |
-| Tests with fake pid=self/1 | Cannot obtain `OwnedProcess`; child.kill only |
+| Missing child + no usable capability | No OS signal; retain/report until exit is observed |
+| Tests with fake pid=self/1 | Obtain only inert authority; no child or group signal |
+| `child.kill` explicitly returns `false` | Audit `child-signal-refused`; do not report an attempted signal |
 
 ### 6. Recoverable by design
 
@@ -111,10 +119,15 @@ are the seal.
 ```text
 spawn child
     → admitChildProcess({ source, child })
-         → mint child-only OwnedProcess + WeakMap authority
+         → read child.pid internally (the caller cannot pass one)
+         → pid absent from the wrapper: mint opaque child-only authority
+         → numeric pid: validate + capture exact start epoch
+              → verified: mint epoch-bound child-only authority
+              → invalid / unavailable: mint inert refusal
     → OR spawnDetachedProcessGroup(...)
-         → child starts detached; capture start epoch and pgid === pid
+         → child starts detached; capture child + optional group identity once
          → mint group OwnedProcess only when verification succeeds
+         → otherwise reuse the verified child epoch or remain inert
     → store OwnedProcess on session / adapter record
 
 kill / quit
@@ -125,7 +138,10 @@ kill / quit
                   → process.kill(-pid) // only here
               → mismatch / leader gone / signal failure
                   → audited refusal; no fallback signal
-         → child authority: child.kill
+         → numeric child: same handle pid + fresh matching start epoch
+              → child.kill; explicit false is an audited refusal
+              → pid/epoch mismatch: audited refusal; no signal
+         → opaque pid-less wrapper: child.kill only
 
 exit
     → releaseOwned(owned)
@@ -137,11 +153,14 @@ not a claim that the operating-system kernel makes all process signaling
 impossible: Vellum's own code cannot mint the authority without owning the
 spawn path.
 
-On macOS, process-table observation and the subsequent signal are not one
-atomic kernel operation. Vellum therefore requires the original group leader
-to remain live with the captured start epoch and fails closed when it cannot
-prove that identity. It deliberately accepts a possible orphan over signaling
-a leaderless numeric process group that may have been recycled.
+On macOS, process-table observation and the subsequent child or group signal
+are not one atomic kernel operation. Vellum therefore requires the original
+numeric child (and, for a group, its leader) to remain live with the captured
+start epoch and fails closed when it cannot prove that identity. It deliberately
+accepts a possible orphan over signaling a numeric pid or leaderless process
+group that may have been recycled. The remaining `ps`-to-signal interval is an
+operating-system TOCTOU limit; macOS does not offer Vellum a pidfd-style atomic
+process-group signal primitive.
 
 ---
 

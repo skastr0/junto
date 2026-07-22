@@ -1,6 +1,13 @@
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from "node:child_process";
 import { Schema } from "effect";
-import { captureProcessGroupEpoch, processGroupEpochIsCurrent, type ProcessGroupEpoch } from "./process-epoch";
+import {
+  captureChildProcessEpoch,
+  captureProcessEpoch,
+  childProcessEpochIsCurrent,
+  processGroupEpochIsCurrent,
+  type ChildProcessEpoch,
+  type ProcessGroupEpoch,
+} from "./process-epoch";
 
 const OwnedProcessTypeId: unique symbol = Symbol("@vellum/OwnedProcess");
 export interface OwnedProcess { readonly [OwnedProcessTypeId]: typeof OwnedProcessTypeId; readonly source: string; }
@@ -14,10 +21,16 @@ export const KillablePid = Schema.Int.pipe(
 export type KillablePid = typeof KillablePid.Type;
 export const TerminatingSignal = Schema.Literal("SIGTERM", "SIGKILL", "SIGINT", "SIGHUP", "SIGUSR1", "SIGUSR2");
 export type TerminatingSignal = typeof TerminatingSignal.Type;
-export type SignalChildHandle = { readonly kill: (signal?: NodeJS.Signals) => void };
+export type SignalChildHandle = {
+  /** Optional because some internal wrappers expose only an opaque handle. */
+  readonly pid?: number;
+  readonly kill: (signal?: NodeJS.Signals) => unknown;
+};
 
 type OwnedAuthority =
-  | { readonly kind: "child"; readonly child: SignalChildHandle; readonly source: string; released: boolean }
+  | { readonly kind: "child-opaque"; readonly child: SignalChildHandle; readonly source: string; released: boolean }
+  | { readonly kind: "child-verified"; readonly child: SignalChildHandle; readonly pid: KillablePid; readonly epoch: ChildProcessEpoch; readonly source: string; released: boolean }
+  | { readonly kind: "child-refused"; readonly child: SignalChildHandle; readonly pid: number | undefined; readonly reason: string; readonly source: string; released: boolean }
   | { readonly kind: "group"; readonly child: SignalChildHandle; readonly pid: KillablePid; readonly epoch: ProcessGroupEpoch; readonly source: string; released: boolean };
 const authority = new WeakMap<OwnedProcess, OwnedAuthority>();
 
@@ -44,9 +57,52 @@ const mint = (source: string, rec: OwnedAuthority): OwnedProcess => {
   return handle;
 };
 
-/** Child-only capability: contains no pid and can only invoke child.kill(). */
-export const admitChildProcess = (input: { readonly source: string; readonly child: SignalChildHandle }): OwnedProcess =>
-  mint(input.source, { kind: "child", child: input.child, source: input.source, released: false });
+type ChildPidObservation =
+  | { readonly kind: "opaque" }
+  | { readonly kind: "present"; readonly pid: unknown }
+  | { readonly kind: "unavailable" };
+
+const observeChildPid = (child: SignalChildHandle): ChildPidObservation => {
+  try {
+    if (!("pid" in child)) return { kind: "opaque" };
+    return { kind: "present", pid: (child as { readonly pid?: unknown }).pid };
+  } catch {
+    return { kind: "unavailable" };
+  }
+};
+
+const mintRefusedChild = (source: string, child: SignalChildHandle, pid: number | undefined, reason: string): OwnedProcess =>
+  mint(source, { kind: "child-refused", child, pid, reason, source, released: false });
+
+const mintVerifiedChild = (source: string, child: SignalChildHandle, pid: KillablePid, epoch: ChildProcessEpoch): OwnedProcess =>
+  mint(source, { kind: "child-verified", child, pid, epoch, source, released: false });
+
+/**
+ * Child-only capability. Truly pid-less wrappers stay opaque; a numeric child
+ * is usable only after its exact start epoch is captured at admission.
+ */
+export const admitChildProcess = (input: { readonly source: string; readonly child: SignalChildHandle }): OwnedProcess => {
+  const observation = observeChildPid(input.child);
+  if (observation.kind === "opaque") {
+    return mint(input.source, { kind: "child-opaque", child: input.child, source: input.source, released: false });
+  }
+  if (observation.kind === "unavailable" || observation.pid === undefined) {
+    return mintRefusedChild(input.source, input.child, undefined, "child-pid-unavailable");
+  }
+  const decoded = Schema.decodeUnknownEither(KillablePid)(observation.pid);
+  if (decoded._tag === "Left") {
+    return mintRefusedChild(
+      input.source,
+      input.child,
+      typeof observation.pid === "number" ? observation.pid : undefined,
+      "child-pid-not-killable",
+    );
+  }
+  const epoch = captureChildProcessEpoch(decoded.right);
+  return epoch
+    ? mintVerifiedChild(input.source, input.child, decoded.right, epoch)
+    : mintRefusedChild(input.source, input.child, decoded.right, "child-epoch-unavailable");
+};
 
 export type DetachedProcessGroup = { readonly child: ChildProcessWithoutNullStreams; readonly process: OwnedProcess; readonly mode: "group" | "child" };
 /** The sole mint site for POSIX process-group authority. Detached is not caller-configurable. */
@@ -54,23 +110,76 @@ export const spawnDetachedProcessGroup = (input: { readonly source: string; read
   const child = spawn(input.command, [...input.args], { ...input.options, detached: true, stdio: "pipe" });
   const pid = child.pid;
   const decoded = Schema.decodeUnknownEither(KillablePid)(pid);
-  const epoch = process.platform === "win32" || decoded._tag === "Left" || pid === undefined ? undefined : captureProcessGroupEpoch(pid);
-  const ownedProcess = epoch && decoded._tag === "Right"
-    ? mint(input.source, { kind: "group", child, pid: decoded.right, epoch, source: input.source, released: false })
-    : admitChildProcess({ source: input.source, child });
-  return { child, process: ownedProcess, mode: epoch && decoded._tag === "Right" ? "group" : "child" };
+  if (decoded._tag === "Left" || pid === undefined) {
+    return {
+      child,
+      process: mintRefusedChild(input.source, child, typeof pid === "number" ? pid : undefined, "child-pid-not-killable"),
+      mode: "child",
+    };
+  }
+  // One snapshot supplies both identities. If group proof is absent, the
+  // fallback reuses the already-verified exact-child epoch rather than
+  // silently reopening unverified child authority.
+  const captured = captureProcessEpoch(decoded.right);
+  if (!captured) {
+    return {
+      child,
+      process: mintRefusedChild(input.source, child, decoded.right, "child-epoch-unavailable"),
+      mode: "child",
+    };
+  }
+  if (process.platform !== "win32" && captured.group) {
+    return {
+      child,
+      process: mint(input.source, { kind: "group", child, pid: decoded.right, epoch: captured.group, source: input.source, released: false }),
+      mode: "group",
+    };
+  }
+  return {
+    child,
+    process: mintVerifiedChild(input.source, child, decoded.right, captured.child),
+    mode: "child",
+  };
 };
 
 export type SignalOwnedResult = { readonly attempted: boolean; readonly decision: ProcessSignalDecision; readonly via: "child.kill" | "process.kill-group" | "none" };
+const refuseChildSignal = (rec: OwnedAuthority, signal: TerminatingSignal, reason: string): SignalOwnedResult => {
+  const decision = { ok: false, reason } as const;
+  pushAudit({
+    source: rec.source,
+    pid: "pid" in rec ? rec.pid : undefined,
+    signal,
+    requestedGroup: false,
+    decision,
+  });
+  return { attempted: false, decision, via: "none" };
+};
 const signalChild = (rec: OwnedAuthority, signal: TerminatingSignal): SignalOwnedResult => {
-  try { rec.child.kill(signal); return { attempted: true, decision: { ok: true, mode: "child" }, via: "child.kill" }; }
-  catch { return { attempted: false, decision: { ok: true, mode: "child" }, via: "none" }; }
+  try {
+    const result = rec.child.kill(signal);
+    if (result === false) return refuseChildSignal(rec, signal, "child-signal-refused");
+    return { attempted: true, decision: { ok: true, mode: "child" }, via: "child.kill" };
+  } catch {
+    return refuseChildSignal(rec, signal, "child-signal-failed");
+  }
 };
 export const signalOwned = (process: OwnedProcess, signal: TerminatingSignal): SignalOwnedResult => {
   const rec = authority.get(process);
   if (!rec || rec.released) return { attempted: false, decision: { ok: false, reason: "handle-not-registered" }, via: "none" };
   if (Schema.decodeUnknownEither(TerminatingSignal)(signal)._tag === "Left") return { attempted: false, decision: { ok: false, reason: "signal-not-allowed" }, via: "none" };
-  if (rec.kind === "child") return signalChild(rec, signal);
+  if (rec.kind === "child-refused") return refuseChildSignal(rec, signal, rec.reason);
+  if (rec.kind === "child-opaque") return signalChild(rec, signal);
+  if (rec.kind === "child-verified") {
+    const current = observeChildPid(rec.child);
+    if (current.kind !== "present" || current.pid === undefined) {
+      return refuseChildSignal(rec, signal, "child-pid-unavailable");
+    }
+    if (current.pid !== rec.pid) return refuseChildSignal(rec, signal, "child-pid-mismatch");
+    if (!childProcessEpochIsCurrent(rec.pid, rec.epoch)) {
+      return refuseChildSignal(rec, signal, "child-epoch-mismatch");
+    }
+    return signalChild(rec, signal);
+  }
   if (!processGroupEpochIsCurrent(rec.pid, rec.epoch)) {
     pushAudit({ source: rec.source, pid: rec.pid, signal, requestedGroup: true, decision: { ok: false, reason: "group-epoch-mismatch" } });
     return { attempted: false, decision: { ok: false, reason: "group-epoch-mismatch" }, via: "none" };

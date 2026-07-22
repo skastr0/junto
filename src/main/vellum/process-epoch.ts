@@ -8,8 +8,16 @@ export type ProcessEpochRow = {
   readonly startKey: string;
 };
 
+export type ChildProcessEpoch = Pick<ProcessEpochRow, "pid" | "startKey">;
 export type ProcessGroupEpoch = Pick<ProcessEpochRow, "processGroupId" | "sessionId" | "startKey">;
-export type ProcessEpochReader = { readonly snapshot: () => readonly ProcessEpochRow[] | undefined };
+export type ProcessEpochCapture = {
+  readonly child: ChildProcessEpoch;
+  readonly group: ProcessGroupEpoch | undefined;
+};
+export type ProcessEpochReader = {
+  /** The pid hint exists only to make the test reader seam precise. */
+  readonly snapshot: (pidHint?: number) => readonly ProcessEpochRow[] | undefined;
+};
 
 const systemReader: ProcessEpochReader = {
   snapshot: () => {
@@ -27,16 +35,35 @@ const systemReader: ProcessEpochReader = {
 
 let reader: ProcessEpochReader = systemReader;
 
+/** Capture exact-child and optional group-leader identity from one table read. */
+export const captureProcessEpoch = (pid: number): ProcessEpochCapture | undefined => {
+  const row = reader.snapshot(pid)?.find((candidate) => candidate.pid === pid);
+  if (!row) return undefined;
+  return {
+    child: { pid: row.pid, startKey: row.startKey },
+    group: row.processGroupId === pid
+      ? { processGroupId: row.processGroupId, sessionId: row.sessionId, startKey: row.startKey }
+      : undefined,
+  };
+};
+
+export const captureChildProcessEpoch = (pid: number): ChildProcessEpoch | undefined =>
+  captureProcessEpoch(pid)?.child;
+
+/** Revalidate one exact numeric child from one fresh table snapshot. */
+export const childProcessEpochIsCurrent = (pid: number, epoch: ChildProcessEpoch): boolean => {
+  if (epoch.pid !== pid) return false;
+  const row = reader.snapshot(pid)?.find((candidate) => candidate.pid === pid);
+  return row !== undefined && row.startKey === epoch.startKey;
+};
+
 export const captureProcessGroupEpoch = (pid: number): ProcessGroupEpoch | undefined => {
-  const leader = reader.snapshot()?.find((row) => row.pid === pid);
-  return leader && leader.processGroupId === pid
-    ? { processGroupId: leader.processGroupId, sessionId: leader.sessionId, startKey: leader.startKey }
-    : undefined;
+  return captureProcessEpoch(pid)?.group;
 };
 
 /** Authorize from exactly one coherent table snapshot. */
 export const processGroupEpochIsCurrent = (pid: number, epoch: ProcessGroupEpoch): boolean => {
-  const snapshot = reader.snapshot();
+  const snapshot = reader.snapshot(pid);
   if (!snapshot) return false;
   const leader = snapshot.find((row) => row.pid === pid);
   return leader !== undefined

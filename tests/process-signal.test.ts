@@ -2,16 +2,36 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import {
   admitChildProcess,
+  clearProcessSignalAuditLog,
+  getProcessSignalAuditLog,
   releaseOwned,
   signalOwned,
   spawnDetachedProcessGroup,
   KillablePid,
   type OwnedProcess,
 } from "../src/main/vellum/process-signal";
-import { captureProcessGroupEpoch, processGroupEpochIsCurrent, setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
+import {
+  captureChildProcessEpoch,
+  captureProcessGroupEpoch,
+  childProcessEpochIsCurrent,
+  processGroupEpochIsCurrent,
+  setProcessEpochReaderForTests,
+  type ProcessEpochRow,
+} from "../src/main/vellum/process-epoch";
 import { Schema } from "effect";
 
-afterEach(() => { setProcessEpochReaderForTests(undefined); vi.restoreAllMocks(); });
+const row = (
+  pid: number,
+  startKey: string,
+  processGroupId = pid,
+  sessionId = 7,
+): ProcessEpochRow => ({ pid, processGroupId, sessionId, startKey });
+
+afterEach(() => {
+  setProcessEpochReaderForTests(undefined);
+  clearProcessSignalAuditLog();
+  vi.restoreAllMocks();
+});
 
 describe("process-signal authority", () => {
   it("retains self and parent pid rejection as a group-mint defense", () => {
@@ -30,7 +50,7 @@ describe("process-signal authority", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("child-only authority never calls process.kill", () => {
+  it("keeps a genuinely pid-less child wrapper opaque and handle-scoped", () => {
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const kill = vi.fn();
     const owned = admitChildProcess({ source: "term", child: { kill } });
@@ -38,6 +58,123 @@ describe("process-signal authority", () => {
     expect(kill).toHaveBeenCalledWith("SIGTERM");
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it("signals a numeric child only while its captured start epoch is current", () => {
+    const pid = 41_001;
+    setProcessEpochReaderForTests({ snapshot: () => [row(pid, "child-a", 91, 12)] });
+    const kill = vi.fn(() => true);
+    const owned = admitChildProcess({ source: "numeric", child: { pid, kill } });
+
+    expect(signalOwned(owned, "SIGTERM")).toEqual({
+      attempted: true,
+      decision: { ok: true, mode: "child" },
+      via: "child.kill",
+    });
+    expect(kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("audits an explicit false child.kill result as a refused attempt", () => {
+    const kill = vi.fn(() => false);
+    const owned = admitChildProcess({ source: "opaque-refusal", child: { kill } });
+
+    expect(signalOwned(owned, "SIGTERM")).toMatchObject({
+      attempted: false,
+      decision: { ok: false, reason: "child-signal-refused" },
+      via: "none",
+    });
+    expect(getProcessSignalAuditLog()).toEqual([
+      expect.objectContaining({
+        source: "opaque-refusal",
+        pid: undefined,
+        requestedGroup: false,
+        decision: { ok: false, reason: "child-signal-refused" },
+      }),
+    ]);
+  });
+
+  it("refuses a numeric child whose pid mutates after admission", () => {
+    const admittedPid = 41_002;
+    let currentPid: number | undefined = admittedPid;
+    setProcessEpochReaderForTests({ snapshot: () => [row(admittedPid, "child-a")] });
+    const kill = vi.fn();
+    const child = { get pid() { return currentPid; }, kill };
+    const owned = admitChildProcess({ source: "mutated", child });
+    currentPid = admittedPid + 1;
+
+    expect(signalOwned(owned, "SIGKILL")).toMatchObject({
+      attempted: false,
+      decision: { ok: false, reason: "child-pid-mismatch" },
+      via: "none",
+    });
+    expect(kill).not.toHaveBeenCalled();
+    expect(getProcessSignalAuditLog().at(-1)).toMatchObject({
+      source: "mutated",
+      pid: admittedPid,
+      requestedGroup: false,
+    });
+  });
+
+  it("refuses a numeric child whose pid disappears after admission", () => {
+    const pid = 41_003;
+    let currentPid: number | undefined = pid;
+    setProcessEpochReaderForTests({ snapshot: () => [row(pid, "child-a")] });
+    const kill = vi.fn();
+    const child = { get pid() { return currentPid; }, kill };
+    const owned = admitChildProcess({ source: "missing", child });
+    currentPid = undefined;
+
+    expect(signalOwned(owned, "SIGTERM").decision).toEqual({
+      ok: false,
+      reason: "child-pid-unavailable",
+    });
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("refuses a reused numeric pid whose start epoch changed", () => {
+    const pid = 41_004;
+    let startKey = "child-a";
+    setProcessEpochReaderForTests({ snapshot: () => [row(pid, startKey)] });
+    const kill = vi.fn();
+    const owned = admitChildProcess({ source: "reused", child: { pid, kill } });
+    startKey = "child-b";
+
+    expect(signalOwned(owned, "SIGTERM")).toMatchObject({
+      attempted: false,
+      decision: { ok: false, reason: "child-epoch-mismatch" },
+      via: "none",
+    });
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("mints inert authority when a numeric child epoch cannot be captured", () => {
+    const pid = 41_005;
+    setProcessEpochReaderForTests({ snapshot: () => undefined });
+    const kill = vi.fn();
+    const owned = admitChildProcess({ source: "unobserved", child: { pid, kill } });
+
+    expect(signalOwned(owned, "SIGTERM")).toMatchObject({
+      attempted: false,
+      decision: { ok: false, reason: "child-epoch-unavailable" },
+      via: "none",
+    });
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it.each([1, process.pid, process.ppid, 0, -1])(
+    "mints inert authority for dangerous numeric pid %s",
+    (pid) => {
+      setProcessEpochReaderForTests({ snapshot: () => [row(pid, "dangerous")] });
+      const kill = vi.fn();
+      const owned = admitChildProcess({ source: "dangerous", child: { pid, kill } });
+
+      expect(signalOwned(owned, "SIGKILL")).toMatchObject({
+        attempted: false,
+        decision: { ok: false, reason: "child-pid-not-killable" },
+        via: "none",
+      });
+      expect(kill).not.toHaveBeenCalled();
+    },
+  );
 
   it("central detached spawn mints verified group authority", async () => {
     const source = await import("node:child_process");
@@ -88,10 +225,39 @@ describe("process-signal authority", () => {
     expect(processGroupEpochIsCurrent(55, epoch)).toBe(false);
   });
 
-  it("reports an explicit child fallback when group identity cannot be captured", () => {
-    setProcessEpochReaderForTests({ snapshot: () => [] });
-    const spawned = spawnDetachedProcessGroup({ source: "fallback", command: "/bin/sh", args: ["-c", "sleep 1"] });
+  it("captures and revalidates one child epoch from coherent snapshots", () => {
+    let startKey = "child-a";
+    setProcessEpochReaderForTests({ snapshot: () => [row(56, startKey, 44, 3)] });
+    const epoch = captureChildProcessEpoch(56)!;
+    expect(childProcessEpochIsCurrent(56, epoch)).toBe(true);
+    startKey = "child-b";
+    expect(childProcessEpochIsCurrent(56, epoch)).toBe(false);
+  });
+
+  it("reuses a verified child epoch when detached group identity is unavailable", () => {
+    setProcessEpochReaderForTests({
+      snapshot: (pid) => pid === undefined ? [] : [row(pid, "verified-child", pid + 1, 3)],
+    });
+    const spawned = spawnDetachedProcessGroup({ source: "fallback", command: "/bin/sh", args: ["-c", "sleep 30"] });
     expect(spawned.mode).toBe("child");
+    expect(signalOwned(spawned.process, "SIGTERM")).toMatchObject({
+      attempted: true,
+      decision: { ok: true, mode: "child" },
+      via: "child.kill",
+    });
+    releaseOwned(spawned.process);
+    if (spawned.child.exitCode === null) spawned.child.kill("SIGKILL");
+  });
+
+  it("reports an inert child fallback when no detached identity can be captured", () => {
+    setProcessEpochReaderForTests({ snapshot: () => [] });
+    const spawned = spawnDetachedProcessGroup({ source: "fallback-inert", command: "/bin/sh", args: ["-c", "sleep 30"] });
+    expect(spawned.mode).toBe("child");
+    expect(signalOwned(spawned.process, "SIGTERM")).toMatchObject({
+      attempted: false,
+      decision: { ok: false, reason: "child-epoch-unavailable" },
+      via: "none",
+    });
     releaseOwned(spawned.process);
     spawned.child.kill("SIGKILL");
   });

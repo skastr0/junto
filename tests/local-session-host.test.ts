@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach, vi } from "vitest";
+import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
 import {
   LocalSessionHost,
   classifyTermKillTarget,
@@ -11,14 +11,34 @@ import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
 } from "../src/main/vellum/process-identity";
+import { setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
 
 const hosts: LocalSessionHost[] = [];
+const syntheticEpochs = new Map<number, string>();
+
+const trackSyntheticPid = (pid: number): number => {
+  syntheticEpochs.set(pid, `synthetic-${pid}-a`);
+  return pid;
+};
+
+beforeEach(() => {
+  syntheticEpochs.clear();
+  setProcessEpochReaderForTests({
+    snapshot: () => [...syntheticEpochs].map(([pid, startKey]) => ({
+      pid,
+      processGroupId: Math.max(2, pid - 1),
+      sessionId: 7,
+      startKey,
+    })),
+  });
+});
 
 afterEach(async () => {
   vi.useRealTimers();
   for (const h of hosts.splice(0)) {
     await h.shutdownAll("test_cleanup");
   }
+  setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
   clearTermKillAuditLog();
   vi.restoreAllMocks();
@@ -34,8 +54,10 @@ const fakeSpawn = (opts?: {
     const dataListeners = new Set<(d: string) => void>();
     const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
     let alive = true;
+    const pid = opts?.pid ?? 4242;
+    if (pid !== process.pid && pid !== process.ppid && pid > 1) trackSyntheticPid(pid);
     const child: TermChild = {
-      pid: opts?.pid ?? 4242,
+      pid,
       write(_data: string) {
         /* noop */
       },
@@ -182,7 +204,7 @@ describe("LocalSessionHost", () => {
       >();
       let exited = false;
       const spawn: TermSpawnFn = () => ({
-        pid: 80_500,
+        pid: trackSyntheticPid(80_500),
         write() {},
         kill(signal = "SIGTERM") {
           signals.push(signal);
@@ -248,7 +270,7 @@ describe("LocalSessionHost", () => {
       const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
       let exited = false;
       const controller = {
-        pid: 81_000 + children.length,
+        pid: trackSyntheticPid(81_000 + children.length),
         signals: [] as NodeJS.Signals[],
         exit() {
           if (exited) return;
@@ -311,7 +333,7 @@ describe("LocalSessionHost", () => {
         for (const listener of exitListeners) listener(0, undefined);
       };
       return {
-        pid: 81_500,
+        pid: trackSyntheticPid(81_500),
         write() {},
         kill(signal = "SIGTERM") {
           signals.push(signal);
@@ -356,7 +378,7 @@ describe("LocalSessionHost", () => {
         for (const listener of exitListeners) listener(0, undefined);
       };
       return {
-        pid: 82_001,
+        pid: trackSyntheticPid(82_001),
         write() {},
         kill(signal = "SIGTERM") {
           signals.push(signal);
@@ -413,7 +435,7 @@ describe("LocalSessionHost", () => {
       (code: number | undefined, signal: number | undefined) => void
     >();
     const spawn: TermSpawnFn = () => ({
-      pid: 82_500,
+      pid: trackSyntheticPid(82_500),
       write(data) {
         writes.push(data);
       },
@@ -488,7 +510,7 @@ describe("LocalSessionHost", () => {
       };
       children.push(controller);
       return {
-        pid: 83_000 + children.length,
+        pid: trackSyntheticPid(83_000 + children.length),
         write() {},
         kill(signal = "SIGTERM") {
           controller.signals.push(signal);
@@ -538,7 +560,7 @@ describe("LocalSessionHost", () => {
       const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
       return {
         // NEVER pid 1 — forceKill historically did process.kill(-1) = host-wide blast.
-        pid: 77_001,
+        pid: trackSyntheticPid(77_001),
         write(d) {
           writes.push(d);
         },
@@ -583,17 +605,65 @@ describe("LocalSessionHost", () => {
   it("shutdownAll on a session with fake pid=self never process-group-kills (audit)", async () => {
     clearTermKillAuditLog();
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    // Intentionally dangerous fake pid — registration refused; child.kill only.
-    const host = new LocalSessionHost(fakeSpawn({ pid: process.pid, exitDelayMs: 60_000 }));
+    // Intentionally dangerous fake pid — admission is inert. The fake exits
+    // naturally; shutdown must never convert self into child or group signal.
+    const host = new LocalSessionHost(fakeSpawn({ pid: process.pid, exitDelayMs: 10 }));
     hosts.push(host);
     host.create({ bindingId: "bind-self-pid" });
     await host.shutdownAll("probe-self-pid");
     const audit = getTermKillAuditLog();
-    // Local terminal authority contains no pid, so self cannot become group authority.
     expect(audit.some((a) => a.requestedGroup)).toBe(false);
+    expect(audit.some((a) =>
+      !a.decision.ok && a.decision.reason === "child-pid-not-killable"
+    )).toBe(true);
     // No OS process.kill at all for this session.
     expect(spy).not.toHaveBeenCalled();
     expect(host.runningCount()).toBe(0);
     spy.mockRestore();
+  });
+
+  it("reports an epoch-mismatched local child as a straggler without signaling it", async () => {
+    vi.useFakeTimers();
+    const pid = trackSyntheticPid(84_001);
+    const signals: NodeJS.Signals[] = [];
+    const exitListeners = new Set<
+      (code: number | undefined, signal: number | undefined) => void
+    >();
+    const spawn: TermSpawnFn = () => ({
+      pid,
+      write() {},
+      kill(signal = "SIGTERM") {
+        signals.push(signal);
+      },
+      onData() {},
+      onExit(listener) {
+        exitListeners.add(listener);
+      },
+    });
+    const host = new LocalSessionHost(spawn, {
+      killGraceMs: 2,
+      shutdownGraceMs: 6,
+      lateExitGraceMs: 6,
+    });
+    hosts.push(host);
+    host.create({ bindingId: "epoch-mismatch" });
+    syntheticEpochs.set(pid, `synthetic-${pid}-reused`);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const shutdown = host.shutdownAll("epoch-mismatch");
+    await vi.advanceTimersByTimeAsync(20);
+    await expect(shutdown).resolves.toMatchObject({
+      clean: false,
+      stragglers: [expect.objectContaining({ bindingId: "epoch-mismatch", pid })],
+    });
+    expect(signals).toEqual([]);
+    expect(getTermKillAuditLog().some((entry) =>
+      !entry.decision.ok && entry.decision.reason === "child-epoch-mismatch"
+    )).toBe(true);
+
+    for (const listener of exitListeners) listener(0, undefined);
+    expect(host.runningCount()).toBe(0);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("retained 1 local terminal"));
+    vi.useRealTimers();
   });
 });

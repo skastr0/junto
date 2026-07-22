@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConnection } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   LocalSessionHost,
   type TermChild,
@@ -14,13 +14,26 @@ import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
 } from "../src/main/vellum/process-identity";
+import { setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
 
 const cleanups: Array<() => Promise<void> | void> = [];
+
+beforeEach(() => {
+  setProcessEpochReaderForTests({
+    snapshot: () => [{
+      pid: 9001,
+      processGroupId: 9000,
+      sessionId: 7,
+      startKey: "synthetic-9001",
+    }],
+  });
+});
 
 afterEach(async () => {
   while (cleanups.length > 0) {
     await cleanups.pop()?.();
   }
+  setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
 });
 

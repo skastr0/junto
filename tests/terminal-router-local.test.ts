@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LocalSessionHost,
   type TermChild,
@@ -9,20 +9,36 @@ import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
 } from "../src/main/vellum/process-identity";
+import { setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
 import { hostsSnapshot, setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 
 const hosts: LocalSessionHost[] = [];
 const initialHosts = hostsSnapshot();
+const syntheticEpochs = new Map<number, string>();
+
+beforeEach(() => {
+  syntheticEpochs.clear();
+  setProcessEpochReaderForTests({
+    snapshot: () => [...syntheticEpochs].map(([pid, startKey]) => ({
+      pid,
+      processGroupId: Math.max(2, pid - 1),
+      sessionId: 7,
+      startKey,
+    })),
+  });
+});
 
 afterEach(async () => {
   for (const h of hosts.splice(0)) {
     await h.shutdownAll("test");
   }
+  setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
   setHostsSnapshot(initialHosts);
 });
 
 const fakeSpawn = (pid = 55_010): TermSpawnFn => () => {
+  syntheticEpochs.set(pid, `synthetic-${pid}`);
   const dataListeners = new Set<(d: string) => void>();
   const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
   let alive = true;
