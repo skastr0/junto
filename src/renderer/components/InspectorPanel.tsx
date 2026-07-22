@@ -5,7 +5,7 @@ import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import { deriveExecutionGraph } from "@shared/execution-graph";
 import { deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../lib/edge-mutations";
-import { EdgeCriteriaEditor, NodeFieldEditors } from "./InspectorFields";
+import { EdgeCapabilitySection, EdgeCriteriaEditor, NodeCapabilityInventory, NodeFieldEditors } from "./InspectorFields";
 import { clearSelection, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { DIM, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
@@ -274,6 +274,7 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
         {!isEntity ? <div className="inspector-detail">{nodeDetail(node) || "No description recorded."}</div> : null}
         {isEntity && node.ether?.entity?.kind === "herdr" ? <HerdrSections key={node.id} node={node} /> : isEntity && node.ether?.entity?.kind === "agent" ? <LiveReadout node={node} /> : !isEntity || node.ether?.entity?.kind === "project" ? <div className="inspector-detail">{nodeDetail(node) || (node.ether?.entity?.kind === "project" ? "project (note)" : "No description recorded.")}</div> : null}
         {isAgent ? <AgentSections key={node.id} node={node} /> : null}
+        <NodeCapabilityInventory key={`cap:${node.id}`} node={node} />
         <BrowserAutomationSection key={`${canvasName}:${node.id}`} canvasName={canvasName} node={node} />
         <NodeFieldEditors node={node} />
       </>}
@@ -313,6 +314,7 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
           <ArrowRight size={14} style={{ color: HUE.amber }} />
           <span>{target ? nodeTitle(target) : edge.toNode}</span>
         </div>
+        <EdgeCapabilitySection edge={edge} fromNode={source} toNode={target} />
         <EdgeCriteriaEditor
           edgeId={edge.id}
           fromNode={source}

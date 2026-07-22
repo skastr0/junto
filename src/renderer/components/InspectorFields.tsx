@@ -1,9 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Flag, SlidersHorizontal } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasDoc, CanvasNode, EdgeCriteria, EtherFlag, EtherRegionDefaults, EtherView, EtherWatch } from "@shared/canvas";
+import { HashMap, HashSet, Option, Schema } from "effect";
+import type { CanvasDoc, CanvasEdge, CanvasNode, EdgeCriteria, EtherFlag, EtherRegionDefaults, EtherView, EtherWatch } from "@shared/canvas";
 import { towerProjectKey } from "@shared/execution-graph";
 import { findEntity } from "@shared/entities";
+import { isGroup } from "@shared/graph";
+import {
+  ALL_PORTS,
+  Port,
+  asNodeId,
+  canvasDocToCapabilityView,
+  defaultGrantForRoles,
+  offersOf,
+  resolveSpec,
+  roleOf,
+  undirectedEdgeKey,
+  type FactoryRoleName,
+  type PortName,
+  type ResolvedSpecValue,
+} from "@shared/physics";
 import { addEdge, setEdgeCriteria } from "../lib/edge-mutations";
 import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTimer, setNodeView, setNodeWatch, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
@@ -11,6 +27,231 @@ import { state$ } from "../lib/state";
 import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
+
+// ---------------------------------------------------------------------------
+// Factory physics — capability inventory (read-only; setEdgePorts for later)
+
+const decodePort = Schema.decodeUnknownOption(Port);
+
+const specOf = (node: CanvasNode | undefined): ResolvedSpecValue =>
+  resolveSpec({
+    isGroup: node !== undefined && isGroup(node),
+    kind: node?.ether?.entity?.kind,
+  });
+
+/** Valid edge.ether.ports → mask; absent / empty / all-invalid → undefined (full offers). */
+const readEdgePortMask = (
+  edge: CanvasEdge,
+): HashSet.HashSet<PortName> | undefined => {
+  const ports = edge.ether?.ports;
+  if (!ports || ports.length === 0) return undefined;
+  let set = HashSet.empty<PortName>();
+  let any = false;
+  for (const p of ports) {
+    const decoded = decodePort(p);
+    if (Option.isSome(decoded)) {
+      set = HashSet.add(set, decoded.value);
+      any = true;
+    }
+  }
+  return any ? set : undefined;
+};
+
+/** Effective ports for caller → target: role law grant, attenuated by mask, ∩ offers. */
+const effectivePorts = (
+  caller: ResolvedSpecValue,
+  target: ResolvedSpecValue,
+  mask: HashSet.HashSet<PortName> | undefined,
+): ReadonlyArray<PortName> => {
+  let grant = defaultGrantForRoles(roleOf(caller), roleOf(target));
+  if (grant.isEmpty()) return [];
+  if (mask !== undefined) grant = grant.attenuate(mask);
+  const offers = offersOf(target);
+  return ALL_PORTS.filter((port) => grant.allows(port, offers));
+};
+
+function PortChips({ ports }: { readonly ports: ReadonlyArray<PortName> }) {
+  if (ports.length === 0) {
+    return <div className="inspector-detail">no ports granted</div>;
+  }
+  return (
+    <div className="inspector-flags" role="list" aria-label="Granted ports">
+      {ports.map((port) => (
+        <span
+          key={port}
+          role="listitem"
+          className="inspector-flag-toggle"
+          title={port}
+          style={{
+            color: HUE.cyan,
+            borderColor: withAlpha(HUE.cyan, 0.4),
+            background: withAlpha(HUE.cyan, 0.08),
+            cursor: "default",
+          }}
+        >
+          {port}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Edge CAPABILITY plane: endpoint roles + read-only port chips (offers ∩ mask). */
+export function EdgeCapabilitySection({
+  edge,
+  fromNode,
+  toNode,
+}: {
+  readonly edge: CanvasEdge;
+  readonly fromNode: CanvasNode | undefined;
+  readonly toNode: CanvasNode | undefined;
+}) {
+  const fromSpec = specOf(fromNode);
+  const toSpec = specOf(toNode);
+  const fromRole = roleOf(fromSpec);
+  const toRole = roleOf(toSpec);
+  const mask = readEdgePortMask(edge);
+  const forward = effectivePorts(fromSpec, toSpec, mask);
+  const reverse = effectivePorts(toSpec, fromSpec, mask);
+  const maskLabel =
+    mask === undefined
+      ? "full offers (no ether.ports attenuation)"
+      : `attenuated · ${[...HashSet.values(mask)].join(", ")}`;
+
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">capability</div>
+      <div className="inspector-detail" style={{ marginBottom: 8 }}>
+        Endpoint roles (derived from kind — not authorial).
+      </div>
+      <div className="inspector-bindings">
+        <div className="inspector-binding">
+          <span className="inspector-binding__source">source</span>
+          <span>
+            {fromNode ? nodeTitle(fromNode) : edge.fromNode} · {fromRole}
+            {fromNode?.ether?.entity?.kind ? ` · ${fromNode.ether.entity.kind}` : ""}
+          </span>
+        </div>
+        <div className="inspector-binding">
+          <span className="inspector-binding__source">target</span>
+          <span>
+            {toNode ? nodeTitle(toNode) : edge.toNode} · {toRole}
+            {toNode?.ether?.entity?.kind ? ` · ${toNode.ether.entity.kind}` : ""}
+          </span>
+        </div>
+        <div className="inspector-binding">
+          <span className="inspector-binding__source">mask</span>
+          <span title={maskLabel}>{maskLabel}</span>
+        </div>
+      </div>
+      <div className="inspector-section__label" style={{ marginTop: 12 }}>
+        ports · source → target
+      </div>
+      <PortChips ports={forward} />
+      {reverse.length > 0 || toRole === "actor" ? (
+        <>
+          <div className="inspector-section__label" style={{ marginTop: 12 }}>
+            ports · target → source
+          </div>
+          <PortChips ports={reverse} />
+        </>
+      ) : null}
+      <div className="inspector-detail" style={{ marginTop: 8 }}>
+        Access plane only — does not block work. Phase filter is separate below.
+      </div>
+    </div>
+  );
+}
+
+type CapabilityNeighbor = {
+  readonly id: string;
+  readonly title: string;
+  readonly role: FactoryRoleName;
+  readonly kind: string | undefined;
+  readonly ports: ReadonlyArray<PortName>;
+};
+
+/** Actor: "Holds keys to…"; sink: "Who can reach me…" — read-only inventory. */
+export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode }) {
+  const doc = use$(state$.doc);
+  const selfSpec = useMemo(
+    () => resolveSpec({ isGroup: isGroup(node), kind: node.ether?.entity?.kind }),
+    [node],
+  );
+  const selfRole = roleOf(selfSpec);
+
+  const inventory = useMemo(() => {
+    if (selfRole !== "actor" && selfRole !== "sink") return null;
+    const view = canvasDocToCapabilityView(doc);
+    const selfId = asNodeId(node.id);
+    const neighbors = HashMap.get(view.connected, selfId);
+    if (Option.isNone(neighbors) || HashSet.size(neighbors.value) === 0) {
+      return { role: selfRole, rows: [] as CapabilityNeighbor[] };
+    }
+    const byId = new Map(doc.nodes.map((n) => [n.id, n]));
+    const rows: CapabilityNeighbor[] = [];
+    for (const peerId of HashSet.values(neighbors.value)) {
+      const peer = byId.get(peerId);
+      if (!peer) continue;
+      const peerSpec = resolveSpec({
+        isGroup: isGroup(peer),
+        kind: peer.ether?.entity?.kind,
+      });
+      const maskOpt = HashMap.get(view.edgePortMask, undirectedEdgeKey(node.id, peerId));
+      const mask = Option.isSome(maskOpt) ? maskOpt.value : undefined;
+      // Actor wields outbound; sink lists inbound callers that hold keys.
+      const ports =
+        selfRole === "actor"
+          ? effectivePorts(selfSpec, peerSpec, mask)
+          : effectivePorts(peerSpec, selfSpec, mask);
+      // For sink inventory, only list callers that can actually grant (typically actors).
+      if (selfRole === "sink" && roleOf(peerSpec) !== "actor") continue;
+      rows.push({
+        id: peerId,
+        title: nodeTitle(peer),
+        role: roleOf(peerSpec),
+        kind: peer.ether?.entity?.kind,
+        ports,
+      });
+    }
+    rows.sort((a, b) => a.title.localeCompare(b.title));
+    return { role: selfRole, rows };
+  }, [doc, node, selfRole, selfSpec]);
+
+  if (!inventory) return null;
+
+  const label = inventory.role === "actor" ? "holds keys to…" : "who can reach me…";
+  const empty =
+    inventory.role === "actor"
+      ? "No connected targets. Draw an edge to mint an ocap."
+      : "No connected actors. An edge from an actor mints reach.";
+
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">{label}</div>
+      {inventory.rows.length === 0 ? (
+        <div className="inspector-detail">{empty}</div>
+      ) : (
+        <div className="inspector-bindings mt-2">
+          {inventory.rows.map((row) => (
+            <div key={row.id} className="inspector-binding" title={`${row.title} · ${row.role}`}>
+              <span className="inspector-binding__source">
+                {row.kind ?? row.role}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{row.title}</span>
+              <span style={{ color: row.ports.length > 0 ? HUE.cyan : DIM, flex: "0 1 auto" }}>
+                {row.ports.length > 0 ? row.ports.join(" · ") : "relate only"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="inspector-detail" style={{ marginTop: 8 }}>
+        Capability from edges + ports. Process-bind still required to wield.
+      </div>
+    </div>
+  );
+}
 
 // Watcher vocabulary (schema strings) — no live browse.
 const TOWER_STATES = ["backlog", "exploring", "committed", "building", "reviewing", "done", "abandoned"] as const;
@@ -158,21 +399,21 @@ export function EdgeCriteriaEditor({
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">live phase</div>
+      <div className="inspector-section__label">phase</div>
       {livePhase ? (
         <div className="inspector-detail" style={{ marginBottom: 8 }}>
           <strong style={{ color: livePhase === "blocks" ? HUE.crimson : livePhase === "depends" ? HUE.amber : undefined }}>
             {livePhase}
           </strong>
           {liveDetail ? ` · ${liveDetail}` : null}
-          {!criteria ? " · soft relates (no criteria)" : null}
+          {!criteria ? " · soft relates (no phase filter)" : null}
         </div>
       ) : null}
-      <div className="inspector-section__label">criteria</div>
+      <div className="inspector-section__label">block when · phase filter</div>
       <label className="inspector-editor">
         <span>mode</span>
         <select
-          aria-label="Edge criteria mode"
+          aria-label="Edge phase filter mode"
           value={mode}
           onChange={(event) => setMode(event.target.value as "none" | "glyphs" | "wip" | "tasks")}
         >
@@ -212,7 +453,9 @@ export function EdgeCriteriaEditor({
         </div>
       ) : null}
       {mode === "none" ? (
-        <div className="inspector-detail">Soft structural link — does not generate or relay blocks.</div>
+        <div className="inspector-detail">
+          Soft structural link — does not generate or relay blocks. Capability (ports) is separate.
+        </div>
       ) : null}
     </div>
   );
