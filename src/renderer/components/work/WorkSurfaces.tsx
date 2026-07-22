@@ -12,6 +12,7 @@ import { canTransitionTaskState, claimedByOf, countByTaskState, isTerminalTaskSt
 import type { WorkOpResult } from "@shared/ipc";
 import { DetailModal } from "../DetailModal";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
+import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { getVellumApi } from "../../lib/vellum-api";
 import { state$ } from "../../lib/state";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
@@ -21,6 +22,18 @@ const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpRe
   if (result.ok) applyWorkCanvasWrite(canvas, result.doc, result.revision);
   return result;
 };
+
+/**
+ * Keep renderer-originated WorkService writes inside the same admission and
+ * drain boundary as direct canvas create/delete operations. A call admitted
+ * before signal quiescence may finish on disk, but its returning renderer
+ * projection is rejected by applyWorkCanvasWrite after the latch closes.
+ */
+const runWorkCanvasMutation = <T,>(
+  canvas: string,
+  operation: () => Promise<WorkOpResult<T>>,
+): Promise<WorkOpResult<T> | undefined> =>
+  runCanvasAuthoringOperation(async () => acceptWorkResult(canvas, await operation()));
 
 const TASK_STATES: ReadonlyArray<TaskState> = [
   "submitted",
@@ -343,7 +356,11 @@ export function TasksDetail({
     if (!api || !brief.trim()) return;
     setError("");
     try {
-      const result = acceptWorkResult(name, await api.workTaskCreate(name, node.id, brief.trim()));
+      const result = await runWorkCanvasMutation(
+        name,
+        () => api.workTaskCreate(name, node.id, brief.trim()),
+      );
+      if (result === undefined) return;
       if (!result.ok) setError(result.message);
       else setBrief("");
     } catch (err) {
@@ -392,10 +409,11 @@ export function TasksDetail({
                 if (!api) return;
                 setRowError((prev) => ({ ...prev, [task.id]: "" }));
                 try {
-                  const result = acceptWorkResult(
+                  const result = await runWorkCanvasMutation(
                     name,
-                    await api.workTaskClaim(name, node.id, task.id, "operator"),
+                    () => api.workTaskClaim(name, node.id, task.id, "operator"),
                   );
+                  if (result === undefined) return;
                   if (!result.ok) setRowError((prev) => ({ ...prev, [task.id]: result.message }));
                 } catch (err) {
                   setRowError((prev) => ({
@@ -408,10 +426,11 @@ export function TasksDetail({
                 if (!api) return;
                 setRowError((prev) => ({ ...prev, [task.id]: "" }));
                 try {
-                  const result = acceptWorkResult(
+                  const result = await runWorkCanvasMutation(
                     name,
-                    await api.workTaskTransition(name, node.id, task.id, state),
+                    () => api.workTaskTransition(name, node.id, task.id, state),
                   );
+                  if (result === undefined) return;
                   if (!result.ok) setRowError((prev) => ({ ...prev, [task.id]: result.message }));
                 } catch (err) {
                   setRowError((prev) => ({
@@ -445,10 +464,11 @@ export function RequestsDetail({
     if (!api || !brief.trim()) return;
     setError("");
     try {
-      const result = acceptWorkResult(
+      const result = await runWorkCanvasMutation(
         name,
-        await api.workRequestCreate(name, node.id, brief.trim()),
+        () => api.workRequestCreate(name, node.id, brief.trim()),
       );
+      if (result === undefined) return;
       if (!result.ok) setError(result.message);
       else setBrief("");
     } catch (err) {
@@ -519,9 +539,9 @@ function RequestRow({
     if (!api || !response.trim()) return;
     setError("");
     try {
-      const result = acceptWorkResult(
+      const result = await runWorkCanvasMutation(
         canvas,
-        await api.workRequestResolve(
+        () => api.workRequestResolve(
           canvas,
           nodeId,
           task.id,
@@ -529,6 +549,7 @@ function RequestRow({
           disposition,
         ),
       );
+      if (result === undefined) return;
       if (!result.ok) {
         setError(result.message);
         return;
@@ -654,10 +675,11 @@ export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
       parts: [{ kind: "text", text: text.trim() }],
     };
     try {
-      const result = acceptWorkResult(
+      const result = await runWorkCanvasMutation(
         name,
-        await api.workMessageAppend(name, node.id, null, message),
+        () => api.workMessageAppend(name, node.id, null, message),
       );
+      if (result === undefined) return;
       if (!result.ok) setError(result.message);
       else setText("");
     } catch (err) {
