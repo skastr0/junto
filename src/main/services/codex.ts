@@ -2,6 +2,12 @@ import { spawn } from "node:child_process";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import { resolvedSpawnEnv } from "../vellum/adapters/exec";
+import {
+  admitChildProcess,
+  releaseOwned,
+  signalOwned,
+  type OwnedProcess,
+} from "../vellum/process-signal";
 import { runProcess } from "./process";
 
 export class CodexError extends Schema.TaggedError<CodexError>()("CodexError", {
@@ -30,6 +36,8 @@ const checkCodexCli = Effect.tryPromise({
     }),
 });
 
+const APP_SERVER_TERMINATION_GRACE_MS = 1_000;
+
 const initializeAppServer = async (): Promise<string> => {
   const env = await resolvedSpawnEnv();
   return new Promise((resolve, reject) => {
@@ -37,14 +45,44 @@ const initializeAppServer = async (): Promise<string> => {
       env,
       stdio: ["pipe", "pipe", "pipe"],
     });
+    // The Codex service owns this app-server only for the initialize probe.
+    // It is deliberately child-only: probing Codex never grants Vellum a
+    // process-group or bare-pid signal capability.
+    const owned: OwnedProcess = admitChildProcess({
+      source: "services.codex-app-server:service-probe",
+      child,
+    });
 
     let stdoutBuffer = "";
     let stderr = "";
     let settled = false;
+    let shutdownStarted = false;
+    let escalationTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const releaseAuthority = (): void => {
+      if (escalationTimer !== undefined) {
+        clearTimeout(escalationTimer);
+        escalationTimer = undefined;
+      }
+      releaseOwned(owned);
+    };
+
+    const terminateOwnedChild = (): void => {
+      if (shutdownStarted) return;
+      shutdownStarted = true;
+      signalOwned(owned, "SIGTERM");
+      escalationTimer = setTimeout(() => {
+        escalationTimer = undefined;
+        signalOwned(owned, "SIGKILL");
+        // Keep the service probe bounded if the child never reports exit.
+        releaseOwned(owned);
+      }, APP_SERVER_TERMINATION_GRACE_MS);
+      escalationTimer.unref?.();
+    };
 
     const cleanup = () => {
-      child.kill("SIGTERM");
       clearTimeout(timer);
+      terminateOwnedChild();
     };
 
     const fail = (message: string) => {
@@ -58,8 +96,12 @@ const initializeAppServer = async (): Promise<string> => {
       fail(`codex app-server initialize timed out${stderr ? `: ${stderr}` : ""}`);
     }, 6_000);
 
+    child.once("exit", releaseAuthority);
+    child.once("close", releaseAuthority);
+
     child.on("error", (error) => {
       fail(error.message);
+      releaseAuthority();
     });
 
     child.stderr?.on("data", (chunk: Buffer) => {
