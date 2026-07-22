@@ -199,17 +199,13 @@ const processKillAccesses = parsedSources.flatMap(
 
 const directKillAccesses = parsedSources.flatMap(
   ({ file, source }): ReadonlyArray<AccessSite> => {
-    const processNodes = new Set(
-      processKillAccesses
-        .filter((access) => access.file === file)
-        .map((access) => access.text),
-    );
+    const aliases = processAliases(source);
     const accesses: AccessSite[] = [];
     const visit = (node: ts.Node): void => {
       if (
         (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
         accessedName(node) === "kill" &&
-        !processNodes.has(node.getText(source))
+        !isProcessExpression(node.expression, source, aliases)
       ) {
         const parent = node.parent;
         const direct =
@@ -222,6 +218,19 @@ const directKillAccesses = parsedSources.flatMap(
           mode: direct ? "direct" : "forbidden-reference",
         });
       }
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isObjectBindingPattern(node.name) &&
+        node.name.elements.some(
+          (element) => (element.propertyName ?? element.name).getText(source) === "kill",
+        )
+      ) {
+        accesses.push({
+          file,
+          text: node.getText(source),
+          mode: "forbidden-reference",
+        });
+      }
       ts.forEachChild(node, visit);
     };
     visit(source);
@@ -229,8 +238,14 @@ const directKillAccesses = parsedSources.flatMap(
   },
 );
 
-const importedSpawnNames = (source: ts.SourceFile): ReadonlySet<string> => {
-  const names = new Set<string>();
+type SpawnAccess = {
+  readonly text: string;
+  readonly mode: "direct" | "forbidden-reference";
+};
+
+const spawnAccesses = (source: ts.SourceFile): ReadonlyArray<SpawnAccess> => {
+  const named = new Set<string>();
+  const namespaces = new Set<string>();
   for (const statement of source.statements) {
     if (
       !ts.isImportDeclaration(statement) ||
@@ -238,37 +253,77 @@ const importedSpawnNames = (source: ts.SourceFile): ReadonlySet<string> => {
       statement.moduleSpecifier.text !== "node:child_process"
     ) continue;
     const bindings = statement.importClause?.namedBindings;
-    if (!bindings || !ts.isNamedImports(bindings)) continue;
-    for (const element of bindings.elements) {
-      if ((element.propertyName ?? element.name).text === "spawn") {
-        names.add(element.name.text);
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) {
+        if ((element.propertyName ?? element.name).text === "spawn") {
+          named.add(element.name.text);
+        }
       }
+    } else if (bindings && ts.isNamespaceImport(bindings)) {
+      namespaces.add(bindings.name.text);
     }
   }
-  return names;
-};
 
-const unsafeSpawnReferences = parsedSources.flatMap(({ file, source }) => {
-  const names = importedSpawnNames(source);
-  const violations: string[] = [];
+  let aliasesChanged = true;
+  while (aliasesChanged) {
+    aliasesChanged = false;
+    const collectAliases = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+        const value = unwrap(node.initializer);
+        if (ts.isIdentifier(value) && namespaces.has(value.text) && !namespaces.has(node.name.text)) {
+          namespaces.add(node.name.text);
+          aliasesChanged = true;
+        }
+      }
+      ts.forEachChild(node, collectAliases);
+    };
+    collectAliases(source);
+  }
+
+  const accesses: SpawnAccess[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isIdentifier(node) && names.has(node.text)) {
+    const namedSpawn = ts.isIdentifier(node) && named.has(node.text);
+    const namespaceSpawn =
+      (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+      accessedName(node) === "spawn" &&
+      ts.isIdentifier(node.expression) &&
+      namespaces.has(node.expression.text);
+    if (namedSpawn || namespaceSpawn) {
       const importBinding = ts.isImportSpecifier(node.parent);
       const directCall = ts.isCallExpression(node.parent) && node.parent.expression === node;
-      if (!importBinding && !directCall) violations.push(`${file}:${node.getText(source)}`);
+      if (!importBinding) {
+        accesses.push({
+          text: node.getText(source),
+          mode: directCall ? "direct" : "forbidden-reference",
+        });
+      }
     }
+    const initializer = ts.isVariableDeclaration(node) && node.initializer
+      ? unwrap(node.initializer)
+      : undefined;
     if (
-      (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
-      accessedName(node) === "spawn"
+      ts.isVariableDeclaration(node) &&
+      ts.isObjectBindingPattern(node.name) &&
+      initializer &&
+      ts.isIdentifier(initializer) &&
+      namespaces.has(initializer.text) &&
+      node.name.elements.some(
+        (element) => (element.propertyName ?? element.name).getText(source) === "spawn",
+      )
     ) {
-      const directCall = ts.isCallExpression(node.parent) && node.parent.expression === node;
-      if (!directCall) violations.push(`${file}:${node.getText(source)}`);
+      accesses.push({ text: node.getText(source), mode: "forbidden-reference" });
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
-  return violations;
-});
+  return accesses;
+};
+
+const unsafeSpawnReferences = parsedSources.flatMap(({ file, source }) =>
+  spawnAccesses(source)
+    .filter((access) => access.mode === "forbidden-reference")
+    .map((access) => `${file}:${access.text}`),
+);
 
 describe("machine-safety architecture", () => {
   it("keeps every process.kill use on the closed probe/group allowlist", () => {
@@ -310,10 +365,16 @@ describe("machine-safety architecture", () => {
   it("keeps asynchronous spawn sites on a reviewed lifetime inventory", () => {
     expect(unsafeSpawnReferences).toEqual([]);
 
-    const spawnCallees = new Set(["spawn", "cpSpawn", "nodePty.spawn"]);
-    const uses = callSites
-      .filter((site) => spawnCallees.has(site.callee))
-      .map((site) => `${site.file}:${site.callee}`)
+    const uses = [
+      ...parsedSources.flatMap(({ file, source }) =>
+        spawnAccesses(source)
+          .filter((access) => access.mode === "direct")
+          .map((access) => `${file}:${access.text}`),
+      ),
+      ...callSites
+        .filter((site) => site.callee === "nodePty.spawn")
+        .map((site) => `${site.file}:${site.callee}`),
+    ]
       .sort();
 
     expect(uses).toEqual([
@@ -402,5 +463,86 @@ describe("machine-safety architecture", () => {
       });
     });
     expect(forbiddenEffectImports).toEqual([]);
+
+    const approvedSshExternalImports = new Set([
+      "@effect/platform/Command",
+      "@effect/platform/FileSystem",
+      "@effect/platform-node/NodeFileSystem",
+      "@effect/platform-node/NodeSink",
+      "@effect/platform-node/NodeStream",
+      "effect",
+      "node:crypto",
+      "node:os",
+      "node:path",
+    ]);
+    const unapprovedSshImports = parsedSources.flatMap(({ file, source }) => {
+      if (!file.startsWith("src/main/vellum/ssh/")) return [];
+      return source.statements.flatMap((statement) => {
+        if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
+          return [];
+        }
+        const specifier = statement.moduleSpecifier.text;
+        return specifier.startsWith(".") || approvedSshExternalImports.has(specifier)
+          ? []
+          : [`${file}:${specifier}`];
+      });
+    });
+    expect(unapprovedSshImports).toEqual([]);
+  });
+
+  it("rejects spawn and child-kill reference bypasses before they reach the inventory", () => {
+    const source = ts.createSourceFile(
+      "synthetic.ts",
+      [
+        'import { spawn as launch } from "node:child_process";',
+        'import * as childProcess from "node:child_process";',
+        "launch(\"ok\");",
+        "childProcess.spawn(\"ok\");",
+        "const childProcessAlias = childProcess;",
+        "childProcessAlias.spawn(\"ok\");",
+        "launch.call(undefined, \"bad\");",
+        "childProcess.spawn.apply(undefined, [\"bad\"]);",
+        "accept(launch);",
+        "const { spawn } = childProcess;",
+        "const stop = child.kill;",
+        "const { kill } = child;",
+        "child.kill.call(child, \"SIGTERM\");",
+      ].join("\n"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+
+    expect(spawnAccesses(source)).toEqual([
+      { text: "launch", mode: "direct" },
+      { text: "childProcess.spawn", mode: "direct" },
+      { text: "childProcessAlias.spawn", mode: "direct" },
+      { text: "launch", mode: "forbidden-reference" },
+      { text: "childProcess.spawn", mode: "forbidden-reference" },
+      { text: "launch", mode: "forbidden-reference" },
+      { text: "{ spawn } = childProcess", mode: "forbidden-reference" },
+    ]);
+
+    const killReferences: string[] = [];
+    const visit = (node: ts.Node): void => {
+      if (
+        (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+        accessedName(node) === "kill" &&
+        !isProcessExpression(node.expression, source, processAliases(source))
+      ) {
+        const direct = ts.isPropertyAccessExpression(node) &&
+          ts.isCallExpression(node.parent) && node.parent.expression === node;
+        if (!direct) killReferences.push(node.getText(source));
+      }
+      if (
+        ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) &&
+        node.name.elements.some(
+          (element) => (element.propertyName ?? element.name).getText(source) === "kill",
+        )
+      ) killReferences.push(node.getText(source));
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    expect(killReferences).toEqual(["child.kill", "{ kill } = child", "child.kill"]);
   });
 });
