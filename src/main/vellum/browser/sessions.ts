@@ -598,7 +598,7 @@ export class BrowserSessionService {
   }
 
   private uiShutdownRefusal(): BrowserResultErr {
-    return err("cancelled", "browser UI is shutting down");
+    return err("cancelled", "browser runtime is shutting down");
   }
 
   uiAdmissionSnapshot(): BrowserUiAdmissionSnapshot | undefined {
@@ -714,6 +714,7 @@ export class BrowserSessionService {
     signal?: AbortSignal,
   ): boolean {
     return (
+      this.uiShutdownClosedAt === undefined &&
       this.ownerEpoch(owner) === ownerEpoch &&
       this.profileGate.isCurrent(profileSnapshot) &&
       !isAborted(signal)
@@ -1091,7 +1092,7 @@ export class BrowserSessionService {
     },
   ): string | undefined {
     if (!this.isCurrent(entry)) return undefined;
-    if (entry.owner === BROWSER_UI_SESSION_OWNER && this.uiShutdownClosedAt !== undefined) {
+    if (this.uiShutdownClosedAt !== undefined) {
       return undefined;
     }
     if (event.isSameDocument) {
@@ -1273,9 +1274,9 @@ export class BrowserSessionService {
     target: ResolvedPageTarget,
     signal?: AbortSignal,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
-    return owner === BROWSER_UI_SESSION_OWNER
-      ? this.runUiOperation("open", () => this.openForOwnerAdmitted(owner, target, signal))
-      : this.openForOwnerAdmitted(owner, target, signal);
+    return this.runUiOperation("open", () =>
+      this.openForOwnerAdmitted(owner, target, signal),
+    );
   }
 
   private async openForOwnerAdmitted(
@@ -1497,7 +1498,7 @@ export class BrowserSessionService {
     url: string,
     signal?: AbortSignal,
   ): BrowserResult<BrowserSessionInfo> {
-    if (owner === BROWSER_UI_SESSION_OWNER && this.uiShutdownClosedAt !== undefined) {
+    if (this.uiShutdownClosedAt !== undefined) {
       return this.uiShutdownRefusal();
     }
     const result = this.gotoForOwnerAdmitted(owner, sessionId, url, signal);
@@ -1649,9 +1650,9 @@ export class BrowserSessionService {
     owner: string,
     sessionId: string,
   ): Promise<BrowserResult<BrowserStopReceipt>> {
-    return owner === BROWSER_UI_SESSION_OWNER
-      ? this.runUiOperation("stop", () => this.stopForOwnerAdmitted(owner, sessionId))
-      : this.stopForOwnerAdmitted(owner, sessionId);
+    return this.runUiOperation("stop", () =>
+      this.stopForOwnerAdmitted(owner, sessionId),
+    );
   }
 
   private async stopForOwnerAdmitted(
@@ -1781,11 +1782,9 @@ export class BrowserSessionService {
     code: string,
     signal?: AbortSignal,
   ): Promise<BrowserResult<{ result: unknown }>> {
-    return owner === BROWSER_UI_SESSION_OWNER
-      ? this.runUiOperation("eval", () =>
-          this.evalForOwnerAdmitted(owner, sessionId, code, signal),
-        )
-      : this.evalForOwnerAdmitted(owner, sessionId, code, signal);
+    return this.runUiOperation("eval", () =>
+      this.evalForOwnerAdmitted(owner, sessionId, code, signal),
+    );
   }
 
   private async evalForOwnerAdmitted(
@@ -1830,11 +1829,9 @@ export class BrowserSessionService {
     sessionId: string,
     signal?: AbortSignal,
   ): Promise<BrowserResult<{ png: Uint8Array }>> {
-    return owner === BROWSER_UI_SESSION_OWNER
-      ? this.runUiOperation("screenshot", () =>
-          this.screenshotForOwnerAdmitted(owner, sessionId, signal),
-        )
-      : this.screenshotForOwnerAdmitted(owner, sessionId, signal);
+    return this.runUiOperation("screenshot", () =>
+      this.screenshotForOwnerAdmitted(owner, sessionId, signal),
+    );
   }
 
   private async screenshotForOwnerAdmitted(
@@ -2284,9 +2281,10 @@ export class BrowserSessionService {
   }
 
   /**
-   * Close UI admission synchronously and invalidate every delayed opener. The
-   * transition is monotonic: a failed quit remains fail-closed and can retry
-   * its drain without making browser work reachable again.
+   * Close browser session admission synchronously and invalidate every delayed
+   * UI or automation opener. The transition is monotonic: a failed quit
+   * remains fail-closed and can retry its drain without making browser work
+   * reachable again.
    */
   beginUiShutdown(_reason = "browser UI shutdown"): BrowserUiShutdownPrecommitReceipt {
     if (this.uiShutdownClosedAt === undefined) {
@@ -2296,7 +2294,7 @@ export class BrowserSessionService {
         BROWSER_UI_SESSION_OWNER,
         this.ownerEpoch(BROWSER_UI_SESSION_OWNER) + 1,
       );
-      this.pendingOpenByOwnerRef.delete(BROWSER_UI_SESSION_OWNER);
+      this.pendingOpenByOwnerRef.clear();
       for (const [id, operation] of this.activeUiOperations) {
         this.closedUiAdmissions.set(id, operation);
       }

@@ -1986,6 +1986,113 @@ describe("BrowserSessionService", () => {
     expect(views[0]?.destroyed).toBe(true);
   });
 
+  it("retains and invalidates a delayed automation open before reporting clean", async () => {
+    const base = makeBrowserProfileService(root);
+    await Effect.runPromise(base.ensureDefaults);
+    const partition = deferred<string>();
+    let partitionReads = 0;
+    const profiles: BrowserProfileServiceApi = {
+      ...base,
+      partitionName: (profile) =>
+        profile === "personal"
+          ? Effect.promise(() => {
+              partitionReads += 1;
+              return partition.promise;
+            })
+          : base.partitionName(profile),
+    };
+    const { adapter, views } = makeSpyAdapter();
+    const service = new BrowserSessionService(
+      adapter,
+      profiles,
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      5,
+      50,
+    );
+
+    const opening = service.openForOwner(
+      "orphan-owner",
+      target("delayed-owner-shutdown-open"),
+    );
+    await vi.waitFor(() => expect(partitionReads).toBe(1));
+
+    let drainSettled = false;
+    const draining = service.drainUiOnQuit("test shutdown");
+    void draining.then(() => {
+      drainSettled = true;
+    });
+    await Promise.resolve();
+    expect(drainSettled).toBe(false);
+    expect(views).toHaveLength(0);
+
+    partition.resolve("persist:vellum-profile-personal");
+
+    await expect(opening).resolves.toMatchObject({
+      ok: false,
+      code: "cancelled",
+    });
+    await expect(draining).resolves.toMatchObject({
+      clean: true,
+      operations: ["open"],
+      settled: 1,
+      fulfilled: 1,
+      rejected: 0,
+      timedOut: false,
+      activeOperations: [],
+      sessionsDestroyed: 0,
+    });
+    expect(views).toHaveLength(0);
+    expect(service.listForOwner("orphan-owner")).toEqual({ ok: true, data: [] });
+  });
+
+  it("closes automation mutation admission with the UI shutdown gate", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.openForOwner(
+      "automation-owner",
+      target("automation-shutdown-gate"),
+    );
+    if (!opened.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(opened.data.sessionId, "ready");
+    await Promise.resolve();
+
+    service.beginUiShutdown("test shutdown");
+
+    expect(service.gotoForOwner(
+      "automation-owner",
+      opened.data.sessionId,
+      "https://next.example.com",
+    )).toMatchObject({ ok: false, code: "cancelled" });
+    expect(views[0]?.events.onNavigationStart({
+      url: "https://page.example.com",
+      isSameDocument: false,
+    })).toBeUndefined();
+    await expect(service.evalForOwner(
+      "automation-owner",
+      opened.data.sessionId,
+      "1",
+    )).resolves.toMatchObject({ ok: false, code: "cancelled" });
+    await expect(service.screenshotForOwner(
+      "automation-owner",
+      opened.data.sessionId,
+    )).resolves.toMatchObject({ ok: false, code: "cancelled" });
+    await expect(service.stopForOwner("automation-owner", opened.data.sessionId))
+      .resolves.toMatchObject({ ok: false, code: "cancelled" });
+    await expect(service.openForOwner(
+      "late-owner",
+      target("after-automation-shutdown"),
+    )).resolves.toMatchObject({ ok: false, code: "cancelled" });
+
+    await expect(service.drainUiOnQuit("test shutdown")).resolves.toMatchObject({
+      clean: true,
+      sessionsDestroyed: 1,
+      activeOperations: [],
+    });
+    expect(views[0]?.destroyed).toBe(true);
+  });
+
   it("fails closed when a destroyed view provides no physical witness", async () => {
     const adapter: BrowserViewAdapter = (_partition, events) => ({
       loadUrl: async (url, expectedSessionId) => {
