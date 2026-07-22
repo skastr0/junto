@@ -101,6 +101,7 @@ try {
     gracefulSettledWithinBound,
     failedSpawnOk: failedSpawn.ok,
     drainClean: drainResult.clean,
+    drainRetained: drainResult.retained,
     repeatedQuitCoalesced,
     leaderResultOk: leader.ok,
     leaderError: leader.error,

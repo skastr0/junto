@@ -8,6 +8,7 @@ interface LifecycleReceipt {
   readonly gracefulSettledWithinBound: boolean;
   readonly failedSpawnOk: boolean;
   readonly drainClean: boolean;
+  readonly drainRetained: number;
   readonly repeatedQuitCoalesced: boolean;
   readonly leaderResultOk: boolean;
   readonly leaderError?: string;
@@ -69,7 +70,8 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
       gracefulOk: true,
       gracefulSettledWithinBound: true,
       failedSpawnOk: false,
-      drainClean: true,
+      drainClean: false,
+      drainRetained: 1,
       repeatedQuitCoalesced: true,
       leaderResultOk: false,
       leaderError:

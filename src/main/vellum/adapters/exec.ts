@@ -58,7 +58,10 @@ const releaseOwnedAdapterChild = (owned: OwnedAdapterChild): void => {
   owned.released = true;
   if (owned.cleanupTimer !== undefined) clearTimeout(owned.cleanupTimer);
   releaseOwned(owned.owned);
-  ownedAdapterChildren.delete(owned);
+  // Pipe close only witnesses the leader. A previously reported leaderless
+  // descendant has no trustworthy terminal witness, so keep its tombstone in
+  // the drain registry while releasing the unusable signal authority.
+  if (!owned.retainedStraggler) ownedAdapterChildren.delete(owned);
 };
 
 const cancelOwnedAdapterCleanup = (owned: OwnedAdapterChild): void => {
