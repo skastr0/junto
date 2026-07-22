@@ -1,4 +1,10 @@
 import type { HerdrPointerCell, HerdrRetainedPayload } from "@shared/ipc";
+import {
+  admitChildProcess,
+  releaseOwned,
+  signalOwned,
+  type OwnedProcess,
+} from "../process-signal";
 import { isKnownHerdrHost } from "./hosts";
 import { feedNdjson } from "./ndjson";
 import { pastePathPayload, stageImageOnHost, type StageRemoteImage } from "./stage-image";
@@ -24,6 +30,9 @@ interface ActiveStream {
   readonly session?: string | null;
   readonly terminalId: string;
   readonly child: HerdrProcessLike;
+  /** The control client belongs to this attached session, never the host pane. */
+  readonly lifetime: "session-owned";
+  readonly ownedProcess: OwnedProcess;
   readonly openedAt: number;
   /** Last known geometry — reused when handing the terminal back to the observe pool. */
   cols: number;
@@ -242,8 +251,15 @@ export class HerdrStreamManager {
     const retained = this.pool.retainedFrames(input.terminalId);
 
     let child: HerdrProcessLike;
+    let ownedProcess: OwnedProcess;
     try {
       child = this.spawnFn(input.hostId, args, input.session);
+      // Mint authority at the spawn boundary. This is deliberately child-only:
+      // detaching a control client must never signal its host process group.
+      ownedProcess = admitChildProcess({
+        source: "herdr-control:session-owned",
+        child,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, message: `failed to spawn control stream: ${message}` };
@@ -259,6 +275,8 @@ export class HerdrStreamManager {
       session: input.session,
       terminalId: input.terminalId,
       child,
+      lifetime: "session-owned",
+      ownedProcess,
       openedAt: Date.now(),
       cols: Math.max(20, Math.floor(input.cols || 80)),
       rows: Math.max(5, Math.floor(input.rows || 24)),
@@ -290,6 +308,7 @@ export class HerdrStreamManager {
     });
 
     child.on("close", (code) => {
+      releaseOwned(ownedProcess);
       const closing = this.streams.get(streamId);
       if (!closing) return;
       this.removeStream(streamId, closing.terminalId);
@@ -302,6 +321,7 @@ export class HerdrStreamManager {
     });
 
     child.on("error", (error) => {
+      releaseOwned(ownedProcess);
       const closing = this.streams.get(streamId);
       if (!closing) return;
       this.removeStream(streamId, closing.terminalId);
@@ -482,12 +502,9 @@ export class HerdrStreamManager {
     } catch {
       // ignore
     }
-    try {
-      // Kill only the control CLI/ssh *client* child — not the herdr server, not the pane.
-      active.child.kill("SIGTERM");
-    } catch {
-      // ignore
-    }
+    // Signal only the sealed child capability — never a pid or process group.
+    signalOwned(active.ownedProcess, "SIGTERM");
+    releaseOwned(active.ownedProcess);
     this.removeStream(streamId, active.terminalId);
     if (handBack) this.handBackToObservePool(active);
     this.emit({ streamId, type: "closed", reason });
@@ -601,11 +618,7 @@ export class HerdrStreamManager {
       type: "error",
       message: "herdr control stream exceeded max NDJSON buffer — killing unresponsive child",
     });
-    try {
-      active.child.kill("SIGTERM");
-    } catch {
-      // ignore — the close handler still fires from the eventual process exit
-    }
+    signalOwned(active.ownedProcess, "SIGTERM");
   }
 
   private handleLine(streamId: string, line: string): void {
@@ -650,11 +663,8 @@ export class HerdrStreamManager {
       });
       const closing = this.streams.get(streamId);
       if (closing) {
-        try {
-          closing.child.kill("SIGTERM");
-        } catch {
-          // ignore
-        }
+        signalOwned(closing.ownedProcess, "SIGTERM");
+        releaseOwned(closing.ownedProcess);
         this.removeStream(streamId, closing.terminalId);
         // Host reported the terminal genuinely closed — do NOT re-observe a
         // dead terminal; drop its pooled entry and retention instead.

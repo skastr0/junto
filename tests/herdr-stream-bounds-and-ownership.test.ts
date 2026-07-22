@@ -1,10 +1,12 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { HerdrStreamManager, type HerdrProcessLike, type ObservePoolHooks } from "../src/main/vellum/herdr/stream";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 
-class FakeProcess implements HerdrProcessLike {
+class FakeProcess extends EventEmitter implements HerdrProcessLike {
   written: string[] = [];
+  killCalls = 0;
   killedSignal: NodeJS.Signals | undefined;
   stdin = {
     write: (chunk: string) => {
@@ -21,10 +23,8 @@ class FakeProcess implements HerdrProcessLike {
     on: () => undefined,
   };
   kill(sig?: NodeJS.Signals) {
+    this.killCalls += 1;
     this.killedSignal = sig ?? "SIGTERM";
-  }
-  on() {
-    return undefined;
   }
 }
 
@@ -196,6 +196,23 @@ describe("HerdrStreamManager multi-stream concurrency", () => {
     expect(mgr.inputText(b.streamId, "x").ok).toBe(false);
     // Further opens rejected after shutdown.
     expect(mgr.open({ hostId: "local", terminalId: "t3", cols: 80, rows: 24 }).ok).toBe(false);
+  });
+
+  it("signals a detached session child exactly once across idempotent and late teardown", () => {
+    const { mgr, children, closed } = makeMgr();
+    const opened = mgr.open({ hostId: "local", terminalId: "t1", cols: 80, rows: 24 });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+
+    expect(mgr.close(opened.streamId)).toEqual({ ok: true });
+    expect(mgr.close(opened.streamId)).toEqual({ ok: true });
+    // A late close from the already-detached OS child only retires its sealed
+    // handle; it cannot signal or re-open lifecycle work.
+    children[0]!.emit("close", 0);
+
+    expect(children[0]!.killCalls).toBe(1);
+    expect(children[0]!.killedSignal).toBe("SIGTERM");
+    expect(closed).toEqual([{ streamId: opened.streamId, reason: "client_close" }]);
   });
 });
 

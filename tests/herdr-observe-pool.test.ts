@@ -225,6 +225,27 @@ describe("HerdrObservePool lifecycle", () => {
     expect(pool.retainedFrames("t1").frames).toEqual(["F1"]); // retention kept across respawn
   });
 
+  it("retires an exited observation generation and only signals its live replacement", () => {
+    const { calls, spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn });
+    touch(pool, "t1");
+    const first = calls[0]!.child;
+
+    first.emit("close", 0);
+    expect(first.kills).toEqual([]); // natural exit is release-only
+    expect(touch(pool, "t1")).toEqual({ pooled: true });
+    const replacement = calls[1]!.child;
+
+    // Late events from the retired generation cannot mutate or terminate the
+    // replacement's observation lease.
+    first.emit("error", new Error("late old-generation error"));
+    expect(pool.entryState("t1")).toEqual({ live: true, stale: false });
+    pool.stopAll();
+
+    expect(first.kills).toEqual([]);
+    expect(replacement.kills).toEqual(["SIGTERM"]);
+  });
+
   it("releaseByHost kills and drops every entry for that host only", () => {
     const { calls, spawnFn } = makeSpawner();
     const pool = new HerdrObservePool({ spawnFn });

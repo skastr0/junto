@@ -1,5 +1,11 @@
 import { feedNdjson } from "./ndjson";
 import { isKnownHerdrHost } from "./hosts";
+import {
+  admitChildProcess,
+  releaseOwned,
+  signalOwned,
+  type OwnedProcess,
+} from "../process-signal";
 
 /**
  * LRU pool of read-only `herdr terminal session observe` children with
@@ -44,6 +50,8 @@ export interface ObserveInput {
 
 interface ObserveEntry {
   readonly terminalId: string;
+  /** Observer is a bounded read lease, not a daemon or terminal owner. */
+  readonly childLifetime: "observation-owned";
   hostId: string;
   session?: string | null;
   /** What the NEXT child spawn is asked for — updated on every ensureObserve
@@ -65,6 +73,7 @@ interface ObserveEntry {
   retainedCols: number | undefined;
   retainedRows: number | undefined;
   child: ObserveChildLike | undefined;
+  ownedProcess: OwnedProcess | undefined;
   live: boolean;
   stale: boolean;
   full: string | undefined;
@@ -133,6 +142,7 @@ export class HerdrObservePool {
     this.evictForCaps(input.hostId, input.terminalId);
     const entry: ObserveEntry = existing ?? {
       terminalId: input.terminalId,
+      childLifetime: "observation-owned",
       hostId: input.hostId,
       session: input.session,
       spawnCols: input.cols,
@@ -142,6 +152,7 @@ export class HerdrObservePool {
       retainedCols: undefined,
       retainedRows: undefined,
       child: undefined,
+      ownedProcess: undefined,
       live: false,
       stale: false,
       full: undefined,
@@ -349,12 +360,20 @@ export class HerdrObservePool {
       String(rows),
     ];
     let child: ObserveChildLike;
+    let ownedProcess: OwnedProcess;
     try {
       child = this.spawnFn(entry.hostId, args, entry.session);
+      // Observe children own no host terminal state. Their authority is
+      // intentionally limited to the exact child handle returned by spawn.
+      ownedProcess = admitChildProcess({
+        source: "herdr-observe:observation-owned",
+        child,
+      });
     } catch {
       return false;
     }
     entry.child = child;
+    entry.ownedProcess = ownedProcess;
     entry.childCols = cols;
     entry.childRows = rows;
     entry.live = true;
@@ -385,8 +404,10 @@ export class HerdrObservePool {
     });
 
     const onGone = (): void => {
+      releaseOwned(ownedProcess);
       if (entry.child !== child) return; // already respawned/killed deliberately
       entry.child = undefined;
+      entry.ownedProcess = undefined;
       entry.live = false;
       entry.stale = true; // retention kept; next ensureObserve respawns
     };
@@ -434,12 +455,11 @@ export class HerdrObservePool {
 
   private killChild(entry: ObserveEntry): void {
     const child = entry.child;
-    if (!child) return;
+    const ownedProcess = entry.ownedProcess;
+    if (!child || !ownedProcess) return;
     entry.child = undefined; // detach handlers' identity check first
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      // ignore
-    }
+    entry.ownedProcess = undefined;
+    signalOwned(ownedProcess, "SIGTERM");
+    releaseOwned(ownedProcess);
   }
 }
