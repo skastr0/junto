@@ -27,7 +27,7 @@ describe("herdr detach-on-quit product lock", () => {
     expect(streamSrc).toMatch(/spawned\.kind === "local-process"[\s\S]*?terminate:\s*spawned\.terminate[\s\S]*?forceTerminate:\s*spawned\.forceTerminate/);
     expect(streamSrc).toMatch(/lifecycle\.terminate\("herdr-control-detach"\)/);
     expect(streamSrc).toMatch(/lifecycle\.forceTerminate\("herdr-control-grace-expired"\)/);
-    expect(streamSrc).toMatch(/lifecycle\.kind === "remote-scope"[\s\S]*?trackRemoteClose\(lifecycle\.close\)/);
+    expect(streamSrc).toMatch(/lifecycle\.kind === "remote-scope"[\s\S]*?trackRemoteClose\(lifecycle\)/);
     expect(streamSrc).not.toMatch(/spawnDetachedProcessGroup|admitSpawnedProcess|admitChildProcess|signalOwned|releaseOwned|signalChildHandleOnly/);
     expect(streamCode).not.toMatch(/process\.kill|\.child\.kill\s*\(|\bpid\b/);
   });
@@ -61,7 +61,7 @@ describe("herdr detach-on-quit product lock", () => {
     const terminationBlock = streamSrc.slice(start, end);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
-    expect(terminationBlock).toMatch(/lifecycle\.kind === "remote-scope"[\s\S]*?trackRemoteClose\(lifecycle\.close\)/);
+    expect(terminationBlock).toMatch(/lifecycle\.kind === "remote-scope"[\s\S]*?trackRemoteClose\(lifecycle\)/);
     expect(terminationBlock).toMatch(/lifecycle\.terminate\("herdr-control-detach"\)/);
     expect(terminationBlock).toMatch(/setTimeout/);
     expect(terminationBlock).toMatch(/lifecycle\.forceTerminate\("herdr-control-grace-expired"\)/);
@@ -125,6 +125,11 @@ describe("herdr detach-on-quit product lock", () => {
       .replace(/\/\/[^\n]*/g, "");
     expect(remoteClientStart).toBeGreaterThan(-1);
     expect(remoteClientBlock).toMatch(/makeBoundedRemoteClose/);
+    expect(remoteClientBlock).toMatch(/Scope\.make\(ExecutionStrategy\.sequential\)/);
+    expect(remoteClientBlock).not.toMatch(/Scope\.fork\(/);
     expect(remoteClientBlock).not.toMatch(/\bkill\s*\(|\bpid\b|OwnedProcess|signalOwned/);
+    expect(planeSrc).not.toMatch(/Scope\.fork\(/);
+    expect(planeSrc).toMatch(/warm:\s*warmPart/);
+    expect(planeSrc).toMatch(/warmPart\.run\(\(\) =>[\s\S]*?transport\.warm/);
   });
 });

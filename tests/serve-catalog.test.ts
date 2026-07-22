@@ -48,6 +48,41 @@ describe("HostServeCatalog", () => {
     expect(after.error).toMatch(/ssh down/);
     expect(catalog.preferredUrl("remote-a", [5175])?.url).toContain("booth-control");
   });
+
+  it("cuts late refresh admission and retains the exact admitted refresh", async () => {
+    vi.useFakeTimers();
+    let release!: (result: { ok: true; stdout: string }) => void;
+    const result = new Promise<{ ok: true; stdout: string }>((resolve) => {
+      release = resolve;
+    });
+    const runServeStatus = vi.fn(() => result);
+    const catalog = new HostServeCatalog({
+      runServeStatus,
+      shutdownDrainTimeoutMs: 25,
+      now: () => 1,
+    });
+    try {
+      const admitted = catalog.refresh("remote-a");
+      catalog.beginShutdown();
+      await expect(catalog.refresh("late")).resolves.toMatchObject({
+        hostId: "late",
+        error: "Herdr Serve catalog is shutting down",
+      });
+      expect(runServeStatus).toHaveBeenCalledOnce();
+
+      const first = catalog.drainOnQuit();
+      expect(catalog.drainOnQuit()).toBe(first);
+      await vi.advanceTimersByTimeAsync(25);
+      await expect(first).resolves.toMatchObject({ clean: false, retained: 1 });
+
+      release({ ok: true, stdout: miniServeJson });
+      await admitted;
+      await expect(catalog.drainOnQuit()).resolves.toMatchObject({ clean: true, retained: 0 });
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("HostServiceMap × Serve join", () => {

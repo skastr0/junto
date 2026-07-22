@@ -13,6 +13,15 @@ import {
   type RemoteScopeCloseReceipt,
 } from "../src/main/vellum/herdr/stream";
 import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
+import type { AppProcessSignalReceipt } from "../src/main/vellum/app-process-plane";
+
+const signalReceipt = (signal: "SIGTERM" | "SIGKILL"): AppProcessSignalReceipt => ({
+  signal,
+  reason: "test",
+  attempted: true,
+  decision: { ok: true, mode: "child" },
+  via: "child.kill",
+});
 
 beforeEach(() => {
   setHostsSnapshot([
@@ -70,8 +79,14 @@ class FakeRemoteIo extends EventEmitter implements HerdrClientIo {
 const localClient = (child: FakeChild): HerdrSpawnedClient => ({
   kind: "local-process",
   child,
-  terminate: () => child.kill("SIGTERM"),
-  forceTerminate: () => child.kill("SIGKILL"),
+  terminate: () => {
+    child.kill("SIGTERM");
+    return signalReceipt("SIGTERM");
+  },
+  forceTerminate: () => {
+    child.kill("SIGKILL");
+    return signalReceipt("SIGKILL");
+  },
 });
 const remoteClient = (
   child: HerdrClientIo,
@@ -389,17 +404,20 @@ describe("HerdrObservePool idle leases", () => {
     expect(calls[0]!.child.kills).toEqual([]);
   });
 
-  it("stopAll clears the sweep timer", () => {
+  it("stopAll clears the sweep timer while retaining the exact close wait", async () => {
     const { calls, spawnFn } = makeSpawner();
-    const pool = new HerdrObservePool({ spawnFn });
+    const pool = new HerdrObservePool({ spawnFn, shutdownDrainTimeoutMs: 1_600 });
     touch(pool, "t1");
     expect(vi.getTimerCount()).toBe(1);
 
-    pool.stopAll();
-    expect(vi.getTimerCount()).toBe(1); // bounded child termination remains
+    const stopping = pool.stopAll();
+    expect(vi.getTimerCount()).toBe(2); // child escalation + exact close-witness wait
     vi.advanceTimersByTime(1_500);
-    expect(vi.getTimerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(1);
     expect(calls[0]!.child.kills).toEqual(["SIGTERM", "SIGKILL"]);
+    await vi.advanceTimersByTimeAsync(100);
+    await stopping;
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("escalates only a retired TERM-resistant generation after an observe respawn", () => {
@@ -504,6 +522,79 @@ describe("HerdrObservePool remote scope lifecycle", () => {
     resolveClose({ status: "closed" });
     await stopping;
     expect(stopped).toBe(true);
+  });
+
+  it("cuts late observer admission synchronously", () => {
+    const { spawnFn } = makeSpawner();
+    const pool = new HerdrObservePool({ spawnFn });
+    pool.beginShutdown();
+    expect(touch(pool, "late")).toEqual({ pooled: false });
+  });
+
+  it("reports a hanging remote observer close as retained", async () => {
+    vi.useFakeTimers();
+    try {
+      const child = new FakeRemoteIo();
+      const pool = new HerdrObservePool({
+        spawnFn: () => remoteClient(
+          child,
+          () => new Promise<RemoteScopeCloseReceipt>(() => undefined),
+        ),
+        shutdownDrainTimeoutMs: 25,
+      });
+      expect(touch(pool, "remote", "remote-a")).toEqual({ pooled: true });
+      const first = pool.drainOnQuit();
+      expect(pool.drainOnQuit()).toBe(first);
+      await vi.advanceTimersByTimeAsync(25);
+      await expect(first).resolves.toMatchObject({
+        clean: false,
+        retained: 1,
+        causes: expect.arrayContaining([
+          expect.objectContaining({ code: "observe-remote-close-retained" }),
+        ]),
+      });
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a timed-out remote observer and accepts a later close witness", async () => {
+    const child = new FakeRemoteIo();
+    let closed = false;
+    let closeCalls = 0;
+    const pool = new HerdrObservePool({
+      spawnFn: () => remoteClient(child, async () => {
+        closeCalls += 1;
+        return closed
+          ? { status: "closed" as const }
+          : { status: "timed-out" as const, timeoutMs: 25 };
+      }),
+    });
+    expect(touch(pool, "remote", "remote-a")).toEqual({ pooled: true });
+    await expect(pool.drainOnQuit()).resolves.toMatchObject({ clean: false, retained: 1 });
+
+    closed = true;
+    await expect(pool.drainOnQuit()).resolves.toMatchObject({ clean: true, retained: 0 });
+    expect(closeCalls).toBe(2);
+  });
+
+  it("keeps an unclosed local generation retained until a later exact close witness", async () => {
+    vi.useFakeTimers();
+    try {
+      const { calls, spawnFn } = makeSpawner();
+      const pool = new HerdrObservePool({ spawnFn, shutdownDrainTimeoutMs: 25 });
+      expect(touch(pool, "t1")).toEqual({ pooled: true });
+      const first = pool.drainOnQuit();
+      await vi.advanceTimersByTimeAsync(25);
+      await expect(first).resolves.toMatchObject({ clean: false, retained: 1 });
+
+      calls[0]!.child.emit("close", 0);
+      await expect(pool.drainOnQuit()).resolves.toMatchObject({ clean: true, retained: 0 });
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 });
 

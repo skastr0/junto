@@ -180,4 +180,43 @@ describe("HerdrServiceMap worker", () => {
     expect(map.get("local", null, "w:p")?.ports?.[0]?.port).toBe(4000);
     map.stop();
   });
+
+  it("cuts late probes and keeps an admitted worker retained until settlement", async () => {
+    vi.useFakeTimers();
+    let release!: (result: { ok: boolean; stdout: string }) => void;
+    const shellResult = new Promise<{ ok: boolean; stdout: string }>((resolve) => {
+      release = resolve;
+    });
+    const shell = vi.fn(() => shellResult);
+    const map = new HerdrServiceMap({
+      shell,
+      now: () => 10,
+      shutdownDrainTimeoutMs: 25,
+    });
+    map.requestProbe({
+      hostId: "local",
+      paneId: "w:p",
+      priority: "intent",
+      processes: [{ name: "node", cmdline: "vite", pid: 7 }],
+    });
+    const worker = map.drainHostNow("local");
+    map.beginShutdown();
+    const late = map.requestProbe({
+      hostId: "local",
+      paneId: "late",
+      priority: "intent",
+      processes: [{ name: "node", cmdline: "vite", pid: 8 }],
+    });
+    expect(late.error).toBe("Herdr service map is shutting down");
+    expect(shell).toHaveBeenCalledOnce();
+
+    const first = map.drainOnQuit();
+    expect(map.drainOnQuit()).toBe(first);
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(first).resolves.toMatchObject({ clean: false, retained: 1 });
+
+    release({ ok: true, stdout: "node 7 me 1u IPv4 0t0 TCP *:4000 (LISTEN)\n" });
+    await worker;
+    await expect(map.drainOnQuit()).resolves.toMatchObject({ clean: true, retained: 0 });
+  });
 });

@@ -12,6 +12,13 @@ import {
   type TailscaleServeCatalog,
   type TailscaleServeEntry,
 } from "@shared/tailscale-serve";
+import {
+  awaitHerdrPromiseFixedPoint,
+  cleanHerdrComponentReceipt,
+  herdrComponentReceipt,
+  type HerdrComponentShutdownReceipt,
+  validateHerdrShutdownTimeout,
+} from "../herdr/shutdown";
 
 export type ServeStatusRunner = (hostId: string) => Promise<CliResult>;
 
@@ -23,6 +30,7 @@ export interface HostServeCatalogOptions {
   readonly resolveHostBase?: (hostId: string) => string | undefined;
   readonly ttlMs?: number;
   readonly now?: () => number;
+  readonly shutdownDrainTimeoutMs?: number;
 }
 
 export class HostServeCatalog {
@@ -32,12 +40,20 @@ export class HostServeCatalog {
   private readonly resolveHostBase?: (hostId: string) => string | undefined;
   private readonly ttlMs: number;
   private readonly now: () => number;
+  private readonly shutdownDrainTimeoutMs: number;
+  private shuttingDown = false;
+  private drainFlight: Promise<HerdrComponentShutdownReceipt> | undefined;
+  private cleanShutdownReceipt: HerdrComponentShutdownReceipt | undefined;
 
   constructor(opts: HostServeCatalogOptions = {}) {
     this.runServeStatus = opts.runServeStatus;
     this.resolveHostBase = opts.resolveHostBase;
     this.ttlMs = opts.ttlMs ?? DEFAULT_TTL_MS;
     this.now = opts.now ?? Date.now;
+    this.shutdownDrainTimeoutMs = validateHerdrShutdownTimeout(
+      opts.shutdownDrainTimeoutMs,
+      2_000,
+    );
   }
 
   get(hostId: string): TailscaleServeCatalog | undefined {
@@ -59,13 +75,21 @@ export class HostServeCatalog {
   ): { readonly url: string; readonly entry: TailscaleServeEntry } | undefined {
     const cat = this.cache.get(hostId);
     const age = cat?.fetchedAt !== undefined ? this.now() - cat.fetchedAt : Infinity;
-    if (!cat || age > this.ttlMs) {
+    if (!this.shuttingDown && (!cat || age > this.ttlMs)) {
       void this.refresh(hostId);
     }
     return preferredPublicUrlForLocalPorts(cat, localPorts);
   }
 
   async refresh(hostId: string): Promise<TailscaleServeCatalog> {
+    if (this.shuttingDown) {
+      return this.cache.get(hostId) ?? {
+        hostId,
+        entries: [],
+        fetchedAt: this.now(),
+        error: "Herdr Serve catalog is shutting down",
+      };
+    }
     const existing = this.inflight.get(hostId);
     if (existing) return existing;
 
@@ -74,6 +98,41 @@ export class HostServeCatalog {
     });
     this.inflight.set(hostId, job);
     return job;
+  }
+
+  /** Permanently refuse new host status work before any asynchronous drain. */
+  beginShutdown(): void {
+    this.shuttingDown = true;
+  }
+
+  /**
+   * Wait for every refresh admitted before beginShutdown(). A timeout leaves
+   * the exact refresh promises in `inflight` and returns an unclean receipt;
+   * a later call can prove convergence after those operations really settle.
+   */
+  drainOnQuit(): Promise<HerdrComponentShutdownReceipt> {
+    this.beginShutdown();
+    if (this.cleanShutdownReceipt) return Promise.resolve(this.cleanShutdownReceipt);
+    if (this.drainFlight) return this.drainFlight;
+    const flight = (async (): Promise<HerdrComponentShutdownReceipt> => {
+      const settled = await awaitHerdrPromiseFixedPoint(
+        () => [...this.inflight.values()],
+        this.shutdownDrainTimeoutMs,
+      );
+      const receipt = settled && this.inflight.size === 0
+        ? cleanHerdrComponentReceipt()
+        : herdrComponentReceipt(this.inflight.size, [{
+            code: "serve-refresh-retained",
+            message: `${this.inflight.size} Serve catalog refresh operation(s) did not settle before shutdown timeout`,
+          }]);
+      if (receipt.clean) this.cleanShutdownReceipt = receipt;
+      return receipt;
+    })();
+    this.drainFlight = flight;
+    void flight.finally(() => {
+      if (this.drainFlight === flight) this.drainFlight = undefined;
+    });
+    return flight;
   }
 
   /** Sync peek or empty; does not block on network. */

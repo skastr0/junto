@@ -3,6 +3,15 @@ import { isKnownHerdrHost, listHerdrHosts } from "./hosts";
 import { subscribeHostsSnapshot } from "../hosts/snapshot";
 import { HerdrMirror } from "./mirror";
 import type { MirrorTransport } from "./mirror-transport";
+import {
+  awaitHerdrPromiseFixedPoint,
+  cleanHerdrComponentReceipt,
+  herdrComponentReceipt,
+  herdrShutdownMessage,
+  type HerdrComponentShutdownReceipt,
+  type HerdrShutdownCause,
+  validateHerdrShutdownTimeout,
+} from "./shutdown";
 
 export interface HerdrMirrorHostState {
   readonly hostId: string;
@@ -30,12 +39,51 @@ export class HerdrMirrorRegistry {
   private readonly registry = new Map<string, HerdrMirror>();
   private readonly changeCbs = new Set<(hostId: string) => void>();
   private started = false;
+  private shuttingDown = false;
   private unsubscribeHosts?: () => void;
+  private readonly activeTransportOperations = new Set<Promise<unknown>>();
+  private readonly shutdownDrainTimeoutMs: number;
+  private shutdownStopCauses: ReadonlyArray<HerdrShutdownCause> = [];
+  private drainFlight: Promise<HerdrComponentShutdownReceipt> | undefined;
+  private cleanShutdownReceipt: HerdrComponentShutdownReceipt | undefined;
 
   constructor(
     private readonly makeTransport: (hostId: string) => MirrorTransport,
     private readonly revocation?: HerdrHostRevocationHooks,
-  ) {}
+    opts: { readonly shutdownDrainTimeoutMs?: number } = {},
+  ) {
+    this.shutdownDrainTimeoutMs = validateHerdrShutdownTimeout(
+      opts.shutdownDrainTimeoutMs,
+      2_000,
+    );
+  }
+
+  private trackTransportOperation<T>(start: () => Promise<T>): Promise<T> {
+    let operation: Promise<T>;
+    try {
+      operation = Promise.resolve(start());
+    } catch (error) {
+      operation = Promise.reject(error);
+    }
+    this.activeTransportOperations.add(operation);
+    void operation.then(
+      () => this.activeTransportOperations.delete(operation),
+      () => this.activeTransportOperations.delete(operation),
+    );
+    return operation;
+  }
+
+  private trackedTransport(transport: MirrorTransport): MirrorTransport {
+    return {
+      request: (method, params, timeoutMs) =>
+        this.trackTransportOperation(() => transport.request(method, params, timeoutMs)),
+      openEvents: (subscriptions, onEvent, onClose) =>
+        this.trackTransportOperation(() =>
+          transport.openEvents(subscriptions, onEvent, onClose),
+        ),
+      dispose: () => transport.dispose(),
+    };
+  }
 
   onChange(cb: (hostId: string) => void): () => void {
     this.changeCbs.add(cb);
@@ -55,10 +103,11 @@ export class HerdrMirrorRegistry {
   }
 
   mirrorFor(hostId: string): HerdrMirror | undefined {
+    if (this.shuttingDown) return undefined;
     if (!isKnownHerdrHost(hostId)) return undefined;
     let mirror = this.registry.get(hostId);
     if (!mirror) {
-      mirror = new HerdrMirror(hostId, this.makeTransport(hostId));
+      mirror = new HerdrMirror(hostId, this.trackedTransport(this.makeTransport(hostId)));
       mirror.onChange(() => this.notifyChange(hostId));
       this.registry.set(hostId, mirror);
       if (this.started) mirror.start();
@@ -67,6 +116,7 @@ export class HerdrMirrorRegistry {
   }
 
   startAll(): void {
+    if (this.shuttingDown) return;
     if (!this.unsubscribeHosts) {
       this.unsubscribeHosts = subscribeHostsSnapshot((hosts, previous) =>
         this.reconcileHosts(hosts, previous),
@@ -79,18 +129,76 @@ export class HerdrMirrorRegistry {
     }
   }
 
-  stopAll(): void {
+  stopAll(): HerdrComponentShutdownReceipt {
+    return this.beginShutdown();
+  }
+
+  /** Synchronously prevent new mirrors/reconciliation, then stop every one. */
+  beginShutdown(): HerdrComponentShutdownReceipt {
+    if (this.shuttingDown) {
+      return this.activeTransportOperations.size === 0 && this.shutdownStopCauses.length === 0
+        ? cleanHerdrComponentReceipt()
+        : herdrComponentReceipt(
+            this.activeTransportOperations.size,
+            this.shutdownStopCauses,
+          );
+    }
+    this.shuttingDown = true;
     this.started = false;
-    this.unsubscribeHosts?.();
+    const causes: HerdrShutdownCause[] = [];
+    try {
+      this.unsubscribeHosts?.();
+    } catch (error) {
+      causes.push({
+        code: "mirror-host-subscription-stop-failed",
+        message: herdrShutdownMessage(error),
+      });
+    }
     this.unsubscribeHosts = undefined;
     for (const mirror of this.registry.values()) {
       try {
         mirror.stop();
-      } catch {
-        // Runtime shutdown is best effort and idempotent.
+      } catch (error) {
+        causes.push({
+          code: "mirror-stop-failed",
+          message: herdrShutdownMessage(error),
+        });
       }
     }
     this.registry.clear();
+    this.shutdownStopCauses = Object.freeze(causes);
+    return causes.length === 0 && this.activeTransportOperations.size === 0
+      ? cleanHerdrComponentReceipt()
+      : herdrComponentReceipt(this.activeTransportOperations.size, causes);
+  }
+
+  drainOnQuit(): Promise<HerdrComponentShutdownReceipt> {
+    this.beginShutdown();
+    if (this.cleanShutdownReceipt) return Promise.resolve(this.cleanShutdownReceipt);
+    if (this.drainFlight) return this.drainFlight;
+    const flight = (async (): Promise<HerdrComponentShutdownReceipt> => {
+      const settled = await awaitHerdrPromiseFixedPoint(
+        () => [...this.activeTransportOperations],
+        this.shutdownDrainTimeoutMs,
+      );
+      const causes = [...this.shutdownStopCauses];
+      if (!settled || this.activeTransportOperations.size > 0) {
+        causes.push({
+          code: "mirror-transport-retained",
+          message: `${this.activeTransportOperations.size} mirror transport operation(s) did not settle before shutdown timeout`,
+        });
+      }
+      const receipt = causes.length === 0 && this.activeTransportOperations.size === 0
+        ? cleanHerdrComponentReceipt()
+        : herdrComponentReceipt(this.activeTransportOperations.size, causes);
+      if (receipt.clean) this.cleanShutdownReceipt = receipt;
+      return receipt;
+    })();
+    this.drainFlight = flight;
+    void flight.finally(() => {
+      if (this.drainFlight === flight) this.drainFlight = undefined;
+    });
+    return flight;
   }
 
   /**
@@ -120,7 +228,7 @@ export class HerdrMirrorRegistry {
     hosts: ReadonlyArray<RemoteHost>,
     previous: ReadonlyArray<RemoteHost>,
   ): void {
-    if (!this.started) return;
+    if (!this.started || this.shuttingDown) return;
 
     const revoked = this.revokedHosts(hosts, previous);
 

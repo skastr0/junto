@@ -54,6 +54,21 @@ vi.mock("../src/main/runtime", async () => {
       listServices: () => [],
     } as never,
     serverLifetime: "daemon-outlives-app",
+    beginShutdown: () => undefined,
+    drainOnQuit: async () => ({
+      clean: true,
+      retained: 0,
+      causes: [],
+      components: {},
+      server: {
+        clean: true,
+        retained: 0,
+        excluded: true,
+        lifetime: "daemon-outlives-app",
+        reason: "independent-daemon-never-app-owned",
+      },
+    }),
+    isQuiescing: () => false,
     start: Effect.void,
     warm: Effect.void,
   });

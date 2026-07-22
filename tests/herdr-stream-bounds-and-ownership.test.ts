@@ -9,6 +9,15 @@ import {
 } from "../src/main/vellum/herdr/stream";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
+import type { AppProcessSignalReceipt } from "../src/main/vellum/app-process-plane";
+
+const signalReceipt = (signal: "SIGTERM" | "SIGKILL"): AppProcessSignalReceipt => ({
+  signal,
+  reason: "test",
+  attempted: true,
+  decision: { ok: true, mode: "child" },
+  via: "child.kill",
+});
 
 class FakeProcess extends EventEmitter implements HerdrClientIo {
   written: string[] = [];
@@ -37,8 +46,14 @@ class FakeProcess extends EventEmitter implements HerdrClientIo {
 const localClient = (child: FakeProcess): HerdrSpawnedClient => ({
   kind: "local-process",
   child,
-  terminate: () => child.kill("SIGTERM"),
-  forceTerminate: () => child.kill("SIGKILL"),
+  terminate: () => {
+    child.kill("SIGTERM");
+    return signalReceipt("SIGTERM");
+  },
+  forceTerminate: () => {
+    child.kill("SIGKILL");
+    return signalReceipt("SIGKILL");
+  },
 });
 
 class FakeRemoteClient extends EventEmitter implements HerdrClientIo {
@@ -234,7 +249,10 @@ describe("HerdrStreamManager multi-stream concurrency", () => {
     expect(a.ok && b.ok).toBe(true);
     if (!a.ok || !b.ok) return;
 
-    await mgr.detachAllOnQuit("app_quit");
+    const draining = mgr.drainOnQuit("app_quit");
+    children[0]!.emit("close", 0);
+    children[1]!.emit("close", 0);
+    await expect(draining).resolves.toMatchObject({ clean: true, retained: 0 });
     expect(children[0]!.killedSignal).toBe("SIGTERM");
     expect(children[1]!.killedSignal).toBe("SIGTERM");
     expect(closed.map((c) => c.reason)).toEqual(["app_quit", "app_quit"]);
@@ -267,7 +285,10 @@ describe("HerdrStreamManager multi-stream concurrency", () => {
     expect(mgr.open({ hostId: "local", terminalId: "t1", cols: 80, rows: 24 }).ok).toBe(true);
     expect(mgr.open({ hostId: "local", terminalId: "t2", cols: 80, rows: 24 }).ok).toBe(true);
 
-    await expect(mgr.detachAllOnQuit("app_quit")).resolves.toBeUndefined();
+    const draining = mgr.drainOnQuit("app_quit");
+    children[0]!.emit("close", 0);
+    children[1]!.emit("close", 0);
+    await expect(draining).resolves.toMatchObject({ clean: true, retained: 0 });
 
     expect(children.map((child) => child.killedSignal)).toEqual(["SIGTERM", "SIGTERM"]);
     expect(children.map((child) => child.killCalls)).toEqual([1, 1]);
@@ -423,6 +444,126 @@ describe("HerdrStreamManager remote scope lifecycle", () => {
       resolveClose({ status: "closed" });
       await detaching;
       expect(detached).toBe(true);
+    } finally {
+      setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+    }
+  });
+
+  it("cuts late control admission synchronously", () => {
+    const { mgr } = (() => {
+      const child = new FakeProcess();
+      return {
+        mgr: new HerdrStreamManager(mockPool, () => localClient(child), async () => "/tmp/img"),
+      };
+    })();
+    mgr.beginShutdown();
+    expect(mgr.open({ hostId: "local", terminalId: "late", cols: 80, rows: 24 })).toEqual({
+      ok: false,
+      message: "herdr streams shut down (app quitting)",
+    });
+  });
+
+  it("reports a hanging remote close as retained without inventing closure", async () => {
+    vi.useFakeTimers();
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["herdr"] },
+    ]);
+    try {
+      const child = new FakeRemoteClient();
+      let closeCalls = 0;
+      const mgr = new HerdrStreamManager(
+        mockPool,
+        () => ({
+          kind: "remote-scope",
+          child,
+          close: () => {
+            closeCalls += 1;
+            return new Promise<RemoteScopeCloseReceipt>(() => undefined);
+          },
+        }),
+        async () => "/tmp/img",
+        { shutdownDrainTimeoutMs: 25 },
+      );
+      expect(mgr.open({ hostId: "studio", terminalId: "t1", cols: 80, rows: 24 }).ok).toBe(true);
+      const first = mgr.drainOnQuit();
+      expect(mgr.drainOnQuit()).toBe(first);
+      await vi.advanceTimersByTimeAsync(25);
+      await expect(first).resolves.toMatchObject({
+        clean: false,
+        retained: 1,
+        causes: expect.arrayContaining([
+          expect.objectContaining({ code: "control-remote-close-retained" }),
+        ]),
+      });
+      expect(closeCalls).toBe(1);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+    }
+  });
+
+  it("preserves a rejected remote close as an explicit failure receipt", async () => {
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["herdr"] },
+    ]);
+    try {
+      const child = new FakeRemoteClient();
+      const mgr = new HerdrStreamManager(
+        mockPool,
+        () => ({
+          kind: "remote-scope",
+          child,
+          close: async () => {
+            throw new Error("remote scope rejected");
+          },
+        }),
+        async () => "/tmp/img",
+      );
+      expect(mgr.open({ hostId: "studio", terminalId: "t1", cols: 80, rows: 24 }).ok).toBe(true);
+      await expect(mgr.drainOnQuit()).resolves.toMatchObject({
+        clean: false,
+        retained: 1,
+        causes: expect.arrayContaining([
+          { code: "control-remote-close-failed", message: "remote scope rejected" },
+        ]),
+      });
+    } finally {
+      setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+    }
+  });
+
+  it("retries a timed-out remote receipt and converges on a later close witness", async () => {
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["herdr"] },
+    ]);
+    try {
+      const child = new FakeRemoteClient();
+      let closed = false;
+      let closeCalls = 0;
+      const mgr = new HerdrStreamManager(
+        mockPool,
+        () => ({
+          kind: "remote-scope",
+          child,
+          close: async () => {
+            closeCalls += 1;
+            return closed
+              ? { status: "closed" as const }
+              : { status: "timed-out" as const, timeoutMs: 25 };
+          },
+        }),
+        async () => "/tmp/img",
+      );
+      expect(mgr.open({ hostId: "studio", terminalId: "t1", cols: 80, rows: 24 }).ok).toBe(true);
+      await expect(mgr.drainOnQuit()).resolves.toMatchObject({ clean: false, retained: 1 });
+
+      closed = true;
+      await expect(mgr.drainOnQuit()).resolves.toMatchObject({ clean: true, retained: 0 });
+      expect(closeCalls).toBe(2);
     } finally {
       setHostsSnapshot(defaultRemoteHostsDocument().hosts);
     }

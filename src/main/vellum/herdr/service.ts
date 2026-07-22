@@ -5,6 +5,15 @@ import { isKnownHerdrHost, listHerdrHosts, UnknownHerdrHostError, type HerdrHost
 import type { HerdrMirrorReads } from "./mirror";
 import type { HerdrServerRoute } from "./route";
 import {
+  awaitHerdrPromiseFixedPoint,
+  cleanHerdrComponentReceipt,
+  herdrComponentReceipt,
+  herdrShutdownMessage,
+  type HerdrComponentShutdownReceipt,
+  type HerdrShutdownCause,
+  validateHerdrShutdownTimeout,
+} from "./shutdown";
+import {
   parseCliEnvelope,
   parseCreateIds,
   parsePaneGet,
@@ -61,6 +70,10 @@ export type HerdrServerStarter = (
   session?: string | null,
   route?: HerdrServerRoute,
 ) => Promise<CliResult>;
+
+export interface HerdrServiceOptions {
+  readonly shutdownDrainTimeoutMs?: number;
+}
 
 const unavailableServerStarter: HerdrServerStarter = async () => ({
   ok: false,
@@ -140,15 +153,112 @@ export class HerdrService {
     string,
     Promise<HerdrResult<{ readonly running: boolean; readonly started: boolean }>>
   >();
+  private readonly activeOperations = new Set<Promise<unknown>>();
+  private readonly shutdownFailures: HerdrShutdownCause[] = [];
+  private readonly shutdownDrainTimeoutMs: number;
+  private shuttingDown = false;
+  private drainFlight: Promise<HerdrComponentShutdownReceipt> | undefined;
+  private cleanShutdownReceipt: HerdrComponentShutdownReceipt | undefined;
 
   constructor(
-    private readonly runner: HerdrRunner,
+    private readonly rawRunner: HerdrRunner,
     private readonly mirrors: HerdrMirrorProvider = () => undefined,
-    private readonly startServer: HerdrServerStarter = unavailableServerStarter,
-  ) {}
+    private readonly rawStartServer: HerdrServerStarter = unavailableServerStarter,
+    opts: HerdrServiceOptions = {},
+  ) {
+    this.shutdownDrainTimeoutMs = validateHerdrShutdownTimeout(
+      opts.shutdownDrainTimeoutMs,
+      2_000,
+    );
+  }
+
+  private readonly runner: HerdrRunner = (...args) => {
+    if (this.shuttingDown) {
+      return Promise.resolve({
+        ok: false,
+        stdout: "",
+        error: "Herdr service is shutting down",
+      });
+    }
+    return this.trackOperation("herdr-command-failed", () => this.rawRunner(...args));
+  };
+
+  private readonly startServer: HerdrServerStarter = (...args) => {
+    if (this.shuttingDown) {
+      return Promise.resolve({
+        ok: false,
+        stdout: "",
+        error: "Herdr service is shutting down",
+      });
+    }
+    return this.trackOperation("herdr-server-start-failed", () => this.rawStartServer(...args));
+  };
+
+  private trackOperation<T>(code: string, start: () => Promise<T>): Promise<T> {
+    let flight: Promise<T>;
+    try {
+      flight = Promise.resolve(start());
+    } catch (error) {
+      flight = Promise.reject(error);
+    }
+    this.activeOperations.add(flight);
+    void flight.then(
+      () => {
+        this.activeOperations.delete(flight);
+      },
+      (error) => {
+        this.activeOperations.delete(flight);
+        if (this.shuttingDown) {
+          this.shutdownFailures.push({ code, message: herdrShutdownMessage(error) });
+        }
+      },
+    );
+    return flight;
+  }
+
+  beginShutdown(): void {
+    this.shuttingDown = true;
+  }
+
+  drainOnQuit(): Promise<HerdrComponentShutdownReceipt> {
+    this.beginShutdown();
+    if (this.cleanShutdownReceipt) return Promise.resolve(this.cleanShutdownReceipt);
+    if (this.drainFlight) return this.drainFlight;
+    const flight = (async (): Promise<HerdrComponentShutdownReceipt> => {
+      const pending = (): ReadonlyArray<Promise<unknown>> => [
+        ...new Set<Promise<unknown>>([
+          ...this.activeOperations,
+          ...this.serverEnsures.values(),
+        ]),
+      ];
+      const settled = await awaitHerdrPromiseFixedPoint(
+        pending,
+        this.shutdownDrainTimeoutMs,
+      );
+      const retained = pending().length;
+      const causes = [...this.shutdownFailures];
+      if (!settled || retained > 0) {
+        causes.push({
+          code: "herdr-service-operation-retained",
+          message: `${retained} Herdr service operation(s) did not settle before shutdown timeout`,
+        });
+      }
+      const receipt = retained === 0 && causes.length === 0
+        ? cleanHerdrComponentReceipt()
+        : herdrComponentReceipt(retained, causes);
+      if (receipt.clean) this.cleanShutdownReceipt = receipt;
+      return receipt;
+    })();
+    this.drainFlight = flight;
+    void flight.finally(() => {
+      if (this.drainFlight === flight) this.drainFlight = undefined;
+    });
+    return flight;
+  }
 
   /** Mirror serves list/record reads only for the default session and only while fresh. */
   private mirrorIfFresh(hostId: string, session?: string | null): HerdrMirrorReads | undefined {
+    if (this.shuttingDown) return undefined;
     if (session) return undefined; // named sessions are separate servers — exec path
     const mirror = this.mirrors(hostId);
     return mirror?.isFresh() ? mirror : undefined;
@@ -160,6 +270,7 @@ export class HerdrService {
    * must not be served stale. Named sessions stay exec-only.
    */
   private mirrorIfKnown(hostId: string, session?: string | null): HerdrMirrorReads | undefined {
+    if (this.shuttingDown) return undefined;
     if (session) return undefined;
     return this.mirrors(hostId);
   }
@@ -172,6 +283,13 @@ export class HerdrService {
     hostId: string,
     session?: string | null,
   ): Promise<HerdrResult<{ readonly running: boolean; readonly started: boolean }>> {
+    if (this.shuttingDown) {
+      return Promise.resolve({
+        ok: false,
+        code: "failed",
+        message: "Herdr service is shutting down",
+      });
+    }
     const bad = requireHost(hostId);
     if (bad) return Promise.resolve(bad);
     const normalizedSession = session || null;

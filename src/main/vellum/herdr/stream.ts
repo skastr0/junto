@@ -2,6 +2,16 @@ import type { HerdrPointerCell, HerdrRetainedPayload } from "@shared/ipc";
 import { isKnownHerdrHost } from "./hosts";
 import { feedNdjson } from "./ndjson";
 import { pastePathPayload, stageImageOnHost, type StageRemoteImage } from "./stage-image";
+import type { AppProcessSignalReceipt } from "../app-process-plane";
+import {
+  awaitHerdrPromiseFixedPoint,
+  cleanHerdrComponentReceipt,
+  herdrComponentReceipt,
+  herdrShutdownMessage,
+  type HerdrComponentShutdownReceipt,
+  type HerdrShutdownCause,
+  validateHerdrShutdownTimeout,
+} from "./shutdown";
 
 export interface HerdrStreamFrame {
   readonly streamId: string;
@@ -22,10 +32,15 @@ const CONTROL_CHILD_TERMINATION_GRACE_MS = 1_500;
 
 type LocalControlLifecycle = {
   readonly kind: "local-process";
-  readonly terminate: (reason: string) => unknown;
-  readonly forceTerminate: (reason: string) => unknown;
+  readonly terminate: (reason: string) => AppProcessSignalReceipt;
+  readonly forceTerminate: (reason: string) => AppProcessSignalReceipt;
+  readonly closedPromise: Promise<void>;
+  readonly resolveClosed: () => void;
   terminationRequested: boolean;
   closed: boolean;
+  termReceipt?: AppProcessSignalReceipt;
+  forceReceipt?: AppProcessSignalReceipt;
+  signalFailures: HerdrShutdownCause[];
   terminationTimer?: ReturnType<typeof setTimeout>;
 };
 
@@ -33,6 +48,8 @@ type RemoteControlLifecycle = {
   readonly kind: "remote-scope";
   readonly close: () => Promise<RemoteScopeCloseReceipt>;
   closeRequested: boolean;
+  closeFlight?: Promise<RemoteScopeCloseReceipt>;
+  receipt?: RemoteScopeCloseReceipt;
 };
 
 interface ActiveStream {
@@ -98,8 +115,8 @@ export type HerdrSpawnedClient =
       readonly kind: "local-process";
       readonly child: HerdrClientIo;
       /** Exact central app-process capability, bound by the spawn factory. */
-      readonly terminate: (reason: string) => unknown;
-      readonly forceTerminate: (reason: string) => unknown;
+      readonly terminate: (reason: string) => AppProcessSignalReceipt;
+      readonly forceTerminate: (reason: string) => AppProcessSignalReceipt;
     }
   | {
       readonly kind: "remote-scope";
@@ -112,6 +129,12 @@ export type HerdrSpawnFn = (
   args: ReadonlyArray<string>,
   session?: string | null,
 ) => HerdrSpawnedClient;
+
+export interface HerdrStreamManagerOptions {
+  readonly terminationGraceMs?: number;
+  readonly shutdownDrainTimeoutMs?: number;
+  readonly manageObservePoolOnShutdown?: boolean;
+}
 
 /** Observe-pool hooks the stream manager drives (injectable for tests). */
 export interface ObservePoolHooks {
@@ -126,7 +149,8 @@ export interface ObservePoolHooks {
   pauseForControl(terminalId: string): void;
   clearRetention(terminalId: string): void;
   releaseObserve(terminalId: string): void;
-  stopAll(): void | Promise<void>;
+  stopAll(): void | Promise<void | HerdrComponentShutdownReceipt>;
+  drainOnQuit?(): Promise<HerdrComponentShutdownReceipt>;
 }
 
 /**
@@ -208,8 +232,15 @@ export class HerdrStreamManager {
   private seq = 0;
   private sink: StreamSink | undefined;
   private shutDown = false;
-  /** Bounded close receipts retained after streams leave the active indexes. */
-  private readonly pendingRemoteCloses = new Set<Promise<RemoteScopeCloseReceipt>>();
+  private readonly localLifecycles = new Set<LocalControlLifecycle>();
+  private readonly remoteLifecycles = new Set<RemoteControlLifecycle>();
+  private readonly terminationGraceMs: number;
+  private readonly shutdownDrainTimeoutMs: number;
+  private readonly manageObservePoolOnShutdown: boolean;
+  private readonly activeOperations = new Set<Promise<unknown>>();
+  private readonly operationFailures: HerdrShutdownCause[] = [];
+  private drainFlight: Promise<HerdrComponentShutdownReceipt> | undefined;
+  private cleanShutdownReceipt: HerdrComponentShutdownReceipt | undefined;
   /** Fires once a control stream is live for a terminal (message-delivery retry). */
   private openHook: ((terminalId: string) => void) | undefined;
 
@@ -217,7 +248,18 @@ export class HerdrStreamManager {
     private readonly pool: ObservePoolHooks,
     private readonly spawnFn: HerdrSpawnFn,
     private readonly stageRemote: StageRemoteImage,
-  ) {}
+    opts: HerdrStreamManagerOptions = {},
+  ) {
+    this.terminationGraceMs = validateHerdrShutdownTimeout(
+      opts.terminationGraceMs,
+      CONTROL_CHILD_TERMINATION_GRACE_MS,
+    );
+    this.shutdownDrainTimeoutMs = validateHerdrShutdownTimeout(
+      opts.shutdownDrainTimeoutMs,
+      3_250,
+    );
+    this.manageObservePoolOnShutdown = opts.manageObservePoolOnShutdown ?? true;
+  }
 
   setSink(sink: StreamSink | undefined): void {
     this.sink = sink;
@@ -291,28 +333,33 @@ export class HerdrStreamManager {
       }
       child = spawned.child;
       if (spawned.kind === "local-process") {
+        let resolveClosed!: () => void;
+        const closedPromise = new Promise<void>((resolve) => {
+          resolveClosed = resolve;
+        });
         lifecycle = {
           kind: "local-process",
           terminate: spawned.terminate,
           forceTerminate: spawned.forceTerminate,
+          closedPromise,
+          resolveClosed,
           terminationRequested: false,
           closed: false,
+          signalFailures: [],
         };
+        this.localLifecycles.add(lifecycle);
       } else {
         lifecycle = {
           kind: "remote-scope",
           close: spawned.close,
           closeRequested: false,
         };
+        this.remoteLifecycles.add(lifecycle);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, message: `failed to spawn control stream: ${message}` };
     }
-
-    // Control now provides frames: kill the terminal's observe child but keep
-    // its retention until the first live control frame arrives (handleLine).
-    this.pool.pauseForControl(input.terminalId);
 
     const active: ActiveStream = {
       streamId,
@@ -327,69 +374,90 @@ export class HerdrStreamManager {
       rows: Math.max(5, Math.floor(input.rows || 24)),
       firstFrameSeen: false,
     };
-    this.streams.set(streamId, active);
-    this.byTerminal.set(input.terminalId, streamId);
     try {
-      this.openHook?.(input.terminalId);
-    } catch {
-      // Hook must never sink stream open.
+      // Control now provides frames: kill the terminal's observe child but keep
+      // its retention until the first live control frame arrives (handleLine).
+      this.pool.pauseForControl(input.terminalId);
+      this.streams.set(streamId, active);
+      this.byTerminal.set(input.terminalId, streamId);
+      try {
+        this.openHook?.(input.terminalId);
+      } catch {
+        // Presentation/message retry hooks cannot sink process ownership.
+      }
+    } catch (error) {
+      this.removeStream(streamId, input.terminalId);
+      this.terminateControl(active);
+      return {
+        ok: false,
+        message: `failed to initialize control stream: ${herdrShutdownMessage(error)}`,
+      };
     }
 
-    let buffer = "";
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      buffer = feedNdjson(buffer, chunk, (line) => this.handleLine(streamId, line), {
-        onOverflow: () => this.handleInboundOverflow(streamId),
+    try {
+      let buffer = "";
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => {
+        buffer = feedNdjson(buffer, chunk, (line) => this.handleLine(streamId, line), {
+          onOverflow: () => this.handleInboundOverflow(streamId),
+        });
       });
-    });
 
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => {
-      if (!this.streams.has(streamId)) return;
-      // herdr often prints "herdr: … input ignored: …" on stderr (or stdout).
-      for (const text of chunk.split("\n").map((l) => l.trim()).filter(Boolean)) {
-        this.emit({ streamId, type: "error", message: text.slice(0, 400) });
-      }
-    });
-
-    child.on("close", (code) => {
-      if (active.lifecycle.kind === "remote-scope") {
-        // Natural remote exit still owns scope finalizers. Route it through
-        // the same bounded receipt flight used by explicit detach.
-        this.terminateControl(active);
-      } else {
-        this.settleLocalControl(active);
-      }
-      const closing = this.streams.get(streamId);
-      if (!closing) return;
-      this.removeStream(streamId, closing.terminalId);
-      this.handBackToObservePool(closing);
-      this.emit({
-        streamId,
-        type: "closed",
-        reason: code === 0 ? "exit" : `exit_${code ?? "null"}`,
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk: string) => {
+        if (!this.streams.has(streamId)) return;
+        // herdr often prints "herdr: … input ignored: …" on stderr (or stdout).
+        for (const text of chunk.split("\n").map((l) => l.trim()).filter(Boolean)) {
+          this.emit({ streamId, type: "error", message: text.slice(0, 400) });
+        }
       });
-    });
 
-    child.on("error", (error) => {
-      const closing = this.streams.get(streamId);
-      if (!closing) {
-        // Generic ChildProcess errors are not proof of exit (kill/send and
-        // remote lease writes can fail). Preserve the already-retained exact
-        // generation authority so its TERM grace can still reach SIGKILL.
+      child.on("close", (code) => {
+        if (active.lifecycle.kind === "remote-scope") {
+          // Natural remote exit still owns scope finalizers. Route it through
+          // the same bounded receipt flight used by explicit detach.
+          this.terminateControl(active);
+        } else {
+          this.settleLocalControl(active);
+        }
+        const closing = this.streams.get(streamId);
+        if (!closing) return;
+        this.removeStream(streamId, closing.terminalId);
+        this.handBackToObservePool(closing);
+        this.emit({
+          streamId,
+          type: "closed",
+          reason: code === 0 ? "exit" : `exit_${code ?? "null"}`,
+        });
+      });
+
+      child.on("error", (error) => {
+        const closing = this.streams.get(streamId);
+        if (!closing) {
+          // Generic ChildProcess errors are not proof of exit (kill/send and
+          // remote lease writes can fail). Preserve the already-retained exact
+          // generation authority so its TERM grace can still reach SIGKILL.
+          this.terminateControl(active);
+          return;
+        }
+        this.removeStream(streamId, closing.terminalId);
         this.terminateControl(active);
-        return;
-      }
-      this.removeStream(streamId, closing.terminalId);
+        this.handBackToObservePool(active);
+        this.emit({
+          streamId,
+          type: "error",
+          message: error.message,
+        });
+        this.emit({ streamId, type: "closed", reason: "child_error" });
+      });
+    } catch (error) {
+      this.removeStream(streamId, input.terminalId);
       this.terminateControl(active);
-      this.handBackToObservePool(active);
-      this.emit({
-        streamId,
-        type: "error",
-        message: error.message,
-      });
-      this.emit({ streamId, type: "closed", reason: "child_error" });
-    });
+      return {
+        ok: false,
+        message: `failed to initialize control stream I/O: ${herdrShutdownMessage(error)}`,
+      };
+    }
 
     return { ok: true, streamId, retained };
   }
@@ -426,7 +494,21 @@ export class HerdrStreamManager {
    *   2. paste the absolute path via stock `terminal.input` (bracketed paste)
    * No herdr protocol extensions.
    */
-  async pasteImage(
+  pasteImage(
+    streamId: string,
+    extension: string,
+    dataBase64: string,
+  ): Promise<{ readonly ok: boolean; readonly error?: string; readonly path?: string }> {
+    if (this.shutDown) {
+      return Promise.resolve({ ok: false, error: "herdr streams shut down (app quitting)" });
+    }
+    return this.trackOperation(
+      this.pasteImageOnce(streamId, extension, dataBase64),
+      "control-operation-failed",
+    );
+  }
+
+  private async pasteImageOnce(
     streamId: string,
     extension: string,
     dataBase64: string,
@@ -578,31 +660,176 @@ export class HerdrStreamManager {
    * App/launchd shutdown: detach every control stream. Idempotent.
    * Product lock: quitting Vellum must not mass-kill herdr sessions.
    */
-  async detachAllOnQuit(reason = "app_quit"): Promise<void> {
+  beginShutdown(): void {
     this.shutDown = true;
-    for (const streamId of [...this.streams.keys()]) {
-      try {
-        this.detachControl(streamId, reason);
-      } catch {
-        // Shutdown is a best-effort fan-out: one client may be defective, but
-        // every other exact child capability still gets its detach attempt.
-      }
-    }
-    // Observers own nothing on the host. Their tagged teardown is started
-    // independently and never sends terminal.release (control-only).
-    let poolStop: Promise<void> = Promise.resolve();
-    try {
-      poolStop = Promise.resolve(this.pool.stopAll()).catch(() => undefined);
-    } catch {
-      // Event/control cleanup above is already complete; never rethrow from
-      // the app-quit boundary because an observe implementation misbehaved.
-    }
-    await Promise.all([poolStop, this.awaitRemoteCloses()]);
   }
 
-  /** @deprecated use detachAllOnQuit — name kept so greps for closeAll still find the intent */
-  closeAll(): void {
-    void this.detachAllOnQuit("shutdown");
+  drainOnQuit(reason = "app_quit"): Promise<HerdrComponentShutdownReceipt> {
+    this.beginShutdown();
+    if (this.cleanShutdownReceipt) return Promise.resolve(this.cleanShutdownReceipt);
+    if (this.drainFlight) return this.drainFlight;
+
+    const flight = (async (): Promise<HerdrComponentShutdownReceipt> => {
+      // Start every independent cleanup before awaiting any component.
+      let poolDrain: Promise<HerdrComponentShutdownReceipt>;
+      try {
+        poolDrain = !this.manageObservePoolOnShutdown
+          ? Promise.resolve(cleanHerdrComponentReceipt())
+          : this.pool.drainOnQuit
+            ? Promise.resolve(this.pool.drainOnQuit())
+            : Promise.resolve(this.pool.stopAll()).then((receipt) =>
+                receipt && typeof receipt === "object" && "clean" in receipt
+                  ? receipt as HerdrComponentShutdownReceipt
+                  : cleanHerdrComponentReceipt(),
+              );
+      } catch (error) {
+        poolDrain = Promise.resolve(herdrComponentReceipt(1, [{
+          code: "observe-pool-stop-failed",
+          message: herdrShutdownMessage(error),
+        }]));
+      }
+
+      const fanoutCauses: HerdrShutdownCause[] = [];
+      for (const streamId of [...this.streams.keys()]) {
+        try {
+          this.detachControl(streamId, reason);
+        } catch (error) {
+          fanoutCauses.push({
+            code: "control-detach-failed",
+            message: herdrShutdownMessage(error),
+          });
+        }
+      }
+
+      // A prior bounded close may have timed out. Retry the same idempotent
+      // scope closer so a later real Scope.close witness can converge clean.
+      for (const lifecycle of this.remoteLifecycles) {
+        this.trackRemoteClose(lifecycle);
+      }
+
+      const localWait = awaitHerdrPromiseFixedPoint(
+        () => [...this.localLifecycles].map((lifecycle) => lifecycle.closedPromise),
+        this.shutdownDrainTimeoutMs,
+      );
+      const remoteWait = awaitHerdrPromiseFixedPoint(
+        () => [...this.remoteLifecycles]
+          .flatMap((lifecycle) => lifecycle.closeFlight ? [lifecycle.closeFlight] : []),
+        this.shutdownDrainTimeoutMs,
+      );
+      const operationWait = awaitHerdrPromiseFixedPoint(
+        () => [...this.activeOperations],
+        this.shutdownDrainTimeoutMs,
+      );
+      const [poolResult, localResult, remoteResult, operationResult] = await Promise.allSettled([
+        poolDrain,
+        localWait,
+        remoteWait,
+        operationWait,
+      ]);
+
+      const causes = [...fanoutCauses];
+      let poolRetained = 0;
+      if (poolResult.status === "rejected") {
+        poolRetained = 1;
+        causes.push({
+          code: "observe-pool-drain-failed",
+          message: herdrShutdownMessage(poolResult.reason),
+        });
+      } else {
+        poolRetained = poolResult.value.retained;
+        causes.push(...poolResult.value.causes.map((cause) => ({
+          code: `observe-pool:${cause.code}`,
+          message: cause.message,
+        })));
+      }
+
+      for (const lifecycle of this.localLifecycles) {
+        causes.push(...lifecycle.signalFailures);
+        const refusal = lifecycle.forceReceipt ?? lifecycle.termReceipt;
+        if (refusal?.attempted === false) {
+          causes.push({
+            code: "control-local-signal-refused",
+            message: refusal.decision.ok
+              ? "central process plane did not attempt the requested signal"
+              : refusal.decision.reason,
+          });
+        }
+      }
+      if (localResult.status === "rejected") {
+        causes.push({
+          code: "control-local-close-wait-failed",
+          message: herdrShutdownMessage(localResult.reason),
+        });
+      } else if (!localResult.value || this.localLifecycles.size > 0) {
+        causes.push({
+          code: "control-local-close-retained",
+          message: `${this.localLifecycles.size} local control client(s) lack an exact close witness`,
+        });
+      }
+
+      for (const lifecycle of this.remoteLifecycles) {
+        const receipt = lifecycle.receipt;
+        if (receipt?.status === "failed") {
+          causes.push({ code: "control-remote-close-failed", message: receipt.message });
+        } else if (receipt?.status === "timed-out") {
+          causes.push({
+            code: "control-remote-close-timed-out",
+            message: `remote control scope did not close within ${receipt.timeoutMs}ms`,
+          });
+        } else if (receipt === undefined) {
+          causes.push({
+            code: "control-remote-close-retained",
+            message: "remote control scope close did not produce a bounded receipt",
+          });
+        }
+      }
+      if (remoteResult.status === "rejected") {
+        causes.push({
+          code: "control-remote-close-wait-failed",
+          message: herdrShutdownMessage(remoteResult.reason),
+        });
+      } else if (!remoteResult.value && this.remoteLifecycles.size > 0) {
+        causes.push({
+          code: "control-remote-close-retained",
+          message: `${this.remoteLifecycles.size} remote control scope(s) remain retained`,
+        });
+      }
+
+      causes.push(...this.operationFailures);
+      if (operationResult.status === "rejected") {
+        causes.push({
+          code: "control-operation-wait-failed",
+          message: herdrShutdownMessage(operationResult.reason),
+        });
+      } else if (!operationResult.value || this.activeOperations.size > 0) {
+        causes.push({
+          code: "control-operation-retained",
+          message: `${this.activeOperations.size} admitted control operation(s) remain unsettled`,
+        });
+      }
+
+      const retained = poolRetained + this.localLifecycles.size +
+        this.remoteLifecycles.size + this.activeOperations.size;
+      const receipt = retained === 0 && causes.length === 0
+        ? cleanHerdrComponentReceipt()
+        : herdrComponentReceipt(retained, causes);
+      if (receipt.clean) this.cleanShutdownReceipt = receipt;
+      return receipt;
+    })();
+    this.drainFlight = flight;
+    void flight.finally(() => {
+      if (this.drainFlight === flight) this.drainFlight = undefined;
+    });
+    return flight;
+  }
+
+  detachAllOnQuit(reason = "app_quit"): Promise<HerdrComponentShutdownReceipt> {
+    return this.drainOnQuit(reason);
+  }
+
+  /** @deprecated use drainOnQuit — kept for legacy callers. */
+  closeAll(): Promise<HerdrComponentShutdownReceipt> {
+    return this.drainOnQuit("shutdown");
   }
 
   /**
@@ -624,11 +851,28 @@ export class HerdrStreamManager {
   private require(
     streamId: string,
   ): { readonly ok: true; readonly stream: ActiveStream } | { readonly ok: false; readonly error: string } {
+    if (this.shutDown) {
+      return { ok: false, error: "herdr streams shut down (app quitting)" };
+    }
     const stream = this.streams.get(streamId);
     if (!stream) {
       return { ok: false, error: "stream not active" };
     }
     return { ok: true, stream };
+  }
+
+  private trackOperation<T>(operation: Promise<T>, code: string): Promise<T> {
+    this.activeOperations.add(operation);
+    void operation.then(
+      () => this.activeOperations.delete(operation),
+      (error) => {
+        this.activeOperations.delete(operation);
+        if (this.shutDown) {
+          this.operationFailures.push({ code, message: herdrShutdownMessage(error) });
+        }
+      },
+    );
+    return operation;
   }
 
   /** Drop stream from both indexes. Caller handles pool handoff / emit. */
@@ -648,6 +892,8 @@ export class HerdrStreamManager {
       clearTimeout(lifecycle.terminationTimer);
       lifecycle.terminationTimer = undefined;
     }
+    lifecycle.resolveClosed();
+    this.localLifecycles.delete(lifecycle);
   }
 
   /**
@@ -659,47 +905,63 @@ export class HerdrStreamManager {
     if (lifecycle.kind === "remote-scope") {
       if (lifecycle.closeRequested) return;
       lifecycle.closeRequested = true;
-      this.trackRemoteClose(lifecycle.close);
+      this.trackRemoteClose(lifecycle);
       return;
     }
     if (lifecycle.terminationRequested || lifecycle.closed) return;
     lifecycle.terminationRequested = true;
-    lifecycle.terminate("herdr-control-detach");
+    try {
+      lifecycle.termReceipt = lifecycle.terminate("herdr-control-detach");
+    } catch (error) {
+      lifecycle.signalFailures.push({
+        code: "control-local-term-failed",
+        message: herdrShutdownMessage(error),
+      });
+    }
     // Some test clients report close synchronously from termination.
     if (lifecycle.closed) return;
     const timer = setTimeout(() => {
       lifecycle.terminationTimer = undefined;
       if (lifecycle.closed) return;
-      lifecycle.forceTerminate("herdr-control-grace-expired");
-    }, CONTROL_CHILD_TERMINATION_GRACE_MS);
+      try {
+        lifecycle.forceReceipt = lifecycle.forceTerminate("herdr-control-grace-expired");
+      } catch (error) {
+        lifecycle.signalFailures.push({
+          code: "control-local-force-failed",
+          message: herdrShutdownMessage(error),
+        });
+      }
+    }, this.terminationGraceMs);
     lifecycle.terminationTimer = timer;
     (timer as unknown as { unref?: () => void }).unref?.();
   }
 
   /** Normalize a structural remote closer into a contained receipt flight. */
-  private trackRemoteClose(close: () => Promise<RemoteScopeCloseReceipt>): void {
+  private trackRemoteClose(lifecycle: RemoteControlLifecycle): void {
+    if (lifecycle.closeFlight) return;
     let closeFlight: Promise<RemoteScopeCloseReceipt>;
     try {
-      closeFlight = Promise.resolve(close()).catch((error): RemoteScopeCloseReceipt => ({
+      closeFlight = Promise.resolve(lifecycle.close()).catch((error): RemoteScopeCloseReceipt => ({
         status: "failed",
-        message: error instanceof Error ? error.message : String(error),
+        message: herdrShutdownMessage(error),
       }));
     } catch (error) {
       closeFlight = Promise.resolve<RemoteScopeCloseReceipt>({
         status: "failed",
-        message: error instanceof Error ? error.message : String(error),
+        message: herdrShutdownMessage(error),
       });
     }
-    this.pendingRemoteCloses.add(closeFlight);
-    void closeFlight.finally(() => {
-      this.pendingRemoteCloses.delete(closeFlight);
+    lifecycle.closeFlight = closeFlight;
+    void closeFlight.then((receipt) => {
+      lifecycle.receipt = receipt;
+      if (receipt.status === "closed") {
+        this.remoteLifecycles.delete(lifecycle);
+      } else if (lifecycle.closeFlight === closeFlight) {
+        // Keep the lifecycle authority, but permit a later drain to ask the
+        // same idempotent closer for an updated terminal receipt.
+        lifecycle.closeFlight = undefined;
+      }
     });
-  }
-
-  private async awaitRemoteCloses(): Promise<void> {
-    while (this.pendingRemoteCloses.size > 0) {
-      await Promise.all([...this.pendingRemoteCloses]);
-    }
   }
 
   private writeJson(
@@ -733,11 +995,13 @@ export class HerdrStreamManager {
       }
     }
     const prior = stream.pendingWrite ?? Promise.resolve();
-    const queued: Promise<void> = prior
+    const queued = prior
       .catch(() => undefined)
       .then(() => writeChunked(stream.child.stdin, payload).catch(() => undefined));
-    stream.pendingWrite = queued.finally(() => {
-      if (stream.pendingWrite === queued) stream.pendingWrite = undefined;
+    const tracked = this.trackOperation(queued, "control-write-failed");
+    stream.pendingWrite = tracked;
+    void tracked.finally(() => {
+      if (stream.pendingWrite === tracked) stream.pendingWrite = undefined;
     });
     return { ok: true };
   }

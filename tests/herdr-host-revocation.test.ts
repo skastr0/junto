@@ -161,4 +161,17 @@ describe("herdr host revocation at the reconciliation choke point", () => {
       mirrors.stopAll();
     }
   });
+
+  it("permanently cuts mirror admission and returns an idempotent clean receipt", async () => {
+    const mirrors = new HerdrMirrorRegistry(fakeTransport);
+    mirrors.startAll();
+    expect(mirrors.mirrorFor("local")).toBeDefined();
+
+    const first = await mirrors.drainOnQuit();
+    expect(first).toMatchObject({ clean: true, retained: 0 });
+    expect(mirrors.mirrorFor("local")).toBeUndefined();
+    mirrors.startAll();
+    expect(mirrors.mirrorFor("local")).toBeUndefined();
+    await expect(mirrors.drainOnQuit()).resolves.toBe(first);
+  });
 });

@@ -29,6 +29,15 @@ import {
   type HerdrServiceQueueItem,
   type HostReachability,
 } from "@shared/herdr-service-map";
+import {
+  awaitHerdrPromiseFixedPoint,
+  cleanHerdrComponentReceipt,
+  herdrComponentReceipt,
+  herdrShutdownMessage,
+  type HerdrComponentShutdownReceipt,
+  type HerdrShutdownCause,
+  validateHerdrShutdownTimeout,
+} from "./shutdown";
 
 export type HostShellRunner = (
   hostId: string,
@@ -61,6 +70,7 @@ export interface HerdrServiceMapOptions {
   readonly resolveTailscaleHost?: (hostId: string) => string | undefined;
   /** Join local LISTEN ports to Tailscale Serve/SVC public URLs. */
   readonly resolvePreferredServeUrl?: PreferredServeUrlResolver;
+  readonly shutdownDrainTimeoutMs?: number;
 }
 
 const cacheKey = (
@@ -86,6 +96,11 @@ export class HerdrServiceMap {
   private resolveTailscaleHost?: (hostId: string) => string | undefined;
   private resolvePreferredServeUrl?: PreferredServeUrlResolver;
   private stopped = false;
+  private readonly shutdownDrainTimeoutMs: number;
+  private readonly inflightDrains = new Set<Promise<void>>();
+  private readonly shutdownFailures: HerdrShutdownCause[] = [];
+  private drainFlight: Promise<HerdrComponentShutdownReceipt> | undefined;
+  private cleanShutdownReceipt: HerdrComponentShutdownReceipt | undefined;
   /** pane cache keys with pending ambient re-enqueue timers */
   private readonly ambientTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -98,6 +113,10 @@ export class HerdrServiceMap {
     this.now = opts.now ?? Date.now;
     this.resolveTailscaleHost = opts.resolveTailscaleHost;
     this.resolvePreferredServeUrl = opts.resolvePreferredServeUrl;
+    this.shutdownDrainTimeoutMs = validateHerdrShutdownTimeout(
+      opts.shutdownDrainTimeoutMs,
+      2_000,
+    );
   }
 
   /** Late-bind runners from HerdrPlane once transports exist. */
@@ -118,11 +137,47 @@ export class HerdrServiceMap {
   }
 
   stop(): void {
+    this.beginShutdown();
+  }
+
+  /** Synchronous, permanent admission cut for timers and requested probes. */
+  beginShutdown(): void {
     this.stopped = true;
     for (const t of this.hostTimers.values()) clearTimeout(t);
     this.hostTimers.clear();
     for (const t of this.ambientTimers.values()) clearTimeout(t);
     this.ambientTimers.clear();
+    this.queue = [];
+    this.intentKick.clear();
+  }
+
+  drainOnQuit(): Promise<HerdrComponentShutdownReceipt> {
+    this.beginShutdown();
+    if (this.cleanShutdownReceipt) return Promise.resolve(this.cleanShutdownReceipt);
+    if (this.drainFlight) return this.drainFlight;
+    const flight = (async (): Promise<HerdrComponentShutdownReceipt> => {
+      const settled = await awaitHerdrPromiseFixedPoint(
+        () => [...this.inflightDrains],
+        this.shutdownDrainTimeoutMs,
+      );
+      const causes = [...this.shutdownFailures];
+      if (!settled || this.inflightDrains.size > 0) {
+        causes.push({
+          code: "service-map-probe-retained",
+          message: `${this.inflightDrains.size} service-map probe drain(s) did not settle before shutdown timeout`,
+        });
+      }
+      const receipt = causes.length === 0 && this.inflightDrains.size === 0
+        ? cleanHerdrComponentReceipt()
+        : herdrComponentReceipt(this.inflightDrains.size, causes);
+      if (receipt.clean) this.cleanShutdownReceipt = receipt;
+      return receipt;
+    })();
+    this.drainFlight = flight;
+    void flight.finally(() => {
+      if (this.drainFlight === flight) this.drainFlight = undefined;
+    });
+    return flight;
   }
 
   get(
@@ -229,6 +284,18 @@ export class HerdrServiceMap {
     readonly priority?: HerdrServicePriority;
     readonly processes?: ReadonlyArray<HerdrServiceProcess>;
   }): HerdrServiceProjection {
+    if (this.stopped) {
+      return this.get(input.hostId, input.session, input.paneId) ?? projectService({
+        hostId: input.hostId,
+        session: input.session,
+        paneId: input.paneId,
+        processes: input.processes,
+        hostBase: this.hostBase(input.hostId),
+        pending: false,
+        error: "Herdr service map is shutting down",
+        now: this.now(),
+      });
+    }
     const priority = input.priority ?? "intent";
     const existing = this.get(input.hostId, input.session, input.paneId);
     // Keep last live projection painted while intent revalidates — no "port…" flash
@@ -266,7 +333,8 @@ export class HerdrServiceMap {
 
   /** Test / forced single drain without waiting for timer. */
   async drainHostNow(hostId: string): Promise<void> {
-    await this.drainHost(hostId);
+    if (this.stopped) return;
+    await this.trackDrain(this.drainHost(hostId));
   }
 
   // --- internals ------------------------------------------------------------
@@ -307,7 +375,7 @@ export class HerdrServiceMap {
     }
     const timer = setTimeout(() => {
       this.hostTimers.delete(hostId);
-      void this.drainHost(hostId);
+      void this.trackDrain(this.drainHost(hostId)).catch(() => undefined);
     }, delayMs);
     this.hostTimers.set(hostId, timer);
   }
@@ -337,6 +405,26 @@ export class HerdrServiceMap {
         this.scheduleHost(hostId, 0);
       }
     }
+  }
+
+  /** Keep the exact worker promise until its final continuation settles. */
+  private trackDrain(flight: Promise<void>): Promise<void> {
+    this.inflightDrains.add(flight);
+    void flight.then(
+      () => {
+        this.inflightDrains.delete(flight);
+      },
+      (error) => {
+        this.inflightDrains.delete(flight);
+        if (this.stopped) {
+          this.shutdownFailures.push({
+            code: "service-map-probe-failed",
+            message: herdrShutdownMessage(error),
+          });
+        }
+      },
+    );
+    return flight;
   }
 
   private async probeOne(item: HerdrServiceQueueItem): Promise<void> {

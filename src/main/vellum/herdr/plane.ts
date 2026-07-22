@@ -48,6 +48,14 @@ import { makeRemoteCommand, parseSshEndpoint } from "../ssh/domain";
 import { oneShot } from "../ssh/program";
 import { SshTransport } from "../ssh/service";
 import { runCli } from "../adapters/exec";
+import {
+  awaitHerdrPromiseFixedPoint,
+  cleanHerdrComponentReceipt,
+  herdrComponentReceipt,
+  herdrShutdownMessage,
+  type HerdrComponentShutdownReceipt,
+  type HerdrShutdownCause,
+} from "./shutdown";
 
 type RunPromise = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 
@@ -56,19 +64,139 @@ export type HerdrServerLifetime = "daemon-outlives-app";
 
 const HERDR_SERVER_LIFETIME: HerdrServerLifetime = "daemon-outlives-app";
 
-/** Start every independent Herdr cleanup before awaiting any one component. */
-export const runHerdrCleanupSteps = async (
-  steps: ReadonlyArray<() => void | Promise<void>>,
-): Promise<void> => {
-  const pending = steps.map((step): Promise<void> => {
-    try {
-      return Promise.resolve(step()).catch(() => undefined);
-    } catch {
-      // Finalization is contained fan-out. Later components must still start.
-      return Promise.resolve();
+export interface HerdrDaemonShutdownReceipt {
+  readonly clean: true;
+  readonly retained: 0;
+  readonly excluded: true;
+  readonly lifetime: HerdrServerLifetime;
+  readonly reason: "independent-daemon-never-app-owned";
+}
+
+export interface HerdrShutdownReceipt {
+  readonly clean: boolean;
+  readonly retained: number;
+  readonly causes: ReadonlyArray<HerdrShutdownCause & { readonly component: string }>;
+  readonly components: Readonly<Record<string, HerdrComponentShutdownReceipt>>;
+  readonly server: HerdrDaemonShutdownReceipt;
+}
+
+interface HerdrShutdownPart {
+  readonly beginShutdown: () => unknown;
+  readonly drainOnQuit: () => Promise<HerdrComponentShutdownReceipt>;
+}
+
+export interface HerdrShutdownController {
+  readonly beginShutdown: () => void;
+  readonly drainOnQuit: () => Promise<HerdrShutdownReceipt>;
+  readonly isQuiescing: () => boolean;
+}
+
+/**
+ * One monotonic Herdr quit boundary. Every component is cut synchronously;
+ * drains then start together and are aggregated without erasing a rejection.
+ */
+export const createHerdrShutdownController = (
+  parts: Readonly<Record<string, HerdrShutdownPart>>,
+): HerdrShutdownController => {
+  let quiescing = false;
+  const beginFailures = new Map<string, HerdrShutdownCause[]>();
+  let drainFlight: Promise<HerdrShutdownReceipt> | undefined;
+  let cleanReceipt: HerdrShutdownReceipt | undefined;
+
+  const beginShutdown = (): void => {
+    if (quiescing) return;
+    quiescing = true;
+    for (const [name, part] of Object.entries(parts)) {
+      try {
+        part.beginShutdown();
+      } catch (error) {
+        beginFailures.set(name, [{
+          code: "admission-cut-failed",
+          message: herdrShutdownMessage(error),
+        }]);
+      }
     }
+  };
+
+  const drainOnQuit = (): Promise<HerdrShutdownReceipt> => {
+    beginShutdown();
+    if (cleanReceipt) return Promise.resolve(cleanReceipt);
+    if (drainFlight) return drainFlight;
+    let resolveFlight!: (receipt: HerdrShutdownReceipt) => void;
+    let rejectFlight!: (error: unknown) => void;
+    const flight = new Promise<HerdrShutdownReceipt>((resolve, reject) => {
+      resolveFlight = resolve;
+      rejectFlight = reject;
+    });
+    // Publish identity before invoking any component callback. A component
+    // may synchronously re-enter the aggregate while starting its own drain.
+    drainFlight = flight;
+    void (async (): Promise<HerdrShutdownReceipt> => {
+      const names = Object.keys(parts);
+      const started = names.map((name) => {
+        try {
+          const componentFlight = parts[name]!.drainOnQuit();
+          if (componentFlight === flight) {
+            return Promise.reject(
+              new Error(`Herdr component ${name} returned the aggregate drain promise`),
+            );
+          }
+          return Promise.resolve(componentFlight);
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      });
+      const settled = await Promise.allSettled(started);
+      const components: Record<string, HerdrComponentShutdownReceipt> = {};
+      const causes: Array<HerdrShutdownCause & { readonly component: string }> = [];
+      let retained = 0;
+      for (let index = 0; index < names.length; index += 1) {
+        const name = names[index]!;
+        const result = settled[index]!;
+        const beginCauses = beginFailures.get(name) ?? [];
+        const receipt = result.status === "fulfilled"
+          ? result.value
+          : herdrComponentReceipt(1, [{
+              code: "component-drain-failed",
+              message: herdrShutdownMessage(result.reason),
+            }]);
+        const combined = beginCauses.length === 0
+          ? receipt
+          : herdrComponentReceipt(receipt.retained, [...beginCauses, ...receipt.causes]);
+        components[name] = combined;
+        retained += combined.retained;
+        causes.push(...combined.causes.map((cause) => ({ ...cause, component: name })));
+      }
+      const server: HerdrDaemonShutdownReceipt = Object.freeze({
+        clean: true,
+        retained: 0,
+        excluded: true,
+        lifetime: HERDR_SERVER_LIFETIME,
+        reason: "independent-daemon-never-app-owned",
+      });
+      const receipt: HerdrShutdownReceipt = Object.freeze({
+        clean: retained === 0 && causes.length === 0,
+        retained,
+        causes: Object.freeze(causes),
+        components: Object.freeze(components),
+        server,
+      });
+      if (receipt.clean) cleanReceipt = receipt;
+      return receipt;
+    })().then(resolveFlight, rejectFlight);
+    void flight.then(() => {
+      if (drainFlight === flight) drainFlight = undefined;
+    }, () => {
+      if (drainFlight === flight) drainFlight = undefined;
+    });
+    return flight;
+  };
+
+  return Object.freeze({
+    beginShutdown,
+    drainOnQuit,
+    isQuiescing: () => quiescing,
   });
-  await Promise.all(pending);
 };
 
 const REMOTE_SCOPE_CLOSE_TIMEOUT_MS = 1_500;
@@ -85,10 +213,36 @@ export const makeBoundedRemoteClose = (
   closeScope: () => Promise<void>,
   timeoutMs = REMOTE_SCOPE_CLOSE_TIMEOUT_MS,
 ): (() => Promise<RemoteScopeCloseReceipt>) => {
-  let flight: Promise<RemoteScopeCloseReceipt> | undefined;
+  let completion: Promise<RemoteScopeCloseReceipt> | undefined;
+  let terminalReceipt: RemoteScopeCloseReceipt | undefined;
+  let boundedFlight: Promise<RemoteScopeCloseReceipt> | undefined;
+
+  const start = (): Promise<RemoteScopeCloseReceipt> => {
+    if (completion) return completion;
+    try {
+      completion = Promise.resolve(closeScope()).then(
+        (): RemoteScopeCloseReceipt => {
+          terminalReceipt = { status: "closed" };
+          return terminalReceipt;
+        },
+        (error): RemoteScopeCloseReceipt => {
+          terminalReceipt = { status: "failed", message: errorMessage(error) };
+          return terminalReceipt;
+        },
+      );
+    } catch (error) {
+      terminalReceipt = { status: "failed", message: errorMessage(error) };
+      completion = Promise.resolve(terminalReceipt);
+    }
+    return completion;
+  };
+
   return () => {
-    if (flight) return flight;
-    flight = new Promise<RemoteScopeCloseReceipt>((resolve) => {
+    if (terminalReceipt) return Promise.resolve(terminalReceipt);
+    if (boundedFlight) return boundedFlight;
+    const closeCompletion = start();
+    if (terminalReceipt) return Promise.resolve(terminalReceipt);
+    const flight = new Promise<RemoteScopeCloseReceipt>((resolve) => {
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const settle = (receipt: RemoteScopeCloseReceipt): void => {
@@ -102,17 +256,238 @@ export const makeBoundedRemoteClose = (
         timeoutMs,
       );
       (timer as unknown as { unref?: () => void }).unref?.();
-      try {
-        void Promise.resolve(closeScope()).then(
-          () => settle({ status: "closed" }),
-          (error) => settle({ status: "failed", message: errorMessage(error) }),
-        );
-      } catch (error) {
-        settle({ status: "failed", message: errorMessage(error) });
+      void closeCompletion.then(settle);
+    });
+    boundedFlight = flight;
+    void flight.then(() => {
+      if (boundedFlight === flight) boundedFlight = undefined;
+    });
+    return boundedFlight;
+  };
+};
+
+interface TrackedHerdrRemoteScope {
+  readonly close: () => Promise<RemoteScopeCloseReceipt>;
+  closeFlight?: Promise<RemoteScopeCloseReceipt>;
+  receipt?: RemoteScopeCloseReceipt;
+}
+
+export interface HerdrRemoteScopeShutdownTracker extends HerdrShutdownPart {
+  readonly isQuiescing: () => boolean;
+  readonly trackOperation: <A>(operation: Promise<A>) => Promise<A>;
+  readonly registerScope: (
+    close: () => Promise<RemoteScopeCloseReceipt>,
+  ) => () => Promise<void>;
+}
+
+export interface HerdrOperationShutdownTracker extends HerdrShutdownPart {
+  readonly isQuiescing: () => boolean;
+  readonly run: (operation: () => Promise<void>) => Promise<void>;
+}
+
+/** Track background Herdr work that is launched outside the layer scope. */
+export const createHerdrOperationShutdownTracker = (
+  code: string,
+  timeoutMs = 2_000,
+): HerdrOperationShutdownTracker => {
+  let quiescing = false;
+  const operations = new Set<Promise<void>>();
+  const failures: HerdrShutdownCause[] = [];
+  let drainFlight: Promise<HerdrComponentShutdownReceipt> | undefined;
+  let cleanReceipt: HerdrComponentShutdownReceipt | undefined;
+
+  const beginShutdown = (): void => {
+    quiescing = true;
+  };
+
+  const run = (operation: () => Promise<void>): Promise<void> => {
+    if (quiescing) return Promise.resolve();
+    let flight: Promise<void>;
+    try {
+      flight = Promise.resolve(operation());
+    } catch (error) {
+      flight = Promise.reject(error);
+    }
+    operations.add(flight);
+    void flight.then(
+      () => operations.delete(flight),
+      (error) => {
+        operations.delete(flight);
+        if (quiescing) {
+          failures.push({ code: `${code}-failed`, message: herdrShutdownMessage(error) });
+        }
+      },
+    );
+    return flight;
+  };
+
+  const drainOnQuit = (): Promise<HerdrComponentShutdownReceipt> => {
+    beginShutdown();
+    if (cleanReceipt) return Promise.resolve(cleanReceipt);
+    if (drainFlight) return drainFlight;
+    const flight = (async (): Promise<HerdrComponentShutdownReceipt> => {
+      const settled = await awaitHerdrPromiseFixedPoint(
+        () => [...operations],
+        timeoutMs,
+      );
+      const causes = [...failures];
+      if (!settled || operations.size > 0) {
+        causes.push({
+          code: `${code}-retained`,
+          message: `${operations.size} ${code} operation(s) did not settle before shutdown timeout`,
+        });
       }
+      const receipt = operations.size === 0 && causes.length === 0
+        ? cleanHerdrComponentReceipt()
+        : herdrComponentReceipt(operations.size, causes);
+      if (receipt.clean) cleanReceipt = receipt;
+      return receipt;
+    })();
+    drainFlight = flight;
+    void flight.then(() => {
+      if (drainFlight === flight) drainFlight = undefined;
+    }, () => {
+      if (drainFlight === flight) drainFlight = undefined;
     });
     return flight;
   };
+
+  return Object.freeze({
+    beginShutdown,
+    drainOnQuit,
+    isQuiescing: () => quiescing,
+    run,
+  });
+};
+
+/**
+ * Shutdown accounting for Effect scopes that back Herdr mirror forwards.
+ * A failed or timed-out close remains a retained scope, while a later proven
+ * close removes that exact scope and allows a retry to converge cleanly.
+ */
+export const createHerdrRemoteScopeShutdownTracker = (
+  timeoutMs = 2_000,
+): HerdrRemoteScopeShutdownTracker => {
+  let quiescing = false;
+  const operations = new Set<Promise<unknown>>();
+  const scopes = new Set<TrackedHerdrRemoteScope>();
+  let drainFlight: Promise<HerdrComponentShutdownReceipt> | undefined;
+  let cleanReceipt: HerdrComponentShutdownReceipt | undefined;
+
+  const trackOperation = <A>(operation: Promise<A>): Promise<A> => {
+    operations.add(operation);
+    void operation.then(
+      () => operations.delete(operation),
+      () => operations.delete(operation),
+    );
+    return operation;
+  };
+
+  const requestClose = (
+    scope: TrackedHerdrRemoteScope,
+  ): Promise<RemoteScopeCloseReceipt> => {
+    if (scope.closeFlight) return scope.closeFlight;
+    let closeFlight: Promise<RemoteScopeCloseReceipt>;
+    try {
+      closeFlight = Promise.resolve(scope.close()).catch(
+        (error): RemoteScopeCloseReceipt => ({
+          status: "failed",
+          message: herdrShutdownMessage(error),
+        }),
+      );
+    } catch (error) {
+      closeFlight = Promise.resolve({
+        status: "failed",
+        message: herdrShutdownMessage(error),
+      });
+    }
+    scope.closeFlight = trackOperation(closeFlight);
+    void scope.closeFlight.then((receipt) => {
+      scope.receipt = receipt;
+      if (receipt.status === "closed") scopes.delete(scope);
+      if (scope.closeFlight === closeFlight) scope.closeFlight = undefined;
+    });
+    return scope.closeFlight;
+  };
+
+  const startScopeCloses = (): void => {
+    for (const scope of scopes) void requestClose(scope);
+  };
+
+  const beginShutdown = (): void => {
+    quiescing = true;
+    startScopeCloses();
+  };
+
+  const registerScope = (
+    close: () => Promise<RemoteScopeCloseReceipt>,
+  ): (() => Promise<void>) => {
+    const scope: TrackedHerdrRemoteScope = { close };
+    scopes.add(scope);
+    const closeRegisteredScope = (): Promise<void> =>
+      requestClose(scope).then(() => undefined);
+    if (quiescing) void closeRegisteredScope();
+    return closeRegisteredScope;
+  };
+
+  const drainOnQuit = (): Promise<HerdrComponentShutdownReceipt> => {
+    beginShutdown();
+    if (cleanReceipt) return Promise.resolve(cleanReceipt);
+    if (drainFlight) return drainFlight;
+    const flight = (async (): Promise<HerdrComponentShutdownReceipt> => {
+      startScopeCloses();
+      const settled = await awaitHerdrPromiseFixedPoint(
+        () => [...operations],
+        timeoutMs,
+      );
+      const causes: HerdrShutdownCause[] = [];
+      for (const scope of scopes) {
+        if (scope.receipt?.status === "failed") {
+          causes.push({
+            code: "mirror-forward-close-failed",
+            message: scope.receipt.message,
+          });
+        } else if (scope.receipt?.status === "timed-out") {
+          causes.push({
+            code: "mirror-forward-close-timed-out",
+            message: `mirror forward scope did not close within ${scope.receipt.timeoutMs}ms`,
+          });
+        } else {
+          causes.push({
+            code: "mirror-forward-close-retained",
+            message: "mirror forward scope has no terminal close receipt",
+          });
+        }
+      }
+      if (!settled || operations.size > 0) {
+        causes.push({
+          code: "mirror-forward-operation-retained",
+          message: `${operations.size} mirror forward operation(s) did not settle before shutdown timeout`,
+        });
+      }
+      const retained = scopes.size + operations.size;
+      const receipt = retained === 0 && causes.length === 0
+        ? cleanHerdrComponentReceipt()
+        : herdrComponentReceipt(retained, causes);
+      if (receipt.clean) cleanReceipt = receipt;
+      return receipt;
+    })();
+    drainFlight = flight;
+    void flight.then(() => {
+      if (drainFlight === flight) drainFlight = undefined;
+    }, () => {
+      if (drainFlight === flight) drainFlight = undefined;
+    });
+    return flight;
+  };
+
+  return Object.freeze({
+    beginShutdown,
+    drainOnQuit,
+    isQuiescing: () => quiescing,
+    trackOperation,
+    registerScope,
+  });
 };
 
 const herdrArgs = (
@@ -210,7 +585,6 @@ class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
 
   constructor(
     private readonly runPromise: RunPromise,
-    private readonly owner: Scope.Scope,
     private readonly transport: Context.Tag.Service<typeof HerdrTransport>,
     private readonly hostId: HerdrHostId,
     private readonly args: ReadonlyArray<string>,
@@ -252,7 +626,7 @@ class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
   private async start(): Promise<void> {
     try {
       const scope = await this.runPromise(
-        Scope.fork(this.owner, ExecutionStrategy.sequential),
+        Scope.make(ExecutionStrategy.sequential),
       );
       this.markScopeReady(scope);
       if (this.closeRequested) {
@@ -355,6 +729,10 @@ export class HerdrPlane extends Context.Tag("@vellum/HerdrPlane")<
     readonly serveCatalog: HostServeCatalog;
     /** Server spawn semantics; no app shutdown cleanup is implied. */
     readonly serverLifetime: HerdrServerLifetime;
+    /** Synchronously and permanently refuses new Herdr-owned activity. */
+    readonly beginShutdown: () => void;
+    readonly drainOnQuit: () => Promise<HerdrShutdownReceipt>;
+    readonly isQuiescing: () => boolean;
     readonly start: Effect.Effect<void>;
     readonly warm: Effect.Effect<void>;
   }
@@ -444,25 +822,44 @@ export const HerdrPlaneLive = Layer.scoped(
       }
     };
 
-    const openMirrorForward = async (hostId: string) => {
+    const mirrorForwardPart = createHerdrRemoteScopeShutdownTracker();
+
+    const openMirrorForward = (hostId: string) => {
+      if (mirrorForwardPart.isQuiescing()) {
+        return Promise.reject(new Error("Herdr mirror forwards are shutting down"));
+      }
       const known = asHostId(hostId);
       if (!known || known === "local") {
-        throw new Error(`mirror forward requires an ssh herdr host (got ${hostId})`);
+        return Promise.reject(new Error(`mirror forward requires an ssh herdr host (got ${hostId})`));
       }
-      const scope = await runPromise(Scope.fork(owner, ExecutionStrategy.sequential));
-      try {
-        const lease = await runPromise(
-          transport.forwardMirror(known).pipe(Scope.extend(scope)),
+      const operation = (async () => {
+        // Independent scope: the Herdr shutdown receipt is its sole lifetime
+        // owner. Forking under the layer owner would let Effect auto-close a
+        // late scope before the bounded Herdr finalizer gets to observe it.
+        const scope = await runPromise(Scope.make(ExecutionStrategy.sequential));
+        const boundedScopeClose = makeBoundedRemoteClose(
+          () => runPromise(Scope.close(scope, Exit.void)),
         );
-        return {
-          localSocket: String(lease.localSocket),
-          closed: runPromise(lease.exitCode).then(() => undefined, () => undefined),
-          close: () => runPromise(Scope.close(scope, Exit.void)),
-        };
-      } catch (error) {
-        await runPromise(Scope.close(scope, Exit.void));
-        throw error;
-      }
+        const close = mirrorForwardPart.registerScope(boundedScopeClose);
+        try {
+          const lease = await runPromise(
+            transport.forwardMirror(known).pipe(Scope.extend(scope)),
+          );
+          if (mirrorForwardPart.isQuiescing()) {
+            await close();
+            throw new Error("Herdr mirror forwards are shutting down");
+          }
+          return {
+            localSocket: String(lease.localSocket),
+            closed: runPromise(lease.exitCode).then(() => undefined, () => undefined),
+            close,
+          };
+        } catch (error) {
+          await close();
+          throw error;
+        }
+      })();
+      return mirrorForwardPart.trackOperation(operation);
     };
 
     const spawnHerdr: HerdrSpawnFn = (hostId, args, session) => {
@@ -491,7 +888,6 @@ export const HerdrPlaneLive = Layer.scoped(
       }
       const child = new EffectHerdrScopeClient(
         runPromise,
-        owner,
         transport,
         known,
         args,
@@ -506,6 +902,7 @@ export const HerdrPlaneLive = Layer.scoped(
       spawnHerdr,
       (hostId, remoteName, bytes) =>
         runOwned(transport.stageImage(hostId, remoteName, bytes)),
+      { manageObservePoolOnShutdown: false },
     );
 
     // Host removal/edit revocation: reconciliation (mirrors.ts) calls these
@@ -517,15 +914,17 @@ export const HerdrPlaneLive = Layer.scoped(
       detachByHost: (hostId) => streams.detachByHost(hostId, "host_revoked"),
       releaseByHost: (hostId) => observePool.releaseByHost(hostId),
       teardownEndpoint: (endpoint) => {
-        void runOwned(
-          Effect.gen(function* () {
-            const parsed = yield* parseSshEndpoint(endpoint);
-            yield* ssh.teardown(parsed);
-          }).pipe(Effect.ignore),
-        ).catch(() => {
-          // Best-effort: a rejected runtime bridge must never crash the
-          // reconciliation path that triggered it.
-        });
+        void mirrorForwardPart.trackOperation(
+          runOwned(
+            Effect.gen(function* () {
+              const parsed = yield* parseSshEndpoint(endpoint);
+              yield* ssh.teardown(parsed);
+            }).pipe(Effect.ignore),
+          ).catch(() => {
+            // Reconciliation remains contained, while the exact promise stays
+            // in the quit registry until its scope has actually settled.
+          }),
+        );
       },
     };
 
@@ -644,30 +1043,55 @@ export const HerdrPlaneLive = Layer.scoped(
       },
     });
 
-    // Warm Tailscale peer cache once at start (soft-fail if CLI missing).
-    void tailscalePeerCache.refresh();
+    const warmPart = createHerdrOperationShutdownTracker("herdr-warm");
+
+    const shutdown = createHerdrShutdownController({
+      warm: warmPart,
+      "mirror-forwards": mirrorForwardPart,
+      service,
+      streams,
+      observers: observePool,
+      mirrors,
+      "service-map": serviceMap,
+      "serve-catalog": serveCatalog,
+    });
+
+    // Warm Tailscale peer cache once at start (soft-fail if CLI missing), but
+    // retain the admitted operation in the same quit receipt.
+    void warmPart.run(() => tailscalePeerCache.refresh().then(() => undefined));
 
     yield* Effect.addFinalizer(() =>
-      Effect.promise(() =>
-        runHerdrCleanupSteps([
-          () => streams.detachAllOnQuit("runtime_dispose"),
-          () => mirrors.stopAll(),
-          () => serviceMap.stop(),
-        ]),
-      ),
+      Effect.promise(async () => {
+        const receipt = await shutdown.drainOnQuit();
+        if (!receipt.clean) {
+          const detail = receipt.causes
+            .map((cause) => `${cause.component}:${cause.code}=${cause.message}`)
+            .join("; ");
+          throw new Error(
+            `Herdr shutdown retained ${receipt.retained} operation(s)${detail ? `: ${detail}` : ""}`,
+          );
+        }
+      }),
     );
 
-    const warm = transport.warm.pipe(Effect.ignore);
-    const start = warm.pipe(
-      Effect.zipRight(
-        Effect.sync(() => {
-          mirrors.startAll();
-          // Soft warm serve catalogs for known herdr hosts (local first).
-          for (const h of listHerdrHosts()) {
-            void serveCatalog.refresh(h.id);
-          }
-        }),
-      ),
+    const warm = Effect.promise(() => warmPart.run(() =>
+      runPromise(transport.warm.pipe(Effect.ignore)),
+    ));
+    const start = Effect.suspend(() =>
+      shutdown.isQuiescing()
+        ? Effect.void
+        : warm.pipe(
+            Effect.zipRight(
+              Effect.sync(() => {
+                if (shutdown.isQuiescing()) return;
+                mirrors.startAll();
+                // Soft warm serve catalogs for known herdr hosts (local first).
+                for (const h of listHerdrHosts()) {
+                  void serveCatalog.refresh(h.id);
+                }
+              }),
+            ),
+          ),
     );
 
     return HerdrPlane.of({
@@ -678,6 +1102,9 @@ export const HerdrPlaneLive = Layer.scoped(
       serviceMap,
       serveCatalog,
       serverLifetime: HERDR_SERVER_LIFETIME,
+      beginShutdown: shutdown.beginShutdown,
+      drainOnQuit: shutdown.drainOnQuit,
+      isQuiescing: shutdown.isQuiescing,
       start,
       warm,
     });

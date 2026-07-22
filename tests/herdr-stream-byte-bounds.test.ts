@@ -18,6 +18,15 @@ import {
   type ObserveSpawnFn,
 } from "../src/main/vellum/herdr/observe-pool";
 import { LocalMirrorTransport } from "../src/main/vellum/herdr/mirror-transport";
+import type { AppProcessSignalReceipt } from "../src/main/vellum/app-process-plane";
+
+const signalReceipt = (signal: "SIGTERM" | "SIGKILL"): AppProcessSignalReceipt => ({
+  signal,
+  reason: "test",
+  attempted: true,
+  decision: { ok: true, mode: "child" },
+  via: "child.kill",
+});
 
 const waitFor = async (cond: () => boolean, ms = 4_000): Promise<void> => {
   const deadline = Date.now() + ms;
@@ -84,8 +93,14 @@ interface FakeLocalClient extends HerdrClientIo {
 const localClient = (child: FakeLocalClient): HerdrSpawnedClient => ({
   kind: "local-process",
   child,
-  terminate: () => child.kill("SIGTERM"),
-  forceTerminate: () => child.kill("SIGKILL"),
+  terminate: () => {
+    child.kill("SIGTERM");
+    return signalReceipt("SIGTERM");
+  },
+  forceTerminate: () => {
+    child.kill("SIGKILL");
+    return signalReceipt("SIGKILL");
+  },
 });
 
 /** EventEmitter-based control child so `child.on("close"/"error")` actually fires. */

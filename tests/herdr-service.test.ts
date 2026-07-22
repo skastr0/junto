@@ -551,4 +551,40 @@ describe("HerdrService with mock runner", () => {
     expect(res).toEqual({ ok: true, data: { paneId: "w1:p1", agentStatus: "idle" } });
   });
 
+  it("cuts late commands and retains an admitted runner until its exact settlement", async () => {
+    vi.useFakeTimers();
+    let release!: (result: CliResult) => void;
+    const admitted = new Promise<CliResult>((resolve) => {
+      release = resolve;
+    });
+    const runner = vi.fn<HerdrRunner>(() => admitted);
+    const svc = new HerdrService(
+      runner,
+      () => undefined,
+      undefined,
+      { shutdownDrainTimeoutMs: 25 },
+    );
+    try {
+      const operation = svc.listSessions("local");
+      svc.beginShutdown();
+      await expect(svc.ensureServer("local")).resolves.toMatchObject({
+        ok: false,
+        message: "Herdr service is shutting down",
+      });
+      expect(runner).toHaveBeenCalledOnce();
+
+      const first = svc.drainOnQuit();
+      expect(svc.drainOnQuit()).toBe(first);
+      await vi.advanceTimersByTimeAsync(25);
+      await expect(first).resolves.toMatchObject({ clean: false, retained: 1 });
+
+      release(ok(JSON.stringify({ sessions: [] })));
+      await expect(operation).resolves.toEqual({ ok: true, data: [] });
+      await expect(svc.drainOnQuit()).resolves.toMatchObject({ clean: true, retained: 0 });
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
 });
