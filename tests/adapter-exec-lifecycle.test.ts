@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 interface LifecycleReceipt {
+  readonly leaderResultOk: boolean;
+  readonly leaderExitedGrandchildAlive: boolean;
   readonly pendingOk: boolean;
   readonly parentAlive: boolean;
   readonly grandchildAlive: boolean;
@@ -18,7 +20,9 @@ const runLifecycleFixture = async (): Promise<LifecycleReceipt> => {
     "fixtures",
     "adapter-exec-lifecycle-child.ts",
   );
-  const child = spawn(process.execPath, [fixture], {
+  // This fixture imports the TypeScript adapter directly. Vitest itself runs
+  // under Node, so use Bun explicitly instead of inheriting process.execPath.
+  const child = spawn("bun", [fixture], {
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stdout = "";
@@ -54,6 +58,8 @@ const runLifecycleFixture = async (): Promise<LifecycleReceipt> => {
 describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () => {
   it("terminates an owned parent and grandchild and rejects every late spawn", async () => {
     await expect(runLifecycleFixture()).resolves.toEqual({
+      leaderResultOk: true,
+      leaderExitedGrandchildAlive: false,
       pendingOk: false,
       parentAlive: false,
       grandchildAlive: false,

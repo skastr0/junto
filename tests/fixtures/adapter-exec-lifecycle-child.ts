@@ -44,7 +44,22 @@ const markerPath = join(root, "late-spawned");
 const workerPath = join(import.meta.dirname, "adapter-exec-worker.ts");
 
 try {
-  const pending = runCli(process.execPath, [workerPath, "parent", pidsPath], 30_000);
+  const leader = await runCli(
+    process.execPath,
+    [workerPath, "leader-exits-first", pidsPath],
+    30_000,
+  );
+  const leaderPids = JSON.parse(await readFile(pidsPath, "utf8")) as {
+    readonly grandchildPid: number;
+  };
+  await waitUntil(() => !processAlive(leaderPids.grandchildPid));
+  await rm(pidsPath, { force: true });
+
+  const pending = runCli(
+    process.execPath,
+    [workerPath, "parent-ignore-term", pidsPath],
+    30_000,
+  );
   await waitUntil(() => pathExists(pidsPath));
   const pids = JSON.parse(await readFile(pidsPath, "utf8")) as {
     readonly parentPid: number;
@@ -63,6 +78,8 @@ try {
     1_000,
   );
   const receipt = {
+    leaderResultOk: leader.ok,
+    leaderExitedGrandchildAlive: processAlive(leaderPids.grandchildPid),
     pendingOk: pendingResult.ok,
     parentAlive: processAlive(pids.parentPid),
     grandchildAlive: processAlive(pids.grandchildPid),

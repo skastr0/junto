@@ -30,6 +30,8 @@ interface OwnedAdapterChild {
   readonly child: ChildProcessWithoutNullStreams;
   readonly processGroupId?: number;
   readonly owned?: OwnedProcess;
+  cleanupTimer?: ReturnType<typeof setTimeout>;
+  released?: boolean;
 }
 
 const ownedAdapterChildren = new Set<OwnedAdapterChild>();
@@ -45,7 +47,6 @@ const signalOwnedAdapterChild = (
   owned: OwnedAdapterChild,
   signal: NodeJS.Signals,
 ): void => {
-  if (owned.child.exitCode !== null || owned.child.signalCode !== null) return;
   if (owned.owned) {
     signalOwned(owned.owned, signal as TerminatingSignal);
     return;
@@ -56,6 +57,30 @@ const signalOwnedAdapterChild = (
   } catch {
     /* ignore */
   }
+};
+
+const releaseOwnedAdapterChild = (owned: OwnedAdapterChild): void => {
+  if (owned.released) return;
+  owned.released = true;
+  if (owned.cleanupTimer !== undefined) clearTimeout(owned.cleanupTimer);
+  releaseOwned(owned.owned);
+  ownedAdapterChildren.delete(owned);
+};
+
+const QUIT_KILL_GRACE_MS = 1_000;
+
+const terminateOwnedAdapterChild = (owned: OwnedAdapterChild): void => {
+  if (owned.released) return;
+  if (owned.cleanupTimer === undefined) {
+    owned.cleanupTimer = setTimeout(() => {
+      // The group can outlive its leader. Keep the branded capability until
+      // this bounded escalation has signalled any remaining descendants.
+      signalOwnedAdapterChild(owned, "SIGKILL");
+      releaseOwnedAdapterChild(owned);
+    }, QUIT_KILL_GRACE_MS);
+    owned.cleanupTimer.unref?.();
+  }
+  signalOwnedAdapterChild(owned, "SIGTERM");
 };
 
 /**
@@ -70,7 +95,7 @@ export const terminateAdapterChildrenOnQuit = (): void => {
   if (adapterProcessesQuiescing) return;
   adapterProcessesQuiescing = true;
   for (const owned of ownedAdapterChildren) {
-    signalOwnedAdapterChild(owned, "SIGTERM");
+    terminateOwnedAdapterChild(owned);
   }
 };
 
@@ -145,9 +170,13 @@ const runOwnedFile = (
       clearTimeout(timer);
       // A one-shot adapter command never owns a persistent descendant. Reap
       // anything that outlived its group leader before forgetting the group.
-      signalOwnedAdapterChild(owned, "SIGTERM");
-      releaseOwned(owned.owned);
-      ownedAdapterChildren.delete(owned);
+      signalOwnedAdapterChild(
+        owned,
+        timedOut || bufferExceeded ? "SIGKILL" : "SIGTERM",
+      );
+      // During app shutdown the capability must survive a leader exit long
+      // enough to perform the bounded TERM -> KILL group cleanup.
+      if (owned.cleanupTimer === undefined) releaseOwnedAdapterChild(owned);
       resolve(result);
     };
 
