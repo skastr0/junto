@@ -85,23 +85,52 @@ const initializeAppServer = async (): Promise<string> => {
       terminateOwnedChild();
     };
 
-    const fail = (message: string) => {
+    const failAndTerminate = (message: string) => {
       if (settled) return;
       settled = true;
       cleanup();
       reject(new Error(message));
     };
 
+    const terminalStatus = (
+      code: number | null,
+      signal: NodeJS.Signals | null,
+    ): string => {
+      if (signal !== null) return `signal ${signal}`;
+      if (code !== null) return `code ${code}`;
+      return "no exit status";
+    };
+
+    const settleTerminalFailure = (message: string): void => {
+      // exit/error/close means the child is already gone or failed to start.
+      // Release its capability directly; attempting another signal here could
+      // only obscure the real terminal status.
+      releaseAuthority();
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error(`${message}${stderr.trim() ? `: ${stderr.trim()}` : ""}`));
+    };
+
     const timer = setTimeout(() => {
-      fail(`codex app-server initialize timed out${stderr ? `: ${stderr}` : ""}`);
+      failAndTerminate(`codex app-server initialize timed out${stderr ? `: ${stderr}` : ""}`);
     }, 6_000);
 
-    child.once("exit", releaseAuthority);
-    child.once("close", releaseAuthority);
+    child.once("exit", (code, signal) => {
+      settleTerminalFailure(
+        `codex app-server exited before initialize response (${terminalStatus(code, signal)})`,
+      );
+    });
+    child.once("close", (code, signal) => {
+      settleTerminalFailure(
+        `codex app-server closed before initialize response (${terminalStatus(code, signal)})`,
+      );
+    });
 
     child.on("error", (error) => {
-      fail(error.message);
-      releaseAuthority();
+      settleTerminalFailure(
+        `codex app-server failed before initialize response: ${error.message}`,
+      );
     });
 
     child.stderr?.on("data", (chunk: Buffer) => {

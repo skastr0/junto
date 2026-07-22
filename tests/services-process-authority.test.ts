@@ -135,6 +135,57 @@ describe("legacy service child authority", () => {
     expect(child.kill).toHaveBeenCalledTimes(1);
   });
 
+  it("fails promptly when Codex exits before the initialize response", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    mocks.spawn.mockReturnValue(child);
+
+    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.spawn).toHaveBeenCalledOnce();
+
+    child.stderr.write("startup rejected\n");
+    child.emit("exit", 17, null);
+    // Node normally follows exit with close; the second terminal event must
+    // neither replace the original diagnostic nor trigger another teardown.
+    child.emit("close", 17, null);
+    const result = await resultPromise;
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.message).toBe(
+        "codex app-server exited before initialize response (code 17): startup rejected",
+      );
+    }
+    expect(vi.getTimerCount()).toBe(0);
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(signalOwned(capturedHandle(), "SIGKILL").attempted).toBe(false);
+  });
+
+  it("fails promptly when Codex closes before the initialize response", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    mocks.spawn.mockReturnValue(child);
+
+    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.spawn).toHaveBeenCalledOnce();
+
+    child.stderr.write("transport lost\n");
+    child.emit("close", null, "SIGKILL");
+    const result = await resultPromise;
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.message).toBe(
+        "codex app-server closed before initialize response (signal SIGKILL): transport lost",
+      );
+    }
+    expect(vi.getTimerCount()).toBe(0);
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
+  });
+
   it("bounds a non-responsive Codex app-server probe and releases authority", async () => {
     vi.useFakeTimers();
     const child = new FakeChild();
