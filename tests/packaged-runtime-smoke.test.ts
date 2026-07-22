@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DARWIN_UNIX_SOCKET_PATH_MAX_BYTES,
   assertDarwinUnixSocketPathFits,
@@ -8,11 +10,41 @@ import {
   descendantRows,
   hasDebugAuthority,
   modeString,
+  observeSpawnedRuntimeChild,
   parseDoctorReceipt,
   parseProcessRows,
   processRoles,
   survivingProcessRows,
+  terminateSpawnedRuntime,
 } from "../scripts/packaged-runtime-smoke";
+import { admitChildProcess, releaseOwned } from "../src/main/vellum/process-signal";
+
+class FakeRuntimeChild extends EventEmitter {
+  exitCode: number | null = null;
+  signalCode: NodeJS.Signals | null = null;
+  readonly signals: NodeJS.Signals[] = [];
+  onSignal: ((signal: NodeJS.Signals) => void) | undefined;
+
+  readonly kill = (signal: NodeJS.Signals = "SIGTERM"): boolean => {
+    this.signals.push(signal);
+    this.onSignal?.(signal);
+    return true;
+  };
+
+  close(code: number | null, signal: NodeJS.Signals | null): void {
+    this.exitCode = code;
+    this.signalCode = signal;
+    this.emit("close", code, signal);
+  }
+
+  asChild(): ChildProcessWithoutNullStreams {
+    return this as unknown as ChildProcessWithoutNullStreams;
+  }
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const processFixture = `
   900 1 /release/Vellum.app/Contents/MacOS/Vellum --user-data-dir=/tmp/isolated
@@ -124,5 +156,85 @@ describe("packaged runtime smoke receipts", () => {
         "/private/tmp/vellum-smoke-XXXXXX/home/.vellum/browser/control.sock",
       ),
     ).not.toThrow();
+  });
+});
+
+describe("packaged runtime smoke child lifecycle", () => {
+  it("records error-before-close without treating the error as terminal", async () => {
+    vi.useFakeTimers();
+    const child = new FakeRuntimeChild();
+    const lifecycle = observeSpawnedRuntimeChild(child.asChild());
+    let settled = false;
+    const terminal = lifecycle.waitForClose(1_000).then((result) => {
+      settled = true;
+      return result;
+    });
+
+    child.emit("error", new Error("spawn failed"));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(lifecycle.terminal()).toBeUndefined();
+    expect(lifecycle.error()?.message).toBe("spawn failed");
+
+    child.close(null, null);
+    await expect(terminal).resolves.toMatchObject({
+      code: null,
+      signal: null,
+      error: expect.objectContaining({ message: "spawn failed" }),
+    });
+    expect(child.listenerCount("error")).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("contains an error during TERM and still waits for close", async () => {
+    vi.useFakeTimers();
+    const child = new FakeRuntimeChild();
+    const lifecycle = observeSpawnedRuntimeChild(child.asChild());
+    const owned = admitChildProcess({ source: "packaged-smoke-test", child });
+    child.onSignal = (signal) => {
+      if (signal === "SIGTERM") child.emit("error", new Error("TERM delivery failed"));
+    };
+
+    try {
+      const cleanup = terminateSpawnedRuntime(lifecycle, owned, "child", 1_000);
+      await Promise.resolve();
+      expect(child.signals).toEqual(["SIGTERM"]);
+      expect(lifecycle.terminal()).toBeUndefined();
+      expect(lifecycle.error()?.message).toBe("TERM delivery failed");
+      expect(vi.getTimerCount()).toBe(1);
+
+      child.close(0, null);
+      await cleanup;
+      expect(child.signals).toEqual(["SIGTERM"]);
+      expect(child.listenerCount("error")).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      releaseOwned(owned);
+    }
+  });
+
+  it("forces a TERM-resistant child fallback only through its exact handle", async () => {
+    vi.useFakeTimers();
+    const child = new FakeRuntimeChild();
+    const lifecycle = observeSpawnedRuntimeChild(child.asChild());
+    const owned = admitChildProcess({ source: "packaged-smoke-test", child });
+    child.onSignal = (signal) => {
+      if (signal === "SIGKILL") child.close(null, "SIGKILL");
+    };
+
+    try {
+      const cleanup = terminateSpawnedRuntime(lifecycle, owned, "child", 100);
+      expect(child.signals).toEqual(["SIGTERM"]);
+      expect(vi.getTimerCount()).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(100);
+      await cleanup;
+      expect(child.signals).toEqual(["SIGTERM", "SIGKILL"]);
+      expect(lifecycle.terminal()).toMatchObject({ code: null, signal: "SIGKILL" });
+      expect(child.listenerCount("error")).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      releaseOwned(owned);
+    }
   });
 });
