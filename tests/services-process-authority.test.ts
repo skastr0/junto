@@ -86,11 +86,16 @@ describe("legacy service child authority", () => {
       via: "none",
     });
     expect(child.kill).not.toHaveBeenCalled();
+    expect(child.stdout.destroyed).toBe(true);
+    expect(child.stderr.destroyed).toBe(true);
+    expect(child.stdout.listenerCount("data")).toBe(0);
+    expect(child.stderr.listenerCount("data")).toBe(0);
   });
 
   it("bounds a timed-out runProcess with TERM then KILL and releases authority", async () => {
     vi.useFakeTimers();
     const child = new FakeChild();
+    child.kill.mockReturnValue(false);
     mocks.spawn.mockReturnValue(child);
 
     const resultPromise = runProcess("stuck", [], { timeoutMs: 25 }).catch((error) => error);
@@ -98,11 +103,22 @@ describe("legacy service child authority", () => {
 
     expect(await resultPromise).toEqual(new Error("stuck timed out after 25ms"));
     expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+    expect(child.stdout.destroyed).toBe(true);
+    expect(child.stderr.destroyed).toBe(true);
+    expect(child.stdout.listenerCount("data")).toBe(0);
+    expect(child.stderr.listenerCount("data")).toBe(0);
+
+    // Even a child that refused TERM can no longer feed an abandoned result.
+    child.stdout.emit("data", Buffer.alloc(1024 * 1024, "x"));
+    child.stderr.emit("data", Buffer.alloc(1024 * 1024, "y"));
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
     expect(child.kill).toHaveBeenCalledTimes(2);
+    expect(child.stdout.listenerCount("data")).toBe(0);
+    expect(child.stderr.listenerCount("data")).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("cancels runProcess escalation when exit is observed", async () => {
@@ -137,6 +153,34 @@ describe("legacy service child authority", () => {
     expect(vi.getTimerCount()).toBe(0);
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
   });
+
+  it.each(["stdout", "stderr"] as const)(
+    "contains runProcess %s pipe errors and bounds teardown",
+    async (channel) => {
+      vi.useFakeTimers();
+      const child = new FakeChild();
+      mocks.spawn.mockReturnValue(child);
+
+      const resultPromise = runProcess("streaming", []).catch((error) => error);
+      child[channel].emit("error", new Error("pipe failed"));
+
+      expect(await resultPromise).toEqual(
+        new Error(`streaming ${channel} stream failed: pipe failed`),
+      );
+      expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+      expect(child.stdout.destroyed).toBe(true);
+      expect(child.stderr.destroyed).toBe(true);
+      expect(child.stdout.listenerCount("data")).toBe(0);
+      expect(child.stderr.listenerCount("data")).toBe(0);
+      expect(child.stdout.listenerCount("error")).toBe(1);
+      expect(child.stderr.listenerCount("error")).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+      expect(vi.getTimerCount()).toBe(0);
+      expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
+    },
+  );
 
   it("does not let a runProcess error during TERM cancel escalation", async () => {
     vi.useFakeTimers();

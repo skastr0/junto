@@ -38,7 +38,45 @@ export const runProcess = (
     let settled = false;
     let terminationStarted = false;
     let authorityReleased = false;
+    let outputStopped = false;
     let escalationTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const ignoreClosedPipeError = (): void => {
+      // A destroyed local pipe can still report its final asynchronous error.
+    };
+
+    const onStdoutData = (chunk: Buffer): void => {
+      if (settled || outputStopped) return;
+      stdout += chunk.toString("utf8");
+    };
+
+    const onStderrData = (chunk: Buffer): void => {
+      if (settled || outputStopped) return;
+      stderr += chunk.toString("utf8");
+    };
+
+    const stopOutput = (): void => {
+      if (outputStopped) return;
+      outputStopped = true;
+
+      child.stdout?.off("data", onStdoutData);
+      child.stdout?.off("error", onStdoutError);
+      child.stdout?.on("error", ignoreClosedPipeError);
+      child.stderr?.off("data", onStderrData);
+      child.stderr?.off("error", onStderrError);
+      child.stderr?.on("error", ignoreClosedPipeError);
+
+      try {
+        child.stdout?.destroy();
+      } catch {
+        // The operation is already settled; local endpoint cleanup is best effort.
+      }
+      try {
+        child.stderr?.destroy();
+      } catch {
+        // The operation is already settled; local endpoint cleanup is best effort.
+      }
+    };
 
     const releaseAuthority = (): void => {
       if (authorityReleased) return;
@@ -55,6 +93,7 @@ export const runProcess = (
       terminationStarted = true;
       escalationTimer = setTimeout(() => {
         escalationTimer = undefined;
+        stopOutput();
         signalOwned(owned, "SIGKILL");
         // Teardown is bounded even if the OS never reports a close event.
         releaseAuthority();
@@ -65,23 +104,36 @@ export const runProcess = (
       signalOwned(owned, "SIGTERM");
     };
 
+    const failOperation = (error: Error): void => {
+      if (!settled) {
+        settled = true;
+        if (timer) clearTimeout(timer);
+        stopOutput();
+        reject(error);
+      }
+      terminateOwnedChild();
+    };
+
+    function onStdoutError(error: Error): void {
+      failOperation(new Error(`${command} stdout stream failed: ${error.message}`));
+    }
+
+    function onStderrError(error: Error): void {
+      failOperation(new Error(`${command} stderr stream failed: ${error.message}`));
+    }
+
     const timer =
       options.timeoutMs === undefined
         ? undefined
         : setTimeout(() => {
             if (settled) return;
-            settled = true;
-            terminateOwnedChild();
-            reject(new Error(`${command} timed out after ${options.timeoutMs}ms`));
+            failOperation(new Error(`${command} timed out after ${options.timeoutMs}ms`));
           }, options.timeoutMs);
 
-    child.stdout?.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-    });
-
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
+    child.stdout?.on("data", onStdoutData);
+    child.stdout?.on("error", onStdoutError);
+    child.stderr?.on("data", onStderrData);
+    child.stderr?.on("error", onStderrError);
 
     child.once("exit", releaseAuthority);
 
@@ -89,19 +141,18 @@ export const runProcess = (
       // ChildProcess "error" is not proof of process death (kill/send and
       // stream failures can emit it while the child is still alive). Reject
       // promptly, but retain exact-child authority through bounded teardown.
-      if (!settled) {
-        settled = true;
-        if (timer) clearTimeout(timer);
-        reject(error);
-      }
-      terminateOwnedChild();
+      failOperation(error);
     });
 
     child.on("close", (code) => {
       releaseAuthority();
-      if (settled) return;
+      if (settled) {
+        stopOutput();
+        return;
+      }
       settled = true;
       if (timer) clearTimeout(timer);
+      stopOutput();
       resolve({ code, stdout, stderr });
     });
   });
