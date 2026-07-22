@@ -58,8 +58,10 @@ const validatePolicies = (runtimePolicy, packagePolicy) => {
     }
     seen.add(entry.path);
   }
-  if (seen.size !== 18) {
-    throw new Error(`macOS signing policy must name exactly 18 Mach-O objects, got ${seen.size}`);
+  // Inventory grows with native deps (e.g. node-pty prebuilds). Keep in lockstep
+  // with scripts/macos-runtime-policy.json machO[] — currently 24 objects.
+  if (seen.size !== 24) {
+    throw new Error(`macOS signing policy must name exactly 24 Mach-O objects, got ${seen.size}`);
   }
 };
 
