@@ -105,22 +105,23 @@ export interface AdapterQuitDrainResult {
 export const terminateAdapterChildrenOnQuit = (): Promise<AdapterQuitDrainResult> => {
   if (adapterQuitDrain) return adapterQuitDrain;
   adapterProcessesQuiescing = true;
-  const retainedAtQuiesce = [...ownedAdapterChildren]
-    .filter((owned) => owned.retainedStraggler)
-    .length;
   if (ownedAdapterChildren.size === 0) {
-    adapterQuitDrain = Promise.resolve({ clean: true, retained: 0 });
-    return adapterQuitDrain;
+    return Promise.resolve({ clean: true, retained: 0 });
   }
   for (const owned of ownedAdapterChildren) {
     terminateOwnedAdapterChild(owned);
   }
-  adapterQuitDrain = new Promise((resolve) => {
+  const inFlight = new Promise<AdapterQuitDrainResult>((resolve) => {
     const drainTimer = setTimeout(() => {
-      const retained = Math.max(retainedAtQuiesce, ownedAdapterChildren.size);
+      const retained = ownedAdapterChildren.size;
       resolve({ clean: retained === 0, retained });
     }, QUIT_KILL_GRACE_MS + LEADER_STREAM_DRAIN_GRACE_MS);
     drainTimer.unref?.();
+  });
+  adapterQuitDrain = inFlight.finally(() => {
+    // Quiescence is permanent, but a later retry must observe exact records
+    // that closed after an earlier bounded drain reported them retained.
+    adapterQuitDrain = undefined;
   });
   return adapterQuitDrain;
 };
