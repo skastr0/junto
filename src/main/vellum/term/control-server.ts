@@ -79,6 +79,8 @@ export const startTermControlServer = async (
   const leaseById = new Map<string, ControlLease>();
   /** Accepted clients must be explicitly drained on close; Server.close alone waits forever. */
   const sockets = new Set<Socket>();
+  let closing = false;
+  let closePromise: Promise<void> | undefined;
 
   const trackLease = (socket: Socket, lease: ControlLease): void => {
     leaseById.set(lease.leaseId, lease);
@@ -231,6 +233,10 @@ export const startTermControlServer = async (
   };
 
   const server: Server = createServer((socket) => {
+    if (closing) {
+      socket.destroy();
+      return;
+    }
     sockets.add(socket);
     let buf = "";
     let authed = false;
@@ -250,7 +256,10 @@ export const startTermControlServer = async (
 
     socket.setEncoding("utf8");
     socket.on("data", (chunk: string) => {
-      if (closed) return;
+      if (closed || closing) {
+        socket.destroy();
+        return;
+      }
       buf += chunk;
       if (buf.length > TERM_MAX_FRAME_BYTES) {
         fail("frame too large");
@@ -289,7 +298,7 @@ export const startTermControlServer = async (
           return;
         }
         void handle(req, socket).then((res) => {
-          if (socket.destroyed) return;
+          if (socket.destroyed || closing) return;
           try {
             socket.write(jsonLine(res));
           } catch {
@@ -326,20 +335,26 @@ export const startTermControlServer = async (
     socketPath,
     token,
     close: async () => {
+      if (closePromise) return closePromise;
+      closing = true;
       host.off("event", onHostEvent);
-      // Ask ordinary clients to finish first, then force a bounded shutdown for
-      // peers that keep a UDS connection open indefinitely.
-      for (const socket of sockets) socket.end();
-      await new Promise<void>((resolve) => setTimeout(resolve, 100));
-      for (const socket of sockets) socket.destroy();
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      });
-      try {
-        if (existsSync(socketPath)) unlinkSync(socketPath);
-      } catch {
-        // ignore
-      }
+      closePromise = (async () => {
+        // Stop accepting before draining existing peers, so no late command can
+        // arrive during the bounded grace period.
+        const serverClosed = new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        });
+        for (const socket of sockets) socket.end();
+        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        for (const socket of sockets) socket.destroy();
+        await serverClosed;
+        try {
+          if (existsSync(socketPath)) unlinkSync(socketPath);
+        } catch {
+          // ignore
+        }
+      })();
+      return closePromise;
     },
   };
 };

@@ -144,35 +144,51 @@ describe("TerminalRouter local path", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("quiesces before waiting for an in-flight remote connection", async () => {
+  it("waits for superseded endpoint dials before remote shutdown returns", async () => {
     const local = new LocalSessionHost(fakeSpawn());
     hosts.push(local);
     const router = new TerminalRouter(local);
     setHostsSnapshot([
       ...initialHosts,
-      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["terminal"] },
+      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio-a", capabilities: ["terminal"] },
     ]);
-    let releaseConnect: (() => void) | undefined;
-    const connectGate = new Promise<void>((resolve) => {
-      releaseConnect = resolve;
-    });
+    const gates = new Map<string, () => void>();
+    const cleanup: string[] = [];
     (router as unknown as { connectRemote: (...args: unknown[]) => Promise<never> }).connectRemote = async (
       _hostId,
-      _endpoint,
+      endpoint,
       _generation,
       admit,
     ) => {
-      await connectGate;
-      if (!(admit as () => boolean)()) throw new Error("connection revoked");
+      await new Promise<void>((resolve) => gates.set(endpoint as string, resolve));
+      if (!(admit as () => boolean)()) {
+        cleanup.push(endpoint as string);
+        throw new Error("connection revoked");
+      }
       throw new Error("test connection should not be admitted");
     };
 
-    const creating = router.create({ bindingId: "remote", hostId: "studio" });
+    const creatingA = router.create({ bindingId: "remote-a", hostId: "studio" });
+    await Promise.resolve();
+    setHostsSnapshot([
+      ...initialHosts,
+      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio-b", capabilities: ["terminal"] },
+    ]);
+    const creatingB = router.create({ bindingId: "remote-b", hostId: "studio" });
     await Promise.resolve();
     const closing = router.closeRemotes();
-    releaseConnect?.();
-    await expect(creating).rejects.toThrow(/revoked/);
+    let closeReturned = false;
+    void closing.then(() => {
+      closeReturned = true;
+    });
+    gates.get("studio-b")?.();
+    await expect(creatingB).rejects.toThrow(/revoked/);
+    await Promise.resolve();
+    expect(closeReturned).toBe(false);
+    gates.get("studio-a")?.();
+    await expect(creatingA).rejects.toThrow(/revoked/);
     await expect(closing).resolves.toBeUndefined();
+    expect(cleanup.sort()).toEqual(["studio-a", "studio-b"]);
     await expect(router.create({ bindingId: "later", hostId: "studio" })).rejects.toThrow(/stopping/);
   });
 

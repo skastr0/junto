@@ -158,4 +158,31 @@ describe("term control UDS", () => {
     ).resolves.toBeUndefined();
     expect(socket.destroyed).toBe(true);
   });
+
+  it("stops accepting late clients and commands when close begins", async () => {
+    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    const home = mkdtempSync(join(tmpdir(), "vellum-term-late-close-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeSpawn());
+    cleanups.push(() => host.shutdownAll("test"));
+    const server = await startTermControlServer(host, { home });
+    const active = createConnection(server.socketPath);
+    await new Promise<void>((resolve, reject) => {
+      active.once("connect", resolve);
+      active.once("error", reject);
+    });
+
+    const closing = server.close();
+    active.write(`${JSON.stringify({ token: server.token })}\n`);
+    active.write(`${JSON.stringify({ v: 1, id: "late", op: "create", bindingId: "late" })}\n`);
+    const late = createConnection(server.socketPath);
+    const lateOutcome = await new Promise<"connected" | "rejected">((resolve) => {
+      late.once("connect", () => resolve("connected"));
+      late.once("error", () => resolve("rejected"));
+    });
+    if (lateOutcome === "connected") late.destroy();
+
+    await closing;
+    expect(host.list()).toEqual([]);
+  });
 });

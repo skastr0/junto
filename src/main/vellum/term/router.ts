@@ -81,6 +81,8 @@ export class TerminalRouter extends EventEmitter {
     string,
     { readonly endpoint: string; readonly promise: Promise<RemoteEntry> }
   >();
+  /** Every dial remains visible until its scope has settled, even if superseded. */
+  private readonly inFlight = new Set<Promise<RemoteEntry>>();
   /** Once shutdown begins, this router cannot acquire another remote authority. */
   private quiescing = false;
   private generation = 0;
@@ -292,7 +294,7 @@ export class TerminalRouter extends EventEmitter {
   async closeRemotes(): Promise<void> {
     this.quiescing = true;
     this.unsubscribeHosts();
-    const inFlight = [...this.connecting.values()].map(({ promise }) => promise);
+    const inFlight = [...this.inFlight];
     this.connecting.clear();
     await Promise.allSettled(inFlight);
     for (const [id, entry] of [...this.remotes]) {
@@ -326,13 +328,15 @@ export class TerminalRouter extends EventEmitter {
 
     let promise!: Promise<RemoteEntry>;
     const generation = this.generation;
-    promise = this.connectRemote(hostId, endpoint, generation, () =>
+    const dialing = this.connectRemote(hostId, endpoint, generation, () =>
       !this.quiescing &&
       this.connecting.get(hostId)?.promise === promise &&
       findHostById(hostId)?.kind === "remote" &&
       findHostById(hostId)?.endpoint === endpoint &&
       generation === this.generation,
     );
+    promise = dialing.finally(() => this.inFlight.delete(promise));
+    this.inFlight.add(promise);
     this.connecting.set(hostId, { endpoint, promise });
     try {
       return await promise;
