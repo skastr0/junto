@@ -208,6 +208,37 @@ describe("HerdrStreamManager multi-stream concurrency", () => {
     expect(mgr.open({ hostId: "local", terminalId: "t3", cols: 80, rows: 24 }).ok).toBe(false);
   });
 
+  it("contains a throwing event sink while detaching every concurrent stream", () => {
+    const children: FakeProcess[] = [];
+    let observersStopped = 0;
+    const mgr = new HerdrStreamManager(
+      {
+        ...mockPool,
+        stopAll: () => {
+          observersStopped += 1;
+        },
+      },
+      () => {
+        const child = new FakeProcess();
+        children.push(child);
+        return child;
+      },
+      async () => "/tmp/img",
+    );
+    mgr.setSink(() => {
+      throw new Error("renderer subscriber failed");
+    });
+    expect(mgr.open({ hostId: "local", terminalId: "t1", cols: 80, rows: 24 }).ok).toBe(true);
+    expect(mgr.open({ hostId: "local", terminalId: "t2", cols: 80, rows: 24 }).ok).toBe(true);
+
+    expect(() => mgr.detachAllOnQuit("app_quit")).not.toThrow();
+
+    expect(children.map((child) => child.killedSignal)).toEqual(["SIGTERM", "SIGTERM"]);
+    expect(children.map((child) => child.killCalls)).toEqual([1, 1]);
+    expect(mgr.activeControlCount()).toBe(0);
+    expect(observersStopped).toBe(1);
+  });
+
   it("signals a detached session child exactly once across idempotent and late teardown", () => {
     const { mgr, children, closed } = makeMgr();
     const opened = mgr.open({ hostId: "local", terminalId: "t1", cols: 80, rows: 24 });

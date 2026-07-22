@@ -48,6 +48,17 @@ export type HerdrServerLifetime = "daemon-outlives-app";
 
 const HERDR_SERVER_LIFETIME: HerdrServerLifetime = "daemon-outlives-app";
 
+/** Run every independent Herdr cleanup component even when one is defective. */
+export const runHerdrCleanupSteps = (steps: ReadonlyArray<() => void>): void => {
+  for (const step of steps) {
+    try {
+      step();
+    } catch {
+      // Finalization is best-effort fan-out. Later components must still run.
+    }
+  }
+};
+
 const herdrArgs = (
   args: ReadonlyArray<string>,
   session?: string | null,
@@ -473,9 +484,11 @@ export const HerdrPlaneLive = Layer.scoped(
 
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
-        streams.detachAllOnQuit("runtime_dispose");
-        mirrors.stopAll();
-        serviceMap.stop();
+        runHerdrCleanupSteps([
+          () => streams.detachAllOnQuit("runtime_dispose"),
+          () => mirrors.stopAll(),
+          () => serviceMap.stop(),
+        ]);
       }),
     );
 

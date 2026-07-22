@@ -483,7 +483,13 @@ export class HerdrStreamManager {
    */
   detachByHost(hostId: string, reason = "host_revoked"): void {
     for (const [streamId, active] of [...this.streams.entries()]) {
-      if (active.hostId === hostId) this.detachControlInternal(streamId, reason, false);
+      if (active.hostId !== hostId) continue;
+      try {
+        this.detachControlInternal(streamId, reason, false);
+      } catch {
+        // One defective control/sink must not retain the rest of this host's
+        // clients during endpoint revocation.
+      }
     }
   }
 
@@ -518,10 +524,20 @@ export class HerdrStreamManager {
   detachAllOnQuit(reason = "app_quit"): void {
     this.shutDown = true;
     for (const streamId of [...this.streams.keys()]) {
-      this.detachControl(streamId, reason);
+      try {
+        this.detachControl(streamId, reason);
+      } catch {
+        // Shutdown is a best-effort fan-out: one client may be defective, but
+        // every other exact child capability still gets its detach attempt.
+      }
     }
     // Observers own nothing on the host — plain SIGTERM, no terminal.release.
-    this.pool.stopAll();
+    try {
+      this.pool.stopAll();
+    } catch {
+      // Event/control cleanup above is already complete; never rethrow from
+      // the app-quit boundary because an observe implementation misbehaved.
+    }
   }
 
   /** @deprecated use detachAllOnQuit — name kept so greps for closeAll still find the intent */
@@ -675,6 +691,11 @@ export class HerdrStreamManager {
   }
 
   private emit(frame: HerdrStreamFrame): void {
-    this.sink?.(frame);
+    try {
+      this.sink?.(frame);
+    } catch {
+      // Renderer/event delivery is outside the process-lifetime trust
+      // boundary. A throwing subscriber cannot interrupt detach or cleanup.
+    }
   }
 }
