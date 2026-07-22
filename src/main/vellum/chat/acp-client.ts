@@ -230,7 +230,7 @@ export type AcpTeardownResult =
 interface AcpGenerationBase {
   readonly child: AcpChildLike;
   buffer: string;
-  finalized: boolean;
+  terminalObserved: boolean;
   teardown?: AcpTeardown;
 }
 
@@ -250,6 +250,7 @@ interface AcpTeardown {
   readonly resolve: (result: AcpTeardownResult) => void;
   readonly forceTimer?: ReturnType<typeof setTimeout>;
   readonly boundTimer: ReturnType<typeof setTimeout>;
+  settled: boolean;
   termAttempted: boolean;
   killAttempted: boolean;
 }
@@ -257,6 +258,9 @@ interface AcpTeardown {
 export class AcpClient {
   private current: AcpGeneration | undefined;
   private readonly teardownFlights = new Set<Promise<AcpTeardownResult>>();
+  private readonly retainedGenerations = new Set<AcpGeneration>();
+  private readonly retainedUnsafeReceipts: AcpTeardownResult[] = [];
+  private closeFlight: Promise<ReadonlyArray<AcpTeardownResult>> | undefined;
   private nextId = 1;
   private closedFlag = false;
   private environmentOverlay: AcpChildEnvironmentOverlay | undefined;
@@ -286,6 +290,11 @@ export class AcpClient {
 
   get closed(): boolean {
     return this.closedFlag;
+  }
+
+  /** Generations that bounded out or failed cleanup without a terminal witness. */
+  get retainedGenerationCount(): number {
+    return this.retainedGenerations.size;
   }
 
   /** OS pid of the local ACP child after start(); undefined when remote/closed. */
@@ -324,7 +333,7 @@ export class AcpClient {
           child,
           process: spawned.process,
           buffer: "",
-          finalized: false,
+          terminalObserved: false,
         }
       : {
           kind: "remote-scope",
@@ -332,7 +341,7 @@ export class AcpClient {
           closeScope: spawned.close,
           isScopeClean: spawned.isClean,
           buffer: "",
-          finalized: false,
+          terminalObserved: false,
         };
     this.current = generation;
 
@@ -415,6 +424,7 @@ export class AcpClient {
   // knows). Idempotent: a second call is a no-op. SIGTERM first, SIGKILL
   // after a short grace window if the child hasn't actually exited.
   close(): Promise<ReadonlyArray<AcpTeardownResult>> {
+    if (this.closeFlight !== undefined) return this.closeFlight;
     if (!this.closedFlag) {
       this.closedFlag = true;
       this.rejectAllPending(new Error("ACP client closed"));
@@ -422,7 +432,8 @@ export class AcpClient {
       this.current = undefined;
       if (generation !== undefined) this.beginTeardown(generation);
     }
-    return this.awaitTeardowns();
+    this.closeFlight = this.awaitTeardowns();
+    return this.closeFlight;
   }
 
   // Arm both deadlines before the first signal. A child may synchronously
@@ -430,7 +441,7 @@ export class AcpClient {
   // attempt; neither case is allowed to strand authority or the close awaiter.
   private beginTeardown(generation: AcpGeneration): Promise<AcpTeardownResult> {
     if (generation.teardown !== undefined) return generation.teardown.promise;
-    if (generation.finalized) {
+    if (generation.terminalObserved) {
       return Promise.resolve({ kind: "terminal", event: "close", code: null });
     }
 
@@ -441,7 +452,7 @@ export class AcpClient {
     let teardown!: AcpTeardown;
     const forceTimer = generation.kind === "local-process"
       ? setTimeout(() => {
-          if (generation.finalized) return;
+          if (generation.terminalObserved || teardown.settled) return;
           teardown.killAttempted = signalOwned(generation.process, "SIGKILL").attempted;
         }, SIGTERM_GRACE_MS)
       : undefined;
@@ -455,6 +466,7 @@ export class AcpClient {
       resolve,
       forceTimer,
       boundTimer,
+      settled: false,
       termAttempted: false,
       killAttempted: false,
     };
@@ -478,28 +490,43 @@ export class AcpClient {
   }
 
   private finalizeBounded(generation: AcpGeneration): void {
-    if (generation.finalized) return;
-    generation.finalized = true;
-    if (generation.kind === "local-process") releaseOwned(generation.process);
+    if (generation.terminalObserved) return;
     const teardown = generation.teardown;
-    if (teardown === undefined) return;
+    if (teardown === undefined || teardown.settled) return;
     if (teardown.forceTimer !== undefined) clearTimeout(teardown.forceTimer);
     clearTimeout(teardown.boundTimer);
-    teardown.resolve({
+    this.settleTeardown(generation, {
       kind: "bounded",
       termAttempted: teardown.termAttempted,
       killAttempted: teardown.killAttempted,
     });
   }
 
+  private settleTeardown(
+    generation: AcpGeneration,
+    result: AcpTeardownResult,
+  ): void {
+    const teardown = generation.teardown;
+    if (teardown === undefined || teardown.settled) return;
+    teardown.settled = true;
+    if (result.kind !== "terminal") {
+      this.retainedGenerations.add(generation);
+      this.retainedUnsafeReceipts.push(result);
+    }
+    teardown.resolve(result);
+  }
+
   private async awaitTeardowns(): Promise<ReadonlyArray<AcpTeardownResult>> {
-    const results: AcpTeardownResult[] = [];
+    const terminalResults: AcpTeardownResult[] = [];
     while (this.teardownFlights.size > 0) {
       const batch = [...this.teardownFlights];
-      results.push(...(await Promise.all(batch)));
+      terminalResults.push(
+        ...(await Promise.all(batch)).filter((result) => result.kind === "terminal"),
+      );
       for (const flight of batch) this.teardownFlights.delete(flight);
     }
-    return results;
+    const unsafeResults = this.retainedUnsafeReceipts.splice(0);
+    return [...unsafeResults, ...terminalResults];
   }
 
   private isCurrentGeneration(generation: AcpGeneration): boolean {
@@ -638,7 +665,7 @@ export class AcpClient {
   }
 
   private onChildError(generation: AcpGeneration, error: Error): void {
-    if (generation.finalized) return;
+    if (generation.terminalObserved) return;
     const current = this.isCurrentGeneration(generation);
     if (current) {
       this.current = undefined;
@@ -658,15 +685,17 @@ export class AcpClient {
     event: "exit" | "close",
     code: number | null,
   ): void {
-    if (generation.finalized) return;
+    if (generation.terminalObserved) return;
     const current = this.isCurrentGeneration(generation);
-    generation.finalized = true;
+    generation.terminalObserved = true;
+    this.retainedGenerations.delete(generation);
     if (generation.kind === "local-process") releaseOwned(generation.process);
     const teardown = generation.teardown;
-    if (teardown !== undefined) {
+    if (teardown !== undefined && !teardown.settled) {
       if (teardown.forceTimer !== undefined) clearTimeout(teardown.forceTimer);
       clearTimeout(teardown.boundTimer);
-      teardown.resolve(
+      this.settleTeardown(
+        generation,
         generation.kind === "remote-scope" && !generation.isScopeClean()
           ? { kind: "unclean", reason: "remote-scope-close-failed" }
           : { kind: "terminal", event, code },

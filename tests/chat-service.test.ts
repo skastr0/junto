@@ -8,7 +8,11 @@ import type {
   SpawnFn,
 } from "../src/main/vellum/chat/acp-client";
 import type { AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
-import { ChatService } from "../src/main/vellum/chat/service";
+import {
+  ChatService,
+  ChatShutdownUncleanError,
+  requireCleanChatShutdown,
+} from "../src/main/vellum/chat/service";
 import type { ChatEvent } from "../src/shared/ipc";
 import { spawnedLocalAcp } from "./helpers/acp-child";
 
@@ -693,10 +697,20 @@ describe("closeAll convergence", () => {
     expect(settled).toBe(false);
 
     await vi.advanceTimersByTimeAsync(2_000);
-    await expect(shutdown).resolves.toEqual({
+    const result = await shutdown;
+    expect(result).toEqual({
       clean: false,
       teardowns: [{ kind: "bounded", termAttempted: true, killAttempted: true }],
     });
+    expect(() => requireCleanChatShutdown(result)).toThrow(ChatShutdownUncleanError);
+    try {
+      requireCleanChatShutdown(result);
+    } catch (error) {
+      expect((error as ChatShutdownUncleanError).result).toBe(result);
+    }
+    expect(
+      (service as unknown as { clients: Set<unknown> }).clients.size,
+    ).toBe(1);
   });
 
   it("drains active prompt and model operations before resolving", async () => {

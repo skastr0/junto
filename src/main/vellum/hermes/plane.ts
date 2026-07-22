@@ -32,6 +32,7 @@ import type {
 import {
   ChatService,
   ChatServiceContext,
+  requireCleanChatShutdown,
 } from "../chat/service";
 import type { AcpSpawnTarget } from "../chat/spawn";
 import {
@@ -319,7 +320,7 @@ export const HermesPlaneLive = Layer.scoped(
     const chat = new ChatService(spawnAcp);
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
-        await chat.closeAll();
+        requireCleanChatShutdown(await chat.closeAll());
       }),
     );
 

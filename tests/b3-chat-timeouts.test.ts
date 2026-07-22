@@ -8,6 +8,7 @@ import {
   type SpawnFn,
 } from "../src/main/vellum/chat/acp-client";
 import { ChatService } from "../src/main/vellum/chat/service";
+import { signalOwned } from "../src/main/vellum/process-signal";
 import { buildAcpSpawnTarget, type AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
 import { spawnedLocalAcp } from "./helpers/acp-child";
 
@@ -224,6 +225,47 @@ describe("AcpClient — SIGTERM -> SIGKILL escalation", () => {
       { kind: "bounded", termAttempted: true, killAttempted: true },
       { kind: "bounded", termAttempted: true, killAttempted: true },
     ]);
+  });
+
+  it("retains a superseded bounded receipt and authority until later close consumes it", async () => {
+    vi.useFakeTimers();
+    const children: FakeChild[] = [];
+    const spawned = [] as ReturnType<typeof spawnedLocalAcp>[];
+    const client = new AcpClient(TARGET, noopHandlers(), () => {
+      const child = new FakeChild();
+      const owned = spawnedLocalAcp(child);
+      children.push(child);
+      spawned.push(owned);
+      return owned;
+    });
+    const firstStart = client.start();
+    const first = children[0]!;
+    respondOk(first, lastSentId(first), INIT_RESULT);
+    await firstStart;
+
+    const replacementStart = client.start();
+    const replacement = children[1]!;
+    respondOk(replacement, lastSentId(replacement), INIT_RESULT);
+    await replacementStart;
+    await vi.advanceTimersByTimeAsync(4_100);
+
+    expect(client.retainedGenerationCount).toBe(1);
+    const firstOwned = spawned[0]!;
+    expect(firstOwned.kind).toBe("local-process");
+    if (firstOwned.kind !== "local-process") throw new Error("expected local child");
+    expect(signalOwned(firstOwned.process, "SIGTERM").attempted).toBe(true);
+
+    const completion = client.close();
+    replacement.emit("close", 0);
+    await expect(completion).resolves.toEqual([
+      { kind: "bounded", termAttempted: true, killAttempted: true },
+      { kind: "terminal", event: "close", code: 0 },
+    ]);
+    expect(client.retainedGenerationCount).toBe(1);
+
+    first.emit("close", 0);
+    expect(client.retainedGenerationCount).toBe(0);
+    expect(signalOwned(firstOwned.process, "SIGTERM").attempted).toBe(false);
   });
 
   it("returns a bounded result when neither TERM nor KILL is accepted", async () => {

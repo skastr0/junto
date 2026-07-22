@@ -97,6 +97,22 @@ export interface ChatCloseAllResult {
   readonly teardowns: ReadonlyArray<AcpTeardownResult>;
 }
 
+export class ChatShutdownUncleanError extends Error {
+  constructor(readonly result: ChatCloseAllResult) {
+    super(
+      `chat shutdown retained ${result.teardowns.filter((receipt) => receipt.kind !== "terminal").length} unclean teardown(s)`,
+    );
+    this.name = "ChatShutdownUncleanError";
+  }
+}
+
+export const requireCleanChatShutdown = (
+  result: ChatCloseAllResult,
+): ChatCloseAllResult => {
+  if (!result.clean) throw new ChatShutdownUncleanError(result);
+  return result;
+};
+
 interface SessionResultShape {
   readonly sessionId?: string;
   readonly models?: { readonly availableModels?: ReadonlyArray<RawModelInfo> };
@@ -319,7 +335,9 @@ export class ChatService {
         );
     const flight = raw.then((results) => {
       this.teardownReceipts.push(...results);
-      this.clients.delete(client);
+      if (results.every((receipt) => receipt.kind === "terminal")) {
+        this.clients.delete(client);
+      }
       this.clientCloseFlights.delete(flight);
       return results;
     });

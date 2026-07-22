@@ -26,4 +26,12 @@ describe("ACP lifecycle architecture", () => {
     expect(plane).not.toMatch(/\.kill\s*\(/u);
     expect(plane).not.toContain("signalOwned");
   });
+
+  it("fails the Hermes finalizer closed on an unclean ChatService receipt", () => {
+    const plane = source("src/main/vellum/hermes/plane.ts");
+
+    expect(plane).toContain(
+      "requireCleanChatShutdown(await chat.closeAll())",
+    );
+  });
 });
