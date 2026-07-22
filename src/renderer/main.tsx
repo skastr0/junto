@@ -4,6 +4,14 @@ import "@xyflow/react/dist/style.css";
 import { App } from "./App";
 import "./styles.css";
 
+// Dev-only render highlighter (https://github.com/aidenybai/react-scan).
+// Import before createRoot so the scanner can instrument React.
+if (import.meta.env.DEV) {
+  void import("react-scan").then(({ scan }) => {
+    scan({ enabled: true, showToolbar: true, animationSpeed: "fast" });
+  });
+}
+
 const root = document.getElementById("root");
 
 if (!root) {

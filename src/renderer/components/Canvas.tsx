@@ -26,6 +26,7 @@ import { createFlowIdentityCache, searchText, toFlow } from "../lib/convert";
 import {
   edgeImpactClass,
   edgeImpactRole,
+  impactModeActive$,
   nodeImpactClass,
   selectionImpact,
   type ImpactSelection,
@@ -74,6 +75,18 @@ const fitReadableField = (rf: CanvasFlow, duration = 320): void => {
   void rf.fitView({ nodes: anchors, padding: 0.18, duration, maxZoom: regions.length > 0 ? 1.15 : 1.35 }).catch(() => undefined);
 };
 
+/** Apply/clear in-cone impact token without reminting when unchanged. */
+const withEdgeImpact = (
+  data: FlowEdge["data"],
+  role: "in" | undefined,
+): FlowEdge["data"] => {
+  if (!data) return data;
+  if (data.impact === role) return data;
+  if (role) return { ...data, impact: role };
+  const { impact: _drop, ...rest } = data;
+  return rest;
+};
+
 function stampImpactShell(
   nodes: FlowNode[],
   edges: FlowEdge[],
@@ -83,26 +96,31 @@ function stampImpactShell(
   const impact = selectedNodeId
     ? selectionImpact(state$.doc.peek(), selectedNodeId, kernel$.execution.peek())
     : selectionImpact(state$.doc.peek(), "", null);
+  if (impactModeActive$.peek() !== impact.active) impactModeActive$.set(impact.active);
   return {
     impact,
-    nodes: nodes.map((node) => ({
-      ...node,
-      selected: node.id === selectedNodeId,
-      className: nodeImpactClass(impact.active, impact.cone, node.id),
-    })),
+    nodes: nodes.map((node) => {
+      const selected = node.id === selectedNodeId;
+      const className = nodeImpactClass(impact.active, impact.cone, node.id);
+      if (node.selected === selected && node.className === className) return node;
+      return { ...node, selected, className };
+    }),
     edges: edges.map((edge) => {
+      const selected = edge.id === selectedEdgeId;
+      const className = edgeImpactClass(impact.active, impact.cone, edge.id);
       const role = edgeImpactRole(impact.active, impact.cone, edge.id);
-      const data =
+      if (
+        edge.selected === selected &&
+        edge.className === className &&
         edge.data?.impact === role
-          ? edge.data
-          : edge.data
-            ? { ...edge.data, impact: role }
-            : edge.data;
+      ) {
+        return edge;
+      }
       return {
         ...edge,
-        selected: edge.id === selectedEdgeId,
-        className: edgeImpactClass(impact.active, impact.cone, edge.id),
-        data,
+        selected,
+        className,
+        data: withEdgeImpact(edge.data, role),
       };
     }),
   };
@@ -132,25 +150,32 @@ function applyStructuralRebuild(
   // Selection + impact cone classes live on the RF shell (not Flow data).
   const stamped = stampImpactShell(visibleNodes, filteredEdges, nodeId, edgeId);
   const query = searchQuery.trim().toLowerCase();
-  if (!query) {
-    setNodes(stamped.nodes);
-    setEdges(stamped.edges);
-    return;
-  }
-  const matches = stamped.nodes.filter((flowNode) => searchText(flowNode.data.node).includes(query));
-  const queryVisibleIds = new Set(matches.map((flowNode) => flowNode.id));
-  setNodes(matches);
-  setEdges(stamped.edges.filter((edge) => queryVisibleIds.has(edge.source) && queryVisibleIds.has(edge.target)));
+  const nextNodes = query
+    ? stamped.nodes.filter((flowNode) => searchText(flowNode.data.node).includes(query))
+    : stamped.nodes;
+  const queryVisibleIds = query ? new Set(nextNodes.map((flowNode) => flowNode.id)) : null;
+  const nextEdges = queryVisibleIds
+    ? stamped.edges.filter((edge) => queryVisibleIds.has(edge.source) && queryVisibleIds.has(edge.target))
+    : stamped.edges;
+
+  // Preserve array identity when every element is unchanged — kernel ticks with
+  // a quiet execution snapshot must not bounce React Flow.
+  setNodes((prev) =>
+    prev.length === nextNodes.length && prev.every((node, i) => node === nextNodes[i])
+      ? prev
+      : nextNodes,
+  );
+  setEdges((prev) =>
+    prev.length === nextEdges.length && prev.every((edge, i) => edge === nextEdges[i])
+      ? prev
+      : nextEdges,
+  );
 }
 
 function useCanvasDocument(
-  docVersion: number,
-  executionRev: number,
   searchQuery: string,
   edgeFilter: EtherEdgeKind | "",
   flagFilter: EtherFlag | "",
-  selectedNodeId: string,
-  selectedEdgeId: string,
   setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
   setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1],
   dragInProgressRef: React.MutableRefObject<boolean>,
@@ -166,66 +191,114 @@ function useCanvasDocument(
     return () => window.clearTimeout(handle);
   }, [searchQuery]);
 
-  // Structural rebuild — document/filter/search + live kernel execution.
-  // Identity cache reuses FlowNode/FlowEdge when inputs are unchanged.
-  // While dragging, defer so kernel pushes / file-watch reloads cannot snap mid-gesture.
-  useEffect(() => {
+  const rebuild = useCallback(() => {
     if (dragInProgressRef.current) {
       pendingRebuildRef.current = true;
       return;
     }
     pendingRebuildRef.current = false;
-    applyStructuralRebuild(setNodes, setEdges, flowCacheRef.current, debouncedSearch, edgeFilter, flagFilter);
-  }, [docVersion, executionRev, edgeFilter, flagFilter, debouncedSearch, rebuildTick, setNodes, setEdges, dragInProgressRef, pendingRebuildRef, flowCacheRef]);
+    applyStructuralRebuild(
+      setNodes,
+      setEdges,
+      flowCacheRef.current,
+      debouncedSearch,
+      edgeFilter,
+      flagFilter,
+    );
+  }, [
+    debouncedSearch,
+    edgeFilter,
+    flagFilter,
+    setNodes,
+    setEdges,
+    dragInProgressRef,
+    pendingRebuildRef,
+    flowCacheRef,
+  ]);
 
-  // Selection + impact-mode sync — light map over the existing graph, not a
-  // rebuild. A live rubber-band multi-selection (no single subject) is left
-  // untouched for the selected flag; impact classes clear when multi-select.
+  // Filter / search / post-drag flush — React-driven.
   useEffect(() => {
-    const impact: ImpactSelection = selectedNodeId
-      ? selectionImpact(state$.doc.peek(), selectedNodeId, kernel$.execution.peek())
-      : selectionImpact(state$.doc.peek(), "", null);
+    rebuild();
+  }, [rebuild, rebuildTick]);
 
-    setNodes((nodes) => {
-      // Rubber-band multi-select: leave RF's multi selected set alone; clear impact.
-      if (!selectedNodeId && nodes.filter((node) => node.selected).length > 1) {
+  // Document + kernel ticks — apply via setNodes without re-rendering CanvasGraph.
+  // (use$ on these would re-render the whole React Flow tree every cycle.)
+  useEffect(() => {
+    const offs = [
+      state$.docVersion.onChange(() => rebuild()),
+      kernel$.executionRev.onChange(() => rebuild()),
+    ];
+    return () => {
+      for (const off of offs) off();
+    };
+  }, [rebuild]);
+
+  // Selection + impact-mode sync — light map over the existing graph.
+  // Structural rebuild already stamps on doc/execution ticks; this path is
+  // selection-only so CanvasGraph need not subscribe to selected ids.
+  useEffect(() => {
+    const syncSelection = () => {
+      const selectedNodeId = state$.selectedNodeId.peek();
+      const selectedEdgeId = state$.selectedEdgeId.peek();
+      const impact: ImpactSelection = selectedNodeId
+        ? selectionImpact(state$.doc.peek(), selectedNodeId, kernel$.execution.peek())
+        : selectionImpact(state$.doc.peek(), "", null);
+      if (impactModeActive$.peek() !== impact.active) impactModeActive$.set(impact.active);
+
+      setNodes((nodes) => {
+        if (!selectedNodeId && nodes.filter((node) => node.selected).length > 1) {
+          let dirty = false;
+          const next = nodes.map((node) => {
+            if (!node.className) return node;
+            dirty = true;
+            return { ...node, className: undefined };
+          });
+          return dirty ? next : nodes;
+        }
         let dirty = false;
         const next = nodes.map((node) => {
-          if (!node.className) return node;
+          const selected = node.id === selectedNodeId;
+          const className = nodeImpactClass(impact.active, impact.cone, node.id);
+          if (node.selected === selected && node.className === className) return node;
           dirty = true;
-          return { ...node, className: undefined };
+          return { ...node, selected, className };
         });
         return dirty ? next : nodes;
-      }
-      return nodes.map((node) => {
-        const selected = node.id === selectedNodeId;
-        const className = nodeImpactClass(impact.active, impact.cone, node.id);
-        if (node.selected === selected && node.className === className) return node;
-        return { ...node, selected, className };
       });
-    });
-    setEdges((edges) =>
-      edges.map((edge) => {
-        const selected = edge.id === selectedEdgeId;
-        const className = edgeImpactClass(impact.active, impact.cone, edge.id);
-        const role = edgeImpactRole(impact.active, impact.cone, edge.id);
-        if (
-          edge.selected === selected &&
-          edge.className === className &&
-          edge.data?.impact === role
-        ) {
-          return edge;
-        }
-        const data =
-          edge.data?.impact === role
-            ? edge.data
-            : edge.data
-              ? { ...edge.data, impact: role }
-              : edge.data;
-        return { ...edge, selected, className, data };
-      }),
-    );
-  }, [selectedNodeId, selectedEdgeId, docVersion, executionRev, setNodes, setEdges]);
+      setEdges((edges) => {
+        let dirty = false;
+        const next = edges.map((edge) => {
+          const selected = edge.id === selectedEdgeId;
+          const className = edgeImpactClass(impact.active, impact.cone, edge.id);
+          const role = edgeImpactRole(impact.active, impact.cone, edge.id);
+          if (
+            edge.selected === selected &&
+            edge.className === className &&
+            edge.data?.impact === role
+          ) {
+            return edge;
+          }
+          dirty = true;
+          return {
+            ...edge,
+            selected,
+            className,
+            data: withEdgeImpact(edge.data, role),
+          };
+        });
+        return dirty ? next : edges;
+      });
+    };
+
+    syncSelection();
+    const offs = [
+      state$.selectedNodeId.onChange(syncSelection),
+      state$.selectedEdgeId.onChange(syncSelection),
+    ];
+    return () => {
+      for (const off of offs) off();
+    };
+  }, [setNodes, setEdges]);
 }
 
 function useCanvasSearchViewport(searchQuery: string, nodeCount: number, rf: CanvasFlow, viewKey: string) {
@@ -253,49 +326,67 @@ function useCanvasSearchViewport(searchQuery: string, nodeCount: number, rf: Can
   }, [searchQuery, nodeCount, rf, viewKey]);
 }
 
-function useCanvasFocus(focusNodeId: string, rf: CanvasFlow) {
+function useCanvasFocus(rf: CanvasFlow) {
   useEffect(() => {
-    if (!focusNodeId) return;
     let attempts = 0;
     let frame = 0;
-    const focus = () => {
-      const node = rf.getNode(focusNodeId);
-      if (!node) {
-        attempts += 1;
-        if (attempts < 12) frame = requestAnimationFrame(focus);
-        else state$.focusNodeId.set("");
-        return;
-      }
-      // React Flow emits an empty selection while the canvas mounts. Re-apply
-      // the focus target only after it is present in the live graph.
-      state$.selectedNodeId.set(focusNodeId);
-      state$.selectedNodeIds.set([focusNodeId]);
-      state$.selectedEdgeId.set("");
-      void rf.fitView({ nodes: [node], padding: 0.35, maxZoom: 1.45, duration: 360 }).catch(() => undefined).finally(() => {
+    const run = (focusNodeId: string) => {
+      if (!focusNodeId) return;
+      attempts = 0;
+      const focus = () => {
+        const node = rf.getNode(focusNodeId);
+        if (!node) {
+          attempts += 1;
+          if (attempts < 12) frame = requestAnimationFrame(focus);
+          else state$.focusNodeId.set("");
+          return;
+        }
+        // React Flow emits an empty selection while the canvas mounts. Re-apply
+        // the focus target only after it is present in the live graph.
         state$.selectedNodeId.set(focusNodeId);
         state$.selectedNodeIds.set([focusNodeId]);
         state$.selectedEdgeId.set("");
-        state$.focusNodeId.set("");
-      });
+        void rf.fitView({ nodes: [node], padding: 0.35, maxZoom: 1.45, duration: 360 }).catch(() => undefined).finally(() => {
+          state$.selectedNodeId.set(focusNodeId);
+          state$.selectedNodeIds.set([focusNodeId]);
+          state$.selectedEdgeId.set("");
+          state$.focusNodeId.set("");
+        });
+      };
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(focus);
     };
-    frame = requestAnimationFrame(focus);
-    return () => cancelAnimationFrame(frame);
-  }, [focusNodeId, rf]);
+    run(state$.focusNodeId.peek());
+    const off = state$.focusNodeId.onChange(() => run(state$.focusNodeId.peek()));
+    return () => {
+      cancelAnimationFrame(frame);
+      off();
+    };
+  }, [rf]);
 }
 
-function useCanvasViewport(canvasName: string, nodeCount: number, rf: CanvasFlow) {
+function useCanvasViewport(nodeCount: number, rf: CanvasFlow) {
   const fittedCanvasRef = useRef("");
   useEffect(() => {
-    if (!canvasName || nodeCount === 0 || fittedCanvasRef.current === canvasName) return;
-    fittedCanvasRef.current = canvasName;
-    const frame = requestAnimationFrame(() => {
-      // A dense corpus spanning thousands of flow pixels becomes unreadable
-      // if the first frame fits every node. Regions are the spatial index;
-      // when none exist, show the first node cluster.
-      fitReadableField(rf);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [canvasName, nodeCount, rf]);
+    let frame = 0;
+    const tryFit = () => {
+      const canvasName = state$.canvasName.peek();
+      if (!canvasName || nodeCount === 0 || fittedCanvasRef.current === canvasName) return;
+      fittedCanvasRef.current = canvasName;
+      frame = requestAnimationFrame(() => {
+        // A dense corpus spanning thousands of flow pixels becomes unreadable
+        // if the first frame fits every node. Regions are the spatial index;
+        // when none exist, show the first node cluster.
+        fitReadableField(rf);
+      });
+    };
+    tryFit();
+    const off = state$.canvasName.onChange(() => tryFit());
+    return () => {
+      cancelAnimationFrame(frame);
+      off();
+    };
+  }, [nodeCount, rf]);
 }
 
 function useCanvasInteractions(
@@ -999,15 +1090,12 @@ function RtsMinimapStack() {
 }
 
 function useCanvasGraph() {
-  const canvasName = use$(state$.canvasName);
-  const docVersion = use$(state$.docVersion);
-  const executionRev = use$(kernel$.executionRev);
+  // Narrow React subscriptions: filters/search only. Doc/execution/selection
+  // drive RF via onChange → setNodes so CanvasGraph does not re-render on
+  // every kernel cycle.
   const searchQuery = use$(state$.searchQuery);
-  const selectedNodeId = use$(state$.selectedNodeId);
-  const selectedEdgeId = use$(state$.selectedEdgeId);
   const edgeFilter = use$(state$.edgeFilter);
   const flagFilter = use$(state$.flagFilter);
-  const focusNodeId = use$(state$.focusNodeId);
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([]);
   const rf = useReactFlow<FlowNode, FlowEdge>();
@@ -1018,13 +1106,9 @@ function useCanvasGraph() {
   const [rebuildTick, setRebuildTick] = useState(0);
   const flushRebuild = useCallback(() => setRebuildTick((n) => n + 1), []);
   useCanvasDocument(
-    docVersion,
-    executionRev,
     searchQuery,
     edgeFilter,
     flagFilter,
-    selectedNodeId,
-    selectedEdgeId,
     setNodes,
     setEdges,
     dragInProgressRef,
@@ -1033,8 +1117,8 @@ function useCanvasGraph() {
     rebuildTick,
   );
   useCanvasSearchViewport(searchQuery, nodes.length, rf, `${edgeFilter}|${flagFilter}`);
-  useCanvasFocus(focusNodeId, rf);
-  useCanvasViewport(canvasName, nodes.length, rf);
+  useCanvasFocus(rf);
+  useCanvasViewport(nodes.length, rf);
   return {
     nodes,
     edges,
@@ -1045,24 +1129,11 @@ function useCanvasGraph() {
   };
 }
 
-function ImpactSeedChip({ label }: { readonly label: string }) {
-  return (
-    <Panel position="top-left" className="impact-hud-panel">
-      <div className="impact-hud" role="status" aria-live="polite" title="Stoppage impact cone for selection">
-        <span className="impact-hud__mark" aria-hidden />
-        <span className="impact-hud__eyebrow">impact</span>
-        <span className="impact-hud__label">{label}</span>
-      </div>
-    </Panel>
-  );
-}
-
-function CanvasGraph() {
-  const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
+/** Isolated so selection/execution ticks do not re-render React Flow. */
+function ImpactSeedChip() {
   const selectedNodeId = use$(state$.selectedNodeId);
   const docVersion = use$(state$.docVersion);
   const executionRev = use$(kernel$.executionRev);
-  // Recompute for chrome only (RF shell already stamped in selection sync).
   const impact = useMemo(
     () =>
       selectedNodeId
@@ -1070,6 +1141,20 @@ function CanvasGraph() {
         : selectionImpact(state$.doc.peek(), "", null),
     [selectedNodeId, docVersion, executionRev],
   );
+  if (!impact.active) return null;
+  return (
+    <Panel position="top-left" className="impact-hud-panel">
+      <div className="impact-hud" role="status" aria-live="polite" title="Stoppage impact cone for selection">
+        <span className="impact-hud__mark" aria-hidden />
+        <span className="impact-hud__eyebrow">impact</span>
+        <span className="impact-hud__label">{impact.seedLabel}</span>
+      </div>
+    </Panel>
+  );
+}
+
+function CanvasGraph() {
+  const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.
   const connecting = useConnection((connection) => connection.inProgress);
@@ -1158,10 +1243,13 @@ function CanvasGraph() {
     closeMenus();
     interactions.onPaneClick(event);
   }, [interactions.onPaneClick, closeMenus]);
+  // Boolean only — flips when a cone appears/clears, not on every kernel tick.
+  const impactMode = use$(impactModeActive$);
+
   return <>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
     <ReactFlow
-      className={[connecting ? "is-connecting" : "", impact.active ? "impact-mode" : ""].filter(Boolean).join(" ") || undefined}
+      className={[connecting ? "is-connecting" : "", impactMode ? "impact-mode" : ""].filter(Boolean).join(" ") || undefined}
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
@@ -1194,7 +1282,7 @@ function CanvasGraph() {
       style={{ background: GROUND }}
     >
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
-      {impact.active ? <ImpactSeedChip label={impact.seedLabel} /> : null}
+      <ImpactSeedChip />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>
         <RtsBottomBar tools={<CanvasFieldTools />} minimap={<RtsMinimapStack />} />

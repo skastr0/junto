@@ -66,9 +66,10 @@ describe("selectionImpact — canvas impact mode", () => {
 
     expect(nodeImpactClass(true, impact.cone, "r1")).toBe("impact-in impact-root");
     expect(nodeImpactClass(true, impact.cone, "p1")).toBe("impact-in");
-    expect(nodeImpactClass(true, impact.cone, "outsider")).toBe("impact-out");
+    // Outsiders stay unstamped — CSS under .impact-mode dims the rest.
+    expect(nodeImpactClass(true, impact.cone, "outsider")).toBeUndefined();
     expect(edgeImpactClass(true, impact.cone, "e-rp")).toBe("impact-edge-in");
-    expect(edgeImpactClass(true, impact.cone, "missing")).toBe("impact-edge-out");
+    expect(edgeImpactClass(true, impact.cone, "missing")).toBeUndefined();
   });
 
   it("stays inactive outside the stoppage cone", () => {

@@ -4,6 +4,7 @@ import { identityHints } from "../shared/connections";
 import type { CanvasDoc } from "@shared/canvas";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
+import { impactModeActive$ } from "./lib/impact-mode";
 import { state$ } from "./lib/state";
 import {
   acceptCanvasRevision,
@@ -82,6 +83,7 @@ const resetCanvasView = (): void => {
     state$.focusNodeId.set("");
     state$.regionSlotOrder.set([]);
     state$.regionSeverityByNodeId.set({});
+    impactModeActive$.set(false);
   });
 };
 

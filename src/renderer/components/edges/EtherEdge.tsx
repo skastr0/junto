@@ -37,9 +37,8 @@ export function EtherEdge({
       ? accentColor(data.edge.color)
       : EDGE_COLOR[phase];
 
-  // Selection impact mode (stoppage cone) — stamped by Canvas selection sync.
+  // Selection impact mode — only "in" is stamped (CSS dims the rest).
   const impactIn = data?.impact === "in";
-  const impactOut = data?.impact === "out";
 
   const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,
@@ -63,14 +62,13 @@ export function EtherEdge({
         className={[
           rippling ? "vellum-edge-ripple" : "",
           impactIn ? "vellum-edge-impact-in" : "",
-          impactOut ? "vellum-edge-impact-out" : "",
         ]
           .filter(Boolean)
           .join(" ") || undefined}
         style={{
           stroke: color,
           strokeWidth: impactIn ? Math.max(baseWidth, 2.1) : baseWidth,
-          opacity: impactOut ? 0.14 : impactIn ? 1 : baseOpacity,
+          opacity: impactIn ? 1 : baseOpacity,
         }}
       />
       <EdgeLabelRenderer>
@@ -78,7 +76,6 @@ export function EtherEdge({
           aria-label={`Select edge · ${phase}`}
           className={[
             "nodrag nopan vellum-edge-label",
-            impactOut ? "vellum-edge-label--impact-out" : "",
             impactIn ? "vellum-edge-label--impact-in" : "",
           ]
             .filter(Boolean)

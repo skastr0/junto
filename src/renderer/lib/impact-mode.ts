@@ -2,6 +2,7 @@
 // Prefers the live kernel ExecutionSnapshot (phase/blocked/reasons); reconstructs
 // edgeEval + seedNodeIds so impactCone can run without a second glyph fetch.
 
+import { observable } from "@legendapp/state";
 import type { CanvasDoc, EdgePhase } from "@shared/canvas";
 import type { ExecutionSnapshot } from "@shared/ipc";
 import {
@@ -12,6 +13,11 @@ import {
   type ExecutionGraph,
 } from "@shared/execution-graph";
 import { impactCone, type ImpactCone } from "@shared/impact";
+
+/** True while the open canvas is painting a stoppage cone. CanvasGraph
+ * subscribes to this boolean only — never to doc/execution — so kernel ticks
+ * do not re-render React Flow just to keep `.impact-mode` in sync. */
+export const impactModeActive$ = observable(false);
 
 export type ImpactSelection = {
   readonly active: boolean;
@@ -106,7 +112,14 @@ export const selectionImpact = (
   return { active: true, cone, seedLabel };
 };
 
-/** CSS class for a node while impact mode is active. */
+/**
+ * CSS class for a node while impact mode is active.
+ *
+ * Outsiders intentionally get `undefined` — `.react-flow.impact-mode` CSS
+ * dims every node by default, so we only remint shell identity for cone /
+ * attention-lead members. Stamping `impact-out` on every outsider used to
+ * clone the whole graph on each selection change.
+ */
 export const nodeImpactClass = (
   active: boolean,
   cone: ImpactCone,
@@ -117,10 +130,10 @@ export const nodeImpactClass = (
     return nodeId === cone.rootId ? "impact-in impact-root" : "impact-in";
   }
   if (cone.attentionLeadIds.has(nodeId)) return "impact-lead";
-  return "impact-out";
+  return undefined;
 };
 
-/** CSS class for an edge wrapper while impact mode is active. */
+/** CSS class for an edge wrapper while impact mode is active (in-cone only). */
 export const edgeImpactClass = (
   active: boolean,
   cone: ImpactCone,
@@ -128,15 +141,15 @@ export const edgeImpactClass = (
 ): string | undefined => {
   if (!active) return undefined;
   if (cone.edgeIds.has(edgeId)) return "impact-edge-in";
-  return "impact-edge-out";
+  return undefined;
 };
 
-/** Edge data.impact token for EtherEdge path/label styling. */
+/** Edge data.impact token for EtherEdge path/label styling (in-cone only). */
 export const edgeImpactRole = (
   active: boolean,
   cone: ImpactCone,
   edgeId: string,
-): "in" | "out" | undefined => {
+): "in" | undefined => {
   if (!active) return undefined;
-  return cone.edgeIds.has(edgeId) ? "in" : "out";
+  return cone.edgeIds.has(edgeId) ? "in" : undefined;
 };
