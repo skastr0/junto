@@ -36,9 +36,13 @@ export const runProcess = (
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let terminationStarted = false;
+    let authorityReleased = false;
     let escalationTimer: ReturnType<typeof setTimeout> | undefined;
 
     const releaseAuthority = (): void => {
+      if (authorityReleased) return;
+      authorityReleased = true;
       if (escalationTimer !== undefined) {
         clearTimeout(escalationTimer);
         escalationTimer = undefined;
@@ -47,15 +51,18 @@ export const runProcess = (
     };
 
     const terminateOwnedChild = (): void => {
-      signalOwned(owned, "SIGTERM");
-      if (escalationTimer !== undefined) return;
+      if (terminationStarted || authorityReleased) return;
+      terminationStarted = true;
       escalationTimer = setTimeout(() => {
         escalationTimer = undefined;
         signalOwned(owned, "SIGKILL");
         // Teardown is bounded even if the OS never reports a close event.
-        releaseOwned(owned);
+        releaseAuthority();
       }, PROCESS_TERMINATION_GRACE_MS);
       escalationTimer.unref?.();
+      // Arm the bound before signalling: an error emitted synchronously from
+      // kill() must not cancel or recursively restart teardown.
+      signalOwned(owned, "SIGTERM");
     };
 
     const timer =
@@ -79,11 +86,15 @@ export const runProcess = (
     child.once("exit", releaseAuthority);
 
     child.on("error", (error) => {
-      releaseAuthority();
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      reject(error);
+      // ChildProcess "error" is not proof of process death (kill/send and
+      // stream failures can emit it while the child is still alive). Reject
+      // promptly, but retain exact-child authority through bounded teardown.
+      if (!settled) {
+        settled = true;
+        if (timer) clearTimeout(timer);
+        reject(error);
+      }
+      terminateOwnedChild();
     });
 
     child.on("close", (code) => {

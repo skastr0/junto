@@ -57,9 +57,15 @@ const initializeAppServer = async (): Promise<string> => {
     let stderr = "";
     let settled = false;
     let shutdownStarted = false;
+    let authorityReleased = false;
+    let observedExit:
+      | { readonly code: number | null; readonly signal: NodeJS.Signals | null }
+      | undefined;
     let escalationTimer: ReturnType<typeof setTimeout> | undefined;
 
     const releaseAuthority = (): void => {
+      if (authorityReleased) return;
+      authorityReleased = true;
       if (escalationTimer !== undefined) {
         clearTimeout(escalationTimer);
         escalationTimer = undefined;
@@ -68,16 +74,18 @@ const initializeAppServer = async (): Promise<string> => {
     };
 
     const terminateOwnedChild = (): void => {
-      if (shutdownStarted) return;
+      if (shutdownStarted || authorityReleased) return;
       shutdownStarted = true;
-      signalOwned(owned, "SIGTERM");
       escalationTimer = setTimeout(() => {
         escalationTimer = undefined;
         signalOwned(owned, "SIGKILL");
         // Keep the service probe bounded if the child never reports exit.
-        releaseOwned(owned);
+        releaseAuthority();
       }, APP_SERVER_TERMINATION_GRACE_MS);
       escalationTimer.unref?.();
+      // Arm the bound before signalling so an error emitted synchronously by
+      // the child handle cannot cancel or recursively restart teardown.
+      signalOwned(owned, "SIGTERM");
     };
 
     const cleanup = () => {
@@ -102,9 +110,8 @@ const initializeAppServer = async (): Promise<string> => {
     };
 
     const settleTerminalFailure = (message: string): void => {
-      // exit/error/close means the child is already gone or failed to start.
-      // Release its capability directly; attempting another signal here could
-      // only obscure the real terminal status.
+      // exit/close proves the child is gone. Release its capability directly;
+      // attempting another signal here could only obscure terminal status.
       releaseAuthority();
       if (settled) return;
       settled = true;
@@ -117,21 +124,34 @@ const initializeAppServer = async (): Promise<string> => {
     }, 6_000);
 
     child.once("exit", (code, signal) => {
-      settleTerminalFailure(
-        `codex app-server exited before initialize response (${terminalStatus(code, signal)})`,
-      );
+      // exit proves signal authority is over, but stdout/stderr can still
+      // drain until close. Keep the probe pending so a buffered initialize
+      // response delivered in that window can still complete successfully.
+      observedExit = { code, signal };
+      releaseAuthority();
     });
     child.once("close", (code, signal) => {
-      settleTerminalFailure(
-        `codex app-server closed before initialize response (${terminalStatus(code, signal)})`,
-      );
+      const message = observedExit === undefined
+        ? `codex app-server closed before initialize response (${terminalStatus(code, signal)})`
+        : `codex app-server exited before initialize response (${terminalStatus(observedExit.code, observedExit.signal)})`;
+      settleTerminalFailure(message);
     });
 
-    child.on("error", (error) => {
-      settleTerminalFailure(
-        `codex app-server failed before initialize response: ${error.message}`,
+    const failChannel = (channel: "child" | "stdin" | "stdout" | "stderr", error: Error): void => {
+      // Error events are not terminal evidence. In particular, EPIPE and a
+      // failed kill can occur while the child is still live, so keep authority
+      // until exit/close or the final bounded SIGKILL attempt.
+      failAndTerminate(
+        `codex app-server ${channel} failed before initialize response: ${error.message}`,
       );
+    };
+
+    child.on("error", (error) => {
+      failChannel("child", error);
     });
+    child.stdin?.on("error", (error) => failChannel("stdin", error));
+    child.stdout?.on("error", (error) => failChannel("stdout", error));
+    child.stderr?.on("error", (error) => failChannel("stderr", error));
 
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8");
@@ -160,20 +180,29 @@ const initializeAppServer = async (): Promise<string> => {
       }
     });
 
-    child.stdin?.write(
-      `${JSON.stringify({
-        id: 0,
-        method: "initialize",
-        params: {
-          clientInfo: {
-            name: "chassis",
-            title: "Chassis",
-            version: "0.1.0",
+    try {
+      child.stdin?.write(
+        `${JSON.stringify({
+          id: 0,
+          method: "initialize",
+          params: {
+            clientInfo: {
+              name: "chassis",
+              title: "Chassis",
+              version: "0.1.0",
+            },
           },
-        },
-      })}\n`,
-    );
-    child.stdin?.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
+        })}\n`,
+      );
+      if (!settled) {
+        child.stdin?.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
+      }
+    } catch (error) {
+      failChannel(
+        "stdin",
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
   });
 };
 
