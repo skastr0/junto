@@ -32,6 +32,7 @@ import {
   ChatService,
   ChatServiceContext,
   requireCleanChatShutdown,
+  type ChatCloseAllResult,
 } from "../chat/service";
 import type { AcpSpawnTarget } from "../chat/spawn";
 import {
@@ -252,12 +253,93 @@ export class HermesPlane extends Context.Tag("@vellum/HermesPlane")<
   HermesPlane,
   {
     readonly chat: ChatService;
+    readonly shutdown: HermesShutdownPort;
     readonly fetchBundle: () => Promise<SnapshotBundle>;
     readonly fetchAgentIdentity: (key: string) => Promise<AgentIdentity | null>;
     readonly fetchAgentAvatar: (key: string) => Promise<string | null>;
     readonly fetchAgentMessage: (key: string, text: string) => Promise<AgentReply>;
   }
 >() {}
+
+export interface HermesShutdownFailure {
+  readonly kind: "chat-close-rejected";
+  readonly message: string;
+}
+
+/**
+ * The complete ChatService teardown evidence published at the Hermes plane
+ * boundary. A rejected close sink is converted into explicit unclean evidence
+ * so the caller never mistakes a swallowed rejection for a clean shutdown.
+ */
+export interface HermesShutdownReceipt extends ChatCloseAllResult {
+  readonly failure?: HermesShutdownFailure;
+}
+
+export interface HermesShutdownPort {
+  /**
+   * Closes ChatService admission synchronously on first invocation, then waits
+   * for every admitted local or remote ACP teardown receipt.
+   */
+  readonly drainOnQuit: () => Promise<HermesShutdownReceipt>;
+}
+
+const describeShutdownFailure = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const rejectedShutdownReceipt = (error: unknown): HermesShutdownReceipt =>
+  Object.freeze({
+    clean: false,
+    teardowns: Object.freeze([]),
+    failure: Object.freeze({
+      kind: "chat-close-rejected" as const,
+      message: describeShutdownFailure(error),
+    }),
+  });
+
+/**
+ * Publish one shutdown flight before crossing the ChatService seam. This is
+ * deliberately exported as the direct boundary used by both main and the
+ * Effect layer finalizer; neither can start a competing cleanup generation.
+ */
+export const makeHermesShutdownPort = (
+  chat: Pick<ChatService, "closeAll">,
+): HermesShutdownPort => {
+  let flight: Promise<HermesShutdownReceipt> | undefined;
+
+  const drainOnQuit = (): Promise<HermesShutdownReceipt> => {
+    if (flight !== undefined) return flight;
+
+    let resolveFlight!: (receipt: HermesShutdownReceipt) => void;
+    flight = new Promise<HermesShutdownReceipt>((resolve) => {
+      resolveFlight = resolve;
+    });
+
+    let closeFlight: Promise<ChatCloseAllResult>;
+    try {
+      // closeAll flips ChatService admission before returning its promise.
+      closeFlight = Promise.resolve(chat.closeAll());
+    } catch (error) {
+      resolveFlight(rejectedShutdownReceipt(error));
+      return flight;
+    }
+    void closeFlight.then(
+      (receipt) => resolveFlight(receipt),
+      (error) => resolveFlight(rejectedShutdownReceipt(error)),
+    );
+    return flight;
+  };
+
+  return Object.freeze({ drainOnQuit });
+};
+
+export const finalizeHermesShutdown = (
+  shutdown: HermesShutdownPort,
+): Effect.Effect<HermesShutdownReceipt> =>
+  Effect.promise(async () => {
+    const receipt = await shutdown.drainOnQuit();
+    requireCleanChatShutdown(receipt);
+    return receipt;
+  });
 
 export const HermesPlaneLive = Layer.scoped(
   HermesPlane,
@@ -317,14 +399,12 @@ export const HermesPlaneLive = Layer.scoped(
     };
 
     const chat = new ChatService(spawnAcp);
-    yield* Effect.addFinalizer(() =>
-      Effect.promise(async () => {
-        requireCleanChatShutdown(await chat.closeAll());
-      }),
-    );
+    const shutdown = makeHermesShutdownPort(chat);
+    yield* Effect.addFinalizer(() => finalizeHermesShutdown(shutdown));
 
     return HermesPlane.of({
       chat,
+      shutdown,
       fetchBundle: () => fetchHermesBundle(operations),
       fetchAgentIdentity: (key) => fetchAgentIdentity(operations, key),
       fetchAgentAvatar: (key) => fetchAgentAvatar(operations, key),
