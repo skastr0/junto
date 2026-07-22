@@ -117,6 +117,12 @@ const runEnvelope = async (
 export type HerdrMirrorProvider = (hostId: string) => HerdrMirrorReads | undefined;
 
 export class HerdrService {
+  /** One startup/status path per host session; completed flights are never cached. */
+  private readonly serverEnsures = new Map<
+    string,
+    Promise<HerdrResult<{ readonly running: boolean; readonly started: boolean }>>
+  >();
+
   constructor(
     private readonly runner: HerdrRunner,
     private readonly mirrors: HerdrMirrorProvider = () => undefined,
@@ -144,16 +150,34 @@ export class HerdrService {
     return listHerdrHosts();
   }
 
-  async ensureServer(
+  ensureServer(
     hostId: string,
     session?: string | null,
   ): Promise<HerdrResult<{ readonly running: boolean; readonly started: boolean }>> {
     const bad = requireHost(hostId);
-    if (bad) return bad;
+    if (bad) return Promise.resolve(bad);
     // A fresh mirror is itself live proof the server is running.
     if (this.mirrorIfFresh(hostId, session)) {
-      return { ok: true, data: { running: true, started: false } };
+      return Promise.resolve({ ok: true, data: { running: true, started: false } });
     }
+
+    const key = JSON.stringify([hostId, session ?? null]);
+    const existing = this.serverEnsures.get(key);
+    if (existing) return existing;
+
+    const flight = this.ensureServerOnce(hostId, session);
+    this.serverEnsures.set(key, flight);
+    const clear = () => {
+      if (this.serverEnsures.get(key) === flight) this.serverEnsures.delete(key);
+    };
+    void flight.then(clear, clear);
+    return flight;
+  }
+
+  private async ensureServerOnce(
+    hostId: string,
+    session?: string | null,
+  ): Promise<HerdrResult<{ readonly running: boolean; readonly started: boolean }>> {
     // status is cheap; if server is up we're done.
     let status: CliResult;
     try {

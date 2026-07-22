@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CliResult } from "../src/main/vellum/adapters/exec";
 import { isKnownHerdrHost, listHerdrHosts } from "../src/main/vellum/herdr/hosts";
 import {
@@ -431,6 +431,53 @@ describe("HerdrService with mock runner", () => {
     const svc = new HerdrService(runner);
     const res = await svc.ensureServer("local");
     expect(res).toEqual({ ok: true, data: { running: true, started: false } });
+  });
+
+  it("ensureServer shares one startup flight for concurrent callers on the same session", async () => {
+    let startCalls = 0;
+    let releaseStart: (() => void) | undefined;
+    const startReady = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    const runner: HerdrRunner = async (_host, args) => {
+      if (args[0] === "status") return ok(JSON.stringify({ server: { running: false } }));
+      return fail("unexpected");
+    };
+    const starter = async () => {
+      startCalls += 1;
+      await startReady;
+      return ok("");
+    };
+    const svc = new HerdrService(runner, () => undefined, starter);
+
+    const callers = Array.from({ length: 5 }, () => svc.ensureServer("local", "ops"));
+    await vi.waitFor(() => expect(startCalls).toBe(1));
+    releaseStart?.();
+
+    await expect(Promise.all(callers)).resolves.toEqual(
+      Array.from({ length: 5 }, () => ({ ok: true, data: { running: true, started: true } })),
+    );
+    expect(startCalls).toBe(1);
+  });
+
+  it("ensureServer clears a failed startup flight so a later call retries", async () => {
+    let startCalls = 0;
+    const runner: HerdrRunner = async (_host, args) => {
+      if (args[0] === "status") return ok(JSON.stringify({ server: { running: false } }));
+      return fail("unexpected");
+    };
+    const starter = async () => {
+      startCalls += 1;
+      return startCalls === 1 ? fail("server did not become ready") : ok("");
+    };
+    const svc = new HerdrService(runner, () => undefined, starter);
+
+    await expect(svc.ensureServer("local", "ops")).resolves.toMatchObject({ ok: false, code: "failed" });
+    await expect(svc.ensureServer("local", "ops")).resolves.toEqual({
+      ok: true,
+      data: { running: true, started: true },
+    });
+    expect(startCalls).toBe(2);
   });
 
   it("markPaneSeen runs agent focus and returns agent_status", async () => {

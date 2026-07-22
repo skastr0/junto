@@ -42,6 +42,11 @@ import { runCli } from "../adapters/exec";
 
 type RunPromise = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 
+/** Herdr servers are explicitly independent daemons, never app-owned children. */
+export type HerdrServerLifetime = "daemon-outlives-app";
+
+const HERDR_SERVER_LIFETIME: HerdrServerLifetime = "daemon-outlives-app";
+
 const herdrArgs = (
   args: ReadonlyArray<string>,
   session?: string | null,
@@ -201,6 +206,8 @@ export class HerdrPlane extends Context.Tag("@vellum/HerdrPlane")<
     readonly serviceMap: HerdrServiceMap;
     /** Host-scoped Tailscale Serve / SVC catalog. */
     readonly serveCatalog: HostServeCatalog;
+    /** Server spawn semantics; no app shutdown cleanup is implied. */
+    readonly serverLifetime: HerdrServerLifetime;
     readonly start: Effect.Effect<void>;
     readonly warm: Effect.Effect<void>;
   }
@@ -486,6 +493,7 @@ export const HerdrPlaneLive = Layer.scoped(
       streams,
       serviceMap,
       serveCatalog,
+      serverLifetime: HERDR_SERVER_LIFETIME,
       start,
       warm,
     });

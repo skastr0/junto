@@ -52,6 +52,8 @@ describe("herdr detach-on-quit product lock", () => {
     expect(serviceSrc).toMatch(/async killTab/);
     expect(planeSrc).toMatch(/detached:\s*true/);
     expect(planeSrc).toMatch(/child\.unref\(\)/);
+    expect(planeSrc).toMatch(/HerdrServerLifetime\s*=\s*"daemon-outlives-app"/);
+    expect(planeSrc).toMatch(/serverLifetime:\s*HERDR_SERVER_LIFETIME/);
     expect(planeSrc).toMatch(/transport\.handoffServer/);
     expect(planeSrc).toMatch(/Effect\.addFinalizer/);
   });

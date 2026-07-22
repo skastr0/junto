@@ -156,6 +156,7 @@ const fakeHerdr = Layer.succeed(
     streams: {} as HerdrStreamManager,
     serviceMap: { stop: () => {}, get: () => undefined, observeProcesses: () => {}, requestProbe: () => ({ health: "unknown" }) } as never,
     serveCatalog: { peekOrEmpty: () => ({ hostId: "local", entries: [] }), refresh: async () => ({ hostId: "local", entries: [] }), preferredUrl: () => undefined } as never,
+    serverLifetime: "daemon-outlives-app",
     start: Effect.void,
     warm: Effect.void,
   }),

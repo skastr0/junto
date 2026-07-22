@@ -53,6 +53,7 @@ vi.mock("../src/main/runtime", async () => {
       get: () => undefined,
       listServices: () => [],
     } as never,
+    serverLifetime: "daemon-outlives-app",
     start: Effect.void,
     warm: Effect.void,
   });
