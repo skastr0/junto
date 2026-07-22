@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install a built Vellum.app into /Applications (or $VELLUM_APP_DST).
+# Install a built Vellum.app into the fixed /Applications product path.
 #
 #   scripts/install-app.sh                 build then install
 #   scripts/install-app.sh --skip-build    install existing release/*.app
@@ -16,7 +16,7 @@
 #   deploy (later) can decide to pass --supervised. No third binary.
 #
 # Installs `vellum browser …` and `vellum-browser …` as atomic symlinks under
-# $VELLUM_BIN_DIR (default: ~/.local/bin). Existing non-Vellum commands are
+# ~/.local/bin. Existing non-Vellum commands are
 # never overwritten.
 #
 # Safety:
@@ -55,13 +55,46 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+assert_installer_path_capabilities
+if [[ -n "$INSTALL_SANDBOX_ROOT" && ( "$SUPERVISED" -eq 1 || "$OPEN" -eq 1 ) ]]; then
+  err "sandbox installs cannot launch or supervise the app"
+  exit 1
+fi
+PREVIOUS_LAUNCHD_LOADED=0
+if launchd_loaded; then
+  PREVIOUS_LAUNCHD_LOADED=1
+fi
+
+restore_previous_launchd_job() {
+  if [[ "$PREVIOUS_LAUNCHD_LOADED" -ne 1 || launchd_loaded ]]; then
+    return 0
+  fi
+  assert_safe_scoped_file "LaunchAgent plist" "$PLIST" "$INSTALL_USER_ROOT/Library/LaunchAgents/${LABEL}.plist" || return 1
+  launchctl bootstrap "$DOMAIN" "$PLIST" || return 1
+  launchctl enable "$DOMAIN/$LABEL"
+}
 cd "$REPO_ROOT"
 
-BIN_DIR="${VELLUM_BIN_DIR:-$HOME/.local/bin}"
+assert_cli_path() {
+  local description="$1"
+  local path="$2"
+  local expected="$3"
+  assert_exact_scoped_path "$description" "$path" "$expected" "$INSTALL_USER_ROOT" || return 1
+}
+
+CREATED_VELLUM_LINK=0
+CREATED_VELLUM_BROWSER_LINK=0
 
 preflight_cli_link() {
   local target="$1"
   local helper="$2"
+  local name="${target##*/}"
+  assert_scoped_directory_capability "CLI directory" "$BIN_DIR" || return 1
+  assert_cli_path "CLI link" "$target" "$BIN_DIR/$name" || return 1
+  if [[ "$name" != "vellum" && "$name" != "vellum-browser" ]]; then
+    err "refusing unexpected CLI link name: $name"
+    return 1
+  fi
   if [[ -e "$target" && ! -L "$target" ]]; then
     err "refusing to replace non-symlink command: $target"
     return 1
@@ -80,10 +113,44 @@ install_cli_link() {
   local name="$1"
   local helper="$2"
   local target="$BIN_DIR/$name"
-  local stage="$BIN_DIR/.${name}.new.$$"
-  ln -s "$helper" "$stage"
-  # Same-filesystem rename keeps each command usable throughout reinstalls.
-  mv -f "$stage" "$target"
+  assert_cli_path "CLI link" "$target" "$BIN_DIR/$name" || return 1
+  preflight_cli_link "$target" "$helper" || return 1
+  # The helper path is stable across app swaps. An already-correct link needs no
+  # mutation; an absent link is created with ln's exclusive create semantics.
+  if [[ -L "$target" ]]; then
+    return 0
+  fi
+  ln -s "$helper" "$target"
+  if [[ ! -L "$target" || "$(readlink "$target")" != "$helper" ]]; then
+    err "CLI link changed identity during creation: $target"
+    return 1
+  fi
+  if [[ "$name" == "vellum" ]]; then
+    CREATED_VELLUM_LINK=1
+  else
+    CREATED_VELLUM_BROWSER_LINK=1
+  fi
+}
+
+remove_created_cli_link() {
+  local name="$1"
+  local target helper created
+  target="$BIN_DIR/$name"
+  helper="$APP_DST/Contents/Resources/bin/vellum-browser"
+  case "$name" in
+    vellum) created="$CREATED_VELLUM_LINK" ;;
+    vellum-browser) created="$CREATED_VELLUM_BROWSER_LINK" ;;
+    *) err "unknown CLI link cleanup capability: $name"; return 1 ;;
+  esac
+  if [[ "$created" -ne 1 ]]; then
+    return 0
+  fi
+  assert_cli_path "CLI link" "$target" "$BIN_DIR/$name" || return 1
+  if [[ ! -L "$target" || "$(readlink "$target")" != "$helper" ]]; then
+    err "refusing to remove a CLI link that changed identity: $target"
+    return 1
+  fi
+  rm -f "$target"
 }
 
 install_browser_cli() {
@@ -92,7 +159,7 @@ install_browser_cli() {
     err "installed browser CLI missing or not executable: $helper"
     return 1
   fi
-  mkdir -p "$BIN_DIR"
+  ensure_scoped_directory "CLI directory" "$BIN_DIR"
   preflight_cli_link "$BIN_DIR/vellum" "$helper"
   preflight_cli_link "$BIN_DIR/vellum-browser" "$helper"
   install_cli_link "vellum" "$helper"
@@ -134,41 +201,101 @@ HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-browser"
 preflight_cli_link "$BIN_DIR/vellum" "$HELPER_TARGET"
 preflight_cli_link "$BIN_DIR/vellum-browser" "$HELPER_TARGET"
 
-mkdir -p "$(dirname "$APP_DST")"
-STAGE_ROOT="${APP_DST}.new.$$"
-STAGE="$STAGE_ROOT/$(basename "$APP_DST")"
-BACKUP="${APP_DST}.previous.$$"
-REJECTED="${APP_DST}.rejected.$$"
+derive_install_transaction_paths "$$"
 HAD_PREVIOUS=0
 REPLACEMENT_ACTIVE=0
+NEW_APP_INSTALLED=0
+NEW_APP_MOVE_PENDING=0
 INSTALL_COMPLETE=0
 
 rollback_previous_app() {
-  if [[ -e "$APP_DST" ]]; then
-    mv "$APP_DST" "$REJECTED" || return 1
-  fi
-  if [[ "$HAD_PREVIOUS" -eq 1 && -e "$BACKUP" ]]; then
-    if ! mv "$BACKUP" "$APP_DST"; then
-      if [[ -e "$REJECTED" && ! -e "$APP_DST" ]]; then
-        mv "$REJECTED" "$APP_DST" || true
-      fi
+  local moved_identity
+  if [[ "$NEW_APP_MOVE_PENDING" -eq 1 ]]; then
+    if [[ -d "$APP_DST" && ! -L "$APP_DST" && "$(path_identity "$APP_DST" 2>/dev/null)" == "${STAGED_APP_ID:-}" ]]; then
+      NEW_APP_INSTALLED=1
+      NEW_APP_MOVE_PENDING=0
+    elif [[ -d "$STAGE" && ! -L "$STAGE" ]]; then
+      NEW_APP_MOVE_PENDING=0
+    else
+      err "cannot resolve the staged app move during rollback"
       return 1
     fi
   fi
-  rm -rf "$REJECTED"
+  assert_install_transaction_capabilities || return 1
+  if [[ "$NEW_APP_INSTALLED" -eq 1 && -e "$APP_DST" ]]; then
+    assert_install_transaction_capabilities || return 1
+    moved_identity="$(path_identity "$APP_DST")" || return 1
+    REJECTED_ID="$moved_identity"
+    mv "$APP_DST" "$REJECTED" || return 1
+    if ! assert_install_transaction_capabilities; then
+      err "rejected app changed identity during rollback"
+      return 1
+    fi
+  fi
+  if [[ "$HAD_PREVIOUS" -eq 1 && -e "$BACKUP" ]]; then
+    assert_install_transaction_capabilities || return 1
+    moved_identity="$BACKUP_ID"
+    BACKUP_RESTORE_PENDING=1
+    if ! mv "$BACKUP" "$APP_DST"; then
+      if [[ -e "$REJECTED" && ! -e "$APP_DST" ]]; then
+        assert_install_transaction_capabilities || return 1
+        mv "$REJECTED" "$APP_DST" || true
+        if [[ -d "$APP_DST" && "$(path_identity "$APP_DST" 2>/dev/null)" == "$REJECTED_ID" ]]; then
+          REJECTED_ID=""
+        fi
+      fi
+      return 1
+    fi
+    BACKUP_RESTORE_PENDING=0
+    if [[ "$(path_identity "$APP_DST" 2>/dev/null)" != "$moved_identity" ]]; then
+      err "previous app changed identity during rollback"
+      return 1
+    fi
+    BACKUP_ID=""
+  fi
+  safe_remove_transaction_tree rejected || return 1
   REPLACEMENT_ACTIVE=0
 }
 
 cleanup_install() {
   local status=$?
+  local cleanup_failed=0
   trap - EXIT
   set +e
-  if [[ "$status" -ne 0 && "$REPLACEMENT_ACTIVE" -eq 1 ]]; then
-    rollback_previous_app || err "failed to restore the previous app"
+  if [[ "$status" -ne 0 && "$REPLACEMENT_ACTIVE" -eq 1 && "$INSTALL_COMPLETE" -ne 1 ]]; then
+    if ! rollback_previous_app; then
+      err "failed to restore the previous app"
+      cleanup_failed=1
+    fi
   fi
-  rm -rf "$STAGE_ROOT"
+  if [[ "$status" -ne 0 && "$INSTALL_COMPLETE" -ne 1 ]]; then
+    if ! remove_created_cli_link vellum-browser; then
+      cleanup_failed=1
+    fi
+    if ! remove_created_cli_link vellum; then
+      cleanup_failed=1
+    fi
+  fi
+  if [[ "$status" -ne 0 && "$PREVIOUS_LAUNCHD_LOADED" -eq 1 ]] && ! restore_previous_launchd_job; then
+    err "failed to restore the previously loaded LaunchAgent"
+    cleanup_failed=1
+  fi
+  if ! safe_remove_transaction_tree stage; then
+    err "refusing unsafe install stage cleanup"
+    cleanup_failed=1
+  fi
   if [[ "$INSTALL_COMPLETE" -eq 1 ]]; then
-    rm -rf "$BACKUP" "$REJECTED"
+    if ! safe_remove_transaction_tree backup; then
+      err "refusing unsafe install backup cleanup"
+      cleanup_failed=1
+    fi
+    if ! safe_remove_transaction_tree rejected; then
+      err "refusing unsafe rejected-install cleanup"
+      cleanup_failed=1
+    fi
+  fi
+  if [[ "$cleanup_failed" -ne 0 && "$status" -eq 0 ]]; then
+    status=1
   fi
   exit "$status"
 }
@@ -180,8 +307,12 @@ if [[ -e "$STAGE_ROOT" || -e "$BACKUP" || -e "$REJECTED" ]]; then
 fi
 
 log "staging → $STAGE"
-mkdir -p "$STAGE_ROOT"
+assert_install_transaction_capabilities
+mkdir -m 0700 "$STAGE_ROOT"
+bind_transaction_tree stage
+assert_install_transaction_capabilities
 ditto --rsrc "$APP_SRC" "$STAGE"
+assert_install_transaction_capabilities
 assert_app_bundle "$STAGE"
 log "auditing staged copy"
 audit_app_bundle "$STAGE"
@@ -203,13 +334,31 @@ fi
 sleep 0.5
 
 log "installing → $APP_DST"
-if [[ -e "$APP_DST" ]]; then
-  mv "$APP_DST" "$BACKUP"
-  HAD_PREVIOUS=1
-fi
+assert_install_transaction_capabilities
 REPLACEMENT_ACTIVE=1
+if [[ -e "$APP_DST" ]]; then
+  assert_install_transaction_capabilities
+  PREVIOUS_APP_ID="$(path_identity "$APP_DST")"
+  HAD_PREVIOUS=1
+  BACKUP_ID="$PREVIOUS_APP_ID"
+  mv "$APP_DST" "$BACKUP"
+  if ! assert_install_transaction_capabilities; then
+    err "previous app changed identity during backup"
+    exit 1
+  fi
+fi
+assert_install_transaction_capabilities
+STAGED_APP_ID="$(path_identity "$STAGE")"
+NEW_APP_MOVE_PENDING=1
 mv "$STAGE" "$APP_DST"
+NEW_APP_INSTALLED=1
+NEW_APP_MOVE_PENDING=0
+if [[ "$(path_identity "$APP_DST" 2>/dev/null)" != "$STAGED_APP_ID" ]]; then
+  err "staged app changed identity during install"
+  exit 1
+fi
 
+assert_install_transaction_capabilities
 assert_app_bundle "$APP_DST"
 log "auditing installed copy"
 audit_app_bundle "$APP_DST"
@@ -219,14 +368,18 @@ if [[ "$INSTALLED_CDHASH" != "$CANDIDATE_CDHASH" ]]; then
   exit 1
 fi
 install_browser_cli
-INSTALL_COMPLETE=1
-REPLACEMENT_ACTIVE=0
+REPLACEMENT_ACTIVE=0 INSTALL_COMPLETE=1
 log "installed $APP_DST"
 log "installed CDHash $INSTALLED_CDHASH"
 
+if [[ "$SUPERVISED" -eq 0 && "$PREVIOUS_LAUNCHD_LOADED" -eq 1 ]]; then
+  restore_previous_launchd_job
+fi
+
 if [[ "$SUPERVISED" -eq 1 ]]; then
   log "loading LaunchAgent (supervised) …"
-  bash "$SCRIPT_DIR/install-launchd.sh" --skip-build
+  VELLUM_INSTALL_PREVIOUS_LAUNCHD_LOADED="$PREVIOUS_LAUNCHD_LOADED" \
+    bash "$SCRIPT_DIR/install-launchd.sh" --skip-build
 elif [[ "$OPEN" -eq 1 ]]; then
   log "opening $APP_DST"
   open "$APP_DST"
