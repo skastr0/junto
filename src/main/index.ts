@@ -802,9 +802,12 @@ const requireCleanLocalTerminalShutdown = async (
 ): Promise<void> => {
   const result = await termPlane.router.shutdownAllLocal(reason);
   if (!result.clean) {
-    // shutdownAll reports boundedly; exit authorization stays pending on an
-    // event-driven barrier until the retained capabilities observe exit.
-    await termPlane.router.waitForAllLocalExited();
+    const retained = result.stragglers
+      .map((rec) => `${rec.bindingId}@${rec.epoch}${rec.pid === undefined ? "" : ` pid=${rec.pid}`}`)
+      .join(", ");
+    throw new Error(
+      `local terminal shutdown retained ${result.stragglers.length} child generation(s): ${retained}`,
+    );
   }
   if (stopPlane) await termPlane.stop();
 };
@@ -822,6 +825,9 @@ const exitAfterDetach = (exitCode: number, reason: string): void => {
       app.exit(exitCode);
     })
     .catch((error) => {
+      quitConfirmed = false;
+      skipQuitConfirm = false;
+      recreateWindowIfEmpty();
       console.error(`[term] direct exit blocked (${reason}):`, error);
     });
 };
@@ -900,6 +906,7 @@ app.on("before-quit", (event) => {
         quitConfirmed = false;
         // Never leave skip sticky after a failed prep — next Cmd+Q must be honest.
         skipQuitConfirm = false;
+        recreateWindowIfEmpty();
         console.error("[canvas] quit blocked:", error);
       });
   };

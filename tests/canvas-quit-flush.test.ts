@@ -31,7 +31,7 @@ describe("canvas quit durability wiring", () => {
     expect(block).toContain("signalTerminalShutdownComplete");
   });
 
-  it("resumes direct and signal exit only after a late terminal exit is observed", () => {
+  it("blocks every exit path after the bounded terminal shutdown returns unclean", () => {
     const helperStart = source.indexOf("const requireCleanLocalTerminalShutdown");
     const helperEnd = source.indexOf("const exitAfterDetach", helperStart);
     const helper = source.slice(helperStart, helperEnd);
@@ -41,12 +41,14 @@ describe("canvas quit durability wiring", () => {
     const signalBlock = source.slice(signalStart);
 
     expect(helper).toContain("if (!result.clean)");
-    expect(helper).toContain("await termPlane.router.waitForAllLocalExited()");
+    expect(helper).toContain("throw new Error");
+    expect(helper).not.toContain("waitForAllLocalExited");
     expect(directExit.indexOf("requireCleanLocalTerminalShutdown(reason, true)"))
       .toBeLessThan(directExit.indexOf("detachRuntimeOnQuit(reason)"));
     expect(directExit.indexOf("requireCleanLocalTerminalShutdown(reason, true)"))
       .toBeLessThan(directExit.indexOf("app.exit(exitCode)"));
     expect(directExit).not.toContain(".finally(");
+    expect(directExit).toContain("recreateWindowIfEmpty()");
     expect(signalBlock.indexOf("requireCleanLocalTerminalShutdown(signal, false)"))
       .toBeLessThan(signalBlock.indexOf("signalTerminalShutdownComplete = true"));
     expect(signalBlock.indexOf("signalTerminalShutdownComplete = true"))

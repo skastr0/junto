@@ -149,8 +149,13 @@ export type LocalSessionHostOptions = {
   readonly killGraceMs?: number;
   /** Bounded wait after each shutdown signal phase. */
   readonly shutdownGraceMs?: number;
-  /** Observation cadence while waiting for child exit callbacks. */
-  readonly shutdownPollMs?: number;
+  /** Final event-driven window for a late observed exit after SIGKILL. */
+  readonly lateExitGraceMs?: number;
+};
+
+type AllExitedWaiter = {
+  timer: ReturnType<typeof setTimeout> | undefined;
+  readonly resolve: (clean: boolean) => void;
 };
 
 const DEFAULT_COLS = 120;
@@ -158,7 +163,7 @@ const DEFAULT_ROWS = 32;
 const MAX_JOURNAL_BYTES = 512 * 1024;
 const SHUTDOWN_GRACE_MS = 1500;
 const KILL_GRACE_MS = 400;
-const SHUTDOWN_POLL_MS = 50;
+const LATE_EXIT_GRACE_MS = 1500;
 
 /** @deprecated use ProcessSignalAudit from process-signal */
 export type TermKillAudit = ProcessSignalAudit;
@@ -321,13 +326,13 @@ export class LocalSessionHost extends EventEmitter {
   private readonly sessions = new Map<string, SessionRec>();
   /** Every child generation remains owned until its exit callback is observed. */
   private readonly liveRecords = new Set<SessionRec>();
-  /** One-shot waiters used only after shutdown has prevented further creates. */
-  private readonly allExitedWaiters = new Set<() => void>();
+  /** Bounded waiters used only after shutdown has prevented further creates. */
+  private readonly allExitedWaiters = new Set<AllExitedWaiter>();
   private shuttingDown = false;
   private readonly spawnFn: TermSpawnFn;
   private readonly killGraceMs: number;
   private readonly shutdownGraceMs: number;
-  private readonly shutdownPollMs: number;
+  private readonly lateExitGraceMs: number;
 
   constructor(
     spawnFn: TermSpawnFn = defaultTermSpawn,
@@ -337,7 +342,7 @@ export class LocalSessionHost extends EventEmitter {
     this.spawnFn = spawnFn;
     this.killGraceMs = Math.max(0, options.killGraceMs ?? KILL_GRACE_MS);
     this.shutdownGraceMs = Math.max(0, options.shutdownGraceMs ?? SHUTDOWN_GRACE_MS);
-    this.shutdownPollMs = Math.max(1, options.shutdownPollMs ?? SHUTDOWN_POLL_MS);
+    this.lateExitGraceMs = Math.max(0, options.lateExitGraceMs ?? LATE_EXIT_GRACE_MS);
   }
 
   create(input: LocalHostCreateInput): TerminalSessionSummary {
@@ -570,19 +575,6 @@ export class LocalSessionHost extends EventEmitter {
     return this.liveRecords.size;
   }
 
-  /** Resolve only after shutdown observes every owned generation exit. */
-  waitForAllExited(): Promise<void> {
-    if (this.liveRecords.size === 0) return Promise.resolve();
-    return new Promise<void>((resolve) => {
-      this.allExitedWaiters.add(resolve);
-      // The exit callback and this registration cannot interleave in one JS
-      // turn, but re-check keeps the barrier total if that ever changes.
-      if (this.liveRecords.size === 0 && this.allExitedWaiters.delete(resolve)) {
-        resolve();
-      }
-    });
-  }
-
   detachedRunning(): readonly TerminalSessionSummary[] {
     return [...this.sessions.values()]
       .filter((s) => s.detached && (s.status === "running" || s.status === "starting"))
@@ -594,13 +586,18 @@ export class LocalSessionHost extends EventEmitter {
     for (const rec of [...this.liveRecords]) {
       this.requestStop(rec);
     }
-    if (await this.waitForAllExits(this.shutdownGraceMs)) {
+    if (await this.waitForAllExitsWithin(this.shutdownGraceMs)) {
       return { clean: true, stragglers: [] };
     }
     for (const rec of [...this.liveRecords]) {
       this.forceKill(rec, "SIGKILL");
     }
-    if (await this.waitForAllExits(this.shutdownGraceMs)) {
+    if (await this.waitForAllExitsWithin(this.shutdownGraceMs)) {
+      return { clean: true, stragglers: [] };
+    }
+    // Some process wrappers report exit just after a successful KILL. Give
+    // that observed callback one final bounded, event-driven window.
+    if (await this.waitForAllExitsWithin(this.lateExitGraceMs)) {
       return { clean: true, stragglers: [] };
     }
     const stragglers = [...this.liveRecords].map((rec) => ({
@@ -614,6 +611,9 @@ export class LocalSessionHost extends EventEmitter {
         .map((rec) => `${rec.bindingId}@${rec.epoch}${rec.pid === undefined ? "" : ` pid=${rec.pid}`}`)
         .join(", ")}`,
     );
+    // The quit attempt is canceled. Retained exact authorities remain live,
+    // while the app may recover and a later signal can start a fresh attempt.
+    this.shuttingDown = false;
     return { clean: false, stragglers };
   }
 
@@ -640,12 +640,25 @@ export class LocalSessionHost extends EventEmitter {
     }
   }
 
-  private async waitForAllExits(timeoutMs: number): Promise<boolean> {
-    const deadline = Date.now() + timeoutMs;
-    while (this.liveRecords.size > 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, this.shutdownPollMs));
-    }
-    return this.liveRecords.size === 0;
+  private waitForAllExitsWithin(timeoutMs: number): Promise<boolean> {
+    if (this.liveRecords.size === 0) return Promise.resolve(true);
+    if (timeoutMs <= 0) return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      const waiter: AllExitedWaiter = {
+        timer: undefined,
+        resolve,
+      };
+      waiter.timer = setTimeout(() => {
+        if (!this.allExitedWaiters.delete(waiter)) return;
+        resolve(this.liveRecords.size === 0);
+      }, timeoutMs);
+      this.allExitedWaiters.add(waiter);
+      // Defensive totality if future code makes registration re-entrant.
+      if (this.liveRecords.size === 0 && this.allExitedWaiters.delete(waiter)) {
+        if (waiter.timer !== undefined) clearTimeout(waiter.timer);
+        resolve(true);
+      }
+    });
   }
 
   private observeData(rec: SessionRec, data: string): void {
@@ -751,7 +764,10 @@ export class LocalSessionHost extends EventEmitter {
     if (!this.liveRecords.delete(rec) || this.liveRecords.size !== 0) return;
     const waiters = [...this.allExitedWaiters];
     this.allExitedWaiters.clear();
-    for (const resolve of waiters) resolve();
+    for (const waiter of waiters) {
+      if (waiter.timer !== undefined) clearTimeout(waiter.timer);
+      waiter.resolve(true);
+    }
   }
 
   private safeEmitEvent(ev: LocalHostEvent): void {

@@ -15,6 +15,7 @@ import {
 const hosts: LocalSessionHost[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   for (const h of hosts.splice(0)) {
     await h.shutdownAll("test_cleanup");
   }
@@ -194,7 +195,7 @@ describe("LocalSessionHost", () => {
       const host = new LocalSessionHost(spawn, {
         killGraceMs: 2,
         shutdownGraceMs: 6,
-        shutdownPollMs: 1,
+        lateExitGraceMs: 6,
       });
       hosts.push(host);
       if (failureAt === "listener") {
@@ -227,18 +228,10 @@ describe("LocalSessionHost", () => {
       expect(result.clean).toBe(false);
       expect(host.runningCount()).toBe(1);
 
-      let barrierResolved = false;
-      const barrier = host.waitForAllExited().then(() => {
-        barrierResolved = true;
-      });
-      await Promise.resolve();
-      expect(barrierResolved).toBe(false);
       if (!exited) {
         exited = true;
         for (const listener of exitListeners) listener(0, undefined);
       }
-      await barrier;
-      expect(barrierResolved).toBe(true);
       expect(host.runningCount()).toBe(0);
       expect(host.get(`post-spawn-${failureAt}`)?.status).toBe("exited");
       expect(error).toHaveBeenCalled();
@@ -280,7 +273,7 @@ describe("LocalSessionHost", () => {
     const host = new LocalSessionHost(spawn, {
       killGraceMs: 5,
       shutdownGraceMs: 20,
-      shutdownPollMs: 1,
+      lateExitGraceMs: 20,
     });
     hosts.push(host);
     const visibleExits: string[] = [];
@@ -308,7 +301,53 @@ describe("LocalSessionHost", () => {
     expect(host.runningCount()).toBe(0);
   });
 
+  it("continues when the final owned child exits inside the bounded late window", async () => {
+    vi.useFakeTimers();
+    const signals: NodeJS.Signals[] = [];
+    let emitExit: (() => void) | undefined;
+    const spawn: TermSpawnFn = () => {
+      const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
+      emitExit = () => {
+        for (const listener of exitListeners) listener(0, undefined);
+      };
+      return {
+        pid: 81_500,
+        write() {},
+        kill(signal = "SIGTERM") {
+          signals.push(signal);
+        },
+        onData() {},
+        onExit(listener) {
+          exitListeners.add(listener);
+        },
+      };
+    };
+    const host = new LocalSessionHost(spawn, {
+      killGraceMs: 5,
+      shutdownGraceMs: 10,
+      lateExitGraceMs: 30,
+    });
+    hosts.push(host);
+    host.create({ bindingId: "late-but-bounded" });
+
+    let settled = false;
+    const shutdown = host.shutdownAll("late-window").then((result) => {
+      settled = true;
+      return result;
+    });
+    await vi.advanceTimersByTimeAsync(20);
+    expect(settled).toBe(false);
+    expect(signals).toContain("SIGKILL");
+
+    emitExit?.();
+    await expect(shutdown).resolves.toEqual({ clean: true, stragglers: [] });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(host.runningCount()).toBe(0);
+    vi.useRealTimers();
+  });
+
   it("reports a TERM- and KILL-resistant child as an unclean shutdown", async () => {
+    vi.useFakeTimers();
     const signals: NodeJS.Signals[] = [];
     let emitExit: (() => void) | undefined;
     const spawn: TermSpawnFn = () => {
@@ -331,13 +370,15 @@ describe("LocalSessionHost", () => {
     const host = new LocalSessionHost(spawn, {
       killGraceMs: 2,
       shutdownGraceMs: 8,
-      shutdownPollMs: 1,
+      lateExitGraceMs: 8,
     });
     hosts.push(host);
     host.create({ bindingId: "stubborn" });
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    const result = await host.shutdownAll("stubborn-test");
+    const shutdown = host.shutdownAll("stubborn-test");
+    await vi.advanceTimersByTimeAsync(24);
+    const result = await shutdown;
 
     expect(result.clean).toBe(false);
     if (!result.clean) {
@@ -353,16 +394,14 @@ describe("LocalSessionHost", () => {
     expect(host.runningCount()).toBe(1);
     expect(error).toHaveBeenCalledWith(expect.stringContaining("retained 1 local terminal"));
 
-    let barrierResolved = false;
-    const barrier = host.waitForAllExited().then(() => {
-      barrierResolved = true;
-    });
-    await Promise.resolve();
-    expect(barrierResolved).toBe(false);
-    emitExit?.();
-    await barrier;
-    expect(barrierResolved).toBe(true);
+    const stubbornExit = emitExit;
+    expect(() => host.create({ bindingId: "recovery" })).not.toThrow();
+    const recoveryExit = emitExit;
+    stubbornExit?.();
+    recoveryExit?.();
     expect(host.runningCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
     error.mockRestore();
   });
 

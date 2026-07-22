@@ -291,10 +291,6 @@ export class TerminalRouter extends EventEmitter {
     return this.local.shutdownAll(reason);
   }
 
-  waitForAllLocalExited(): Promise<void> {
-    return this.local.waitForAllExited();
-  }
-
   /** Close SSH forwards + control clients only. Never kills remote sessions. */
   async closeRemotes(): Promise<void> {
     this.quiescing = true;
