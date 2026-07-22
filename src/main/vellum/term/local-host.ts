@@ -321,6 +321,8 @@ export class LocalSessionHost extends EventEmitter {
   private readonly sessions = new Map<string, SessionRec>();
   /** Every child generation remains owned until its exit callback is observed. */
   private readonly liveRecords = new Set<SessionRec>();
+  /** One-shot waiters used only after shutdown has prevented further creates. */
+  private readonly allExitedWaiters = new Set<() => void>();
   private shuttingDown = false;
   private readonly spawnFn: TermSpawnFn;
   private readonly killGraceMs: number;
@@ -380,10 +382,10 @@ export class LocalSessionHost extends EventEmitter {
     };
     this.sessions.set(bindingId, rec);
     this.liveRecords.add(rec);
-    this.emitEvent({ type: "session", bindingId, epoch, status: "starting" });
 
+    let child: TermChild;
     try {
-      const child = this.spawnFn({
+      child = this.spawnFn({
         file: launch.file,
         args: launch.args,
         cwd: launch.cwd,
@@ -391,12 +393,28 @@ export class LocalSessionHost extends EventEmitter {
         cols,
         rows,
       });
+    } catch (err) {
+      this.failBeforeOwnership(rec, err);
+      return this.summaryOf(rec);
+    }
+
+    try {
       rec.child = child;
       rec.pid = child.pid;
       rec.status = "running";
       // Local terminals are always child-only; their capability contains no pid.
       rec.owned = admitChildProcess({ source: `term:${bindingId}`, child });
+
+      // Install the cleanup path before data listeners, identity binding, or
+      // EventEmitter publication. Any later exception retains this exact
+      // authority and initiates bounded teardown instead of inventing exit.
+      child.onExit((code, signal) => this.observeExit(rec, code, signal));
+      if (!this.liveRecords.has(rec)) return this.summaryOf(rec);
+      child.onData((data) => this.observeData(rec, data));
+      if (!this.liveRecords.has(rec)) return this.summaryOf(rec);
+
       this.bindProcessIdentity(rec);
+      this.emitEvent({ type: "session", bindingId, epoch, status: "starting" });
       this.emitEvent({
         type: "session",
         bindingId,
@@ -404,81 +422,9 @@ export class LocalSessionHost extends EventEmitter {
         status: "running",
         pid: child.pid,
       });
-
-      child.onData((data) => {
-        if (rec.killed || rec.epoch !== epoch) return;
-        rec.seq = rec.seq + 1n;
-        this.pushJournal(rec, { seq: rec.seq, type: "output", data });
-        this.emitEvent({
-          type: "output",
-          bindingId,
-          epoch,
-          seq: rec.seq,
-          data,
-        });
-      });
-
-      child.onExit((code, signal) => {
-        // Cleanup belongs to this record even after a same-binding replacement.
-        // Only presentation/map state belongs to the current binding.
-        if (rec.escalationTimer !== undefined) {
-          clearTimeout(rec.escalationTimer);
-          rec.escalationTimer = undefined;
-        }
-        releaseOwned(rec.owned);
-        rec.owned = undefined;
-        this.liveRecords.delete(rec);
-        const current = this.sessions.get(bindingId);
-        // A reused numeric PID may already belong to the replacement. Never
-        // let the old generation's late exit erase that newer identity.
-        if (rec.pid !== undefined && (current === rec || current?.pid !== rec.pid)) {
-          getProcessIdentityMap().unbind(rec.pid);
-        }
-        rec.status = "exited";
-        rec.child = undefined;
-        if (rec.epoch !== epoch || current !== rec) return;
-        rec.seq = rec.seq + 1n;
-        this.pushJournal(rec, {
-          seq: rec.seq,
-          type: "exit",
-          code,
-          signal,
-        });
-        this.emitEvent({
-          type: "exit",
-          bindingId,
-          epoch,
-          seq: rec.seq,
-          code,
-          signal,
-        });
-        this.emitEvent({
-          type: "session",
-          bindingId,
-          epoch,
-          status: "exited",
-          pid: rec.pid,
-        });
-      });
     } catch (err) {
-      this.liveRecords.delete(rec);
-      rec.status = "exited";
-      rec.seq = rec.seq + 1n;
-      const message = err instanceof Error ? err.message : String(err);
-      this.pushJournal(rec, {
-        seq: rec.seq,
-        type: "output",
-        data: `\r\n[vellum] failed to spawn: ${message}\r\n`,
-      });
-      this.emitEvent({
-        type: "exit",
-        bindingId,
-        epoch,
-        seq: rec.seq,
-        code: 1,
-        signal: undefined,
-      });
-      this.emitEvent({ type: "session", bindingId, epoch, status: "exited" });
+      this.recordPostSpawnFailure(rec, err);
+      this.requestStop(rec);
     }
 
     return this.summaryOf(rec);
@@ -624,6 +570,19 @@ export class LocalSessionHost extends EventEmitter {
     return this.liveRecords.size;
   }
 
+  /** Resolve only after shutdown observes every owned generation exit. */
+  waitForAllExited(): Promise<void> {
+    if (this.liveRecords.size === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.allExitedWaiters.add(resolve);
+      // The exit callback and this registration cannot interleave in one JS
+      // turn, but re-check keeps the barrier total if that ever changes.
+      if (this.liveRecords.size === 0 && this.allExitedWaiters.delete(resolve)) {
+        resolve();
+      }
+    });
+  }
+
   detachedRunning(): readonly TerminalSessionSummary[] {
     return [...this.sessions.values()]
       .filter((s) => s.detached && (s.status === "running" || s.status === "starting"))
@@ -687,6 +646,120 @@ export class LocalSessionHost extends EventEmitter {
       await new Promise((resolve) => setTimeout(resolve, this.shutdownPollMs));
     }
     return this.liveRecords.size === 0;
+  }
+
+  private observeData(rec: SessionRec, data: string): void {
+    if (rec.killed || rec.status !== "running" || !this.liveRecords.has(rec)) return;
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, { seq: rec.seq, type: "output", data });
+    try {
+      this.emitEvent({
+        type: "output",
+        bindingId: rec.bindingId,
+        epoch: rec.epoch,
+        seq: rec.seq,
+        data,
+      });
+    } catch (error) {
+      console.error(`[term] output listener failed for ${rec.bindingId}@${rec.epoch}:`, error);
+    }
+  }
+
+  private observeExit(
+    rec: SessionRec,
+    code: number | undefined,
+    signal: number | undefined,
+  ): void {
+    if (!this.liveRecords.has(rec)) return;
+    if (rec.escalationTimer !== undefined) {
+      clearTimeout(rec.escalationTimer);
+      rec.escalationTimer = undefined;
+    }
+    releaseOwned(rec.owned);
+    rec.owned = undefined;
+    this.removeLiveRecord(rec);
+    const current = this.sessions.get(rec.bindingId);
+    // A reused numeric PID may already belong to the replacement. Never let
+    // the old generation's late exit erase that newer identity.
+    if (rec.pid !== undefined && (current === rec || current?.pid !== rec.pid)) {
+      try {
+        getProcessIdentityMap().unbind(rec.pid);
+      } catch (error) {
+        console.error(`[term] identity unbind failed for ${rec.bindingId}@${rec.epoch}:`, error);
+      }
+    }
+    rec.status = "exited";
+    rec.child = undefined;
+    if (current !== rec) return;
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, { seq: rec.seq, type: "exit", code, signal });
+    this.safeEmitEvent({
+      type: "exit",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      seq: rec.seq,
+      code,
+      signal,
+    });
+    this.safeEmitEvent({
+      type: "session",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      status: "exited",
+      pid: rec.pid,
+    });
+  }
+
+  private failBeforeOwnership(rec: SessionRec, error: unknown): void {
+    this.removeLiveRecord(rec);
+    rec.status = "exited";
+    rec.seq = rec.seq + 1n;
+    const message = error instanceof Error ? error.message : String(error);
+    this.pushJournal(rec, {
+      seq: rec.seq,
+      type: "output",
+      data: `\r\n[vellum] failed to spawn: ${message}\r\n`,
+    });
+    this.safeEmitEvent({
+      type: "exit",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      seq: rec.seq,
+      code: 1,
+      signal: undefined,
+    });
+    this.safeEmitEvent({
+      type: "session",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      status: "exited",
+    });
+  }
+
+  private recordPostSpawnFailure(rec: SessionRec, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, {
+      seq: rec.seq,
+      type: "output",
+      data: `\r\n[vellum] terminal setup failed; stopping owned child: ${message}\r\n`,
+    });
+    console.error(`[term] setup failed for ${rec.bindingId}@${rec.epoch}; stopping child:`, error);
+  }
+
+  private removeLiveRecord(rec: SessionRec): void {
+    if (!this.liveRecords.delete(rec) || this.liveRecords.size !== 0) return;
+    const waiters = [...this.allExitedWaiters];
+    this.allExitedWaiters.clear();
+    for (const resolve of waiters) resolve();
+  }
+
+  private safeEmitEvent(ev: LocalHostEvent): void {
+    try {
+      this.emitEvent(ev);
+    } catch (error) {
+      console.error(`[term] lifecycle listener failed for ${ev.bindingId}@${ev.epoch}:`, error);
+    }
   }
 
   /**

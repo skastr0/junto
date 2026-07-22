@@ -20,6 +20,7 @@ afterEach(async () => {
   }
   setProcessIdentityMapForTests(undefined);
   clearTermKillAuditLog();
+  vi.restoreAllMocks();
 });
 
 const fakeSpawn = (opts?: {
@@ -171,6 +172,79 @@ describe("LocalSessionHost", () => {
     expect(host.runningCount()).toBe(0);
   });
 
+  it.each(["listener", "bind"] as const)(
+    "retains post-spawn authority when a %s step throws",
+    async (failureAt) => {
+      const signals: NodeJS.Signals[] = [];
+      const exitListeners = new Set<
+        (code: number | undefined, signal: number | undefined) => void
+      >();
+      let exited = false;
+      const spawn: TermSpawnFn = () => ({
+        pid: 80_500,
+        write() {},
+        kill(signal = "SIGTERM") {
+          signals.push(signal);
+        },
+        onData() {},
+        onExit(listener) {
+          exitListeners.add(listener);
+        },
+      });
+      const host = new LocalSessionHost(spawn, {
+        killGraceMs: 2,
+        shutdownGraceMs: 6,
+        shutdownPollMs: 1,
+      });
+      hosts.push(host);
+      if (failureAt === "listener") {
+        host.on("event", (event) => {
+          if (event.type === "session" && event.status === "running") {
+            throw new Error("running listener failed");
+          }
+        });
+      } else {
+        const identities = makeProcessIdentityMap();
+        setProcessIdentityMapForTests({
+          ...identities,
+          bind: () => {
+            throw new Error("identity bind failed");
+          },
+        });
+      }
+      const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+      const created = host.create({
+        bindingId: `post-spawn-${failureAt}`,
+        canvasName: "main",
+        nodeId: "term-node",
+      });
+
+      expect(created.status).toBe("running");
+      expect(host.runningCount()).toBe(1);
+      expect(signals[0]).toBe("SIGTERM");
+      const result = await host.shutdownAll(`post-spawn-${failureAt}`);
+      expect(result.clean).toBe(false);
+      expect(host.runningCount()).toBe(1);
+
+      let barrierResolved = false;
+      const barrier = host.waitForAllExited().then(() => {
+        barrierResolved = true;
+      });
+      await Promise.resolve();
+      expect(barrierResolved).toBe(false);
+      if (!exited) {
+        exited = true;
+        for (const listener of exitListeners) listener(0, undefined);
+      }
+      await barrier;
+      expect(barrierResolved).toBe(true);
+      expect(host.runningCount()).toBe(0);
+      expect(host.get(`post-spawn-${failureAt}`)?.status).toBe("exited");
+      expect(error).toHaveBeenCalled();
+    },
+  );
+
   it("escalates a superseded exact generation and ignores its late exit", async () => {
     const children: Array<{
       readonly pid: number;
@@ -279,7 +353,15 @@ describe("LocalSessionHost", () => {
     expect(host.runningCount()).toBe(1);
     expect(error).toHaveBeenCalledWith(expect.stringContaining("retained 1 local terminal"));
 
+    let barrierResolved = false;
+    const barrier = host.waitForAllExited().then(() => {
+      barrierResolved = true;
+    });
+    await Promise.resolve();
+    expect(barrierResolved).toBe(false);
     emitExit?.();
+    await barrier;
+    expect(barrierResolved).toBe(true);
     expect(host.runningCount()).toBe(0);
     error.mockRestore();
   });

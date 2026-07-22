@@ -802,12 +802,9 @@ const requireCleanLocalTerminalShutdown = async (
 ): Promise<void> => {
   const result = await termPlane.router.shutdownAllLocal(reason);
   if (!result.clean) {
-    const retained = result.stragglers
-      .map((rec) => `${rec.bindingId}@${rec.epoch}${rec.pid === undefined ? "" : ` pid=${rec.pid}`}`)
-      .join(", ");
-    throw new Error(
-      `local terminal shutdown retained ${result.stragglers.length} child generation(s): ${retained}`,
-    );
+    // shutdownAll reports boundedly; exit authorization stays pending on an
+    // event-driven barrier until the retained capabilities observe exit.
+    await termPlane.router.waitForAllLocalExited();
   }
   if (stopPlane) await termPlane.stop();
 };
