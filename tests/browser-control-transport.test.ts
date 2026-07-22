@@ -369,7 +369,7 @@ describe("browser control Unix transport", () => {
     await expect(access(server.socketPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("preserves a replacement Unix socket while closing its original listener", async () => {
+  it("refuses to close over a replacement Unix socket and retries after it leaves", async () => {
     const root = await newRoot();
     const { server } = await startStack(root, {
       chmodSocket: chmodSync,
@@ -385,10 +385,18 @@ describe("browser control Unix transport", () => {
     });
 
     await expect(server.close()).resolves.toMatchObject({
-      clean: true,
-      retainedCounts: { socketPaths: 0 },
+      clean: false,
+      retainedCounts: { listenerClosures: 1, socketPaths: 1 },
     });
     await expect(access(server.socketPath)).resolves.toBeUndefined();
+
+    await new Promise<void>((resolveClose) => replacement.close(() => resolveClose()));
+    rogueServers.splice(rogueServers.indexOf(replacement), 1);
+    await expect(server.close()).resolves.toMatchObject({
+      clean: true,
+      retainedCounts: { listenerClosures: 0, socketPaths: 0 },
+      retainedLabels: [],
+    });
   });
 
   it("fails closed on an unpreservable replacement and retries after it is removed", async () => {

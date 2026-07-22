@@ -3,7 +3,6 @@ import {
   chmodSync,
   constants as fsConstants,
   existsSync,
-  linkSync,
   lstatSync,
   mkdirSync,
   renameSync,
@@ -1655,21 +1654,6 @@ export const startBrowserControlServer = async (
     ino: bigint;
     birthtimeNs: bigint;
   }>;
-  const readSocketPathIdentity = (path: string): SocketPathIdentity => {
-    const info = lstatSync(path, { bigint: true });
-    return Object.freeze({
-      dev: info.dev,
-      ino: info.ino,
-      birthtimeNs: info.birthtimeNs,
-    });
-  };
-  const sameStablePathIdentity = (
-    left: SocketPathIdentity,
-    right: SocketPathIdentity,
-  ): boolean =>
-    left.dev === right.dev &&
-    left.ino === right.ino &&
-    left.birthtimeNs === right.birthtimeNs;
   let socketIdentity: SocketPathIdentity | undefined;
   let socketPathCleanupBlocked = false;
   const ownsSocketPath = (): boolean => {
@@ -1688,56 +1672,17 @@ export const startBrowserControlServer = async (
     if (ownsSocketPath()) unlinkSync(socketPath);
   };
   const closeListenerWithoutDeletingReplacement = async (): Promise<void> => {
-    if (!existsSync(socketPath) || ownsSocketPath()) {
-      await closeServer(server);
-      socketPathCleanupBlocked = false;
-      return;
-    }
-
-    // Node/libuv unlinks the originally-bound pathname during Server.close,
-    // even when another same-user process has replaced that directory entry.
-    // Preserve the replacement through a same-inode hard link, then restore it
-    // after the listener handle has closed. If preservation is impossible, do
-    // not close destructively: leave an explicit retained listener receipt.
-    const preservationPath = `${socketPath}.preserve.${randomBytes(24).toString("hex")}`;
-    let preservedIdentity: SocketPathIdentity;
-    try {
-      const replacement = lstatSync(socketPath, { bigint: true });
-      if (!replacement.isFile() && !replacement.isSocket()) {
-        throw new Error("replacement path is not safely hard-linkable");
-      }
-      linkSync(socketPath, preservationPath);
-      preservedIdentity = readSocketPathIdentity(preservationPath);
-    } catch (error) {
+    if (existsSync(socketPath) && !ownsSocketPath()) {
+      // Node/libuv unlinks the originally-bound pathname during Server.close,
+      // even if another process replaced that directory entry. There is no
+      // identity-checked unlink primitive in Node, so refuse the close rather
+      // than trying to preserve/restore a foreign path across a TOCTOU window.
       socketPathCleanupBlocked = true;
       server.unref();
-      throw new Error("refusing to close browser listener over an unpreserved replacement", {
-        cause: error,
-      });
+      throw new Error("refusing to close browser listener over a replacement path");
     }
-
-    let closeFailure: unknown;
-    try {
-      await closeServer(server);
-    } catch (error) {
-      closeFailure = error;
-    }
-    try {
-      if (!existsSync(socketPath)) {
-        renameSync(preservationPath, socketPath);
-      } else {
-        const current = readSocketPathIdentity(socketPath);
-        if (!sameStablePathIdentity(current, preservedIdentity)) {
-          throw new Error("browser control path changed again while restoring its replacement");
-        }
-        unlinkSync(preservationPath);
-      }
-      socketPathCleanupBlocked = false;
-    } catch (error) {
-      socketPathCleanupBlocked = true;
-      throw new Error("browser control replacement path could not be restored", { cause: error });
-    }
-    if (closeFailure !== undefined) throw closeFailure;
+    await closeServer(server);
+    socketPathCleanupBlocked = false;
   };
   const ensureListenerClose = (): void => {
     if (!server.listening || listenerCloseFlight !== undefined) return;
@@ -1764,7 +1709,7 @@ export const startBrowserControlServer = async (
       birthtimeNs: info.birthtimeNs,
     });
   } catch (error) {
-    await closeListenerWithoutDeletingReplacement();
+    await closeListenerWithoutDeletingReplacement().catch(() => undefined);
     throw error;
   }
   try {
@@ -1786,7 +1731,7 @@ export const startBrowserControlServer = async (
       birthtimeNs: hardened.birthtimeNs,
     });
   } catch (error) {
-    await closeListenerWithoutDeletingReplacement();
+    await closeListenerWithoutDeletingReplacement().catch(() => undefined);
     try {
       unlinkOwnedSocket();
     } catch {
