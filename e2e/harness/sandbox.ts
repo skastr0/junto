@@ -78,6 +78,39 @@ export const textNode = (id: string, text: string, x = 0, y = 0): TextNode => ({
   height: 120,
 });
 
+/** Vellum-owned native terminal node (entity.kind terminal + ether.terminal).
+ * Launch is inert until Start — matches makeTerminalNode. */
+export const terminalTextNode = (input: {
+  readonly id: string;
+  readonly bindingId: string;
+  readonly label: string;
+  readonly host?: string;
+  readonly launch?: {
+    readonly kind: "shell" | "command" | "harness";
+    readonly argv?: readonly string[];
+    readonly cwd?: string;
+  };
+  readonly x?: number;
+  readonly y?: number;
+}): TextNode => ({
+  id: input.id,
+  type: "text",
+  text: input.label,
+  x: input.x ?? 0,
+  y: input.y ?? 0,
+  width: 260,
+  height: 110,
+  ether: {
+    entity: { kind: "terminal" },
+    host: input.host ?? "local",
+    terminal: {
+      bindingId: input.bindingId,
+      label: input.label,
+      ...(input.launch ? { launch: { ...input.launch, argv: input.launch.argv ? [...input.launch.argv] : undefined } } : {}),
+    },
+  },
+});
+
 /** A herdr-bound node matching the shape the demo engine's own scenarios use
  * (src/renderer/demo/scenarios/trailer-60.ts) — single fixed workspace/tab. */
 export const herdrTextNode = (input: {
