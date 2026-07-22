@@ -1,18 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   classifyProcessSignalTarget,
+  clearOwnedProcessRegistryForTests,
   clearProcessSignalAuditLog,
   getProcessSignalAuditLog,
-  signalOwnedProcess,
+  ownedProcessRegistrySizeForTests,
+  registerOwnedProcess,
+  releaseOwnedProcess,
+  signalChildHandleOnly,
+  signalOwnedHandle,
 } from "../src/main/vellum/process-signal";
 
 afterEach(() => {
   clearProcessSignalAuditLog();
+  clearOwnedProcessRegistryForTests();
   vi.restoreAllMocks();
 });
 
-describe("process-signal sealed authority", () => {
-  it("refuses init, self, parent, zero, negative-without-group", () => {
+describe("process-signal sealed authority (capability handles)", () => {
+  it("classifier refuses init, self, parent, zero, negative", () => {
     expect(classifyProcessSignalTarget({ pid: 1 }).ok).toBe(false);
     expect(classifyProcessSignalTarget({ pid: process.pid }).ok).toBe(false);
     if (typeof process.ppid === "number") {
@@ -20,68 +26,107 @@ describe("process-signal sealed authority", () => {
     }
     expect(classifyProcessSignalTarget({ pid: 0 }).ok).toBe(false);
     expect(classifyProcessSignalTarget({ pid: -1 }).ok).toBe(false);
-    expect(classifyProcessSignalTarget({ pid: -1, asProcessGroup: true }).ok).toBe(false); // | -1 | = 1
     expect(classifyProcessSignalTarget({ pid: 4242 }).ok).toBe(true);
-    expect(classifyProcessSignalTarget({ pid: 4242, asProcessGroup: true }).ok).toBe(true);
   });
 
-  it("never calls process.kill for pid=1 even with ownsProcessGroup", () => {
-    const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const childKill = vi.fn();
-    const result = signalOwnedProcess({
-      source: "test.pid1",
+  it("refuses to register pid=1 / self — no capability issued", () => {
+    const a = registerOwnedProcess({
+      source: "test",
       pid: 1,
-      signal: "SIGTERM",
       ownsProcessGroup: true,
-      child: { kill: childKill },
     });
-    expect(result.decision.ok).toBe(false);
-    expect(result.decision).toMatchObject({ reason: "pid-is-init-or-launchd" });
-    expect(spy).not.toHaveBeenCalled();
-    // Handle path still allowed (fake/test children).
-    expect(childKill).toHaveBeenCalledWith("SIGTERM");
-    expect(getProcessSignalAuditLog().some((a) => a.decision.ok === false)).toBe(true);
-  });
+    expect(a.ok).toBe(false);
+    if (!a.ok) expect(a.reason).toBe("pid-is-init-or-launchd");
 
-  it("never calls process.kill for pid=self", () => {
-    const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const result = signalOwnedProcess({
-      source: "test.self",
+    const b = registerOwnedProcess({
+      source: "test",
       pid: process.pid,
-      signal: "SIGKILL",
       ownsProcessGroup: true,
     });
+    expect(b.ok).toBe(false);
+    if (!b.ok) expect(b.reason).toBe("pid-is-self");
+    expect(ownedProcessRegistrySizeForTests()).toBe(0);
+  });
+
+  it("forged handle cannot kill — registry miss, process.kill never called", () => {
+    const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const forged = {
+      id: "op_forged_not_real",
+      source: "evil",
+      pid: 66_002,
+      ownsProcessGroup: true,
+    };
+    const result = signalOwnedHandle(forged, "SIGKILL");
     expect(result.decision.ok).toBe(false);
-    expect(result.via).toBe("none");
+    expect(result.decision).toMatchObject({ reason: "handle-not-registered" });
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("term path uses child.kill only (no group) for ordinary pids", () => {
+  it("bare pid path does not exist — only handle after register", () => {
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const childKill = vi.fn();
-    const result = signalOwnedProcess({
-      source: "term.forceKill:x",
+    const reg = registerOwnedProcess({
+      source: "term.test",
       pid: 55_001,
-      signal: "SIGTERM",
       ownsProcessGroup: false,
       child: { kill: childKill },
     });
-    expect(result.decision.ok).toBe(true);
+    expect(reg.ok).toBe(true);
+    if (!reg.ok) return;
+    const result = signalOwnedHandle(reg.handle, "SIGTERM");
     expect(result.via).toBe("child.kill");
     expect(childKill).toHaveBeenCalledWith("SIGTERM");
+    // term path never process.kill
+    expect(spy).not.toHaveBeenCalled();
+    releaseOwnedProcess(reg.handle);
+  });
+
+  it("group kill only when registered with ownsProcessGroup:true", () => {
+    const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const reg = registerOwnedProcess({
+      source: "adapter.test",
+      pid: 66_002,
+      ownsProcessGroup: true,
+    });
+    expect(reg.ok).toBe(true);
+    if (!reg.ok) return;
+    const result = signalOwnedHandle(reg.handle, "SIGTERM");
+    expect(result.via).toBe("process.kill-group");
+    expect(spy).toHaveBeenCalledWith(-66_002, "SIGTERM");
+    // flipping handle field must not escalate — registry freezes the flag
+    const tampered = { ...reg.handle, ownsProcessGroup: false };
+    spy.mockClear();
+    // still the same id in registry with ownsProcessGroup true
+    signalOwnedHandle(tampered, "SIGKILL");
+    expect(spy).toHaveBeenCalledWith(-66_002, "SIGKILL");
+    releaseOwnedProcess(reg.handle);
+  });
+
+  it("released handle loses authority", () => {
+    const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const reg = registerOwnedProcess({
+      source: "t",
+      pid: 77_003,
+      ownsProcessGroup: true,
+    });
+    expect(reg.ok).toBe(true);
+    if (!reg.ok) return;
+    releaseOwnedProcess(reg.handle);
+    const result = signalOwnedHandle(reg.handle, "SIGTERM");
+    expect(result.decision.ok).toBe(false);
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("adapter/ssh path may group-kill only when ownsProcessGroup and pid is safe", () => {
+  it("signalChildHandleOnly never touches process.kill", () => {
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const result = signalOwnedProcess({
-      source: "adapter.signalOwned",
-      pid: 66_002,
-      signal: "SIGTERM",
-      ownsProcessGroup: true,
-    });
-    expect(result.decision.ok).toBe(true);
-    expect(result.via).toBe("process.kill-group");
-    expect(spy).toHaveBeenCalledWith(-66_002, "SIGTERM");
+    const childKill = vi.fn();
+    signalChildHandleOnly({ kill: childKill }, "SIGTERM", "test.child-only");
+    expect(childKill).toHaveBeenCalled();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("audit records refusals", () => {
+    registerOwnedProcess({ source: "x", pid: 1, ownsProcessGroup: true });
+    expect(getProcessSignalAuditLog().some((a) => a.decision.ok === false)).toBe(true);
   });
 });

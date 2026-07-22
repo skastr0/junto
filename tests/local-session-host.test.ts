@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, vi } from "vitest";
 import {
   LocalSessionHost,
   classifyTermKillTarget,
@@ -221,24 +221,23 @@ describe("LocalSessionHost", () => {
 
   it("shutdownAll on a session with fake pid=self never process-group-kills (audit)", async () => {
     clearTermKillAuditLog();
-    // Intentionally dangerous fake pid — sealed gate must refuse OS kill.
+    const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    // Intentionally dangerous fake pid — registration refused; child.kill only.
     const host = new LocalSessionHost(fakeSpawn({ pid: process.pid, exitDelayMs: 60_000 }));
     hosts.push(host);
     host.create({ bindingId: "bind-self-pid" });
     await host.shutdownAll("probe-self-pid");
     const audit = getTermKillAuditLog();
+    // Registration of self must have been refused.
     expect(
       audit.some(
-        (a) =>
-          a.decision.ok === false &&
-          a.decision.reason === "pid-is-self" &&
-          a.requestedGroup === false,
+        (a) => a.decision.ok === false && a.decision.reason === "pid-is-self",
       ),
     ).toBe(true);
-    // No successful process-group signal may appear for this session.
-    expect(
-      audit.every((a) => !(a.decision.ok && "mode" in a.decision && a.decision.mode === "group")),
-    ).toBe(true);
+    // No OS process.kill at all for this session.
+    expect(spy).not.toHaveBeenCalled();
     expect(host.runningCount()).toBe(0);
+    spy.mockRestore();
   });
 });
+

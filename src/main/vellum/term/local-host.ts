@@ -13,9 +13,14 @@ import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { getProcessIdentityMap } from "../process-identity";
 import {
   classifyProcessSignalTarget,
+  clearOwnedProcessRegistryForTests,
   clearProcessSignalAuditLog,
   getProcessSignalAuditLog,
-  signalOwnedProcess,
+  registerOwnedProcess,
+  releaseOwnedProcess,
+  signalChildHandleOnly,
+  signalOwnedHandle,
+  type OwnedProcessHandle,
   type ProcessSignalAudit,
 } from "../process-signal";
 
@@ -120,6 +125,8 @@ type SessionRec = {
   journalBytes: number;
   controlLeaseId: string | undefined;
   killed: boolean;
+  /** Capability from process-signal registry — required for OS kill. */
+  ownedHandle: OwnedProcessHandle | undefined;
 };
 
 const DEFAULT_COLS = 120;
@@ -130,7 +137,10 @@ const SHUTDOWN_GRACE_MS = 1500;
 /** @deprecated use ProcessSignalAudit from process-signal */
 export type TermKillAudit = ProcessSignalAudit;
 export const getTermKillAuditLog = getProcessSignalAuditLog;
-export const clearTermKillAuditLog = clearProcessSignalAuditLog;
+export const clearTermKillAuditLog = (): void => {
+  clearProcessSignalAuditLog();
+  clearOwnedProcessRegistryForTests();
+};
 
 /** Thin wrapper kept for term tests — maps to sealed classifier. */
 export const classifyTermKillTarget = (input: {
@@ -331,6 +341,7 @@ export class LocalSessionHost extends EventEmitter {
       journalBytes: 0,
       controlLeaseId: undefined,
       killed: false,
+      ownedHandle: undefined,
     };
     this.sessions.set(bindingId, rec);
     this.emitEvent({ type: "session", bindingId, epoch, status: "starting" });
@@ -347,6 +358,14 @@ export class LocalSessionHost extends EventEmitter {
       rec.child = child;
       rec.pid = child.pid;
       rec.status = "running";
+      // Register only safe pids. Fakes with pid=self/1 get child.kill-only path.
+      const reg = registerOwnedProcess({
+        source: `term:${bindingId}`,
+        pid: child.pid,
+        ownsProcessGroup: false,
+        child,
+      });
+      rec.ownedHandle = reg.ok ? reg.handle : undefined;
       this.bindProcessIdentity(rec);
       this.emitEvent({
         type: "session",
@@ -374,6 +393,8 @@ export class LocalSessionHost extends EventEmitter {
         if (rec.epoch !== epoch) return;
         if (this.sessions.get(bindingId) !== rec) return;
         rec.status = "exited";
+        releaseOwnedProcess(rec.ownedHandle);
+        rec.ownedHandle = undefined;
         if (rec.pid !== undefined) getProcessIdentityMap().unbind(rec.pid);
         rec.child = undefined;
         rec.seq = rec.seq + 1n;
@@ -630,23 +651,22 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   /**
-   * Kill ONLY via sealed process-signal authority.
-   * Never raw process.kill(-pid). Terminal sessions do not claim process-group
-   * ownership — child.kill only (node-pty / pipe handle / test fake).
+   * Kill ONLY via capability handle registered at spawn, else child.kill only.
+   * Never bare process.kill(pid). Never process-group (terminals register with
+   * ownsProcessGroup: false).
    */
   private forceKill(rec: SessionRec, signal: NodeJS.Signals): void {
     const child = rec.child;
-    if (!child) {
+    if (!child && !rec.ownedHandle) {
       rec.status = "exited";
       return;
     }
-    signalOwnedProcess({
-      source: `term.forceKill:${rec.bindingId}`,
-      pid: rec.pid ?? child.pid,
-      signal,
-      ownsProcessGroup: false,
-      child,
-    });
+    if (rec.ownedHandle) {
+      signalOwnedHandle(rec.ownedHandle, signal);
+      return;
+    }
+    // Registration failed (dangerous fake pid, etc.) — handle only, no OS kill.
+    signalChildHandleOnly(child, signal, `term.forceKill-child-only:${rec.bindingId}`);
   }
 
   private pushJournal(rec: SessionRec, entry: JournalEntry): void {

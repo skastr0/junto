@@ -1,7 +1,12 @@
 import * as Command from "@effect/platform/Command";
 import * as CommandExecutor from "@effect/platform/CommandExecutor";
 import { Context, Effect, Layer, Scope, Sink, Stream } from "effect";
-import { signalOwnedProcess } from "../process-signal";
+import {
+  registerOwnedProcess,
+  releaseOwnedProcess,
+  signalOwnedHandle,
+  type OwnedProcessHandle,
+} from "../process-signal";
 
 export class ProcessFailure {
   readonly _tag = "ProcessFailure";
@@ -25,34 +30,35 @@ export class ProcessSpawner extends Context.Tag("@vellum/ssh/ProcessSpawner")<
 
 const failure = (): ProcessFailure => new ProcessFailure();
 
-const signalOwnedSshProcess = (pid: number, signal: NodeJS.Signals): Effect.Effect<void> =>
-  Effect.sync(() => {
-    // SSH transport owns detached ControlMaster children as process groups.
-    // Still goes through the sealed gate — refuses init/self/parent/-1.
-    signalOwnedProcess({
-      source: "ssh.process-spawner",
-      pid,
-      signal,
-      ownsProcessGroup: true,
-    });
-  }).pipe(Effect.ignore);
+type TrackedSshChild = {
+  readonly child: CommandExecutor.Process;
+  readonly ownedHandle: OwnedProcessHandle | undefined;
+};
 
-const stopProcess = (child: CommandExecutor.Process): Effect.Effect<void> =>
-  child.isRunning.pipe(
+const stopProcess = (tracked: TrackedSshChild): Effect.Effect<void> =>
+  tracked.child.isRunning.pipe(
     Effect.flatMap((running) => {
-      if (!running) return Effect.void;
-      const pid = Number(child.pid);
-      const awaitExit = child.exitCode.pipe(Effect.exit, Effect.asVoid);
+      if (!running) {
+        releaseOwnedProcess(tracked.ownedHandle);
+        return Effect.void;
+      }
+      const awaitExit = tracked.child.exitCode.pipe(Effect.exit, Effect.asVoid);
+      const sig = (signal: NodeJS.Signals) =>
+        Effect.sync(() => {
+          if (tracked.ownedHandle) {
+            signalOwnedHandle(tracked.ownedHandle, signal);
+          }
+          // No bare-pid fallback — unregistered means no OS kill.
+        });
       const forceAfterGrace = Effect.sleep("2 seconds").pipe(
-        Effect.zipRight(signalOwnedSshProcess(pid, "SIGKILL")),
+        Effect.zipRight(sig("SIGKILL")),
         Effect.zipRight(awaitExit.pipe(Effect.timeout("2 seconds"), Effect.ignore)),
       );
-      return signalOwnedSshProcess(pid, "SIGTERM").pipe(
+      return sig("SIGTERM").pipe(
         Effect.zipRight(
-          // acquireRelease finalizers run masked. Re-enable interruption for
-          // the race so the losing grace timer does not delay a prompt exit.
           Effect.raceFirst(awaitExit, forceAfterGrace).pipe(Effect.interruptible),
         ),
+        Effect.ensuring(Effect.sync(() => releaseOwnedProcess(tracked.ownedHandle))),
       );
     }),
     Effect.timeout("5 seconds"),
@@ -67,20 +73,37 @@ export const ProcessSpawnerLive = Layer.effect(
     return ProcessSpawner.of({
       start: (command) =>
         Effect.acquireRelease(
-          executor.start(command).pipe(Effect.mapError(failure)),
+          executor.start(command).pipe(
+            Effect.mapError(failure),
+            Effect.map((child) => {
+              const pid = Number(child.pid);
+              const reg = registerOwnedProcess({
+                source: "ssh.process-spawner",
+                pid: Number.isFinite(pid) ? pid : undefined,
+                // SSH ControlMaster children are process-group leaders we own.
+                ownsProcessGroup: true,
+              });
+              return {
+                child,
+                ownedHandle: reg.ok ? reg.handle : undefined,
+              } satisfies TrackedSshChild;
+            }),
+          ),
           stopProcess,
         ).pipe(
-          Effect.map((process): ProcessHandle => ({
-            pid: Number(process.pid),
-            exitCode: process.exitCode.pipe(
-              Effect.map(Number),
-              Effect.mapError(failure),
-            ),
-            isRunning: process.isRunning.pipe(Effect.mapError(failure)),
-            stdin: process.stdin.pipe(Sink.mapError(failure)),
-            stdout: process.stdout.pipe(Stream.mapError(failure)),
-            stderr: process.stderr.pipe(Stream.mapError(failure)),
-          })),
+          Effect.map(
+            (tracked): ProcessHandle => ({
+              pid: Number(tracked.child.pid),
+              exitCode: tracked.child.exitCode.pipe(
+                Effect.map(Number),
+                Effect.mapError(failure),
+              ),
+              isRunning: tracked.child.isRunning.pipe(Effect.mapError(failure)),
+              stdin: tracked.child.stdin.pipe(Sink.mapError(failure)),
+              stdout: tracked.child.stdout.pipe(Stream.mapError(failure)),
+              stderr: tracked.child.stderr.pipe(Stream.mapError(failure)),
+            }),
+          ),
         ),
     });
   }),

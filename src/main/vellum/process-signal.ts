@@ -1,27 +1,39 @@
 /**
- * Sealed process-signal authority.
+ * Sealed process-signal authority — capability-based, not open kill(pid).
  *
- * THIS is the only module allowed to call `process.kill` with a negative pid
- * (POSIX process-group signal). Terminal / adapter / ssh code must go through
- * here — never raw `process.kill(-pid)`.
+ * HARD LAW:
+ *   There is NO public API that accepts an arbitrary pid and delivers
+ *   SIGTERM/SIGKILL. The only way to signal a process is:
  *
- * Hard refusals (cannot be overridden):
- *   - pid missing / non-integer / ≤ 0
- *   - pid === 1          (init / launchd)  → process.kill(-1) is host-wide blast
- *   - pid === process.pid (self)           → process.kill(-self) kills our PG
- *   - pid === process.ppid (parent)        → can take down Electron / Amp / shell
- *   - group signal when |pgid| is any of the above
+ *     1. registerOwnedProcess(...) at the moment Vellum spawns it
+ *     2. keep the returned OwnedProcessHandle
+ *     3. signalOwnedHandle(handle, signal)
  *
- * Process-group kill is opt-in and only when the caller asserts they created
- * an isolated group for that leader (`ownsProcessGroup: true`).
+ *   Forging a handle with a random id fails registry lookup.
+ *   Passing pid=1 / self / parent fails registration.
+ *   process.kill(-pid) only runs when the registered record opted into
+ *   ownsProcessGroup at spawn time (never from a free-form flag at kill time).
+ *
+ * Existence probes (signal 0) may use probeProcessAlive(pid) — never kills.
  */
 
+import { randomBytes } from "node:crypto";
 import { Context, Effect, Layer } from "effect";
 
 export type ProcessSignalName = NodeJS.Signals | 0;
 
+const ALLOWED_SIGNALS: ReadonlySet<string | number> = new Set([
+  0,
+  "SIGTERM",
+  "SIGKILL",
+  "SIGINT",
+  "SIGHUP",
+  "SIGUSR1",
+  "SIGUSR2",
+]);
+
 export type ProcessSignalDecision =
-  | { readonly ok: true; readonly mode: "direct" | "group" | "existence" }
+  | { readonly ok: true; readonly mode: "direct" | "group" | "existence" | "child" }
   | { readonly ok: false; readonly reason: string };
 
 export type ProcessSignalAudit = {
@@ -31,6 +43,7 @@ export type ProcessSignalAudit = {
   readonly signal: string;
   readonly requestedGroup: boolean;
   readonly decision: ProcessSignalDecision;
+  readonly handleId?: string;
 };
 
 const auditLog: ProcessSignalAudit[] = [];
@@ -46,16 +59,15 @@ const pushAudit = (entry: Omit<ProcessSignalAudit, "at">): ProcessSignalAudit =>
   if (auditLog.length > 400) auditLog.shift();
   if (!full.decision.ok) {
     console.error(
-      `[process-signal-REFUSED] source=${full.source} pid=${String(full.pid)} signal=${full.signal} group=${full.requestedGroup} reason=${full.decision.reason}`,
+      `[process-signal-REFUSED] source=${full.source} handle=${full.handleId ?? "-"} pid=${String(full.pid)} signal=${full.signal} group=${full.requestedGroup} reason=${full.decision.reason}`,
     );
   }
   return full;
 };
 
 /**
- * Pure classifier — no side effects. Used by production + tests.
- * `target` is the pid that would be passed to process.kill (positive for
- * direct, or the absolute value when a group signal is requested).
+ * Pure pid safety classifier — used at registration and before every OS kill.
+ * Never sufficient alone to kill; registry membership is also required.
  */
 export const classifyProcessSignalTarget = (input: {
   readonly pid: number | undefined;
@@ -70,17 +82,10 @@ export const classifyProcessSignalTarget = (input: {
   if (raw === undefined || !Number.isFinite(raw) || !Number.isInteger(raw)) {
     return { ok: false, reason: "pid-missing-or-non-integer" };
   }
-
-  // Existence probe allows 0? No — kill(0, 0) is "every process we can signal".
   if (raw === 0) return { ok: false, reason: "pid-zero-forbidden" };
-  if (raw < 0 && !input.asProcessGroup) {
-    return { ok: false, reason: "negative-pid-without-group-flag" };
-  }
+  if (raw < 0) return { ok: false, reason: "negative-pid-forbidden" };
 
-  const leader = input.asProcessGroup ? Math.abs(raw) : raw;
-  if (!Number.isInteger(leader) || leader <= 0) {
-    return { ok: false, reason: `invalid-leader:${String(leader)}` };
-  }
+  const leader = raw;
   if (leader === 1) return { ok: false, reason: "pid-is-init-or-launchd" };
   if (leader === selfPid) return { ok: false, reason: "pid-is-self" };
   if (ppid !== undefined && leader === ppid) return { ok: false, reason: "pid-is-parent" };
@@ -89,24 +94,107 @@ export const classifyProcessSignalTarget = (input: {
   return { ok: true, mode: "direct" };
 };
 
+const classifySignalName = (signal: ProcessSignalName): ProcessSignalDecision => {
+  if (!ALLOWED_SIGNALS.has(signal) && !ALLOWED_SIGNALS.has(String(signal))) {
+    return { ok: false, reason: `signal-not-allowed:${String(signal)}` };
+  }
+  return { ok: true, mode: signal === 0 ? "existence" : "direct" };
+};
+
 export type SignalChildHandle = {
   readonly kill: (signal?: NodeJS.Signals) => void;
 };
 
-export type SignalOwnedInput = {
-  /** Caller identity for audit (e.g. "term.forceKill", "adapter.quit"). */
+/**
+ * Opaque capability. Only objects returned by registerOwnedProcess work.
+ * A forged plain object with a guessed id will fail Map lookup.
+ */
+export type OwnedProcessHandle = {
+  readonly id: string;
   readonly source: string;
-  /** OS pid of the child / group leader. */
+  readonly pid: number;
+  readonly ownsProcessGroup: boolean;
+};
+
+type RegistryRec = {
+  readonly handle: OwnedProcessHandle;
+  readonly pid: number;
+  readonly ownsProcessGroup: boolean;
+  readonly child: SignalChildHandle | undefined;
+  readonly source: string;
+  released: boolean;
+};
+
+/** Module-private — the only place that maps handles to kill authority. */
+const registry = new Map<string, RegistryRec>();
+
+export type RegisterOwnedProcessInput = {
+  readonly source: string;
   readonly pid: number | undefined;
-  readonly signal: ProcessSignalName;
   /**
-   * Only true when THIS process created an isolated process group for `pid`
-   * (e.g. spawn({ detached: true }) and we are the group leader's parent).
-   * Default false — never process-group-kill node-pty or untrusted pids.
+   * True only when THIS spawn used detached/new process group and `pid` is
+   * the group leader we created. Frozen at registration — cannot be flipped
+   * later at kill time.
    */
-  readonly ownsProcessGroup?: boolean;
-  /** Preferred path: the handle we spawned. Always tried when present. */
+  readonly ownsProcessGroup: boolean;
   readonly child?: SignalChildHandle;
+};
+
+export type RegisterOwnedProcessResult =
+  | { readonly ok: true; readonly handle: OwnedProcessHandle }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Admit a process Vellum just spawned. Fails closed on dangerous pids.
+ * Returns a capability handle required for any later signal.
+ */
+export const registerOwnedProcess = (
+  input: RegisterOwnedProcessInput,
+): RegisterOwnedProcessResult => {
+  const classified = classifyProcessSignalTarget({
+    pid: input.pid,
+    asProcessGroup: input.ownsProcessGroup,
+  });
+  if (!classified.ok) {
+    pushAudit({
+      source: `register:${input.source}`,
+      pid: input.pid,
+      signal: "register",
+      requestedGroup: input.ownsProcessGroup,
+      decision: classified,
+    });
+    return { ok: false, reason: classified.reason };
+  }
+  const pid = input.pid;
+  if (pid === undefined) {
+    return { ok: false, reason: "pid-missing-or-non-integer" };
+  }
+
+  const id = `op_${randomBytes(12).toString("hex")}`;
+  const handle: OwnedProcessHandle = Object.freeze({
+    id,
+    source: input.source,
+    pid,
+    ownsProcessGroup: Boolean(input.ownsProcessGroup),
+  });
+  registry.set(id, {
+    handle,
+    pid,
+    ownsProcessGroup: handle.ownsProcessGroup,
+    child: input.child,
+    source: input.source,
+    released: false,
+  });
+  return { ok: true, handle };
+};
+
+/** Drop kill authority (call on child exit). Idempotent. */
+export const releaseOwnedProcess = (handle: OwnedProcessHandle | undefined): void => {
+  if (!handle) return;
+  const rec = registry.get(handle.id);
+  if (!rec) return;
+  rec.released = true;
+  registry.delete(handle.id);
 };
 
 export type SignalOwnedResult = {
@@ -116,74 +204,123 @@ export type SignalOwnedResult = {
 };
 
 /**
- * Signal a process we own. Order:
- *  1. Classify pid — refuse init/self/parent/zero.
- *  2. If refused → still may child.kill (safe handle) but NEVER process.kill*.
- *  3. If ownsProcessGroup && group-ok → process.kill(-pid) (only sealed site).
- *  4. Else if child handle → child.kill (term/node-pty/fakes).
- *  5. Else if direct-ok → process.kill(pid).
- *  6. Else no-op.
- *
- * signal 0 is existence-only and never uses the group form.
+ * Signal a process we previously registered. No bare-pid overload exists.
  */
-export const signalOwnedProcess = (input: SignalOwnedInput): SignalOwnedResult => {
-  const wantsGroup = Boolean(input.ownsProcessGroup) && input.signal !== 0;
+export const signalOwnedHandle = (
+  handle: OwnedProcessHandle | undefined,
+  signal: ProcessSignalName,
+): SignalOwnedResult => {
+  const signalOk = classifySignalName(signal);
+  if (!handle) {
+    pushAudit({
+      source: "signal:missing-handle",
+      pid: undefined,
+      signal: String(signal),
+      requestedGroup: false,
+      decision: { ok: false, reason: "handle-missing" },
+    });
+    return { attempted: false, decision: { ok: false, reason: "handle-missing" }, via: "none" };
+  }
+
+  const rec = registry.get(handle.id);
+  if (!rec || rec.released) {
+    const decision = { ok: false as const, reason: "handle-not-registered" };
+    pushAudit({
+      source: handle.source,
+      pid: handle.pid,
+      signal: String(signal),
+      requestedGroup: handle.ownsProcessGroup,
+      decision,
+      handleId: handle.id,
+    });
+    // If caller still has a child handle on the object graph, they must pass
+    // it via register — we do not accept free child.kill bypass here for OS
+    // kill. Unregistered = no OS signal.
+    return { attempted: false, decision, via: "none" };
+  }
+
+  // Re-validate pid every time (defense in depth).
   const classified = classifyProcessSignalTarget({
-    pid: input.pid,
-    asProcessGroup: wantsGroup,
+    pid: rec.pid,
+    asProcessGroup: rec.ownsProcessGroup && signal !== 0,
   });
-
-  pushAudit({
-    source: input.source,
-    pid: input.pid,
-    signal: String(input.signal),
-    requestedGroup: wantsGroup,
-    decision: classified,
-  });
-
-  const pid = input.pid;
-
-  // Refused targets: handle-only. Never touch process.kill.
+  if (!signalOk.ok) {
+    pushAudit({
+      source: rec.source,
+      pid: rec.pid,
+      signal: String(signal),
+      requestedGroup: rec.ownsProcessGroup,
+      decision: signalOk,
+      handleId: handle.id,
+    });
+    return { attempted: false, decision: signalOk, via: "none" };
+  }
   if (!classified.ok) {
-    if (input.child && input.signal !== 0) {
-      try {
-        input.child.kill(input.signal);
-        return { attempted: true, decision: classified, via: "child.kill" };
-      } catch {
-        /* ignore */
-      }
-    }
+    pushAudit({
+      source: rec.source,
+      pid: rec.pid,
+      signal: String(signal),
+      requestedGroup: rec.ownsProcessGroup,
+      decision: classified,
+      handleId: handle.id,
+    });
     return { attempted: false, decision: classified, via: "none" };
   }
 
-  // Group path only when caller owns the group AND classifier allowed it.
-  if (classified.mode === "group" && pid !== undefined) {
-    try {
-      process.kill(-pid, input.signal);
-      return { attempted: true, decision: classified, via: "process.kill-group" };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ESRCH") {
-        return { attempted: true, decision: classified, via: "process.kill-group" };
-      }
-      // Fall through to child / direct.
-    }
-  }
+  pushAudit({
+    source: rec.source,
+    pid: rec.pid,
+    signal: String(signal),
+    requestedGroup: rec.ownsProcessGroup && signal !== 0,
+    decision: classified,
+    handleId: handle.id,
+  });
 
-  if (input.child && input.signal !== 0) {
+  // Prefer child handle when not doing an existence probe.
+  if (rec.child && signal !== 0) {
+    // When we own a process group, signal the group first so the tree dies;
+    // child.kill alone may leave grandchildren.
+    if (classified.mode === "group") {
+      try {
+        process.kill(-rec.pid, signal);
+        return { attempted: true, decision: classified, via: "process.kill-group" };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+          return { attempted: true, decision: classified, via: "process.kill-group" };
+        }
+        // fall through to child
+      }
+    }
     try {
-      input.child.kill(input.signal);
+      rec.child.kill(signal);
       return { attempted: true, decision: classified, via: "child.kill" };
     } catch {
       // fall through
     }
   }
 
-  if (pid === undefined) {
-    return { attempted: false, decision: classified, via: "none" };
+  if (signal === 0) {
+    try {
+      process.kill(rec.pid, 0);
+      return { attempted: true, decision: { ok: true, mode: "existence" }, via: "process.kill" };
+    } catch {
+      return { attempted: false, decision: { ok: true, mode: "existence" }, via: "none" };
+    }
+  }
+
+  if (classified.mode === "group") {
+    try {
+      process.kill(-rec.pid, signal);
+      return { attempted: true, decision: classified, via: "process.kill-group" };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+        return { attempted: true, decision: classified, via: "process.kill-group" };
+      }
+    }
   }
 
   try {
-    process.kill(pid, input.signal);
+    process.kill(rec.pid, signal);
     return { attempted: true, decision: classified, via: "process.kill" };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ESRCH") {
@@ -193,19 +330,90 @@ export const signalOwnedProcess = (input: SignalOwnedInput): SignalOwnedResult =
   }
 };
 
-/** Existence probe — never group, never dangerous pids. */
-export const processExists = (pid: number | undefined, source = "processExists"): boolean => {
-  const result = signalOwnedProcess({ source, pid, signal: 0, ownsProcessGroup: false });
-  return result.attempted && result.decision.ok;
+/**
+ * Handle-less child.kill for test fakes / last-resort when registration failed.
+ * NEVER calls process.kill. Domain-safe escape hatch only.
+ */
+export const signalChildHandleOnly = (
+  child: SignalChildHandle | undefined,
+  signal: NodeJS.Signals,
+  source: string,
+): SignalOwnedResult => {
+  const signalOk = classifySignalName(signal);
+  if (!signalOk.ok || signal === (0 as unknown as NodeJS.Signals)) {
+    pushAudit({
+      source,
+      pid: undefined,
+      signal: String(signal),
+      requestedGroup: false,
+      decision: signalOk.ok ? { ok: false, reason: "child-only-no-zero" } : signalOk,
+    });
+    return {
+      attempted: false,
+      decision: signalOk.ok ? { ok: false, reason: "child-only-no-zero" } : signalOk,
+      via: "none",
+    };
+  }
+  if (!child) {
+    pushAudit({
+      source,
+      pid: undefined,
+      signal: String(signal),
+      requestedGroup: false,
+      decision: { ok: false, reason: "child-missing" },
+    });
+    return { attempted: false, decision: { ok: false, reason: "child-missing" }, via: "none" };
+  }
+  try {
+    child.kill(signal);
+    pushAudit({
+      source,
+      pid: undefined,
+      signal: String(signal),
+      requestedGroup: false,
+      decision: { ok: true, mode: "child" },
+    });
+    return { attempted: true, decision: { ok: true, mode: "child" }, via: "child.kill" };
+  } catch {
+    return { attempted: false, decision: { ok: true, mode: "child" }, via: "none" };
+  }
 };
 
-// ── Effect service surface (for Effect-land callers) ───────────────────────
+/**
+ * Existence probe only (signal 0). Never delivers a terminating signal.
+ * Still refuses pid 0 / negative. Allows probing self/init (harmless).
+ */
+export const probeProcessAlive = (pid: number | undefined): boolean => {
+  if (pid === undefined || !Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Test helper — live registry size. */
+export const ownedProcessRegistrySizeForTests = (): number => registry.size;
+
+/** Test helper — drop all registrations. */
+export const clearOwnedProcessRegistryForTests = (): void => {
+  registry.clear();
+};
+
+// ── Effect service (handle-only) ───────────────────────────────────────────
 
 export class ProcessSignal extends Context.Tag("@vellum/ProcessSignal")<
   ProcessSignal,
   {
-    readonly signalOwned: (input: SignalOwnedInput) => Effect.Effect<SignalOwnedResult>;
-    readonly exists: (pid: number | undefined, source?: string) => Effect.Effect<boolean>;
+    readonly register: (
+      input: RegisterOwnedProcessInput,
+    ) => Effect.Effect<RegisterOwnedProcessResult>;
+    readonly signal: (
+      handle: OwnedProcessHandle | undefined,
+      signal: ProcessSignalName,
+    ) => Effect.Effect<SignalOwnedResult>;
+    readonly release: (handle: OwnedProcessHandle | undefined) => Effect.Effect<void>;
     readonly classify: (
       input: Parameters<typeof classifyProcessSignalTarget>[0],
     ) => ProcessSignalDecision;
@@ -213,7 +421,8 @@ export class ProcessSignal extends Context.Tag("@vellum/ProcessSignal")<
 >() {}
 
 export const ProcessSignalLive = Layer.succeed(ProcessSignal, {
-  signalOwned: (input) => Effect.sync(() => signalOwnedProcess(input)),
-  exists: (pid, source) => Effect.sync(() => processExists(pid, source)),
+  register: (input) => Effect.sync(() => registerOwnedProcess(input)),
+  signal: (handle, signal) => Effect.sync(() => signalOwnedHandle(handle, signal)),
+  release: (handle) => Effect.sync(() => releaseOwnedProcess(handle)),
   classify: (input) => classifyProcessSignalTarget(input),
 });
