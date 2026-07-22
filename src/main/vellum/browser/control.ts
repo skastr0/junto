@@ -3,6 +3,7 @@ import {
   chmodSync,
   constants as fsConstants,
   existsSync,
+  lstatSync,
   mkdirSync,
   renameSync,
   unlinkSync,
@@ -18,6 +19,7 @@ import {
 } from "node:fs/promises";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { createServer } from "node:http";
+import type { Socket } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { Either, Schema } from "effect";
@@ -308,6 +310,14 @@ export interface ControlDeps {
    * via Unix peer PID → registered agent|herdr process (no client claim).
    */
   readonly edgeGrant?: EdgeGrantService;
+  /**
+   * Server lifecycle hook. The HTTP host uses this to retain the actual route
+   * promise after the request-facing cancellation race has settled.
+   */
+  readonly retainRouteOperation?: <A>(
+    action: BrowserCapabilityAction,
+    operation: Promise<A>,
+  ) => Promise<A>;
 }
 
 const ensureScreenshotDirectory = async (path: string): Promise<void> => {
@@ -494,8 +504,13 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         return controlErr("cancelled", "browser control request was cancelled");
       }
 
-      const operation = Promise.resolve()
-        .then(() => run(lease, combined.signal))
+      const routeOperation = Promise.resolve()
+        .then(() => run(lease, combined.signal));
+      const retainedRouteOperation = deps.retainRouteOperation?.(
+        action,
+        routeOperation,
+      ) ?? routeOperation;
+      const operation = retainedRouteOperation
         .then(
           (envelope) => ({ kind: "completed" as const, envelope }),
           (error: unknown) => ({ kind: "failed" as const, error }),
@@ -1123,7 +1138,34 @@ const fixedHeader = (req: IncomingMessage, name: string): string | undefined => 
 
 export interface BrowserControlServer {
   readonly socketPath: string;
-  close(): void;
+  /** Synchronously refuses new requests and starts listener/socket teardown. */
+  beginShutdown(): void;
+  /** Bounded, retryable fixed-point drain for every admitted server resource. */
+  drainOnQuit(): Promise<BrowserControlShutdownReceipt>;
+  /** beginShutdown + drainOnQuit. Kept as the normal lifecycle entry point. */
+  close(): Promise<BrowserControlShutdownReceipt>;
+}
+
+export interface BrowserControlRetainedCounts {
+  readonly requests: number;
+  readonly edgeAdmissions: number;
+  readonly dispatches: number;
+  readonly routeOperations: number;
+  readonly listenerClosures: number;
+  readonly sockets: number;
+  readonly requestControllers: number;
+  readonly socketPaths: number;
+}
+
+export interface BrowserControlShutdownReceipt {
+  readonly clean: boolean;
+  readonly rounds: number;
+  readonly settled: number;
+  readonly fulfilled: number;
+  readonly rejected: number;
+  readonly retainedCounts: BrowserControlRetainedCounts;
+  /** Unique resource classes still retained when the bounded drain returns. */
+  readonly retainedLabels: ReadonlyArray<string>;
 }
 
 export interface BrowserControlRuntime {
@@ -1132,10 +1174,67 @@ export interface BrowserControlRuntime {
   readonly maxActiveHandlers?: number;
   /** Tests may lower, never raise, the production handler deadline. */
   readonly handlerTimeoutMs?: number;
+  /** Tests may lower, never raise, the grace before server-side socket destroy. */
+  readonly shutdownGraceMs?: number;
+  /** Tests may lower, never raise, the complete shutdown drain deadline. */
+  readonly shutdownDeadlineMs?: number;
 }
 
 const defaultControlRuntime: BrowserControlRuntime = {
   chmodSocket: chmodSync,
+};
+
+const BROWSER_CONTROL_SHUTDOWN_GRACE_MS = 100;
+const BROWSER_CONTROL_SHUTDOWN_DEADLINE_MS = 2_000;
+
+type BrowserControlFlightKind =
+  | "request"
+  | "edge-admission"
+  | "dispatch"
+  | "route-operation"
+  | "listener-close"
+  | "socket-close";
+
+interface BrowserControlFlight {
+  readonly id: number;
+  readonly kind: BrowserControlFlightKind;
+  readonly label: string;
+  readonly promise: Promise<unknown>;
+  status: "pending" | "fulfilled" | "rejected";
+}
+
+interface BrowserControlSocket {
+  readonly id: number;
+  readonly socket: Socket;
+  readonly closed: Promise<void>;
+}
+
+const wait = (durationMs: number): Promise<void> =>
+  new Promise((resolveWait) => setTimeout(resolveWait, durationMs));
+
+const allSettledBefore = async (
+  promises: ReadonlyArray<Promise<unknown>>,
+  deadline: number,
+): Promise<
+  | { readonly timedOut: true }
+  | { readonly timedOut: false; readonly outcomes: ReadonlyArray<PromiseSettledResult<unknown>> }
+> => {
+  const remainingMs = Math.max(0, deadline - Date.now());
+  if (remainingMs === 0) return { timedOut: true };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.allSettled(promises).then((outcomes) => ({
+        timedOut: false as const,
+        outcomes,
+      })),
+      new Promise<{ readonly timedOut: true }>((resolveTimeout) => {
+        timer = setTimeout(() => resolveTimeout({ timedOut: true }), remainingMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 };
 
 const closeServer = (server: Server): Promise<void> =>
@@ -1206,15 +1305,6 @@ export const startBrowserControlServer = async (
       resolvePageTarget: options.resolvePageTarget,
       ...(options.readCanvas === undefined ? {} : { readCanvas: options.readCanvas }),
     });
-  const handlers = makeControlHandlers({
-    sessions: options.sessions,
-    capabilities: options.capabilities,
-    resolvePageTarget: options.resolvePageTarget,
-    version: options.version,
-    canvasesDir,
-    shotsDir: controlShotsDir(home),
-    edgeGrant,
-  });
   const maxActiveHandlers = boundedRuntimeValue(
     runtime.maxActiveHandlers,
     BROWSER_MAX_ACTIVE_HTTP_HANDLERS,
@@ -1223,12 +1313,78 @@ export const startBrowserControlServer = async (
     runtime.handlerTimeoutMs,
     BROWSER_CONTROL_HANDLER_TIMEOUT_MS,
   );
+  const shutdownGraceMs = boundedRuntimeValue(
+    runtime.shutdownGraceMs,
+    BROWSER_CONTROL_SHUTDOWN_GRACE_MS,
+  );
+  const shutdownDeadlineMs = boundedRuntimeValue(
+    runtime.shutdownDeadlineMs,
+    BROWSER_CONTROL_SHUTDOWN_DEADLINE_MS,
+  );
   let activeHandlers = 0;
+  let shuttingDown = false;
+  let nextFlightId = 0;
+  let nextControllerId = 0;
+  let nextSocketId = 0;
+  let drainFlight: Promise<BrowserControlShutdownReceipt> | undefined;
+  const activeFlights = new Map<number, BrowserControlFlight>();
+  const shutdownJournal = new Map<number, BrowserControlFlight>();
+  const requestControllers = new Map<number, AbortController>();
+  const sockets = new Map<number, BrowserControlSocket>();
+
+  const retainFlight = <A>(
+    kind: BrowserControlFlightKind,
+    label: string,
+    promise: Promise<A>,
+  ): Promise<A> => {
+    const flight: BrowserControlFlight = {
+      id: ++nextFlightId,
+      kind,
+      label,
+      promise,
+      status: "pending",
+    };
+    activeFlights.set(flight.id, flight);
+    if (shuttingDown) shutdownJournal.set(flight.id, flight);
+    void promise.then(
+      () => {
+        flight.status = "fulfilled";
+        activeFlights.delete(flight.id);
+      },
+      () => {
+        flight.status = "rejected";
+        activeFlights.delete(flight.id);
+      },
+    );
+    return promise;
+  };
+
+  const handlers = makeControlHandlers({
+    sessions: options.sessions,
+    capabilities: options.capabilities,
+    resolvePageTarget: options.resolvePageTarget,
+    version: options.version,
+    canvasesDir,
+    shotsDir: controlShotsDir(home),
+    edgeGrant,
+    retainRouteOperation: (action, operation) =>
+      retainFlight("route-operation", `route:${action}`, operation),
+  });
 
   const server: Server = createServer(
     { maxHeaderSize: CONTROL_MAX_HEADER_BYTES },
     (req: IncomingMessage, res: ServerResponse) => {
-      void (async () => {
+      // This is the first request admission gate. It intentionally precedes
+      // token checks and process/edge admission so shutdown cannot begin a new
+      // filesystem scan or capability mint through an already-accepted peer.
+      if (shuttingDown) {
+        res.destroy();
+        return;
+      }
+      const controllerId = ++nextControllerId;
+      const controller = new AbortController();
+      requestControllers.set(controllerId, controller);
+      const requestFlight = (async () => {
         const respond = (
           status: number,
           envelope: ControlEnvelope<unknown>,
@@ -1284,7 +1440,18 @@ export const startBrowserControlServer = async (
             respond(400, controlErr("bad_request", "invalid request id"), true);
             return;
           }
-          const edge = await edgeGrant.admitSocket(req.socket);
+          const edge = await retainFlight(
+            "edge-admission",
+            "edge-admission",
+            edgeGrant.admitSocket(req.socket),
+          );
+          if (shuttingDown || controller.signal.aborted) {
+            // An admission that crossed the shutdown boundary never reaches a
+            // route, even if its underlying process/canvas lookup ignored the
+            // request abort signal.
+            edgeGrant.clear();
+            return;
+          }
           if (!edge.ok) {
             const denied = edgeGrantHttp(edge.denial, edge.message);
             respond(denied.status, denied.envelope, true);
@@ -1314,7 +1481,6 @@ export const startBrowserControlServer = async (
         }
 
         activeHandlers += 1;
-        const controller = new AbortController();
         let deadlineExpired = false;
         const abortDisconnected = (): void => {
           if (!res.writableEnded && !controller.signal.aborted) controller.abort();
@@ -1333,7 +1499,7 @@ export const startBrowserControlServer = async (
         };
 
         try {
-          const operation = (async (): Promise<{
+          const dispatchOperation = (async (): Promise<{
             readonly status: number;
             readonly envelope: ControlEnvelope<unknown>;
             readonly closeConnection?: boolean;
@@ -1385,11 +1551,12 @@ export const startBrowserControlServer = async (
               },
               controller.signal,
             );
-          })().catch((error: unknown) => ({
+          })().catch((_error: unknown) => ({
             status: 500,
             envelope: controlErr("failed", "browser control operation failed"),
             closeConnection: false,
           }));
+          const operation = retainFlight("dispatch", "dispatch", dispatchOperation);
 
           const aborted = new Promise<{ readonly aborted: true }>((resolveAbort) => {
             if (controller.signal.aborted) {
@@ -1429,10 +1596,33 @@ export const startBrowserControlServer = async (
           releaseHandler();
         }
       })();
+      void requestFlight.then(
+        () => requestControllers.delete(controllerId),
+        () => {
+          requestControllers.delete(controllerId);
+          if (!res.destroyed) res.destroy();
+        },
+      );
+      void retainFlight("request", "request", requestFlight);
     },
   );
   server.headersTimeout = CONTROL_HEADERS_TIMEOUT_MS;
   server.requestTimeout = CONTROL_REQUEST_TIMEOUT_MS;
+  server.on("connection", (socket: Socket) => {
+    const id = ++nextSocketId;
+    let resolveClosed!: () => void;
+    const closed = new Promise<void>((resolveSocketClosed) => {
+      resolveClosed = resolveSocketClosed;
+    });
+    const record: BrowserControlSocket = { id, socket, closed };
+    sockets.set(id, record);
+    void retainFlight("socket-close", "socket", closed);
+    socket.once("close", () => {
+      sockets.delete(id);
+      resolveClosed();
+    });
+    if (shuttingDown) socket.end();
+  });
   server.on("clientError", (error: Error & { code?: string }, socket) => {
     if (!socket.writable) return;
     const status =
@@ -1465,19 +1655,214 @@ export const startBrowserControlServer = async (
     unlinkSocket(socketPath);
     throw error;
   }
+  let socketIdentity: Readonly<{ dev: number; ino: number }>;
+  try {
+    const info = lstatSync(socketPath);
+    if (!info.isSocket()) throw new Error("browser control path is not a Unix socket");
+    socketIdentity = Object.freeze({ dev: info.dev, ino: info.ino });
+  } catch (error) {
+    await closeServer(server);
+    try {
+      unlinkSocket(socketPath);
+    } catch {
+      // Startup remains failed closed even if a raced path cannot be removed.
+    }
+    throw error;
+  }
+  const ownsSocketPath = (): boolean => {
+    try {
+      const current = lstatSync(socketPath);
+      return current.dev === socketIdentity.dev && current.ino === socketIdentity.ino;
+    } catch {
+      return false;
+    }
+  };
+  const unlinkOwnedSocket = (): void => {
+    if (ownsSocketPath()) unlinkSync(socketPath);
+  };
   server.on("error", (error) => {
     console.error("[browser-control] server error:", error);
   });
 
+  const beginShutdown = (): void => {
+    if (shuttingDown) return;
+    // The state flip is first and synchronous. Request callbacks, including
+    // process/edge admission, observe it before doing any async work.
+    shuttingDown = true;
+    for (const flight of activeFlights.values()) {
+      shutdownJournal.set(flight.id, flight);
+    }
+    try {
+      edgeGrant.clear();
+    } catch {
+      // Admission is already closed; cache cleanup remains best-effort.
+    }
+    for (const controller of requestControllers.values()) {
+      if (!controller.signal.aborted) controller.abort("browser control shutdown");
+    }
+    void retainFlight("listener-close", "listener", closeServer(server));
+    try {
+      unlinkOwnedSocket();
+    } catch {
+      // The bounded receipt reports a retained path and retries the unlink.
+    }
+    // Graceful half-close first. drainOnQuit applies a bounded destroy after
+    // the configured grace; no peer PID is ever signalled.
+    for (const { socket } of sockets.values()) {
+      if (!socket.destroyed) socket.end();
+    }
+  };
+
+  const retainedSnapshot = (): {
+    readonly counts: BrowserControlRetainedCounts;
+    readonly labels: ReadonlyArray<string>;
+  } => {
+    const pending = [...shutdownJournal.values()].filter(
+      (flight) => flight.status === "pending",
+    );
+    const countKind = (kind: BrowserControlFlightKind): number =>
+      pending.filter((flight) => flight.kind === kind).length;
+    const listenerClosures = Math.max(
+      countKind("listener-close"),
+      server.listening ? 1 : 0,
+    );
+    const socketPaths = ownsSocketPath() ? 1 : 0;
+    const counts: BrowserControlRetainedCounts = {
+      requests: countKind("request"),
+      edgeAdmissions: countKind("edge-admission"),
+      dispatches: countKind("dispatch"),
+      routeOperations: countKind("route-operation"),
+      listenerClosures,
+      sockets: sockets.size,
+      requestControllers: requestControllers.size,
+      socketPaths,
+    };
+    const labels = new Set(
+      pending
+        .filter((flight) => flight.kind !== "socket-close")
+        .map((flight) => flight.label),
+    );
+    if (sockets.size > 0) labels.add("socket");
+    if (requestControllers.size > 0) labels.add("request-controller");
+    if (server.listening) labels.add("listener");
+    if (socketPaths > 0) labels.add("socket-path");
+    return { counts, labels: [...labels].sort() };
+  };
+
+  const drainOnQuit = (): Promise<BrowserControlShutdownReceipt> => {
+    beginShutdown();
+    if (drainFlight !== undefined) return drainFlight;
+    const currentDrain = (async (): Promise<BrowserControlShutdownReceipt> => {
+      const deadline = Date.now() + shutdownDeadlineMs;
+      let rounds = 0;
+      let settled = 0;
+      let fulfilled = 0;
+      let rejected = 0;
+
+      const gracefulSocketFlights = [...sockets.values()].map((entry) => entry.closed);
+      if (gracefulSocketFlights.length > 0) {
+        await allSettledBefore(
+          gracefulSocketFlights,
+          Math.min(deadline, Date.now() + shutdownGraceMs),
+        );
+      }
+      for (const { socket } of sockets.values()) {
+        if (!socket.destroyed) socket.destroy();
+      }
+
+      for (;;) {
+        for (const controller of requestControllers.values()) {
+          if (!controller.signal.aborted) controller.abort("browser control shutdown");
+        }
+        for (const { socket } of sockets.values()) {
+          if (!socket.destroyed) socket.destroy();
+        }
+        try {
+          unlinkOwnedSocket();
+        } catch {
+          // Retained in the explicit deadline receipt below.
+        }
+
+        const round = [...shutdownJournal.values()];
+        if (round.length > 0) {
+          const outcome = await allSettledBefore(
+            round.map((flight) => flight.promise),
+            deadline,
+          );
+          if (outcome.timedOut) break;
+          rounds += 1;
+          settled += outcome.outcomes.length;
+          fulfilled += outcome.outcomes.filter((entry) => entry.status === "fulfilled").length;
+          rejected += outcome.outcomes.filter((entry) => entry.status === "rejected").length;
+          for (const flight of round) shutdownJournal.delete(flight.id);
+          // Give close/finally callbacks one event-loop turn to publish any
+          // nested flight before deciding the fixed point is empty.
+          await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+          continue;
+        }
+
+        const retained = retainedSnapshot();
+        const clean = Object.values(retained.counts).every((count) => count === 0);
+        if (clean) {
+          return Object.freeze({
+            clean: true,
+            rounds,
+            settled,
+            fulfilled,
+            rejected,
+            retainedCounts: Object.freeze(retained.counts),
+            retainedLabels: Object.freeze(retained.labels),
+          });
+        }
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) break;
+        await wait(Math.min(5, remainingMs));
+      }
+
+      // If the deadline raced a just-settled batch, observe that batch through
+      // allSettled before producing the final receipt. Pending records remain
+      // strongly retained and are reported below for a retry.
+      const settledAtDeadline = [...shutdownJournal.values()].filter(
+        (flight) => flight.status !== "pending",
+      );
+      if (settledAtDeadline.length > 0) {
+        const outcomes = await Promise.allSettled(
+          settledAtDeadline.map((flight) => flight.promise),
+        );
+        rounds += 1;
+        settled += outcomes.length;
+        fulfilled += outcomes.filter((entry) => entry.status === "fulfilled").length;
+        rejected += outcomes.filter((entry) => entry.status === "rejected").length;
+        for (const flight of settledAtDeadline) shutdownJournal.delete(flight.id);
+      }
+      const retained = retainedSnapshot();
+      const clean = Object.values(retained.counts).every((count) => count === 0);
+      return Object.freeze({
+        clean,
+        rounds,
+        settled,
+        fulfilled,
+        rejected,
+        retainedCounts: Object.freeze(retained.counts),
+        retainedLabels: Object.freeze(retained.labels),
+      });
+    })();
+    drainFlight = currentDrain;
+    void currentDrain.then(
+      () => {
+        if (drainFlight === currentDrain) drainFlight = undefined;
+      },
+      () => {
+        if (drainFlight === currentDrain) drainFlight = undefined;
+      },
+    );
+    return currentDrain;
+  };
+
   return {
     socketPath,
-    close: () => {
-      server.close();
-      try {
-        unlinkSocket(socketPath);
-      } catch {
-        // socket file may already be gone
-      }
-    },
+    beginShutdown,
+    drainOnQuit,
+    close: drainOnQuit,
   };
 };

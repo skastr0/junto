@@ -45,6 +45,15 @@ const capabilityRegistries: BrowserCapabilityRegistry[] = [];
 const rogueServers: HttpServer[] = [];
 const PAGE_REF = "vellum://canvas/work?node=cli-node";
 const AGENT_KEY = "local:cli";
+const deferred = <A>() => {
+  let resolve!: (value: A | PromiseLike<A>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<A>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+};
 const resolvePageTarget: PageTargetResolver = async (ref) =>
   ref === PAGE_REF
     ? {
@@ -282,7 +291,7 @@ const runCli = (
   });
 
 afterEach(async () => {
-  for (const server of servers.splice(0)) server.close();
+  for (const server of servers.splice(0)) await server.close();
   for (const registry of capabilityRegistries.splice(0)) registry.close();
   for (const server of rogueServers.splice(0)) server.close();
   for (const root of roots.splice(0)) {
@@ -319,6 +328,196 @@ describe("browser control Unix transport", () => {
     server.close();
 
     expect(capabilities.stats().closed).toBe(false);
+  });
+
+  it("idempotently closes admission and boundedly destroys accepted server sockets", async () => {
+    const root = await newRoot();
+    const { server } = await startStack(root, {
+      chmodSocket: chmodSync,
+      shutdownGraceMs: 5,
+      shutdownDeadlineMs: 100,
+    });
+    const socket = createConnection(server.socketPath);
+    await new Promise<void>((resolveConnect, rejectConnect) => {
+      socket.once("connect", resolveConnect);
+      socket.once("error", rejectConnect);
+    });
+
+    server.beginShutdown();
+    server.beginShutdown();
+    const first = server.drainOnQuit();
+    expect(server.close()).toBe(first);
+    await expect(first).resolves.toEqual({
+      clean: true,
+      rounds: expect.any(Number),
+      settled: expect.any(Number),
+      fulfilled: expect.any(Number),
+      rejected: 0,
+      retainedCounts: {
+        requests: 0,
+        edgeAdmissions: 0,
+        dispatches: 0,
+        routeOperations: 0,
+        listenerClosures: 0,
+        sockets: 0,
+        requestControllers: 0,
+        socketPaths: 0,
+      },
+      retainedLabels: [],
+    });
+    expect(socket.destroyed).toBe(true);
+    await expect(access(server.socketPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("retains the actual route promise after request cancellation and reports it at deadline", async () => {
+    const root = await newRoot();
+    const routeStarted = deferred<void>();
+    const releaseRoute = deferred<void>();
+    const delayedResolver: PageTargetResolver = async (ref) => {
+      routeStarted.resolve();
+      await releaseRoute.promise;
+      return resolvePageTarget(ref);
+    };
+    const { server, token, capability } = await startStack(
+      root,
+      {
+        chmodSocket: chmodSync,
+        handlerTimeoutMs: 100,
+        shutdownGraceMs: 5,
+        shutdownDeadlineMs: 30,
+      },
+      delayedResolver,
+    );
+    const body = JSON.stringify({ ref: PAGE_REF });
+    const response = rawExchange(server.socketPath, [
+      requestHead("POST", "/open", [
+        ...capabilityHeaders(token, capability),
+        ["Content-Type", "application/json"],
+        ["Content-Length", String(Buffer.byteLength(body))],
+      ]),
+      body,
+    ]).catch(() => "");
+    await routeStarted.promise;
+
+    server.beginShutdown();
+    const receipt = await server.drainOnQuit();
+    expect(receipt.clean).toBe(false);
+    expect(receipt.retainedCounts).toMatchObject({
+      routeOperations: 1,
+      edgeAdmissions: 0,
+      sockets: 0,
+    });
+    expect(receipt.retainedLabels).toContain("route:open");
+    expect(receipt.retainedLabels).not.toContain("request");
+
+    releaseRoute.resolve();
+    await response;
+    await expect(server.close()).resolves.toMatchObject({
+      clean: true,
+      retainedLabels: [],
+    });
+  });
+
+  it("tracks in-flight edge admission, refuses late peers, and never signals their pid", async () => {
+    const root = await newRoot();
+    const capabilities = makeBrowserCapabilityRegistry();
+    capabilityRegistries.push(capabilities);
+    const edgeStarted = deferred<void>();
+    const edgeResult = deferred<Awaited<ReturnType<EdgeGrantService["admitSocket"]>>>();
+    let admissionCalls = 0;
+    let clearCalls = 0;
+    const edgeGrant: EdgeGrantService = {
+      processMap: makeProcessIdentityMap(),
+      admitSocket: async () => {
+        admissionCalls += 1;
+        edgeStarted.resolve();
+        return edgeResult.promise;
+      },
+      admitPrincipal: async () => ({
+        ok: false,
+        denial: "closed",
+        message: "browser control is closing",
+      }),
+      clear: () => {
+        clearCalls += 1;
+      },
+    };
+    const server = await startBrowserControlServer(
+      {
+        sessions: makeSessions(root),
+        capabilities,
+        resolvePageTarget,
+        version: "transport-test",
+        home: root,
+        edgeGrant,
+      },
+      {
+        chmodSocket: chmodSync,
+        shutdownGraceMs: 5,
+        shutdownDeadlineMs: 30,
+      },
+    );
+    servers.push(server);
+    const token = (await readFile(controlTokenPath(root), "utf8")).trim();
+    const body = JSON.stringify({ ref: PAGE_REF });
+    const response = rawExchange(server.socketPath, [
+      requestHead("POST", "/open", [
+        ...protectedHeaders(token),
+        ["Content-Type", "application/json"],
+        ["Content-Length", String(Buffer.byteLength(body))],
+      ]),
+      body,
+    ]).catch(() => "");
+    await edgeStarted.promise;
+    const alreadyAccepted = createConnection(server.socketPath);
+    alreadyAccepted.on("error", () => undefined);
+    await new Promise<void>((resolveConnect, rejectConnect) => {
+      alreadyAccepted.once("connect", resolveConnect);
+      alreadyAccepted.once("error", rejectConnect);
+    });
+    const processKill = vi.spyOn(process, "kill");
+    try {
+      server.beginShutdown();
+      alreadyAccepted.write(
+        requestHead("POST", "/open", [
+          ...protectedHeaders(token),
+          ["Content-Type", "application/json"],
+          ["Content-Length", String(Buffer.byteLength(body))],
+        ]) + body,
+      );
+      const latePeer = await new Promise<"connected" | "refused">((resolveLate) => {
+        const socket = createConnection(server.socketPath);
+        socket.once("connect", () => {
+          socket.destroy();
+          resolveLate("connected");
+        });
+        socket.once("error", () => resolveLate("refused"));
+      });
+      expect(latePeer).toBe("refused");
+      const receipt = await server.drainOnQuit();
+      expect(receipt.clean).toBe(false);
+      expect(receipt.retainedCounts).toMatchObject({
+        requests: 1,
+        edgeAdmissions: 1,
+        routeOperations: 0,
+      });
+      expect(receipt.retainedLabels).toEqual(
+        expect.arrayContaining(["edge-admission", "request", "request-controller"]),
+      );
+      expect(admissionCalls).toBe(1);
+      expect(clearCalls).toBeGreaterThanOrEqual(1);
+      expect(processKill).not.toHaveBeenCalled();
+
+      edgeResult.resolve({
+        ok: false,
+        denial: "closed",
+        message: "browser control is closing",
+      });
+      await response;
+      await expect(server.close()).resolves.toMatchObject({ clean: true });
+    } finally {
+      processKill.mockRestore();
+    }
   });
 
   it("fails startup closed when the live socket cannot be made owner-only", async () => {
@@ -574,7 +773,13 @@ describe("browser control Unix transport", () => {
     const neverResolve: PageTargetResolver = async () => new Promise(() => {});
     const timed = await startStack(
       deadlineRoot,
-      { chmodSocket: chmodSync, maxActiveHandlers: 1, handlerTimeoutMs: 40 },
+      {
+        chmodSocket: chmodSync,
+        maxActiveHandlers: 1,
+        handlerTimeoutMs: 40,
+        shutdownGraceMs: 5,
+        shutdownDeadlineMs: 30,
+      },
       neverResolve,
     );
     const body = JSON.stringify({ ref: PAGE_REF });
