@@ -102,6 +102,7 @@ export class MainAuthoringTransitionError extends Error {
       | "active_operations"
       | "final_permit_active"
       | "final_permit_used"
+      | "drain_required"
       | "invalid_final_permit"
       | "unsupported_final_operation",
     message: string,
@@ -160,7 +161,7 @@ export interface MainAuthoringFinalPermitReceipt extends MainAuthoringFinalPermi
 interface ActiveOperation {
   readonly id: number;
   readonly label: MainAuthoringLabel;
-  readonly promise: Promise<unknown>;
+  promise: Promise<unknown>;
 }
 
 interface FinalPermitRecord extends MainAuthoringFinalPermitReceipt {
@@ -190,7 +191,9 @@ export interface MainAuthoringGate {
   ) => void;
   /**
    * Admit a final renderer write/create while ordinary admission is closed.
-   * The binding is checked before the operation is invoked.
+   * A flush request may perform multiple calls (conflict rebase or recovery
+   * create+write); every call remains bound to the same sender/request until
+   * the main process explicitly revokes that permit.
    */
   readonly runFinalWrite: <A>(
     binding: MainAuthoringFinalPermitBinding,
@@ -218,6 +221,7 @@ const validateBinding = (binding: MainAuthoringFinalPermitBinding): void => {
     );
   }
   if (
+    typeof binding.requestId !== "string" ||
     binding.requestId.length === 0 ||
     binding.requestId.length > 256 ||
     /[\u0000-\u001f\u007f]/u.test(binding.requestId)
@@ -235,6 +239,10 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
   let closedAt = 0;
   let nextOperationId = 0;
   let finalPermitUsed = false;
+  let admissionVersion = 0;
+  let lastCleanDrain:
+    | { readonly epoch: number; readonly admissionVersion: number }
+    | undefined;
   const active = new Map<number, ActiveOperation>();
   // Closed-epoch journal: unlike the live registry, this retains even a fast
   // settlement until a drain has explicitly observed it. That makes a final
@@ -259,6 +267,25 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
 
   const retain = <A>(label: MainAuthoringLabel, operation: () => Promise<A>): Promise<A> => {
     const id = ++nextOperationId;
+    admissionVersion += 1;
+    lastCleanDrain = undefined;
+
+    // Publish a settlement token before invoking caller code. A task factory
+    // may synchronously re-enter quit preparation; commit/recovery must see
+    // this lifetime before any user code gets that chance.
+    let resolveStarted!: (value: A) => void;
+    let rejectStarted!: (error: unknown) => void;
+    const started = new Promise<A>((resolve, reject) => {
+      resolveStarted = resolve;
+      rejectStarted = reject;
+    });
+    // The actual task remains the returned promise. This token only closes the
+    // pre-publication gap, and this handler contains its mirrored rejection.
+    void started.catch(() => undefined);
+    const record: ActiveOperation = { id, label, promise: started };
+    active.set(id, record);
+    if (phase !== "open") closedAdmissions.set(id, record);
+
     let promise: Promise<A>;
     try {
       // Promise.resolve preserves an actual Promise's identity. The registry
@@ -268,11 +295,11 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
     } catch (error) {
       promise = Promise.reject(error);
     }
-    active.set(id, { id, label, promise });
-    if (phase !== "open") closedAdmissions.set(id, { id, label, promise });
+    record.promise = promise;
+    void promise.then(resolveStarted, rejectStarted);
     const retire = (): void => {
       const current = active.get(id);
-      if (current?.promise === promise) active.delete(id);
+      if (current === record) active.delete(id);
     };
     // Use both handlers rather than an ignored finally() chain, which would
     // manufacture a second rejected promise on operation failure.
@@ -304,6 +331,7 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
     phase = "precommit-closed";
     closedAt = Date.now();
     finalPermitUsed = false;
+    lastCleanDrain = undefined;
     finalPermits.clear();
     closedAdmissions.clear();
     for (const [id, entry] of active) closedAdmissions.set(id, entry);
@@ -341,8 +369,18 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
         `cannot recover main authoring epoch ${epoch} after a final-write permit was used`,
       );
     }
+    if (
+      lastCleanDrain?.epoch !== attemptedEpoch ||
+      lastCleanDrain.admissionVersion !== admissionVersion
+    ) {
+      throw new MainAuthoringTransitionError(
+        "drain_required",
+        `cannot recover main authoring epoch ${epoch} before its current admissions are drained`,
+      );
+    }
     phase = "open";
     closedAdmissions.clear();
+    lastCleanDrain = undefined;
     return Object.freeze({
       epoch,
       phase,
@@ -370,8 +408,18 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
         `cannot commit main authoring epoch ${epoch} with active final-write permits`,
       );
     }
+    if (
+      lastCleanDrain?.epoch !== attemptedEpoch ||
+      lastCleanDrain.admissionVersion !== admissionVersion
+    ) {
+      throw new MainAuthoringTransitionError(
+        "drain_required",
+        `cannot commit main authoring epoch ${epoch} before its current admissions are drained`,
+      );
+    }
     phase = "committed-closed";
     closedAdmissions.clear();
+    lastCleanDrain = undefined;
     return Object.freeze({
       epoch,
       phase,
@@ -422,6 +470,13 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
       const remaining = activeLabels();
       const permits = finalPermits.size;
       for (const id of observedIds) closedAdmissions.delete(id);
+      const clean = remaining.length === 0 && permits === 0;
+      if (clean) {
+        lastCleanDrain = {
+          epoch: attemptedEpoch,
+          admissionVersion,
+        };
+      }
       return Object.freeze({
         epoch: attemptedEpoch,
         phase: phase as Exclude<MainAuthoringPhase, "open">,
@@ -432,7 +487,7 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
         rounds,
         activeLabels: Object.freeze([...remaining]),
         finalPermitsActive: permits,
-        clean: remaining.length === 0 && permits === 0,
+        clean,
       });
     })();
 
@@ -474,6 +529,7 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
       issuedAt: Date.now(),
       used: false,
     };
+    lastCleanDrain = undefined;
     finalPermits.set(key, receipt);
     return Object.freeze({
       epoch: receipt.epoch,

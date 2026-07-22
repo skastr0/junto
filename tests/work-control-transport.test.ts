@@ -228,6 +228,7 @@ describe("work control transport", () => {
     expect(refused.error.message).toMatch(/precommit-closed|refused/);
     expect(refused.error.details?.retryable).toBe(false);
 
+    await gate.drain(precommit.epoch);
     gate.recover(precommit.epoch);
     const admitted = (await call(server.socketPath, {
       token: token(),

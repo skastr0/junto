@@ -63,6 +63,55 @@ describe("main authoring gate", () => {
     });
   });
 
+  it("publishes the lifetime before a task can re-enter close and commit", async () => {
+    const gate = createMainAuthoringGate();
+    const pending = deferred<string>();
+    let precommitEpoch = 0;
+
+    const admitted = gate.run("ipc.canvas.write", () => {
+      const precommit = gate.beginPrecommit();
+      precommitEpoch = precommit.epoch;
+      expect(precommit.activeLabels).toEqual(["ipc.canvas.write"]);
+      expect(gate.snapshot().activeLabels).toEqual(["ipc.canvas.write"]);
+      expect(() => gate.commit(precommit.epoch)).toThrowError(
+        expect.objectContaining<Partial<MainAuthoringTransitionError>>({
+          code: "active_operations",
+        }),
+      );
+      return pending.promise;
+    });
+
+    expect(precommitEpoch).toBe(1);
+    pending.resolve("done");
+    await expect(admitted).resolves.toBe("done");
+    await expect(gate.drain(precommitEpoch)).resolves.toMatchObject({
+      clean: true,
+      labels: ["ipc.canvas.write"],
+    });
+    expect(gate.commit(precommitEpoch).phase).toBe("committed-closed");
+  });
+
+  it("does not let a settlement continuation outrun its drain receipt", async () => {
+    const gate = createMainAuthoringGate();
+    const pending = deferred<void>();
+    const admitted = gate.run("ipc.canvas.delete", () => pending.promise);
+    const precommit = gate.beginPrecommit();
+    const sibling = admitted.then(() => {
+      expect(gate.snapshot().activeLabels).toEqual([]);
+      expect(() => gate.recover(precommit.epoch)).toThrowError(
+        expect.objectContaining<Partial<MainAuthoringTransitionError>>({
+          code: "drain_required",
+        }),
+      );
+    });
+    const drain = gate.drain(precommit.epoch);
+
+    pending.resolve();
+    await sibling;
+    await expect(drain).resolves.toMatchObject({ clean: true, settled: 1 });
+    expect(gate.recover(precommit.epoch).phase).toBe("open");
+  });
+
   it("uses allSettled fixed-point drainage, including a fast permit write between rounds", async () => {
     const gate = createMainAuthoringGate();
     const initial = deferred<void>();
@@ -147,6 +196,7 @@ describe("main authoring gate", () => {
       }),
     );
     gate.revokeFinalWritePermit(precommit.epoch, binding);
+    await gate.drain(precommit.epoch);
     expect(gate.recover(precommit.epoch)).toMatchObject({
       epoch: precommit.epoch,
       phase: "open",
@@ -160,6 +210,11 @@ describe("main authoring gate", () => {
   it("commits an already-closed drained epoch irreversibly", async () => {
     const gate = createMainAuthoringGate();
     const precommit = gate.beginPrecommit();
+    expect(() => gate.commit(precommit.epoch)).toThrowError(
+      expect.objectContaining<Partial<MainAuthoringTransitionError>>({
+        code: "drain_required",
+      }),
+    );
     await gate.drain(precommit.epoch);
     expect(gate.commit(precommit.epoch)).toMatchObject({
       epoch: precommit.epoch,
@@ -180,7 +235,7 @@ describe("main authoring gate", () => {
     );
   });
 
-  it("binds final authority to the exact sender, request, and write kind", async () => {
+  it("binds reusable final authority to one sender/request until revocation", async () => {
     const gate = createMainAuthoringGate();
     const precommit = gate.beginPrecommit();
     const binding = { senderId: 7, requestId: "flush-exact" } as const;
@@ -204,6 +259,14 @@ describe("main authoring gate", () => {
     ).rejects.toMatchObject({ code: "invalid_final_permit" });
     await expect(
       gate.runFinalWrite(
+        { senderId: binding.senderId, requestId: [binding.requestId] } as unknown as typeof binding,
+        "canvas.write",
+        "ipc.canvas.write",
+        async () => "coerced request",
+      ),
+    ).rejects.toMatchObject({ code: "invalid_final_permit" });
+    await expect(
+      gate.runFinalWrite(
         binding,
         "canvas.create",
         "ipc.canvas.write",
@@ -218,6 +281,33 @@ describe("main authoring gate", () => {
         async () => "saved",
       ),
     ).resolves.toBe("saved");
+    // One flush may need rebase, or create+populate a recovery canvas.
+    await expect(
+      gate.runFinalWrite(
+        binding,
+        "canvas.create",
+        "ipc.canvas.create",
+        async () => "created recovery",
+      ),
+    ).resolves.toBe("created recovery");
+    await expect(
+      gate.runFinalWrite(
+        binding,
+        "canvas.write",
+        "ipc.canvas.write",
+        async () => "populated recovery",
+      ),
+    ).resolves.toBe("populated recovery");
+
+    gate.revokeFinalWritePermit(precommit.epoch, binding);
+    await expect(
+      gate.runFinalWrite(
+        binding,
+        "canvas.write",
+        "ipc.canvas.write",
+        async () => "too late",
+      ),
+    ).rejects.toMatchObject({ code: "invalid_final_permit" });
   });
 });
 
