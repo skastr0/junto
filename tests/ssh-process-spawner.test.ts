@@ -88,8 +88,40 @@ describe("ProcessSpawnerLive", () => {
     expect(source).toContain("appProcessPlane.spawnGroup({");
     expect(source).toMatch(/if \(lease\.io\.pidForDiagnostics === undefined\)/u);
     expect(source).toMatch(/Later errors are diagnostic[\s\S]*must not fabricate an exit\/close witness or cancel TERM→KILL/u);
+    const exitObserver = source.slice(
+      source.indexOf("lease.io.onExit"),
+      source.indexOf("lease.io.onClose"),
+    );
+    expect(exitObserver).toContain("processEnded = true");
+    expect(exitObserver).not.toContain("settleClose()");
+    expect(source.slice(source.indexOf("lease.io.onClose"))).toContain("settleClose()");
     expect(source).not.toMatch(/\bspawnDetachedProcessGroup\b|\bsignalOwned\b|\breleaseOwned\b|\bOwnedProcess\b/u);
     expect(source).not.toMatch(/tracked\.child|lease\.child|\.kill\s*\(/u);
+  });
+
+  it("waits for the close witness after an earlier process exit", async () => {
+    const result = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const child = yield* (yield* ProcessSpawner).start(
+            Command.make(
+              process.execPath,
+              "-e",
+              [
+                "const { spawn } = require('node:child_process');",
+                "const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 500)'], { stdio: ['ignore', 'inherit', 'inherit'] });",
+                "child.unref();",
+              ].join(" "),
+            ),
+          );
+          const code = yield* child.exitCode;
+          return { code, exitedAt: Date.now() };
+        }),
+      ).pipe(Effect.provide(SpawnerLive)),
+    );
+
+    expect(result.code).toBe(0);
+    expect(Date.now() - result.exitedAt).toBeGreaterThanOrEqual(250);
   });
 
   it("forwards StandardCommand identity options through the central spawn spec", async () => {

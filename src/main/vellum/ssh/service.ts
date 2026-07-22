@@ -226,10 +226,10 @@ export const SshTransportLayer = Layer.scoped(
     const dialPermits = yield* Effect.makeSemaphore(config.maxConcurrentDials);
     const endpointPermits = new Map<string, Effect.Semaphore>();
     const warmLocks = new Map<string, Effect.Semaphore>();
-    // Shared ControlMaster sockets are intentionally process-global under
-    // ControlPersist=600. Do not track or -O exit them on dispose: GUI and
-    // headless CLIs share the same ControlPath, so a short-lived runtime
-    // exiting would tear down the long-lived master's mux.
+    // Shared commands may multiplex while one command owns the master, but
+    // ControlPersist=no prevents a completed command from leaving an SSH
+    // process behind. Do not issue -O exit on ordinary scope disposal: a GUI
+    // and headless CLI can still be concurrently using the same ControlPath.
 
     const confirm: ConfirmSshReady = <A>(value: A): SshReady<A> => ({
       [ReadyTypeId]: ReadyTypeId,
@@ -915,7 +915,7 @@ export const SshTransportLayer = Layer.scoped(
 
     // Sole caller of compiler.masterExit. Explicit operator action only —
     // the host registry invokes this on removal/edit, never on Layer/Scope
-    // disposal (the shared master stays process-global, ControlPersist=600).
+    // disposal where another concurrent command may own the shared master.
     const teardown = (endpoint: SshEndpoint): Effect.Effect<void> =>
       withDial(
         endpoint,

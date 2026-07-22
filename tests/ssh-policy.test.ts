@@ -173,7 +173,7 @@ describe("SSH policy surface", () => {
     expect(args).toContain("ClearAllForwardings=yes");
     expect(args).toContain("ControlMaster=auto");
     expect(args.some((arg) => arg.includes("/cm-v1-%C"))).toBe(true);
-    expect(args).toContain("ControlPersist=600");
+    expect(args).toContain("ControlPersist=no");
     const remoteText = args.at(-1) ?? "";
     expect(remoteText).toContain("'team one'");
     expect(remoteText).toContain(`'it'"'"'s'`);

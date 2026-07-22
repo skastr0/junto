@@ -92,8 +92,9 @@ describe("SSH architecture", () => {
   });
 
   it("reserves shared ControlMaster -O exit for the explicit teardown op, never Layer/Scope disposal", () => {
-    // Shared masters are process-global (ControlPersist=600). A headless CLI
-    // and the GUI share the same ControlPath; exit-on-dispose races them.
+    // Shared masters are command-scoped (ControlPersist=no), but a headless
+    // CLI and the GUI may concurrently share the same ControlPath while the
+    // owning command is live; exit-on-dispose would race them.
     // -O exit is reserved for SshTransport.teardown — an explicit operator
     // action the host registry invokes on removal/edit — and must never be
     // reachable from a Scope/Layer finalizer that runs on ordinary dispose.
@@ -101,7 +102,7 @@ describe("SSH architecture", () => {
       join(root, "src/main/vellum/ssh/service.ts"),
       "utf8",
     );
-    expect(service).toMatch(/ControlPersist=600|do not track or -O exit/iu);
+    expect(service).toMatch(/ControlPersist=no prevents|Do not issue -O exit/iu);
 
     const masterExitSites = service.match(/compiler\.masterExit\(/gu) ?? [];
     expect(masterExitSites).toHaveLength(1);

@@ -304,7 +304,7 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
   const sharedOptions = [
     "-o", "ControlMaster=auto",
     "-o", `ControlPath=${join(policy.controlDir, CONTROL_SOCKET_VERSION)}`,
-    "-o", "ControlPersist=600",
+    "-o", "ControlPersist=no",
   ] as const;
 
   const dedicatedOptions = [
