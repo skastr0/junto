@@ -159,6 +159,8 @@ interface AppProcessRecord {
   authorityReleased: boolean;
   term: AppProcessSignalReceipt | undefined;
   kill: AppProcessSignalReceipt | undefined;
+  termInProgressReason: string | undefined;
+  killInProgressReason: string | undefined;
 }
 
 type RegistryEmptyWaiter = {
@@ -531,6 +533,8 @@ export const createAppProcessPlane = (
       authorityReleased: false,
       term: undefined,
       kill: undefined,
+      termInProgressReason: undefined,
+      killInProgressReason: undefined,
     };
     records.add(record);
 
@@ -624,10 +628,32 @@ export const createAppProcessPlane = (
     signal: AppProcessSignal,
     reason: string,
   ): AppProcessSignalReceipt => {
+    const existing = signal === "SIGTERM" ? record.term : record.kill;
+    if (existing !== undefined) return existing;
+    const inProgressReason = signal === "SIGTERM"
+      ? record.termInProgressReason
+      : record.killInProgressReason;
+    if (inProgressReason !== undefined) {
+      return rejectedSignalReceipt(
+        signal,
+        inProgressReason,
+        "signal-request-in-progress",
+      );
+    }
     if (record.exitEvent !== undefined || record.authorityReleased) {
       return rejectedSignalReceipt(signal, reason, "process-already-exited");
     }
-    const receipt = withSignalReceipt(signal, reason, signalOwned(record.owned, signal));
+    if (signal === "SIGTERM") record.termInProgressReason = reason;
+    else record.killInProgressReason = reason;
+    let receipt: AppProcessSignalReceipt;
+    try {
+      receipt = withSignalReceipt(signal, reason, signalOwned(record.owned, signal));
+    } catch {
+      receipt = rejectedSignalReceipt(signal, reason, "signal-dispatch-failed");
+    } finally {
+      if (signal === "SIGTERM") record.termInProgressReason = undefined;
+      else record.killInProgressReason = undefined;
+    }
     if (signal === "SIGTERM") record.term = receipt;
     else record.kill = receipt;
     return receipt;
@@ -639,7 +665,12 @@ export const createAppProcessPlane = (
     reason: string,
   ): AppProcessSignalReceipt => {
     const record = leases.get(lease);
-    if (record === undefined || record.closeEvent !== undefined) {
+    if (record === undefined) {
+      return rejectedSignalReceipt(signal, reason, "lease-not-registered");
+    }
+    const existing = signal === "SIGTERM" ? record.term : record.kill;
+    if (existing !== undefined) return existing;
+    if (record.closeEvent !== undefined) {
       return rejectedSignalReceipt(signal, reason, "lease-not-registered");
     }
     return signalRecord(record, signal, reason);

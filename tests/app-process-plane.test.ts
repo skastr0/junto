@@ -201,6 +201,24 @@ describe("app process plane admission", () => {
     expect(redirectedKill).not.toHaveBeenCalled();
   });
 
+  it("coalesces repeated TERM and KILL requests to their first frozen receipts", () => {
+    const child = new FakeChild();
+    mocks.spawn.mockReturnValue(child);
+    const plane = createAppProcessPlane();
+    const lease = plane.spawnChild(spec());
+
+    const term = plane.terminate(lease, "first TERM owner");
+    expect(plane.terminate(lease, "duplicate TERM owner")).toBe(term);
+    const kill = plane.forceTerminate(lease, "first KILL owner");
+    expect(plane.forceTerminate(lease, "duplicate KILL owner")).toBe(kill);
+
+    expect(term.reason).toBe("first TERM owner");
+    expect(kill.reason).toBe("first KILL owner");
+    expect(Object.isFrozen(term)).toBe(true);
+    expect(Object.isFrozen(kill)).toBe(true);
+    expect(child.kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+  });
+
   it("passes only typed SSH identity options while retaining plane-owned spawn controls", () => {
     const child = new FakeChild();
     mocks.spawnDetachedProcessGroup.mockReturnValue({
@@ -281,6 +299,29 @@ describe("app process plane admission", () => {
 });
 
 describe("app process plane drain", () => {
+  it("coalesces domain TERM with aggregate TERM while still issuing one KILL", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    mocks.spawn.mockReturnValue(child);
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    const lease = plane.spawnChild(spec("domain-owned timeout"));
+    const domainTerm = plane.terminate(lease, "domain-timeout");
+
+    const draining = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(draining).resolves.toMatchObject({
+      clean: false,
+      stragglers: [{
+        term: { reason: "domain-timeout" },
+        kill: { reason: "app-quit-drain" },
+      }],
+    });
+
+    expect(plane.terminate(lease, "post-drain duplicate")).toBe(domainTerm);
+    expect(child.kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("sends TERM, then KILL, and reports clean only after close", async () => {
     vi.useFakeTimers();
     const child = new FakeChild();
