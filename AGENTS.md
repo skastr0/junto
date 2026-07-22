@@ -50,7 +50,7 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
 ```jsonc
 { "id": "n1", "type": "text", "x": 0, "y": 0, "width": 220, "height": 84, "text": "prism",
   "ether": {
-    "entity": { "kind": "project" },          // open vocab: project|agent|herdr|task|watcher|timer|page|...
+    "entity": { "kind": "project" },          // open vocab: project|agent|terminal|herdr|task|watcher|timer|page|...
     "bindings": [                              // document vocabulary; may name tower/quasar/booth keys
       { "source": "tower",  "ref": { "type": "project", "key": "prism" } },
       { "source": "quasar", "ref": { "type": "project", "key": "git:github.com/skastr0/prism" } }
@@ -102,6 +102,11 @@ Region activation gated by three structures (`src/shared/canvas.ts`):
 ## In-app planes
 
 **Attached agent chat** — one live ACP session per agent node (`<host>:<profile>`); resumable across app sessions (channels: `chatOpen`, `chatPrompt`, `chatPermission`, `chatSetModel`, `chatClose`). Main process owns the `hermes acp` child; renders in the canvas as inline composition. The file remains the agent API.
+
+**Native terminals** — `terminal` is the default terminal entity. TermPlane owns
+local sessions and app quit kills all of them, including detached sessions; use
+a Remote station when work must survive Command Center quit. Herdr is an optional
+legacy bridge for existing panes and must not be required for local health.
 
 **Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one herdr pane, one page). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.
 

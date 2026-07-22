@@ -129,7 +129,8 @@ Derived state (blocked closure, region membership, binding health, live phase) i
 | Kind | Base | What it is | Why it matters |
 |---|---|---|---|
 | **agent** | text | Hermes profile card; key `<host>:<profile>`; ACP chat | Live agent presence, chat, and pulse target |
-| **herdr** | text | Bound PTY pane (host / session / workspace / tab / pane) | Terminals as geography across hosts |
+| **terminal** | text | Native Vellum PTY session (`ether.terminal`) | Default local terminal work surface |
+| **herdr** | text | Optional legacy bound PTY pane | Compatibility with existing herdr fleets |
 | **page** | link | Bound browser page + profile name | Browser as a first-class fleet surface |
 | **task** | text | A2A task list store (`ether.tasks.items`) | Protocol tasks, not chat chaos |
 | **requests** | text | Pending input-required shelf | Operator attention queue |
@@ -150,6 +151,15 @@ Derived state (blocked closure, region membership, binding health, live phase) i
 | **Messages store** | `ether.messages` on agent/herdr principals |
 
 **Not blockable:** agent, watcher, timer, herdr, page, free notes, groups — never members of the blocked set.
+
+### Native terminals
+
+Native `terminal` nodes are the default terminal path. Vellum owns their local
+processes through the app-scoped TermPlane and presents them with xterm. Quitting
+Vellum kills every local native terminal session; detached local sessions do not
+survive quit. Put durable work on a **Remote** station instead. Herdr remains
+available as **Herdr (legacy)** for existing panes and is optional for a healthy
+local station; quitting Vellum detaches its surfaces rather than deleting herdr.
 
 ---
 
@@ -516,7 +526,8 @@ Role is never inferred. Hosts: `~/.vellum/hosts.json`. Optional Tailscale serve 
 | **link / page** | URL; page = live browser binding |
 | **group / region** | Operational geography + pulse |
 | **agent** | Hermes profile + ACP chat |
-| **herdr** | Bound PTY pane |
+| **terminal** | Native PTY session; local sessions end on app quit |
+| **herdr** | Optional legacy bound PTY pane |
 | **task / requests / artifacts** | A2A work stores |
 | **watcher / timer** | Kernel pulse sources |
 
@@ -538,7 +549,8 @@ See [Node types](#node-types) detail in prior sections of this README (native ty
 | Kind | Role |
 |---|---|
 | **agent** | Hermes `<host>:<profile>` + ACP chat + pulse target |
-| **herdr** | PTY pane binding; onDelete detach \| kill-pane |
+| **terminal** | Native PTY binding; default terminal surface; onDelete detach \| kill |
+| **herdr** | Legacy PTY pane binding; onDelete detach \| kill-pane |
 | **page** | Browser page + profile; cookies persist |
 | **task** | A2A task list |
 | **requests** | Input-required shelf |

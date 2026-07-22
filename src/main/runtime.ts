@@ -19,6 +19,7 @@ import { ChatServiceFromHermesLive, HermesPlaneLive } from "./vellum/hermes/plan
 import { HermesTransportLive } from "./vellum/hermes/transport";
 import { HerdrPlaneLive } from "./vellum/herdr/plane";
 import { HerdrTransportLive } from "./vellum/herdr/transport";
+import { termPlane } from "./vellum/term/plane";
 import { KernelLive, KernelService } from "./vellum/kernel/service";
 import { WorkLive } from "./vellum/work/service";
 import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
@@ -159,7 +160,17 @@ export const buildDoctorReport = Effect.gen(function* () {
     { concurrency: "unbounded" },
   );
 
-  const services: ReadonlyArray<ServiceCheck> = [...serviceResults, stationCheck];
+  const terminalCheck: ServiceCheck = {
+    id: "terminal",
+    label: "Native terminal",
+    status: "ok",
+    detail: `local session host ready (${termPlane.host.runningCount()} running)`,
+  };
+  const services: ReadonlyArray<ServiceCheck> = [
+    ...serviceResults,
+    terminalCheck,
+    stationCheck,
+  ];
   const recommendations = services
     .filter((service) => service.status !== "ok")
     .map((service) => `${service.label}: ${service.detail}`);

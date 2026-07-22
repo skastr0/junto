@@ -481,7 +481,7 @@ const makeAddActions = (
   addTerminal: () => {
     const position = positionFor({ width: 260, height: 110 });
     const stationHost = state$.settings.station.hostId.peek() || "local";
-    const node = makeTerminalNode(position.x, position.y, stationHost);
+    const node = makeTerminalNode(position.x, position.y, { kind: "shell" }, "terminal", stationHost);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
