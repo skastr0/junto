@@ -42,6 +42,10 @@ interface PendingCanvasSave {
 let pendingSave: PendingCanvasSave | null = null;
 let inFlightSave: { readonly name: string; readonly promise: Promise<void> } | null = null;
 const revisionsByName = new Map<string, string>();
+// Process-lifetime latch. Signal quit closes it once; there is deliberately no
+// reopen API because a later mutation would invalidate the acknowledged final
+// disk boundary while main is authorized to destroy the renderer.
+let canvasMutationAdmissionOpen = true;
 // Names we intentionally discarded (delete). flushSave refuses to write them
 // until clearAbandonedCanvas (open/create of that name).
 const abandonedNames = new Set<string>();
@@ -290,6 +294,19 @@ export const acceptCanvasRevision = (name: string, revision: string): void => {
   revisionsByName.set(name, revision);
 };
 
+export const canvasMutationsQuiesced = (): boolean => !canvasMutationAdmissionOpen;
+
+/**
+ * Commit synchronous editor-local drafts, then monotonically close document
+ * mutation admission in the same turn. A throwing draft commit leaves the
+ * gate open, so main can treat it as a recoverable pre-quiesce failure.
+ */
+export const quiesceCanvasMutations = (commitDrafts: () => void): void => {
+  if (!canvasMutationAdmissionOpen) return;
+  commitDrafts();
+  canvasMutationAdmissionOpen = false;
+};
+
 /**
  * Apply a successful WorkService write into the open renderer document.
  * Baselines `revisionsByName` at the work revision so a concurrent freeform
@@ -302,6 +319,7 @@ export const applyWorkCanvasWrite = (
   workDoc: CanvasDoc,
   revision: string,
 ): void => {
+  if (!canvasMutationAdmissionOpen) return;
   revisionsByName.set(name, revision);
   if (abandonedNames.has(name)) return;
   if (state$.canvasName.peek() !== name) return;
@@ -349,6 +367,7 @@ export const applyWorkCanvasWrite = (
 };
 
 export const retrySave = (): void => {
+  if (!canvasMutationAdmissionOpen) return;
   if (saveTimer) {
     clearTimeout(saveTimer);
     saveTimer = null;
@@ -358,6 +377,7 @@ export const retrySave = (): void => {
 };
 
 export const scheduleSave = (): void => {
+  if (!canvasMutationAdmissionOpen) return;
   if (saveTimer) clearTimeout(saveTimer);
   const name = state$.canvasName.peek();
   if (!name || !window.vellum || abandonedNames.has(name)) return;
@@ -394,6 +414,7 @@ export const clearAbandonedCanvas = (name: string): void => {
 // Commit a new document. `structural` bumps docVersion so React Flow rebuilds;
 // pass false for pure position writes RF already reflects (drag stop).
 export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = structural): void => {
+  if (!canvasMutationAdmissionOpen) return;
   if (recordHistory) {
     past.push(state$.doc.peek());
     future.length = 0;
@@ -410,6 +431,7 @@ export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = st
 // Replace the document from an authoritative source (open / external reload).
 // Always structural; never triggers a save (it mirrors what's already on disk).
 export const loadDoc = (doc: CanvasDoc, revision?: string, name = state$.canvasName.peek()): void => {
+  if (!canvasMutationAdmissionOpen) return;
   if (pendingSave?.name === name) pendingSave = null;
   if (saveTimer && pendingSave === null) {
     clearTimeout(saveTimer);
@@ -465,6 +487,7 @@ export const addNode = (node: CanvasNode, options?: { readonly edit?: boolean; r
 };
 
 export const undo = (): void => {
+  if (!canvasMutationAdmissionOpen) return;
   const previous = past.pop();
   if (!previous) return;
   future.push(state$.doc.peek());
@@ -476,6 +499,7 @@ export const undo = (): void => {
 };
 
 export const redo = (): void => {
+  if (!canvasMutationAdmissionOpen) return;
   const next = future.pop();
   if (!next) return;
   past.push(state$.doc.peek());

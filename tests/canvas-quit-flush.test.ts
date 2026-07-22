@@ -24,8 +24,8 @@ describe("canvas quit durability wiring", () => {
     // Include through the allowForceExit predicate (async shutdown may insert `});` earlier).
     const block = source.slice(start, allowIdx + 120);
 
-    expect(block).toContain("await beginSignalCanvasFlush(generation)");
-    expect(block.indexOf("await beginSignalCanvasFlush(generation)"))
+    expect(block).toContain("await beginSignalCanvasQuiesceAndFlush(generation)");
+    expect(block.indexOf("await beginSignalCanvasQuiesceAndFlush(generation)"))
       .toBeLessThan(block.indexOf("signalQuitState.markCanvasDurable(generation)"));
     expect(block.indexOf("signalQuitState.markCanvasDurable(generation)"))
       .toBeLessThan(block.indexOf("quiesceSignalRenderer(generation)"));
@@ -33,6 +33,7 @@ describe("canvas quit durability wiring", () => {
       .toBeLessThan(block.indexOf("signalQuitState.authorizeForceExit(generation)"));
     expect(block).toContain("allowForceExit:");
     expect(block).toContain("signalQuitState.forceExitAllowed()");
+    expect(block).not.toContain("await beginSignalCanvasFlush(generation)");
   });
 
   it("commits signal quit in terminal, flush, quiesce, authorize, detach order", () => {
@@ -45,8 +46,8 @@ describe("canvas quit durability wiring", () => {
     expect(signal.indexOf("requireCleanLocalTerminalShutdown(signal, false)"))
       .toBeLessThan(signal.indexOf("signalQuitState.markTerminalClean(generation)"));
     expect(signal.indexOf("signalQuitState.markTerminalClean(generation)"))
-      .toBeLessThan(signal.indexOf("await beginSignalCanvasFlush(generation)"));
-    expect(signal.indexOf("await beginSignalCanvasFlush(generation)"))
+      .toBeLessThan(signal.indexOf("await beginSignalCanvasQuiesceAndFlush(generation)"));
+    expect(signal.indexOf("await beginSignalCanvasQuiesceAndFlush(generation)"))
       .toBeLessThan(signal.indexOf("signalQuitState.markCanvasDurable(generation)"));
     expect(signal.indexOf("signalQuitState.markCanvasDurable(generation)"))
       .toBeLessThan(signal.indexOf("quiesceSignalRenderer(generation)"));
@@ -99,15 +100,29 @@ describe("canvas quit durability wiring", () => {
     expect(block).toContain("recreateWindowIfEmpty()");
   });
 
-  it("revalidates the active generation after each signal flush", () => {
-    const start = source.indexOf("const beginSignalCanvasFlush");
+  it("revalidates the active generation after the distinct signal handshake", () => {
+    const start = source.indexOf("const beginSignalCanvasQuiesceAndFlush");
     const end = source.indexOf("const quiesceSignalRenderer", start);
     const block = source.slice(start, end);
 
-    expect(block).toContain("requestCanvasFlush(mainWindow)");
+    expect(block).toContain("requestCanvasQuiesceAndFlush(mainWindow)");
+    expect(block).not.toContain("requestCanvasFlush(mainWindow)");
     expect(block.indexOf("signalQuitState.isCurrent(generation)"))
-      .toBeGreaterThan(block.indexOf("requestCanvasFlush(mainWindow)"));
+      .toBeGreaterThan(block.indexOf("requestCanvasQuiesceAndFlush(mainWindow)"));
     expect(block).not.toContain("disposeRuntime");
+  });
+
+  it("does not coalesce signal quiesce with an ordinary pending flush", () => {
+    const start = source.indexOf("const requestCanvasQuiesceAndFlush");
+    const end = source.indexOf(
+      "ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushComplete",
+      start,
+    );
+    const block = source.slice(start, end);
+
+    expect(block).toContain("pendingCanvasQuiesceAndFlushes");
+    expect(block).not.toContain("pendingCanvasFlushes");
+    expect(block).toContain("IPC_CHANNELS.canvasQuiesceAndFlushRequested");
   });
 
   it("destroys the trusted renderer without re-flushing before authorization", () => {

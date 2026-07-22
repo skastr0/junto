@@ -37,16 +37,19 @@ export type SignalQuitPhase =
   | "idle"
   | "preparing"
   | "terminal-clean"
+  | "renderer-gate-quiesced"
   | "canvas-durable"
   | "renderer-quiesced"
   | "force-authorized"
   | "runtime-detached";
 
-export type SignalQuitFailureDisposition = "recover" | "finish" | "stale";
+export type SignalQuitFailureDisposition = "recover" | "retry" | "finish" | "stale";
 
 export interface SignalQuitState {
   readonly begin: () => number;
   readonly markTerminalClean: (generation: number) => void;
+  /** Record a failed handshake that nevertheless closed renderer admission. */
+  readonly markRendererGateQuiesced: (generation: number) => void;
   readonly markCanvasDurable: (generation: number) => void;
   readonly markRendererQuiesced: (generation: number) => void;
   readonly authorizeForceExit: (generation: number) => void;
@@ -122,6 +125,7 @@ export const createQuitPreparationArbiter = (): QuitPreparationArbiter => {
 export const createSignalQuitState = (): SignalQuitState => {
   let generation = 0;
   let phase: SignalQuitPhase = "idle";
+  let rendererGateQuiesced = false;
 
   const advance = (
     attemptedGeneration: number,
@@ -136,10 +140,7 @@ export const createSignalQuitState = (): SignalQuitState => {
     phase = next;
   };
 
-  const rendererQuiesced = (): boolean =>
-    phase === "renderer-quiesced" ||
-    phase === "force-authorized" ||
-    phase === "runtime-detached";
+  const rendererQuiesced = (): boolean => rendererGateQuiesced;
 
   const forceExitAllowed = (): boolean =>
     phase === "force-authorized" || phase === "runtime-detached";
@@ -155,8 +156,16 @@ export const createSignalQuitState = (): SignalQuitState => {
     },
     markTerminalClean: (attemptedGeneration) =>
       advance(attemptedGeneration, "preparing", "terminal-clean"),
-    markCanvasDurable: (attemptedGeneration) =>
-      advance(attemptedGeneration, "terminal-clean", "canvas-durable"),
+    markRendererGateQuiesced: (attemptedGeneration) => {
+      advance(attemptedGeneration, "terminal-clean", "renderer-gate-quiesced");
+      rendererGateQuiesced = true;
+    },
+    markCanvasDurable: (attemptedGeneration) => {
+      advance(attemptedGeneration, "terminal-clean", "canvas-durable");
+      // A successful signal handshake means the renderer closed mutation
+      // admission and drained every admitted write before acknowledging.
+      rendererGateQuiesced = true;
+    },
     markRendererQuiesced: (attemptedGeneration) =>
       advance(attemptedGeneration, "canvas-durable", "renderer-quiesced"),
     authorizeForceExit: (attemptedGeneration) =>
@@ -165,12 +174,26 @@ export const createSignalQuitState = (): SignalQuitState => {
       advance(attemptedGeneration, "force-authorized", "runtime-detached"),
     fail: (attemptedGeneration) => {
       if (attemptedGeneration !== generation || phase === "idle") return "stale";
-      if (rendererQuiesced()) {
+      if (
+        phase === "canvas-durable" ||
+        phase === "renderer-quiesced" ||
+        phase === "force-authorized" ||
+        phase === "runtime-detached"
+      ) {
         // Quiescence is the irreversible boundary. Promote an interruption
         // between renderer destruction and explicit authorization so cleanup
         // can resolve and arm the same bounded fallback.
-        if (phase === "renderer-quiesced") phase = "force-authorized";
+        if (phase === "canvas-durable" || phase === "renderer-quiesced") {
+          phase = "force-authorized";
+        }
         return "finish";
+      }
+      if (rendererGateQuiesced) {
+        // Admission closed but the save pump did not acknowledge durability.
+        // Keep the gate monotonic, permit a fresh signal generation to retry
+        // the same drain, and never recreate an authoring surface.
+        phase = "idle";
+        return "retry";
       }
       phase = "idle";
       return "recover";

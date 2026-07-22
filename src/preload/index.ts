@@ -12,6 +12,8 @@ import {
   type BrowserSessionInfo,
   type BrowserSurfaceBounds,
   type CanvasFlushRequest,
+  type CanvasQuiesceAndFlushOutcome,
+  type CanvasQuiesceAndFlushRequest,
   type LoginItemOpResult,
   type VellumApi,
   type VellumBrowserApi,
@@ -222,6 +224,68 @@ const onCanvasFlushRequested = (
   };
 };
 
+let canvasQuiesceAndFlushListener:
+  | (() => CanvasQuiesceAndFlushOutcome | Promise<CanvasQuiesceAndFlushOutcome>)
+  | undefined;
+let pendingCanvasQuiesceAndFlush: CanvasQuiesceAndFlushRequest | undefined;
+
+const decodeCanvasQuiesceAndFlushRequest = (
+  payload: unknown,
+): CanvasQuiesceAndFlushRequest | undefined => decodeCanvasFlushRequest(payload);
+
+const deliverCanvasQuiesceAndFlush = async (
+  request: CanvasQuiesceAndFlushRequest,
+): Promise<void> => {
+  const listener = canvasQuiesceAndFlushListener;
+  if (listener === undefined) {
+    pendingCanvasQuiesceAndFlush = request;
+    return;
+  }
+  // Unknown listener failures fail closed. The real App listener always
+  // reports its exact gate state, including recoverable draft failures before
+  // closure; if a future listener throws without doing so, main must assume
+  // the monotonic boundary may already have been crossed.
+  let outcome: CanvasQuiesceAndFlushOutcome = { ok: false, quiesced: true };
+  try {
+    const result = await listener();
+    if (typeof result?.ok === "boolean" && typeof result.quiesced === "boolean") {
+      outcome = { ok: result.ok, quiesced: result.quiesced };
+    }
+  } catch {
+    // Keep the fail-closed default above.
+  } finally {
+    ipcRenderer.send(IPC_CHANNELS.canvasQuiesceAndFlushComplete, {
+      requestId: request.requestId,
+      ...outcome,
+    });
+  }
+};
+
+ipcRenderer.on(IPC_CHANNELS.canvasQuiesceAndFlushRequested, (_event, payload: unknown) => {
+  const request = decodeCanvasQuiesceAndFlushRequest(payload);
+  if (request === undefined) return;
+  pendingCanvasQuiesceAndFlush = request;
+  if (canvasQuiesceAndFlushListener === undefined) return;
+  pendingCanvasQuiesceAndFlush = undefined;
+  void deliverCanvasQuiesceAndFlush(request);
+});
+
+const onCanvasQuiesceAndFlushRequested = (
+  listener: () => CanvasQuiesceAndFlushOutcome | Promise<CanvasQuiesceAndFlushOutcome>,
+): (() => void) => {
+  canvasQuiesceAndFlushListener = listener;
+  const pending = pendingCanvasQuiesceAndFlush;
+  if (pending !== undefined) {
+    pendingCanvasQuiesceAndFlush = undefined;
+    void deliverCanvasQuiesceAndFlush(pending);
+  }
+  return () => {
+    if (canvasQuiesceAndFlushListener === listener) {
+      canvasQuiesceAndFlushListener = undefined;
+    }
+  };
+};
+
 const vellumApi: VellumApi = {
   listCanvases: () => invoke(IPC_CHANNELS.listCanvases, IPC_TIMEOUT_MS),
   readCanvas: (name) => invoke(IPC_CHANNELS.readCanvas, IPC_TIMEOUT_MS, name),
@@ -271,6 +335,7 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.workArtifactPublish, IPC_TIMEOUT_MS, canvas, nodeId, artifact),
   onNodeRefOpened,
   onCanvasFlushRequested,
+  onCanvasQuiesceAndFlushRequested,
   onCanvasChanged: (listener) => subscribe<string>(IPC_CHANNELS.canvasChanged, listener),
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),

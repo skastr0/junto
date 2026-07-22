@@ -70,6 +70,12 @@ const emitCanvasFlush = (payload: unknown): void => {
   listener({}, payload);
 };
 
+const emitCanvasQuiesceAndFlush = (payload: unknown): void => {
+  const listener = electron.handlers.get(IPC_CHANNELS.canvasQuiesceAndFlushRequested);
+  if (listener === undefined) throw new Error("preload did not register canvas quiesce ingress");
+  listener({}, payload);
+};
+
 const settle = async (): Promise<void> => {
   await new Promise<void>((resolve) => setImmediate(resolve));
 };
@@ -183,6 +189,88 @@ describe("preload canvas close gate", () => {
       [
         IPC_CHANNELS.canvasFlushComplete,
         { requestId: "00000000-0000-4000-8000-000000000011", ok: false },
+      ],
+    ]);
+  });
+});
+
+describe("preload canvas quiesce gate", () => {
+  it("keeps signal quiesce distinct and acknowledges only after renderer durability", async () => {
+    const api = await loadPreload();
+    const ordinaryFlush = vi.fn(async () => undefined);
+    api.onCanvasFlushRequested(ordinaryFlush);
+    const durable = deferred();
+    const quiesce = vi.fn(async () => {
+      await durable.promise;
+      return { ok: true, quiesced: true } as const;
+    });
+    api.onCanvasQuiesceAndFlushRequested(quiesce);
+
+    emitCanvasQuiesceAndFlush({
+      requestId: "00000000-0000-4000-8000-000000000012",
+    });
+    expect(quiesce).toHaveBeenCalledOnce();
+    expect(ordinaryFlush).not.toHaveBeenCalled();
+    expect(electron.sent).toEqual([]);
+
+    durable.resolve();
+    await settle();
+    expect(electron.sent).toEqual([
+      [
+        IPC_CHANNELS.canvasQuiesceAndFlushComplete,
+        {
+          requestId: "00000000-0000-4000-8000-000000000012",
+          ok: true,
+          quiesced: true,
+        },
+      ],
+    ]);
+  });
+
+  it("buffers a cold request and preserves whether failure crossed quiescence", async () => {
+    const api = await loadPreload();
+    emitCanvasQuiesceAndFlush({
+      requestId: "00000000-0000-4000-8000-000000000013",
+    });
+    expect(electron.sent).toEqual([]);
+
+    api.onCanvasQuiesceAndFlushRequested(async () => ({
+      ok: false,
+      quiesced: true,
+    }));
+    await settle();
+
+    expect(electron.sent).toEqual([
+      [
+        IPC_CHANNELS.canvasQuiesceAndFlushComplete,
+        {
+          requestId: "00000000-0000-4000-8000-000000000013",
+          ok: false,
+          quiesced: true,
+        },
+      ],
+    ]);
+  });
+
+  it("fails closed when a quiesce listener throws without reporting gate state", async () => {
+    const api = await loadPreload();
+    api.onCanvasQuiesceAndFlushRequested(async () => {
+      throw new Error("listener failed after an unknown boundary");
+    });
+
+    emitCanvasQuiesceAndFlush({
+      requestId: "00000000-0000-4000-8000-000000000014",
+    });
+    await settle();
+
+    expect(electron.sent).toEqual([
+      [
+        IPC_CHANNELS.canvasQuiesceAndFlushComplete,
+        {
+          requestId: "00000000-0000-4000-8000-000000000014",
+          ok: false,
+          quiesced: true,
+        },
       ],
     ]);
   });

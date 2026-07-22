@@ -295,7 +295,6 @@ describe("signal quit commit state", () => {
     const state = createSignalQuitState();
     const first = state.begin();
     state.markTerminalClean(first);
-    state.markCanvasDurable(first);
 
     expect(state.fail(first)).toBe("recover");
     expect(state.snapshot()).toEqual({ generation: first, phase: "idle" });
@@ -320,6 +319,25 @@ describe("signal quit commit state", () => {
     });
     expect(state.rendererQuiesced()).toBe(true);
     expect(state.reusableDurabilityGeneration()).toBe(generation);
+    expect(state.forceExitAllowed()).toBe(true);
+  });
+
+  it("retries without recreating when the renderer gate closed before flush failed", () => {
+    const state = createSignalQuitState();
+    const first = state.begin();
+    state.markTerminalClean(first);
+    state.markRendererGateQuiesced(first);
+
+    expect(state.fail(first)).toBe("retry");
+    expect(state.snapshot()).toEqual({ generation: first, phase: "idle" });
+    expect(state.rendererQuiesced()).toBe(true);
+    expect(state.forceExitAllowed()).toBe(false);
+
+    const retry = state.begin();
+    state.markTerminalClean(retry);
+    state.markCanvasDurable(retry);
+    state.markRendererQuiesced(retry);
+    state.authorizeForceExit(retry);
     expect(state.forceExitAllowed()).toBe(true);
   });
 

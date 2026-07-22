@@ -23,6 +23,7 @@ import { classifyBrowserTarget } from "@shared/browser-policy";
 import {
   IPC_CHANNELS,
   type CanvasFlushResult,
+  type CanvasQuiesceAndFlushResult,
   type NodeRefOpenedDelivery,
 } from "@shared/ipc";
 import {
@@ -277,12 +278,41 @@ const pendingCanvasFlushes = new Map<
   }
 >();
 
+class CanvasQuiesceAndFlushError extends Error {
+  constructor(message: string, readonly quiesced: boolean) {
+    super(message);
+    this.name = "CanvasQuiesceAndFlushError";
+  }
+}
+
+const pendingCanvasQuiesceAndFlushes = new Map<
+  number,
+  {
+    readonly requestId: string;
+    readonly promise: Promise<void>;
+    readonly resolve: () => void;
+    readonly reject: (error: CanvasQuiesceAndFlushError) => void;
+    readonly timer: ReturnType<typeof setTimeout>;
+  }
+>();
+
 const decodeCanvasFlushResult = (payload: unknown): CanvasFlushResult | undefined => {
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return undefined;
   if (Object.keys(payload).sort().join(",") !== "ok,requestId") return undefined;
   if (!("requestId" in payload) || typeof payload.requestId !== "string") return undefined;
   if (!("ok" in payload) || typeof payload.ok !== "boolean") return undefined;
   return { requestId: payload.requestId, ok: payload.ok };
+};
+
+const decodeCanvasQuiesceAndFlushResult = (
+  payload: unknown,
+): CanvasQuiesceAndFlushResult | undefined => {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return undefined;
+  if (Object.keys(payload).sort().join(",") !== "ok,quiesced,requestId") return undefined;
+  if (!("requestId" in payload) || typeof payload.requestId !== "string") return undefined;
+  if (!("ok" in payload) || typeof payload.ok !== "boolean") return undefined;
+  if (!("quiesced" in payload) || typeof payload.quiesced !== "boolean") return undefined;
+  return { requestId: payload.requestId, ok: payload.ok, quiesced: payload.quiesced };
 };
 
 const requestCanvasFlush = (mainWindow: BrowserWindow): Promise<void> => {
@@ -320,6 +350,64 @@ ipcMain.on(IPC_CHANNELS.canvasFlushComplete, (event, payload: unknown) => {
   else pending.reject(new Error("renderer rejected close because canvas save failed"));
 });
 
+const requestCanvasQuiesceAndFlush = (mainWindow: BrowserWindow): Promise<void> => {
+  if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return Promise.resolve();
+  const webContentsId = mainWindow.webContents.id;
+  const existing = pendingCanvasQuiesceAndFlushes.get(webContentsId);
+  if (existing !== undefined) return existing.promise;
+
+  const requestId = randomUUID();
+  let resolve!: () => void;
+  let reject!: (error: CanvasQuiesceAndFlushError) => void;
+  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  const timer = setTimeout(() => {
+    const pending = pendingCanvasQuiesceAndFlushes.get(webContentsId);
+    if (pending?.requestId !== requestId) return;
+    pendingCanvasQuiesceAndFlushes.delete(webContentsId);
+    // The request may have reached the renderer and closed its monotonic gate;
+    // timeout cannot safely authorize either UI recovery or force exit.
+    reject(new CanvasQuiesceAndFlushError("renderer canvas quiesce timed out", true));
+  }, CANVAS_FLUSH_TIMEOUT_MS);
+  pendingCanvasQuiesceAndFlushes.set(webContentsId, {
+    requestId,
+    promise,
+    resolve,
+    reject,
+    timer,
+  });
+  try {
+    mainWindow.webContents.send(IPC_CHANNELS.canvasQuiesceAndFlushRequested, { requestId });
+  } catch (error) {
+    clearTimeout(timer);
+    pendingCanvasQuiesceAndFlushes.delete(webContentsId);
+    reject(new CanvasQuiesceAndFlushError(
+      error instanceof Error ? error.message : String(error),
+      false,
+    ));
+  }
+  return promise;
+};
+
+ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushComplete, (event, payload: unknown) => {
+  const result = decodeCanvasQuiesceAndFlushResult(payload);
+  if (result === undefined) return;
+  const pending = pendingCanvasQuiesceAndFlushes.get(event.sender.id);
+  if (pending === undefined || pending.requestId !== result.requestId) return;
+  clearTimeout(pending.timer);
+  pendingCanvasQuiesceAndFlushes.delete(event.sender.id);
+  if (result.ok && result.quiesced) {
+    pending.resolve();
+    return;
+  }
+  pending.reject(new CanvasQuiesceAndFlushError(
+    "renderer rejected signal quit because canvas save failed",
+    result.quiesced,
+  ));
+});
+
 // Bounded renderer crash recovery. A renderer that dies (GPU reset, OOM kill,
 // Chromium crash) is first reloaded in place — that recovers the common
 // transient crash without losing the main process (Effect runtime, snapshot
@@ -347,6 +435,10 @@ const registerCrashRecovery = (mainWindow: BrowserWindow) => {
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     console.error(`[renderer:gone] ${details.reason} (exitCode ${details.exitCode})`);
     if (details.reason === "clean-exit" || mainWindow.isDestroyed()) return;
+    // A signal handshake may have closed renderer mutation admission before a
+    // save error/timeout. Reloading would create a fresh open gate and violate
+    // that monotonic boundary; only a later signal may retry the durable drain.
+    if (signalQuitState.rendererQuiesced()) return;
 
     const now = Date.now();
     if (now - recoveryWindowStart > RECOVERY_WINDOW_MS) {
@@ -501,6 +593,15 @@ const createWindow = () => {
       clearTimeout(pending.timer);
       pendingCanvasFlushes.delete(mainWebContentsId);
       pending.reject(new Error("renderer closed before canvas flush completed"));
+    }
+    const pendingQuiesce = pendingCanvasQuiesceAndFlushes.get(mainWebContentsId);
+    if (pendingQuiesce !== undefined) {
+      clearTimeout(pendingQuiesce.timer);
+      pendingCanvasQuiesceAndFlushes.delete(mainWebContentsId);
+      pendingQuiesce.reject(new CanvasQuiesceAndFlushError(
+        "renderer closed before canvas quiesce completed",
+        true,
+      ));
     }
     if (trustedMainWindow === mainWindow) trustedMainWindow = undefined;
     setTrustedMainWebContents(undefined);
@@ -858,14 +959,14 @@ const exitAfterDetach = (exitCode: number, reason: string): void => {
 
 let quitPreparation: Promise<void> | undefined;
 
-const beginSignalCanvasFlush = async (generation: number): Promise<void> => {
+const beginSignalCanvasQuiesceAndFlush = async (generation: number): Promise<void> => {
   // Authorization belongs to this signal attempt, never to an earlier normal
   // quit. A second signal after the app remained open must prove current
   // renderer state durable again.
   const mainWindow = trustedMainWindow;
   const flush = mainWindow === undefined || mainWindow.isDestroyed()
     ? Promise.resolve()
-    : requestCanvasFlush(mainWindow);
+    : requestCanvasQuiesceAndFlush(mainWindow);
   await flush;
   if (!signalQuitState.isCurrent(generation)) {
     throw new Error("signal shutdown attempt superseded");
@@ -1075,9 +1176,9 @@ installProcessSignalTermination({
       await requireCleanLocalTerminalShutdown(signal, false);
       signalQuitState.markTerminalClean(generation);
       // This is the final canvas boundary for the signal attempt. The
-      // renderer is destroyed synchronously immediately after its ack, so no
-      // authoring can make this generation stale before fallback authority.
-      await beginSignalCanvasFlush(generation);
+      // renderer closes authoring and drains admitted writes before its ack;
+      // main then destroys that already-quiesced surface synchronously.
+      await beginSignalCanvasQuiesceAndFlush(generation);
       signalQuitState.markCanvasDurable(generation);
       quiesceSignalRenderer(generation);
       signalQuitState.authorizeForceExit(generation);
@@ -1086,6 +1187,14 @@ installProcessSignalTermination({
       detachRuntimeOnQuit(signal);
       signalQuitState.markRuntimeDetached(generation);
     } catch (error) {
+      if (
+        error instanceof CanvasQuiesceAndFlushError &&
+        error.quiesced &&
+        signalQuitState.isCurrent(generation) &&
+        signalQuitState.snapshot().phase === "terminal-clean"
+      ) {
+        signalQuitState.markRendererGateQuiesced(generation);
+      }
       const disposition = signalQuitState.fail(generation);
       if (disposition === "recover") {
         quitPreparationArbiter.recoverSignal();
@@ -1093,6 +1202,13 @@ installProcessSignalTermination({
         quitConfirmed = false;
         recreateWindowIfEmpty();
         console.error(`[quit] signal attempt blocked (${signal}):`, error);
+        throw error;
+      }
+      if (disposition === "retry") {
+        quitPreparationArbiter.recoverSignal();
+        skipQuitConfirm = false;
+        quitConfirmed = false;
+        console.error(`[quit] quiesced canvas drain must retry (${signal}):`, error);
         throw error;
       }
       if (disposition === "stale") {

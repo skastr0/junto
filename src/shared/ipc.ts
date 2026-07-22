@@ -155,6 +155,8 @@ export const IPC_CHANNELS = {
   nodeRefOpenedAck: "vellum:node-ref-opened-ack",
   canvasFlushRequested: "vellum:canvas-flush-requested",
   canvasFlushComplete: "vellum:canvas-flush-complete",
+  canvasQuiesceAndFlushRequested: "vellum:canvas-quiesce-and-flush-requested",
+  canvasQuiesceAndFlushComplete: "vellum:canvas-quiesce-and-flush-complete",
   canvasChanged: "vellum:canvas-changed",
   snapshotsChanged: "vellum:snapshots-changed",
   usageChanged: "vellum:usage-changed",
@@ -211,6 +213,17 @@ export interface CanvasFlushRequest {
 export interface CanvasFlushResult extends CanvasFlushRequest {
   readonly ok: boolean;
 }
+
+export interface CanvasQuiesceAndFlushRequest extends CanvasFlushRequest {}
+
+export interface CanvasQuiesceAndFlushOutcome {
+  readonly ok: boolean;
+  /** True once renderer mutation admission is monotonically closed. */
+  readonly quiesced: boolean;
+}
+
+export interface CanvasQuiesceAndFlushResult
+  extends CanvasQuiesceAndFlushRequest, CanvasQuiesceAndFlushOutcome {}
 
 export interface DigestResult {
   readonly digest: string;
@@ -494,6 +507,10 @@ export interface VellumApi {
   ) => () => void;
   /** Main-process close gate: resolves only after pending canvas writes settle. */
   readonly onCanvasFlushRequested: (listener: () => void | Promise<void>) => () => void;
+  /** Signal-only gate: closes renderer authoring, then drains admitted writes. */
+  readonly onCanvasQuiesceAndFlushRequested: (
+    listener: () => CanvasQuiesceAndFlushOutcome | Promise<CanvasQuiesceAndFlushOutcome>,
+  ) => () => void;
   readonly onCanvasChanged: (listener: (name: string) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onUsageChanged: (listener: (state: UsageState) => void) => () => void;

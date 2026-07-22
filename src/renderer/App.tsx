@@ -7,6 +7,7 @@ import { use$ } from "@legendapp/state/react";
 import { state$ } from "./lib/state";
 import {
   acceptCanvasRevision,
+  canvasMutationsQuiesced,
   clearAbandonedCanvas,
   getCanvasRevision,
   hasPendingCanvasChanges,
@@ -16,7 +17,11 @@ import {
   retrySave,
   undo,
 } from "./lib/mutations";
-import { flushCanvasEdits } from "./lib/canvas-editor-flush";
+import {
+  flushCanvasEdits,
+  quiesceAndFlushCanvasEdits,
+  runCanvasAuthoringOperation,
+} from "./lib/canvas-editor-flush";
 import { makeCanvasExternalReloadCoordinator } from "./lib/canvas-external-reload";
 import { startKernelBridge } from "./lib/kernel-view";
 import { startSettingsBridge, closeSettings } from "./lib/settings-state";
@@ -150,55 +155,59 @@ const externalCanvasReload = makeCanvasExternalReloadCoordinator({
 });
 
 const createCanvas = async (name: string) => {
-  if (!window.vellum) return;
-  let request: number | undefined;
-  state$.canvasLoading.set(true);
-  try {
-    await flushCanvasEdits();
-    request = canvasNavigationClock.begin();
-    const result = await window.vellum.createCanvas(name);
-    clearAbandonedCanvas(result.name);
-    await refreshList();
-    if (!canvasNavigationClock.isCurrent(request)) return;
-    state$.canvasName.set(result.name);
-    resetCanvasView();
-    state$.digestOpen.set(false);
-    loadDoc(result.doc, result.revision, result.name);
-    state$.error.set("");
-    await refreshSnapshotsSoft(result.doc);
-  } catch (error) {
-    if (request === undefined || canvasNavigationClock.isCurrent(request)) setError(error);
-  } finally {
-    if (request === undefined || canvasNavigationClock.isCurrent(request)) {
-      state$.canvasLoading.set(false);
+  await runCanvasAuthoringOperation(async () => {
+    if (!window.vellum) return;
+    let request: number | undefined;
+    state$.canvasLoading.set(true);
+    try {
+      await flushCanvasEdits();
+      request = canvasNavigationClock.begin();
+      const result = await window.vellum.createCanvas(name);
+      clearAbandonedCanvas(result.name);
+      await refreshList();
+      if (!canvasNavigationClock.isCurrent(request)) return;
+      state$.canvasName.set(result.name);
+      resetCanvasView();
+      state$.digestOpen.set(false);
+      loadDoc(result.doc, result.revision, result.name);
+      state$.error.set("");
+      await refreshSnapshotsSoft(result.doc);
+    } catch (error) {
+      if (request === undefined || canvasNavigationClock.isCurrent(request)) setError(error);
+    } finally {
+      if (request === undefined || canvasNavigationClock.isCurrent(request)) {
+        state$.canvasLoading.set(false);
+      }
     }
-  }
+  });
 };
 
 const deleteCanvas = async (name: string) => {
-  if (!window.vellum || !name) return;
-  state$.canvasLoading.set(true);
-  try {
-    const wasOpen = state$.canvasName.peek() === name;
-    await flushCanvasEdits();
-    // Mark the name abandoned after its last pending edit is durable so the
-    // delete wins over any already-returning watcher echo.
-    await prepareCanvasRemoval(name);
-    await window.vellum.deleteCanvas(name);
-    await refreshList();
-    const remaining = state$.canvases.peek();
-    state$.error.set("");
-    if (!wasOpen) return;
-    if (remaining.length === 0) {
-      await createCanvas(SEED_CANVAS_NAME);
-      return;
+  await runCanvasAuthoringOperation(async () => {
+    if (!window.vellum || !name) return;
+    state$.canvasLoading.set(true);
+    try {
+      const wasOpen = state$.canvasName.peek() === name;
+      await flushCanvasEdits();
+      // Mark the name abandoned after its last pending edit is durable so the
+      // delete wins over any already-returning watcher echo.
+      await prepareCanvasRemoval(name);
+      await window.vellum.deleteCanvas(name);
+      await refreshList();
+      const remaining = state$.canvases.peek();
+      state$.error.set("");
+      if (!wasOpen) return;
+      if (remaining.length === 0) {
+        await createCanvas(SEED_CANVAS_NAME);
+        return;
+      }
+      await openCanvas(remaining[0]!.name);
+    } catch (error) {
+      setError(error);
+    } finally {
+      state$.canvasLoading.set(false);
     }
-    await openCanvas(remaining[0]!.name);
-  } catch (error) {
-    setError(error);
-  } finally {
-    state$.canvasLoading.set(false);
-  }
+  });
 };
 
 const exportDigest = async () => {
@@ -334,6 +343,14 @@ export function App() {
     const offCanvasFlush = vellum.onCanvasFlushRequested(async () => {
       await flushCanvasEdits();
     });
+    const offCanvasQuiesceAndFlush = vellum.onCanvasQuiesceAndFlushRequested(async () => {
+      try {
+        await quiesceAndFlushCanvasEdits();
+        return { ok: true, quiesced: true };
+      } catch {
+        return { ok: false, quiesced: canvasMutationsQuiesced() };
+      }
+    });
 
     return () => {
       offNodeRef();
@@ -341,6 +358,7 @@ export function App() {
       offUsage();
       offCanvas();
       offCanvasFlush();
+      offCanvasQuiesceAndFlush();
       stopKernel();
       stopSettings?.();
     };
