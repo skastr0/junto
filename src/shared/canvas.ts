@@ -41,6 +41,7 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "requests",
   "artifacts",
   "herdr",
+  "terminal",
   "page",
 ] as const;
 
@@ -66,6 +67,43 @@ export type EtherHerdr = typeof EtherHerdr.Type;
 /** Resolve onDelete with product default `detach` when the field is omitted. */
 export const resolveHerdrOnDelete = (herdr: EtherHerdr | undefined): HerdrOnDelete =>
   herdr?.onDelete ?? "detach";
+
+// Bound Vellum-owned terminal work surface (flat session binding).
+// Document stores stable bindingId + optional launch profile only.
+// Runtime owns epochs/PTYs/presentation — never PIDs, sockets, or scrollback here.
+// onDelete default is detach: removing the card does not kill while the app lives;
+// app quit stops local native sessions by product law.
+export const TerminalOnDelete = Schema.Literal("detach", "kill-session");
+export type TerminalOnDelete = typeof TerminalOnDelete.Type;
+
+export const TerminalLaunchKind = Schema.Literal("shell", "command", "harness");
+export type TerminalLaunchKind = typeof TerminalLaunchKind.Type;
+
+export const EtherTerminalLaunch = Schema.Struct({
+  kind: TerminalLaunchKind,
+  argv: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
+  cwd: Schema.optionalWith(Schema.String, { exact: true }),
+  env: Schema.optionalWith(
+    Schema.Record({ key: Schema.String, value: Schema.String }),
+    { exact: true },
+  ),
+});
+export type EtherTerminalLaunch = typeof EtherTerminalLaunch.Type;
+
+export const EtherTerminal = Schema.Struct({
+  /** Stable authorial identity (ULID). Not a runtime epoch/session instance id. */
+  bindingId: Schema.String,
+  label: Schema.optionalWith(Schema.String, { exact: true }),
+  onDelete: Schema.optionalWith(TerminalOnDelete, { exact: true }),
+  /** Optional launch profile — inert until deliberate Start (never auto-exec on load). */
+  launch: Schema.optionalWith(EtherTerminalLaunch, { exact: true }),
+});
+export type EtherTerminal = typeof EtherTerminal.Type;
+
+/** Resolve onDelete with product default `detach` when the field is omitted. */
+export const resolveTerminalOnDelete = (
+  terminal: EtherTerminal | undefined,
+): TerminalOnDelete => terminal?.onDelete ?? "detach";
 
 // Bound browser page work surface. Document holds profile *name* only —
 // cookies live in ~/.vellum/browser (runtime), never in the .canvas file.
@@ -345,6 +383,9 @@ export const EtherNodeExtension = Schema.Struct({
   messages: Schema.optionalWith(EtherMessages, { exact: true }),
   // Work-surface binding for entity.kind === "herdr". Not an EntitySource.
   herdr: Schema.optionalWith(EtherHerdr, { exact: true }),
+  // Work-surface binding for entity.kind === "terminal". Not an EntitySource.
+  // Host lives in ether.host (station truth); do not duplicate host here.
+  terminal: Schema.optionalWith(EtherTerminal, { exact: true }),
   // Work-surface binding for entity.kind === "page" on a link node. Not an EntitySource.
   browser: Schema.optionalWith(EtherBrowser, { exact: true }),
   // Host that may execute/tool this node. Optional for graceful degradation.

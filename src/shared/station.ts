@@ -22,6 +22,7 @@ export const DEFAULT_STATION_HOST_ID = "local";
 export const EXECUTABLE_ENTITY_KINDS = [
   "agent",
   "herdr",
+  "terminal",
   "page",
   "watcher",
   "timer",
@@ -63,6 +64,7 @@ export const resolveNodeHostId = (node: CanvasNode): string => {
   if (typeof ether.herdr?.host === "string" && ether.herdr.host.length > 0) {
     return ether.herdr.host;
   }
+  // Native terminals use ether.host only (binding has no host field).
   if (ether.entity?.kind === "agent") {
     const fromKey = hostIdFromAgentKey(ether.entity.name);
     if (fromKey !== undefined) return fromKey;
