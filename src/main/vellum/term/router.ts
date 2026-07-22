@@ -22,7 +22,6 @@ import {
 import { homeDirectoryLookup, oneShot, unixForward } from "../ssh/program";
 import type { SshForwardLease } from "../ssh/service";
 import { SshTransport } from "../ssh/service";
-import { AppRuntime } from "../../runtime";
 import type {
   ControlLease,
   JournalEntry,
@@ -31,6 +30,21 @@ import type {
   LocalSessionHost,
 } from "./local-host";
 import { TermControlClient } from "./control-client";
+
+/**
+ * Lazy AppRuntime accessor — avoids importing main/runtime (Electron) when
+ * unit tests only exercise the local router path.
+ */
+const runAppPromise = async <A>(effect: Effect.Effect<A, unknown, never>): Promise<A> => {
+  const { AppRuntime } = await import("../../runtime");
+  return AppRuntime.runPromise(effect as Effect.Effect<A, unknown, never>);
+};
+
+// Effects that need SshTransport / Scope from RootLayer.
+const runLayered = async <A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> => {
+  const { AppRuntime } = await import("../../runtime");
+  return AppRuntime.runPromise(effect as Effect.Effect<A, E, never>);
+};
 
 type RemoteEntry = {
   client: TermControlClient;
@@ -257,7 +271,7 @@ export class TerminalRouter extends EventEmitter {
     for (const [id, entry] of [...this.remotes]) {
       entry.client.close();
       try {
-        await AppRuntime.runPromise(Scope.close(entry.scope, Exit.void));
+        await runAppPromise(Scope.close(entry.scope, Exit.void));
       } catch {
         // ignore
       }
@@ -292,14 +306,13 @@ export class TerminalRouter extends EventEmitter {
 
     // Own a forked scope so the SSH forward finalizers stay alive until we
     // explicitly closeRemotes() — same pattern as herdr mirror forwards.
-    // Scope.make() yields a CloseableScope Effect (call the factory).
-    const rootScope = await AppRuntime.runPromise(Scope.make());
-    const scope = await AppRuntime.runPromise(
+    const rootScope = await runAppPromise(Scope.make());
+    const scope = await runAppPromise(
       Scope.fork(rootScope, ExecutionStrategy.sequential),
     );
 
     try {
-      const pair = await AppRuntime.runPromise(
+      const pair = await runLayered(
         Effect.gen(function* () {
           const ssh = yield* SshTransport;
           const endpoint = yield* parseSshEndpoint(host.endpoint!);
@@ -352,8 +365,8 @@ export class TerminalRouter extends EventEmitter {
       this.remotes.set(hostId, remoteEntry);
       return remoteEntry;
     } catch (err) {
-      await AppRuntime.runPromise(Scope.close(scope, Exit.void)).catch(() => undefined);
-      await AppRuntime.runPromise(Scope.close(rootScope, Exit.void)).catch(() => undefined);
+      await runAppPromise(Scope.close(scope, Exit.void)).catch(() => undefined);
+      await runAppPromise(Scope.close(rootScope, Exit.void)).catch(() => undefined);
       throw err;
     }
   }

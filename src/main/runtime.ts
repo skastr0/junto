@@ -1,9 +1,10 @@
 import { access } from "node:fs/promises";
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
 import { assessStationDoctor } from "@shared/station-status";
+import { termControlSocketPath } from "@shared/term-control";
 import {
   workControlDir,
   workControlSocketPath,
@@ -160,12 +161,21 @@ export const buildDoctorReport = Effect.gen(function* () {
     { concurrency: "unbounded" },
   );
 
-  const terminalCheck: ServiceCheck = {
-    id: "terminal",
-    label: "Native terminal",
-    status: "ok",
-    detail: `local session host ready (${termPlane.router.runningCount()} running)`,
-  };
+  const running = termPlane.router.runningCount();
+  const sockOk = existsSync(termControlSocketPath());
+  const terminalCheck: ServiceCheck = sockOk
+    ? {
+        id: "terminal",
+        label: "Native terminal",
+        status: "ok",
+        detail: `local host + control UDS ready (${running} running)`,
+      }
+    : {
+        id: "terminal",
+        label: "Native terminal",
+        status: "warning",
+        detail: `session host up (${running} running) but control socket missing — remote attach unavailable until term plane starts`,
+      };
   const services: ReadonlyArray<ServiceCheck> = [
     ...serviceResults,
     terminalCheck,
