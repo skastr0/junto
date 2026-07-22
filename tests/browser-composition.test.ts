@@ -544,6 +544,50 @@ describe("browser composition (no ceremony)", () => {
     });
   });
 
+  it("snapshots retained labels once before deriving aggregate cleanliness", async () => {
+    const sessions = {
+      beginUiShutdown: () => ({ epoch: 1, closedAt: 1, activeOperations: [] }),
+      drainUiOnQuit: async () => ({
+        epoch: 1,
+        clean: true as const,
+        operations: [] as const,
+        settled: 0,
+        fulfilled: 0,
+        rejected: 0,
+        rounds: 0,
+        timedOut: false as const,
+        activeOperations: [] as const,
+        sessionsDestroyed: 0,
+        teardownWitnessFailures: 0,
+      }),
+    } as unknown as BrowserSessionService;
+    const retainedLabels = new Proxy(["retained"], {
+      get: (target, property, receiver) =>
+        property === "length" ? 0 : Reflect.get(target, property, receiver),
+    });
+    const coordinator = makeBrowserShutdownCoordinator({
+      sessions,
+      storage: storageShutdownPort(),
+      registry: { close: () => 0 },
+      registryTerminationFailures: () => 0,
+    });
+    coordinator.bindControlShutdown({
+      drainOnQuit: async () => ({
+        ...controlShutdownReceipt(),
+        retainedLabels,
+      }),
+    });
+
+    await expect(coordinator.drainOnQuit()).resolves.toMatchObject({
+      clean: false,
+      control: {
+        available: true,
+        clean: false,
+        receipt: { clean: false, retainedLabels: ["retained"] },
+      },
+    });
+  });
+
   it("fails closed when capability teardown records a permanent failure", async () => {
     const sessions = {
       beginUiShutdown: () => ({ epoch: 1, closedAt: 1, activeOperations: [] }),

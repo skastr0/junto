@@ -110,6 +110,19 @@ const ownDataValue = (record: object, key: PropertyKey): unknown => {
     : undefined;
 };
 
+const snapshotStringArray = (value: unknown): readonly string[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const length = ownDataValue(value, "length");
+  if (!Number.isSafeInteger(length) || Number(length) < 0) return undefined;
+  const snapshot: string[] = [];
+  for (let index = 0; index < Number(length); index += 1) {
+    const entry = ownDataValue(value, String(index));
+    if (typeof entry !== "string") return undefined;
+    snapshot.push(entry);
+  }
+  return Object.freeze(snapshot);
+};
+
 const normalizeControlShutdownReceipt = (
   value: unknown,
 ): BrowserControlShutdownReceipt | undefined => {
@@ -122,6 +135,7 @@ const normalizeControlShutdownReceipt = (
     const rejected = ownDataValue(value, "rejected");
     const retainedCountsValue = ownDataValue(value, "retainedCounts");
     const retainedLabelsValue = ownDataValue(value, "retainedLabels");
+    const retainedLabels = snapshotStringArray(retainedLabelsValue);
     if (
       typeof clean !== "boolean" ||
       ![rounds, settled, fulfilled, rejected].every(
@@ -129,8 +143,7 @@ const normalizeControlShutdownReceipt = (
       ) ||
       typeof retainedCountsValue !== "object" ||
       retainedCountsValue === null ||
-      !Array.isArray(retainedLabelsValue) ||
-      !retainedLabelsValue.every((label) => typeof label === "string")
+      retainedLabels === undefined
     ) {
       return undefined;
     }
@@ -145,7 +158,7 @@ const normalizeControlShutdownReceipt = (
       (key) => retainedCounts[key] === 0,
     );
     const normalizedClean =
-      clean && noRetainedCounts && retainedLabelsValue.length === 0;
+      clean && noRetainedCounts && retainedLabels.length === 0;
     return Object.freeze({
       clean: normalizedClean,
       rounds: Number(rounds),
@@ -162,7 +175,7 @@ const normalizeControlShutdownReceipt = (
         requestControllers: retainedCounts.requestControllers!,
         socketPaths: retainedCounts.socketPaths!,
       }),
-      retainedLabels: Object.freeze([...retainedLabelsValue]),
+      retainedLabels,
     });
   } catch {
     return undefined;
