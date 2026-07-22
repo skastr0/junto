@@ -1,6 +1,9 @@
 import { describe, expect, it, afterEach } from "vitest";
 import {
   LocalSessionHost,
+  classifyTermKillTarget,
+  clearTermKillAuditLog,
+  getTermKillAuditLog,
   type TermChild,
   type TermSpawnFn,
 } from "../src/main/vellum/term/local-host";
@@ -16,6 +19,7 @@ afterEach(async () => {
     await h.shutdownAll("test_cleanup");
   }
   setProcessIdentityMapForTests(undefined);
+  clearTermKillAuditLog();
 });
 
 const fakeSpawn = (opts?: {
@@ -138,6 +142,9 @@ describe("LocalSessionHost", () => {
   it("process-binds an anchored session and unbinds it on exit", async () => {
     const identities = makeProcessIdentityMap();
     setProcessIdentityMapForTests(identities);
+    // Identity bind requires a live OS pid (startKey probe). process.pid is OK
+    // here ONLY because forceKill is sealed: it refuses OS kill on self and
+    // uses the fake child.kill handle instead of process.kill(-self).
     const host = new LocalSessionHost(fakeSpawn({ pid: process.pid, exitDelayMs: 20 }));
     hosts.push(host);
     host.create({ bindingId: "bind-process", canvasName: "main", nodeId: "term-node" });
@@ -169,7 +176,8 @@ describe("LocalSessionHost", () => {
       const dataListeners = new Set<(d: string) => void>();
       const exitListeners = new Set<(c: number | undefined, s: number | undefined) => void>();
       return {
-        pid: 1,
+        // NEVER pid 1 — forceKill historically did process.kill(-1) = host-wide blast.
+        pid: 77_001,
         write(d) {
           writes.push(d);
         },
@@ -198,5 +206,39 @@ describe("LocalSessionHost", () => {
       expect(host.write(ctl.lease, "yes\n")).toBe(true);
     }
     expect(writes).toEqual(["yes\n"]);
+  });
+
+  it("classifyTermKillTarget refuses init/self/parent (the historical blast radii)", () => {
+    expect(classifyTermKillTarget({ pid: 1 }).allowed).toBe(false);
+    expect(classifyTermKillTarget({ pid: process.pid }).allowed).toBe(false);
+    if (typeof process.ppid === "number") {
+      expect(classifyTermKillTarget({ pid: process.ppid }).allowed).toBe(false);
+    }
+    expect(classifyTermKillTarget({ pid: -1 }).allowed).toBe(false);
+    expect(classifyTermKillTarget({ pid: 0 }).allowed).toBe(false);
+    expect(classifyTermKillTarget({ pid: 4242 }).allowed).toBe(true);
+  });
+
+  it("shutdownAll on a session with fake pid=self never process-group-kills (audit)", async () => {
+    clearTermKillAuditLog();
+    // Intentionally dangerous fake pid — sealed gate must refuse OS kill.
+    const host = new LocalSessionHost(fakeSpawn({ pid: process.pid, exitDelayMs: 60_000 }));
+    hosts.push(host);
+    host.create({ bindingId: "bind-self-pid" });
+    await host.shutdownAll("probe-self-pid");
+    const audit = getTermKillAuditLog();
+    expect(
+      audit.some(
+        (a) =>
+          a.decision.ok === false &&
+          a.decision.reason === "pid-is-self" &&
+          a.requestedGroup === false,
+      ),
+    ).toBe(true);
+    // No successful process-group signal may appear for this session.
+    expect(
+      audit.every((a) => !(a.decision.ok && "mode" in a.decision && a.decision.mode === "group")),
+    ).toBe(true);
+    expect(host.runningCount()).toBe(0);
   });
 });

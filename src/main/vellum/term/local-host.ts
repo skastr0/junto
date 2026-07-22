@@ -11,6 +11,13 @@ import * as os from "node:os";
 import { randomBytes } from "node:crypto";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { getProcessIdentityMap } from "../process-identity";
+import {
+  classifyProcessSignalTarget,
+  clearProcessSignalAuditLog,
+  getProcessSignalAuditLog,
+  signalOwnedProcess,
+  type ProcessSignalAudit,
+} from "../process-signal";
 
 export type LocalHostCreateInput = {
   readonly bindingId: string;
@@ -119,6 +126,26 @@ const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
 const MAX_JOURNAL_BYTES = 512 * 1024;
 const SHUTDOWN_GRACE_MS = 1500;
+
+/** @deprecated use ProcessSignalAudit from process-signal */
+export type TermKillAudit = ProcessSignalAudit;
+export const getTermKillAuditLog = getProcessSignalAuditLog;
+export const clearTermKillAuditLog = clearProcessSignalAuditLog;
+
+/** Thin wrapper kept for term tests — maps to sealed classifier. */
+export const classifyTermKillTarget = (input: {
+  readonly pid: number | undefined;
+  readonly selfPid?: number;
+  readonly ppid?: number;
+}): { readonly allowed: boolean; readonly reason?: string } => {
+  const d = classifyProcessSignalTarget({
+    pid: input.pid,
+    asProcessGroup: false,
+    selfPid: input.selfPid,
+    ppid: input.ppid,
+  });
+  return d.ok ? { allowed: true } : { allowed: false, reason: d.reason };
+};
 
 const mintEpoch = (): string =>
   `ep_${Date.now().toString(36)}_${randomBytes(4).toString("hex")}`;
@@ -249,8 +276,9 @@ export const defaultTermSpawn: TermSpawnFn = (input) => {
       cwd: input.cwd,
       env: input.env,
       stdio: ["pipe", "pipe", "pipe"],
-      // Own process group so quit can signal the whole tree (-pid).
-      detached: process.platform !== "win32",
+      // NOT detached. Detached+process.kill(-pid) was a host-wide landmine
+      // when pid was wrong (tests used 1 / process.pid). Kill only via handle.
+      detached: false,
     }) as ChildProcessWithoutNullStreams;
     return wrapPipeChild(child);
   }
@@ -601,27 +629,24 @@ export class LocalSessionHost extends EventEmitter {
     return true;
   }
 
+  /**
+   * Kill ONLY via sealed process-signal authority.
+   * Never raw process.kill(-pid). Terminal sessions do not claim process-group
+   * ownership — child.kill only (node-pty / pipe handle / test fake).
+   */
   private forceKill(rec: SessionRec, signal: NodeJS.Signals): void {
     const child = rec.child;
     if (!child) {
       rec.status = "exited";
       return;
     }
-    try {
-      // Prefer process-group kill on POSIX when we know the leader pid.
-      const pid = rec.pid ?? child.pid;
-      if (pid && process.platform !== "win32") {
-        try {
-          process.kill(-pid, signal);
-          return;
-        } catch {
-          // fall through to direct kill
-        }
-      }
-      child.kill(signal);
-    } catch {
-      // ignore
-    }
+    signalOwnedProcess({
+      source: `term.forceKill:${rec.bindingId}`,
+      pid: rec.pid ?? child.pid,
+      signal,
+      ownsProcessGroup: false,
+      child,
+    });
   }
 
   private pushJournal(rec: SessionRec, entry: JournalEntry): void {

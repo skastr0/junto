@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { signalOwnedProcess } from "../process-signal";
 
 // Shared shell-out helper for the read-only adapter plane. Every adapter
 // call goes through here so the timeout, resolved environment, and buffer
@@ -37,22 +38,16 @@ const signalOwnedAdapterChild = (
   owned: OwnedAdapterChild,
   signal: NodeJS.Signals,
 ): void => {
-  if (owned.processGroupId !== undefined) {
-    try {
-      process.kill(-owned.processGroupId, signal);
-      return;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
-      // Fall back to the direct child if group signalling is unavailable.
-    }
-  }
-
   if (owned.child.exitCode !== null || owned.child.signalCode !== null) return;
-  try {
-    owned.child.kill(signal);
-  } catch {
-    // The owned child may have exited between the liveness check and signal.
-  }
+  // Adapters spawn detached groups they own — sealed gate still refuses
+  // init/self/parent and never allows process.kill(-1).
+  signalOwnedProcess({
+    source: "adapter.signalOwned",
+    pid: owned.processGroupId ?? owned.child.pid,
+    signal,
+    ownsProcessGroup: owned.processGroupId !== undefined,
+    child: owned.child,
+  });
 };
 
 /**

@@ -1,6 +1,7 @@
 import * as Command from "@effect/platform/Command";
 import * as CommandExecutor from "@effect/platform/CommandExecutor";
 import { Context, Effect, Layer, Scope, Sink, Stream } from "effect";
+import { signalOwnedProcess } from "../process-signal";
 
 export class ProcessFailure {
   readonly _tag = "ProcessFailure";
@@ -24,20 +25,16 @@ export class ProcessSpawner extends Context.Tag("@vellum/ssh/ProcessSpawner")<
 
 const failure = (): ProcessFailure => new ProcessFailure();
 
-const signalOwnedProcess = (pid: number, signal: NodeJS.Signals): Effect.Effect<void> =>
+const signalOwnedSshProcess = (pid: number, signal: NodeJS.Signals): Effect.Effect<void> =>
   Effect.sync(() => {
-    try {
-      globalThis.process.kill(-pid, signal);
-      return;
-    } catch {
-      // A newly spawned detached child may not yet be addressable through its
-      // process-group id. Fall through to the owned group leader itself.
-    }
-    try {
-      globalThis.process.kill(pid, signal);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-    }
+    // SSH transport owns detached ControlMaster children as process groups.
+    // Still goes through the sealed gate — refuses init/self/parent/-1.
+    signalOwnedProcess({
+      source: "ssh.process-spawner",
+      pid,
+      signal,
+      ownsProcessGroup: true,
+    });
   }).pipe(Effect.ignore);
 
 const stopProcess = (child: CommandExecutor.Process): Effect.Effect<void> =>
@@ -47,10 +44,10 @@ const stopProcess = (child: CommandExecutor.Process): Effect.Effect<void> =>
       const pid = Number(child.pid);
       const awaitExit = child.exitCode.pipe(Effect.exit, Effect.asVoid);
       const forceAfterGrace = Effect.sleep("2 seconds").pipe(
-        Effect.zipRight(signalOwnedProcess(pid, "SIGKILL")),
+        Effect.zipRight(signalOwnedSshProcess(pid, "SIGKILL")),
         Effect.zipRight(awaitExit.pipe(Effect.timeout("2 seconds"), Effect.ignore)),
       );
-      return signalOwnedProcess(pid, "SIGTERM").pipe(
+      return signalOwnedSshProcess(pid, "SIGTERM").pipe(
         Effect.zipRight(
           // acquireRelease finalizers run masked. Re-enable interruption for
           // the race so the losing grace timer does not delay a prompt exit.
