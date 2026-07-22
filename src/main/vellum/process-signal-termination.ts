@@ -14,7 +14,8 @@ export interface SignalTerminationProcess {
 
 export interface ProcessSignalTerminationOptions {
   readonly app: SignalTerminationApp;
-  readonly cleanup: (signal: ProcessTerminationSignal) => void;
+  /** Reject to cancel this attempt and allow a later signal to retry. */
+  readonly cleanup: (signal: ProcessTerminationSignal) => void | Promise<void>;
   readonly processTarget?: SignalTerminationProcess;
   readonly exitGraceMs?: number;
   /**
@@ -50,7 +51,8 @@ export const installProcessSignalTermination = (
   const processTarget = options.processTarget ?? process;
   const exitGraceMs = validatedExitGraceMs(options.exitGraceMs);
   let disposed = false;
-  let terminationRequested = false;
+  let attemptGeneration = 0;
+  let activeAttempt: number | undefined;
   let exitTimer: ReturnType<typeof setTimeout> | undefined;
 
   const clearExitTimer = (): void => {
@@ -59,9 +61,9 @@ export const installProcessSignalTermination = (
     exitTimer = undefined;
   };
 
-  const forceExitWhenSafe = (): void => {
+  const forceExitWhenSafe = (generation: number): void => {
     exitTimer = undefined;
-    if (disposed) return;
+    if (disposed || activeAttempt !== generation) return;
     let allowed = false;
     try {
       allowed = options.allowForceExit?.() ?? true;
@@ -75,28 +77,36 @@ export const installProcessSignalTermination = (
     // Keep the fallback live, but never let its time budget outrank the
     // caller's durability boundary. Once that boundary completes, the next
     // bounded tick can terminate a native loop that ignored app.quit().
-    exitTimer = setTimeout(forceExitWhenSafe, exitGraceMs);
+    exitTimer = setTimeout(() => forceExitWhenSafe(generation), exitGraceMs);
   };
 
   const requestTermination = (signal: ProcessTerminationSignal): void => {
-    if (disposed || terminationRequested) return;
-    terminationRequested = true;
+    if (disposed || activeAttempt !== undefined) return;
+    const generation = ++attemptGeneration;
+    activeAttempt = generation;
 
-    try {
-      options.cleanup(signal);
-    } finally {
-      exitTimer = setTimeout(forceExitWhenSafe, exitGraceMs);
-      // This is the mandatory bound on an Electron native loop that ignores
-      // app.quit(). Keep it referenced even after cleanup removes the final
-      // adapter/Chromium Node handle, otherwise libuv may never drive it.
-
-      try {
-        options.app.quit();
-      } catch {
-        // The referenced fallback remains responsible for exit. In
-        // particular, do not bypass a durability gate because app.quit threw.
-      }
-    }
+    void Promise.resolve()
+      .then(() => options.cleanup(signal))
+      .then(
+        () => {
+          if (disposed || activeAttempt !== generation) return;
+          exitTimer = setTimeout(() => forceExitWhenSafe(generation), exitGraceMs);
+          // This is the mandatory bound on an Electron native loop that ignores
+          // app.quit(). Keep it referenced after successful cleanup removes the
+          // final adapter/Chromium Node handle.
+          try {
+            options.app.quit();
+          } catch {
+            // The referenced fallback remains responsible for exit. Never
+            // bypass a durability gate because app.quit threw.
+          }
+        },
+        () => {
+          if (disposed || activeAttempt !== generation) return;
+          clearExitTimer();
+          activeAttempt = undefined;
+        },
+      );
   };
 
   const onSigterm = (): void => requestTermination("SIGTERM");
@@ -108,10 +118,12 @@ export const installProcessSignalTermination = (
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      attemptGeneration += 1;
+      activeAttempt = undefined;
       clearExitTimer();
       processTarget.off("SIGTERM", onSigterm);
       processTarget.off("SIGINT", onSigint);
     },
-    requested: () => terminationRequested,
+    requested: () => activeAttempt !== undefined,
   };
 };

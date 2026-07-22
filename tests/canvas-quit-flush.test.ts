@@ -24,7 +24,7 @@ describe("canvas quit durability wiring", () => {
     // Include through the allowForceExit predicate (async shutdown may insert `});` earlier).
     const block = source.slice(start, allowIdx + 120);
 
-    expect(block).toContain("beginSignalCanvasFlush()");
+    expect(block).toContain("await beginSignalCanvasFlush(generation)");
     // Force-exit requires both canvas flush durability AND local terminal shutdown.
     expect(block).toContain("allowForceExit:");
     expect(block).toContain("signalCanvasFlushDurable");
@@ -49,7 +49,21 @@ describe("canvas quit durability wiring", () => {
     expect(directExit).not.toContain(".finally(");
     expect(signalBlock.indexOf("requireCleanLocalTerminalShutdown(signal, false)"))
       .toBeLessThan(signalBlock.indexOf("signalTerminalShutdownComplete = true"));
-    expect(signalBlock).toContain(".catch((error)");
+    expect(signalBlock.indexOf("signalTerminalShutdownComplete = true"))
+      .toBeLessThan(signalBlock.indexOf("detachRuntimeOnQuit(signal)"));
+    expect(signalBlock).toContain("catch (error)");
+  });
+
+  it("keeps signal attempts generation-scoped and restores retry state on failure", () => {
+    const start = source.indexOf("installProcessSignalTermination({");
+    const block = source.slice(start);
+
+    expect(block).toContain("const generation = ++signalShutdownGeneration");
+    expect(block).toContain("generation !== signalShutdownGeneration");
+    expect(block).toContain("signalCanvasFlushDurable = false");
+    expect(block).toContain("signalTerminalShutdownComplete = false");
+    expect(block).toContain("skipQuitConfirm = false");
+    expect(block).toContain("recreateWindowIfEmpty()");
   });
 
   it("keys fallback authorization to each signal flush, independent of hung disposal", () => {

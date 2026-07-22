@@ -119,6 +119,7 @@ describe("process signal termination", () => {
     });
 
     listeners.get("SIGTERM")?.();
+    await vi.advanceTimersByTimeAsync(0);
     expect(cleanup).toHaveBeenCalledOnce();
     expect(quit).toHaveBeenCalledOnce();
 
@@ -130,5 +131,84 @@ describe("process signal termination", () => {
     expect(exit).toHaveBeenCalledOnce();
     expect(exit).toHaveBeenCalledWith(0);
     installed.dispose();
+  });
+
+  it("allows a fresh signal attempt after cleanup rejects", async () => {
+    vi.useFakeTimers();
+    const listeners = new Map<string, () => void>();
+    const processTarget = {
+      on: vi.fn((signal: "SIGINT" | "SIGTERM", listener: () => void) => {
+        listeners.set(signal, listener);
+      }),
+      off: vi.fn((signal: "SIGINT" | "SIGTERM") => {
+        listeners.delete(signal);
+      }),
+    };
+    const quit = vi.fn();
+    const exit = vi.fn();
+    const cleanup = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("durability blocked"))
+      .mockResolvedValue(undefined);
+    const installed = installProcessSignalTermination({
+      app: { quit, exit },
+      cleanup,
+      processTarget,
+      exitGraceMs: 10,
+      allowForceExit: () => true,
+    });
+
+    listeners.get("SIGTERM")?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(quit).not.toHaveBeenCalled();
+    expect(installed.requested()).toBe(false);
+
+    listeners.get("SIGINT")?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cleanup).toHaveBeenCalledTimes(2);
+    expect(quit).toHaveBeenCalledOnce();
+    expect(installed.requested()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(exit).toHaveBeenCalledOnce();
+    installed.dispose();
+  });
+
+  it("generation-guards a cleanup that settles after disposal", async () => {
+    vi.useFakeTimers();
+    const listeners = new Map<string, () => void>();
+    const processTarget = {
+      on: vi.fn((signal: "SIGINT" | "SIGTERM", listener: () => void) => {
+        listeners.set(signal, listener);
+      }),
+      off: vi.fn((signal: "SIGINT" | "SIGTERM") => {
+        listeners.delete(signal);
+      }),
+    };
+    let finishCleanup: (() => void) | undefined;
+    const cleanup = vi.fn(
+      () => new Promise<void>((resolve) => {
+        finishCleanup = resolve;
+      }),
+    );
+    const quit = vi.fn();
+    const exit = vi.fn();
+    const installed = installProcessSignalTermination({
+      app: { quit, exit },
+      cleanup,
+      processTarget,
+      exitGraceMs: 10,
+    });
+
+    listeners.get("SIGTERM")?.();
+    await vi.advanceTimersByTimeAsync(0);
+    installed.dispose();
+    finishCleanup?.();
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(quit).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+    expect(installed.requested()).toBe(false);
   });
 });

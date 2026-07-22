@@ -829,29 +829,22 @@ const exitAfterDetach = (exitCode: number, reason: string): void => {
 let quitPreparation: Promise<void> | undefined;
 let signalCanvasFlushDurable = false;
 let signalTerminalShutdownComplete = false;
+let signalShutdownGeneration = 0;
 
-const beginSignalCanvasFlush = (): void => {
+const beginSignalCanvasFlush = async (generation: number): Promise<void> => {
   // Authorization belongs to this signal attempt, never to an earlier normal
   // quit. A second signal after the app remained open must prove current
   // renderer state durable again.
   signalCanvasFlushDurable = false;
   const mainWindow = trustedMainWindow;
-  let flush: Promise<void>;
-  try {
-    flush = mainWindow === undefined || mainWindow.isDestroyed()
-      ? Promise.resolve()
-      : requestCanvasFlush(mainWindow);
-  } catch (error) {
-    console.error("[canvas] signal flush could not start:", error);
-    return;
+  const flush = mainWindow === undefined || mainWindow.isDestroyed()
+    ? Promise.resolve()
+    : requestCanvasFlush(mainWindow);
+  await flush;
+  if (generation !== signalShutdownGeneration) {
+    throw new Error("signal shutdown attempt superseded");
   }
-  void flush
-    .then(() => {
-      signalCanvasFlushDurable = true;
-    })
-    .catch((error) => {
-      console.error("[canvas] signal flush blocked:", error);
-    });
+  signalCanvasFlushDurable = true;
 };
 
 const collectLiveWorkSnapshot = () =>
@@ -984,21 +977,34 @@ app.on("will-quit", () => {
 // a bounded hard-exit fallback if another listener prevents that sequence.
 installProcessSignalTermination({
   app,
-  cleanup: (signal) => {
+  cleanup: async (signal) => {
+    const generation = ++signalShutdownGeneration;
     // Signals are forced exits — never the honest-quit dialog. Invalidate any
     // open confirm so accept after cancel race cannot fight the force path.
     skipQuitConfirm = true;
+    signalCanvasFlushDurable = false;
     signalTerminalShutdownComplete = false;
     invalidateQuitConfirm();
-    beginSignalCanvasFlush();
-    void requireCleanLocalTerminalShutdown(signal, false)
-      .then(() => {
-        signalTerminalShutdownComplete = true;
-      })
-      .catch((error) => {
-        console.error(`[term] signal shutdown blocked (${signal}):`, error);
-      });
-    detachRuntimeOnQuit(signal);
+    try {
+      await beginSignalCanvasFlush(generation);
+      await requireCleanLocalTerminalShutdown(signal, false);
+      if (generation !== signalShutdownGeneration) {
+        throw new Error("signal shutdown attempt superseded");
+      }
+      signalTerminalShutdownComplete = true;
+      // Runtime services remain available if either durability boundary fails.
+      detachRuntimeOnQuit(signal);
+    } catch (error) {
+      if (generation === signalShutdownGeneration) {
+        signalCanvasFlushDurable = false;
+        signalTerminalShutdownComplete = false;
+        skipQuitConfirm = false;
+        quitConfirmed = false;
+        recreateWindowIfEmpty();
+      }
+      console.error(`[quit] signal attempt blocked (${signal}):`, error);
+      throw error;
+    }
   },
   // app.exit bypasses before-quit. A signal may force the native loop only
   // after the renderer has acknowledged a durable canvas flush. Runtime
