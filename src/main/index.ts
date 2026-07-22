@@ -39,6 +39,7 @@ import {
   type BrowserComposition,
 } from "./vellum/browser/composition";
 import { HerdrPlane } from "./vellum/herdr/plane";
+import { termPlane } from "./vellum/term/plane";
 import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
@@ -789,7 +790,7 @@ const disposeRuntime = (): Promise<void> => {
 // therefore routes through the same authority/process teardown explicitly.
 const exitAfterDetach = (exitCode: number, reason: string): void => {
   detachRuntimeOnQuit(reason);
-  void disposeRuntime().finally(() => {
+  void Promise.all([disposeRuntime(), termPlane.host.shutdownAll(reason)]).finally(() => {
     runtimeDisposed = true;
     app.exit(exitCode);
   });
@@ -797,6 +798,7 @@ const exitAfterDetach = (exitCode: number, reason: string): void => {
 
 let quitPreparation: Promise<void> | undefined;
 let signalCanvasFlushDurable = false;
+let signalTerminalShutdownComplete = false;
 
 const beginSignalCanvasFlush = (): void => {
   // Authorization belongs to this signal attempt, never to an earlier normal
@@ -827,6 +829,7 @@ const collectLiveWorkSnapshot = () =>
     armed: getArmed(),
     nextFireKeys: getNextFire().keys(),
     attachedHerdrStreamCount: herdrActiveControlCount(),
+    localTerminalSessionCount: termPlane.host.runningCount(),
   });
 
 /** Cancel left the process with no UI — give the operator a surface back. */
@@ -857,6 +860,7 @@ app.on("before-quit", (event) => {
         : requestCanvasFlush(mainWindow);
 
     quitPreparation = flush
+      .then(() => termPlane.host.shutdownAll("before-quit"))
       .then(() => {
         nodeRefRelayWatcher?.close();
         nodeRefRelayWatcher = undefined;
@@ -954,13 +958,17 @@ installProcessSignalTermination({
     // Signals are forced exits — never the honest-quit dialog. Invalidate any
     // open confirm so accept after cancel race cannot fight the force path.
     skipQuitConfirm = true;
+    signalTerminalShutdownComplete = false;
     invalidateQuitConfirm();
     beginSignalCanvasFlush();
+    void termPlane.host.shutdownAll(signal).then(() => {
+      signalTerminalShutdownComplete = true;
+    });
     detachRuntimeOnQuit(signal);
   },
   // app.exit bypasses before-quit. A signal may force the native loop only
   // after the renderer has acknowledged a durable canvas flush. Runtime
   // disposal may itself hang; once the document is safe, the bounded fallback
   // can still terminate that native/service teardown stall.
-  allowForceExit: () => signalCanvasFlushDurable,
+  allowForceExit: () => signalCanvasFlushDurable && signalTerminalShutdownComplete,
 });

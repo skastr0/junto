@@ -12,6 +12,8 @@ export interface LiveWorkSnapshot {
   readonly scheduledTimerCount: number;
   /** Attached herdr control streams in this process (detach-on-quit, never kill). */
   readonly attachedHerdrStreamCount: number;
+  /** Local native sessions, attached or detached (all stop on quit). */
+  readonly localTerminalSessionCount: number;
 }
 
 export interface LiveWorkInputs {
@@ -20,6 +22,7 @@ export interface LiveWorkInputs {
   /** nextFire keys: canvas::nodeId */
   readonly nextFireKeys: Iterable<string>;
   readonly attachedHerdrStreamCount: number;
+  readonly localTerminalSessionCount: number;
 }
 
 export const canvasKeyOf = (compound: string): string => {
@@ -67,13 +70,15 @@ export const assessLiveWork = (input: LiveWorkInputs): LiveWorkSnapshot => {
     armedRegionCount,
     scheduledTimerCount: countLiveTimers(input.nextFireKeys, canvases),
     attachedHerdrStreamCount: Math.max(0, input.attachedHerdrStreamCount | 0),
+    localTerminalSessionCount: Math.max(0, input.localTerminalSessionCount | 0),
   };
 };
 
 export const hasLiveWork = (snapshot: LiveWorkSnapshot): boolean =>
   snapshot.armedRegionCount > 0 ||
   snapshot.scheduledTimerCount > 0 ||
-  snapshot.attachedHerdrStreamCount > 0;
+  snapshot.attachedHerdrStreamCount > 0 ||
+  snapshot.localTerminalSessionCount > 0;
 
 export interface QuitConfirmPrompt {
   readonly type: "warning";
@@ -109,6 +114,11 @@ export const buildQuitConfirmPrompt = (snapshot: LiveWorkSnapshot): QuitConfirmP
       `${snapshot.attachedHerdrStreamCount} attached herdr surface${snapshot.attachedHerdrStreamCount === 1 ? "" : "s"}`,
     );
   }
+  if (snapshot.localTerminalSessionCount > 0) {
+    lines.push(
+      `${snapshot.localTerminalSessionCount} local terminal session${snapshot.localTerminalSessionCount === 1 ? "" : "s"}`,
+    );
+  }
 
   const inventory = lines.length > 0 ? lines.map((line) => `• ${line}`).join("\n") : "• live work";
 
@@ -121,6 +131,8 @@ export const buildQuitConfirmPrompt = (snapshot: LiveWorkSnapshot): QuitConfirmP
       "Pauses on quit:\n" +
       "• Watchers, pulses, and kernel timers\n" +
       "• Local control sockets\n\n" +
+      "Stops on quit:\n" +
+      "• Local terminal sessions (including detached sessions)\n\n" +
       "Survives quit:\n" +
       "• Herdr panes and sessions detach and keep running on the host — they are never killed.",
     buttons: ["Cancel", "Quit"],
