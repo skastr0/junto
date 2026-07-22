@@ -85,7 +85,7 @@ describe("host operation shutdown gate", () => {
     });
   });
 
-  it("uses allSettled so a rejected operation is observed without aborting the drain", async () => {
+  it("uses allSettled and preserves rejected runtime evidence across retries", async () => {
     const gate = createHostOperationGate();
     const failure = new Error("remote probe failed");
     const rejected = Promise.reject(failure);
@@ -95,13 +95,20 @@ describe("host operation shutdown gate", () => {
 
     await expect(admitted).rejects.toBe(failure);
     expect(receipt).toMatchObject({
-      clean: true,
+      clean: false,
       timedOut: false,
       rounds: 1,
       settled: 1,
       fulfilled: 0,
       rejected: 1,
       retained: 0,
+      causes: [{ label: "hosts.test", message: "remote probe failed" }],
+    });
+    await expect(gate.drainOnQuit()).resolves.toMatchObject({
+      clean: false,
+      timedOut: false,
+      retained: 0,
+      causes: [{ label: "hosts.test", message: "remote probe failed" }],
     });
   });
 

@@ -1,3 +1,5 @@
+import { performance } from "node:perf_hooks";
+
 /**
  * Process-global lifetime authority for host registry and remote-host work.
  *
@@ -81,6 +83,12 @@ export interface HostOperationShutdownReceipt {
   readonly rejected: number;
   readonly retained: number;
   readonly retainedLabels: ReadonlyArray<HostOperationAdmission["label"]>;
+  readonly causes: ReadonlyArray<HostOperationShutdownCause>;
+}
+
+export interface HostOperationShutdownCause {
+  readonly label: HostOperationAdmission["label"];
+  readonly message: string;
 }
 
 export interface HostOperationsShutdownPort {
@@ -138,7 +146,7 @@ const allSettledBefore = async (
       readonly outcomes: ReadonlyArray<PromiseSettledResult<unknown>>;
     }
 > => {
-  const remainingMs = Math.max(0, deadline - Date.now());
+  const remainingMs = Math.max(0, deadline - performance.now());
   if (remainingMs === 0) return { timedOut: true };
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -172,6 +180,10 @@ export const createHostOperationGate = (
   // observes them. This prevents a fast settlement between drain rounds from
   // disappearing from the receipt.
   const shutdownJournal = new Map<number, HostOperationFlight>();
+  // Unexpected runtime rejection is not a normal host-domain failure (those
+  // resolve as typed ok:false results). Preserve it across retries so a caller
+  // disappearing cannot erase shutdown failure evidence.
+  const shutdownCauses = new Map<number, HostOperationShutdownCause>();
   let drainFlight: Promise<HostOperationShutdownReceipt> | undefined;
 
   const sortedLabels = (
@@ -225,9 +237,18 @@ export const createHostOperationGate = (
       flight.status = "fulfilled";
       if (active.get(id) === flight) active.delete(id);
     };
-    const retireRejected = (): void => {
+    const retireRejected = (error: unknown): void => {
       flight.status = "rejected";
       if (active.get(id) === flight) active.delete(id);
+      if (phase === "closed") {
+        shutdownCauses.set(
+          id,
+          Object.freeze({
+            label: admission.label,
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
     };
     // Two handlers avoid the rejected promise manufactured by ignored finally.
     void exact.then(retireFulfilled, retireRejected);
@@ -258,9 +279,17 @@ export const createHostOperationGate = (
     // visible even if a future refactor changes beginShutdown sequencing.
     for (const [id, flight] of active) shutdownJournal.set(id, flight);
     const retainedLabels = sortedLabels(shutdownJournal.values());
+    const causes = [...shutdownCauses.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([, cause]) => cause);
     return Object.freeze({
       phase: "closed",
-      clean: !counts.timedOut && retainedLabels.length === 0 && active.size === 0,
+      clean:
+        !counts.timedOut &&
+        retainedLabels.length === 0 &&
+        active.size === 0 &&
+        counts.rejected === 0 &&
+        causes.length === 0,
       timedOut: counts.timedOut,
       rounds: counts.rounds,
       settled: counts.settled,
@@ -268,6 +297,7 @@ export const createHostOperationGate = (
       rejected: counts.rejected,
       retained: retainedLabels.length,
       retainedLabels: Object.freeze([...retainedLabels]),
+      causes: Object.freeze(causes),
     });
   };
 
@@ -276,7 +306,7 @@ export const createHostOperationGate = (
     if (drainFlight !== undefined) return drainFlight;
 
     const currentDrain = (async (): Promise<HostOperationShutdownReceipt> => {
-      const deadline = Date.now() + shutdownDeadlineMs;
+      const deadline = performance.now() + shutdownDeadlineMs;
       let rounds = 0;
       let settled = 0;
       let fulfilled = 0;
@@ -326,6 +356,21 @@ export const createHostOperationGate = (
         rejected += outcome.outcomes.filter(
           (entry) => entry.status === "rejected",
         ).length;
+        for (const [index, entry] of outcome.outcomes.entries()) {
+          if (entry.status !== "rejected") continue;
+          const flight = round[index];
+          if (flight === undefined || shutdownCauses.has(flight.id)) continue;
+          shutdownCauses.set(
+            flight.id,
+            Object.freeze({
+              label: flight.admission.label,
+              message:
+                entry.reason instanceof Error
+                  ? entry.reason.message
+                  : String(entry.reason),
+            }),
+          );
+        }
         for (const flight of round) shutdownJournal.delete(flight.id);
         await nextNativeTurn();
       }
