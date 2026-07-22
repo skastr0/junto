@@ -1,0 +1,142 @@
+// Selection impact mode: project pure stoppage cones onto the canvas UI.
+// Prefers the live kernel ExecutionSnapshot (phase/blocked/reasons); reconstructs
+// edgeEval + seedNodeIds so impactCone can run without a second glyph fetch.
+
+import type { CanvasDoc, EdgePhase } from "@shared/canvas";
+import type { ExecutionSnapshot } from "@shared/ipc";
+import {
+  deriveExecutionGraph,
+  isBlockableNode,
+  type BlockedReason,
+  type EdgeEval,
+  type ExecutionGraph,
+} from "@shared/execution-graph";
+import { impactCone, type ImpactCone } from "@shared/impact";
+
+export type ImpactSelection = {
+  readonly active: boolean;
+  readonly cone: ImpactCone;
+  /** Short HUD line when active (seed/reason count). */
+  readonly seedLabel: string;
+};
+
+const emptySelection = (rootId: string): ImpactSelection => ({
+  active: false,
+  cone: impactCone(
+    { nodes: [], edges: [] },
+    deriveExecutionGraph({ nodes: [], edges: [] }),
+    rootId,
+  ),
+  seedLabel: "",
+});
+
+/** Build an ExecutionGraph suitable for impactCone from live kernel data. */
+export const executionGraphForImpact = (
+  doc: CanvasDoc,
+  execution: ExecutionSnapshot | null | undefined,
+): ExecutionGraph => {
+  if (!execution) return deriveExecutionGraph(doc);
+
+  const phaseByEdgeId = new Map<string, EdgePhase>();
+  const detailByEdgeId = new Map<string, string>();
+  const edgeEvalById = new Map<string, EdgeEval>();
+
+  for (const edge of doc.edges) {
+    const phase =
+      (execution.phaseByEdgeId[edge.id] as EdgePhase | undefined) ?? "relates";
+    const detail = execution.detailByEdgeId[edge.id] ?? "";
+    phaseByEdgeId.set(edge.id, phase);
+    detailByEdgeId.set(edge.id, detail);
+    edgeEvalById.set(edge.id, {
+      phase,
+      detail,
+      generates: phase === "blocks",
+      relays: phase === "blocks" || phase === "depends",
+    });
+  }
+
+  const seedNodeIds = new Set<string>();
+  for (const node of doc.nodes) {
+    if (node.ether?.flags?.includes("blocker") && isBlockableNode(node)) {
+      seedNodeIds.add(node.id);
+    }
+  }
+
+  const reasonsByNodeId = new Map<string, ReadonlyArray<BlockedReason>>();
+  for (const [id, reasons] of Object.entries(execution.reasonsByNodeId ?? {})) {
+    reasonsByNodeId.set(id, reasons as ReadonlyArray<BlockedReason>);
+  }
+
+  return {
+    phaseByEdgeId,
+    detailByEdgeId,
+    edgeEvalById,
+    blocked: new Set(execution.blocked),
+    blockedEdgeIds: new Set(execution.blockedEdgeIds),
+    reasonsByNodeId,
+    seedNodeIds,
+  };
+};
+
+const reasonBrief = (reason: BlockedReason): string => {
+  if (reason.kind === "edge") return reason.detail || "generating edge";
+  if (reason.kind === "seed") return reason.detail || "manual seed";
+  return "relay";
+};
+
+/** Derive the stoppage cone for the selected node (empty when outside cone). */
+export const selectionImpact = (
+  doc: CanvasDoc,
+  rootNodeId: string,
+  execution: ExecutionSnapshot | null | undefined,
+): ImpactSelection => {
+  if (!rootNodeId) return emptySelection("");
+
+  const graph = executionGraphForImpact(doc, execution);
+  const cone = impactCone(doc, graph, rootNodeId);
+  if (cone.nodeIds.size === 0) {
+    return { active: false, cone, seedLabel: "" };
+  }
+
+  const seeds = cone.seedReasons;
+  const primary = seeds[0] ? reasonBrief(seeds[0]) : "stoppage";
+  const extra = seeds.length > 1 ? ` · +${seeds.length - 1}` : "";
+  const seedLabel = `${cone.nodeIds.size} in cone · ${primary}${extra}`;
+
+  return { active: true, cone, seedLabel };
+};
+
+/** CSS class for a node while impact mode is active. */
+export const nodeImpactClass = (
+  active: boolean,
+  cone: ImpactCone,
+  nodeId: string,
+): string | undefined => {
+  if (!active) return undefined;
+  if (cone.nodeIds.has(nodeId)) {
+    return nodeId === cone.rootId ? "impact-in impact-root" : "impact-in";
+  }
+  if (cone.attentionLeadIds.has(nodeId)) return "impact-lead";
+  return "impact-out";
+};
+
+/** CSS class for an edge wrapper while impact mode is active. */
+export const edgeImpactClass = (
+  active: boolean,
+  cone: ImpactCone,
+  edgeId: string,
+): string | undefined => {
+  if (!active) return undefined;
+  if (cone.edgeIds.has(edgeId)) return "impact-edge-in";
+  return "impact-edge-out";
+};
+
+/** Edge data.impact token for EtherEdge path/label styling. */
+export const edgeImpactRole = (
+  active: boolean,
+  cone: ImpactCone,
+  edgeId: string,
+): "in" | "out" | undefined => {
+  if (!active) return undefined;
+  return cone.edgeIds.has(edgeId) ? "in" : "out";
+};

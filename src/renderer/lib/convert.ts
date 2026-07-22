@@ -15,6 +15,8 @@ export type EdgeData = {
   rippling: boolean;
   phase: EdgePhase;
   detail: string;
+  /** Selection impact mode: stoppage-cone membership for this edge. */
+  impact?: "in" | "out";
 };
 
 export type FlowNode = Node<NodeData>;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Background,
@@ -23,6 +23,13 @@ import { state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { createFlowIdentityCache, searchText, toFlow } from "../lib/convert";
+import {
+  edgeImpactClass,
+  edgeImpactRole,
+  nodeImpactClass,
+  selectionImpact,
+  type ImpactSelection,
+} from "../lib/impact-mode";
 import { nodeTitle } from "../lib/presentation";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
@@ -67,6 +74,40 @@ const fitReadableField = (rf: CanvasFlow, duration = 320): void => {
   void rf.fitView({ nodes: anchors, padding: 0.18, duration, maxZoom: regions.length > 0 ? 1.15 : 1.35 }).catch(() => undefined);
 };
 
+function stampImpactShell(
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+  selectedNodeId: string,
+  selectedEdgeId: string,
+): { nodes: FlowNode[]; edges: FlowEdge[]; impact: ImpactSelection } {
+  const impact = selectedNodeId
+    ? selectionImpact(state$.doc.peek(), selectedNodeId, kernel$.execution.peek())
+    : selectionImpact(state$.doc.peek(), "", null);
+  return {
+    impact,
+    nodes: nodes.map((node) => ({
+      ...node,
+      selected: node.id === selectedNodeId,
+      className: nodeImpactClass(impact.active, impact.cone, node.id),
+    })),
+    edges: edges.map((edge) => {
+      const role = edgeImpactRole(impact.active, impact.cone, edge.id);
+      const data =
+        edge.data?.impact === role
+          ? edge.data
+          : edge.data
+            ? { ...edge.data, impact: role }
+            : edge.data;
+      return {
+        ...edge,
+        selected: edge.id === selectedEdgeId,
+        className: edgeImpactClass(impact.active, impact.cone, edge.id),
+        data,
+      };
+    }),
+  };
+}
+
 function applyStructuralRebuild(
   setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
   setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1],
@@ -88,19 +129,18 @@ function applyStructuralRebuild(
       visibleIds.has(edge.target) &&
       (!edgeFilter || (edge.data?.phase ?? edge.data?.edge.ether?.kind ?? "relates") === edgeFilter),
   );
-  // Selection stays out of data — only stamp selected on the RF shell object.
-  const selectedNodes = visibleNodes.map((node) => (node.id === nodeId ? { ...node, selected: true } : node));
-  const selectedEdges = filteredEdges.map((edge) => (edge.id === edgeId ? { ...edge, selected: true } : edge));
+  // Selection + impact cone classes live on the RF shell (not Flow data).
+  const stamped = stampImpactShell(visibleNodes, filteredEdges, nodeId, edgeId);
   const query = searchQuery.trim().toLowerCase();
   if (!query) {
-    setNodes(selectedNodes);
-    setEdges(selectedEdges);
+    setNodes(stamped.nodes);
+    setEdges(stamped.edges);
     return;
   }
-  const matches = selectedNodes.filter((flowNode) => searchText(flowNode.data.node).includes(query));
+  const matches = stamped.nodes.filter((flowNode) => searchText(flowNode.data.node).includes(query));
   const queryVisibleIds = new Set(matches.map((flowNode) => flowNode.id));
   setNodes(matches);
-  setEdges(selectedEdges.filter((edge) => queryVisibleIds.has(edge.source) && queryVisibleIds.has(edge.target)));
+  setEdges(stamped.edges.filter((edge) => queryVisibleIds.has(edge.source) && queryVisibleIds.has(edge.target)));
 }
 
 function useCanvasDocument(
@@ -138,15 +178,54 @@ function useCanvasDocument(
     applyStructuralRebuild(setNodes, setEdges, flowCacheRef.current, debouncedSearch, edgeFilter, flagFilter);
   }, [docVersion, executionRev, edgeFilter, flagFilter, debouncedSearch, rebuildTick, setNodes, setEdges, dragInProgressRef, pendingRebuildRef, flowCacheRef]);
 
-  // Selection sync — a light map over the existing graph, not a rebuild. A
-  // live rubber-band multi-selection (no single subject) is left untouched.
+  // Selection + impact-mode sync — light map over the existing graph, not a
+  // rebuild. A live rubber-band multi-selection (no single subject) is left
+  // untouched for the selected flag; impact classes clear when multi-select.
   useEffect(() => {
+    const impact: ImpactSelection = selectedNodeId
+      ? selectionImpact(state$.doc.peek(), selectedNodeId, kernel$.execution.peek())
+      : selectionImpact(state$.doc.peek(), "", null);
+
     setNodes((nodes) => {
-      if (!selectedNodeId && nodes.filter((node) => node.selected).length > 1) return nodes;
-      return nodes.map((node) => node.selected === (node.id === selectedNodeId) ? node : { ...node, selected: node.id === selectedNodeId });
+      // Rubber-band multi-select: leave RF's multi selected set alone; clear impact.
+      if (!selectedNodeId && nodes.filter((node) => node.selected).length > 1) {
+        let dirty = false;
+        const next = nodes.map((node) => {
+          if (!node.className) return node;
+          dirty = true;
+          return { ...node, className: undefined };
+        });
+        return dirty ? next : nodes;
+      }
+      return nodes.map((node) => {
+        const selected = node.id === selectedNodeId;
+        const className = nodeImpactClass(impact.active, impact.cone, node.id);
+        if (node.selected === selected && node.className === className) return node;
+        return { ...node, selected, className };
+      });
     });
-    setEdges((edges) => edges.map((edge) => edge.selected === (edge.id === selectedEdgeId) ? edge : { ...edge, selected: edge.id === selectedEdgeId }));
-  }, [selectedNodeId, selectedEdgeId, setNodes, setEdges]);
+    setEdges((edges) =>
+      edges.map((edge) => {
+        const selected = edge.id === selectedEdgeId;
+        const className = edgeImpactClass(impact.active, impact.cone, edge.id);
+        const role = edgeImpactRole(impact.active, impact.cone, edge.id);
+        if (
+          edge.selected === selected &&
+          edge.className === className &&
+          edge.data?.impact === role
+        ) {
+          return edge;
+        }
+        const data =
+          edge.data?.impact === role
+            ? edge.data
+            : edge.data
+              ? { ...edge.data, impact: role }
+              : edge.data;
+        return { ...edge, selected, className, data };
+      }),
+    );
+  }, [selectedNodeId, selectedEdgeId, docVersion, executionRev, setNodes, setEdges]);
 }
 
 function useCanvasSearchViewport(searchQuery: string, nodeCount: number, rf: CanvasFlow, viewKey: string) {
@@ -966,8 +1045,31 @@ function useCanvasGraph() {
   };
 }
 
+function ImpactSeedChip({ label }: { readonly label: string }) {
+  return (
+    <Panel position="top-left" className="impact-hud-panel">
+      <div className="impact-hud" role="status" aria-live="polite" title="Stoppage impact cone for selection">
+        <span className="impact-hud__mark" aria-hidden />
+        <span className="impact-hud__eyebrow">impact</span>
+        <span className="impact-hud__label">{label}</span>
+      </div>
+    </Panel>
+  );
+}
+
 function CanvasGraph() {
   const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
+  const selectedNodeId = use$(state$.selectedNodeId);
+  const docVersion = use$(state$.docVersion);
+  const executionRev = use$(kernel$.executionRev);
+  // Recompute for chrome only (RF shell already stamped in selection sync).
+  const impact = useMemo(
+    () =>
+      selectedNodeId
+        ? selectionImpact(state$.doc.peek(), selectedNodeId, kernel$.execution.peek())
+        : selectionImpact(state$.doc.peek(), "", null),
+    [selectedNodeId, docVersion, executionRev],
+  );
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.
   const connecting = useConnection((connection) => connection.inProgress);
@@ -1058,8 +1160,41 @@ function CanvasGraph() {
   }, [interactions.onPaneClick, closeMenus]);
   return <>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
-    <ReactFlow className={connecting ? "is-connecting" : undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} {...interactions} onPaneClick={onPaneClick} onPaneContextMenu={onPaneContextMenu} onNodeContextMenu={onNodeContextMenu} onSelectionContextMenu={onSelectionContextMenu} onMoveStart={closeMenus} connectionMode={ConnectionMode.Loose} connectionRadius={42} panOnScroll panOnScrollSpeed={1.2} panOnDrag={[1]} selectionOnDrag selectionMode={SelectionMode.Partial} zoomOnDoubleClick={false} onlyRenderVisibleElements deleteKeyCode={["Backspace", "Delete"]} elevateNodesOnSelect={false} elevateEdgesOnSelect fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }} minZoom={0.15} maxZoom={2.5} proOptions={{ hideAttribution: true }} style={{ background: GROUND }}>
+    <ReactFlow
+      className={[connecting ? "is-connecting" : "", impact.active ? "impact-mode" : ""].filter(Boolean).join(" ") || undefined}
+      nodes={nodes}
+      edges={edges}
+      nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      {...interactions}
+      onPaneClick={onPaneClick}
+      onPaneContextMenu={onPaneContextMenu}
+      onNodeContextMenu={onNodeContextMenu}
+      onSelectionContextMenu={onSelectionContextMenu}
+      onMoveStart={closeMenus}
+      connectionMode={ConnectionMode.Loose}
+      connectionRadius={42}
+      panOnScroll
+      panOnScrollSpeed={1.2}
+      panOnDrag={[1]}
+      selectionOnDrag
+      selectionMode={SelectionMode.Partial}
+      zoomOnDoubleClick={false}
+      onlyRenderVisibleElements
+      deleteKeyCode={["Backspace", "Delete"]}
+      elevateNodesOnSelect={false}
+      elevateEdgesOnSelect
+      fitView
+      fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }}
+      minZoom={0.15}
+      maxZoom={2.5}
+      proOptions={{ hideAttribution: true }}
+      style={{ background: GROUND }}
+    >
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
+      {impact.active ? <ImpactSeedChip label={impact.seedLabel} /> : null}
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>
         <RtsBottomBar tools={<CanvasFieldTools />} minimap={<RtsMinimapStack />} />

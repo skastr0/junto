@@ -1003,6 +1003,93 @@ body {
 .react-flow__node-group { background: transparent !important; border: 0 !important; }
 .react-flow__pane { background-image: radial-gradient(circle at 50% 50%, rgba(232,163,61,.018), transparent 45%); }
 
+/* Selection impact mode — stoppage cone dim/highlight (shell classNames). */
+.react-flow.impact-mode .react-flow__node.impact-out {
+  opacity: 0.22;
+  filter: saturate(0.35);
+  transition: opacity 0.18s ease, filter 0.18s ease;
+}
+.react-flow.impact-mode .react-flow__node.impact-lead {
+  opacity: 0.72;
+  filter: saturate(0.85);
+}
+.react-flow.impact-mode .react-flow__node.impact-in {
+  opacity: 1;
+  filter: none;
+}
+.react-flow.impact-mode .react-flow__node.impact-root .vellum-node {
+  box-shadow:
+    0 0 0 1px rgba(229, 72, 77, 0.45),
+    0 0 18px rgba(229, 72, 77, 0.22),
+    0 12px 30px rgba(0, 0, 0, 0.22);
+}
+.react-flow.impact-mode .react-flow__node.impact-in:not(.impact-root) .vellum-node {
+  box-shadow:
+    0 0 0 1px rgba(229, 72, 77, 0.22),
+    0 10px 28px rgba(0, 0, 0, 0.18);
+}
+.react-flow.impact-mode .react-flow__edge.impact-edge-out {
+  opacity: 0.12;
+  pointer-events: none;
+}
+.react-flow.impact-mode .react-flow__edge.impact-edge-in {
+  opacity: 1;
+}
+.vellum-edge-label--impact-out {
+  opacity: 0.2;
+  pointer-events: none;
+}
+.vellum-edge-label--impact-in {
+  opacity: 1;
+  border-color: rgba(229, 72, 77, 0.45);
+}
+.impact-hud-panel {
+  margin: 12px 0 0 12px !important;
+}
+.impact-hud {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(420px, 48vw);
+  border: 1px solid rgba(229, 72, 77, 0.35);
+  border-radius: 6px;
+  background: rgba(19, 17, 16, 0.92);
+  color: #e8a0a0;
+  padding: 6px 10px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+.impact-hud__mark {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #e5484d;
+  box-shadow: 0 0 8px rgba(229, 72, 77, 0.55);
+  flex-shrink: 0;
+}
+.impact-hud__eyebrow {
+  color: #e5484d;
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.impact-hud__label {
+  overflow: hidden;
+  color: #c9b8a8;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .react-flow.impact-mode .react-flow__node.impact-out,
+  .react-flow.impact-mode .react-flow__node.impact-lead,
+  .react-flow.impact-mode .react-flow__node.impact-in {
+    transition: none;
+  }
+}
+
 .node-palette { position: relative; }
 .node-palette__trigger { display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(232,163,61,.34); border-radius: 6px; background: rgba(19,17,16,.9); color: #e8a33d; padding: 8px 10px; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; backdrop-filter: blur(12px); transition: border-color .18s ease, background .18s ease; cursor: pointer; }
 .node-palette__trigger:hover { border-color: rgba(232,163,61,.72); background: rgba(44,34,23,.94); }

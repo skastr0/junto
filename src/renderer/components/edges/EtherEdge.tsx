@@ -37,6 +37,10 @@ export function EtherEdge({
       ? accentColor(data.edge.color)
       : EDGE_COLOR[phase];
 
+  // Selection impact mode (stoppage cone) — stamped by Canvas selection sync.
+  const impactIn = data?.impact === "in";
+  const impactOut = data?.impact === "out";
+
   const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -47,23 +51,38 @@ export function EtherEdge({
     borderRadius: 8,
   });
 
+  const baseWidth = phase === "blocks" || rippling ? 1.6 : 1.2;
+  const baseOpacity = phase === "relates" && !hasCriteria ? 0.55 : 0.9;
+
   return (
     <>
       <BaseEdge
         id={id}
         path={path}
         markerEnd={markerEnd}
-        className={rippling ? "vellum-edge-ripple" : undefined}
+        className={[
+          rippling ? "vellum-edge-ripple" : "",
+          impactIn ? "vellum-edge-impact-in" : "",
+          impactOut ? "vellum-edge-impact-out" : "",
+        ]
+          .filter(Boolean)
+          .join(" ") || undefined}
         style={{
           stroke: color,
-          strokeWidth: phase === "blocks" || rippling ? 1.6 : 1.2,
-          opacity: phase === "relates" && !hasCriteria ? 0.55 : 0.9,
+          strokeWidth: impactIn ? Math.max(baseWidth, 2.1) : baseWidth,
+          opacity: impactOut ? 0.14 : impactIn ? 1 : baseOpacity,
         }}
       />
       <EdgeLabelRenderer>
         <button
           aria-label={`Select edge · ${phase}`}
-          className="nodrag nopan vellum-edge-label"
+          className={[
+            "nodrag nopan vellum-edge-label",
+            impactOut ? "vellum-edge-label--impact-out" : "",
+            impactIn ? "vellum-edge-label--impact-in" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           style={{ top: labelY, left: labelX }}
           title={title}
           onClick={(e) => {
