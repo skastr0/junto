@@ -20,6 +20,7 @@ import {
   signalOwned,
   type OwnedProcess,
   type ProcessSignalAudit,
+  type SignalChildHandle,
   type TerminatingSignal,
 } from "../process-signal";
 
@@ -85,11 +86,10 @@ export type JournalEntry =
     };
 
 /** Minimal process handle so tests can inject fakes and PTY/pipe share one path. */
-export type TermChild = {
+export type TermChild = SignalChildHandle & {
   readonly pid: number | undefined;
   write(data: string): void;
   resize?(cols: number, rows: number): void;
-  kill(signal?: NodeJS.Signals): void;
   onData(listener: (data: string) => void): void;
   onExit(listener: (code: number | undefined, signal: number | undefined) => void): void;
 };
@@ -247,11 +247,7 @@ const wrapPipeChild = (child: ChildProcessWithoutNullStreams): TermChild => {
       child.stdin.write(data);
     },
     kill(signal?: NodeJS.Signals) {
-      try {
-        child.kill(signal ?? "SIGTERM");
-      } catch {
-        // ignore
-      }
+      return child.kill(signal ?? "SIGTERM");
     },
     onData(listener) {
       dataListeners.add(listener);
@@ -295,11 +291,7 @@ export const defaultTermSpawn: TermSpawnFn = (input) => {
         p.resize(cols, rows);
       },
       kill(signal?: NodeJS.Signals) {
-        try {
-          p.kill(signal ?? "SIGTERM");
-        } catch {
-          // ignore
-        }
+        return p.kill(signal ?? "SIGTERM");
       },
       onData(listener) {
         dataListeners.add(listener);

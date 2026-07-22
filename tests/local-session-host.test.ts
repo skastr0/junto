@@ -1,5 +1,7 @@
 import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
+import { ChildProcess } from "node:child_process";
 import {
+  defaultTermSpawn,
   LocalSessionHost,
   classifyTermKillTarget,
   clearTermKillAuditLog,
@@ -425,6 +427,106 @@ describe("LocalSessionHost", () => {
     expect(vi.getTimerCount()).toBe(0);
     vi.useRealTimers();
     error.mockRestore();
+  });
+
+  it("retains a pipe child when child.kill explicitly refuses the signal", async () => {
+    const nodePty = require("node-pty") as typeof import("node-pty");
+    const ptySpawn = vi.spyOn(nodePty, "spawn").mockImplementation(() => {
+      throw new Error("force pipe fallback");
+    });
+    const childKill = vi.spyOn(ChildProcess.prototype, "kill").mockReturnValue(false);
+    setProcessEpochReaderForTests({
+      snapshot: (pid) => pid === undefined
+        ? []
+        : [{
+            pid,
+            processGroupId: Math.max(2, pid - 1),
+            sessionId: 7,
+            startKey: `pipe-${pid}`,
+          }],
+    });
+    const host = new LocalSessionHost(defaultTermSpawn, {
+      killGraceMs: 2,
+      shutdownGraceMs: 6,
+      lateExitGraceMs: 6,
+    });
+    hosts.push(host);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const created = host.create({
+        bindingId: "pipe-signal-refused",
+        launch: { kind: "command", argv: ["/bin/sleep", "60"] },
+      });
+      expect(created.status).toBe("running");
+      expect(ptySpawn).toHaveBeenCalledOnce();
+
+      await expect(host.shutdownAll("pipe-signal-refused")).resolves.toMatchObject({
+        clean: false,
+        stragglers: [expect.objectContaining({ bindingId: "pipe-signal-refused" })],
+      });
+      expect(childKill).toHaveBeenCalled();
+      expect(getTermKillAuditLog().some((entry) =>
+        !entry.decision.ok && entry.decision.reason === "child-signal-refused"
+      )).toBe(true);
+      expect(host.runningCount()).toBe(1);
+    } finally {
+      childKill.mockRestore();
+      host.kill("pipe-signal-refused");
+      await vi.waitFor(() => expect(host.runningCount()).toBe(0));
+      ptySpawn.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it("retains a node-pty child when pty.kill throws", async () => {
+    const nodePty = require("node-pty") as typeof import("node-pty");
+    const exitListeners = new Set<
+      (event: { exitCode: number; signal?: number }) => void
+    >();
+    const kill = vi.fn(() => {
+      throw new Error("pty signal failed");
+    });
+    const pty = {
+      pid: trackSyntheticPid(82_250),
+      write() {},
+      resize() {},
+      kill,
+      onData() {
+        return { dispose() {} };
+      },
+      onExit(listener: (event: { exitCode: number; signal?: number }) => void) {
+        exitListeners.add(listener);
+        return { dispose() {} };
+      },
+    } as unknown as import("node-pty").IPty;
+    const ptySpawn = vi.spyOn(nodePty, "spawn").mockReturnValue(pty);
+    const host = new LocalSessionHost(defaultTermSpawn, {
+      killGraceMs: 2,
+      shutdownGraceMs: 6,
+      lateExitGraceMs: 6,
+    });
+    hosts.push(host);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      host.create({ bindingId: "pty-signal-failed" });
+
+      await expect(host.shutdownAll("pty-signal-failed")).resolves.toMatchObject({
+        clean: false,
+        stragglers: [expect.objectContaining({ bindingId: "pty-signal-failed" })],
+      });
+      expect(kill).toHaveBeenCalled();
+      expect(getTermKillAuditLog().some((entry) =>
+        !entry.decision.ok && entry.decision.reason === "child-signal-failed"
+      )).toBe(true);
+      expect(host.runningCount()).toBe(1);
+    } finally {
+      for (const listener of exitListeners) listener({ exitCode: 0 });
+      expect(host.runningCount()).toBe(0);
+      ptySpawn.mockRestore();
+      error.mockRestore();
+    }
   });
 
   it("makes a retained killed generation strictly noninteractive", async () => {
