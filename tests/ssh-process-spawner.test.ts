@@ -1,6 +1,7 @@
 import * as Command from "@effect/platform/Command";
 import { Effect, Layer, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
 import { ProcessSpawner, ProcessSpawnerLive } from "../src/main/vellum/ssh/process-spawner";
 
 const SpawnerLive = ProcessSpawnerLive;
@@ -79,6 +80,12 @@ describe("ProcessSpawnerLive", () => {
     } finally {
       process.off("unhandledRejection", unhandled);
     }
+  });
+
+  it("does not treat post-spawn child errors as an exit witness", async () => {
+    const source = await readFile("src/main/vellum/ssh/process-spawner.ts", "utf8");
+    expect(source).toMatch(/if \(spawned\.child\.pid === undefined\)/u);
+    expect(source).toMatch(/Later errors are not exit[\s\S]*TERM→KILL authority intact/u);
   });
 
   it("terminates a responsive owned process without waiting through the grace period", async () => {
