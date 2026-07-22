@@ -75,8 +75,14 @@ try {
     readonly grandchildPid: number;
   };
 
+  const activeCleanupStartedAt = Date.now();
   terminateAdapterChildrenOnQuit();
   const pendingResult = await pending;
+  await waitUntil(
+    "active group reaped",
+    () => processGoneOrZombie(pids.parentPid) && processGoneOrZombie(pids.grandchildPid),
+  );
+  const activeGroupReapedBeforeHardExpiry = Date.now() - activeCleanupStartedAt < 1_500;
 
   const lateResult = await runCli(
     process.execPath,
@@ -85,11 +91,13 @@ try {
   );
   const receipt = {
     leaderResultOk: leader.ok,
+    leaderError: leader.error,
     leaderGrandchildAliveWhenSettled,
     leaderExitedGrandchildAlive,
     pendingOk: pendingResult.ok,
     parentAlive: processAlive(pids.parentPid),
     grandchildAlive: processAlive(pids.grandchildPid),
+    activeGroupReapedBeforeHardExpiry,
     lateOk: lateResult.ok,
     lateError: lateResult.error,
     markerCreated: await pathExists(markerPath),

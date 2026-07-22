@@ -5,11 +5,13 @@ import { describe, expect, it } from "vitest";
 
 interface LifecycleReceipt {
   readonly leaderResultOk: boolean;
+  readonly leaderError?: string;
   readonly leaderGrandchildAliveWhenSettled: boolean;
   readonly leaderExitedGrandchildAlive: boolean;
   readonly pendingOk: boolean;
   readonly parentAlive: boolean;
   readonly grandchildAlive: boolean;
+  readonly activeGroupReapedBeforeHardExpiry: boolean;
   readonly lateOk: boolean;
   readonly lateError?: string;
   readonly markerCreated: boolean;
@@ -57,14 +59,17 @@ const runLifecycleFixture = async (): Promise<LifecycleReceipt> => {
 };
 
 describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () => {
-  it("terminates an owned parent and grandchild and rejects every late spawn", async () => {
+  it("bounds leaderless inherited streams, reaps active groups, and rejects late spawns", async () => {
     await expect(runLifecycleFixture()).resolves.toEqual({
-      leaderResultOk: true,
+      leaderResultOk: false,
+      leaderError:
+        "adapter command leader exited while output streams remained open; descendant cleanup refused",
       leaderGrandchildAliveWhenSettled: true,
       leaderExitedGrandchildAlive: true,
       pendingOk: false,
       parentAlive: false,
-      grandchildAlive: true,
+      grandchildAlive: false,
+      activeGroupReapedBeforeHardExpiry: true,
       lateOk: false,
       lateError: "adapter process plane is shutting down",
       markerCreated: false,
