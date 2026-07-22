@@ -10,9 +10,16 @@ const sourceFiles = (directory: string): ReadonlyArray<string> =>
   readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return sourceFiles(path);
-    return [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".sh"].includes(
-      extname(path),
-    )
+    return [
+      ".ts",
+      ".tsx",
+      ".mts",
+      ".cts",
+      ".js",
+      ".mjs",
+      ".cjs",
+      ".sh",
+    ].includes(extname(path))
       ? [path]
       : [];
   });
@@ -38,11 +45,15 @@ describe("SSH architecture", () => {
       const name = display(path);
       if (name.startsWith("src/main/vellum/ssh/")) return [];
       const source = readFileSync(path, "utf8");
-      const shellInvocation = extname(path) === ".sh" &&
+      const shellInvocation =
+        extname(path) === ".sh" &&
         /(?:^|[\n;&|()])\s*(?:\/\S+\/)?ssh(?:\s|\\)/u.test(source);
-      const binaryIndirection = !allowedBinaryMentions.has(name) &&
+      const binaryIndirection =
+        !allowedBinaryMentions.has(name) &&
         /["'`](?:\/[^"'`]+\/)?ssh["'`]/u.test(source);
-      return shellInvocation || binaryIndirection || forbidden.some((pattern) => pattern.test(source))
+      return shellInvocation ||
+        binaryIndirection ||
+        forbidden.some((pattern) => pattern.test(source))
         ? [name]
         : [];
     });
@@ -59,6 +70,9 @@ describe("SSH architecture", () => {
       // Remote station pull + host configure: product policy over shared SSH kernel.
       "src/main/vellum/canvas-pull.ts",
       "src/main/vellum/hosts/configure-remote.ts",
+      // Product policy renders the remote installer command; SshTransport owns OpenSSH.
+      "src/main/vellum/hosts/deploy-remote.ts",
+      "src/main/vellum/term/router.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
     const violations = files.flatMap((path) => {
@@ -83,7 +97,10 @@ describe("SSH architecture", () => {
     // -O exit is reserved for SshTransport.teardown — an explicit operator
     // action the host registry invokes on removal/edit — and must never be
     // reachable from a Scope/Layer finalizer that runs on ordinary dispose.
-    const service = readFileSync(join(root, "src/main/vellum/ssh/service.ts"), "utf8");
+    const service = readFileSync(
+      join(root, "src/main/vellum/ssh/service.ts"),
+      "utf8",
+    );
     expect(service).toMatch(/ControlPersist=600|do not track or -O exit/iu);
 
     const masterExitSites = service.match(/compiler\.masterExit\(/gu) ?? [];
@@ -94,7 +111,9 @@ describe("SSH architecture", () => {
     expect(teardownStart).toBeGreaterThan(-1);
     expect(returnStart).toBeGreaterThan(teardownStart);
     // The sole masterExit call site is inside the named teardown operation…
-    expect(service.slice(teardownStart, returnStart)).toMatch(/compiler\.masterExit\(/u);
+    expect(service.slice(teardownStart, returnStart)).toMatch(
+      /compiler\.masterExit\(/u,
+    );
     // …and no Scope/Layer finalizer in the file ever reaches it. Scanned by
     // balanced parens, not a [^)]-bounded regex: the latter stops matching
     // at the finalizer body's first nested call (e.g. `Effect.sync(() =>
@@ -109,7 +128,10 @@ describe("SSH architecture", () => {
  * `source` and returns the ones whose (balanced-paren) argument body
  * contains `needle`.
  */
-function finalizerBodiesReaching(source: string, needle: string): ReadonlyArray<number> {
+function finalizerBodiesReaching(
+  source: string,
+  needle: string,
+): ReadonlyArray<number> {
   const opener = /(?:Effect|Scope)\.addFinalizer\(/gu;
   const hits: number[] = [];
   for (const match of source.matchAll(opener)) {

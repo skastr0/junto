@@ -33,19 +33,24 @@ import {
   dedicatedStream,
   oneShot,
   oneShotWithStdin,
+  sharedStream,
 } from "../src/main/vellum/ssh/program";
 import {
   ProcessSpawner,
   ProcessFailure,
   type ProcessHandle,
 } from "../src/main/vellum/ssh/process-spawner";
-import { SshTransportConfig, SshTransportLayer } from "../src/main/vellum/ssh/service";
+import {
+  SshTransportConfig,
+  SshTransportLayer,
+} from "../src/main/vellum/ssh/service";
 
 interface FakeResult {
   readonly stdout?: Uint8Array;
   readonly stderr?: Uint8Array;
   readonly code?: number;
   readonly running?: boolean;
+  readonly exitCode?: Effect.Effect<number, ProcessFailure>;
   readonly stdin?: Sink.Sink<void, Uint8Array, never, ProcessFailure>;
 }
 
@@ -58,10 +63,15 @@ const encoder = new TextEncoder();
 const temporaryDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temporaryDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  await Promise.all(
+    temporaryDirs
+      .splice(0)
+      .map((path) => rm(path, { recursive: true, force: true })),
+  );
 });
 
-const standard = (command: Command.Command): Command.StandardCommand => Command.flatten(command)[0];
+const standard = (command: Command.Command): Command.StandardCommand =>
+  Command.flatten(command)[0];
 
 const fakeProcess = (
   result: FakeResult,
@@ -74,13 +84,19 @@ const fakeProcess = (
     return {
       handle: {
         pid,
-        exitCode: Deferred.await(exit),
+        exitCode: result.exitCode ?? Deferred.await(exit),
         isRunning: Effect.sync(() => running),
         stdin: result.stdin ?? Sink.drain,
-        stdout: Stream.fromIterable(result.stdout === undefined ? [] : [result.stdout]),
-        stderr: Stream.fromIterable(result.stderr === undefined ? [] : [result.stderr]),
+        stdout: Stream.fromIterable(
+          result.stdout === undefined ? [] : [result.stdout],
+        ),
+        stderr: Stream.fromIterable(
+          result.stderr === undefined ? [] : [result.stderr],
+        ),
       },
-      release: Effect.sync(() => { running = false; }).pipe(
+      release: Effect.sync(() => {
+        running = false;
+      }).pipe(
         Effect.zipRight(Deferred.succeed(exit, result.code ?? 143)),
         Effect.asVoid,
       ),
@@ -103,9 +119,10 @@ const testLayer = async (
         Effect.sync(() => calls.push(flattened)).pipe(
           Effect.zipRight(fakeProcess(resolve(flattened), nextPid++)),
         ),
-        ({ release }) => release.pipe(
-          Effect.zipRight(Effect.sync(() => releases.push(flattened))),
-        ),
+        ({ release }) =>
+          release.pipe(
+            Effect.zipRight(Effect.sync(() => releases.push(flattened))),
+          ),
       ).pipe(Effect.map(({ handle }) => handle));
     },
   });
@@ -125,16 +142,21 @@ const testLayer = async (
   );
 };
 
-const remoteText = (command: Command.StandardCommand): string => command.args.at(-1) ?? "";
+const remoteText = (command: Command.StandardCommand): string =>
+  command.args.at(-1) ?? "";
 
 describe("SshTransport", () => {
   it("drains bounded output, closes one-shot stdin, and checks exit status", async () => {
     const calls: Command.StandardCommand[] = [];
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(
-      (command) => command.args.includes("-O")
-        ? {}
-        : { stdout: encoder.encode("ok\n"), stderr: encoder.encode("note\n") },
+      (command) =>
+        command.args.includes("-O")
+          ? {}
+          : {
+              stdout: encoder.encode("ok\n"),
+              stderr: encoder.encode("note\n"),
+            },
       calls,
       releases,
     );
@@ -148,7 +170,9 @@ describe("SshTransport", () => {
     );
 
     expect(result).toEqual({ stdout: "ok\n", stderr: "note\n" });
-    expect(calls.some((command) => command.args.includes("/usr/bin/ssh"))).toBe(true);
+    expect(calls.some((command) => command.args.includes("/usr/bin/ssh"))).toBe(
+      true,
+    );
     expect(releases.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -156,9 +180,10 @@ describe("SshTransport", () => {
     const calls: Command.StandardCommand[] = [];
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(
-      (command) => command.args.includes("-O")
-        ? {}
-        : { code: 255, stderr: encoder.encode("secret-token\u001b[31m") },
+      (command) =>
+        command.args.includes("-O")
+          ? {}
+          : { code: 255, stderr: encoder.encode("secret-token\u001b[31m") },
       calls,
       releases,
     );
@@ -187,10 +212,13 @@ describe("SshTransport", () => {
     const releases: Command.StandardCommand[] = [];
     const received: Uint8Array[] = [];
     const input = Sink.forEach((chunk: Uint8Array) =>
-      Effect.sync(() => { received.push(Uint8Array.from(chunk)); }),
+      Effect.sync(() => {
+        received.push(Uint8Array.from(chunk));
+      }),
     );
     const layer = await testLayer(
-      (command) => remoteText(command).includes("identity-apply") ? { stdin: input } : {},
+      (command) =>
+        remoteText(command).includes("identity-apply") ? { stdin: input } : {},
       calls,
       releases,
     );
@@ -200,23 +228,126 @@ describe("SshTransport", () => {
         const endpoint = yield* parseSshEndpoint("remote-a");
         const remote = yield* makeRemoteCommand("hermes", ["identity-apply"]);
         const body = yield* makeRemoteStdin("private prompt body");
-        yield* (yield* SshTransport).run(oneShotWithStdin(endpoint, remote, body));
+        yield* (yield* SshTransport).run(
+          oneShotWithStdin(endpoint, remote, body),
+        );
       }).pipe(Effect.provide(layer)),
     );
 
-    expect(calls.some((command) => command.args.some((arg) => arg.includes("private prompt body"))))
-      .toBe(false);
-    expect(Buffer.concat(received.map((chunk) => Buffer.from(chunk))).toString("utf8"))
-      .toBe("private prompt body");
+    expect(
+      calls.some((command) =>
+        command.args.some((arg) => arg.includes("private prompt body")),
+      ),
+    ).toBe(false);
+    expect(
+      Buffer.concat(received.map((chunk) => Buffer.from(chunk))).toString(
+        "utf8",
+      ),
+    ).toBe("private prompt body");
+  });
+
+  it("streams input incrementally, closes stdin, and collects bounded transfer output", async () => {
+    const calls: Command.StandardCommand[] = [];
+    const releases: Command.StandardCommand[] = [];
+    const received: Uint8Array[] = [];
+    const input = Sink.forEach((chunk: Uint8Array) =>
+      Effect.sync(() => {
+        received.push(Uint8Array.from(chunk));
+      }),
+    );
+    const layer = await testLayer(
+      (command) =>
+        remoteText(command).includes("remote-install")
+          ? {
+              stdin: input,
+              stdout: encoder.encode("STATION_READY term=1 browser=1\n"),
+              exitCode: Effect.sleep(10).pipe(Effect.as(0)),
+            }
+          : {},
+      calls,
+      releases,
+    );
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const endpoint = yield* parseSshEndpoint("remote-a");
+        const remote = yield* makeRemoteCommand("remote-install");
+        return yield* (yield* SshTransport).transfer(
+          sharedStream(endpoint, remote),
+          Stream.make(encoder.encode("first"), encoder.encode("second")),
+          1_000,
+        );
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(result.stdout).toContain("STATION_READY");
+    expect(
+      Buffer.concat(received.map((chunk) => Buffer.from(chunk))).toString(
+        "utf8",
+      ),
+    ).toBe("firstsecond");
+    expect(releases.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("rejects transfer chunks beyond the write boundary and releases the lease", async () => {
+    const calls: Command.StandardCommand[] = [];
+    const releases: Command.StandardCommand[] = [];
+    const layer = await testLayer(() => ({ running: true }), calls, releases);
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        Effect.gen(function* () {
+          const endpoint = yield* parseSshEndpoint("remote-a");
+          const remote = yield* makeRemoteCommand("remote-install");
+          return yield* (yield* SshTransport).transfer(
+            sharedStream(endpoint, remote),
+            Stream.make(new Uint8Array(1024 * 1024 + 1)),
+            1_000,
+          );
+        }).pipe(Effect.provide(layer)),
+      ),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) expect(result.left).toBeInstanceOf(SshIoError);
+    expect(calls).toHaveLength(1);
+    expect(releases.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("times out a stalled transfer and closes its SSH lease", async () => {
+    const calls: Command.StandardCommand[] = [];
+    const releases: Command.StandardCommand[] = [];
+    const layer = await testLayer(() => ({ running: true }), calls, releases);
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        Effect.gen(function* () {
+          const endpoint = yield* parseSshEndpoint("remote-a");
+          const remote = yield* makeRemoteCommand("remote-install");
+          return yield* (yield* SshTransport).transfer(
+            sharedStream(endpoint, remote),
+            Stream.never,
+            10,
+          );
+        }).pipe(Effect.provide(layer)),
+      ),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result))
+      expect(result.left).toBeInstanceOf(SshTimeoutError);
+    expect(calls).toHaveLength(1);
+    expect(releases.length).toBeGreaterThanOrEqual(1);
   });
 
   it("releases the process as soon as bounded stdout is exceeded", async () => {
     const calls: Command.StandardCommand[] = [];
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(
-      (command) => command.args.includes("-O")
-        ? {}
-        : { stdout: new Uint8Array(8 * 1024 * 1024 + 1) },
+      (command) =>
+        command.args.includes("-O")
+          ? {}
+          : { stdout: new Uint8Array(8 * 1024 * 1024 + 1) },
       calls,
       releases,
     );
@@ -232,7 +363,8 @@ describe("SshTransport", () => {
     );
 
     expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) expect(result.left).toBeInstanceOf(SshOutputLimitError);
+    if (Either.isLeft(result))
+      expect(result.left).toBeInstanceOf(SshOutputLimitError);
     expect(releases.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -241,12 +373,15 @@ describe("SshTransport", () => {
     const releases: Command.StandardCommand[] = [];
     const received: Uint8Array[] = [];
     const input = Sink.forEach((chunk: Uint8Array) =>
-      Effect.sync(() => { received.push(Uint8Array.from(chunk)); }),
+      Effect.sync(() => {
+        received.push(Uint8Array.from(chunk));
+      }),
     );
     const layer = await testLayer(
-      (command) => remoteText(command).includes("hermes")
-        ? { running: true, stdin: input }
-        : {},
+      (command) =>
+        remoteText(command).includes("hermes")
+          ? { running: true, stdin: input }
+          : {},
       calls,
       releases,
     );
@@ -259,29 +394,37 @@ describe("SshTransport", () => {
           return yield* (yield* SshTransport).connect(
             dedicatedStream(endpoint, remote),
             (lease, confirm) =>
-              lease.write(encoder.encode("first")).pipe(
-                Effect.zipRight(lease.write(encoder.encode("second"))),
-                Effect.zipRight(lease.closeInput),
-                Effect.as(confirm("ready")),
-              ),
+              lease
+                .write(encoder.encode("first"))
+                .pipe(
+                  Effect.zipRight(lease.write(encoder.encode("second"))),
+                  Effect.zipRight(lease.closeInput),
+                  Effect.as(confirm("ready")),
+                ),
           );
         }),
       ).pipe(Effect.provide(layer)),
     );
 
     expect(value).toBe("ready");
-    expect(Buffer.concat(received.map((chunk) => Buffer.from(chunk))).toString("utf8"))
-      .toBe("firstsecond");
-    expect(releases.some((command) => remoteText(command).includes("hermes"))).toBe(true);
+    expect(
+      Buffer.concat(received.map((chunk) => Buffer.from(chunk))).toString(
+        "utf8",
+      ),
+    ).toBe("firstsecond");
+    expect(
+      releases.some((command) => remoteText(command).includes("hermes")),
+    ).toBe(true);
   });
 
   it("rejects writes after the process input pump fails", async () => {
     const calls: Command.StandardCommand[] = [];
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(
-      (command) => remoteText(command).includes("hermes")
-        ? { running: true, stdin: Sink.fail(new ProcessFailure()) }
-        : {},
+      (command) =>
+        remoteText(command).includes("hermes")
+          ? { running: true, stdin: Sink.fail(new ProcessFailure()) }
+          : {},
       calls,
       releases,
     );
@@ -322,14 +465,16 @@ describe("SshTransport", () => {
             const remote = yield* makeRemoteCommand("already-exited");
             return yield* (yield* SshTransport).connect(
               dedicatedStream(endpoint, remote),
-              (_lease, confirm) => Effect.sleep(20).pipe(Effect.as(confirm("late"))),
+              (_lease, confirm) =>
+                Effect.sleep(20).pipe(Effect.as(confirm("late"))),
             );
           }),
         ).pipe(Effect.provide(layer)),
       ),
     );
     expect(Either.isLeft(exitedFirst)).toBe(true);
-    if (Either.isLeft(exitedFirst)) expect(exitedFirst.left).toBeInstanceOf(SshExitError);
+    if (Either.isLeft(exitedFirst))
+      expect(exitedFirst.left).toBeInstanceOf(SshExitError);
 
     const closedInCallback = await Effect.runPromise(
       Effect.either(
@@ -341,13 +486,17 @@ describe("SshTransport", () => {
             void runningLayer;
             return yield* (yield* SshTransport).connect(
               dedicatedStream(endpoint, remote),
-              (lease, confirm) => lease.close.pipe(Effect.as(confirm("closed"))),
+              (lease, confirm) =>
+                lease.close.pipe(Effect.as(confirm("closed"))),
             );
           }),
         ).pipe(
           Effect.provide(
             await testLayer(
-              (command) => remoteText(command).includes("long-stream") ? { running: true } : {},
+              (command) =>
+                remoteText(command).includes("long-stream")
+                  ? { running: true }
+                  : {},
               [],
               [],
             ),
@@ -356,16 +505,18 @@ describe("SshTransport", () => {
       ),
     );
     expect(Either.isLeft(closedInCallback)).toBe(true);
-    if (Either.isLeft(closedInCallback)) expect(closedInCallback.left).toBeInstanceOf(SshIoError);
+    if (Either.isLeft(closedInCallback))
+      expect(closedInCallback.left).toBeInstanceOf(SshIoError);
   });
 
   it("keeps daemon handoff inside admission until domain readiness", async () => {
     const calls: Command.StandardCommand[] = [];
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(
-      (command) => remoteText(command).includes("nohup")
-        ? { stdout: encoder.encode("4242\n") }
-        : {},
+      (command) =>
+        remoteText(command).includes("nohup")
+          ? { stdout: encoder.encode("4242\n") }
+          : {},
       calls,
       releases,
     );
@@ -388,7 +539,7 @@ describe("SshTransport", () => {
     const calls: Command.StandardCommand[] = [];
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(
-      (command) => command.args.includes("-O") ? {} : { running: true },
+      (command) => (command.args.includes("-O") ? {} : { running: true }),
       calls,
       releases,
     );
@@ -413,13 +564,11 @@ describe("SshTransport", () => {
           return yield* (yield* SshTransport).run(
             oneShot(endpoint, remote, { budget: "short" }),
           );
-        }).pipe(
-          Effect.provide(layer),
-          Effect.withClock(clock),
-          Effect.either,
-        );
+        }).pipe(Effect.provide(layer), Effect.withClock(clock), Effect.either);
         const fiber = yield* Effect.fork(operation);
-        while (!calls.some((command) => remoteText(command).includes("never"))) {
+        while (
+          !calls.some((command) => remoteText(command).includes("never"))
+        ) {
           yield* Effect.yieldNow();
         }
         yield* Deferred.succeed(fireTimeout, undefined);
@@ -433,7 +582,9 @@ describe("SshTransport", () => {
       expect(result.result.left).toBeInstanceOf(SshTimeoutError);
       expect((result.result.left as SshTimeoutError).timeoutMs).toBe(6_000);
     }
-    expect(releases.some((command) => remoteText(command).includes("never"))).toBe(true);
+    expect(
+      releases.some((command) => remoteText(command).includes("never")),
+    ).toBe(true);
   });
 
   it("teardown issues -O exit against the endpoint's shared ControlMaster", async () => {
@@ -455,7 +606,9 @@ describe("SshTransport", () => {
     expect(exitCall!.args.at(-1)).toBe("remote-a");
     // Same ControlPath template as the shared master it is exiting — ssh
     // resolves the identical socket for this endpoint.
-    expect(exitCall!.args.some((arg) => arg.startsWith("ControlPath="))).toBe(true);
+    expect(exitCall!.args.some((arg) => arg.startsWith("ControlPath="))).toBe(
+      true,
+    );
   });
 
   it("teardown is best-effort: an already-gone master never fails or throws", async () => {
@@ -503,7 +656,10 @@ describe("SshTransport", () => {
                 stderr: Stream.empty,
               } satisfies ProcessHandle;
             }),
-            () => Effect.sync(() => { releases.push(flattened); }),
+            () =>
+              Effect.sync(() => {
+                releases.push(flattened);
+              }),
           );
         }
         return Effect.acquireRelease(
@@ -513,7 +669,10 @@ describe("SshTransport", () => {
             maxActive = Math.max(maxActive, active);
             const hostActive = (activeByEndpoint.get(endpoint) ?? 0) + 1;
             activeByEndpoint.set(endpoint, hostActive);
-            maxByEndpoint.set(endpoint, Math.max(maxByEndpoint.get(endpoint) ?? 0, hostActive));
+            maxByEndpoint.set(
+              endpoint,
+              Math.max(maxByEndpoint.get(endpoint) ?? 0, hostActive),
+            );
             return {
               pid: pid++,
               exitCode: Effect.never,
@@ -523,25 +682,31 @@ describe("SshTransport", () => {
               stderr: Stream.empty,
             } satisfies ProcessHandle;
           }),
-          () => Effect.sync(() => {
-            active -= 1;
-            activeByEndpoint.set(endpoint, (activeByEndpoint.get(endpoint) ?? 1) - 1);
-            releases.push(flattened);
-          }),
+          () =>
+            Effect.sync(() => {
+              active -= 1;
+              activeByEndpoint.set(
+                endpoint,
+                (activeByEndpoint.get(endpoint) ?? 1) - 1,
+              );
+              releases.push(flattened);
+            }),
         );
       },
     });
     const layer = SshTransportLayer.pipe(
       Layer.provide(Layer.succeed(ProcessSpawner, spawner)),
       Layer.provide(NodeFileSystem.layer),
-      Layer.provide(Layer.succeed(SshTransportConfig, {
-        controlDir: join(root, "control"),
-        envExecutable: "/usr/bin/env",
-        sshExecutable: "/usr/bin/ssh",
-        environment: { HOME: root, PATH: "/usr/bin:/bin" },
-        maxConcurrentDials: 3,
-        maxConcurrentDialsPerEndpoint: 2,
-      })),
+      Layer.provide(
+        Layer.succeed(SshTransportConfig, {
+          controlDir: join(root, "control"),
+          envExecutable: "/usr/bin/env",
+          sshExecutable: "/usr/bin/ssh",
+          environment: { HOME: root, PATH: "/usr/bin:/bin" },
+          maxConcurrentDials: 3,
+          maxConcurrentDialsPerEndpoint: 2,
+        }),
+      ),
     );
 
     await Effect.runPromise(
@@ -551,9 +716,8 @@ describe("SshTransport", () => {
           const endpointB = yield* parseSshEndpoint("host-b");
           const command = yield* makeRemoteCommand("hold");
           const ssh = yield* SshTransport;
-          const fibers = yield* Effect.forEach(
-            [0, 1, 2, 3],
-            () => Effect.fork(ssh.run(oneShot(endpointA, command))),
+          const fibers = yield* Effect.forEach([0, 1, 2, 3], () =>
+            Effect.fork(ssh.run(oneShot(endpointA, command))),
           );
           yield* Effect.sleep(50);
           fibers.push(yield* Effect.fork(ssh.run(oneShot(endpointB, command))));

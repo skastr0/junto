@@ -14,20 +14,24 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Context } from "effect";
-import { Effect } from "effect";
+import { Effect, Stream } from "effect";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { RemoteHostsError } from "@shared/remote-hosts";
 import { controlSocketPath as browserControlSocketPath } from "@shared/browser-control";
 import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
-import { makeRemoteCommand, parseSshEndpoint } from "../ssh/domain";
-import { homeDirectoryLookup, oneShot } from "../ssh/program";
+import {
+  makeRemoteCommand,
+  parseSshEndpoint,
+  type SshEndpoint,
+} from "../ssh/domain";
+import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
 import { SshTransport } from "../ssh/service";
+import { signalChildHandleOnly } from "../process-signal";
 
 const PRODUCT_NAME = "Vellum Command";
 const APP_BUNDLE_NAME = `${PRODUCT_NAME}.app`;
 const LABEL = "skastr0.vellum";
 const DEPLOY_TIMEOUT_MS = 20 * 60 * 1000;
-const SSH_BIN = process.env.VELLUM_SSH_EXECUTABLE?.trim() || "/usr/bin/ssh";
 
 /** Lazy electron app — avoid import-time electron in unit tests. */
 const tryPackagedAppPath = (): string | null => {
@@ -37,7 +41,10 @@ const tryPackagedAppPath = (): string | null => {
     if (!app?.isPackaged) return null;
     let dir = dirname(process.execPath);
     for (let i = 0; i < 6; i += 1) {
-      if (dir.endsWith(".app") && existsSync(join(dir, "Contents", "MacOS", PRODUCT_NAME))) {
+      if (
+        dir.endsWith(".app") &&
+        existsSync(join(dir, "Contents", "MacOS", PRODUCT_NAME))
+      ) {
         return dir;
       }
       const parent = dirname(dir);
@@ -68,7 +75,8 @@ const push = (stages: string[], line: string): void => {
 /** Resolve the local .app bundle Command Center will push. */
 export const resolveLocalAppBundle = (): string | null => {
   const env = process.env.VELLUM_APP_SRC?.trim();
-  if (env && existsSync(join(env, "Contents", "MacOS", PRODUCT_NAME))) return env;
+  if (env && existsSync(join(env, "Contents", "MacOS", PRODUCT_NAME)))
+    return env;
 
   const packaged = tryPackagedAppPath();
   if (packaged) return packaged;
@@ -84,23 +92,54 @@ export const resolveLocalAppBundle = (): string | null => {
   return null;
 };
 
-const streamAppToRemote = (input: {
-  readonly endpoint: string;
-  readonly localApp: string;
-  readonly remoteHome: string;
-}): Promise<{ readonly ok: boolean; readonly detail: string }> =>
-  new Promise((resolve) => {
-    const parent = dirname(input.localApp);
-    const bundle = basename(input.localApp);
-    const remoteApp = `/Applications/${bundle}`;
-    const remoteExe = `${remoteApp}/Contents/MacOS/${PRODUCT_NAME}`;
-    const plistPath = `${input.remoteHome}/Library/LaunchAgents/${LABEL}.plist`;
-    const logDir = `${input.remoteHome}/Library/Logs/${PRODUCT_NAME}`;
-    const termSock = `${input.remoteHome}/${TERM_REMOTE_SOCK_REL}`;
-    const browserSock = browserControlSocketPath(input.remoteHome);
+export const parseDeployTransferResult = (input: {
+  readonly stdout: string;
+  readonly stderr: string;
+}): { readonly ok: boolean; readonly detail: string } => {
+  if (input.stdout.includes("STATION_READY")) {
+    return {
+      ok: true,
+      detail: "app installed; term + browser control sockets ready",
+    };
+  }
+  if (input.stdout.includes("TERM_SOCK_OK")) {
+    return {
+      ok: true,
+      detail:
+        "app installed; term control ready (browser control socket not observed yet — open Remote UI/session if needed)",
+    };
+  }
+  return {
+    ok: true,
+    detail:
+      "app installed and started (control sockets not fully observed — station may still be warming)",
+  };
+};
 
-    // No --vellum-headless: WebContentsView needs a BrowserWindow parent.
-    const plistBody = `<?xml version="1.0" encoding="UTF-8"?>
+const streamAppToRemote = (
+  ssh: Ssh,
+  endpoint: SshEndpoint,
+  input: {
+    readonly localApp: string;
+    readonly remoteHome: string;
+  },
+): Effect.Effect<
+  { readonly ok: boolean; readonly detail: string },
+  Error | import("../ssh/domain").SshError
+> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const parent = dirname(input.localApp);
+      const bundle = basename(input.localApp);
+      const remoteApp = `/Applications/${bundle}`;
+      const remoteExe = `${remoteApp}/Contents/MacOS/${PRODUCT_NAME}`;
+      const plistPath = `${input.remoteHome}/Library/LaunchAgents/${LABEL}.plist`;
+      const logDir = `${input.remoteHome}/Library/Logs/${PRODUCT_NAME}`;
+      const termSock = `${input.remoteHome}/${TERM_REMOTE_SOCK_REL}`;
+      const browserSock = browserControlSocketPath(input.remoteHome);
+
+      // No --vellum-headless: WebContentsView needs a BrowserWindow parent.
+      const plistBody = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>${LABEL}</string>
@@ -114,10 +153,10 @@ const streamAppToRemote = (input: {
 <key>StandardErrorPath</key><string>${logDir}/vellum.err.log</string>
 </dict></plist>
 `;
-    const plistB64 = Buffer.from(plistBody, "utf8").toString("base64");
+      const plistB64 = Buffer.from(plistBody, "utf8").toString("base64");
 
-    // Paths embedded via JSON.stringify so they are shell-safe literals.
-    const remoteScript = `
+      // Paths embedded via JSON.stringify so they are shell-safe literals.
+      const remoteScript = `
 set -euo pipefail
 umask 022
 # Full-app Remote is macOS-only (LaunchAgent + .app).
@@ -168,94 +207,48 @@ echo "TERM_SOCK_TIMEOUT" >&2
 exit 2
 `.trim();
 
-    const tar = spawn("tar", ["-C", parent, "-cf", "-", bundle], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const ssh = spawn(
-      SSH_BIN,
-      [
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ConnectTimeout=15",
-        input.endpoint,
-        "bash",
-        "-lc",
-        remoteScript,
-      ],
-      { stdio: ["pipe", "pipe", "pipe"] },
-    );
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const finish = (ok: boolean, detail: string): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ ok, detail });
-    };
-
-    const timer = setTimeout(() => {
-      try {
-        tar.kill("SIGKILL");
-      } catch {
-        /* ignore */
-      }
-      try {
-        ssh.kill("SIGKILL");
-      } catch {
-        /* ignore */
-      }
-      finish(false, `deploy timed out after ${DEPLOY_TIMEOUT_MS}ms`);
-    }, DEPLOY_TIMEOUT_MS);
-    timer.unref?.();
-
-    tar.stdout.pipe(ssh.stdin);
-    tar.stderr.setEncoding("utf8");
-    ssh.stdout.setEncoding("utf8");
-    ssh.stderr.setEncoding("utf8");
-    tar.stderr.on("data", (c: string) => {
-      stderr += c;
-    });
-    ssh.stdout.on("data", (c: string) => {
-      stdout += c;
-    });
-    ssh.stderr.on("data", (c: string) => {
-      stderr += c;
-    });
-    tar.on("error", (err) => finish(false, `local tar failed: ${err.message}`));
-    ssh.on("error", (err) => finish(false, `ssh failed: ${err.message}`));
-    ssh.on("close", (code) => {
-      if (code === 3 || stderr.includes("REMOTE_NOT_DARWIN")) {
-        finish(
-          false,
-          "remote host is not macOS — full-app Deploy Remote is Darwin-only (Linux Electron station is a separate track)",
-        );
-        return;
-      }
-      if (code === 0 && stdout.includes("STATION_READY")) {
-        finish(true, "app installed; term + browser control sockets ready");
-        return;
-      }
-      if (code === 0 && stdout.includes("TERM_SOCK_OK")) {
-        finish(
-          true,
-          "app installed; term control ready (browser control socket not observed yet — open Remote UI/session if needed)",
-        );
-        return;
-      }
-      if (code === 0) {
-        finish(
-          true,
-          "app installed and started (control sockets not fully observed — station may still be warming)",
-        );
-        return;
-      }
-      const err = (stderr || stdout || `ssh exit ${String(code)}`).trim().slice(0, 900);
-      finish(false, err || `deploy failed (exit ${String(code)})`);
-    });
-  });
+      const tar = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          spawn("tar", ["-C", parent, "-cf", "-", bundle], {
+            stdio: ["ignore", "pipe", "pipe"],
+          }),
+        ),
+        (child) =>
+          Effect.sync(() => {
+            signalChildHandleOnly(child, "SIGKILL", "hosts.deploy-remote.tar");
+          }),
+      );
+      const tarExit = Effect.tryPromise({
+        try: () =>
+          new Promise<void>((resolve, reject) => {
+            tar.once("error", reject);
+            tar.once("close", (code) =>
+              code === 0
+                ? resolve()
+                : reject(new Error(`local tar exited ${String(code)}`)),
+            );
+          }),
+        catch: (error) =>
+          new Error(
+            `local tar failed: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      });
+      const command = yield* makeRemoteCommand("bash", ["-lc", remoteScript]);
+      const output = yield* ssh.transfer(
+        sharedStream(endpoint, command),
+        Stream.fromAsyncIterable(
+          tar.stdout,
+          (error) =>
+            new Error(
+              `local tar stream failed: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        ).pipe(Stream.map((chunk) => Uint8Array.from(chunk))),
+        DEPLOY_TIMEOUT_MS,
+      );
+      yield* tarExit;
+      return parseDeployTransferResult(output);
+    }),
+  );
 
 export const deployRemoteHost = (
   ssh: Ssh,
@@ -266,7 +259,8 @@ export const deployRemoteHost = (
     if (process.platform !== "darwin") {
       return {
         ok: false,
-        detail: "Deploy Remote must run from a macOS Command Center (local .app source)",
+        detail:
+          "Deploy Remote must run from a macOS Command Center (local .app source)",
         code: "validation" as const,
         stages,
       };
@@ -295,7 +289,8 @@ export const deployRemoteHost = (
 
     const endpoint = yield* parseSshEndpoint(host.endpoint).pipe(
       Effect.mapError(
-        (e) => new RemoteHostsError("validation", `Invalid endpoint: ${e.message}`),
+        (e) =>
+          new RemoteHostsError("validation", `Invalid endpoint: ${e.message}`),
       ),
       Effect.either,
     );
@@ -321,7 +316,9 @@ export const deployRemoteHost = (
     push(stages, "ssh warm ok");
 
     // Fail fast on Linux before streaming hundreds of MB.
-    const unameCmd = yield* makeRemoteCommand("uname", ["-s"]).pipe(Effect.either);
+    const unameCmd = yield* makeRemoteCommand("uname", ["-s"]).pipe(
+      Effect.either,
+    );
     if (unameCmd._tag === "Right") {
       const unameRes = yield* ssh
         .run(oneShot(endpoint.right, unameCmd.right, { budget: "short" }))
@@ -341,7 +338,9 @@ export const deployRemoteHost = (
       }
     }
 
-    const homeResult = yield* ssh.run(homeDirectoryLookup(endpoint.right)).pipe(Effect.either);
+    const homeResult = yield* ssh
+      .run(homeDirectoryLookup(endpoint.right))
+      .pipe(Effect.either);
     if (homeResult._tag === "Left") {
       return {
         ok: false,
@@ -361,14 +360,9 @@ export const deployRemoteHost = (
     }
     push(stages, `remote home ${home}`);
 
-    const streamed = yield* Effect.tryPromise({
-      try: () =>
-        streamAppToRemote({
-          endpoint: String(endpoint.right),
-          localApp,
-          remoteHome: home,
-        }),
-      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    const streamed = yield* streamAppToRemote(ssh, endpoint.right, {
+      localApp,
+      remoteHome: home,
     }).pipe(Effect.either);
 
     if (streamed._tag === "Left") {
@@ -392,12 +386,16 @@ export const deployRemoteHost = (
     }
 
     const tokenPath = join(home, ".vellum", "term", "token");
-    const tokenCmd = yield* makeRemoteCommand("/bin/test", ["-f", tokenPath]).pipe(Effect.either);
+    const tokenCmd = yield* makeRemoteCommand("/bin/test", [
+      "-f",
+      tokenPath,
+    ]).pipe(Effect.either);
     if (tokenCmd._tag === "Right") {
       const tokenProbe = yield* ssh
         .run(oneShot(endpoint.right, tokenCmd.right, { budget: "short" }))
         .pipe(Effect.either);
-      if (tokenProbe._tag === "Right") push(stages, "term control token present");
+      if (tokenProbe._tag === "Right")
+        push(stages, "term control token present");
       else push(stages, "term control token not yet visible");
     }
 
