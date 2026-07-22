@@ -521,7 +521,7 @@ export interface HostsOpResult {
     readonly label: string;
     readonly kind: "local" | "remote";
     readonly endpoint?: string;
-    readonly capabilities: ReadonlyArray<"herdr" | "hermes">;
+    readonly capabilities: ReadonlyArray<"terminal" | "herdr" | "hermes">;
     readonly hermesId?: string;
   }>;
   readonly code?: string;

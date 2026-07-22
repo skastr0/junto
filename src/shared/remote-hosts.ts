@@ -7,7 +7,8 @@ import { Schema } from "effect";
 
 export const REMOTE_HOSTS_VERSION = 1 as const;
 
-export const HostCapability = Schema.Literal("herdr", "hermes");
+export const TERMINAL_HOST_CAPABILITY = "terminal" as const;
+export const HostCapability = Schema.Literal("herdr", "hermes", TERMINAL_HOST_CAPABILITY);
 export type HostCapability = typeof HostCapability.Type;
 
 /** local = this machine; remote = OpenSSH endpoint (alias or user@host). */
@@ -54,7 +55,7 @@ export const RemoteHost = Schema.Struct({
   endpoint: Schema.optionalWith(HostEndpoint, { exact: true }),
   capabilities: Schema.Array(HostCapability).pipe(
     Schema.minItems(1),
-    Schema.maxItems(2),
+    Schema.maxItems(3),
   ),
   hermesId: Schema.optionalWith(HermesHostKey, { exact: true }),
 });
@@ -74,7 +75,7 @@ export const defaultRemoteHostsDocument = (): RemoteHostsDocument => ({
       id: "local",
       label: "local",
       kind: "local",
-      capabilities: ["herdr", "hermes"],
+      capabilities: [TERMINAL_HOST_CAPABILITY, "herdr", "hermes"],
     },
   ],
 });
