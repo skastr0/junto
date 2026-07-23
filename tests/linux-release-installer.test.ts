@@ -58,6 +58,9 @@ afterEach(async () => {
 
 interface FakeMachine {
   version: string | null;
+  packageStatus:
+    | "install ok installed"
+    | "install ok half-configured";
   service:
     | "enabled-active"
     | "enabled-inactive"
@@ -252,7 +255,7 @@ const makeRunner = (
           "",
           "dpkg-query: no packages found matching vellum\n",
         )
-        : result(0, `install ok installed\t${machine.version}\n`);
+        : result(0, `${machine.packageStatus}\t${machine.version}\n`);
     }
     if (executable === "/usr/bin/dpkg") {
       if (
@@ -320,6 +323,7 @@ const makeRunner = (
       if (operation === "--purge") {
         machine.events.push("purge");
         machine.version = null;
+        machine.packageStatus = "install ok installed";
         machine.service = "absent-inactive";
         return result(0);
       }
@@ -329,6 +333,10 @@ const makeRunner = (
           readonly version: string;
         };
         machine.version = decoded.version;
+        machine.packageStatus =
+          !unit.includes("rollback") && machine.failInstallAfterMutation
+            ? "install ok half-configured"
+            : "install ok installed";
         machine.events.push(
           unit.includes("rollback")
             ? `rollback:${decoded.version}`
@@ -493,6 +501,7 @@ const createFixture = async (
   };
   const machine: FakeMachine = {
     version: null,
+    packageStatus: "install ok installed",
     service: "absent-inactive",
     linger: false,
     failInstallAfterMutation: false,
@@ -567,6 +576,7 @@ const seedInstalledBaseline = async (
   version: string,
 ): Promise<void> => {
   fixture.machine.version = version;
+  fixture.machine.packageStatus = "install ok installed";
   fixture.machine.service = "disabled-inactive";
   fixture.machine.linger = false;
   const directory = path.join(
@@ -1042,6 +1052,84 @@ describe("Linux privileged release installer", () => {
     expect(receipt).toMatchObject({ ok: false, code: "rollback-failed" });
     expect(fixture.machine.events.filter((value) => value === "install:2.0.0"))
       .toHaveLength(0);
+  });
+
+  it("does not reinstall the prior artifact when recovery already sees it installed", async () => {
+    const fixture = await createFixture();
+    const first = await install(fixture, "1.0.0", "4a".repeat(16));
+    const start = fixture.machine.events.length;
+    const journal: LinuxReleaseInstallerJournal = {
+      schema: "vellum/linux-release-installer-journal/v1",
+      transactionId: "4b".repeat(16),
+      operation: "install",
+      owner: { pid: 1, startTicks: "1", bootId },
+      target: first.release.request.target,
+      manifestSha256: sha256("manifest:2"),
+      debSha256: sha256(packagePayload("2.0.0")),
+      sourceRevision: revision,
+      fromVersion: "1.0.0",
+      toVersion: "2.0.0",
+      priorArtifactSha256: first.release.candidate.debSha256,
+      oldServiceState: "enabled-active",
+      oldLinger: true,
+      phase: "dpkg-started",
+    };
+    await fixture.host.writeJournal(journal);
+    const receipt = (await install(
+      fixture,
+      "2.0.0",
+      "4c".repeat(16),
+    )).receipt;
+    expect(receipt).toMatchObject({
+      ok: true,
+      recoveredTransactionId: "4b".repeat(16),
+    });
+    expect(fixture.machine.events.slice(start)).toEqual(["install:2.0.0"]);
+  });
+
+  it("refuses stale rollback over an unrelated installed version", async () => {
+    const fixture = await createFixture();
+    const first = await install(fixture, "1.0.0", "4d".repeat(16));
+    const start = fixture.machine.events.length;
+    const journal: LinuxReleaseInstallerJournal = {
+      schema: "vellum/linux-release-installer-journal/v1",
+      transactionId: "4e".repeat(16),
+      operation: "install",
+      owner: { pid: 1, startTicks: "1", bootId },
+      target: first.release.request.target,
+      manifestSha256: sha256("manifest:2"),
+      debSha256: sha256(packagePayload("2.0.0")),
+      sourceRevision: revision,
+      fromVersion: "1.0.0",
+      toVersion: "2.0.0",
+      priorArtifactSha256: first.release.candidate.debSha256,
+      oldServiceState: "enabled-active",
+      oldLinger: true,
+      phase: "activation-started",
+    };
+    await fixture.host.writeJournal(journal);
+    fixture.machine.version = "3.0.0";
+    fixture.machine.packageStatus = "install ok installed";
+    const receipt = (await install(
+      fixture,
+      "3.0.0",
+      "4f".repeat(16),
+    )).receipt;
+    expect(receipt).toMatchObject({
+      ok: false,
+      code: "rollback-failed",
+      action: "repair-root-installer-state-manually",
+    });
+    expect(fixture.machine.version).toBe("3.0.0");
+    expect(fixture.machine.events.slice(start)).toEqual([]);
+    expect(
+      JSON.parse(
+        await readFile(
+          path.join(fixture.paths.stateRoot, "transaction.json"),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({ phase: "rollback-started" });
   });
 
   it.each([

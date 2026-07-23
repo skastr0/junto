@@ -3113,47 +3113,132 @@ export class NodeLinuxReleaseInstallerHost
     }
   }
 
+  async #recoveryPackageState(): Promise<
+    | { readonly kind: "absent" }
+    | {
+      readonly kind: "installed" | "intermediate";
+      readonly version: string;
+      readonly status: string;
+    }
+  > {
+    const result = await this.#run(
+      "/usr/bin/dpkg-query",
+      ["--show", "--showformat=${Status}\\t${Version}\\n", "vellum"],
+      30_000,
+    );
+    if (
+      result.code === 1 &&
+      result.stdout === "" &&
+      result.stderr === "dpkg-query: no packages found matching vellum\n"
+    ) {
+      return { kind: "absent" };
+    }
+    if (result.code !== 0 || result.stderr !== "") {
+      throw new InstallerError(
+        "rollback-failed",
+        "rollback package state is indeterminate",
+      );
+    }
+    if (/^deinstall ok config-files\t[^\n]+\n$/u.test(result.stdout)) {
+      return { kind: "absent" };
+    }
+    const match =
+      /^(install (?:ok|reinstreq) (?:installed|half-installed|unpacked|half-configured|triggers-awaited|triggers-pending))\t([^\n]+)\n$/u
+        .exec(result.stdout);
+    const status = match?.[1];
+    const version = match?.[2];
+    if (
+      status === undefined ||
+      version === undefined ||
+      !VERSION.test(version)
+    ) {
+      throw new InstallerError(
+        "rollback-failed",
+        "rollback package state is malformed",
+      );
+    }
+    return {
+      kind: status === "install ok installed"
+        ? "installed"
+        : "intermediate",
+      version,
+      status,
+    };
+  }
+
   public async rollback(
     invocation: LinuxReleaseInstallerInvocation,
     journal: LinuxReleaseInstallerJournal,
   ): Promise<void> {
     await this.#assertMutationQuiescent(journal.transactionId);
+    const packageState = await this.#recoveryPackageState();
     if (journal.operation === "adopt") {
-      if (await this.currentVersion() !== journal.fromVersion) {
+      if (
+        packageState.kind !== "installed" ||
+        packageState.version !== journal.fromVersion
+      ) {
         throw new Error("adoption rollback package version changed");
       }
     } else if (journal.fromVersion === null) {
-      await this.#runDpkgTransaction(
-        `vellum-release-rollback-${journal.transactionId}.service`,
-        ["--purge", "vellum"],
-      );
+      if (packageState.kind !== "absent") {
+        if (packageState.version !== journal.toVersion) {
+          throw new InstallerError(
+            "rollback-failed",
+            "rollback refuses to overwrite an unrelated package version",
+          );
+        }
+        await this.#runDpkgTransaction(
+          `vellum-release-rollback-${journal.transactionId}.service`,
+          ["--purge", "vellum"],
+        );
+      }
       if (await this.currentVersion() !== null) {
         throw new Error("first-install rollback did not purge package");
       }
     } else {
-      const prior = await this.findCachedArtifact(journal.fromVersion);
-      const priorPath = prior === null ? undefined : artifactPaths.get(prior);
+      if (packageState.kind === "absent") {
+        throw new InstallerError(
+          "rollback-failed",
+          "rollback package disappeared outside the recorded transaction",
+        );
+      }
       if (
-        prior === null ||
-        priorPath === undefined ||
-        prior.sha256 !== journal.priorArtifactSha256
+        packageState.version !== journal.fromVersion &&
+        packageState.version !== journal.toVersion
       ) {
         throw new InstallerError(
           "rollback-failed",
-          "root rollback artifact is missing or changed",
+          "rollback refuses to overwrite an unrelated package version",
         );
       }
-      const handle = await openVerifiedProtectedFile(
-        priorPath,
-        this.#ownerUid,
-        prior.bytes,
-        prior.sha256,
-      );
-      await handle.close();
-      await this.#runDpkgTransaction(
-        `vellum-release-rollback-${journal.transactionId}.service`,
-        ["--install", priorPath],
-      );
+      if (
+        packageState.kind !== "installed" ||
+        packageState.version !== journal.fromVersion
+      ) {
+        const prior = await this.findCachedArtifact(journal.fromVersion);
+        const priorPath = prior === null ? undefined : artifactPaths.get(prior);
+        if (
+          prior === null ||
+          priorPath === undefined ||
+          prior.sha256 !== journal.priorArtifactSha256
+        ) {
+          throw new InstallerError(
+            "rollback-failed",
+            "root rollback artifact is missing or changed",
+          );
+        }
+        const handle = await openVerifiedProtectedFile(
+          priorPath,
+          this.#ownerUid,
+          prior.bytes,
+          prior.sha256,
+        );
+        await handle.close();
+        await this.#runDpkgTransaction(
+          `vellum-release-rollback-${journal.transactionId}.service`,
+          ["--install", priorPath],
+        );
+      }
       if (await this.currentVersion() !== journal.fromVersion) {
         throw new Error("rollback did not restore prior package version");
       }
