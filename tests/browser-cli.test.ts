@@ -298,17 +298,20 @@ describe("browser CLI packaging contract", () => {
     const installScript = await readFile(join(repoRoot, "scripts/install-app.sh"), "utf8");
 
     expect(pkg.build.extraResources).toEqual([
+      { from: "dist/vellum", to: "bin/vellum" },
       { from: "dist/vellum-browser", to: "bin/vellum-browser" },
       { from: "scripts/unix-peer-pid.py", to: "bin/unix-peer-pid.py" },
     ]);
     expect(pkg.build.files).not.toContain("scripts/**");
     expect(buildScript).toContain("--no-compile-autoload-dotenv");
     expect(buildScript).toContain("--no-compile-autoload-bunfig");
-    expect(buildScript.indexOf("build_browser_cli")).toBeLessThan(
+    expect(buildScript.indexOf('build_compiled_cli "$REPO_ROOT/dist/vellum"')).toBeLessThan(
       buildScript.indexOf('if [[ "$COMPILE_ONLY" -eq 1 ]]'),
     );
     expect(installScript).toContain('install_cli_link "vellum"');
     expect(installScript).toContain('install_cli_link "vellum-browser"');
+    expect(installScript).toContain('local work_helper="$APP_DST/Contents/Resources/bin/vellum"');
+    expect(installScript).toContain('local browser_helper="$APP_DST/Contents/Resources/bin/vellum-browser"');
     expect(installScript).toContain('ln -s "$helper" "$target"');
     expect(installScript).toContain('CLI link changed identity during creation');
     expect(installScript).not.toContain('mv -f "$stage" "$target"');

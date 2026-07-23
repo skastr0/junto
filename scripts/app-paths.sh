@@ -25,10 +25,10 @@ APP_BUNDLE_ID="skastr0.vellum"
 # Repo root = parent of scripts/
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
-# electron-builder mac pack output (arm64 Mac primary). Zip lives beside this
+# electron-builder macOS pack output (arm64 Mac primary). Zip lives beside this
 # under release/Vellum-*-mac.zip — see package.json artifactName.
 # Override with VELLUM_APP_SRC if packaging a different arch artifact.
-detect_app_src() {
+detect_macos_app_src() {
   local candidates=(
     "$REPO_ROOT/release/mac-arm64/${PRODUCT_NAME}.app"
     "$REPO_ROOT/release/mac/${PRODUCT_NAME}.app"
@@ -49,7 +49,11 @@ detect_app_src() {
   fi
 }
 
-APP_SRC="$(read_config_value VELLUM_APP_SRC "$(detect_app_src)")" || return 1
+detect_app_src() {
+  detect_macos_app_src
+}
+
+APP_SRC="$(read_config_value VELLUM_APP_SRC "$(detect_macos_app_src)")" || return 1
 APP_DST=""
 PLIST=""
 LOG_DIR=""

@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, chmod, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -83,11 +83,22 @@ const assertFuseWire = (wire, policy) => {
 };
 
 export default async function afterPack(context) {
-  if (context.electronPlatformName !== "darwin") {
-    throw new Error(
-      `Vellum package fuse policy is currently defined only for macOS, not ${context.electronPlatformName}`,
-    );
+  const platform = context.electronPlatformName;
+  const resourceDirectory =
+    platform === "darwin"
+      ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents", "Resources", "bin")
+      : platform === "linux"
+        ? path.join(context.appOutDir, "resources", "bin")
+        : null;
+  if (resourceDirectory === null) {
+    throw new Error(`unsupported Vellum package platform: ${platform}`);
   }
+  for (const name of ["vellum", "vellum-browser", "unix-peer-pid.py"]) {
+    const resource = path.join(resourceDirectory, name);
+    await access(resource);
+    await chmod(resource, 0o755);
+  }
+  if (platform === "linux") return;
 
   const policy = await loadPolicy();
   const productFilename = context.packager.appInfo.productFilename;

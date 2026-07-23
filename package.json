@@ -1,7 +1,7 @@
 {
   "name": "@skastr0/vellum",
   "version": "0.1.0",
-  "description": "Vellum Command — the deep-field station for multi-agent fleets on macOS.",
+  "description": "Vellum Command — the deep-field station for multi-agent fleets.",
   "type": "module",
   "private": true,
   "license": "UNLICENSED",
@@ -32,6 +32,8 @@
     "test:browser:profile-wipe": "bun scripts/browser-electron-profile-wipe-probe.ts",
     "verify": "bun run typecheck && bun run test && electron-vite build",
     "app:build": "bash scripts/build-app.sh",
+    "app:build:mac": "bash scripts/build-app.sh --target mac",
+    "app:build:linux": "bash scripts/build-app.sh --target linux",
     "app:build:fast": "bash scripts/build-app.sh --fast",
     "app:build:verify": "bash scripts/build-app.sh --verify",
     "app:build:notarize": "bash scripts/build-app.sh --notarize",
@@ -97,7 +99,6 @@
     "appId": "skastr0.vellum",
     "productName": "Vellum Command",
     "afterPack": "./scripts/electron-builder-after-pack.mjs",
-    "forceCodeSigning": true,
     "directories": {
       "output": "release"
     },
@@ -110,6 +111,10 @@
       "!node_modules/@parcel/watcher-*{,/**/*}"
     ],
     "extraResources": [
+      {
+        "from": "dist/vellum",
+        "to": "bin/vellum"
+      },
       {
         "from": "dist/vellum-browser",
         "to": "bin/vellum-browser"
@@ -127,6 +132,8 @@
       }
     ],
     "mac": {
+      "artifactName": "${productName}-${version}-${arch}-mac.${ext}",
+      "forceCodeSigning": true,
       "target": [
         "zip",
         "dmg"
@@ -141,6 +148,10 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
       "preAutoEntitlements": false
+    },
+    "linux": {
+      "artifactName": "${productName}-${version}-${arch}-linux.${ext}",
+      "target": ["dir"]
     },
     "dmg": {
       "background": "build/dmg-background.png",

@@ -290,7 +290,7 @@ describe("electron-builder role-specific signing", () => {
         "utf8",
       ),
       readFile(new URL("../scripts/electron-builder-sign.mjs", import.meta.url), "utf8"),
-      readFile(new URL("../scripts/build-app.sh", import.meta.url), "utf8"),
+      readFile(new URL("../scripts/package-app-macos.sh", import.meta.url), "utf8"),
     ]);
     expect(jitPlist).toContain("com.apple.security.cs.allow-jit");
     expect(emptyPlist).toContain("<dict/>");

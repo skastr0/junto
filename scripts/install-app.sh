@@ -15,7 +15,7 @@
 #   Settings doctor metadata reports preferred vs LaunchAgent-loaded so Remote
 #   deploy (later) can decide to pass --supervised. No third binary.
 #
-# Installs `vellum browser …` and `vellum-browser …` as atomic symlinks under
+# Installs `vellum …` and `vellum-browser …` as atomic symlinks under
 # ~/.local/bin. Existing non-Vellum commands are
 # never overwritten.
 #
@@ -136,10 +136,9 @@ remove_created_cli_link() {
   local name="$1"
   local target helper created
   target="$BIN_DIR/$name"
-  helper="$APP_DST/Contents/Resources/bin/vellum-browser"
   case "$name" in
-    vellum) created="$CREATED_VELLUM_LINK" ;;
-    vellum-browser) created="$CREATED_VELLUM_BROWSER_LINK" ;;
+    vellum) helper="$APP_DST/Contents/Resources/bin/vellum"; created="$CREATED_VELLUM_LINK" ;;
+    vellum-browser) helper="$APP_DST/Contents/Resources/bin/vellum-browser"; created="$CREATED_VELLUM_BROWSER_LINK" ;;
     *) err "unknown CLI link cleanup capability: $name"; return 1 ;;
   esac
   if [[ "$created" -ne 1 ]]; then
@@ -153,18 +152,19 @@ remove_created_cli_link() {
   rm -f "$target"
 }
 
-install_browser_cli() {
-  local helper="$APP_DST/Contents/Resources/bin/vellum-browser"
-  if [[ ! -x "$helper" ]]; then
-    err "installed browser CLI missing or not executable: $helper"
+install_cli_tools() {
+  local work_helper="$APP_DST/Contents/Resources/bin/vellum"
+  local browser_helper="$APP_DST/Contents/Resources/bin/vellum-browser"
+  if [[ ! -x "$work_helper" || ! -x "$browser_helper" ]]; then
+    err "installed Vellum CLI helper missing or not executable"
     return 1
   fi
   ensure_scoped_directory "CLI directory" "$BIN_DIR"
-  preflight_cli_link "$BIN_DIR/vellum" "$helper"
-  preflight_cli_link "$BIN_DIR/vellum-browser" "$helper"
-  install_cli_link "vellum" "$helper"
-  install_cli_link "vellum-browser" "$helper"
-  log "browser commands → $BIN_DIR/{vellum,vellum-browser}"
+  preflight_cli_link "$BIN_DIR/vellum" "$work_helper"
+  preflight_cli_link "$BIN_DIR/vellum-browser" "$browser_helper"
+  install_cli_link "vellum" "$work_helper"
+  install_cli_link "vellum-browser" "$browser_helper"
+  log "commands → $BIN_DIR/{vellum,vellum-browser}"
 }
 
 audit_app_bundle() {
@@ -197,9 +197,10 @@ log "auditing candidate → $APP_SRC"
 audit_app_bundle "$APP_SRC"
 CANDIDATE_CDHASH="$(app_cdhash "$APP_SRC")"
 
-HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-browser"
-preflight_cli_link "$BIN_DIR/vellum" "$HELPER_TARGET"
-preflight_cli_link "$BIN_DIR/vellum-browser" "$HELPER_TARGET"
+WORK_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum"
+BROWSER_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-browser"
+preflight_cli_link "$BIN_DIR/vellum" "$WORK_HELPER_TARGET"
+preflight_cli_link "$BIN_DIR/vellum-browser" "$BROWSER_HELPER_TARGET"
 
 derive_install_transaction_paths "$$"
 HAD_PREVIOUS=0
@@ -367,7 +368,7 @@ if [[ "$INSTALLED_CDHASH" != "$CANDIDATE_CDHASH" ]]; then
   err "installed app CDHash does not match the audited candidate"
   exit 1
 fi
-install_browser_cli
+install_cli_tools
 REPLACEMENT_ACTIVE=0 INSTALL_COMPLETE=1
 log "installed $APP_DST"
 log "installed CDHash $INSTALLED_CDHASH"

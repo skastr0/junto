@@ -243,19 +243,19 @@ describe("electron-builder fitness", () => {
       build: {
         afterPack: string;
         files: string[];
-        forceCodeSigning: boolean;
         mac: {
           identity: string;
           minimumSystemVersion: string;
           hardenedRuntime: boolean;
           strictVerify: boolean;
+          forceCodeSigning: boolean;
         };
       };
     };
     expect(packageJson.build).toMatchObject({
       afterPack: "./scripts/electron-builder-after-pack.mjs",
-      forceCodeSigning: true,
       mac: {
+        forceCodeSigning: true,
         identity: PACKAGE_SECURITY_POLICY.builderIdentity,
         minimumSystemVersion: PACKAGE_SECURITY_POLICY.minimumSystemVersion,
         hardenedRuntime: true,
@@ -283,7 +283,7 @@ describe("electron-builder fitness", () => {
     );
 
     const buildScript = await readFile(
-      new URL("../scripts/build-app.sh", import.meta.url),
+      new URL("../scripts/package-app-macos.sh", import.meta.url),
       "utf8",
     );
     expect(buildScript).toContain(
