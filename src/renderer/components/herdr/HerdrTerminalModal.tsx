@@ -432,7 +432,7 @@ export function HerdrTerminalPanel({
       writePlaceholder(opened.retained);
       streamIdRef.current = opened.streamId;
       setTerminalStreamId(nodeId, opened.streamId);
-      setStatus(`connected · ${cols}×${rows} · type · ⌘W closes`);
+      setStatus("connected");
       setConnectionEvent(nodeId, { type: "ok" });
       // One more resize after attach — layout often settles after first paint.
       window.setTimeout(() => {

@@ -18,6 +18,7 @@ import { parseHerdrNodeId } from "./surface-label";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
 import { terminal$ } from "../../lib/terminal-state";
 import { TerminalSurface } from "../terminal/TerminalSurface";
+import { Button } from "../ui";
 
 function HerdrSurfaceSlot({
   surface,
@@ -52,9 +53,9 @@ function HerdrSurfaceSlot({
     >
       {visible ? (
         <div className="workbench-surface__herdr-actions" data-herdr-chrome>
-          <button
-            type="button"
-            className="browser-modal-btn"
+          <Button
+            size="xs"
+            variant="chrome"
             title={pinned ? "Move to focus shell" : "Pin to side dock"}
             onPointerDown={(e) => {
               e.preventDefault();
@@ -64,7 +65,7 @@ function HerdrSurfaceSlot({
             }}
           >
             {pinned ? "Unpin" : "Pin"}
-          </button>
+          </Button>
         </div>
       ) : null}
       {/* Keep mounted when tabbed away so the control stream survives. */}
