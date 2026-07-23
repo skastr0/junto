@@ -1,6 +1,6 @@
 /** Hardened owner-local lifecycle for Unix control sockets and bearer tokens. */
 import { randomBytes } from "node:crypto";
-import { chmodSync, closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { basename, dirname, join } from "node:path";
 
@@ -18,9 +18,21 @@ const sameIdentity = (a: Identity, b: Identity): boolean => a.dev === b.dev && a
 
 export const prepareControlDirectory = (path: string): void => {
   mkdirSync(path, { recursive: true, mode: CONTROL_DIRECTORY_MODE });
-  chmodSync(path, CONTROL_DIRECTORY_MODE);
-  const stat = lstatSync(path);
-  if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o777) !== CONTROL_DIRECTORY_MODE) throw new Error("control directory permissions could not be hardened");
+  // Do not chmod a pathname: open the final component with O_NOFOLLOW and
+  // mutate only that descriptor. A symlink at the control-root leaf fails.
+  const fd = openSync(
+    path,
+    constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0),
+  );
+  try {
+    const stat = fstatSync(fd, { bigint: true });
+    if (!stat.isDirectory()) throw new Error("control root is not a directory");
+    fchmodSync(fd, CONTROL_DIRECTORY_MODE);
+    const hardened = fstatSync(fd, { bigint: true });
+    if ((hardened.mode & BigInt(0o777)) !== BigInt(CONTROL_DIRECTORY_MODE)) throw new Error("control directory permissions could not be hardened");
+  } finally {
+    closeSync(fd);
+  }
 };
 
 /** Removes only an observed stale Unix socket, never a symlink or arbitrary file. */
@@ -46,6 +58,12 @@ export const removeObservedSocket = async (
     const qdir = lstatSync(quarantine);
     if (!qdir.isDirectory() || qdir.isSymbolicLink() || (qdir.mode & 0o777) !== CONTROL_DIRECTORY_MODE) throw new Error("stale socket quarantine is not owner-only");
     runtime.beforeQuarantineRename?.();
+    // This catches every deterministic swap before the destructive rename.
+    // A same-UID racing rename can still occur after this check; the
+    // post-rename identity check below prevents deletion of that replacement.
+    const finalCanonical = lstatSync(path, { bigint: true });
+    const finalId: Identity = { dev: finalCanonical.dev, ino: finalCanonical.ino, birthtimeNs: finalCanonical.birthtimeNs, uid: finalCanonical.uid };
+    if (!finalCanonical.isSocket() || finalCanonical.isSymbolicLink() || !sameIdentity(id, finalId)) throw new Error("control socket changed before quarantine");
     // rename moves the directory entry itself and never follows a symlink target.
     renameSync(path, quarantined);
     const moved = lstatSync(quarantined, { bigint: true });

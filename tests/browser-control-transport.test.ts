@@ -304,6 +304,19 @@ afterEach(async () => {
 });
 
 describe("browser control Unix transport", () => {
+  it("caps accepted peers before HTTP request admission and recovers after close", async () => {
+    const root = await newRoot();
+    const { server, token } = await startStack(root, { chmodSocket: chmodSync, maxActiveClients: 1 });
+    const first = createConnection(server.socketPath);
+    await new Promise<void>((resolve, reject) => { first.once("connect", resolve); first.once("error", reject); });
+    const excess = createConnection(server.socketPath);
+    await new Promise<void>((resolve) => excess.once("close", resolve));
+    first.destroy();
+    await new Promise<void>((resolve) => first.once("close", resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    const response = await rawExchange(server.socketPath, [requestHead("GET", "/doctor", [[CONTROL_TOKEN_HEADER, token]])], true);
+    expect(statusOf(response)).toBe(200);
+  });
   it("normalizes the control directory, token, shots, and socket to owner-only modes", async () => {
     const root = await newRoot();
     await mkdir(controlDir(root), { recursive: true, mode: 0o777 });

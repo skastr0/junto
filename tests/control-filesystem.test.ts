@@ -23,6 +23,13 @@ describe("control filesystem lifecycle", () => {
     expect(lstatSync(path).mode & 0o777).toBe(CONTROL_DIRECTORY_MODE);
   });
 
+  it("refuses a symlinked control root without chmodding its target", async () => {
+    const base = await root(); const target = join(base, "target"); const link = join(base, "control");
+    mkdirSync(target, { mode: 0o755 }); chmodSync(target, 0o755); symlinkSync(target, link);
+    expect(() => prepareControlDirectory(link)).toThrow();
+    expect(lstatSync(target).mode & 0o777).toBe(0o755);
+  });
+
   it("refuses symlink and regular-file stale socket paths without touching targets", async () => {
     const base = await root(); const target = join(base, "target"); const link = join(base, "control.sock");
     writeFileSync(target, "keep"); symlinkSync(target, link);
@@ -37,13 +44,14 @@ describe("control filesystem lifecycle", () => {
     expect(lstatSync(path).isSocket()).toBe(true); await removeObservedSocket(path); expect(existsSync(path)).toBe(false);
   });
 
-  it("quarantines a deterministic replacement race without deleting the replacement", async () => {
+  it("fails a deterministic replacement race before moving the replacement", async () => {
     const base = await root(); const path = join(base, "control.sock"); const replacement = join(base, "replacement");
     await staleSocket(path); writeFileSync(replacement, "foreign");
-    await expect(removeObservedSocket(path, { beforeQuarantineRename: () => renameSync(replacement, path) })).rejects.toThrow(/changed during quarantine/);
+    await expect(removeObservedSocket(path, { beforeQuarantineRename: () => renameSync(replacement, path) })).rejects.toThrow(/changed before quarantine/);
     const quarantines = (await (await import("node:fs/promises")).readdir(base)).filter((name) => name.startsWith(".vellum-stale-"));
     expect(quarantines).toHaveLength(1);
-    expect(readFileSync(join(base, quarantines[0]!, "control.sock"), "utf8")).toBe("foreign");
+    expect(readFileSync(path, "utf8")).toBe("foreign");
+    expect(existsSync(join(base, quarantines[0]!, "control.sock"))).toBe(false);
   });
 
   it("does not follow a pre-created token temporary symlink and preserves its target", async () => {

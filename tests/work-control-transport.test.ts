@@ -219,6 +219,18 @@ const token = (): string => {
 };
 
 describe("work control transport", () => {
+  it("caps accepted peers before frame parsing and recovers after close", async () => {
+    const { server } = await startTestServer({ runtime: { maxActiveClients: 1 } });
+    const first = createConnection(server.socketPath);
+    await new Promise<void>((resolve, reject) => { first.once("connect", resolve); first.once("error", reject); });
+    const excess = createConnection(server.socketPath);
+    await new Promise<void>((resolve) => excess.once("close", resolve));
+    first.destroy();
+    await new Promise<void>((resolve) => first.once("close", resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    const recovered = await call(server.socketPath, { token: token(), op: "ping" }) as { ok: boolean };
+    expect(recovered.ok).toBe(true);
+  });
   it("mints 0600 socket + token", async () => {
     const server = servers[0]!;
     const sockMode = (await stat(server.socketPath)).mode & 0o777;

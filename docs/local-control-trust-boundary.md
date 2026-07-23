@@ -19,3 +19,11 @@ credentials only; they are never identity or authority delegation.
 All control transports impose bounded frames/bodies, admitted-client work, and
 shutdown drains. Errors must stay bounded and never include tokens, capability
 secrets, request bodies, terminal input, page data, or remote endpoint secrets.
+
+Residual same-UID race: portable Node/POSIX does not expose an atomic
+compare-identity-and-rename operation. Cleanup performs a final identity check
+immediately before quarantine rename and verifies the moved inode before unlink.
+If another same-UID process swaps the canonical entry in the irreducible gap,
+the replacement can be moved into the owner-only quarantine but is never
+unlinked; startup fails closed. Deterministic swaps before that final check stay
+at the canonical path and fail without being moved.
