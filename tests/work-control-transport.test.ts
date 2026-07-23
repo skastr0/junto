@@ -19,6 +19,7 @@ import {
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import {
   startWorkControlServer,
+  workControlReadiness,
   type WorkControlRuntime,
   type WorkControlServer,
   type WorkControlServerOptions,
@@ -237,6 +238,28 @@ describe("work control transport", () => {
     const tokMode = (await stat(server.tokenPath)).mode & 0o777;
     expect(sockMode).toBe(0o600);
     expect(tokMode).toBe(0o600);
+  });
+
+  it("reports only a current owned listener, never stale paths or a foreign socket", async () => {
+    const server = servers[0]!;
+    expect(workControlReadiness.ready()).toBe(true);
+
+    await expect(server.close()).resolves.toMatchObject({ clean: true });
+    expect(workControlReadiness.ready()).toBe(false);
+    await expect(stat(server.tokenPath)).resolves.toMatchObject({ mode: expect.any(Number) });
+
+    const foreign = createNetServer();
+    rogueServers.push(foreign);
+    await new Promise<void>((resolveListen, rejectListen) => {
+      foreign.once("error", rejectListen);
+      foreign.listen({ path: server.socketPath }, () => {
+        foreign.removeListener("error", rejectListen);
+        resolveListen();
+      });
+    });
+
+    expect(foreign.listening).toBe(true);
+    expect(workControlReadiness.ready()).toBe(false);
   });
 
   it("idempotently closes admission and drains accepted sockets to a fixed point", async () => {

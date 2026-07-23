@@ -575,6 +575,34 @@ export interface WorkControlRuntime {
   readonly maxActiveClients?: number;
 }
 
+export interface WorkControlReadinessPort {
+  /**
+   * True only while at least one main-owned listener still holds its lease,
+   * owns the hardened socket entry, and admits new work.
+   */
+  readonly ready: () => boolean;
+}
+
+const liveWorkControlListeners = new Map<symbol, () => boolean>();
+
+/**
+ * Private main-process observation port. It carries no path, token, peer
+ * identity, or dispatch authority, so Doctor cannot turn it into a client
+ * admission bypass.
+ */
+export const workControlReadiness: WorkControlReadinessPort = Object.freeze({
+  ready: () => {
+    for (const observe of liveWorkControlListeners.values()) {
+      try {
+        if (observe()) return true;
+      } catch {
+        // A raced listener teardown is not ready.
+      }
+    }
+    return false;
+  },
+});
+
 const WORK_CONTROL_SHUTDOWN_GRACE_MS = 100;
 const WORK_CONTROL_SHUTDOWN_DEADLINE_MS = 2_000;
 const WORK_CONTROL_MAX_CLIENTS = 32;
@@ -719,6 +747,7 @@ export const startWorkControlServer = async (
     WORK_CONTROL_SHUTDOWN_DEADLINE_MS,
   );
   const maxActiveClients = boundedRuntimeValue(runtime.maxActiveClients, WORK_CONTROL_MAX_CLIENTS);
+  const readinessAuthority = Symbol("work-control-listener");
   let shuttingDown = false;
   let nextFlightId = 0;
   let nextSocketId = 0;
@@ -1152,9 +1181,28 @@ export const startWorkControlServer = async (
     console.error("[work-control] server error:", error);
   });
 
-  publishSystemdGenerationReadiness();
+  const withdrawReadiness = (): void => {
+    liveWorkControlListeners.delete(readinessAuthority);
+  };
+  server.once("close", withdrawReadiness);
+  try {
+    publishSystemdGenerationReadiness();
+    liveWorkControlListeners.set(
+      readinessAuthority,
+      () =>
+        !shuttingDown &&
+        server.listening &&
+        controlListenerLeaseHeld(listenerLease) &&
+        ownsSocketPath(),
+    );
+  } catch (error) {
+    withdrawReadiness();
+    await closeListenerWithoutDeletingReplacement().catch(() => undefined);
+    throw error;
+  }
 
   const beginShutdown = (): void => {
+    withdrawReadiness();
     if (shuttingDown) return;
     // This state flip is the cut line. It precedes every async close step and
     // is checked both at socket acceptance and at each NDJSON frame boundary.

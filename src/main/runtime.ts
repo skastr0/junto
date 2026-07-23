@@ -1,19 +1,12 @@
-import { access } from "node:fs/promises";
-import { constants, existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync } from "node:fs";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
+import { assessSupervisedRuntime } from "@shared/station";
 import {
   assessStationDoctor,
   kernelRecordFromSnapshot,
 } from "@shared/station-status";
 import { termControlSocketPath } from "@shared/term-control";
-import {
-  workControlDir,
-  workControlSocketPath,
-  workControlTokenPath,
-  WORK_HOME_ENV,
-} from "@shared/work-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { FolderLive, FolderService } from "./services/folder";
 import { PrismLive, PrismService } from "./services/prism";
@@ -44,6 +37,7 @@ import {
   createStationReadinessCoordinator,
   stationReadinessMetadata,
 } from "./vellum/station-readiness";
+import { workControlReadiness } from "./vellum/work/control";
 
 // KernelLive requires CanvasesService/SnapshotsService/StoreService;
 // RegionRollupLive requires CanvasesService/SnapshotsService.
@@ -102,6 +96,10 @@ export const RootLayer = Layer.provideMerge(
 
 export const AppRuntime = ManagedRuntime.make(RootLayer);
 
+export const supervisorAlignedForReadiness = (
+  input: Parameters<typeof assessSupervisedRuntime>[0],
+): boolean => assessSupervisedRuntime(input).aligned;
+
 export const buildDoctorReport = Effect.gen(function* () {
   // Ensure registry snapshot is current before host-aware doctor / transports.
   yield* Effect.tryPromise({
@@ -141,15 +139,13 @@ export const buildDoctorReport = Effect.gen(function* () {
           )
         : undefined;
     const supervisedInstalled = yield* Effect.promise(() => probeSupervisedRuntime());
-    const workHome = process.env[WORK_HOME_ENV] || workControlDir(homedir());
-    const workControlReady = yield* Effect.tryPromise({
-      try: async () => {
-        await access(workControlSocketPath(workHome), constants.F_OK);
-        await access(workControlTokenPath(workHome), constants.R_OK);
-        return true;
-      },
-      catch: () => false as const,
-    }).pipe(Effect.catchAll(() => Effect.succeed(false as const)));
+    const workControlReady = workControlReadiness.ready();
+    const supervisorAligned = supervisorAlignedForReadiness({
+      role: settingsDoc.station.role,
+      hostId: settingsDoc.station.hostId,
+      supervisedPreferred: settingsDoc.station.supervisedPreferred,
+      supervisedInstalled,
+    });
     const stationDoctor = assessStationDoctor({
       role: settingsDoc.station.role,
       hostId: settingsDoc.station.hostId,
@@ -168,7 +164,7 @@ export const buildDoctorReport = Effect.gen(function* () {
       role: settingsDoc.station.role,
       hostId: settingsDoc.station.hostId,
       packageIdentity: station.name,
-      supervisorAligned: supervisedInstalled === "installed",
+      supervisorAligned,
       canvasPull: settingsDoc.station.role === "remote"
         ? statusDoc.lastPull?.ok ? "fresh" : "missing"
         : "not-required",

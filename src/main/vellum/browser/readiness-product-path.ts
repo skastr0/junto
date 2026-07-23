@@ -16,6 +16,7 @@ import type {
 } from "./readiness-probe";
 
 const SYNTHETIC_BODY = "<!doctype html><title>Vellum readiness</title><main>ready</main>";
+const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 export interface BrowserReadinessProductPathDependencies {
   readonly compositionHost: BrowserCompositionHost;
@@ -26,28 +27,63 @@ export interface BrowserReadinessProductPathDependencies {
 
 const listenLoopback = (server: Server): Promise<string> =>
   new Promise((resolve, reject) => {
-    const fail = (error: Error): void => {
+    let settled = false;
+    const cleanup = (): void => {
+      server.removeListener("error", fail);
       server.removeListener("listening", ready);
+      server.removeListener("close", closed);
+    };
+    const rejectOnce = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       reject(error);
     };
+    const fail = (error: Error): void => {
+      rejectOnce(error);
+    };
     const ready = (): void => {
-      server.removeListener("error", fail);
       const address = server.address();
       if (address === null || typeof address === "string" || address.address !== "127.0.0.1") {
-        reject(new Error("readiness listener did not bind exact loopback"));
+        rejectOnce(new Error("readiness listener did not bind exact loopback"));
         return;
       }
+      if (settled) return;
+      settled = true;
+      cleanup();
       resolve(`http://127.0.0.1:${String(address.port)}/`);
+    };
+    const closed = (): void => {
+      rejectOnce(new Error("readiness listener closed before binding"));
     };
     server.once("error", fail);
     server.once("listening", ready);
+    server.once("close", closed);
     server.listen({ host: "127.0.0.1", port: 0, exclusive: true });
   });
 
-const closeServer = (server: Server | undefined): Promise<void> =>
-  server === undefined || !server.listening
-    ? Promise.resolve()
-    : new Promise((resolve) => server.close(() => resolve()));
+/**
+ * `server.listening` remains false during an in-flight `listen()`. Calling
+ * close in that window is still required: Node cancels the pending bind and
+ * emits `close`. The callback also settles when the server never reached the
+ * listening state, so neither path can leave the readiness promise hanging.
+ */
+const closeServer = (server: Server): Promise<void> =>
+  new Promise((resolve) => {
+    let settled = false;
+    const done = (): void => {
+      if (settled) return;
+      settled = true;
+      server.removeListener("close", done);
+      resolve();
+    };
+    server.once("close", done);
+    try {
+      server.close(() => done());
+    } catch {
+      done();
+    }
+  });
 
 const readinessEvents = (): BrowserViewEvents => ({
   onNavigationStart: (event) => event.expectedSessionId ?? "readiness",
@@ -63,38 +99,67 @@ const successfulEval = (value: unknown): boolean =>
   "__vellumEval" in value && "status" in value &&
   value.__vellumEval === 1 && value.status === "ok";
 
+const hasPngSignature = (value: Uint8Array): boolean =>
+  value.byteLength >= PNG_SIGNATURE.byteLength &&
+  PNG_SIGNATURE.every((byte, index) => value[index] === byte);
+
+interface ListenerRun {
+  readonly server: Server;
+  readonly listen: Promise<string>;
+  origin?: string;
+  closeFlight?: Promise<void>;
+  closePage?: () => Promise<void>;
+}
+
 /**
- * Constructs the composition-owned readiness port. `close` is deliberately
- * unconditional: a listener opened before view construction cannot outlive a
- * failed open or cancelled probe.
+ * Constructs the reusable composition-owned readiness port. Every assessment
+ * gets a fresh listener/run, while `close` always targets the exact active run.
  */
 export const makeElectronBrowserReadinessProductPath = (
   dependencies: BrowserReadinessProductPathDependencies,
 ): BrowserReadinessProductPath => {
   const createNonce = dependencies.createNonce ?? randomUUID;
   const createHttpServer = dependencies.createServer ?? createServer;
-  let server: Server | undefined;
-  let origin: string | undefined;
-  let closed = false;
+  let active: ListenerRun | undefined;
+
+  const closeRun = (run: ListenerRun): Promise<void> => {
+    if (run.closeFlight !== undefined) return run.closeFlight;
+    run.origin = undefined;
+    if (active === run) active = undefined;
+    const flight = closeServer(run.server);
+    run.closeFlight = flight;
+    return flight;
+  };
 
   const close = async (): Promise<void> => {
-    if (closed) return;
-    closed = true;
-    const current = server;
-    server = undefined;
-    origin = undefined;
-    await closeServer(current);
+    const run = active;
+    if (run === undefined) return;
+    if (run.closePage !== undefined) {
+      await run.closePage();
+      return;
+    }
+    await closeRun(run);
   };
 
   return Object.freeze({
     ensureCompositionHost: async (signal: AbortSignal): Promise<boolean> => {
-      if (signal.aborted || closed) return false;
+      if (signal.aborted) return false;
+      let attemptedRun: ListenerRun | undefined;
       try {
         if (dependencies.compositionHost.current() === undefined) {
           await dependencies.compositionHost.ensureHeadlessHost();
         }
         if (signal.aborted || dependencies.compositionHost.current() === undefined) return false;
-        if (origin !== undefined) return true;
+
+        const current = active;
+        if (
+          current?.origin !== undefined &&
+          current.closeFlight === undefined &&
+          current.server.listening
+        ) {
+          return true;
+        }
+
         const candidate = createHttpServer((_request, response) => {
           response.writeHead(200, {
             "content-type": "text/html; charset=utf-8",
@@ -103,41 +168,102 @@ export const makeElectronBrowserReadinessProductPath = (
           });
           response.end(SYNTHETIC_BODY);
         });
-        server = candidate;
-        origin = await listenLoopback(candidate);
-        return !signal.aborted;
+        const run: ListenerRun = {
+          server: candidate,
+          listen: listenLoopback(candidate),
+        };
+        attemptedRun = run;
+        active = run;
+        const abortRun = (): void => {
+          void closeRun(run);
+        };
+        signal.addEventListener("abort", abortRun, { once: true });
+        try {
+          const origin = await run.listen;
+          if (signal.aborted || active !== run || run.closeFlight !== undefined) {
+            await closeRun(run);
+            return false;
+          }
+          run.origin = origin;
+          return true;
+        } finally {
+          signal.removeEventListener("abort", abortRun);
+        }
       } catch {
-        await close();
+        if (attemptedRun !== undefined) await closeRun(attemptedRun);
         return false;
       }
     },
     loopbackOrigin: (): string => {
-      if (origin === undefined || closed) throw new Error("readiness loopback listener is unavailable");
-      return origin;
+      const run = active;
+      if (
+        run?.origin === undefined ||
+        run.closeFlight !== undefined ||
+        !run.server.listening
+      ) {
+        throw new Error("readiness loopback listener is unavailable");
+      }
+      return run.origin;
     },
     openSyntheticLoopbackPage: async (
       { url, signal }: Readonly<{ url: string; signal: AbortSignal }>,
     ): Promise<BrowserReadinessSyntheticPage> => {
-      if (signal.aborted || origin === undefined || closed || !url.startsWith(origin)) {
+      const run = active;
+      const origin = run?.origin;
+      if (
+        signal.aborted ||
+        run === undefined ||
+        origin === undefined ||
+        run.closeFlight !== undefined ||
+        !run.server.listening ||
+        !url.startsWith(origin)
+      ) {
         throw new Error("readiness page requested without its exact loopback origin");
       }
       const partition = `vellum-readiness-${createNonce()}`;
       let view: BrowserViewHandle | undefined;
       let pageClosed = false;
-      const closePage = async (): Promise<void> => {
-        if (pageClosed) return;
+      let closePageFlight: Promise<void> | undefined;
+      let abortPage: (() => void) | undefined;
+      const closePage = (): Promise<void> => {
+        if (closePageFlight !== undefined) return closePageFlight;
         pageClosed = true;
-        try {
-          view?.detach();
-          view?.destroy();
-          await view?.whenDestroyed?.();
-        } finally {
-          await close();
-        }
+        if (abortPage !== undefined) signal.removeEventListener("abort", abortPage);
+        if (run.closePage === closePage) run.closePage = undefined;
+        closePageFlight = (async () => {
+          const currentView = view;
+          try {
+            currentView?.stopLoading?.();
+          } catch {
+            // Destruction remains mandatory even if Chromium rejects stop.
+          }
+          try {
+            currentView?.detach();
+          } catch {
+            // Continue into owned destruction and listener closure.
+          }
+          try {
+            currentView?.destroy();
+          } catch {
+            // The close receipt still waits for the listener below.
+          }
+          const destroyed = currentView?.whenDestroyed?.() ?? Promise.resolve();
+          await Promise.allSettled([destroyed, closeRun(run)]);
+        })();
+        return closePageFlight;
       };
       try {
         view = dependencies.viewAdapter(partition, readinessEvents(), { exactTopLevelOrigin: origin });
         view.attach({ x: 0, y: 0, width: 1, height: 1 });
+        run.closePage = closePage;
+        abortPage = () => {
+          void closePage();
+        };
+        signal.addEventListener("abort", abortPage, { once: true });
+        if (signal.aborted) {
+          await closePage();
+          throw new Error("readiness page creation was cancelled");
+        }
         return Object.freeze({
           navigate: async (operationSignal: AbortSignal): Promise<boolean> => {
             if (operationSignal.aborted || pageClosed) return false;
@@ -150,7 +276,7 @@ export const makeElectronBrowserReadinessProductPath = (
           },
           screenshot: async (operationSignal: AbortSignal): Promise<boolean> => {
             if (operationSignal.aborted || pageClosed || view!.capturePagePng === undefined) return false;
-            return (await view!.capturePagePng()).byteLength > 0;
+            return hasPngSignature(await view!.capturePagePng());
           },
           close: closePage,
         });

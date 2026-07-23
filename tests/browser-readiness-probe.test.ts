@@ -63,6 +63,22 @@ describe("browser product-path readiness probe", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it("releases the one-flight after cleanup so a later Doctor probe runs again", async () => {
+    const value = product();
+    const probe = makeBrowserProductPathProbe({
+      station: station(),
+      productPath: value.path,
+    });
+
+    await expect(probe.probe(signal())).resolves.toMatchObject({ transport: "ready" });
+    await expect(probe.probe(signal())).resolves.toMatchObject({ transport: "ready" });
+
+    expect(value.path.ensureCompositionHost).toHaveBeenCalledTimes(2);
+    expect(value.path.openSyntheticLoopbackPage).toHaveBeenCalledTimes(2);
+    expect(value.close).toHaveBeenCalledTimes(2);
+    expect(value.closePath).toHaveBeenCalledTimes(2);
+  });
+
   it("fails closed and aborts a bounded synthetic operation", async () => {
     vi.useFakeTimers();
     const close = vi.fn(async () => undefined);
