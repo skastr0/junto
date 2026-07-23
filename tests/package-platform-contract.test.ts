@@ -69,8 +69,16 @@ describe("native package pipeline contract", () => {
 
   it("keeps Linux free of macOS tooling and builds both canonical artifacts", async () => {
     const linux = await script("package-app-linux.sh");
-    expect(linux).toContain('bun rebuild node-pty');
-    expect(linux).toContain('bunx electron-builder --linux dir deb --x64');
+    expect(linux).not.toContain("bun rebuild");
+    expect(linux).not.toContain("electron-builder install-app-deps");
+    expect(linux).toContain("Linux packaging requires Node >=22.12.0");
+    expect(linux).toContain("NODE_MAJOR < 22 || (NODE_MAJOR == 22 && NODE_MINOR < 12)");
+    expect(linux).toContain("bunx --no-install electron-rebuild");
+    expect(linux).toContain("--only node-pty");
+    expect(linux).toContain("--sequential");
+    expect(linux).toContain(
+      "bunx --no-install electron-builder --linux dir deb --x64 --config.npmRebuild=false",
+    );
     expect(linux).toContain('finalize-linux-package.ts');
     expect(linux).toContain('audit-linux-package.ts');
     expect(linux).toContain('Linux v1 packages require native x86_64');

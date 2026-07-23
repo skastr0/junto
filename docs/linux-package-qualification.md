@@ -14,12 +14,17 @@ bun install --frozen-lockfile
 bun run app:build:linux -- --verify
 ```
 
-The build rebuilds `node-pty` for the target Electron ABI, emits both artifacts,
-and runs `scripts/audit-linux-package.ts`. That audit fails closed on the deb
-identity/dependency inventory, archive ownership and modes, desktop metadata,
-AppArmor policy, x86-64 ELF objects, unresolved Electron or `node-pty` shared
-libraries, ASAR unpack placement, helper modes, and the complete Electron fuse
-wire.
+The build worker needs Bun plus Node 22.12.0 or newer; Node is the declared
+runtime for `@electron/rebuild` and its node-gyp subprocess. The package lane
+uses only locally installed, lockfile-resolved tools. It rebuilds only
+`node-pty`, sequentially, for the target Electron ABI and disables
+electron-builder's broader native-dependency rebuild pass.
+
+The build emits both artifacts and runs `scripts/audit-linux-package.ts`. That
+audit fails closed on the deb identity/dependency inventory, archive ownership
+and modes, desktop metadata, AppArmor policy, x86-64 ELF objects, unresolved
+Electron or `node-pty` shared libraries, ASAR unpack placement, executable
+modes, and the complete Electron fuse wire.
 
 ## Disposable-host gate
 

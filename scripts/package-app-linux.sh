@@ -21,8 +21,39 @@ while [[ $# -gt 0 ]]; do
 done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
-bun rebuild node-pty
-bunx electron-builder --linux dir deb --x64
+
+# @electron/rebuild 4 requires Node >=22.12 and node-gyp invokes that runtime
+# while compiling. Fail before touching the dependency tree when the build host
+# does not satisfy the declared tool contract.
+NODE_EXECUTABLE="$(type -P node || true)"
+NODE_VERSION=""
+if [[ -n "$NODE_EXECUTABLE" && -x "$NODE_EXECUTABLE" ]]; then
+  NODE_VERSION="$("$NODE_EXECUTABLE" --version 2>/dev/null || true)"
+fi
+if [[ ! "$NODE_VERSION" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+  printf 'vellum: error: Linux packaging requires Node >=22.12.0 for @electron/rebuild\n' >&2
+  exit 1
+fi
+NODE_MAJOR="${BASH_REMATCH[1]}"
+NODE_MINOR="${BASH_REMATCH[2]}"
+if (( NODE_MAJOR < 22 || (NODE_MAJOR == 22 && NODE_MINOR < 12) )); then
+  printf 'vellum: error: Linux packaging requires Node >=22.12.0; found %s\n' "$NODE_VERSION" >&2
+  exit 1
+fi
+
+# Rebuild only the one native production dependency. install-app-deps and
+# electron-builder's default npmRebuild also traverse unrelated development
+# addons, so the package command disables that broader second pass explicitly.
+ELECTRON_VERSION="$(bun -e 'process.stdout.write(require("./node_modules/electron/package.json").version)')"
+bunx --no-install electron-rebuild \
+  --version "$ELECTRON_VERSION" \
+  --arch x64 \
+  --module-dir . \
+  --only node-pty \
+  --force \
+  --sequential
+
+bunx --no-install electron-builder --linux dir deb --x64 --config.npmRebuild=false
 finalized="$(bun "$SCRIPT_DIR/finalize-linux-package.ts" --release-dir "$SCRIPT_DIR/../release")"
 unpacked="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.artifact !== "string") process.exit(1); process.stdout.write(value.artifact)')"
 deb="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.deb !== "string") process.exit(1); process.stdout.write(value.deb)')"

@@ -506,15 +506,12 @@ const assertAsarUnpacked = (
 const validateNodePtyAsarInventory = (
   asarPath: string,
   nativeModule: string,
-  spawnHelper: string,
   resources: string,
 ): void => {
   const unpackedRoot = path.join(resources, "app.asar.unpacked");
-  const allowedUnpacked = new Set(
-    [nativeModule, spawnHelper].map((entry) =>
-      path.relative(unpackedRoot, entry).split(path.sep).join("/"),
-    ),
-  );
+  const allowedUnpacked = new Set([
+    path.relative(unpackedRoot, nativeModule).split(path.sep).join("/"),
+  ]);
   for (const entry of listPackage(asarPath, { isPack: false })) {
     const normalized = entry.replace(/^\//u, "");
     if (
@@ -686,11 +683,9 @@ export const auditLinuxPackage = async ({
 
     const pty = auditLinuxPtyPlacement(resources);
     assertAsarUnpacked(appAsar, pty.nativeModule, resources);
-    assertAsarUnpacked(appAsar, pty.spawnHelper, resources);
     validateNodePtyAsarInventory(
       appAsar,
       pty.nativeModule,
-      pty.spawnHelper,
       resources,
     );
     const elfObjects = [
@@ -698,12 +693,10 @@ export const auditLinuxPackage = async ({
       workCli,
       browserCli,
       pty.nativeModule,
-      pty.spawnHelper,
     ];
     await Promise.all(elfObjects.map(requireElfX64));
     requireLoadable(mainExecutable);
     requireLoadable(pty.nativeModule);
-    requireLoadable(pty.spawnHelper);
 
     const fuseReceipt = validateFuseWire(await getCurrentFuseWire(mainExecutable));
     validateDesktopEntry(
