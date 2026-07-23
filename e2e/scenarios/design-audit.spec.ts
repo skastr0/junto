@@ -363,6 +363,18 @@ test("capture every surface for design review", async () => {
       await page.waitForTimeout(300);
     }
 
+    // Terminal inventory popover (detached sessions).
+    const terms = page.getByRole("button", { name: /^terms/ });
+    if (await terms.isVisible().catch(() => false)) {
+      await terms.click();
+      await shot(page, "23-terminal-inventory");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+      if (await terms.getAttribute("aria-expanded").catch(() => null) === "true") {
+        await terms.click();
+      }
+    }
+
     // Wizards via the add-item palette.
     const addItem = page.getByRole("button", { name: "Add canvas item" });
     if (await addItem.isVisible().catch(() => false)) {
@@ -405,6 +417,22 @@ test("capture every surface for design review", async () => {
     await page.getByRole("button", { name: "Pin all" }).click();
     await page.waitForTimeout(700);
     await shot(page, "09b-native-terminal-pinned");
+  } finally {
+    await vellum.close();
+  }
+});
+
+// Empty field — the boot state every operator sees on a fresh canvas.
+test("capture the empty field state", async () => {
+  const vellum = await launchVellum({
+    seedCanvases: { empty: canvasDoc([]) },
+  });
+  try {
+    const { page } = vellum;
+    await mkdir(SHOTS, { recursive: true });
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await page.waitForTimeout(800);
+    await shot(page, "24-empty-field");
   } finally {
     await vellum.close();
   }
