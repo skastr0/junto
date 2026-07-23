@@ -24,7 +24,8 @@ const successfulAuthority = (): {
   const authority: NativeTerminalProbeAuthority = {
     spawnTerminal: (spec) => {
       specs.push(spec);
-      const exit: AppTerminalExit = { code: 0, signal: undefined };
+      // Real node-pty uses signal=0 for an ordinary exit.
+      const exit: AppTerminalExit = { code: 0, signal: 0 };
       return {
         generation: 1,
         source: spec.source,

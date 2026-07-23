@@ -145,7 +145,9 @@ export const probeNativeTerminalReadiness = async (
         detail: boundedMessage(backendErrors[0]),
       };
     }
-    if (exited.code !== 0 || exited.signal !== undefined) {
+    // node-pty reports signal=0 for an ordinary exit on Unix. Only a nonzero
+    // signal is termination evidence.
+    if (exited.code !== 0 || (exited.signal !== undefined && exited.signal !== 0)) {
       return {
         ready: false,
         code: "native_probe_exit",

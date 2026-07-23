@@ -107,7 +107,8 @@ class FakePtyControl implements LinuxPtySmokeControl {
           epoch: "epoch-1",
           seq: 2n,
           code: 23,
-          signal: undefined,
+          // Real node-pty uses signal=0 for an ordinary exit.
+          signal: 0,
         });
       });
     }

@@ -126,7 +126,11 @@ export const verifyLinuxPtyProbe = (input: {
   readonly exitCode: number | undefined;
   readonly signal: number | undefined;
 }): void => {
-  if (input.exitCode !== 23 || input.signal !== undefined) {
+  // node-pty reports signal=0 for an ordinary Unix exit.
+  if (
+    input.exitCode !== 23 ||
+    (input.signal !== undefined && input.signal !== 0)
+  ) {
     throw new Error(
       `packaged PTY exited code=${String(input.exitCode)} signal=${String(input.signal)}`,
     );
