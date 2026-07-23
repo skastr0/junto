@@ -20,7 +20,9 @@ import {
 } from "../src/main/vellum/ssh";
 import { makeRemoteCommand } from "../src/main/vellum/ssh/domain";
 import {
+  createSshProgramCompiler,
   daemonHandoff,
+  deploymentStream,
   dedicatedStream,
   oneShot,
   unixForward,
@@ -199,6 +201,31 @@ describe("SSH policy surface", () => {
     );
 
     const args = sshArgs(calls.find((call) => sshArgs(call).at(-1)?.includes("hermes"))!);
+    expect(args).toContain("ControlMaster=no");
+    expect(args).toContain("ControlPath=none");
+    expect(args).not.toContain("ControlMaster=auto");
+  });
+
+  it("keeps deployment streams dedicated for one bounded privileged transcript", async () => {
+    const endpoint = await Effect.runPromise(parseSshEndpoint("linux-station"));
+    const remote = await Effect.runPromise(
+      makeRemoteCommand("/usr/libexec/vellum-release-bridge", []),
+    );
+    const compiler = createSshProgramCompiler({
+      controlDir: "/tmp/vellum-ssh-policy-test",
+      envExecutable: "/usr/bin/env",
+      sshExecutable: "/usr/bin/ssh",
+      environment: {
+        HOME: "/tmp/vellum-ssh-policy-home",
+        PATH: "/usr/bin:/bin",
+      },
+    });
+
+    const compiled = compiler.stream(deploymentStream(endpoint, remote));
+    const args = sshArgs(standard(compiled.command));
+
+    expect(compiled.connection).toBe("dedicated");
+    expect(compiled.readinessTimeoutMs).toBe(20 * 60_000);
     expect(args).toContain("ControlMaster=no");
     expect(args).toContain("ControlPath=none");
     expect(args).not.toContain("ControlMaster=auto");
