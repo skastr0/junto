@@ -9,13 +9,14 @@ import { resizeNode } from "../../lib/geometry";
 import { state$ } from "../../lib/state";
 import { kernel$ } from "../../lib/kernel-view";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
+import { IconButton, ToolbarPill } from "../ui";
 
 function RegionToolbar({ nodeId, selected, onEdit }: { readonly nodeId: string; readonly selected: boolean; readonly onEdit: () => void }) {
   return <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
-    <div className="nodrag nopan flex items-center gap-1 rounded-md border border-white/10 bg-[#131110] px-1 py-1 shadow-lg shadow-black/40">
-      <button aria-label="Edit region" className="nodrag nopan grid size-7 place-items-center rounded text-slate-300 transition hover:bg-white/10" title="edit region" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onEdit(); }}><Pencil size={14} /></button>
-      <button aria-label="Delete region" className="nodrag nopan grid size-7 place-items-center rounded text-slate-300 transition hover:bg-white/10 hover:text-[#E5484D]" title="delete region" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); deleteNode(nodeId); }}><Trash2 size={14} /></button>
-    </div>
+    <ToolbarPill>
+      <IconButton className="nodrag nopan" aria-label="Edit region" title="edit region" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onEdit(); }}><Pencil size={14} /></IconButton>
+      <IconButton className="nodrag nopan" aria-label="Delete region" tone="danger" title="delete region" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); deleteNode(nodeId); }}><Trash2 size={14} /></IconButton>
+    </ToolbarPill>
   </NodeToolbar>;
 }
 

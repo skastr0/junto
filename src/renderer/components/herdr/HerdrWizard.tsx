@@ -525,7 +525,7 @@ export function HerdrWizard() {
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/55 p-4" onClick={() => closeHerdrWizard()}>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]" onClick={() => closeHerdrWizard()}>
       <div
         className="w-full max-w-md rounded-lg border border-white/10 bg-[#141210] shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}

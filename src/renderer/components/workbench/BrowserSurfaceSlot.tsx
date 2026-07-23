@@ -11,6 +11,7 @@ import {
 } from "../../lib/dock-state";
 import type { WorkZone } from "../../lib/surface-registry";
 import { getVellumApi } from "../../lib/vellum-api";
+import { Button, OverlayHeader } from "../ui";
 
 type BrowserApi = ReturnType<typeof getVellumApi> & Partial<VellumBrowserApi>;
 
@@ -113,64 +114,64 @@ export function BrowserSurfaceSlot({
       onMouseDown={() => onActivate?.()}
     >
       {visible ? (
-        <header className="browser-modal-header dock-slot__header">
-          <div className="browser-modal-header__meta min-w-0">
-            <div className="browser-modal-eyebrow">
-              page · {payload.browser.profile} · close detaches (session keeps running)
-            </div>
-            <div className="browser-modal-title truncate">{session?.title ?? payload.title}</div>
-            <div className="browser-modal-status truncate">
+        <OverlayHeader
+          eyebrow={`page · ${payload.browser.profile} · close detaches (session keeps running)`}
+          title={session?.title ?? payload.title}
+          status={
+            <>
               {session?.url ?? payload.url}
               {" · "}
               {session?.state ?? status}
-            </div>
-            {stopError ? (
-              <div className="browser-modal-status text-red-300" role="alert">
-                {stopError}
-              </div>
-            ) : null}
-          </div>
-          <div className="browser-modal-actions">
-            <button
-              type="button"
-              className="browser-modal-btn"
-              title={pinned ? "Move to focus shell" : "Pin to side dock"}
-              onPointerDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (pinned) unpinWorkbenchSurface(pageRef);
-                else pinWorkbenchSurface(pageRef);
-              }}
-            >
-              {pinned ? "Unpin" : "Pin"}
-            </button>
-            <button
-              type="button"
-              className="browser-modal-btn"
-              title="Destroy this page runtime; profile cookies remain"
-              onPointerDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                void stopDockBrowser(pageRef);
-              }}
-            >
-              Stop Page
-            </button>
-            <button
-              type="button"
-              className="browser-modal-btn browser-modal-btn--primary"
-              onPointerDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                closeDockBrowser(pageRef);
-              }}
-            >
-              Close
-            </button>
-          </div>
-        </header>
+              {stopError ? (
+                <span className="block text-crimson" role="alert">
+                  {stopError}
+                </span>
+              ) : null}
+            </>
+          }
+          actions={
+            <>
+              <Button
+                size="xs"
+                variant="chrome"
+                title={pinned ? "Move to focus shell" : "Pin to side dock"}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (pinned) unpinWorkbenchSurface(pageRef);
+                  else pinWorkbenchSurface(pageRef);
+                }}
+              >
+                {pinned ? "Unpin" : "Pin"}
+              </Button>
+              <Button
+                size="xs"
+                variant="chrome"
+                title="Destroy this page runtime; profile cookies remain"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void stopDockBrowser(pageRef);
+                }}
+              >
+                Stop Page
+              </Button>
+              <Button
+                size="xs"
+                variant="primary"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  closeDockBrowser(pageRef);
+                }}
+              >
+                Close
+              </Button>
+            </>
+          }
+        />
       ) : null}
-      <div ref={bodyRef} className="browser-modal-body dock-slot__body" />
+      <div ref={bodyRef} className="relative min-h-0 w-full flex-1 overflow-hidden" />
     </section>
   );
 }

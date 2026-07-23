@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { Eyebrow } from "./Eyebrow";
 
 /**
@@ -13,14 +13,25 @@ export function OverlayHeader({
   title,
   status,
   actions,
+  className,
+  ...rest
 }: {
   readonly eyebrow?: ReactNode;
   readonly title: ReactNode;
   readonly status?: ReactNode;
   readonly actions?: ReactNode;
-}) {
+  readonly className?: string;
+} & HTMLAttributes<HTMLElement>) {
   return (
-    <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stroke bg-raise-2 px-3.5 py-2.5">
+    <header
+      className={[
+        "flex shrink-0 items-center justify-between gap-3 border-b border-stroke bg-raise-2 px-3.5 py-2.5",
+        className ?? "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      {...rest}
+    >
       <div className="min-w-0">
         {eyebrow ? <Eyebrow tone="steel">{eyebrow}</Eyebrow> : null}
         <div className="truncate font-mono text-[14px] font-semibold text-ink">{title}</div>

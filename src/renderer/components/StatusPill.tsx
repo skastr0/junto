@@ -1,11 +1,12 @@
 import { CheckCircle2, CircleAlert, CircleHelp, XCircle } from "lucide-react";
 import type { ServiceHealth } from "@shared/contracts";
+import { HUE, withAlpha } from "../lib/theme";
 
-const statusClass: Record<ServiceHealth, string> = {
-  ok: "border-emerald-400/40 bg-emerald-400/10 text-emerald-200",
-  warning: "border-amber-300/40 bg-amber-300/10 text-amber-100",
-  error: "border-rose-400/40 bg-rose-400/10 text-rose-100",
-  unknown: "border-slate-400/30 bg-slate-400/10 text-slate-200",
+const statusHex: Record<ServiceHealth, string> = {
+  ok: "#5FB98E",
+  warning: HUE.amber,
+  error: HUE.crimson,
+  unknown: "#8a8378",
 };
 
 const statusIcon = {
@@ -17,10 +18,16 @@ const statusIcon = {
 
 export function StatusPill({ status }: { readonly status: ServiceHealth }) {
   const Icon = statusIcon[status];
+  const hex = statusHex[status];
 
   return (
     <span
-      className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs font-medium uppercase tracking-normal ${statusClass[status]}`}
+      className="inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[10px] font-medium uppercase tracking-[0.08em]"
+      style={{
+        color: hex,
+        borderColor: withAlpha(hex, 0.4),
+        background: withAlpha(hex, 0.1),
+      }}
     >
       <Icon size={14} aria-hidden />
       {status}

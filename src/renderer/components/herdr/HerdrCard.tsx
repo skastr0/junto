@@ -21,7 +21,7 @@ import { addNode, editText } from "../../lib/mutations";
 import { makePageNode } from "../../lib/node-factories";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
-import { DIM, INK, withAlpha } from "../../lib/theme";
+import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HarnessMark } from "./HarnessMark";
 
@@ -360,7 +360,7 @@ export function HerdrCard({
                 service?.health === "live"
                   ? withAlpha(INK, 0.85)
                   : service?.health === "dead"
-                    ? "var(--vellum-crimson, #c44)"
+                    ? HUE.crimson
                     : DIM,
             }}
             title={service?.url ?? serviceBadge}

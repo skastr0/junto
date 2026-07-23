@@ -18,6 +18,7 @@ import { getVellumApi } from "../../lib/vellum-api";
 import { VELLUM_XTERM_THEME } from "../../lib/terminal-theme";
 import { ActivityMark } from "../ActivityMark";
 import { FocusSurface } from "../FocusSurface";
+import { Button, OverlayHeader } from "../ui";
 
 const utf8ToBase64 = (text: string): string => {
   const bytes = new TextEncoder().encode(text);
@@ -623,6 +624,18 @@ export function HerdrTerminalPanel({
     focusHerdrTerminal(nodeId);
   };
 
+  // Status line: ActivityMark carries connected/connecting; the text adds
+  // identity + geometry + stream status. conn.state joins only when it adds
+  // information (never a bare "connected · connected" repeat).
+  const connState = conn?.state;
+  const statusBits = [
+    terminalOpen.herdr.host,
+    terminalOpen.herdr.paneId || undefined,
+    geom.cols ? `${geom.cols}×${geom.rows}` : undefined,
+    status !== connState ? status : undefined,
+    connState && connState !== "connected" ? connState : undefined,
+  ].filter((bit): bit is string => Boolean(bit));
+
   const chrome = (
     <div
       className={isFocused ? "herdr-terminal-panel herdr-terminal-panel--focused" : "herdr-terminal-panel"}
@@ -630,53 +643,48 @@ export function HerdrTerminalPanel({
       data-herdr-focused={isFocused ? "1" : "0"}
       onMouseDown={claimFocus}
     >
-      <header data-herdr-chrome className="herdr-modal-header">
-        <div className="herdr-modal-header__meta min-w-0">
-          <div className="herdr-modal-eyebrow">
-            herdr · ⌘W / Close detaches (pane keeps running) · Esc goes to the terminal
-            {isFocused ? " · focused" : " · click to focus"}
-          </div>
-          <div className="herdr-modal-title truncate">{terminalOpen.title}</div>
-          <div className="herdr-modal-status truncate">
+      <OverlayHeader
+        data-herdr-chrome
+        eyebrow={`herdr · ⌘W / Close detaches (pane keeps running) · Esc goes to the terminal${isFocused ? " · focused" : " · click to focus"}`}
+        title={terminalOpen.title}
+        status={
+          <span className="herdr-modal-status inline-flex items-center gap-1.5">
             <ActivityMark
-              mode={conn?.state === "connected" ? "static" : "wave"}
+              mode={connState === "connected" ? "static" : "wave"}
               tone="amber"
               size="inline"
-              label={conn?.state === "connected" ? "connected" : "connecting"}
-            />{" "}
-            {terminalOpen.herdr.host}
-            {terminalOpen.herdr.paneId ? ` · ${terminalOpen.herdr.paneId}` : ""}
-            {geom.cols ? ` · ${geom.cols}×${geom.rows}` : ""}
-            {" · "}
-            {status}
-            {conn?.state ? ` · ${conn.state}` : ""}
-          </div>
-        </div>
-        <div data-herdr-chrome className="herdr-modal-actions">
-          {(conn?.state === "failed" || conn?.state === "lost" || conn?.state === "degraded") && (
-            <button
-              type="button"
+              label={connState === "connected" ? "connected" : "connecting"}
+            />
+            {statusBits.join(" · ")}
+          </span>
+        }
+        actions={
+          <>
+            {(connState === "failed" || connState === "lost" || connState === "degraded") && (
+              <Button
+                size="xs"
+                variant="chrome"
+                data-herdr-chrome
+                onClick={() => void recreateHerdrPane(terminalOpen.nodeId, terminalOpen.herdr)}
+              >
+                recreate
+              </Button>
+            )}
+            <Button
+              size="xs"
+              variant="primary"
               data-herdr-chrome
-              className="herdr-modal-btn"
-              onClick={() => void recreateHerdrPane(terminalOpen.nodeId, terminalOpen.herdr)}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeHerdrTerminal(nodeId);
+              }}
             >
-              recreate
-            </button>
-          )}
-          <button
-            type="button"
-            data-herdr-chrome
-            className="herdr-modal-btn herdr-modal-btn--primary"
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              closeHerdrTerminal(nodeId);
-            }}
-          >
-            Close
-          </button>
-        </div>
-      </header>
+              Close
+            </Button>
+          </>
+        }
+      />
 
       <div ref={hostRef} className="herdr-xterm herdr-modal-body" />
     </div>

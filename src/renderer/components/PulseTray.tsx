@@ -142,7 +142,7 @@ function Toast({ item }: ToastProps) {
 
   return (
     <div
-      className="pulse-toast rounded-xs border-l-2 px-2 py-1.5 text-[10px] leading-tight transition-all duration-200 ease-in-out animate-in fade-in slide-in-from-bottom"
+      className="pulse-toast rounded-xs border-l-2 px-2 py-1.5 text-[10px] leading-tight"
       style={{
         borderLeftColor: sourceColor,
         backgroundColor: GROUND,
@@ -168,7 +168,7 @@ function KernelToast({ record }: { readonly record: PulseRecord }) {
 
   return (
     <div
-      className="pulse-toast pulse-toast--kernel rounded-xs border-l-2 px-2 py-1.5 text-[10px] leading-tight transition-all duration-200 ease-in-out animate-in fade-in slide-in-from-bottom"
+      className="pulse-toast pulse-toast--kernel rounded-xs border-l-2 px-2 py-1.5 text-[10px] leading-tight"
       style={{
         borderLeftColor: accent,
         backgroundColor: GROUND,

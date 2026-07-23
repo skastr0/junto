@@ -8,6 +8,7 @@ import { resizeNode } from "../../lib/geometry";
 import { deleteNode, toggleFlag } from "../../lib/mutations";
 import { herdr$ } from "../../lib/herdr-state";
 import { isHerdrCanvasNode, nodeBlockPresentation } from "../../lib/node-block-state";
+import { IconButton, ToolbarPill } from "../ui";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
 const FLAG_HUES: Record<EtherFlag, string> = {
@@ -49,11 +50,11 @@ function NodeActions({
       : "flag blocker";
   return (
     <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
-      <div className="nodrag nopan flex items-center gap-1 rounded-md border border-white/10 bg-[#131110] px-1 py-1 shadow-lg shadow-black/40">
+      <ToolbarPill>
         {onEdit ? (
-          <button
+          <IconButton
+            className="nodrag nopan"
             aria-label="Edit item"
-            className="nodrag nopan grid size-7 place-items-center rounded text-[11px] text-slate-300 transition hover:bg-white/10 hover:text-[#EDE6DA]"
             title="edit item"
             onPointerDown={(event) => {
               event.preventDefault();
@@ -62,12 +63,12 @@ function NodeActions({
             }}
           >
             <Pencil size={14} />
-          </button>
+          </IconButton>
         ) : null}
         {onMaximize ? (
-          <button
+          <IconButton
+            className="nodrag nopan"
             aria-label="Expand note editor"
-            className="nodrag nopan grid size-7 place-items-center rounded text-[11px] text-slate-300 transition hover:bg-white/10 hover:text-[#EDE6DA]"
             title="expand editor"
             onPointerDown={(event) => {
               event.preventDefault();
@@ -76,13 +77,13 @@ function NodeActions({
             }}
           >
             <Maximize2 size={14} />
-          </button>
+          </IconButton>
         ) : null}
         {toolbarExtras}
-        <button
+        <IconButton
+          className="nodrag nopan"
           aria-label={flagBlocker ? "Clear blocker flag" : "Flag blocker"}
-          className="nodrag nopan grid size-7 place-items-center rounded text-[11px] transition hover:bg-white/10"
-          style={{ color: chromeBlocker ? HUE.crimson : HUE.steel }}
+          style={{ color: chromeBlocker ? HUE.crimson : undefined }}
           title={title}
           onPointerDown={(event) => {
             event.preventDefault();
@@ -91,10 +92,11 @@ function NodeActions({
           }}
         >
           <Ban size={14} />
-        </button>
-        <button
+        </IconButton>
+        <IconButton
+          className="nodrag nopan"
+          tone="danger"
           aria-label="Delete node"
-          className="nodrag nopan grid size-7 place-items-center rounded text-[11px] text-slate-300 transition hover:bg-white/10 hover:text-[#E5484D]"
           title="delete node"
           onPointerDown={(event) => {
             event.preventDefault();
@@ -103,8 +105,8 @@ function NodeActions({
           }}
         >
           <Trash2 size={14} />
-        </button>
-      </div>
+        </IconButton>
+      </ToolbarPill>
     </NodeToolbar>
   );
 }

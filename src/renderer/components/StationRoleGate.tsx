@@ -4,7 +4,8 @@ import { createPortal } from "react-dom";
 import type { StationRole } from "@shared/station";
 import { state$ } from "../lib/state";
 import { patchSettings } from "../lib/settings-state";
-import { DIM, HUE, INK } from "../lib/theme";
+import { DIM, HUE, INK, INSET, RAISE, STROKE, withAlpha } from "../lib/theme";
+import { Eyebrow } from "./ui/Eyebrow";
 // state$.settingsError used when patch fails
 
 /**
@@ -61,23 +62,23 @@ export function StationRoleGate() {
         zIndex: 10050,
         display: "grid",
         placeItems: "center",
-        background: "rgba(4, 6, 12, 0.82)",
-        backdropFilter: "blur(8px)",
+        background: "rgba(0, 0, 0, 0.72)",
+        backdropFilter: "blur(2px)",
       }}
     >
       <div
         style={{
           width: "min(520px, 92vw)",
           borderRadius: 12,
-          border: `1px solid ${HUE.amber}44`,
-          background: "#0c1018",
+          border: `1px solid ${STROKE}`,
+          background: RAISE,
           padding: "28px 28px 22px",
           boxShadow: "0 24px 80px rgba(0,0,0,0.55)",
         }}
       >
-        <div style={{ color: HUE.amber, fontSize: 11, letterSpacing: "0.14em", marginBottom: 8 }}>
+        <Eyebrow tone="amber" className="text-[11px] mb-2">
           VELLUM COMMAND · STATION
-        </div>
+        </Eyebrow>
         <h1 style={{ color: INK, fontSize: 20, margin: "0 0 8px", fontWeight: 600 }}>
           How does this machine participate?
         </h1>
@@ -124,7 +125,7 @@ export function StationRoleGate() {
                 placeholder="e.g. local or mac-mini"
                 disabled={busy}
                 style={{
-                  background: "#06080e",
+                  background: INSET,
                   border: `1px solid ${DIM}44`,
                   borderRadius: 6,
                   color: INK,
@@ -164,7 +165,7 @@ const cardButtonStyle: React.CSSProperties = {
   textAlign: "left",
   padding: 14,
   borderRadius: 10,
-  border: `1px solid ${HUE.amber}33`,
-  background: "#0a0e16",
+  border: `1px solid ${withAlpha(HUE.amber, 0.35)}`,
+  background: withAlpha(HUE.amber, 0.12),
   cursor: "pointer",
 };
