@@ -135,6 +135,15 @@ export const requireElectronObservationAdmission = (observation: ElectronObserva
 const readVersion = async (filename: string, field?: string): Promise<string> => { const raw = await readFile(filename, "utf8"); if (!field) return raw.trim(); const parsed = JSON.parse(raw) as Record<string, unknown>; if (typeof parsed[field] !== "string") fail(`${filename} is missing ${field}`); return parsed[field] as string; };
 const readObservation = async (filename: string) => decodeElectronObservation(JSON.parse(await readFile(filename, "utf8")));
 const sameObservation = (left: ElectronObservation, right: ElectronObservation) => JSON.stringify(left) === JSON.stringify(right);
+type PersistedObservation = { readonly present: false } | { readonly present: true; readonly value: ElectronObservation };
+const readPersistedObservation = async (filename: string): Promise<PersistedObservation> => {
+  try { await lstat(filename); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { present: false };
+    throw error;
+  }
+  return { present: true, value: await readObservation(filename) };
+};
 
 const requirePrivateStateDirectory = async (directory: string) => {
   try { await mkdir(directory, { recursive: true, mode: 0o700 }); } catch (error) { throw error; }
@@ -193,8 +202,22 @@ const readAdverseMarker = async (policy: ElectronSecurityPolicy, rawPolicy: stri
 };
 const validatePersistedObservation = async (policy: ElectronSecurityPolicy, rawPolicy: string, now: Date, required: boolean) => {
   const adverse = await readAdverseMarker(policy, rawPolicy, now);
-  try { const [receipt, water] = await Promise.all([readObservation(observationPath()), readObservation(highWaterPath())]); validateElectronObservation(receipt, policy, rawPolicy, now); validateElectronObservation(water, policy, rawPolicy, now); if (!sameObservation(receipt, water)) fail("recorded Electron observation is not the current high-water state"); if (adverse) fail("adverse observation survives this mutable receipt pair"); requireElectronObservationAdmission(receipt); return receipt; }
-  catch (error) { if (!required && !adverse && (error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+  const [receiptState, waterState] = await Promise.all([
+    readPersistedObservation(observationPath()),
+    readPersistedObservation(highWaterPath()),
+  ]);
+  if (!receiptState.present && !waterState.present) {
+    if (!required && !adverse) return undefined;
+    fail(adverse ? "adverse observation survives a missing mutable receipt pair" : "Electron observation receipt pair is required");
+  }
+  const receipt = receiptState.present ? receiptState.value : fail("persisted Electron observation pair is incomplete");
+  const water = waterState.present ? waterState.value : fail("persisted Electron observation pair is incomplete");
+  validateElectronObservation(receipt, policy, rawPolicy, now);
+  validateElectronObservation(water, policy, rawPolicy, now);
+  if (!sameObservation(receipt, water)) fail("recorded Electron observation is not the current high-water state");
+  if (adverse) fail("adverse observation survives this mutable receipt pair");
+  requireElectronObservationAdmission(receipt);
+  return receipt;
 };
 
 export const validateCheckedInElectronPolicy = async (now = new Date()) => {
