@@ -14,6 +14,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { isRecognizedSpdxExpression } from "./spdx-license";
 
 export const LINUX_RELEASE_MANIFEST = "release-manifest.json";
 export const LINUX_RELEASE_SIGNATURE = "release-manifest.sig";
@@ -1130,7 +1131,7 @@ const validateDependencyLicenseInventory = (
         dependency.development !== false ||
       seen.has(purl) ||
       !purl.startsWith("pkg:npm/") ||
-      /^(?:UNKNOWN|UNLICENSED|SEE LICENSE IN .+)$/iu.test(license)
+      !isRecognizedSpdxExpression(license)
     ) {
       throw new Error(
         "dependency/license inventory is incomplete or has unresolved rights",

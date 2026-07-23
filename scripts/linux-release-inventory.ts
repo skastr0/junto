@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import parseSpdxExpression from "spdx-expression-parse";
+import { isRecognizedSpdxExpression } from "./spdx-license";
 
 export interface InstalledPackageLicense {
   readonly name: string;
@@ -92,18 +92,6 @@ const requirePackageText = (
   return value;
 };
 
-const isSpdxExpressionShape = (candidate: string): boolean => {
-  if (/(?:DocumentRef-|LicenseRef-)/u.test(candidate)) {
-    return false;
-  }
-  try {
-    parseSpdxExpression(candidate);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 const normalizeLicense = (value: unknown): string => {
   const declared =
     typeof value === "string"
@@ -128,7 +116,7 @@ const normalizeLicense = (value: unknown): string => {
       !/^(?:UNKNOWN|UNLICENSED|NOASSERTION|NONE|SEE LICEN[CS]E IN .+)$/iu.test(
         candidate,
       ) &&
-      isSpdxExpressionShape(candidate)
+      isRecognizedSpdxExpression(candidate)
     ? candidate
     : "UNKNOWN";
 };

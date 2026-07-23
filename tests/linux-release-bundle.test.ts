@@ -25,9 +25,7 @@ import {
   type LinuxReleaseHostFacts,
   type LinuxReleaseKeyring,
 } from "../scripts/linux-release-bundle";
-import {
-  verifyProductionLinuxDeployBundle,
-} from "../src/main/vellum/hosts/linux-release-admission";
+import { verifyProductionLinuxDeployBundle } from "../src/main/vellum/hosts/linux-release-admission";
 
 const roots: string[] = [];
 const VERSION = "0.1.0";
@@ -328,27 +326,14 @@ describe("signed Linux release bundle", () => {
     });
   });
 
-  it("exposes only verified package authority to the production deployer", async () => {
+  it("fails production deploy closed until independent trust is configured", async () => {
     const fixture = await createFixture();
-    const trustedKey = fixture.keyring.keys[0];
     await expect(
       verifyProductionLinuxDeployBundle({
         bundleDirectory: fixture.directory,
-        trustedKeyring: fixture.keyring,
-        trustedKeyId: trustedKey.keyId,
-        trustedKeyFingerprintSha256: trustedKey.fingerprintSha256,
         now: NOW,
       }),
-    ).resolves.toMatchObject({
-      packagePath: path.join(fixture.directory, PACKAGE),
-      bytes: Buffer.byteLength("synthetic-deb-for-contract-tests", "utf8"),
-      sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
-      version: VERSION,
-      receipt: {
-        ok: true,
-        packageFile: PACKAGE,
-      },
-    });
+    ).rejects.toThrow(/trust is not configured/u);
   });
 
   it("rejects tampered metadata, payloads, checksums, and undeclared extras", async () => {
@@ -510,6 +495,12 @@ describe("signed Linux release bundle", () => {
       createFixture({
         dependencyLicense: "UNKNOWN",
         dependencyLicenseSource: "unresolved",
+      }),
+    ).rejects.toThrow(/unresolved rights/u);
+    await expect(
+      createFixture({
+        dependencyLicense: "Definitely-Not-A-License",
+        sbomLicense: "Definitely-Not-A-License",
       }),
     ).rejects.toThrow(/unresolved rights/u);
   });
