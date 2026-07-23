@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -120,6 +120,20 @@ describe("settings service", () => {
     expect(settings.version).toBe(1);
     const raw = JSON.parse(await readFile(path, "utf8")) as { version: number };
     expect(raw.version).toBe(1);
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+  });
+
+  it("repairs legacy group-readable settings before reading", async () => {
+    const svc = await fresh();
+    await writeFile(path, `${JSON.stringify(defaultSettings())}\n`, {
+      encoding: "utf8",
+      mode: 0o644,
+    });
+    await chmod(path, 0o664);
+
+    await run(svc.get);
+
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 
   it("patch persists and notifies subscribers", async () => {

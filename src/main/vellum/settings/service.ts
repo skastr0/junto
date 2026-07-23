@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { mkdir, open, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { Context, Effect, Either, Layer } from "effect";
@@ -49,7 +50,7 @@ const toIoError = (error: unknown): SettingsError =>
       });
 
 const atomicWrite = async (path: string, settings: Settings): Promise<void> => {
-  await mkdir(dirname(path), { recursive: true });
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const body = `${JSON.stringify(settings, null, 2)}\n`;
   if (Buffer.byteLength(body, "utf8") > SETTINGS_MAX_FILE_BYTES) {
     throw new SettingsError({
@@ -58,14 +59,16 @@ const atomicWrite = async (path: string, settings: Settings): Promise<void> => {
     });
   }
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, body, "utf8");
+  await writeFile(tmp, body, { encoding: "utf8", flag: "wx", mode: 0o600 });
   await rename(tmp, path);
 };
 
 const loadFromDisk = async (path: string): Promise<Settings> => {
   let raw: string;
+  let file: Awaited<ReturnType<typeof open>> | undefined;
   try {
-    const info = await stat(path);
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const info = await file.stat();
     if (!info.isFile()) {
       throw new SettingsError({
         message: "settings path is not a regular file",
@@ -78,7 +81,11 @@ const loadFromDisk = async (path: string): Promise<Settings> => {
         code: "corrupt",
       });
     }
-    raw = await readFile(path, "utf8");
+    // Older builds inherited the login umask and could leave settings
+    // group-readable. Repair the already-open inode before reading it so a
+    // path swap cannot redirect chmod to another file.
+    await file.chmod(0o600);
+    raw = await file.readFile("utf8");
   } catch (error) {
     if (error instanceof SettingsError) throw error;
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -87,6 +94,8 @@ const loadFromDisk = async (path: string): Promise<Settings> => {
       return fresh;
     }
     throw error;
+  } finally {
+    await file?.close();
   }
 
   let parsed: unknown;
