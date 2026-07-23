@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { listPackage, statFile } from "@electron/asar";
 import { getCurrentFuseWire } from "@electron/fuses";
 import { validateFuseWire } from "./audit-packaged-app";
+import { validateElectronArtifactPath } from "./electron-security-policy";
 import {
   electronBuilderLinuxDebArtifactName,
   linuxDebArtifactName,
@@ -676,6 +677,7 @@ export const auditLinuxPackage = async ({
   if (!(await stat(unpacked)).isDirectory() || !(await stat(deb)).isFile()) {
     throw new Error("Linux package audit requires an unpacked directory and deb file");
   }
+  await validateElectronArtifactPath(unpacked);
 
   const control = validateDebControl(
     runFixed("/usr/bin/dpkg-deb", ["--field", deb]),
@@ -738,6 +740,7 @@ export const auditLinuxPackage = async ({
       ...LINUX_INSTALL_DIRECTORY.slice(1).split("/"),
     );
     const extractedReal = await realpath(extractedApp);
+    await validateElectronArtifactPath(extractedReal);
     requirePathWithin(extraction, extractedReal, "deb install tree");
     await requireIdenticalPackageTrees(unpacked, extractedReal);
 

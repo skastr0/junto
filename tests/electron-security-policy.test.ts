@@ -40,6 +40,9 @@ describe("Electron release-freshness policy", () => {
     expect(() => validateElectronSecurityPolicy({ ...policy, provenance: policy.provenance.slice(1) }, validInput)).toThrow(/missing required official/u);
     expect(() => validateElectronSecurityPolicy({ ...policy, electron: { ...policy.electron, currentSupportedMajors: [40, 41, 42], minimumSupportedMajor: 40 } }, validInput)).toThrow(/unsupported/u);
     expect(() => validateElectronSecurityPolicy(policy, { ...validInput, installedRuntimeVersion: "43.1.1" })).toThrow(/expected audited 43\.2\.0/u);
+    expect(() => validateElectronSecurityPolicy({ ...policy, reviewedAt: "2026-07-24T00:00:00.000Z" }, validInput)).toThrow(/future/u);
+    expect(() => validateElectronSecurityPolicy({ ...policy, expiresAt: "2026-08-07T00:00:00.000Z" }, validInput)).toThrow(/expired/u);
+    expect(() => validateElectronSecurityPolicy({ ...policy, electron: { ...policy.electron, auditedRelease: { ...policy.electron.auditedRelease, publishedAt: "2026-07-24T00:00:00.000Z" } } }, validInput)).toThrow(/after the policy review/u);
   });
 
   it("rejects non-canonical policy structures and non-official provenance", () => {

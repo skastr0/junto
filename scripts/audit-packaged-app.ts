@@ -20,6 +20,7 @@ import {
   type FuseConfig,
 } from "@electron/fuses";
 import rawPolicy from "./package-security-policy.json";
+import { validateElectronArtifactPath } from "./electron-security-policy";
 import rawRuntimePolicy from "./macos-runtime-policy.json";
 
 export const FUSE_NAMES = [
@@ -862,6 +863,7 @@ export const auditPackagedApp = async (
 ): Promise<PackageAuditReceipt> => {
   const policy = PACKAGE_SECURITY_POLICY;
   const appPath = path.resolve(requestedPath);
+  await validateElectronArtifactPath(appPath);
   if (path.basename(appPath) !== `${policy.productName}.app`) {
     throw new Error(
       `packaged app path must end in ${policy.productName}.app: ${appPath}`,

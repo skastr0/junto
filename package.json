@@ -23,7 +23,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "bash scripts/build-app.sh --fast",
-    "build:pack": "electron-vite build && electron-builder",
+    "build:pack": "bun run electron:policy:validate && electron-vite build && electron-builder",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -134,6 +134,10 @@
       {
         "from": "scripts/unix-peer-pid.py",
         "to": "bin/unix-peer-pid.py"
+      },
+      {
+        "from": "scripts/electron-security-policy.json",
+        "to": "policy/electron-security-policy.json"
       }
     ],
     "protocols": [

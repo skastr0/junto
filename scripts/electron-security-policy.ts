@@ -92,14 +92,17 @@ export const decodeElectronSecurityPolicy = (input: unknown): ElectronSecurityPo
 export const validateElectronSecurityPolicy = (policy: ElectronSecurityPolicy, input: { readonly now: Date; readonly manifestVersion: string; readonly installedPackageVersion: string; readonly installedRuntimeVersion: string }) => {
   const reviewedAt = date(policy.reviewedAt, "reviewedAt");
   const expiresAt = date(policy.expiresAt, "expiresAt");
-  if (expiresAt <= reviewedAt || input.now.getTime() >= expiresAt) fail(`expired at ${policy.expiresAt}`);
+  if (reviewedAt > input.now.getTime()) fail(`reviewedAt ${policy.reviewedAt} is in the future`);
+  if (expiresAt <= reviewedAt || expiresAt > reviewedAt + policy.reviewSla.routineDays * 86_400_000 || input.now.getTime() >= expiresAt) fail(`expired at ${policy.expiresAt}`);
   const exact = versionParts(policy.electron.exactVersion, "electron.exactVersion");
   const audited = versionParts(policy.electron.auditedRelease.version, "auditedRelease.version");
-  date(policy.electron.auditedRelease.publishedAt, "auditedRelease.publishedAt");
+  const publishedAt = date(policy.electron.auditedRelease.publishedAt, "auditedRelease.publishedAt");
+  if (publishedAt > reviewedAt) fail("audited release was published after the policy review");
   officialUrl(policy.electron.auditedRelease.url, "auditedRelease.url");
   if (policy.electron.exactVersion !== policy.electron.auditedRelease.version) fail("exactVersion must equal auditedRelease.version");
   const majors = policy.electron.currentSupportedMajors;
-  if (majors.length !== 3 || new Set(majors).size !== majors.length || !majors.every(Number.isInteger) || !majors.every((major) => major >= policy.electron.minimumSupportedMajor) || Math.min(...majors) !== policy.electron.minimumSupportedMajor) fail("must name exactly the three current supported majors beginning at minimumSupportedMajor");
+  const latestMajor = Math.max(...majors);
+  if (majors.length !== 3 || new Set(majors).size !== majors.length || !majors.every(Number.isInteger) || majors.join(",") !== [latestMajor - 2, latestMajor - 1, latestMajor].join(",") || policy.electron.minimumSupportedMajor !== latestMajor - 2) fail("must name the contiguous latest three supported majors");
   if (!majors.includes(exact[0])) fail(`pinned major ${exact[0]} is unsupported`);
   if (!policy.provenance.some((source) => source.url === SUPPORT_URL) || !policy.provenance.some((source) => source.url === RELEASE_INDEX_URL) || !policy.provenance.some((source) => source.url === policy.electron.auditedRelease.url)) fail("is missing required official support or release provenance");
   for (const [label, value] of [["package.json", input.manifestVersion], ["installed electron package", input.installedPackageVersion], ["installed Electron runtime", input.installedRuntimeVersion]] as const) {
@@ -107,6 +110,21 @@ export const validateElectronSecurityPolicy = (policy: ElectronSecurityPolicy, i
     if (value !== policy.electron.exactVersion) fail(`${label} is ${value}; expected audited ${policy.electron.exactVersion}`);
   }
   if (audited.join(".") !== exact.join(".")) fail("installed artifact is older than the audited release");
+};
+
+/** Validates an artifact's embedded runtime, never the workspace dependency tree. */
+export const validateElectronArtifactPath = async (artifactPath: string, now = new Date()) => {
+  const policy = decodeElectronSecurityPolicy(JSON.parse(await readFile(POLICY_PATH, "utf8")));
+  // Window/provenance validation deliberately receives policy values: no package
+  // manager or network state is a trust input for an already-built artifact.
+  validateElectronSecurityPolicy(policy, { now, manifestVersion: policy.electron.exactVersion, installedPackageVersion: policy.electron.exactVersion, installedRuntimeVersion: policy.electron.exactVersion });
+  const root = path.resolve(artifactPath);
+  const versionPath = path.basename(root).endsWith(".app")
+    ? path.join(root, "Contents", "Frameworks", "Electron Framework.framework", "Versions", "A", "Resources", "version")
+    : path.join(root, "version");
+  const version = await readVersion(versionPath);
+  if (version !== policy.electron.exactVersion) fail(`artifact ${root} embeds ${version}; expected audited ${policy.electron.exactVersion}`);
+  return { artifact: root, electronVersion: version, policyVersion: policy.electron.exactVersion };
 };
 
 const readVersion = async (filename: string, field?: string): Promise<string> => {
@@ -133,9 +151,18 @@ export const checkOfficialElectronSources = async () => {
     fetch(SUPPORT_URL), fetch(RELEASE_INDEX_URL), fetch(policy.electron.auditedRelease.url),
   ]);
   if (!support.ok || !releases.ok || !release.ok) fail(`official refresh failed: support=${support.status} releases=${releases.status} release=${release.status}`);
-  const list = await releases.json() as unknown;
-  if (!Array.isArray(list) || !list.some((entry) => isRecord(entry) && entry.version === policy.electron.auditedRelease.version)) fail(`official release index does not contain ${policy.electron.auditedRelease.version}`);
-  return { checkedAt: new Date().toISOString(), policyVersion: policy.electron.exactVersion, sources: [SUPPORT_URL, RELEASE_INDEX_URL, policy.electron.auditedRelease.url] };
+  const supportText = await support.text();
+  if (!supportText.includes("latest 3 stable releases")) fail("official support policy no longer states latest-three support");
+  const rawList = await releases.json() as unknown;
+  if (!Array.isArray(rawList) || !rawList.some((entry) => isRecord(entry) && entry.version === policy.electron.auditedRelease.version)) fail(`official release index does not contain ${policy.electron.auditedRelease.version}`);
+  const list = rawList as unknown[];
+  const stable = list.filter((entry): entry is Record<string, unknown> => isRecord(entry) && typeof entry.version === "string" && /^(\d+)\.(\d+)\.(\d+)$/.test(entry.version));
+  const latestByMajor = new Map<number, string>();
+  for (const entry of stable) { const version = entry.version as string; const [major, minor, patch] = versionParts(version, "official release"); const prior = latestByMajor.get(major); if (!prior || minor > versionParts(prior, "official release")[1] || (minor === versionParts(prior, "official release")[1] && patch > versionParts(prior, "official release")[2])) latestByMajor.set(major, version); }
+  const supportedMajors = [...latestByMajor.keys()].sort((a, b) => b - a).slice(0, 3).sort((a, b) => a - b);
+  const currentLinePatch = latestByMajor.get(versionParts(policy.electron.exactVersion, "policy version")[0]);
+  const disposition = currentLinePatch === policy.electron.exactVersion ? "current" : "newer_patch_available";
+  return { checkedAt: new Date().toISOString(), policyVersion: policy.electron.exactVersion, supportedMajors, latestStable: latestByMajor.get(Math.max(...supportedMajors)), currentLinePatch, disposition, eol: !supportedMajors.includes(versionParts(policy.electron.exactVersion, "policy version")[0]), sources: [SUPPORT_URL, RELEASE_INDEX_URL, policy.electron.auditedRelease.url] };
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

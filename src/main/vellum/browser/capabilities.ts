@@ -175,7 +175,7 @@ export class BrowserCapabilityDenied extends Error {
   }
 }
 
-export type BrowserCapabilityIssueDenialReason = "invalid" | "capacity" | "closed";
+export type BrowserCapabilityIssueDenialReason = "invalid" | "capacity" | "closed" | "credential";
 
 /** Fixed-message minting denial for the trusted main-process issuance seam. */
 export class BrowserCapabilityIssueDenied extends Error {
@@ -291,6 +291,8 @@ export interface BrowserCapabilityDependencies {
 }
 
 export interface BrowserCapabilityRegistryOptions {
+  /** Offline health admission for minting the primary capability credential. */
+  readonly primaryCredentialHealth?: () => boolean;
   readonly maxCapabilities?: number;
   readonly maxCapabilitiesPerPrincipal?: number;
   readonly auditCapacity?: number;
@@ -518,6 +520,7 @@ export class BrowserCapabilityRegistry {
   readonly #dependencies: BrowserCapabilityDependencies;
   readonly #profileGate: BrowserProfileGate;
   readonly #onTerminate: (notice: BrowserCapabilityTerminationNotice) => void;
+  readonly #primaryCredentialHealth: () => boolean;
   readonly #auditKey: Uint8Array;
   readonly #principals = new WeakMap<BrowserAutomationPrincipal, PrincipalRecord>();
   readonly #handles = new WeakMap<BrowserCapabilityHandle, string>();
@@ -552,6 +555,7 @@ export class BrowserCapabilityRegistry {
       throw new BrowserCapabilityIssueDenied("invalid");
     }
     this.#onTerminate = options.onTerminate ?? (() => undefined);
+    this.#primaryCredentialHealth = options.primaryCredentialHealth ?? (() => true);
     this.#auditKey = this.#randomExact(BROWSER_CAPABILITY_SECRET_BYTES);
     this.#readClock(this.#dependencies.wallNow);
     this.#readClock(this.#dependencies.monotonicNow);
@@ -578,6 +582,7 @@ export class BrowserCapabilityRegistry {
     spec: BrowserCapabilityIssueSpec,
   ): BrowserCapabilityGrant {
     if (this.#closed) throw new BrowserCapabilityIssueDenied("closed");
+    if (!this.#primaryCredentialHealth()) throw new BrowserCapabilityIssueDenied("credential");
     const principalRecord = this.#principals.get(principal);
     if (principalRecord === undefined) throw new BrowserCapabilityIssueDenied("invalid");
 
