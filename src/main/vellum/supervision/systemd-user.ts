@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { readFileSync } from "node:fs";
 import {
   VELLUM_SYSTEMD_USER_UNIT,
   showVellumSystemdUserUnit,
@@ -29,6 +30,8 @@ const SystemdShowFields = Schema.Struct({
   ActiveState: SystemdStateToken,
   SubState: SystemdStateToken,
   MainPID: SystemdMainPidText,
+  ControlGroup: Schema.String.pipe(Schema.maxLength(512), Schema.pattern(/^\/[\x21-\x7e]*$/)),
+  InvocationID: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{32}$/)),
 });
 type SystemdShowFields = typeof SystemdShowFields.Type;
 
@@ -61,7 +64,22 @@ const expectedFields = new Set([
   "ActiveState",
   "SubState",
   "MainPID",
+  "ControlGroup",
+  "InvocationID",
 ]);
+
+const currentCgroups = (): ReadonlySet<string> => {
+  try {
+    return new Set(readFileSync("/proc/self/cgroup", "utf8").split(/\r?\n/)
+      .flatMap((line) => {
+        const separator = line.indexOf("::");
+        return separator < 0 ? [] : [line.slice(separator + 2)];
+      })
+      .filter((path) => path.startsWith("/")));
+  } catch {
+    return new Set();
+  }
+};
 
 const parseSystemdShow = (stdout: string): ParsedSystemdShow => {
   const lines = stdout.split(/\r?\n/);
@@ -148,6 +166,7 @@ const canonicalAbsent = (
 
 const classifySystemdShow = (
   parsed: Extract<ParsedSystemdShow, { readonly kind: "fields" }>,
+  cgroups: ReadonlySet<string>,
 ): StationSupervisorObservation => {
   if (canonicalAbsent(parsed)) {
     return Object.freeze({
@@ -174,11 +193,13 @@ const classifySystemdShow = (
     return Object.freeze({
       provider: "systemd-user",
       state: "active",
-      // Type=notify keeps systemd's MainPID on the package-owned launcher;
-      // Electron is a separately spawned process group. A pid comparison
-      // would manufacture authority from an observation, so this provider
-      // never claims process ownership from MainPID.
-      ownership: "other",
+      // MainPID names the shell wrapper. The exact cgroup is observation only:
+      // it proves this Electron belongs to the invocation without minting any
+      // process-signal authority from systemd's reported pid.
+      ownership: cgroups.has(parsed.fields.ControlGroup) &&
+          process.env.INVOCATION_ID === parsed.fields.InvocationID
+        ? "current"
+        : "other",
     });
   }
   if (parsed.fields.ActiveState === "inactive" && parsed.mainPid === 0) {
@@ -207,7 +228,7 @@ const observeSystemdUserUnit = async (): Promise<
     if (result.clean && result.failure.kind === "exit-nonzero") {
       const parsed = parseSystemdShow(result.stdout);
       if (parsed.kind === "fields" && canonicalAbsent(parsed)) {
-        return classifySystemdShow(parsed);
+        return classifySystemdShow(parsed, currentCgroups());
       }
     }
     return Object.freeze({
@@ -227,7 +248,7 @@ const observeSystemdUserUnit = async (): Promise<
       failure: stationSupervisorFailure("invalid-output", parsed.diagnostic),
     });
   }
-  return classifySystemdShow(parsed);
+  return classifySystemdShow(parsed, currentCgroups());
 };
 
 const requestSystemdUserHandoff = async (): Promise<

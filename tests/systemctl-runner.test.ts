@@ -116,6 +116,8 @@ describe("systemctl runner target and argv boundary", () => {
         "--property=ActiveState",
         "--property=SubState",
         "--property=MainPID",
+        "--property=ControlGroup",
+        "--property=InvocationID",
         "show",
         "vellum-remote.service",
       ],

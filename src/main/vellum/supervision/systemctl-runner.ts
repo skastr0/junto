@@ -182,6 +182,8 @@ const actionArgs = (
     "--property=ActiveState",
     "--property=SubState",
     "--property=MainPID",
+    "--property=ControlGroup",
+    "--property=InvocationID",
     "show",
     unit,
   ]

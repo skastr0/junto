@@ -21,7 +21,7 @@ vi.mock("../src/main/vellum/supervision/systemctl-runner", () => ({
 import { createSystemdUserStationSupervisor } from "../src/main/vellum/supervision/systemd-user";
 
 const showOutput = (overrides: Partial<Record<
-  "LoadState" | "ActiveState" | "SubState" | "MainPID",
+  "LoadState" | "ActiveState" | "SubState" | "MainPID" | "ControlGroup" | "InvocationID",
   string
 >> = {}): string => {
   const fields = {
@@ -29,6 +29,8 @@ const showOutput = (overrides: Partial<Record<
     ActiveState: "active",
     SubState: "running",
     MainPID: String(process.pid),
+    ControlGroup: "/user.slice/user-1000.slice/user@1000.service/app.slice/vellum-remote.service",
+    InvocationID: "0123456789abcdef0123456789abcdef",
     ...overrides,
   };
   return Object.entries(fields).map(([key, value]) => `${key}=${value}`).join(
