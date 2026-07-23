@@ -4,8 +4,6 @@ import type { Context } from "effect";
 import { Effect } from "effect";
 import { hostHasCapability, type RemoteHost } from "@shared/remote-hosts";
 import { SshTransport } from "../ssh";
-import { darwinRemoteDeploymentProvider } from "./deploy-darwin";
-import { linuxRemoteDeploymentProvider } from "./deploy-linux";
 import type {
   DeployRemoteResult,
   RemoteDeploymentPreparation,
@@ -21,6 +19,59 @@ import {
 } from "./remote-platform";
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
+
+export interface RemoteDeploymentProviderLoaders {
+  readonly darwin: () => Promise<RemoteDeploymentProvider>;
+  readonly linux: () => Promise<RemoteDeploymentProvider>;
+}
+
+export type RemoteDeploymentProviderSelector = (
+  platform: NodeJS.Platform,
+) => Promise<RemoteDeploymentProvider | undefined>;
+
+const productionProviderLoaders: RemoteDeploymentProviderLoaders =
+  Object.freeze({
+    darwin: async () => {
+      const { darwinRemoteDeploymentProvider } = await import(
+        "./deploy-darwin"
+      );
+      return darwinRemoteDeploymentProvider;
+    },
+    linux: async () => {
+      const { linuxRemoteDeploymentProvider } = await import("./deploy-linux");
+      return linuxRemoteDeploymentProvider;
+    },
+  });
+
+/** Select exactly one platform provider without evaluating the other branch. */
+export const createRemoteDeploymentProviderSelector = (
+  loaders: RemoteDeploymentProviderLoaders,
+): RemoteDeploymentProviderSelector =>
+  async (platform) => {
+    const loader =
+      platform === "darwin"
+        ? loaders.darwin
+        : platform === "linux"
+          ? loaders.linux
+          : undefined;
+    if (!loader) return undefined;
+    const provider = await loader();
+    if (provider.platform !== platform) {
+      throw new Error(
+        `Remote deployment provider mismatch: expected ${platform}, received ${provider.platform}`,
+      );
+    }
+    return provider;
+  };
+
+const selectProductionProvider = createRemoteDeploymentProviderSelector(
+  productionProviderLoaders,
+);
+
+export const loadRemoteDeploymentProvider = (
+  platform: NodeJS.Platform,
+): Promise<RemoteDeploymentProvider | undefined> =>
+  selectProductionProvider(platform);
 
 export type RemoteDeploymentDispatcher = {
   readonly prepare: (
@@ -41,10 +92,11 @@ export type RemoteDeploymentDispatcher = {
 
 export const makeRemoteDeploymentDispatcher = (input: {
   readonly commandCenterPlatform: NodeJS.Platform;
-  readonly providers: ReadonlyArray<RemoteDeploymentProvider>;
+  readonly providers?: ReadonlyArray<RemoteDeploymentProvider>;
+  readonly loadProvider?: RemoteDeploymentProviderSelector;
 }): RemoteDeploymentDispatcher => {
   const providers = new Map<RemoteTargetPlatform, RemoteDeploymentProvider>();
-  for (const provider of input.providers) {
+  for (const provider of input.providers ?? []) {
     if (providers.has(provider.platform)) {
       throw new Error(
         `duplicate Remote deployment provider: ${provider.platform}`,
@@ -52,47 +104,103 @@ export const makeRemoteDeploymentDispatcher = (input: {
     }
     providers.set(provider.platform, provider);
   }
-  const admittedTargets = new WeakSet<RemoteDeploymentTarget>();
+  const admittedProviders = new WeakMap<
+    RemoteDeploymentTarget,
+    RemoteDeploymentProvider
+  >();
+
+  type ProviderResolution =
+    | {
+        readonly ok: true;
+        readonly provider: RemoteDeploymentProvider;
+      }
+    | {
+        readonly ok: false;
+        readonly reason: "missing" | "unavailable";
+      };
+
+  const resolveProvider = (
+    platform: RemoteTargetPlatform,
+  ): Effect.Effect<ProviderResolution, never> => {
+    const registered = providers.get(platform);
+    if (registered) {
+      return Effect.succeed({ ok: true, provider: registered });
+    }
+    if (!input.loadProvider) {
+      return Effect.succeed({ ok: false, reason: "missing" });
+    }
+    return Effect.tryPromise({
+      try: () => input.loadProvider!(platform),
+      catch: () => undefined,
+    }).pipe(
+      Effect.match({
+        onFailure: () =>
+          ({ ok: false, reason: "unavailable" }) satisfies ProviderResolution,
+        onSuccess: (provider) =>
+          provider?.platform === platform
+            ? ({ ok: true, provider }) satisfies ProviderResolution
+            : ({
+                ok: false,
+                reason: provider ? "unavailable" : "missing",
+              }) satisfies ProviderResolution,
+      }),
+    );
+  };
 
   const prepare: RemoteDeploymentDispatcher["prepare"] = (ssh, host) =>
     resolveRemoteDeploymentTarget(ssh, host, input.commandCenterPlatform).pipe(
-      Effect.map((preparation) => {
-        if (!preparation.ok) return preparation;
+      Effect.flatMap((preparation) => {
+        if (!preparation.ok) return Effect.succeed(preparation);
         const { target } = preparation;
-        const provider = providers.get(target.platform.platform);
-        if (!provider) {
-          return {
-            ok: false as const,
-            result: unsupportedRemoteTargetResult(
-              target.host,
-              {
-                kind: "unsupported-target",
-                evidence: "unsupported",
-                reportedKernel: target.platform.kernelName,
-                platform: target.platform.platform,
-              },
-              target.progress,
-            ),
-          };
-        }
-        if (
-          hostHasCapability(target.host, "browser") &&
-          !provider.supportsBrowser
-        ) {
-          return {
-            ok: false as const,
-            result: remoteDeploymentFailure(
-              `${target.host.label}: deployment provider cannot satisfy the declared browser capability`,
-              {
-                code: "validation",
-                message: "remote browser capability unsupported by deployment provider",
-                stages: target.progress,
-              },
-            ),
-          };
-        }
-        admittedTargets.add(target);
-        return preparation;
+        return resolveProvider(target.platform.platform).pipe(
+          Effect.map((resolution) => {
+            if (!resolution.ok) {
+              return {
+                ok: false as const,
+                result:
+                  resolution.reason === "missing"
+                    ? unsupportedRemoteTargetResult(
+                        target.host,
+                        {
+                          kind: "unsupported-target",
+                          evidence: "unsupported",
+                          reportedKernel: target.platform.kernelName,
+                          platform: target.platform.platform,
+                        },
+                        target.progress,
+                      )
+                    : remoteDeploymentFailure(
+                        `${target.host.label}: ${target.platform.platform} deployment provider is unavailable`,
+                        {
+                          code: "validation",
+                          message: "remote deployment provider unavailable",
+                          stages: target.progress,
+                        },
+                      ),
+              };
+            }
+            const { provider } = resolution;
+            if (
+              hostHasCapability(target.host, "browser") &&
+              !provider.supportsBrowser
+            ) {
+              return {
+                ok: false as const,
+                result: remoteDeploymentFailure(
+                  `${target.host.label}: deployment provider cannot satisfy the declared browser capability`,
+                  {
+                    code: "validation",
+                    message:
+                      "remote browser capability unsupported by deployment provider",
+                    stages: target.progress,
+                  },
+                ),
+              };
+            }
+            admittedProviders.set(target, provider);
+            return preparation;
+          }),
+        );
       }),
     );
 
@@ -102,7 +210,8 @@ export const makeRemoteDeploymentDispatcher = (input: {
     stationConfiguration,
   ) =>
     Effect.suspend(() => {
-      if (!admittedTargets.has(target)) {
+      const provider = admittedProviders.get(target);
+      if (!provider) {
         return Effect.succeed(
           remoteDeploymentFailure(
             `${target.host.label}: Remote deployment target was not admitted by this dispatcher`,
@@ -111,9 +220,8 @@ export const makeRemoteDeploymentDispatcher = (input: {
         );
       }
       // An admission witnesses one execution attempt; it is not a replayable grant.
-      admittedTargets.delete(target);
-      const provider = providers.get(target.platform.platform);
-      if (!provider || provider.platform !== target.platform.platform) {
+      admittedProviders.delete(target);
+      if (provider.platform !== target.platform.platform) {
         return Effect.succeed(
           unsupportedRemoteTargetResult(
             target.host,
@@ -150,7 +258,7 @@ export const makeRemoteDeploymentDispatcher = (input: {
 
 const remoteDeploymentDispatcher = makeRemoteDeploymentDispatcher({
   commandCenterPlatform: process.platform,
-  providers: [darwinRemoteDeploymentProvider, linuxRemoteDeploymentProvider],
+  loadProvider: loadRemoteDeploymentProvider,
 });
 
 export const prepareRemoteDeployment = remoteDeploymentDispatcher.prepare;
