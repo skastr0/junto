@@ -76,6 +76,8 @@ describe("SSH architecture", () => {
       // Exact settings snapshot/CAS/rollback policy; SshTransport still owns OpenSSH.
       "src/main/vellum/hosts/remote-settings-transaction.ts",
       "src/main/vellum/term/router.ts",
+      // Signed station-browser envelopes render one closed SSH stdin operation.
+      "src/main/vellum/browser/station-transport.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
     const violations = files.flatMap((path) => {
