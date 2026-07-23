@@ -20,6 +20,7 @@ import type {
 import {
   currentStationBrowserGeneration,
   makeStationBrowserArtifactStore,
+  makeStationBrowserLocalClient,
   makeStationBrowserTargetExecutor,
   stationBrowserDelegatedOwner,
   STATION_BROWSER_SCREENSHOT_DIRECTORY,
@@ -179,6 +180,7 @@ describe("Remote station-local browser executor", () => {
     const plane = fakePlane();
     const executor = makeStationBrowserTargetExecutor({
       stationId: "remote-a",
+      role: "remote",
       sessions: plane,
       resolvePageTarget: async () => ({
         ok: true,
@@ -217,6 +219,7 @@ describe("Remote station-local browser executor", () => {
     const plane = fakePlane();
     const executor = makeStationBrowserTargetExecutor({
       stationId: "remote-a",
+      role: "remote",
       sessions: plane,
       resolvePageTarget: async () => ({
         ok: true,
@@ -250,6 +253,7 @@ describe("Remote station-local browser executor", () => {
     const plane = fakePlane();
     const executor = makeStationBrowserTargetExecutor({
       stationId: "remote-a",
+      role: "remote",
       sessions: plane,
       resolvePageTarget: async () => ({
         ok: true,
@@ -294,6 +298,53 @@ describe("Remote station-local browser executor", () => {
       ...request,
       pageRef: "vellum://canvas/work?node=other",
     })).toBeUndefined();
+  });
+
+  it("projects the real station role and adapts local denials without another transport", async () => {
+    const plane = fakePlane();
+    const executor = makeStationBrowserTargetExecutor({
+      stationId: "remote-a",
+      role: "command-center",
+      sessions: plane,
+      resolvePageTarget: async () => ({
+        ok: true,
+        data: {
+          ref: pageRef,
+          nodeId: "page-1",
+          hostId: "remote-a",
+          url: "https://example.com/",
+          profile: "synthetic",
+        },
+      }),
+      discoverPages: async () => [],
+      artifacts: { writePng: async () => "shot-1.png" },
+    });
+    await expect(executor(baseRequest("doctor"))).resolves.toEqual({
+      role: "command-center",
+      browserReady: true,
+    });
+
+    const local = makeStationBrowserLocalClient("remote-a", executor);
+    await expect(local.execute({
+      ...baseRequest("state"),
+      session: {
+        hostId: "remote-a",
+        sessionId: "session-1",
+        generation: "stale",
+      },
+    })).resolves.toMatchObject({
+      ok: false,
+      hostId: "remote-a",
+      error: "stale_generation",
+    });
+    await expect(local.execute({
+      ...baseRequest("open"),
+      targetStationId: "other",
+    })).resolves.toMatchObject({
+      ok: false,
+      hostId: "remote-a",
+      error: "forbidden",
+    });
   });
 });
 

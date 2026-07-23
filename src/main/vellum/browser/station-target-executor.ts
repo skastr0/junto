@@ -18,8 +18,11 @@ import {
 import type { BrowserSessionInfo } from "@shared/ipc";
 import type {
   StationBrowserRequest,
+  StationBrowserResponse,
   StationBrowserSession,
 } from "@shared/station-browser";
+import type { StationRole } from "@shared/station";
+import type { StationBrowserLocalClient } from "./station-router";
 import type {
   BrowserResult,
   BrowserSessionAuthorizationSnapshot,
@@ -97,6 +100,7 @@ export interface StationBrowserArtifactStore {
 
 export interface StationBrowserTargetExecutorDeps {
   readonly stationId: string;
+  readonly role: StationRole;
   readonly sessions: SessionPlane;
   readonly resolvePageTarget: PageTargetResolver;
   /**
@@ -288,7 +292,7 @@ export const makeStationBrowserTargetExecutor = (
 
     switch (request.action) {
       case "doctor":
-        return { role: "remote" as const, browserReady: true };
+        return { role: deps.role, browserReady: true };
       case "discover": {
         const pages = await deps.discoverPages(request);
         const unique = new Map<string, { pageRef: string; hostId: string }>();
@@ -454,6 +458,61 @@ export const makeStationBrowserTargetExecutor = (
       }
     }
   };
+};
+
+export type StationBrowserTargetExecutor = ReturnType<
+  typeof makeStationBrowserTargetExecutor
+>;
+
+/**
+ * Adapts the station-local executor to the router's existing local branch.
+ * It neither opens a second control listener nor serializes local work through
+ * SSH; the owner-local UDS request remains the sole ingress.
+ */
+export const makeStationBrowserLocalClient = (
+  stationId: string,
+  execute: StationBrowserTargetExecutor,
+): StationBrowserLocalClient => {
+  if (!canonicalStationId(stationId)) {
+    throw new StationBrowserTargetExecutionError("forbidden");
+  }
+  return Object.freeze({
+    execute: async (
+      request: StationBrowserRequest,
+      signal?: AbortSignal,
+    ): Promise<StationBrowserResponse> => {
+      try {
+        const data = await execute(request, signal);
+        return {
+          version: 1,
+          requestId: request.requestId,
+          action: request.action,
+          ok: true,
+          hostId: stationId,
+          data,
+        };
+      } catch (error) {
+        if (
+          error instanceof StationBrowserTargetExecutionError &&
+          error.code === "cancelled"
+        ) {
+          throw error;
+        }
+        return {
+          version: 1,
+          requestId: request.requestId,
+          action: request.action,
+          ok: false,
+          hostId: stationId,
+          error:
+            error instanceof StationBrowserTargetExecutionError &&
+              error.code === "stale_generation"
+              ? "stale_generation"
+              : "forbidden",
+        };
+      }
+    },
+  });
 };
 
 const ensureArtifactDirectory = async (
