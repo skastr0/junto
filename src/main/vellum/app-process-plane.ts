@@ -171,9 +171,33 @@ export type AppProcessDrainResult =
 export interface AppProcessPlaneOptions {
   readonly termGraceMs?: number;
   readonly killGraceMs?: number;
-  /** Test/development seam only. Production planes always require node-pty. */
-  readonly allowPipeTerminalFallback?: boolean;
 }
+
+const PipeTerminalFallbackTestAuthorityTypeId: unique symbol = Symbol(
+  "@vellum/PipeTerminalFallbackTestAuthority",
+);
+
+/**
+ * Opaque test capability. It can only be minted by Vitest and is deliberately
+ * absent from the production constructor, so a packaged process with NODE_ENV
+ * unset cannot accidentally recreate the pipe backend.
+ */
+export interface PipeTerminalFallbackTestAuthority {
+  readonly [PipeTerminalFallbackTestAuthorityTypeId]: typeof PipeTerminalFallbackTestAuthorityTypeId;
+}
+
+const pipeFallbackAuthorities = new WeakSet<object>();
+
+export const mintPipeTerminalFallbackTestAuthority = (): PipeTerminalFallbackTestAuthority => {
+  if (process.env.VITEST !== "true") {
+    throw new Error("pipe terminal fallback authority is available only to Vitest");
+  }
+  const authority = Object.freeze({
+    [PipeTerminalFallbackTestAuthorityTypeId]: PipeTerminalFallbackTestAuthorityTypeId,
+  }) as PipeTerminalFallbackTestAuthority;
+  pipeFallbackAuthorities.add(authority);
+  return authority;
+};
 
 export interface AppProcessPlane {
   readonly spawnChild: (spec: AppProcessSpawnSpec) => AppProcessLease;
@@ -529,6 +553,7 @@ const validGroupRefresh = (
  */
 export const createAppProcessPlane = (
   options: AppProcessPlaneOptions = {},
+  testAuthority?: PipeTerminalFallbackTestAuthority,
 ): AppProcessPlane => {
   const termGraceMs = validateDrainPhaseMs(
     options.termGraceMs,
@@ -540,8 +565,8 @@ export const createAppProcessPlane = (
     APP_PROCESS_KILL_GRACE_MS,
     "app process KILL grace",
   );
-  const allowPipeTerminalFallback = options.allowPipeTerminalFallback === true &&
-    process.env.NODE_ENV !== "production";
+  const allowPipeTerminalFallback = testAuthority !== undefined &&
+    pipeFallbackAuthorities.has(testAuthority);
 
   const records = new Set<AppRecord>();
   const leases = new WeakMap<AppProcessLease, AppProcessRecord>();
