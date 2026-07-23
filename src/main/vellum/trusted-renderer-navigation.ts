@@ -62,6 +62,24 @@ export const createTrustedRendererNavigation = (
       if (isMainFrame) restoreCommittedDocument();
     },
 
+    /**
+     * Main-frame commit (Electron `did-navigate`). Mint IPC trust here — not
+     * only on `did-finish-load` — so renderer module evaluation that runs
+     * between commit and load-complete is not refused as untrusted.
+     * Mount readiness still waits for `didFinishLoad` → surface challenge.
+     */
+    didNavigate(url: string): void {
+      if (!options.available()) return;
+      if (!options.origin.allows(url)) {
+        mainDocumentPending = false;
+        options.revoke();
+        options.rejectCommittedUrl(url);
+        return;
+      }
+      options.trust();
+      hasCommittedDocument = true;
+    },
+
     didFinishLoad(): void {
       if (!options.available()) return;
       mainDocumentPending = false;

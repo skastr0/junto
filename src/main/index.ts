@@ -832,6 +832,9 @@ const createWindow = () => {
   mainWindow.webContents.on("will-redirect", (event, _url, _inPlace, isMainFrame) => {
     rendererNavigation.willRedirect(event, isMainFrame);
   });
+  mainWindow.webContents.on("did-navigate", (_event, url) => {
+    rendererNavigation.didNavigate(url);
+  });
   mainWindow.webContents.on("did-finish-load", rendererNavigation.didFinishLoad);
   mainWindow.webContents.on("did-fail-load", (_event, _errorCode, _description, _url, isMainFrame) => {
     rendererNavigation.didFailLoad(isMainFrame);
@@ -1060,7 +1063,7 @@ const ensureSupervised = async (): Promise<boolean> => {
 
 // Single-instance lock — under a permanent/launchd deployment a second launch
 // (Spotlight, `open`, a KeepAlive race) must NOT start a second process that
-// would file-watch and clobber the same ~/.vellum/canvases document plane.
+// would race the same ~/.vellum/canvases document plane via app-owned writes.
 // The second process exits immediately; the first focuses its window — or, when
 // the factory is windowless on macOS, recreates the surface (mirror activate).
 const packagedSandboxDisablingSwitch = findPackagedSandboxDisablingSwitch({
@@ -1384,8 +1387,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 }
 
 // WINDOW CLOSE ≠ QUIT on macOS: last window close leaves the app running —
-// kernel, watchers, timers, canvas file-watching, and control sockets stay live
-// with zero windows. Dock icon remains; activate recreates the window.
+// kernel, region watchers/timers, and control sockets stay live with zero
+// windows. Dock icon remains; activate recreates the window.
 // Non-darwin still quits when all windows close (platform convention).
 app.on("window-all-closed", () => {
   quitWhenNoOperatorWindow();
@@ -1530,8 +1533,17 @@ const requireCleanHostOperationsShutdown = async (): Promise<void> => {
 const requireCleanTermPlaneShutdown = async (reason: string): Promise<void> => {
   const receipt = await (termPlaneShutdown ??= termPlane.drainOnQuit(reason));
   if (!receipt.clean) {
+    const detail = [
+      ...receipt.retainedLabels,
+      ...receipt.diagnostics,
+      ...(receipt.control !== undefined && !receipt.control.clean
+        ? receipt.control.retainedLabels.map((label) => `control:${label}`)
+        : []),
+    ]
+      .filter((part, index, all) => part.length > 0 && all.indexOf(part) === index)
+      .join("; ");
     throw new Error(
-      `terminal plane shutdown retained ${receipt.retainedLabels.join(", ") || receipt.diagnostics.join(", ") || "unknown resource"}`,
+      `terminal plane shutdown retained ${detail || "unknown resource"}`,
     );
   }
 };

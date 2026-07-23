@@ -70,6 +70,30 @@ describe("trusted renderer navigation lifecycle", () => {
     expect(event.preventDefault).not.toHaveBeenCalled();
   });
 
+  it("mints IPC trust on did-navigate before did-finish-load", () => {
+    const f = fixture();
+    f.lifecycle.didStartNavigation(false, true);
+    expect(f.trusted()).toBe(false);
+
+    f.lifecycle.didNavigate(`${trustedUrl}app`);
+    expect(f.trusted()).toBe(true);
+    // Mount challenge waits for load-complete — only IPC trust is early.
+    expect(f.trustedDocumentCommitted).not.toHaveBeenCalled();
+
+    f.setUrl(`${trustedUrl}app`);
+    f.lifecycle.didFinishLoad();
+    expect(f.trusted()).toBe(true);
+    expect(f.trustedDocumentCommitted).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a hostile did-navigate commit without waiting for finish-load", () => {
+    const f = fixture();
+    f.lifecycle.didStartNavigation(false, true);
+    f.lifecycle.didNavigate("https://attacker.invalid/");
+    expect(f.trusted()).toBe(false);
+    expect(f.rejected).toEqual(["https://attacker.invalid/"]);
+  });
+
   it("restores the prior document after a denied redirect or failed load", () => {
     const redirect = fixture();
     redirect.lifecycle.didFinishLoad();

@@ -222,6 +222,9 @@ export class TermPlane {
           control = controlOutcome.value;
           if (!control.clean) {
             retainedLabels.add("control-server");
+            if (control.retainedLabels.length > 0) {
+              diagnostics.push(`control-retained: ${control.retainedLabels.join(", ")}`);
+            }
             diagnostics.push(...control.diagnostics.map((item) => `control: ${item}`));
           }
         }
