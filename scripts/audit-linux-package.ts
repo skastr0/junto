@@ -597,6 +597,8 @@ export const validateLinuxRemoteLauncher = (input: string): void => {
   const detachedGroupTerms = input.match(
     /^\s*(?:\/bin\/)?kill -TERM(?: --)? "-\$/gmu,
   ) ?? [];
+  // Boot ready is generation receipt + work control only (docs/linux-production-contract.md).
+  // Reject orphan station-ready / deep multi-plane boot paths.
   if (
     !input.startsWith(EXPECTED_LINUX_REMOTE_LAUNCHER_BOOTSTRAP) ||
     cleanExecs.length !== 1 ||
@@ -606,7 +608,18 @@ export const validateLinuxRemoteLauncher = (input: string): void => {
     verifiedGroupKills.length !== 1 ||
     detachedGroupTerms.length !== 0 ||
     !input.includes('is_owned_group_leader "$vellum_pid" || return 1') ||
-    input.includes('signal_owned_group TERM')
+    input.includes("signal_owned_group TERM") ||
+    !input.includes(
+      'READY_RECEIPT="$SERVICE_RUNTIME_DIRECTORY/ready-$GENERATION"',
+    ) ||
+    !input.includes('is_owned_private_file "$READY_RECEIPT"') ||
+    !input.includes(
+      '[ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$GENERATION" ]',
+    ) ||
+    !input.includes('is_owned_private_socket "$control_socket"') ||
+    !input.includes('is_owned_private_file "$control_token"') ||
+    input.includes("station-ready.json") ||
+    input.includes("station_ready")
   ) {
     throw new Error(
       "Linux Remote launcher differs from the qualified clean-environment boundary",
@@ -671,11 +684,16 @@ export const validateSystemdUserUnit = (unit: string): void => {
     throw new Error("systemd user unit ExecStart does not address the packaged launcher");
   }
   for (const required of [
+    "Type=notify",
+    "NotifyAccess=all",
     "Restart=on-failure",
     "TimeoutStartSec=45s",
     "TimeoutStopSec=20s",
     "WorkingDirectory=%h",
     "ConditionFileIsExecutable=/opt/Vellum Command/vellum",
+    "RuntimeDirectory=vellum-remote",
+    "RuntimeDirectoryMode=0700",
+    "RuntimeDirectoryPreserve=no",
     "StandardOutput=null",
     "StandardError=null",
   ]) {

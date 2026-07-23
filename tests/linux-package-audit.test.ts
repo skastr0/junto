@@ -390,13 +390,47 @@ describe("Linux systemd service environment boundary", () => {
     ).toThrow(/clean-environment boundary/u);
   });
 
+  it("pins generation receipt boot ready and rejects station-ready orphans", async () => {
+    const launcher = await linuxRemoteLauncher();
+    expect(launcher).toContain(
+      'READY_RECEIPT="$SERVICE_RUNTIME_DIRECTORY/ready-$GENERATION"',
+    );
+    expect(launcher).not.toContain("station-ready.json");
+    expect(() =>
+      validateLinuxRemoteLauncher(
+        launcher.replace(
+          'READY_RECEIPT="$SERVICE_RUNTIME_DIRECTORY/ready-$GENERATION"',
+          'READY_RECEIPT="$SERVICE_RUNTIME_DIRECTORY/station-ready.json"',
+        ),
+      ),
+    ).toThrow(/clean-environment boundary/u);
+    expect(() =>
+      validateLinuxRemoteLauncher(
+        launcher.replace(
+          'is_owned_private_file "$READY_RECEIPT"',
+          'is_owned_private_file "$control_token"',
+        ),
+      ),
+    ).toThrow(/clean-environment boundary/u);
+  });
+
   it("pins the package-owned unit and audit to the qualified denylist", async () => {
     const unit = await systemdUserUnit();
     expect(() => validateSystemdUserUnit(unit)).not.toThrow();
     expect(unit).toContain("WorkingDirectory=%h\n");
+    expect(unit).toContain("Type=notify\n");
+    expect(unit).toContain("RuntimeDirectory=vellum-remote\n");
     expect(unit).toContain(
       `UnsetEnvironment=${LINUX_SYSTEMD_UNSET_ENVIRONMENT.join(" ")}\n`,
     );
+    expect(() =>
+      validateSystemdUserUnit(unit.replace("Type=notify\n", "")),
+    ).toThrow(/Type=notify/u);
+    expect(() =>
+      validateSystemdUserUnit(
+        unit.replace("RuntimeDirectory=vellum-remote\n", ""),
+      ),
+    ).toThrow(/RuntimeDirectory=vellum-remote/u);
   });
 
   it("requires systemd to signal only the launcher before wrapper escalation", async () => {
