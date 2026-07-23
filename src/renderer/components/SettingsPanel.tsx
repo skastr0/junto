@@ -42,6 +42,29 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
 
 type HostRow = NonNullable<HostsOpResult["hosts"]>[number];
 
+export const deployRecoveryGuidance = (
+  recoveryAction: HostsDeployRemoteResult["recoveryAction"],
+): string | undefined => {
+  if (recoveryAction === undefined) return undefined;
+
+  switch (recoveryAction.kind) {
+    case "close-active-vellum-terminals": {
+      const sessionLabel =
+        recoveryAction.activeTerminalSessions === 1 ? "session" : "sessions";
+      return `Close ${recoveryAction.activeTerminalSessions} active Vellum terminal ${sessionLabel}, then retry deployment.`;
+    }
+    case "restore-terminal-live-work-observation":
+      return "Restore terminal live-work observation through the deployment runbook or support, then retry deployment.";
+    case "provision-station-browser-trust":
+    case "bootstrap-linux-release-installer":
+      return "Install the current signed Linux package and helper, then retry deployment.";
+    case "repair-linux-release-transaction":
+      return "Repair the Linux release transaction through the deployment runbook or support, then retry deployment.";
+    case "retry-linux-release-install":
+      return "Retry deployment later; the current Linux release install did not complete.";
+  }
+};
+
 const emptyHostDraft = (): {
   id: string;
   label: string;
@@ -677,7 +700,7 @@ function HostsSection() {
     setBusy(true);
     setTestDetail((prev) => ({
       ...prev,
-      [id]: "deploying Vellum Remote (app + LaunchAgent + term socket)…",
+      [id]: "deploying Vellum Remote and waiting for station readiness…",
     }));
     try {
       const result: HostsDeployRemoteResult = await api.hostsDeployRemote(id);
@@ -685,9 +708,12 @@ function HostsSection() {
         result.stages && result.stages.length > 0
           ? `\n${result.stages.map((s) => `· ${s}`).join("\n")}`
           : "";
+      const recovery = deployRecoveryGuidance(result.recoveryAction);
       setTestDetail((prev) => ({
         ...prev,
-        [id]: `${result.detail || (result.ok ? "deployed" : result.message ?? "failed")}${stages}`,
+        [id]: `${result.detail || (result.ok ? "deployed" : result.message ?? "failed")}${
+          recovery ? `\nRecovery: ${recovery}` : ""
+        }${stages}`,
       }));
       setNotice({
         kind: result.ok ? "success" : "error",
@@ -713,7 +739,7 @@ function HostsSection() {
         use the host id (or optional hermes id). Expand <strong>Services</strong> on a host to
         list Tailscale Serve / SVC URLs and open them as canvas page nodes.
         {isCommandCenter
-          ? " On Command Center: Configure stamps station role; Deploy installs/updates the app over SSH, starts the Remote station, and waits for the term control socket."
+          ? " On Command Center: Configure stamps station role; Deploy installs or updates the signed Remote release over SSH, starts the Remote station, and waits for station readiness."
           : ""}
       </p>
 
@@ -758,7 +784,7 @@ function HostsSection() {
                           type="button"
                           className="settings-panel__ghost"
                           disabled={busy}
-                          title="macOS only: install/update Vellum Command.app over SSH, LaunchAgent, start station, wait for term + browser control sockets"
+                          title="Install or update the signed Remote release over SSH, start the station, and wait for readiness"
                           onClick={() => void deployRemote(host.id)}
                         >
                           Deploy Remote
@@ -1094,7 +1120,7 @@ function StationSection() {
       ) : null}
       <FieldRow
         label="Prefer supervised runtime"
-        hint="LaunchAgent KeepAlive — recommended for Remote 24×7"
+        hint="Supervised keepalive — recommended for Remote 24×7"
       >
         <input
           type="checkbox"

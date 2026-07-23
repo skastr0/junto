@@ -599,7 +599,19 @@ export interface HostsConfigureRemoteResult {
   };
 }
 
-/** Result of hostsDeployRemote — app install + LaunchAgent + term socket probe. */
+/** Fixed operator recovery for a deployment refusal; never carries a command or path. */
+export type HostsDeployRemoteRecoveryAction =
+  | {
+      readonly kind: "close-active-vellum-terminals";
+      readonly activeTerminalSessions: number;
+    }
+  | { readonly kind: "restore-terminal-live-work-observation" }
+  | { readonly kind: "provision-station-browser-trust" }
+  | { readonly kind: "bootstrap-linux-release-installer" }
+  | { readonly kind: "repair-linux-release-transaction" }
+  | { readonly kind: "retry-linux-release-install" };
+
+/** Result of hostsDeployRemote — Remote station install/update and readiness probe. */
 export interface HostsDeployRemoteResult {
   readonly ok: boolean;
   readonly detail: string;
@@ -613,6 +625,7 @@ export interface HostsDeployRemoteResult {
   readonly lastSeen?: string;
   readonly rollback?: "not-required" | "restored" | "failed";
   readonly statusRecorded?: boolean;
+  readonly recoveryAction?: HostsDeployRemoteRecoveryAction;
 }
 
 // The attached-chat surface is declared separately and merged into the

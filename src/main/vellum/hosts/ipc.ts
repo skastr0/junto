@@ -15,6 +15,7 @@ import {
 import { AppRuntime } from "../../runtime";
 import { SettingsService } from "../settings/service";
 import { recordStationDeployment } from "../station-status-store";
+import type { ConfiguredRemoteDeployResult } from "./deploy-configured-remote";
 import { HostsService } from "./service";
 import {
   HOST_OPERATION_ADMISSIONS,
@@ -43,6 +44,26 @@ const surfaceShutdownRefusal = <A>(
     if (error instanceof HostOperationShutdownRefused) return refusal(error);
     throw error;
   });
+
+export const projectDeployRemoteResult = (
+  deploy: ConfiguredRemoteDeployResult,
+): HostsDeployRemoteResult => ({
+  ok: deploy.ok,
+  detail: deploy.detail,
+  code: deploy.code,
+  message: deploy.message ?? deploy.detail,
+  stages: deploy.stages,
+  outcome: deploy.outcome,
+  packageState: deploy.packageState,
+  role: deploy.role,
+  version: deploy.version,
+  lastSeen: deploy.lastSeen,
+  rollback: deploy.rollback,
+  statusRecorded: deploy.statusRecorded ?? false,
+  ...(deploy.recoveryAction === undefined
+    ? {}
+    : { recoveryAction: deploy.recoveryAction }),
+});
 
 export const registerHostsIpc = (
   ipcMain: IpcMain,
@@ -326,20 +347,7 @@ export const registerHostsIpc = (
                 });
               },
             });
-            return {
-              ok: deploy.ok,
-              detail: deploy.detail,
-              code: deploy.code,
-              message: deploy.message ?? deploy.detail,
-              stages: deploy.stages,
-              outcome: deploy.outcome,
-              packageState: deploy.packageState,
-              role: deploy.role,
-              version: deploy.version,
-              lastSeen: deploy.lastSeen,
-              rollback: deploy.rollback,
-              statusRecorded: deploy.statusRecorded ?? false,
-            } satisfies HostsDeployRemoteResult;
+            return projectDeployRemoteResult(deploy);
           }),
         ),
       ),
