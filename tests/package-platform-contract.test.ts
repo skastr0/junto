@@ -169,6 +169,13 @@ describe("native package pipeline contract", () => {
     expect(afterPack).toContain('["vellum", "vellum-browser", "unix-peer-pid.py"]');
     expect(afterPack).toContain('"vellum-release-installer"');
     expect(afterPack).toContain('"vellum-release-bridge"');
+    expect(afterPack).toContain(
+      'new URL("../node_modules/electron/dist/version", import.meta.url)',
+    );
+    expect(afterPack).toContain(
+      'writeFile(path.join(context.appOutDir, "version"), runtimeVersion',
+    );
+    expect(afterPack).toContain('flag: "wx"');
     expect(afterPack).not.toContain('"vellum-release-installer.sudoers"');
     expect(packageJson).not.toContain("vellum-release-installer.sudoers");
     expect(packageJson).toContain('"from": "dist/vellum-release-bridge"');

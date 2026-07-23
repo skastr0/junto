@@ -1,4 +1,4 @@
-import { access, chmod, readFile } from "node:fs/promises";
+import { access, chmod, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -11,6 +11,9 @@ import {
 
 const POLICY_PATH = fileURLToPath(
   new URL("./package-security-policy.json", import.meta.url),
+);
+const ELECTRON_RUNTIME_VERSION_PATH = fileURLToPath(
+  new URL("../node_modules/electron/dist/version", import.meta.url),
 );
 
 const libraryFuseNames = () =>
@@ -107,6 +110,20 @@ export default async function afterPack(context) {
     await chmod(resource, 0o755);
   }
   if (platform === "linux") {
+    const runtimeVersion = await readFile(
+      ELECTRON_RUNTIME_VERSION_PATH,
+      "utf8",
+    );
+    if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(
+      runtimeVersion,
+    )) {
+      throw new Error("materialized Electron runtime version is not canonical");
+    }
+    await writeFile(path.join(context.appOutDir, "version"), runtimeVersion, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o644,
+    });
     for (const name of [
       "vellum-release-installer",
       "vellum-release-bridge",
