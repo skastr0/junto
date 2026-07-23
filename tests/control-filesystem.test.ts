@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:net";
+import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -79,6 +79,35 @@ describe("control filesystem lifecycle", () => {
       await removeObservedSocket(lease);
       expect(existsSync(path)).toBe(false);
     });
+  });
+
+  it("refuses a live foreign Unix listener and leaves it connectable", async () => {
+    const path = join(await root(), "control.sock");
+    let accepted = 0;
+    const server = createServer((socket) => {
+      accepted += 1;
+      socket.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(path, resolve);
+    });
+    try {
+      await withLease(path, async (lease) => {
+        await expect(removeObservedSocket(lease)).rejects.toThrow(/live listener/);
+        expect(lstatSync(path).isSocket()).toBe(true);
+
+        const client = createConnection({ path });
+        await new Promise<void>((resolve, reject) => {
+          client.once("connect", resolve);
+          client.once("error", reject);
+        });
+        client.destroy();
+      });
+      expect(accepted).toBeGreaterThanOrEqual(2);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it("excludes a second startup before and after listener activation, then releases", async () => {

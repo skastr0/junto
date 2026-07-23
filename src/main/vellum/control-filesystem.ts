@@ -1,7 +1,7 @@
 /** Hardened owner-local lifecycle for Unix control sockets and bearer tokens. */
 import { createHash, randomBytes } from "node:crypto";
 import { closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:net";
+import { createServer, Socket, type Server } from "node:net";
 import { basename, dirname, join } from "node:path";
 import {
   appProcessPlane,
@@ -11,6 +11,54 @@ import {
 
 export const CONTROL_DIRECTORY_MODE = 0o700;
 export const CONTROL_FILE_MODE = 0o600;
+/**
+ * A local Unix connect normally settles immediately, but Electron can delay
+ * JavaScript callbacks while its cold main loop is busy. The confirmation
+ * probe keeps an aged refusal from authorizing a later destructive rename.
+ */
+const CONTROL_SOCKET_DISCOVERY_TIMEOUT_MS = 5_000;
+const CONTROL_SOCKET_CONFIRM_TIMEOUT_MS = 100;
+
+type ControlSocketLiveness = "active" | "inactive" | "ambiguous";
+
+const probeControlSocketLiveness = (
+  path: string,
+  timeoutMs: number,
+): Promise<ControlSocketLiveness> =>
+  new Promise((resolve) => {
+    const socket = new Socket();
+    let settled = false;
+    let timer: NodeJS.Timeout | undefined;
+    const finish = (outcome: ControlSocketLiveness): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      socket.destroy();
+      resolve(outcome);
+    };
+    socket.once("connect", () => finish("active"));
+    socket.once("error", (error: NodeJS.ErrnoException) => {
+      // A captured Unix socket inode is eligible for stale cleanup only when
+      // the kernel definitively reports that no listener accepts its path.
+      // Bun reports ENOENT for the same stale-inode connect that Node reports
+      // as ECONNREFUSED on Darwin; the later exact-inode check still guards a
+      // concurrent pathname removal or replacement.
+      finish(
+        error.code === "ECONNREFUSED" || error.code === "ENOENT"
+          ? "inactive"
+          : "ambiguous",
+      );
+    });
+    timer = setTimeout(
+      () => finish("ambiguous"),
+      timeoutMs,
+    );
+    try {
+      socket.connect({ path });
+    } catch {
+      finish("ambiguous");
+    }
+  });
 
 type Identity = Readonly<{ dev: bigint; ino: bigint; birthtimeNs: bigint; uid: bigint }>;
 const identityOf = (path: string): Identity => {
@@ -351,10 +399,10 @@ export const removeOwnedControlSocketPath = (
 /**
  * Retire a pre-existing socket while holding the exclusive listener lease.
  *
- * The lease is acquired before token rotation or bind and survives through
- * listener close. Therefore another conforming startup cannot own, activate,
- * or replace this inode between observation and quarantine. No finite
- * liveness probe is used as destructive authority.
+ * The lease excludes conforming Vellum startups, while the bounded connect
+ * probes prove that a same-user foreign listener is not currently accepting
+ * connections. Only fresh definitive inactive results authorize quarantine;
+ * timeout, successful connect, and every other error fail closed.
  */
 export const removeObservedSocket = async (
   lease: ControlListenerLease,
@@ -368,6 +416,29 @@ export const removeObservedSocket = async (
   try { first = lstatSync(path, { bigint: true }); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
   if (!first.isSocket() || first.isSymbolicLink()) throw new Error("refusing to replace non-socket control path");
   const id: Identity = { dev: first.dev, ino: first.ino, birthtimeNs: first.birthtimeNs, uid: first.uid };
+  const discovered = await probeControlSocketLiveness(
+    path,
+    CONTROL_SOCKET_DISCOVERY_TIMEOUT_MS,
+  );
+  if (discovered === "active") {
+    throw new Error("refusing to replace control socket with a live listener");
+  }
+  if (discovered !== "inactive") {
+    throw new Error("control socket liveness is ambiguous; refusing stale cleanup");
+  }
+  // Do not let a refusal delayed by a cold Electron loop authorize cleanup:
+  // require a second, fresh kernel refusal before touching the directory entry.
+  const confirmed = await probeControlSocketLiveness(
+    path,
+    CONTROL_SOCKET_CONFIRM_TIMEOUT_MS,
+  );
+  if (confirmed === "active") {
+    throw new Error("control socket became live before quarantine");
+  }
+  if (confirmed !== "inactive") {
+    throw new Error("control socket liveness became ambiguous before quarantine");
+  }
+  requireListenerLease(lease);
   const quarantine = mkdtempSync(join(dirname(path), ".vellum-stale-"));
   const quarantined = join(quarantine, basename(path));
   try {
