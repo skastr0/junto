@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -19,12 +25,34 @@ const fixture = async () => {
   await Promise.all([mkdir(release), mkdir(evidence)]);
   const deb = "Vellum Command-1.2.3-x64-linux.deb"; const debBody = "deb-bytes";
   await writeFile(join(release, deb), debBody);
-  const required = ["package-audit.json", "packaged-pty-smoke.json", "packaged-runtime-smoke.json", "test-receipt.json"];
+  const diagnostic = "Vellum Command-1.2.3-x64-linux.unpacked.tar.gz";
+  const required = ["inventory.json", "package-audit.json", "packaged-pty-smoke.json", "packaged-runtime-smoke.json", "test-receipt.json"];
+  await mkdir(join(evidence, "logs"));
+  await writeFile(join(evidence, diagnostic), "diagnostic");
+  await writeFile(join(evidence, "logs", "qualification.log"), "passed\n");
   await Promise.all(required.map((file) => writeFile(join(evidence, file), `{\"${file}\":true}\n`)));
   const evidenceEntries = await Promise.all(required.map(async (file) => {
     const body = `{\"${file}\":true}\n`; return receipt("evidence", file, body);
   }));
-  return { root, release, evidence, manifest: { schema: "vellum/linux-release-evidence/v1", target: { os: "linux", architecture: "x64", machine: "x86_64", distribution: "ubuntu", distributionVersion: "24.04", libc: "glibc" }, publishable: { format: "deb", file: deb }, evidence: [receipt("release", deb, debBody), ...evidenceEntries] } };
+  return {
+    root,
+    release,
+    evidence,
+    manifest: {
+      schema: "vellum/linux-release-evidence/v1",
+      target: { os: "linux", architecture: "x64", machine: "x86_64", distribution: "ubuntu", distributionVersion: "24.04", libc: "glibc" },
+      source: { commit: "a".repeat(40), sourceDateEpoch: 1_784_700_000 },
+      publishable: { format: "deb", file: deb },
+      diagnostic: { format: "tar.gz", file: diagnostic },
+      evidence: [
+        receipt("release", deb, debBody),
+        receipt("evidence", diagnostic, "diagnostic"),
+        ...evidenceEntries,
+        receipt("evidence", "logs/qualification.log", "passed\n"),
+      ],
+      unsupported: ["linux-arm64", "musl", "appimage", "snap", "flatpak", "rpm"],
+    },
+  };
 };
 
 describe("Linux Remote deployment program", () => {
@@ -49,8 +77,12 @@ describe("Linux Remote deployment program", () => {
       await expect(admitLinuxRemoteArtifact({ manifest: input.manifest, releaseDirectory: input.release, evidenceDirectory: input.evidence })).resolves.toMatchObject({ version: "1.2.3", bytes: 9 });
       await expect(admitLinuxRemoteArtifact({ manifest: { ...input.manifest, target: { ...input.manifest.target, libc: "musl" } }, releaseDirectory: input.release, evidenceDirectory: input.evidence })).rejects.toThrow(/Ubuntu 24.04/u);
       await expect(admitLinuxRemoteArtifact({ manifest: { ...input.manifest, publishable: { format: "deb", file: "other.deb" } }, releaseDirectory: input.release, evidenceDirectory: input.evidence })).rejects.toThrow(/invalid deb identity/u);
-      await expect(admitLinuxRemoteArtifact({ manifest: { ...input.manifest, evidence: input.manifest.evidence.slice(0, -1) }, releaseDirectory: input.release, evidenceDirectory: input.evidence })).rejects.toThrow(/required evidence/u);
+      await expect(admitLinuxRemoteArtifact({ manifest: { ...input.manifest, evidence: input.manifest.evidence.filter((entry) => entry.file !== "test-receipt.json") }, releaseDirectory: input.release, evidenceDirectory: input.evidence })).rejects.toThrow(/required evidence/u);
       await expect(admitLinuxRemoteArtifact({ manifest: { ...input.manifest, evidence: [...input.manifest.evidence, receipt("release", "Vellum Command-9-x64-linux.deb", "other")] }, releaseDirectory: input.release, evidenceDirectory: input.evidence })).rejects.toThrow(/single bounded/u);
+      await expect(admitLinuxRemoteArtifact({ manifest: { ...input.manifest, evidence: [...input.manifest.evidence, input.manifest.evidence[0]] }, releaseDirectory: input.release, evidenceDirectory: input.evidence })).rejects.toThrow(/single bounded|duplicates/u);
+      await rm(join(input.evidence, "package-audit.json"));
+      await symlink(join(input.evidence, "inventory.json"), join(input.evidence, "package-audit.json"));
+      await expect(admitLinuxRemoteArtifact({ manifest: input.manifest, releaseDirectory: input.release, evidenceDirectory: input.evidence })).rejects.toThrow(/does not match/u);
     } finally { await rm(input.root, { recursive: true, force: true }); }
   });
 });
