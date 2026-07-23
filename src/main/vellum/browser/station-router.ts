@@ -7,6 +7,7 @@ import {
 } from "@shared/remote-hosts";
 import {
   decodeStationBrowserResponse,
+  STATION_BROWSER_MAX_EVAL_BYTES,
   STATION_BROWSER_MAX_TTL_MS,
   type StationBrowserAction,
   type StationBrowserRequest,
@@ -17,8 +18,10 @@ import type { SshError, SshTransport } from "../ssh";
 import {
   bindStationBrowserRequest,
   mintStationBrowserEnvelope,
-  type AdmittedDelegationWitness,
+  StationBrowserOriginAdmissionError,
+  type StationBrowserRouteAdmission,
 } from "./station-delegation";
+import { parseNodeRef } from "@shared/node-ref";
 import {
   dispatchStationBrowser,
   type StationBrowserTransportError,
@@ -53,6 +56,137 @@ export type StationBrowserRouteInput =
       /** Optional assertion only. Document/session truth remains authoritative. */
       targetHostId?: string;
     }>;
+
+export type StationBrowserRouteInputDecode =
+  | Readonly<{ ok: true; input: StationBrowserRouteInput }>
+  | Readonly<{ ok: false }>;
+
+const plain = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const exactKeys = (
+  value: Record<string, unknown>,
+  required: ReadonlyArray<string>,
+  optional: ReadonlyArray<string> = [],
+): boolean => {
+  const keys = Object.keys(value);
+  return required.every((key) => key in value) &&
+    keys.every((key) => required.includes(key) || optional.includes(key));
+};
+
+const boundedText = (value: unknown, maxBytes = 4_096): value is string =>
+  typeof value === "string" &&
+  Buffer.byteLength(value, "utf8") > 0 &&
+  Buffer.byteLength(value, "utf8") <= maxBytes &&
+  !/[\u0000-\u001f\u007f]/.test(value);
+
+const routeId = (value: unknown): value is string =>
+  boundedText(value, 128) && /^[A-Za-z0-9._:-]+$/.test(value);
+
+const routePageRef = (value: unknown): value is string =>
+  typeof value === "string" && parseNodeRef(value).ok;
+
+const routeSession = (value: unknown): value is StationBrowserSession =>
+  plain(value) &&
+  exactKeys(value, ["hostId", "sessionId", "generation"]) &&
+  routeId(value.hostId) &&
+  routeId(value.sessionId) &&
+  routeId(value.generation);
+
+/**
+ * Exact untrusted HTTP decoder for the origin control route. Only the typed
+ * station protocol is representable; paths, programs, forwarding, bounds,
+ * and arbitrary wrapper arguments have no fields.
+ */
+export const decodeStationBrowserRouteInput = (
+  value: unknown,
+): StationBrowserRouteInputDecode => {
+  if (!plain(value) || typeof value.action !== "string") {
+    return { ok: false };
+  }
+  const targetHostId =
+    value.targetHostId === undefined
+      ? undefined
+      : routeId(value.targetHostId)
+        ? value.targetHostId
+        : null;
+  if (targetHostId === null) return { ok: false };
+
+  if (
+    value.action === "doctor" ||
+    value.action === "discover" ||
+    value.action === "list"
+  ) {
+    return exactKeys(value, ["action", "targetHostId"]) &&
+        targetHostId !== undefined
+      ? {
+          ok: true,
+          input: {
+            action: value.action,
+            targetHostId,
+          },
+        }
+      : { ok: false };
+  }
+
+  if (!routePageRef(value.pageRef)) return { ok: false };
+  if (value.action === "open") {
+    return exactKeys(value, ["action", "pageRef"], ["targetHostId"])
+      ? {
+          ok: true,
+          input: {
+            action: "open",
+            pageRef: value.pageRef,
+            ...(targetHostId === undefined ? {} : { targetHostId }),
+          },
+        }
+      : { ok: false };
+  }
+
+  if (
+    value.action !== "goto" &&
+    value.action !== "eval" &&
+    value.action !== "screenshot" &&
+    value.action !== "state" &&
+    value.action !== "close" &&
+    value.action !== "stop"
+  ) {
+    return { ok: false };
+  }
+  if (!routeSession(value.session)) return { ok: false };
+  const payload: Readonly<Record<string, string>> | null | undefined =
+    value.action === "goto"
+      ? plain(value.payload) &&
+        exactKeys(value.payload, ["url"]) &&
+        boundedText(value.payload.url)
+        ? { url: value.payload.url }
+        : undefined
+      : value.action === "eval"
+        ? plain(value.payload) &&
+          exactKeys(value.payload, ["code"]) &&
+          boundedText(value.payload.code, STATION_BROWSER_MAX_EVAL_BYTES)
+          ? { code: value.payload.code }
+          : undefined
+        : value.payload === undefined
+          ? null
+          : undefined;
+  if (payload === undefined) return { ok: false };
+  const required =
+    value.action === "goto" || value.action === "eval"
+      ? ["action", "pageRef", "session", "payload"]
+      : ["action", "pageRef", "session"];
+  if (!exactKeys(value, required, ["targetHostId"])) return { ok: false };
+  return {
+    ok: true,
+    input: {
+      action: value.action,
+      pageRef: value.pageRef,
+      session: value.session,
+      ...(payload === null ? {} : { payload }),
+      ...(targetHostId === undefined ? {} : { targetHostId }),
+    },
+  };
+};
 
 export interface StationBrowserSigningIdentity {
   readonly keyId: string;
@@ -95,6 +229,7 @@ export type StationBrowserRouterErrorCode =
   | "wrong_host"
   | "stale_page"
   | "malformed_response"
+  | "admission"
   | "cancelled"
   | "transport";
 
@@ -159,6 +294,13 @@ const asRouterError = (
   error: unknown,
 ): StationBrowserRouterError => {
   if (error instanceof StationBrowserRouterError) return error;
+  if (error instanceof StationBrowserOriginAdmissionError) {
+    return new StationBrowserRouterError(
+      error.denial === "cancelled" ? "cancelled" : "admission",
+      "browser station route admission failed",
+      { cause: error },
+    );
+  }
   if (error instanceof DOMException && error.name === "AbortError") {
     return new StationBrowserRouterError(
       "cancelled",
@@ -264,7 +406,7 @@ export const makeStationBrowserRouter = (deps: StationBrowserRouterDeps) => {
   };
 
   const route = async (
-    witness: AdmittedDelegationWitness,
+    admission: StationBrowserRouteAdmission,
     input: StationBrowserRouteInput,
     signal?: AbortSignal,
   ): Promise<StationBrowserResponse> => {
@@ -290,6 +432,20 @@ export const makeStationBrowserRouter = (deps: StationBrowserRouterDeps) => {
         throw new StationBrowserRouterError(
           "unknown_host",
           "browser Remote has no configured SSH endpoint",
+        );
+      }
+      const witness = await admission.admit(
+        {
+          targetStationId,
+          ...("pageRef" in input ? { pageRef: input.pageRef } : {}),
+        },
+        signal,
+      );
+      const revalidatedTargetStationId = await deriveTarget(input);
+      if (revalidatedTargetStationId !== targetStationId) {
+        throw new StationBrowserRouterError(
+          "stale_page",
+          "browser page host changed during route admission",
         );
       }
 

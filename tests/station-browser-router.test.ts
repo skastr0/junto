@@ -2,10 +2,10 @@ import { generateKeyPairSync } from "node:crypto";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
-  admitOperatorUiDelegation,
-  type AdmittedDelegationWitness,
+  makeOperatorStationBrowserRouteAdmission,
 } from "../src/main/vellum/browser/station-delegation";
 import {
+  decodeStationBrowserRouteInput,
   makeStationBrowserRouter,
   StationBrowserRouterError,
   STATION_BROWSER_MAX_REMOTE_CONCURRENCY_PER_HOST,
@@ -29,8 +29,8 @@ const remoteHost = {
   endpoint: "remote-a",
   capabilities: ["browser"] as const,
 };
-const witness = (): AdmittedDelegationWitness =>
-  admitOperatorUiDelegation("command-a");
+const admission = () =>
+  makeOperatorStationBrowserRouteAdmission("command-a");
 
 const okResponse = (
   request: {
@@ -110,7 +110,7 @@ describe("station browser host-qualified router", () => {
       },
     }));
 
-    await expect(router.route(witness(), { action: "open", pageRef }))
+    await expect(router.route(admission(), { action: "open", pageRef }))
       .resolves.toMatchObject({ ok: true, hostId: "command-a" });
     expect({ localCalls, signingCalls, remoteCalls }).toEqual({
       localCalls: 1,
@@ -138,7 +138,7 @@ describe("station browser host-qualified router", () => {
       },
     }));
 
-    await expect(router.route(witness(), {
+    await expect(router.route(admission(), {
       action: "open",
       pageRef,
       targetHostId: "remote-a",
@@ -155,6 +155,41 @@ describe("station browser host-qualified router", () => {
     }]);
   });
 
+  it("admits only the derived target and rechecks document host truth before signing", async () => {
+    let currentHost = "remote-a";
+    let remoteCalls = 0;
+    const admitted: unknown[] = [];
+    const operator = admission();
+    const router = makeStationBrowserRouter(baseDeps({
+      resolvePageHost: async () => ({ hostId: currentHost }),
+      dispatchRemote: () => {
+        remoteCalls += 1;
+        return Effect.die(new Error("unexpected"));
+      },
+    }));
+    const routeAdmission = {
+      admit: async (
+        target: Parameters<typeof operator.admit>[0],
+        signal?: AbortSignal,
+      ) => {
+        admitted.push(target);
+        const value = await operator.admit(target, signal);
+        currentHost = "other";
+        return value;
+      },
+    };
+
+    await expect(router.route(routeAdmission, {
+      action: "open",
+      pageRef,
+    })).rejects.toMatchObject({ code: "stale_page" });
+    expect(admitted).toEqual([{
+      targetStationId: "remote-a",
+      pageRef,
+    }]);
+    expect(remoteCalls).toBe(0);
+  });
+
   it("rejects caller host assertions, mixed sessions, unknown hosts, and removed capability before transport", async () => {
     let calls = 0;
     const dispatchRemote: NonNullable<StationBrowserRouterDeps["dispatchRemote"]> =
@@ -163,12 +198,12 @@ describe("station browser host-qualified router", () => {
         return Effect.die(new Error("unexpected"));
       };
     const router = makeStationBrowserRouter(baseDeps({ dispatchRemote }));
-    await expect(router.route(witness(), {
+    await expect(router.route(admission(), {
       action: "open",
       pageRef,
       targetHostId: "remote-b",
     })).rejects.toMatchObject({ code: "wrong_host" });
-    await expect(router.route(witness(), {
+    await expect(router.route(admission(), {
       action: "state",
       pageRef,
       session: {
@@ -182,7 +217,7 @@ describe("station browser host-qualified router", () => {
       hosts: () => [localHost],
       dispatchRemote,
     }));
-    await expect(unknown.route(witness(), {
+    await expect(unknown.route(admission(), {
       action: "open",
       pageRef,
     })).rejects.toMatchObject({ code: "unknown_host" });
@@ -191,7 +226,7 @@ describe("station browser host-qualified router", () => {
       hosts: () => [{ ...remoteHost, capabilities: ["hermes"] }],
       dispatchRemote,
     }));
-    await expect(removed.route(witness(), {
+    await expect(removed.route(admission(), {
       action: "open",
       pageRef,
     })).rejects.toMatchObject({ code: "host_capability" });
@@ -220,7 +255,7 @@ describe("station browser host-qualified router", () => {
       const router = makeStationBrowserRouter(baseDeps({
         dispatchRemote: () => Effect.succeed(response as StationBrowserResponse),
       }));
-      await expect(router.route(witness(), {
+      await expect(router.route(admission(), {
         action: "doctor",
         targetHostId: "remote-a",
       })).rejects.toMatchObject({ code: "malformed_response" });
@@ -246,7 +281,7 @@ describe("station browser host-qualified router", () => {
     }));
     const controller = new AbortController();
     const routed = router.route(
-      witness(),
+      admission(),
       { action: "doctor", targetHostId: "remote-a" },
       controller.signal,
     );
@@ -281,7 +316,7 @@ describe("station browser host-qualified router", () => {
         }),
     }));
     const calls = Array.from({ length: 5 }, () =>
-      router.route(witness(), {
+      router.route(admission(), {
         action: "doctor",
         targetHostId: "remote-a",
       }),
@@ -292,5 +327,43 @@ describe("station browser host-qualified router", () => {
     expect(peak).toBe(STATION_BROWSER_MAX_REMOTE_CONCURRENCY_PER_HOST);
     release();
     await expect(Promise.all(calls)).resolves.toHaveLength(5);
+  });
+});
+
+describe("station browser origin-route decoder", () => {
+  it("accepts only typed station actions and rejects wrapper/path/bounds injection", () => {
+    expect(decodeStationBrowserRouteInput({
+      action: "open",
+      pageRef,
+      targetHostId: "remote-a",
+    })).toMatchObject({ ok: true });
+    expect(decodeStationBrowserRouteInput({
+      action: "goto",
+      pageRef,
+      session: {
+        hostId: "remote-a",
+        sessionId: "session-1",
+        generation: "generation-1",
+      },
+      payload: { url: "https://example.com/next" },
+    })).toMatchObject({ ok: true });
+    for (const value of [
+      { action: "setBounds", pageRef },
+      { action: "open", pageRef, path: "/tmp/browser.sock" },
+      { action: "open", pageRef, program: "bash" },
+      { action: "doctor", targetHostId: "remote-a", forward: 9222 },
+      {
+        action: "goto",
+        pageRef,
+        session: {
+          hostId: "remote-a",
+          sessionId: "session-1",
+          generation: "generation-1",
+        },
+        payload: { url: "https://example.com", code: "x" },
+      },
+    ]) {
+      expect(decodeStationBrowserRouteInput(value)).toEqual({ ok: false });
+    }
   });
 });
