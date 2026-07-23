@@ -106,6 +106,8 @@ export type RemoteDeploymentProviderReceipt = {
 
 export type RemoteDeploymentProvider = {
   readonly platform: RemoteTargetPlatform;
+  /** Provider can produce the station-local Chromium composition/control plane. */
+  readonly supportsBrowser: boolean;
   readonly deploy: (
     input: RemoteDeploymentProviderInput,
   ) => Effect.Effect<RemoteDeploymentProviderReceipt, never>;

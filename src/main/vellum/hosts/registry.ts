@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { isIP } from "node:net";
 import { Either, Schema } from "effect";
 import {
+  BROWSER_HOST_CAPABILITY,
   REMOTE_HOSTS_VERSION,
   RemoteHostsDocument,
   RemoteHostsError,
@@ -43,6 +44,12 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
       throw new RemoteHostsError("validation", `duplicate host id: ${host.id}`);
     }
     ids.add(host.id);
+    if (new Set(host.capabilities).size !== host.capabilities.length) {
+      throw new RemoteHostsError(
+        "validation",
+        `duplicate capability on host: ${host.id}`,
+      );
+    }
 
     if (host.kind === "local") {
       if (host.endpoint) {
@@ -97,6 +104,32 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
   }
 };
 
+/**
+ * V1 documents predate the explicit browser capability. This machine's
+ * reserved local record is the only capability we can migrate from product
+ * fact; remote SSH records remain exactly user-authored.
+ */
+const migrateBrowserCapability = (
+  document: RemoteHostsDocumentT,
+): RemoteHostsDocumentT => {
+  let changed = false;
+  const hosts = document.hosts.map((host) => {
+    if (
+      host.id !== "local" ||
+      host.kind !== "local" ||
+      host.capabilities.includes(BROWSER_HOST_CAPABILITY)
+    ) {
+      return host;
+    }
+    changed = true;
+    return {
+      ...host,
+      capabilities: [...host.capabilities, BROWSER_HOST_CAPABILITY],
+    };
+  });
+  return changed ? { ...document, hosts } : document;
+};
+
 const atomicWrite = async (
   path: string,
   document: RemoteHostsDocumentT,
@@ -142,8 +175,10 @@ export const loadRemoteHostsDocument = async (
         `hosts.json schema invalid: ${decoded.left.message}`,
       );
     }
-    validateHosts(decoded.right.hosts);
-    return decoded.right;
+    const migrated = migrateBrowserCapability(decoded.right);
+    validateHosts(migrated.hosts);
+    if (migrated !== decoded.right) await atomicWrite(path, migrated);
+    return migrated;
   } catch (error) {
     if (error instanceof RemoteHostsError) throw error;
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {

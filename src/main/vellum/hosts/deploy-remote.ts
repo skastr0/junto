@@ -2,7 +2,7 @@
 
 import type { Context } from "effect";
 import { Effect } from "effect";
-import type { RemoteHost } from "@shared/remote-hosts";
+import { hostHasCapability, type RemoteHost } from "@shared/remote-hosts";
 import { SshTransport } from "../ssh";
 import { darwinRemoteDeploymentProvider } from "./deploy-darwin";
 import type {
@@ -58,7 +58,8 @@ export const makeRemoteDeploymentDispatcher = (input: {
       Effect.map((preparation) => {
         if (!preparation.ok) return preparation;
         const { target } = preparation;
-        if (!providers.has(target.platform.platform)) {
+        const provider = providers.get(target.platform.platform);
+        if (!provider) {
           return {
             ok: false as const,
             result: unsupportedRemoteTargetResult(
@@ -70,6 +71,22 @@ export const makeRemoteDeploymentDispatcher = (input: {
                 platform: target.platform.platform,
               },
               target.progress,
+            ),
+          };
+        }
+        if (
+          hostHasCapability(target.host, "browser") &&
+          !provider.supportsBrowser
+        ) {
+          return {
+            ok: false as const,
+            result: remoteDeploymentFailure(
+              `${target.host.label}: deployment provider cannot satisfy the declared browser capability`,
+              {
+                code: "validation",
+                message: "remote browser capability unsupported by deployment provider",
+                stages: target.progress,
+              },
             ),
           };
         }

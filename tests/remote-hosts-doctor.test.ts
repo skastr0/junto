@@ -37,6 +37,11 @@ describe("remote hosts doctor binary probes", () => {
       ["hermes", ["version"], 5_000],
     ]);
     expect(report.status).toBe("ok");
+    expect(report.metadata).toMatchObject({
+      browserHostCount: "1",
+      browserHostIds: "local",
+    });
+    expect(report.detail).toContain("browser capability declared");
   });
 
   it("derives local connection success only from structured probe results", async () => {

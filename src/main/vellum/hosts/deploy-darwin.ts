@@ -1176,6 +1176,7 @@ const deployDarwinRemote = (
 
 export const darwinRemoteDeploymentProvider: RemoteDeploymentProvider = {
   platform: "darwin",
+  supportsBrowser: true,
   deploy: (input) =>
     deployDarwinRemote(input).pipe(
       Effect.map((result) => ({

@@ -41,9 +41,49 @@ describe("remote hosts registry", () => {
     const registry = makeHostsRegistry(path);
     const hosts = await registry.list();
     expect(hosts.map((host) => host.id)).toEqual(["local"]);
+    expect(hosts[0]?.capabilities).toContain("browser");
     expect(hosts.every((host) => host.kind === "local" || host.endpoint)).toBe(true);
     const raw = await readFile(path, "utf8");
     expect(JSON.parse(raw).version).toBe(1);
+  });
+
+  it("migrates browser onto the reserved local host without inventing it for SSH hosts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-browser-migration-"));
+    dirs.push(root);
+    const path = join(root, "hosts.json");
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        version: 1,
+        hosts: [
+          {
+            id: "local",
+            label: "local",
+            kind: "local",
+            capabilities: ["terminal", "herdr", "hermes"],
+          },
+          {
+            id: "studio",
+            label: "Studio",
+            kind: "remote",
+            endpoint: "studio",
+            capabilities: ["terminal"],
+          },
+        ],
+      })}\n`,
+      "utf8",
+    );
+
+    const hosts = await makeHostsRegistry(path).list();
+    expect(hosts.find((host) => host.id === "local")?.capabilities).toContain("browser");
+    expect(hosts.find((host) => host.id === "studio")?.capabilities).toEqual(["terminal"]);
+    const persisted = JSON.parse(await readFile(path, "utf8")) as {
+      hosts: Array<{ id: string; capabilities: string[] }>;
+    };
+    expect(persisted.hosts.find((host) => host.id === "local")?.capabilities)
+      .toContain("browser");
+    expect(persisted.hosts.find((host) => host.id === "studio")?.capabilities)
+      .toEqual(["terminal"]);
   });
 
   it("upserts an remote host and rejects removing local", async () => {
@@ -373,6 +413,23 @@ describe("remote hosts registry", () => {
     });
     expect(scopedIpv6.find((host) => host.id === "scoped-ipv6")?.endpoint)
       .toBe("ops@fe80::1%lo0");
+  });
+
+  it("rejects duplicate capabilities instead of persisting ambiguous host claims", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-capabilities-"));
+    dirs.push(root);
+    const registry = makeHostsRegistry(join(root, "hosts.json"));
+
+    await expect(registry.upsert({
+      id: "studio",
+      label: "Studio",
+      kind: "remote",
+      endpoint: "studio",
+      capabilities: ["browser", "browser"],
+    })).rejects.toMatchObject({
+      code: "validation",
+      message: expect.stringContaining("duplicate capability"),
+    });
   });
 });
 

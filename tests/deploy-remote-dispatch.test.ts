@@ -33,7 +33,10 @@ const makeSsh = (stdout: string): Ssh =>
     run: vi.fn(() => Effect.succeed({ stdout, stderr: "" })),
   }) as unknown as Ssh;
 
-const makeProvider = (platform: "darwin" | "linux") => {
+const makeProvider = (
+  platform: "darwin" | "linux",
+  supportsBrowser = true,
+) => {
   const deploy = vi.fn((input: RemoteDeploymentProviderInput) =>
     Effect.succeed({
       result: {
@@ -55,7 +58,7 @@ const makeProvider = (platform: "darwin" | "linux") => {
       rollback: "not-required" as const,
     }),
   );
-  return { platform, deploy } satisfies RemoteDeploymentProvider;
+  return { platform, supportsBrowser, deploy } satisfies RemoteDeploymentProvider;
 };
 
 describe("Remote deployment platform evidence", () => {
@@ -142,6 +145,31 @@ describe("Remote deployment dispatcher", () => {
         }),
       }),
     );
+  });
+
+  it("rejects a declared browser capability the selected provider cannot satisfy", async () => {
+    const terminalOnly = makeProvider("darwin", false);
+    const dispatcher = makeRemoteDeploymentDispatcher({
+      commandCenterPlatform: "darwin",
+      providers: [terminalOnly],
+    });
+
+    const result = await Effect.runPromise(
+      dispatcher.deploy(
+        makeSsh("Darwin\n"),
+        { ...host, capabilities: ["terminal", "browser"] },
+        { state: "managed-externally" },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "validation",
+      disposition: "not-started",
+      message: "remote browser capability unsupported by deployment provider",
+      stages: ["endpoint ok", "ssh warm ok", "remote uname Darwin"],
+    });
+    expect(terminalOnly.deploy).not.toHaveBeenCalled();
   });
 
   it("refuses a supported descriptor with no provider before provider mutation", async () => {

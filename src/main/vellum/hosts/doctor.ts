@@ -162,6 +162,9 @@ const probeSshHost = (
     const parts: string[] = [`auth ok · home ${homePath}`];
     let warnings = 0;
 
+    if (hostHasCapability(host, "browser")) {
+      parts.push("browser capability declared");
+    }
     if (hostHasCapability(host, "herdr")) {
       const herdr = yield* remoteBinary(ssh, host.endpoint, "herdr");
       parts.push(herdr.detail);
@@ -249,6 +252,9 @@ export const runRemoteHostsDoctor = (
 
     const local = hosts.find((host) => host.kind === "local");
     if (local) {
+      if (hostHasCapability(local, "browser")) {
+        lines.push("local: browser capability declared");
+      }
       if (hostHasCapability(local, "herdr")) {
         const herdr = yield* Effect.promise(() => localBinary("herdr", run));
         lines.push(`local: ${herdr.detail}`);
@@ -280,6 +286,10 @@ export const runRemoteHostsDoctor = (
       .filter((host) => hostHasCapability(host, "hermes"))
       .map((host) => hermesKeyFor(host))
       .join(", ");
+    const browserHostIds = hosts
+      .filter((host) => hostHasCapability(host, "browser"))
+      .map((host) => host.id)
+      .join(", ");
 
     return {
       id: "remote-hosts",
@@ -291,6 +301,10 @@ export const runRemoteHostsDoctor = (
         hostCount: String(hosts.length),
         remoteHostCount: String(sshHosts.length),
         hermesKeys,
+        browserHostCount: String(
+          hosts.filter((host) => hostHasCapability(host, "browser")).length,
+        ),
+        browserHostIds,
       },
     } satisfies ServiceCheck;
   }).pipe(
@@ -315,6 +329,9 @@ export const testHostConnection = (
   host.kind === "local"
     ? Effect.gen(function* () {
         const probes: Array<{ readonly ok: boolean; readonly detail: string }> = [];
+        if (hostHasCapability(host, "browser")) {
+          probes.push({ ok: true, detail: "browser capability declared" });
+        }
         if (hostHasCapability(host, "herdr")) {
           probes.push(yield* Effect.promise(() => localBinary("herdr", run)));
         }

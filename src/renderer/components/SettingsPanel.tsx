@@ -46,6 +46,8 @@ const emptyHostDraft = (): {
   id: string;
   label: string;
   endpoint: string;
+  terminal: boolean;
+  browser: boolean;
   herdr: boolean;
   hermes: boolean;
   hermesId: string;
@@ -53,6 +55,8 @@ const emptyHostDraft = (): {
   id: "",
   label: "",
   endpoint: "",
+  terminal: true,
+  browser: false,
   herdr: true,
   hermes: true,
   hermesId: "",
@@ -512,6 +516,8 @@ function HostsSection() {
       id: host.id,
       label: host.label,
       endpoint: host.endpoint ?? "",
+      terminal: host.capabilities.includes("terminal"),
+      browser: host.capabilities.includes("browser"),
       herdr: host.capabilities.includes("herdr"),
       hermes: host.capabilities.includes("hermes"),
       hermesId: host.hermesId ?? "",
@@ -536,15 +542,17 @@ function HostsSection() {
       setNotice({ kind: "error", message: "Host id and SSH endpoint are required." });
       return;
     }
-    if (!draft.herdr && !draft.hermes) {
-      setNotice({ kind: "error", message: "Enable at least one capability (Herdr or Hermes)." });
+    if (!draft.terminal && !draft.browser && !draft.herdr && !draft.hermes) {
+      setNotice({ kind: "error", message: "Enable at least one host capability." });
       return;
     }
     if (id === "local") {
       setNotice({ kind: "error", message: "Id \"local\" is reserved." });
       return;
     }
-    const capabilities: Array<"herdr" | "hermes"> = [];
+    const capabilities: Array<"browser" | "terminal" | "herdr" | "hermes"> = [];
+    if (draft.terminal) capabilities.push("terminal");
+    if (draft.browser) capabilities.push("browser");
     if (draft.herdr) capabilities.push("herdr");
     if (draft.hermes) capabilities.push("hermes");
 
@@ -818,6 +826,26 @@ function HostsSection() {
         </FieldRow>
         <FieldRow label="Capabilities" hint="which product surfaces use this host">
           <span className="settings-host-caps">
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.terminal}
+                disabled={busy}
+                aria-label="Terminal capability"
+                onChange={(event) => setDraft((d) => ({ ...d, terminal: event.target.checked }))}
+              />
+              Terminal
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.browser}
+                disabled={busy}
+                aria-label="Browser capability"
+                onChange={(event) => setDraft((d) => ({ ...d, browser: event.target.checked }))}
+              />
+              Browser
+            </label>
             <label>
               <input
                 type="checkbox"
