@@ -43,7 +43,6 @@ vi.mock("../src/main/vellum/process-epoch", async (importOriginal) => {
 import {
   APP_PROCESS_PLANE_QUIESCING_ERROR,
   createAppProcessPlane,
-  mintPipeTerminalFallbackTestAuthority,
   TerminalBackendUnavailableError,
   type AppProcessLease,
   type AppTerminalLease,
@@ -385,10 +384,7 @@ describe("app terminal process plane", () => {
     const pty = new FakePty();
     const ptySpawn = vi.spyOn(nodePty, "spawn").mockReturnValue(pty.asPty());
     const originalKill = pty.kill;
-    const plane = createAppProcessPlane(
-      { termGraceMs: 10, killGraceMs: 15 },
-      mintPipeTerminalFallbackTestAuthority(),
-    );
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
     const lease = plane.spawnTerminal(terminalSpec("interactive shell"));
 
     expect(ptySpawn).toHaveBeenCalledWith(
@@ -451,104 +447,6 @@ describe("app terminal process plane", () => {
     });
   });
 
-  it("uses a pipe child only when PTY loading or spawn fails", async () => {
-    vi.useFakeTimers();
-    const nodePty = require("node-pty") as typeof import("node-pty");
-    vi.spyOn(nodePty, "spawn").mockImplementation(() => {
-      throw new Error("PTY unavailable");
-    });
-    const child = new FakeChild();
-    const write = vi.spyOn(child.stdin, "write");
-    mocks.spawn.mockReturnValue(child);
-    const plane = createAppProcessPlane(
-      { termGraceMs: 10, killGraceMs: 15 },
-      mintPipeTerminalFallbackTestAuthority(),
-    );
-    const lease = plane.spawnTerminal(terminalSpec("pipe terminal"));
-
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      "/usr/bin/example",
-      ["--probe"],
-      {
-        cwd: "/tmp/vellum-terminal",
-        env: { TERM: "vellum-test" },
-        detached: false,
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
-    expect(lease.io.resize).toBeUndefined();
-    expect(lease.backend).toBe("pipe");
-
-    const data = vi.fn();
-    const exit = vi.fn();
-    const error = vi.fn();
-    lease.io.onData(data);
-    lease.io.onExit(exit);
-    lease.io.onError(error);
-    lease.io.write("pipe input");
-    child.stdout.write("stdout");
-    child.stderr.write("stderr");
-    child.emit("error", new Error("diagnostic only"));
-
-    expect(write).toHaveBeenCalledWith("pipe input");
-    expect(data.mock.calls).toEqual([["stdout"], ["stderr"]]);
-    expect(error).toHaveBeenCalledWith(new Error("diagnostic only"));
-
-    child.exit(7, "SIGTERM");
-    await expect(lease.io.exited).resolves.toEqual({ code: 7, signal: undefined });
-    expect(exit).toHaveBeenCalledWith({ code: 7, signal: undefined });
-    expect(mocks.releaseOwned).toHaveBeenCalledOnce();
-    expect(plane.forceTerminate(lease, "after pipe exit")).toMatchObject({
-      attempted: false,
-      decision: { ok: false, reason: "process-already-exited" },
-    });
-
-    const firstDrain = plane.drainOnQuit();
-    await vi.advanceTimersByTimeAsync(25);
-    await expect(firstDrain).resolves.toMatchObject({
-      clean: false,
-      stragglers: [{ mode: "terminal", state: "exited-awaiting-close" }],
-    });
-
-    child.close(7, "SIGTERM");
-    expect(child.listenerCount("error")).toBe(0);
-    await expect(plane.drainOnQuit()).resolves.toEqual({
-      clean: true,
-      stragglers: [],
-    });
-    expect(mocks.signalOwned).not.toHaveBeenCalled();
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("retires a close-only pipe without fabricating an exit callback", async () => {
-    const nodePty = require("node-pty") as typeof import("node-pty");
-    vi.spyOn(nodePty, "spawn").mockImplementation(() => {
-      throw new Error("PTY unavailable");
-    });
-    const child = new FakeChild();
-    mocks.spawn.mockReturnValue(child);
-    const plane = createAppProcessPlane(
-      { termGraceMs: 10, killGraceMs: 15 },
-      mintPipeTerminalFallbackTestAuthority(),
-    );
-    const lease = plane.spawnTerminal(terminalSpec("close-only pipe"));
-    const exit = vi.fn();
-    lease.io.onExit(exit);
-
-    child.close(1, null);
-
-    await expect(lease.io.exited).resolves.toEqual({
-      code: 1,
-      signal: undefined,
-    });
-    expect(exit).not.toHaveBeenCalled();
-    expect(mocks.releaseOwned).toHaveBeenCalledOnce();
-    await expect(plane.drainOnQuit()).resolves.toEqual({
-      clean: true,
-      stragglers: [],
-    });
-  });
-
   it("fails closed when node-pty cannot load in the default release policy", () => {
     const nodePty = require("node-pty") as typeof import("node-pty");
     vi.spyOn(nodePty, "spawn").mockImplementation(() => {
@@ -560,12 +458,13 @@ describe("app terminal process plane", () => {
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
-  it("does not enable a pipe fallback when packaged Electron leaves NODE_ENV unset", () => {
+  it("cannot unlock a fallback through ambient test or development environment", () => {
     const nodePty = require("node-pty") as typeof import("node-pty");
     vi.spyOn(nodePty, "spawn").mockImplementation(() => {
       throw new Error("PTY unavailable");
     });
-    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("VITEST", "true");
     const plane = createAppProcessPlane();
 
     expect(() => plane.spawnTerminal(terminalSpec())).toThrow(TerminalBackendUnavailableError);

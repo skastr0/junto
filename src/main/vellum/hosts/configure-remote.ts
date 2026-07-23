@@ -32,6 +32,13 @@ const PROBE_TIMEOUT_MS = 10_000;
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
 
+const decodeRemoteHomeOutput = (output: string): string | null => {
+  if (!output.endsWith("\n")) return null;
+  const path = output.slice(0, -1);
+  if (path.includes("\n") || path.trim() !== path) return null;
+  return isSafeRemoteHomePath(path) ? path : null;
+};
+
 export type ConfigureRemoteResult = {
   readonly ok: boolean;
   readonly detail: string;
@@ -260,12 +267,12 @@ export const configureRemoteHost = (
           new RemoteHostsError("io", `${host.label}: ${formatUnknown(error)}`),
       ),
     );
-    const homePath = homeResult.stdout.trim();
-    if (!isSafeRemoteHomePath(homePath)) {
+    const homePath = decodeRemoteHomeOutput(homeResult.stdout);
+    if (homePath === null) {
       return yield* Effect.fail(
         new RemoteHostsError(
           "io",
-          `${host.id}: remote home is not a canonical absolute path (got ${JSON.stringify(homePath)})`,
+          `${host.id}: remote home response must be exactly one canonical absolute path followed by LF (got ${JSON.stringify(homeResult.stdout)})`,
         ),
       );
     }

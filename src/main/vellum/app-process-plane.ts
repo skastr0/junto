@@ -104,9 +104,6 @@ export interface AppTerminalIo {
   readonly onError: (listener: (error: Error) => void) => () => void;
 }
 
-/** Backend provenance is observable but carries no process authority. */
-export type AppTerminalBackend = "pty" | "pipe";
-
 export class TerminalBackendUnavailableError extends Error {
   readonly code = "terminal_pty_unavailable" as const;
 
@@ -123,7 +120,8 @@ export interface AppTerminalLease {
   readonly generation: number;
   readonly source: string;
   readonly purpose: string;
-  readonly backend: AppTerminalBackend;
+  /** Terminal readiness can only be backed by the native PTY path. */
+  readonly backend: "pty";
   readonly io: AppTerminalIo;
 }
 
@@ -172,32 +170,6 @@ export interface AppProcessPlaneOptions {
   readonly termGraceMs?: number;
   readonly killGraceMs?: number;
 }
-
-const PipeTerminalFallbackTestAuthorityTypeId: unique symbol = Symbol(
-  "@vellum/PipeTerminalFallbackTestAuthority",
-);
-
-/**
- * Opaque test capability. It can only be minted by Vitest and is deliberately
- * absent from the production constructor, so a packaged process with NODE_ENV
- * unset cannot accidentally recreate the pipe backend.
- */
-export interface PipeTerminalFallbackTestAuthority {
-  readonly [PipeTerminalFallbackTestAuthorityTypeId]: typeof PipeTerminalFallbackTestAuthorityTypeId;
-}
-
-const pipeFallbackAuthorities = new WeakSet<object>();
-
-export const mintPipeTerminalFallbackTestAuthority = (): PipeTerminalFallbackTestAuthority => {
-  if (process.env.VITEST !== "true") {
-    throw new Error("pipe terminal fallback authority is available only to Vitest");
-  }
-  const authority = Object.freeze({
-    [PipeTerminalFallbackTestAuthorityTypeId]: PipeTerminalFallbackTestAuthorityTypeId,
-  }) as PipeTerminalFallbackTestAuthority;
-  pipeFallbackAuthorities.add(authority);
-  return authority;
-};
 
 export interface AppProcessPlane {
   readonly spawnChild: (spec: AppProcessSpawnSpec) => AppProcessLease;
@@ -249,7 +221,7 @@ interface AppProcessRecord extends AppOwnedRecord {
 
 interface AppTerminalRecord extends AppOwnedRecord {
   readonly mode: "terminal";
-  readonly backend: AppTerminalBackend;
+  readonly backend: "pty";
   readonly dataListeners: Set<(data: string) => void>;
   readonly exitListeners: Set<(event: AppTerminalExit) => void>;
   readonly errorListeners: Set<(error: Error) => void>;
@@ -263,12 +235,11 @@ type AppRecord = AppProcessRecord | AppTerminalRecord;
 interface TerminalBackendHandlers {
   readonly onData: (data: string) => void;
   readonly onExit: (event: AppTerminalExit) => void;
-  readonly onClose: (event: AppTerminalExit) => void;
   readonly onError: (error: Error) => void;
 }
 
 interface TerminalBackend {
-  readonly kind: "pty" | "pipe";
+  readonly kind: "pty";
   readonly pid: number | undefined;
   readonly signalSink: SignalChildHandle;
   readonly write: (data: string) => void;
@@ -390,68 +361,6 @@ const makePtyBackend = (pty: IPty): TerminalBackend => {
   });
 };
 
-const numericTerminalSignal = (signal: unknown): number | undefined =>
-  typeof signal === "number" ? signal : undefined;
-
-const makePipeBackend = (
-  child: ChildProcessWithoutNullStreams,
-): TerminalBackend => {
-  const signalSink = makeSignalSink(child);
-
-  return Object.freeze({
-    kind: "pipe" as const,
-    pid: child.pid,
-    signalSink,
-    write: (data: string) => {
-      child.stdin.write(data);
-    },
-    resize: undefined,
-    attach: (handlers: TerminalBackendHandlers) => {
-      const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
-        handlers.onExit(frozenTerminalExit(
-          code ?? undefined,
-          numericTerminalSignal(signal),
-        ));
-      };
-      const onClose = (code: number | null, signal: NodeJS.Signals | null): void => {
-        handlers.onClose(frozenTerminalExit(
-          code ?? undefined,
-          numericTerminalSignal(signal),
-        ));
-      };
-      const onError = (error: Error): void => handlers.onError(error);
-      const onData = (data: string | Buffer): void => {
-        handlers.onData(typeof data === "string" ? data : data.toString("utf8"));
-      };
-
-      let setupError: Error | undefined;
-      try {
-        // Exit disables signal authority; close alone retires piped resources.
-        child.once("exit", onExit);
-        child.once("close", onClose);
-        child.on("error", onError);
-        child.stdout.setEncoding("utf8");
-        child.stderr.setEncoding("utf8");
-        child.stdout.on("data", onData);
-        child.stderr.on("data", onData);
-      } catch (error) {
-        setupError = error instanceof Error ? error : new Error(String(error));
-      }
-      let cleaned = false;
-      const cleanup = (): void => {
-        if (cleaned) return;
-        cleaned = true;
-        child.off("exit", onExit);
-        child.off("close", onClose);
-        child.off("error", onError);
-        child.stdout.off("data", onData);
-        child.stderr.off("data", onData);
-      };
-      return setupError === undefined ? { cleanup } : { cleanup, error: setupError };
-    },
-  });
-};
-
 const spawnOptions = (spec: AppProcessSpawnSpec) => ({
   cwd: spec.cwd,
   env: spec.env === undefined ? undefined : { ...spec.env },
@@ -553,7 +462,6 @@ const validGroupRefresh = (
  */
 export const createAppProcessPlane = (
   options: AppProcessPlaneOptions = {},
-  testAuthority?: PipeTerminalFallbackTestAuthority,
 ): AppProcessPlane => {
   const termGraceMs = validateDrainPhaseMs(
     options.termGraceMs,
@@ -565,9 +473,6 @@ export const createAppProcessPlane = (
     APP_PROCESS_KILL_GRACE_MS,
     "app process KILL grace",
   );
-  const allowPipeTerminalFallback = testAuthority !== undefined &&
-    pipeFallbackAuthorities.has(testAuthority);
-
   const records = new Set<AppRecord>();
   const leases = new WeakMap<AppProcessLease, AppProcessRecord>();
   const terminalLeases = new WeakMap<AppTerminalLease, AppTerminalRecord>();
@@ -880,30 +785,14 @@ export const createAppProcessPlane = (
     const onExit = (event: AppTerminalExit): void => {
       if (record.exitEvent !== undefined || record.closeEvent !== undefined) return;
       record.exitEvent = event;
+      record.closeEvent = event;
       releaseRecordAuthority(record);
       resolveExit(event);
       notify(record.exitListeners, event);
       record.exitListeners.clear();
-      if (record.backend === "pty") {
-        // node-pty exposes no separate close witness: onExit is terminal.
-        record.closeEvent = event;
-        record.cleanupListeners();
-        record.dataListeners.clear();
-        record.errorListeners.clear();
-        retireRecord(record);
-      }
-    };
-    const onClose = (event: AppTerminalExit): void => {
-      if (record.closeEvent !== undefined) return;
-      record.closeEvent = event;
-      if (record.exitEvent === undefined) {
-        // A close-only pipe settles callers but does not fabricate onExit.
-        resolveExit(event);
-      }
-      releaseRecordAuthority(record);
+      // node-pty exposes no separate close witness: onExit is terminal.
       record.cleanupListeners();
       record.dataListeners.clear();
-      record.exitListeners.clear();
       record.errorListeners.clear();
       retireRecord(record);
     };
@@ -976,7 +865,7 @@ export const createAppProcessPlane = (
     const lease = Object.freeze(leaseValue);
     terminalLeases.set(lease, record);
 
-    const attachment = backend.attach({ onData, onExit, onClose, onError });
+    const attachment = backend.attach({ onData, onExit, onError });
     record.cleanupListeners = attachment.cleanup;
     // A hostile backend can synchronously terminate while attaching.
     if (record.closeEvent !== undefined) record.cleanupListeners();
@@ -1054,18 +943,9 @@ export const createAppProcessPlane = (
         handleFlowControl: true,
       });
     } catch (error) {
-      if (!allowPipeTerminalFallback) {
-        throw new TerminalBackendUnavailableError(error);
-      }
-      const child = spawn(spec.command, [...(spec.args ?? [])], {
-        cwd: spec.cwd,
-        env: spec.env === undefined ? undefined : { ...spec.env },
-        detached: false,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      return registerTerminal(spec, makePipeBackend(child));
+      throw new TerminalBackendUnavailableError(error);
     }
-    // Listener/facade setup happens outside the fallback boundary. Once PTY
+    // Listener/facade setup happens after native spawn. Once PTY
     // spawn succeeds, a setup failure tears down this exact owned process.
     return registerTerminal(spec, makePtyBackend(pty));
   };

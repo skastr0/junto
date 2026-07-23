@@ -11,7 +11,9 @@ import {
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { IDisposable, IPty } from "node-pty";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAppProcessPlane } from "../src/main/vellum/app-process-plane";
 import { setHostsSnapshot, hostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 import { TermControlClient } from "../src/main/vellum/term/control-client";
 import {
@@ -29,8 +31,49 @@ const initialHosts = hostsSnapshot();
 
 afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()?.();
+  vi.restoreAllMocks();
   setHostsSnapshot(initialHosts);
 });
+
+/**
+ * A node-pty-shaped transport, not process authority. Omitting `pid` makes the
+ * real process-signal module mint its opaque OwnedProcess variant, so this test
+ * exercises the sealed child-handle path without a host PID or test mint.
+ */
+class SealedShutdownPtyPort {
+  readonly write = vi.fn((_data: string) => undefined);
+  readonly resize = vi.fn((_cols: number, _rows: number) => undefined);
+  readonly kill = vi.fn((signal?: string) => {
+    if (signal !== "SIGKILL" || this.exited) return;
+    this.exited = true;
+    queueMicrotask(() => {
+      for (const listener of [...this.exitListeners]) {
+        listener({ exitCode: 1, signal: 9 });
+      }
+    });
+  });
+  readonly onData = vi.fn((listener: (data: string) => void): IDisposable => {
+    this.dataListeners.add(listener);
+    return { dispose: () => this.dataListeners.delete(listener) };
+  });
+  readonly onExit = vi.fn((listener: (event: {
+    readonly exitCode: number;
+    readonly signal?: number;
+  }) => void): IDisposable => {
+    this.exitListeners.add(listener);
+    return { dispose: () => this.exitListeners.delete(listener) };
+  });
+  private readonly dataListeners = new Set<(data: string) => void>();
+  private readonly exitListeners = new Set<(event: {
+    readonly exitCode: number;
+    readonly signal?: number;
+  }) => void>();
+  private exited = false;
+
+  asPty(): IPty {
+    return this as unknown as IPty;
+  }
+}
 
 const localHost = (exitOnSignal: "SIGTERM" | "SIGKILL" | false = "SIGTERM") =>
   new LocalSessionHost(
@@ -48,6 +91,38 @@ const listen = (server: Server, socketPath: string): Promise<void> =>
   });
 
 describe("terminal shutdown receipts", () => {
+  it("drains a native PTY through the sealed OwnedProcess path", async () => {
+    const nodePty = require("node-pty") as typeof import("node-pty");
+    const pty = new SealedShutdownPtyPort();
+    vi.spyOn(nodePty, "spawn").mockReturnValue(pty.asPty());
+    const processPlane = createAppProcessPlane({ termGraceMs: 5, killGraceMs: 5 });
+    const host = new LocalSessionHost(processPlane, {
+      // Let the shutdown phase own escalation deterministically.
+      killGraceMs: 100,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
+    const plane = new TermPlane(host);
+
+    const created = await plane.router.create({
+      bindingId: "sealed-owned",
+      hostId: "local",
+      launch: { kind: "shell", argv: ["/bin/sh", "-l"] },
+    });
+    expect(created).toMatchObject({ status: "running", backend: "pty" });
+
+    await expect(plane.drainOnQuit("sealed-owned-test")).resolves.toMatchObject({
+      clean: true,
+      local: { clean: true, stragglers: [] },
+      retainedLabels: [],
+    });
+    expect(pty.kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+    await expect(processPlane.drainOnQuit()).resolves.toEqual({
+      clean: true,
+      stragglers: [],
+    });
+  });
+
   it("cuts every plane admission synchronously and shares one clean drain", async () => {
     const host = localHost();
     const plane = new TermPlane(host);

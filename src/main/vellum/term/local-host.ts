@@ -1,6 +1,6 @@
 /**
  * App-scoped local terminal session coordinator.
- * The central app process plane exclusively owns PTY/pipe processes.
+ * The central app process plane exclusively owns native PTY processes.
  * Presentation (xterm) is a consumer — never co-located as process owner.
  * Product law: app quit stops all local sessions (no LaunchAgent survive-quit).
  */
@@ -101,7 +101,7 @@ type SessionRec = {
   cwd: string;
   title?: string;
   label?: string;
-  backend: "pty" | "pipe" | undefined;
+  backend: "pty" | undefined;
   canvasName?: string;
   nodeId?: string;
   detached: boolean;
@@ -322,7 +322,7 @@ export class LocalSessionHost extends EventEmitter {
       rec.exitWitness = lease.io.exited;
       rec.pid = lease.io.pidForDiagnostics;
       rec.status = "running";
-      // Retain the central plane's exact exit-or-close witness before any
+      // Retain the central plane's exact native-PTY exit witness before any
       // fallible presentation setup. Rejection is diagnostic only: authority
       // stays registered centrally and this generation remains a straggler.
       void rec.exitWitness.then(

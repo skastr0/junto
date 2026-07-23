@@ -36,7 +36,7 @@ type Ssh = Parameters<typeof configureRemoteHost>[0];
  */
 const makeSsh = (options?: {
   readonly existingRaw?: string | null;
-  readonly homePath?: string;
+  readonly homeOutput?: string;
   readonly failWarm?: boolean;
   readonly failWrite?: boolean;
 }): { readonly ssh: Ssh; readonly writes: string[]; readonly calls: { calls: number } } => {
@@ -58,7 +58,7 @@ const makeSsh = (options?: {
         calls.calls += 1;
         // 1: homeDirectoryLookup
         if (calls.calls === 1) {
-          return { stdout: `${options?.homePath ?? "/Users/remote"}\n`, stderr: "" };
+          return { stdout: options?.homeOutput ?? "/Users/remote\n", stderr: "" };
         }
         // 2: cat existing settings
         if (calls.calls === 2) {
@@ -182,10 +182,23 @@ describe("configureRemoteHost", () => {
     }
   });
 
-  it("rejects noncanonical remote homes before deriving settings paths", async () => {
-    const { ssh, writes, calls } = makeSsh({
-      homePath: "/Users/../Applications",
-    });
+  it.each([
+    ["missing terminator", "/Users/remote"],
+    ["leading whitespace", " /Users/remote\n"],
+    ["trailing whitespace", "/Users/remote \n"],
+    ["CRLF", "/Users/remote\r\n"],
+    ["extra line terminator", "/Users/remote\n\n"],
+    ["multiple records", "/Users/remote\n/Users/other\n"],
+    ["empty", "\n"],
+    ["root", "/\n"],
+    ["relative", "Users/remote\n"],
+    ["dot segment", "/Users/./remote\n"],
+    ["dotdot segment", "/Users/../Applications\n"],
+    ["double slash", "/Users//remote\n"],
+    ["trailing slash", "/Users/remote/\n"],
+    ["control byte", "/Users/rem\u0000ote\n"],
+  ])("rejects %s remote home output after one SSH call", async (_case, homeOutput) => {
+    const { ssh, writes, calls } = makeSsh({ homeOutput });
     const result = await Effect.runPromise(
       Effect.either(
         configureRemoteHost(ssh, remoteHost, { commandCenterRef: "local" }),
@@ -194,7 +207,7 @@ describe("configureRemoteHost", () => {
     expect(result._tag).toBe("Left");
     if (result._tag === "Left") {
       expect(result.left.code).toBe("io");
-      expect(result.left.message).toMatch(/canonical absolute path/);
+      expect(result.left.message).toMatch(/exactly one canonical absolute path/);
     }
     expect(writes).toEqual([]);
     expect(calls.calls).toBe(1);

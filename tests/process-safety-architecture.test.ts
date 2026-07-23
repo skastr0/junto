@@ -389,7 +389,6 @@ describe("machine-safety architecture", () => {
       "src/main/vellum/app-process-plane.ts:nodePty.spawn",
       "src/main/vellum/app-process-plane.ts:spawn",
       "src/main/vellum/app-process-plane.ts:spawn",
-      "src/main/vellum/app-process-plane.ts:spawn",
       "src/main/vellum/process-signal.ts:spawn",
     ]);
 

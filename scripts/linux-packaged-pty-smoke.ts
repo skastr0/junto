@@ -1,11 +1,15 @@
 /**
- * Linux release audit for an installed Electron resources directory.
+ * Direct Linux release ABI/interaction probe for an installed Electron
+ * resources directory.
  *
  * Usage: bun scripts/linux-packaged-pty-smoke.ts /path/to/resources /path/to/electron
  *
  * The Electron executable is run with --runAsNode so node-pty loads with the
- * packaged Electron ABI, never Bun's ABI. This script intentionally has no
- * package-script wiring; the Linux packaging lane owns that integration.
+ * packaged Electron ABI, never Bun's ABI. This does not exercise Vellum's
+ * AppProcessPlane, OwnedProcess, or TermPlane lifecycle and is therefore not
+ * evidence for sealed app shutdown. It intentionally has no package-script
+ * wiring: LX-005 owns invoking this integration point against the target-native
+ * installed/package artifact.
  */
 import { accessSync, constants, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -66,12 +70,13 @@ child.onExit(({ exitCode }) => {
     console.error(JSON.stringify({ exitCode, missing: expected.filter((line) => !normalized.includes(line)), output: normalized.slice(0, 8192) }));
     finish(1); return;
   }
-  console.log("linux packaged PTY smoke passed"); finish(0);
+  console.log("linux packaged direct PTY ABI/interaction probe passed"); finish(0);
 });
 child.resize(101, 41);
 child.write("printf 'PTY-ECHO:ok\\nUTF8:✓\\nTERM:%s\\nCOLORTERM:%s\\n' \\\"$TERM\\\" \\\"$COLORTERM\\\"; printf 'SIZE:'; stty size | awk '{print $2, $1}'; printf '\\n'; case \\\"$-\\\" in *l*) printf 'LOGIN:yes\\n';; *) printf 'LOGIN:no\\n';; esac; exit 23\\r");
 `;
 
+/** LX-005 integration point for the target-native packaged-artifact lane. */
 export const smokeLinuxPackagedPty = (resources: string, electron: string): void => {
   if (process.platform !== "linux") throw new Error("Linux packaged PTY smoke requires Linux");
   const layout = auditLinuxPtyPlacement(resources);
