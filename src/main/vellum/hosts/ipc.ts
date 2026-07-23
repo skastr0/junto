@@ -288,55 +288,49 @@ export const registerHostsIpc = (
                     new RemoteHostsError(
                       "io",
                       error instanceof Error ? error.message : String(error),
+                  ),
+                });
+              },
+              onCompleted: (host, result) => {
+                const recordedAt = new Date().toISOString();
+                return Effect.tryPromise({
+                  try: () =>
+                    recordStationDeployment(
+                      deployRecordFromResult({
+                        hostId: host.id,
+                        endpoint: host.endpoint ?? "",
+                        ok: result.ok,
+                        outcome: result.outcome,
+                        packageState: result.packageState,
+                        role: result.role,
+                        version: result.version,
+                        lastSeen: result.lastSeen,
+                        rollback: result.rollback,
+                        configurationOk: result.configuration.ok,
+                        detail: result.detail,
+                        stages: result.stages,
+                        at: recordedAt,
+                      }),
+                      configureRecordFromResult({
+                        ok: result.outcome === "ready",
+                        hostId: host.id,
+                        detail: result.configuration.detail,
+                        at: recordedAt,
+                      }),
+                    ),
+                  catch: (error) =>
+                    new RemoteHostsError(
+                      "io",
+                      error instanceof Error ? error.message : String(error),
                     ),
                 });
               },
             });
-            const recordedAt = new Date().toISOString();
-            const deploymentEndpoint = deploy.hostEndpoint;
-            const statusWrite =
-              deploy.hostResolved === false || !deploymentEndpoint
-                ? undefined
-                : yield* Effect.tryPromise({
-                    try: () =>
-                      recordStationDeployment(
-                        deployRecordFromResult({
-                          hostId: id,
-                          endpoint: deploymentEndpoint,
-                          ok: deploy.ok,
-                          outcome: deploy.outcome,
-                          packageState: deploy.packageState,
-                          role: deploy.role,
-                          version: deploy.version,
-                          lastSeen: deploy.lastSeen,
-                          rollback: deploy.rollback,
-                          configurationOk: deploy.configuration.ok,
-                          detail: deploy.detail,
-                          stages: deploy.stages,
-                          at: recordedAt,
-                        }),
-                        configureRecordFromResult({
-                          ok: deploy.outcome === "ready",
-                          hostId: id,
-                          detail: deploy.configuration.detail,
-                          at: recordedAt,
-                        }),
-                      ),
-                    catch: (error) =>
-                      error instanceof Error ? error : new Error(String(error)),
-                  }).pipe(Effect.either);
-            const statusRecorded = statusWrite?._tag === "Right";
-            const persistenceDetail =
-              statusWrite?._tag === "Left"
-                ? ` · local deployment receipt could not be persisted: ${statusWrite.left.message}`
-                : "";
             return {
               ok: deploy.ok,
-              detail: `${deploy.detail}${persistenceDetail}`,
+              detail: deploy.detail,
               code: deploy.code,
-              message:
-                deploy.message ??
-                (statusRecorded ? deploy.detail : `${deploy.detail}${persistenceDetail}`),
+              message: deploy.message ?? deploy.detail,
               stages: deploy.stages,
               outcome: deploy.outcome,
               packageState: deploy.packageState,
@@ -344,7 +338,7 @@ export const registerHostsIpc = (
               version: deploy.version,
               lastSeen: deploy.lastSeen,
               rollback: deploy.rollback,
-              statusRecorded,
+              statusRecorded: deploy.statusRecorded ?? false,
             } satisfies HostsDeployRemoteResult;
           }),
         ),

@@ -67,6 +67,11 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
         readonly onAdmitted?: (
           host: RemoteHostT,
         ) => Effect.Effect<void, RemoteHostsError>;
+        /** Final receipt barrier; runs under the same endpoint semaphore. */
+        readonly onCompleted?: (
+          host: RemoteHostT,
+          result: ConfiguredRemoteDeployResult,
+        ) => Effect.Effect<void, RemoteHostsError>;
       },
     ) => Effect.Effect<ConfiguredRemoteDeployResult>;
     readonly path: () => string;
@@ -286,15 +291,35 @@ export const makeHostsService = (
                   packageState: "previous" as const,
                   role: "previous" as const,
                   rollback: "not-required" as const,
+                  statusRecorded: false,
                   configuration: { ok: false, detail },
                 } satisfies ConfiguredRemoteDeployResult;
               }
             }
-            return yield* operations.deployConfiguredRemoteHost(
+            const deployed = yield* operations.deployConfiguredRemoteHost(
               ssh,
               host,
               options,
             );
+            if (!options.onCompleted) return deployed;
+            const completion = yield* options
+              .onCompleted(host, deployed)
+              .pipe(Effect.either);
+            if (completion._tag === "Right") {
+              return {
+                ...deployed,
+                statusRecorded: true,
+              } satisfies ConfiguredRemoteDeployResult;
+            }
+            const persistenceDetail = `local deployment receipt could not be persisted: ${completion.left.message}`;
+            return {
+              ...deployed,
+              detail: `${deployed.detail} · ${persistenceDetail}`,
+              message: deployed.message
+                ? `${deployed.message} · ${persistenceDetail}`
+                : `${deployed.detail} · ${persistenceDetail}`,
+              statusRecorded: false,
+            } satisfies ConfiguredRemoteDeployResult;
           }),
         );
       }),

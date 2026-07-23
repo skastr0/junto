@@ -29,6 +29,8 @@ export type ConfiguredRemoteDeployResult = DeployRemoteResult & {
   readonly hostResolved?: boolean;
   /** Exact registered mutation target used for this attempt. */
   readonly hostEndpoint?: string;
+  /** Set by the service when durable attempt finalization was requested. */
+  readonly statusRecorded?: boolean;
   readonly outcome: ConfiguredRemoteDeployOutcome;
   readonly packageState: "present" | "previous" | "unknown";
   readonly role: "remote" | "previous" | "unknown";

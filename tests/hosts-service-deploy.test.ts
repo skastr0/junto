@@ -148,4 +148,59 @@ describe("HostsService configured deploy admission", () => {
     await Promise.all([firstRun, secondRun]);
     expect(starts).toEqual(["first", "second"]);
   });
+
+  it("finalizes one receipt before admitting the next endpoint-alias attempt", async () => {
+    const first = remote("first");
+    const second = remote("second");
+    const events: string[] = [];
+    let signalFinalizing: (() => void) | undefined;
+    const finalizing = new Promise<void>((resolve) => {
+      signalFinalizing = resolve;
+    });
+    let releaseFinalization: (() => void) | undefined;
+    const finalizationReleased = new Promise<void>((resolve) => {
+      releaseFinalization = resolve;
+    });
+    const service = makeHostsService(
+      registryFor([first, second]),
+      {} as never,
+      {
+        configureRemoteHost: unused as never,
+        deployRemoteHost: unused as never,
+        deployConfiguredRemoteHost: ((_ssh: unknown, host: RemoteHost) =>
+          Effect.succeed(failedResult(host))) as never,
+      },
+    );
+
+    const firstRun = Effect.runPromise(
+      service.deployConfiguredRemote("first", {
+        commandCenterRef: "local",
+        onAdmitted: () => Effect.sync(() => events.push("admit-first")),
+        onCompleted: () =>
+          Effect.promise(async () => {
+            events.push("finalize-first");
+            signalFinalizing?.();
+            await finalizationReleased;
+          }),
+      }),
+    );
+    await finalizing;
+    const secondRun = Effect.runPromise(
+      service.deployConfiguredRemote("second", {
+        commandCenterRef: "local",
+        onAdmitted: () => Effect.sync(() => events.push("admit-second")),
+      }),
+    );
+    await Promise.resolve();
+    expect(events).toEqual(["admit-first", "finalize-first"]);
+
+    releaseFinalization?.();
+    const [firstResult] = await Promise.all([firstRun, secondRun]);
+    expect(firstResult.statusRecorded).toBe(true);
+    expect(events).toEqual([
+      "admit-first",
+      "finalize-first",
+      "admit-second",
+    ]);
+  });
 });
