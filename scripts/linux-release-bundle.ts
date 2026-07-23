@@ -414,6 +414,24 @@ const parseCanonicalJson = <T>(
 const sha256Bytes = (input: Uint8Array | string): string =>
   createHash("sha256").update(input).digest("hex");
 
+const metadataSignatureEnvelope = (
+  keyId: string,
+  signedAt: string,
+  file: typeof LINUX_RELEASE_MANIFEST | typeof LINUX_RELEASE_CHECKSUMS,
+  bytes: Buffer,
+): Buffer =>
+  Buffer.from(
+    canonicalJson({
+      schema: "vellum/linux-release-signing-envelope/v1",
+      algorithm: "ed25519",
+      keyId,
+      signedAt,
+      file,
+      sha256: sha256Bytes(bytes),
+    }),
+    "utf8",
+  );
+
 const sha256File = async (file: string): Promise<string> =>
   sha256Bytes(await readFile(file));
 
@@ -1431,13 +1449,23 @@ const verifyMetadataSignatures = (
   if (
     !verify(
       null,
-      manifestBytes,
+      metadataSignatureEnvelope(
+        signature.keyId,
+        signature.signedAt,
+        LINUX_RELEASE_MANIFEST,
+        manifestBytes,
+      ),
       publicKey,
       Buffer.from(signature.manifest.signature, "base64url"),
     ) ||
     !verify(
       null,
-      checksumBytes,
+      metadataSignatureEnvelope(
+        signature.keyId,
+        signature.signedAt,
+        LINUX_RELEASE_CHECKSUMS,
+        checksumBytes,
+      ),
       publicKey,
       Buffer.from(signature.checksums.signature, "base64url"),
     )
@@ -1735,12 +1763,30 @@ export const signLinuxReleaseMetadata = async (input: {
     manifest: {
       file: LINUX_RELEASE_MANIFEST,
       sha256: sha256Bytes(manifestRaw.bytes),
-      signature: sign(null, manifestRaw.bytes, privateKey).toString("base64url"),
+      signature: sign(
+        null,
+        metadataSignatureEnvelope(
+          keyId,
+          signedAt,
+          LINUX_RELEASE_MANIFEST,
+          manifestRaw.bytes,
+        ),
+        privateKey,
+      ).toString("base64url"),
     },
     checksums: {
       file: LINUX_RELEASE_CHECKSUMS,
       sha256: sha256Bytes(checksumBytes),
-      signature: sign(null, checksumBytes, privateKey).toString("base64url"),
+      signature: sign(
+        null,
+        metadataSignatureEnvelope(
+          keyId,
+          signedAt,
+          LINUX_RELEASE_CHECKSUMS,
+          checksumBytes,
+        ),
+        privateKey,
+      ).toString("base64url"),
     },
   };
   decodeLinuxReleaseSignature(signature);

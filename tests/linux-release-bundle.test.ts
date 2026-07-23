@@ -357,6 +357,19 @@ describe("signed Linux release bundle", () => {
         );
       },
       async (directory: string) => {
+        const signature = JSON.parse(
+          await readFile(
+            path.join(directory, LINUX_RELEASE_SIGNATURE),
+            "utf8",
+          ),
+        ) as { signedAt: string };
+        signature.signedAt = "2026-07-23T11:59:00.000Z";
+        await writeFile(
+          path.join(directory, LINUX_RELEASE_SIGNATURE),
+          canonical(signature),
+        );
+      },
+      async (directory: string) => {
         await writeFile(path.join(directory, "unexpected.txt"), "extra");
       },
     ];
