@@ -320,6 +320,7 @@ while :; do
   if is_owned_private_socket "$control_socket" && is_owned_private_file "$control_token" && \
      [ "$socket_after" != "$socket_before" ] && [ "$token_after" != "$token_before" ] && \
      is_owned_private_file "$READY_RECEIPT" && \
+     [ "$(/usr/bin/wc -c < "$READY_RECEIPT" 2>/dev/null | /usr/bin/tr -d ' ')" = 33 ] && \
      [ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$GENERATION" ]; then
     break
   fi

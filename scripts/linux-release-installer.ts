@@ -1486,7 +1486,31 @@ const runPreparedInstall = async (
       }
       activeJournal = phaseJournal(activeJournal, "verified");
       await host.writeJournal(activeJournal);
-      finalLease = await fenceControl.acquire();
+      // Generation readiness already proved work control. TermControl is an
+      // observational maintenance plane: wait (do not treat as boot gate) so
+      // fence acquisition does not race termPlane.start after work publish.
+      {
+        const fenceDeadline = Date.now() + 45_000;
+        let lastFenceError: unknown;
+        while (Date.now() < fenceDeadline) {
+          try {
+            finalLease = await fenceControl.acquire();
+            lastFenceError = undefined;
+            break;
+          } catch (error) {
+            lastFenceError = error;
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          }
+        }
+        if (finalLease === undefined) {
+          throw new InstallerError(
+            "unsafe-state",
+            lastFenceError instanceof Error
+              ? `TermControl fence unavailable after work-control readiness: ${lastFenceError.message}`
+              : "TermControl fence unavailable after work-control readiness",
+          );
+        }
+      }
       if (
         finalLease.peer.generation ===
           activeJournal.fence.preGeneration ||
@@ -2116,7 +2140,11 @@ const decodeCacheMetadata = (value: unknown): CacheMetadata => {
 const cacheMetadataText = (metadata: CacheMetadata): string =>
   `${JSON.stringify(metadata)}\n`;
 
-/** Work-control generation readiness: plain `${INVOCATION_ID}\n` only. */
+/**
+ * Work-control generation readiness body. Writer publishes `${generation}\n`.
+ * Accept a single trailing newline only (exact contract); reject missing or
+ * repeated newlines so launcher/preflight/installer cannot diverge silently.
+ */
 const validateReadinessReceipt = (
   raw: string,
   generation: string,
@@ -3832,7 +3860,9 @@ export class NodeLinuxReleaseInstallerHost
         "--user",
         ...arguments_,
       ],
-      30_000,
+      // Match vellum-remote.service TimeoutStartSec=45s plus small margin so
+      // restart/start are not killed while systemd is still activating.
+      50_000,
     );
   }
 
@@ -4528,10 +4558,13 @@ export class NodeLinuxReleaseInstallerHost
         enabled === "enabled" ? "enable" : "disable",
         "vellum-remote.service",
       ]);
+    // When restoring an active unit after package rollback, use restart so a
+    // still-running candidate process is replaced by the restored package
+    // generation. plain start is a no-op if the unit is already active.
     const activeResult = enabled === "absent"
       ? { code: 0, stdout: "", stderr: "" }
       : await this.#runUserSystemctl(invocation, [
-        active === "active" ? "start" : "stop",
+        active === "active" ? "restart" : "stop",
         "vellum-remote.service",
       ]);
     const lingerResult = await this.#run(

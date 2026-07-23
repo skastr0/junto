@@ -80,6 +80,9 @@ describe("Linux generation readiness contract", () => {
       'READY_RECEIPT="/run/user/$UID_VALUE/vellum-remote/ready-$INVOCATION"',
     );
     expect(script).toContain(
+      '[ "$(/usr/bin/wc -c < "$READY_RECEIPT" 2>/dev/null | /usr/bin/tr -d \' \')" = 33 ]',
+    );
+    expect(script).toContain(
       '[ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$INVOCATION" ]',
     );
     expect(script).toContain('private_socket "$HOME/.vellum/work/control.sock"');

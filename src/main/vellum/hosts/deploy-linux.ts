@@ -360,6 +360,7 @@ if [ "$ENABLED" = 1 ] && [ "$ACTIVE" = 1 ]; then
      [ "$MAIN_PID" -gt 1 ] && [ "${"$"}{#INVOCATION}" -eq 32 ] &&
      [ "$PACKAGE_VERIFY_OK" = 1 ] && [ -z "$PACKAGE_VERIFY" ] &&
      private_file "$READY_RECEIPT" &&
+     [ "$(/usr/bin/wc -c < "$READY_RECEIPT" 2>/dev/null | /usr/bin/tr -d ' ')" = 33 ] &&
      [ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$INVOCATION" ] &&
      /usr/bin/tr '\0' '\n' < "/proc/$MAIN_PID/cmdline" |
        /usr/bin/grep -Fqx '/opt/Vellum Command/resources/systemd/vellum-remote-launch-v1' &&
