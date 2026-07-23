@@ -73,6 +73,9 @@ describe("SSH architecture", () => {
       // Platform admission probes uname; Darwin renders the installer command.
       "src/main/vellum/hosts/remote-platform.ts",
       "src/main/vellum/hosts/deploy-darwin.ts",
+      // Linux renders fixed preflight/install programs; artifact and station
+      // facts cross only the bounded stdin frame owned by SshTransport.
+      "src/main/vellum/hosts/deploy-linux.ts",
       // Exact settings snapshot/CAS/rollback policy; SshTransport still owns OpenSSH.
       "src/main/vellum/hosts/remote-settings-transaction.ts",
       "src/main/vellum/term/router.ts",

@@ -4,10 +4,14 @@ import { Effect, Queue, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   LINUX_RELEASE_BRIDGE_AUTH_PROTOCOL,
+  LINUX_RELEASE_BRIDGE_CLEAN_PROTOCOL,
   decodeLinuxReleaseBridgeStageRequest,
   encodeLinuxReleaseBridgeAuthArmed,
   encodeLinuxReleaseBridgeInventory,
+  encodeLinuxReleaseBridgeStageCleared,
   type LinuxReleaseBridgeAuthArmed,
+  type LinuxReleaseBridgeCleanupReason,
+  type LinuxReleaseBridgeStageCleared,
   type LinuxReleaseBridgeStageRequest,
 } from "../src/shared/linux-release-bridge";
 import { LINUX_RELEASE_FENCE_PROTOCOL } from "../src/shared/linux-release-fence";
@@ -40,6 +44,8 @@ import type {
   RemoteDeploymentProviderInput,
 } from "../src/main/vellum/hosts/remote-deployment";
 import {
+  SshExitError,
+  SshIoError,
   parseSshEndpoint,
   type SshEndpoint,
 } from "../src/main/vellum/ssh/domain";
@@ -249,7 +255,13 @@ const heldRouteCut = (): HeldRouteCut => {
   };
 };
 
-type AfterPassword = "root-armed" | "disconnect" | "refused";
+type AfterPassword =
+  | "root-armed"
+  | "cleanup"
+  | "disconnect"
+  | "refused"
+  | "mismatch"
+  | "malformed";
 type AfterPrepare =
   | "root-ready"
   | "mismatch"
@@ -259,16 +271,35 @@ type AfterCommit =
   | "ready"
   | "mismatch"
   | "malformed"
+  | "refused"
   | "rolled-back"
   | "disconnect";
 
 interface TranscriptPlan {
   readonly priorVersion?: string;
   readonly currentReady?: boolean;
+  readonly recovery?: {
+    readonly projectedVersion: string | null;
+    readonly phase:
+      | "fence-intent"
+      | "prepared"
+      | "dpkg-started"
+      | "verified";
+  };
   readonly auth?: "valid" | "mismatch" | "malformed";
   readonly afterPassword?: AfterPassword;
   readonly afterPrepare?: AfterPrepare;
   readonly afterCommit?: AfterCommit;
+  readonly rollbackMismatch?:
+    | "providerNonce"
+    | "bridgeNonce"
+    | "helperChallenge"
+    | "fenceId"
+    | "inventorySha256"
+    | "cleanup";
+  readonly cleanup?: "valid" | "mismatch" | "malformed" | "missing";
+  readonly transactExit?: "zero" | "nonzero";
+  readonly failRegularWriteAt?: number;
   readonly extraAfterFinal?: boolean;
   readonly stderr?: string;
   readonly assertAuthorityHeld?: () => void;
@@ -295,16 +326,18 @@ type OutputAction =
   | { readonly _tag: "end" };
 
 const refusal = (
-  state: "refused" | "rolled-back",
   transactionId: string | null,
   action:
     | "send-a-new-bounded-frame"
     | "retry-install" = "send-a-new-bounded-frame",
-): Extract<LinuxReleaseInstallerReceipt, { readonly ok: false }> => ({
+): Extract<
+  LinuxReleaseInstallerReceipt,
+  { readonly ok: false; readonly state: "refused" }
+> => ({
   schema: LINUX_RELEASE_INSTALLER_RECEIPT,
   ok: false,
-  state,
-  code: state === "rolled-back" ? "install-failed" : "protocol",
+  state: "refused",
+  code: "protocol",
   transactionId,
   action,
 });
@@ -320,6 +353,25 @@ const bridgeAuth = (
   target: stage.target,
   candidate: stage.candidate,
   totalBytes: stage.totalBytes,
+});
+
+const bridgeCleanup = (
+  stage: LinuxReleaseBridgeStageRequest,
+  reason: LinuxReleaseBridgeCleanupReason,
+): LinuxReleaseBridgeStageCleared => ({
+  schema: LINUX_RELEASE_BRIDGE_CLEAN_PROTOCOL,
+  kind: "STAGE_CLEARED",
+  transactionId: stage.transactionId,
+  providerNonce: stage.providerNonce,
+  bridgeNonce,
+  target: stage.target,
+  candidate: stage.candidate,
+  totalBytes: stage.totalBytes,
+  reason,
+  cleanup: {
+    files: "cleared",
+    directory: "removed",
+  },
 });
 
 const rootArmed = (
@@ -344,11 +396,17 @@ const rootArmed = (
 const operationFor = (
   plan: TranscriptPlan,
 ): "install" | "adopt" | "noop" =>
-  plan.priorVersion === undefined
+  (plan.recovery === undefined
+    ? plan.priorVersion ?? null
+    : plan.recovery.projectedVersion) === null
     ? "install"
-    : plan.currentReady
-      ? "noop"
-      : "adopt";
+    : (plan.recovery === undefined
+        ? plan.priorVersion
+        : plan.recovery.projectedVersion) === "1.2.3"
+      ? plan.currentReady
+        ? "noop"
+        : "adopt"
+      : "install";
 
 const rootReady = (
   stage: LinuxReleaseBridgeStageRequest,
@@ -362,6 +420,9 @@ const rootReady = (
   { readonly ok: true; readonly state: "root-ready" }
 > => {
   const operation = operationFor(plan);
+  const projectedVersion = plan.recovery === undefined
+    ? plan.priorVersion ?? null
+    : plan.recovery.projectedVersion;
   return {
     schema: LINUX_RELEASE_INSTALLER_RECEIPT,
     ok: true,
@@ -387,9 +448,15 @@ const rootReady = (
     machineIdSha256,
     bootId,
     operation,
-    fromVersion: plan.priorVersion ?? null,
+    fromVersion: projectedVersion,
     currentVersion: plan.priorVersion ?? null,
-    journalPredecessor: null,
+    journalPredecessor: plan.recovery === undefined
+      ? null
+      : {
+          transactionId: "2".repeat(32),
+          operation: "install",
+          phase: plan.recovery.phase,
+        },
     maintenance: {
       activeTerminalSessions: 0,
       observationId: "tm_1111111111111111",
@@ -428,12 +495,43 @@ const finalReady = (
   manifestSha256: stage.candidate.manifestSha256,
   debSha256: stage.candidate.debSha256,
   sourceRevision,
-  recoveredTransactionId: null,
+  recoveredTransactionId: prepared.journalPredecessor?.transactionId ?? null,
   readiness: {
     state: "ready",
     generation,
     packageVersion: stage.candidate.version,
     receiptSha256: readinessReceiptSha256,
+  },
+});
+
+const rolledBack = (
+  stage: LinuxReleaseBridgeStageRequest,
+  prepared: Extract<
+    LinuxReleaseInstallerReceipt,
+    { readonly ok: true; readonly state: "root-ready" }
+  >,
+  request: Extract<
+    LinuxReleaseInstallerRequest,
+    { readonly kind: "commit" }
+  >,
+): Extract<
+  LinuxReleaseInstallerReceipt,
+  { readonly ok: false; readonly state: "rolled-back" }
+> => ({
+  schema: LINUX_RELEASE_INSTALLER_RECEIPT,
+  ok: false,
+  state: "rolled-back",
+  code: "install-failed",
+  transactionId: request.transactionId,
+  action: "retry-install",
+  providerNonce: request.providerNonce,
+  bridgeNonce: request.bridgeNonce,
+  helperChallenge: request.helperChallenge,
+  fenceId: request.fenceId,
+  inventorySha256: stage.candidate.inventorySha256,
+  cleanup: {
+    fence: "cleared",
+    journal: "cleared",
   },
 });
 
@@ -446,6 +544,7 @@ const makeTranscriptHarness = (
   const regularWrites: Buffer[] = [];
   const sensitiveWrites: Buffer[] = [];
   const transactCalls: unknown[] = [];
+  let regularWriteCount = 0;
   let stagedBytes = Buffer.alloc(0);
   let stageHeaderBytes: number | undefined;
   let staged: LinuxReleaseBridgeStageRequest | undefined;
@@ -461,6 +560,8 @@ const makeTranscriptHarness = (
   let commitRequest:
     | Extract<LinuxReleaseInstallerRequest, { readonly kind: "commit" }>
     | undefined;
+  let pendingCleanupReason: LinuxReleaseBridgeCleanupReason | undefined;
+  let cleanupPublished = false;
   let outputEnded = false;
 
   const end = (): OutputAction => {
@@ -499,6 +600,29 @@ const makeTranscriptHarness = (
               target: { ...auth.target, stationId: "other-station" },
             }
           : auth,
+      ),
+    };
+  };
+
+  const cleanupAction = (
+    reason: LinuxReleaseBridgeCleanupReason,
+  ): OutputAction | undefined => {
+    if (plan.cleanup === "missing") return undefined;
+    cleanupPublished = true;
+    events.push("stage-cleared");
+    if (plan.cleanup === "malformed") {
+      return {
+        _tag: "line",
+        value: '{"kind":"STAGE_CLEARED"}\n',
+      };
+    }
+    const cleanup = bridgeCleanup(staged!, reason);
+    return {
+      _tag: "line",
+      value: encodeLinuxReleaseBridgeStageCleared(
+        plan.cleanup === "mismatch"
+          ? { ...cleanup, providerNonce: "9".repeat(32) }
+          : cleanup,
       ),
     };
   };
@@ -542,11 +666,12 @@ const makeTranscriptHarness = (
       }
       if (plan.afterPrepare === "refused") {
         events.push("refused");
+        pendingCleanupReason = "installer-terminal";
         return [
           {
             _tag: "line",
             value: encodeLinuxReleaseInstallerReceipt(
-              refusal("refused", request.transactionId),
+              refusal(request.transactionId),
             ),
           },
         ];
@@ -578,19 +703,56 @@ const makeTranscriptHarness = (
     if (plan.afterCommit === "malformed") {
       return [{ _tag: "line", value: '{"state":"ready"}\n' }];
     }
-    if (plan.afterCommit === "rolled-back") {
-      events.push("rolled-back");
+    if (plan.afterCommit === "refused") {
+      events.push("refused");
+      pendingCleanupReason = "installer-terminal";
       return [
         {
           _tag: "line",
           value: encodeLinuxReleaseInstallerReceipt(
-            refusal("rolled-back", request.transactionId, "retry-install"),
+            refusal(request.transactionId, "retry-install"),
           ),
+        },
+      ];
+    }
+    if (plan.afterCommit === "rolled-back") {
+      events.push("rolled-back");
+      pendingCleanupReason = "installer-terminal";
+      const receipt = rolledBack(staged!, preparedReceipt, request);
+      const mismatched =
+        plan.rollbackMismatch === "providerNonce"
+          ? { ...receipt, providerNonce: "9".repeat(32) }
+          : plan.rollbackMismatch === "bridgeNonce"
+            ? { ...receipt, bridgeNonce: "9".repeat(32) }
+            : plan.rollbackMismatch === "helperChallenge"
+              ? { ...receipt, helperChallenge: "9".repeat(32) }
+              : plan.rollbackMismatch === "fenceId"
+                ? { ...receipt, fenceId: "9".repeat(32) }
+                : plan.rollbackMismatch === "inventorySha256"
+                  ? { ...receipt, inventorySha256: "9".repeat(64) }
+                  : plan.rollbackMismatch === "cleanup"
+                    ? {
+                        ...receipt,
+                        cleanup: {
+                          fence: "cleared" as const,
+                          journal: "retained" as const,
+                        },
+                      }
+                    : receipt;
+      return [
+        {
+          _tag: "line",
+          value: plan.rollbackMismatch === "cleanup"
+            ? `${JSON.stringify(mismatched)}\n`
+            : encodeLinuxReleaseInstallerReceipt(
+                mismatched as LinuxReleaseInstallerReceipt,
+              ),
         },
       ];
     }
     const ready = finalReady(staged!, preparedReceipt, request);
     events.push("ready");
+    pendingCleanupReason = "installer-terminal";
     return [
       {
         _tag: "line",
@@ -614,7 +776,17 @@ const makeTranscriptHarness = (
     write: (input) => {
       const bytes = Buffer.from(input);
       regularWrites.push(bytes);
+      regularWriteCount += 1;
       plan.assertAuthorityHeld?.();
+      if (plan.failRegularWriteAt === regularWriteCount) {
+        return Effect.fail(
+          new SshIoError({
+            endpoint: String(endpoint),
+            operation: "write",
+            message: "injected partial stage disconnect",
+          }),
+        );
+      }
       return Effect.sync(() =>
         staged === undefined ||
         stagedBytes.byteLength - (stageHeaderBytes ?? 0) < staged.totalBytes
@@ -634,22 +806,38 @@ const makeTranscriptHarness = (
         if (plan.afterPassword === "disconnect") {
           return [end()];
         }
+        if (plan.afterPassword === "cleanup") {
+          const cleanup = cleanupAction("authorization-failed");
+          return cleanup === undefined ? [end()] : [cleanup];
+        }
         if (plan.afterPassword === "refused") {
           events.push("refused");
+          pendingCleanupReason = "installer-refused";
           return [
             {
               _tag: "line",
               value: encodeLinuxReleaseInstallerReceipt(
-                refusal("refused", null),
+                refusal(null),
               ),
             },
           ];
         }
+        if (plan.afterPassword === "malformed") {
+          return [{ _tag: "line", value: '{"state":"root-armed"}\n' }];
+        }
+        const armed = rootArmed(staged);
         events.push("root-armed");
         return [
           {
             _tag: "line",
-            value: encodeLinuxReleaseInstallerReceipt(rootArmed(staged)),
+            value: encodeLinuxReleaseInstallerReceipt(
+              plan.afterPassword === "mismatch"
+                ? {
+                    ...armed,
+                    target: { ...armed.target, host: "other.example" },
+                  }
+                : armed,
+            ),
           },
         ];
       }).pipe(Effect.flatMap(publish));
@@ -657,6 +845,14 @@ const makeTranscriptHarness = (
     closeInput: Effect.suspend(() => {
       events.push("close-input");
       const actions: OutputAction[] = [];
+      if (
+        pendingCleanupReason !== undefined &&
+        !cleanupPublished &&
+        !outputEnded
+      ) {
+        const cleanup = cleanupAction(pendingCleanupReason);
+        if (cleanup !== undefined) actions.push(cleanup);
+      }
       if (plan.extraAfterFinal) {
         actions.push({ _tag: "line", value: "{}\n" });
       }
@@ -685,7 +881,19 @@ const makeTranscriptHarness = (
     use,
   ) => {
     transactCalls.push(program);
-    return use(lease);
+    return use(lease).pipe(
+      Effect.flatMap((value) =>
+        plan.transactExit === "nonzero"
+          ? Effect.fail(
+              new SshExitError({
+                endpoint: String(endpoint),
+                operation: "transaction",
+                code: 1,
+              }),
+            )
+          : Effect.succeed(value)
+      ),
+    );
   };
   const ssh = {
     run,
@@ -760,6 +968,8 @@ describe("Linux Remote privileged deployment", () => {
     expect(script).toContain("/usr/libexec/vellum-release-bridge");
     expect(script).toContain("/usr/libexec/vellum-release-installer");
     expect(script).toContain('"0:0:755:1"');
+    expect(script).toContain("PACKAGE_VERIFY_OK=1");
+    expect(script).toContain('[ "$PACKAGE_VERIFY_OK" = 1 ]');
     expect(script).not.toMatch(/sudo\s+-n/u);
     expect(script).not.toContain("package-cache");
     expect(script).not.toContain("mktemp");
@@ -788,6 +998,36 @@ describe("Linux Remote privileged deployment", () => {
         debSha256,
         inventorySha256: inventorySha256(),
       },
+    });
+    expect(harness.transactCalls).toHaveLength(0);
+    expect(route.acquire).not.toHaveBeenCalled();
+  });
+
+  it("returns a typed validation failure for an authority-injected malformed inventory", async () => {
+    const harness = makeTranscriptHarness(preflight());
+    const route = heldRouteCut();
+    const admitted = {
+      ...makeAdmission(),
+      files: Object.freeze([...files].reverse()),
+    } as LinuxRemoteArtifactAdmission;
+    const candidate = Object.freeze({
+      ...makeCandidate(),
+      authorize: vi.fn(() => admitted),
+    });
+    const provider = makeLinuxRemoteDeploymentProvider({
+      artifactAuthority: { resolve: async () => candidate },
+      liveWorkAuthority: route.authority,
+    });
+
+    const receipt = await Effect.runPromise(
+      provider.deploy(providerInput(harness.ssh)),
+    );
+
+    expect(receipt.result).toMatchObject({
+      ok: false,
+      code: "validation",
+      disposition: "not-started",
+      version: "1.2.3",
     });
     expect(harness.transactCalls).toHaveLength(0);
     expect(route.acquire).not.toHaveBeenCalled();
@@ -865,6 +1105,7 @@ describe("Linux Remote privileged deployment", () => {
       "commit",
       "ready",
       "close-input",
+      "stage-cleared",
     ]);
     expect(harness.sensitiveWrites).toEqual([
       Buffer.from("one transient password\n"),
@@ -960,10 +1201,41 @@ describe("Linux Remote privileged deployment", () => {
     expect(harness.events).toContain("commit");
   });
 
+  it("commits an exact stale-journal recovery plan whose projected baseline differs from preflight", async () => {
+    const current = preflight({
+      current: "2.0.0",
+      ready: 0,
+      unit: "present",
+    });
+    const route = heldRouteCut();
+    const harness = makeTranscriptHarness(current, {
+      priorVersion: "2.0.0",
+      currentReady: true,
+      recovery: {
+        projectedVersion: "1.2.3",
+        phase: "dpkg-started",
+      },
+    });
+    const provider = makeProvider(route.authority);
+
+    const receipt = await Effect.runPromise(
+      provider.deploy(providerInput(harness.ssh, credential())),
+    );
+
+    expect(receipt.result).toMatchObject({
+      ok: true,
+      disposition: "ready",
+      version: "1.2.3",
+      detail: expect.stringContaining("already cache-bound"),
+    });
+    expect(harness.commit()).toBeDefined();
+    expect(harness.events).toContain("stage-cleared");
+  });
+
   it("does not retry a failed password or reuse its one-shot credential", async () => {
     const route = heldRouteCut();
     const harness = makeTranscriptHarness(preflight(), {
-      afterPassword: "disconnect",
+      afterPassword: "cleanup",
     });
     const provider = makeProvider(route.authority);
     const oneShot = credential("wrong password");
@@ -988,6 +1260,28 @@ describe("Linux Remote privileged deployment", () => {
     });
     expect(harness.sensitiveWrites).toHaveLength(1);
     expect(harness.transactCalls).toHaveLength(1);
+  });
+
+  it("treats an unexplained disconnect after the password as indeterminate", async () => {
+    const route = heldRouteCut();
+    const harness = makeTranscriptHarness(preflight(), {
+      afterPassword: "disconnect",
+    });
+    const provider = makeProvider(route.authority);
+
+    const receipt = await Effect.runPromise(
+      provider.deploy(providerInput(harness.ssh, credential("wrong password"))),
+    );
+
+    expect(receipt.result).toMatchObject({
+      ok: false,
+      code: "conflict",
+      disposition: "indeterminate",
+      recoveryAction: {
+        kind: "repair-linux-release-transaction",
+      },
+    });
+    expect(harness.sensitiveWrites).toHaveLength(1);
   });
 
   it("retains an indeterminate repair fence when the stream ends after COMMIT", async () => {
@@ -1018,25 +1312,37 @@ describe("Linux Remote privileged deployment", () => {
     {
       name: "bridge binding mismatch",
       plan: { auth: "mismatch" } satisfies TranscriptPlan,
-      disposition: "not-started",
+      disposition: "indeterminate",
       sensitiveWrites: 0,
     },
     {
       name: "malformed bridge record",
       plan: { auth: "malformed" } satisfies TranscriptPlan,
-      disposition: "not-started",
+      disposition: "indeterminate",
       sensitiveWrites: 0,
+    },
+    {
+      name: "root authorization target mismatch",
+      plan: { afterPassword: "mismatch" } satisfies TranscriptPlan,
+      disposition: "indeterminate",
+      sensitiveWrites: 1,
+    },
+    {
+      name: "malformed root authorization record",
+      plan: { afterPassword: "malformed" } satisfies TranscriptPlan,
+      disposition: "indeterminate",
+      sensitiveWrites: 1,
     },
     {
       name: "root-ready binding mismatch",
       plan: { afterPrepare: "mismatch" } satisfies TranscriptPlan,
-      disposition: "not-started",
+      disposition: "indeterminate",
       sensitiveWrites: 1,
     },
     {
       name: "malformed root-ready record",
       plan: { afterPrepare: "malformed" } satisfies TranscriptPlan,
-      disposition: "not-started",
+      disposition: "indeterminate",
       sensitiveWrites: 1,
     },
     {
@@ -1081,6 +1387,125 @@ describe("Linux Remote privileged deployment", () => {
       expect(harness.sensitiveWrites).toHaveLength(sensitiveWrites);
       expect(harness.transactCalls).toHaveLength(1);
       expect(route.release).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
+    {
+      name: "missing cleanup",
+      plan: {
+        afterPassword: "cleanup",
+        cleanup: "missing",
+      } satisfies TranscriptPlan,
+    },
+    {
+      name: "mismatched cleanup",
+      plan: {
+        afterPassword: "cleanup",
+        cleanup: "mismatch",
+      } satisfies TranscriptPlan,
+    },
+    {
+      name: "malformed cleanup",
+      plan: {
+        afterPassword: "cleanup",
+        cleanup: "malformed",
+      } satisfies TranscriptPlan,
+    },
+    {
+      name: "nonzero bridge exit after cleanup",
+      plan: {
+        afterPassword: "cleanup",
+        transactExit: "nonzero",
+      } satisfies TranscriptPlan,
+    },
+    {
+      name: "pre-commit refusal without cleanup",
+      plan: {
+        afterPrepare: "refused",
+        cleanup: "missing",
+      } satisfies TranscriptPlan,
+    },
+    {
+      name: "partial stage disconnect",
+      plan: {
+        failRegularWriteAt: 2,
+      } satisfies TranscriptPlan,
+    },
+  ])(
+    "requires completed exact bridge cleanup for $name",
+    async ({ plan }) => {
+      const route = heldRouteCut();
+      const harness = makeTranscriptHarness(preflight(), plan);
+      const provider = makeProvider(route.authority);
+
+      const receipt = await Effect.runPromise(
+        provider.deploy(providerInput(harness.ssh, credential())),
+      );
+
+      expect(receipt.result).toMatchObject({
+        ok: false,
+        code: "conflict",
+        disposition: "indeterminate",
+        recoveryAction: {
+          kind: "repair-linux-release-transaction",
+        },
+      });
+      expect(harness.transactCalls).toHaveLength(1);
+      expect(route.release).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("treats a generic post-COMMIT refusal as indeterminate even with stage cleanup", async () => {
+    const route = heldRouteCut();
+    const harness = makeTranscriptHarness(preflight(), {
+      afterCommit: "refused",
+    });
+    const provider = makeProvider(route.authority);
+
+    const receipt = await Effect.runPromise(
+      provider.deploy(providerInput(harness.ssh, credential())),
+    );
+
+    expect(receipt.result).toMatchObject({
+      ok: false,
+      code: "conflict",
+      disposition: "indeterminate",
+      recoveryAction: {
+        kind: "repair-linux-release-transaction",
+      },
+    });
+    expect(harness.commit()).toBeDefined();
+    expect(harness.events).toContain("stage-cleared");
+  });
+
+  it.each([
+    "providerNonce",
+    "bridgeNonce",
+    "helperChallenge",
+    "fenceId",
+    "inventorySha256",
+    "cleanup",
+  ] as const)(
+    "rejects a rollback whose %s is not bound to ROOT_READY",
+    async (rollbackMismatch) => {
+      const route = heldRouteCut();
+      const harness = makeTranscriptHarness(preflight(), {
+        afterCommit: "rolled-back",
+        rollbackMismatch,
+      });
+      const provider = makeProvider(route.authority);
+
+      const receipt = await Effect.runPromise(
+        provider.deploy(providerInput(harness.ssh, credential())),
+      );
+
+      expect(receipt.result).toMatchObject({
+        ok: false,
+        code: "conflict",
+        disposition: "indeterminate",
+      });
+      expect(harness.commit()).toBeDefined();
     },
   );
 
