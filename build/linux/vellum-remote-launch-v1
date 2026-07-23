@@ -1,0 +1,112 @@
+#!/bin/sh
+# Versioned, package-owned headless Remote launcher. This is deliberately a
+# fixed invocation: station role and host identity remain the user's state.
+set -eu
+
+PATH='/usr/bin:/bin'
+export PATH
+umask 077
+
+APP_DIR='/opt/Vellum Command'
+VELLUM="$APP_DIR/vellum"
+XVFB='/usr/bin/Xvfb'
+XAUTH='/usr/bin/xauth'
+DISPLAY_NUMBER='89'
+DISPLAY=":$DISPLAY_NUMBER"
+LOCK_FILE="/tmp/.X${DISPLAY_NUMBER}-lock"
+SOCKET_FILE="/tmp/.X11-unix/X${DISPLAY_NUMBER}"
+RUNTIME_HOME="${HOME:?vellum-remote-launch-v1 requires HOME}"
+RUNTIME_DIRECTORY="${XDG_RUNTIME_DIR:?vellum-remote-launch-v1 requires XDG_RUNTIME_DIR}"
+XAUTHORITY="$RUNTIME_DIRECTORY/vellum-remote-x11-authority"
+
+case "$RUNTIME_HOME" in
+  /*) ;;
+  *) printf '%s\n' 'vellum-remote: HOME must be absolute' >&2; exit 64 ;;
+esac
+
+if [ ! -x "$VELLUM" ] || [ ! -x "$XVFB" ] || [ ! -x "$XAUTH" ]; then
+  printf '%s\n' 'vellum-remote: packaged runtime is unavailable' >&2
+  exit 69
+fi
+
+mkdir -p "$RUNTIME_HOME/.vellum" "$RUNTIME_HOME/.local/state"
+chmod 0700 "$RUNTIME_HOME/.vellum" "$RUNTIME_HOME/.local/state"
+
+# Do not claim another display. A stale Vellum lock is removable only when it
+# is a regular file containing a dead PID; sockets are never unlinked here.
+if [ -L "$LOCK_FILE" ]; then
+  printf '%s\n' 'vellum-remote: refusing display lock symlink' >&2
+  exit 73
+fi
+if [ -e "$LOCK_FILE" ]; then
+  if [ ! -f "$LOCK_FILE" ]; then
+    printf '%s\n' 'vellum-remote: refusing non-regular display lock' >&2
+    exit 73
+  fi
+  lock_pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+  case "$lock_pid" in
+    ''|*[!0-9]*) printf '%s\n' 'vellum-remote: refusing malformed display lock' >&2; exit 73 ;;
+  esac
+  if kill -0 "$lock_pid" 2>/dev/null; then
+    printf '%s\n' 'vellum-remote: managed display is already in use' >&2
+    exit 75
+  fi
+  rm -f -- "$LOCK_FILE"
+fi
+if [ -e "$SOCKET_FILE" ] || [ -L "$SOCKET_FILE" ]; then
+  printf '%s\n' 'vellum-remote: managed display socket is already in use' >&2
+  exit 75
+fi
+
+export DISPLAY
+export XAUTHORITY
+export ELECTRON_OZONE_PLATFORM_HINT='x11'
+export OZONE_PLATFORM='x11'
+export XDG_SESSION_TYPE='x11'
+export XDG_STATE_HOME="$RUNTIME_HOME/.local/state"
+
+xvfb_pid=''
+cleanup_xvfb() {
+  if [ -n "$xvfb_pid" ]; then
+    kill -TERM "$xvfb_pid" 2>/dev/null || true
+    wait "$xvfb_pid" 2>/dev/null || true
+  fi
+  rm -f -- "$XAUTHORITY"
+}
+trap cleanup_xvfb EXIT HUP INT TERM
+
+if [ -e "$XAUTHORITY" ] || [ -L "$XAUTHORITY" ]; then
+  printf '%s\n' 'vellum-remote: managed X11 authority is already in use' >&2
+  exit 75
+fi
+set -C
+if ! : > "$XAUTHORITY"; then
+  set +C
+  printf '%s\n' 'vellum-remote: could not create managed X11 authority' >&2
+  exit 73
+fi
+set +C
+"$XAUTH" -f "$XAUTHORITY" add "$DISPLAY" . "$(/usr/bin/mcookie)" >/dev/null 2>&1
+
+"$XVFB" "$DISPLAY" -screen 0 1280x1024x24 -nolisten tcp -auth "$XAUTHORITY" &
+xvfb_pid="$!"
+
+ready_deadline=$(( $(date +%s) + 10 ))
+while [ ! -S "$SOCKET_FILE" ]; do
+  if ! kill -0 "$xvfb_pid" 2>/dev/null; then
+    printf '%s\n' 'vellum-remote: managed display failed to start' >&2
+    exit 70
+  fi
+  if [ "$(date +%s)" -ge "$ready_deadline" ]; then
+    printf '%s\n' 'vellum-remote: managed display start timed out' >&2
+    exit 70
+  fi
+  sleep 1
+done
+
+"$VELLUM" --vellum-headless --ozone-platform=x11 &
+vellum_pid="$!"
+if wait "$vellum_pid"; then
+  exit 0
+fi
+exit "$?"

@@ -1,0 +1,29 @@
+[Unit]
+Description=Vellum Remote headless station
+After=default.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStart=/opt/Vellum Command/resources/systemd/vellum-remote-launch-v1
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=45s
+TimeoutStopSec=20s
+KillMode=control-group
+UMask=0077
+Environment=PATH=/usr/bin:/bin
+Environment=HOME=%h
+Environment=XDG_STATE_HOME=%h/.local/state
+Environment=XDG_RUNTIME_DIR=%t
+Environment=DISPLAY=:89
+Environment=ELECTRON_OZONE_PLATFORM_HINT=x11
+Environment=OZONE_PLATFORM=x11
+Environment=XDG_SESSION_TYPE=x11
+StandardOutput=null
+StandardError=null
+SyslogIdentifier=vellum-remote
+
+[Install]
+WantedBy=default.target

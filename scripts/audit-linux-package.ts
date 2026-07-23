@@ -56,6 +56,7 @@ export const LINUX_DEB_DEPENDENCIES = [
   "openssh-client",
   "procps",
   "python3",
+  "xauth",
   "xdg-utils",
   "xvfb",
 ] as const;

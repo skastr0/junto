@@ -12,7 +12,7 @@ export const SYSTEMCTL_PATH = "/usr/bin/systemctl";
 export const SYSTEMCTL_DEADLINE_MS = 3_000;
 export const SYSTEMCTL_STDOUT_CAP_BYTES = 16 * 1024;
 export const SYSTEMCTL_STDERR_CAP_BYTES = 16 * 1024;
-/** LX-007 must install its concrete unit under this exact provider-owned name. */
+/** The systemd provider owns one fixed Vellum user-service name. */
 export const VELLUM_SYSTEMD_USER_UNIT = "vellum-remote.service";
 
 const VellumSystemdUserUnitTargetTypeId: unique symbol = Symbol(
