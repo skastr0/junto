@@ -1,10 +1,22 @@
+import { homedir } from "node:os";
 import type { Context } from "effect";
 import { Effect } from "effect";
 import type { StationSettings } from "@shared/settings";
-import type { RemoteHost } from "@shared/remote-hosts";
-import { hermesKeyFor, RemoteHostsError } from "@shared/remote-hosts";
+import {
+  hermesKeyFor,
+  hostHasCapability,
+  RemoteHostsError,
+  type RemoteHost,
+} from "@shared/remote-hosts";
 import type { RemoteStationConfigInput } from "@shared/remote-station-config";
+import {
+  makeStationBrowserTrustStore,
+  pinnedTrustForOriginKey,
+  provisionStationBrowserTrust,
+  type StationBrowserTrustProvisionResponse,
+} from "../browser/station-trust";
 import { SshTransport } from "../ssh";
+import { hostsSnapshot } from "./snapshot";
 import {
   deployRemoteHost,
   dispatchRemoteDeployment,
@@ -83,7 +95,19 @@ export type ConfiguredRemoteDeployOperations = {
     original: RemoteSettingsSnapshot,
     expectedCurrent: RemoteSettingsSnapshot,
   ) => Effect.Effect<void, RemoteHostsError>;
+  /**
+   * Installs the Command Center's custody-owned browser origin key on the
+   * already-packaged Remote. It runs after the final exact role snapshot and
+   * before the transaction may publish ready.
+   */
+  readonly provisionBrowserTrust?: (
+    ssh: Ssh,
+    host: RemoteHost,
+    commandCenterRef: string,
+  ) => Effect.Effect<StationBrowserTrustProvisionResponse, Error>;
 };
+
+const stationBrowserTrust = makeStationBrowserTrustStore(homedir());
 
 const defaultOperations: ConfiguredRemoteDeployOperations = {
   deploy: deployRemoteHost,
@@ -93,6 +117,26 @@ const defaultOperations: ConfiguredRemoteDeployOperations = {
   capture: captureRemoteSettingsSnapshot,
   stamp: stampRemoteSettingsSnapshot,
   restore: restoreRemoteSettingsSnapshot,
+  provisionBrowserTrust: (ssh, host, commandCenterRef) =>
+    Effect.tryPromise({
+      try: () =>
+        stationBrowserTrust.loadOrCreateOriginKey(commandCenterRef),
+      catch: (error) =>
+        error instanceof Error ? error : new Error(String(error)),
+    }).pipe(
+      Effect.flatMap((key) =>
+        provisionStationBrowserTrust(
+          ssh,
+          hostsSnapshot(),
+          host.id,
+          pinnedTrustForOriginKey(key, null, key.createdAt),
+        ).pipe(
+          Effect.mapError((error) =>
+            error instanceof Error ? error : new Error(String(error)),
+          ),
+        ),
+      ),
+    ),
 };
 
 const failedBeforeMutation = (
@@ -169,6 +213,7 @@ const indeterminate = (
     readonly deployed?: DeployRemoteResult;
     readonly station?: StationSettings;
     readonly version?: string;
+    readonly recoveryAction?: DeployRemoteResult["recoveryAction"];
   },
 ): ConfiguredRemoteDeployResult => ({
   ...(input.deployed ?? { stages: [] }),
@@ -185,7 +230,20 @@ const indeterminate = (
   configuration: input.configuration,
   ...(input.station ? { station: input.station } : {}),
   ...(input.version ? { version: input.version } : { version: undefined }),
+  ...(input.recoveryAction === undefined
+    ? {}
+    : { recoveryAction: input.recoveryAction }),
 });
+
+const validBrowserTrustReceipt = (
+  value: StationBrowserTrustProvisionResponse,
+): boolean =>
+  value.version === 1 &&
+  value.ok === true &&
+  value.status === "active" &&
+  Number.isSafeInteger(value.generation) &&
+  value.generation > 0 &&
+  /^ed25519-[0-9a-f]{24}$/u.test(value.keyId);
 
 /**
  * Configure and launch one Remote as a compensating transaction.
@@ -334,6 +392,48 @@ export const deployConfiguredRemoteHost = (
           station: stamped.right.station,
           version: deployed.version,
         });
+      }
+
+      if (hostHasCapability(host, "browser")) {
+        const provision = operations.provisionBrowserTrust;
+        if (provision === undefined) {
+          const detail = `${host.label}: package and Remote role are ready, but browser trust provisioning is unavailable. Retry after restoring the Command Center browser-trust authority.`;
+          return indeterminate(host, detail, {
+            packageState: "present",
+            role: "remote",
+            rollback: "not-required",
+            configuration: { ok: true, detail: stamped.right.detail },
+            deployed,
+            station: stamped.right.station,
+            version: deployed.version,
+            recoveryAction: { kind: "provision-station-browser-trust" },
+          });
+        }
+        const browserTrust = yield* provision(
+          ssh,
+          host,
+          options.commandCenterRef,
+        ).pipe(Effect.either);
+        if (
+          browserTrust._tag === "Left" ||
+          !validBrowserTrustReceipt(browserTrust.right)
+        ) {
+          const cause =
+            browserTrust._tag === "Left"
+              ? browserTrust.left.message
+              : "the Remote returned a malformed browser-trust receipt";
+          const detail = `${host.label}: package and Remote role are ready, but browser trust was not proven — ${cause}. Retry the idempotent trust provisioning step.`;
+          return indeterminate(host, detail, {
+            packageState: "present",
+            role: "remote",
+            rollback: "not-required",
+            configuration: { ok: true, detail: stamped.right.detail },
+            deployed,
+            station: stamped.right.station,
+            version: deployed.version,
+            recoveryAction: { kind: "provision-station-browser-trust" },
+          });
+        }
       }
 
       const lastSeen = new Date().toISOString();

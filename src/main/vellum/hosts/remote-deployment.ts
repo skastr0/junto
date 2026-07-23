@@ -36,11 +36,28 @@ export type UnsupportedRemoteTarget = {
   readonly platform?: RemoteTargetPlatform;
 };
 
+export type RemoteDeploymentRecoveryAction =
+  | {
+      readonly kind: "close-active-vellum-terminals";
+      readonly activeTerminalSessions: number;
+    }
+  | {
+      readonly kind: "restore-terminal-live-work-observation";
+    }
+  | {
+      readonly kind: "provision-station-browser-trust";
+    };
+
 /** Stable Settings/IPC result. Provider-only metadata is kept off this object. */
 export type DeployRemoteResult = {
   readonly ok: boolean;
   readonly detail: string;
-  readonly code?: "io" | "validation" | "not_found" | "conflict";
+  readonly code?:
+    | "io"
+    | "validation"
+    | "not_found"
+    | "conflict"
+    | "auth_required";
   readonly message?: string;
   readonly stages: RemoteDeploymentProgress;
   /** Remote package transaction disposition; absent only on legacy test doubles. */
@@ -49,6 +66,8 @@ export type DeployRemoteResult = {
   readonly version?: string;
   /** Present only when platform admission refuses the target. */
   readonly unsupportedTarget?: UnsupportedRemoteTarget;
+  /** Fixed, bounded operator recovery for a fail-closed deployment gate. */
+  readonly recoveryAction?: RemoteDeploymentRecoveryAction;
 };
 
 export type RemoteDeploymentArtifact = {

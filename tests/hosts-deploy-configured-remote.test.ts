@@ -60,14 +60,124 @@ const makeSsh = (
 const operations = (input: {
   readonly deploy: ConfiguredRemoteDeployOperations["deploy"];
   readonly stamp?: ConfiguredRemoteDeployOperations["stamp"];
+  readonly provisionBrowserTrust?: ConfiguredRemoteDeployOperations["provisionBrowserTrust"];
 }): ConfiguredRemoteDeployOperations => ({
   capture: captureRemoteSettingsSnapshot,
   restore: restoreRemoteSettingsSnapshot,
   stamp: input.stamp ?? stampRemoteSettingsSnapshot,
   deploy: input.deploy,
+  ...(input.provisionBrowserTrust === undefined
+    ? {}
+    : { provisionBrowserTrust: input.provisionBrowserTrust }),
 });
 
 describe("configured Remote deploy transaction", () => {
+  it("provisions browser trust after package and role readiness before publishing ready", async () => {
+    const browserHost: RemoteHost = {
+      ...host,
+      capabilities: ["herdr", "hermes", "browser"],
+    };
+    const { ssh } = makeSsh([
+      { stdout: "/Users/remote\n" },
+      { stdout: "ABSENT\n" },
+      { stdout: "STAMPED\n" },
+      { stdout: "/Users/remote\n" },
+      { stdout: presentSnapshot(configuredSettingsBody) },
+    ]);
+    const sequence: string[] = [];
+    const deploy = vi.fn(() =>
+      Effect.sync(() => {
+        sequence.push("package");
+        return {
+          ok: true,
+          detail: "station ready",
+          stages: ["ready"],
+          disposition: "ready" as const,
+          version: "0.1.0",
+        };
+      }),
+    );
+    const provisionBrowserTrust = vi.fn(() =>
+      Effect.sync(() => {
+        sequence.push("browser-trust");
+        return {
+          version: 1 as const,
+          ok: true as const,
+          keyId: `ed25519-${"a".repeat(24)}`,
+          generation: 1,
+          status: "active" as const,
+        };
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        ssh,
+        browserHost,
+        { commandCenterRef: "local" },
+        operations({ deploy, provisionBrowserTrust }),
+      ),
+    );
+
+    expect(sequence).toEqual(["package", "browser-trust"]);
+    expect(provisionBrowserTrust).toHaveBeenCalledWith(
+      ssh,
+      browserHost,
+      "local",
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      outcome: "ready",
+      packageState: "present",
+      role: "remote",
+    });
+  });
+
+  it("keeps the installed package and returns exact recovery when browser trust is unproven", async () => {
+    const browserHost: RemoteHost = {
+      ...host,
+      capabilities: ["herdr", "hermes", "browser"],
+    };
+    const { ssh } = makeSsh([
+      { stdout: "/Users/remote\n" },
+      { stdout: "ABSENT\n" },
+      { stdout: "STAMPED\n" },
+      { stdout: "/Users/remote\n" },
+      { stdout: presentSnapshot(configuredSettingsBody) },
+    ]);
+
+    const result = await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        ssh,
+        browserHost,
+        { commandCenterRef: "local" },
+        operations({
+          deploy: () =>
+            Effect.succeed({
+              ok: true,
+              detail: "station ready",
+              stages: ["ready"],
+              disposition: "ready" as const,
+              version: "0.1.0",
+            }),
+          provisionBrowserTrust: () =>
+            Effect.fail(new Error("wrapper unavailable")),
+        }),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "conflict",
+      disposition: "indeterminate",
+      outcome: "indeterminate",
+      packageState: "present",
+      role: "remote",
+      recoveryAction: { kind: "provision-station-browser-trust" },
+    });
+    expect(result.detail).toMatch(/browser trust was not proven/u);
+  });
+
   it("CAS-stamps before launch and gates readiness on a final exact snapshot", async () => {
     const { ssh, calls } = makeSsh([
       { stdout: "/Users/remote\n" },
