@@ -88,7 +88,11 @@ describe("browser physical-station authority", () => {
     await Promise.resolve();
     expect(ready).toBe(false);
 
-    loading.resolve(settingsAt("remote", "studio"));
+    expect(listener).toBeDefined();
+    // The subscribed transaction wins even if the older boot read resolves
+    // afterward; there is no stale read/subscribe window.
+    listener?.(settingsAt("remote", "studio"));
+    loading.resolve(settingsAt("command-center", "local"));
     const lease = await preparing;
     const root = await mkdtemp(join(tmpdir(), "vellum-browser-station-"));
     roots.push(root);
@@ -116,7 +120,10 @@ describe("browser physical-station authority", () => {
       code: "unsupported_capability",
     });
     expect(adapterCalls).toBe(0);
-    expect(listener).toBeDefined();
+    expect(lease.authority.station()).toEqual({
+      hostId: "studio",
+      role: "remote",
+    });
     lease.close();
   });
 

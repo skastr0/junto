@@ -34,11 +34,25 @@ export const prepareBrowserHostCapabilityAuthority = async (
   settings: Pick<SettingsServiceApi, "get" | "subscribe">,
   findHost: BrowserHostCapabilityAuthority["findHost"] = findHostById,
 ): Promise<BrowserHostCapabilityAuthorityLease> => {
-  let current = stationIdentity(await Effect.runPromise(settings.get));
+  let current:
+    | { readonly hostId: string; readonly role: StationRole }
+    | undefined;
+  let observedUpdate = false;
   let closed = false;
   const unsubscribe = settings.subscribe((next) => {
+    observedUpdate = true;
     current = stationIdentity(next);
   });
+  try {
+    const loaded = await Effect.runPromise(settings.get);
+    // Subscribe-before-read closes the load/subscribe gap. If a complete
+    // settings transaction published while the read was pending, that newer
+    // identity wins over the older load result.
+    if (!observedUpdate) current = stationIdentity(loaded);
+  } catch (error) {
+    unsubscribe();
+    throw error;
+  }
   return Object.freeze({
     authority: Object.freeze({
       findHost,
