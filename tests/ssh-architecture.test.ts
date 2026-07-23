@@ -78,6 +78,9 @@ describe("SSH architecture", () => {
       "src/main/vellum/term/router.ts",
       // Signed station-browser envelopes render one closed SSH stdin operation.
       "src/main/vellum/browser/station-transport.ts",
+      // Fleet trust provisioning renders one fixed wrapper with a canonical
+      // Ed25519 public record on bounded stdin.
+      "src/main/vellum/browser/station-trust.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
     const violations = files.flatMap((path) => {

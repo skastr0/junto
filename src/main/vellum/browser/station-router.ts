@@ -13,8 +13,7 @@ import {
   type StationBrowserResponse,
   type StationBrowserSession,
 } from "@shared/station-browser";
-import type { SshError } from "../ssh/domain";
-import type { SshTransport } from "../ssh/service";
+import type { SshError, SshTransport } from "../ssh";
 import {
   bindStationBrowserRequest,
   mintStationBrowserEnvelope,
