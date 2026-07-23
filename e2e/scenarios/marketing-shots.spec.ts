@@ -169,15 +169,11 @@ test("compose a staged fleet board and capture marketing frames", async () => {
       .catch(() => undefined);
 
     // Marketing frames carry no third-party marks: hide the connector-status
-    // chip in the top bar for these captures.
-    await page
-      .getByText("HERMES", { exact: true })
-      .first()
-      .evaluate((el) => {
-        const chip = el.closest("button, [class]") as HTMLElement | null;
-        (chip ?? el).style.visibility = "hidden";
-      })
-      .catch(() => undefined);
+    // chip (renders a runtime name) and the provider usage HUD for these
+    // captures. Presentation only — no product state is faked.
+    await page.addStyleTag({
+      content: ".station-source-button, .usage-hud { visibility: hidden !important; }",
+    });
 
     const fit = page.getByRole("button", { name: /fit all/i });
     if (await fit.isVisible().catch(() => false)) await fit.click();
