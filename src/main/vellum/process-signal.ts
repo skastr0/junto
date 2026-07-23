@@ -104,16 +104,26 @@ export const admitChildProcess = (input: { readonly source: string; readonly chi
     : mintRefusedChild(input.source, input.child, decoded.right, "child-epoch-unavailable");
 };
 
-export type DetachedProcessGroup = { readonly child: ChildProcessWithoutNullStreams; readonly process: OwnedProcess; readonly mode: "group" | "child" };
+export type DetachedProcessGroup = {
+  readonly child: ChildProcessWithoutNullStreams;
+  readonly process: OwnedProcess;
+  readonly mode: "group" | "child";
+};
 /** The sole mint site for POSIX process-group authority. Detached is not caller-configurable. */
 export const spawnDetachedProcessGroup = (input: { readonly source: string; readonly command: string; readonly args: readonly string[]; readonly options?: Omit<SpawnOptionsWithoutStdio, "detached"> }): DetachedProcessGroup => {
   const child = spawn(input.command, [...input.args], { ...input.options, detached: true, stdio: "pipe" });
   const pid = child.pid;
   const decoded = Schema.decodeUnknownEither(KillablePid)(pid);
+  // Bind the child handle at spawn. A later mutation of ChildProcess.kill
+  // cannot redirect either exact-leader or group-owned signal authority.
+  const signalSink: SignalChildHandle = Object.freeze({
+    ...(pid === undefined ? {} : { pid }),
+    kill: child.kill.bind(child),
+  });
   if (decoded._tag === "Left" || pid === undefined) {
     return {
       child,
-      process: mintRefusedChild(input.source, child, typeof pid === "number" ? pid : undefined, "child-pid-not-killable"),
+      process: mintRefusedChild(input.source, signalSink, typeof pid === "number" ? pid : undefined, "child-pid-not-killable"),
       mode: "child",
     };
   }
@@ -124,20 +134,27 @@ export const spawnDetachedProcessGroup = (input: { readonly source: string; read
   if (!captured) {
     return {
       child,
-      process: mintRefusedChild(input.source, child, decoded.right, "child-epoch-unavailable"),
+      process: mintRefusedChild(input.source, signalSink, decoded.right, "child-epoch-unavailable"),
       mode: "child",
     };
   }
   if (process.platform !== "win32" && captured.group) {
     return {
       child,
-      process: mint(input.source, { kind: "group", child, pid: decoded.right, epoch: captured.group, source: input.source, released: false }),
+      process: mint(input.source, {
+        kind: "group",
+        child: signalSink,
+        pid: decoded.right,
+        epoch: captured.group,
+        source: input.source,
+        released: false,
+      }),
       mode: "group",
     };
   }
   return {
     child,
-    process: mintVerifiedChild(input.source, child, decoded.right, captured.child),
+    process: mintVerifiedChild(input.source, signalSink, decoded.right, captured.child),
     mode: "child",
   };
 };
@@ -192,6 +209,51 @@ export const signalOwned = (process: OwnedProcess, signal: TerminatingSignal): S
     pushAudit({ source: rec.source, pid: rec.pid, signal, requestedGroup: true, decision: { ok: false, reason: "group-signal-failed" } });
     return { attempted: false, decision: { ok: false, reason: "group-signal-failed" }, via: "none" };
   }
+};
+
+/**
+ * Attenuated graceful signal for a verified detached group: address only its
+ * exact original leader through the spawn-bound child handle. Group authority
+ * remains available to `signalOwned` for bounded escalation after the leader
+ * has had a chance to coordinate its own descendants.
+ */
+export const signalOwnedGroupLeader = (
+  process: OwnedProcess,
+  signal: TerminatingSignal,
+): SignalOwnedResult => {
+  const rec = authority.get(process);
+  if (!rec || rec.released) {
+    return {
+      attempted: false,
+      decision: { ok: false, reason: "handle-not-registered" },
+      via: "none",
+    };
+  }
+  if (signal !== "SIGTERM") {
+    return {
+      attempted: false,
+      decision: { ok: false, reason: "leader-signal-not-allowed" },
+      via: "none",
+    };
+  }
+  if (rec.kind !== "group") {
+    return refuseChildSignal(rec, signal, "group-leader-authority-required");
+  }
+  if (!processGroupEpochIsCurrent(rec.pid, rec.epoch)) {
+    pushAudit({
+      source: rec.source,
+      pid: rec.pid,
+      signal,
+      requestedGroup: false,
+      decision: { ok: false, reason: "group-epoch-mismatch" },
+    });
+    return {
+      attempted: false,
+      decision: { ok: false, reason: "group-epoch-mismatch" },
+      via: "none",
+    };
+  }
+  return signalChild(rec, signal);
 };
 export const releaseOwned = (process: OwnedProcess | undefined): void => { if (!process) return; const rec = authority.get(process); if (!rec) return; rec.released = true; authority.delete(process); };
 /** Existence probe only, never a terminating signal. */

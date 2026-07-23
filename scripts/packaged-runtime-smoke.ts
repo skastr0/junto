@@ -670,6 +670,7 @@ export const smokePackagedRuntime = async (
       cwd: tempRoot,
       env: childEnvironment,
       shell: false,
+      gracefulSignalScope: "leader",
     });
     runtimeLease = launched;
     const lifecycle = observeSpawnedRuntimeLease(launched);
@@ -771,8 +772,8 @@ export const smokePackagedRuntime = async (
       launched,
       "packaged-smoke-normal-shutdown",
     );
-    if (!shutdownSignal.attempted || shutdownSignal.via !== "process.kill-group") {
-      throw new Error("packaged Vellum normal shutdown lost its verified group authority");
+    if (!shutdownSignal.attempted || shutdownSignal.via !== "child.kill") {
+      throw new Error("packaged Vellum normal shutdown lost exact leader authority");
     }
     const exited = await lifecycle.waitForClose(SHUTDOWN_TIMEOUT_MS);
     if (exited.error !== undefined) {

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   admitChildProcess: vi.fn(),
   spawnDetachedProcessGroup: vi.fn(),
   signalOwned: vi.fn(),
+  signalOwnedGroupLeader: vi.fn(),
   releaseOwned: vi.fn(),
   refreshProcessGroupObservations: vi.fn(),
 }));
@@ -22,6 +23,7 @@ vi.mock("../src/main/vellum/process-signal", async (importOriginal) => ({
   admitChildProcess: mocks.admitChildProcess,
   spawnDetachedProcessGroup: mocks.spawnDetachedProcessGroup,
   signalOwned: mocks.signalOwned,
+  signalOwnedGroupLeader: mocks.signalOwnedGroupLeader,
   releaseOwned: mocks.releaseOwned,
 }));
 
@@ -143,6 +145,7 @@ beforeEach(() => {
   mocks.admitChildProcess.mockReset();
   mocks.spawnDetachedProcessGroup.mockReset();
   mocks.signalOwned.mockReset();
+  mocks.signalOwnedGroupLeader.mockReset();
   mocks.releaseOwned.mockReset();
   mocks.refreshProcessGroupObservations.mockReset();
 
@@ -150,6 +153,33 @@ beforeEach(() => {
     (input: { readonly child: FakeOwned["sink"] }) => mintOwned(input.child),
   );
   mocks.signalOwned.mockImplementation(
+    (owned: FakeOwned, signal: NodeJS.Signals) => {
+      if (owned.released) {
+        return {
+          attempted: false,
+          decision: { ok: false, reason: "handle-not-registered" },
+          via: "none",
+        };
+      }
+      try {
+        if (owned.sink.kill(signal) === false) {
+          return {
+            attempted: false,
+            decision: { ok: false, reason: "child-signal-refused" },
+            via: "none",
+          };
+        }
+        return successfulSignal("child");
+      } catch {
+        return {
+          attempted: false,
+          decision: { ok: false, reason: "child-signal-failed" },
+          via: "none",
+        };
+      }
+    },
+  );
+  mocks.signalOwnedGroupLeader.mockImplementation(
     (owned: FakeOwned, signal: NodeJS.Signals) => {
       if (owned.released) {
         return {
@@ -376,6 +406,47 @@ describe("app process plane admission", () => {
     const options = mocks.spawnDetachedProcessGroup.mock.calls[0]?.[0]?.options;
     expect(options).not.toHaveProperty("detached");
     expect(options).not.toHaveProperty("stdio");
+  });
+
+  it("attenuates cooperative group TERM to the exact leader and keeps group KILL", () => {
+    const child = new FakeChild();
+    const owned = mintOwned({ kill: child.kill.bind(child) });
+    mocks.spawnDetachedProcessGroup.mockReturnValue({
+      child,
+      process: owned,
+      mode: "group",
+    });
+    mocks.signalOwned.mockReturnValue(successfulSignal("group"));
+    const plane = createAppProcessPlane();
+    const lease = plane.spawnGroup({
+      ...spec("cooperative multiprocess runtime"),
+      gracefulSignalScope: "leader",
+    });
+
+    expect(plane.terminate(lease, "graceful runtime shutdown")).toMatchObject({
+      attempted: true,
+      signal: "SIGTERM",
+      via: "child.kill",
+    });
+    expect(plane.forceTerminate(lease, "bounded runtime escalation")).toMatchObject({
+      attempted: true,
+      signal: "SIGKILL",
+      via: "process.kill-group",
+    });
+    expect(mocks.signalOwnedGroupLeader).toHaveBeenCalledWith(owned, "SIGTERM");
+    expect(mocks.signalOwned).toHaveBeenCalledWith(owned, "SIGKILL");
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("rejects an unknown graceful group signal scope before spawning", () => {
+    const plane = createAppProcessPlane();
+    expect(() =>
+      plane.spawnGroup({
+        ...spec("invalid graceful signal scope"),
+        gracefulSignalScope: "ambient" as never,
+      })
+    ).toThrow(/graceful signal scope/u);
+    expect(mocks.spawnDetachedProcessGroup).not.toHaveBeenCalled();
   });
 
   it("settles close-only terminal promises without fabricating an exit callback", async () => {

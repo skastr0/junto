@@ -360,6 +360,7 @@ describe("machine-safety architecture", () => {
       "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
       "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
       "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/vellum/process-signal.ts:forbidden-reference:child.kill",
       "src/main/vellum/process-signal.ts:rec.child.kill",
       "src/main/vellum/term/control-server.ts:host.kill",
       "src/main/vellum/term/ipc.ts:router.kill",

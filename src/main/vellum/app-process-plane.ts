@@ -15,6 +15,7 @@ import {
   admitChildProcess,
   releaseOwned,
   signalOwned,
+  signalOwnedGroupLeader,
   spawnDetachedProcessGroup,
   type OwnedProcess,
   type SignalChildHandle,
@@ -76,6 +77,15 @@ export interface AppProcessSpawnSpec {
   readonly shell?: boolean | string;
   readonly uid?: number;
   readonly gid?: number;
+}
+
+export interface AppProcessGroupSpawnSpec extends AppProcessSpawnSpec {
+  /**
+   * `leader` lets a cooperative multiprocess runtime coordinate its own
+   * descendants before the plane escalates to a verified group SIGKILL.
+   * The default remains group-wide TERM for ordinary worker trees.
+   */
+  readonly gracefulSignalScope?: "group" | "leader";
 }
 
 export interface AppProcessChildSpawnSpec extends AppProcessSpawnSpec {
@@ -185,7 +195,7 @@ export interface AppProcessPlaneOptions {
 
 export interface AppProcessPlane {
   readonly spawnChild: (spec: AppProcessChildSpawnSpec) => AppProcessLease;
-  readonly spawnGroup: (spec: AppProcessSpawnSpec) => AppProcessLease;
+  readonly spawnGroup: (spec: AppProcessGroupSpawnSpec) => AppProcessLease;
   readonly spawnTerminal: (spec: AppTerminalSpawnSpec) => AppTerminalLease;
   readonly spawnOutlivingDaemon: (
     spec: AppOutlivingDaemonSpec,
@@ -222,6 +232,7 @@ interface AppOwnedRecord {
 
 interface AppProcessRecord extends AppOwnedRecord {
   readonly mode: AppProcessMode;
+  readonly gracefulSignalScope: "child" | "group" | "leader";
   readonly child: ChildProcessWithoutNullStreams;
   readonly exitListeners: Set<(event: AppProcessExit) => void>;
   readonly closeListeners: Set<(event: AppProcessClose) => void>;
@@ -696,12 +707,16 @@ export const createAppProcessPlane = (
     readonly child: ChildProcessWithoutNullStreams;
     readonly owned: OwnedProcess;
     readonly mode: AppProcessMode;
+    readonly gracefulSignalScope?: "group" | "leader";
   }): AppProcessLease => {
     const record: AppProcessRecord = {
       generation: nextGeneration++,
       source: input.source,
       purpose: input.purpose,
       mode: input.mode,
+      gracefulSignalScope: input.mode === "child"
+        ? "child"
+        : input.gracefulSignalScope ?? "group",
       child: input.child,
       owned: input.owned,
       pidForDiagnostics: input.child.pid,
@@ -935,8 +950,15 @@ export const createAppProcessPlane = (
     });
   };
 
-  const spawnGroup = (spec: AppProcessSpawnSpec): AppProcessLease => {
+  const spawnGroup = (spec: AppProcessGroupSpawnSpec): AppProcessLease => {
     assertSpawnAllowed();
+    const gracefulSignalScope = spec.gracefulSignalScope ?? "group";
+    if (
+      gracefulSignalScope !== "group" &&
+      gracefulSignalScope !== "leader"
+    ) {
+      throw new RangeError("group graceful signal scope must be group or leader");
+    }
     const spawned = spawnDetachedProcessGroup({
       source: spec.source,
       command: spec.command,
@@ -949,6 +971,7 @@ export const createAppProcessPlane = (
       child: spawned.child,
       owned: spawned.process,
       mode: spawned.mode,
+      gracefulSignalScope,
     });
     if (spawned.mode === "group") {
       // Lifecycle listeners are already attached. Capture before exposing the
@@ -1038,7 +1061,13 @@ export const createAppProcessPlane = (
     else record.killInProgressReason = reason;
     let receipt: AppProcessSignalReceipt;
     try {
-      receipt = withSignalReceipt(signal, reason, signalOwned(record.owned, signal));
+      const result =
+        signal === "SIGTERM" &&
+          record.mode === "group" &&
+          record.gracefulSignalScope === "leader"
+          ? signalOwnedGroupLeader(record.owned, signal)
+          : signalOwned(record.owned, signal);
+      receipt = withSignalReceipt(signal, reason, result);
     } catch {
       receipt = rejectedSignalReceipt(signal, reason, "signal-dispatch-failed");
     } finally {

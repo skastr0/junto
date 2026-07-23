@@ -115,6 +115,8 @@ describe("Linux packaged Xvfb smoke contract", () => {
     );
     expect(source).toContain("createAppProcessPlane()");
     expect(source).toContain("spawnGroup");
+    expect(source).toContain('gracefulSignalScope: "leader"');
+    expect(source).toContain('shutdown.via !== "child.kill"');
     expect(source).toContain("terminateSpawnedRuntime");
     expect(source).toContain("finalizePackagedRuntimeSandbox");
     expect(source).not.toMatch(/\bprocess\.kill\s*\(|\bkill\s+-/u);

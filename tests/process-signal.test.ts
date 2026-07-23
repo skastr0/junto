@@ -7,6 +7,7 @@ import {
   getProcessSignalAuditLog,
   releaseOwned,
   signalOwned,
+  signalOwnedGroupLeader,
   spawnDetachedProcessGroup,
   KillablePid,
   type OwnedProcess,
@@ -194,6 +195,56 @@ describe("process-signal authority", () => {
     expect(original).toBeTypeOf("function");
   });
 
+  it("attenuates graceful group shutdown to the spawn-bound exact leader", async () => {
+    const spawned = spawnDetachedProcessGroup({
+      source: "cooperative-group",
+      command: "/bin/sh",
+      args: ["-c", "sleep 5"],
+    });
+    const closed = once(spawned.child, "close");
+    expect(spawned.mode).toBe("group");
+    const redirectedKill = vi.fn(() => true);
+    spawned.child.kill = redirectedKill;
+
+    expect(signalOwnedGroupLeader(spawned.process, "SIGTERM")).toEqual({
+      attempted: true,
+      decision: { ok: true, mode: "child" },
+      via: "child.kill",
+    });
+    expect(redirectedKill).not.toHaveBeenCalled();
+    await closed;
+    releaseOwned(spawned.process);
+  });
+
+  it("refuses non-TERM and non-group leader signals", async () => {
+    const group = spawnDetachedProcessGroup({
+      source: "leader-signal-policy",
+      command: "/bin/sh",
+      args: ["-c", "sleep 0.2"],
+    });
+    const groupClosed = once(group.child, "close");
+    expect(
+      signalOwnedGroupLeader(group.process, "SIGKILL" as never),
+    ).toMatchObject({
+      attempted: false,
+      decision: { ok: false, reason: "leader-signal-not-allowed" },
+    });
+
+    const childKill = vi.fn();
+    const child = admitChildProcess({
+      source: "child-not-group",
+      child: { kill: childKill },
+    });
+    expect(signalOwnedGroupLeader(child, "SIGTERM")).toMatchObject({
+      attempted: false,
+      decision: { ok: false, reason: "group-leader-authority-required" },
+    });
+    expect(childKill).not.toHaveBeenCalled();
+    releaseOwned(child);
+    await groupClosed;
+    releaseOwned(group.process);
+  });
+
   it("epoch drift refuses group kill without signaling its child", async () => {
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const spawned = spawnDetachedProcessGroup({ source: "test", command: "/bin/sh", args: ["-c", "sleep 0.2"] });
@@ -201,6 +252,34 @@ describe("process-signal authority", () => {
     setProcessEpochReaderForTests({ snapshot: () => [{ pid: spawned.child.pid!, processGroupId: spawned.child.pid!, sessionId: 42, startKey: "epoch-b" }] });
     expect(signalOwned(spawned.process, "SIGTERM").via).toBe("none");
     expect(spy).not.toHaveBeenCalled();
+    await closed;
+    releaseOwned(spawned.process);
+  });
+
+  it("epoch drift also refuses exact-leader signaling", async () => {
+    const spawned = spawnDetachedProcessGroup({
+      source: "leader-epoch-drift",
+      command: "/bin/sh",
+      args: ["-c", "sleep 0.2"],
+    });
+    const closed = once(spawned.child, "close");
+    const redirectedKill = vi.fn(() => true);
+    spawned.child.kill = redirectedKill;
+    setProcessEpochReaderForTests({
+      snapshot: () => [{
+        pid: spawned.child.pid!,
+        processGroupId: spawned.child.pid!,
+        sessionId: 42,
+        startKey: "epoch-b",
+      }],
+    });
+
+    expect(signalOwnedGroupLeader(spawned.process, "SIGTERM")).toMatchObject({
+      attempted: false,
+      decision: { ok: false, reason: "group-epoch-mismatch" },
+      via: "none",
+    });
+    expect(redirectedKill).not.toHaveBeenCalled();
     await closed;
     releaseOwned(spawned.process);
   });

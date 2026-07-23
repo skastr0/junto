@@ -396,6 +396,7 @@ export const smokeLinuxPackagedPty = async (
       cwd: tempRoot,
       env: environment,
       shell: false,
+      gracefulSignalScope: "leader",
     });
     lifecycle = observeSpawnedRuntimeLease(runtimeLease);
     runtimeLease.io.stdin.end();
@@ -434,8 +435,8 @@ export const smokeLinuxPackagedPty = async (
       runtimeLease,
       "linux-packaged-pty-smoke-normal-shutdown",
     );
-    if (!shutdown.attempted || shutdown.via !== "process.kill-group") {
-      throw new Error("packaged Vellum shutdown lost verified process-group authority");
+    if (!shutdown.attempted || shutdown.via !== "child.kill") {
+      throw new Error("packaged Vellum shutdown lost exact leader authority");
     }
     const terminal = await lifecycle.waitForClose(SHUTDOWN_TIMEOUT_MS);
     if (terminal.error !== undefined) {

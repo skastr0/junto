@@ -142,6 +142,11 @@ kill / quit
               → child.kill; explicit false is an audited refusal
               → pid/epoch mismatch: audited refusal; no signal
          → opaque pid-less wrapper: child.kill only
+    → OR signalOwnedGroupLeader(owned, SIGTERM)
+         → verified group authority only
+         → revalidate the same live leader + epoch + session + pgid
+         → signal the spawn-bound exact child handle, never the whole group
+         → retain group authority for bounded SIGKILL escalation
 
 exit
     → releaseOwned(owned)
