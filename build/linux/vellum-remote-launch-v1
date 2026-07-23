@@ -135,12 +135,23 @@ if ! : > "$XAUTHORITY"; then
   exit 73
 fi
 set +C
-authority_identity="$(/usr/bin/stat -c '%d:%i' "$XAUTHORITY")"
 trap cleanup_owned_resources EXIT
 trap 'cleanup_owned_resources; exit 129' HUP
 trap 'cleanup_owned_resources; exit 130' INT
 trap 'cleanup_owned_resources; exit 143' TERM
-"$XAUTH" -f "$XAUTHORITY" add "$DISPLAY" . "$(/usr/bin/mcookie)" >/dev/null 2>&1
+if ! "$XAUTH" -f "$XAUTHORITY" add "$DISPLAY" . "$(/usr/bin/mcookie)" >/dev/null 2>&1; then
+  authority_identity="$(/usr/bin/stat -c '%d:%i' "$XAUTHORITY" 2>/dev/null || true)"
+  printf '%s\n' 'vellum-remote: could not initialize managed X11 authority' >&2
+  exit 70
+fi
+if [ ! -f "$XAUTHORITY" ] || [ -L "$XAUTHORITY" ] || [ ! -O "$XAUTHORITY" ]; then
+  printf '%s\n' 'vellum-remote: managed X11 authority changed during initialization' >&2
+  exit 73
+fi
+chmod 0600 "$XAUTHORITY"
+# xauth writes through a temporary file and rename on real Linux systems.
+# Capture the cleanup lease only after that atomic replacement completes.
+authority_identity="$(/usr/bin/stat -c '%d:%i' "$XAUTHORITY")"
 
 "$XVFB" "$DISPLAY" -screen 0 1280x1024x24 -nolisten tcp -auth "$XAUTHORITY" &
 xvfb_pid="$!"

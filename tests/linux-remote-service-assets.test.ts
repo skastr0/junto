@@ -174,6 +174,37 @@ while :; do sleep 1; done
     }
   });
 
+  it("releases the post-xauth authority inode when Xvfb exits first", async () => {
+    if (process.platform !== "linux") return;
+    const sandbox = await linuxLauncherSandbox();
+    const authorityDirectory = join(sandbox.runtime, "vellum-remote-x11");
+    try {
+      await writeFile(join(sandbox.bin, "xauth"), `#!/bin/sh
+authority="$2"
+replacement="${'$'}{authority}.replacement"
+printf 'replacement-authority\\n' > "${'$'}replacement"
+mv "${'$'}replacement" "${'$'}authority"
+`, { mode: 0o755 });
+      await writeFile(join(sandbox.bin, "Xvfb"), `#!/bin/sh
+python3 - "$TEST_SOCKET" <<'PY'
+import socket, sys, time
+sock = socket.socket(socket.AF_UNIX)
+sock.bind(sys.argv[1])
+time.sleep(1)
+PY
+`, { mode: 0o755 });
+      await writeFile(join(sandbox.app, "vellum"), `#!/bin/sh
+while :; do sleep 1; done
+`, { mode: 0o755 });
+      await expect(execFileAsync(sandbox.launcher, [], { env: sandbox.env })).rejects.toMatchObject({
+        code: 70,
+      });
+      await expect(stat(authorityDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(sandbox.root, { recursive: true, force: true });
+    }
+  });
+
   it("cleans both owned child groups when the wrapper receives TERM", async () => {
     if (process.platform !== "linux") return;
     const sandbox = await linuxLauncherSandbox();
