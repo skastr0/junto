@@ -27,6 +27,14 @@ import {
   BROWSER_CONTROL_MAX_REQUEST_BODY_BYTES,
   BROWSER_CONTROL_MAX_RESPONSE_BYTES,
 } from "../src/shared/browser-limits";
+import {
+  decodeStationBrowserResponse,
+  STATION_BROWSER_MAX_FRAME_BYTES,
+} from "../src/shared/station-browser";
+import {
+  installStationBrowserTrustFrame,
+  STATION_BROWSER_TRUST_MAX_BYTES,
+} from "../src/main/vellum/browser/station-trust";
 
 // Agent CLI for the browser control plane: `bun run browser <cmd>` talks to
 // the app-hosted unix-socket server (canvas-ls precedent: plain text by
@@ -57,6 +65,8 @@ commands:
   shot <sessionId>                 screenshot to a server-owned PNG
   close <sessionId>                detach the surface (session stays warm)
   stop <sessionId>                 destroy the page runtime (profile stays)`;
+
+const STATION_BROWSER_STDIN_TIMEOUT_MS = 5_000;
 
 // Bounds the whole request/response round-trip. Without this, a hung page
 // script (executeJavaScript that never resolves — e.g. `while(true){}` run
@@ -218,6 +228,115 @@ const httpOverSocket = (
     req.end();
   });
 
+const readBoundedStdin = (
+  limitBytes: number,
+): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    let settled = false;
+    const finish = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      process.stdin.removeAllListeners("data");
+      process.stdin.removeAllListeners("end");
+      process.stdin.removeAllListeners("error");
+      if (error !== undefined) reject(error);
+      else resolve(Buffer.concat(chunks, bytes).toString("utf8"));
+    };
+    const timer = setTimeout(
+      () => finish(new Error("station wrapper stdin timed out")),
+      STATION_BROWSER_STDIN_TIMEOUT_MS,
+    );
+    process.stdin.on("data", (chunk: Buffer | string) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bytes += buffer.byteLength;
+      if (bytes > limitBytes) {
+        finish(new Error("station wrapper stdin exceeds its byte boundary"));
+        process.stdin.destroy();
+        return;
+      }
+      chunks.push(buffer);
+    });
+    process.stdin.once("end", () => finish());
+    process.stdin.once("error", () =>
+      finish(new Error("station wrapper stdin could not be read")));
+    process.stdin.resume();
+  });
+
+const readLocalTransportToken = async (
+  home: string,
+): Promise<string | undefined> => {
+  try {
+    return (await readFile(controlTokenPath(home), "utf8")).trim();
+  } catch {
+    return undefined;
+  }
+};
+
+const stationWrapperMain = async (
+  args: ReadonlyArray<string>,
+): Promise<never> => {
+  if (args.length !== 0) {
+    console.error("station wrapper accepts no arguments");
+    process.exit(2);
+  }
+  try {
+    const frame = (await readBoundedStdin(STATION_BROWSER_MAX_FRAME_BYTES)).trim();
+    const home = homedir();
+    const token = await readLocalTransportToken(home);
+    if (token === undefined) throw new Error("target Vellum runtime is unavailable");
+    const envelope = await httpOverSocket(
+      controlSocketPath(home),
+      { method: "POST", path: "/station" },
+      token,
+      undefined,
+      { frame },
+    );
+    if (
+      !envelope.ok ||
+      typeof envelope.data !== "object" ||
+      envelope.data === null ||
+      Array.isArray(envelope.data) ||
+      Object.keys(envelope.data).length !== 1 ||
+      !("frame" in envelope.data) ||
+      typeof envelope.data.frame !== "string"
+    ) {
+      throw new Error("target Vellum runtime rejected station delegation");
+    }
+    const response = decodeStationBrowserResponse(envelope.data.frame);
+    if (typeof response === "string") {
+      throw new Error("target Vellum runtime returned a malformed station response");
+    }
+    process.stdout.write(`${envelope.data.frame}\n`);
+    // A typed denial still crossed the transport successfully. The origin CLI
+    // maps response.ok to its own exit semantics after validating host/action.
+    process.exit(0);
+  } catch {
+    console.error("station browser wrapper failed");
+    process.exit(1);
+  }
+};
+
+const stationTrustMain = async (
+  args: ReadonlyArray<string>,
+): Promise<never> => {
+  if (args.length !== 0) {
+    console.error("station trust wrapper accepts no arguments");
+    process.exit(2);
+  }
+  try {
+    const frame = await readBoundedStdin(STATION_BROWSER_TRUST_MAX_BYTES);
+    const response = await installStationBrowserTrustFrame(frame);
+    process.stdout.write(`${response}\n`);
+    process.exit(0);
+  } catch {
+    console.error("station trust wrapper failed");
+    process.exit(1);
+  }
+};
+
 interface Call {
   readonly route: ControlRouteName;
   readonly body?: unknown;
@@ -336,7 +455,14 @@ const admissionFor = (
 };
 
 const main = async (): Promise<void> => {
-  const parsed = parseArgs(process.argv.slice(2));
+  const rawArgv = process.argv.slice(2);
+  if (rawArgv[0] === "station") {
+    return stationWrapperMain(rawArgv.slice(1));
+  }
+  if (rawArgv[0] === "station-trust") {
+    return stationTrustMain(rawArgv.slice(1));
+  }
+  const parsed = parseArgs(rawArgv);
   if ("error" in parsed) {
     console.error(parsed.error);
     process.exit(2);

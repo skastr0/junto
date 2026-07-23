@@ -23,4 +23,49 @@ describe("station browser target wrapper", () => {
     expect(decodeStationBrowserResponse(await wrapper.handle(frame))).toMatchObject({ ok: false, error: "replayed" });
     expect(calls).toBe(1);
   });
+  it("re-reads pinned trust so rotation and revocation take effect without restart", async () => {
+    const rotated = generateKeyPairSync("ed25519");
+    let current = { keyId: "fleet-1", publicKey: keys.publicKey, originStationId: "command-a" };
+    let calls = 0;
+    const wrapper = makeStationBrowserWrapper({
+      trust: async () => current,
+      verification: context,
+      replays: new StationBrowserReplayCache(),
+      execute: async () => {
+        calls += 1;
+        return { role: "remote", browserReady: true };
+      },
+    });
+    expect(decodeStationBrowserResponse(await wrapper.handle(request())))
+      .toMatchObject({ ok: true });
+    current = { keyId: "fleet-2", publicKey: rotated.publicKey, originStationId: "command-a" };
+    const stale = JSON.stringify(mintStationBrowserEnvelope(
+      admitOperatorUiDelegation("command-a"),
+      {
+        version: 1,
+        requestId: "request-2",
+        targetStationId: "remote-a",
+        action: "doctor",
+        issuedAt: 1_700_000_000_000,
+        expiresAt: 1_700_000_030_000,
+        nonce: "nonce-2",
+      },
+      "fleet-1",
+      keys.privateKey,
+    ));
+    expect(decodeStationBrowserResponse(await wrapper.handle(stale)))
+      .toMatchObject({ ok: false, error: "key" });
+    const revoked = makeStationBrowserWrapper({
+      trust: async () => undefined,
+      verification: context,
+      replays: new StationBrowserReplayCache(),
+      execute: async () => {
+        calls += 1;
+        return { role: "remote", browserReady: true };
+      },
+    });
+    expect(decodeStationBrowserResponse(await revoked.handle(stale)))
+      .toMatchObject({ ok: false, error: "key" });
+    expect(calls).toBe(1);
+  });
 });

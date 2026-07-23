@@ -95,6 +95,12 @@ import {
   type BrowserCapabilityUseTarget,
 } from "./capabilities";
 import {
+  canonicalStationBrowserJson,
+  decodeStationBrowserResponse,
+  STATION_BROWSER_MAX_FRAME_BYTES,
+} from "@shared/station-browser";
+import type { StationBrowserWrapper } from "./station-wrapper";
+import {
   acquireControlListenerLease,
   captureControlSocketPathIdentity,
   controlListenerLeaseHeld,
@@ -315,6 +321,11 @@ export interface ControlDeps {
    * via Unix peer PID → registered agent|herdr process (no client claim).
    */
   readonly edgeGrant?: EdgeGrantService;
+  /**
+   * Fixed station-to-station wrapper hosted on this same Unix listener.
+   * Signed-envelope verification remains independent of process-bind routes.
+   */
+  readonly stationBrowserWrapper?: StationBrowserWrapper;
   /**
    * Server lifecycle hook. The HTTP host uses this to retain the actual route
    * promise after the request-facing cancellation race has settled.
@@ -977,6 +988,40 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
 
   };
 
+  if (deps.stationBrowserWrapper !== undefined) {
+    handlers["POST /station"] = route(
+      null,
+      async (body, _authorization, signal) => {
+        if (
+          typeof body !== "object" ||
+          body === null ||
+          Array.isArray(body) ||
+          Object.keys(body).length !== 1 ||
+          !("frame" in body) ||
+          typeof body.frame !== "string" ||
+          Buffer.byteLength(body.frame, "utf8") > STATION_BROWSER_MAX_FRAME_BYTES
+        ) {
+          return controlErr(
+            "bad_request",
+            "station browser request must contain one bounded frame",
+          );
+        }
+        const responseFrame = await deps.stationBrowserWrapper!.handle(
+          body.frame,
+          signal,
+        );
+        const response = decodeStationBrowserResponse(responseFrame);
+        return typeof response === "string"
+          ? controlErr("forbidden", "station browser delegation was rejected")
+          : controlOk({ frame: canonicalStationBrowserJson({
+              ...response,
+              data: response.ok ? response.data : null,
+              error: response.ok ? null : response.error,
+            }) });
+      },
+    );
+  }
+
   return handlers;
 };
 
@@ -1331,6 +1376,7 @@ export const startBrowserControlServer = async (
     /** Enables process-bind + edge admission without capability ceremony. */
     readonly readCanvas?: (name: string) => Promise<CanvasDoc | undefined>;
     readonly edgeGrant?: EdgeGrantService;
+    readonly stationBrowserWrapper?: StationBrowserWrapper;
   },
   runtime: BrowserControlRuntime = defaultControlRuntime,
 ): Promise<BrowserControlServer> => {
@@ -1419,6 +1465,9 @@ export const startBrowserControlServer = async (
     canvasesDir,
     shotsDir: controlShotsDir(home),
     edgeGrant,
+    ...(options.stationBrowserWrapper === undefined
+      ? {}
+      : { stationBrowserWrapper: options.stationBrowserWrapper }),
     retainRouteOperation: (action, operation) =>
       retainFlight("route-operation", `route:${action}`, operation),
   });
