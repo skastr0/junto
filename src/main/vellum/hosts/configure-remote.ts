@@ -44,11 +44,19 @@ export type ConfigureRemoteResult = {
 // After stamping settings, drop topology.key/seal so the remote app bootstraps
 // a seal for the operator-stamped role on next start (cannot mint remote key
 // over SSH). Residual: same-user who deletes key+seal can re-bootstrap.
+//
+// Fail closed on symlink settings path — never write through a link (doctrine:
+// no surprising authority via path substitution).
 const REMOTE_SETTINGS_WRITE_SCRIPT = [
   "umask 077",
   "mkdir -p \"$1\"",
-  "cat > \"$2\"",
-  "chmod 600 \"$2\"",
+  'if [ -L "$2" ]; then printf "%s\\n" "vellum-configure: settings path is a symlink" >&2; exit 73; fi',
+  'if [ -e "$2" ] && [ ! -f "$2" ]; then printf "%s\\n" "vellum-configure: settings path is not a regular file" >&2; exit 73; fi',
+  'tmp="$2.vellum-configure.$$"',
+  'if [ -e "$tmp" ] || [ -L "$tmp" ]; then printf "%s\\n" "vellum-configure: temp path busy" >&2; exit 73; fi',
+  'cat > "$tmp" || exit $?',
+  'mv -f -- "$tmp" "$2" || { rm -f -- "$tmp"; exit 73; }',
+  'chmod 600 "$2"',
   'rm -f "$1/topology.key" "$1/topology.seal"',
 ].join("\n");
 

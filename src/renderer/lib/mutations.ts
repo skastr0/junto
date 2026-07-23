@@ -648,20 +648,24 @@ const deleteNodesInternal = async (
     );
   }
 
-  // Agent delete must revoke process-bind authority and tear down the ACP
-  // session (OwnedProcess path inside chatClose). Card removal without this
-  // left a live seat — Phase 5 gap S0.
+  // Agent delete: verified revoke + teardown BEFORE document mutation.
+  // Doctrine: visible failure and verified exit — do not commit the card
+  // delete while the seat may still be live.
   const agentKeys = existingNodes
     .filter((n) => n.ether?.entity?.kind === "agent")
     .map((n) => n.ether?.entity?.name)
     .filter((name): name is string => typeof name === "string" && name.length > 0);
   if (agentKeys.length > 0) {
-    sideEffects.push(
-      import("./chat-state").then(async ({ closeChat }) => {
-        if (!canvasMutationAdmissionOpen) return;
-        await Promise.all(agentKeys.map((key) => closeChat(key)));
-      }),
-    );
+    if (!canvasMutationAdmissionOpen) return;
+    const { closeChat } = await import("./chat-state");
+    const results = await Promise.all(agentKeys.map((key) => closeChat(key)));
+    if (!canvasMutationAdmissionOpen) return;
+    if (!results.every((ok) => ok)) {
+      state$.error.set(
+        "Agent session teardown failed or was unclean; the agent node was not deleted.",
+      );
+      return;
+    }
   }
 
   if (pageActions.length > 0) {

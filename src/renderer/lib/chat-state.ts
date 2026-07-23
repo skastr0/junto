@@ -560,16 +560,33 @@ export async function setModel(agentKey: string, modelId: string): Promise<void>
   }
 }
 
-export async function closeChat(agentKey: string): Promise<void> {
+/**
+ * Close chat and tear down the ACP process. Returns whether main reported a
+ * verified clean teardown (doctrine: visible failure, not swallowed ok).
+ */
+export async function closeChat(agentKey: string): Promise<boolean> {
   ensureAgent(agentKey);
   chatState$[agentKey].assign({ status: "closed", pendingPermission: undefined });
   syncChatCoarse(agentKey, getAgentChatState(agentKey));
   const api = getChatApi();
-  if (!api || typeof api.chatClose !== "function") return;
+  if (!api || typeof api.chatClose !== "function") {
+    pushStatus(agentKey, "chat close unavailable — teardown not verified", "error");
+    return false;
+  }
   try {
-    await api.chatClose(agentKey);
-  } catch {
-    // Closing is best-effort — local state already reflects "closed".
+    const result = await api.chatClose(agentKey);
+    if (result && typeof result === "object" && "ok" in result && result.ok === false) {
+      pushStatus(agentKey, "agent process teardown was not clean", "error");
+      return false;
+    }
+    return true;
+  } catch (error) {
+    pushStatus(
+      agentKey,
+      error instanceof Error ? error.message : "chat close failed",
+      "error",
+    );
+    return false;
   }
 }
 

@@ -424,7 +424,9 @@ export interface ChatApi {
   // | allow_always | deny | deny_always).
   readonly chatPermission: (agentKey: string, requestId: string, optionId: string) => Promise<{ ok: boolean }>;
   readonly chatSetModel: (agentKey: string, modelId: string) => Promise<{ ok: boolean; error?: string }>;
-  readonly chatClose: (agentKey: string) => Promise<{ ok: boolean }>;
+  readonly chatClose: (
+    agentKey: string,
+  ) => Promise<{ ok: boolean; clean?: boolean }>;
   readonly onChatEvent: (listener: (event: ChatEvent) => void) => () => void;
 }
 

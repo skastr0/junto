@@ -852,10 +852,15 @@ export class ChatService {
     }
   }
 
-  async chatClose(agentKey: string): Promise<{ ok: boolean }> {
+  async chatClose(agentKey: string): Promise<{ ok: boolean; clean: boolean }> {
     this.nextGeneration(agentKey);
-    this.closeCurrent(agentKey);
-    return { ok: true };
+    const receipts = await this.closeCurrent(agentKey);
+    // No session is a clean no-op. Otherwise every owned teardown must report
+    // terminal (doctrine: verified exit, not best-effort ok:true).
+    const clean =
+      receipts.length === 0 ||
+      receipts.every((receipt) => receipt.kind === "terminal");
+    return { ok: clean, clean };
   }
 
   closeAll(): Promise<ChatCloseAllResult> {

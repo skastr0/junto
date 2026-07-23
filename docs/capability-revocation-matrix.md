@@ -93,9 +93,7 @@ identity model.
 **Product code:** `src/renderer/lib/mutations.ts` `deleteNodesInternal` +
 `resolveBrowserOnDelete` in `src/shared/canvas.ts`.
 
-**Verdict:** page delete is **policy-gated**, not Phase-5-default close. Align
-default or main-path side-effect with “page delete closes owned session,” or
-document an intentional detach product with residual-risk UI.
+**Verdict:** default page delete is **kill-session** (stop-before-delete). Detach remains an explicit operator field.
 
 ---
 
@@ -109,9 +107,8 @@ document an intentional detach product with residual-risk UI.
 | Process-bind on chat close / exit | Unbind so CLI cannot retain seat | `unbindLocalProcess` / `unbindAgentKey` on close and lifecycle exit | **Met** (lifecycle path, not node-delete path) |
 | Termination mechanism | OwnedProcess only — never bare pid | `app-process-plane` → `signalOwned` / `signalOwnedGroupLeader` | **Met** when terminate is invoked |
 
-**Verdict:** the largest Phase 5 hole is **agent card delete does not drive
-revocation + OwnedProcess terminate**. Operator must close chat / quit
-separately. That violates “actor delete revokes then terminates.”
+**Verdict:** agent card delete awaits verified `chatClose` teardown before
+document mutation. Residual: herdr/terminal still default detach.
 
 ---
 
