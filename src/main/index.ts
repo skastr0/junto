@@ -4,7 +4,7 @@
 import "./vellum/demo/canvases-env";
 
 import { randomUUID } from "node:crypto";
-import { watch, type FSWatcher } from "node:fs";
+import { readFileSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import {
   app,
@@ -46,7 +46,7 @@ import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane } from "./vellum/term/plane";
 import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
-import { electronSecurityPolicyHealthy, packagedElectronObservationPath, packagedElectronSecurityPolicyPath } from "./vellum/electron-security-health";
+import { electronSecurityPolicyHealthy, packagedElectronObservationHighWaterPath, packagedElectronObservationPath, packagedElectronSecurityPolicyPath } from "./vellum/electron-security-health";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 import { startWorkControlServer, type WorkControlServer } from "./vellum/work/control";
 import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
@@ -94,6 +94,7 @@ import {
   type TrustedRendererOrigin,
 } from "@shared/trusted-renderer-origin";
 import { loadStationSupervisor } from "./vellum/supervision/select";
+import { settingsFilePath } from "./vellum/settings/service";
 import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
 import { findPackagedSandboxDisablingSwitch } from "./vellum/packaged-sandbox-policy";
 
@@ -957,6 +958,23 @@ const recoverRendererSurface = (
 // MainPID ever becomes process-signal authority in this process.
 const ensureSupervised = async (): Promise<boolean> => {
   if (!app.isPackaged) return true; // dev runs are never rerouted
+  // The Linux unit is a Remote/headless facility, never a role inference.
+  // Read only the bounded canonical setting before services initialize; an
+  // unreadable or malformed document declines handoff rather than guessing.
+  if (process.platform === "linux" && !headless) {
+    try {
+      const raw = readFileSync(settingsFilePath(), "utf8");
+      if (Buffer.byteLength(raw, "utf8") > 64 * 1024) return true;
+      const station = (JSON.parse(raw) as { station?: unknown }).station;
+      if (
+        typeof station !== "object" || station === null ||
+        (station as { role?: unknown }).role !== "remote" ||
+        (station as { supervisedPreferred?: unknown }).supervisedPreferred !== true
+      ) return true;
+    } catch {
+      return true;
+    }
+  }
   const supervisor = await loadStationSupervisor();
   const observation = await supervisor.observe();
   if (observation.state === "absent" || observation.state === "unsupported" ||
@@ -1179,6 +1197,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
               : join(app.getAppPath(), "scripts", "electron-security-policy.json"),
             electronVersion: process.versions.electron,
             observationPath: app.isPackaged ? packagedElectronObservationPath(process.resourcesPath) : undefined,
+            observationHighWaterPath: app.isPackaged ? packagedElectronObservationHighWaterPath(process.resourcesPath) : undefined,
           }),
         },
       );

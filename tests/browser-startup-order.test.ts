@@ -51,6 +51,13 @@ describe("browser startup recovery gate", () => {
     expect(host).toBeGreaterThan(supervised);
   });
 
+  it("does not infer Linux Remote supervision for a Command Center with the unit installed", () => {
+    expect(indexSrc).toContain('if (process.platform === "linux" && !headless)');
+    expect(indexSrc).toContain('(station as { role?: unknown }).role !== "remote"');
+    expect(indexSrc).toContain('(station as { supervisedPreferred?: unknown }).supervisedPreferred !== true');
+    expect(indexSrc).toContain("if (Buffer.byteLength(raw, \"utf8\") > 64 * 1024) return true;");
+  });
+
   it("preserves non-browser IPC before recovery without registering browser IPC", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
     expect(ready.indexOf("registerIpcHandlers();")).toBeLessThan(
