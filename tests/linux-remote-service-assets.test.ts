@@ -29,18 +29,23 @@ const linuxLauncherSandbox = async () => {
   const root = await mkdtemp(join(tmpdir(), "vellum-remote-launcher-"));
   const app = join(root, "app");
   const runtime = join(root, "runtime");
+  const serviceRuntime = join(runtime, "vellum-remote");
   const bin = join(root, "bin");
   const socket = join(root, "display.sock");
+  const notifySocket = join(root, "notify.sock");
   await Promise.all([mkdir(app), mkdir(runtime), mkdir(bin)]);
+  await mkdir(serviceRuntime, { mode: 0o700 });
   const launcher = (await asset("vellum-remote-launch-v1"))
     .replace("APP_DIR='/opt/Vellum Command'", `APP_DIR='${app}'`)
     .replace("XVFB='/usr/bin/Xvfb'", `XVFB='${join(bin, "Xvfb")}'`)
     .replace("XAUTH='/usr/bin/xauth'", `XAUTH='${join(bin, "xauth")}'`)
-    .replace('LOCK_FILE="/tmp/.X${DISPLAY_NUMBER}-lock"', `LOCK_FILE='${join(root, "lock")}'`)
-    .replace('SOCKET_FILE="/tmp/.X11-unix/X${DISPLAY_NUMBER}"', `SOCKET_FILE='${socket}'`);
+    .replace("SYSTEMD_NOTIFY='/usr/bin/systemd-notify'", `SYSTEMD_NOTIFY='${join(bin, "systemd-notify")}'`);
   const launcherPath = join(root, "launcher");
   await writeFile(launcherPath, launcher, { mode: 0o755 });
+  await writeFile(join(app, "vellum"), "#!/bin/sh\nexit 70\n", { mode: 0o755 });
+  await writeFile(join(bin, "Xvfb"), "#!/bin/sh\nexit 70\n", { mode: 0o755 });
   await writeFile(join(bin, "xauth"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  await writeFile(join(bin, "systemd-notify"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   return {
     root,
     app,
@@ -51,6 +56,8 @@ const linuxLauncherSandbox = async () => {
     env: {
       HOME: root,
       XDG_RUNTIME_DIR: runtime,
+      NOTIFY_SOCKET: notifySocket,
+      INVOCATION_ID: "a".repeat(32),
       TEST_SOCKET: socket,
       TEST_VELLUM_PID: join(root, "vellum.pid"),
       TEST_XVFB_PID: join(root, "xvfb.pid"),
@@ -145,7 +152,7 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
   it("preserves a pre-existing Xauthority directory byte-for-byte", async () => {
     if (process.platform !== "linux") return;
     const sandbox = await linuxLauncherSandbox();
-    const authorityDirectory = join(sandbox.runtime, "vellum-remote-x11");
+    const authorityDirectory = join(sandbox.runtime, "vellum-remote", `x11-${sandbox.env.INVOCATION_ID}`);
     const authority = join(authorityDirectory, "authority");
     try {
       await mkdir(authorityDirectory, { mode: 0o700 });
@@ -164,10 +171,11 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     const sandbox = await linuxLauncherSandbox();
     try {
       await writeFile(join(sandbox.bin, "Xvfb"), `#!/bin/sh
-python3 - "$TEST_SOCKET" <<'PY'
+python3 - "$1" <<'PY'
 import socket, sys, time
+display = sys.argv[1].removeprefix(':')
 sock = socket.socket(socket.AF_UNIX)
-sock.bind(sys.argv[1])
+sock.bind('/tmp/.X11-unix/X' + display)
 time.sleep(1)
 PY
 `, { mode: 0o755 });
@@ -183,12 +191,12 @@ while :; do sleep 1; done
     } finally {
       await rm(sandbox.root, { recursive: true, force: true });
     }
-  });
+  }, 12_000);
 
   it("releases the post-xauth authority inode when Xvfb exits first", async () => {
     if (process.platform !== "linux") return;
     const sandbox = await linuxLauncherSandbox();
-    const authorityDirectory = join(sandbox.runtime, "vellum-remote-x11");
+    const authorityDirectory = join(sandbox.runtime, "vellum-remote", `x11-${sandbox.env.INVOCATION_ID}`);
     try {
       await writeFile(join(sandbox.bin, "xauth"), `#!/bin/sh
 authority="$2"
@@ -197,10 +205,11 @@ printf 'replacement-authority\\n' > "${'$'}replacement"
 mv "${'$'}replacement" "${'$'}authority"
 `, { mode: 0o755 });
       await writeFile(join(sandbox.bin, "Xvfb"), `#!/bin/sh
-python3 - "$TEST_SOCKET" <<'PY'
+python3 - "$1" <<'PY'
 import socket, sys, time
+display = sys.argv[1].removeprefix(':')
 sock = socket.socket(socket.AF_UNIX)
-sock.bind(sys.argv[1])
+sock.bind('/tmp/.X11-unix/X' + display)
 time.sleep(1)
 PY
 `, { mode: 0o755 });
@@ -214,7 +223,7 @@ while :; do sleep 1; done
     } finally {
       await rm(sandbox.root, { recursive: true, force: true });
     }
-  });
+  }, 12_000);
 
   it("cleans both owned child groups when the wrapper receives TERM", async () => {
     if (process.platform !== "linux") return;
@@ -222,10 +231,11 @@ while :; do sleep 1; done
     try {
       await writeFile(join(sandbox.bin, "Xvfb"), `#!/bin/sh
 echo "$$" > "$TEST_XVFB_PID"
-exec python3 - "$TEST_SOCKET" <<'PY'
+exec python3 - "$1" <<'PY'
 import socket, sys, time
+display = sys.argv[1].removeprefix(':')
 sock = socket.socket(socket.AF_UNIX)
-sock.bind(sys.argv[1])
+sock.bind('/tmp/.X11-unix/X' + display)
 while True: time.sleep(1)
 PY
 `, { mode: 0o755 });
@@ -249,5 +259,5 @@ while :; do sleep 1; done
     } finally {
       await rm(sandbox.root, { recursive: true, force: true });
     }
-  });
+  }, 12_000);
 });
