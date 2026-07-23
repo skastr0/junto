@@ -650,11 +650,28 @@ export const scheduleRefreshHerdrMeta = (nodeId: string, herdr: EtherHerdr): voi
 
 /** Shared 12s meta poll — one timer for all registered cards (not per-card). */
 const META_POLL_MS = 12_000;
+/**
+ * Circuit breaker: a card whose pane/host keeps failing drops to a 60s poll
+ * (degraded/lost) or stops polling entirely (failed). Without this, every
+ * stuck pane costs an IPC + socket/ssh attempt + card re-render every 12s
+ * forever — the fleet-wide churn that makes the canvas feel sluggish when
+ * panes die.
+ */
+const DEGRADED_POLL_MS = 60_000;
 const metaPollByNodeId = new Map<string, EtherHerdr>();
+const metaPollLastAt = new Map<string, number>();
 let metaPollTimer: ReturnType<typeof setInterval> | undefined;
 
 const tickMetaPoll = (): void => {
+  const now = Date.now();
   for (const [nodeId, herdr] of metaPollByNodeId) {
+    const connState = connectionStateOf(nodeId);
+    if (connState === "failed") continue;
+    if (connState === "degraded" || connState === "lost") {
+      const last = metaPollLastAt.get(nodeId) ?? 0;
+      if (now - last < DEGRADED_POLL_MS) continue;
+    }
+    metaPollLastAt.set(nodeId, now);
     void refreshHerdrMeta(nodeId, herdr);
   }
 };
@@ -686,6 +703,7 @@ export const registerHerdrMetaPoll = (
     // would overwrite the map entry; leave the newer herdr alone.
     if (metaPollByNodeId.get(nodeId) === herdr) {
       metaPollByNodeId.delete(nodeId);
+      metaPollLastAt.delete(nodeId);
       stopMetaPollTimerIfEmpty();
     }
   };

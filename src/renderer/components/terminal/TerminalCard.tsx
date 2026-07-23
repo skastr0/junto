@@ -31,13 +31,19 @@ export function TerminalCard({ node }: { readonly node: CanvasNode }) {
         terminal$.sessionByBindingId[native.bindingId].set(next);
       })
       .catch(() => undefined);
+  const running = session?.status === "running" || session?.status === "starting";
   useEffect(() => {
     void refresh();
     const api = getVellumApi();
     const off = api?.onTerminalEvent?.((raw) => {
       if ((raw as { bindingId?: string }).bindingId === native?.bindingId) void refresh();
     });
-    // Poll while running — lease-scoped events don't reach cards without an open surface.
+    // Poll only while running — lease-scoped events don't reach cards without
+    // an open surface. A stopped card has nothing to chase: Start/Kill and
+    // terminal events drive its transitions, so no idle 2.5s churn per card.
+    if (!running) {
+      return () => off?.();
+    }
     const timer = window.setInterval(() => {
       void refresh();
     }, 2500);
@@ -45,9 +51,8 @@ export function TerminalCard({ node }: { readonly node: CanvasNode }) {
       off?.();
       window.clearInterval(timer);
     };
-  }, [native?.bindingId, native?.hostId]);
+  }, [native?.bindingId, native?.hostId, running]);
   if (!native) return <div className="text-[11px] text-dim">unbound terminal</div>;
-  const running = session?.status === "running" || session?.status === "starting";
   const stop = (event: SyntheticEvent) => {
     event.stopPropagation();
     setError(undefined);

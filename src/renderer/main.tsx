@@ -6,7 +6,9 @@ import "./styles.css";
 
 // Dev-only render highlighter (https://github.com/aidenybai/react-scan).
 // Import before createRoot so the scanner can instrument React.
-if (import.meta.env.DEV) {
+// Heavy on React Flow canvases — opt out per machine with:
+//   localStorage.setItem("vellum:react-scan", "off")
+if (import.meta.env.DEV && localStorage.getItem("vellum:react-scan") !== "off") {
   void import("react-scan").then(({ scan }) => {
     scan({ enabled: true, showToolbar: true, animationSpeed: "fast" });
   });
