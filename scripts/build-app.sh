@@ -51,6 +51,8 @@ if [[ "$NOTARIZE" -eq 1 && "$TARGET" != "mac" ]]; then
 fi
 
 cd "$REPO_ROOT"
+printf 'vellum: validating checked-in Electron security policy …\n'
+bun "$SCRIPT_DIR/electron-security-policy.ts" validate
 if [[ ! -d node_modules/electron-builder ]]; then
   printf 'vellum: error: electron-builder missing — run: bun install\n' >&2
   exit 1

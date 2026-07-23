@@ -70,6 +70,7 @@ describe("native package pipeline contract", () => {
     expect(build).toContain('native %s packaging must run on its target OS');
     expect(build).toContain('mac) exec bash "$SCRIPT_DIR/package-app-macos.sh"');
     expect(build).toContain('linux) exec bash "$SCRIPT_DIR/package-app-linux.sh"');
+    expect(build).toContain('electron-security-policy.ts" validate');
   });
 
   it("keeps Linux free of macOS tooling and builds both canonical artifacts", async () => {
@@ -86,6 +87,7 @@ describe("native package pipeline contract", () => {
     );
     expect(linux).toContain('finalize-linux-package.ts');
     expect(linux).toContain('audit-linux-package.ts');
+    expect(linux).toContain('electron-security-policy.ts" validate');
     expect(linux).toContain('Linux v1 packages require native x86_64');
     expect(linux).not.toMatch(/codesign|notar|PlistBuddy|launchctl|\bopen\b/u);
     const mac = await script("package-app-macos.sh");
@@ -93,6 +95,7 @@ describe("native package pipeline contract", () => {
     expect(mac).toContain("bunx --bun electron-rebuild");
     expect(mac).toContain('bunx electron-builder --mac');
     expect(mac).toContain('notarize-app.sh');
+    expect(mac).toContain('electron-security-policy.ts" validate');
   });
 
   it("renames electron-builder's generic Linux directory into the declared artifact identity", async () => {

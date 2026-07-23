@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "reviewedAt": "2026-07-23T00:00:00.000Z",
+  "expiresAt": "2026-08-06T00:00:00.000Z",
+  "reviewSla": {
+    "routineDays": 14,
+    "urgentHours": 24
+  },
+  "electron": {
+    "exactVersion": "43.2.0",
+    "minimumSupportedMajor": 41,
+    "currentSupportedMajors": [41, 42, 43],
+    "auditedRelease": {
+      "version": "43.2.0",
+      "publishedAt": "2026-07-21T16:00:22.000Z",
+      "url": "https://releases.electronjs.org/release/v43.2.0"
+    }
+  },
+  "provenance": [
+    {
+      "url": "https://www.electronjs.org/docs/latest/tutorial/electron-timelines",
+      "purpose": "Electron support policy: latest three stable majors are supported"
+    },
+    {
+      "url": "https://releases.electronjs.org/releases.json",
+      "purpose": "Official Electron release index used to audit the exact stable release"
+    },
+    {
+      "url": "https://releases.electronjs.org/release/v43.2.0",
+      "purpose": "Official release record for the audited Electron runtime"
+    }
+  ]
+}

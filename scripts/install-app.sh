@@ -74,6 +74,7 @@ restore_previous_launchd_job() {
   launchctl enable "$DOMAIN/$LABEL"
 }
 cd "$REPO_ROOT"
+bun "$SCRIPT_DIR/electron-security-policy.ts" validate
 
 assert_cli_path() {
   local description="$1"
