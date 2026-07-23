@@ -25,6 +25,9 @@ import {
   type LinuxReleaseHostFacts,
   type LinuxReleaseKeyring,
 } from "../scripts/linux-release-bundle";
+import {
+  verifyProductionLinuxDeployBundle,
+} from "../src/main/vellum/hosts/linux-release-admission";
 
 const roots: string[] = [];
 const VERSION = "0.1.0";
@@ -295,7 +298,35 @@ describe("signed Linux release bundle", () => {
       signedAt: "2026-07-23T11:58:00.000Z",
       expiresAt: EXPIRES_AT,
       filesVerified: 13,
+      packageFile: PACKAGE,
+      packageBytes: Buffer.byteLength(
+        "synthetic-deb-for-contract-tests",
+        "utf8",
+      ),
       packageSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+    });
+  });
+
+  it("exposes only verified package authority to the production deployer", async () => {
+    const fixture = await createFixture();
+    const trustedKey = fixture.keyring.keys[0];
+    await expect(
+      verifyProductionLinuxDeployBundle({
+        bundleDirectory: fixture.directory,
+        trustedKeyring: fixture.keyring,
+        trustedKeyId: trustedKey.keyId,
+        trustedKeyFingerprintSha256: trustedKey.fingerprintSha256,
+        now: NOW,
+      }),
+    ).resolves.toMatchObject({
+      packagePath: path.join(fixture.directory, PACKAGE),
+      bytes: Buffer.byteLength("synthetic-deb-for-contract-tests", "utf8"),
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      version: VERSION,
+      receipt: {
+        ok: true,
+        packageFile: PACKAGE,
+      },
     });
   });
 

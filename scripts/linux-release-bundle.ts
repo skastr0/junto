@@ -194,6 +194,8 @@ export interface LinuxReleaseVerificationReceipt {
   readonly signedAt: string;
   readonly expiresAt: string;
   readonly filesVerified: number;
+  readonly packageFile: string;
+  readonly packageBytes: number;
   readonly packageSha256: string;
 }
 
@@ -1436,6 +1438,8 @@ export const verifyLinuxReleaseBundle = async (
     signedAt: signature.signedAt,
     expiresAt: manifest.release.expiresAt,
     filesVerified: manifest.files.length,
+    packageFile: manifest.package.file,
+    packageBytes: manifest.package.bytes,
     packageSha256: manifest.package.sha256,
   };
 };
