@@ -9,7 +9,7 @@ const base = (action: StationBrowserAction = "state"): Omit<StationBrowserReques
 const wire = (request: ReturnType<typeof base>) => ({ ...request, authority: "agent-edge", originStationId: "command-a", agentRef, pageRef: request.pageRef ?? null, session: request.session ?? null, payload: request.payload ?? null });
 const frame = (request = base()) => JSON.stringify(mintStationBrowserEnvelope(admitAgentEdgeDelegation({ stationId: "command-a", canonicalAgentRef: agentRef }), request, "fleet-1", keys.privateKey));
 const trust = { keyId: "fleet-1", publicKey: keys.publicKey, originStationId: "command-a" };
-const context = (changes = {}) => ({ stationId: "remote-a", now, role: "remote" as const, browserReady: true, resolvePage: () => ({ hostId: "remote-a", edgeAllowed: true, profileAllowed: true }), currentGeneration: () => "generation-1", allowAction: () => true, ...changes });
+const context = (changes = {}) => ({ stationId: "remote-a", now, role: "remote" as const, browserReady: true, resolvePage: () => ({ hostId: "remote-a", edgeAllowed: true, policyAllowed: true }), currentGeneration: () => "generation-1", allowAction: () => true, ...changes });
 
 describe("station browser delegation", () => {
   it("accepts exactly every action shape and rejects absent/extra/wrong action fields", () => {
@@ -29,6 +29,7 @@ describe("station browser delegation", () => {
   });
   it("denies replay/capacity/key/algorithm/time/host/canvas/generation/policy failures", () => {
     const replay = new StationBrowserReplayCache(1); const valid = frame(); expect(verifyStationBrowserEnvelope(valid, trust, context(), replay)).toMatchObject({ ok: true }); expect(verifyStationBrowserEnvelope(valid, trust, context(), replay)).toEqual({ ok: false, denial: "replayed" });
+    expect(verifyStationBrowserEnvelope(valid, trust, context({ now: now + 35_000 }), replay)).toEqual({ ok: false, denial: "replayed" });
     expect(verifyStationBrowserEnvelope(frame({ ...base(), nonce: "another" }), trust, context(), replay)).toEqual({ ok: false, denial: "capacity" });
     expect(verifyStationBrowserEnvelope(frame(), { ...trust, keyId: "other" }, context(), new StationBrowserReplayCache())).toEqual({ ok: false, denial: "key" });
     expect(verifyStationBrowserEnvelope(frame(), { ...trust, publicKey: rsa.publicKey }, context(), new StationBrowserReplayCache())).toEqual({ ok: false, denial: "algorithm" });
@@ -42,7 +43,9 @@ describe("station browser delegation", () => {
     expect(decodeStationBrowserEnvelope('{"request":{},"request":{},"keyId":"x","signature":"x"}')).toBe("malformed");
     expect(decodeStationBrowserEnvelope(JSON.stringify({ request: wire(base()), keyId: "bad/key", signature: "x".repeat(86) }))).toBe("malformed");
     expect(decodeStationBrowserEnvelope("x".repeat(70_000))).toBe("limits");
-    const pages = '{"version":1,"requestId":"r","action":"list","ok":true,"hostId":"remote-a","data":{"pages":[{"pageRef":"vellum://canvas/work?node=a","hostId":"remote-a","profile":"p"},{"pageRef":"vellum://canvas/work?node=b","hostId":"remote-a","profile":"p"}]},"error":null}'; expect(decodeStationBrowserResponse(pages)).not.toBe("malformed");
+    const pages = '{"version":1,"requestId":"r","action":"discover","ok":true,"hostId":"remote-a","data":{"pages":[{"pageRef":"vellum://canvas/work?node=a","hostId":"remote-a"},{"pageRef":"vellum://canvas/work?node=b","hostId":"remote-a"}]},"error":null}'; expect(decodeStationBrowserResponse(pages)).not.toBe("malformed");
+    expect(decodeStationBrowserResponse('{"version":1,"requestId":"r","action":"discover","ok":true,"hostId":"remote-a","data":{"pages":[{"pageRef":"vellum://canvas/work?node=a","hostId":"remote-a","profile":"p"}]},"error":null}')).toBe("malformed");
+    expect(decodeStationBrowserResponse('{"version":1,"requestId":"r","action":"list","ok":true,"hostId":"remote-a","data":{"sessions":[{"hostId":"remote-a","sessionId":"s1","generation":"g1"},{"hostId":"remote-a","sessionId":"s2","generation":"g2"}]},"error":null}')).not.toBe("malformed");
     expect(decodeStationBrowserResponse('{"version":1,"requestId":"r","action":"screenshot","ok":true,"hostId":"remote-a","data":{"artifact":{"hostId":"remote-a","artifactRef":"artifact-1"}},"error":null}')).not.toBe("malformed");
     expect(decodeStationBrowserResponse('{"version":1,"requestId":"r","action":"state","ok":true,"hostId":"remote-a","data":{},"error":null}')).toBe("malformed");
   });
