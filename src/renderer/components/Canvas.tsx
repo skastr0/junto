@@ -36,6 +36,7 @@ import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
+import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import {
   makeAgentNode,
   makeArtifactsNode,
@@ -673,7 +674,10 @@ const makeAddActions = (
       position.y,
       seed?.url?.trim() || "https://example.com",
       seed?.profile ? { profile: seed.profile } : undefined,
-      (seed?.host ?? state$.settings.station.hostId.peek()) || "local",
+      resolveAuthoredPageHost(
+        seed?.host,
+        state$.settings.station.hostId.peek(),
+      ),
     );
     addNode(node);
     dismiss();

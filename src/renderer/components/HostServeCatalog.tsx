@@ -7,6 +7,7 @@ import type { HerdrServeCatalogInfo, HerdrServeEntryInfo } from "@shared/ipc";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { addNode } from "../lib/mutations";
 import { makePageNode } from "../lib/node-factories";
+import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import { closeSettings } from "../lib/settings-state";
 import { state$ } from "../lib/state";
 import { getVellumApi } from "../lib/vellum-api";
@@ -94,7 +95,10 @@ export function HostServeCatalog({
       y,
       url,
       seed?.profile ? { profile: seed.profile } : undefined,
-      hostId,
+      // Region page defaults are the authorial placement policy. The catalog
+      // host remains the deliberate fallback when the region does not select
+      // a browser composition host.
+      resolveAuthoredPageHost(seed?.host, hostId),
     );
     addNode(page, { edit: false, focus: true });
     closeSettings();

@@ -20,6 +20,7 @@ import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveNodeHostId } from "@shared/station";
 import { addNode, editText } from "../../lib/mutations";
 import { makePageNode } from "../../lib/node-factories";
+import { resolveAuthoredPageHost } from "../../lib/page-authoring";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
@@ -260,7 +261,9 @@ export function HerdrCard({
       y,
       url,
       seed?.profile ? { profile: seed.profile } : undefined,
-      resolveNodeHostId(node),
+      // A containing region may deliberately select the browser host; absent
+      // that authorial default, preserve the Herdr surface's physical host.
+      resolveAuthoredPageHost(seed?.host, resolveNodeHostId(node)),
     );
     addNode(page, { focus: true });
   };
