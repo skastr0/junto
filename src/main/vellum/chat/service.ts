@@ -12,6 +12,7 @@ import {
   AcpClient,
   AcpRpcError,
   makeLocalBrowserChildEnvironment,
+  type AcpHostLocality,
   type AcpTeardownResult,
   type AcpChildEnvironmentOverlay,
   type AcpLifecycleEvent,
@@ -62,7 +63,7 @@ const idleEvictMs = (): number => {
   return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 15 * 60_000;
 };
 
-export type HermesHostLocality = (host: string) => boolean;
+export type HermesHostLocality = AcpHostLocality;
 const defaultHermesHostLocality: HermesHostLocality = (host) => host === "local";
 
 const remoteHermesRoutes = (
@@ -221,6 +222,40 @@ export class ChatService {
         text: `remote chat closed because host ${session.host} routing changed`,
       });
     }
+  }
+
+  /**
+   * Revoke sessions whose host crossed the local/remote boundary after a
+   * station identity change. Both directions close: an old self key must lose
+   * process-bound authority, and a newly local key must shed any SSH child
+   * before its next open can spawn directly.
+   */
+  reconcileHostLocality(
+    previousLocality: HermesHostLocality,
+  ): ReadonlyArray<string> {
+    const keys = new Set([
+      ...this.sessions.keys(),
+      ...this.openInFlight.keys(),
+      ...this.authorityRestartInFlight.keys(),
+    ]);
+    const closed: string[] = [];
+    for (const agentKey of keys) {
+      const target = buildAcpSpawnTarget(agentKey);
+      if (
+        target === undefined ||
+        previousLocality(target.host) === this.isLocalHost(target.host)
+      ) {
+        continue;
+      }
+      this.nextGeneration(agentKey);
+      void this.closeCurrent(agentKey);
+      this.emit(agentKey, "status", {
+        status: "closed",
+        text: "chat closed because station identity changed",
+      });
+      closed.push(agentKey);
+    }
+    return closed;
   }
 
   private sessionIsBusy(session: AgentSession): boolean {
@@ -433,6 +468,7 @@ export class ChatService {
       },
       this.spawnFn,
       environmentOverlay,
+      this.isLocalHost,
     );
     this.clients.add(client);
     session = {

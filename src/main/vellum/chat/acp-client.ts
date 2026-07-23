@@ -131,6 +131,10 @@ export type SpawnFn = (
   options?: AcpSpawnOptions,
 ) => SpawnedAcpChild;
 
+export type AcpHostLocality = (host: string) => boolean;
+
+const literalLocalHost: AcpHostLocality = (host) => host === "local";
+
 const BROWSER_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const BROWSER_CAPABILITY_BYTES = 32;
 const BROWSER_HOME_MAX_BYTES = 4_096;
@@ -285,6 +289,7 @@ export class AcpClient {
     private readonly handlers: AcpClientHandlers,
     private readonly spawnFn: SpawnFn,
     environmentOverlay?: AcpChildEnvironmentOverlay,
+    private readonly isLocalHost: AcpHostLocality = literalLocalHost,
   ) {
     this.environmentOverlay =
       environmentOverlay === undefined
@@ -326,7 +331,7 @@ export class AcpClient {
 
     const environmentOverlay = this.environmentOverlay;
     this.environmentOverlay = undefined;
-    if (environmentOverlay !== undefined && this.target.host !== "local") {
+    if (environmentOverlay !== undefined && !this.isLocalHost(this.target.host)) {
       throw new Error("ACP child environment overlays are local-only");
     }
     const spawned = this.spawnFn(

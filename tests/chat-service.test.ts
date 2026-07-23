@@ -13,12 +13,20 @@ import {
   ChatShutdownUncleanError,
   requireCleanChatShutdown,
 } from "../src/main/vellum/chat/service";
+import {
+  makeProcessIdentityMap,
+  setProcessIdentityMapForTests,
+} from "../src/main/vellum/process-identity";
 import type { ChatEvent } from "../src/shared/ipc";
 import { spawnedLocalAcp } from "./helpers/acp-child";
 
 const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
 
 class FakeChild extends EventEmitter implements AcpChildLike {
+  constructor(readonly pid?: number) {
+    super();
+  }
+
   readonly stdout = new EventEmitter();
   readonly stderr = new EventEmitter();
   readonly written: string[] = [];
@@ -69,7 +77,7 @@ const INIT_RESULT = (authMethods: ReadonlyArray<{ id?: string; name?: string }> 
 
 // One spawnFn shared by a test that hands out one FakeChild per spawn() call
 // (mirroring how ChatService spawns a fresh child per agentKey/session).
-function fakeSpawn(): {
+function fakeSpawn(pids: ReadonlyArray<number | undefined> = []): {
   spawnFn: SpawnFn;
   children: FakeChild[];
   calls: Array<{ readonly target: AcpSpawnTarget; readonly options?: AcpSpawnOptions }>;
@@ -77,7 +85,7 @@ function fakeSpawn(): {
   const children: FakeChild[] = [];
   const calls: Array<{ readonly target: AcpSpawnTarget; readonly options?: AcpSpawnOptions }> = [];
   const spawnFn: SpawnFn = (target, options) => {
-    const child = new FakeChild();
+    const child = new FakeChild(pids[children.length]);
     children.push(child);
     calls.push({ target, ...(options !== undefined ? { options } : {}) });
     return spawnedLocalAcp(child);
@@ -131,6 +139,7 @@ async function finishPendingOpen(
 }
 
 afterEach(() => {
+  setProcessIdentityMapForTests(undefined);
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -184,6 +193,46 @@ describe("chatOpen", () => {
       cwd: ".",
       mcpServers: [],
     });
+    service.stopIdleSweep();
+  });
+
+  it("revokes both old and newly local sessions when station identity changes", async () => {
+    const identities = makeProcessIdentityMap();
+    setProcessIdentityMapForTests(identities);
+    const localityFor = (self: string) =>
+      (host: string): boolean => host === "local" || host === self;
+    let selfHost = "fleet-studio";
+    const { spawnFn, children } = fakeSpawn([process.pid, undefined]);
+    const service = new ChatService(spawnFn, (host) =>
+      localityFor(selfHost)(host));
+
+    await openHappyPath(service, children, "fleet-studio:default", {
+      sessionId: "old-self",
+    });
+    await openHappyPath(service, children, "fleet-other:default", {
+      sessionId: "old-remote",
+    });
+    expect(identities.resolve(process.pid)).toEqual({
+      kind: "agent",
+      agentKey: "fleet-studio:default",
+    });
+
+    const previousLocality = localityFor(selfHost);
+    selfHost = "fleet-other";
+    expect(service.reconcileHostLocality(previousLocality)).toEqual([
+      "fleet-studio:default",
+      "fleet-other:default",
+    ]);
+
+    expect(service.isLive("fleet-studio:default")).toBe(false);
+    expect(service.isLive("fleet-other:default")).toBe(false);
+    expect(identities.resolve(process.pid)).toBeUndefined();
+    expect(children[0]?.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(children[1]?.kill).toHaveBeenCalledWith("SIGTERM");
+    for (const child of children) {
+      child.emit("exit", 0);
+      child.emit("close", 0);
+    }
     service.stopIdleSweep();
   });
 
@@ -304,6 +353,43 @@ describe("local browser authority child environment", () => {
     const wire = children[0]!.written.join("");
     expect(wire).not.toContain(BROWSER_AUTHORITY.capability);
     expect(wire).not.toContain(BROWSER_AUTHORITY.home);
+  });
+
+  it("admits the exact configured self prefix without admitting another fleet prefix", async () => {
+    const { spawnFn, children, calls } = fakeSpawn();
+    const service = new ChatService(
+      spawnFn,
+      (host) => host === "local" || host === "fleet-studio",
+    );
+
+    const open = service.chatOpenWithLocalBrowserAuthority(
+      "fleet-studio:default",
+      BROWSER_AUTHORITY,
+    );
+    expect(calls[0]).toMatchObject({
+      target: { host: "fleet-studio", profile: "default" },
+      options: {
+        environmentOverlay: {
+          VELLUM_BROWSER_CAPABILITY: BROWSER_AUTHORITY.capability,
+          VELLUM_BROWSER_HOME: BROWSER_AUTHORITY.home,
+        },
+      },
+    });
+    await expect(finishPendingOpen(open, children[0]!)).resolves.toMatchObject({
+      ok: true,
+    });
+
+    await expect(
+      service.chatOpenWithLocalBrowserAuthority(
+        "fleet-render:default",
+        BROWSER_AUTHORITY,
+      ),
+    ).resolves.toEqual({
+      ok: false,
+      error: "browser authority child environment is local-only",
+    });
+    expect(children).toHaveLength(1);
+    service.stopIdleSweep();
   });
 
   it("rejects remote and malformed overlays before spawning", async () => {

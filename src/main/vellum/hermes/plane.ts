@@ -355,13 +355,25 @@ export const HermesPlaneLive = Layer.scoped(
     const runtime = yield* Effect.runtime<never>();
     const runPromise: RunPromise = (effect) => Runtime.runPromise(runtime)(effect);
     const runOwned = makeScopedPromiseRunner(runtime, owner);
-    const initialSettings = yield* settings.get;
-    let stationIdentity: HermesStationIdentity =
-      resolveHermesStationIdentity(initialSettings.station);
+    let observedIdentity: HermesStationIdentity | undefined;
+    let observedUpdate = false;
+    let applyStationIdentity:
+      | ((next: HermesStationIdentity) => void)
+      | undefined;
     const unsubscribeSettings = settings.subscribe((next) => {
-      stationIdentity = resolveHermesStationIdentity(next.station);
+      const identity = resolveHermesStationIdentity(next.station);
+      observedUpdate = true;
+      observedIdentity = identity;
+      applyStationIdentity?.(identity);
     });
     yield* Effect.addFinalizer(() => Effect.sync(unsubscribeSettings));
+    const initialSettings = yield* settings.get;
+    // Subscribe-before-read closes the hydration gap. A complete transaction
+    // observed while settings.get is pending wins over the older load result.
+    let stationIdentity: HermesStationIdentity =
+      observedUpdate && observedIdentity !== undefined
+        ? observedIdentity
+        : resolveHermesStationIdentity(initialSettings.station);
 
     const operations: HermesIdentityOperations & HermesFleetOperations = {
       profiles: (host) => runOwned(transport.profiles(host)),
@@ -415,6 +427,18 @@ export const HermesPlaneLive = Layer.scoped(
       spawnAcp,
       (host) => isLocalHermesHost(host, stationIdentity),
     );
+    applyStationIdentity = (nextIdentity) => {
+      const previousIdentity = stationIdentity;
+      if (
+        previousIdentity.hostId === nextIdentity.hostId &&
+        previousIdentity.agentHostId === nextIdentity.agentHostId
+      ) {
+        return;
+      }
+      stationIdentity = nextIdentity;
+      chat.reconcileHostLocality((host) =>
+        isLocalHermesHost(host, previousIdentity));
+    };
     const shutdown = makeHermesShutdownPort(chat);
     yield* Effect.addFinalizer(() => finalizeHermesShutdown(shutdown));
 
