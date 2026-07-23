@@ -521,13 +521,12 @@ if (invokedPath === modulePath) {
         const message = (error instanceof Error ? error.message : String(error))
           .replaceAll(homedir(), "<real-home>")
           .slice(0, 1_000);
-        // An unclean verified-group failure intentionally retains its sandbox.
-        // Publish the bounded failure even if an exact process handle remains.
-        try {
-          writeSync(process.stderr.fd, `vellum Linux packaged PTY smoke failed: ${message}\n`);
-        } finally {
-          process.exit(1);
-        }
+        // An unclean verified-group failure intentionally retains its sandbox
+        // and exact process handle. Publish failure without force-exiting this
+        // verifier: the owned handle remains a lifetime witness until the
+        // packaged process actually closes.
+        writeSync(process.stderr.fd, `vellum Linux packaged PTY smoke failed: ${message}\n`);
+        process.exitCode = 1;
       });
   }
 }

@@ -194,5 +194,7 @@ describe("Linux packaged PTY product-path smoke", () => {
     expect(source).toContain("TermControlClient.connect");
     expect(source).toContain("createAppProcessPlane()");
     expect(source).toContain("--vellum-headless");
+    expect(source).not.toContain("process.exit(1)");
+    expect(source).toContain("process.exitCode = 1");
   });
 });

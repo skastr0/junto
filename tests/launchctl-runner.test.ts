@@ -196,6 +196,7 @@ describe("launchctl runner process authority", () => {
       purpose: "print launch agent",
       command: LAUNCHCTL_PATH,
       args: ["print", "gui/501/skastr0.vellum"],
+      shell: false,
     });
 
     const kickHarness = makeLeaseHarness();
@@ -212,6 +213,7 @@ describe("launchctl runner process authority", () => {
       purpose: "kickstart launch agent",
       command: LAUNCHCTL_PATH,
       args: ["kickstart", "gui/501/skastr0.vellum"],
+      shell: false,
     });
   });
 

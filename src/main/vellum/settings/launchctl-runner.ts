@@ -275,6 +275,7 @@ export const createLaunchctlRunner = (
         purpose: `${action} launch agent`,
         command: LAUNCHCTL_PATH,
         args: [action, target],
+        shell: false,
       });
     } catch (error) {
       const quiescing = processPlane.isQuiescing();
