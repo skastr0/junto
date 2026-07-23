@@ -68,20 +68,30 @@ sandbox, and capability probes are Doctor observations. They:
 - must never block Station boot
 - must never be written as a filesystem boot receipt
 
-### Protected intent (migration target)
+### Protected intent (migration in progress)
 
-Partial first cut on canvas: external raw file edits under
-`~/.vellum/canvases/` no longer rehydrate the running document (app-owned
-write/create/remove/mutate only). Remaining transitional facts (migration
-debt, not final contract):
+Landed first cuts:
 
-- Canvas bytes still live at `~/.vellum/canvases/*.canvas` (not yet an
-  app-private protected store / export-import ceremony)
-- Role / topology still live in plaintext `settings.json` / `hosts.json`
+- **Canvas live plane:** external raw file edits under `~/.vellum/canvases/`
+  no longer rehydrate the running document. App-owned
+  write/create/remove/mutate only.
+- **Station topology:** `station.*` is seal-gated (`topology.key` +
+  `topology.seal` HMAC). Generic `settingsPatch` cannot mint role; dedicated
+  `settingsSetStationTopology` reseals. Tampered topology fails closed to
+  role unset (StationRoleGate). See
+  [`protected-topology-migration.md`](./protected-topology-migration.md).
 
-“Protected” in a production claim means: external file edit cannot mint live
-intent or topology. Canvas live rehydration from external edit is cut; full
-protected store + topology protection still pending.
+Remaining debt (not production-complete protection):
+
+- Canvas bytes still at `~/.vellum/canvases/*.canvas` (not app-private store;
+  no import/export ceremony)
+- Same-user delete of **both** topology key and seal re-enables bootstrap
+  mint (same-UID non-claim)
+- `hosts.json` enrollment registry still ordinary sealed-permission file
+- Recovery codes / CC transfer ceremony not implemented
+
+“Protected” in a full production claim still requires the private canvas
+store, hosts enrollment protection, and recovery ceremony.
 
 ### Secure (doctrine-bound)
 
@@ -114,12 +124,14 @@ Orphan contracts (must not exist):
 
 ## Critical path after this contract
 
-1. Repair preflight + installer to this receipt (Phase 1) — landed.
+1. Repair preflight + installer to this receipt (Phase 1) — landed (`e974aca`).
 2. Prove one desktop install and one headless Remote end-to-end on native
    Ubuntu x86_64 (Phase 2) — checklist in
-   [`linux-package-qualification.md`](./linux-package-qualification.md)
-   (Command Center proof, headless Remote proof, operator-run remainder).
-3. Protect canvas and topology as app-owned operator intent (Phase 3).
+   [`linux-package-qualification.md`](./linux-package-qualification.md);
+   hardware proof remains operator-run.
+3. Protect canvas and topology as app-owned operator intent (Phase 3) —
+   canvas rehydrate cut + topology seal landed; private store + recovery
+   remaining.
 4. Explicit fleet topology, capability/revocation matrix, lifecycle
    qualification, release (Phases 4–8).
 
