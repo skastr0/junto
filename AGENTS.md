@@ -1,14 +1,29 @@
 # AGENTS.md — vellum
 
-vellum is a desktop station (Electron + Effect + React) that renders a **portfolio canvas**: agents, work surfaces, notes, and regions as spatial nodes; dependencies/blockers/relationships as edges; named regions as geography. The canvas is a [JSON Canvas 1.0](https://jsoncanvas.org) document extended with a namespaced `ether` key.
+vellum is a desktop station (Electron + Effect + React) that renders a **portfolio canvas**: agents, work surfaces, notes, and regions as spatial nodes; dependencies/blockers/relationships as edges; named regions as geography. The current canvas serialization is a [JSON Canvas 1.0](https://jsoncanvas.org) document extended with a namespaced `ether` key.
 
-**The document is the product; the app is one projection of it. The file is the agent API.**
+## Security doctrine — read first
+
+[`docs/security-doctrine.md`](docs/security-doctrine.md) is the governing
+product trust model. It defines Vellum as a single-operator factory, attached
+agents as trusted but fallible, edges as enforceable operator intent inside
+Vellum, and Stations as stateless consumers of Command Center intent. If a
+review, backlog item, test, or older architecture note conflicts with it, the
+conflict is migration work rather than an exception.
+
+**Normative direction:** the protected document is the product; compiled
+projections and capability-bound tools are the agent API. The current plaintext
+canvas file and external file-watch authority are transitional implementation
+facts, not the final security contract.
 
 ## The agent surface (headless — no GUI needed)
 
 **Agents never write the canvas.** The canvas is human-authored (Command Center). Agents consume compiled projections and local Vellum tools.
 
-Canvases live at `~/.vellum/canvases/*.canvas`. The running app file-watches external edits. Headless CLIs:
+**Current compatibility surface:** canvases live at
+`~/.vellum/canvases/*.canvas`, and the running app file-watches external edits.
+This is migration debt under the security doctrine. Until that migration lands,
+agents remain strictly read-only. Current headless CLIs:
 
 | command | who | what it does |
 |---|---|---|
@@ -101,7 +116,7 @@ Region activation gated by three structures (`src/shared/canvas.ts`):
 
 ## In-app planes
 
-**Attached agent chat** — one live ACP session per agent node (`<host>:<profile>`); resumable across app sessions (channels: `chatOpen`, `chatPrompt`, `chatPermission`, `chatSetModel`, `chatClose`). Main process owns the `hermes acp` child; renders in the canvas as inline composition. The file remains the agent API.
+**Attached agent chat** — one live ACP session per agent node (`<host>:<profile>`); resumable across app sessions (channels: `chatOpen`, `chatPrompt`, `chatPermission`, `chatSetModel`, `chatClose`). Main process owns the `hermes acp` child; renders in the canvas as inline composition. Under the target security doctrine, agents consume runtime projections and tools rather than the authorial document.
 
 **Native terminals** — `terminal` is the default terminal entity. TermPlane owns
 local sessions and app quit stops local sessions only through the sealed

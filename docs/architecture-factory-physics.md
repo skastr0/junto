@@ -2,6 +2,12 @@
 
 **The canvas is a factory floor, not an ACL spreadsheet.**
 
+> **Governing trust model:** read
+> [`security-doctrine.md`](security-doctrine.md) first. Factory Physics enforces
+> operator intent throughout Vellum-owned tooling. It is not a claim that
+> Vellum confines a malicious process already running as the operator. If this
+> document admits a stricter interpretation, the security doctrine wins.
+
 Authority, work phase, and operator attention are three distinct planes. Edges
 are object capabilities. Roles are derived from entity kind. Occupancy is live
 state of a seat, never authored as a permanent grant.

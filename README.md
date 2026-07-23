@@ -649,7 +649,9 @@ Proprietary — © 2026 Guilherme Castro, all rights reserved. See [`LICENSE`](L
 
 ## Security
 
-Report security issues privately. See [`SECURITY.md`](SECURITY.md).
+Vellum's governing product trust model is documented in
+[`docs/security-doctrine.md`](docs/security-doctrine.md). Report security issues
+privately. See [`SECURITY.md`](SECURITY.md).
 
 ## Contributing
 

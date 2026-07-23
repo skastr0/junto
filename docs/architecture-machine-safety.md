@@ -2,6 +2,13 @@
 
 **Vellum must never threaten the user's machine.**
 
+> **Governing trust model:** read
+> [`security-doctrine.md`](security-doctrine.md) first. This document protects
+> against destructive mistakes, malformed input, and confused code. It does not
+> define attached agents or arbitrary same-user processes as hostile tenants.
+> If a stricter interpretation conflicts with the security doctrine, the
+> security doctrine wins.
+
 Not as a guideline. Not as “be careful in tests.” As a physical property of the
 architecture: the type system, Effect services, and domain boundaries make
 host-destructive operations **unrepresentable** or **unreachable** without a
