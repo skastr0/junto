@@ -14,7 +14,6 @@ import type { Page } from "@playwright/test";
 import { demoCommand } from "../harness/demo";
 import {
   a2aTask,
-  agentTextNode,
   artifactsNode,
   canvasDoc,
   herdrTextNode,
@@ -53,30 +52,30 @@ const fleet: readonly FleetPane[] = [
   { id: "h2", host: "remote-a", paneId: "w1:p02", terminalId: "term-p02", agent: "codex", label: "ssh kernel", status: "working", x: 300, y: 0 },
   { id: "h3", host: "local", paneId: "w1:p03", terminalId: "term-p03", agent: "kimi", label: "canvas sync", status: "done", x: 600, y: 0 },
   { id: "h4", host: "remote-a", paneId: "w1:p04", terminalId: "term-p04", agent: "opencode", label: "release notes", status: "idle", x: 0, y: 180 },
-  { id: "h5", host: "local", paneId: "w1:p05", terminalId: "term-p05", agent: "claude", label: "landing copy pass", status: "working", x: 0, y: 640 },
-  { id: "h6", host: "local", paneId: "w1:p06", terminalId: "term-p06", agent: "hermes", label: "og plates", status: "blocked", x: 300, y: 640 },
-  { id: "h7", host: "remote-a", paneId: "w1:p07", terminalId: "term-p07", agent: "codex", label: "quasar mining", status: "working", x: 840, y: 640 },
-  { id: "h8", host: "local", paneId: "w1:p08", terminalId: "term-p08", agent: "claude", label: "session digests", status: "done", x: 840, y: 820 },
+  { id: "h5", host: "local", paneId: "w1:p05", terminalId: "term-p05", agent: "claude", label: "landing copy pass", status: "working", x: 0, y: 580 },
+  { id: "h6", host: "local", paneId: "w1:p06", terminalId: "term-p06", agent: "hermes", label: "og plates", status: "blocked", x: 300, y: 580 },
+  { id: "h7", host: "remote-a", paneId: "w1:p07", terminalId: "term-p07", agent: "codex", label: "quasar mining", status: "working", x: 940, y: 580 },
+  { id: "h8", host: "local", paneId: "w1:p08", terminalId: "term-p08", agent: "claude", label: "session digests", status: "done", x: 940, y: 760 },
 ];
 
 const regions: readonly GroupNode[] = [
-  { id: "rg-forge", type: "group", label: "forge · build lane", x: -80, y: -80, width: 1220, height: 560, ether: { region: { hold: true } } },
-  { id: "rg-beacon", type: "group", label: "beacon · launch", x: -80, y: 560, width: 940, height: 440, ether: { region: { hold: true } } },
-  { id: "rg-research", type: "group", label: "deep research", x: 900, y: 560, width: 640, height: 440, ether: { region: { hold: true } } },
+  { id: "rg-forge", type: "group", label: "forge · build lane", x: -80, y: -80, width: 1220, height: 460, ether: { region: { hold: true } } },
+  { id: "rg-beacon", type: "group", label: "beacon · launch", x: -80, y: 500, width: 940, height: 440, ether: { region: { hold: true } } },
+  { id: "rg-research", type: "group", label: "deep research", x: 880, y: 500, width: 660, height: 440, ether: { region: { hold: true } } },
 ];
 
 const notes: readonly CanvasNode[] = [
   {
     id: "note-brief",
     type: "text",
-    text: "# Launch brief\n\nOne board, whole fleet.\n\n– blockers paint crimson\n– the file is the agent API\n\n`bun run digest`",
-    x: 1180, y: 60, width: 260, height: 210,
+    text: "# Launch week\n\n- landing copy pass\n- og plates\n- founder pricing call\n- ship the beta build",
+    x: 1280, y: 0, width: 260, height: 200,
   },
   {
     id: "note-blocker",
     type: "text",
     text: "paddle verification pending",
-    x: 0, y: 820, width: 230, height: 84,
+    x: 0, y: 760, width: 230, height: 84,
     color: "1",
     ether: { flags: ["blocker"] },
   },
@@ -84,7 +83,7 @@ const notes: readonly CanvasNode[] = [
     id: "note-attn",
     type: "text",
     text: "copy review pending",
-    x: 1180, y: 640, width: 220, height: 80,
+    x: 1200, y: 580, width: 220, height: 80,
     ether: { flags: ["attention"] },
   },
 ];
@@ -94,20 +93,19 @@ const nodes: readonly CanvasNode[] = [
   ...fleet.map((p) =>
     herdrTextNode({ id: p.id, host: p.host, paneId: p.paneId, terminalId: p.terminalId, label: p.label, x: p.x, y: p.y }),
   ),
-  agentTextNode({ id: "agent-builder", key: "local:builder", label: "builder", x: 900, y: 20 }),
   tasksNode({
     id: "tasks-forge",
     x: 300, y: 180,
     items: [a2aTask("t-1", "ship design tokens", "working"), a2aTask("t-2", "wire founder checkout", "submitted")],
   }),
-  projectNode({ id: "proj-vellum", name: "vellum", x: 620, y: 200 }),
+  projectNode({ id: "proj-vellum", name: "vellum", x: 680, y: 190 }),
   requestsNode({
     id: "req-beacon",
-    x: 600, y: 640,
+    x: 600, y: 580,
     items: [a2aTask("r-1", "approve founder pricing", "input-required")],
   }),
-  artifactsNode({ id: "art-beacon", x: 300, y: 820 }),
-  projectNode({ id: "proj-launch", name: "launch", x: 600, y: 830 }),
+  artifactsNode({ id: "art-beacon", x: 300, y: 760 }),
+  projectNode({ id: "proj-launch", name: "launch", x: 600, y: 770 }),
   ...notes,
 ];
 
@@ -128,7 +126,7 @@ test("compose a staged fleet board and capture marketing frames", async () => {
 
   const vellum = await launchVellum({
     demo: true,
-    seedCanvases: { station: canvasDoc(nodes, edges) },
+    seedCanvases: { portfolio: canvasDoc(nodes, edges) },
   });
 
   try {
@@ -158,9 +156,25 @@ test("compose a staged fleet board and capture marketing frames", async () => {
       expect(result.ok, `ensure-pane ${p.paneId} on ${p.host}`).toBe(true);
     }
 
+    // The demo HUD chip is film-set chrome, not product UI — keep it out of
+    // marketing frames.
+    await page
+      .getByText("DEMO · F9 to roll", { exact: false })
+      .evaluate((el) => {
+        const chip = el.parentElement;
+        if (chip) chip.style.display = "none";
+      })
+      .catch(() => undefined);
+
     const fit = page.getByRole("button", { name: /fit all/i });
     if (await fit.isVisible().catch(() => false)) await fit.click();
     await page.waitForTimeout(1200);
+
+    // Inventory what actually rendered — catches stowaway nodes in review.
+    const inventory = await page.$$eval(".react-flow__node", (els) =>
+      els.map((el) => `${el.getAttribute("data-id")} :: ${(el.textContent ?? "").slice(0, 60).replace(/\n/g, " ")}`),
+    );
+    console.log("BOARD NODES:\n" + inventory.join("\n"));
 
     // 01 — the hero plate: whole staged board, fleet lit, statuses varied.
     await shot(page, "01-hero-board");
@@ -177,7 +191,7 @@ test("compose a staged fleet board and capture marketing frames", async () => {
     await closeup("canvas sync", "04-card-done");
     await closeup("ship design tokens", "05-card-tasks");
     await closeup("approve founder pricing", "06-card-requests");
-    await closeup("Launch brief", "07-card-note");
+    await closeup("Launch week", "07-card-note");
 
     // Chrome closeups: minimap (strategic) and the RTS bottom bar (operational).
     const minimap = page.locator(".rts-minimap-wrap");
