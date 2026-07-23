@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import { hostHasCapability, type RemoteHost } from "@shared/remote-hosts";
 import { SshTransport } from "../ssh";
 import { darwinRemoteDeploymentProvider } from "./deploy-darwin";
+import { linuxRemoteDeploymentProvider } from "./deploy-linux";
 import type {
   DeployRemoteResult,
   RemoteDeploymentPreparation,
@@ -149,7 +150,7 @@ export const makeRemoteDeploymentDispatcher = (input: {
 
 const remoteDeploymentDispatcher = makeRemoteDeploymentDispatcher({
   commandCenterPlatform: process.platform,
-  providers: [darwinRemoteDeploymentProvider],
+  providers: [darwinRemoteDeploymentProvider, linuxRemoteDeploymentProvider],
 });
 
 export const prepareRemoteDeployment = remoteDeploymentDispatcher.prepare;
