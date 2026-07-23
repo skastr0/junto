@@ -86,6 +86,11 @@ const linkNode: LinkNode = {
   y: 0,
   width: 240,
   height: 90,
+  ether: {
+    entity: { kind: "page" },
+    host: "local",
+    browser: { profile: "personal" },
+  },
 };
 
 const fileNode: CanvasNode = {
@@ -288,6 +293,10 @@ test("capture every surface for design review", async () => {
     // Select a note → toolbar + inspector.
     await page.locator(".react-flow__node", { hasText: "Field notes" }).first().click();
     await shot(page, "08-node-selected-inspector");
+    const pageNode = page.locator(".react-flow__node", { hasText: "jsoncanvas.org" }).first();
+    await pageNode.dispatchEvent("click");
+    await expect(page.getByLabel("Page browser host")).toBeVisible();
+    await shot(page, "08b-page-host-inspector");
 
     // Chat: select the agent node, attach, send.
     await page.locator(".react-flow__node", { hasText: "builder" }).first().click();
@@ -324,6 +333,9 @@ test("capture every surface for design review", async () => {
     // Settings panel.
     await page.getByRole("button", { name: "Open settings" }).click();
     await shot(page, "13-settings");
+    await page.getByText("Hosts", { exact: true }).click();
+    await expect(page.getByText("Browser", { exact: true }).first()).toBeVisible();
+    await shot(page, "13b-settings-hosts");
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
 
