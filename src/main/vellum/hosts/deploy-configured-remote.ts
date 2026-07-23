@@ -292,6 +292,21 @@ export const deployConfiguredRemoteHost = (
       } satisfies ConfiguredRemoteDeployResult;
     }
 
+    const deploymentIndeterminate =
+      deployed.disposition !== "rolled-back" &&
+      deployed.disposition !== "not-started";
+    if (deploymentIndeterminate) {
+      const detail = `${host.label}: deploy outcome is indeterminate — ${deployed.detail}; the package transaction did not prove its final state, so the Remote stamp was retained. Inspect the host before retrying.`;
+      return indeterminate(host, detail, {
+        packageState: "unknown",
+        role: "unknown",
+        rollback: "not-required",
+        configuration: { ok: true, detail: stamped.right.detail },
+        deployed,
+        station: stamped.right.station,
+      });
+    }
+
     const rollback = yield* compensate(
       operations,
       ssh,
@@ -299,20 +314,15 @@ export const deployConfiguredRemoteHost = (
       before.right,
       stamped.right.snapshot,
     );
-    const deploymentIndeterminate =
-      deployed.disposition !== "rolled-back" &&
-      deployed.disposition !== "not-started";
-    if (rollback === "failed" || deploymentIndeterminate) {
+    if (rollback === "failed") {
       const causes = [
         deployed.detail,
-        rollback === "failed"
-          ? "the prior Remote settings could not be restored"
-          : "the package transaction did not prove its final state",
+        "the prior Remote settings could not be restored",
       ];
       const detail = `${host.label}: deploy outcome is indeterminate — ${causes.join("; ")}. Inspect the host before retrying.`;
       return indeterminate(host, detail, {
-        packageState: deploymentIndeterminate ? "unknown" : "previous",
-        role: rollback === "restored" ? "previous" : "unknown",
+        packageState: "previous",
+        role: "unknown",
         rollback,
         configuration: { ok: true, detail: stamped.right.detail },
         deployed,

@@ -243,39 +243,45 @@ describe("configured Remote deploy transaction", () => {
     });
   });
 
-  it("stays indeterminate when package rollback is unproven even if settings restore", async () => {
-    const { ssh } = makeSsh([
+  it("retains the stamp when a returned result cannot prove package rollback", async () => {
+    const { ssh, calls } = makeSsh([
       { stdout: "/Users/remote\n" },
       { stdout: "ABSENT\n" },
       { stdout: "STAMPED\n" },
-      { stdout: "RESTORED\n" },
     ]);
+    const restore = vi.fn(restoreRemoteSettingsSnapshot);
 
     const result = await Effect.runPromise(
       deployConfiguredRemoteHost(
         ssh,
         host,
         { commandCenterRef: "local" },
-        operations({
-          deploy: () =>
-            Effect.succeed({
-              ok: false,
-              detail: "SSH disconnected during activation",
-              code: "io" as const,
-              stages: [],
-              disposition: "indeterminate" as const,
-            }),
-        }),
+        {
+          ...operations({
+            deploy: () =>
+              Effect.succeed({
+                ok: false,
+                detail: "SSH disconnected during activation",
+                code: "io" as const,
+                stages: [],
+                disposition: "indeterminate" as const,
+              }),
+          }),
+          restore,
+        },
       ),
     );
 
+    expect(restore).not.toHaveBeenCalled();
+    expect(calls.count).toBe(3);
     expect(result).toMatchObject({
       ok: false,
       outcome: "indeterminate",
       packageState: "unknown",
-      rollback: "restored",
-      role: "previous",
+      rollback: "not-required",
+      role: "unknown",
     });
+    expect(result.detail).toMatch(/Remote stamp was retained/u);
   });
 
   it("does not restore settings around a committed package with an uncleared deploy lock", async () => {
