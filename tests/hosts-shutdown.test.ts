@@ -223,7 +223,7 @@ describe("host IPC shutdown admission", () => {
       [IPC_CHANNELS.hostsRemove, "studio"],
       [IPC_CHANNELS.hostsTest, "studio"],
       [IPC_CHANNELS.hostsConfigureRemote, "studio"],
-      [IPC_CHANNELS.hostsDeployRemote, "studio"],
+      [IPC_CHANNELS.hostsDeployRemote, { id: "studio" }],
     ] as const;
 
     for (const [channel, ...args] of calls) {
@@ -247,7 +247,9 @@ describe("host IPC shutdown admission", () => {
 
     // The caller may disappear without awaiting this handler. The gate owns the
     // AppRuntime promise independently of the renderer's transport lifetime.
-    const abandonedInvoke = invoke(IPC_CHANNELS.hostsDeployRemote, "studio");
+    const abandonedInvoke = invoke(IPC_CHANNELS.hostsDeployRemote, {
+      id: "studio",
+    });
     await expect(gate.drainOnQuit()).resolves.toMatchObject({
       clean: false,
       timedOut: true,
@@ -268,5 +270,56 @@ describe("host IPC shutdown admission", () => {
       settled: 1,
       retained: 0,
     });
+  });
+
+  it("rejects malformed or extra deploy fields before entering the app runtime", async () => {
+    register();
+    const sha = "a".repeat(64);
+    const request = {
+      kind: "linux-administrator-password",
+      hostId: "studio",
+      endpoint: "studio-box",
+      version: "1.2.3",
+      manifestSha256: sha,
+      debSha256: sha,
+      inventorySha256: sha,
+    } as const;
+    const malformed: ReadonlyArray<unknown> = [
+      "studio",
+      { id: "studio", extra: true },
+      {
+        id: "studio",
+        authorization: {
+          request,
+          password: "secret",
+          retry: true,
+        },
+      },
+      {
+        id: "studio",
+        authorization: {
+          request: { ...request, hostId: "substituted" },
+          password: "secret",
+        },
+      },
+      {
+        id: "studio",
+        authorization: {
+          request: { ...request, extra: true },
+          password: "secret",
+        },
+      },
+    ];
+
+    for (const input of malformed) {
+      await expect(
+        invoke(IPC_CHANNELS.hostsDeployRemote, input),
+      ).resolves.toMatchObject({
+        ok: false,
+        code: "validation",
+        detail: "invalid Remote deployment request",
+      });
+    }
+    expect(runtime.runPromise).not.toHaveBeenCalled();
   });
 });

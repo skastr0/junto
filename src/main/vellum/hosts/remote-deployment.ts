@@ -1,8 +1,13 @@
 import type { Context } from "effect";
 import type { Effect } from "effect";
+import type {
+  HostsDeployRemoteAuthorizationRequest,
+  HostsDeployRemoteRecoveryAction,
+} from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { SshEndpoint } from "../ssh";
 import type { SshTransport } from "../ssh";
+import type { LinuxAdministratorCredential } from "./linux-administrator-credential";
 
 export type RemoteDeploymentProgress = readonly string[];
 
@@ -37,16 +42,7 @@ export type UnsupportedRemoteTarget = {
 };
 
 export type RemoteDeploymentRecoveryAction =
-  | {
-      readonly kind: "close-active-vellum-terminals";
-      readonly activeTerminalSessions: number;
-    }
-  | {
-      readonly kind: "restore-terminal-live-work-observation";
-    }
-  | {
-      readonly kind: "provision-station-browser-trust";
-    };
+  HostsDeployRemoteRecoveryAction;
 
 /** Stable Settings/IPC result. Provider-only metadata is kept off this object. */
 export type DeployRemoteResult = {
@@ -68,6 +64,8 @@ export type DeployRemoteResult = {
   readonly unsupportedTarget?: UnsupportedRemoteTarget;
   /** Fixed, bounded operator recovery for a fail-closed deployment gate. */
   readonly recoveryAction?: RemoteDeploymentRecoveryAction;
+  /** Public binding facts for a fresh, one-attempt OS authorization ceremony. */
+  readonly authorizationRequest?: HostsDeployRemoteAuthorizationRequest;
 };
 
 export type RemoteDeploymentArtifact = {
@@ -102,10 +100,21 @@ export type RemoteDeploymentPreparation =
   | { readonly ok: true; readonly target: RemoteDeploymentTarget }
   | { readonly ok: false; readonly result: DeployRemoteResult };
 
+/**
+ * Main-process-only authority threaded to exactly one admitted provider.
+ * The renderer can serialize an authorization request and password, never this
+ * opaque capability.
+ */
+export type RemoteDeploymentAuthorization = {
+  readonly kind: "linux-administrator-password";
+  readonly credential: LinuxAdministratorCredential;
+};
+
 export type RemoteDeploymentProviderInput = {
   readonly ssh: Context.Tag.Service<typeof SshTransport>;
   readonly target: RemoteDeploymentTarget;
   readonly stationConfiguration: RemoteDeploymentStationConfiguration;
+  readonly authorization?: RemoteDeploymentAuthorization;
 };
 
 /**

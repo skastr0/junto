@@ -22,6 +22,7 @@ import {
   dispatchRemoteDeployment,
   prepareRemoteDeployment,
   type DeployRemoteResult,
+  type RemoteDeploymentAuthorization,
   type RemoteDeploymentPreparation,
   type RemoteDeploymentStationConfiguration,
   type RemoteDeploymentTarget,
@@ -67,6 +68,7 @@ export type ConfiguredRemoteDeployOperations = {
   readonly deploy: (
     ssh: Ssh,
     host: RemoteHost,
+    authorization?: RemoteDeploymentAuthorization,
   ) => Effect.Effect<DeployRemoteResult, never>;
   /** Production target admission runs before the settings transaction mutates. */
   readonly prepare?: (
@@ -78,6 +80,7 @@ export type ConfiguredRemoteDeployOperations = {
     ssh: Ssh,
     target: RemoteDeploymentTarget,
     stationConfiguration: RemoteDeploymentStationConfiguration,
+    authorization?: RemoteDeploymentAuthorization,
   ) => Effect.Effect<DeployRemoteResult, never>;
   readonly capture: (
     ssh: Ssh,
@@ -112,8 +115,13 @@ const stationBrowserTrust = makeStationBrowserTrustStore(homedir());
 const defaultOperations: ConfiguredRemoteDeployOperations = {
   deploy: deployRemoteHost,
   prepare: prepareRemoteDeployment,
-  deployPrepared: (ssh, target, stationConfiguration) =>
-    dispatchRemoteDeployment(target, ssh, stationConfiguration),
+  deployPrepared: (ssh, target, stationConfiguration, authorization) =>
+    dispatchRemoteDeployment(
+      target,
+      ssh,
+      stationConfiguration,
+      authorization,
+    ),
   capture: captureRemoteSettingsSnapshot,
   stamp: stampRemoteSettingsSnapshot,
   restore: restoreRemoteSettingsSnapshot,
@@ -259,6 +267,7 @@ export const deployConfiguredRemoteHost = (
   options: {
     readonly commandCenterRef: string;
     readonly supervisedPreferred?: boolean;
+    readonly authorization?: RemoteDeploymentAuthorization;
   },
   operations: ConfiguredRemoteDeployOperations = defaultOperations,
 ): Effect.Effect<ConfiguredRemoteDeployResult, never> => {
@@ -355,12 +364,17 @@ export const deployConfiguredRemoteHost = (
     deploymentDisposition = "in-flight";
     const deployed =
       preparation?.ok && operations.deployPrepared
-        ? yield* operations.deployPrepared(ssh, preparation.target, {
-            state: "applied",
-            remoteHostId: host.id,
-            commandCenterRef: options.commandCenterRef,
-          })
-        : yield* operations.deploy(ssh, host);
+        ? yield* operations.deployPrepared(
+            ssh,
+            preparation.target,
+            {
+              state: "applied",
+              remoteHostId: host.id,
+              commandCenterRef: options.commandCenterRef,
+            },
+            options.authorization,
+          )
+        : yield* operations.deploy(ssh, host, options.authorization);
     deploymentDisposition = deployed.ok
       ? "ready"
       : (deployed.disposition ?? "indeterminate");

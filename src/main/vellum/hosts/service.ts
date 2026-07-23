@@ -11,7 +11,11 @@ import {
   configureRemoteHost,
   type ConfigureRemoteResult,
 } from "./configure-remote";
-import { deployRemoteHost, type DeployRemoteResult } from "./deploy-remote";
+import {
+  deployRemoteHost,
+  type DeployRemoteResult,
+  type RemoteDeploymentAuthorization,
+} from "./deploy-remote";
 import {
   deployConfiguredRemoteHost,
   type ConfiguredRemoteDeployResult,
@@ -60,13 +64,17 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
       },
     ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
     /** Command Center → install/update .app over SSH + start Remote station. */
-    readonly deployRemote: (id: string) => Effect.Effect<DeployRemoteResult>;
+    readonly deployRemote: (
+      id: string,
+      authorization?: RemoteDeploymentAuthorization,
+    ) => Effect.Effect<DeployRemoteResult>;
     /** Configure + deploy under one per-host compensating transaction. */
     readonly deployConfiguredRemote: (
       id: string,
       options: {
         readonly commandCenterRef: string;
         readonly supervisedPreferred?: boolean;
+        readonly authorization?: RemoteDeploymentAuthorization;
         /**
          * Durable admission barrier run after registry resolution and before
          * any remote mutation. A failure prevents the deployment from starting.
@@ -206,7 +214,7 @@ export const makeHostsService = (
           operations.configureRemoteHost(ssh, host, options),
         );
       }),
-    deployRemote: (id) =>
+    deployRemote: (id, authorization) =>
       Effect.gen(function* () {
         const hostResult = yield* Effect.either(
           Effect.tryPromise({
@@ -233,7 +241,7 @@ export const makeHostsService = (
         }
         return yield* serializeHostMutation(
           host,
-          operations.deployRemoteHost(ssh, host),
+          operations.deployRemoteHost(ssh, host, authorization),
         );
       }),
     deployConfiguredRemote: (id, options) =>

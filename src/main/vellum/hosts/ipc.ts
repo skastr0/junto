@@ -3,6 +3,8 @@ import { Effect } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type {
   HostsConfigureRemoteResult,
+  HostsDeployRemoteAuthorizationRequest,
+  HostsDeployRemoteInput,
   HostsDeployRemoteResult,
   HostsOpResult,
   HostsTestResult,
@@ -16,6 +18,12 @@ import { AppRuntime } from "../../runtime";
 import { SettingsService } from "../settings/service";
 import { recordStationDeployment } from "../station-status-store";
 import type { ConfiguredRemoteDeployResult } from "./deploy-configured-remote";
+import {
+  destroyLinuxAdministratorCredential,
+  mintLinuxAdministratorCredential,
+  type LinuxAdministratorCredentialBinding,
+} from "./linux-administrator-credential";
+import type { RemoteDeploymentAuthorization } from "./remote-deployment";
 import { HostsService } from "./service";
 import {
   HOST_OPERATION_ADMISSIONS,
@@ -45,6 +53,152 @@ const surfaceShutdownRefusal = <A>(
     throw error;
   });
 
+type DecodedHostsDeployRemoteInput = HostsDeployRemoteInput;
+
+const exactKeys = (
+  value: Record<string, unknown>,
+  expected: ReadonlyArray<string>,
+): boolean => {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return (
+    actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index])
+  );
+};
+
+const record = (value: unknown): Record<string, unknown> | undefined =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+
+const decodeAuthorizationRequest = (
+  value: unknown,
+): HostsDeployRemoteAuthorizationRequest | undefined => {
+  const input = record(value);
+  if (
+    input === undefined ||
+    !exactKeys(input, [
+      "kind",
+      "hostId",
+      "endpoint",
+      "version",
+      "manifestSha256",
+      "debSha256",
+      "inventorySha256",
+    ]) ||
+    input.kind !== "linux-administrator-password" ||
+    typeof input.hostId !== "string" ||
+    typeof input.endpoint !== "string" ||
+    typeof input.version !== "string" ||
+    typeof input.manifestSha256 !== "string" ||
+    typeof input.debSha256 !== "string" ||
+    typeof input.inventorySha256 !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    kind: "linux-administrator-password",
+    hostId: input.hostId,
+    endpoint: input.endpoint,
+    version: input.version,
+    manifestSha256: input.manifestSha256,
+    debSha256: input.debSha256,
+    inventorySha256: input.inventorySha256,
+  };
+};
+
+export const decodeHostsDeployRemoteInput = (
+  value: unknown,
+): DecodedHostsDeployRemoteInput | undefined => {
+  const input = record(value);
+  if (
+    input === undefined ||
+    (exactKeys(input, ["id"]) === false &&
+      exactKeys(input, ["id", "authorization"]) === false) ||
+    typeof input.id !== "string" ||
+    input.id.length === 0
+  ) {
+    return undefined;
+  }
+  if (!Object.hasOwn(input, "authorization")) {
+    return "authorization" in input ? undefined : { id: input.id };
+  }
+
+  const authorization = record(input.authorization);
+  if (
+    authorization === undefined ||
+    !exactKeys(authorization, ["request", "password"]) ||
+    typeof authorization.password !== "string"
+  ) {
+    return undefined;
+  }
+  const request = decodeAuthorizationRequest(authorization.request);
+  if (request === undefined || request.hostId !== input.id) return undefined;
+  return {
+    id: input.id,
+    authorization: {
+      request,
+      password: authorization.password,
+    },
+  };
+};
+
+const credentialBinding = (
+  request: HostsDeployRemoteAuthorizationRequest,
+): LinuxAdministratorCredentialBinding => ({
+  hostId: request.hostId,
+  // The credential constructor validates the branded endpoint before storing
+  // any password bytes; this cast only preserves the exact serialized value.
+  endpoint:
+    request.endpoint as LinuxAdministratorCredentialBinding["endpoint"],
+  version: request.version,
+  manifestSha256: request.manifestSha256,
+  debSha256: request.debSha256,
+  inventorySha256: request.inventorySha256,
+});
+
+class LinuxAdministratorAuthorizationInputError extends Error {
+  readonly _tag: "LinuxAdministratorAuthorizationInputError" =
+    "LinuxAdministratorAuthorizationInputError";
+}
+
+/**
+ * Mint one opaque main-only credential and destroy it after the sole attempt,
+ * regardless of success, failure, or interruption.
+ */
+export const withHostsDeployRemoteAuthorization = <A, E, R>(
+  input: DecodedHostsDeployRemoteInput,
+  use: (
+    authorization: RemoteDeploymentAuthorization | undefined,
+  ) => Effect.Effect<A, E, R>,
+): Effect.Effect<A, E | LinuxAdministratorAuthorizationInputError, R> => {
+  if (!("authorization" in input)) return use(undefined);
+  const request = input.authorization.request;
+  return Effect.acquireUseRelease(
+    Effect.try({
+      try: () =>
+        mintLinuxAdministratorCredential(
+          input.authorization.password,
+          credentialBinding(request),
+        ),
+      catch: () =>
+        new LinuxAdministratorAuthorizationInputError(
+          "Linux administrator authorization is invalid",
+        ),
+    }),
+    (credential) =>
+      use({
+        kind: "linux-administrator-password",
+        credential,
+      }),
+    (credential) =>
+      Effect.sync(() => {
+        destroyLinuxAdministratorCredential(credential);
+      }),
+  );
+};
+
 export const projectDeployRemoteResult = (
   deploy: ConfiguredRemoteDeployResult,
 ): HostsDeployRemoteResult => ({
@@ -63,6 +217,9 @@ export const projectDeployRemoteResult = (
   ...(deploy.recoveryAction === undefined
     ? {}
     : { recoveryAction: deploy.recoveryAction }),
+  ...(deploy.authorizationRequest === undefined
+    ? {}
+    : { authorizationRequest: deploy.authorizationRequest }),
 });
 
 export const registerHostsIpc = (
@@ -240,117 +397,140 @@ export const registerHostsIpc = (
   );
 
   // Install/update Vellum.app on remote over SSH + start headless station.
-  ipcMain.handle(IPC_CHANNELS.hostsDeployRemote, (_event, id: unknown) =>
+  ipcMain.handle(IPC_CHANNELS.hostsDeployRemote, (_event, input: unknown) =>
     surfaceShutdownRefusal(
-      operations.run(HOST_OPERATION_ADMISSIONS.deployRemote, () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            if (typeof id !== "string" || id.length === 0) {
-              return {
-                ok: false,
-                detail: "host id required",
-                code: "validation",
-                message: "host id required",
-              } satisfies HostsDeployRemoteResult;
-            }
+      operations.run(HOST_OPERATION_ADMISSIONS.deployRemote, () => {
+        const decoded = decodeHostsDeployRemoteInput(input);
+        if (decoded === undefined) {
+          return Promise.resolve({
+            ok: false,
+            detail: "invalid Remote deployment request",
+            code: "validation",
+            message: "invalid Remote deployment request",
+          } satisfies HostsDeployRemoteResult);
+        }
 
-            const settingsSvc = yield* SettingsService;
-            const hosts = yield* HostsService;
+        return AppRuntime.runPromise(
+          withHostsDeployRemoteAuthorization(
+            decoded,
+            (authorization) =>
+              Effect.gen(function* () {
+                const settingsSvc = yield* SettingsService;
+                const hosts = yield* HostsService;
 
-            const settingsResult = yield* Effect.either(settingsSvc.get);
-            if (settingsResult._tag === "Left") {
-              return {
-                ok: false,
-                detail: settingsResult.left.message,
-                code: settingsResult.left.code,
-                message: settingsResult.left.message,
-              } satisfies HostsDeployRemoteResult;
-            }
+                const settingsResult = yield* Effect.either(settingsSvc.get);
+                if (settingsResult._tag === "Left") {
+                  return {
+                    ok: false,
+                    detail: settingsResult.left.message,
+                    code: settingsResult.left.code,
+                    message: settingsResult.left.message,
+                  } satisfies HostsDeployRemoteResult;
+                }
 
-            if (settingsResult.right.station.role !== "command-center") {
-              return {
-                ok: false,
-                detail: "Deploy Remote is only available on Command Center",
-                code: "validation",
-                message: "Deploy Remote is only available on Command Center",
-              } satisfies HostsDeployRemoteResult;
-            }
+                if (settingsResult.right.station.role !== "command-center") {
+                  return {
+                    ok: false,
+                    detail:
+                      "Deploy Remote is only available on Command Center",
+                    code: "validation",
+                    message:
+                      "Deploy Remote is only available on Command Center",
+                  } satisfies HostsDeployRemoteResult;
+                }
 
-            const deploy = yield* hosts.deployConfiguredRemote(id, {
-              commandCenterRef: settingsResult.right.station.hostId,
-              supervisedPreferred: true,
-              onAdmitted: (host) => {
-                const admittedAt = new Date().toISOString();
-                const detail = `${host.label}: deployment admitted; completion receipt pending`;
-                return Effect.tryPromise({
-                  try: () =>
-                    recordStationDeployment(
-                      deployRecordFromResult({
-                        hostId: host.id,
-                        endpoint: host.endpoint ?? "",
-                        ok: false,
-                        outcome: "indeterminate",
-                        packageState: "previous",
-                        role: "previous",
-                        rollback: "not-required",
-                        configurationOk: false,
-                        detail,
-                        stages: ["durable deployment admission recorded"],
-                        at: admittedAt,
-                      }),
-                      configureRecordFromResult({
-                        ok: false,
-                        hostId: host.id,
-                        detail,
-                        at: admittedAt,
-                      }),
-                    ),
-                  catch: (error) =>
-                    new RemoteHostsError(
-                      "io",
-                      error instanceof Error ? error.message : String(error),
-                  ),
+                const deploy = yield* hosts.deployConfiguredRemote(decoded.id, {
+                  commandCenterRef: settingsResult.right.station.hostId,
+                  supervisedPreferred: true,
+                  ...(authorization === undefined ? {} : { authorization }),
+                  onAdmitted: (host) => {
+                    const admittedAt = new Date().toISOString();
+                    const detail = `${host.label}: deployment admitted; completion receipt pending`;
+                    return Effect.tryPromise({
+                      try: () =>
+                        recordStationDeployment(
+                          deployRecordFromResult({
+                            hostId: host.id,
+                            endpoint: host.endpoint ?? "",
+                            ok: false,
+                            outcome: "indeterminate",
+                            packageState: "previous",
+                            role: "previous",
+                            rollback: "not-required",
+                            configurationOk: false,
+                            detail,
+                            stages: [
+                              "durable deployment admission recorded",
+                            ],
+                            at: admittedAt,
+                          }),
+                          configureRecordFromResult({
+                            ok: false,
+                            hostId: host.id,
+                            detail,
+                            at: admittedAt,
+                          }),
+                        ),
+                      catch: (error) =>
+                        new RemoteHostsError(
+                          "io",
+                          error instanceof Error
+                            ? error.message
+                            : String(error),
+                        ),
+                    });
+                  },
+                  onCompleted: (host, result) => {
+                    const recordedAt = new Date().toISOString();
+                    return Effect.tryPromise({
+                      try: () =>
+                        recordStationDeployment(
+                          deployRecordFromResult({
+                            hostId: host.id,
+                            endpoint: host.endpoint ?? "",
+                            ok: result.ok,
+                            outcome: result.outcome,
+                            packageState: result.packageState,
+                            role: result.role,
+                            version: result.version,
+                            lastSeen: result.lastSeen,
+                            rollback: result.rollback,
+                            configurationOk: result.configuration.ok,
+                            detail: result.detail,
+                            stages: result.stages,
+                            at: recordedAt,
+                          }),
+                          configureRecordFromResult({
+                            ok: result.outcome === "ready",
+                            hostId: host.id,
+                            detail: result.configuration.detail,
+                            at: recordedAt,
+                          }),
+                        ),
+                      catch: (error) =>
+                        new RemoteHostsError(
+                          "io",
+                          error instanceof Error
+                            ? error.message
+                            : String(error),
+                        ),
+                    });
+                  },
                 });
-              },
-              onCompleted: (host, result) => {
-                const recordedAt = new Date().toISOString();
-                return Effect.tryPromise({
-                  try: () =>
-                    recordStationDeployment(
-                      deployRecordFromResult({
-                        hostId: host.id,
-                        endpoint: host.endpoint ?? "",
-                        ok: result.ok,
-                        outcome: result.outcome,
-                        packageState: result.packageState,
-                        role: result.role,
-                        version: result.version,
-                        lastSeen: result.lastSeen,
-                        rollback: result.rollback,
-                        configurationOk: result.configuration.ok,
-                        detail: result.detail,
-                        stages: result.stages,
-                        at: recordedAt,
-                      }),
-                      configureRecordFromResult({
-                        ok: result.outcome === "ready",
-                        hostId: host.id,
-                        detail: result.configuration.detail,
-                        at: recordedAt,
-                      }),
-                    ),
-                  catch: (error) =>
-                    new RemoteHostsError(
-                      "io",
-                      error instanceof Error ? error.message : String(error),
-                    ),
-                });
-              },
-            });
-            return projectDeployRemoteResult(deploy);
-          }),
-        ),
-      ),
+                return projectDeployRemoteResult(deploy);
+              }),
+          ).pipe(
+            Effect.catchTag("LinuxAdministratorAuthorizationInputError", () =>
+              Effect.succeed({
+                ok: false,
+                detail: "Linux administrator authorization is invalid",
+                code: "validation",
+                message: "Linux administrator authorization is invalid",
+              } satisfies HostsDeployRemoteResult),
+            ),
+          ),
+        );
+      }),
       (error) =>
         ({
           ok: false,

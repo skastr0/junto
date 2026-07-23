@@ -11,6 +11,7 @@ import {
   type ConfiguredRemoteDeployOperations,
 } from "../src/main/vellum/hosts/deploy-configured-remote";
 import type {
+  RemoteDeploymentAuthorization,
   RemoteDeploymentProvider,
   RemoteDeploymentProviderInput,
 } from "../src/main/vellum/hosts/remote-deployment";
@@ -144,6 +145,43 @@ describe("Remote deployment dispatcher", () => {
           progress: ["endpoint ok", "ssh warm ok", "remote uname Darwin"],
         }),
       }),
+    );
+  });
+
+  it("threads opaque Linux authority only into the admitted Linux provider", async () => {
+    const darwin = makeProvider("darwin");
+    const linux = makeProvider("linux");
+    const dispatcher = makeRemoteDeploymentDispatcher({
+      commandCenterPlatform: "darwin",
+      providers: [darwin, linux],
+    });
+    const authorization = {
+      kind: "linux-administrator-password",
+      credential: Object.freeze({}),
+    } as RemoteDeploymentAuthorization;
+
+    await Effect.runPromise(
+      dispatcher.deploy(
+        makeSsh("Linux\n"),
+        host,
+        { state: "managed-externally" },
+        authorization,
+      ),
+    );
+    await Effect.runPromise(
+      dispatcher.deploy(
+        makeSsh("Darwin\n"),
+        host,
+        { state: "managed-externally" },
+        authorization,
+      ),
+    );
+
+    expect(linux.deploy).toHaveBeenCalledWith(
+      expect.objectContaining({ authorization }),
+    );
+    expect(darwin.deploy).toHaveBeenCalledWith(
+      expect.not.objectContaining({ authorization: expect.anything() }),
     );
   });
 

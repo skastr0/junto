@@ -543,7 +543,9 @@ export interface VellumApi {
   /** Install / configure Vellum Remote station settings on a registered remote host. */
   readonly hostsConfigureRemote: (id: string) => Promise<HostsConfigureRemoteResult>;
   /** Install/update Vellum.app on remote + start station (term control ready). */
-  readonly hostsDeployRemote: (id: string) => Promise<HostsDeployRemoteResult>;
+  readonly hostsDeployRemote: (
+    input: HostsDeployRemoteInput,
+  ) => Promise<HostsDeployRemoteResult>;
 }
 
 export interface HostsOpResult {
@@ -611,6 +613,34 @@ export type HostsDeployRemoteRecoveryAction =
   | { readonly kind: "repair-linux-release-transaction" }
   | { readonly kind: "retry-linux-release-install" };
 
+/**
+ * Public facts that bind one transient Linux administrator ceremony.
+ *
+ * The password is deliberately absent: it exists only in
+ * `HostsDeployRemoteInput.authorization` for the duration of one IPC invoke.
+ */
+export interface HostsDeployRemoteAuthorizationRequest {
+  readonly kind: "linux-administrator-password";
+  readonly hostId: string;
+  readonly endpoint: string;
+  readonly version: string;
+  readonly manifestSha256: string;
+  readonly debSha256: string;
+  readonly inventorySha256: string;
+}
+
+export type HostsDeployRemoteInput =
+  | {
+      readonly id: string;
+    }
+  | {
+      readonly id: string;
+      readonly authorization: {
+        readonly request: HostsDeployRemoteAuthorizationRequest;
+        readonly password: string;
+      };
+    };
+
 /** Result of hostsDeployRemote — Remote station install/update and readiness probe. */
 export interface HostsDeployRemoteResult {
   readonly ok: boolean;
@@ -626,6 +656,8 @@ export interface HostsDeployRemoteResult {
   readonly rollback?: "not-required" | "restored" | "failed";
   readonly statusRecorded?: boolean;
   readonly recoveryAction?: HostsDeployRemoteRecoveryAction;
+  /** Present only when one exact Linux target requires fresh OS authorization. */
+  readonly authorizationRequest?: HostsDeployRemoteAuthorizationRequest;
 }
 
 // The attached-chat surface is declared separately and merged into the

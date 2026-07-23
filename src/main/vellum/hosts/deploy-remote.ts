@@ -6,6 +6,7 @@ import { hostHasCapability, type RemoteHost } from "@shared/remote-hosts";
 import { SshTransport } from "../ssh";
 import type {
   DeployRemoteResult,
+  RemoteDeploymentAuthorization,
   RemoteDeploymentPreparation,
   RemoteDeploymentProvider,
   RemoteDeploymentStationConfiguration,
@@ -82,11 +83,13 @@ export type RemoteDeploymentDispatcher = {
     target: RemoteDeploymentTarget,
     ssh: Ssh,
     stationConfiguration: RemoteDeploymentStationConfiguration,
+    authorization?: RemoteDeploymentAuthorization,
   ) => Effect.Effect<DeployRemoteResult, never>;
   readonly deploy: (
     ssh: Ssh,
     host: RemoteHost,
     stationConfiguration: RemoteDeploymentStationConfiguration,
+    authorization?: RemoteDeploymentAuthorization,
   ) => Effect.Effect<DeployRemoteResult, never>;
 };
 
@@ -208,6 +211,7 @@ export const makeRemoteDeploymentDispatcher = (input: {
     target,
     ssh,
     stationConfiguration,
+    authorization,
   ) =>
     Effect.suspend(() => {
       const provider = admittedProviders.get(target);
@@ -236,7 +240,14 @@ export const makeRemoteDeploymentDispatcher = (input: {
         );
       }
       return provider
-        .deploy({ ssh, target, stationConfiguration })
+        .deploy({
+          ssh,
+          target,
+          stationConfiguration,
+          ...(provider.platform !== "linux" || authorization === undefined
+            ? {}
+            : { authorization }),
+        })
         .pipe(Effect.map((receipt) => receipt.result));
     });
 
@@ -244,11 +255,17 @@ export const makeRemoteDeploymentDispatcher = (input: {
     ssh,
     host,
     stationConfiguration,
+    authorization,
   ) =>
     prepare(ssh, host).pipe(
       Effect.flatMap((preparation) =>
         preparation.ok
-          ? dispatch(preparation.target, ssh, stationConfiguration)
+          ? dispatch(
+              preparation.target,
+              ssh,
+              stationConfiguration,
+              authorization,
+            )
           : Effect.succeed(preparation.result),
       ),
     );
@@ -267,13 +284,18 @@ export const dispatchRemoteDeployment = remoteDeploymentDispatcher.dispatch;
 export const deployRemoteHost = (
   ssh: Ssh,
   host: RemoteHost,
+  authorization?: RemoteDeploymentAuthorization,
 ): Effect.Effect<DeployRemoteResult, never> =>
-  remoteDeploymentDispatcher.deploy(ssh, host, {
-    state: "managed-externally",
-  });
+  remoteDeploymentDispatcher.deploy(
+    ssh,
+    host,
+    { state: "managed-externally" },
+    authorization,
+  );
 
 export type {
   DeployRemoteResult,
+  RemoteDeploymentAuthorization,
   RemoteDeploymentPreparation,
   RemoteDeploymentStationConfiguration,
   RemoteDeploymentTarget,

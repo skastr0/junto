@@ -139,6 +139,33 @@ describe("preload renderer surface readiness", () => {
   });
 });
 
+describe("preload Remote deployment authorization", () => {
+  it("forwards the exact serialized request as one IPC argument", async () => {
+    const api = await loadPreload();
+    const input = {
+      id: "studio",
+      authorization: {
+        request: {
+          kind: "linux-administrator-password" as const,
+          hostId: "studio",
+          endpoint: "vellum@studio-box",
+          version: "1.2.3",
+          manifestSha256: "a".repeat(64),
+          debSha256: "b".repeat(64),
+          inventorySha256: "c".repeat(64),
+        },
+        password: "one-attempt-secret",
+      },
+    };
+
+    await api.hostsDeployRemote(input);
+
+    expect(electron.invoked).toEqual([
+      [IPC_CHANNELS.hostsDeployRemote, input],
+    ]);
+  });
+});
+
 describe("preload node-reference delivery", () => {
   it("does not expose the product bridge to a remote document", async () => {
     const prior = Object.getOwnPropertyDescriptor(globalThis, "location");
