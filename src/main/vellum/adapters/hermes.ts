@@ -1,18 +1,28 @@
 import type { Entity, SnapshotBundle } from "@shared/entities";
 import { hermesKeyFor, hostHasCapability } from "@shared/remote-hosts";
-import type { HermesHostId } from "../hermes/domain";
+import {
+  canonicalLocalAgentKey,
+  parseHermesProfileName,
+  type HermesHostId,
+  type HermesStationIdentity,
+} from "../hermes/domain";
 import { hostsSnapshot } from "../hosts/snapshot";
 import type { CliResult } from "./exec";
 
 // The Hermes fleet adapter: each profile on each host is one agent node.
 // Hosts come from the durable remote-host registry (~/.vellum/hosts.json).
-// A host that is unreachable contributes nothing rather than failing the
-// whole bundle. `hermes profile list` has no --json, so its table is
-// parsed; `hermes version` gives a host-level version applied to that host's
-// agents.
+// A failed host makes the bundle partial/unhealthy while successful host facts
+// remain present for freshness-aware consumers. `hermes profile list` has no
+// --json, so its table is parsed; `hermes version` gives a host-level version
+// applied to that host's agents.
 
 interface HermesHost {
-  readonly id: HermesHostId;
+  /** Host accepted by the local/SSH adapter operation. */
+  readonly transportId: HermesHostId;
+  /** Prefix persisted in the agent entity key. */
+  readonly agentHostId: HermesHostId;
+  /** Physical RemoteHost.id persisted separately from display label. */
+  readonly hostId: string;
   readonly label: string; // display host
 }
 
@@ -21,11 +31,22 @@ export interface HermesFleetOperations {
   readonly version: (host: HermesHostId) => Promise<CliResult>;
 }
 
-const listHermesHosts = (): ReadonlyArray<HermesHost> =>
+const DEFAULT_STATION_IDENTITY: HermesStationIdentity = {
+  hostId: "local",
+  agentHostId: "local",
+};
+
+const listHermesHosts = (
+  station: HermesStationIdentity,
+): ReadonlyArray<HermesHost> =>
   hostsSnapshot()
     .filter((host) => hostHasCapability(host, "hermes"))
     .map((host) => ({
-      id: (host.kind === "local" ? "local" : hermesKeyFor(host)) as HermesHostId,
+      transportId: (host.kind === "local" ? "local" : hermesKeyFor(host)) as HermesHostId,
+      agentHostId: (host.kind === "local"
+        ? station.agentHostId
+        : hermesKeyFor(host)) as HermesHostId,
+      hostId: host.kind === "local" ? station.hostId : host.id,
       label: host.label,
     }));
 
@@ -62,59 +83,80 @@ export const parseProfiles = (stdout: string): ReadonlyArray<ParsedProfile> => {
   return rows;
 };
 
+interface HermesHostFetch {
+  readonly reachable: boolean;
+  readonly host: HermesHost;
+  readonly entities: ReadonlyArray<Entity>;
+}
+
 const fetchHost = async (
   operations: HermesFleetOperations,
   host: HermesHost,
-): Promise<ReadonlyArray<Entity>> => {
-  const listResult = await operations.profiles(host.id);
-  if (!listResult.ok) return [];
+): Promise<HermesHostFetch> => {
+  const listResult = await operations.profiles(host.transportId);
+  if (!listResult.ok) return { reachable: false, host, entities: [] };
 
   const profiles = parseProfiles(listResult.stdout);
-  if (profiles.length === 0) return [];
+  if (profiles.length === 0) return { reachable: true, host, entities: [] };
 
-  const verResult = await operations.version(host.id);
+  const verResult = await operations.version(host.transportId);
   const version = verResult.ok ? parseVersion(verResult.stdout) : undefined;
 
   const fetchedAt = new Date().toISOString();
-  return profiles.map((profile): Entity => {
+  const entities = profiles.flatMap((profile): ReadonlyArray<Entity> => {
+    const profileName = parseHermesProfileName(profile.name);
+    if (profileName === undefined) return [];
     const stats: Record<string, string | number> = {
       host: host.label,
+      hostId: host.hostId,
       model: profile.model,
       gateway: profile.gateway,
+      running: profile.gateway === "running" ? 1 : 0,
     };
     if (version) stats.version = version;
-    return {
+    return [{
       source: "hermes",
-      key: `${host.id}:${profile.name}`,
+      key:
+        host.transportId === "local"
+          ? canonicalLocalAgentKey(
+              { hostId: host.hostId, agentHostId: host.agentHostId },
+              profileName,
+            )
+          : `${host.agentHostId}:${profileName}`,
       kind: "agent",
       title: profile.name,
       stats,
       updatedAt: fetchedAt,
-    };
+    }];
   });
+  return { reachable: true, host, entities };
 };
 
 export const fetchHermesBundle = async (
   operations: HermesFleetOperations,
+  station: HermesStationIdentity = DEFAULT_STATION_IDENTITY,
 ): Promise<SnapshotBundle> => {
   const fetchedAt = new Date().toISOString();
-  const hosts = listHermesHosts();
+  const hosts = listHermesHosts(station);
   const perHost = await Promise.all(
     hosts.map((host) =>
-      fetchHost(operations, host).catch(() => [] as ReadonlyArray<Entity>),
+      fetchHost(operations, host).catch(
+        (): HermesHostFetch => ({ reachable: false, host, entities: [] }),
+      ),
     ),
   );
-  const entities = perHost.flat();
+  const entities = perHost.flatMap((result) => result.entities);
+  const failed = perHost
+    .filter((result) => !result.reachable)
+    .map((result) => result.host.agentHostId);
 
-  // Reachable if at least one host answered; if every host is silent, report
-  // it as down so the UI shows a stale dot rather than a false "no agents".
-  if (entities.length === 0) {
+  if (failed.length > 0) {
     return {
       source: "hermes",
       fetchedAt,
       ok: false,
-      error: `no hermes hosts reachable (${hosts.map((h) => h.id).join(" + ") || "none configured"})`,
-      entities: [],
+      error: `hermes host refresh failed (${failed.join(" + ")})`,
+      entities,
     };
   }
 

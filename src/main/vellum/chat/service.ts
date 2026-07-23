@@ -62,7 +62,8 @@ const idleEvictMs = (): number => {
   return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 15 * 60_000;
 };
 
-const isRemoteHost = (host: string): boolean => host !== "local";
+export type HermesHostLocality = (host: string) => boolean;
+const defaultHermesHostLocality: HermesHostLocality = (host) => host === "local";
 
 const remoteHermesRoutes = (
   hosts: ReadonlyArray<RemoteHost>,
@@ -156,7 +157,10 @@ export class ChatService {
   private closing = false;
   private closeAllFlight: Promise<ChatCloseAllResult> | undefined;
 
-  constructor(private readonly spawnFn: SpawnFn) {
+  constructor(
+    private readonly spawnFn: SpawnFn,
+    private readonly isLocalHost: HermesHostLocality = defaultHermesHostLocality,
+  ) {
     // Sweep idle remote sessions on a fixed interval. Unref so the timer
     // alone cannot keep the process alive during headless tests / quit.
     const period = Math.min(Math.max(idleEvictMs() || 60_000, 15_000), 60_000);
@@ -209,7 +213,7 @@ export class ChatService {
     }
 
     for (const [agentKey, session] of this.sessions) {
-      if (!isRemoteHost(session.host) || !changedHosts.has(session.host)) continue;
+      if (this.isLocalHost(session.host) || !changedHosts.has(session.host)) continue;
       this.nextGeneration(agentKey);
       this.closeCurrent(agentKey);
       this.emit(agentKey, "status", {
@@ -232,7 +236,7 @@ export class ChatService {
     if (idleMs <= 0) return [];
     const closed: string[] = [];
     for (const [agentKey, session] of this.sessions) {
-      if (!isRemoteHost(session.host)) continue;
+      if (this.isLocalHost(session.host)) continue;
       if (this.sessionIsBusy(session)) continue;
       if (session.sessionId === "") continue; // still handshaking
       if (now - session.lastActivityAt < idleMs) continue;
@@ -253,7 +257,7 @@ export class ChatService {
    * slot is busy.
    */
   private enforceRemoteCeiling(host: string, openingKey: string): string | undefined {
-    if (!isRemoteHost(host)) return undefined;
+    if (this.isLocalHost(host)) return undefined;
     const ceiling = maxRemoteSessionsPerHost();
     const peers = [...this.sessions.entries()].filter(
       ([key, session]) =>
@@ -378,7 +382,7 @@ export class ChatService {
   }
 
   private bindLocalProcess(agentKey: string, session: AgentSession): void {
-    if (session.host !== "local") return;
+    if (!this.isLocalHost(session.host)) return;
     const pid = session.client.childPid;
     if (pid === undefined) return;
     const map = getProcessIdentityMap();
@@ -551,7 +555,7 @@ export class ChatService {
     if (this.closing) return { ok: false, error: "chat service is closing" };
     const target = buildAcpSpawnTarget(agentKey);
     if (target === undefined) return { ok: false, error: `invalid agent key: ${agentKey}` };
-    if (target.host !== "local") {
+    if (!this.isLocalHost(target.host)) {
       return { ok: false, error: "browser authority child environment is local-only" };
     }
     let overlay: AcpChildEnvironmentOverlay;
@@ -581,7 +585,7 @@ export class ChatService {
     if (this.closing) return { ok: false, error: "chat service is closing" };
     const target = buildAcpSpawnTarget(agentKey);
     if (target === undefined) return { ok: false, error: `invalid agent key: ${agentKey}` };
-    if (target.host !== "local") {
+    if (!this.isLocalHost(target.host)) {
       return { ok: false, error: "browser authority child environment is local-only" };
     }
     if (this.authorityRestartInFlight.has(agentKey)) {
@@ -624,7 +628,7 @@ export class ChatService {
     if (this.closing) return { ok: false, error: "chat service is closing" };
     const target = buildAcpSpawnTarget(agentKey);
     if (target === undefined) return { ok: false, error: `invalid agent key: ${agentKey}` };
-    if (target.host !== "local") {
+    if (!this.isLocalHost(target.host)) {
       return { ok: false, error: "browser authority child environment is local-only" };
     }
     this.nextGeneration(agentKey);
@@ -663,7 +667,9 @@ export class ChatService {
       // Process-bind local ACP children so work/browser CLIs admit by peer PID.
       this.bindLocalProcess(agentKey, session);
       authSuffix = describeAuthMethods(init.authMethods);
-      const cwd = resolveSessionCwd(target.host);
+      const cwd = resolveSessionCwd(
+        this.isLocalHost(target.host) ? "local" : target.host,
+      );
 
       if (resumeSessionId) {
         const resumed = await this.tryResumeSession(

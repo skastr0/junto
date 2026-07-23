@@ -1,5 +1,10 @@
 import type { CanvasDoc, CanvasNode } from "./canvas";
-import type { SnapshotState } from "./entities";
+import type { Entity, SnapshotState } from "./entities";
+import {
+  DEFAULT_STATION_HOST_ID,
+  hostIdFromAgentKey,
+  isValidStationHostId,
+} from "./station";
 
 // Live portfolio projection: spawn identity cards for hermes agents the doc
 // doesn't hold yet. Project cards were excised with the private-source plane;
@@ -21,6 +26,27 @@ const NODE_H = 84;
 const GAP_X = 60;
 const GAP_Y = 70;
 const COLUMNS = 6;
+
+/**
+ * Physical execution host for a Hermes snapshot entity.
+ *
+ * `stats.host` is presentation only. New adapters publish the canonical
+ * RemoteHost.id in `stats.hostId`; legacy rows fall back to the agent-key
+ * prefix, with the `local` alias rebound to this station's physical HostId.
+ */
+export const snapshotAgentHostId = (
+  agent: Pick<Entity, "key" | "stats">,
+  stationHostId = DEFAULT_STATION_HOST_ID,
+): string => {
+  const canonical =
+    typeof agent.stats.hostId === "string" ? agent.stats.hostId : undefined;
+  if (canonical !== undefined && isValidStationHostId(canonical)) {
+    return canonical;
+  }
+  const keyHost = hostIdFromAgentKey(agent.key);
+  if (keyHost === "local") return stationHostId;
+  return keyHost ?? stationHostId;
+};
 
 // Identity names already present on a doc, so a merge can skip agents that
 // already have a card (idempotent re-runs, preserved user authorship).
@@ -46,15 +72,7 @@ const agentNodes = (state: SnapshotState, present: Set<string>, originY: number)
     const col = index % COLUMNS;
     const row = Math.floor(index / COLUMNS);
     const statsHost = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
-    const keyHost = (() => {
-      const colon = agent.key.indexOf(":");
-      if (colon <= 0) return undefined;
-      const candidate = agent.key.slice(0, colon);
-      return /^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/.test(candidate) && candidate.length <= 64
-        ? candidate
-        : undefined;
-    })();
-    const host = statsHost ?? keyHost ?? "local";
+    const host = snapshotAgentHostId(agent);
     const label = statsHost
       ? `${agent.title ?? agent.key} · ${statsHost}`
       : (agent.title ?? agent.key);

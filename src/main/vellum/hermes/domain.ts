@@ -16,6 +16,45 @@ export interface ParsedAgentKey {
   readonly profile: HermesProfileName;
 }
 
+/** Durable physical + Hermes self identity loaded from settings.station. */
+export interface HermesStationIdentity {
+  readonly hostId: string;
+  readonly agentHostId: HermesHostId;
+}
+
+export const resolveHermesStationIdentity = (station: {
+  readonly hostId: string;
+  readonly agentHostId?: string;
+}): HermesStationIdentity => ({
+  hostId: station.hostId,
+  agentHostId: station.agentHostId ?? station.hostId,
+});
+
+/**
+ * `local` remains the legacy on-machine alias. The configured self Hermes key
+ * is also local only inside that exact station process; no other HostId is
+ * admitted by this predicate.
+ */
+export const isLocalHermesHost = (
+  host: HermesHostId,
+  station: HermesStationIdentity,
+): boolean => host === "local" || host === station.agentHostId;
+
+export const canonicalLocalAgentKey = (
+  station: HermesStationIdentity,
+  profile: HermesProfileName,
+): string => `${station.agentHostId}:${profile}`;
+
+/** Translate this station's canonical agent key for local-only adapters. */
+export const localAdapterAgentKey = (
+  key: string,
+  station: HermesStationIdentity,
+): string => {
+  const parsed = parseAgentKey(key);
+  if (!parsed || !isLocalHermesHost(parsed.host, station)) return key;
+  return `local:${parsed.profile}`;
+};
+
 const PROFILE_NAME_RE = /^[A-Za-z0-9_-]+$/;
 
 export const parseHermesProfileName = (value: string): HermesProfileName | undefined =>

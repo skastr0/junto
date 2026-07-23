@@ -40,10 +40,15 @@ import {
   type SshLease,
 } from "../ssh";
 import {
+  isLocalHermesHost,
   isDefaultHermesProfile,
+  localAdapterAgentKey,
+  resolveHermesStationIdentity,
   type HermesProfileName,
+  type HermesStationIdentity,
 } from "./domain";
 import { HermesTransport } from "./transport";
+import { SettingsService } from "../settings/service";
 
 type RunPromise = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 
@@ -345,10 +350,18 @@ export const HermesPlaneLive = Layer.scoped(
   HermesPlane,
   Effect.gen(function* () {
     const transport = yield* HermesTransport;
+    const settings = yield* SettingsService;
     const owner = yield* Scope.Scope;
     const runtime = yield* Effect.runtime<never>();
     const runPromise: RunPromise = (effect) => Runtime.runPromise(runtime)(effect);
     const runOwned = makeScopedPromiseRunner(runtime, owner);
+    const initialSettings = yield* settings.get;
+    let stationIdentity: HermesStationIdentity =
+      resolveHermesStationIdentity(initialSettings.station);
+    const unsubscribeSettings = settings.subscribe((next) => {
+      stationIdentity = resolveHermesStationIdentity(next.station);
+    });
+    yield* Effect.addFinalizer(() => Effect.sync(unsubscribeSettings));
 
     const operations: HermesIdentityOperations & HermesFleetOperations = {
       profiles: (host) => runOwned(transport.profiles(host)),
@@ -361,9 +374,9 @@ export const HermesPlaneLive = Layer.scoped(
       target: AcpSpawnTarget,
       options?: { readonly environmentOverlay?: AcpChildEnvironmentOverlay },
     ) => {
-      // Local = direct hermes child. Any other host id is treated as remote
-      // (must exist in the host registry with kind=remote).
-      if (target.host !== "local") {
+      // Only the legacy local alias and this station's configured Hermes self
+      // key are direct children. Every other key remains registry/SSH-backed.
+      if (!isLocalHermesHost(target.host, stationIdentity)) {
         if (options?.environmentOverlay !== undefined) {
           throw new Error("ACP child environment overlays are local-only");
         }
@@ -398,16 +411,29 @@ export const HermesPlaneLive = Layer.scoped(
       };
     };
 
-    const chat = new ChatService(spawnAcp);
+    const chat = new ChatService(
+      spawnAcp,
+      (host) => isLocalHermesHost(host, stationIdentity),
+    );
     const shutdown = makeHermesShutdownPort(chat);
     yield* Effect.addFinalizer(() => finalizeHermesShutdown(shutdown));
 
     return HermesPlane.of({
       chat,
       shutdown,
-      fetchBundle: () => fetchHermesBundle(operations),
-      fetchAgentIdentity: (key) => fetchAgentIdentity(operations, key),
-      fetchAgentAvatar: (key) => fetchAgentAvatar(operations, key),
+      fetchBundle: () => fetchHermesBundle(operations, stationIdentity),
+      fetchAgentIdentity: async (key) => {
+        const adapterKey = localAdapterAgentKey(key, stationIdentity);
+        const identity = await fetchAgentIdentity(operations, adapterKey);
+        return identity === null || adapterKey === key
+          ? identity
+          : { ...identity, key };
+      },
+      fetchAgentAvatar: (key) =>
+        fetchAgentAvatar(
+          operations,
+          localAdapterAgentKey(key, stationIdentity),
+        ),
       fetchAgentMessage: (key, text) => chat.agentMessage(key, text),
     });
   }),

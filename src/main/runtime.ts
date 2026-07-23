@@ -64,7 +64,7 @@ const ProductTransportsLive = Layer.provideMerge(
 
 export const ProductPlanesLive = Layer.provideMerge(
   Layer.mergeAll(HerdrPlaneLive, HermesPlaneLive),
-  ProductTransportsLive,
+  Layer.mergeAll(ProductTransportsLive, SettingsLive),
 );
 
 const ProductPlanesWithChatLive = Layer.provideMerge(

@@ -154,6 +154,39 @@ describe("chatOpen", () => {
     });
   });
 
+  it("treats only the configured self Hermes key as local on a Remote", async () => {
+    const { spawnFn, children, calls } = fakeSpawn();
+    const service = new ChatService(
+      spawnFn,
+      (host) => host === "local" || host === "fleet-studio",
+    );
+
+    const self = await openHappyPath(
+      service,
+      children,
+      "fleet-studio:default",
+      { sessionId: "self" },
+    );
+    expect(calls[0]?.target.host).toBe("fleet-studio");
+    expect(paramsOf(self.child, 1)).toEqual({
+      cwd: homedir(),
+      mcpServers: [],
+    });
+
+    const other = await openHappyPath(
+      service,
+      children,
+      "fleet-render:default",
+      { sessionId: "other" },
+    );
+    expect(calls[1]?.target.host).toBe("fleet-render");
+    expect(paramsOf(other.child, 1)).toEqual({
+      cwd: ".",
+      mcpServers: [],
+    });
+    service.stopIdleSweep();
+  });
+
   it("is idempotent per key: a second chatOpen while live returns the same session without respawning", async () => {
     const { spawnFn, children } = fakeSpawn();
     const service = new ChatService(spawnFn);

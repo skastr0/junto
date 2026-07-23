@@ -36,6 +36,7 @@ import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
+import { snapshotAgentHostId } from "@shared/portfolio";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import {
   makeAgentNode,
@@ -528,7 +529,7 @@ type AddPicker = "agent" | null;
 
 interface AddActions {
   readonly create: (kind: "text" | "file" | "link" | "group") => void;
-  readonly addAgent: (label: string, key: string) => void;
+  readonly addAgent: (label: string, key: string, hostId: string) => void;
   readonly addWatcher: () => void;
   readonly addTimer: () => void;
   readonly addTasks: () => void;
@@ -590,10 +591,9 @@ const makeAddActions = (
     state$.focusNodeId.set(node.id);
     dismiss();
   },
-  addAgent: (label, key) => {
+  addAgent: (label, key, hostId) => {
     const position = positionFor({ width: 240, height: 96 });
-    const stationHost = state$.settings.station.hostId.peek() || "local";
-    const node = makeAgentNode(position.x, position.y, label, key, stationHost);
+    const node = makeAgentNode(position.x, position.y, label, key, hostId);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -721,6 +721,7 @@ type MenuEntry = {
 // row is highlighted (the top match by default).
 function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; readonly setPicker: (picker: AddPicker) => void; readonly actions: AddActions }) {
   const snapshots = use$(state$.snapshots);
+  const stationHostId = use$(state$.settings.station.hostId) || "local";
   // bound to every source that knows it).
   const agents = snapshots.bundles
     .filter((bundle) => bundle.ok && bundle.source === "hermes")
@@ -756,15 +757,21 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
       { key: "agent", label: "agent", sub: "hermes profile", icon: <Bot size={14} />, ariaLabel: "Add agent", onSelect: () => setPicker("agent") },
     ]
     : agents.map((agent) => {
-        const host = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
+        const hostLabel = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
+        const hostId = snapshotAgentHostId(agent, stationHostId);
         const title = agent.title ?? agent.key;
         return {
           key: agent.key,
           label: title,
-          sub: host ?? "hermes",
+          sub: hostLabel ?? hostId,
           icon: <Bot size={13} />,
           ariaLabel: `Add agent ${title}`,
-          onSelect: () => actions.addAgent(host ? `${title} · ${host}` : title, agent.key),
+          onSelect: () =>
+            actions.addAgent(
+              hostLabel ? `${title} · ${hostLabel}` : title,
+              agent.key,
+              hostId,
+            ),
         };
       });
 
