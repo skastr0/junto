@@ -59,6 +59,21 @@ describe("Linux v1 operator documentation", () => {
     expect(runbook).toContain("sudo apt-get remove vellum");
     expect(runbook).toMatch(/preserves\s+`~\/\.vellum`/u);
     expect(runbook).toContain("use Vellum's in-app profile wipe");
+    expect(runbook).toContain(
+      "It installs no `sudoers` policy, setuid binary, or",
+    );
+    expect(runbook).toContain(
+      "/usr/libexec/vellum-release-bridge",
+    );
+    expect(runbook).toContain(
+      "/usr/libexec/vellum-release-installer",
+    );
+    expect(runbook).toContain(
+      "Persistent `NOPASSWD` grants are not part of the product contract",
+    );
+    expect(runbook).toContain(
+      "A disconnect after `COMMIT` is indeterminate",
+    );
   });
 
   it("contains no executable unsafe sandbox, root-app, TCP, wipe, or raw-socket guidance", async () => {

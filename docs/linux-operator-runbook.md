@@ -139,8 +139,13 @@ aa-status
 ```
 
 The package installs `/opt/Vellum Command`, the `vellum` work CLI, its desktop
-entry, the narrow AppArmor profile, and a systemd user-unit definition. It does
-not select a station role, enable the user unit, or enable lingering.
+entry, the narrow AppArmor profile, and a systemd user-unit definition. It also
+bootstraps the fixed root-owned release installer and the fixed root-owned
+unprivileged release bridge. It installs no `sudoers` policy, setuid binary, or
+file capability. Every managed attempt requires the administrator to enter a
+fresh password into Command Center for that exact host and signed release.
+The package does not select a station role, enable the user unit, or enable
+lingering.
 
 Open Vellum as the ordinary user. In Command Center, choose the station role
 explicitly. For a Remote, configure the exact stable host ID and Command
@@ -206,6 +211,89 @@ An old deployment receipt, stale socket inode, or reachable SSH endpoint is
 not readiness. A red or unknown Doctor component remains a failed release
 gate.
 
+## Managed deployment from Command Center
+
+Linux deployment has two explicit phases:
+
+1. An administrator performs the fresh signed-package install above. This
+   bootstraps the package-owned privileged installer; Command Center never
+   uploads or substitutes a privileged executable.
+2. Subsequent install/update attempts originate in Command Center through
+   **Settings → Hosts → Deploy Remote**.
+
+Before phase 2, install the complete promoted release bundle—not only its
+`deb`—at this fixed owner-controlled location on Command Center:
+
+```text
+~/.vellum/releases/linux-x64-glibc/current
+```
+
+`current` must be a real directory owned by the Command Center user and not
+writable by group or others. It contains exactly one signed release inventory;
+do not merge two versions, use a symlink, or put a private signing key there.
+The production application supplies the trusted keyring and pins. The mutable
+bundle cannot supply its own trust.
+
+In Settings, add the SSH host, choose its capabilities, run **Configure as
+Remote**, then run **Deploy Remote**. Command Center first admits the complete
+release and shows the exact host, version, manifest SHA-256, package SHA-256,
+and inventory SHA-256 in an administrator-authorization dialog. Verify those
+facts, enter the Remote station user's administrator password, and authorize
+only that attempt. The password is held transiently in memory, is not written
+to the canvas, settings, logs, bundle, or Remote stage, and is destroyed after
+the one attempt. Vellum does not retry it or cache sudo authority.
+
+A Linux attempt:
+
+- verifies the complete signed bundle locally before transfer;
+- admits only Ubuntu 24.04, x86-64, and the fixed package/helper boundary;
+- refuses to cut over while live Vellum terminal work is present;
+- stages the exact admitted inventory through
+  `/usr/libexec/vellum-release-bridge`, then sends only the password line after
+  the bridge binds the staged target, candidate, and both provider/bridge
+  nonces;
+- accepts privileged work only after the fixed
+  `/usr/libexec/vellum-release-installer` proves the sudo-derived user, group,
+  host, machine, boot, and a fresh helper challenge over that same finite SSH
+  child;
+- sends `PREPARE` only after that root proof, and sends `COMMIT` only after the
+  root helper returns the exact candidate, maintenance cut, rollback fence,
+  and pre-mutation receipt;
+- re-verifies from root-protected descriptors, caches the rollback artifact,
+  journals every package/activation phase, and serializes package mutation;
+- reports ready only after the exact installed generation passes station
+  readiness; and
+- restores the prior cached package, service state, and lingering state when a
+  post-mutation check fails.
+
+The first managed attempt after a manual package bootstrap adopts the exact
+same signed installed release into the protected rollback cache before a later
+upgrade is permitted. A different-version upgrade never proceeds without that
+baseline.
+
+Persistent `NOPASSWD` grants are not part of the product contract. Do not add a
+Vellum sudoers rule, run the helper directly, pipe a password through a shell,
+or pre-authorize package-manager commands. A wrong password, disconnect before
+`COMMIT`, malformed receipt, changed digest, or changed target ends the attempt
+without an automatic retry. A disconnect after `COMMIT` is indeterminate until
+the root journal and release fence are reconciled by the bounded repair path.
+
+Deployment failures expose one bounded recovery action in Settings:
+
+| recovery | operator action |
+|---|---|
+| bootstrap Linux release installer | install the current signed package with the fresh-install procedure, then retry |
+| active Vellum terminals | close the counted sessions, confirm their work is preserved, then retry |
+| restore live-work observation | restore the product observation path through this runbook or support; do not bypass the route cut |
+| provision station browser trust | provision trust from Command Center, then retry |
+| retry Linux release install | let the current serialized attempt finish, then retry |
+| repair Linux release transaction | stop and preserve the root journal/cache; use the bounded recovery procedure or support |
+
+Never turn a recovery action into an ad hoc `sudo dpkg`, helper replacement,
+cache deletion, journal deletion, or service-state guess. If Settings reports
+an indeterminate transaction, preserve the host and evidence until repair is
+explicitly authorized.
+
 ## Logs and bounded diagnostics
 
 The headless unit deliberately does not stream application output into the
@@ -227,9 +315,12 @@ contain receipts and bounded status, never `~/.vellum` itself.
 
 1. Keep the current signed bundle and state backup until the new version has
    passed its burn-in period.
-2. Repeat the protected staging procedure above into a fresh version directory,
-   then verify the new bundle before stopping anything. Add the installed
-   version:
+2. For a managed Remote, promote the new complete bundle into Command Center's
+   fixed `current` directory, run **Deploy Remote**, and repeat the readiness
+   and Doctor checks. This is the normal upgrade path.
+3. For a manual recovery upgrade, repeat the protected staging procedure above
+   into a fresh version directory, then verify the new bundle before stopping
+   anything. Add the installed version:
 
    ```sh
     /var/lib/vellum-release-stage/X.Y.Z/vellum-linux-verify-x64 \
@@ -245,7 +336,7 @@ contain receipts and bounded status, never `~/.vellum` itself.
      --installed-version CURRENT_VERSION
    ```
 
-3. After a green receipt, repeat the staged `packageBytes` and `packageSha256`
+4. After a green receipt, repeat the staged `packageBytes` and `packageSha256`
    checks shown above. Only then stop the Vellum user service, install the exact
    admitted root-owned `deb`, reload the unit, and start it:
 
@@ -257,7 +348,7 @@ contain receipts and bounded status, never `~/.vellum` itself.
    systemctl --user start vellum-remote.service
    ```
 
-4. Repeat every readiness and Doctor check. Do not discard the prior signed
+5. Repeat every readiness and Doctor check. Do not discard the prior signed
    bundle or backup yet.
 
 ## Rollback
