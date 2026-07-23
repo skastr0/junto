@@ -185,13 +185,41 @@ the Vellum user service, then run `sudo loginctl disable-linger STATION_USER`.
 
 ## Readiness and Doctor
 
-For a Remote, require all of these observations:
+Two distinct planes. Do not collapse them.
 
-- `systemctl --user is-active vellum-remote.service` prints `active`;
+### Boot ready (install / unit / managed deploy gate)
+
+Structural readiness means only:
+
+- `systemctl --user is-active vellum-remote.service` prints `active` with
+  SubState `running` and a 32-hex `InvocationID`;
+- the package-owned launcher is the unit MainPID;
+- work control has published the private generation receipt
+  `$XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID` whose body is exactly
+  that invocation id;
+- fresh owner-only work control socket and token exist under `~/.vellum/work/`.
+
+Managed install, update, and rollback activation succeed or fail on this gate
+alone. Terminal, browser, canvas, display, and sandbox health never block boot
+or activation.
+
+```sh
+systemctl --user show vellum-remote.service \
+  --property=ActiveState,SubState,MainPID,InvocationID,Result,NRestarts
+# Generation receipt (replace $UID and $INVOCATION_ID from show):
+stat -c '%a %U' /run/user/$UID/vellum-remote/ready-$INVOCATION_ID
+cat /run/user/$UID/vellum-remote/ready-$INVOCATION_ID
+```
+
+### Doctor observation (qualification, non-blocking for boot)
+
+For release qualification and day-to-day operations, also observe:
+
 - the service's `MainPID` and cgroup belong to the ordinary station user;
 - `/etc/apparmor.d/vellum` is loaded for the exact packaged executable;
 - no Vellum TCP or Chrome DevTools listener exists;
-- the local work and browser control surfaces are owner-only Unix sockets;
+- browser (and terminal) control surfaces are owner-only when those planes are
+  expected for the workload;
 - Vellum Doctor reports the selected role, exact host ID, supervised alignment,
   current canvas-pull evidence, work readiness, native terminal readiness, and
   browser product-path readiness.
@@ -202,14 +230,12 @@ identity is part of the proof:
 
 ```sh
 vellum doctor
-systemctl --user show vellum-remote.service \
-  --property=ActiveState,SubState,MainPID,Result,NRestarts
 ss -lntp
 ```
 
 An old deployment receipt, stale socket inode, or reachable SSH endpoint is
-not readiness. A red or unknown Doctor component remains a failed release
-gate.
+not boot readiness. A red or unknown Doctor component fails **release
+qualification**, not unit start or managed activation.
 
 ## Managed deployment from Command Center
 
@@ -264,8 +290,8 @@ A Linux attempt:
 - reaps the fixed sudo child, removes the exact descriptor-held staging
   directory, and emits a fully bound `STAGE_CLEARED` receipt only after that
   directory inode is proven unlinked;
-- reports ready only after the exact installed generation passes station
-  readiness; and
+- reports ready only after the exact installed generation publishes the
+  private work-control generation receipt; and
 - restores the prior cached package, service state, and lingering state when a
   post-mutation check fails.
 
