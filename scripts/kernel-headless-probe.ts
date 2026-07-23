@@ -29,9 +29,14 @@
 //
 // Exit 0 if both passes hold; exit 2 with a diagnosis otherwise.
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  startRendererServer,
+  type RendererServer,
+} from "../e2e/harness/renderer-server";
 import {
   createProbeSandbox,
   createProbeProcessSupervisor,
@@ -42,6 +47,7 @@ import {
 import {
   KERNEL_PROBE_CANVAS,
   KERNEL_PROBE_REGION_ID,
+  KERNEL_PROBE_TIMER_EVERY_MINUTES,
   makeKernelHeadlessFixture,
 } from "./kernel-headless-fixture";
 
@@ -51,10 +57,16 @@ import {
 const REPO_ROOT = process.cwd();
 const ELECTRON_BIN = join(REPO_ROOT, "node_modules", ".bin", "electron");
 const MAIN_ENTRY = join(REPO_ROOT, "out", "main", "index.js");
+const RENDERER_DIR = join(REPO_ROOT, "out", "renderer");
+const RENDERER_ENTRY = join(RENDERER_DIR, "index.html");
+const STARTUP_SMOKE = process.argv.includes("--startup-smoke");
 
 const BOOT_POLL_MS = 500;
 const ARMED_DELIVERY_TIMEOUT_MS = 90_000; // headroom for a real model turn
-const DRY_PULSE_TIMEOUT_MS = 15_000;
+// A newly discovered timer is scheduled one interval ahead, but the production
+// kernel's safety evaluation cadence is 30s. Keep this beyond one full cadence
+// while still failing well inside the global watchdog.
+const DRY_PULSE_TIMEOUT_MS = 45_000;
 const PROBE_RUNTIME_TIMEOUT_MS = 130_000;
 const PROBE_LOG_BYTES = 256 * 1024;
 const PROBE_TEMP_PREFIX = join(tmpdir(), "vellum-kernel-probe-");
@@ -62,6 +74,8 @@ const probeSupervisor = createProbeProcessSupervisor({ maxLogBytes: PROBE_LOG_BY
 const activeSandboxes = new Set<ProbeSandbox>();
 let watchdogExitRequested = false;
 let mainSucceeded = false;
+let rendererServer: RendererServer | undefined;
+let rendererServerCloseFlight: Promise<boolean> | undefined;
 
 interface PulseRecordLike {
   readonly kind: string;
@@ -89,8 +103,10 @@ const writeStore = async (userDataDir: string, data: Record<string, unknown>): P
 };
 
 interface Fixture {
+  readonly root: string;
   readonly userDataDir: string;
   readonly canvasesDir: string;
+  readonly canvasPath: string;
 }
 
 const setUpFixture = async (armed: boolean): Promise<Fixture> => {
@@ -99,9 +115,13 @@ const setUpFixture = async (armed: boolean): Promise<Fixture> => {
   const root = sandbox.root;
   const userDataDir = join(root, "userData");
   const canvasesDir = join(root, "canvases");
+  const canvasPath = join(
+    canvasesDir,
+    `${KERNEL_PROBE_CANVAS}.canvas`,
+  );
   await mkdir(canvasesDir, { recursive: true });
   await writeFile(
-    join(canvasesDir, `${KERNEL_PROBE_CANVAS}.canvas`),
+    canvasPath,
     JSON.stringify(makeKernelHeadlessFixture(), null, 2),
     "utf8",
   );
@@ -112,17 +132,36 @@ const setUpFixture = async (armed: boolean): Promise<Fixture> => {
       },
     });
   }
-  return { userDataDir, canvasesDir };
+  return { root, userDataDir, canvasesDir, canvasPath };
 };
 
-const spawnApp = (fixture: Fixture): ProbeProcessHandle => {
+const spawnApp = (
+  fixture: Fixture,
+  rendererUrl: string,
+): ProbeProcessHandle => {
   const child = probeSupervisor.spawnGroup({
     source: "kernel-headless-probe",
     purpose: "run isolated headless Vellum fixture",
     command: ELECTRON_BIN,
     args: [MAIN_ENTRY, `--user-data-dir=${fixture.userDataDir}`, "--vellum-headless"],
     cwd: REPO_ROOT,
-    env: { ...process.env, VELLUM_CANVASES_DIR: fixture.canvasesDir },
+    env: {
+      ...process.env,
+      // Unpackaged Electron has no vellum-app:// protocol. Give the existing
+      // trusted-origin guard an exact loopback root backed by the real built
+      // renderer; never weaken or bypass the guard for headless mode.
+      ELECTRON_RENDERER_URL: rendererUrl,
+      VELLUM_BROWSER_DIR: join(fixture.root, "browser"),
+      VELLUM_BROWSER_HOME: join(fixture.root, "browser-control"),
+      VELLUM_CANVASES_DIR: fixture.canvasesDir,
+      VELLUM_HOSTS_PATH: join(fixture.root, "hosts.json"),
+      VELLUM_SETTINGS_PATH: join(fixture.root, "settings.json"),
+      VELLUM_STATION_STATUS_PATH: join(
+        fixture.root,
+        "station-status.json",
+      ),
+      VELLUM_WORK_HOME: join(fixture.root, "work-control"),
+    },
   });
   child.onOutput((source, _snapshot, chunk) => {
     const destination = source === "stdout" ? process.stdout : process.stderr;
@@ -133,12 +172,20 @@ const spawnApp = (fixture: Fixture): ProbeProcessHandle => {
 
 const waitForPulse = async (
   fixture: Fixture,
+  child: ProbeProcessHandle,
   predicate: (record: PulseRecordLike) => boolean,
   timeoutMs: number,
 ): Promise<PulseRecordLike> => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (watchdogExitRequested) throw new Error("kernel probe watchdog expired");
+    if (child.exited()) {
+      const close = await child.closed;
+      const diagnostic = `${close.stdout}\n${close.stderr}`.trim().slice(-8_192);
+      throw new Error(
+        `headless Vellum exited before a PulseRecord (code ${String(close.exitCode)}, signal ${String(close.signal)})${diagnostic ? `\n${diagnostic}` : ""}`,
+      );
+    }
     const store = await readStore(fixture.userDataDir);
     const debug = store["kernel.debug"] as { pulseLog?: ReadonlyArray<PulseRecordLike> } | undefined;
     const match = debug?.pulseLog?.find(
@@ -151,17 +198,56 @@ const waitForPulse = async (
   throw new Error(`no matching PulseRecord landed within ${timeoutMs}ms`);
 };
 
+const nudgeTimerAfterKernelBaseline = async (
+  fixture: Fixture,
+  child: ProbeProcessHandle,
+): Promise<void> => {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    if (child.exited()) {
+      const close = await child.closed;
+      throw new Error(
+        `headless Vellum exited before the kernel baseline (code ${String(close.exitCode)}, signal ${String(close.signal)})`,
+      );
+    }
+    const store = await readStore(fixture.userDataDir);
+    if ("kernel.debug" in store) break;
+    await sleep(BOOT_POLL_MS);
+  }
+  const baseline = await readStore(fixture.userDataDir);
+  if (!("kernel.debug" in baseline)) {
+    throw new Error("kernel did not publish its initial headless baseline");
+  }
+
+  // A timer is intentionally not fired on discovery. Once its first schedule
+  // is due, rewrite the isolated fixture byte-for-byte so the real file
+  // watcher/resync path evaluates it without waiting for the 30s safety tick.
+  await sleep(KERNEL_PROBE_TIMER_EVERY_MINUTES * 60_000 + 250);
+  await writeFile(
+    fixture.canvasPath,
+    JSON.stringify(makeKernelHeadlessFixture(), null, 2),
+    "utf8",
+  );
+};
+
 const runPass = async (
   label: string,
   armed: boolean,
-  assert: (fixture: Fixture) => Promise<void>,
+  rendererUrl: string,
+  assert: (
+    fixture: Fixture,
+    child: ProbeProcessHandle,
+  ) => Promise<void>,
 ): Promise<void> => {
   console.log(`\n=== pass: ${label} ===`);
   const fixture = await setUpFixture(armed);
-  const child = spawnApp(fixture);
+  const child = spawnApp(fixture, rendererUrl);
   try {
     console.log("[probe] explicit headless mode started with zero renderer windows");
-    await assert(fixture);
+    await Promise.all([
+      assert(fixture, child),
+      nudgeTimerAfterKernelBaseline(fixture, child),
+    ]);
     console.log(`[probe] ${label}: PASS`);
   } finally {
     const receipt = await probeSupervisor.stop(
@@ -176,26 +262,122 @@ const runPass = async (
   }
 };
 
-const main = async (): Promise<void> => {
-  await runPass("armed region delivers headlessly", true, async (fixture) => {
-    const record = await waitForPulse(
-      fixture,
-      (r) => r.kind === "timer" && !r.dry && r.delivered.length > 0,
-      ARMED_DELIVERY_TIMEOUT_MS,
+const assertProbeBuildInputs = async (): Promise<void> => {
+  try {
+    await Promise.all([
+      access(ELECTRON_BIN, constants.X_OK),
+      access(MAIN_ENTRY, constants.R_OK),
+      access(RENDERER_ENTRY, constants.R_OK),
+    ]);
+  } catch (error) {
+    throw new Error(
+      "kernel headless probe requires current Electron artifacts; run `bun x electron-vite build` first",
+      { cause: error },
     );
-    console.log("[probe] delivered PulseRecord:", record);
-  });
+  }
+};
 
-  await runPass("disarmed region yields a dry pulse", false, async (fixture) => {
-    const record = await waitForPulse(
-      fixture,
-      (r) => r.kind === "timer" && r.dry && r.delivered.length === 0,
-      DRY_PULSE_TIMEOUT_MS,
+const startTrustedRendererRoot = async (): Promise<RendererServer> => {
+  const server = await startRendererServer(RENDERER_DIR);
+  try {
+    const response = await fetch(server.url, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `trusted renderer root returned HTTP ${response.status}`,
+      );
+    }
+    const body = await response.text();
+    if (!body.toLowerCase().includes("<!doctype html")) {
+      throw new Error("trusted renderer root did not serve the built app shell");
+    }
+    return server;
+  } catch (error) {
+    await server.close().catch(() => undefined);
+    throw error;
+  }
+};
+
+const main = async (): Promise<void> => {
+  await assertProbeBuildInputs();
+  rendererServer = await startTrustedRendererRoot();
+  console.log(`[probe] trusted renderer root: ${rendererServer.url}`);
+
+  if (STARTUP_SMOKE) {
+    await runPass(
+      "startup wiring reaches a dry kernel pulse",
+      false,
+      rendererServer.url,
+      async (fixture, child) => {
+        const record = await waitForPulse(
+          fixture,
+          child,
+          (r) => r.kind === "timer" && r.dry && r.delivered.length === 0,
+          DRY_PULSE_TIMEOUT_MS,
+        );
+        console.log("[probe] startup wiring PulseRecord:", record);
+      },
     );
-    console.log("[probe] dry PulseRecord:", record);
-  });
+    mainSucceeded = true;
+    return;
+  }
+
+  await runPass(
+    "armed region delivers headlessly",
+    true,
+    rendererServer.url,
+    async (fixture, child) => {
+      const record = await waitForPulse(
+        fixture,
+        child,
+        (r) => r.kind === "timer" && !r.dry && r.delivered.length > 0,
+        ARMED_DELIVERY_TIMEOUT_MS,
+      );
+      console.log("[probe] delivered PulseRecord:", record);
+    },
+  );
+
+  await runPass(
+    "disarmed region yields a dry pulse",
+    false,
+    rendererServer.url,
+    async (fixture, child) => {
+      const record = await waitForPulse(
+        fixture,
+        child,
+        (r) => r.kind === "timer" && r.dry && r.delivered.length === 0,
+        DRY_PULSE_TIMEOUT_MS,
+      );
+      console.log("[probe] dry PulseRecord:", record);
+    },
+  );
 
   mainSucceeded = true;
+};
+
+const closeRendererServer = (): Promise<boolean> => {
+  if (rendererServerCloseFlight !== undefined) {
+    return rendererServerCloseFlight;
+  }
+  const active = rendererServer;
+  rendererServer = undefined;
+  const flight =
+    active === undefined
+      ? Promise.resolve(true)
+      : active.close().then(
+          () => true,
+          (error: unknown) => {
+            console.error(
+              `[probe] trusted renderer close failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+            return false;
+          },
+        );
+  rendererServerCloseFlight = flight;
+  return flight;
 };
 
 const finalize = async (reason: string): Promise<boolean> => {
@@ -210,7 +392,8 @@ const finalize = async (reason: string): Promise<boolean> => {
     if (removed) activeSandboxes.delete(sandbox);
     else allRemoved = false;
   }
-  return drainReceipt.clean && allRemoved;
+  const rendererClosed = await closeRendererServer();
+  return drainReceipt.clean && allRemoved && rendererClosed;
 };
 
 const watchdog = setTimeout(() => {
@@ -243,7 +426,11 @@ try {
     !watchdogExitRequested &&
     (process.exitCode ?? 0) === 0
   ) {
-    console.log("\nkernel-headless-probe: ALL PASSES GREEN");
+    console.log(
+      STARTUP_SMOKE
+        ? "\nkernel-headless-probe: STARTUP SMOKE GREEN"
+        : "\nkernel-headless-probe: ALL PASSES GREEN",
+    );
   }
   clearTimeout(watchdog);
 }

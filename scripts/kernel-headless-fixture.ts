@@ -1,6 +1,6 @@
 import type { CanvasDoc } from "../src/shared/canvas";
 
-export const KERNEL_PROBE_CANVAS = "__kernel-probe-fixture__";
+export const KERNEL_PROBE_CANVAS = "kernel-probe-fixture";
 export const KERNEL_PROBE_REGION_ID = "probe-region";
 export const KERNEL_PROBE_TIMER_ID = "probe-timer";
 export const KERNEL_PROBE_AGENT_ID = "probe-agent";
