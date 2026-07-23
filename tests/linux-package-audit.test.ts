@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   EXPECTED_APPARMOR_PROFILE,
   LINUX_DEB_DEPENDENCIES,
+  LINUX_PACKAGE_AUDIT_COMMAND_POLICIES,
   LINUX_SYSTEMD_UNSET_ENVIRONMENT,
+  formatLinuxPackageAuditCommandFailure,
   parseDebArchiveListing,
   parseDebControl,
   parseDesktopEntry,
@@ -18,6 +20,52 @@ import {
   validateNoFileCapabilities,
   validateSystemdUserUnit,
 } from "../scripts/audit-linux-package";
+
+describe("Linux package audit command policy", () => {
+  it("keeps metadata probes short and bounds full archive reads for native Ubuntu", () => {
+    expect(LINUX_PACKAGE_AUDIT_COMMAND_POLICIES).toMatchObject({
+      nativeDependencies: { timeoutMs: 30_000 },
+      fileCapabilities: { timeoutMs: 60_000 },
+      debControlRead: { timeoutMs: 30_000 },
+      debArchiveListing: { timeoutMs: 300_000 },
+      debControlExtraction: { timeoutMs: 30_000 },
+      debPayloadExtraction: { timeoutMs: 300_000 },
+    });
+    for (const policy of Object.values(
+      LINUX_PACKAGE_AUDIT_COMMAND_POLICIES,
+    )) {
+      expect(Number.isSafeInteger(policy.timeoutMs)).toBe(true);
+      expect(policy.timeoutMs).toBeGreaterThan(0);
+      expect(policy.timeoutMs).toBeLessThanOrEqual(300_000);
+    }
+  });
+
+  it("reports the exact operation, deadline, termination, and bounded output", () => {
+    const message = formatLinuxPackageAuditCommandFailure({
+      executable: "/usr/bin/dpkg-deb",
+      operation: "deb payload extraction",
+      timeoutMs: 300_000,
+      errorCode: "ETIMEDOUT",
+      status: null,
+      signal: "SIGKILL",
+      stderr: "decoder\nstalled",
+      stdout: "partial\toutput",
+    });
+    expect(message).toBe(
+      "dpkg-deb failed during deb payload extraction " +
+        "(timeout=300000ms; error=ETIMEDOUT; signal=SIGKILL; " +
+        "stderr=decoder stalled; stdout=partial output)",
+    );
+    expect(formatLinuxPackageAuditCommandFailure({
+      executable: "/usr/bin/dpkg-deb",
+      operation: "deb archive listing",
+      timeoutMs: 300_000,
+      status: 2,
+      signal: null,
+      stderr: "x".repeat(1_000),
+    }).length).toBeLessThan(500);
+  });
+});
 
 const debControl = (overrides: Record<string, string> = {}): string => {
   const fields = {

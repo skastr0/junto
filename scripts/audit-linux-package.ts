@@ -277,15 +277,85 @@ const requirePathWithin = (
   }
 };
 
+export const LINUX_PACKAGE_AUDIT_COMMAND_POLICIES = {
+  nativeDependencies: {
+    label: "native dependency inspection",
+    timeoutMs: 30_000,
+  },
+  fileCapabilities: {
+    label: "file capability scan",
+    timeoutMs: 60_000,
+  },
+  debControlRead: {
+    label: "deb control read",
+    timeoutMs: 30_000,
+  },
+  debArchiveListing: {
+    label: "deb archive listing",
+    timeoutMs: 300_000,
+  },
+  debControlExtraction: {
+    label: "deb control extraction",
+    timeoutMs: 30_000,
+  },
+  debPayloadExtraction: {
+    label: "deb payload extraction",
+    timeoutMs: 300_000,
+  },
+} as const;
+
+type LinuxPackageAuditOperation =
+  keyof typeof LINUX_PACKAGE_AUDIT_COMMAND_POLICIES;
+
+const compactCommandOutput = (input: string | null | undefined): string => {
+  const compact = (input ?? "").replace(/\s+/gu, " ").trim();
+  return compact.length > 240 ? `${compact.slice(0, 239)}…` : compact;
+};
+
+export const formatLinuxPackageAuditCommandFailure = ({
+  executable,
+  operation,
+  timeoutMs,
+  errorCode,
+  status,
+  signal,
+  stdout,
+  stderr,
+}: {
+  readonly executable: string;
+  readonly operation: string;
+  readonly timeoutMs: number;
+  readonly errorCode?: string;
+  readonly status: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly stdout?: string | null;
+  readonly stderr?: string | null;
+}): string => {
+  const details = [`timeout=${timeoutMs}ms`];
+  if (errorCode !== undefined) details.push(`error=${errorCode}`);
+  if (status !== null) details.push(`status=${status}`);
+  if (signal !== null) details.push(`signal=${signal}`);
+  const compactStderr = compactCommandOutput(stderr);
+  const compactStdout = compactCommandOutput(stdout);
+  if (compactStderr.length > 0) details.push(`stderr=${compactStderr}`);
+  if (compactStdout.length > 0) details.push(`stdout=${compactStdout}`);
+  return `${path.basename(executable)} failed during ${operation} (${details.join("; ")})`;
+};
+
 const runFixed = (
   executable: string,
   args: ReadonlyArray<string>,
-  options: { readonly maxBuffer?: number } = {},
+  options: {
+    readonly operation: LinuxPackageAuditOperation;
+    readonly maxBuffer?: number;
+  },
 ): string => {
+  const policy = LINUX_PACKAGE_AUDIT_COMMAND_POLICIES[options.operation];
   const result = spawnSync(executable, args, {
     encoding: "utf8",
     shell: false,
-    timeout: 30_000,
+    timeout: policy.timeoutMs,
+    killSignal: "SIGKILL",
     maxBuffer: options.maxBuffer ?? 8 * 1024 * 1024,
     env: {
       PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -294,7 +364,22 @@ const runFixed = (
     },
   });
   if (result.error !== undefined || result.status !== 0) {
-    throw new Error(`${path.basename(executable)} failed during Linux package audit`);
+    const errorCode =
+      result.error !== undefined &&
+      "code" in result.error &&
+      typeof result.error.code === "string"
+        ? result.error.code
+        : undefined;
+    throw new Error(formatLinuxPackageAuditCommandFailure({
+      executable,
+      operation: policy.label,
+      timeoutMs: policy.timeoutMs,
+      errorCode,
+      status: result.status,
+      signal: result.signal,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    }));
   }
   return result.stdout ?? "";
 };
@@ -701,7 +786,9 @@ const requireElfX64 = async (filePath: string): Promise<void> => {
 };
 
 const requireLoadable = (filePath: string): void => {
-  const output = runFixed("/usr/bin/ldd", [filePath]);
+  const output = runFixed("/usr/bin/ldd", [filePath], {
+    operation: "nativeDependencies",
+  });
   if (/\bnot found\b/u.test(output)) {
     throw new Error(`Linux native object has unresolved libraries: ${path.basename(filePath)}`);
   }
@@ -714,7 +801,9 @@ export const validateNoFileCapabilities = (output: string): void => {
 };
 
 const requireNoFileCapabilities = (root: string): void => {
-  validateNoFileCapabilities(runFixed("/usr/sbin/getcap", ["-r", root]));
+  validateNoFileCapabilities(runFixed("/usr/sbin/getcap", ["-r", root], {
+    operation: "fileCapabilities",
+  }));
 };
 
 const sha256 = (filePath: string): Promise<string> =>
@@ -926,11 +1015,14 @@ export const auditLinuxPackage = async ({
   await validateElectronArtifactPath(unpacked);
 
   const control = validateDebControl(
-    runFixed("/usr/bin/dpkg-deb", ["--field", deb]),
+    runFixed("/usr/bin/dpkg-deb", ["--field", deb], {
+      operation: "debControlRead",
+    }),
     packageJson.version,
   );
   const archiveEntries = parseDebArchiveListing(
     runFixed("/usr/bin/dpkg-deb", ["--contents", deb], {
+      operation: "debArchiveListing",
       maxBuffer: 32 * 1024 * 1024,
     }),
   );
@@ -940,7 +1032,9 @@ export const auditLinuxPackage = async ({
   try {
     const controlDirectory = path.join(extraction, "control");
     await mkdir(controlDirectory, { mode: 0o700 });
-    runFixed("/usr/bin/dpkg-deb", ["--control", deb, controlDirectory]);
+    runFixed("/usr/bin/dpkg-deb", ["--control", deb, controlDirectory], {
+      operation: "debControlExtraction",
+    });
     const postInstall = path.join(controlDirectory, "postinst");
     const postRemove = path.join(controlDirectory, "postrm");
     const preInstall = path.join(controlDirectory, "preinst");
@@ -980,7 +1074,9 @@ export const auditLinuxPackage = async ({
       throw new Error("deb contains an undeclared control-plane file");
     }
 
-    runFixed("/usr/bin/dpkg-deb", ["--extract", deb, extraction]);
+    runFixed("/usr/bin/dpkg-deb", ["--extract", deb, extraction], {
+      operation: "debPayloadExtraction",
+    });
     const extractedApp = path.join(
       extraction,
       ...LINUX_INSTALL_DIRECTORY.slice(1).split("/"),
