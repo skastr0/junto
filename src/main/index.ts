@@ -46,6 +46,7 @@ import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 import { startWorkControlServer, type WorkControlServer } from "./vellum/work/control";
+import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
 import { configurePeerPidHelperRoots } from "./vellum/process-identity";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
 import {
@@ -66,6 +67,12 @@ import {
   isTrustedMainWebContents,
   setTrustedMainWebContents,
 } from "./vellum/trusted-main-webcontents";
+import { createTrustedRendererNavigation } from "./vellum/trusted-renderer-navigation";
+import { createRendererSurfaceReadiness } from "./vellum/renderer-surface-readiness";
+import {
+  createRendererSurfaceRecovery,
+  resolveRendererSurfaceTimeoutMs,
+} from "./vellum/renderer-surface-recovery";
 import {
   assessLiveWork,
   buildQuitConfirmPrompt,
@@ -299,6 +306,7 @@ let adapterShutdown:
 let appProcessShutdown:
   | Promise<Awaited<ReturnType<typeof appProcessPlane.drainOnQuit>>>
   | undefined;
+let unsubscribeCanvasEdgeGrants: (() => void) | undefined;
 let mainAuthoringPrecommitEpoch: number | undefined;
 const signalQuitState = createSignalQuitState();
 const quitPreparationArbiter = createQuitPreparationArbiter();
@@ -548,6 +556,18 @@ const rejectPendingCanvasQuiesce = (
 // these handlers run in packaged builds too, not just dev.
 const RECOVERY_WINDOW_MS = 5 * 60 * 1_000;
 const MAX_RECOVERIES = 3;
+const RENDERER_SURFACE_READY_TIMEOUT_MS = resolveRendererSurfaceTimeoutMs({
+  packaged: app.isPackaged,
+  testHarness: process.env.VELLUM_E2E === "1",
+  override: process.env.VELLUM_E2E_RENDERER_SURFACE_TIMEOUT_MS,
+  fallbackMs: 30_000,
+});
+const rendererSurfaceRecovery = createRendererSurfaceRecovery({
+  maxRetries: 3,
+  windowMs: RECOVERY_WINDOW_MS,
+});
+let rendererRecoveryDestroyInProgress = false;
+let rendererFailureWindow: BrowserWindow | undefined;
 let recoveryWindowStart = Date.now();
 let reloadCount = 0;
 let relaunchCount = 0;
@@ -706,45 +726,63 @@ const createWindow = () => {
   const clearRendererTrust = (): void => {
     if (trustedMainWindow === mainWindow) setTrustedMainWebContents(undefined);
   };
-  // Trust is revoked only when a main-frame navigation is actually admitted,
-  // then reacquired on did-finish-load of the boot authority.
-  //
-  // Critical: never clear trust and then preventDefault the same navigation.
-  // That left the window on the previous document with IPC permanently
-  // revoked (black/stuck UI after any Vite full reload, link click, or
-  // page-initiated navigation attempt).
-  mainWindow.webContents.on("did-start-navigation", (_event, _url, _inPlace, isMainFrame) => {
-    if (isMainFrame) clearRendererTrust();
+  const surfaceReadiness = createRendererSurfaceReadiness({
+    timeoutMs: RENDERER_SURFACE_READY_TIMEOUT_MS,
+    onTimeout: (phase) => {
+      console.error(`[window] trusted renderer ${phase} did not complete before the readiness deadline`);
+      clearRendererTrust();
+      recoverRendererSurface(mainWindow, phase);
+    },
+  });
+  const acknowledgeRendererSurface = (event: IpcMainEvent, challenge: unknown): void => {
+    if (
+      event.sender !== mainWindow.webContents ||
+      mainWindow.isDestroyed() ||
+      event.sender.isDestroyed() ||
+      !rendererOrigin.allows(event.sender.getURL())
+    ) return;
+    if (surfaceReadiness.acknowledge(challenge)) rendererSurfaceRecovery.succeeded();
+  };
+  ipcMain.on(IPC_CHANNELS.rendererSurfaceReady, acknowledgeRendererSurface);
+
+  const rendererNavigation = createTrustedRendererNavigation({
+    origin: rendererOrigin,
+    currentUrl: () => mainWindow.webContents.getURL(),
+    available: () => !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed(),
+    trust: () => setTrustedMainWebContents(mainWindow.webContents, rendererOrigin),
+    revoke: clearRendererTrust,
+    documentStarted: surfaceReadiness.documentStarted,
+    committedDocumentRestored: () => {
+      const challenge = surfaceReadiness.committedDocumentRestored();
+      if (challenge !== undefined) {
+        mainWindow.webContents.send(IPC_CHANNELS.rendererSurfaceChallenge, challenge);
+      }
+    },
+    trustedDocumentCommitted: () => {
+      const challenge = surfaceReadiness.trustedDocumentCommitted();
+      mainWindow.webContents.send(IPC_CHANNELS.rendererSurfaceChallenge, challenge);
+    },
+    rejectCommittedUrl: (loadedUrl) => {
+      console.error(`[window] trusted renderer rejected loaded URL: ${loadedUrl}`);
+      if (!mainWindow.isDestroyed()) mainWindow.destroy();
+    },
   });
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (!rendererOrigin.allows(url)) {
-      // Deny off-authority navigation without dropping trust on the still-live
-      // document the user remains looking at.
-      event.preventDefault();
-      return;
-    }
-    // Same-authority (Vite HMR full reload, in-app path): clear trust; the
-    // subsequent did-finish-load re-mints it for the new document generation.
-    clearRendererTrust();
+    rendererNavigation.willNavigate(event, url);
   });
-  mainWindow.webContents.on("will-redirect", (event) => {
-    // Redirects are never part of the boot contract: even a same-origin
-    // redirect could swap the application document beneath a previously
-    // privileged preload generation. Cancel without revoking trust for the
-    // document that remains committed.
-    event.preventDefault();
+  mainWindow.webContents.on("did-start-navigation", (_event, _url, inPlace, isMainFrame) => {
+    rendererNavigation.didStartNavigation(inPlace, isMainFrame);
   });
-  mainWindow.webContents.on("did-finish-load", () => {
-    if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
-    const loadedUrl = mainWindow.webContents.getURL();
-    if (!rendererOrigin.allows(loadedUrl)) {
-      clearRendererTrust();
-      console.error(`[window] trusted renderer rejected loaded URL: ${loadedUrl}`);
-      mainWindow.destroy();
-      return;
-    }
-    setTrustedMainWebContents(mainWindow.webContents, rendererOrigin);
+  mainWindow.webContents.on("will-redirect", (event, _url, _inPlace, isMainFrame) => {
+    rendererNavigation.willRedirect(event, isMainFrame);
   });
+  mainWindow.webContents.on("did-finish-load", rendererNavigation.didFinishLoad);
+  mainWindow.webContents.on("did-fail-load", (_event, _errorCode, _description, _url, isMainFrame) => {
+    rendererNavigation.didFailLoad(isMainFrame);
+  });
+  mainWindow.webContents.on("did-stop-loading", rendererNavigation.didStopLoading);
+  mainWindow.webContents.on("render-process-gone", rendererNavigation.documentLost);
+  mainWindow.webContents.on("preload-error", rendererNavigation.documentLost);
 
   let disconnectNodeRefSink = (): void => undefined;
   const disconnect = (): void => {
@@ -813,12 +851,17 @@ const createWindow = () => {
     acknowledgedCanvasQuiesceWebContents.delete(mainWebContentsId);
     if (trustedMainWindow === mainWindow) trustedMainWindow = undefined;
     setTrustedMainWebContents(undefined);
+    surfaceReadiness.dispose();
+    ipcMain.removeListener(IPC_CHANNELS.rendererSurfaceReady, acknowledgeRendererSurface);
     disconnect();
     ipcMain.removeListener(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
   });
 
   registerCrashRecovery(mainWindow);
 
+  // Arm before loadURL so a request that never reaches did-start-navigation
+  // or did-finish-load cannot strand an indefinitely black live window.
+  surfaceReadiness.documentStarted();
   void mainWindow.loadURL(rendererOrigin.initialUrl).catch(() => {
     if (app.isPackaged) {
       console.error("[window] trusted renderer load failed");
@@ -830,6 +873,67 @@ const createWindow = () => {
   });
 
   return mainWindow;
+};
+
+const createRendererFailureWindow = (): BrowserWindow => {
+  const existing = rendererFailureWindow;
+  if (existing !== undefined && !existing.isDestroyed()) {
+    existing.show();
+    existing.focus();
+    return existing;
+  }
+  const failureWindow = new BrowserWindow({
+    width: 640,
+    height: 360,
+    minWidth: 520,
+    minHeight: 300,
+    title: "Vellum recovery",
+    backgroundColor: "#0c0b0a",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  rendererFailureWindow = failureWindow;
+  failureWindow.on("close", (event) => {
+    // Keep a visible recovery surface while owned-runtime shutdown is unable
+    // to prove clean. app.exit after a clean drain bypasses this event.
+    if (runtimeDisposed) return;
+    event.preventDefault();
+    app.quit();
+  });
+  failureWindow.on("closed", () => {
+    if (rendererFailureWindow === failureWindow) rendererFailureWindow = undefined;
+  });
+  const html = `<!doctype html><meta charset="utf-8"><title>Vellum recovery</title><style>html{color-scheme:dark;background:#0c0b0a;color:#ede6da;font:15px system-ui}body{max-width:52ch;margin:72px auto;padding:0 28px}h1{font-size:22px}p{line-height:1.55;color:#bdb5a8}</style><h1>Vellum could not render its workspace.</h1><p>A trusted workspace could not be restored safely. Quit and reopen Vellum; your canvas documents and local sessions were not deleted.</p>`;
+  void failureWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  return failureWindow;
+};
+
+const recoverRendererSurface = (
+  failedWindow: BrowserWindow,
+  phase: "load" | "mount",
+): void => {
+  const action = rendererSurfaceRecovery.failed({ admissionClosed: shutdownAdmissionClosed });
+  rendererRecoveryDestroyInProgress = true;
+  try {
+    if (action === "retry") {
+      if (!failedWindow.isDestroyed()) failedWindow.destroy();
+      console.error(`[window] retrying trusted renderer after ${phase} timeout`);
+      const replacement = createWindow();
+      // BrowserWindow destruction emits synchronous lifecycle events. If any
+      // of them closes admission before replacement construction, retain a
+      // diagnostic instead of accepting a live windowless singleton.
+      if (replacement === undefined) createRendererFailureWindow();
+    } else {
+      console.error(`[window] renderer recovery unavailable after ${phase} timeout`);
+      createRendererFailureWindow();
+      if (!failedWindow.isDestroyed()) failedWindow.destroy();
+    }
+  } finally {
+    rendererRecoveryDestroyInProgress = false;
+  }
 };
 
 
@@ -979,8 +1083,8 @@ if (!gotSingleInstanceLock) {
       hermesShutdown ??= hermes.shutdown.drainOnQuit();
       return;
     }
-    herdrActiveControlCount = () => herdr.streams.activeControlCount();
-    await AppRuntime.runPromise(herdr.start);
+  herdrActiveControlCount = () => herdr.streams.activeControlCount();
+  await AppRuntime.runPromise(herdr.start);
     // Local term control UDS — Remote stations expose this for CC SSH forward.
     try {
       await termPlane.start();
@@ -1004,22 +1108,40 @@ if (!gotSingleInstanceLock) {
     try {
       browserComposition = await startBrowserComposition(
         async (composition) => {
+          const readCanvasFromCanvases = async (name: string) => {
+            try {
+              return await AppRuntime.runPromise(
+                Effect.flatMap(CanvasesService, (canvases) =>
+                  Effect.map(canvases.read(name), (result) => result.doc),
+                ),
+              );
+            } catch {
+              return undefined;
+            }
+          };
+          const edgeGrant = makeEdgeGrantService({
+            capabilities: composition.registry,
+            canvasesDir: join(app.getPath("home"), ".vellum", "canvases"),
+            resolvePageTarget: resolveBrowserPageTarget,
+            readCanvas: readCanvasFromCanvases,
+          });
+          unsubscribeCanvasEdgeGrants = await AppRuntime.runPromise(
+            Effect.flatMap(CanvasesService, (canvases) =>
+              Effect.sync(() =>
+                canvases.subscribeChanges((name) => {
+                  edgeGrant.invalidateCanvas?.(name);
+                }),
+              ),
+            ),
+          );
+
           browserControl = await startBrowserControlServer({
             sessions: composition.sessions,
             capabilities: composition.registry,
             resolvePageTarget: resolveBrowserPageTarget,
             version: app.getVersion(),
-            readCanvas: async (name) => {
-              try {
-                return await AppRuntime.runPromise(
-                  Effect.flatMap(CanvasesService, (canvases) =>
-                    Effect.map(canvases.read(name), (result) => result.doc),
-                  ),
-                );
-              } catch {
-                return undefined;
-              }
-            },
+            edgeGrant,
+            readCanvas: readCanvasFromCanvases,
           });
           composition.bindControlShutdown(browserControl);
           registerBrowserIpcHandlers(composition.sessions);
@@ -1031,6 +1153,8 @@ if (!gotSingleInstanceLock) {
       }
     } catch {
       browserComposition = undefined;
+      unsubscribeCanvasEdgeGrants?.();
+      unsubscribeCanvasEdgeGrants = undefined;
       try {
         browserControl?.close();
       } catch {
@@ -1069,6 +1193,7 @@ app.on("window-all-closed", () => {
   if (
     process.platform !== "darwin" &&
     !signalRendererDestroyInProgress &&
+    !rendererRecoveryDestroyInProgress &&
     !signalQuitState.rendererQuiesced() &&
     !quitPreparationArbiter.committed()
   ) app.quit();
@@ -1084,6 +1209,8 @@ const beginShutdownAdmission = (reason: string): void => {
   nodeRefRelayWatcher = undefined;
   disconnectNodeRefIngress();
   disconnectNodeRefIngress = () => undefined;
+  unsubscribeCanvasEdgeGrants?.();
+  unsubscribeCanvasEdgeGrants = undefined;
 
   // Browser product lock: quit detaches owned browser views and closes
   // automation/control admission only through the aggregate composition drain.
@@ -1169,6 +1296,8 @@ const requireCleanBrowserShutdown = async (reason: string): Promise<void> => {
   }
   browserControl = undefined;
   browserComposition = undefined;
+  unsubscribeCanvasEdgeGrants?.();
+  unsubscribeCanvasEdgeGrants = undefined;
 };
 
 const requireCleanWorkControlShutdown = async (): Promise<void> => {

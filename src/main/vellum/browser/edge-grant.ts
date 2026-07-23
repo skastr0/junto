@@ -1,5 +1,6 @@
 import type { CanvasDoc } from "@shared/canvas";
 import type { Socket } from "node:net";
+import { createHash } from "node:crypto";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   type BrowserAutomationPrincipal,
@@ -71,6 +72,7 @@ export interface EdgeGrantService {
   /** Admit from an already-resolved principal (tests / internal). */
   readonly admitPrincipal: (principal: ProcessPrincipal) => Promise<EdgeGrantResult>;
   readonly clear: () => void;
+  readonly invalidateCanvas?: (canvasName: string) => void;
 }
 
 interface CacheEntry {
@@ -78,7 +80,8 @@ interface CacheEntry {
   readonly principal: BrowserAutomationPrincipal;
   readonly handle: BrowserCapabilityGrant["handle"];
   readonly processKey: string;
-  readonly targetRefs: ReadonlyArray<string>;
+  readonly targetSignature: string;
+  readonly canvasName: string;
   readonly expiresAt: number;
 }
 
@@ -107,12 +110,25 @@ const processKeyOf = (principal: ProcessPrincipal): string => {
   return `herdr:${principal.paneId ?? ""}:${principal.canvasName ?? ""}:${principal.nodeId ?? ""}`;
 };
 
-const sameTargetRefs = (
-  cached: ReadonlyArray<string>,
+const sameTargetSignature = (
+  cached: string,
   targets: ReadonlyArray<BrowserCapabilityTarget>,
-): boolean =>
-  cached.length === targets.length &&
-  cached.every((ref, index) => ref === targets[index]?.ref);
+): boolean => cached === makeTargetSignature(targets);
+
+const makeTargetSignature = (targets: ReadonlyArray<BrowserCapabilityTarget>): string => {
+  const stable = targets
+    .map((target) =>
+      JSON.stringify({
+        ref: target.ref,
+        profile: target.profile,
+        exactOrigins: [...target.exactOrigins].sort(),
+      }),
+    )
+    .sort();
+  return createHash("sha256")
+    .update(stable.join("|"))
+    .digest("base64url");
+};
 
 export const makeEdgeGrantService = (
   dependencies: EdgeGrantDependencies,
@@ -122,7 +138,35 @@ export const makeEdgeGrantService = (
   const wallNow = dependencies.wallNow ?? Date.now;
   const ttlMs = dependencies.ttlMs ?? EDGE_GRANT_TTL_MS;
   const cache = new Map<string, CacheEntry>();
+  const cacheByCanvas = new Map<string, Set<string>>();
   const capabilityPrincipals = new Map<string, BrowserAutomationPrincipal>();
+
+  const removeCacheIndex = (canvasName: string, cacheKey: string): void => {
+    const keys = cacheByCanvas.get(canvasName);
+    if (keys === undefined) return;
+    keys.delete(cacheKey);
+    if (keys.size === 0) cacheByCanvas.delete(canvasName);
+  };
+
+  const revokeCacheEntry = (cacheKey: string): void => {
+    const existing = cache.get(cacheKey);
+    if (existing === undefined) return;
+    cache.delete(cacheKey);
+    removeCacheIndex(existing.canvasName, cacheKey);
+    try {
+      dependencies.capabilities.revoke(existing.handle, "superseded");
+    } catch {
+      // best-effort
+    }
+  };
+
+  const invalidateCanvas = (canvasName: string): void => {
+    const affected = cacheByCanvas.get(canvasName);
+    if (affected === undefined) return;
+    for (const cacheKey of [...affected]) {
+      revokeCacheEntry(cacheKey);
+    }
+  };
 
   const loadDocs = async (): Promise<ReadonlyArray<{ name: string; doc: CanvasDoc }>> => {
     if (dependencies.readCanvas !== undefined) {
@@ -240,7 +284,7 @@ export const makeEdgeGrantService = (
     if (existing !== undefined) {
       if (
         existing.expiresAt > now + 5_000 &&
-        sameTargetRefs(existing.targetRefs, targets)
+        sameTargetSignature(existing.targetSignature, targets)
       ) {
         return {
           ok: true,
@@ -249,12 +293,7 @@ export const makeEdgeGrantService = (
           targetCount: targets.length,
         };
       }
-      try {
-        dependencies.capabilities.revoke(existing.handle, "superseded");
-      } catch {
-        // best-effort
-      }
-      cache.delete(cacheKey);
+      revokeCacheEntry(cacheKey);
     }
 
     let capPrincipal = capabilityPrincipals.get(cacheKey);
@@ -291,9 +330,16 @@ export const makeEdgeGrantService = (
       principal: capPrincipal,
       handle: grant.handle,
       processKey: cacheKey,
-      targetRefs: targets.map((t) => t.ref),
+      targetSignature: makeTargetSignature(targets),
+      canvasName: match.principal.canvasName,
       expiresAt: grant.expiresAt,
     });
+    const keys = cacheByCanvas.get(match.principal.canvasName);
+    if (keys === undefined) {
+      cacheByCanvas.set(match.principal.canvasName, new Set([cacheKey]));
+    } else {
+      keys.add(cacheKey);
+    }
 
     return {
       ok: true,
@@ -321,15 +367,14 @@ export const makeEdgeGrantService = (
     admitSocket,
     admitPrincipal,
     clear: () => {
-      for (const entry of cache.values()) {
-        try {
-          dependencies.capabilities.revoke(entry.handle, "superseded");
-        } catch {
-          // ignore
-        }
+      const entries = [...cache.keys()];
+      for (const cacheKey of entries) {
+        revokeCacheEntry(cacheKey);
       }
       cache.clear();
+      cacheByCanvas.clear();
       capabilityPrincipals.clear();
     },
+    invalidateCanvas,
   });
 };

@@ -250,4 +250,36 @@ describe("browser edge-grant process-bind dual admit", () => {
       expect(denied.envelope.error.message).toMatch(/missing edge/i);
     }
   });
+
+  it("reuses admission cache and remints after canvas invalidation", async () => {
+    await mkdir(join(root, "canvases"), { recursive: true });
+    const doc = canvasDoc(true);
+    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
+    const { edgeGrant } = makeStack(doc);
+
+    const principal = { kind: "agent", agentKey: "local:default" };
+    const first = await edgeGrant.admitPrincipal(principal);
+    const second = await edgeGrant.admitPrincipal(principal);
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(first).toHaveProperty("secret");
+    expect(second).toHaveProperty("secret");
+    if (first.ok && second.ok) {
+      expect(second.secret).toBe(first.secret);
+    }
+
+    edgeGrant.invalidateCanvas?.("other");
+    const third = await edgeGrant.admitPrincipal(principal);
+    expect(third.ok).toBe(true);
+    if (third.ok && first.ok) {
+      expect(third.secret).toBe(first.secret);
+    }
+
+    edgeGrant.invalidateCanvas?.("work");
+    const fourth = await edgeGrant.admitPrincipal(principal);
+    expect(fourth.ok).toBe(true);
+    if (fourth.ok && first.ok) {
+      expect(fourth.secret).not.toBe(first.secret);
+    }
+  });
 });
