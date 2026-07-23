@@ -20,6 +20,7 @@ import {
   type BrowserViewAdapter,
   type BrowserViewHandle,
 } from "../src/main/vellum/browser/sessions";
+import { type ProcessPrincipal } from "../src/main/vellum/process-identity";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
@@ -150,9 +151,10 @@ describe("browser edge-grant process-bind dual admit", () => {
     await mkdir(join(root, "canvases"), { recursive: true });
     const doc = canvasDoc(true);
     await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
-    const { handlers, edgeGrant, capabilities } = makeStack(doc);
-    const token = rotateControlToken(join(root, "token"));
-    const requestId = "a".repeat(32);
+      const { handlers, edgeGrant, capabilities } = makeStack(doc);
+      const token = rotateControlToken(join(root, "token"));
+      const processPrincipal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+      const requestId = "a".repeat(32);
 
     const denied = await dispatchControlRequest(
       handlers,
@@ -181,7 +183,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       {
         kind: "principal",
         edgeGrant,
-        principal: { kind: "agent", agentKey: "local:default" },
+        principal: processPrincipal,
       },
     );
     expect(admitted.status).toBe(200);
@@ -227,6 +229,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const { handlers, edgeGrant } = makeStack(doc);
     const token = rotateControlToken(join(root, "token"));
+    const processPrincipal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
     const denied = await dispatchControlRequest(
       handlers,
       token,
@@ -241,7 +244,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       {
         kind: "principal",
         edgeGrant,
-        principal: { kind: "agent", agentKey: "local:default" },
+        principal: processPrincipal,
       },
     );
     expect(denied.status).toBe(403);
@@ -257,7 +260,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const { edgeGrant } = makeStack(doc);
 
-    const principal = { kind: "agent", agentKey: "local:default" };
+    const principal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
     const first = await edgeGrant.admitPrincipal(principal);
     const second = await edgeGrant.admitPrincipal(principal);
     expect(first.ok).toBe(true);

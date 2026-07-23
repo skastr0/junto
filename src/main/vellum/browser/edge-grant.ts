@@ -239,7 +239,7 @@ export const makeEdgeGrantService = (
       return fail("canvas_unreadable", "no canvases available for process-bind resolution");
     }
 
-    const matches: Array<{ pageRefs: ReadonlyArray<string> }> = [];
+    const matches: Array<{ canvasName: string; pageRefs: ReadonlyArray<string> }> = [];
 
     let lastDenial: EdgeGrantDenial = "not_found";
     let lastMessage = "no matching agent|herdr node for connecting process";
@@ -256,7 +256,7 @@ export const makeEdgeGrantService = (
         lastMessage = resolved.message;
         continue;
       }
-      matches.push({ pageRefs: resolved.pageRefs });
+      matches.push({ canvasName: resolved.principal.canvasName, pageRefs: resolved.pageRefs });
     }
 
     if (matches.length === 0) {
@@ -331,12 +331,12 @@ export const makeEdgeGrantService = (
       handle: grant.handle,
       processKey: cacheKey,
       targetSignature: makeTargetSignature(targets),
-      canvasName: match.principal.canvasName,
+      canvasName: match.canvasName,
       expiresAt: grant.expiresAt,
     });
-    const keys = cacheByCanvas.get(match.principal.canvasName);
+    const keys = cacheByCanvas.get(match.canvasName);
     if (keys === undefined) {
-      cacheByCanvas.set(match.principal.canvasName, new Set([cacheKey]));
+      cacheByCanvas.set(match.canvasName, new Set([cacheKey]));
     } else {
       keys.add(cacheKey);
     }
