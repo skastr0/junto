@@ -115,6 +115,15 @@ export class SshTransport extends Context.Tag("@vellum/SshTransport")<
         confirm: ConfirmSshReady,
       ) => Effect.Effect<SshReady<A>, E, R>,
     ) => Effect.Effect<A, SshError | E, R | Scope.Scope>;
+    /**
+     * Runs one finite duplex protocol over one scoped SSH child and requires a
+     * clean remote exit. The callback owns stdin sequencing and must close it
+     * when its protocol has no more frames to send.
+     */
+    readonly transact: <A, E, R>(
+      program: ScopedStreamProgram,
+      use: (lease: SshLease) => Effect.Effect<A, E, R>,
+    ) => Effect.Effect<A, SshError | E, R>;
     readonly forward: (
       program: ForwardProgram,
     ) => Effect.Effect<SshForwardLease, SshError, Scope.Scope>;
@@ -694,6 +703,72 @@ export const SshTransportLayer = Layer.scoped(
         }),
       );
 
+    const transact: Context.Tag.Service<typeof SshTransport>["transact"] = (
+      program,
+      use,
+    ) =>
+      Effect.try({
+        try: () => compiler.stream(program),
+        catch: () =>
+          new SshSetupError({
+            endpoint: "invalid-program",
+            message:
+              "SSH transaction operation was not created by the policy surface",
+          }),
+      }).pipe(
+        Effect.flatMap((compiled) => {
+          const setup =
+            compiled.connection === "shared"
+              ? ensureControlDir(compiled.endpoint)
+              : Effect.void;
+          return withDial(
+            compiled.endpoint,
+            Effect.scoped(
+              setup.pipe(
+                Effect.zipRight(
+                  openLease(
+                    compiled.endpoint,
+                    "transaction",
+                    compiled.command,
+                  ),
+                ),
+                Effect.flatMap((lease) =>
+                  Effect.all(
+                    {
+                      value: use(lease),
+                      code: lease.exitCode,
+                    },
+                    { concurrency: "unbounded" },
+                  ).pipe(
+                    Effect.flatMap(({ value, code }) =>
+                      code === 0
+                        ? Effect.succeed(value)
+                        : Effect.fail(
+                            new SshExitError({
+                              endpoint: compiled.endpoint,
+                              operation: "transaction",
+                              code,
+                            }),
+                          ),
+                    ),
+                    Effect.timeoutFail({
+                      duration: compiled.readinessTimeoutMs,
+                      onTimeout: () =>
+                        new SshTimeoutError({
+                          endpoint: compiled.endpoint,
+                          operation: "transaction",
+                          timeoutMs: compiled.readinessTimeoutMs,
+                        }),
+                    }),
+                    Effect.ensuring(lease.close),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      );
+
     const forward: Context.Tag.Service<typeof SshTransport>["forward"] = (
       program,
     ) =>
@@ -931,6 +1006,7 @@ export const SshTransportLayer = Layer.scoped(
       run,
       transfer,
       connect,
+      transact,
       forward,
       handoff,
       warm,

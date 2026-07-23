@@ -455,6 +455,97 @@ describe("SshTransport", () => {
     ).toBe(true);
   });
 
+  it("runs a finite duplex transaction through one child and requires exit zero", async () => {
+    const calls: Command.StandardCommand[] = [];
+    const releases: Command.StandardCommand[] = [];
+    const received: Uint8Array[] = [];
+    const input = Sink.forEach((chunk: Uint8Array) =>
+      Effect.sync(() => {
+        received.push(Uint8Array.from(chunk));
+      }),
+    );
+    const layer = await testLayer(
+      (command) =>
+        remoteText(command).includes("release-bridge")
+          ? {
+              stdin: input,
+              stdout: encoder.encode('{"kind":"installed"}\n'),
+            }
+          : {},
+      calls,
+      releases,
+    );
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const endpoint = yield* parseSshEndpoint("linux-station");
+        const remote = yield* makeRemoteCommand(
+          "/usr/libexec/vellum-release-bridge",
+        );
+        return yield* (yield* SshTransport).transact(
+          dedicatedStream(endpoint, remote),
+          (lease) =>
+            lease.write(encoder.encode("stage\n")).pipe(
+              Effect.zipRight(lease.write(encoder.encode("password\n"))),
+              Effect.zipRight(lease.closeInput),
+              Effect.zipRight(
+                Stream.runFold(
+                  lease.stdout,
+                  "",
+                  (body, chunk) =>
+                    body + Buffer.from(chunk).toString("utf8"),
+                ),
+              ),
+            ),
+        );
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(result).toBe('{"kind":"installed"}\n');
+    expect(
+      Buffer.concat(received.map((chunk) => Buffer.from(chunk))).toString(
+        "utf8",
+      ),
+    ).toBe("stage\npassword\n");
+    expect(
+      releases.some((command) =>
+        remoteText(command).includes("release-bridge"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a duplex transaction whose remote child exits non-zero", async () => {
+    const layer = await testLayer(
+      (command) =>
+        remoteText(command).includes("release-bridge")
+          ? { code: 70 }
+          : {},
+      [],
+      [],
+    );
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        Effect.gen(function* () {
+          const endpoint = yield* parseSshEndpoint("linux-station");
+          const remote = yield* makeRemoteCommand(
+            "/usr/libexec/vellum-release-bridge",
+          );
+          return yield* (yield* SshTransport).transact(
+            dedicatedStream(endpoint, remote),
+            (lease) => lease.closeInput,
+          );
+        }).pipe(Effect.provide(layer)),
+      ),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toBeInstanceOf(SshExitError);
+      expect((result.left as SshExitError).code).toBe(70);
+    }
+  });
+
   it("rejects writes after the process input pump fails", async () => {
     const calls: Command.StandardCommand[] = [];
     const releases: Command.StandardCommand[] = [];
