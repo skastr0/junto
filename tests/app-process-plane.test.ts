@@ -898,6 +898,133 @@ describe("app process plane drain", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("gives a leader-scoped group the TERM grace before one group KILL", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    let snapshot: readonly ProcessEpochRow[] = [
+      epochRow(child.pid!, child.pid!, 82, "leader-a"),
+    ];
+    setProcessEpochReaderForTests({ snapshot: () => snapshot });
+    const owned = mintOwned({ kill: child.kill.bind(child) });
+    mocks.spawnDetachedProcessGroup.mockReturnValue({
+      child,
+      process: owned,
+      mode: "group",
+    });
+    mocks.signalOwned.mockImplementation((_handle: FakeOwned, signal: NodeJS.Signals) => {
+      expect(signal).toBe("SIGKILL");
+      snapshot = [];
+      child.exitAndClose(null, "SIGKILL");
+      return successfulSignal("group");
+    });
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    plane.spawnGroup({
+      ...spec("cooperative group requiring escalation"),
+      gracefulSignalScope: "leader",
+    });
+
+    const draining = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.signalOwnedGroupLeader).toHaveBeenCalledTimes(1);
+    expect(mocks.signalOwnedGroupLeader).toHaveBeenCalledWith(owned, "SIGTERM");
+    expect(mocks.signalOwned).not.toHaveBeenCalled();
+    expect(child.kill.mock.calls).toEqual([["SIGTERM"]]);
+
+    await vi.advanceTimersByTimeAsync(9);
+    expect(mocks.signalOwned).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.signalOwned).toHaveBeenCalledTimes(1);
+    expect(mocks.signalOwned).toHaveBeenCalledWith(owned, "SIGKILL");
+    await vi.advanceTimersByTimeAsync(15);
+    await expect(draining).resolves.toEqual({ clean: true, stragglers: [] });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("never group-signals after a graceful leader exit with a live descendant", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    const descendantPid = child.pid! + 1;
+    let snapshot: readonly ProcessEpochRow[] = [
+      epochRow(child.pid!, child.pid!, 83, "leader-a"),
+      epochRow(descendantPid, child.pid!, 83, "descendant-a"),
+    ];
+    setProcessEpochReaderForTests({ snapshot: () => snapshot });
+    const owned = mintOwned({ kill: child.kill.bind(child) });
+    mocks.spawnDetachedProcessGroup.mockReturnValue({
+      child,
+      process: owned,
+      mode: "group",
+    });
+    child.kill.mockImplementation(() => {
+      snapshot = [epochRow(descendantPid, child.pid!, 83, "descendant-a")];
+      child.exitAndClose(0, null);
+      return true;
+    });
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    plane.spawnGroup({
+      ...spec("leader-exited cooperative group"),
+      gracefulSignalScope: "leader",
+    });
+
+    const first = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(first).resolves.toMatchObject({
+      clean: false,
+      stragglers: [{
+        purpose: "leader-exited cooperative group",
+        state: "leaderless-group",
+      }],
+    });
+    expect(mocks.signalOwnedGroupLeader).toHaveBeenCalledOnce();
+    expect(mocks.signalOwned).not.toHaveBeenCalled();
+    expect(mocks.releaseOwned).toHaveBeenCalledOnce();
+
+    snapshot = [];
+    await expect(plane.drainOnQuit()).resolves.toEqual({
+      clean: true,
+      stragglers: [],
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("converges without group KILL when descendants drain during TERM grace", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    const descendantPid = child.pid! + 1;
+    let snapshot: readonly ProcessEpochRow[] = [
+      epochRow(child.pid!, child.pid!, 84, "leader-a"),
+      epochRow(descendantPid, child.pid!, 84, "descendant-a"),
+    ];
+    setProcessEpochReaderForTests({ snapshot: () => snapshot });
+    const owned = mintOwned({ kill: child.kill.bind(child) });
+    mocks.spawnDetachedProcessGroup.mockReturnValue({
+      child,
+      process: owned,
+      mode: "group",
+    });
+    child.kill.mockImplementation(() => {
+      snapshot = [epochRow(descendantPid, child.pid!, 84, "descendant-a")];
+      child.exitAndClose(0, null);
+      setTimeout(() => {
+        snapshot = [];
+      }, 5);
+      return true;
+    });
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    plane.spawnGroup({
+      ...spec("cooperative group draining descendants"),
+      gracefulSignalScope: "leader",
+    });
+
+    const draining = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(draining).resolves.toEqual({ clean: true, stragglers: [] });
+    expect(mocks.signalOwnedGroupLeader).toHaveBeenCalledOnce();
+    expect(mocks.signalOwned).not.toHaveBeenCalled();
+    expect(mocks.releaseOwned).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("refreshes a retained group tombstone on a later drain retry", async () => {
     vi.useFakeTimers();
     const child = new FakeChild();
