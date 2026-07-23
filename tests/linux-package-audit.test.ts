@@ -116,6 +116,14 @@ describe("Linux package artifact naming boundary", () => {
 });
 
 describe("deb payload authority and modes", () => {
+  it("normalizes numeric dpkg root ownership into the root-owned contract", () => {
+    const numericOwnerEntries = parseDebArchiveListing(
+      archiveListing().replaceAll("root/root", "0/0"),
+    );
+    expect(numericOwnerEntries[0]?.owner).toBe("root/root");
+    expect(validateDebArchive(numericOwnerEntries).length).toBeGreaterThan(0);
+  });
+
   it("requires a root-owned immutable install tree and inert setuid helper", () => {
     const entries = parseDebArchiveListing(
       archiveListing(

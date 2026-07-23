@@ -22,7 +22,7 @@ const root = async (): Promise<string> => {
 afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
 describe("Linux packaged PTY layout audit", () => {
-  it("requires the unpacked Linux x64 native module without a macOS helper", async () => {
+  it("requires the unpacked Linux x64 native module", async () => {
     const resources = await root();
     const base = join(resources, "app.asar.unpacked", "node_modules", "node-pty", "prebuilds", "linux-x64");
     mkdirSync(base, { recursive: true });

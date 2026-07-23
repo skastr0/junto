@@ -104,6 +104,7 @@
     "appId": "skastr0.vellum",
     "productName": "Vellum Command",
     "afterPack": "./scripts/electron-builder-after-pack.mjs",
+    "npmRebuild": false,
     "asarUnpack": [
       "node_modules/node-pty/build/Release/{pty.node,spawn-helper}",
       "node_modules/node-pty/prebuilds/${os}-${arch}/{pty.node,spawn-helper}"
@@ -221,7 +222,9 @@
       "recommends": [],
       "fpm": [
         "--before-install=build/linux/before-install.sh",
-        "--before-remove=build/linux/before-remove.sh"
+        "--before-remove=build/linux/before-remove.sh",
+        "--deb-user=root",
+        "--deb-group=root"
       ],
       "afterInstall": "build/linux/after-install.sh",
       "afterRemove": "build/linux/after-remove.sh",

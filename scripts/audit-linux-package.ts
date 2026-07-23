@@ -271,7 +271,7 @@ export const parseDebArchiveListing = (
     const [archivePath, linkTarget] = match[3].split(" -> ", 2);
     entries.push({
       mode: match[1],
-      owner: match[2],
+      owner: match[2] === "0/0" ? "root/root" : match[2],
       path: archivePath,
       ...(linkTarget === undefined ? {} : { linkTarget }),
     });
@@ -288,6 +288,9 @@ export const validateDebArchive = (
     ["./opt/", "drwxr-xr-x"],
     ["./usr/", "drwxr-xr-x"],
     ["./usr/share/", "drwxr-xr-x"],
+    ["./usr/share/doc/", "drwxr-xr-x"],
+    ["./usr/share/doc/vellum/", "drwxr-xr-x"],
+    ["./usr/share/doc/vellum/changelog.gz", "-rw-r--r--"],
     ["./usr/share/applications/", "drwxr-xr-x"],
     ["./usr/share/applications/vellum.desktop", "-rw-r--r--"],
     ["./usr/share/icons/", "drwxr-xr-x"],
@@ -549,9 +552,10 @@ const validateNodePtyAsarInventory = (
   resources: string,
 ): void => {
   const unpackedRoot = path.join(resources, "app.asar.unpacked");
-  const allowedUnpacked = new Set([
-    path.relative(unpackedRoot, nativeModule).split(path.sep).join("/"),
-  ]);
+  const nativeModuleRelative = path.relative(unpackedRoot, nativeModule).split(path.sep).join("/");
+  const isAllowedNativeModule = (relative: string): boolean =>
+    relative === nativeModuleRelative ||
+    /^node_modules\/node-pty\/bin\/linux-x64-[^/]+\/node-pty\.node$/u.test(relative);
   for (const entry of listPackage(asarPath, { isPack: false })) {
     const normalized = entry.replace(/^\//u, "");
     if (
@@ -561,10 +565,10 @@ const validateNodePtyAsarInventory = (
       throw new Error(`ASAR contains a foreign node-pty prebuild: ${normalized}`);
     }
     if (
-      (normalized.endsWith(".node") || normalized.endsWith("/spawn-helper")) &&
+      normalized.endsWith(".node") &&
       normalized.startsWith("node_modules/node-pty/") &&
       statFile(asarPath, normalized).unpacked === true &&
-      !allowedUnpacked.has(normalized)
+      !isAllowedNativeModule(normalized)
     ) {
       throw new Error(`ASAR unpacks an undeclared node-pty native file: ${normalized}`);
     }

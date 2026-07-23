@@ -15,7 +15,37 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 cd "$REPO_ROOT"
-bun rebuild node-pty
+if [[ "$(uname -m)" == "arm64" ]]; then
+  TARGET_ARCH="arm64"
+elif [[ "$(uname -m)" == "x86_64" ]]; then
+  TARGET_ARCH="x64"
+else
+  TARGET_ARCH="$(uname -m)"
+fi
+BUN_EXECUTABLE="$(type -P bun || true)"
+if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
+  err "an executable Bun runtime is required"
+  exit 1
+fi
+NODE_SHIM_DIR="$(mktemp -d /tmp/vellum-node-shim.XXXXXXXXXX)"
+cleanup_node_shim() {
+  if [[ -L "$NODE_SHIM_DIR/node" ]] && [[ "$(readlink -- "$NODE_SHIM_DIR/node")" == "$BUN_EXECUTABLE" ]]; then
+    rm -f -- "$NODE_SHIM_DIR/node"
+  fi
+  rmdir -- "$NODE_SHIM_DIR" 2>/dev/null || true
+}
+trap cleanup_node_shim EXIT
+ln -s -- "$BUN_EXECUTABLE" "$NODE_SHIM_DIR/node"
+ELECTRON_VERSION="$(bun -e 'process.stdout.write(require("./node_modules/electron/package.json").version)')"
+PATH="$NODE_SHIM_DIR:$PATH" bunx --bun electron-rebuild \
+  --force \
+  --build-from-source \
+  --only node-pty \
+  --arch "$TARGET_ARCH" \
+  --version "$ELECTRON_VERSION" \
+  --module-dir .
+cleanup_node_shim
+trap - EXIT
 bunx electron-builder --mac
 APP_SRC="$(detect_macos_app_src)"
 assert_app_bundle "$APP_SRC"

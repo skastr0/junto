@@ -19,6 +19,7 @@ describe("native package pipeline contract", () => {
       description: string;
       build: {
         forceCodeSigning?: unknown;
+        npmRebuild?: unknown;
         asarUnpack?: unknown;
         mac: Record<string, unknown>;
         linux: Record<string, unknown>;
@@ -27,6 +28,7 @@ describe("native package pipeline contract", () => {
     };
     expect(pkg.description).not.toMatch(/macOS/u);
     expect(pkg.build.forceCodeSigning).toBeUndefined();
+    expect(pkg.build.npmRebuild).toBe(false);
     expect(pkg.build.mac).toMatchObject({ forceCodeSigning: true, artifactName: "${productName}-${version}-${arch}-mac.${ext}" });
     expect(pkg.build.asarUnpack).toEqual([
       "node_modules/node-pty/build/Release/{pty.node,spawn-helper}",
@@ -53,6 +55,8 @@ describe("native package pipeline contract", () => {
       fpm: [
         "--before-install=build/linux/before-install.sh",
         "--before-remove=build/linux/before-remove.sh",
+        "--deb-user=root",
+        "--deb-group=root",
       ],
       depends: LINUX_DEB_DEPENDENCIES,
     });
@@ -85,6 +89,8 @@ describe("native package pipeline contract", () => {
     expect(linux).toContain('Linux v1 packages require native x86_64');
     expect(linux).not.toMatch(/codesign|notar|PlistBuddy|launchctl|\bopen\b/u);
     const mac = await script("package-app-macos.sh");
+    expect(mac).not.toContain("bun rebuild");
+    expect(mac).toContain("bunx --bun electron-rebuild");
     expect(mac).toContain('bunx electron-builder --mac');
     expect(mac).toContain('notarize-app.sh');
   });
