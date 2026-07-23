@@ -111,8 +111,10 @@ export const resolveTerminalOnDelete = (
 // Bound browser page work surface. Document holds profile *name* only —
 // cookies live in ~/.vellum/browser (runtime), never in the .canvas file.
 // Native JSON Canvas type remains `link` (url); kind "page" + ether.browser
-// upgrade the node to an in-app session binding. onDelete default is detach:
-// removing the card must not wipe the profile or force-kill a warm session.
+// upgrade the node to an in-app session binding. onDelete default is
+// kill-session: deleting the page node closes the Vellum-owned session for
+// that ref (Phase 5). Operators may still author onDelete: "detach" to keep a
+// warm session when removing the card only. Cookies remain profile-local.
 export const BrowserOnDelete = Schema.Literal("detach", "kill-session");
 export type BrowserOnDelete = typeof BrowserOnDelete.Type;
 
@@ -122,9 +124,9 @@ export const EtherBrowser = Schema.Struct({
 });
 export type EtherBrowser = typeof EtherBrowser.Type;
 
-/** Resolve onDelete with product default `detach` when the field is omitted. */
+/** Resolve onDelete with product default `kill-session` when the field is omitted. */
 export const resolveBrowserOnDelete = (browser: EtherBrowser | undefined): BrowserOnDelete =>
-  browser?.onDelete ?? "detach";
+  browser?.onDelete ?? "kill-session";
 
 // `name` is the node's IMMUTABLE identity — the join key against the live
 // corpus (shared/connections.ts resolves every source connection from it at

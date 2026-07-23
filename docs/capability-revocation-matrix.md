@@ -84,7 +84,7 @@ identity model.
 
 | Property | Target (Phase 5) | Current | Status |
 |----------|------------------|---------|--------|
-| Delete page → close owned session | Always close Vellum-owned session for that page ref | Default `ether.browser.onDelete` is **`detach`**; only `kill-session` stops runtime before delete | **Gap** |
+| Delete page → close owned session | Always close Vellum-owned session for that page ref | Default `ether.browser.onDelete` is **`kill-session`** (Phase 5); operators may author `detach` | **Met** (default) |
 | Detach path | (if kept) must not leave automatable session under deleted ref | Detach: `closeDockBrowser` removes dock surface; warm session may remain until explicit stop / pool policy | **Partial** |
 | Kill path | Exact-handle stop before document mutation | `stopDockBrowser` → `browserStop`; failure **blocks** node delete | **Met** when policy is `kill-session` |
 | Edge revoke vs session | Edge delete denies control; session may still exist until page policy | Edge revoke is independent of session close | **Partial** (by design for edge-only; Phase 5 wants page delete stronger) |
@@ -103,7 +103,7 @@ document an intentional detach product with residual-risk UI.
 
 | Actor kind | Target | Current on node delete | Status |
 |------------|--------|------------------------|--------|
-| **agent** (ACP) | Unbind process-bind + revoke tools + terminate OwnedProcess (tier 1/2 Vellum-owned) | Node delete removes canvas card only — **no** `chatClose`, no process-plane terminate | **Gap** |
+| **agent** (ACP) | Unbind process-bind + revoke tools + terminate OwnedProcess (tier 1/2 Vellum-owned) | Node delete calls `closeChat(agentKey)` → unbind + ACP client teardown | **Met** (delete path) |
 | **herdr** | Revoke seat; terminate only if Owned / policy | Default `onDelete: detach` (pane keeps running); optional `kill-pane` | **Partial** |
 | **terminal** (native) | Same as machine-safety OwnedProcess | Default detach while app lives; quit path uses process plane | **Partial** |
 | Process-bind on chat close / exit | Unbind so CLI cannot retain seat | `unbindLocalProcess` / `unbindAgentKey` on close and lifecycle exit | **Met** (lifecycle path, not node-delete path) |

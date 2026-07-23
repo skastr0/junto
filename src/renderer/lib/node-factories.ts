@@ -195,7 +195,7 @@ export const makePageNode = (
       host,
       browser: {
         profile,
-        onDelete: browser?.onDelete ?? "detach",
+        onDelete: browser?.onDelete ?? "kill-session",
       },
     },
   };

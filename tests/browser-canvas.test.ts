@@ -46,10 +46,10 @@ describe("browser page document model", () => {
     expect(node.url).toBe("https://docs.example.com/guide");
     expect(node.ether?.entity?.kind).toBe("page");
     expect(node.ether?.browser?.profile).toBe("work");
-    expect(resolveBrowserOnDelete(node.ether?.browser)).toBe("detach");
+    expect(resolveBrowserOnDelete(node.ether?.browser)).toBe("kill-session");
   });
 
-  it("defaults onDelete to detach when omitted", () => {
+  it("defaults onDelete to kill-session when omitted", () => {
     const raw = {
       nodes: [
         {
@@ -70,7 +70,9 @@ describe("browser page document model", () => {
     };
     const doc = Either.getOrThrow(decodeCanvasDoc(raw));
     expect(doc.nodes[0]?.ether?.browser?.onDelete).toBeUndefined();
-    expect(resolveBrowserOnDelete(doc.nodes[0]?.ether?.browser)).toBe("detach");
+    expect(resolveBrowserOnDelete(doc.nodes[0]?.ether?.browser)).toBe(
+      "kill-session",
+    );
   });
 
   it("accepts onDelete kill-session when set", () => {
@@ -141,7 +143,7 @@ describe("browser page document model", () => {
     expect(isBlockableNode(node)).toBe(false);
   });
 
-  it("makePageNode stamps kind page, profile, and detach", () => {
+  it("makePageNode stamps kind page, profile, and kill-session", () => {
     const node = makePageNode(12.4, 8.9, "https://example.com/a");
     expect(node.type).toBe("link");
     expect(node.url).toBe("https://example.com/a");
@@ -149,17 +151,17 @@ describe("browser page document model", () => {
     expect(node.y).toBe(9);
     expect(node.ether?.entity?.kind).toBe("page");
     expect(node.ether?.browser?.profile).toBe("personal");
-    expect(node.ether?.browser?.onDelete).toBe("detach");
+    expect(node.ether?.browser?.onDelete).toBe("kill-session");
     expect(node.ether?.host).toBe("local");
   });
 
   it("makePageNode accepts profile and onDelete override", () => {
     const node = makePageNode(0, 0, "https://example.com", {
       profile: "work",
-      onDelete: "kill-session",
+      onDelete: "detach",
     }, "studio");
     expect(node.ether?.browser?.profile).toBe("work");
-    expect(node.ether?.browser?.onDelete).toBe("kill-session");
+    expect(node.ether?.browser?.onDelete).toBe("detach");
     expect(node.ether?.host).toBe("studio");
   });
 });

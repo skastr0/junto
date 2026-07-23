@@ -578,8 +578,9 @@ const deleteNodesInternal = async (
     !confirmDestructive(`Delete ${nodeLabel}?${relationLabel}`)
   ) return;
 
-  // Page nodes follow their explicit document policy. Detach remains the
-  // default; kill-session routes through the same exact-handle Stop Page API.
+  // Page nodes follow their explicit document policy. Default is kill-session
+  // (Phase 5: page delete closes the owned session). Detach remains available
+  // when the operator authorial field says so.
   const pageActions: Array<{ readonly ref: string; readonly stop: boolean }> = [];
   for (const node of existingNodes) {
     if (node.ether?.entity?.kind !== "page") continue;
@@ -643,6 +644,22 @@ const deleteNodesInternal = async (
       import("./herdr-actions").then(async ({ handleHerdrNodeDelete }) => {
         if (!canvasMutationAdmissionOpen) return;
         await Promise.all(herdrIds.map((id) => handleHerdrNodeDelete(id)));
+      }),
+    );
+  }
+
+  // Agent delete must revoke process-bind authority and tear down the ACP
+  // session (OwnedProcess path inside chatClose). Card removal without this
+  // left a live seat — Phase 5 gap S0.
+  const agentKeys = existingNodes
+    .filter((n) => n.ether?.entity?.kind === "agent")
+    .map((n) => n.ether?.entity?.name)
+    .filter((name): name is string => typeof name === "string" && name.length > 0);
+  if (agentKeys.length > 0) {
+    sideEffects.push(
+      import("./chat-state").then(async ({ closeChat }) => {
+        if (!canvasMutationAdmissionOpen) return;
+        await Promise.all(agentKeys.map((key) => closeChat(key)));
       }),
     );
   }
@@ -759,7 +776,7 @@ export const setPageBinding = (
 // Promote a plain link node in place into a bound browser page work surface —
 // stamps entity.kind "page" + ether.browser onto the EXISTING node.id (never
 // spawns a new node; the JSON Canvas `link` type never changes). Product
-// default onDelete is detach, matching makePageNode/makeHerdrNode.
+// default onDelete is kill-session (Phase 5), matching makePageNode.
 export const promoteLinkToPage = (id: string, profile: string): void => {
   const doc = state$.doc.peek();
   const stationHost = state$.settings.station.hostId.peek();
