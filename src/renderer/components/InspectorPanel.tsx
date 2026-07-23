@@ -8,7 +8,7 @@ import { deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeAr
 import { EdgeCapabilitySection, EdgeCriteriaEditor, NodeCapabilityInventory, NodeFieldEditors } from "./InspectorFields";
 import { clearSelection, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
-import { DIM, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
+import { DIM, GREEN, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
 import { ActivityMarkFromSpec } from "./ActivityMark";
 import { resolveNodeConnections } from "../../shared/connections";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
@@ -25,7 +25,7 @@ const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: str
   { value: "1", label: "red", hue: HUE.crimson },
   { value: "2", label: "orange", hue: HUE.orange },
   { value: "3", label: "gold", hue: HUE.gold },
-  { value: "4", label: "green", hue: "#5FB98E" },
+  { value: "4", label: "green", hue: GREEN },
   { value: "5", label: "cyan", hue: HUE.cyan },
   { value: "6", label: "violet", hue: HUE.violet },
 ];

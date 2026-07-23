@@ -3,7 +3,7 @@ import { use$ } from "@legendapp/state/react";
 import type { ProviderQuota, UsageSnapshot, UsageState, UsageWindow } from "@shared/usage";
 import { worstWindow } from "@shared/usage";
 import { state$ } from "../lib/state";
-import { HUE } from "../lib/theme";
+import { GREEN, HUE } from "../lib/theme";
 import { FocusSurface } from "./FocusSurface";
 import { HarnessMark } from "./herdr/HarnessMark";
 import "./UsageHud.css";
@@ -18,7 +18,7 @@ const EMPTY_USAGE: UsageState = { snapshots: [] };
 const usageHue = (usedPercent: number): string => {
   if (usedPercent >= 85) return HUE.crimson;
   if (usedPercent >= 60) return HUE.amber;
-  return "#5FB98E";
+  return GREEN;
 };
 
 const rowKey = (snapshot: UsageSnapshot, quota: ProviderQuota, index: number): string =>
