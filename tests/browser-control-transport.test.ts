@@ -75,10 +75,10 @@ const admittingEdgeGrant = (
 ): EdgeGrantService => ({
   processMap: makeProcessIdentityMap(),
   admitSocket: vi.fn(async () => ({
-    ok: true,
+    ok: true as const,
     secret,
     expectedPrincipal,
-    principal: { kind: "agent", agentKey: AGENT_KEY },
+    principal: { kind: "agent" as const, agentKey: AGENT_KEY },
     targetCount: 1,
   })),
   admitPrincipal: async () => ({
