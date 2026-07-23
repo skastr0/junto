@@ -401,27 +401,6 @@ export const runRemoteHostsDoctorSnapshot = (
   run: HostCliRunner = runCli,
 ): Effect.Effect<RemoteHostsDoctorSnapshot> =>
   Effect.gen(function* () {
-    const clientPath = openSshClientPath();
-    const sshBinaryOk = yield* Effect.tryPromise({
-      try: async () => {
-        await access(clientPath, constants.X_OK);
-        return true;
-      },
-      catch: () => false as const,
-    }).pipe(Effect.catchAll(() => Effect.succeed(false as const)));
-
-    if (!sshBinaryOk) {
-      return {
-        check: {
-          id: "remote-hosts",
-          label: "Remote hosts",
-          status: "error" as const,
-          detail: `OpenSSH client not executable at ${clientPath} — install the client or set VELLUM_SSH_EXECUTABLE`,
-        },
-        observations: [],
-      } satisfies RemoteHostsDoctorSnapshot;
-    }
-
     const hosts = yield* Effect.tryPromise({
       try: () => registry.list(),
       catch: (error) =>
@@ -453,6 +432,37 @@ export const runRemoteHostsDoctorSnapshot = (
     }
 
     const sshHosts = hosts.filter((host) => host.kind === "remote");
+    if (sshHosts.length > 0) {
+      const clientPath = openSshClientPath();
+      const sshBinaryOk = yield* Effect.tryPromise({
+        try: async () => {
+          await access(clientPath, constants.X_OK);
+          return true;
+        },
+        catch: () => false as const,
+      }).pipe(Effect.catchAll(() => Effect.succeed(false as const)));
+
+      if (!sshBinaryOk) {
+        const detail = `OpenSSH client not executable at ${clientPath} — install the client or set VELLUM_SSH_EXECUTABLE`;
+        return {
+          check: {
+            id: "remote-hosts",
+            label: "Remote hosts",
+            status: "error" as const,
+            detail,
+          },
+          observations: sshHosts.map((host) => ({
+            hostId: host.id,
+            endpoint: host.endpoint ?? "",
+            reachability: "unknown" as const,
+            reachabilityError: detail,
+            settingsState: "unavailable" as const,
+            statusState: "unavailable" as const,
+          })),
+        } satisfies RemoteHostsDoctorSnapshot;
+      }
+    }
+
     const results =
       sshHosts.length === 0
         ? []

@@ -45,6 +45,26 @@ describe("remote hosts doctor binary probes", () => {
     expect(report.detail).toContain("browser capability declared");
   });
 
+  it("keeps a local-only Command Center healthy without an SSH client", async () => {
+    process.env.VELLUM_SSH_EXECUTABLE = "/definitely/not/an/ssh-client";
+    const run = vi.fn<HostCliRunner>(async (command): Promise<CliResult> => ({
+      ok: true,
+      stdout: `${command} 1.0.0\n`,
+    }));
+    const registry = {
+      path: () => "/tmp/vellum-hosts-test.json",
+      list: async () => [localHost],
+    } as unknown as HostsRegistry;
+
+    const snapshot = await Effect.runPromise(
+      runRemoteHostsDoctorSnapshot(registry, unusedSsh, run),
+    );
+
+    expect(snapshot.check.status).toBe("ok");
+    expect(snapshot.check.detail).toContain("no remote ssh hosts configured");
+    expect(snapshot.observations).toEqual([]);
+  });
+
   it("derives local connection success only from structured probe results", async () => {
     const failedRun: HostCliRunner = async (command) => command === "herdr"
       ? { ok: false, stdout: "", error: "probe exited unsuccessfully" }
