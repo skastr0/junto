@@ -149,6 +149,7 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(launcher).toContain('wait "$vellum_pid"');
     expect(launcher).toContain('vellum_status="$?"');
     expect(launcher).toContain('exit "$vellum_status"');
+    expect(launcher).toContain("trap 'cleanup_owned_resources; exit 0' TERM");
     expect(launcher).toContain('kill -TERM "$vellum_pid" 2>/dev/null || true');
     expect(launcher).toContain('owned_child_alive "$xvfb_pid"');
     expect(launcher).toContain('ensure_owned_directory()');
@@ -378,10 +379,11 @@ PY
       expect(["/bin/sh", "/bin/dash", "/usr/bin/dash"]).toContain(argv[0]);
       expect(argv.slice(1)).toEqual([sandbox.launcher, "--clean"]);
       wrapper.kill("SIGTERM");
-      await new Promise<void>((resolve, reject) => {
+      const wrapperExit = await new Promise<number | null>((resolve, reject) => {
         wrapper.once("error", reject);
-        wrapper.once("close", () => resolve());
+        wrapper.once("close", (code) => resolve(code));
       });
+      expect(wrapperExit).toBe(0);
       for (const pid of [vellumPid, xvfbPid].map((value) => Number(value.trim()))) {
         expect(() => process.kill(pid, 0)).toThrow();
       }

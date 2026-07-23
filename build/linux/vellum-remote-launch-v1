@@ -270,7 +270,9 @@ set +C
 trap cleanup_owned_resources EXIT
 trap 'cleanup_owned_resources; exit 129' HUP
 trap 'cleanup_owned_resources; exit 130' INT
-trap 'cleanup_owned_resources; exit 143' TERM
+# systemd's deliberate stop is a successful lifecycle outcome. Electron still
+# propagates its own unexpected non-zero status through the monitor loop.
+trap 'cleanup_owned_resources; exit 0' TERM
 if ! "$XAUTH" -f "$XAUTHORITY" add "$DISPLAY" . "$(/usr/bin/mcookie)" >/dev/null 2>&1; then
   printf '%s\n' 'vellum-remote: could not initialize managed X11 authority' >&2
   exit 70
