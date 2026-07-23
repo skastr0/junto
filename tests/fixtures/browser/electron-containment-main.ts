@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { url as inspectorUrl } from "node:inspector";
-import { basename, dirname, isAbsolute } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { app, BrowserWindow, session, webContents } from "electron";
 import { Effect } from "effect";
 import { CanvasesLive, CanvasesService } from "../../../src/main/vellum/canvases";
@@ -13,14 +13,23 @@ import {
   type BrowserCapabilityAuditOutcome,
   type BrowserCapabilityRegistry,
 } from "../../../src/main/vellum/browser/capabilities";
-import type { EdgeGrantService } from "../../../src/main/vellum/browser/edge-grant";
+import {
+  makeEdgeGrantService,
+  type EdgeGrantResult,
+  type EdgeGrantService,
+} from "../../../src/main/vellum/browser/edge-grant";
 import { startBrowserControlServer, type BrowserControlServer } from "../../../src/main/vellum/browser/control";
 import { makePageTargetResolver } from "../../../src/main/vellum/browser/page-target";
 import { makeBrowserProfileService } from "../../../src/main/vellum/browser/profiles";
 import { BrowserSessionService } from "../../../src/main/vellum/browser/sessions";
 import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/vellum/browser/view-adapter";
 import { isManagedBrowserWebContents } from "../../../src/main/vellum/browser/web-policy";
-import { makeProcessIdentityMap } from "../../../src/main/vellum/process-identity";
+import {
+  configurePeerPidHelperRoots,
+  makeProcessIdentityMap,
+  readParentPid,
+  type ProcessPrincipal,
+} from "../../../src/main/vellum/process-identity";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { partitionNameForProfile } from "../../../src/shared/browser";
 
@@ -46,6 +55,7 @@ const capabilityPath = requiredArgument("capability-path");
 const revokeMarkerPath = requiredArgument("revoke-marker-path");
 const admissionModePath = requiredArgument("admission-mode-path");
 const shutdownRequestPath = requiredArgument("shutdown-request-path");
+const peerPidHelperRoot = requiredArgument("peer-pid-helper-root");
 
 for (const [name, path] of [
   ["browser-root", browserRoot],
@@ -56,9 +66,11 @@ for (const [name, path] of [
   ["revoke-marker-path", revokeMarkerPath],
   ["admission-mode-path", admissionModePath],
   ["shutdown-request-path", shutdownRequestPath],
+  ["peer-pid-helper-root", peerPidHelperRoot],
 ] as const) {
   if (!isAbsolute(path)) throw new Error(`${name} must be absolute`);
 }
+configurePeerPidHelperRoots([peerPidHelperRoot]);
 
 const canvasName = "browser-containment";
 const capabilityTargets = [
@@ -79,7 +91,14 @@ if (siblingCapabilityTarget === undefined) {
   throw new Error("dedicated browser probe sibling target is missing");
 }
 
-type AdmitMode = "primary" | "expiring" | "sibling" | "mismatched";
+type AdmitMode =
+  | "process-bound"
+  | "primary"
+  | "expiring"
+  | "sibling"
+  | "mismatched";
+
+type AdmissionAuthorityPath = "unix-peer-pid+process-map+canvas-edges" | "fixture-tuple";
 
 interface AdmissionTuple {
   readonly secret: string;
@@ -91,15 +110,18 @@ interface AdmissionTuple {
 interface EdgeAdmissionAudit {
   readonly sequence: number;
   readonly mode: AdmitMode;
+  readonly authorityPath: AdmissionAuthorityPath;
   readonly principalId: string;
   readonly jobId: string;
   readonly auditId: string;
+  readonly targetCount: number;
 }
 
 const readAdmitMode = async (modePath: string): Promise<AdmitMode> => {
   try {
     const raw = (await readFile(modePath, "utf8")).trim();
     if (
+      raw === "process-bound" ||
       raw === "primary" ||
       raw === "expiring" ||
       raw === "sibling" ||
@@ -115,48 +137,72 @@ const readAdmitMode = async (modePath: string): Promise<AdmitMode> => {
 
 const admittingEdgeGrant = (
   tuples: Readonly<Record<AdmitMode, AdmissionTuple>>,
+  processBoundEdgeGrant: EdgeGrantService,
   admitModePath: string,
   onAdmission: (entry: EdgeAdmissionAudit) => void,
-): EdgeGrantService => ({
-  processMap: makeProcessIdentityMap(),
-  admitSocket: async () => {
-    const mode = await readAdmitMode(admitModePath);
+): EdgeGrantService => {
+  const recordProcessBoundAdmission = (
+    result: Extract<EdgeGrantResult, { readonly ok: true }>,
+  ): void => {
+    const expected = tuples["process-bound"];
+    if (
+      result.secret !== expected.secret ||
+      result.expectedPrincipal !== expected.expectedPrincipal ||
+      result.targetCount !== expected.targetCount
+    ) {
+      throw new Error("process-bound edge admission did not reuse its exact warmed grant");
+    }
+    onAdmission({
+      sequence: 0,
+      mode: "process-bound",
+      authorityPath: "unix-peer-pid+process-map+canvas-edges",
+      principalId: result.expectedPrincipal.principalId,
+      jobId: result.expectedPrincipal.jobId,
+      auditId: expected.auditId,
+      targetCount: result.targetCount,
+    });
+  };
+
+  const admitTuple = async (mode: Exclude<AdmitMode, "process-bound">) => {
     const tuple = tuples[mode];
     onAdmission({
       sequence: 0,
       mode,
+      authorityPath: "fixture-tuple",
       principalId: tuple.expectedPrincipal.principalId,
       jobId: tuple.expectedPrincipal.jobId,
       auditId: tuple.auditId,
+      targetCount: tuple.targetCount,
     });
     return {
-      ok: true,
+      ok: true as const,
       secret: tuple.secret,
       expectedPrincipal: tuple.expectedPrincipal,
-      principal: { kind: "agent", agentKey: "browser-containment-probe" },
+      principal: { kind: "agent" as const, agentKey: "browser-containment-probe" },
       targetCount: tuple.targetCount,
     };
-  },
-  admitPrincipal: async () => {
-    const mode = await readAdmitMode(admitModePath);
-    const tuple = tuples[mode];
-    onAdmission({
-      sequence: 0,
-      mode,
-      principalId: tuple.expectedPrincipal.principalId,
-      jobId: tuple.expectedPrincipal.jobId,
-      auditId: tuple.auditId,
-    });
-    return {
-      ok: true,
-      secret: tuple.secret,
-      expectedPrincipal: tuple.expectedPrincipal,
-      principal: { kind: "agent", agentKey: "browser-containment-probe" },
-      targetCount: tuple.targetCount,
-    };
-  },
-  clear: () => undefined,
-});
+  };
+
+  return {
+    processMap: processBoundEdgeGrant.processMap,
+    admitSocket: async (socket) => {
+      const mode = await readAdmitMode(admitModePath);
+      if (mode !== "process-bound") return admitTuple(mode);
+      const result = await processBoundEdgeGrant.admitSocket(socket);
+      if (result.ok) recordProcessBoundAdmission(result);
+      return result;
+    },
+    admitPrincipal: async (principal) => {
+      const mode = await readAdmitMode(admitModePath);
+      if (mode !== "process-bound") return admitTuple(mode);
+      const result = await processBoundEdgeGrant.admitPrincipal(principal);
+      if (result.ok) recordProcessBoundAdmission(result);
+      return result;
+    },
+    clear: () => processBoundEdgeGrant.clear(),
+    invalidateCanvas: (canvas) => processBoundEdgeGrant.invalidateCanvas?.(canvas),
+  };
+};
 
 interface PrincipalWitness {
   readonly principalId: string;
@@ -173,6 +219,7 @@ interface CapabilityHandoff {
   readonly unrelatedCapability: string;
   readonly siblingCapability: string;
   readonly principals: Readonly<{
+    processBound: PrincipalWitness;
     primary: PrincipalWitness;
     expiring: PrincipalWitness;
     sibling: PrincipalWitness;
@@ -449,6 +496,7 @@ void app.whenReady().then(async () => {
   const canvases = await Effect.runPromise(
     Effect.provide(CanvasesService, CanvasesLive),
   );
+  const resolvePageTarget = makePageTargetResolver(canvases);
   capabilities = makeBrowserCapabilityRegistry({
     onTerminate: (notice) => {
       const destroyedSessions =
@@ -500,7 +548,60 @@ void app.whenReady().then(async () => {
     maxInFlight: 4,
   });
 
+  // The dedicated Electron binary is launched by node_modules/electron/cli.js,
+  // whose parent is this probe. Register that observed, live launcher process
+  // in the same main-owned map production uses for ACP/herdr children. No PID,
+  // node ref, host, or capability is accepted from a control request.
+  const probePeerPid = readParentPid(process.ppid);
+  if (probePeerPid === undefined) {
+    throw new Error("dedicated browser probe could not resolve its live launcher process");
+  }
+  const processBoundPrincipal: ProcessPrincipal = Object.freeze({
+    kind: "agent",
+    agentKey: "browser-containment-probe",
+    canvasName,
+    nodeId: "probe-agent",
+  });
+  const processMap = makeProcessIdentityMap();
+  if (!processMap.bind(probePeerPid, processBoundPrincipal)) {
+    throw new Error("dedicated browser probe could not register its live launcher process");
+  }
+  const processBoundEdgeGrant = makeEdgeGrantService({
+    capabilities,
+    canvasesDir: join(controlHome, ".vellum", "canvases"),
+    resolvePageTarget,
+    processMap,
+  });
+  // Warm only to make the secret-free expected-principal witness available to
+  // the outer probe. The protected request still goes through admitSocket and
+  // must reuse this exact cached tuple after resolving the real Unix peer PID.
+  const processBoundAdmission = await processBoundEdgeGrant.admitPrincipal(
+    processBoundPrincipal,
+  );
+  if (!processBoundAdmission.ok) {
+    throw new Error(
+      `dedicated browser probe edge warmup failed: ${processBoundAdmission.denial}`,
+    );
+  }
+  const processBoundIssue = [...capabilities.auditSnapshot()]
+    .reverse()
+    .find(
+      (event) =>
+        event.outcome === "issued" &&
+        event.principalId === processBoundAdmission.expectedPrincipal.principalId &&
+        event.jobId === processBoundAdmission.expectedPrincipal.jobId,
+    );
+  if (processBoundIssue?.auditId === undefined) {
+    throw new Error("dedicated browser probe did not record the edge-derived grant issue");
+  }
+
   const admissionTuples: Readonly<Record<AdmitMode, AdmissionTuple>> = Object.freeze({
+    "process-bound": Object.freeze({
+      secret: processBoundAdmission.secret,
+      expectedPrincipal: processBoundAdmission.expectedPrincipal,
+      auditId: processBoundIssue.auditId,
+      targetCount: processBoundAdmission.targetCount,
+    }),
     primary: Object.freeze({
       secret: grant.secret,
       expectedPrincipal: principal,
@@ -532,11 +633,12 @@ void app.whenReady().then(async () => {
   control = await startBrowserControlServer({
     sessions,
     capabilities,
-    resolvePageTarget: makePageTargetResolver(canvases),
+    resolvePageTarget,
     version: app.getVersion(),
     home: controlHome,
     edgeGrant: admittingEdgeGrant(
       admissionTuples,
+      processBoundEdgeGrant,
       admissionModePath,
       recordEdgeAdmission,
     ),
@@ -550,6 +652,11 @@ void app.whenReady().then(async () => {
     unrelatedCapability: unrelatedGrant.secret,
     siblingCapability: siblingGrant.secret,
     principals: Object.freeze({
+      processBound: Object.freeze({
+        principalId: processBoundAdmission.expectedPrincipal.principalId,
+        jobId: processBoundAdmission.expectedPrincipal.jobId,
+        auditId: processBoundIssue.auditId,
+      }),
       primary: Object.freeze({
         principalId: principal.principalId,
         jobId: principal.jobId,

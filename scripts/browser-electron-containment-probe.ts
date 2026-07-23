@@ -92,9 +92,11 @@ interface ProbeAudit {
   readonly edgeAdmissions: ReadonlyArray<{
     readonly sequence: number;
     readonly mode: AdmissionMode;
+    readonly authorityPath: AdmissionAuthorityPath;
     readonly principalId: string;
     readonly jobId: string;
     readonly auditId: string;
+    readonly targetCount: number;
   }>;
   readonly capabilityEvents: ReadonlyArray<{
     readonly sequence: number;
@@ -111,9 +113,17 @@ interface ProbeAudit {
   readonly ready: boolean;
 }
 
-type AdmissionMode = "primary" | "expiring" | "sibling" | "mismatched";
+type AdmissionMode =
+  | "process-bound"
+  | "primary"
+  | "expiring"
+  | "sibling"
+  | "mismatched";
+
+type AdmissionAuthorityPath = "unix-peer-pid+process-map+canvas-edges" | "fixture-tuple";
 
 const isAdmissionMode = (value: unknown): value is AdmissionMode =>
+  value === "process-bound" ||
   value === "primary" ||
   value === "expiring" ||
   value === "sibling" ||
@@ -166,18 +176,24 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
       !Number.isSafeInteger(entry.sequence) ||
       Number(entry.sequence) <= 0 ||
       !isAdmissionMode(entry.mode) ||
+      (entry.authorityPath !== "unix-peer-pid+process-map+canvas-edges" &&
+        entry.authorityPath !== "fixture-tuple") ||
       !isBoundedId(entry.principalId) ||
       !isBoundedId(entry.jobId) ||
-      !isBoundedId(entry.auditId)
+      !isBoundedId(entry.auditId) ||
+      !Number.isSafeInteger(entry.targetCount) ||
+      Number(entry.targetCount) <= 0
     ) {
       throw new Error("dedicated Electron probe emitted a malformed edge-admission audit");
     }
     return {
       sequence: Number(entry.sequence),
       mode: entry.mode,
+      authorityPath: entry.authorityPath as AdmissionAuthorityPath,
       principalId: entry.principalId,
       jobId: entry.jobId,
       auditId: entry.auditId,
+      targetCount: Number(entry.targetCount),
     };
   });
   const capabilityEvents = value.capabilityEvents.map((entry) => {
@@ -247,6 +263,7 @@ interface CapabilityHandoff {
   readonly unrelatedCapability: string;
   readonly siblingCapability: string;
   readonly principals: Readonly<{
+    processBound: PrincipalWitness;
     primary: PrincipalWitness;
     expiring: PrincipalWitness;
     sibling: PrincipalWitness;
@@ -295,16 +312,33 @@ const decodeCapabilityHandoff = (value: unknown): CapabilityHandoff => {
   ) {
     throw new Error("dedicated Electron probe emitted a malformed capability handoff");
   }
+  const processBound = decodePrincipalWitness(value.principals.processBound);
   const primary = decodePrincipalWitness(value.principals.primary);
   const expiring = decodePrincipalWitness(value.principals.expiring);
   const sibling = decodePrincipalWitness(value.principals.sibling);
   if (
+    processBound === undefined ||
     primary === undefined ||
     expiring === undefined ||
     sibling === undefined ||
-    new Set([primary.principalId, expiring.principalId, sibling.principalId]).size !== 3 ||
-    new Set([primary.jobId, expiring.jobId, sibling.jobId]).size !== 3 ||
-    new Set([primary.auditId, expiring.auditId, sibling.auditId]).size !== 3
+    new Set([
+      processBound.principalId,
+      primary.principalId,
+      expiring.principalId,
+      sibling.principalId,
+    ]).size !== 4 ||
+    new Set([
+      processBound.jobId,
+      primary.jobId,
+      expiring.jobId,
+      sibling.jobId,
+    ]).size !== 4 ||
+    new Set([
+      processBound.auditId,
+      primary.auditId,
+      expiring.auditId,
+      sibling.auditId,
+    ]).size !== 4
   ) {
     throw new Error("dedicated Electron probe emitted malformed principal witnesses");
   }
@@ -316,7 +350,7 @@ const decodeCapabilityHandoff = (value: unknown): CapabilityHandoff => {
     expiringExpiresAt: value.expiringExpiresAt,
     unrelatedCapability: value.unrelatedCapability,
     siblingCapability: value.siblingCapability,
-    principals: { primary, expiring, sibling },
+    principals: { processBound, primary, expiring, sibling },
   };
 };
 
@@ -369,6 +403,8 @@ const waitForAudit = async (
 const waitForAdmissionEvidence = async (options: {
   readonly auditPath: string;
   readonly mode: AdmissionMode;
+  readonly authorityPath?: AdmissionAuthorityPath;
+  readonly targetCount?: number;
   readonly edgePrincipal: PrincipalWitness;
   readonly edgeAuditId?: string;
   readonly capabilityPrincipal: PrincipalWitness;
@@ -382,6 +418,10 @@ const waitForAdmissionEvidence = async (options: {
       audit.edgeAdmissions.some(
         (entry) =>
           entry.mode === options.mode &&
+          (options.authorityPath === undefined ||
+            entry.authorityPath === options.authorityPath) &&
+          (options.targetCount === undefined ||
+            entry.targetCount === options.targetCount) &&
           entry.principalId === options.edgePrincipal.principalId &&
           entry.jobId === options.edgePrincipal.jobId &&
           entry.auditId === edgeAuditId,
@@ -1001,12 +1041,55 @@ const qualifyCapabilityAdmission = async (
     "protected call without replay identity",
   );
 
-  const processBoundProfiles = requireOk(
-    await controlCall(socketPath, token, "profiles"),
-    "process-bound profiles without client capability",
+  const expectedRefs = new Set<string>(
+    pageTargets.map(({ nodeId }) => formatNodeRef({ canvasName, nodeId })),
   );
-  if (!Array.isArray(processBoundProfiles)) {
-    throw new Error("process-bound profiles response is not an array");
+  await writeAdmissionMode(admissionModePath, "process-bound");
+  try {
+    // Deliberately carries only transport token + request id. Electron must
+    // derive identity from the Unix peer and human-authored canvas edges.
+    const peerBoundProfiles = requireOk(
+      await controlCall(socketPath, token, "profiles"),
+      "real peer-bound profiles without client identity",
+    );
+    if (!Array.isArray(peerBoundProfiles)) {
+      throw new Error("real peer-bound profiles response is not an array");
+    }
+    const peerBoundPages = requireOk(
+      await controlCall(socketPath, token, "pages"),
+      "real peer-bound pages without client identity",
+    );
+    if (
+      !Array.isArray(peerBoundPages) ||
+      peerBoundPages.length !== expectedRefs.size ||
+      peerBoundPages.some(
+        (page) => !isRecord(page) || !expectedRefs.has(String(page.ref)),
+      )
+    ) {
+      throw new Error("real peer-bound authority did not derive exactly five edge targets");
+    }
+    for (const action of ["profiles", "pages"] as const) {
+      await waitForAdmissionEvidence({
+        auditPath,
+        mode: "process-bound",
+        authorityPath: "unix-peer-pid+process-map+canvas-edges",
+        targetCount: expectedRefs.size,
+        edgePrincipal: handoff.principals.processBound,
+        capabilityPrincipal: handoff.principals.processBound,
+        action,
+        outcome: "admitted",
+      });
+    }
+  } finally {
+    await writeAdmissionMode(admissionModePath, "primary");
+  }
+
+  const fixturePrimaryProfiles = requireOk(
+    await controlCall(socketPath, token, "profiles"),
+    "fixture lifecycle profiles without client capability",
+  );
+  if (!Array.isArray(fixturePrimaryProfiles)) {
+    throw new Error("fixture lifecycle profiles response is not an array");
   }
   await waitForAdmissionEvidence({
     auditPath,
@@ -1025,7 +1108,7 @@ const qualifyCapabilityAdmission = async (
   );
   if (
     !Array.isArray(profilesWithUnrelatedDecoy) ||
-    profilesWithUnrelatedDecoy.length !== processBoundProfiles.length
+    profilesWithUnrelatedDecoy.length !== fixturePrimaryProfiles.length
   ) {
     throw new Error("client capability decoy changed process-bound profile scope");
   }
@@ -1109,9 +1192,6 @@ const qualifyCapabilityAdmission = async (
   const pages = requireOk(
     await controlCall(socketPath, token, "pages"),
     "pages",
-  );
-  const expectedRefs = new Set<string>(
-    pageTargets.map(({ nodeId }) => formatNodeRef({ canvasName, nodeId })),
   );
   if (
     !Array.isArray(pages) ||
@@ -1536,17 +1616,35 @@ const main = async (): Promise<void> => {
   ] as const;
   const canvasPath = join(canvasesDir, `${canvasName}.canvas`);
   const canvasJson = JSON.stringify({
-    nodes: pageTargets.map(({ nodeId, profile, url }, index) => ({
-      id: nodeId,
-      type: "link",
-      url,
-      x: index * 420,
-      y: 0,
-      width: 400,
-      height: 300,
-      ether: { entity: { kind: "page" }, browser: { profile } },
+    nodes: [
+      {
+        id: "probe-agent",
+        type: "text",
+        text: "browser-containment-probe",
+        x: 840,
+        y: -180,
+        width: 320,
+        height: 96,
+        ether: {
+          entity: { kind: "agent", name: "browser-containment-probe" },
+        },
+      },
+      ...pageTargets.map(({ nodeId, profile, url }, index) => ({
+        id: nodeId,
+        type: "link",
+        url,
+        x: index * 420,
+        y: 0,
+        width: 400,
+        height: 300,
+        ether: { entity: { kind: "page" }, browser: { profile } },
+      })),
+    ],
+    edges: pageTargets.map(({ nodeId }, index) => ({
+      id: `probe-edge-${index + 1}`,
+      fromNode: "probe-agent",
+      toNode: nodeId,
     })),
-    edges: [],
   });
   await writeFile(
     canvasPath,
@@ -1586,6 +1684,7 @@ const main = async (): Promise<void> => {
       `--revoke-marker-path=${options.revokeMarkerPath}`,
       `--admission-mode-path=${options.admissionModePath}`,
       `--shutdown-request-path=${options.shutdownRequestPath}`,
+      `--peer-pid-helper-root=${join(repoRoot, "scripts")}`,
     ];
   const electronArguments = makeElectronArguments({
     auditPath,
@@ -1963,6 +2062,8 @@ const main = async (): Promise<void> => {
         unaffectedSessionRemainsUsable: true,
         replayIdentityRequired: true,
         processBoundEdgeAuthorityAdmitted: true,
+        realPeerPidAndFiveCanvasEdgesQualified: true,
+        processBoundRequestCarriedNoIdentityClaim: true,
         clientCapabilityHeadersIgnored: true,
         exactPrincipalTupleEnforced: true,
         wrongActionAndTargetDenied: true,
