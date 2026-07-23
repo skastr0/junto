@@ -10,6 +10,7 @@ import { defaultSettings } from "../src/shared/settings";
 
 const remoteHost: RemoteHost = {
   id: "studio",
+  hermesId: "fleet-studio",
   label: "Studio",
   kind: "remote",
   endpoint: "studio-box",
@@ -25,6 +26,7 @@ const localHost: RemoteHost = {
 
 const planned = planRemoteStationFields({
   remoteHostId: "studio",
+  agentHostId: "fleet-studio",
   commandCenterRef: "local",
 });
 
@@ -92,6 +94,7 @@ const makeSsh = (options?: {
             : defaultSettings();
         const merged = mergeRemoteStationSettings(base, {
           remoteHostId: "studio",
+          agentHostId: "fleet-studio",
           commandCenterRef: "local",
         });
         return {
@@ -133,6 +136,7 @@ describe("configureRemoteHost", () => {
   it("is idempotent when remote already matches plan", async () => {
     const existing = mergeRemoteStationSettings(defaultSettings(), {
       remoteHostId: "studio",
+      agentHostId: "fleet-studio",
       commandCenterRef: "local",
     });
     const { ssh, writes } = makeSsh({
@@ -167,6 +171,7 @@ describe("configureRemoteHost", () => {
     expect(writes).toEqual(["written"]);
     expect(result.station?.role).toBe("remote");
     expect(result.station?.hostId).toBe("studio");
+    expect(result.station?.agentHostId).toBe("fleet-studio");
   });
 
   it("surfaces SSH warm failures on the error channel", async () => {

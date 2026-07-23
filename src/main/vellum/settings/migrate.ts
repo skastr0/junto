@@ -66,6 +66,18 @@ const softHealAudio = (
   return healed;
 };
 
+/** Preserve optional station fields that are intentionally absent in defaults. */
+const softHealStation = (
+  sectionBase: Record<string, unknown>,
+  sectionRaw: Record<string, unknown>,
+): Record<string, unknown> => {
+  const healed = pickKnown(sectionBase, sectionRaw);
+  if (Object.prototype.hasOwnProperty.call(sectionRaw, "agentHostId")) {
+    healed.agentHostId = sectionRaw.agentHostId;
+  }
+  return healed;
+};
+
 /** Soft-heal known section shapes onto defaults before strict decode. */
 const softHeal = (raw: Record<string, unknown>): unknown => {
   const base = defaultSettings() as unknown as Record<string, unknown>;
@@ -80,7 +92,9 @@ const softHeal = (raw: Record<string, unknown>): unknown => {
     out[key] =
       key === "audio"
         ? softHealAudio(sectionBase, sectionRaw as Record<string, unknown>)
-        : pickKnown(sectionBase, sectionRaw as Record<string, unknown>);
+        : key === "station"
+          ? softHealStation(sectionBase, sectionRaw as Record<string, unknown>)
+          : pickKnown(sectionBase, sectionRaw as Record<string, unknown>);
   }
   return out;
 };

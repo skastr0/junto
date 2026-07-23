@@ -19,6 +19,7 @@ describe("remote station config planner", () => {
     expect(station).toEqual({
       role: "remote",
       hostId: "studio",
+      agentHostId: "studio",
       commandCenterRef: "local",
       supervisedPreferred: true,
     });
@@ -30,6 +31,15 @@ describe("remote station config planner", () => {
       supervisedPreferred: false,
     });
     expect(station.supervisedPreferred).toBe(false);
+  });
+
+  it("keeps a distinct configured Hermes identity separate from physical hostId", () => {
+    const station = planRemoteStationFields({
+      ...input,
+      agentHostId: "fleet-studio",
+    });
+    expect(station.hostId).toBe("studio");
+    expect(station.agentHostId).toBe("fleet-studio");
   });
 
   it("rejects empty commandCenterRef", () => {
@@ -44,6 +54,15 @@ describe("remote station config planner", () => {
     ).toThrow(/invalid remote host id/);
   });
 
+  it("rejects an explicitly invalid agent host id", () => {
+    expect(() =>
+      planRemoteStationFields({
+        ...input,
+        agentHostId: "-bad",
+      }),
+    ).toThrow(/invalid agent host id/);
+  });
+
   it("merge preserves non-station sections", () => {
     const current = applySettingsPatch(defaultSettings(), {
       appearance: { theme: "system", reduceMotion: true },
@@ -55,6 +74,7 @@ describe("remote station config planner", () => {
     expect(next.canvas.defaultCanvas).toBe("main");
     expect(next.station.role).toBe("remote");
     expect(next.station.hostId).toBe("studio");
+    expect(next.station.agentHostId).toBe("studio");
     expect(next.station.commandCenterRef).toBe("local");
     expect(next.station.supervisedPreferred).toBe(true);
   });
@@ -83,6 +103,7 @@ describe("remote station config planner", () => {
     const plan = planRemoteStationConfig(input);
     expect(plan.summary).toContain("role=remote");
     expect(plan.summary).toContain("hostId=studio");
+    expect(plan.summary).toContain("agentHostId=studio");
     expect(plan.summary).toContain("commandCenterRef=local");
     expect(plan.summary).toContain("supervisedPreferred=true");
   });

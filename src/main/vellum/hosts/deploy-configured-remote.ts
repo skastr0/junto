@@ -2,7 +2,7 @@ import type { Context } from "effect";
 import { Effect } from "effect";
 import type { StationSettings } from "@shared/settings";
 import type { RemoteHost } from "@shared/remote-hosts";
-import { RemoteHostsError } from "@shared/remote-hosts";
+import { hermesKeyFor, RemoteHostsError } from "@shared/remote-hosts";
 import type { RemoteStationConfigInput } from "@shared/remote-station-config";
 import { SshTransport } from "../ssh";
 import {
@@ -153,6 +153,7 @@ const exactRemoteStamp = (
     stamped.existed &&
     stamped.station?.role === "remote" &&
     stamped.station.hostId === host.id &&
+    stamped.station.agentHostId === hermesKeyFor(host) &&
     stamped.station.commandCenterRef === commandCenterRef
   );
 };
@@ -243,6 +244,7 @@ export const deployConfiguredRemoteHost = (
 
     const stampInput: RemoteStationConfigInput = {
       remoteHostId: host.id,
+      agentHostId: hermesKeyFor(host),
       commandCenterRef: options.commandCenterRef,
       supervisedPreferred: options.supervisedPreferred ?? true,
     };

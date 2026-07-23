@@ -48,6 +48,23 @@ describe("settings contract", () => {
     }
   });
 
+  it("migrate preserves the optional canonical station agent identity", () => {
+    const result = migrateSettingsDocument({
+      version: 1,
+      station: {
+        role: "remote",
+        hostId: "studio",
+        agentHostId: "fleet-studio",
+        commandCenterRef: "local",
+        supervisedPreferred: true,
+      },
+    });
+    expect(Either.isRight(result)).toBe(true);
+    if (Either.isRight(result)) {
+      expect(result.right.station.agentHostId).toBe("fleet-studio");
+    }
+  });
+
   it("migrate rejects future versions", () => {
     const result = migrateSettingsDocument({ version: 99 });
     expect(Either.isLeft(result)).toBe(true);

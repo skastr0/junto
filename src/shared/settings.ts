@@ -94,6 +94,13 @@ export const StationSettings = Schema.Struct({
   role: StationRoleSetting,
   /** This machine's host id in the fleet registry (usually "local" on first box). */
   hostId: StationHostIdSetting,
+  /**
+   * Canonical Hermes host prefix for agents running on this physical station.
+   * Remote configure stamps the effective `hermesKeyFor(host)` so a distinct
+   * registry hermesId remains the sole fleet transport identity. Older local
+   * settings may omit it and resolve through station.hostId.
+   */
+  agentHostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
   /** Remote-only: how this station finds the Command Center (host id or endpoint). */
   commandCenterRef: StationReachability,
   /** Prefer LaunchAgent supervised run (especially Remote). */
@@ -182,6 +189,7 @@ export type AdvancedPatch = typeof AdvancedPatch.Type;
 export const StationPatch = Schema.Struct({
   role: Schema.optionalWith(StationRoleSetting, { exact: true }),
   hostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
+  agentHostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
   commandCenterRef: Schema.optionalWith(StationReachability, { exact: true }),
   supervisedPreferred: Schema.optionalWith(Schema.Boolean, { exact: true }),
 });

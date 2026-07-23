@@ -399,6 +399,7 @@ export const describeRemoteSettingsSnapshot = (
   readonly station?: {
     readonly role?: string;
     readonly hostId?: string;
+    readonly agentHostId?: string;
     readonly commandCenterRef?: string;
   };
 } => {
@@ -409,6 +410,7 @@ export const describeRemoteSettingsSnapshot = (
       readonly station?: {
         readonly role?: unknown;
         readonly hostId?: unknown;
+        readonly agentHostId?: unknown;
         readonly commandCenterRef?: unknown;
       };
     };
@@ -419,6 +421,9 @@ export const describeRemoteSettingsSnapshot = (
       station: {
         ...(typeof station.role === "string" ? { role: station.role } : {}),
         ...(typeof station.hostId === "string" ? { hostId: station.hostId } : {}),
+        ...(typeof station.agentHostId === "string"
+          ? { agentHostId: station.agentHostId }
+          : {}),
         ...(typeof station.commandCenterRef === "string"
           ? { commandCenterRef: station.commandCenterRef }
           : {}),

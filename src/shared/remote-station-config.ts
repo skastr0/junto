@@ -21,6 +21,11 @@ import { isValidStationHostId } from "./station";
 export type RemoteStationConfigInput = {
   /** Registry id of the remote host being configured (stamped as station.hostId). */
   readonly remoteHostId: string;
+  /**
+   * Effective Hermes agent-key prefix for this station. Configure/deploy pass
+   * `hermesKeyFor(host)`; direct callers may omit it when it equals hostId.
+   */
+  readonly agentHostId?: string;
   /** How the Remote finds the Command Center (usually the CC station.hostId). */
   readonly commandCenterRef: string;
   /** Prefer LaunchAgent supervised run. Defaults true for Remote. */
@@ -40,9 +45,16 @@ export const planRemoteStationFields = (
   input: RemoteStationConfigInput,
 ): StationSettings => {
   const remoteHostId = input.remoteHostId.trim();
+  const agentHostId =
+    input.agentHostId === undefined
+      ? remoteHostId
+      : input.agentHostId.trim();
   const commandCenterRef = input.commandCenterRef.trim();
   if (!isValidStationHostId(remoteHostId)) {
     throw new Error(`invalid remote host id: ${JSON.stringify(input.remoteHostId)}`);
+  }
+  if (!isValidStationHostId(agentHostId)) {
+    throw new Error(`invalid agent host id: ${JSON.stringify(input.agentHostId)}`);
   }
   // commandCenterRef reuses StationReachability (max 255); allow empty only when
   // caller deliberately clears — configure path always supplies a non-empty ref.
@@ -55,6 +67,7 @@ export const planRemoteStationFields = (
   return {
     role: "remote",
     hostId: remoteHostId,
+    agentHostId,
     commandCenterRef,
     supervisedPreferred: input.supervisedPreferred ?? true,
   };
@@ -66,7 +79,7 @@ export const planRemoteStationConfig = (
   const station = planRemoteStationFields(input);
   return {
     station,
-    summary: `role=remote · hostId=${station.hostId} · commandCenterRef=${station.commandCenterRef} · supervisedPreferred=${station.supervisedPreferred}`,
+    summary: `role=remote · hostId=${station.hostId} · agentHostId=${station.agentHostId} · commandCenterRef=${station.commandCenterRef} · supervisedPreferred=${station.supervisedPreferred}`,
   };
 };
 
@@ -99,6 +112,7 @@ export const remoteStationAlreadyConfigured = (
   return (
     s.role === planned.role &&
     s.hostId === planned.hostId &&
+    s.agentHostId === planned.agentHostId &&
     s.commandCenterRef === planned.commandCenterRef &&
     s.supervisedPreferred === planned.supervisedPreferred
   );

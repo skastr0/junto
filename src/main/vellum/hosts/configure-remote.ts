@@ -11,7 +11,7 @@ import {
   type RemoteStationConfigInput,
 } from "@shared/remote-station-config";
 import type { RemoteHost } from "@shared/remote-hosts";
-import { RemoteHostsError } from "@shared/remote-hosts";
+import { hermesKeyFor, RemoteHostsError } from "@shared/remote-hosts";
 import {
   makeRemoteCommand,
   makeRemoteStdin,
@@ -220,6 +220,7 @@ export const configureRemoteHost = (
     try {
       planInput = {
         remoteHostId: host.id,
+        agentHostId: hermesKeyFor(host),
         commandCenterRef: options.commandCenterRef,
         supervisedPreferred: options.supervisedPreferred ?? true,
       };

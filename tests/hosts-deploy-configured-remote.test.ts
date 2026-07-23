@@ -14,6 +14,7 @@ import {
 
 const host: RemoteHost = {
   id: "studio",
+  hermesId: "fleet-studio",
   label: "Studio",
   kind: "remote",
   endpoint: "studio-box",
@@ -30,6 +31,7 @@ const presentSnapshot = (body: string, mode = "600"): string => {
 const configuredSettingsBody = `${JSON.stringify(
   remoteStationSettingsFromScratch({
     remoteHostId: "studio",
+    agentHostId: "fleet-studio",
     commandCenterRef: "local",
   }),
   null,
@@ -100,6 +102,7 @@ describe("configured Remote deploy transaction", () => {
       expect.any(Object),
       expect.objectContaining({
         remoteHostId: "studio",
+        agentHostId: "fleet-studio",
         commandCenterRef: "local",
         supervisedPreferred: true,
       }),
