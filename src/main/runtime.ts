@@ -5,7 +5,10 @@ import { assessSupervisedRuntime } from "@shared/station";
 import {
   assessStationDoctor,
   kernelRecordFromSnapshot,
+  STATION_PULL_STALE_AFTER_MS,
+  type StationStatusDocument,
 } from "@shared/station-status";
+import type { StationSettings } from "@shared/settings";
 import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { FolderLive, FolderService } from "./services/folder";
@@ -33,6 +36,11 @@ import { HostsService, HostsServiceLive } from "./vellum/hosts";
 import { SshTransportLive } from "./vellum/ssh";
 import { primeHostsSnapshot } from "./vellum/hosts/snapshot";
 import { readStationStatus } from "./vellum/station-status-store";
+import {
+  readLocalCanvasMirrorWitness,
+  stationSettingsWitness,
+  type CanvasMirrorWitness,
+} from "./vellum/station-witness";
 import {
   createStationReadinessCoordinator,
   stationReadinessMetadata,
@@ -100,6 +108,107 @@ export const supervisorAlignedForReadiness = (
   input: Parameters<typeof assessSupervisedRuntime>[0],
 ): boolean => assessSupervisedRuntime(input).aligned;
 
+export const stationCanvasPullReadiness = (
+  station: StationSettings,
+  status: StationStatusDocument,
+  now: number = Date.now(),
+): "fresh" | "stale" | "missing" | "not-required" => {
+  if (station.role !== "remote") return "not-required";
+  const pull = status.lastPull;
+  if (
+    pull === undefined ||
+    !pull.ok ||
+    pull.keptLocal ||
+    pull.failedCount !== 0 ||
+    (pull.status !== "ok" && pull.status !== "empty") ||
+    pull.admission === undefined ||
+    pull.commandCenterRef !== station.commandCenterRef ||
+    pull.admission.stationHostId !== station.hostId ||
+    pull.admission.stationConfigSha256 !== stationSettingsWitness(station)
+  ) {
+    return "missing";
+  }
+  const observed = Date.parse(pull.at);
+  if (
+    !Number.isFinite(now) ||
+    !Number.isFinite(observed) ||
+    observed > now ||
+    now - observed > STATION_PULL_STALE_AFTER_MS
+  ) {
+    return "stale";
+  }
+  return "fresh";
+};
+
+export const stationCanvasPullMatchesMirror = (
+  status: StationStatusDocument,
+  mirror: CanvasMirrorWitness,
+): boolean => {
+  const pull = status.lastPull;
+  const admission = pull?.admission;
+  if (pull === undefined || admission === undefined) return false;
+  return admission.canvasMirrorSha256 === mirror.sha256 &&
+    admission.canvasCount === mirror.canvasCount &&
+    pull.pulledCount === mirror.canvasCount &&
+    (pull.status !== "empty" || mirror.canvasCount === 0) &&
+    (pull.status !== "ok" || mirror.canvasCount > 0);
+};
+
+export interface CurrentStationReadinessOptions {
+  /** Tests and callers with a current supervisor observation may supply it. */
+  readonly supervisorAligned?: boolean;
+  readonly now?: number;
+}
+
+/** Deep product-path assessment for Doctor; it never gates station boot. */
+export const assessCurrentStationReadiness = (
+  options: CurrentStationReadinessOptions = {},
+) =>
+  Effect.gen(function* () {
+    const settings = yield* SettingsService;
+    const prism = yield* PrismService;
+    const stationInfo = yield* prism.stationInfo;
+    const settingsDoc = yield* settings.get;
+    const statusDoc = yield* Effect.promise(() => readStationStatus());
+    const supervisorAligned = options.supervisorAligned ??
+      supervisorAlignedForReadiness({
+        role: settingsDoc.station.role,
+        hostId: settingsDoc.station.hostId,
+        supervisedPreferred: settingsDoc.station.supervisedPreferred,
+        supervisedInstalled: yield* Effect.promise(() => probeSupervisedRuntime()),
+      });
+    let canvasPull = stationCanvasPullReadiness(
+      settingsDoc.station,
+      statusDoc,
+      options.now,
+    );
+    if (canvasPull === "fresh" && settingsDoc.station.role === "remote") {
+      const mirror = yield* Effect.either(
+        Effect.tryPromise({
+          try: readLocalCanvasMirrorWitness,
+          catch: (error) => error instanceof Error ? error : new Error(String(error)),
+        }),
+      );
+      if (
+        mirror._tag === "Left" ||
+        !stationCanvasPullMatchesMirror(statusDoc, mirror.right)
+      ) {
+        canvasPull = "missing";
+      }
+    }
+    return yield* Effect.promise(() =>
+      createStationReadinessCoordinator().assess({
+        version: stationInfo.version,
+        role: settingsDoc.station.role,
+        hostId: settingsDoc.station.hostId,
+        packageIdentity: stationInfo.name,
+        supervisorAligned,
+        canvasPull,
+        workControlReady: workControlReadiness.ready(),
+      }),
+    );
+  });
+
 export const buildDoctorReport = Effect.gen(function* () {
   // Ensure registry snapshot is current before host-aware doctor / transports.
   yield* Effect.tryPromise({
@@ -159,17 +268,9 @@ export const buildDoctorReport = Effect.gen(function* () {
       remoteObservations: hostsDoctorSnapshot.observations,
       workControlReady,
     });
-    const readiness = yield* Effect.promise(() => createStationReadinessCoordinator().assess({
-      version: station.version,
-      role: settingsDoc.station.role,
-      hostId: settingsDoc.station.hostId,
-      packageIdentity: station.name,
+    const readiness = yield* assessCurrentStationReadiness({
       supervisorAligned,
-      canvasPull: settingsDoc.station.role === "remote"
-        ? statusDoc.lastPull?.ok ? "fresh" : "missing"
-        : "not-required",
-      workControlReady,
-    }));
+    });
     return {
       ...stationDoctor,
       status: stationDoctor.status === "error"

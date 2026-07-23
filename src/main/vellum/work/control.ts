@@ -117,9 +117,9 @@ const systemdReadinessReceipt = (): { readonly generation: string; readonly path
 };
 
 /**
- * Witness the exact systemd invocation only after this process has rotated its
- * token and bound the hardened work listener. The launcher owns consumption;
- * this product process never signals systemd directly.
+ * Witness the exact systemd invocation after this process has rotated its
+ * token and bound the work listener. Deep terminal, browser, and canvas checks
+ * belong to Doctor and release qualification; they never block station boot.
  */
 export const publishSystemdGenerationReadiness = (): void => {
   const readiness = systemdReadinessReceipt();

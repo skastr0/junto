@@ -99,6 +99,19 @@ const failedReceipt = (hostId: string): BrowserProductPathReceipt => ({
 
 const state = (ready: boolean): StationReadinessComponentState => ready ? "ready" : "failed";
 
+const sameStationFacts = (
+  left: BrowserReadinessStationFacts,
+  right: BrowserReadinessStationFacts,
+): boolean =>
+  left.role === right.role &&
+  left.hostId === right.hostId &&
+  left.browserCapabilityDeclared === right.browserCapabilityDeclared &&
+  left.controlReady === right.controlReady &&
+  left.controlHostId === right.controlHostId &&
+  left.registeredRemoteHostId === right.registeredRemoteHostId &&
+  left.sandboxReady === right.sandboxReady &&
+  left.displayReady === right.displayReady;
+
 const settleBefore = async <T>(
   operation: Promise<T>,
   signal: AbortSignal,
@@ -209,6 +222,9 @@ export const makeBrowserProductPathProbe = (
         const navigation = await settleBefore(page.navigate(abort.signal), abort.signal, timeoutMs, () => abort.abort("browser readiness deadline"));
         const evaluation = navigation === true && await settleBefore(page.evaluate(abort.signal), abort.signal, timeoutMs, () => abort.abort("browser readiness deadline"));
         const screenshot = evaluation === true && await settleBefore(page.screenshot(abort.signal), abort.signal, timeoutMs, () => abort.abort("browser readiness deadline"));
+        if (screenshot === true && !sameStationFacts(facts, options.station())) {
+          return failedReceipt(facts.hostId);
+        }
         return {
           version: 1,
           hostId: facts.hostId,

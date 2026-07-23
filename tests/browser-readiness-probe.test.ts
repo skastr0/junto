@@ -79,6 +79,32 @@ describe("browser product-path readiness probe", () => {
     expect(value.closePath).toHaveBeenCalledTimes(2);
   });
 
+  it("fails closed when station authority changes during the synthetic path", async () => {
+    let current = facts();
+    const value = product();
+    value.path.openSyntheticLoopbackPage.mockImplementation(async () => ({
+      navigate: async () => true,
+      evaluate: async () => true,
+      screenshot: async () => {
+        current = { ...current, controlReady: false };
+        return true;
+      },
+      close: value.close,
+    }));
+    const probe = makeBrowserProductPathProbe({
+      station: () => current,
+      productPath: value.path,
+    });
+
+    await expect(probe.probe(signal())).resolves.toMatchObject({
+      transport: "failed",
+      composition: "failed",
+      capability: "failed",
+    });
+    expect(value.close).toHaveBeenCalledOnce();
+    expect(value.closePath).toHaveBeenCalledOnce();
+  });
+
   it("fails closed and aborts a bounded synthetic operation", async () => {
     vi.useFakeTimers();
     const close = vi.fn(async () => undefined);
