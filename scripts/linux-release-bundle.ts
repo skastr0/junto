@@ -57,6 +57,7 @@ export type LinuxReleaseFileKind =
   | "test-receipt"
   | "package-audit"
   | "runtime-receipt"
+  | "release-keyring"
   | "dependency-license-inventory"
   | "sbom"
   | "changelog"
@@ -205,6 +206,7 @@ const FILE_KINDS = new Set<LinuxReleaseFileKind>([
   "test-receipt",
   "package-audit",
   "runtime-receipt",
+  "release-keyring",
   "dependency-license-inventory",
   "sbom",
   "changelog",
@@ -220,6 +222,7 @@ const REQUIRED_FIXED_FILES = Object.freeze([
   ["package-audit", "package-audit.json"],
   ["runtime-receipt", "packaged-pty-smoke.json"],
   ["runtime-receipt", "packaged-runtime-smoke.json"],
+  ["release-keyring", LINUX_RELEASE_KEYRING],
   ["dependency-license-inventory", "dependency-license-inventory.json"],
   ["sbom", "sbom.cdx.json"],
   ["changelog", "CHANGELOG.md"],
@@ -233,7 +236,6 @@ const METADATA_FILES = new Set([
   LINUX_RELEASE_MANIFEST,
   LINUX_RELEASE_SIGNATURE,
   LINUX_RELEASE_CHECKSUMS,
-  LINUX_RELEASE_KEYRING,
 ]);
 
 const SHA256 = /^[0-9a-f]{64}$/u;

@@ -306,7 +306,7 @@ describe("signed Linux release bundle", () => {
       keyringRevision: 7,
       signedAt: "2026-07-23T11:58:00.000Z",
       expiresAt: EXPIRES_AT,
-      filesVerified: 13,
+      filesVerified: 14,
       packageFile: PACKAGE,
       packageBytes: Buffer.byteLength(
         "synthetic-deb-for-contract-tests",
