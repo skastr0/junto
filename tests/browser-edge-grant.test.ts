@@ -202,6 +202,8 @@ describe("browser edge-grant process-bind dual admit", () => {
       canvasesDir: join(root, "canvases"),
       resolvePageTarget,
       readCanvas: async (name) => (name === "work" ? doc : undefined),
+      station: () => sessions.stationIdentity(),
+      admitBrowserHost: (hostId) => sessions.admitAutomationHost(hostId),
       ...(identity ?? {}),
     });
     const handlers = makeControlHandlers({

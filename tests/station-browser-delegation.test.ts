@@ -10,6 +10,7 @@ import { admitAgentEdgeDelegation, admitOperatorUiDelegation, mintStationBrowser
 import { makeEdgeGrantService, type EdgeGrantService } from "../src/main/vellum/browser/edge-grant";
 import { makeBrowserCapabilityRegistry, type BrowserCapabilityRegistry } from "../src/main/vellum/browser/capabilities";
 import { makeProcessIdentityMap, type ProcessIdentityMap } from "../src/main/vellum/process-identity";
+import { admitBrowserHostCapability, type BrowserHostCapabilityAuthority } from "../src/main/vellum/browser/host-capability";
 
 const keys = generateKeyPairSync("ed25519"); const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 }); const now = 1_700_000_000_000;
 const pageRef = "vellum://canvas/work?node=page-1"; const agentRef = "vellum://canvas/work?node=agent-1";
@@ -25,6 +26,19 @@ const admissionSocket = {} as Socket;
 const frame = (request = base()) => JSON.stringify(mintStationBrowserEnvelope(agentWitness, request, "fleet-1", keys.privateKey));
 const trust = { keyId: "fleet-1", publicKey: keys.publicKey, originStationId: "command-a" };
 const context = (changes = {}) => ({ stationId: "remote-a", now, role: "remote" as const, browserReady: true, resolvePage: () => ({ hostId: "remote-a", edgeAllowed: true, policyAllowed: true }), currentGeneration: () => "generation-1", allowAction: () => true, ...changes });
+const remoteBrowserAuthority: BrowserHostCapabilityAuthority = {
+  findHost: (hostId) =>
+    hostId === "remote-a"
+      ? {
+          id: "remote-a",
+          label: "remote-a",
+          kind: "remote",
+          endpoint: "remote-a",
+          capabilities: ["browser"],
+        }
+      : undefined,
+  station: () => ({ hostId: "remote-a", role: "remote" }),
+};
 
 beforeAll(async () => {
   admissionRoot = await mkdtemp(join(tmpdir(), "vellum-station-delegation-"));
@@ -39,7 +53,7 @@ beforeAll(async () => {
         y: 0,
         width: 120,
         height: 48,
-        ether: { entity: { kind: "agent", name: "local:default" } },
+        ether: { entity: { kind: "agent", name: "local:default" }, host: "remote-a" },
       },
       {
         id: "page-1",
@@ -49,7 +63,7 @@ beforeAll(async () => {
         y: 0,
         width: 120,
         height: 48,
-        ether: { entity: { kind: "page" }, browser: { profile: "synthetic" } },
+        ether: { entity: { kind: "page" }, browser: { profile: "synthetic" }, host: "remote-a" },
       },
     ],
     edges: [{ id: "edge-1", fromNode: "agent-1", toNode: "page-1" }],
@@ -82,6 +96,9 @@ beforeAll(async () => {
           },
         }
       : { ok: false, code: "not_found", message: "missing page" },
+    station: remoteBrowserAuthority.station,
+    admitBrowserHost: (hostId) =>
+      admitBrowserHostCapability(hostId, remoteBrowserAuthority),
   });
   agentWitness = await admitAgentEdgeDelegation({
     stationId: "command-a",

@@ -29,6 +29,20 @@ describe("browser startup recovery gate", () => {
     expect(ready.slice(composition, window)).not.toContain("session.fromPartition");
   });
 
+  it("passes the composition's physical browser authority into the production edge grant", () => {
+    const activation = indexSrc.slice(indexSrc.indexOf("async (composition) =>"));
+    const grantStart = activation.indexOf("const edgeGrant = makeEdgeGrantService({");
+    const controlStart = activation.indexOf("browserControl = await startBrowserControlServer(");
+    const grant = activation.slice(grantStart, controlStart);
+
+    expect(grantStart).toBeGreaterThanOrEqual(0);
+    expect(controlStart).toBeGreaterThan(grantStart);
+    expect(grant).toContain("station: () => composition.sessions.stationIdentity()");
+    expect(grant).toContain(
+      "admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId)",
+    );
+  });
+
   it("creates the headless native parent before composition and injects the attachment target", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
     const host = ready.indexOf("await browserCompositionHost.ensureHeadlessHost()");

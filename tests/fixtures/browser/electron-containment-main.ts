@@ -22,6 +22,7 @@ import { startBrowserControlServer, type BrowserControlServer } from "../../../s
 import { makePageTargetResolver } from "../../../src/main/vellum/browser/page-target";
 import { makeBrowserProfileService } from "../../../src/main/vellum/browser/profiles";
 import { BrowserSessionService } from "../../../src/main/vellum/browser/sessions";
+import { admitBrowserHostCapability } from "../../../src/main/vellum/browser/host-capability";
 import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/vellum/browser/view-adapter";
 import { isManagedBrowserWebContents } from "../../../src/main/vellum/browser/web-policy";
 import {
@@ -651,6 +652,9 @@ void app.whenReady().then(async () => {
     canvasesDir: join(controlHome, ".vellum", "canvases"),
     resolvePageTarget,
     processMap,
+    station: LOCAL_BROWSER_TEST_AUTHORITY.station,
+    admitBrowserHost: (hostId) =>
+      admitBrowserHostCapability(hostId, LOCAL_BROWSER_TEST_AUTHORITY),
   });
   // Warm only to make the secret-free expected-principal witness available to
   // the outer probe. The protected request still goes through admitSocket and

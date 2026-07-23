@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { Either } from "effect";
 import { decodeCanvasDoc } from "@shared/canvas";
 import { resolveNodeHostId } from "@shared/station";
+import { parseNodeRef } from "@shared/node-ref";
 import type { BrowserHostCapabilityAdmission } from "./host-capability";
 
 // Edge-grant admission for process-bound callers:
@@ -104,8 +105,8 @@ export interface EdgeGrantDependencies {
    * make station identity and advertised browser capability a pre-mint
    * condition, rather than allowing a short-lived secret for a foreign page.
    */
-  readonly station?: () => { readonly hostId: string } | undefined;
-  readonly admitBrowserHost?: (hostId: string) => BrowserHostCapabilityAdmission;
+  readonly station: () => { readonly hostId: string } | undefined;
+  readonly admitBrowserHost: (hostId: string) => BrowserHostCapabilityAdmission;
   /** Optional single-doc loader override for tests. */
   readonly readCanvas?: (name: string) => Promise<CanvasDoc | undefined>;
 }
@@ -262,9 +263,6 @@ export const makeEdgeGrantService = (
     callerNodeId: string,
     pageRefs: ReadonlyArray<string>,
   ): EdgeGrantResult | undefined => {
-    if (dependencies.station === undefined || dependencies.admitBrowserHost === undefined) {
-      return undefined;
-    }
     const station = dependencies.station();
     const caller = doc.nodes.find((node) => node.id === callerNodeId);
     if (station === undefined || caller === undefined || resolveNodeHostId(caller) !== station.hostId) {
@@ -281,8 +279,10 @@ export const makeEdgeGrantService = (
       );
     }
     for (const ref of pageRefs) {
-      const nodeId = ref.split("node=")[1];
-      const page = nodeId === undefined ? undefined : doc.nodes.find((node) => node.id === nodeId);
+      const parsed = parseNodeRef(ref);
+      const page = parsed.ok
+        ? doc.nodes.find((node) => node.id === parsed.value.nodeId)
+        : undefined;
       if (page === undefined || resolveNodeHostId(page) !== station.hostId) {
         return fail(
           "physical_host_mismatch",
@@ -296,14 +296,11 @@ export const makeEdgeGrantService = (
   const targetsAdmitPhysicalStation = (
     targets: ReadonlyArray<BrowserCapabilityTarget>,
   ): EdgeGrantResult | undefined => {
-    if (dependencies.station === undefined || dependencies.admitBrowserHost === undefined) {
-      return undefined;
-    }
     const station = dependencies.station();
     if (
       station === undefined ||
       targets.some((target) => target.hostId !== station.hostId) ||
-      targets.some((target) => !dependencies.admitBrowserHost!(target.hostId).ok)
+      targets.some((target) => !dependencies.admitBrowserHost(target.hostId).ok)
     ) {
       return fail(
         "physical_host_mismatch",

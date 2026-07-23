@@ -1,5 +1,6 @@
 import type { CanvasDoc } from "@shared/canvas";
 import type { NodeRefKey } from "@shared/node-ref";
+import { parseNodeRef } from "@shared/node-ref";
 import {
   connectedPageRefs,
   findNode,
@@ -115,9 +116,8 @@ export const resolveBrowserCallerFromProcess = (
 
   // Drop any page ref whose node is no longer a page (paranoia).
   const live = pageRefs.filter((ref) => {
-    const id = ref.includes("node=") ? ref.split("node=")[1] : undefined;
-    if (!id) return true;
-    return isPageNode(findNode(doc, id));
+    const parsed = parseNodeRef(ref);
+    return parsed.ok && isPageNode(findNode(doc, parsed.value.nodeId));
   });
 
   return {

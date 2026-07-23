@@ -1178,6 +1178,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             canvasesDir: join(app.getPath("home"), ".vellum", "canvases"),
             resolvePageTarget: resolveBrowserPageTarget,
             readCanvas: readCanvasFromCanvases,
+            station: () => composition.sessions.stationIdentity(),
+            admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId),
           });
           unsubscribeCanvasEdgeGrants = await AppRuntime.runPromise(
             Effect.flatMap(CanvasesService, (canvases) =>
