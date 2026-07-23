@@ -23,6 +23,7 @@ import { SshTransport } from "../ssh/service";
 import { migrateSettingsDocument } from "../settings/migrate";
 import { configureRecordFromResult } from "@shared/station-status";
 import { recordStationConfigure } from "../station-status-store";
+import { isSafeRemoteHomePath } from "./deploy-remote";
 
 // SSH write of ~/.vellum/settings.json on a registered remote host.
 // Pattern matches herdr stage-image: opaque /bin/sh -c + stdin body.
@@ -260,11 +261,11 @@ export const configureRemoteHost = (
       ),
     );
     const homePath = homeResult.stdout.trim();
-    if (!homePath.startsWith("/")) {
+    if (!isSafeRemoteHomePath(homePath)) {
       return yield* Effect.fail(
         new RemoteHostsError(
           "io",
-          `${host.id}: remote home not readable (got ${JSON.stringify(homePath)})`,
+          `${host.id}: remote home is not a canonical absolute path (got ${JSON.stringify(homePath)})`,
         ),
       );
     }

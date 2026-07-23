@@ -36,11 +36,12 @@ type Ssh = Parameters<typeof configureRemoteHost>[0];
  */
 const makeSsh = (options?: {
   readonly existingRaw?: string | null;
+  readonly homePath?: string;
   readonly failWarm?: boolean;
   readonly failWrite?: boolean;
-}): { readonly ssh: Ssh; readonly writes: string[] } => {
+}): { readonly ssh: Ssh; readonly writes: string[]; readonly calls: { calls: number } } => {
   const writes: string[] = [];
-  let calls = 0;
+  const calls = { calls: 0 };
 
   const ssh = {
     warm: () =>
@@ -50,17 +51,17 @@ const makeSsh = (options?: {
             endpoint: "studio-box",
             operation: "warm",
             timeoutMs: 1,
-          } as never)
+        } as never)
         : Effect.void,
     run: () =>
       Effect.gen(function* () {
-        calls += 1;
+        calls.calls += 1;
         // 1: homeDirectoryLookup
-        if (calls === 1) {
-          return { stdout: "/Users/remote\n", stderr: "" };
+        if (calls.calls === 1) {
+          return { stdout: `${options?.homePath ?? "/Users/remote"}\n`, stderr: "" };
         }
         // 2: cat existing settings
-        if (calls === 2) {
+        if (calls.calls === 2) {
           if (options?.existingRaw === undefined || options.existingRaw === null) {
             return yield* Effect.fail({
               _tag: "SshExitError",
@@ -72,7 +73,7 @@ const makeSsh = (options?: {
           return { stdout: options.existingRaw, stderr: "" };
         }
         // 3: write
-        if (calls === 3) {
+        if (calls.calls === 3) {
           if (options?.failWrite) {
             return yield* Effect.fail({
               _tag: "SshExitError",
@@ -100,7 +101,7 @@ const makeSsh = (options?: {
       }),
   } as unknown as Ssh;
 
-  return { ssh, writes };
+  return { ssh, writes, calls };
 };
 
 describe("configureRemoteHost", () => {
@@ -179,5 +180,23 @@ describe("configureRemoteHost", () => {
     if (result._tag === "Left") {
       expect(result.left.message).toMatch(/Studio/);
     }
+  });
+
+  it("rejects noncanonical remote homes before deriving settings paths", async () => {
+    const { ssh, writes, calls } = makeSsh({
+      homePath: "/Users/../Applications",
+    });
+    const result = await Effect.runPromise(
+      Effect.either(
+        configureRemoteHost(ssh, remoteHost, { commandCenterRef: "local" }),
+      ),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left.code).toBe("io");
+      expect(result.left.message).toMatch(/canonical absolute path/);
+    }
+    expect(writes).toEqual([]);
+    expect(calls.calls).toBe(1);
   });
 });
