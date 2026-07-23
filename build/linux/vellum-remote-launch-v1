@@ -1,6 +1,36 @@
 #!/bin/sh
 # Versioned, package-owned headless Remote launcher. This is deliberately a
 # fixed invocation: station role and host identity remain the user's state.
+
+CLEAN_SELF='/opt/Vellum Command/resources/systemd/vellum-remote-launch-v1'
+if [ "$#" -eq 0 ]; then
+  CLEAN_HOME="${HOME:?vellum-remote-launch-v1 requires HOME}"
+  CLEAN_STATE_HOME="${XDG_STATE_HOME:?vellum-remote-launch-v1 requires XDG_STATE_HOME}"
+  CLEAN_RUNTIME_DIRECTORY="${XDG_RUNTIME_DIR:?vellum-remote-launch-v1 requires XDG_RUNTIME_DIR}"
+  CLEAN_GENERATION="${INVOCATION_ID:?vellum-remote-launch-v1 requires INVOCATION_ID}"
+  CLEAN_NOTIFY_SOCKET="${NOTIFY_SOCKET:?vellum-remote-launch-v1 requires NOTIFY_SOCKET}"
+  if [ "$CLEAN_NOTIFY_SOCKET" != "$CLEAN_RUNTIME_DIRECTORY/systemd/notify" ]; then
+    printf '%s\n' 'vellum-remote: unexpected systemd notification socket' >&2
+    exit 64
+  fi
+  exec /usr/bin/env -i \
+    PATH='/usr/bin:/bin' \
+    HOME="$CLEAN_HOME" \
+    PWD="$CLEAN_HOME" \
+    XDG_STATE_HOME="$CLEAN_STATE_HOME" \
+    XDG_RUNTIME_DIR="$CLEAN_RUNTIME_DIRECTORY" \
+    INVOCATION_ID="$CLEAN_GENERATION" \
+    ELECTRON_OZONE_PLATFORM_HINT='x11' \
+    OZONE_PLATFORM='x11' \
+    XDG_SESSION_TYPE='x11' \
+    "$CLEAN_SELF" --clean
+  exit 69
+fi
+if [ "$#" -ne 1 ] || [ "$1" != '--clean' ]; then
+  printf '%s\n' 'vellum-remote: clean launcher sentinel is required' >&2
+  exit 64
+fi
+
 set -eu
 
 PATH='/usr/bin:/bin'
@@ -13,11 +43,11 @@ XVFB='/usr/bin/Xvfb'
 XAUTH='/usr/bin/xauth'
 SETSID='/usr/bin/setsid'
 SYSTEMD_NOTIFY='/usr/bin/systemd-notify'
-SYSTEMD_NOTIFY_SOCKET="${NOTIFY_SOCKET:?vellum-remote-launch-v1 requires NOTIFY_SOCKET}"
 DISPLAY_FIRST=89
 DISPLAY_LAST=96
 RUNTIME_HOME="${HOME:?vellum-remote-launch-v1 requires HOME}"
 RUNTIME_DIRECTORY="${XDG_RUNTIME_DIR:?vellum-remote-launch-v1 requires XDG_RUNTIME_DIR}"
+SYSTEMD_NOTIFY_SOCKET="$RUNTIME_DIRECTORY/systemd/notify"
 SERVICE_RUNTIME_DIRECTORY="$RUNTIME_DIRECTORY/vellum-remote"
 GENERATION="${INVOCATION_ID:?vellum-remote-launch-v1 requires INVOCATION_ID}"
 
@@ -35,9 +65,8 @@ case "$SYSTEMD_NOTIFY_SOCKET" in
   /*) ;;
   *) printf '%s\n' 'vellum-remote: NOTIFY_SOCKET must be absolute' >&2; exit 64 ;;
 esac
-# The readiness capability belongs only to the wrapper. Xvfb, Electron, and
-# every helper inherit an environment with no notification socket.
-unset NOTIFY_SOCKET
+# The readiness capability belongs only to the wrapper. The inherited socket
+# was validated and erased by env -i; only the exact notifier receives it.
 if [ "${#GENERATION}" -ne 32 ]; then
   printf '%s\n' 'vellum-remote: INVOCATION_ID must be 32 lowercase hexadecimal characters' >&2
   exit 64

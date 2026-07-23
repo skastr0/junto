@@ -1,7 +1,9 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   EXPECTED_APPARMOR_PROFILE,
   LINUX_DEB_DEPENDENCIES,
+  LINUX_SYSTEMD_UNSET_ENVIRONMENT,
   parseDebArchiveListing,
   parseDebControl,
   parseDesktopEntry,
@@ -11,6 +13,8 @@ import {
   validateDesktopEntry,
   validateElfX64,
   validateLinuxPackageArtifactNames,
+  validateLinuxRemoteLauncher,
+  validateSystemdUserUnit,
 } from "../scripts/audit-linux-package";
 
 const debControl = (overrides: Record<string, string> = {}): string => {
@@ -67,6 +71,18 @@ StartupWMClass=Vellum Command
 Categories=Development;
 MimeType=x-scheme-handler/vellum;
 `;
+
+const systemdUserUnit = async (): Promise<string> =>
+  readFile(
+    new URL("../build/linux/vellum-remote.service", import.meta.url),
+    "utf8",
+  );
+
+const linuxRemoteLauncher = async (): Promise<string> =>
+  readFile(
+    new URL("../build/linux/vellum-remote-launch-v1", import.meta.url),
+    "utf8",
+  );
 
 describe("Ubuntu deb control policy", () => {
   it("accepts only the Ubuntu 24.04 x64 runtime inventory", () => {
@@ -222,4 +238,116 @@ describe("Linux desktop and sandbox policy", () => {
     header[18] = 0xb7;
     expect(() => validateElfX64(header, "binary")).toThrow(/x86-64/u);
   });
+});
+
+describe("Linux systemd service environment boundary", () => {
+  it("pins the launcher bootstrap to one clean self-exec", async () => {
+    const launcher = await linuxRemoteLauncher();
+    expect(() => validateLinuxRemoteLauncher(launcher)).not.toThrow();
+    expect(() =>
+      validateLinuxRemoteLauncher(
+        launcher.replace("    PWD=\"$CLEAN_HOME\" \\\n", ""),
+      ),
+    ).toThrow(/clean-environment boundary/u);
+    expect(() =>
+      validateLinuxRemoteLauncher(
+        launcher.replace(
+          "    \"$CLEAN_SELF\" --clean",
+          "    EXTRA_AUTHORITY=1 \\\n    \"$CLEAN_SELF\" --clean",
+        ),
+      ),
+    ).toThrow(/clean-environment boundary/u);
+    expect(() =>
+      validateLinuxRemoteLauncher(
+        `printf 'ran before scrub\\n'\n${launcher}`,
+      ),
+    ).toThrow(/clean-environment boundary/u);
+  });
+
+  it("pins the package-owned unit and audit to the qualified denylist", async () => {
+    const unit = await systemdUserUnit();
+    expect(() => validateSystemdUserUnit(unit)).not.toThrow();
+    expect(unit).toContain("WorkingDirectory=%h\n");
+    expect(unit).toContain(
+      `UnsetEnvironment=${LINUX_SYSTEMD_UNSET_ENVIRONMENT.join(" ")}\n`,
+    );
+  });
+
+  it("pins the clean shell working directory and rejects cwd authority", async () => {
+    const unit = await systemdUserUnit();
+    expect(() =>
+      validateSystemdUserUnit(
+        unit.replace("WorkingDirectory=%h", "WorkingDirectory=/tmp"),
+      ),
+    ).toThrow(/WorkingDirectory/u);
+    expect(() =>
+      validateSystemdUserUnit(
+        unit.replace(
+          "WorkingDirectory=%h",
+          "WorkingDirectory=%h\nWorkingDirectory=%h",
+        ),
+      ),
+    ).toThrow(/WorkingDirectory/u);
+  });
+
+  it("rejects an omitted, additional, reset, or duplicate denylist entry", async () => {
+    const unit = await systemdUserUnit();
+    const exact = LINUX_SYSTEMD_UNSET_ENVIRONMENT.join(" ");
+    const withoutNodeOptions = exact
+      .split(" ")
+      .filter((name) => name !== "NODE_OPTIONS")
+      .join(" ");
+    expect(() =>
+      validateSystemdUserUnit(
+        unit.replace(
+          `UnsetEnvironment=${exact}`,
+          `UnsetEnvironment=${withoutNodeOptions}`,
+        ),
+      ),
+    ).toThrow(/qualified denylist/u);
+    expect(() =>
+      validateSystemdUserUnit(
+        unit.replace(
+          `UnsetEnvironment=${exact}`,
+          `UnsetEnvironment=${exact} EXTRA_AUTHORITY`,
+        ),
+      ),
+    ).toThrow(/qualified denylist/u);
+    expect(() =>
+      validateSystemdUserUnit(
+        unit.replace(
+          `UnsetEnvironment=${exact}`,
+          `UnsetEnvironment=\nUnsetEnvironment=${exact}`,
+        ),
+      ),
+    ).toThrow(/qualified denylist/u);
+    expect(() =>
+      validateSystemdUserUnit(
+        unit.replace(
+          `UnsetEnvironment=${exact}`,
+          `UnsetEnvironment=${exact}\nUnsetEnvironment=${exact}`,
+        ),
+      ),
+    ).toThrow(/qualified denylist/u);
+  });
+
+  it.each([
+    "EnvironmentFile=/tmp/attacker-controlled-environment",
+    "PassEnvironment=NODE_OPTIONS",
+    "Environment=NODE_OPTIONS=--require=/tmp/attacker.js",
+    "Environment=EXTRA_AUTHORITY=1",
+  ])(
+    "rejects additional environment authority through %s",
+    async (directive) => {
+      const unit = await systemdUserUnit();
+      expect(() =>
+        validateSystemdUserUnit(
+          unit.replace(
+            "StandardOutput=null",
+            `${directive}\nStandardOutput=null`,
+          ),
+        ),
+      ).toThrow(/environment authority|Environment differs/u);
+    },
+  );
 });

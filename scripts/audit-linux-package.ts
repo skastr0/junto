@@ -43,6 +43,101 @@ export const LINUX_RELEASE_INSTALLER_RESOURCE =
 const LINUX_LEGACY_RELEASE_INSTALLER_SUDOERS_RESOURCE =
   "resources/policy/vellum-release-installer.sudoers";
 
+export const LINUX_SYSTEMD_UNSET_ENVIRONMENT = [
+  "BASH_ENV",
+  "BASHOPTS",
+  "BUN_BE_BUN",
+  "BUN_CONFIG_LINK_NATIVE_BINS",
+  "BUN_CONFIG_VERBOSE_FETCH",
+  "BUN_DEBUG_QUIET_LOGS",
+  "BUN_INSTALL",
+  "BUN_OPTIONS",
+  "BUN_RUNTIME_TRANSPILER_CACHE_PATH",
+  "CHROME_WRAPPER",
+  "ELECTRON_RUN_AS_NODE",
+  "ENV",
+  "GCONV_PATH",
+  "GI_TYPELIB_PATH",
+  "GIO_EXTRA_MODULES",
+  "GLIBC_TUNABLES",
+  "GTK_MODULES",
+  "HOSTALIASES",
+  "IFS",
+  "LD_ASSUME_KERNEL",
+  "LD_AUDIT",
+  "LD_DEBUG",
+  "LD_DEBUG_OUTPUT",
+  "LD_LIBRARY_PATH",
+  "LD_ORIGIN_PATH",
+  "LD_PRELOAD",
+  "LD_PROFILE",
+  "LD_SHOW_AUXV",
+  "LOCPATH",
+  "MALLOC_TRACE",
+  "NLSPATH",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "NODE_REPL_EXTERNAL_MODULE",
+  "PYTHONHOME",
+  "PYTHONPATH",
+  "QT_PLUGIN_PATH",
+  "RESOLV_HOST_CONF",
+  "SHELLOPTS",
+  "TZDIR",
+  "VELLUM_BROWSER_CAPABILITY",
+  "VELLUM_BROWSER_HOME",
+  "VELLUM_CANVASES_DIR",
+  "VELLUM_E2E",
+  "VELLUM_E2E_RENDERER_SURFACE_TIMEOUT_MS",
+  "VELLUM_NODE_REF",
+] as const;
+
+const LINUX_SYSTEMD_SERVICE_ENVIRONMENT = [
+  "PATH=/usr/bin:/bin",
+  "HOME=%h",
+  "XDG_STATE_HOME=%h/.local/state",
+  "XDG_RUNTIME_DIR=%t",
+  "ELECTRON_OZONE_PLATFORM_HINT=x11",
+  "OZONE_PLATFORM=x11",
+  "XDG_SESSION_TYPE=x11",
+] as const;
+
+const EXPECTED_LINUX_REMOTE_LAUNCHER_BOOTSTRAP = `#!/bin/sh
+# Versioned, package-owned headless Remote launcher. This is deliberately a
+# fixed invocation: station role and host identity remain the user's state.
+
+CLEAN_SELF='/opt/Vellum Command/resources/systemd/vellum-remote-launch-v1'
+if [ "$#" -eq 0 ]; then
+  CLEAN_HOME="\${HOME:?vellum-remote-launch-v1 requires HOME}"
+  CLEAN_STATE_HOME="\${XDG_STATE_HOME:?vellum-remote-launch-v1 requires XDG_STATE_HOME}"
+  CLEAN_RUNTIME_DIRECTORY="\${XDG_RUNTIME_DIR:?vellum-remote-launch-v1 requires XDG_RUNTIME_DIR}"
+  CLEAN_GENERATION="\${INVOCATION_ID:?vellum-remote-launch-v1 requires INVOCATION_ID}"
+  CLEAN_NOTIFY_SOCKET="\${NOTIFY_SOCKET:?vellum-remote-launch-v1 requires NOTIFY_SOCKET}"
+  if [ "$CLEAN_NOTIFY_SOCKET" != "$CLEAN_RUNTIME_DIRECTORY/systemd/notify" ]; then
+    printf '%s\\n' 'vellum-remote: unexpected systemd notification socket' >&2
+    exit 64
+  fi
+  exec /usr/bin/env -i \\
+    PATH='/usr/bin:/bin' \\
+    HOME="$CLEAN_HOME" \\
+    PWD="$CLEAN_HOME" \\
+    XDG_STATE_HOME="$CLEAN_STATE_HOME" \\
+    XDG_RUNTIME_DIR="$CLEAN_RUNTIME_DIRECTORY" \\
+    INVOCATION_ID="$CLEAN_GENERATION" \\
+    ELECTRON_OZONE_PLATFORM_HINT='x11' \\
+    OZONE_PLATFORM='x11' \\
+    XDG_SESSION_TYPE='x11' \\
+    "$CLEAN_SELF" --clean
+  exit 69
+fi
+if [ "$#" -ne 1 ] || [ "$1" != '--clean' ]; then
+  printf '%s\\n' 'vellum-remote: clean launcher sentinel is required' >&2
+  exit 64
+fi
+
+set -eu
+`;
+
 export const LINUX_DEB_DEPENDENCIES = [
   "apparmor",
   "libasound2t64",
@@ -393,6 +488,26 @@ export const validateAppArmorProfile = (input: string): void => {
   }
 };
 
+export const validateLinuxRemoteLauncher = (input: string): void => {
+  const cleanExecs = input.match(/^  exec \/usr\/bin\/env -i \\$/gmu) ?? [];
+  const notifySocketDerivations = input.match(
+    /^SYSTEMD_NOTIFY_SOCKET="\$RUNTIME_DIRECTORY\/systemd\/notify"$/gmu,
+  ) ?? [];
+  const notifyLends = input.match(
+    /^NOTIFY_SOCKET="\$SYSTEMD_NOTIFY_SOCKET" "\$SYSTEMD_NOTIFY" --ready --status='Vellum work control ready for current generation'$/gmu,
+  ) ?? [];
+  if (
+    !input.startsWith(EXPECTED_LINUX_REMOTE_LAUNCHER_BOOTSTRAP) ||
+    cleanExecs.length !== 1 ||
+    notifySocketDerivations.length !== 1 ||
+    notifyLends.length !== 1
+  ) {
+    throw new Error(
+      "Linux Remote launcher differs from the qualified clean-environment boundary",
+    );
+  }
+};
+
 /** Parses the one ExecStart token which systemd must execute, not a shell. */
 export const parseSystemdExecStart = (unit: string): string => {
   const lines = unit.split(/\r?\n/u).filter((line) => line.startsWith("ExecStart="));
@@ -411,6 +526,37 @@ export const parseSystemdExecStart = (unit: string): string => {
   );
 };
 
+const parseSystemdServiceDirectives = (
+  unit: string,
+): ReadonlyMap<string, ReadonlyArray<string>> => {
+  const directives = new Map<string, string[]>();
+  let section = "";
+  for (const rawLine of unit.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (line.length === 0 || line.startsWith("#") || line.startsWith(";")) {
+      continue;
+    }
+    const sectionMatch = /^\[([A-Za-z][A-Za-z0-9]*)\]$/u.exec(line);
+    if (sectionMatch !== null) {
+      section = sectionMatch[1];
+      continue;
+    }
+    if (section !== "Service") continue;
+    const separator = line.indexOf("=");
+    if (separator < 1) {
+      throw new Error(
+        "systemd user unit contains a malformed service directive",
+      );
+    }
+    const name = line.slice(0, separator);
+    const value = line.slice(separator + 1);
+    const current = directives.get(name) ?? [];
+    current.push(value);
+    directives.set(name, current);
+  }
+  return directives;
+};
+
 export const validateSystemdUserUnit = (unit: string): void => {
   if (
     parseSystemdExecStart(unit) !==
@@ -423,6 +569,7 @@ export const validateSystemdUserUnit = (unit: string): void => {
     "TimeoutStartSec=45s",
     "TimeoutStopSec=20s",
     "KillMode=control-group",
+    "WorkingDirectory=%h",
     "ConditionFileIsExecutable=/opt/Vellum Command/vellum",
     "StandardOutput=null",
     "StandardError=null",
@@ -430,6 +577,45 @@ export const validateSystemdUserUnit = (unit: string): void => {
     if (!unit.includes(required)) {
       throw new Error(`systemd user unit is missing ${required}`);
     }
+  }
+  const directives = parseSystemdServiceDirectives(unit);
+  const workingDirectory = directives.get("WorkingDirectory");
+  if (
+    workingDirectory?.length !== 1 ||
+    workingDirectory[0] !== "%h"
+  ) {
+    throw new Error(
+      "systemd user unit WorkingDirectory must pin the clean shell PWD to HOME",
+    );
+  }
+  const unsetEnvironment = directives.get("UnsetEnvironment");
+  const expectedUnsetEnvironment = LINUX_SYSTEMD_UNSET_ENVIRONMENT.join(" ");
+  if (
+    unsetEnvironment?.length !== 1 ||
+    unsetEnvironment[0] !== expectedUnsetEnvironment
+  ) {
+    throw new Error(
+      "systemd user unit UnsetEnvironment differs from the qualified denylist",
+    );
+  }
+  for (const directive of ["EnvironmentFile", "PassEnvironment"] as const) {
+    if (directives.has(directive)) {
+      throw new Error(
+        `systemd user unit must not grant environment authority through ${directive}`,
+      );
+    }
+  }
+  const environment = directives.get("Environment") ?? [];
+  if (
+    environment.length !== LINUX_SYSTEMD_SERVICE_ENVIRONMENT.length ||
+    environment.some(
+      (assignment, index) =>
+        assignment !== LINUX_SYSTEMD_SERVICE_ENVIRONMENT[index],
+    )
+  ) {
+    throw new Error(
+      "systemd user unit Environment differs from the qualified allowlist",
+    );
   }
 };
 
@@ -786,6 +972,7 @@ export const auditLinuxPackage = async ({
       requireRegularMode(appAsar, 0o644),
     ]);
     validateAppArmorProfile(await readFile(appArmorProfile, "utf8"));
+    validateLinuxRemoteLauncher(await readFile(remoteLauncher, "utf8"));
     validateSystemdUserUnit(await readFile(remoteUnit, "utf8"));
 
     const pty = auditLinuxPtyPlacement(resources);
