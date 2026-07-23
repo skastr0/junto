@@ -59,6 +59,8 @@ export type LinuxReleaseFileKind =
   | "test-receipt"
   | "package-audit"
   | "runtime-receipt"
+  | "ci-evidence-manifest"
+  | "promotion-receipt"
   | "release-keyring"
   | "dependency-license-inventory"
   | "sbom"
@@ -215,6 +217,8 @@ const FILE_KINDS = new Set<LinuxReleaseFileKind>([
   "test-receipt",
   "package-audit",
   "runtime-receipt",
+  "ci-evidence-manifest",
+  "promotion-receipt",
   "release-keyring",
   "dependency-license-inventory",
   "sbom",
@@ -231,6 +235,8 @@ const REQUIRED_FIXED_FILES = Object.freeze([
   ["package-audit", "package-audit.json"],
   ["runtime-receipt", "packaged-pty-smoke.json"],
   ["runtime-receipt", "packaged-runtime-smoke.json"],
+  ["ci-evidence-manifest", "ci-evidence-manifest.json"],
+  ["promotion-receipt", "release-promotion-receipt.json"],
   ["release-keyring", LINUX_RELEASE_KEYRING],
   ["dependency-license-inventory", "dependency-license-inventory.json"],
   ["sbom", "sbom.cdx.json"],
@@ -1331,12 +1337,278 @@ const validateSbomInventoryConsistency = (
   }
 };
 
+const LINUX_CI_EVIDENCE_TARGET = Object.freeze({
+  runner: "ubuntu-24.04",
+  os: "linux",
+  architecture: "x64",
+  machine: "x86_64",
+  debArchitecture: "amd64",
+  distribution: "ubuntu",
+  distributionVersion: "24.04",
+  libc: "glibc",
+} as const);
+
+const requireSafeEvidencePath = (value: unknown): string => {
+  const file = requiredString(value, "CI evidence file", 512);
+  if (
+    file.startsWith("/") ||
+    file.includes("\\") ||
+    file.split("/").some((part) =>
+      part.length === 0 ||
+      part === "." ||
+      part === ".." ||
+      /[\u0000-\u001f\u007f]/u.test(part)
+    )
+  ) {
+    throw new Error("CI evidence manifest contains an unsafe path");
+  }
+  return file;
+};
+
+const signedFile = (
+  manifest: LinuxReleaseManifest,
+  file: string,
+): LinuxReleaseFile => {
+  const entry = manifest.files.find((candidate) => candidate.file === file);
+  if (entry === undefined) {
+    throw new Error(`signed release omits required evidence: ${file}`);
+  }
+  return entry;
+};
+
+const validateCiEvidenceManifest = (
+  receipt: Record<string, unknown>,
+  manifest: LinuxReleaseManifest,
+): void => {
+  exactKeys(
+    receipt,
+    [
+      "schema",
+      "target",
+      "source",
+      "publishable",
+      "diagnostic",
+      "evidence",
+      "unsupported",
+    ],
+    "CI evidence manifest",
+  );
+  const source = record(receipt.source, "CI evidence source");
+  exactKeys(source, ["commit", "sourceDateEpoch"], "CI evidence source");
+  const publishable = record(
+    receipt.publishable,
+    "CI evidence publishable artifact",
+  );
+  exactKeys(
+    publishable,
+    ["format", "file"],
+    "CI evidence publishable artifact",
+  );
+  const diagnostic = record(
+    receipt.diagnostic,
+    "CI evidence diagnostic artifact",
+  );
+  exactKeys(
+    diagnostic,
+    ["format", "file"],
+    "CI evidence diagnostic artifact",
+  );
+  if (
+    receipt.schema !== "vellum/linux-release-evidence/v1" ||
+    JSON.stringify(receipt.target) !==
+      JSON.stringify(LINUX_CI_EVIDENCE_TARGET) ||
+    source.commit !== manifest.source.revision ||
+    requireInteger(
+      source.sourceDateEpoch,
+      "CI evidence source epoch",
+      1,
+      Number.MAX_SAFE_INTEGER,
+    ) < 1 ||
+    publishable.format !== "deb" ||
+    publishable.file !== manifest.package.file ||
+    diagnostic.format !== "tar.gz" ||
+    !Array.isArray(receipt.evidence) ||
+    JSON.stringify(receipt.unsupported) !==
+      JSON.stringify([
+        "linux-arm64",
+        "musl",
+        "appimage",
+        "snap",
+        "flatpak",
+        "rpm",
+      ])
+  ) {
+    throw new Error("CI evidence manifest does not match the signed release");
+  }
+  const diagnosticFile = requireSafeEvidencePath(diagnostic.file);
+  const entries = new Map<string, {
+    readonly bytes: number;
+    readonly sha256: string;
+  }>();
+  for (const [index, value] of receipt.evidence.entries()) {
+    const entry = record(value, `CI evidence entry ${index}`);
+    exactKeys(
+      entry,
+      ["scope", "file", "bytes", "sha256"],
+      `CI evidence entry ${index}`,
+    );
+    if (entry.scope !== "release" && entry.scope !== "evidence") {
+      throw new Error("CI evidence manifest contains an invalid scope");
+    }
+    const file = requireSafeEvidencePath(entry.file);
+    const key = `${entry.scope}:${file}`;
+    if (entries.has(key)) {
+      throw new Error("CI evidence manifest contains a duplicate entry");
+    }
+    entries.set(key, {
+      bytes: requireInteger(
+        entry.bytes,
+        "CI evidence byte count",
+        1,
+        MAX_PACKAGE_BYTES,
+      ),
+      sha256: requireSha256(entry.sha256, "CI evidence SHA-256"),
+    });
+  }
+  const links = [
+    {
+      scope: "release",
+      evidenceFile: manifest.package.file,
+      signedFile: manifest.package.file,
+    },
+    {
+      scope: "evidence",
+      evidenceFile: "inventory.json",
+      signedFile: "build-receipt.json",
+    },
+    {
+      scope: "evidence",
+      evidenceFile: "test-receipt.json",
+      signedFile: "test-receipt.json",
+    },
+    {
+      scope: "evidence",
+      evidenceFile: "package-audit.json",
+      signedFile: "package-audit.json",
+    },
+    {
+      scope: "evidence",
+      evidenceFile: "packaged-pty-smoke.json",
+      signedFile: "packaged-pty-smoke.json",
+    },
+    {
+      scope: "evidence",
+      evidenceFile: "packaged-runtime-smoke.json",
+      signedFile: "packaged-runtime-smoke.json",
+    },
+  ] as const;
+  for (const link of links) {
+    const evidence = entries.get(`${link.scope}:${link.evidenceFile}`);
+    const signed = signedFile(manifest, link.signedFile);
+    if (
+      evidence === undefined ||
+      evidence.bytes !== signed.bytes ||
+      evidence.sha256 !== signed.sha256
+    ) {
+      throw new Error(
+        `CI evidence manifest does not bind ${link.signedFile}`,
+      );
+    }
+  }
+  if (!entries.has(`evidence:${diagnosticFile}`)) {
+    throw new Error("CI evidence manifest omits its diagnostic artifact");
+  }
+};
+
+const validatePromotionReceipt = (
+  receipt: Record<string, unknown>,
+  manifest: LinuxReleaseManifest,
+): void => {
+  exactKeys(
+    receipt,
+    [
+      "schema",
+      "ok",
+      "publishable",
+      "releaseAuthorization",
+      "sourceCommit",
+      "qualifications",
+      "ciEvidence",
+      "package",
+      "workflowRun",
+    ],
+    "release promotion receipt",
+  );
+  const qualifications = record(
+    receipt.qualifications,
+    "release qualifications",
+  );
+  exactKeys(
+    qualifications,
+    ["macosVerification", "ubuntu2404X64Package"],
+    "release qualifications",
+  );
+  const ciEvidence = record(receipt.ciEvidence, "promotion CI evidence");
+  exactKeys(ciEvidence, ["file", "sha256"], "promotion CI evidence");
+  const packageReceipt = record(receipt.package, "promotion package");
+  exactKeys(
+    packageReceipt,
+    ["file", "bytes", "sha256"],
+    "promotion package",
+  );
+  const workflowRun = record(receipt.workflowRun, "promotion workflow run");
+  exactKeys(
+    workflowRun,
+    ["repository", "runId", "runAttempt"],
+    "promotion workflow run",
+  );
+  const ciManifest = signedFile(manifest, "ci-evidence-manifest.json");
+  if (
+    receipt.schema !== "vellum/release-promotion-gate/v1" ||
+    receipt.ok !== true ||
+    receipt.publishable !== false ||
+    receipt.releaseAuthorization !== "not-granted" ||
+    receipt.sourceCommit !== manifest.source.revision ||
+    qualifications.macosVerification !== "passed" ||
+    qualifications.ubuntu2404X64Package !== "passed" ||
+    ciEvidence.file !== ciManifest.file ||
+    ciEvidence.sha256 !== ciManifest.sha256 ||
+    packageReceipt.file !== manifest.package.file ||
+    packageReceipt.bytes !== manifest.package.bytes ||
+    packageReceipt.sha256 !== manifest.package.sha256 ||
+    typeof workflowRun.repository !== "string" ||
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(workflowRun.repository) ||
+    requireInteger(
+      workflowRun.runId,
+      "promotion workflow run ID",
+      1,
+      Number.MAX_SAFE_INTEGER,
+    ) < 1 ||
+    requireInteger(
+      workflowRun.runAttempt,
+      "promotion workflow run attempt",
+      1,
+      Number.MAX_SAFE_INTEGER,
+    ) < 1
+  ) {
+    throw new Error("promotion receipt does not bind the signed release");
+  }
+};
+
 const validateEvidenceReceipt = (
   file: string,
   input: string,
   manifest: LinuxReleaseManifest,
 ): void => {
   const receipt = parseEvidenceJson(input, file);
+  if (file === "ci-evidence-manifest.json") {
+    validateCiEvidenceManifest(receipt, manifest);
+    return;
+  }
+  if (file === "release-promotion-receipt.json") {
+    validatePromotionReceipt(receipt, manifest);
+    return;
+  }
   if (file === "build-receipt.json") {
     const source = record(receipt.source, "build receipt source");
     if (
@@ -1496,6 +1768,8 @@ const validatePayloads = async (
         entry.kind === "test-receipt" ||
         entry.kind === "package-audit" ||
         entry.kind === "runtime-receipt" ||
+        entry.kind === "ci-evidence-manifest" ||
+        entry.kind === "promotion-receipt" ||
         entry.kind === "dependency-license-inventory" ||
         entry.kind === "sbom"
       ) {

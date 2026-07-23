@@ -114,6 +114,8 @@ describe("Linux v1 operator documentation", () => {
     expect(policy).toContain("Revocation is irreversible");
     expect(policy).toContain("## Exact remaining production ceremony");
     expect(policy).toContain("explicit GO or NO-GO");
+    expect(policy).toContain("CI-evidence-manifest");
+    expect(policy).toContain("cross-platform promotion");
     expect(policy).toContain("No script in this repository performs step 8 or step 9");
     expect(policy).toContain("linux-release-tool.ts create");
     expect(policy).toContain("linux-release-tool.ts sign");

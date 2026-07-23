@@ -81,6 +81,9 @@ describe("authoritative Linux release workflow", () => {
     expect(workflow).toContain("ci-release-inputs/ubuntu-24.04-x64/**");
     expect(workflow).toContain("scripts/linux-release-inventory.ts");
     expect(workflow).toContain("dependency-license-inventory.json");
+    expect(workflow).toContain(
+      '"$RELEASE_INPUT_DIR/ci-evidence-manifest.json"',
+    );
     expect(workflow).toContain("sbom.cdx.json");
     expect(workflow).toContain("source-revision.json");
     expect(workflow).toContain("vellum-linux-verify-x64");
@@ -120,6 +123,16 @@ describe("authoritative Linux release workflow", () => {
     expect(workflow).toContain("permissions:\n  contents: read");
     expect(workflow).toContain("releaseAuthorization: \"not-granted\"");
     expect(workflow).toContain("publishable: false");
+    expect(workflow).toContain(
+      "name: vellum-unsigned-release-candidate-${{ github.sha }}",
+    );
+    expect(workflow).toContain("release-promotion-receipt.json");
+    expect(workflow).toContain("CI_EVIDENCE_SHA256");
+    expect(workflow).toContain("RELEASE_PACKAGE_SHA256");
+    expect(workflow).toContain(
+      'cmp --silent -- "$ci_manifest" "$verified_ci_manifest"',
+    );
+    expect(workflow).toContain('cmp --silent -- "$deb" "$release_deb"');
     expect(workflow).toContain(
       'test ! -e "$RELEASE_INPUT_DIR/release-manifest.sig"',
     );

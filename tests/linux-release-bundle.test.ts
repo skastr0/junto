@@ -1,4 +1,5 @@
 import {
+  createHash,
   generateKeyPairSync,
 } from "node:crypto";
 import {
@@ -79,6 +80,9 @@ afterEach(async () => {
 const canonical = (value: unknown): string =>
   `${JSON.stringify(value, null, 2)}\n`;
 
+const sha256 = (value: string): string =>
+  createHash("sha256").update(value).digest("hex");
+
 const writeKeyring = async (
   directory: string,
   keyring: LinuxReleaseKeyring,
@@ -102,6 +106,8 @@ const createFixture = async (options: {
     | "bundled-license-file"
     | "unresolved";
   readonly sbomLicense?: string;
+  readonly ciEvidencePackageSha256?: string;
+  readonly promotionPackageSha256?: string;
 } = {}) => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "vellum-linux-release-bundle-"),
@@ -239,6 +245,92 @@ const createFixture = async (options: {
       })
     ),
   );
+  const ciEvidenceManifest = canonical({
+    schema: "vellum/linux-release-evidence/v1",
+    target: ciTarget,
+    source: { commit: REVISION, sourceDateEpoch: 1_784_772_800 },
+    publishable: { format: "deb", file: PACKAGE },
+    diagnostic: {
+      format: "tar.gz",
+      file: "Vellum Command-0.1.0-x64-linux.tar.gz",
+    },
+    evidence: [
+      {
+        scope: "release",
+        file: PACKAGE,
+        bytes: Buffer.byteLength(payloads[PACKAGE], "utf8"),
+        sha256:
+          options.ciEvidencePackageSha256 ?? sha256(payloads[PACKAGE]),
+      },
+      ...[
+        ["inventory.json", "build-receipt.json"],
+        ["test-receipt.json", "test-receipt.json"],
+        ["package-audit.json", "package-audit.json"],
+        ["packaged-pty-smoke.json", "packaged-pty-smoke.json"],
+        ["packaged-runtime-smoke.json", "packaged-runtime-smoke.json"],
+      ].map(([evidenceFile, signedFile]) => ({
+        scope: "evidence",
+        file: evidenceFile,
+        bytes: Buffer.byteLength(payloads[signedFile], "utf8"),
+        sha256: sha256(payloads[signedFile]),
+      })),
+      {
+        scope: "evidence",
+        file: "Vellum Command-0.1.0-x64-linux.tar.gz",
+        bytes: 32,
+        sha256: "d".repeat(64),
+      },
+      {
+        scope: "evidence",
+        file: "logs/qualification.log",
+        bytes: 16,
+        sha256: "e".repeat(64),
+      },
+    ],
+    unsupported: [
+      "linux-arm64",
+      "musl",
+      "appimage",
+      "snap",
+      "flatpak",
+      "rpm",
+    ],
+  });
+  await writeFile(
+    path.join(directory, "ci-evidence-manifest.json"),
+    ciEvidenceManifest,
+    { encoding: "utf8", mode: 0o644 },
+  );
+  await writeFile(
+    path.join(directory, "release-promotion-receipt.json"),
+    canonical({
+      schema: "vellum/release-promotion-gate/v1",
+      ok: true,
+      publishable: false,
+      releaseAuthorization: "not-granted",
+      sourceCommit: REVISION,
+      qualifications: {
+        macosVerification: "passed",
+        ubuntu2404X64Package: "passed",
+      },
+      ciEvidence: {
+        file: "ci-evidence-manifest.json",
+        sha256: sha256(ciEvidenceManifest),
+      },
+      package: {
+        file: PACKAGE,
+        bytes: Buffer.byteLength(payloads[PACKAGE], "utf8"),
+        sha256:
+          options.promotionPackageSha256 ?? sha256(payloads[PACKAGE]),
+      },
+      workflowRun: {
+        repository: "skastr0/vellum",
+        runId: 123,
+        runAttempt: 1,
+      },
+    }),
+    { encoding: "utf8", mode: 0o644 },
+  );
   if (status !== "active") {
     return { directory, keys, keyring };
   }
@@ -320,7 +412,7 @@ describe("signed Linux release bundle", () => {
       keyringRevision: 7,
       signedAt: "2026-07-23T11:58:00.000Z",
       expiresAt: EXPIRES_AT,
-      filesVerified: 14,
+      filesVerified: 16,
       bundleFiles: expect.arrayContaining([
         expect.objectContaining({
           file: PACKAGE,
@@ -542,6 +634,15 @@ describe("signed Linux release bundle", () => {
     await expect(
       createFixture({ sbomLicense: "Apache-2.0" }),
     ).rejects.toThrow(/SBOM does not match/u);
+  });
+
+  it("requires CI and promotion receipts to bind the exact signed package", async () => {
+    await expect(
+      createFixture({ ciEvidencePackageSha256: "0".repeat(64) }),
+    ).rejects.toThrow(/does not bind/u);
+    await expect(
+      createFixture({ promotionPackageSha256: "0".repeat(64) }),
+    ).rejects.toThrow(/promotion receipt/u);
   });
 
   it("never emits private key material into signed metadata", async () => {
