@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   decodeElectronObservation,
   decodeElectronSecurityPolicy,
+  requireElectronObservationAdmission,
   validateElectronObservation,
   validateElectronSecurityPolicy,
 } from "../../../scripts/electron-security-policy";
@@ -32,6 +33,7 @@ export const electronSecurityPolicyHealthy = (input: {
       validateElectronObservation(observation, policy, rawPolicy, input.now ?? new Date());
       validateElectronObservation(highWater, policy, rawPolicy, input.now ?? new Date());
       if (JSON.stringify(observation) !== JSON.stringify(highWater)) return false;
+      requireElectronObservationAdmission(observation);
     }
     return true;
   } catch { return false; }

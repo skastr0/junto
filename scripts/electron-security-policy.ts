@@ -8,7 +8,7 @@
  * observed overdue/EOL result from being replaced by an older receipt locally.
  */
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -24,6 +24,7 @@ const RELEASE_INDEX_URL = "https://releases.electronjs.org/releases.json";
 const observationDirectory = () => process.env.VELLUM_RELEASE_SECURITY_STATE_DIR ?? path.join(homedir(), ".vellum", "release-security");
 const observationPath = () => path.join(observationDirectory(), "electron-observation.json");
 const highWaterPath = () => path.join(observationDirectory(), "electron-observation-high-water.json");
+const adversePath = (hash: string) => path.join(observationDirectory(), `electron-observation-adverse-${hash}.json`);
 const packagedObservationPath = path.join(ROOT, "build", "electron-observation.json");
 const packagedHighWaterPath = path.join(ROOT, "build", "electron-observation-high-water.json");
 const policyHash = (raw: string) => createHash("sha256").update(raw).digest("hex");
@@ -126,6 +127,10 @@ export const validateElectronObservation = (observation: ElectronObservation, po
   if (observation.disposition === "eol" && !observation.overdue) fail("EOL observation must be overdue");
   if (observation.overdue !== expectedOverdue) fail("observation overdue disposition is inconsistent with dueAt");
 };
+/** The one consumer gate: structurally valid risk evidence is never admission. */
+export const requireElectronObservationAdmission = (observation: ElectronObservation) => {
+  if (observation.disposition === "eol" || observation.overdue) fail("Electron observation is adverse and cannot admit consumers");
+};
 
 const readVersion = async (filename: string, field?: string): Promise<string> => { const raw = await readFile(filename, "utf8"); if (!field) return raw.trim(); const parsed = JSON.parse(raw) as Record<string, unknown>; if (typeof parsed[field] !== "string") fail(`${filename} is missing ${field}`); return parsed[field] as string; };
 const readObservation = async (filename: string) => decodeElectronObservation(JSON.parse(await readFile(filename, "utf8")));
@@ -147,6 +152,17 @@ const atomicPrivateWrite = async (target: string, content: string) => {
     const result = await lstat(target); if (!result.isFile() || result.isSymbolicLink() || (result.mode & 0o777) !== 0o600) fail("observation receipt must be a regular 0600 file");
   } catch (error) { await handle?.close(); await unlink(temporary).catch(() => undefined); throw error; }
 };
+const writePrivateNoOverwrite = async (target: string, content: string) => {
+  const directory = path.dirname(target); await requirePrivateStateDirectory(directory);
+  const temporary = path.join(directory, `.${path.basename(target)}.${randomBytes(16).toString("hex")}.tmp`);
+  let handle;
+  try {
+    handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    await handle.writeFile(content); await handle.sync(); await handle.close(); handle = undefined;
+    await link(temporary, target); await unlink(temporary); await (await open(directory, constants.O_RDONLY)).sync();
+    const result = await lstat(target); if (!result.isFile() || result.isSymbolicLink() || (result.mode & 0o777) !== 0o600) fail("adverse observation marker must be a regular 0600 file");
+  } catch (error) { await handle?.close(); await unlink(temporary).catch(() => undefined); throw error; }
+};
 const withStateLock = async <T>(directory: string, operation: () => Promise<T>): Promise<T> => {
   await requirePrivateStateDirectory(directory); const lock = path.join(directory, ".electron-observation.lock");
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -157,12 +173,28 @@ const withStateLock = async <T>(directory: string, operation: () => Promise<T>):
 };
 const persistObservation = async (receipt: ElectronObservation) => withStateLock(observationDirectory(), async () => {
   const water = highWaterPath();
+  const marker = adversePath(receipt.policyHash);
+  try {
+    const adverse = await readObservation(marker);
+    if (adverse.disposition === "eol" || adverse.overdue) {
+      if (receipt.disposition === "eol" || receipt.overdue) return;
+      fail("adverse observation is irreversible for this policy epoch");
+    }
+    fail("adverse observation marker is malformed");
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   try { const existing = await readObservation(water); if (Date.parse(existing.checkedAt) > Date.parse(receipt.checkedAt)) fail("older observation cannot replace newer known state"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  const content = `${JSON.stringify(receipt)}\n`; await atomicPrivateWrite(water, content); await atomicPrivateWrite(observationPath(), content);
+  const content = `${JSON.stringify(receipt)}\n`;
+  if (receipt.disposition === "eol" || receipt.overdue) await writePrivateNoOverwrite(marker, content);
+  await atomicPrivateWrite(water, content); await atomicPrivateWrite(observationPath(), content);
 });
+const readAdverseMarker = async (policy: ElectronSecurityPolicy, rawPolicy: string, now: Date) => {
+  try { const marker = await readObservation(adversePath(policyHash(rawPolicy))); validateElectronObservation(marker, policy, rawPolicy, now); if (marker.disposition !== "eol" && !marker.overdue) fail("adverse observation marker is not adverse"); return marker; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+};
 const validatePersistedObservation = async (policy: ElectronSecurityPolicy, rawPolicy: string, now: Date, required: boolean) => {
-  try { const [receipt, water] = await Promise.all([readObservation(observationPath()), readObservation(highWaterPath())]); validateElectronObservation(receipt, policy, rawPolicy, now); validateElectronObservation(water, policy, rawPolicy, now); if (!sameObservation(receipt, water)) fail("recorded Electron observation is not the current high-water state"); return receipt; }
-  catch (error) { if (!required && (error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+  const adverse = await readAdverseMarker(policy, rawPolicy, now);
+  try { const [receipt, water] = await Promise.all([readObservation(observationPath()), readObservation(highWaterPath())]); validateElectronObservation(receipt, policy, rawPolicy, now); validateElectronObservation(water, policy, rawPolicy, now); if (!sameObservation(receipt, water)) fail("recorded Electron observation is not the current high-water state"); if (adverse) fail("adverse observation survives this mutable receipt pair"); requireElectronObservationAdmission(receipt); return receipt; }
+  catch (error) { if (!required && !adverse && (error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
 };
 
 export const validateCheckedInElectronPolicy = async (now = new Date()) => {
@@ -178,7 +210,9 @@ export const validateElectronArtifactPath = async (artifactPath: string, now = n
   const root = path.resolve(artifactPath); const resources = path.basename(root).endsWith(".app") ? path.join(root, "Contents", "Resources") : path.join(root, "resources");
   const embeddedRaw = await readFile(path.join(resources, "policy", "electron-security-policy.json"), "utf8"); if (embeddedRaw !== reviewedRaw) fail(`artifact ${root} embeds a policy different from reviewed policy`);
   const receipt = await readObservation(path.join(resources, "policy", "electron-observation.json")); const water = await readObservation(path.join(resources, "policy", "electron-observation-high-water.json"));
-  validateElectronObservation(receipt, policy, embeddedRaw, now); validateElectronObservation(water, policy, embeddedRaw, now); if (!sameObservation(receipt, water)) fail("artifact observation is not its current high-water state");
+  validateElectronObservation(receipt, policy, embeddedRaw, now); validateElectronObservation(water, policy, embeddedRaw, now); if (!sameObservation(receipt, water)) fail("artifact observation is not its current high-water state"); requireElectronObservationAdmission(receipt);
+  const local = await validatePersistedObservation(policy, reviewedRaw, now, false);
+  if (local && !sameObservation(receipt, local)) fail("artifact observation differs from latest private state");
   const versionPath = path.basename(root).endsWith(".app") ? path.join(root, "Contents", "Frameworks", "Electron Framework.framework", "Versions", "A", "Resources", "version") : path.join(root, "version"); const version = await readVersion(versionPath);
   if (version !== policy.electron.exactVersion) fail(`artifact ${root} embeds ${version}; expected audited ${policy.electron.exactVersion}`); return { artifact: root, electronVersion: version, policyVersion: policy.electron.exactVersion };
 };

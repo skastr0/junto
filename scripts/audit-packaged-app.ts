@@ -21,7 +21,7 @@ import {
   type FuseConfig,
 } from "@electron/fuses";
 import rawPolicy from "./package-security-policy.json";
-import { validateElectronObservation, validateElectronSecurityPolicy, decodeElectronObservation, decodeElectronSecurityPolicy } from "./electron-security-policy";
+import { requireElectronObservationAdmission, validateElectronArtifactPath, validateElectronObservation, validateElectronSecurityPolicy, decodeElectronObservation, decodeElectronSecurityPolicy } from "./electron-security-policy";
 import rawRuntimePolicy from "./macos-runtime-policy.json";
 
 export const FUSE_NAMES = [
@@ -864,6 +864,7 @@ export const auditPackagedApp = async (
 ): Promise<PackageAuditReceipt> => {
   const policy = PACKAGE_SECURITY_POLICY;
   const appPath = path.resolve(requestedPath);
+  await validateElectronArtifactPath(appPath);
   const embeddedPolicyPath = path.join(appPath, "Contents", "Resources", "policy", "electron-security-policy.json");
   const embeddedObservationPath = path.join(appPath, "Contents", "Resources", "policy", "electron-observation.json");
   const workspacePolicyPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "electron-security-policy.json");
@@ -881,6 +882,7 @@ export const auditPackagedApp = async (
   validateElectronObservation(embeddedObservation, electronPolicy, embeddedPolicyRaw, new Date());
   validateElectronObservation(embeddedHighWater, electronPolicy, embeddedPolicyRaw, new Date());
   if (JSON.stringify(embeddedObservation) !== JSON.stringify(embeddedHighWater)) throw new Error("embedded Electron observation is not the current high-water state");
+  requireElectronObservationAdmission(embeddedObservation);
   if (path.basename(appPath) !== `${policy.productName}.app`) {
     throw new Error(
       `packaged app path must end in ${policy.productName}.app: ${appPath}`,
