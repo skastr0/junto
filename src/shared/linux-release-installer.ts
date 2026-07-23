@@ -7,12 +7,22 @@
  * process authority from its own fixed installation.
  */
 
+import type {
+  LinuxReleaseBridgeCandidate,
+  LinuxReleaseBridgeFile,
+  LinuxReleaseBridgeTarget,
+} from "./linux-release-bridge";
+import {
+  decodeLinuxReleaseFence,
+  type LinuxReleaseFence,
+} from "./linux-release-fence";
+
 export const LINUX_RELEASE_INSTALLER_PROTOCOL =
-  "vellum/linux-release-installer/v1" as const;
+  "vellum/linux-release-installer/v2" as const;
 export const LINUX_RELEASE_INSTALLER_JOURNAL =
-  "vellum/linux-release-installer-journal/v1" as const;
+  "vellum/linux-release-installer-journal/v2" as const;
 export const LINUX_RELEASE_INSTALLER_RECEIPT =
-  "vellum/linux-release-installer-receipt/v1" as const;
+  "vellum/linux-release-installer-receipt/v2" as const;
 
 export const LINUX_RELEASE_INSTALLER_MAX_HEADER_BYTES = 64 * 1024;
 export const LINUX_RELEASE_INSTALLER_MAX_FILES = 64;
@@ -23,44 +33,46 @@ export const LINUX_RELEASE_INSTALLER_MAX_BUNDLE_BYTES =
 const SHA256 = /^[0-9a-f]{64}$/u;
 const TRANSACTION_ID = /^[0-9a-f]{32}$/u;
 const HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/u;
+const STATION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 const VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const SOURCE_REVISION = /^[0-9a-f]{40}$/u;
 const BUNDLE_FILE = /^[A-Za-z0-9][A-Za-z0-9 ._+()~-]{0,126}[A-Za-z0-9]$/u;
 const PROCESS_START_TICKS = /^(0|[1-9][0-9]{0,19})$/u;
+const DECIMAL_BIGINT = /^(0|[1-9][0-9]{0,39})$/u;
 const BOOT_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+const GENERATION = /^[0-9a-f]{32}$/u;
+const OBSERVATION = /^tm_[0-9a-f]{16}$/u;
 
-export interface LinuxReleaseInstallerTarget {
-  readonly uid: number;
-  readonly gid: number;
-  readonly host: string;
-}
-
-export interface LinuxReleaseInstallerFile {
-  readonly name: string;
-  readonly bytes: number;
-  readonly sha256: string;
-}
-
-export interface LinuxReleaseInstallerCandidate {
-  readonly version: string;
-  readonly debSha256: string;
-  readonly manifestSha256: string;
-}
+export type LinuxReleaseInstallerTarget = LinuxReleaseBridgeTarget;
+export type LinuxReleaseInstallerFile = LinuxReleaseBridgeFile;
+export type LinuxReleaseInstallerCandidate = LinuxReleaseBridgeCandidate;
+export type LinuxReleaseInstallerSudoTarget = Readonly<
+  Pick<LinuxReleaseInstallerTarget, "uid" | "gid" | "host">
+>;
 
 export type LinuxReleaseInstallerRequest =
   | {
     readonly schema: typeof LINUX_RELEASE_INSTALLER_PROTOCOL;
-    readonly kind: "probe";
+    readonly kind: "prepare";
+    readonly transactionId: string;
+    readonly providerNonce: string;
+    readonly bridgeNonce: string;
+    readonly helperChallenge: string;
     readonly target: LinuxReleaseInstallerTarget;
     readonly candidate: LinuxReleaseInstallerCandidate;
+    readonly totalBytes: number;
+    readonly files: ReadonlyArray<LinuxReleaseInstallerFile>;
   }
   | {
     readonly schema: typeof LINUX_RELEASE_INSTALLER_PROTOCOL;
-    readonly kind: "install";
+    readonly kind: "commit";
     readonly transactionId: string;
-    readonly target: LinuxReleaseInstallerTarget;
-    readonly files: ReadonlyArray<LinuxReleaseInstallerFile>;
+    readonly providerNonce: string;
+    readonly bridgeNonce: string;
+    readonly helperChallenge: string;
+    readonly fenceId: string;
+    readonly inventorySha256: string;
   };
 
 export interface LinuxReleaseInstallerProcessIdentity {
@@ -69,14 +81,39 @@ export interface LinuxReleaseInstallerProcessIdentity {
   readonly bootId: string;
 }
 
+export const LINUX_RELEASE_INSTALLER_JOURNAL_PHASES = [
+  "fence-intent",
+  "fence-prepared",
+  "fence-published",
+  "fence-acknowledged",
+  "prepared",
+  "dpkg-started",
+  "dpkg-installed",
+  "activation-started",
+  "verified",
+  "rollback-started",
+  "rolled-back",
+  "rollback-acknowledged",
+  "rollback-fence-clear-started",
+  "rollback-fence-cleared",
+  "aborted-acknowledged",
+  "aborted-fence-clear-started",
+  "aborted-fence-cleared",
+  "postrestart-acknowledged",
+  "fence-clear-started",
+  "fence-cleared",
+] as const;
+
 export type LinuxReleaseInstallerJournalPhase =
-  | "prepared"
-  | "dpkg-started"
-  | "dpkg-installed"
-  | "activation-started"
-  | "verified"
-  | "rollback-started"
-  | "rolled-back";
+  (typeof LINUX_RELEASE_INSTALLER_JOURNAL_PHASES)[number];
+
+export interface LinuxReleaseInstallerFenceJournal {
+  readonly record: LinuxReleaseFence;
+  readonly device: string | null;
+  readonly inode: string | null;
+  readonly preGeneration: string | null;
+  readonly postGeneration: string | null;
+}
 
 export interface LinuxReleaseInstallerJournal {
   readonly schema: typeof LINUX_RELEASE_INSTALLER_JOURNAL;
@@ -84,6 +121,7 @@ export interface LinuxReleaseInstallerJournal {
   readonly operation: "install" | "adopt";
   readonly owner: LinuxReleaseInstallerProcessIdentity;
   readonly target: LinuxReleaseInstallerTarget;
+  readonly fence: LinuxReleaseInstallerFenceJournal;
   readonly manifestSha256: string;
   readonly debSha256: string;
   readonly sourceRevision: string;
@@ -116,40 +154,98 @@ export type LinuxReleaseInstallerRepairAction =
   | "repair-installed-package-manually"
   | "retry-install";
 
+export interface LinuxReleaseInstallerJournalPredecessor {
+  readonly transactionId: string;
+  readonly operation: "install" | "adopt";
+  readonly phase: LinuxReleaseInstallerJournalPhase;
+}
+
+export interface LinuxReleaseInstallerMaintenanceEvidence {
+  readonly activeTerminalSessions: 0;
+  readonly observationId: string;
+}
+
+export interface LinuxReleaseInstallerReadinessEvidence {
+  readonly state: "ready";
+  readonly generation: string;
+  readonly packageVersion: string;
+  readonly receiptSha256: string;
+}
+
 export type LinuxReleaseInstallerReceipt =
   | {
     readonly schema: typeof LINUX_RELEASE_INSTALLER_RECEIPT;
     readonly ok: true;
-    readonly state: "ready";
-    readonly protocol: typeof LINUX_RELEASE_INSTALLER_PROTOCOL;
-    readonly target: LinuxReleaseInstallerTarget;
-    readonly currentVersion: string | null;
-    readonly artifactMatches: boolean;
-    readonly journalState:
-      | "clear"
-      | "recoverable"
-      | "manual-repair"
-      | "busy";
+    readonly state: "root-armed";
+    readonly helperChallenge: string;
+    readonly target: LinuxReleaseInstallerSudoTarget;
+    readonly machineIdSha256: string;
+    readonly bootId: string;
   }
   | {
     readonly schema: typeof LINUX_RELEASE_INSTALLER_RECEIPT;
     readonly ok: true;
-    readonly state: "installed";
+    readonly state: "root-ready";
     readonly transactionId: string;
+    readonly providerNonce: string;
+    readonly bridgeNonce: string;
+    readonly helperChallenge: string;
+    readonly target: LinuxReleaseInstallerTarget;
+    readonly candidate: LinuxReleaseInstallerCandidate;
+    readonly fence: LinuxReleaseFence;
+    readonly machineIdSha256: string;
+    readonly bootId: string;
+    readonly operation: "install" | "adopt" | "noop";
+    readonly fromVersion: string | null;
+    readonly currentVersion: string | null;
+    readonly journalPredecessor: LinuxReleaseInstallerJournalPredecessor | null;
+    readonly maintenance: LinuxReleaseInstallerMaintenanceEvidence;
+    readonly totalBytes: number;
+  }
+  | {
+    readonly schema: typeof LINUX_RELEASE_INSTALLER_RECEIPT;
+    readonly ok: true;
+    readonly state: "ready";
+    readonly transactionId: string;
+    readonly providerNonce: string;
+    readonly bridgeNonce: string;
+    readonly helperChallenge: string;
+    readonly fenceId: string;
+    readonly inventorySha256: string;
+    readonly operation: "install" | "adopt" | "noop";
+    readonly changed: boolean;
     readonly fromVersion: string | null;
     readonly toVersion: string;
     readonly manifestSha256: string;
     readonly debSha256: string;
     readonly sourceRevision: string;
     readonly recoveredTransactionId: string | null;
+    readonly readiness: LinuxReleaseInstallerReadinessEvidence;
   }
   | {
     readonly schema: typeof LINUX_RELEASE_INSTALLER_RECEIPT;
     readonly ok: false;
-    readonly state: "refused" | "rolled-back";
+    readonly state: "refused";
     readonly code: LinuxReleaseInstallerRefusalCode;
     readonly transactionId: string | null;
     readonly action: LinuxReleaseInstallerRepairAction;
+  }
+  | {
+    readonly schema: typeof LINUX_RELEASE_INSTALLER_RECEIPT;
+    readonly ok: false;
+    readonly state: "rolled-back";
+    readonly code: LinuxReleaseInstallerRefusalCode;
+    readonly transactionId: string;
+    readonly action: LinuxReleaseInstallerRepairAction;
+    readonly providerNonce: string;
+    readonly bridgeNonce: string;
+    readonly helperChallenge: string;
+    readonly fenceId: string;
+    readonly inventorySha256: string;
+    readonly cleanup: {
+      readonly fence: "cleared";
+      readonly journal: "cleared";
+    };
   };
 
 const record = (value: unknown, label: string): Record<string, unknown> => {
@@ -200,11 +296,28 @@ const stringMatching = (
 
 const decodeTarget = (value: unknown): LinuxReleaseInstallerTarget => {
   const input = record(value, "installer target");
-  exactKeys(input, ["uid", "gid", "host"], "installer target");
+  exactKeys(input, ["uid", "gid", "host", "stationId"], "installer target");
   return Object.freeze({
     uid: integer(input.uid, "installer target uid", 1, 0x7fff_ffff),
     gid: integer(input.gid, "installer target gid", 1, 0x7fff_ffff),
     host: stringMatching(input.host, HOST, "installer target host"),
+    stationId: stringMatching(
+      input.stationId,
+      STATION_ID,
+      "installer target station id",
+    ),
+  });
+};
+
+const decodeSudoTarget = (
+  value: unknown,
+): LinuxReleaseInstallerSudoTarget => {
+  const input = record(value, "installer sudo target");
+  exactKeys(input, ["uid", "gid", "host"], "installer sudo target");
+  return Object.freeze({
+    uid: integer(input.uid, "installer sudo target uid", 1, 0x7fff_ffff),
+    gid: integer(input.gid, "installer sudo target gid", 1, 0x7fff_ffff),
+    host: stringMatching(input.host, HOST, "installer sudo target host"),
   });
 };
 
@@ -231,7 +344,7 @@ const decodeCandidate = (value: unknown): LinuxReleaseInstallerCandidate => {
   const input = record(value, "installer candidate");
   exactKeys(
     input,
-    ["version", "debSha256", "manifestSha256"],
+    ["version", "debSha256", "manifestSha256", "inventorySha256"],
     "installer candidate",
   );
   return Object.freeze({
@@ -250,6 +363,11 @@ const decodeCandidate = (value: unknown): LinuxReleaseInstallerCandidate => {
       SHA256,
       "installer candidate manifest sha256",
     ),
+    inventorySha256: stringMatching(
+      input.inventorySha256,
+      SHA256,
+      "installer candidate inventory sha256",
+    ),
   });
 };
 
@@ -259,61 +377,138 @@ export const decodeLinuxReleaseInstallerRequest = (
   const input = record(value, "installer request");
   if (
     input.schema !== LINUX_RELEASE_INSTALLER_PROTOCOL ||
-    (input.kind !== "probe" && input.kind !== "install")
+    (input.kind !== "prepare" && input.kind !== "commit")
   ) {
     throw new Error("installer request schema is unsupported");
   }
-  if (input.kind === "probe") {
+  if (input.kind === "prepare") {
     exactKeys(
       input,
-      ["schema", "kind", "target", "candidate"],
-      "installer probe request",
+      [
+        "schema",
+        "kind",
+        "transactionId",
+        "providerNonce",
+        "bridgeNonce",
+        "helperChallenge",
+        "target",
+        "candidate",
+        "totalBytes",
+        "files",
+      ],
+      "installer prepare request",
     );
+    if (
+      !Array.isArray(input.files) ||
+      input.files.length === 0 ||
+      input.files.length > LINUX_RELEASE_INSTALLER_MAX_FILES
+    ) {
+      throw new Error("installer file inventory is invalid");
+    }
+    const files = input.files.map(decodeFile);
+    let total = 0;
+    const names = new Set<string>();
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index]!;
+      if (names.has(file.name)) {
+        throw new Error("installer files must be unique");
+      }
+      if (index > 0 && files[index - 1]!.name >= file.name) {
+        throw new Error("installer files must be strictly ordered");
+      }
+      names.add(file.name);
+      total += file.bytes;
+      if (
+        !Number.isSafeInteger(total) ||
+        total > LINUX_RELEASE_INSTALLER_MAX_BUNDLE_BYTES
+      ) {
+        throw new Error("installer bundle is oversized");
+      }
+    }
+    if (input.totalBytes !== total) {
+      throw new Error("installer total bytes do not match its files");
+    }
     return Object.freeze({
       schema: LINUX_RELEASE_INSTALLER_PROTOCOL,
-      kind: "probe",
+      kind: "prepare",
+      transactionId: stringMatching(
+        input.transactionId,
+        TRANSACTION_ID,
+        "installer transaction id",
+      ),
+      providerNonce: stringMatching(
+        input.providerNonce,
+        TRANSACTION_ID,
+        "installer provider nonce",
+      ),
+      bridgeNonce: stringMatching(
+        input.bridgeNonce,
+        TRANSACTION_ID,
+        "installer bridge nonce",
+      ),
+      helperChallenge: stringMatching(
+        input.helperChallenge,
+        TRANSACTION_ID,
+        "installer helper challenge",
+      ),
       target: decodeTarget(input.target),
       candidate: decodeCandidate(input.candidate),
+      totalBytes: integer(
+        input.totalBytes,
+        "installer total bytes",
+        1,
+        LINUX_RELEASE_INSTALLER_MAX_BUNDLE_BYTES,
+      ),
+      files: Object.freeze(files),
     });
   }
   exactKeys(
     input,
-    ["schema", "kind", "transactionId", "target", "files"],
-    "installer install request",
+    [
+      "schema",
+      "kind",
+      "transactionId",
+      "providerNonce",
+      "bridgeNonce",
+      "helperChallenge",
+      "fenceId",
+      "inventorySha256",
+    ],
+    "installer commit request",
   );
-  if (
-    !Array.isArray(input.files) ||
-    input.files.length === 0 ||
-    input.files.length > LINUX_RELEASE_INSTALLER_MAX_FILES
-  ) {
-    throw new Error("installer file inventory is invalid");
-  }
-  const files = input.files.map(decodeFile);
-  let total = 0;
-  const names = new Set<string>();
-  for (const file of files) {
-    if (names.has(file.name)) {
-      throw new Error("installer files must be unique");
-    }
-    names.add(file.name);
-    total += file.bytes;
-    if (
-      !Number.isSafeInteger(total) ||
-      total > LINUX_RELEASE_INSTALLER_MAX_BUNDLE_BYTES
-    ) {
-      throw new Error("installer bundle is oversized");
-    }
-  }
   return Object.freeze({
     schema: LINUX_RELEASE_INSTALLER_PROTOCOL,
-    kind: "install",
+    kind: "commit",
     transactionId: stringMatching(
       input.transactionId,
       TRANSACTION_ID,
-      "installer transaction id",
+      "installer commit transaction id",
     ),
-    target: decodeTarget(input.target),
-    files: Object.freeze(files),
+    providerNonce: stringMatching(
+      input.providerNonce,
+      TRANSACTION_ID,
+      "installer commit provider nonce",
+    ),
+    bridgeNonce: stringMatching(
+      input.bridgeNonce,
+      TRANSACTION_ID,
+      "installer commit bridge nonce",
+    ),
+    helperChallenge: stringMatching(
+      input.helperChallenge,
+      TRANSACTION_ID,
+      "installer commit helper challenge",
+    ),
+    fenceId: stringMatching(
+      input.fenceId,
+      TRANSACTION_ID,
+      "installer commit fence id",
+    ),
+    inventorySha256: stringMatching(
+      input.inventorySha256,
+      SHA256,
+      "installer commit inventory sha256",
+    ),
   });
 };
 
@@ -333,6 +528,59 @@ const decodeProcessIdentity = (
   });
 };
 
+const decodeFenceJournal = (
+  value: unknown,
+): LinuxReleaseInstallerFenceJournal => {
+  const input = record(value, "installer fence journal");
+  exactKeys(
+    input,
+    [
+      "record",
+      "device",
+      "inode",
+      "preGeneration",
+      "postGeneration",
+    ],
+    "installer fence journal",
+  );
+  const generation = (
+    candidate: unknown,
+    label: string,
+  ): string | null => {
+    if (candidate === null) return null;
+    return stringMatching(candidate, GENERATION, label);
+  };
+  const fence = decodeLinuxReleaseFence(input.record);
+  if (fence === undefined) {
+    throw new Error("installer fence record is invalid");
+  }
+  return Object.freeze({
+    record: fence,
+    device: input.device === null
+      ? null
+      : stringMatching(
+        input.device,
+        DECIMAL_BIGINT,
+        "installer fence device",
+      ),
+    inode: input.inode === null
+      ? null
+      : stringMatching(
+        input.inode,
+        DECIMAL_BIGINT,
+        "installer fence inode",
+      ),
+    preGeneration: generation(
+      input.preGeneration,
+      "installer fence pre-generation",
+    ),
+    postGeneration: generation(
+      input.postGeneration,
+      "installer fence post-generation",
+    ),
+  });
+};
+
 export const decodeLinuxReleaseInstallerJournal = (
   value: unknown,
 ): LinuxReleaseInstallerJournal => {
@@ -345,6 +593,7 @@ export const decodeLinuxReleaseInstallerJournal = (
       "operation",
       "owner",
       "target",
+      "fence",
       "manifestSha256",
       "debSha256",
       "sourceRevision",
@@ -357,15 +606,9 @@ export const decodeLinuxReleaseInstallerJournal = (
     ],
     "installer journal",
   );
-  const phases = new Set<LinuxReleaseInstallerJournalPhase>([
-    "prepared",
-    "dpkg-started",
-    "dpkg-installed",
-    "activation-started",
-    "verified",
-    "rollback-started",
-    "rolled-back",
-  ]);
+  const phases = new Set<LinuxReleaseInstallerJournalPhase>(
+    LINUX_RELEASE_INSTALLER_JOURNAL_PHASES,
+  );
   const serviceStates = new Set([
     "enabled-active",
     "enabled-inactive",
@@ -373,6 +616,14 @@ export const decodeLinuxReleaseInstallerJournal = (
     "disabled-inactive",
     "absent-inactive",
   ]);
+  const transactionId = stringMatching(
+    input.transactionId,
+    TRANSACTION_ID,
+    "installer journal transaction id",
+  );
+  const target = decodeTarget(input.target);
+  const fence = decodeFenceJournal(input.fence);
+  const phase = input.phase as LinuxReleaseInstallerJournalPhase;
   if (
     input.schema !== LINUX_RELEASE_INSTALLER_JOURNAL ||
     (input.operation !== "install" && input.operation !== "adopt") ||
@@ -404,16 +655,48 @@ export const decodeLinuxReleaseInstallerJournal = (
   ) {
     throw new Error("installer adoption journal is inconsistent");
   }
+  if (
+    fence.record.transactionId !== transactionId ||
+    fence.record.targetUid !== target.uid ||
+    fence.record.targetGid !== target.gid ||
+    fence.record.stationId !== target.stationId ||
+    (fence.record.operation !== input.operation &&
+      fence.record.operation !== "recover")
+  ) {
+    throw new Error("installer journal fence binding is inconsistent");
+  }
+  if (
+    (phase === "fence-intent" &&
+      (fence.device !== null || fence.inode !== null)) ||
+    (phase !== "fence-intent" &&
+      (fence.device === null || fence.inode === null))
+  ) {
+    throw new Error("installer journal fence inode is inconsistent");
+  }
+  const postrestartPhases = new Set<LinuxReleaseInstallerJournalPhase>([
+    "rollback-acknowledged",
+    "rollback-fence-clear-started",
+    "rollback-fence-cleared",
+    "aborted-acknowledged",
+    "aborted-fence-clear-started",
+    "aborted-fence-cleared",
+    "postrestart-acknowledged",
+    "fence-clear-started",
+    "fence-cleared",
+  ]);
+  if (
+    (postrestartPhases.has(phase) && fence.postGeneration === null) ||
+    (!postrestartPhases.has(phase) && fence.postGeneration !== null)
+  ) {
+    throw new Error("installer journal fence generation is inconsistent");
+  }
   return Object.freeze({
     schema: LINUX_RELEASE_INSTALLER_JOURNAL,
-    transactionId: stringMatching(
-      input.transactionId,
-      TRANSACTION_ID,
-      "installer journal transaction id",
-    ),
+    transactionId,
     operation: input.operation,
     owner: decodeProcessIdentity(input.owner),
-    target: decodeTarget(input.target),
+    target,
+    fence,
     manifestSha256: stringMatching(
       input.manifestSha256,
       SHA256,
@@ -440,7 +723,7 @@ export const decodeLinuxReleaseInstallerJournal = (
       "oldServiceState"
     ],
     oldLinger: input.oldLinger,
-    phase: input.phase as LinuxReleaseInstallerJournalPhase,
+    phase,
   });
 };
 
@@ -453,9 +736,106 @@ export const encodeLinuxReleaseInstallerJournal = (
   return canonical(decoded);
 };
 
+export const encodeLinuxReleaseInstallerRequest = (
+  request: LinuxReleaseInstallerRequest,
+): string => canonical(decodeLinuxReleaseInstallerRequest(request));
+
 export const encodeLinuxReleaseInstallerReceipt = (
   receipt: LinuxReleaseInstallerReceipt,
-): string => canonical(receipt);
+): string => canonical(decodeLinuxReleaseInstallerReceipt(receipt));
+
+const decodeNullableVersion = (
+  value: unknown,
+  label: string,
+): string | null => {
+  if (value === null) return null;
+  return stringMatching(value, VERSION, label);
+};
+
+const decodeJournalPredecessor = (
+  value: unknown,
+): LinuxReleaseInstallerJournalPredecessor | null => {
+  if (value === null) return null;
+  const input = record(value, "installer journal predecessor");
+  exactKeys(
+    input,
+    ["transactionId", "operation", "phase"],
+    "installer journal predecessor",
+  );
+  const phases = new Set<LinuxReleaseInstallerJournalPhase>(
+    LINUX_RELEASE_INSTALLER_JOURNAL_PHASES,
+  );
+  if (
+    (input.operation !== "install" && input.operation !== "adopt") ||
+    typeof input.phase !== "string" ||
+    !phases.has(input.phase as LinuxReleaseInstallerJournalPhase)
+  ) {
+    throw new Error("installer journal predecessor is invalid");
+  }
+  return Object.freeze({
+    transactionId: stringMatching(
+      input.transactionId,
+      TRANSACTION_ID,
+      "installer predecessor transaction id",
+    ),
+    operation: input.operation,
+    phase: input.phase as LinuxReleaseInstallerJournalPhase,
+  });
+};
+
+const decodeMaintenanceEvidence = (
+  value: unknown,
+): LinuxReleaseInstallerMaintenanceEvidence => {
+  const input = record(value, "installer maintenance evidence");
+  exactKeys(
+    input,
+    ["activeTerminalSessions", "observationId"],
+    "installer maintenance evidence",
+  );
+  if (
+    input.activeTerminalSessions !== 0 ||
+    typeof input.observationId !== "string" ||
+    !OBSERVATION.test(input.observationId)
+  ) {
+    throw new Error("installer maintenance evidence is invalid");
+  }
+  return Object.freeze({
+    activeTerminalSessions: 0,
+    observationId: input.observationId,
+  });
+};
+
+const decodeReadinessEvidence = (
+  value: unknown,
+): LinuxReleaseInstallerReadinessEvidence => {
+  const input = record(value, "installer readiness evidence");
+  exactKeys(
+    input,
+    ["state", "generation", "packageVersion", "receiptSha256"],
+    "installer readiness evidence",
+  );
+  if (input.state !== "ready") {
+    throw new Error("installer readiness evidence is invalid");
+  }
+  return Object.freeze({
+    state: "ready",
+    generation: stringMatching(
+      input.generation,
+      GENERATION,
+      "installer readiness generation",
+    ),
+    packageVersion: stringMatching(
+      input.packageVersion,
+      VERSION,
+      "installer readiness package version",
+    ),
+    receiptSha256: stringMatching(
+      input.receiptSha256,
+      SHA256,
+      "installer readiness receipt sha256",
+    ),
+  });
+};
 
 export const decodeLinuxReleaseInstallerReceipt = (
   value: unknown,
@@ -467,54 +847,43 @@ export const decodeLinuxReleaseInstallerReceipt = (
   ) {
     throw new Error("installer receipt schema is unsupported");
   }
-  if (input.ok === true && input.state === "ready") {
+  if (input.ok === true && input.state === "root-armed") {
     exactKeys(
       input,
       [
         "schema",
         "ok",
         "state",
-        "protocol",
+        "helperChallenge",
         "target",
-        "currentVersion",
-        "artifactMatches",
-        "journalState",
+        "machineIdSha256",
+        "bootId",
       ],
-      "installer ready receipt",
+      "installer root-armed receipt",
     );
-    const journalStates = new Set([
-      "clear",
-      "recoverable",
-      "manual-repair",
-      "busy",
-    ]);
-    if (
-      input.protocol !== LINUX_RELEASE_INSTALLER_PROTOCOL ||
-      (input.currentVersion !== null &&
-        (typeof input.currentVersion !== "string" ||
-          !VERSION.test(input.currentVersion))) ||
-      typeof input.artifactMatches !== "boolean" ||
-      typeof input.journalState !== "string" ||
-      !journalStates.has(input.journalState)
-    ) {
-      throw new Error("installer ready receipt protocol is unsupported");
-    }
     return Object.freeze({
       schema: LINUX_RELEASE_INSTALLER_RECEIPT,
       ok: true,
-      state: "ready",
-      protocol: LINUX_RELEASE_INSTALLER_PROTOCOL,
-      target: decodeTarget(input.target),
-      currentVersion: input.currentVersion as string | null,
-      artifactMatches: input.artifactMatches,
-      journalState: input.journalState as
-        | "clear"
-        | "recoverable"
-        | "manual-repair"
-        | "busy",
+      state: "root-armed",
+      helperChallenge: stringMatching(
+        input.helperChallenge,
+        TRANSACTION_ID,
+        "installer root-armed challenge",
+      ),
+      target: decodeSudoTarget(input.target),
+      machineIdSha256: stringMatching(
+        input.machineIdSha256,
+        SHA256,
+        "installer root-armed machine id sha256",
+      ),
+      bootId: stringMatching(
+        input.bootId,
+        BOOT_ID,
+        "installer root-armed boot id",
+      ),
     });
   }
-  if (input.ok === true && input.state === "installed") {
+  if (input.ok === true && input.state === "root-ready") {
     exactKeys(
       input,
       [
@@ -522,43 +891,192 @@ export const decodeLinuxReleaseInstallerReceipt = (
         "ok",
         "state",
         "transactionId",
+        "providerNonce",
+        "bridgeNonce",
+        "helperChallenge",
+        "target",
+        "candidate",
+        "fence",
+        "machineIdSha256",
+        "bootId",
+        "operation",
+        "fromVersion",
+        "currentVersion",
+        "journalPredecessor",
+        "maintenance",
+        "totalBytes",
+      ],
+      "installer root-ready receipt",
+    );
+    const transactionId = stringMatching(
+      input.transactionId,
+      TRANSACTION_ID,
+      "installer root-ready transaction id",
+    );
+    const target = decodeTarget(input.target);
+    const candidate = decodeCandidate(input.candidate);
+    const fence = decodeLinuxReleaseFence(input.fence);
+    if (
+      fence === undefined ||
+      (input.operation !== "install" &&
+        input.operation !== "adopt" &&
+        input.operation !== "noop") ||
+      !Number.isSafeInteger(input.totalBytes) ||
+      (input.totalBytes as number) < 1 ||
+      (input.totalBytes as number) > LINUX_RELEASE_INSTALLER_MAX_BUNDLE_BYTES ||
+      fence.transactionId !== transactionId ||
+      fence.targetUid !== target.uid ||
+      fence.targetGid !== target.gid ||
+      fence.stationId !== target.stationId ||
+      fence.candidateDigest !== candidate.inventorySha256 ||
+      fence.machineIdSha256 !== input.machineIdSha256 ||
+      fence.bootId !== input.bootId ||
+      (input.operation === "install"
+        ? fence.operation !== "install"
+        : fence.operation !== "adopt")
+    ) {
+      throw new Error("installer root-ready receipt is inconsistent");
+    }
+    return Object.freeze({
+      schema: LINUX_RELEASE_INSTALLER_RECEIPT,
+      ok: true,
+      state: "root-ready",
+      transactionId,
+      providerNonce: stringMatching(
+        input.providerNonce,
+        TRANSACTION_ID,
+        "installer root-ready provider nonce",
+      ),
+      bridgeNonce: stringMatching(
+        input.bridgeNonce,
+        TRANSACTION_ID,
+        "installer root-ready bridge nonce",
+      ),
+      helperChallenge: stringMatching(
+        input.helperChallenge,
+        TRANSACTION_ID,
+        "installer helper challenge",
+      ),
+      target,
+      candidate,
+      fence,
+      machineIdSha256: stringMatching(
+        input.machineIdSha256,
+        SHA256,
+        "installer machine id sha256",
+      ),
+      bootId: stringMatching(input.bootId, BOOT_ID, "installer boot id"),
+      operation: input.operation,
+      fromVersion: decodeNullableVersion(
+        input.fromVersion,
+        "installer root-ready prior version",
+      ),
+      currentVersion: decodeNullableVersion(
+        input.currentVersion,
+        "installer root-ready current version",
+      ),
+      journalPredecessor: decodeJournalPredecessor(
+        input.journalPredecessor,
+      ),
+      maintenance: decodeMaintenanceEvidence(input.maintenance),
+      totalBytes: input.totalBytes as number,
+    });
+  }
+  if (input.ok === true && input.state === "ready") {
+    exactKeys(
+      input,
+      [
+        "schema",
+        "ok",
+        "state",
+        "transactionId",
+        "providerNonce",
+        "bridgeNonce",
+        "helperChallenge",
+        "fenceId",
+        "inventorySha256",
+        "operation",
+        "changed",
         "fromVersion",
         "toVersion",
         "manifestSha256",
         "debSha256",
         "sourceRevision",
         "recoveredTransactionId",
+        "readiness",
       ],
-      "installer installed receipt",
+      "installer final receipt",
     );
     if (
-      input.fromVersion !== null &&
-      (typeof input.fromVersion !== "string" || !VERSION.test(input.fromVersion))
+      input.operation !== "install" &&
+      input.operation !== "adopt" &&
+      input.operation !== "noop"
     ) {
-      throw new Error("installer installed receipt has invalid prior version");
+      throw new Error("installer final receipt has invalid operation");
     }
     if (
       input.recoveredTransactionId !== null &&
       (typeof input.recoveredTransactionId !== "string" ||
         !TRANSACTION_ID.test(input.recoveredTransactionId))
     ) {
-      throw new Error("installer installed receipt has invalid recovery");
+      throw new Error("installer final receipt has invalid recovery");
+    }
+    if (
+      typeof input.changed !== "boolean" ||
+      (input.operation === "noop" && input.changed)
+    ) {
+      throw new Error("installer final receipt has invalid change state");
+    }
+    const toVersion = stringMatching(
+      input.toVersion,
+      VERSION,
+      "installer receipt target version",
+    );
+    const readiness = decodeReadinessEvidence(input.readiness);
+    if (readiness.packageVersion !== toVersion) {
+      throw new Error("installer final readiness version is inconsistent");
     }
     return Object.freeze({
       schema: LINUX_RELEASE_INSTALLER_RECEIPT,
       ok: true,
-      state: "installed",
+      state: "ready",
       transactionId: stringMatching(
         input.transactionId,
         TRANSACTION_ID,
         "installer receipt transaction id",
       ),
-      fromVersion: input.fromVersion as string | null,
-      toVersion: stringMatching(
-        input.toVersion,
-        VERSION,
-        "installer receipt target version",
+      providerNonce: stringMatching(
+        input.providerNonce,
+        TRANSACTION_ID,
+        "installer receipt provider nonce",
       ),
+      bridgeNonce: stringMatching(
+        input.bridgeNonce,
+        TRANSACTION_ID,
+        "installer receipt bridge nonce",
+      ),
+      helperChallenge: stringMatching(
+        input.helperChallenge,
+        TRANSACTION_ID,
+        "installer receipt helper challenge",
+      ),
+      fenceId: stringMatching(
+        input.fenceId,
+        TRANSACTION_ID,
+        "installer receipt fence id",
+      ),
+      inventorySha256: stringMatching(
+        input.inventorySha256,
+        SHA256,
+        "installer receipt inventory sha256",
+      ),
+      operation: input.operation,
+      changed: input.changed,
+      fromVersion: decodeNullableVersion(
+        input.fromVersion,
+        "installer receipt prior version",
+      ),
+      toVersion,
       manifestSha256: stringMatching(
         input.manifestSha256,
         SHA256,
@@ -575,14 +1093,9 @@ export const decodeLinuxReleaseInstallerReceipt = (
         "installer receipt source revision",
       ),
       recoveredTransactionId: input.recoveredTransactionId as string | null,
+      readiness,
     });
   }
-  exactKeys(
-    input,
-    ["schema", "ok", "state", "code", "transactionId", "action"],
-    "installer refusal receipt",
-  );
-  const states = new Set(["refused", "rolled-back"]);
   const codes = new Set<LinuxReleaseInstallerRefusalCode>([
     "identity",
     "protocol",
@@ -603,10 +1116,93 @@ export const decodeLinuxReleaseInstallerReceipt = (
     "repair-installed-package-manually",
     "retry-install",
   ]);
+  if (input.ok !== false || input.state === "rolled-back") {
+    exactKeys(
+      input,
+      [
+        "schema",
+        "ok",
+        "state",
+        "code",
+        "transactionId",
+        "action",
+        "providerNonce",
+        "bridgeNonce",
+        "helperChallenge",
+        "fenceId",
+        "inventorySha256",
+        "cleanup",
+      ],
+      "installer rolled-back receipt",
+    );
+    const cleanup = record(input.cleanup, "installer rollback cleanup");
+    exactKeys(
+      cleanup,
+      ["fence", "journal"],
+      "installer rollback cleanup",
+    );
+    if (
+      input.ok !== false ||
+      input.state !== "rolled-back" ||
+      typeof input.code !== "string" ||
+      !codes.has(input.code as LinuxReleaseInstallerRefusalCode) ||
+      typeof input.action !== "string" ||
+      !actions.has(input.action as LinuxReleaseInstallerRepairAction) ||
+      cleanup.fence !== "cleared" ||
+      cleanup.journal !== "cleared"
+    ) {
+      throw new Error("installer rolled-back receipt is malformed");
+    }
+    return Object.freeze({
+      schema: LINUX_RELEASE_INSTALLER_RECEIPT,
+      ok: false,
+      state: "rolled-back",
+      code: input.code as LinuxReleaseInstallerRefusalCode,
+      transactionId: stringMatching(
+        input.transactionId,
+        TRANSACTION_ID,
+        "installer rollback transaction id",
+      ),
+      action: input.action as LinuxReleaseInstallerRepairAction,
+      providerNonce: stringMatching(
+        input.providerNonce,
+        TRANSACTION_ID,
+        "installer rollback provider nonce",
+      ),
+      bridgeNonce: stringMatching(
+        input.bridgeNonce,
+        TRANSACTION_ID,
+        "installer rollback bridge nonce",
+      ),
+      helperChallenge: stringMatching(
+        input.helperChallenge,
+        TRANSACTION_ID,
+        "installer rollback helper challenge",
+      ),
+      fenceId: stringMatching(
+        input.fenceId,
+        TRANSACTION_ID,
+        "installer rollback fence id",
+      ),
+      inventorySha256: stringMatching(
+        input.inventorySha256,
+        SHA256,
+        "installer rollback inventory sha256",
+      ),
+      cleanup: Object.freeze({
+        fence: "cleared",
+        journal: "cleared",
+      }),
+    });
+  }
+  exactKeys(
+    input,
+    ["schema", "ok", "state", "code", "transactionId", "action"],
+    "installer refusal receipt",
+  );
   if (
     input.ok !== false ||
-    typeof input.state !== "string" ||
-    !states.has(input.state) ||
+    input.state !== "refused" ||
     typeof input.code !== "string" ||
     !codes.has(input.code as LinuxReleaseInstallerRefusalCode) ||
     typeof input.action !== "string" ||
@@ -620,7 +1216,7 @@ export const decodeLinuxReleaseInstallerReceipt = (
   return Object.freeze({
     schema: LINUX_RELEASE_INSTALLER_RECEIPT,
     ok: false,
-    state: input.state as "refused" | "rolled-back",
+    state: "refused",
     code: input.code as LinuxReleaseInstallerRefusalCode,
     transactionId: input.transactionId as string | null,
     action: input.action as LinuxReleaseInstallerRepairAction,

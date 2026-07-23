@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
 import {
   constants as fsConstants,
   type Stats,
@@ -19,10 +19,12 @@ import {
   type FileHandle,
 } from "node:fs/promises";
 import { hostname as kernelHostname } from "node:os";
+import type { Socket } from "node:net";
 import path from "node:path";
 import process from "node:process";
 import {
   LINUX_RELEASE_INSTALLER_JOURNAL,
+  LINUX_RELEASE_INSTALLER_JOURNAL_PHASES,
   LINUX_RELEASE_INSTALLER_MAX_HEADER_BYTES,
   LINUX_RELEASE_INSTALLER_PROTOCOL,
   LINUX_RELEASE_INSTALLER_RECEIPT,
@@ -33,12 +35,38 @@ import {
   type LinuxReleaseInstallerCandidate,
   type LinuxReleaseInstallerFile,
   type LinuxReleaseInstallerJournal,
+  type LinuxReleaseInstallerJournalPredecessor,
   type LinuxReleaseInstallerJournalPhase,
   type LinuxReleaseInstallerProcessIdentity,
+  type LinuxReleaseInstallerReadinessEvidence,
   type LinuxReleaseInstallerReceipt,
+  type LinuxReleaseInstallerRepairAction,
   type LinuxReleaseInstallerRequest,
   type LinuxReleaseInstallerTarget,
 } from "../src/shared/linux-release-installer";
+import {
+  LINUX_RELEASE_BRIDGE_AUTH_METADATA,
+  LINUX_RELEASE_BRIDGE_STAGE_METADATA,
+  LINUX_RELEASE_BRIDGE_STAGE_ROOT,
+  decodeLinuxReleaseBridgeAuthArmed,
+  decodeLinuxReleaseBridgeStageRequest,
+  encodeLinuxReleaseBridgeAuthArmed,
+  encodeLinuxReleaseBridgeInventory,
+  encodeLinuxReleaseBridgeStageRequest,
+  linuxReleaseBridgeStagePath,
+  type LinuxReleaseBridgeAuthArmed,
+  type LinuxReleaseBridgeStageRequest,
+} from "../src/shared/linux-release-bridge";
+import {
+  LINUX_RELEASE_FENCE_PROTOCOL,
+  type LinuxReleaseFence,
+} from "../src/shared/linux-release-fence";
+import {
+  LinuxReleaseFenceController,
+  type LinuxReleaseFenceAuthority,
+  type LinuxReleaseMaintenanceLease,
+  type LinuxReleaseTermPeerObservation,
+} from "./linux-release-fence-control";
 
 /*
  * This file is build input, never the sudo target. Release packaging must
@@ -73,6 +101,74 @@ const DANGEROUS_ENVIRONMENT = [
   "DYLD_INSERT_LIBRARIES",
   "DYLD_LIBRARY_PATH",
 ] as const;
+const SYSTEMD_UNSET_ENVIRONMENT = [
+  "BASH_ENV",
+  "BASHOPTS",
+  "BUN_BE_BUN",
+  "BUN_CONFIG_LINK_NATIVE_BINS",
+  "BUN_CONFIG_VERBOSE_FETCH",
+  "BUN_DEBUG_QUIET_LOGS",
+  "BUN_INSTALL",
+  "BUN_OPTIONS",
+  "BUN_RUNTIME_TRANSPILER_CACHE_PATH",
+  "CHROME_WRAPPER",
+  "ELECTRON_RUN_AS_NODE",
+  "ENV",
+  "GCONV_PATH",
+  "GI_TYPELIB_PATH",
+  "GIO_EXTRA_MODULES",
+  "GLIBC_TUNABLES",
+  "GTK_MODULES",
+  "HOSTALIASES",
+  "IFS",
+  "LD_ASSUME_KERNEL",
+  "LD_AUDIT",
+  "LD_DEBUG",
+  "LD_DEBUG_OUTPUT",
+  "LD_LIBRARY_PATH",
+  "LD_ORIGIN_PATH",
+  "LD_PRELOAD",
+  "LD_PROFILE",
+  "LD_SHOW_AUXV",
+  "LOCPATH",
+  "MALLOC_TRACE",
+  "NLSPATH",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "NODE_REPL_EXTERNAL_MODULE",
+  "PYTHONHOME",
+  "PYTHONPATH",
+  "QT_PLUGIN_PATH",
+  "RESOLV_HOST_CONF",
+  "SHELLOPTS",
+  "TZDIR",
+  "VELLUM_BROWSER_CAPABILITY",
+  "VELLUM_BROWSER_HOME",
+  "VELLUM_CANVASES_DIR",
+  "VELLUM_E2E",
+  "VELLUM_E2E_RENDERER_SURFACE_TIMEOUT_MS",
+  "VELLUM_NODE_REF",
+] as const;
+const FORBIDDEN_SERVICE_ENVIRONMENT = new Set<string>(
+  SYSTEMD_UNSET_ENVIRONMENT,
+);
+
+const forbiddenServiceEnvironmentName = (name: string): boolean =>
+  FORBIDDEN_SERVICE_ENVIRONMENT.has(name) ||
+  name.startsWith("BUN_") ||
+  name.startsWith("DYLD_") ||
+  name.startsWith("VELLUM_");
+
+const exactProcessEnvironment = (
+  actual: Readonly<Record<string, string>>,
+  required: Readonly<Record<string, string>>,
+): boolean => {
+  const actualNames = Object.keys(actual).sort();
+  const requiredNames = Object.keys(required).sort();
+  return actualNames.length === requiredNames.length &&
+    actualNames.every((name, index) => name === requiredNames[index]) &&
+    Object.entries(required).every(([name, value]) => actual[name] === value);
+};
 
 const commandEnvironment = Object.freeze({
   PATH: "/usr/sbin:/usr/bin:/sbin:/bin",
@@ -143,6 +239,48 @@ interface ProtectedArtifact {
   readonly bytes: number;
 }
 
+export interface ImportedBridgeStage {
+  readonly stage: ProtectedStage;
+  readonly request: LinuxReleaseBridgeStageRequest;
+  readonly auth: LinuxReleaseBridgeAuthArmed;
+}
+
+export interface LinuxReleaseFenceControl {
+  readonly acquire: () => Promise<LinuxReleaseMaintenanceLease>;
+  readonly prepare: (
+    record: LinuxReleaseFence,
+  ) => Promise<LinuxReleaseFenceAuthority>;
+  readonly publish: (
+    authority: LinuxReleaseFenceAuthority,
+  ) => Promise<void>;
+  readonly observePrepared: (
+    record: LinuxReleaseFence,
+    device: string | null,
+    inode: string | null,
+  ) => Promise<{
+    readonly state: "pending" | "published" | "both" | "absent";
+    readonly authority?: LinuxReleaseFenceAuthority;
+  }>;
+  readonly normalizePrepared: (
+    authority: LinuxReleaseFenceAuthority,
+  ) => Promise<"pending" | "published">;
+  readonly adoptPublished: (
+    record: LinuxReleaseFence,
+    device: string,
+    inode: string,
+  ) => Promise<LinuxReleaseFenceAuthority>;
+  readonly assertExact: (
+    authority: LinuxReleaseFenceAuthority,
+  ) => Promise<void>;
+  readonly proveAbsent: (record: LinuxReleaseFence) => Promise<void>;
+  readonly discardPrepared: (
+    authority: LinuxReleaseFenceAuthority,
+  ) => Promise<void>;
+  readonly clear: (
+    authority: LinuxReleaseFenceAuthority,
+  ) => Promise<void>;
+}
+
 interface InstallerLock {
   readonly assertHeld: () => Promise<void>;
   readonly release: () => Promise<void>;
@@ -153,16 +291,9 @@ export interface LinuxReleaseInstallerHost {
   readonly acquireLock: (
     owner: LinuxReleaseInstallerProcessIdentity,
   ) => Promise<InstallerLock>;
-  readonly probe: (candidate: LinuxReleaseInstallerCandidate) => Promise<{
-    readonly currentVersion: string | null;
-    readonly artifactMatches: boolean;
-    readonly journalState:
-      | "clear"
-      | "recoverable"
-      | "manual-repair"
-      | "busy";
-  }>;
-  readonly reconcileOrphans: () => Promise<void>;
+  readonly reconcileOrphans: (
+    preserveTransactionId?: string,
+  ) => Promise<void>;
   readonly readJournal: () => Promise<LinuxReleaseInstallerJournal | null>;
   readonly writeJournal: (
     journal: LinuxReleaseInstallerJournal,
@@ -179,6 +310,12 @@ export interface LinuxReleaseInstallerHost {
     chunks: AsyncIterable<Uint8Array>,
   ) => Promise<void>;
   readonly finishStage: (stage: ProtectedStage) => Promise<void>;
+  readonly importBridgeStage: (
+    request: Extract<
+      LinuxReleaseInstallerRequest,
+      { readonly kind: "prepare" }
+    >,
+  ) => Promise<ImportedBridgeStage>;
   readonly discardStage: (stage: ProtectedStage) => Promise<void>;
   readonly verifyProtectedBundle: (
     stage: ProtectedStage,
@@ -188,6 +325,7 @@ export interface LinuxReleaseInstallerHost {
     file: string,
   ) => Promise<LinuxDebInspection>;
   readonly currentVersion: () => Promise<string | null>;
+  readonly observeCurrentVersion: () => Promise<string | null>;
   readonly currentOperationalState: (
     invocation: LinuxReleaseInstallerInvocation,
   ) => Promise<LinuxOperationalState>;
@@ -213,7 +351,17 @@ export interface LinuxReleaseInstallerHost {
   readonly activateAndVerify: (
     invocation: LinuxReleaseInstallerInvocation,
     version: string,
-  ) => Promise<void>;
+  ) => Promise<LinuxReleaseInstallerReadinessEvidence>;
+  readonly verifyCurrentReadiness: (
+    invocation: LinuxReleaseInstallerInvocation,
+    version: string,
+    generation: string,
+  ) => Promise<LinuxReleaseInstallerReadinessEvidence>;
+  readonly openFenceControl: (
+    invocation: LinuxReleaseInstallerInvocation,
+    target: LinuxReleaseInstallerTarget,
+  ) => Promise<LinuxReleaseFenceControl>;
+  readonly machineIdSha256: () => Promise<string>;
   readonly rollback: (
     invocation: LinuxReleaseInstallerInvocation,
     journal: LinuxReleaseInstallerJournal,
@@ -258,6 +406,14 @@ export interface NodeLinuxReleaseInstallerHostOptions {
   readonly acquireKernelLock?: (
     lockFile: string,
   ) => Promise<InstallerLock>;
+  readonly bridgeStageRoot?: string;
+  readonly fenceDirectory?: string;
+  readonly fencePath?: string;
+  readonly fenceControlFactory?: (
+    invocation: LinuxReleaseInstallerInvocation,
+    target: LinuxReleaseInstallerTarget,
+  ) => Promise<LinuxReleaseFenceControl>;
+  readonly readMachineIdSha256?: () => Promise<string>;
 }
 
 export class InstallerError extends Error {
@@ -278,12 +434,10 @@ export class InstallerError extends Error {
   }
 }
 
-const refusal = (
+const repairAction = (
   code: InstallerError["category"],
-  transactionId: string | null,
-  state: "refused" | "rolled-back" = "refused",
-): LinuxReleaseInstallerReceipt => {
-  const action = code === "identity"
+): LinuxReleaseInstallerRepairAction =>
+  code === "identity"
     ? "invoke-with-fixed-sudo-command"
     : code === "protocol"
     ? "send-a-new-bounded-frame"
@@ -296,15 +450,46 @@ const refusal = (
     : code === "policy"
     ? "obtain-a-valid-signed-release"
     : "repair-root-installer-state-manually";
+
+const refusal = (
+  code: InstallerError["category"],
+  transactionId: string | null,
+): LinuxReleaseInstallerReceipt => {
   return {
     schema: LINUX_RELEASE_INSTALLER_RECEIPT,
     ok: false,
-    state,
+    state: "refused",
     code,
     transactionId,
-    action,
+    action: repairAction(code),
   };
 };
+
+const rolledBackReceipt = (
+  code: InstallerError["category"],
+  request: Extract<
+    LinuxReleaseInstallerRequest,
+    { readonly kind: "prepare" }
+  >,
+  helperChallenge: string,
+  fenceId: string,
+): LinuxReleaseInstallerReceipt => ({
+  schema: LINUX_RELEASE_INSTALLER_RECEIPT,
+  ok: false,
+  state: "rolled-back",
+  code,
+  transactionId: request.transactionId,
+  action: repairAction(code),
+  providerNonce: request.providerNonce,
+  bridgeNonce: request.bridgeNonce,
+  helperChallenge,
+  fenceId,
+  inventorySha256: request.candidate.inventorySha256,
+  cleanup: {
+    fence: "cleared",
+    journal: "cleared",
+  },
+});
 
 const parsePositiveId = (value: string | undefined, label: string): number => {
   if (value === undefined || !DECIMAL_ID.test(value)) {
@@ -352,9 +537,15 @@ export const deriveLinuxReleaseInstallerInvocation = async (): Promise<
   };
 };
 
+interface TrustedSudoTarget {
+  readonly uid: number;
+  readonly gid: number;
+  readonly host: string;
+}
+
 const validateInvocation = (
   invocation: LinuxReleaseInstallerInvocation,
-): LinuxReleaseInstallerTarget => {
+): TrustedSudoTarget => {
   if (
     invocation.effectiveUid !== 0 ||
     invocation.arguments.length !== 0 ||
@@ -377,8 +568,8 @@ const validateInvocation = (
 };
 
 const targetsEqual = (
-  left: LinuxReleaseInstallerTarget,
-  right: LinuxReleaseInstallerTarget,
+  left: TrustedSudoTarget,
+  right: TrustedSudoTarget,
 ): boolean =>
   left.uid === right.uid && left.gid === right.gid && left.host === right.host;
 
@@ -527,52 +718,8 @@ const phaseJournal = (
   phase,
 });
 
-const recoverInterruptedTransaction = async (
-  host: LinuxReleaseInstallerHost,
-  invocation: LinuxReleaseInstallerInvocation,
-  target: LinuxReleaseInstallerTarget,
-): Promise<string | null> => {
-  const journal = await host.readJournal();
-  if (journal === null) return null;
-  if (!targetsEqual(journal.target, target)) {
-    throw new InstallerError(
-      "unsafe-state",
-      "installer journal belongs to another trusted target",
-    );
-  }
-  if (await host.isProcessLive(journal.owner)) {
-    throw new InstallerError(
-      "busy",
-      "installer journal is owned by a live process",
-    );
-  }
-  if (journal.phase === "prepared" || journal.phase === "rolled-back") {
-    await host.clearJournal();
-    return journal.transactionId;
-  }
-  try {
-    const recovering = phaseJournal(
-      journal,
-      "rollback-started",
-      invocation.process,
-    );
-    await host.writeJournal(recovering);
-    await host.rollback(invocation, recovering);
-    await host.writeJournal(phaseJournal(recovering, "rolled-back"));
-    await host.clearJournal();
-    return journal.transactionId;
-  } catch (error) {
-    throw new InstallerError(
-      "rollback-failed",
-      error instanceof Error
-        ? `interrupted transaction recovery failed: ${error.message}`
-        : "interrupted transaction recovery failed",
-    );
-  }
-};
-
 const verifiedFileDescriptor = (
-  request: Extract<LinuxReleaseInstallerRequest, { readonly kind: "install" }>,
+  request: Extract<LinuxReleaseInstallerRequest, { readonly kind: "prepare" }>,
   verified: VerifiedProtectedLinuxBundle,
 ): LinuxReleaseInstallerFile => {
   const descriptor = request.files.find((file) =>
@@ -591,12 +738,379 @@ const verifiedFileDescriptor = (
   return descriptor;
 };
 
-const runInstall = async (
-  request: Extract<LinuxReleaseInstallerRequest, { readonly kind: "install" }>,
+const requestsBind = (
+  prepare: Extract<LinuxReleaseInstallerRequest, { readonly kind: "prepare" }>,
+  commit: Extract<LinuxReleaseInstallerRequest, { readonly kind: "commit" }>,
+  helperChallenge: string,
+  fenceId: string,
+): boolean =>
+  prepare.helperChallenge === helperChallenge &&
+  commit.transactionId === prepare.transactionId &&
+  commit.providerNonce === prepare.providerNonce &&
+  commit.bridgeNonce === prepare.bridgeNonce &&
+  commit.helperChallenge === helperChallenge &&
+  commit.fenceId === fenceId &&
+  commit.inventorySha256 === prepare.candidate.inventorySha256;
+
+const bridgeMetadataBindsPrepare = (
+  prepare: Extract<LinuxReleaseInstallerRequest, { readonly kind: "prepare" }>,
+  stage: LinuxReleaseBridgeStageRequest,
+  auth: LinuxReleaseBridgeAuthArmed,
+): boolean => {
+  return (
+    stage.transactionId === prepare.transactionId &&
+    stage.providerNonce === prepare.providerNonce &&
+    auth.transactionId === prepare.transactionId &&
+    auth.providerNonce === prepare.providerNonce &&
+    auth.bridgeNonce === prepare.bridgeNonce &&
+    targetsEqual(stage.target, prepare.target) &&
+    stage.target.stationId === prepare.target.stationId &&
+    targetsEqual(auth.target, prepare.target) &&
+    auth.target.stationId === prepare.target.stationId &&
+    stage.candidate.version === prepare.candidate.version &&
+    stage.candidate.manifestSha256 === prepare.candidate.manifestSha256 &&
+    stage.candidate.debSha256 === prepare.candidate.debSha256 &&
+    stage.candidate.inventorySha256 === prepare.candidate.inventorySha256 &&
+    auth.candidate.version === prepare.candidate.version &&
+    auth.candidate.manifestSha256 === prepare.candidate.manifestSha256 &&
+    auth.candidate.debSha256 === prepare.candidate.debSha256 &&
+    auth.candidate.inventorySha256 === prepare.candidate.inventorySha256 &&
+    JSON.stringify(stage.files) === JSON.stringify(prepare.files) &&
+    stage.totalBytes === auth.totalBytes &&
+    stage.totalBytes === prepare.totalBytes &&
+    createHash("sha256")
+      .update(encodeLinuxReleaseBridgeInventory(stage), "utf8")
+      .digest("hex") === prepare.candidate.inventorySha256
+  );
+};
+
+const stageBindsPrepare = (
+  prepare: Extract<LinuxReleaseInstallerRequest, { readonly kind: "prepare" }>,
+  imported: ImportedBridgeStage,
+): boolean =>
+  bridgeMetadataBindsPrepare(prepare, imported.request, imported.auth);
+
+interface InterruptedTransaction {
+  readonly journal: LinuxReleaseInstallerJournal;
+  readonly predecessor: LinuxReleaseInstallerJournalPredecessor;
+  readonly projectedVersion: string | null;
+}
+
+const PRE_MUTATION_PHASES = new Set<LinuxReleaseInstallerJournalPhase>([
+  "fence-intent",
+  "fence-prepared",
+  "fence-published",
+  "fence-acknowledged",
+  "prepared",
+]);
+
+const ROLLBACK_REQUIRED_PHASES = new Set<LinuxReleaseInstallerJournalPhase>([
+  "dpkg-started",
+  "dpkg-installed",
+  "activation-started",
+  "rollback-started",
+]);
+
+const ROLLBACK_RESOLUTION_PHASES =
+  new Set<LinuxReleaseInstallerJournalPhase>([
+    "rolled-back",
+    "rollback-acknowledged",
+    "rollback-fence-clear-started",
+    "rollback-fence-cleared",
+  ]);
+
+const ABORTED_RESOLUTION_PHASES =
+  new Set<LinuxReleaseInstallerJournalPhase>([
+    "aborted-acknowledged",
+    "aborted-fence-clear-started",
+    "aborted-fence-cleared",
+  ]);
+
+const CLEARED_FENCE_PHASES = new Set<LinuxReleaseInstallerJournalPhase>([
+  "fence-cleared",
+  "rollback-fence-cleared",
+  "aborted-fence-cleared",
+]);
+
+const CLEAR_STARTED_PHASES = new Set<LinuxReleaseInstallerJournalPhase>([
+  "fence-clear-started",
+  "rollback-fence-clear-started",
+  "aborted-fence-clear-started",
+]);
+
+const projectedVersionAfterRecovery = (
+  journal: LinuxReleaseInstallerJournal,
+): string | null =>
+  PRE_MUTATION_PHASES.has(journal.phase) ||
+    ROLLBACK_REQUIRED_PHASES.has(journal.phase) ||
+    ROLLBACK_RESOLUTION_PHASES.has(journal.phase) ||
+    ABORTED_RESOLUTION_PHASES.has(journal.phase)
+    ? journal.fromVersion
+    : journal.toVersion;
+
+const inspectInterruptedTransaction = async (
+  host: LinuxReleaseInstallerHost,
+  target: LinuxReleaseInstallerTarget,
+): Promise<InterruptedTransaction | null> => {
+  const journal = await host.readJournal();
+  if (journal === null) return null;
+  const predecessor: LinuxReleaseInstallerJournalPredecessor = {
+    transactionId: journal.transactionId,
+    operation: journal.operation,
+    phase: journal.phase,
+  };
+  if (!targetsEqual(journal.target, target)) {
+    throw new InstallerError(
+      "unsafe-state",
+      "installer journal belongs to another trusted target",
+    );
+  }
+  if (await host.isProcessLive(journal.owner)) {
+    throw new InstallerError(
+      "busy",
+      "installer journal is owned by a live process",
+    );
+  }
+  return {
+    journal,
+    predecessor,
+    projectedVersion: projectedVersionAfterRecovery(journal),
+  };
+};
+
+const recoveryExpectedVersion = (
+  journal: LinuxReleaseInstallerJournal,
+): string | null =>
+  ROLLBACK_RESOLUTION_PHASES.has(journal.phase)
+    ? journal.fromVersion
+    : journal.toVersion;
+
+const recoverInterruptedTransaction = async (
+  host: LinuxReleaseInstallerHost,
+  invocation: LinuxReleaseInstallerInvocation,
+  fenceControl: LinuxReleaseFenceControl,
+  interrupted: InterruptedTransaction,
+  observedAuthority: LinuxReleaseFenceAuthority | undefined,
+  observedPreparedState:
+    | "pending"
+    | "published"
+    | "both"
+    | "absent"
+    | undefined,
+  observedLease: LinuxReleaseMaintenanceLease,
+): Promise<void> => {
+  const journal = interrupted.journal;
+  let lease: LinuxReleaseMaintenanceLease | undefined = observedLease;
+  if (CLEARED_FENCE_PHASES.has(journal.phase)) {
+    try {
+      await fenceControl.proveAbsent(journal.fence.record);
+      await host.clearJournal();
+      return;
+    } finally {
+      await lease.release().catch(() => undefined);
+    }
+  }
+  if (
+    journal.phase === "fence-intent" ||
+    journal.phase === "fence-prepared"
+  ) {
+    if (observedPreparedState === "absent") {
+      try {
+        await fenceControl.proveAbsent(journal.fence.record);
+        await host.clearJournal();
+        return;
+      } finally {
+        await lease.release().catch(() => undefined);
+      }
+    }
+    if (
+      observedAuthority === undefined ||
+      observedPreparedState === undefined
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "prepared recovery fence authority is unavailable",
+      );
+    }
+    const topology = await fenceControl.normalizePrepared(observedAuthority);
+    if (topology === "pending") {
+      try {
+        await fenceControl.discardPrepared(observedAuthority);
+        await host.clearJournal();
+        return;
+      } finally {
+        await lease.release().catch(() => undefined);
+      }
+    } else {
+      await lease.acknowledge(observedAuthority);
+    }
+  }
+  let recovering = journal;
+  const authority = observedAuthority;
+  let resolution: "committed" | "rollback" | "aborted" =
+    PRE_MUTATION_PHASES.has(journal.phase) ||
+      ABORTED_RESOLUTION_PHASES.has(journal.phase)
+      ? "aborted"
+      : ROLLBACK_REQUIRED_PHASES.has(journal.phase) ||
+          ROLLBACK_RESOLUTION_PHASES.has(journal.phase)
+      ? "rollback"
+      : "committed";
+  if (authority === undefined) {
+    if (!CLEAR_STARTED_PHASES.has(journal.phase)) {
+      throw new InstallerError(
+        "unsafe-state",
+        "published recovery fence authority is unavailable",
+      );
+    }
+    try {
+      if (
+        recovering.fence.postGeneration === null ||
+        recovering.fence.postGeneration !== lease.peer.generation
+      ) {
+        throw new InstallerError(
+          "unsafe-state",
+          "cleared recovery fence generation is not exact",
+        );
+      }
+      if (resolution !== "aborted") {
+        const expectedVersion = recoveryExpectedVersion(recovering);
+        if (expectedVersion === null) {
+          throw new InstallerError(
+            "unsafe-state",
+            "cleared recovery fence has no authoritative package generation",
+          );
+        }
+        await host.verifyCurrentReadiness(
+          invocation,
+          expectedVersion,
+          lease.peer.generation,
+        );
+      }
+      await fenceControl.proveAbsent(recovering.fence.record);
+      recovering = phaseJournal(
+        recovering,
+        resolution === "rollback"
+          ? "rollback-fence-cleared"
+          : resolution === "aborted"
+          ? "aborted-fence-cleared"
+          : "fence-cleared",
+      );
+      await host.writeJournal(recovering);
+      await host.clearJournal();
+      return;
+    } finally {
+      await lease.release().catch(() => undefined);
+    }
+  }
+  try {
+    if (ROLLBACK_REQUIRED_PHASES.has(journal.phase)) {
+      await lease.release();
+      lease = undefined;
+      resolution = "rollback";
+      try {
+        recovering = phaseJournal(
+          journal,
+          "rollback-started",
+          invocation.process,
+        );
+        await host.writeJournal(recovering);
+        await host.rollback(invocation, recovering);
+        recovering = phaseJournal(recovering, "rolled-back");
+        await host.writeJournal(recovering);
+      } catch (error) {
+        throw new InstallerError(
+          "rollback-failed",
+          error instanceof Error
+            ? `interrupted transaction recovery failed: ${error.message}`
+            : "interrupted transaction recovery failed",
+        );
+      }
+      lease = await fenceControl.acquire();
+      await lease.acknowledge(authority);
+    }
+    if (
+      recovering.fence.postGeneration !== null &&
+      recovering.fence.postGeneration !== lease.peer.generation
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "recovered fence generation changed after acknowledgment",
+      );
+    }
+    if (resolution !== "aborted") {
+      const expectedVersion = resolution === "rollback"
+        ? recovering.fromVersion
+        : recovering.toVersion;
+      if (
+        expectedVersion === null ||
+        (resolution === "rollback" &&
+          recovering.oldServiceState.endsWith("-inactive"))
+      ) {
+        throw new InstallerError(
+          "unsafe-state",
+          "recovered fence requires an authoritative active generation",
+        );
+      }
+      await host.verifyCurrentReadiness(
+        invocation,
+        expectedVersion,
+        lease.peer.generation,
+      );
+    }
+    const acknowledgedPhase: LinuxReleaseInstallerJournalPhase =
+      resolution === "rollback"
+        ? "rollback-acknowledged"
+        : resolution === "aborted"
+        ? "aborted-acknowledged"
+        : "postrestart-acknowledged";
+    const clearStartedPhase: LinuxReleaseInstallerJournalPhase =
+      resolution === "rollback"
+        ? "rollback-fence-clear-started"
+        : resolution === "aborted"
+        ? "aborted-fence-clear-started"
+        : "fence-clear-started";
+    const clearedPhase: LinuxReleaseInstallerJournalPhase =
+      resolution === "rollback"
+        ? "rollback-fence-cleared"
+        : resolution === "aborted"
+        ? "aborted-fence-cleared"
+        : "fence-cleared";
+    if (!CLEAR_STARTED_PHASES.has(recovering.phase)) {
+      recovering = {
+        ...recovering,
+        owner: invocation.process,
+        fence: {
+          ...recovering.fence,
+          postGeneration: lease.peer.generation,
+        },
+        phase: acknowledgedPhase,
+      };
+      await host.writeJournal(recovering);
+      recovering = phaseJournal(recovering, clearStartedPhase);
+      await host.writeJournal(recovering);
+    }
+    await fenceControl.clear(authority);
+    recovering = phaseJournal(recovering, clearedPhase);
+    await host.writeJournal(recovering);
+    await host.clearJournal();
+  } finally {
+    await lease?.release().catch(() => undefined);
+  }
+};
+
+export type EmitLinuxReleaseInstallerReceipt = (
+  receipt: LinuxReleaseInstallerReceipt,
+) => Promise<void>;
+
+const runPreparedInstall = async (
+  request: Extract<LinuxReleaseInstallerRequest, { readonly kind: "prepare" }>,
   reader: ExactFrameReader,
   invocation: LinuxReleaseInstallerInvocation,
   target: LinuxReleaseInstallerTarget,
   host: LinuxReleaseInstallerHost,
+  emit: EmitLinuxReleaseInstallerReceipt,
+  helperChallenge: string,
+  machineIdSha256: string,
 ): Promise<LinuxReleaseInstallerReceipt> => {
   await host.ensureLayout();
   let lock: InstallerLock;
@@ -608,27 +1122,25 @@ const runInstall = async (
   }
   let stage: ProtectedStage | undefined;
   let activeJournal: LinuxReleaseInstallerJournal | undefined;
+  let fenceControl: LinuxReleaseFenceControl | undefined;
+  let fenceAuthority: LinuxReleaseFenceAuthority | undefined;
+  let firstLease: LinuxReleaseMaintenanceLease | undefined;
+  let finalLease: LinuxReleaseMaintenanceLease | undefined;
+  let fencePublished = false;
+  let mutationStarted = false;
   try {
     await lock.assertHeld();
-    await host.reconcileOrphans();
-    const recoveredTransactionId = await recoverInterruptedTransaction(
-      host,
-      invocation,
-      target,
-    );
     await host.reserveBundle(
-      request.files.reduce((total, file) => total + file.bytes, 0),
+      request.totalBytes,
     );
-    stage = await host.beginStage(request.transactionId);
-    for (const descriptor of request.files) {
-      await host.writeStageFile(
-        stage,
-        descriptor,
-        reader.streamExact(descriptor.bytes),
+    const imported = await host.importBridgeStage(request);
+    stage = imported.stage;
+    if (!stageBindsPrepare(request, imported)) {
+      throw new InstallerError(
+        "identity",
+        "bridge stage does not bind the privileged prepare frame",
       );
     }
-    await reader.expectEof();
-    await host.finishStage(stage);
     await lock.assertHeld();
 
     let verified: VerifiedProtectedLinuxBundle;
@@ -642,6 +1154,9 @@ const runInstall = async (
     }
     verifiedFileDescriptor(request, verified);
     if (
+      verified.version !== request.candidate.version ||
+      verified.manifestSha256 !== request.candidate.manifestSha256 ||
+      verified.debSha256 !== request.candidate.debSha256 ||
       !VERSION.test(verified.version) ||
       !/^[0-9a-f]{40}$/u.test(verified.sourceRevision) ||
       !SHA256.test(verified.manifestSha256) ||
@@ -671,92 +1186,193 @@ const runInstall = async (
       );
     }
 
-    const fromVersion = await host.currentVersion();
+    fenceControl = await host.openFenceControl(invocation, target);
+    const interrupted = await inspectInterruptedTransaction(
+      host,
+      target,
+    );
+    const observedVersion = interrupted === null
+      ? await host.currentVersion()
+      : await host.observeCurrentVersion();
+    const plannedFromVersion = interrupted?.projectedVersion ??
+      observedVersion;
     if (
-      fromVersion !== null &&
-      (!VERSION.test(fromVersion) ||
-        compareVersions(verified.version, fromVersion) < 0)
+      plannedFromVersion !== null &&
+      (!VERSION.test(plannedFromVersion) ||
+        compareVersions(verified.version, plannedFromVersion) < 0)
     ) {
       throw new InstallerError(
         "policy",
         "automatic installer refuses downgrade or malformed package state",
       );
     }
-    const prior = fromVersion === null
+    const plannedPrior = plannedFromVersion === null
       ? null
-      : await host.findCachedArtifact(fromVersion);
+      : await host.findCachedArtifact(plannedFromVersion);
     const candidateIdentity: LinuxReleaseInstallerCandidate = {
       version: verified.version,
       debSha256: verified.debSha256,
       manifestSha256: verified.manifestSha256,
+      inventorySha256: request.candidate.inventorySha256,
     };
-    const adoption =
-      fromVersion !== null &&
-      verified.version === fromVersion &&
-      (prior === null || await host.cacheMatches(candidateIdentity));
-    if (adoption) {
-      await host.adoptInstalledCandidate(stage, verified, invocation);
-      const oldState = await host.currentOperationalState(invocation);
-      if (oldState.service === "absent-inactive") {
-        throw new InstallerError(
-          "unsafe-state",
-          "installed package has no activatable Remote unit",
-        );
-      }
-      activeJournal = {
-        schema: LINUX_RELEASE_INSTALLER_JOURNAL,
-        transactionId: request.transactionId,
-        operation: "adopt",
-        owner: invocation.process,
-        target,
-        manifestSha256: verified.manifestSha256,
-        debSha256: verified.debSha256,
-        sourceRevision: verified.sourceRevision,
-        fromVersion,
-        toVersion: verified.version,
-        priorArtifactSha256: null,
-        oldServiceState: oldState.service,
-        oldLinger: oldState.linger,
-        phase: "prepared",
-      };
-      await host.writeJournal(activeJournal);
-      activeJournal = phaseJournal(activeJournal, "activation-started");
-      await host.writeJournal(activeJournal);
-      try {
-        await host.activateAndVerify(invocation, verified.version);
-      } catch (error) {
-        throw new InstallerError(
-          "install-failed",
-          error instanceof Error
-            ? error.message
-            : "signed baseline activation failed",
-        );
-      }
-      activeJournal = phaseJournal(activeJournal, "verified");
-      await host.writeJournal(activeJournal);
-      await host.cacheCandidate(stage, verified);
-      await host.clearJournal();
-      activeJournal = undefined;
-      await host.discardStage(stage).catch(() => undefined);
-      stage = undefined;
-      return {
-        schema: LINUX_RELEASE_INSTALLER_RECEIPT,
-        ok: true,
-        state: "installed",
-        transactionId: request.transactionId,
-        fromVersion,
-        toVersion: verified.version,
-        manifestSha256: verified.manifestSha256,
-        debSha256: verified.debSha256,
-        sourceRevision: verified.sourceRevision,
-        recoveredTransactionId,
-      };
-    }
-    if (fromVersion !== null && prior === null) {
+    const plannedSameVersion = plannedFromVersion !== null &&
+      verified.version === plannedFromVersion;
+    const plannedExactCache = plannedSameVersion &&
+      await host.cacheMatches(candidateIdentity);
+    const plannedOperation: "install" | "adopt" | "noop" = plannedSameVersion
+      ? plannedExactCache
+        ? "noop"
+        : "adopt"
+      : "install";
+    if (
+      plannedOperation === "install" &&
+      plannedFromVersion !== null &&
+      plannedPrior === null
+    ) {
       throw new InstallerError(
         "unsafe-state",
         "baseline signed rollback artifact must be adopted before upgrade",
       );
+    }
+    const fence: LinuxReleaseFence = {
+      schema: LINUX_RELEASE_FENCE_PROTOCOL,
+      fenceId: randomBytes(16).toString("hex"),
+      transactionId: request.transactionId,
+      operation: plannedOperation === "install" ? "install" : "adopt",
+      targetUid: target.uid,
+      targetGid: target.gid,
+      stationId: target.stationId,
+      machineIdSha256,
+      bootId: invocation.process.bootId,
+      candidateDigest: request.candidate.inventorySha256,
+    };
+    let interruptedAuthority: LinuxReleaseFenceAuthority | undefined;
+    let interruptedPreparedState:
+      | "pending"
+      | "published"
+      | "both"
+      | "absent"
+      | undefined;
+    let interruptedFencePublished = false;
+    if (interrupted !== null) {
+      const priorFence = interrupted.journal.fence;
+      if (
+        interrupted.journal.phase === "fence-intent" ||
+        interrupted.journal.phase === "fence-prepared"
+      ) {
+        const observation = await fenceControl.observePrepared(
+          priorFence.record,
+          priorFence.device,
+          priorFence.inode,
+        );
+        interruptedAuthority = observation.authority;
+        interruptedPreparedState = observation.state;
+      } else if (CLEARED_FENCE_PHASES.has(interrupted.journal.phase)) {
+        await fenceControl.proveAbsent(priorFence.record);
+      } else {
+        if (priorFence.device === null || priorFence.inode === null) {
+          throw new InstallerError(
+            "unsafe-state",
+            "published recovery fence has no durable inode binding",
+          );
+        }
+        try {
+          interruptedAuthority = await fenceControl.adoptPublished(
+            priorFence.record,
+            priorFence.device,
+            priorFence.inode,
+          );
+          interruptedFencePublished = true;
+        } catch (error) {
+          if (!CLEAR_STARTED_PHASES.has(interrupted.journal.phase)) {
+            throw error;
+          }
+          await fenceControl.proveAbsent(priorFence.record);
+        }
+      }
+    }
+    firstLease = await fenceControl.acquire();
+    if (
+      interruptedAuthority !== undefined &&
+      interruptedFencePublished
+    ) {
+      await firstLease.acknowledge(interruptedAuthority);
+    }
+
+    const rootReady: LinuxReleaseInstallerReceipt = {
+      schema: LINUX_RELEASE_INSTALLER_RECEIPT,
+      ok: true,
+      state: "root-ready",
+      transactionId: request.transactionId,
+      providerNonce: request.providerNonce,
+      bridgeNonce: request.bridgeNonce,
+      helperChallenge,
+      target,
+      candidate: request.candidate,
+      fence,
+      machineIdSha256,
+      bootId: invocation.process.bootId,
+      operation: plannedOperation,
+      fromVersion: plannedFromVersion,
+      currentVersion: observedVersion,
+      journalPredecessor: interrupted?.predecessor ?? null,
+      maintenance: firstLease.evidence,
+      totalBytes: request.totalBytes,
+    };
+    await emit(rootReady);
+    const commit = await reader.readHeader();
+    await reader.expectEof();
+    if (commit.kind !== "commit" ||
+      !requestsBind(request, commit, helperChallenge, fence.fenceId)) {
+      throw new InstallerError(
+        "protocol",
+        "installer commit does not bind ROOT_READY",
+      );
+    }
+    await host.reconcileOrphans(request.transactionId);
+    if (interrupted !== null) {
+      const recoveryLease = firstLease;
+      firstLease = undefined;
+      await recoverInterruptedTransaction(
+        host,
+        invocation,
+        fenceControl,
+        interrupted,
+        interruptedAuthority,
+        interruptedPreparedState,
+        recoveryLease,
+      );
+      firstLease = await fenceControl.acquire();
+    }
+    const fromVersion = await host.currentVersion();
+    if (fromVersion !== plannedFromVersion) {
+      throw new InstallerError(
+        "unsafe-state",
+        "recovered package baseline differs from ROOT_READY",
+      );
+    }
+    const prior = fromVersion === null
+      ? null
+      : await host.findCachedArtifact(fromVersion);
+    const sameVersion = fromVersion !== null && verified.version === fromVersion;
+    const exactCache = sameVersion &&
+      await host.cacheMatches(candidateIdentity);
+    const operation: "install" | "adopt" | "noop" = sameVersion
+      ? exactCache
+        ? "noop"
+        : "adopt"
+      : "install";
+    if (
+      operation !== plannedOperation ||
+      prior?.sha256 !== plannedPrior?.sha256
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "post-recovery install plan differs from ROOT_READY",
+      );
+    }
+    if (sameVersion) {
+      await host.adoptInstalledCandidate(stage, verified, invocation);
     }
     const oldState = await host.currentOperationalState(invocation);
     if (
@@ -767,56 +1383,151 @@ const runInstall = async (
         "package and service presence do not agree",
       );
     }
-    const candidate = await host.cacheCandidate(stage, verified);
+    if (oldState.service === "absent-inactive" && operation !== "install") {
+      throw new InstallerError(
+        "unsafe-state",
+        "installed package has no activatable Remote unit",
+      );
+    }
     activeJournal = {
       schema: LINUX_RELEASE_INSTALLER_JOURNAL,
       transactionId: request.transactionId,
-      operation: "install",
+      operation: operation === "install" ? "install" : "adopt",
       owner: invocation.process,
       target,
+      fence: {
+        record: fence,
+        device: null,
+        inode: null,
+        preGeneration: firstLease.peer.generation,
+        postGeneration: null,
+      },
       manifestSha256: verified.manifestSha256,
       debSha256: verified.debSha256,
       sourceRevision: verified.sourceRevision,
       fromVersion,
       toVersion: verified.version,
-      priorArtifactSha256: prior?.sha256 ?? null,
+      priorArtifactSha256: operation === "install"
+        ? prior?.sha256 ?? null
+        : null,
       oldServiceState: oldState.service,
       oldLinger: oldState.linger,
-      phase: "prepared",
+      phase: "fence-intent",
+    };
+    await host.writeJournal(activeJournal);
+    fenceAuthority = await fenceControl.prepare(fence);
+    activeJournal = {
+      ...activeJournal,
+      fence: {
+        ...activeJournal.fence,
+        device: fenceAuthority.device,
+        inode: fenceAuthority.inode,
+      },
+      phase: "fence-prepared",
+    };
+    await host.writeJournal(activeJournal);
+    await fenceControl.publish(fenceAuthority);
+    fencePublished = true;
+    activeJournal = phaseJournal(activeJournal, "fence-published");
+    await host.writeJournal(activeJournal);
+    await firstLease.acknowledge(fenceAuthority);
+    activeJournal = phaseJournal(activeJournal, "fence-acknowledged");
+    await host.writeJournal(activeJournal);
+    activeJournal = phaseJournal(activeJournal, "prepared");
+    await host.writeJournal(activeJournal);
+    await lock.assertHeld();
+    const preTokenDevice = firstLease.tokenDevice;
+    const preTokenInode = firstLease.tokenInode;
+    await firstLease.release();
+    firstLease = undefined;
+
+    let readiness: LinuxReleaseInstallerReadinessEvidence;
+    let candidate: ProtectedArtifact | null = null;
+    if (operation === "noop") {
+      finalLease = await fenceControl.acquire();
+      await finalLease.acknowledge(fenceAuthority);
+      readiness = await host.verifyCurrentReadiness(
+        invocation,
+        verified.version,
+        finalLease.peer.generation,
+      );
+    } else {
+      mutationStarted = true;
+      if (operation === "install") {
+        candidate = await host.cacheCandidate(stage, verified);
+        activeJournal = phaseJournal(activeJournal, "dpkg-started");
+        await host.writeJournal(activeJournal);
+        try {
+          await host.installCandidate(stage, verified);
+        } catch (error) {
+          throw new InstallerError(
+            "install-failed",
+            error instanceof Error ? error.message : "dpkg installation failed",
+          );
+        }
+        activeJournal = phaseJournal(activeJournal, "dpkg-installed");
+        await host.writeJournal(activeJournal);
+      }
+      activeJournal = phaseJournal(activeJournal, "activation-started");
+      await host.writeJournal(activeJournal);
+      try {
+        readiness = await host.activateAndVerify(
+          invocation,
+          verified.version,
+        );
+      } catch (error) {
+        throw new InstallerError(
+          "install-failed",
+          error instanceof Error ? error.message : "release activation failed",
+        );
+      }
+      if (operation === "adopt") {
+        candidate = await host.cacheCandidate(stage, verified);
+      }
+      activeJournal = phaseJournal(activeJournal, "verified");
+      await host.writeJournal(activeJournal);
+      finalLease = await fenceControl.acquire();
+      if (
+        finalLease.peer.generation ===
+          activeJournal.fence.preGeneration ||
+        (finalLease.tokenDevice === preTokenDevice &&
+          finalLease.tokenInode === preTokenInode) ||
+        finalLease.peer.generation !== readiness.generation
+      ) {
+        throw new InstallerError(
+          "unsafe-state",
+          "Remote service did not establish a fresh exact generation",
+        );
+      }
+      await finalLease.acknowledge(fenceAuthority);
+      readiness = await host.verifyCurrentReadiness(
+        invocation,
+        verified.version,
+        finalLease.peer.generation,
+      );
+    }
+    activeJournal = {
+      ...activeJournal,
+      fence: {
+        ...activeJournal.fence,
+        postGeneration: finalLease.peer.generation,
+      },
+      phase: "postrestart-acknowledged",
     };
     await host.writeJournal(activeJournal);
     await lock.assertHeld();
-    activeJournal = phaseJournal(activeJournal, "dpkg-started");
+    activeJournal = phaseJournal(activeJournal, "fence-clear-started");
     await host.writeJournal(activeJournal);
-    try {
-      await host.installCandidate(stage, verified);
-    } catch (error) {
-      throw new InstallerError(
-        "install-failed",
-        error instanceof Error ? error.message : "dpkg installation failed",
-      );
-    }
-    activeJournal = phaseJournal(activeJournal, "dpkg-installed");
+    await fenceControl.clear(fenceAuthority);
+    activeJournal = phaseJournal(activeJournal, "fence-cleared");
     await host.writeJournal(activeJournal);
-    activeJournal = phaseJournal(activeJournal, "activation-started");
-    await host.writeJournal(activeJournal);
-    try {
-      await host.activateAndVerify(invocation, verified.version);
-    } catch (error) {
-      throw new InstallerError(
-        "install-failed",
-        error instanceof Error ? error.message : "release activation failed",
-      );
-    }
-    activeJournal = phaseJournal(activeJournal, "verified");
-    await host.writeJournal(activeJournal);
-    await lock.assertHeld();
-
-    // Durability boundary: absence of the fsynced journal commits the new
-    // release. Only after that may the prior rollback artifact be removed.
     await host.clearJournal();
     activeJournal = undefined;
-    if (prior !== null && prior.version !== candidate.version) {
+    if (
+      prior !== null &&
+      candidate !== null &&
+      prior.version !== candidate.version
+    ) {
       await host.deleteCachedArtifact(prior).catch(() => undefined);
     }
     await host.discardStage(stage).catch(() => undefined);
@@ -824,14 +1535,22 @@ const runInstall = async (
     return {
       schema: LINUX_RELEASE_INSTALLER_RECEIPT,
       ok: true,
-      state: "installed",
+      state: "ready",
       transactionId: request.transactionId,
+      providerNonce: request.providerNonce,
+      bridgeNonce: request.bridgeNonce,
+      helperChallenge,
+      fenceId: fence.fenceId,
+      inventorySha256: request.candidate.inventorySha256,
+      operation,
+      changed: operation !== "noop",
       fromVersion,
       toVersion: verified.version,
       manifestSha256: verified.manifestSha256,
       debSha256: verified.debSha256,
       sourceRevision: verified.sourceRevision,
-      recoveredTransactionId,
+      recoveredTransactionId: interrupted?.predecessor.transactionId ?? null,
+      readiness,
     };
   } catch (error) {
     const failure = error instanceof InstallerError
@@ -840,20 +1559,109 @@ const runInstall = async (
         "internal",
         error instanceof Error ? error.message : "installer failed",
       );
-    if (activeJournal !== undefined) {
+    if (
+      activeJournal !== undefined &&
+      fenceControl !== undefined &&
+      fenceAuthority !== undefined &&
+      !mutationStarted
+    ) {
       try {
         await lock.assertHeld();
+        if (fencePublished) {
+          const clearingLease = firstLease ?? finalLease;
+          if (clearingLease === undefined) {
+            throw new Error("pre-mutation fence lease is unavailable");
+          }
+          await clearingLease.acknowledge(fenceAuthority);
+          activeJournal = {
+            ...activeJournal,
+            fence: {
+              ...activeJournal.fence,
+              postGeneration: clearingLease.peer.generation,
+            },
+            phase: "aborted-acknowledged",
+          };
+          await host.writeJournal(activeJournal);
+          activeJournal = phaseJournal(
+            activeJournal,
+            "aborted-fence-clear-started",
+          );
+          await host.writeJournal(activeJournal);
+          await fenceControl.clear(fenceAuthority);
+          activeJournal = phaseJournal(
+            activeJournal,
+            "aborted-fence-cleared",
+          );
+          await host.writeJournal(activeJournal);
+        } else {
+          await fenceControl.discardPrepared(fenceAuthority);
+        }
+        await host.clearJournal();
+        activeJournal = undefined;
+      } catch {
+        return refusal("unsafe-state", request.transactionId);
+      }
+    } else if (
+      activeJournal !== undefined &&
+      mutationStarted &&
+      fenceControl !== undefined &&
+      fenceAuthority !== undefined
+    ) {
+      const rollbackControl = fenceControl;
+      const rollbackAuthority = fenceAuthority;
+      try {
+        await lock.assertHeld();
+        await firstLease?.release();
+        firstLease = undefined;
+        await finalLease?.release();
+        finalLease = undefined;
         activeJournal = phaseJournal(activeJournal, "rollback-started");
         await host.writeJournal(activeJournal);
         await host.rollback(invocation, activeJournal);
-        await host.writeJournal(phaseJournal(activeJournal, "rolled-back"));
+        activeJournal = phaseJournal(activeJournal, "rolled-back");
+        await host.writeJournal(activeJournal);
+        if (
+          activeJournal.fromVersion === null ||
+          activeJournal.oldServiceState.endsWith("-inactive")
+        ) {
+          throw new Error(
+            "rolled-back service has no authoritative active generation",
+          );
+        }
+        finalLease = await rollbackControl.acquire();
+        await finalLease.acknowledge(rollbackAuthority);
+        await host.verifyCurrentReadiness(
+          invocation,
+          activeJournal.fromVersion,
+          finalLease.peer.generation,
+        );
+        activeJournal = {
+          ...activeJournal,
+          fence: {
+            ...activeJournal.fence,
+            postGeneration: finalLease.peer.generation,
+          },
+          phase: "rollback-acknowledged",
+        };
+        await host.writeJournal(activeJournal);
+        activeJournal = phaseJournal(
+          activeJournal,
+          "rollback-fence-clear-started",
+        );
+        await host.writeJournal(activeJournal);
+        await rollbackControl.clear(rollbackAuthority);
+        activeJournal = phaseJournal(
+          activeJournal,
+          "rollback-fence-cleared",
+        );
+        await host.writeJournal(activeJournal);
         await host.clearJournal();
-        return refusal(
-          failure.category === "install-failed"
-            ? "install-failed"
-            : failure.category,
-          request.transactionId,
-          "rolled-back",
+        activeJournal = undefined;
+        return rolledBackReceipt(
+          failure.category,
+          request,
+          helperChallenge,
+          rollbackAuthority.record.fenceId,
         );
       } catch {
         return refusal("rollback-failed", request.transactionId);
@@ -861,6 +1669,8 @@ const runInstall = async (
     }
     return refusal(failure.category, request.transactionId);
   } finally {
+    await firstLease?.release().catch(() => undefined);
+    await finalLease?.release().catch(() => undefined);
     if (stage !== undefined) {
       await host.discardStage(stage).catch(() => undefined);
     }
@@ -878,8 +1688,9 @@ export const runLinuxReleaseInstaller = async (
   invocation: LinuxReleaseInstallerInvocation,
   host: LinuxReleaseInstallerHost,
   deadlines: LinuxReleaseInstallerDeadlines = defaultDeadlines,
+  emit: EmitLinuxReleaseInstallerReceipt = async () => undefined,
 ): Promise<LinuxReleaseInstallerReceipt> => {
-  let trustedTarget: LinuxReleaseInstallerTarget;
+  let trustedTarget: TrustedSudoTarget;
   try {
     trustedTarget = validateInvocation(invocation);
   } catch (error) {
@@ -899,34 +1710,42 @@ export const runLinuxReleaseInstaller = async (
   const reader = new ExactFrameReader(input, deadlines);
   let request: LinuxReleaseInstallerRequest | undefined;
   try {
+    const helperChallenge = randomBytes(16).toString("hex");
+    const machineIdSha256 = await host.machineIdSha256();
+    await emit({
+      schema: LINUX_RELEASE_INSTALLER_RECEIPT,
+      ok: true,
+      state: "root-armed",
+      helperChallenge,
+      target: trustedTarget,
+      machineIdSha256,
+      bootId: invocation.process.bootId,
+    });
     request = await reader.readHeader();
+    if (
+      request.kind !== "prepare" ||
+      request.helperChallenge !== helperChallenge
+    ) {
+      throw new InstallerError(
+        "protocol",
+        "installer PREPARE does not bind ROOT_ARMED",
+      );
+    }
     if (!targetsEqual(request.target, trustedTarget)) {
       throw new InstallerError(
         "identity",
         "installer frame target does not match sudo and kernel identity",
       );
     }
-    if (request.kind === "probe") {
-      await reader.expectEof();
-      const { currentVersion, artifactMatches, journalState } =
-        await host.probe(request.candidate);
-      return {
-        schema: LINUX_RELEASE_INSTALLER_RECEIPT,
-        ok: true,
-        state: "ready",
-        protocol: LINUX_RELEASE_INSTALLER_PROTOCOL,
-        target: trustedTarget,
-        currentVersion,
-        artifactMatches,
-        journalState,
-      };
-    }
-    return await runInstall(
+    return await runPreparedInstall(
       request,
       reader,
       invocation,
-      trustedTarget,
+      request.target,
       host,
+      emit,
+      helperChallenge,
+      machineIdSha256,
     );
   } catch (error) {
     const failure = error instanceof InstallerError
@@ -937,7 +1756,7 @@ export const runLinuxReleaseInstaller = async (
       );
     return refusal(
       failure.category,
-      request?.kind === "install"
+      request?.kind === "prepare"
         ? request.transactionId
         : null,
     );
@@ -954,6 +1773,19 @@ const isMissing = (error: unknown): boolean =>
   (error as { readonly code?: unknown }).code === "ENOENT";
 
 const modeOf = (metadata: Stats): number => metadata.mode & 0o777;
+
+const sameInode = (left: Stats, right: Stats): boolean =>
+  left.dev === right.dev && left.ino === right.ino;
+
+const socketFileDescriptor = (socket: Socket): number | undefined => {
+  const handle = (socket as unknown as { _handle?: { fd?: number } })._handle;
+  const descriptor = handle?.fd;
+  return typeof descriptor === "number" &&
+      Number.isInteger(descriptor) &&
+      descriptor >= 0
+    ? descriptor
+    : undefined;
+};
 
 const readBoundedProtectedFile = async (
   file: string,
@@ -1347,6 +2179,15 @@ export class NodeLinuxReleaseInstallerHost
   readonly #runtimeRoot: string;
   readonly #dpkgInfoRoot: string;
   readonly #installedRoot: string;
+  readonly #bridgeStageRoot: string;
+  readonly #fenceDirectory: string | undefined;
+  readonly #fencePath: string | undefined;
+  readonly #fenceControlFactory:
+    | NodeLinuxReleaseInstallerHostOptions["fenceControlFactory"]
+    | undefined;
+  readonly #readMachineIdSha256:
+    | NodeLinuxReleaseInstallerHostOptions["readMachineIdSha256"]
+    | undefined;
   readonly #run: RunFixedCommand;
   readonly #processLive: (
     identity: LinuxReleaseInstallerProcessIdentity,
@@ -1367,6 +2208,17 @@ export class NodeLinuxReleaseInstallerHost
       options.paths.dpkgInfoRoot ?? "/var/lib/dpkg/info",
     );
     this.#installedRoot = path.resolve(options.paths.installedRoot ?? "/");
+    this.#bridgeStageRoot = path.resolve(
+      options.bridgeStageRoot ?? LINUX_RELEASE_BRIDGE_STAGE_ROOT,
+    );
+    this.#fenceDirectory = options.fenceDirectory === undefined
+      ? undefined
+      : path.resolve(options.fenceDirectory);
+    this.#fencePath = options.fencePath === undefined
+      ? undefined
+      : path.resolve(options.fencePath);
+    this.#fenceControlFactory = options.fenceControlFactory;
+    this.#readMachineIdSha256 = options.readMachineIdSha256;
     this.#run = options.runCommand ?? runFixedCommand;
     this.#processLive = options.isProcessLive ??
       ((identity) => this.#defaultProcessLive(identity));
@@ -1596,11 +2448,14 @@ export class NodeLinuxReleaseInstallerHost
     await rmdir(directory);
   }
 
-  public async reconcileOrphans(): Promise<void> {
+  public async reconcileOrphans(
+    preserveTransactionId?: string,
+  ): Promise<void> {
     const spoolEntries = await readdir(this.#paths.spoolRoot, {
       withFileTypes: true,
     });
     for (const entry of spoolEntries) {
+      if (entry.name === preserveTransactionId) continue;
       if (
         !/^[0-9a-f]{32}$/u.test(entry.name) ||
         !entry.isDirectory() ||
@@ -1700,7 +2555,9 @@ export class NodeLinuxReleaseInstallerHost
           !name.startsWith("."),
       );
     }
-    if (spoolEntries.length > 0) {
+    if (
+      spoolEntries.some((entry) => entry.name !== preserveTransactionId)
+    ) {
       await syncDirectory(this.#paths.spoolRoot);
     }
     const cacheEntries = await readdir(this.#paths.cacheRoot, {
@@ -1730,11 +2587,17 @@ export class NodeLinuxReleaseInstallerHost
     const stateEntries = await readdir(this.#paths.stateRoot, {
       withFileTypes: true,
     });
+    const journalPhases = new Set<string>(
+      LINUX_RELEASE_INSTALLER_JOURNAL_PHASES,
+    );
     for (const entry of stateEntries) {
       if (!entry.name.startsWith(".journal.")) continue;
+      const temporary =
+        /^\.journal\.([0-9a-f]{32})\.([a-z-]+)\.([1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,19})$/u
+          .exec(entry.name);
       if (
-        !/^\.journal\.[0-9a-f]{32}\.(?:prepared|dpkg-started|dpkg-installed|activation-started|verified|rollback-started|rolled-back)\.[1-9][0-9]{0,9}\.(?:0|[1-9][0-9]{0,19})$/u
-          .test(entry.name) ||
+        temporary === null ||
+        !journalPhases.has(temporary[2] ?? "") ||
         !entry.isFile() ||
         entry.isSymbolicLink()
       ) {
@@ -1957,6 +2820,220 @@ export class NodeLinuxReleaseInstallerHost
     await syncDirectory(this.#paths.spoolRoot);
   }
 
+  async #readBridgeMetadata(
+    file: string,
+    uid: number,
+    gid: number,
+    maximum: number,
+  ): Promise<{ readonly text: string; readonly metadata: Stats }> {
+    const handle = await open(
+      file,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+    );
+    try {
+      const before = await handle.stat();
+      if (
+        !before.isFile() ||
+        before.isSymbolicLink() ||
+        before.uid !== uid ||
+        before.gid !== gid ||
+        modeOf(before) !== 0o600 ||
+        before.nlink !== 1 ||
+        before.size < 1 ||
+        before.size > maximum
+      ) {
+        throw new InstallerError(
+          "identity",
+          "bridge metadata is not exact for the sudo caller",
+        );
+      }
+      const text = await handle.readFile({ encoding: "utf8" });
+      const after = await handle.stat();
+      const pathname = await lstat(file);
+      if (
+        !sameInode(before, after) ||
+        !sameInode(before, pathname) ||
+        after.size !== Buffer.byteLength(text, "utf8")
+      ) {
+        throw new InstallerError(
+          "identity",
+          "bridge metadata changed during import",
+        );
+      }
+      return { text, metadata: after };
+    } finally {
+      await handle.close();
+    }
+  }
+
+  public async importBridgeStage(
+    prepare: Extract<
+      LinuxReleaseInstallerRequest,
+      { readonly kind: "prepare" }
+    >,
+  ): Promise<ImportedBridgeStage> {
+    const root = await lstat(this.#bridgeStageRoot);
+    if (
+      !root.isDirectory() ||
+      root.isSymbolicLink() ||
+      root.uid !== this.#ownerUid ||
+      root.gid !== this.#ownerGid ||
+      (root.mode & 0o7777) !== 0o1733 ||
+      await realpath(this.#bridgeStageRoot) !== this.#bridgeStageRoot
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "fixed bridge stage root is not root-owned mode 01733",
+      );
+    }
+    const sourceDirectory = linuxReleaseBridgeStagePath(
+      prepare.target.uid,
+      prepare.transactionId,
+      this.#bridgeStageRoot,
+    );
+    const directory = await lstat(sourceDirectory);
+    if (
+      !directory.isDirectory() ||
+      directory.isSymbolicLink() ||
+      directory.uid !== prepare.target.uid ||
+      directory.gid !== prepare.target.gid ||
+      modeOf(directory) !== 0o700 ||
+      (process.platform === "linux"
+        ? directory.nlink !== 2
+        : directory.nlink < 1) ||
+      await realpath(sourceDirectory) !== sourceDirectory
+    ) {
+      throw new InstallerError(
+        "identity",
+        "selected bridge stage directory is not exact",
+      );
+    }
+    const stageMetadataPath = path.join(
+      sourceDirectory,
+      LINUX_RELEASE_BRIDGE_STAGE_METADATA,
+    );
+    const authMetadataPath = path.join(
+      sourceDirectory,
+      LINUX_RELEASE_BRIDGE_AUTH_METADATA,
+    );
+    const stageMetadata = await this.#readBridgeMetadata(
+      stageMetadataPath,
+      prepare.target.uid,
+      prepare.target.gid,
+      LINUX_RELEASE_INSTALLER_MAX_HEADER_BYTES,
+    );
+    const authMetadata = await this.#readBridgeMetadata(
+      authMetadataPath,
+      prepare.target.uid,
+      prepare.target.gid,
+      4 * 1024,
+    );
+    let request: LinuxReleaseBridgeStageRequest;
+    let auth: LinuxReleaseBridgeAuthArmed;
+    try {
+      request = decodeLinuxReleaseBridgeStageRequest(
+        JSON.parse(stageMetadata.text),
+      );
+      auth = decodeLinuxReleaseBridgeAuthArmed(
+        JSON.parse(authMetadata.text),
+      );
+      if (
+        encodeLinuxReleaseBridgeStageRequest(request) !== stageMetadata.text ||
+        encodeLinuxReleaseBridgeAuthArmed(auth) !== authMetadata.text
+      ) {
+        throw new Error("bridge metadata is not canonical");
+      }
+    } catch (error) {
+      throw new InstallerError(
+        "protocol",
+        error instanceof Error ? error.message : "bridge metadata is malformed",
+      );
+    }
+    if (!bridgeMetadataBindsPrepare(prepare, request, auth)) {
+      throw new InstallerError(
+        "identity",
+        "bridge metadata does not bind the privileged prepare frame",
+      );
+    }
+    const stage = await this.beginStage(prepare.transactionId);
+    const sourceHandles: Array<{
+      readonly descriptor: LinuxReleaseInstallerFile;
+      readonly handle: FileHandle;
+      readonly metadata: Stats;
+      readonly source: string;
+    }> = [];
+    try {
+      for (const descriptor of request.files) {
+        const source = path.join(sourceDirectory, descriptor.name);
+        const handle = await open(
+          source,
+          fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+        );
+        const metadata = await handle.stat();
+        if (
+          !metadata.isFile() ||
+          metadata.isSymbolicLink() ||
+          metadata.uid !== prepare.target.uid ||
+          metadata.gid !== prepare.target.gid ||
+          modeOf(metadata) !== 0o600 ||
+          metadata.nlink !== 1 ||
+          metadata.size !== descriptor.bytes
+        ) {
+          await handle.close();
+          throw new InstallerError(
+            "identity",
+            "bridge payload inode is not exact",
+          );
+        }
+        sourceHandles.push({ descriptor, handle, metadata, source });
+        await this.writeStageFile(
+          stage,
+          descriptor,
+          handle.createReadStream({
+            autoClose: false,
+            start: 0,
+            end: descriptor.bytes - 1,
+          }),
+        );
+      }
+      await this.finishStage(stage);
+      for (const source of sourceHandles) {
+        const current = await source.handle.stat();
+        const pathname = await lstat(source.source);
+        if (
+          !sameInode(source.metadata, current) ||
+          !sameInode(source.metadata, pathname) ||
+          current.size !== source.descriptor.bytes
+        ) {
+          throw new InstallerError(
+            "identity",
+            "bridge payload changed during secure import",
+          );
+        }
+      }
+      const currentDirectory = await lstat(sourceDirectory);
+      if (!sameInode(directory, currentDirectory)) {
+        throw new InstallerError(
+          "identity",
+          "bridge stage path changed during secure import",
+        );
+      }
+      for (const source of sourceHandles) {
+        await source.handle.close();
+      }
+      // The privileged importer never deletes from the same-UID bridge
+      // directory. The unprivileged bridge retains the directory descriptor
+      // and performs exact cleanup after the sudo child exits.
+      return { stage, request, auth };
+    } catch (error) {
+      for (const source of sourceHandles) {
+        await source.handle.close().catch(() => undefined);
+      }
+      await this.discardStage(stage).catch(() => undefined);
+      throw error;
+    }
+  }
+
   public async discardStage(stage: ProtectedStage): Promise<void> {
     const directory = stageDirectories.get(stage);
     if (directory === undefined) return;
@@ -2070,6 +3147,36 @@ export class NodeLinuxReleaseInstallerHost
       throw new InstallerError(
         "unsafe-state",
         "installed package state is malformed",
+      );
+    }
+    return match[1] ?? null;
+  }
+
+  public async observeCurrentVersion(): Promise<string | null> {
+    const result = await this.#run(
+      "/usr/bin/dpkg-query",
+      ["--show", "--showformat=${Status}\\t${Version}\\n", "vellum"],
+      30_000,
+    );
+    if (
+      result.code === 1 &&
+      result.stdout === "" &&
+      result.stderr === "dpkg-query: no packages found matching vellum\n"
+    ) {
+      return null;
+    }
+    const match =
+      /^(?:unknown|install|hold|deinstall|purge) (?:ok|reinstreq) (?:not-installed|config-files|half-installed|unpacked|half-configured|triggers-awaited|triggers-pending|installed)\t([^\n]+)\n$/u
+        .exec(result.stdout);
+    if (
+      result.code !== 0 ||
+      result.stderr !== "" ||
+      match === null ||
+      !VERSION.test(match[1] ?? "")
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "observed package version is indeterminate",
       );
     }
     return match[1] ?? null;
@@ -2726,6 +3833,13 @@ export class NodeLinuxReleaseInstallerHost
     invocation: LinuxReleaseInstallerInvocation,
     arguments_: ReadonlyArray<string>,
   ): Promise<FixedCommandResult> {
+    /*
+     * The single-owner user manager is an operational actuator and
+     * work-preservation witness, not the root authorization boundary. Its
+     * answers may stop a transaction, but never select candidate bytes,
+     * privileged paths, package commands, or rollback authority; those are
+     * fixed and signed before this surface is consulted.
+     */
     const runtimeDirectory = path.join(
       this.#runtimeRoot,
       String(invocation.sudoUid),
@@ -2743,9 +3857,35 @@ export class NodeLinuxReleaseInstallerHost
     ) {
       throw new InstallerError(
         "unsafe-state",
-        "target user systemd bus is not trustworthy",
+        "target user systemd bus topology is unavailable",
       );
     }
+    const home = await this.#resolveTargetHome(invocation);
+    return await this.#run(
+      "/usr/sbin/runuser",
+      [
+        "--user",
+        invocation.sudoUser,
+        "--",
+        "/usr/bin/env",
+        "--ignore-environment",
+        "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
+        "LANG=C",
+        "LC_ALL=C",
+        `HOME=${home}`,
+        `XDG_RUNTIME_DIR=${runtimeDirectory}`,
+        `DBUS_SESSION_BUS_ADDRESS=unix:path=${runtimeDirectory}/bus`,
+        "/usr/bin/systemctl",
+        "--user",
+        ...arguments_,
+      ],
+      30_000,
+    );
+  }
+
+  async #resolveTargetHome(
+    invocation: LinuxReleaseInstallerInvocation,
+  ): Promise<string> {
     const passwd = await this.#run(
       "/usr/bin/getent",
       ["passwd", String(invocation.sudoUid)],
@@ -2782,26 +3922,7 @@ export class NodeLinuxReleaseInstallerHost
         "target user home is not trustworthy",
       );
     }
-    return await this.#run(
-      "/usr/sbin/runuser",
-      [
-        "--user",
-        invocation.sudoUser,
-        "--",
-        "/usr/bin/env",
-        "--ignore-environment",
-        "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
-        "LANG=C",
-        "LC_ALL=C",
-        `HOME=${home}`,
-        `XDG_RUNTIME_DIR=${runtimeDirectory}`,
-        `DBUS_SESSION_BUS_ADDRESS=unix:path=${runtimeDirectory}/bus`,
-        "/usr/bin/systemctl",
-        "--user",
-        ...arguments_,
-      ],
-      30_000,
-    );
+    return home;
   }
 
   async #assertPackagedUnitPolicy(
@@ -2825,6 +3946,10 @@ export class NodeLinuxReleaseInstallerHost
       ["LoadState", "loaded\n"],
       ["Type", "notify\n"],
       ["NotifyAccess", "all\n"],
+      [
+        "UnsetEnvironment",
+        `${SYSTEMD_UNSET_ENVIRONMENT.join(" ")}\n`,
+      ],
     ]);
     for (const [property, output] of expected) {
       const result = await this.#runUserSystemctl(invocation, [
@@ -2840,6 +3965,338 @@ export class NodeLinuxReleaseInstallerHost
         );
       }
     }
+  }
+
+  async #unitProperty(
+    invocation: LinuxReleaseInstallerInvocation,
+    property: string,
+  ): Promise<string> {
+    const result = await this.#runUserSystemctl(invocation, [
+      "show",
+      "vellum-remote.service",
+      `--property=${property}`,
+      "--value",
+    ]);
+    if (
+      result.code !== 0 ||
+      result.stderr !== "" ||
+      !result.stdout.endsWith("\n") ||
+      result.stdout.slice(0, -1).includes("\n")
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        `Remote unit ${property} is indeterminate`,
+      );
+    }
+    return result.stdout.slice(0, -1);
+  }
+
+  async #processFacts(pid: number): Promise<{
+    readonly startTicks: string;
+    readonly parentPid: number;
+    readonly uid: number;
+    readonly gid: number;
+    readonly cgroup: string;
+    readonly invocationId: string;
+    readonly executable: string;
+    readonly arguments: ReadonlyArray<string>;
+    readonly environmentSha256: string;
+    readonly environment: Readonly<Record<string, string>>;
+  }> {
+    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+    const close = stat.lastIndexOf(")");
+    const fields = close < 0 ? [] : stat.slice(close + 2).trim().split(/\s+/u);
+    const parentPid = Number(fields[1]);
+    const startTicks = fields[19];
+    const status = await readFile(`/proc/${pid}/status`, "utf8");
+    const uidFields = /^Uid:\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)$/mu
+      .exec(status);
+    const gidFields = /^Gid:\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)$/mu
+      .exec(status);
+    const cgroupRaw = await readFile(`/proc/${pid}/cgroup`, "utf8");
+    const cgroup = /^0::([^\n]+)\n$/u.exec(cgroupRaw)?.[1];
+    const environment = (await readFile(`/proc/${pid}/environ`))
+      .toString("utf8")
+      .split("\0")
+      .filter((entry) => entry !== "");
+    const invocationEntries = environment.filter((entry) =>
+      entry.startsWith("INVOCATION_ID=")
+    );
+    const environmentNames = environment.map((entry) =>
+      entry.slice(0, entry.indexOf("="))
+    );
+    const environmentRecord = Object.freeze(
+      Object.fromEntries(
+        environment.map((entry) => {
+          const separator = entry.indexOf("=");
+          return [entry.slice(0, separator), entry.slice(separator + 1)];
+        }),
+      ),
+    );
+    const executable = await realpath(`/proc/${pid}/exe`);
+    const argvRaw = await readFile(`/proc/${pid}/cmdline`);
+    const arguments_ = argvRaw.toString("utf8").split("\0").filter(
+      (entry) => entry !== "",
+    );
+    if (
+      startTicks === undefined ||
+      !/^(0|[1-9][0-9]{0,19})$/u.test(startTicks) ||
+      !Number.isSafeInteger(parentPid) ||
+      parentPid < 1 ||
+      uidFields === null ||
+      gidFields === null ||
+      new Set(uidFields.slice(1)).size !== 1 ||
+      new Set(gidFields.slice(1)).size !== 1 ||
+      cgroup === undefined ||
+      invocationEntries.length !== 1 ||
+      !/^INVOCATION_ID=[0-9a-f]{32}$/u.test(invocationEntries[0] ?? "") ||
+      environment.some((entry) =>
+        !/^[A-Za-z_][A-Za-z0-9_]*=.*$/u.test(entry)
+      ) ||
+      new Set(environmentNames).size !== environmentNames.length ||
+      environmentNames.some(forbiddenServiceEnvironmentName) ||
+      arguments_.length === 0
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "Remote process identity is malformed",
+      );
+    }
+    return {
+      startTicks,
+      parentPid,
+      uid: Number(uidFields[1]),
+      gid: Number(gidFields[1]),
+      cgroup,
+      invocationId: invocationEntries[0]!.slice("INVOCATION_ID=".length),
+      executable,
+      arguments: Object.freeze(arguments_),
+      environmentSha256: createHash("sha256")
+        .update([...environment].sort().join("\0"), "utf8")
+        .digest("hex"),
+      environment: environmentRecord,
+    };
+  }
+
+  async #validateTermPeer(
+    socket: Socket,
+    invocation: LinuxReleaseInstallerInvocation,
+    target: LinuxReleaseInstallerTarget,
+  ): Promise<LinuxReleaseTermPeerObservation> {
+    const descriptor = socketFileDescriptor(socket);
+    if (descriptor === undefined) {
+      throw new InstallerError(
+        "unsafe-state",
+        "TermControl peer descriptor is unavailable",
+      );
+    }
+    const helper =
+      "/opt/Vellum Command/resources/bin/unix-peer-pid.py";
+    const result = spawnSync("/usr/bin/python3", [helper], {
+      stdio: [descriptor, "pipe", "pipe"],
+      encoding: "utf8",
+      timeout: 1_000,
+      env: commandEnvironment,
+    });
+    const peerPid = /^[1-9][0-9]*$/u.test(result.stdout?.trim() ?? "")
+      ? Number(result.stdout.trim())
+      : NaN;
+    if (
+      result.status !== 0 ||
+      result.stderr !== "" ||
+      !Number.isSafeInteger(peerPid) ||
+      peerPid < 1
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "SO_PEERCRED TermControl peer is unavailable",
+      );
+    }
+    await this.#assertPackagedUnitPolicy(invocation);
+    const [
+      active,
+      sub,
+      fragment,
+      dropIns,
+      generation,
+      mainPidRaw,
+      controlGroup,
+    ] = await Promise.all([
+      this.#unitProperty(invocation, "ActiveState"),
+      this.#unitProperty(invocation, "SubState"),
+      this.#unitProperty(invocation, "FragmentPath"),
+      this.#unitProperty(invocation, "DropInPaths"),
+      this.#unitProperty(invocation, "InvocationID"),
+      this.#unitProperty(invocation, "MainPID"),
+      this.#unitProperty(invocation, "ControlGroup"),
+    ]);
+    const mainPid = /^[1-9][0-9]*$/u.test(mainPidRaw)
+      ? Number(mainPidRaw)
+      : NaN;
+    if (
+      active !== "active" ||
+      sub !== "running" ||
+      fragment !== "/usr/lib/systemd/user/vellum-remote.service" ||
+      dropIns !== "" ||
+      !/^[0-9a-f]{32}$/u.test(generation) ||
+      !Number.isSafeInteger(mainPid) ||
+      mainPid < 1 ||
+      peerPid === mainPid ||
+      !controlGroup.endsWith("/vellum-remote.service")
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "TermControl unit generation is not package-owned and active",
+      );
+    }
+    const [mainBefore, peerBefore] = await Promise.all([
+      this.#processFacts(mainPid),
+      this.#processFacts(peerPid),
+    ]);
+    const wrapper =
+      "/opt/Vellum Command/resources/systemd/vellum-remote-launch-v1";
+    const app = "/opt/Vellum Command/vellum";
+    const targetHome = await this.#resolveTargetHome(invocation);
+    const runtimeDirectory = path.join(
+      this.#runtimeRoot,
+      String(target.uid),
+    );
+    const baseEnvironment = {
+      PATH: "/usr/bin:/bin",
+      HOME: targetHome,
+      XDG_STATE_HOME: path.join(targetHome, ".local", "state"),
+      XDG_RUNTIME_DIR: runtimeDirectory,
+      INVOCATION_ID: generation,
+      ELECTRON_OZONE_PLATFORM_HINT: "x11",
+      OZONE_PLATFORM: "x11",
+      XDG_SESSION_TYPE: "x11",
+      PWD: targetHome,
+    };
+    const display = peerBefore.environment.DISPLAY;
+    const authority = peerBefore.environment.XAUTHORITY;
+    const displayMatch = /^:(89|9[0-6])$/u.exec(display ?? "");
+    const peerEnvironment = displayMatch === null
+      ? null
+      : {
+        ...baseEnvironment,
+        DISPLAY: display!,
+        XAUTHORITY: path.join(
+          runtimeDirectory,
+          "vellum-remote",
+          `x11-${generation}`,
+          "authority",
+        ),
+      };
+    if (
+      mainBefore.uid !== target.uid ||
+      mainBefore.gid !== target.gid ||
+      mainBefore.invocationId !== generation ||
+      mainBefore.cgroup !== controlGroup ||
+      mainBefore.arguments.length !== 3 ||
+      mainBefore.arguments[1] !== wrapper ||
+      mainBefore.arguments[2] !== "--clean" ||
+      !new Set(["/bin/sh", "/bin/dash", "/usr/bin/dash"]).has(
+        mainBefore.arguments[0]!,
+      ) ||
+      !new Set(["/bin/dash", "/usr/bin/dash"]).has(mainBefore.executable) ||
+      !exactProcessEnvironment(mainBefore.environment, baseEnvironment) ||
+      peerBefore.parentPid !== mainPid ||
+      peerBefore.uid !== target.uid ||
+      peerBefore.gid !== target.gid ||
+      peerBefore.invocationId !== generation ||
+      peerBefore.cgroup !== controlGroup ||
+      peerBefore.executable !== app ||
+      peerBefore.arguments.length !== 3 ||
+      peerBefore.arguments[0] !== app ||
+      peerBefore.arguments[1] !== "--vellum-headless" ||
+      peerBefore.arguments[2] !== "--ozone-platform=x11" ||
+      peerEnvironment === null ||
+      authority !== peerEnvironment.XAUTHORITY ||
+      !exactProcessEnvironment(peerBefore.environment, peerEnvironment)
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "TermControl peer is not the exact Remote Electron child",
+      );
+    }
+    const [mainAfter, peerAfter, generationAfter, mainPidAfter] =
+      await Promise.all([
+        this.#processFacts(mainPid),
+        this.#processFacts(peerPid),
+        this.#unitProperty(invocation, "InvocationID"),
+        this.#unitProperty(invocation, "MainPID"),
+      ]);
+    const packageVerification = await this.#run(
+      "/usr/bin/dpkg",
+      ["--verify", "vellum"],
+      30_000,
+    );
+    if (
+      mainAfter.startTicks !== mainBefore.startTicks ||
+      peerAfter.startTicks !== peerBefore.startTicks ||
+      mainAfter.invocationId !== mainBefore.invocationId ||
+      peerAfter.invocationId !== peerBefore.invocationId ||
+      mainAfter.environmentSha256 !== mainBefore.environmentSha256 ||
+      peerAfter.environmentSha256 !== peerBefore.environmentSha256 ||
+      generationAfter !== generation ||
+      mainPidAfter !== mainPidRaw ||
+      packageVerification.code !== 0 ||
+      packageVerification.stdout !== "" ||
+      packageVerification.stderr !== ""
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "TermControl generation changed during peer validation",
+      );
+    }
+    return {
+      pid: peerPid,
+      uid: peerBefore.uid,
+      gid: peerBefore.gid,
+      startTicks: peerBefore.startTicks,
+      generation,
+      invocationId: peerBefore.invocationId,
+    };
+  }
+
+  public async openFenceControl(
+    invocation: LinuxReleaseInstallerInvocation,
+    target: LinuxReleaseInstallerTarget,
+  ): Promise<LinuxReleaseFenceControl> {
+    if (this.#fenceControlFactory !== undefined) {
+      return await this.#fenceControlFactory(invocation, target);
+    }
+    const targetHome = await this.#resolveTargetHome(invocation);
+    return new LinuxReleaseFenceController({
+      paths: {
+        targetHome,
+        ...(this.#fenceDirectory === undefined
+          ? {}
+          : { fenceDirectory: this.#fenceDirectory }),
+        ...(this.#fencePath === undefined
+          ? {}
+          : { fencePath: this.#fencePath }),
+      },
+      target,
+      rootUid: this.#ownerUid,
+      rootGid: this.#ownerGid,
+      validatePeer: (socket) =>
+        this.#validateTermPeer(socket, invocation, target),
+    });
+  }
+
+  public async machineIdSha256(): Promise<string> {
+    if (this.#readMachineIdSha256 !== undefined) {
+      return await this.#readMachineIdSha256();
+    }
+    const raw = await readFile("/etc/machine-id", "utf8");
+    if (!/^[0-9a-f]{32}\n?$/u.test(raw)) {
+      throw new InstallerError(
+        "unsafe-state",
+        "machine identity is malformed",
+      );
+    }
+    return createHash("sha256").update(raw.trim(), "utf8").digest("hex");
   }
 
   public async currentOperationalState(
@@ -2983,7 +4440,7 @@ export class NodeLinuxReleaseInstallerHost
   public async activateAndVerify(
     invocation: LinuxReleaseInstallerInvocation,
     version: string,
-  ): Promise<void> {
+  ): Promise<LinuxReleaseInstallerReadinessEvidence> {
     const linger = await this.#run(
       "/usr/bin/loginctl",
       ["enable-linger", invocation.sudoUser],
@@ -3022,6 +4479,24 @@ export class NodeLinuxReleaseInstallerHost
       !/^[0-9a-f]{32}$/u.test(generation)
     ) {
       throw new Error("Remote service generation is unavailable");
+    }
+    return await this.verifyCurrentReadiness(
+      invocation,
+      version,
+      generation,
+    );
+  }
+
+  public async verifyCurrentReadiness(
+    invocation: LinuxReleaseInstallerInvocation,
+    version: string,
+    generation: string,
+  ): Promise<LinuxReleaseInstallerReadinessEvidence> {
+    if (!VERSION.test(version) || !/^[0-9a-f]{32}$/u.test(generation)) {
+      throw new InstallerError(
+        "unsafe-state",
+        "readiness binding is malformed",
+      );
     }
     const readinessPath = path.join(
       this.#runtimeRoot,
@@ -3062,7 +4537,14 @@ export class NodeLinuxReleaseInstallerHost
               ) {
                 throw new Error("installed package integrity is not exact");
               }
-              return;
+              return {
+                state: "ready",
+                generation,
+                packageVersion: version,
+                receiptSha256: createHash("sha256")
+                  .update(raw, "utf8")
+                  .digest("hex"),
+              };
             }
           }
         } finally {
@@ -3372,19 +4854,57 @@ const verifyInstalledExecutable = async (): Promise<void> => {
   }
 };
 
+const writeReceiptFrame = (
+  receipt: LinuxReleaseInstallerReceipt,
+): Promise<void> =>
+  new Promise((resolve, reject) => {
+    process.stdout.write(
+      encodeLinuxReleaseInstallerReceipt(receipt),
+      (error) => {
+        if (error === null || error === undefined) resolve();
+        else reject(error);
+      },
+    );
+  });
+
+/**
+ * A flushed canonical receipt is application status, including refusal and
+ * rollback. SSH transports reserve a non-zero exit for the absence of a
+ * complete receipt so they do not discard a valid failure frame.
+ */
+export const linuxReleaseInstallerReceiptExitCode = (
+  _receipt: LinuxReleaseInstallerReceipt,
+): 0 => 0;
+
 if (import.meta.main) {
-  let receipt: LinuxReleaseInstallerReceipt;
   try {
     await verifyInstalledExecutable();
     const invocation = await deriveLinuxReleaseInstallerInvocation();
-    receipt = await runLinuxReleaseInstaller(
+    const receipt = await runLinuxReleaseInstaller(
       process.stdin,
       invocation,
       makeProductionLinuxReleaseInstallerHost(),
+      defaultDeadlines,
+      writeReceiptFrame,
     );
-  } catch {
-    receipt = refusal("identity", null);
+    await writeReceiptFrame(receipt);
+    // The canonical receipt is application status. A zero exit tells the SSH
+    // transport that the complete transcript arrived, including refusal and
+    // rolled-back outcomes.
+    process.exitCode = linuxReleaseInstallerReceiptExitCode(receipt);
+  } catch (error) {
+    if (error instanceof InstallerError) {
+      try {
+        const receipt = refusal(error.category, null);
+        await writeReceiptFrame(receipt);
+        process.exitCode = linuxReleaseInstallerReceiptExitCode(receipt);
+      } catch {
+        process.exitCode = 1;
+      }
+    } else {
+      // An unexpected crash without a flushed canonical receipt is a
+      // transport failure and must not be mistaken for application status.
+      process.exitCode = 1;
+    }
   }
-  process.stdout.write(encodeLinuxReleaseInstallerReceipt(receipt));
-  process.exitCode = receipt.ok ? 0 : 1;
 }
