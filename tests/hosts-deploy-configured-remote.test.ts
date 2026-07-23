@@ -352,33 +352,36 @@ describe("configured Remote deploy transaction", () => {
     });
   });
 
-  it("conditionally restores the stamp when deployment is interrupted", async () => {
+  it("retains the stamp when the package commits before the deploy receipt returns", async () => {
     const { ssh, calls } = makeSsh([
       { stdout: "/Users/remote\n" },
       { stdout: "ABSENT\n" },
       { stdout: "STAMPED\n" },
-      { stdout: "/Users/remote\n" },
-      { stdout: presentSnapshot(configuredSettingsBody) },
-      { stdout: "RESTORED\n" },
     ]);
-    let signalStarted: (() => void) | undefined;
-    const started = new Promise<void>((resolve) => {
-      signalStarted = resolve;
+    let signalRemoteCommitted: (() => void) | undefined;
+    const remoteCommitted = new Promise<void>((resolve) => {
+      signalRemoteCommitted = resolve;
     });
     const deploy = () =>
-      Effect.sync(() => signalStarted?.()).pipe(Effect.zipRight(Effect.never));
+      Effect.sync(() => signalRemoteCommitted?.()).pipe(
+        // Models the remote script crossing commit_deploy, followed by a lost
+        // or interrupted SSH readiness receipt.
+        Effect.zipRight(Effect.never),
+      );
+    const restore = vi.fn(restoreRemoteSettingsSnapshot);
 
     const fiber = Effect.runFork(
       deployConfiguredRemoteHost(
         ssh,
         host,
         { commandCenterRef: "local" },
-        operations({ deploy }),
+        { ...operations({ deploy }), restore },
       ),
     );
-    await started;
+    await remoteCommitted;
     await Effect.runPromise(Fiber.interrupt(fiber));
 
-    expect(calls.count).toBe(6);
+    expect(restore).not.toHaveBeenCalled();
+    expect(calls.count).toBe(3);
   });
 });

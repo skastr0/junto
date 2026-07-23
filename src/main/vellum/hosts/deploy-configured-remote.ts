@@ -169,6 +169,13 @@ export const deployConfiguredRemoteHost = (
   let beforeInterruption: RemoteSettingsSnapshot | undefined;
   let afterInterruption: RemoteSettingsSnapshot | undefined;
   let packageCommitted = false;
+  let deploymentDisposition:
+    | "not-begun"
+    | "in-flight"
+    | "not-started"
+    | "ready"
+    | "rolled-back"
+    | "indeterminate" = "not-begun";
 
   const transaction = Effect.gen(function* () {
     const before = yield* operations.capture(ssh, host).pipe(Effect.either);
@@ -232,7 +239,11 @@ export const deployConfiguredRemoteHost = (
       });
     }
 
+    deploymentDisposition = "in-flight";
     const deployed = yield* operations.deploy(ssh, host);
+    deploymentDisposition = deployed.ok
+      ? "ready"
+      : (deployed.disposition ?? "indeterminate");
     if (deployed.ok || deployed.disposition === "ready") {
       // The package has crossed its commit point. Never restore settings around
       // that running generation, including if final observation is interrupted.
@@ -333,6 +344,17 @@ export const deployConfiguredRemoteHost = (
     Effect.onInterrupt(() => {
       const before = beforeInterruption;
       if (before === undefined || packageCommitted) return Effect.void;
+      if (
+        deploymentDisposition === "in-flight" ||
+        deploymentDisposition === "ready" ||
+        deploymentDisposition === "indeterminate"
+      ) {
+        return Effect.sync(() => {
+          console.error(
+            `[deploy-remote] ${host.id}: interruption occurred without proof that the package stayed previous; retaining the Remote stamp for manual inspection`,
+          );
+        });
+      }
       return operations.capture(ssh, host).pipe(
         Effect.flatMap((current) => {
           if (remoteSettingsSnapshotsEqual(before, current)) {
