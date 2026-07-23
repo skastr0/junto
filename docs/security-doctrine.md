@@ -62,6 +62,7 @@ loss is impossible. Vellum instead makes concrete, testable promises:
 - The single human operator.
 - Machines and accounts the operator explicitly enrolls.
 - Agents the operator intentionally attaches to the factory.
+- External actors and provider resources the operator explicitly enrolls.
 - Vellum processes and owner-local control transports on an enrolled station.
 
 Attached agents are trusted participants, but they are not assumed to be
@@ -74,6 +75,11 @@ This is protection of operator intent and protection of agents from mistakes.
 It is not an attempt to contain a malicious process that already has arbitrary
 shell access as the operator's operating-system account.
 
+An **external actor** is external to a Vellum runtime, not external to operator
+ownership or trust. Vellum does not add warnings or repeated disclosure
+ceremonies merely because an operator-owned actor uses a harness, provider, or
+managed resource outside the local Vellum process.
+
 ### Untrusted boundaries and inputs
 
 - Arbitrary websites and browser page content.
@@ -82,7 +88,8 @@ shell access as the operator's operating-system account.
 - Data crossing into privileged filesystem, process, shell, browser, or root
   operations until decoded and validated.
 - Other operating-system users.
-- External providers beyond the guarantees of their authenticated connector.
+- Responses and payloads crossing an external provider connector until decoded
+  and validated.
 - Root authority except during an explicit, bounded operator transaction.
 
 Agent and model output is treated as untrusted **input** when it crosses one of
@@ -168,11 +175,19 @@ route.
 
 ### 7. Stateless Stations
 
+**Stateless here applies to intent, reachability, and fleet coordination.** It
+does not mean a Station has no stateful runtime.
+
 Command Center is the sole authority for intent. A Station holds only:
 
 - its factory and Command Center pairing;
 - the latest complete intent projection it received;
 - the local runtime resources required to execute that projection.
+
+Station-hosted actors, Sinks, browser profiles, cookies, terminals, processes,
+artifacts, and runtime recovery data may be stateful or persistent. They remain
+physical or operational resources governed by the current projection; they do
+not become an independently authoritative copy of factory intent.
 
 The Station projection is a replaceable cache, not an independently
 authoritative document.
@@ -262,6 +277,25 @@ Agents may receive deterministic text or visual projections, scoped context,
 pulse briefings, work requests, messages, and artifact facilities. They do not
 receive an authorial canvas mutation path.
 
+### Portability and derivatives
+
+JSON Canvas files, digests, SVG renders, screenshots, diagnostic bundles, and
+other derivatives are explicit export and interoperability surfaces. They keep
+the operator from being locked into Vellum.
+
+An exported derivative:
+
+- does not become canonical operator intent;
+- carries no live authority over a running factory;
+- may be consumed by the operator or an attached agent through an authorized
+  Vellum tool;
+- is outside the protected canonical store when deliberately persisted as
+  plaintext.
+
+Vellum must not silently persist plaintext derivatives as though they were
+internal protected state. This rule protects the canonical document without
+turning deliberate operator portability into a warning ceremony.
+
 ### Protected settings
 
 Station role, Command Center identity, factory membership, host enrollment,
@@ -314,6 +348,9 @@ permanent-loss recovery mechanics remain open decisions.
   assigned runtime through a supported Vellum MCP/CLI or provider connector.
 - **Facility** — acknowledged infrastructure with no Vellum execution
   authority; not yet an actor in the execution graph.
+
+External describes runtime placement, not ownership: an enrolled external
+actor remains an operator-owned, trusted factory resource.
 
 Actor class, placement, and access tier constrain the ports and edges the
 operator may create. They do not themselves grant an action.
@@ -400,6 +437,9 @@ selects the relevant Vellum capabilities.
 External and provider-managed resources are first-class factory facilities,
 but Vellum presents the guarantees it actually owns. It must not display a
 provider-controlled resource as though it were a Vellum-managed Station.
+Runtime placement and provider capability remain legible because they affect
+available ports and termination guarantees, not because Vellum requires a
+special disclosure ceremony for an operator-owned resource.
 
 ## Privilege and machine safety
 
@@ -428,9 +468,14 @@ Browser pages must remain isolated from Electron, Node, filesystem, shell,
 canvas, fleet credentials, and other profiles except through explicit
 Vellum-owned operations allowed by current intent.
 
-An edge to a sensitive page or profile grants the connected actor the
-operations represented by that edge. Vellum should not add repeated
-confirmations after the operator deliberately grants that capability.
+An edge to a page grants the connected actor the represented operations on
+that specific page node and session. The page may navigate or otherwise change
+through ordinary use; the grant continues to follow that page. It does not
+implicitly grant a full browser, profile administration, sibling pages, or
+newly created pages.
+
+Vellum should not add repeated confirmations after the operator deliberately
+grants that page capability.
 
 Vellum can promise:
 
