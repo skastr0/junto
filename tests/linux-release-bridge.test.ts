@@ -174,7 +174,7 @@ const optionsFor = (
   rootUid: uid,
   rootGid: gid,
   rootMode,
-  fdDirectoryRoot: null,
+  fdDirectoryRoot: process.platform === "linux" ? "/proc/self/fd" : null,
 });
 
 afterEach(async () => {
