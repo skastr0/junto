@@ -96,8 +96,8 @@ const readinessEvents = (): BrowserViewEvents => ({
 
 const successfulEval = (value: unknown): boolean =>
   typeof value === "object" && value !== null &&
-  "__vellumEval" in value && "status" in value &&
-  value.__vellumEval === 1 && value.status === "ok";
+  "__vellumEval" in value && "status" in value && "json" in value &&
+  value.__vellumEval === 1 && value.status === "ok" && value.json === "true";
 
 const hasPngSignature = (value: Uint8Array): boolean =>
   value.byteLength >= PNG_SIGNATURE.byteLength &&
@@ -121,24 +121,36 @@ export const makeElectronBrowserReadinessProductPath = (
   const createNonce = dependencies.createNonce ?? randomUUID;
   const createHttpServer = dependencies.createServer ?? createServer;
   let active: ListenerRun | undefined;
+  const cleanupFlights = new Set<Promise<void>>();
+
+  const trackCleanup = (flight: Promise<void>): Promise<void> => {
+    cleanupFlights.add(flight);
+    void flight.then(
+      () => cleanupFlights.delete(flight),
+      () => cleanupFlights.delete(flight),
+    );
+    return flight;
+  };
 
   const closeRun = (run: ListenerRun): Promise<void> => {
     if (run.closeFlight !== undefined) return run.closeFlight;
     run.origin = undefined;
-    if (active === run) active = undefined;
-    const flight = closeServer(run.server);
+    const flight = trackCleanup(closeServer(run.server));
     run.closeFlight = flight;
+    if (active === run) active = undefined;
     return flight;
   };
 
   const close = async (): Promise<void> => {
     const run = active;
-    if (run === undefined) return;
-    if (run.closePage !== undefined) {
+    if (run?.closePage !== undefined) {
       await run.closePage();
-      return;
+    } else if (run !== undefined) {
+      await closeRun(run);
     }
-    await closeRun(run);
+    if (cleanupFlights.size > 0) {
+      await Promise.allSettled([...cleanupFlights]);
+    }
   };
 
   return Object.freeze({
@@ -230,7 +242,7 @@ export const makeElectronBrowserReadinessProductPath = (
         pageClosed = true;
         if (abortPage !== undefined) signal.removeEventListener("abort", abortPage);
         if (run.closePage === closePage) run.closePage = undefined;
-        closePageFlight = (async () => {
+        closePageFlight = trackCleanup((async () => {
           const currentView = view;
           try {
             currentView?.stopLoading?.();
@@ -249,7 +261,7 @@ export const makeElectronBrowserReadinessProductPath = (
           }
           const destroyed = currentView?.whenDestroyed?.() ?? Promise.resolve();
           await Promise.allSettled([destroyed, closeRun(run)]);
-        })();
+        })());
         return closePageFlight;
       };
       try {

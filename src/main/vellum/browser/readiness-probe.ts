@@ -51,7 +51,10 @@ export interface BrowserReadinessProductPath {
   readonly openSyntheticLoopbackPage: (
     input: Readonly<{ url: string; signal: AbortSignal }>,
   ) => Promise<BrowserReadinessSyntheticPage>;
-  /** Closes the exact ephemeral listener even if opening the page failed. */
+  /**
+   * Closes the exact synthetic page/listener and joins cleanup already started
+   * by cancellation, even if opening the page never returned a handle.
+   */
   readonly close: () => Promise<void>;
 }
 

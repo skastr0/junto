@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   makeElectronBrowserReadinessProductPath,
 } from "../src/main/vellum/browser/readiness-product-path";
+import { makeBrowserProductPathProbe } from "../src/main/vellum/browser/readiness-probe";
 import type {
   BrowserCompositionHost,
   BrowserCompositionHostWindow,
@@ -30,7 +31,10 @@ const compositionHost = (): BrowserCompositionHost => {
   };
 };
 
-const viewFixture = (capture: Uint8Array = PNG) => {
+const viewFixture = (
+  capture: Uint8Array = PNG,
+  evaluation: unknown = { __vellumEval: 1, status: "ok", json: "true" },
+) => {
   const loadUrl = vi.fn(async () => undefined);
   const attach = vi.fn();
   const detach = vi.fn();
@@ -44,7 +48,7 @@ const viewFixture = (capture: Uint8Array = PNG) => {
     stopLoading,
     destroy,
     whenDestroyed: async () => undefined,
-    executeJavaScript: async () => ({ __vellumEval: 1, status: "ok" }),
+    executeJavaScript: async () => evaluation,
     capturePagePng: async () => capture,
   };
   const adapter = vi.fn(() => handle) as unknown as BrowserViewAdapter;
@@ -60,6 +64,14 @@ const openPage = async (
     url: `${origin}vellum-readiness?nonce=test`,
     signal,
   });
+};
+
+const deferred = <T>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 };
 
 describe("Electron browser readiness product path", () => {
@@ -100,6 +112,37 @@ describe("Electron browser readiness product path", () => {
     await page.close();
   });
 
+  it("cannot turn a swallowed navigation failure plus blank-page PNG into ready", async () => {
+    const view = viewFixture(PNG, {
+      __vellumEval: 1,
+      status: "ok",
+      json: "false",
+    });
+    const productPath = makeElectronBrowserReadinessProductPath({
+      compositionHost: compositionHost(),
+      viewAdapter: view.adapter,
+    });
+    const probe = makeBrowserProductPathProbe({
+      station: () => ({
+        role: "remote",
+        hostId: "studio",
+        browserCapabilityDeclared: true,
+        controlReady: true,
+        controlHostId: "studio",
+        registeredRemoteHostId: "studio",
+        sandboxReady: true,
+        displayReady: true,
+      }),
+      productPath,
+    });
+
+    await expect(probe.probe(new AbortController().signal)).resolves.toMatchObject({
+      transport: "failed",
+    });
+    expect(view.loadUrl).toHaveBeenCalledTimes(1);
+    expect(view.destroy).toHaveBeenCalledTimes(1);
+  });
+
   it("cancels the exact pending loopback bind and remains reusable", async () => {
     const observed: Server[] = [];
     const observedCreateServer = ((listener: RequestListener) => {
@@ -129,6 +172,44 @@ describe("Electron browser readiness product path", () => {
     await path.close();
     expect(observed).toHaveLength(2);
     expect(observed[1]!.listening).toBe(false);
+  });
+
+  it("awaits an already-started listener cleanup after abort clears the active run", async () => {
+    const closeRequested = deferred<void>();
+    const releaseClose = deferred<void>();
+    const delayedCreateServer = ((listener: RequestListener) => {
+      const server = createServer(listener);
+      const originalClose = server.close.bind(server);
+      server.close = ((callback?: (error?: Error) => void) => {
+        closeRequested.resolve();
+        void releaseClose.promise.then(() => {
+          originalClose(callback ?? (() => undefined));
+        });
+        return server;
+      }) as Server["close"];
+      return server;
+    }) as typeof createServer;
+    const path = makeElectronBrowserReadinessProductPath({
+      compositionHost: compositionHost(),
+      viewAdapter: viewFixture().adapter,
+      createServer: delayedCreateServer,
+    });
+    const controller = new AbortController();
+
+    const ensure = path.ensureCompositionHost(controller.signal);
+    controller.abort("test cancellation");
+    await closeRequested.promise;
+
+    let closeSettled = false;
+    const close = path.close().then(() => {
+      closeSettled = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(closeSettled).toBe(false);
+
+    releaseClose.resolve();
+    await close;
+    await expect(ensure).resolves.toBe(false);
   });
 
   it("aborting an open page destroys its exact view and listener", async () => {
