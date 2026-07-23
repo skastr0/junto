@@ -13,14 +13,16 @@ import { Either } from "effect";
 
 // Edges are the browser capability system for process-bound callers.
 // Kernel-enforced per call via factory physics:
-//   CONNECTED actor (agent|terminal|herdr) → page port browser.automate
+//   CONNECTED actor → page port browser.automate
 //   Region co-membership alone never grants browser access
 //   Everything else: invisible / ScopeError naming the missing edge
 //
 // Capability leases remain a transitional transport; human-drawn edges are
-// the product authority for agents that already run on the canvas.
+// the product authority for agents that already run on the canvas. Protected
+// process-bind admission further restricts browser callers to agent|herdr;
+// native terminals remain actors for non-browser product surfaces.
 
-/** Well-known actor kinds that may wield browser.automate under process-bind. */
+/** Physics actor kinds; protected process-bind admits the agent|herdr subset. */
 export type BrowserCallerKind = "agent" | "herdr" | "terminal";
 
 export type BrowserAuthzDenial =
@@ -79,9 +81,9 @@ export const isPageNode = (node: CanvasNode | undefined): boolean =>
   node !== undefined && node.type === "link" && nodeKind(node) === "page";
 
 /**
- * Resolve a canvas node as a browser automation caller. Any physics actor
- * (agent, terminal, herdr) may hold process-bound browser authority when edged
- * to a page — region membership alone is never enough.
+ * Resolve a canvas actor against the browser port. This is graph physics only:
+ * the protected process-bind boundary separately restricts live browser
+ * principals to agent|herdr. Region membership alone is never enough.
  */
 export const resolveBrowserCaller = (
   doc: CanvasDoc,

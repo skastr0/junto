@@ -51,6 +51,7 @@ export type EdgeGrantDenial =
   | "process_unbound"
   | "not_found"
   | "ambiguous"
+  | "caller_wrong_kind"
   | "not_connected"
   | "canvas_unreadable"
   | "capacity"
@@ -109,7 +110,10 @@ const processKeyOf = (principal: ProcessPrincipal): string => {
   if (principal.kind === "agent") {
     return `agent:${principal.agentKey ?? ""}:${principal.canvasName ?? ""}:${principal.nodeId ?? ""}`;
   }
-  return `herdr:${principal.paneId ?? ""}:${principal.canvasName ?? ""}:${principal.nodeId ?? ""}`;
+  if (principal.kind === "herdr") {
+    return `herdr:${principal.paneId ?? ""}:${principal.canvasName ?? ""}:${principal.nodeId ?? ""}`;
+  }
+  throw new Error("native terminal principals cannot hold browser grants");
 };
 
 const sameTargetSignature = (
@@ -246,6 +250,13 @@ export const makeEdgeGrantService = (
   const admitPrincipal = async (
     principal: ProcessPrincipal,
   ): Promise<EdgeGrantResult> => {
+    if (principal.kind === "terminal") {
+      return fail(
+        "caller_wrong_kind",
+        "native terminal processes cannot wield browser authority — use a live agent or herdr process",
+      );
+    }
+
     const admissionStartedAt = changeSequence;
     const docs = await loadDocs();
     if (docs.length === 0) {
@@ -265,6 +276,8 @@ export const makeEdgeGrantService = (
             ? "not_connected"
             : resolved.denial === "ambiguous"
               ? "ambiguous"
+              : resolved.denial === "caller_wrong_kind"
+                ? "caller_wrong_kind"
               : "not_found";
         lastMessage = resolved.message;
         continue;

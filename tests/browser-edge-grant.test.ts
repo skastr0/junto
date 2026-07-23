@@ -1,4 +1,5 @@
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -24,7 +25,12 @@ import {
   type BrowserViewHandle,
 } from "../src/main/vellum/browser/sessions";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
-import { type ProcessPrincipal } from "../src/main/vellum/process-identity";
+import {
+  makeProcessIdentityMap,
+  type PeerPidReader,
+  type ProcessIdentityMap,
+  type ProcessPrincipal,
+} from "../src/main/vellum/process-identity";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
@@ -102,6 +108,35 @@ const canvasDoc = (withEdge: boolean): CanvasDoc => ({
   edges: withEdge ? [{ id: "e1", fromNode: "agent", toNode: "p1" }] : [],
 });
 
+const terminalCanvasDoc = (): CanvasDoc => ({
+  nodes: [
+    {
+      id: "terminal",
+      type: "text",
+      text: "terminal",
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 48,
+      ether: {
+        entity: { kind: "terminal" },
+        terminal: { bindingId: "terminal-binding" },
+      },
+    },
+    {
+      id: "p1",
+      type: "link",
+      url: "https://example.com/",
+      x: 200,
+      y: 0,
+      width: 120,
+      height: 48,
+      ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
+    },
+  ],
+  edges: [{ id: "e1", fromNode: "terminal", toNode: "p1" }],
+});
+
 describe("browser edge-grant process-bind dual admit", () => {
   let root: string;
   let registries: BrowserCapabilityRegistry[];
@@ -119,6 +154,10 @@ describe("browser edge-grant process-bind dual admit", () => {
   const makeStack = (
     doc: CanvasDoc,
     resolvePageTargetOverride?: PageTargetResolver,
+    identity?: {
+      readonly processMap: ProcessIdentityMap;
+      readonly readPeerPid: PeerPidReader;
+    },
   ) => {
     let sessionCounter = 0;
     const sessions = new BrowserSessionService(
@@ -145,6 +184,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       canvasesDir: join(root, "canvases"),
       resolvePageTarget,
       readCanvas: async (name) => (name === "work" ? doc : undefined),
+      ...(identity ?? {}),
     });
     const handlers = makeControlHandlers({
       sessions,
@@ -275,6 +315,77 @@ describe("browser edge-grant process-bind dual admit", () => {
     if (!denied.envelope.ok) {
       expect(denied.envelope.error.message).toMatch(/missing edge/i);
     }
+  });
+
+  it("denies a registered native terminal on protected routes despite a human page edge", async () => {
+    await mkdir(join(root, "canvases"), { recursive: true });
+    const doc = terminalCanvasDoc();
+    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
+
+    const terminalPrincipal: ProcessPrincipal = {
+      kind: "terminal",
+      bindingId: "terminal-binding",
+      canvasName: "work",
+      nodeId: "terminal",
+    };
+    const processMap = makeProcessIdentityMap();
+    expect(processMap.bind(process.pid, terminalPrincipal)).toBe(true);
+
+    const { handlers, edgeGrant, capabilities } = makeStack(
+      doc,
+      undefined,
+      {
+        processMap,
+        readPeerPid: () => process.pid,
+      },
+    );
+
+    // admitSocket is the product gate: Unix peer PID → main-owned process map
+    // → browser edge grant. The terminal is live and registered, but its page
+    // edge cannot mint authority.
+    await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({
+      ok: false,
+      denial: "caller_wrong_kind",
+      message: expect.stringMatching(/live agent or herdr process/i),
+    });
+
+    const token = rotateControlToken(join(root, "terminal-token"));
+    const denied = await dispatchControlRequest(
+      handlers,
+      token,
+      {
+        method: "GET",
+        path: "/pages",
+        token,
+        requestId: "e".repeat(32),
+        body: undefined,
+      },
+      undefined,
+      {
+        kind: "principal",
+        edgeGrant,
+        principal: terminalPrincipal,
+      },
+    );
+    expect(denied).toMatchObject({
+      status: 403,
+      envelope: {
+        ok: false,
+        error: {
+          _tag: "forbidden",
+          message: expect.stringMatching(/live agent or herdr process/i),
+        },
+      },
+    });
+    expect(capabilities.stats()).toMatchObject({
+      activeCapabilities: 0,
+      activeLeases: 0,
+    });
+    processMap.clear();
+    await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({
+      ok: false,
+      denial: "process_unbound",
+    });
   });
 
   it("rejects a capability paired with a different registry principal", async () => {

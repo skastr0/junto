@@ -188,7 +188,7 @@ describe("process-bind (browser canvas resolution)", () => {
     if (!resolved.ok) expect(resolved.denial).toBe("not_connected");
   });
 
-  it("maps a terminal process principal when edged to a page", () => {
+  it("denies a terminal process principal even when edged to a page", () => {
     const terminalBoard = doc(
       [text("term", "terminal", undefined, { bindingId: "bind-xyz" }), page("p1")],
       [{ id: "e1", fromNode: "term", toNode: "p1" }],
@@ -199,10 +199,28 @@ describe("process-bind (browser canvas resolution)", () => {
       canvasName: "work",
       nodeId: "term",
     });
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) {
+      expect(resolved.denial).toBe("caller_wrong_kind");
+      expect(resolved.message).toMatch(/live agent or herdr process/i);
+    }
+  });
+
+  it("maps a live herdr process principal when edged to a page", () => {
+    const herdrBoard = doc(
+      [text("herdr", "herdr"), page("p1")],
+      [{ id: "e1", fromNode: "herdr", toNode: "p1" }],
+    );
+    const resolved = resolveBrowserCallerFromProcess(herdrBoard, "work", {
+      kind: "herdr",
+      paneId: "pane-1",
+      canvasName: "work",
+      nodeId: "herdr",
+    });
     expect(resolved.ok).toBe(true);
     if (resolved.ok) {
-      expect(resolved.principal.kind).toBe("terminal");
-      expect(resolved.principal.bindingId).toBe("bind-xyz");
+      expect(resolved.principal.kind).toBe("herdr");
+      expect(resolved.principal.paneId).toBe("pane-1");
       expect(resolved.pageRefs).toEqual(["vellum://canvas/work?node=p1"]);
     }
   });
