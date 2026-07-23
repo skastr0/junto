@@ -49,6 +49,13 @@ const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TEMP_FILE = /^\.config\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/i;
 const PROFILE_ADMISSION_FAILURE_MESSAGE = "browser profile admission unavailable";
+const closeQuietly = async (close: () => Promise<void>): Promise<void> => {
+  try {
+    await close();
+  } catch {
+    // Cleanup is best-effort.
+  }
+};
 
 export type BrowserProfileErrorCode =
   | "invalid"
@@ -536,7 +543,7 @@ const cleanupOrphanTemps = async (root: string): Promise<void> => {
       removed = true;
     }
   } finally {
-    await directory.close().catch(() => undefined);
+    await closeQuietly(() => directory.close());
   }
   if (removed) await syncDirectory(root);
 };
@@ -586,7 +593,9 @@ const readConfigFile = async (root: string): Promise<string | undefined> => {
     }
     return bytes.toString("utf8");
   } finally {
-    await handle.close();
+    if (handle !== undefined) {
+      await handle.close();
+    }
   }
 };
 
@@ -631,7 +640,10 @@ const atomicWriteConfig = async (root: string, config: BrowserConfigDisk): Promi
     renamed = true;
     await syncDirectory(root);
   } finally {
-    if (handle !== undefined) await handle.close().catch(() => undefined);
+    if (handle !== undefined) {
+      const activeHandle = handle;
+      await closeQuietly(() => activeHandle.close());
+    }
     if (!renamed) await unlink(temporary).catch(() => undefined);
   }
 };
@@ -1092,7 +1104,7 @@ export const listProfileDirs = async (root: string = browserRootDir()): Promise<
         entries.push(entry.name);
       }
     } finally {
-      await directory.close().catch(() => undefined);
+      await closeQuietly(() => directory.close());
     }
     return entries;
   } catch {

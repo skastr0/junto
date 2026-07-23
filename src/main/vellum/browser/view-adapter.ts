@@ -1,5 +1,6 @@
 import { isAbsolute } from "node:path";
-import { BrowserWindow, session, WebContentsView } from "electron";
+import * as electron from "electron";
+import type { BrowserWindow as ElectronBrowserWindow } from "electron";
 import { isAllowedBrowserUrl } from "@shared/browser";
 import {
   BROWSER_MAX_EVAL_CODE_BYTES,
@@ -20,13 +21,25 @@ import {
   type BrowserTestOnlyExactOriginGrant,
 } from "./web-policy";
 
+const { BrowserWindow, session } = electron;
+type ElectronWebContentsViewConstructor = typeof electron.WebContentsView;
+
+const requireWebContentsView = (): ElectronWebContentsViewConstructor => {
+  const candidate: unknown = Reflect.get(electron, "WebContentsView");
+  if (typeof candidate !== "function") {
+    throw new Error("Electron WebContentsView is unavailable");
+  }
+  return candidate as ElectronWebContentsViewConstructor;
+};
+
 // The only file that touches Electron for browser sessions. Views are parented
 // under the main BrowserWindow.contentView (native layer, above the renderer)
 // — never under an xyflow node; the renderer only measures the DOM rect and
 // sends it over browserSetBounds. Kept thin on purpose: all decisions
 // (eviction, state, url policy) live in sessions.ts / shared/browser.ts.
 
-const mainWindow = (): BrowserWindow | undefined => BrowserWindow.getAllWindows()[0];
+const mainWindow = (): ElectronBrowserWindow | undefined =>
+  BrowserWindow.getAllWindows()[0];
 
 const normalizeUrl = (url: string): string => {
   try {
@@ -338,6 +351,7 @@ const makeElectronViewAdapter = (
   testOnlyGrant?: BrowserTestOnlyExactOriginGrant,
   testOnlyDownloadPath?: string,
 ): BrowserViewAdapter => (partition, events, options) => {
+  const WebContentsView = requireWebContentsView();
   const browserPartition = session.fromPartition(partition);
   if (testOnlyDownloadPath !== undefined) {
     browserPartition.setDownloadPath(testOnlyDownloadPath);
@@ -479,7 +493,7 @@ const makeElectronViewAdapter = (
   // re-parenting whenever the live window differs from the one last attached
   // to, so a setBounds call is always enough to make the surface visible
   // again regardless of what the caller's bookkeeping believes.
-  let attachedWindow: BrowserWindow | undefined;
+  let attachedWindow: ElectronBrowserWindow | undefined;
 
   const handle: BrowserViewHandle = {
     loadUrl: (url, expectedSessionId) => {
