@@ -513,7 +513,7 @@ if (invokedPath === modulePath) {
       .catch((error: unknown) => {
         const message = (error instanceof Error ? error.message : String(error))
           .replaceAll(homedir(), "<real-home>")
-          .slice(0, 1_000);
+          .slice(0, 5_000);
         // An unclean verified-group failure intentionally retains its sandbox
         // and exact process handle. Publish failure without force-exiting this
         // verifier: the owned handle remains a lifetime witness until the
