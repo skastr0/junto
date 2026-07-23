@@ -149,11 +149,42 @@ owned_child_alive() {
 
 xvfb_pid=''
 vellum_pid=''
+is_positive_pid() {
+  case "$1" in
+    ''|0|*[!0-9]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+signal_owned_group() {
+  signal="$1"
+  group_leader="$2"
+  case "$signal" in
+    TERM|KILL) ;;
+    *) return 1 ;;
+  esac
+  is_positive_pid "$group_leader" || return 1
+  # The leader is captured from this wrapper's own setsid child. The negative
+  # argument names exactly that process group; do not accept ambient PIDs.
+  # dash's kill builtin cannot delimit a negative process-group identifier.
+  # The fixed system binary accepts `--` without parsing the group as a flag.
+  # setsid may not have installed the child group at the first observation.
+  attempts=0
+  while [ "$attempts" -lt 3 ]; do
+    if /bin/kill "-$signal" -- "-$group_leader" 2>/dev/null; then
+      return 0
+    fi
+    attempts=$((attempts + 1))
+    [ "$attempts" -lt 3 ] && sleep 1
+  done
+  return 1
+}
+
 cleanup_owned_resources() {
   if [ -n "$vellum_pid" ]; then
-    kill -TERM -- "-$vellum_pid" 2>/dev/null || true
+    signal_owned_group TERM "$vellum_pid" 2>/dev/null || true
     if ! wait_bounded_group "$vellum_pid"; then
-      kill -KILL -- "-$vellum_pid" 2>/dev/null || true
+      signal_owned_group KILL "$vellum_pid" 2>/dev/null || true
     fi
     wait "$vellum_pid" 2>/dev/null || true
     vellum_pid=''
@@ -263,9 +294,9 @@ done
 NOTIFY_SOCKET="$SYSTEMD_NOTIFY_SOCKET" "$SYSTEMD_NOTIFY" --ready --status='Vellum work control ready for current generation'
 while :; do
   if ! owned_child_alive "$xvfb_pid"; then
-    kill -TERM -- "-$vellum_pid" 2>/dev/null || true
+    signal_owned_group TERM "$vellum_pid" 2>/dev/null || true
     if ! wait_bounded_group "$vellum_pid"; then
-      kill -KILL -- "-$vellum_pid" 2>/dev/null || true
+      signal_owned_group KILL "$vellum_pid" 2>/dev/null || true
     fi
     set +e
     wait "$vellum_pid"

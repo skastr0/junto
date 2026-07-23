@@ -13,6 +13,7 @@ import {
 const asset = (name: string) =>
   readFile(new URL(`../build/linux/${name}`, import.meta.url), "utf8");
 const execFileAsync = promisify(execFile);
+let launcherSequence = 0;
 
 const waitForTextFile = async (file: string): Promise<string> => {
   for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -25,20 +26,38 @@ const waitForTextFile = async (file: string): Promise<string> => {
   throw new Error(`timed out waiting for ${file}`);
 };
 
+const readyVellum = `#!/bin/sh
+echo "$$" > "$TEST_VELLUM_PID"
+work="$HOME/.vellum/work"
+mkdir -p "$work"
+printf 'test-token\\n' > "$work/token"
+printf '%s' "$INVOCATION_ID" > "$XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID"
+exec python3 - "$work/control.sock" <<'PY'
+import os, socket, sys, time
+path = sys.argv[1]
+sock = socket.socket(socket.AF_UNIX)
+sock.bind(path)
+os.chmod(path, 0o600)
+while True: time.sleep(1)
+PY
+`;
+
 const linuxLauncherSandbox = async () => {
   const root = await mkdtemp(join(tmpdir(), "vellum-remote-launcher-"));
   const app = join(root, "app");
   const runtime = join(root, "runtime");
   const serviceRuntime = join(runtime, "vellum-remote");
   const bin = join(root, "bin");
-  const socket = join(root, "display.sock");
   const notifySocket = join(root, "notify.sock");
+  const displayNumber = 10_000 + ((process.pid % 10_000) * 10) + (launcherSequence += 1);
   await Promise.all([mkdir(app), mkdir(runtime), mkdir(bin)]);
   await mkdir(serviceRuntime, { mode: 0o700 });
   const launcher = (await asset("vellum-remote-launch-v1"))
     .replace("APP_DIR='/opt/Vellum Command'", `APP_DIR='${app}'`)
     .replace("XVFB='/usr/bin/Xvfb'", `XVFB='${join(bin, "Xvfb")}'`)
     .replace("XAUTH='/usr/bin/xauth'", `XAUTH='${join(bin, "xauth")}'`)
+    .replace("DISPLAY_FIRST=89", `DISPLAY_FIRST=${displayNumber}`)
+    .replace("DISPLAY_LAST=96", `DISPLAY_LAST=${displayNumber}`)
     .replace("SYSTEMD_NOTIFY='/usr/bin/systemd-notify'", `SYSTEMD_NOTIFY='${join(bin, "systemd-notify")}'`);
   const launcherPath = join(root, "launcher");
   await writeFile(launcherPath, launcher, { mode: 0o755 });
@@ -51,14 +70,12 @@ const linuxLauncherSandbox = async () => {
     app,
     runtime,
     bin,
-    socket,
     launcher: launcherPath,
     env: {
       HOME: root,
       XDG_RUNTIME_DIR: runtime,
       NOTIFY_SOCKET: notifySocket,
       INVOCATION_ID: "a".repeat(32),
-      TEST_SOCKET: socket,
       TEST_VELLUM_PID: join(root, "vellum.pid"),
       TEST_XVFB_PID: join(root, "xvfb.pid"),
     },
@@ -88,12 +105,17 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(launcher).toContain('wait "$vellum_pid"');
     expect(launcher).toContain('vellum_status="$?"');
     expect(launcher).toContain('exit "$vellum_status"');
-    expect(launcher).toContain('kill -TERM -- "-$vellum_pid"');
+    expect(launcher).toContain('signal_owned_group TERM "$vellum_pid"');
     expect(launcher).toContain('owned_child_alive "$xvfb_pid"');
     expect(launcher).toContain('ensure_owned_directory()');
     expect(launcher).toContain('refusing managed directory symlink');
     expect(launcher).not.toContain('chmod 0600 "$XAUTHORITY"');
-    expect(launcher).toContain('kill -KILL -- "-$vellum_pid"');
+    expect(launcher).toContain('signal_owned_group KILL "$vellum_pid"');
+    expect(launcher).toContain('is_positive_pid "$group_leader"');
+    expect(launcher).toContain('/bin/kill "-$signal" -- "-$group_leader"');
+    expect(launcher).toContain('while [ "$attempts" -lt 3 ]');
+    expect(launcher).not.toContain('kill -TERM --');
+    expect(launcher).not.toContain('kill -KILL --');
     expect(launcher).not.toMatch(/--no-sandbox|disable-setuid-sandbox|pkill|killall|sudo|loginctl enable-linger|-ac/u);
   });
 
@@ -176,13 +198,10 @@ import socket, sys, time
 display = sys.argv[1].removeprefix(':')
 sock = socket.socket(socket.AF_UNIX)
 sock.bind('/tmp/.X11-unix/X' + display)
-time.sleep(1)
+time.sleep(3)
 PY
 `, { mode: 0o755 });
-      await writeFile(join(sandbox.app, "vellum"), `#!/bin/sh
-echo "$$" > "$TEST_VELLUM_PID"
-while :; do sleep 1; done
-`, { mode: 0o755 });
+      await writeFile(join(sandbox.app, "vellum"), readyVellum, { mode: 0o755 });
       await expect(execFileAsync(sandbox.launcher, [], { env: sandbox.env })).rejects.toMatchObject({
         code: 70,
       });
@@ -193,7 +212,7 @@ while :; do sleep 1; done
     }
   }, 12_000);
 
-  it("releases the post-xauth authority inode when Xvfb exits first", async () => {
+  it("returns the Xvfb failure while systemd owns authority-directory removal", async () => {
     if (process.platform !== "linux") return;
     const sandbox = await linuxLauncherSandbox();
     const authorityDirectory = join(sandbox.runtime, "vellum-remote", `x11-${sandbox.env.INVOCATION_ID}`);
@@ -210,16 +229,14 @@ import socket, sys, time
 display = sys.argv[1].removeprefix(':')
 sock = socket.socket(socket.AF_UNIX)
 sock.bind('/tmp/.X11-unix/X' + display)
-time.sleep(1)
+time.sleep(3)
 PY
 `, { mode: 0o755 });
-      await writeFile(join(sandbox.app, "vellum"), `#!/bin/sh
-while :; do sleep 1; done
-`, { mode: 0o755 });
+      await writeFile(join(sandbox.app, "vellum"), readyVellum, { mode: 0o755 });
       await expect(execFileAsync(sandbox.launcher, [], { env: sandbox.env })).rejects.toMatchObject({
         code: 70,
       });
-      await expect(stat(authorityDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+      expect((await stat(authorityDirectory)).mode & 0o777).toBe(0o700);
     } finally {
       await rm(sandbox.root, { recursive: true, force: true });
     }
@@ -239,10 +256,7 @@ sock.bind('/tmp/.X11-unix/X' + display)
 while True: time.sleep(1)
 PY
 `, { mode: 0o755 });
-      await writeFile(join(sandbox.app, "vellum"), `#!/bin/sh
-echo "$$" > "$TEST_VELLUM_PID"
-while :; do sleep 1; done
-`, { mode: 0o755 });
+      await writeFile(join(sandbox.app, "vellum"), readyVellum, { mode: 0o755 });
       const wrapper = spawn(sandbox.launcher, [], { env: sandbox.env, stdio: "ignore" });
       const [vellumPid, xvfbPid] = await Promise.all([
         waitForTextFile(sandbox.env.TEST_VELLUM_PID),
