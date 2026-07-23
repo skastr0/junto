@@ -29,6 +29,17 @@ export const linuxUnpackedArtifactName = ({
 }): string =>
   `${requireSafeSegment(productName, "product name")}-${requireSafeSegment(version, "version")}-${requireSafeSegment(arch, "architecture")}-linux.unpacked`;
 
+export const linuxDebArtifactName = ({
+  productName,
+  version,
+  arch,
+}: {
+  readonly productName: unknown;
+  readonly version: unknown;
+  readonly arch: unknown;
+}): string =>
+  `${requireSafeSegment(productName, "product name")}-${requireSafeSegment(version, "version")}-${requireSafeSegment(arch, "architecture")}-linux.deb`;
+
 export const finalizeLinuxUnpackedArtifact = async ({
   releaseDirectory,
   productName,
@@ -39,11 +50,22 @@ export const finalizeLinuxUnpackedArtifact = async ({
   readonly productName: unknown;
   readonly version: unknown;
   readonly arch: unknown;
-}): Promise<{ readonly artifact: string; readonly manifest: string; readonly artifactName: string }> => {
+}): Promise<{
+  readonly artifact: string;
+  readonly deb: string;
+  readonly manifest: string;
+  readonly artifactName: string;
+}> => {
   const release = requireReleaseDirectory(releaseDirectory);
   const artifactName = linuxUnpackedArtifactName({ productName, version, arch });
+  const debArtifactName = linuxDebArtifactName({ productName, version, arch });
   const source = path.join(release, "linux-unpacked");
   const artifact = path.join(release, artifactName);
+  const debArtifact = path.join(release, debArtifactName);
+  if (arch !== "x64") {
+    throw new Error(`Linux v1 artifacts require x64, got ${String(arch)}`);
+  }
+  await access(debArtifact);
   await access(source);
   try {
     await access(artifact);
@@ -61,10 +83,18 @@ export const finalizeLinuxUnpackedArtifact = async ({
   const manifest = path.join(release, `${artifactName}.manifest.json`);
   await writeFile(
     manifest,
-    `${JSON.stringify({ productName, version, arch, os: "linux", artifact: artifactName }, null, 2)}\n`,
+    `${JSON.stringify({
+      productName,
+      version,
+      arch,
+      os: "linux",
+      artifact: artifactName,
+      deb: debArtifactName,
+      support: { distribution: "ubuntu", version: "24.04", libc: "glibc" },
+    }, null, 2)}\n`,
     { encoding: "utf8", flag: "wx", mode: 0o644 },
   );
-  return { artifact, manifest, artifactName };
+  return { artifact, deb: debArtifact, manifest, artifactName };
 };
 
 const main = async (): Promise<void> => {

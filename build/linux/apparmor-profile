@@ -1,0 +1,9 @@
+abi <abi/4.0>,
+include <tunables/global>
+
+# Ubuntu 24.04 restricts unprivileged user namespaces by AppArmor label.
+# Vellum needs only the userns feature grant; the app otherwise remains
+# unconfined by this compatibility profile.
+profile vellum "/opt/Vellum Command/vellum" flags=(unconfined) {
+  userns,
+}

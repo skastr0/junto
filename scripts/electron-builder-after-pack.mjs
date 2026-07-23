@@ -84,6 +84,14 @@ const assertFuseWire = (wire, policy) => {
 
 export default async function afterPack(context) {
   const platform = context.electronPlatformName;
+  const policy = await loadPolicy();
+  const productName = context.packager.appInfo.productName;
+  const productFilename = context.packager.appInfo.productFilename;
+  if (productName !== policy.productName) {
+    throw new Error(
+      `packaged product name mismatch: got ${productName} want ${policy.productName}`,
+    );
+  }
   const resourceDirectory =
     platform === "darwin"
       ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents", "Resources", "bin")
@@ -98,21 +106,19 @@ export default async function afterPack(context) {
     await access(resource);
     await chmod(resource, 0o755);
   }
-  if (platform === "linux") return;
-
-  const policy = await loadPolicy();
-  const productFilename = context.packager.appInfo.productFilename;
-  if (productFilename !== policy.productName) {
-    throw new Error(
-      `packaged product name mismatch: got ${productFilename} want ${policy.productName}`,
-    );
+  if (platform === "linux") {
+    await chmod(path.join(context.appOutDir, "chrome-sandbox"), 0o755);
+    await chmod(path.join(context.appOutDir, "resources", "apparmor-profile"), 0o644);
   }
-  const appPath = path.join(context.appOutDir, `${productFilename}.app`);
-  await access(appPath);
+  const executablePath =
+    platform === "darwin"
+      ? path.join(context.appOutDir, `${productFilename}.app`)
+      : path.join(context.appOutDir, context.packager.executableName);
+  await access(executablePath);
 
   const fuseConfig = {
     version: FuseVersion.V1,
-    resetAdHocDarwinSignature: true,
+    resetAdHocDarwinSignature: platform === "darwin",
     strictlyRequireAllFuses: true,
   };
   for (const name of libraryFuseNames()) {
@@ -121,11 +127,11 @@ export default async function afterPack(context) {
     fuseConfig[FuseV1Options[name]] = policy.fuses[name];
   }
 
-  const sentinelCount = await flipFuses(appPath, fuseConfig);
+  const sentinelCount = await flipFuses(executablePath, fuseConfig);
   if (sentinelCount < 1 || sentinelCount > 2) {
     throw new Error(
       `unexpected Electron fuse sentinel count ${sentinelCount}`,
     );
   }
-  assertFuseWire(await getCurrentFuseWire(appPath), policy);
+  assertFuseWire(await getCurrentFuseWire(executablePath), policy);
 }

@@ -1,0 +1,154 @@
+import { describe, expect, it } from "vitest";
+import {
+  EXPECTED_APPARMOR_PROFILE,
+  LINUX_DEB_DEPENDENCIES,
+  parseDebArchiveListing,
+  parseDebControl,
+  parseDesktopEntry,
+  validateAppArmorProfile,
+  validateDebArchive,
+  validateDebControl,
+  validateDesktopEntry,
+  validateElfX64,
+} from "../scripts/audit-linux-package";
+
+const debControl = (overrides: Record<string, string> = {}): string => {
+  const fields = {
+    Package: "vellum",
+    Version: "0.1.0",
+    Architecture: "amd64",
+    Depends: LINUX_DEB_DEPENDENCIES.join(", "),
+    Description: "Vellum Command",
+    ...overrides,
+  };
+  return Object.entries(fields)
+    .map(([name, value]) => `${name}: ${value}`)
+    .join("\n");
+};
+
+const archiveListing = (extra = ""): string => `
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/
+-rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/vellum
+-rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/chrome-sandbox
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/
+-rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum
+-rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum-browser
+-rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/unix-peer-pid.py
+-rw-r--r-- root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/apparmor-profile
+${extra}`;
+
+const desktopEntry = `
+[Desktop Entry]
+Name=Vellum Command
+Comment=Spatial command station for multi-agent fleets
+Exec="/opt/Vellum Command/vellum" %U
+Terminal=false
+Type=Application
+Icon=vellum
+StartupWMClass=Vellum Command
+Categories=Development;
+MimeType=x-scheme-handler/vellum;
+`;
+
+describe("Ubuntu deb control policy", () => {
+  it("accepts only the Ubuntu 24.04 x64 runtime inventory", () => {
+    expect(validateDebControl(debControl(), "0.1.0")).toMatchObject({
+      package: "vellum",
+      version: "0.1.0",
+      architecture: "amd64",
+      depends: [...LINUX_DEB_DEPENDENCIES].sort(),
+    });
+    expect(parseDebControl("Field: first\n second").get("Field")).toBe("first\nsecond");
+  });
+
+  it("rejects architecture drift, missing deps, development tools, and duplicate fields", () => {
+    expect(() => validateDebControl(debControl({ Architecture: "arm64" }), "0.1.0")).toThrow(
+      /identity, version, architecture/u,
+    );
+    expect(() => validateDebControl(debControl({ Depends: "python3" }), "0.1.0")).toThrow(
+      /dependency inventory/u,
+    );
+    expect(() =>
+      validateDebControl(
+        debControl({ Depends: `${LINUX_DEB_DEPENDENCIES.join(", ")}, build-essential` }),
+        "0.1.0",
+      ),
+    ).toThrow(/dependency inventory/u);
+    expect(() => parseDebControl("Package: vellum\nPackage: other")).toThrow(/duplicate/u);
+  });
+});
+
+describe("deb payload authority and modes", () => {
+  it("requires a root-owned immutable install tree and inert setuid helper", () => {
+    const entries = parseDebArchiveListing(
+      archiveListing(
+        "lrwxrwxrwx root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/internal -> bin/vellum",
+      ),
+    );
+    expect(validateDebArchive(entries).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["undeclared destination", archiveListing("-rw-r--r-- root/root 1 2026-07-22 00:00 ./etc/evil")],
+    ["non-root owner", archiveListing("-rw-r--r-- user/user 1 2026-07-22 00:00 ./other")],
+    ["writable payload", archiveListing("-rw-rw-r-- root/root 1 2026-07-22 00:00 ./other")],
+    ["setuid payload", archiveListing("-rwsr-xr-x root/root 1 2026-07-22 00:00 ./other")],
+    [
+      "escaping link",
+      archiveListing("lrwxrwxrwx root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/escape -> ../../../etc/shadow"),
+    ],
+  ])("rejects %s", (_name, listing) => {
+    expect(() => validateDebArchive(parseDebArchiveListing(listing))).toThrow();
+  });
+
+  it("rejects a setuid chrome-sandbox even when the rest of the archive is safe", () => {
+    const listing = archiveListing().replace(
+      "-rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/chrome-sandbox",
+      "-rwsr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/chrome-sandbox",
+    );
+    expect(() => validateDebArchive(parseDebArchiveListing(listing))).toThrow(/elevated mode/u);
+  });
+
+  it.each([
+    "./usr/share/applications/vellum.desktop -> /tmp/vellum.desktop",
+    "./usr/share/icons/hicolor/1024x1024/apps/vellum.png -> /tmp/vellum.png",
+  ])("rejects a mutable system-surface symlink at %s", (entry) => {
+    const listing = archiveListing(
+      `lrwxrwxrwx root/root 0 2026-07-22 00:00 ${entry}`,
+    );
+    expect(() => validateDebArchive(parseDebArchiveListing(listing))).toThrow(
+      /type or mode mismatch/u,
+    );
+  });
+});
+
+describe("Linux desktop and sandbox policy", () => {
+  it("pins the userns-only AppArmor profile", () => {
+    expect(() => validateAppArmorProfile(EXPECTED_APPARMOR_PROFILE)).not.toThrow();
+    expect(() =>
+      validateAppArmorProfile(EXPECTED_APPARMOR_PROFILE.replace("userns,", "network,")),
+    ).toThrow(/userns-only/u);
+  });
+
+  it("pins the installed executable, icon, category, and protocol handler", () => {
+    expect(() => validateDesktopEntry(desktopEntry)).not.toThrow();
+    expect(parseDesktopEntry(desktopEntry).get("Exec")).toBe(
+      '"/opt/Vellum Command/vellum" %U',
+    );
+    expect(() => validateDesktopEntry(desktopEntry.replace("Development;", "Utility;"))).toThrow(
+      /Categories/u,
+    );
+  });
+
+  it("accepts only little-endian x86-64 ELF objects", () => {
+    const header = new Uint8Array(20);
+    header.set([0x7f, 0x45, 0x4c, 0x46, 2, 1]);
+    header[18] = 0x3e;
+    expect(() => validateElfX64(header, "binary")).not.toThrow();
+    header[18] = 0xb7;
+    expect(() => validateElfX64(header, "binary")).toThrow(/x86-64/u);
+  });
+});
