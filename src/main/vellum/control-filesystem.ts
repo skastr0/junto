@@ -147,6 +147,39 @@ const acquireLinuxAbstractLease = async (
   };
 };
 
+/**
+ * Darwin `lockf(1)` sysexits we care about when holding the control lease.
+ * EX_TEMPFAIL (75) means the inode is already flocked by another process —
+ * not an fd-inheritance failure. Broken/missing child fd 3 surfaces as
+ * EX_CANTCREAT (73) with stderr like "cannot lock fd 3: Bad file descriptor".
+ */
+const LOCKF_EX_CANTCREAT = 73;
+const LOCKF_EX_TEMPFAIL = 75;
+
+const describeDarwinLockfFailure = (
+  event: AppProcessClose,
+  stderrText: string,
+): string => {
+  const detail = stderrText.trim();
+  const detailSuffix = detail.length > 0 ? `: ${detail}` : "";
+  if (event.code === LOCKF_EX_TEMPFAIL) {
+    return (
+      "control listener lock unavailable: already held by another process " +
+      `(lockf EX_TEMPFAIL code=${String(event.code)}; not an fd-inheritance failure)`
+    );
+  }
+  if (event.code === LOCKF_EX_CANTCREAT) {
+    return (
+      "control listener lock unavailable: cannot open inherited lock descriptor " +
+      `(lockf EX_CANTCREAT code=${String(event.code)}${detailSuffix})`
+    );
+  }
+  return (
+    `control listener lock unavailable (code=${String(event.code)} ` +
+    `signal=${String(event.signal)}${detailSuffix})`
+  );
+};
+
 const acquireDarwinFileLease = async (
   leaseKey: string,
 ): Promise<KernelListenerLease> => {
@@ -169,6 +202,9 @@ const acquireDarwinFileLease = async (
     if (stat.nlink !== 1n || (stat.mode & 0o077n) !== 0n) {
       throw new Error("control listener lock is not an owner-private inode");
     }
+    // Parent keeps ownership of `fd` and may close it after spawn returns.
+    // The process plane maps it as child fd 3; lockf locks via /dev/fd/3 so
+    // the held lock is on the exact O_NOFOLLOW inode (not a re-opened path).
     child = appProcessPlane.spawnChild({
       source: "control-listener-lease",
       purpose: "hold the Darwin control-listener lock",
@@ -198,12 +234,14 @@ const acquireDarwinFileLease = async (
   });
   await new Promise<void>((resolve, reject) => {
     let settled = false;
+    let stderrText = "";
     let unsubscribeError = (): void => undefined;
     let unsubscribeClose = (): void => undefined;
     const cleanup = (): void => {
       unsubscribeError();
       unsubscribeClose();
       child.io.stdout.off("data", onData);
+      child.io.stderr.off("data", onStderr);
     };
     const fail = (error: Error): void => {
       if (settled) return;
@@ -212,12 +250,13 @@ const acquireDarwinFileLease = async (
       child.io.stdin.end();
       reject(error);
     };
+    const onStderr = (chunk: Buffer): void => {
+      // Bounded diagnostic capture only — lockf writes at most one short line.
+      if (stderrText.length >= 512) return;
+      stderrText += chunk.toString("utf8").slice(0, 512 - stderrText.length);
+    };
     const onClose = (event: AppProcessClose): void => {
-      fail(
-        new Error(
-          `control listener lock unavailable (code=${String(event.code)} signal=${String(event.signal)})`,
-        ),
-      );
+      fail(new Error(describeDarwinLockfFailure(event, stderrText)));
     };
     const onData = (chunk: Buffer): void => {
       if (settled) return;
@@ -231,6 +270,7 @@ const acquireDarwinFileLease = async (
     };
     unsubscribeError = child.io.onError(fail);
     unsubscribeClose = child.io.onClose(onClose);
+    child.io.stderr.on("data", onStderr);
     if (settled) return;
     child.io.stdout.once("data", onData);
   });

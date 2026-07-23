@@ -115,7 +115,22 @@ describe("control filesystem lifecycle", () => {
     const first = await acquireControlListenerLease(path);
     const server = createServer();
     try {
-      await expect(acquireControlListenerLease(path)).rejects.toThrow();
+      // Darwin: lockf EX_TEMPFAIL (75) = contended flock, not broken /dev/fd/3
+      // inheritance through appProcessPlane.spawnChild({ inheritedFileDescriptor }).
+      // Broken inheritance would surface as EX_CANTCREAT (73) / bad file descriptor.
+      const contended = await acquireControlListenerLease(path).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(contended).toBeInstanceOf(Error);
+      expect((contended as Error).message).toMatch(
+        /control listener lease unavailable/u,
+      );
+      if (process.platform === "darwin") {
+        expect((contended as Error & { cause?: Error }).cause?.message).toMatch(
+          /already held by another process|EX_TEMPFAIL|code=75/u,
+        );
+      }
       await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
         server.listen(path, resolve);
@@ -131,6 +146,34 @@ describe("control filesystem lifecycle", () => {
     expect(controlListenerLeaseHeld(next)).toBe(true);
     await releaseControlListenerLease(next);
     expect(controlListenerLeaseHeld(next)).toBe(false);
+  });
+
+  it("holds the Darwin lock through process-plane fd inheritance (/dev/fd/3)", async () => {
+    // Regression for the Electron 43.x lease path: appProcessPlane maps
+    // parentFd → child fd 3; lockf -k /dev/fd/3 must handshake. Repro under
+    // Electron main (not only vitest/node):
+    //   ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron /tmp/vellum-lockf-repro.mjs
+    //   ./node_modules/.bin/electron /tmp/vellum-lockf-electron-main.mjs
+    // Exit 75 = contention; exit 73 = missing/broken fd 3.
+    if (process.platform !== "darwin") return;
+    const path = join(await root(), "control.sock");
+    const lease = await acquireControlListenerLease(path);
+    try {
+      expect(controlListenerLeaseHeld(lease)).toBe(true);
+      await expect(acquireControlListenerLease(path)).rejects.toMatchObject({
+        message: expect.stringMatching(/lease unavailable/u),
+        cause: expect.objectContaining({
+          message: expect.stringMatching(
+            /already held by another process|EX_TEMPFAIL|code=75/u,
+          ),
+        }),
+      });
+    } finally {
+      await releaseControlListenerLease(lease);
+    }
+    const again = await acquireControlListenerLease(path);
+    expect(controlListenerLeaseHeld(again)).toBe(true);
+    await releaseControlListenerLease(again);
   });
 
   it("rejects fabricated and released cleanup authority", async () => {

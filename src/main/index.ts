@@ -32,7 +32,8 @@ import {
 import { appProcessPlane } from "./vellum/app-process-plane";
 import { AppRuntime } from "./runtime";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
-import { CanvasesService } from "./vellum/canvases";
+import { canvasesDir, CanvasesService } from "./vellum/canvases";
+import { resolveControlHome } from "./vellum/control-home";
 import { registerDemoIpcHandlers } from "./vellum/demo/ipc";
 import {
   BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE,
@@ -1147,13 +1148,25 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     }
   herdrActiveControlCount = () => herdr.streams.activeControlCount();
   await AppRuntime.runPromise(herdr.start);
+    // Control sockets must never land under the real operator home when E2E /
+    // headless probes sandbox via HOME or --user-data-dir. Electron's
+    // app.getPath("home") ignores HOME; resolveControlHome is the isolation gate.
+    const controlHomeInput = {
+      envHome: process.env.HOME,
+      electronHome: app.getPath("home"),
+      userData: app.getPath("userData"),
+      e2e: process.env.VELLUM_E2E === "1",
+      headless,
+      packaged: app.isPackaged,
+    } as const;
+    const termControlHome = resolveControlHome(controlHomeInput);
+    const browserControlHome = resolveControlHome({
+      ...controlHomeInput,
+      explicitHome: process.env.VELLUM_BROWSER_HOME,
+    });
     // Local term control UDS — Remote stations expose this for CC SSH forward.
     try {
-      await termPlane.start(
-        headless && !app.isPackaged
-          ? { controlHome: app.getPath("userData") }
-          : undefined,
-      );
+      await termPlane.start({ controlHome: termControlHome });
     } catch (error) {
       console.error("[term] control socket failed to start:", error);
     }
@@ -1190,7 +1203,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             await prepareDefaultBrowserStationAdmissionAuthority();
           const edgeGrant = makeEdgeGrantService({
             capabilities: composition.registry,
-            canvasesDir: join(app.getPath("home"), ".vellum", "canvases"),
+            // Same root as CanvasesService (honors VELLUM_CANVASES_DIR / HOME) —
+            // never app.getPath("home"), which ignores sandboxed E2E HOME.
+            canvasesDir: canvasesDir(),
             resolvePageTarget: resolveBrowserPageTarget,
             readCanvas: readCanvasFromCanvases,
             station: () => composition.sessions.stationIdentity(),
@@ -1222,10 +1237,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           if (admissionCleanupRan) acquiredCanvasUnsubscribe();
           else canvasUnsubscribe = acquiredCanvasUnsubscribe;
 
-          const browserControlHome =
-            headless && !app.isPackaged
-              ? app.getPath("userData")
-              : app.getPath("home");
           const ssh = await AppRuntime.runPromise(
             Effect.map(SshTransport, (service) => service),
           );
