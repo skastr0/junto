@@ -1,6 +1,6 @@
 import { ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SnapshotBundle } from "../src/shared/entities";
+import { findEntity, findFreshEntity, type SnapshotBundle } from "../src/shared/entities";
 import type { BindingHint } from "../src/shared/ipc";
 import { makeSnapshotsLive, SnapshotsService } from "../src/main/vellum/snapshots";
 
@@ -64,6 +64,93 @@ describe("snapshots.ts refresh() — newest-wins sequencing", () => {
     const snapshots = await runtime.runPromise(SnapshotsService);
     const result = await runtime.runPromise(snapshots.refresh());
     expect(result.bundles.every((b) => b.ok === false)).toBe(true);
+  });
+
+  it("retains last-known facts as stale and reports fleet-blind after a total failure", async () => {
+    const successfulAt = "2026-07-23T10:00:00.000Z";
+    mockFetchHermes.mockResolvedValueOnce({
+      ...hermesBundle("studio:agent"),
+      fetchedAt: successfulAt,
+    });
+    const snapshots = await runtime.runPromise(SnapshotsService);
+    await runtime.runPromise(snapshots.refresh());
+
+    mockFetchHermes.mockRejectedValueOnce(new Error("command center unreachable"));
+    const failed = await runtime.runPromise(snapshots.refresh());
+    const bundle = failed.bundles[0]!;
+    expect(bundle).toMatchObject({
+      ok: false,
+      stale: true,
+      lastSuccessfulAt: successfulAt,
+      error: "command center unreachable",
+    });
+    expect(findEntity(failed, "hermes", "studio:agent")?.stale).toBe(true);
+    expect(findFreshEntity(failed, "hermes", "studio:agent")).toBeUndefined();
+
+    const doctor = await runtime.runPromise(snapshots.doctor);
+    expect(doctor.status).toBe("warning");
+    expect(doctor.detail).toMatch(/fleet-blind/i);
+    expect(doctor.metadata).toMatchObject({
+      fleetBlind: "true",
+      freshFacts: "0",
+      staleFacts: "1",
+      lastSuccessfulAt: successfulAt,
+    });
+  });
+
+  it("keeps current local facts fresh while marking missing host facts stale on a partial read", async () => {
+    const at = "2026-07-23T10:00:00.000Z";
+    mockFetchHermes.mockResolvedValueOnce({
+      source: "hermes",
+      fetchedAt: at,
+      ok: true,
+      entities: [
+        {
+          source: "hermes",
+          key: "studio:agent",
+          kind: "agent",
+          stats: { running: 0 },
+          updatedAt: at,
+        },
+        {
+          source: "hermes",
+          key: "command-center:agent",
+          kind: "agent",
+          stats: { running: 1 },
+          updatedAt: at,
+        },
+      ],
+    });
+    const snapshots = await runtime.runPromise(SnapshotsService);
+    await runtime.runPromise(snapshots.refresh());
+
+    const partialAt = "2026-07-23T10:01:00.000Z";
+    mockFetchHermes.mockResolvedValueOnce({
+      source: "hermes",
+      fetchedAt: partialAt,
+      ok: false,
+      error: "unreachable hermes hosts: command-center",
+      entities: [
+        {
+          source: "hermes",
+          key: "studio:agent",
+          kind: "agent",
+          stats: { running: 1 },
+          updatedAt: partialAt,
+        },
+      ],
+    });
+    const partial = await runtime.runPromise(snapshots.refresh());
+
+    expect(findFreshEntity(partial, "hermes", "studio:agent")).toMatchObject({
+      stale: false,
+      stats: { running: 1 },
+    });
+    expect(findEntity(partial, "hermes", "command-center:agent")).toMatchObject({
+      stale: true,
+      stats: { running: 1 },
+    });
+    expect(findFreshEntity(partial, "hermes", "command-center:agent")).toBeUndefined();
   });
 });
 

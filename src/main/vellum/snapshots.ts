@@ -32,10 +32,53 @@ const guarded = async (
       source,
       fetchedAt: new Date().toISOString(),
       ok: false,
+      stale: true,
       error: error instanceof Error ? error.message : String(error),
       entities: [],
     };
   }
+};
+
+const factKey = (entity: SnapshotBundle["entities"][number]): string =>
+  `${entity.source}:${entity.key}`;
+
+/**
+ * Preserve last-known facts without laundering them into current truth.
+ *
+ * A partial adapter result may contain facts successfully observed during
+ * this attempt even though another host failed. Those current facts are
+ * explicitly `stale:false`; only missing prior facts are retained as stale.
+ * A total failure has no current facts, so every retained observation is stale.
+ */
+export const retainLastKnownFacts = (
+  previous: SnapshotBundle | undefined,
+  attempted: SnapshotBundle,
+): SnapshotBundle => {
+  if (attempted.ok) {
+    return {
+      ...attempted,
+      stale: false,
+      lastSuccessfulAt: attempted.fetchedAt,
+      entities: attempted.entities.map(({ stale: _stale, ...entity }) => entity),
+    };
+  }
+
+  const current = attempted.entities.map((entity) => ({ ...entity, stale: false as const }));
+  const currentKeys = new Set(current.map(factKey));
+  const retained = (previous?.entities ?? [])
+    .filter((entity) => !currentKeys.has(factKey(entity)))
+    .map((entity) => ({ ...entity, stale: true as const }));
+  const lastSuccessfulAt =
+    attempted.lastSuccessfulAt ??
+    previous?.lastSuccessfulAt ??
+    (previous?.ok ? previous.fetchedAt : undefined);
+
+  return {
+    ...attempted,
+    stale: true,
+    ...(lastSuccessfulAt === undefined ? {} : { lastSuccessfulAt }),
+    entities: [...current, ...retained],
+  };
 };
 
 const hintsKeySet = (hints: ReadonlyArray<BindingHint> | undefined): ReadonlySet<string> =>
@@ -74,7 +117,8 @@ export const makeSnapshotsLive = (
 
     if (sequence >= lastCommittedSequence) {
       lastCommittedSequence = sequence;
-      state = { bundles: [hermes] };
+      const previous = state.bundles.find((bundle) => bundle.source === "hermes");
+      state = { bundles: [retainLastKnownFacts(previous, hermes)] };
       for (const listener of listeners) listener(state);
     }
 
@@ -99,11 +143,49 @@ export const makeSnapshotsLive = (
   };
 
   return SnapshotsService.of({
-    doctor: Effect.succeed({
-      id: "snapshots",
-      label: "Adapter Snapshots",
-      status: "ok",
-      detail: "hermes adapter",
+    doctor: Effect.sync(() => {
+      const hermes = state.bundles.find((bundle) => bundle.source === "hermes");
+      if (!hermes) {
+        return {
+          id: "snapshots",
+          label: "Adapter Snapshots",
+          status: "warning" as const,
+          detail: "hermes not refreshed yet · fleet state unknown",
+          metadata: { fleetBlind: "true", freshFacts: "0", staleFacts: "0" },
+        };
+      }
+      const staleFacts = hermes.entities.filter((entity) => entity.stale === true).length;
+      const freshFacts = hermes.entities.length - staleFacts;
+      if (hermes.ok) {
+        return {
+          id: "snapshots",
+          label: "Adapter Snapshots",
+          status: "ok" as const,
+          detail: `hermes fresh · ${freshFacts} fact(s)`,
+          metadata: {
+            fleetBlind: "false",
+            freshFacts: String(freshFacts),
+            staleFacts: String(staleFacts),
+            lastSuccessfulAt: hermes.lastSuccessfulAt ?? hermes.fetchedAt,
+          },
+        };
+      }
+      return {
+        id: "snapshots",
+        label: "Adapter Snapshots",
+        status: "warning" as const,
+        detail:
+          `fleet-blind · ${hermes.error ?? "hermes refresh failed"} · ` +
+          `${freshFacts} current / ${staleFacts} last-known fact(s)`,
+        metadata: {
+          fleetBlind: "true",
+          freshFacts: String(freshFacts),
+          staleFacts: String(staleFacts),
+          ...(hermes.lastSuccessfulAt === undefined
+            ? {}
+            : { lastSuccessfulAt: hermes.lastSuccessfulAt }),
+        },
+      };
     }),
     current: Effect.sync(() => state),
     refresh: (hints) => Effect.promise(() => refresh(hints)),

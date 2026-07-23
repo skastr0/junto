@@ -20,7 +20,7 @@ import type { TowerGlyphRow } from "@shared/ipc";
 // actually lets this module load under `bun run test`. Mirrors the same
 // Type-only imports stay on
 // the alias since those are erased before any resolver sees them.
-import { findEntity, type Entity, type SnapshotState } from "../../../shared/entities";
+import { findFreshEntity, type Entity, type SnapshotState } from "../../../shared/entities";
 
 export type WatcherStatus = "satisfied" | "pending" | "unknown";
 
@@ -122,8 +122,13 @@ const evaluateStatThreshold = (watch: EtherWatch, snapshots: SnapshotState): Wat
   if (!watch.source || !watch.key || !watch.stat || !watch.op || watch.value === undefined) {
     return { status: "unknown", detail: "incomplete stat rule" };
   }
-  const entity = findEntity(snapshots, watch.source, watch.key);
-  if (!entity) return { status: "unknown", detail: `${watch.source}:${watch.key} unavailable` };
+  const entity = findFreshEntity(snapshots, watch.source, watch.key);
+  if (!entity) {
+    return {
+      status: "unknown",
+      detail: `${watch.source}:${watch.key} unavailable or stale`,
+    };
+  }
   const value = readNumericStat(entity, watch.stat);
   if (value === undefined) return { status: "unknown", detail: `${watch.stat} not numeric` };
   const satisfied = watch.op === "gt" ? value > watch.value : watch.op === "lt" ? value < watch.value : value === watch.value;
