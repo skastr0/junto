@@ -12,19 +12,23 @@ review, backlog item, test, or older architecture note conflicts with it, the
 conflict is migration work rather than an exception.
 
 **Normative direction:** the protected document is the product; compiled
-projections and capability-bound tools are the agent API. The current
-externally writable canvas authority and external file-watch authoring path are
-transitional implementation facts, not the final security contract. Plaintext
-is not itself the defect; ordinary file edits becoming operator intent is.
+projections and capability-bound tools are the agent API. Canvases still live as
+plaintext under `~/.vellum/canvases/*.canvas` (store relocation is later Phase
+3 migration debt). Ordinary external file edits are **not** live authoring —
+they do not rehydrate the running document. Plaintext on disk is not itself the
+defect; ordinary file edits becoming operator intent was.
 
 ## The agent surface (headless — no GUI needed)
 
 **Agents never write the canvas.** The canvas is human-authored (Command Center). Agents consume compiled projections and local Vellum tools.
 
 **Current compatibility surface:** canvases live at
-`~/.vellum/canvases/*.canvas`, and the running app file-watches external edits.
-This is migration debt under the security doctrine. Until that migration lands,
-agents remain strictly read-only. Current headless CLIs:
+`~/.vellum/canvases/*.canvas`. Disk location remains transitional (not yet an
+app-private protected store), but external file edits are **not** live
+authority: only app-owned write/create/remove/mutate paths notify listeners and
+rehydrate the running document. Export/import may return later as an explicit
+operator action. Agents remain strictly read-only for the canvas file. Current
+headless CLIs:
 
 | command | who | what it does |
 |---|---|---|

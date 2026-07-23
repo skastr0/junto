@@ -1,4 +1,3 @@
-import { lstatSync, mkdirSync, watch as watchDir } from "node:fs";
 import { link, lstat, mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
@@ -187,8 +186,10 @@ export const writeCanvasSidecar = async (
 };
 
 // The document plane. All writes go through validate -> mirror law ->
-// canonical serialize -> atomic write (tmp + rename). The watcher reports
-// external edits only: writes made through this service must not echo.
+// canonical serialize -> atomic write (tmp + rename). Live rehydration is
+// driven only by app-owned write/create/remove/mutate (notifyListeners).
+// External disk edits under the canvases dir are not live authoring — they
+// must not rehydrate factory intent (security doctrine Phase 3 first cut).
 export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
   CanvasesService,
   {
@@ -201,8 +202,10 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       expectedRevision?: string,
     ) => Effect.Effect<CanvasWriteResult, CanvasError>;
     // Retrying optimistic read-modify-write under the same per-canvas mutex
-    // as write(). fn must be a pure/idempotent document transform because an
-    // external direct-file write can make mutate re-read and reapply it.
+    // as write(). fn must be a pure/idempotent document transform because a
+    // concurrent direct-file write (or concurrent mutate) can make mutate
+    // re-read and reapply it. That is conflict safety on the write path, not
+    // external-edit live authoring.
     readonly mutate: (
       name: string,
       fn: (doc: CanvasDoc) => CanvasDoc,
@@ -220,7 +223,8 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       suffix: string,
       contents: string,
     ) => Effect.Effect<string, CanvasError>;
-    // Begin watching the canvases dir. Idempotent.
+    // Historical hook for dir watching. Idempotent no-op: external file-watch
+    // rehydration is disabled (not a supported live authoring path).
     readonly start: () => void;
     readonly subscribeChanges: (listener: (name: string) => void) => () => void;
   }
@@ -233,17 +237,10 @@ const toCanvasError = (error: unknown): CanvasError =>
 
 const canvasFileName = (name: CanvasName) => `${name}.canvas`;
 
-const WATCH_DEBOUNCE_MS = 300;
 const MAX_MUTATE_REVISION_RETRIES = 8;
 
 export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const listeners = new Set<(name: string) => void>();
-  // Exact content identity, rather than a time window. A near-immediate
-  // external write differs from this identity and must never be swallowed as
-  // an echo of our own atomic rename. null represents an own deletion.
-  const ownWrites = new Map<string, string | null>();
-  const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  let watcher: ReturnType<typeof watchDir> | null = null;
 
   // Per-canvas-file write mutex: overlapping write() calls for the same
   // name queue behind each other instead of racing the same tmp file. Each
@@ -362,8 +359,8 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     });
 
   // Validates, applies the mirror law, serializes canonically, and writes
-  // atomically (tmp file + rename). Records the write so start()'s watcher
-  // can suppress the echo it will otherwise see.
+  // atomically (tmp file + rename). Notifies subscribers so kernel/UI
+  // rehydrate from the app-owned write (the only live mutation plane).
   const write = (
     name: string,
     doc: CanvasDoc,
@@ -406,11 +403,11 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           let ownsTemp = false;
           await writeExclusiveTemp(tmpPath, serialized);
           ownsTemp = true;
-          // Recheck immediately before replacement. This rejects when an
-          // external document differs at either revision read, and rename
+          // Recheck immediately before replacement. This rejects when the
+          // on-disk document differs at either revision read, and rename
           // guarantees the installed file is complete. It is not an atomic
-          // filesystem compare-and-swap: direct writers do not share our
-          // mutex, so a write in the final read-to-rename interval can still
+          // filesystem compare-and-swap: writers outside this mutex do not
+          // share it, so a write in the final read-to-rename interval can still
           // be replaced. Node's portable rename API has no conditional form.
           if (expectedRevision !== undefined) {
             let currentRevision: string | undefined;
@@ -435,11 +432,8 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           }
           await syncDirectoryBestEffort(root);
 
-          // Suppress fs.watch echo, then notify subscribers ourselves so the
-          // kernel rehydrates immediately. Without this, own-write suppression
-          // leaves kernel docs stale after normal UI writeCanvas (tasks done,
-          // criteria edits) and live phase/blocked paint lies.
-          ownWrites.set(canvasFileName(canonicalName), revision);
+          // Notify subscribers so the kernel/UI rehydrate immediately after an
+          // app-owned write. External disk edits never take this path.
           notifyListeners(canonicalName);
           return { revision };
         }),
@@ -447,10 +441,10 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     });
 
   // Same mutex key as write() (canvasFileName(name)), so in-process writes
-  // serialize. Direct file writers do not share that mutex: detect their
-  // revision immediately before rename and reapply the idempotent transform
-  // to the newest document. As with write(), the final read-to-rename window
-  // cannot be a true portable filesystem compare-and-swap.
+  // serialize. Concurrent writers outside that mutex can still race the
+  // on-disk bytes: detect revision immediately before rename and reapply the
+  // idempotent transform to the newest document. As with write(), the final
+  // read-to-rename window cannot be a true portable filesystem compare-and-swap.
   const mutate = (name: string, fn: (doc: CanvasDoc) => CanvasDoc): Effect.Effect<void, CanvasError> =>
     Effect.tryPromise({
       try: () =>
@@ -493,7 +487,6 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
               throw error;
             }
 
-            ownWrites.set(canvasFileName(canonicalName), revision);
             await syncDirectoryBestEffort(root);
             notifyListeners(canonicalName);
             return;
@@ -528,7 +521,6 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             }
             throw error;
           }
-          ownWrites.set(canvasFileName(sanitized), revision);
           notifyListeners(sanitized);
           return { name: sanitized, doc, revision, path };
         });
@@ -564,10 +556,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
               }
             }
 
-            // Suppress the fs.watch echo of our own unlink, then notify
-            // subscribers ourselves so kernel resync drops the doc even when
-            // watch is down or the delete event is coalesced away.
-            ownWrites.set(canvasFileName(sanitized), null);
+            // Notify subscribers so kernel resync drops the hydrated doc.
             await syncDirectoryBestEffort(root);
             notifyListeners(sanitized);
           }),
@@ -600,58 +589,11 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       catch: toCanvasError,
     });
 
-  const start = () => {
-    if (watcher) return;
-
-    try {
-      const root = canvasesDir();
-      mkdirSync(root, { recursive: true });
-      const rootInfo = lstatSync(root);
-      if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
-        throw new CanvasError({ message: `canvas directory is not a real directory: ${root}` });
-      }
-      watcher = watchDir(root, (_eventType, filename) => {
-        const fileName = filename?.toString();
-        if (!fileName || !fileName.endsWith(".canvas")) return;
-
-        const existingTimer = debounceTimers.get(fileName);
-        if (existingTimer) clearTimeout(existingTimer);
-
-        const timer = setTimeout(async () => {
-          debounceTimers.delete(fileName);
-
-          const expectedOwnRevision = ownWrites.get(fileName);
-          if (ownWrites.has(fileName)) {
-            let actualRevision: string | null;
-            try {
-              actualRevision = revisionOf(
-                await readFile(join(root, fileName), "utf8"),
-              );
-            } catch {
-              actualRevision = null;
-            }
-            ownWrites.delete(fileName);
-            if (actualRevision === expectedOwnRevision) return;
-          }
-
-          let name: CanvasName;
-          try {
-            name = canvasNameFrom(basename(fileName, ".canvas"));
-          } catch {
-            return;
-          }
-          notifyListeners(name);
-        }, WATCH_DEBOUNCE_MS);
-
-        debounceTimers.set(fileName, timer);
-      });
-      watcher.unref();
-    } catch {
-      // Watching is best-effort for the POC: a failure here should not
-      // block the rest of the service.
-      watcher = null;
-    }
-  };
+  // No-op: external fs.watch rehydration was migration debt. App-owned
+  // write/create/remove/mutate already call notifyListeners; a raw disk edit
+  // must not mint live factory intent. Export/import may land later without
+  // restoring silent external authoring.
+  const start = () => {};
 
   const subscribeChanges = (listener: (name: string) => void) => {
     listeners.add(listener);

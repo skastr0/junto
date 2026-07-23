@@ -24,9 +24,11 @@ export interface CanvasExternalReloadCoordinator {
 }
 
 /**
- * Orders asynchronous file-watch reloads and rejects results whose canvas or
- * local revision changed while disk I/O was in flight. A later notification
- * always supersedes an earlier read, even when the reads resolve out of order.
+ * Orders asynchronous canvasChanged reloads (app-owned write notifications)
+ * and rejects results whose canvas or local revision changed while disk I/O
+ * was in flight. A later notification always supersedes an earlier read, even
+ * when the reads resolve out of order. External raw disk edits do not drive
+ * this path.
  */
 export const makeCanvasExternalReloadCoordinator = (
   deps: CanvasExternalReloadDeps,

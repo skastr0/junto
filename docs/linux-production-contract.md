@@ -7,8 +7,8 @@ v1.
 
 This document freezes the production meaning of “ready,” “secure,” and
 “protected” for the Linux path. It is derived from the security doctrine and
-from the repository state at HEAD after commits `3345afd`, `b3732b0`, and
-`049886a`.
+from the repository state at HEAD after commits `3345afd`, `b3732b0`,
+`049886a`, and `e974aca` (Phase 1 receipt unification).
 
 ## Ratified baseline commits
 
@@ -17,6 +17,7 @@ from the repository state at HEAD after commits `3345afd`, `b3732b0`, and
 | `3345afd` fix(readiness): keep deep health observational | **keep** | Boot is generation + work control; Doctor owns terminal/browser/canvas |
 | `b3732b0` fix(linux): distinguish desktop and systemd runtime | **keep** | Ambient `XDG_RUNTIME_DIR` must not put desktop sessions into Remote readiness publication |
 | `049886a` test(notarize): isolate release path fixtures | **keep** | Test-only isolation; no product surface change |
+| `e974aca` fix(linux): unify boot readiness on generation receipt | **keep** | Phase 1: preflight + installer + work-control agree on plain generation body |
 
 ## Production scope (v1)
 
@@ -69,14 +70,18 @@ sandbox, and capability probes are Doctor observations. They:
 
 ### Protected intent (migration target)
 
-Not yet implemented. Current transitional facts (migration debt, not final
-contract):
+Partial first cut on canvas: external raw file edits under
+`~/.vellum/canvases/` no longer rehydrate the running document (app-owned
+write/create/remove/mutate only). Remaining transitional facts (migration
+debt, not final contract):
 
-- Live canvas authority is still `~/.vellum/canvases/*.canvas` with file watch
+- Canvas bytes still live at `~/.vellum/canvases/*.canvas` (not yet an
+  app-private protected store / export-import ceremony)
 - Role / topology still live in plaintext `settings.json` / `hosts.json`
 
 “Protected” in a production claim means: external file edit cannot mint live
-intent or topology. That claim is false until Phase 3 lands.
+intent or topology. Canvas live rehydration from external edit is cut; full
+protected store + topology protection still pending.
 
 ### Secure (doctrine-bound)
 
@@ -109,9 +114,11 @@ Orphan contracts (must not exist):
 
 ## Critical path after this contract
 
-1. Repair preflight + installer to this receipt (Phase 1).
+1. Repair preflight + installer to this receipt (Phase 1) — landed.
 2. Prove one desktop install and one headless Remote end-to-end on native
-   Ubuntu x86_64 (Phase 2).
+   Ubuntu x86_64 (Phase 2) — checklist in
+   [`linux-package-qualification.md`](./linux-package-qualification.md)
+   (Command Center proof, headless Remote proof, operator-run remainder).
 3. Protect canvas and topology as app-owned operator intent (Phase 3).
 4. Explicit fleet topology, capability/revocation matrix, lifecycle
    qualification, release (Phases 4–8).

@@ -52,8 +52,8 @@ export const writeFixtureCanvas = async (
   await writeFile(canvasPath(sandbox, name), serializeCanvas(doc), "utf8");
 };
 
-/** Raw file replace — used to simulate an external agent editing the .canvas
- * file directly (the file-watcher / hot-reload direction of the roundtrip). */
+/** Raw file replace — simulate an external process editing the .canvas file
+ * outside app-owned write APIs (must not mint live factory intent). */
 export const writeCanvasFileRaw = async (
   sandbox: Sandbox,
   name: string,

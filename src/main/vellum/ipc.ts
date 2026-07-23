@@ -492,9 +492,8 @@ export const registerVellumIpc = (): void => {
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
       usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
-      // A kernel flag mutate() is an "own write" CanvasesService suppresses
-      // from the normal file-watch broadcast above — this is the explicit
-      // push that keeps an open renderer's doc coherent with a kernel write.
+      // Kernel flag mutate also notifies via subscribeCanvasMutated so an open
+      // renderer's doc stays coherent with a kernel write (app-owned path).
       kernel.subscribeCanvasMutated((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       kernel.subscribe((snapshot) => {
         broadcast(IPC_CHANNELS.kernelChanged, snapshot);

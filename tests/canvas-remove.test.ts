@@ -93,8 +93,8 @@ describe("canvases.ts remove()", () => {
   });
 
   it("notifies subscribeChanges listeners after write (own-write path)", async () => {
-    // Kernel rehydrate depends on this: own-write suppress would silence fs.watch,
-    // so write() must notify listeners itself for live phase honesty.
+    // Kernel rehydrate depends on app-owned write notify — external disk edits
+    // no longer rehydrate live intent via fs.watch.
     const name = "write-notify";
     await runtime.runPromise(canvases.create(name));
 

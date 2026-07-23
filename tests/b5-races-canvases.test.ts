@@ -152,21 +152,27 @@ describe("canvases.ts write() — same-name concurrency", () => {
     expect(result.doc.nodes[0]?.ether?.flags).toEqual(["attention"]);
   });
 
-  it("reports a genuine external write immediately after an own write", async () => {
-    const name = "watch-near-own-write";
+  it("app write notifies listeners; raw disk edit does not rehydrate live intent", async () => {
+    const name = "external-not-live-authoring";
     const notifications: string[] = [];
     const unsubscribe = canvases.subscribeChanges((changed) => notifications.push(changed));
     canvases.start();
 
     try {
       await runtime.runPromise(canvases.write(name, docFor(10)));
+      expect(notifications.filter((changed) => changed === name)).toHaveLength(1);
+
       const current = await runtime.runPromise(canvases.read(name));
       await writeFile(current.path, serializeCanvas(docFor(11)), "utf8");
+      // Former watch debounce was 300ms; wait past that window to prove we are
+      // not rehydrating from external bytes via fs.watch.
       await new Promise((resolve) => setTimeout(resolve, 700));
 
-      expect(notifications.filter((changed) => changed === name)).toHaveLength(2);
-      const external = await runtime.runPromise(canvases.read(name));
-      expect(textOf(external.doc)).toBe("write-11");
+      expect(notifications.filter((changed) => changed === name)).toHaveLength(1);
+      // Disk bytes changed (read sees them) but live subscribers were not told
+      // to replace the running document from that external write.
+      const onDisk = await runtime.runPromise(canvases.read(name));
+      expect(textOf(onDisk.doc)).toBe("write-11");
     } finally {
       unsubscribe();
     }

@@ -72,9 +72,9 @@ export class KernelService extends Context.Tag("@vellum/KernelService")<
     ) => Effect.Effect<void>;
     // Pushed on cycle end + on arming/pulse changes — never per-watcher.
     readonly subscribe: (listener: (snapshot: KernelSnapshot) => void) => () => void;
-    // A kernel flag mutate() is an "own write" CanvasesService suppresses from
-    // its normal file-watch broadcast, so callers that also need canvasChanged
-    // pushes for live-view coherence subscribe here separately.
+    // Kernel flag mutate() also notifies via CanvasesService.subscribeChanges
+    // on app-owned writes. Callers that need a dedicated canvasChanged path for
+    // live-view coherence can still subscribe here separately.
     readonly subscribeCanvasMutated: (listener: (name: string) => void) => () => void;
   }
 >() {}
@@ -375,9 +375,10 @@ const makeKernelService = (
     setDocs(docs);
   };
 
-  // create/external-edit -> reread into the map; delete -> drop + purge its
-  // namespaced in-memory state. subscribeChanges only reports a name, not
-  // the kind of change, so list() is the source of truth for "still there".
+  // App-owned create/write/mutate -> reread into the map; delete -> drop +
+  // purge its namespaced in-memory state. subscribeChanges only reports a
+  // name, not the kind of change, so list() is the source of truth for
+  // "still there". External disk edits do not notify this path.
   const resyncCanvas = async (name: string): Promise<void> => {
     const summaries = await Effect.runPromise(canvases.list);
     if (!summaries.some((summary) => summary.name === name)) {
@@ -394,7 +395,7 @@ const makeKernelService = (
       scheduleCycle();
     }
     // else: transient read/decode failure (e.g. mid-write) — keep the
-    // previously hydrated doc; the next external-edit event retries.
+    // previously hydrated doc; the next app-owned change notification retries.
   };
 
   // Enrichment hints derive from identity resolution over every hydrated doc

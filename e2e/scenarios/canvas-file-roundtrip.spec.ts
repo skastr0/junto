@@ -3,9 +3,8 @@ import { serializeCanvas } from "../../src/shared/canvas";
 import { canvasDoc, readCanvasFile, textNode, writeCanvasFileRaw } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-// The product's core contract: the .canvas file IS the agent API. Both
-// directions must hold — a UI edit lands on disk, and an external file edit
-// (an agent rewriting the document) hot-reloads into the UI.
+// App-owned UI edits must land on disk. External raw file edits must NOT mint
+// live factory intent (security doctrine Phase 3 first cut).
 
 const ORIGINAL_TEXT = "roundtrip original";
 const UI_EDITED_TEXT = "roundtrip edited via UI";
@@ -38,7 +37,7 @@ test("UI edit -> file: editing note text in the inspector lands on disk", async 
   }).toPass({ timeout: 10_000 });
 });
 
-test("external file edit -> UI: rewriting the .canvas file hot-reloads a new node", async ({
+test("external file edit does not hot-reload into live factory intent", async ({
   vellum,
 }) => {
   const { page, sandbox } = vellum;
@@ -52,6 +51,9 @@ test("external file edit -> UI: rewriting the .canvas file hot-reloads a new nod
   ]);
   await writeCanvasFileRaw(sandbox, "roundtrip", serializeCanvas(externalDoc));
 
+  // Wait past the historical watch debounce; live UI must stay on app intent.
+  await page.waitForTimeout(700);
   const added = page.locator(".react-flow__node", { hasText: EXTERNAL_NODE_TEXT });
-  await expect(added).toBeVisible({ timeout: 10_000 });
+  await expect(added).toHaveCount(0);
+  await expect(original).toBeVisible();
 });
