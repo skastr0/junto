@@ -218,6 +218,26 @@ describe("native package pipeline contract", () => {
     expect(afterPack).toContain(
       "procDescriptorPath(linuxArtifact.executable.handle)",
     );
+    for (const contract of [
+      '["resources/bin/unix-peer-pid.py", 0o755]',
+      '["resources/policy/electron-security-policy.json", 0o644]',
+      '["resources/systemd/vellum-remote-launch-v1", 0o755]',
+      '["resources/systemd/vellum-remote.service", 0o644]',
+    ]) {
+      expect(afterPack).toContain(contract);
+    }
+    expect(afterPack).toContain("path.posix.isAbsolute(candidate)");
+    expect(afterPack).toContain(
+      "path.posix.normalize(candidate) !== candidate",
+    );
+    expect(afterPack).toContain("file.handle.chmod(file.mode)");
+    expect(afterPack).toContain("(metadata.mode & 0o7777) !== file.mode");
+    expect(afterPack).toContain(
+      "artifact.fixedFiles.values()].map((file) => file.handle.close())",
+    );
+    expect(afterPack).toContain(
+      "artifact.fixedDirectories.values()].map((directory)",
+    );
     expect(afterPack).toContain(
       'context.packager.executableName !== "vellum"',
     );

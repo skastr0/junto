@@ -29,6 +29,18 @@ const LINUX_RELEASE_ROOT = fileURLToPath(
 const LINUX_ARTIFACT_ROOT = fileURLToPath(
   new URL("../release/linux-unpacked", import.meta.url),
 );
+const LINUX_FIXED_MODE_DIRECTORIES = [
+  "resources",
+  "resources/bin",
+  "resources/policy",
+  "resources/systemd",
+];
+const LINUX_FIXED_MODE_FILES = new Map([
+  ["resources/bin/unix-peer-pid.py", 0o755],
+  ["resources/policy/electron-security-policy.json", 0o644],
+  ["resources/systemd/vellum-remote-launch-v1", 0o755],
+  ["resources/systemd/vellum-remote.service", 0o644],
+]);
 
 const libraryFuseNames = () =>
   Object.keys(FuseV1Options)
@@ -109,6 +121,33 @@ const sameIdentity = (left, right) =>
 const procDescriptorPath = (handle, relativePath = "") =>
   path.posix.join("/proc/self/fd", String(handle.fd), relativePath);
 
+const fixedRelativePath = (candidate) => {
+  if (
+    typeof candidate !== "string" ||
+    candidate === "" ||
+    path.posix.isAbsolute(candidate) ||
+    path.posix.normalize(candidate) !== candidate ||
+    candidate === ".." ||
+    candidate.startsWith("../")
+  ) {
+    throw new Error("invalid fixed Linux package artifact path");
+  }
+  return candidate;
+};
+
+const fixedParentHandle = (artifact, relativePath) => {
+  const admittedPath = fixedRelativePath(relativePath);
+  const parent = path.posix.dirname(admittedPath);
+  if (parent === ".") return artifact.root.handle;
+  const directory = artifact.fixedDirectories.get(parent);
+  if (directory === undefined) {
+    throw new Error(
+      `Linux package artifact parent is not admitted: ${parent}`,
+    );
+  }
+  return directory.handle;
+};
+
 const admitLinuxArtifact = async (candidate) => {
   if (!isExpectedLinuxArtifactRoot(candidate)) {
     throw new Error(
@@ -138,6 +177,8 @@ const admitLinuxArtifact = async (candidate) => {
   );
   let rootHandle;
   let executableHandle;
+  const fixedDirectories = new Map();
+  const fixedFiles = new Map();
   try {
     const releaseHandleMetadata = await releaseHandle.stat();
     if (
@@ -173,6 +214,103 @@ const admitLinuxArtifact = async (candidate) => {
         "Linux package artifact root identity changed during admission",
       );
     }
+    const artifact = {
+      executable: undefined,
+      fixedDirectories,
+      fixedFiles,
+      root: {
+        handle: rootHandle,
+        identity: {
+          dev: rootHandleMetadata.dev,
+          ino: rootHandleMetadata.ino,
+        },
+      },
+      release: {
+        handle: releaseHandle,
+        identity: {
+          dev: releaseHandleMetadata.dev,
+          ino: releaseHandleMetadata.ino,
+        },
+      },
+    };
+    for (const relativePath of LINUX_FIXED_MODE_DIRECTORIES) {
+      const admittedPath = fixedRelativePath(relativePath);
+      const candidatePath = procDescriptorPath(
+        fixedParentHandle(artifact, admittedPath),
+        path.posix.basename(admittedPath),
+      );
+      const pathMetadata = await lstat(candidatePath);
+      if (pathMetadata.isSymbolicLink() || !pathMetadata.isDirectory()) {
+        throw new Error(
+          `Linux package artifact directory is not privately owned: ${admittedPath}`,
+        );
+      }
+      const directoryHandle = await open(
+        candidatePath,
+        fsConstants.O_RDONLY |
+          fsConstants.O_DIRECTORY |
+          fsConstants.O_NOFOLLOW,
+      );
+      try {
+        const handleMetadata = await directoryHandle.stat();
+        if (
+          !handleMetadata.isDirectory() ||
+          !sameIdentity(pathMetadata, handleMetadata)
+        ) {
+          throw new Error(
+            `Linux package artifact directory identity changed: ${admittedPath}`,
+          );
+        }
+        fixedDirectories.set(admittedPath, {
+          handle: directoryHandle,
+          identity: { dev: handleMetadata.dev, ino: handleMetadata.ino },
+        });
+      } catch (error) {
+        await directoryHandle.close();
+        throw error;
+      }
+    }
+    for (const [relativePath, mode] of LINUX_FIXED_MODE_FILES) {
+      const admittedPath = fixedRelativePath(relativePath);
+      const candidatePath = procDescriptorPath(
+        fixedParentHandle(artifact, admittedPath),
+        path.posix.basename(admittedPath),
+      );
+      const pathMetadata = await lstat(candidatePath);
+      if (
+        pathMetadata.isSymbolicLink() ||
+        !pathMetadata.isFile() ||
+        pathMetadata.nlink !== 1
+      ) {
+        throw new Error(
+          `Linux package artifact file is not privately owned: ${admittedPath}`,
+        );
+      }
+      const fileHandle = await open(
+        candidatePath,
+        fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+      );
+      try {
+        const handleMetadata = await fileHandle.stat();
+        if (
+          !handleMetadata.isFile() ||
+          handleMetadata.nlink !== 1 ||
+          !sameIdentity(pathMetadata, handleMetadata)
+        ) {
+          throw new Error(
+            `Linux package artifact file identity changed: ${admittedPath}`,
+          );
+        }
+        fixedFiles.set(admittedPath, {
+          handle: fileHandle,
+          identity: { dev: handleMetadata.dev, ino: handleMetadata.ino },
+          mode,
+        });
+      } catch (error) {
+        await fileHandle.close();
+        throw error;
+      }
+    }
     const executablePath = procDescriptorPath(rootHandle, "vellum");
     const executablePathMetadata = await lstat(executablePath);
     if (
@@ -199,31 +337,20 @@ const admitLinuxArtifact = async (candidate) => {
         "Linux package executable identity changed during admission",
       );
     }
-    return {
-      executable: {
-        handle: executableHandle,
-        identity: {
-          dev: executableHandleMetadata.dev,
-          ino: executableHandleMetadata.ino,
-        },
-      },
-      root: {
-        handle: rootHandle,
-        identity: {
-          dev: rootHandleMetadata.dev,
-          ino: rootHandleMetadata.ino,
-        },
-      },
-      release: {
-        handle: releaseHandle,
-        identity: {
-          dev: releaseHandleMetadata.dev,
-          ino: releaseHandleMetadata.ino,
-        },
+    artifact.executable = {
+      handle: executableHandle,
+      identity: {
+        dev: executableHandleMetadata.dev,
+        ino: executableHandleMetadata.ino,
       },
     };
+    return artifact;
   } catch (error) {
     await Promise.allSettled([
+      ...[...fixedFiles.values()].map((file) => file.handle.close()),
+      ...[...fixedDirectories.values()].map((directory) =>
+        directory.handle.close(),
+      ),
       executableHandle?.close(),
       rootHandle?.close(),
       releaseHandle.close(),
@@ -259,6 +386,52 @@ const assertLinuxArtifactIdentity = async (artifact) => {
   ) {
     throw new Error("Linux package artifact root identity changed");
   }
+  for (const [relativePath, directory] of artifact.fixedDirectories) {
+    const [pathMetadata, handleMetadata] = await Promise.all([
+      lstat(
+        procDescriptorPath(
+          fixedParentHandle(artifact, relativePath),
+          path.posix.basename(relativePath),
+        ),
+      ),
+      directory.handle.stat(),
+    ]);
+    if (
+      pathMetadata.isSymbolicLink() ||
+      !pathMetadata.isDirectory() ||
+      !handleMetadata.isDirectory() ||
+      !sameIdentity(pathMetadata, directory.identity) ||
+      !sameIdentity(handleMetadata, directory.identity)
+    ) {
+      throw new Error(
+        `Linux package artifact directory identity changed: ${relativePath}`,
+      );
+    }
+  }
+  for (const [relativePath, file] of artifact.fixedFiles) {
+    const [pathMetadata, handleMetadata] = await Promise.all([
+      lstat(
+        procDescriptorPath(
+          fixedParentHandle(artifact, relativePath),
+          path.posix.basename(relativePath),
+        ),
+      ),
+      file.handle.stat(),
+    ]);
+    if (
+      pathMetadata.isSymbolicLink() ||
+      !pathMetadata.isFile() ||
+      pathMetadata.nlink !== 1 ||
+      !handleMetadata.isFile() ||
+      handleMetadata.nlink !== 1 ||
+      !sameIdentity(pathMetadata, file.identity) ||
+      !sameIdentity(handleMetadata, file.identity)
+    ) {
+      throw new Error(
+        `Linux package artifact file identity changed: ${relativePath}`,
+      );
+    }
+  }
   const [executablePathMetadata, executableHandleMetadata] = await Promise.all([
     lstat(procDescriptorPath(artifact.root.handle, "vellum")),
     artifact.executable.handle.stat(),
@@ -276,8 +449,31 @@ const assertLinuxArtifactIdentity = async (artifact) => {
   }
 };
 
+const applyFixedLinuxArtifactModes = async (artifact) => {
+  await assertLinuxArtifactIdentity(artifact);
+  for (const [relativePath, file] of artifact.fixedFiles) {
+    await file.handle.chmod(file.mode);
+    const metadata = await file.handle.stat();
+    if (
+      !metadata.isFile() ||
+      metadata.nlink !== 1 ||
+      !sameIdentity(metadata, file.identity) ||
+      (metadata.mode & 0o7777) !== file.mode
+    ) {
+      throw new Error(
+        `Linux package artifact mode update was not stable: ${relativePath}`,
+      );
+    }
+  }
+  await assertLinuxArtifactIdentity(artifact);
+};
+
 const closeLinuxArtifact = async (artifact) => {
   const results = await Promise.allSettled([
+    ...[...artifact.fixedFiles.values()].map((file) => file.handle.close()),
+    ...[...artifact.fixedDirectories.values()].map((directory) =>
+      directory.handle.close(),
+    ),
     artifact.executable.handle.close(),
     artifact.root.handle.close(),
     artifact.release.handle.close(),
@@ -347,7 +543,7 @@ export default async function afterPack(context) {
           mode: 0o644,
         },
       );
-      await assertLinuxArtifactIdentity(linuxArtifact);
+      await applyFixedLinuxArtifactModes(linuxArtifact);
     }
     const executablePath =
       platform === "darwin"
