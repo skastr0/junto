@@ -96,11 +96,15 @@ import {
   printLaunchAgent,
 } from "./vellum/settings/launchctl-runner";
 import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
+import { findPackagedSandboxDisablingSwitch } from "./vellum/packaged-sandbox-policy";
 
 // Browser sessions must resolve and connect directly. An inherited system
 // proxy can perform independent DNS resolution and bypass Vellum's URL/DNS
 // preflight on fleet machines.
 app.commandLine.appendSwitch("no-proxy-server");
+// Defense in depth for every renderer, including future windows whose local
+// preferences might otherwise drift. This must run before app readiness.
+app.enableSandbox();
 registerTrustedRendererScheme(protocol);
 
 // electron-vite (and some launchd/stdio handoffs) can close the parent pipe
@@ -982,8 +986,20 @@ const ensureSupervised = async (): Promise<boolean> => {
 // would file-watch and clobber the same ~/.vellum/canvases document plane.
 // The second process exits immediately; the first focuses its window — or, when
 // the factory is windowless on macOS, recreates the surface (mirror activate).
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
-if (!gotSingleInstanceLock) {
+const packagedSandboxDisablingSwitch = findPackagedSandboxDisablingSwitch({
+  packaged: app.isPackaged,
+  hasSwitch: (name) => app.commandLine.hasSwitch(name),
+});
+const gotSingleInstanceLock =
+  packagedSandboxDisablingSwitch === undefined && app.requestSingleInstanceLock();
+if (packagedSandboxDisablingSwitch !== undefined) {
+  // No owned process, socket, renderer, or document authority has started at
+  // this boundary, so an immediate app exit cannot strand product resources.
+  console.error(
+    `[sandbox] packaged startup rejected --${packagedSandboxDisablingSwitch}`,
+  );
+  app.exit(1);
+} else if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   app.on("second-instance", () => {
