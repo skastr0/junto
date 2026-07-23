@@ -6,7 +6,6 @@ import {
   lstatSync,
   mkdirSync,
   renameSync,
-  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import {
@@ -95,7 +94,18 @@ import {
   type BrowserCapabilityTarget,
   type BrowserCapabilityUseTarget,
 } from "./capabilities";
-import { prepareControlDirectory, removeObservedSocket, rotateControlFileToken } from "../control-filesystem";
+import {
+  acquireControlListenerLease,
+  captureControlSocketPathIdentity,
+  controlListenerLeaseHeld,
+  controlSocketPathOwnedByLease,
+  prepareControlDirectory,
+  releaseControlListenerLease,
+  removeObservedSocket,
+  removeOwnedControlSocketPath,
+  rotateControlFileToken,
+  type ControlSocketPathIdentity,
+} from "../control-filesystem";
 
 // Local control plane for agents (the browser ACI): a tiny HTTP server on a
 // unix domain socket at ~/.vellum/browser/control.sock, hosted by the Electron
@@ -1285,10 +1295,6 @@ const closeServer = (server: Server): Promise<void> =>
     server.close(() => resolveClose());
   });
 
-const unlinkSocket = (socketPath: string): void => {
-  if (existsSync(socketPath)) unlinkSync(socketPath);
-};
-
 const listenOnSocket = (server: Server, socketPath: string): Promise<void> =>
   new Promise((resolveListen, rejectListen) => {
     const onError = (error: Error): void => rejectListen(error);
@@ -1333,7 +1339,7 @@ export const startBrowserControlServer = async (
   prepareControlDirectory(dir);
   await ensureScreenshotDirectory(controlShotsDir(home));
 
-  const token = rotateControlToken(controlTokenPath(home));
+  let token = "";
   const canvasesDir = join(home, ".vellum", "canvases");
   const edgeGrant =
     options.edgeGrant ??
@@ -1717,29 +1723,32 @@ export const startBrowserControlServer = async (
 
   // Stale socket from a crashed run blocks listen — remove before binding.
   const socketPath = controlSocketPath(home);
-  await removeObservedSocket(socketPath);
-  await listenOnSocket(server, socketPath);
-  type SocketPathIdentity = Readonly<{
-    dev: bigint;
-    ino: bigint;
-    birthtimeNs: bigint;
-  }>;
-  let socketIdentity: SocketPathIdentity | undefined;
+  const listenerLease = await acquireControlListenerLease(socketPath);
+  try {
+    token = rotateControlToken(controlTokenPath(home));
+    await removeObservedSocket(listenerLease);
+    await listenOnSocket(server, socketPath);
+  } catch (error) {
+    await releaseControlListenerLease(listenerLease);
+    throw error;
+  }
+  let socketIdentity: ControlSocketPathIdentity | undefined;
   let socketPathCleanupBlocked = false;
   const ownsSocketPath = (): boolean => {
     if (socketIdentity === undefined) return false;
     try {
-      const current = lstatSync(socketPath, { bigint: true });
-      return current.isSocket() &&
-        current.dev === socketIdentity.dev &&
-        current.ino === socketIdentity.ino &&
-        current.birthtimeNs === socketIdentity.birthtimeNs;
+      return controlSocketPathOwnedByLease(listenerLease, socketIdentity);
     } catch {
       return false;
     }
   };
   const unlinkOwnedSocket = (): void => {
-    if (ownsSocketPath()) unlinkSync(socketPath);
+    if (
+      socketIdentity !== undefined &&
+      controlListenerLeaseHeld(listenerLease)
+    ) {
+      removeOwnedControlSocketPath(listenerLease, socketIdentity);
+    }
   };
   const closeListenerWithoutDeletingReplacement = async (): Promise<void> => {
     if (existsSync(socketPath) && !ownsSocketPath()) {
@@ -1752,10 +1761,18 @@ export const startBrowserControlServer = async (
       throw new Error("refusing to close browser listener over a replacement path");
     }
     await closeServer(server);
-    socketPathCleanupBlocked = false;
+    try {
+      unlinkOwnedSocket();
+      socketPathCleanupBlocked = false;
+    } finally {
+      await releaseControlListenerLease(listenerLease);
+    }
   };
   const ensureListenerClose = (): void => {
-    if (!server.listening || listenerCloseFlight !== undefined) return;
+    if (
+      (!server.listening && !controlListenerLeaseHeld(listenerLease)) ||
+      listenerCloseFlight !== undefined
+    ) return;
     const close = closeListenerWithoutDeletingReplacement();
     listenerCloseFlight = close;
     void retainFlight("listener-close", "listener", close);
@@ -1771,13 +1788,7 @@ export const startBrowserControlServer = async (
   try {
     // Capture before invoking the chmod seam: a failing implementation must
     // not replace the path and trick cleanup into deleting a foreign file.
-    const info = lstatSync(socketPath, { bigint: true });
-    if (!info.isSocket()) throw new Error("browser control path is not a Unix socket");
-    socketIdentity = Object.freeze({
-      dev: info.dev,
-      ino: info.ino,
-      birthtimeNs: info.birthtimeNs,
-    });
+    socketIdentity = captureControlSocketPathIdentity(listenerLease);
   } catch (error) {
     await closeListenerWithoutDeletingReplacement().catch(() => undefined);
     throw error;
@@ -1787,9 +1798,7 @@ export const startBrowserControlServer = async (
     const hardened = lstatSync(socketPath, { bigint: true });
     if (
       !hardened.isSocket() ||
-      hardened.dev !== socketIdentity.dev ||
-      hardened.ino !== socketIdentity.ino ||
-      hardened.birthtimeNs !== socketIdentity.birthtimeNs
+      !controlSocketPathOwnedByLease(listenerLease, socketIdentity)
     ) {
       throw new Error("browser control socket identity changed during permission hardening");
     }
@@ -1799,14 +1808,10 @@ export const startBrowserControlServer = async (
       dev: hardened.dev,
       ino: hardened.ino,
       birthtimeNs: hardened.birthtimeNs,
+      uid: hardened.uid,
     });
   } catch (error) {
     await closeListenerWithoutDeletingReplacement().catch(() => undefined);
-    try {
-      unlinkOwnedSocket();
-    } catch {
-      // Startup remains failed closed without deleting a replacement path.
-    }
     throw error;
   }
   server.on("error", (error) => {
@@ -1829,12 +1834,12 @@ export const startBrowserControlServer = async (
     for (const controller of requestControllers.values()) {
       if (!controller.signal.aborted) controller.abort("browser control shutdown");
     }
-    ensureListenerClose();
     try {
       unlinkOwnedSocket();
     } catch {
       // The bounded receipt reports a retained path and retries the unlink.
     }
+    ensureListenerClose();
     // Graceful half-close first. drainOnQuit applies a bounded destroy after
     // the configured grace; no peer PID is ever signalled.
     for (const { socket } of sockets.values()) {
@@ -1853,7 +1858,7 @@ export const startBrowserControlServer = async (
       pending.filter((flight) => flight.kind === kind).length;
     const listenerClosures = Math.max(
       countKind("listener-close"),
-      server.listening ? 1 : 0,
+      server.listening || controlListenerLeaseHeld(listenerLease) ? 1 : 0,
     );
     const socketPaths = ownsSocketPath() || socketPathCleanupBlocked ? 1 : 0;
     const counts: BrowserControlRetainedCounts = {
@@ -1873,7 +1878,7 @@ export const startBrowserControlServer = async (
     );
     if (sockets.size > 0) labels.add("socket");
     if (requestControllers.size > 0) labels.add("request-controller");
-    if (server.listening) labels.add("listener");
+    if (server.listening || controlListenerLeaseHeld(listenerLease)) labels.add("listener");
     if (socketPaths > 0) labels.add("socket-path");
     return { counts, labels: [...labels].sort() };
   };

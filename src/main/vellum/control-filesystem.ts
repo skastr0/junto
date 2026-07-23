@@ -1,61 +1,12 @@
 /** Hardened owner-local lifecycle for Unix control sockets and bearer tokens. */
-import { randomBytes } from "node:crypto";
-import { closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { createConnection } from "node:net";
+import { spawn, type ChildProcess } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:net";
 import { basename, dirname, join } from "node:path";
 
 export const CONTROL_DIRECTORY_MODE = 0o700;
 export const CONTROL_FILE_MODE = 0o600;
-/**
- * A local Unix connect normally settles immediately, but Electron can delay
- * the JavaScript callback while its cold main loop is under load. A short
- * wall-clock deadline can therefore misclassify the kernel's ECONNREFUSED as
- * ambiguous and strand an otherwise recoverable packaged startup.
- */
-export const CONTROL_SOCKET_DISCOVERY_TIMEOUT_MS = 5_000;
-export const CONTROL_SOCKET_CONFIRM_TIMEOUT_MS = 100;
-
-interface ControlSocketProbe {
-  readonly destroy: () => void;
-  readonly once: {
-    (event: "connect", listener: () => void): ControlSocketProbe;
-    (event: "error", listener: (error: NodeJS.ErrnoException) => void): ControlSocketProbe;
-  };
-}
-
-type ControlSocketProbeOutcome = "stale" | "active" | "ambiguous";
-
-const probeControlSocket = (
-  path: string,
-  timeoutMs: number,
-  connect: (path: string) => ControlSocketProbe,
-): Promise<ControlSocketProbeOutcome> =>
-  new Promise((resolve) => {
-    const socket = connect(path);
-    let done = false;
-    const finish = (outcome: ControlSocketProbeOutcome) => {
-      if (done) return;
-      done = true;
-      socket.destroy();
-      resolve(outcome);
-    };
-    const timer = setTimeout(
-      () => finish("ambiguous"),
-      timeoutMs,
-    );
-    socket.once("connect", () => {
-      clearTimeout(timer);
-      finish("active");
-    });
-    socket.once("error", (error: NodeJS.ErrnoException) => {
-      clearTimeout(timer);
-      finish(
-        error.code === "ECONNREFUSED" || error.code === "ENOENT"
-          ? "stale"
-          : "ambiguous",
-      );
-    });
-  });
 
 type Identity = Readonly<{ dev: bigint; ino: bigint; birthtimeNs: bigint; uid: bigint }>;
 const identityOf = (path: string): Identity => {
@@ -65,6 +16,246 @@ const identityOf = (path: string): Identity => {
 // dev+ino+uid identify the exact directory entry's inode for this lifecycle.
 // birthtime metadata is not stable across every supported Node filesystem.
 const sameIdentity = (a: Identity, b: Identity): boolean => a.dev === b.dev && a.ino === b.ino && a.uid === b.uid;
+
+declare const controlListenerLeaseBrand: unique symbol;
+/** Opaque authority proving exclusive ownership of one control-listener path. */
+export type ControlListenerLease = Readonly<{
+  readonly [controlListenerLeaseBrand]: true;
+}>;
+
+export type ControlSocketPathIdentity = Readonly<{
+  readonly dev: bigint;
+  readonly ino: bigint;
+  readonly birthtimeNs: bigint;
+  readonly uid: bigint;
+}>;
+
+interface KernelListenerLease {
+  readonly held: () => boolean;
+  readonly release: () => Promise<void>;
+}
+
+interface ControlListenerLeaseState {
+  readonly socketPath: string;
+  readonly kernel: KernelListenerLease;
+  releaseFlight?: Promise<void>;
+  released: boolean;
+}
+
+const listenerLeaseStates = new WeakMap<object, ControlListenerLeaseState>();
+
+const requireListenerLease = (
+  lease: ControlListenerLease,
+): ControlListenerLeaseState => {
+  const state = listenerLeaseStates.get(lease);
+  if (state === undefined) throw new Error("invalid control listener lease");
+  if (state.released || !state.kernel.held()) {
+    throw new Error("control listener lease is not held");
+  }
+  return state;
+};
+
+const listenUnix = (server: Server, path: string): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const onError = (error: Error): void => reject(error);
+    server.once("error", onError);
+    server.listen({ path, readableAll: false, writableAll: false }, () => {
+      server.off("error", onError);
+      resolve();
+    });
+  });
+
+const closeUnix = (server: Server): Promise<void> =>
+  new Promise((resolve) => {
+    if (!server.listening) {
+      resolve();
+      return;
+    }
+    server.close(() => resolve());
+  });
+
+const acquireLinuxAbstractLease = async (
+  leaseKey: string,
+): Promise<KernelListenerLease> => {
+  const server = createServer((socket) => socket.destroy());
+  const abstractPath =
+    `\0vellum-control-${createHash("sha256").update(leaseKey).digest("hex")}`;
+  await listenUnix(server, abstractPath);
+  // The product listener itself owns process lifetime. This server owns only
+  // the collision-proof kernel address and must not create a second exit gate.
+  server.unref();
+  server.on("error", () => undefined);
+  let releaseFlight: Promise<void> | undefined;
+  return {
+    held: () => server.listening,
+    release: () => {
+      releaseFlight ??= closeUnix(server);
+      return releaseFlight;
+    },
+  };
+};
+
+const acquireDarwinFileLease = async (
+  leaseKey: string,
+): Promise<KernelListenerLease> => {
+  const lockPath = `${leaseKey}.lease`;
+  const fd = openSync(
+    lockPath,
+    constants.O_CREAT | constants.O_RDWR | (constants.O_NOFOLLOW ?? 0),
+    CONTROL_FILE_MODE,
+  );
+  let child: ChildProcess;
+  try {
+    const stat = fstatSync(fd, { bigint: true });
+    if (!stat.isFile()) throw new Error("control listener lock is not a regular file");
+    const currentUid = typeof process.getuid === "function"
+      ? BigInt(process.getuid())
+      : undefined;
+    if (currentUid !== undefined && stat.uid !== currentUid) {
+      throw new Error("control listener lock is not owned by this user");
+    }
+    if (stat.nlink !== 1n || (stat.mode & 0o077n) !== 0n) {
+      throw new Error("control listener lock is not an owner-private inode");
+    }
+    child = spawn(
+      "/usr/bin/lockf",
+      [
+        "-s",
+        "-t",
+        "0",
+        "-k",
+        "/dev/fd/3",
+        "/bin/sh",
+        "-c",
+        "printf '\\001'; /bin/cat >/dev/null",
+      ],
+      {
+        stdio: ["pipe", "pipe", "ignore", fd],
+      },
+    );
+  } finally {
+    closeSync(fd);
+  }
+
+  let exited = false;
+  let exitCode: number | null = null;
+  let exitSignal: NodeJS.Signals | null = null;
+  child.once("exit", (code, signal) => {
+    exited = true;
+    exitCode = code;
+    exitSignal = signal;
+  });
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = (): void => {
+      child.off("error", fail);
+      child.off("exit", onExit);
+      child.stdout?.off("data", onData);
+    };
+    const fail = (error: Error): void => {
+      cleanup();
+      child.stdin?.end();
+      reject(error);
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      fail(
+        new Error(
+          `control listener lock unavailable (code=${String(code)} signal=${String(signal)})`,
+        ),
+      );
+    };
+    const onData = (chunk: Buffer): void => {
+      if (chunk[0] !== 1) {
+        fail(new Error("control listener lock readiness handshake failed"));
+        return;
+      }
+      cleanup();
+      resolve();
+    };
+    child.once("error", fail);
+    child.once("exit", onExit);
+    child.stdout?.once("data", onData);
+  });
+
+  let releaseFlight: Promise<void> | undefined;
+  return {
+    held: () => !exited,
+    release: () => {
+      releaseFlight ??= new Promise<void>((resolve, reject) => {
+        if (exited) {
+          if (exitCode === 0 && exitSignal === null) resolve();
+          else reject(new Error("control listener lock holder exited unexpectedly"));
+          return;
+        }
+        child.once("exit", (code, signal) => {
+          if (code === 0 && signal === null) resolve();
+          else reject(new Error("control listener lock holder failed to release"));
+        });
+        child.stdin?.end();
+      });
+      return releaseFlight;
+    },
+  };
+};
+
+/**
+ * Acquire the kernel-released exclusion authority for one listener pathname.
+ *
+ * Linux uses the abstract Unix namespace, so a crash releases the address
+ * without leaving another stale filesystem inode. Darwin uses the system
+ * `lockf(1)` over an exact no-follow descriptor; the fixed lock holder exits
+ * on parent-pipe EOF, so abrupt parent exit releases the kernel flock.
+ */
+export const acquireControlListenerLease = async (
+  socketPath: string,
+): Promise<ControlListenerLease> => {
+  const leaseKey = join(realpathSync(dirname(socketPath)), basename(socketPath));
+  let kernel: KernelListenerLease;
+  try {
+    kernel =
+      process.platform === "linux"
+        ? await acquireLinuxAbstractLease(leaseKey)
+        : process.platform === "darwin"
+          ? await acquireDarwinFileLease(leaseKey)
+          : (() => {
+              throw new Error(`control listener leases unsupported on ${process.platform}`);
+            })();
+  } catch (cause) {
+    throw new Error(
+      "control listener lease unavailable: live listener or startup in progress",
+      { cause },
+    );
+  }
+  const lease = Object.freeze({}) as ControlListenerLease;
+  listenerLeaseStates.set(lease, {
+    socketPath,
+    kernel,
+    released: false,
+  });
+  return lease;
+};
+
+export const controlListenerLeaseHeld = (
+  lease: ControlListenerLease,
+): boolean => {
+  const state = listenerLeaseStates.get(lease);
+  return state !== undefined &&
+    !state.released &&
+    state.kernel.held();
+};
+
+/** Idempotently release only the exact branded kernel lease. */
+export const releaseControlListenerLease = (
+  lease: ControlListenerLease,
+): Promise<void> => {
+  const state = listenerLeaseStates.get(lease);
+  if (state === undefined) return Promise.reject(new Error("invalid control listener lease"));
+  if (state.released) return Promise.resolve();
+  if (state.releaseFlight !== undefined) return state.releaseFlight;
+  state.releaseFlight = state.kernel.release().then(() => {
+    state.released = true;
+  });
+  return state.releaseFlight;
+};
 
 export const prepareControlDirectory = (path: string): void => {
   mkdirSync(path, { recursive: true, mode: CONTROL_DIRECTORY_MODE });
@@ -85,39 +276,91 @@ export const prepareControlDirectory = (path: string): void => {
   }
 };
 
-/** Removes only an observed stale Unix socket, never a symlink or arbitrary file. */
+const socketIdentity = (
+  lease: ControlListenerLease,
+): ControlSocketPathIdentity => {
+  const state = requireListenerLease(lease);
+  const current = lstatSync(state.socketPath, { bigint: true });
+  if (!current.isSocket() || current.isSymbolicLink()) {
+    throw new Error("control listener path is not an owned Unix socket");
+  }
+  return Object.freeze({
+    dev: current.dev,
+    ino: current.ino,
+    birthtimeNs: current.birthtimeNs,
+    uid: current.uid,
+  });
+};
+
+const sameSocketPathIdentity = (
+  expected: ControlSocketPathIdentity,
+  current: ControlSocketPathIdentity,
+): boolean =>
+  expected.dev === current.dev &&
+  expected.ino === current.ino &&
+  expected.birthtimeNs === current.birthtimeNs &&
+  expected.uid === current.uid;
+
+/** Capture the exact listener inode while the caller holds its path lease. */
+export const captureControlSocketPathIdentity = (
+  lease: ControlListenerLease,
+): ControlSocketPathIdentity => socketIdentity(lease);
+
+/** Test whether the leased canonical path still names the captured socket. */
+export const controlSocketPathOwnedByLease = (
+  lease: ControlListenerLease,
+  expected: ControlSocketPathIdentity,
+): boolean => {
+  const state = requireListenerLease(lease);
+  try {
+    const current = lstatSync(state.socketPath, { bigint: true });
+    return current.isSocket() &&
+      !current.isSymbolicLink() &&
+      sameSocketPathIdentity(expected, {
+        dev: current.dev,
+        ino: current.ino,
+        birthtimeNs: current.birthtimeNs,
+        uid: current.uid,
+      });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+};
+
+/**
+ * Remove the listener pathname only when the branded lease and captured inode
+ * both still agree. The kernel lease, not a bare path, is cleanup authority.
+ */
+export const removeOwnedControlSocketPath = (
+  lease: ControlListenerLease,
+  expected: ControlSocketPathIdentity,
+): boolean => {
+  const state = requireListenerLease(lease);
+  if (!controlSocketPathOwnedByLease(lease, expected)) return false;
+  unlinkSync(state.socketPath);
+  return true;
+};
+
+/**
+ * Retire a pre-existing socket while holding the exclusive listener lease.
+ *
+ * The lease is acquired before token rotation or bind and survives through
+ * listener close. Therefore another conforming startup cannot own, activate,
+ * or replace this inode between observation and quarantine. No finite
+ * liveness probe is used as destructive authority.
+ */
 export const removeObservedSocket = async (
-  path: string,
+  lease: ControlListenerLease,
   runtime: {
     readonly beforeQuarantineRename?: () => void;
-    /** Test seam for delayed/erroring local-connect delivery. */
-    readonly connect?: (path: string) => ControlSocketProbe;
   } = {},
 ): Promise<void> => {
+  const state = requireListenerLease(lease);
+  const path = state.socketPath;
   let first: ReturnType<typeof lstatSync>;
   try { first = lstatSync(path, { bigint: true }); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
   if (!first.isSocket() || first.isSymbolicLink()) throw new Error("refusing to replace non-socket control path");
-  const connect =
-    runtime.connect ?? ((candidate: string) => createConnection({ path: candidate }));
-  const discovered = await probeControlSocket(
-    path,
-    CONTROL_SOCKET_DISCOVERY_TIMEOUT_MS,
-    connect,
-  );
-  if (discovered !== "stale") {
-    throw new Error("control socket has a live listener or ambiguous ownership");
-  }
-  // A cold Electron loop may deliver the discovery refusal seconds after the
-  // kernel observed it. Never let that aged observation authorize unlink:
-  // require a second refusal inside the original narrow freshness window.
-  const confirmed = await probeControlSocket(
-    path,
-    CONTROL_SOCKET_CONFIRM_TIMEOUT_MS,
-    connect,
-  );
-  if (confirmed !== "stale") {
-    throw new Error("control socket became live or ambiguous before quarantine");
-  }
   const id: Identity = { dev: first.dev, ino: first.ino, birthtimeNs: first.birthtimeNs, uid: first.uid };
   const quarantine = mkdtempSync(join(dirname(path), ".vellum-stale-"));
   const quarantined = join(quarantine, basename(path));
@@ -125,6 +368,7 @@ export const removeObservedSocket = async (
     const qdir = lstatSync(quarantine);
     if (!qdir.isDirectory() || qdir.isSymbolicLink() || (qdir.mode & 0o777) !== CONTROL_DIRECTORY_MODE) throw new Error("stale socket quarantine is not owner-only");
     runtime.beforeQuarantineRename?.();
+    requireListenerLease(lease);
     // This catches every deterministic swap before the destructive rename.
     // A same-UID racing rename can still occur after this check; the
     // post-rename identity check below prevents deletion of that replacement.
@@ -133,6 +377,7 @@ export const removeObservedSocket = async (
     if (!finalCanonical.isSocket() || finalCanonical.isSymbolicLink() || !sameIdentity(id, finalId)) throw new Error("control socket changed before quarantine");
     // rename moves the directory entry itself and never follows a symlink target.
     renameSync(path, quarantined);
+    requireListenerLease(lease);
     const moved = lstatSync(quarantined, { bigint: true });
     const movedId: Identity = { dev: moved.dev, ino: moved.ino, birthtimeNs: moved.birthtimeNs, uid: moved.uid };
     if (!moved.isSocket() || moved.isSymbolicLink() || !sameIdentity(id, movedId)) throw new Error("control socket changed during quarantine");

@@ -16,7 +16,6 @@ import {
   mkdirSync,
   openSync,
   renameSync,
-  unlinkSync,
   writeFileSync,
   readFileSync,
 } from "node:fs";
@@ -32,7 +31,18 @@ import {
   type TermControlResponse,
 } from "@shared/term-control";
 import type { ControlLease, LocalHostEvent, LocalSessionHost } from "./local-host";
-import { prepareControlDirectory, removeObservedSocket, rotateControlFileToken } from "../control-filesystem";
+import {
+  acquireControlListenerLease,
+  captureControlSocketPathIdentity,
+  controlListenerLeaseHeld,
+  controlSocketPathOwnedByLease,
+  prepareControlDirectory,
+  releaseControlListenerLease,
+  removeObservedSocket,
+  removeOwnedControlSocketPath,
+  rotateControlFileToken,
+  type ControlSocketPathIdentity,
+} from "../control-filesystem";
 
 const tokenHash = (token: string): Buffer =>
   createHash("sha256").update(token, "utf8").digest();
@@ -216,8 +226,6 @@ export const startTermControlServer = async (
   prepareControlDirectory(dir);
 
   const token = randomBytes(32).toString("hex");
-
-  await removeObservedSocket(socketPath);
 
   /** leaseId → sockets subscribed to that session's events */
   const leaseSockets = new Map<string, Set<Socket>>();
@@ -522,66 +530,74 @@ export const startTermControlServer = async (
     if (closing) socket.destroy();
   });
 
-  await new Promise<void>((resolve, reject) => {
-    const onError = (error: Error): void => reject(error);
-    server.once("error", onError);
-    server.listen({ path: socketPath, readableAll: false, writableAll: false }, () => {
-      server.off("error", onError);
-      resolve();
+  const listenerLease = await acquireControlListenerLease(socketPath);
+  try {
+    await removeObservedSocket(listenerLease);
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error): void => reject(error);
+      server.once("error", onError);
+      server.listen({ path: socketPath, readableAll: false, writableAll: false }, () => {
+        server.off("error", onError);
+        resolve();
+      });
     });
-  });
+  } catch (error) {
+    await releaseControlListenerLease(listenerLease);
+    throw error;
+  }
 
-  type SocketPathIdentity = Readonly<{
-    dev: bigint;
-    ino: bigint;
-    birthtimeNs: bigint;
-  }>;
-  let socketIdentity: SocketPathIdentity | undefined;
+  let socketIdentity: ControlSocketPathIdentity | undefined;
   let socketPathCleanupBlocked = false;
 
   const ownsSocketPath = (): boolean => {
     if (socketIdentity === undefined) return false;
     try {
-      const current = lstatSync(socketPath, { bigint: true });
-      return current.isSocket() &&
-        current.dev === socketIdentity.dev &&
-        current.ino === socketIdentity.ino &&
-        current.birthtimeNs === socketIdentity.birthtimeNs;
+      return controlSocketPathOwnedByLease(listenerLease, socketIdentity);
     } catch {
       return false;
     }
   };
 
   const unlinkOwnedSocket = (): void => {
-    if (ownsSocketPath()) unlinkSync(socketPath);
+    if (
+      socketIdentity !== undefined &&
+      controlListenerLeaseHeld(listenerLease)
+    ) {
+      removeOwnedControlSocketPath(listenerLease, socketIdentity);
+    }
   };
 
-  const closeListenerWithoutDeletingReplacement = (): Promise<void> => {
+  const closeListenerWithoutDeletingReplacement = async (): Promise<void> => {
     if (existsSync(socketPath) && !ownsSocketPath()) {
       // libuv may unlink the originally-bound path as Server.close runs. Node
       // has no identity-checked close primitive, so retain the listener rather
       // than deleting a path another owner installed after our bind.
       socketPathCleanupBlocked = true;
       server.unref();
-      return Promise.reject(
-        new Error("refusing to close terminal listener over a replacement path"),
-      );
+      throw new Error("refusing to close terminal listener over a replacement path");
     }
-    return new Promise<void>((resolve) => {
+    await new Promise<void>((resolve) => {
       if (!server.listening) {
-        socketPathCleanupBlocked = false;
         resolve();
         return;
       }
       server.close(() => {
-        socketPathCleanupBlocked = false;
         resolve();
       });
     });
+    try {
+      unlinkOwnedSocket();
+      socketPathCleanupBlocked = false;
+    } finally {
+      await releaseControlListenerLease(listenerLease);
+    }
   };
 
   const ensureListenerClose = (): void => {
-    if (!server.listening || listenerCloseFlight !== undefined) return;
+    if (
+      (!server.listening && !controlListenerLeaseHeld(listenerLease)) ||
+      listenerCloseFlight !== undefined
+    ) return;
     const close = closeListenerWithoutDeletingReplacement();
     listenerCloseFlight = close;
     void retainFlight("listener-close", "listener", close).catch(() => undefined);
@@ -626,7 +642,10 @@ export const startTermControlServer = async (
       pending.filter((flight) => flight.kind === kind).length;
     const counts: TermControlServerRetainedCounts = {
       requests: countKind("request"),
-      listenerClosures: Math.max(countKind("listener-close"), server.listening ? 1 : 0),
+      listenerClosures: Math.max(
+        countKind("listener-close"),
+        server.listening || controlListenerLeaseHeld(listenerLease) ? 1 : 0,
+      ),
       sockets: sockets.size,
       socketPaths: ownsSocketPath() || socketPathCleanupBlocked ? 1 : 0,
     };
@@ -636,7 +655,7 @@ export const startTermControlServer = async (
         .map((flight) => flight.label),
     );
     if (sockets.size > 0) labels.add("socket");
-    if (server.listening) labels.add("listener");
+    if (server.listening || controlListenerLeaseHeld(listenerLease)) labels.add("listener");
     if (counts.socketPaths > 0) labels.add("socket-path");
     return { counts, labels: [...labels].sort() };
   };
@@ -750,20 +769,12 @@ export const startTermControlServer = async (
   };
 
   try {
-    const info = lstatSync(socketPath, { bigint: true });
-    if (!info.isSocket()) throw new Error("terminal control path is not a Unix socket");
-    socketIdentity = Object.freeze({
-      dev: info.dev,
-      ino: info.ino,
-      birthtimeNs: info.birthtimeNs,
-    });
+    socketIdentity = captureControlSocketPathIdentity(listenerLease);
     (options?.chmodSocket ?? chmodSync)(socketPath, 0o600);
     const hardened = lstatSync(socketPath, { bigint: true });
     if (
       !hardened.isSocket() ||
-      hardened.dev !== socketIdentity.dev ||
-      hardened.ino !== socketIdentity.ino ||
-      hardened.birthtimeNs !== socketIdentity.birthtimeNs
+      !controlSocketPathOwnedByLease(listenerLease, socketIdentity)
     ) {
       throw new Error("terminal control socket identity changed during permission hardening");
     }

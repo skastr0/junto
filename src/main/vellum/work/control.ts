@@ -5,7 +5,6 @@ import {
   lstatSync,
   mkdirSync,
   renameSync,
-  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
@@ -69,7 +68,18 @@ import {
   mainAuthoringLabelForWorkOperation,
   type MainAuthoringGate,
 } from "../main-authoring-gate";
-import { prepareControlDirectory, removeObservedSocket, rotateControlFileToken } from "../control-filesystem";
+import {
+  acquireControlListenerLease,
+  captureControlSocketPathIdentity,
+  controlListenerLeaseHeld,
+  controlSocketPathOwnedByLease,
+  prepareControlDirectory,
+  releaseControlListenerLease,
+  removeObservedSocket,
+  removeOwnedControlSocketPath,
+  rotateControlFileToken,
+  type ControlSocketPathIdentity,
+} from "../control-filesystem";
 
 // Local work control plane for agents: NDJSON over a Unix domain socket at
 // ~/.vellum/work/control.sock. Token + process-bind identity + edge authz;
@@ -643,10 +653,6 @@ const closeServer = (server: Server): Promise<void> =>
     server.close(() => resolveClose());
   });
 
-const unlinkSocket = (socketPath: string): void => {
-  if (existsSync(socketPath)) unlinkSync(socketPath);
-};
-
 const respond = (socket: Socket, envelope: WorkResponseEnvelope): void => {
   if (socket.destroyed) return;
   try {
@@ -665,8 +671,7 @@ export const startWorkControlServer = async (
 
   const tokenPath = workControlTokenPath(workHome);
   const socketPath = workControlSocketPath(workHome);
-  const token = rotateWorkToken(tokenPath);
-  await removeObservedSocket(socketPath);
+  let token = "";
   const processMap = options.processMap ?? getProcessIdentityMap();
   const readPeerPid = options.readPeerPid ?? readUnixPeerPid;
   const authoringGate = options.authoringGate ?? mainAuthoringGate;
@@ -1011,29 +1016,34 @@ export const startWorkControlServer = async (
     if (shuttingDown && !socket.destroyed) socket.end();
   });
 
-  type SocketPathIdentity = Readonly<{
-    dev: bigint;
-    ino: bigint;
-    birthtimeNs: bigint;
-  }>;
-  let socketIdentity: SocketPathIdentity | undefined;
+  const listenerLease = await acquireControlListenerLease(socketPath);
+  try {
+    token = rotateWorkToken(tokenPath);
+    await removeObservedSocket(listenerLease);
+  } catch (error) {
+    await releaseControlListenerLease(listenerLease);
+    throw error;
+  }
+
+  let socketIdentity: ControlSocketPathIdentity | undefined;
   let socketPathCleanupBlocked = false;
 
   const ownsSocketPath = (): boolean => {
     if (socketIdentity === undefined) return false;
     try {
-      const current = lstatSync(socketPath, { bigint: true });
-      return current.isSocket() &&
-        current.dev === socketIdentity.dev &&
-        current.ino === socketIdentity.ino &&
-        current.birthtimeNs === socketIdentity.birthtimeNs;
+      return controlSocketPathOwnedByLease(listenerLease, socketIdentity);
     } catch {
       return false;
     }
   };
 
   const unlinkOwnedSocket = (): void => {
-    if (ownsSocketPath()) unlinkSync(socketPath);
+    if (
+      socketIdentity !== undefined &&
+      controlListenerLeaseHeld(listenerLease)
+    ) {
+      removeOwnedControlSocketPath(listenerLease, socketIdentity);
+    }
   };
 
   const closeListenerWithoutDeletingReplacement = async (): Promise<void> => {
@@ -1049,11 +1059,19 @@ export const startWorkControlServer = async (
       throw new Error("refusing to close work listener over a replacement path");
     }
     await closeServer(server);
-    socketPathCleanupBlocked = false;
+    try {
+      unlinkOwnedSocket();
+      socketPathCleanupBlocked = false;
+    } finally {
+      await releaseControlListenerLease(listenerLease);
+    }
   };
 
   const ensureListenerClose = (): void => {
-    if (!server.listening || listenerCloseFlight !== undefined) return;
+    if (
+      (!server.listening && !controlListenerLeaseHeld(listenerLease)) ||
+      listenerCloseFlight !== undefined
+    ) return;
     const close = closeListenerWithoutDeletingReplacement();
     listenerCloseFlight = close;
     void retainFlight("listener-close", "listener", close);
@@ -1076,22 +1094,12 @@ export const startWorkControlServer = async (
         try {
           // Learn and harden the just-published pathname in the listen callback
           // itself: no promise turn or caller-controlled code may intervene.
-          const info = lstatSync(socketPath, { bigint: true });
-          if (!info.isSocket()) {
-            throw new Error("work control path is not a Unix socket");
-          }
-          socketIdentity = Object.freeze({
-            dev: info.dev,
-            ino: info.ino,
-            birthtimeNs: info.birthtimeNs,
-          });
+          socketIdentity = captureControlSocketPathIdentity(listenerLease);
           chmodSync(socketPath, 0o600);
           const hardened = lstatSync(socketPath, { bigint: true });
           if (
             !hardened.isSocket() ||
-            hardened.dev !== socketIdentity.dev ||
-            hardened.ino !== socketIdentity.ino ||
-            hardened.birthtimeNs !== socketIdentity.birthtimeNs
+            !controlSocketPathOwnedByLease(listenerLease, socketIdentity)
           ) {
             throw new Error(
               "work control socket identity changed during permission hardening",
@@ -1105,11 +1113,6 @@ export const startWorkControlServer = async (
     });
   } catch (error) {
     await closeListenerWithoutDeletingReplacement().catch(() => undefined);
-    try {
-      unlinkOwnedSocket();
-    } catch {
-      // Startup remains failed closed without deleting a replacement path.
-    }
     throw error;
   }
 
@@ -1125,12 +1128,12 @@ export const startWorkControlServer = async (
     for (const flight of activeFlights.values()) {
       shutdownJournal.set(flight.id, flight);
     }
-    ensureListenerClose();
     try {
       unlinkOwnedSocket();
     } catch {
       // The bounded receipt retains the path and retries on the next drain.
     }
+    ensureListenerClose();
     for (const { socket } of sockets.values()) {
       if (!socket.destroyed) socket.end();
     }
@@ -1147,7 +1150,7 @@ export const startWorkControlServer = async (
       pending.filter((flight) => flight.kind === kind).length;
     const listenerClosures = Math.max(
       countKind("listener-close"),
-      server.listening ? 1 : 0,
+      server.listening || controlListenerLeaseHeld(listenerLease) ? 1 : 0,
     );
     const socketPaths = ownsSocketPath() || socketPathCleanupBlocked ? 1 : 0;
     const counts: WorkControlRetainedCounts = {
@@ -1163,7 +1166,7 @@ export const startWorkControlServer = async (
         .map((flight) => flight.label),
     );
     if (sockets.size > 0) labels.add("socket");
-    if (server.listening) labels.add("listener");
+    if (server.listening || controlListenerLeaseHeld(listenerLease)) labels.add("listener");
     if (socketPaths > 0) labels.add("socket-path");
     return { counts, labels: [...labels].sort() };
   };
