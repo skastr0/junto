@@ -10,6 +10,7 @@ import {
   readUnixPeerPid,
   type PeerPidReader,
   type ProcessIdentityMap,
+  type ProcessPrincipal,
 } from "../process-identity";
 import { findNode } from "./authz";
 import { resolveBrowserCallerFromProcess } from "./process-bind";
@@ -21,6 +22,11 @@ export interface StationBrowserDelegationTarget {
   readonly pageRef?: string;
 }
 export interface StationBrowserRouteAdmission {
+  /**
+   * Optional pre-body process-bind gate for owner-local HTTP hosting. The
+   * target-specific admit call still re-resolves every fact after routing.
+   */
+  readonly preflight: (signal?: AbortSignal) => Promise<void>;
   readonly admit: (
     target: StationBrowserDelegationTarget,
     signal?: AbortSignal,
@@ -91,17 +97,55 @@ export const makeAgentStationBrowserRouteAdmission = (
     );
   }
 
+  type CanvasPinnedAgent = ProcessPrincipal & Readonly<{
+    kind: "agent";
+    canvasName: string;
+    nodeId: string;
+  }>;
+  const resolveAgentIdentity = (
+    signal?: AbortSignal,
+  ): CanvasPinnedAgent => {
+    if (signal?.aborted) {
+      throw new StationBrowserOriginAdmissionError(
+        "cancelled",
+        "station browser origin admission was cancelled",
+      );
+    }
+    const identity = admitProcessIdentity(
+      options.socket,
+      options.processMap ?? getProcessIdentityMap(),
+      options.readPeerPid ?? readUnixPeerPid,
+    );
+    if (!identity.ok) {
+      throw new StationBrowserOriginAdmissionError(
+        identity.denial === "peer_pid_unavailable"
+          ? "peer_pid_unavailable"
+          : "process_unbound",
+        identity.message,
+      );
+    }
+    const principal = identity.principal;
+    if (
+      principal.kind !== "agent" ||
+      principal.canvasName === undefined ||
+      principal.nodeId === undefined
+    ) {
+      throw new StationBrowserOriginAdmissionError(
+        "caller_wrong_kind",
+        "station browser delegation requires a canvas-pinned live agent",
+      );
+    }
+    return principal as CanvasPinnedAgent;
+  };
+
   return Object.freeze({
+    preflight: async (signal?: AbortSignal): Promise<void> => {
+      resolveAgentIdentity(signal);
+    },
     admit: async (
       target: StationBrowserDelegationTarget,
       signal?: AbortSignal,
     ): Promise<AdmittedDelegationWitness> => {
-      if (signal?.aborted) {
-        throw new StationBrowserOriginAdmissionError(
-          "cancelled",
-          "station browser origin admission was cancelled",
-        );
-      }
       if (
         !canonicalStationId(target.targetStationId) ||
         (target.pageRef !== undefined && !parseNodeRef(target.pageRef).ok)
@@ -112,30 +156,7 @@ export const makeAgentStationBrowserRouteAdmission = (
         );
       }
 
-      const identity = admitProcessIdentity(
-        options.socket,
-        options.processMap ?? getProcessIdentityMap(),
-        options.readPeerPid ?? readUnixPeerPid,
-      );
-      if (!identity.ok) {
-        throw new StationBrowserOriginAdmissionError(
-          identity.denial === "peer_pid_unavailable"
-            ? "peer_pid_unavailable"
-            : "process_unbound",
-          identity.message,
-        );
-      }
-      const principal = identity.principal;
-      if (
-        principal.kind !== "agent" ||
-        principal.canvasName === undefined ||
-        principal.nodeId === undefined
-      ) {
-        throw new StationBrowserOriginAdmissionError(
-          "caller_wrong_kind",
-          "station browser delegation requires a canvas-pinned live agent",
-        );
-      }
+      const principal = resolveAgentIdentity(signal);
 
       let doc: CanvasDoc | undefined;
       try {
@@ -221,6 +242,7 @@ export const makeOperatorStationBrowserRouteAdmission = (
     throw new Error("main admission requires a canonical station reference");
   }
   return Object.freeze({
+    preflight: async (): Promise<void> => undefined,
     admit: async (
       target: StationBrowserDelegationTarget,
     ): Promise<AdmittedDelegationWitness> =>

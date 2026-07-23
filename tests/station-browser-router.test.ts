@@ -168,6 +168,7 @@ describe("station browser host-qualified router", () => {
       },
     }));
     const routeAdmission = {
+      preflight: async () => undefined,
       admit: async (
         target: Parameters<typeof operator.admit>[0],
         signal?: AbortSignal,

@@ -11,6 +11,7 @@ import {
   CONTROL_HOME_ENV,
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_TOKEN_HEADER,
+  STATION_BROWSER_ORIGIN_ROUTE_PATH,
   controlDir,
   controlSocketPath,
   controlTokenPath,
@@ -56,6 +57,63 @@ const startRogueControl = async (
       });
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true, data: req.url === "/doctor" ? { status: "ok" } : [] }));
+    });
+  });
+  servers.push(server);
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once("error", rejectListen);
+    server.listen(controlSocketPath(root), resolveListen);
+  });
+};
+
+const startStationControl = async (
+  root: string,
+  seen: SeenRequest[],
+): Promise<void> => {
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer | string) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    req.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+        readonly action: "doctor" | "open" | "goto";
+        readonly targetHostId: string;
+      };
+      seen.push({
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body,
+      });
+      const data =
+        body.action === "doctor"
+          ? { role: "remote", browserReady: true }
+          : {
+              session: {
+                hostId: body.targetHostId,
+                sessionId:
+                  body.action === "goto" ? "session-2" : "session-1",
+                generation:
+                  body.action === "goto" ? "generation-2" : "generation-1",
+              },
+            };
+      res.writeHead(200, { "content-type": "application/json" });
+      const denied = body.targetHostId === "remote-deny";
+      res.end(JSON.stringify({
+        ok: true,
+        data: {
+          response: {
+            version: 1,
+            requestId: `request-${body.action}`,
+            action: body.action,
+            ok: !denied,
+            hostId: body.targetHostId,
+            data: denied ? null : data,
+            error: denied ? "forbidden" : null,
+          },
+        },
+      }));
     });
   });
   servers.push(server);
@@ -211,6 +269,115 @@ describe("packaged browser CLI contract", () => {
       body: { sessionId: "session-1" },
     });
     expect(seen[0]?.headers[CONTROL_CAPABILITY_HEADER]).toBeUndefined();
+  });
+
+  it("routes --host through the fixed origin path and rolls opaque session handles", async () => {
+    const root = await newRoot();
+    const seen: SeenRequest[] = [];
+    await startStationControl(root, seen);
+
+    const opened = await runCli([
+      "--host",
+      "remote-a",
+      "open",
+      "vellum://canvas/work?node=page-1",
+      "--json",
+    ], { home: root });
+    expect(opened.code, opened.stderr).toBe(0);
+    const openEnvelope = JSON.parse(opened.stdout) as {
+      readonly data: { readonly sessionHandle: string };
+    };
+    expect(openEnvelope.data.sessionHandle)
+      .toMatch(/^vellum-station-session-v1\.[A-Za-z0-9_-]+$/);
+
+    const navigated = await runCli([
+      "--host",
+      "remote-a",
+      "goto",
+      openEnvelope.data.sessionHandle,
+      "https://example.com/next",
+      "--json",
+    ], { home: root });
+    expect(navigated.code, navigated.stderr).toBe(0);
+    expect(JSON.parse(navigated.stdout).data.sessionHandle)
+      .not.toBe(openEnvelope.data.sessionHandle);
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toMatchObject({
+      method: "POST",
+      url: STATION_BROWSER_ORIGIN_ROUTE_PATH,
+      body: {
+        action: "open",
+        pageRef: "vellum://canvas/work?node=page-1",
+        targetHostId: "remote-a",
+      },
+    });
+    expect(seen[1]).toMatchObject({
+      method: "POST",
+      url: STATION_BROWSER_ORIGIN_ROUTE_PATH,
+      body: {
+        action: "goto",
+        pageRef: "vellum://canvas/work?node=page-1",
+        targetHostId: "remote-a",
+        session: {
+          hostId: "remote-a",
+          sessionId: "session-1",
+          generation: "generation-1",
+        },
+        payload: { url: "https://example.com/next" },
+      },
+    });
+    expect(JSON.stringify(seen)).not.toContain("program");
+    expect(JSON.stringify(seen)).not.toContain("path");
+  });
+
+  it("rejects misplaced host flags and Remote profile access before transport", async () => {
+    const root = await newRoot();
+    const seen: SeenRequest[] = [];
+    await startStationControl(root, seen);
+    const doctor = await runCli([
+      "--host",
+      "remote-a",
+      "doctor",
+      "--json",
+    ], { home: root });
+    expect(doctor.code, doctor.stderr).toBe(0);
+    const misplaced = await runCli([
+      "doctor",
+      "--host",
+      "remote-a",
+      "--json",
+    ], { home: root });
+    const profiles = await runCli([
+      "--host",
+      "remote-a",
+      "profiles",
+      "--json",
+    ], { home: root });
+    expect(misplaced.code).toBe(2);
+    expect(profiles.code).toBe(2);
+    expect(seen).toHaveLength(1);
+  });
+
+  it("preserves a Remote typed denial with host attribution", async () => {
+    const root = await newRoot();
+    const seen: SeenRequest[] = [];
+    await startStationControl(root, seen);
+    const denied = await runCli([
+      "--host",
+      "remote-deny",
+      "doctor",
+      "--json",
+    ], { home: root });
+    expect(denied.code).toBe(1);
+    expect(JSON.parse(denied.stdout)).toMatchObject({
+      ok: false,
+      error: { _tag: "forbidden" },
+      station: {
+        hostId: "remote-deny",
+        action: "doctor",
+        denial: "forbidden",
+      },
+    });
   });
 
   it("rejects malformed capability and non-absolute control home without disclosure", async () => {
