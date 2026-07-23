@@ -20,7 +20,9 @@ describe("authoritative Linux release workflow", () => {
     expect(workflow).toContain("--cache-dir \"$BUN_INSTALL_CACHE_DIR\"");
     expect(workflow).not.toContain("actions/cache");
     expect(workflow).not.toMatch(/\n\s+cache:/u);
-    expect(workflow).toContain("CLEAN_HOME:");
+    expect(workflow).toContain(
+      "printf 'CLEAN_HOME=%s\\n' \"$clean_home\" >> \"$GITHUB_ENV\"",
+    );
     expect(workflow).toContain("SOURCE_DATE_EPOCH=");
     expect(workflow).not.toMatch(/\.\.\/(?:prism|tower|quasar|booth)/u);
   });
