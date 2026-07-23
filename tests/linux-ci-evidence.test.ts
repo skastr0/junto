@@ -186,15 +186,68 @@ describe("Linux release artifact identity", () => {
       "Vellum Command-0.1.0-x64-linux.unpacked.tar.gz";
     const evidenceNames = [
       diagnostic,
-      "inventory.json",
-      "package-audit.json",
-      "packaged-pty-smoke.json",
-      "packaged-runtime-smoke.json",
-      "test-receipt.json",
     ];
     await writeFile(path.join(release, deb), "deb");
     await Promise.all(
       evidenceNames.map((name) => writeFile(path.join(evidence, name), name)),
+    );
+    await writeFile(
+      path.join(evidence, "inventory.json"),
+      JSON.stringify({
+        schema: "vellum/linux-ci-inventory/v1",
+        target: {
+          runner: "ubuntu-24.04",
+          os: "linux",
+          architecture: "x64",
+          machine: "x86_64",
+          debArchitecture: "amd64",
+          distribution: "ubuntu",
+          distributionVersion: "24.04",
+          libc: "glibc",
+        },
+        source: {
+          commit: "a".repeat(40),
+          sourceDateEpoch: 1780000000,
+        },
+      }),
+    );
+    await writeFile(
+      path.join(evidence, "package-audit.json"),
+      JSON.stringify({ ok: true, architecture: "amd64" }),
+    );
+    await writeFile(
+      path.join(evidence, "packaged-pty-smoke.json"),
+      JSON.stringify({
+        ok: true,
+        backend: "pty",
+        packagedPlacement: true,
+        cleanShutdown: true,
+        tempRootRemoved: true,
+      }),
+    );
+    await writeFile(
+      path.join(evidence, "packaged-runtime-smoke.json"),
+      JSON.stringify({
+        ok: true,
+        display: "xvfb",
+        workCli: "ok",
+        browserCli: "ok",
+        rendererSandbox: {
+          renderers: 1,
+          noNewPrivs: true,
+          seccomp: true,
+        },
+        appArmor: "vellum",
+        tcpListeners: 0,
+        debugAuthority: false,
+        secretBearingOutput: false,
+        cleanShutdown: true,
+        tempRootRemoved: true,
+      }),
+    );
+    await writeFile(
+      path.join(evidence, "test-receipt.json"),
+      JSON.stringify(createLinuxCiTestReceipt([...LINUX_CI_REQUIRED_GATES])),
     );
     await writeFile(path.join(logs, "unit.log"), "passed\n");
 

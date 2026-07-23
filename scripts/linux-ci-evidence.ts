@@ -353,6 +353,121 @@ const isRegularFile = async (candidate: string): Promise<boolean> =>
     },
   );
 
+const parseJsonFile = async (
+  candidate: string,
+  label: string,
+): Promise<unknown> => {
+  try {
+    return JSON.parse(await readFile(candidate, "utf8"));
+  } catch {
+    throw new Error(`Linux release evidence has malformed ${label}`);
+  }
+};
+
+const hasExactTarget = (value: unknown): boolean =>
+  JSON.stringify(value) === JSON.stringify(LINUX_CI_TARGET);
+
+const validateLinuxCiReceipts = async (input: {
+  readonly evidenceDirectory: string;
+  readonly commit: string;
+  readonly sourceDateEpoch: number;
+}): Promise<void> => {
+  const inventory = await parseJsonFile(
+    path.join(input.evidenceDirectory, "inventory.json"),
+    "target inventory",
+  ) as Partial<LinuxCiInventory>;
+  if (
+    inventory.schema !== "vellum/linux-ci-inventory/v1" ||
+    !hasExactTarget(inventory.target) ||
+    inventory.source?.commit !== input.commit ||
+    inventory.source?.sourceDateEpoch !== input.sourceDateEpoch
+  ) {
+    throw new Error("Linux release evidence target inventory mismatch");
+  }
+
+  const testReceipt = await parseJsonFile(
+    path.join(input.evidenceDirectory, "test-receipt.json"),
+    "test receipt",
+  );
+  if (
+    JSON.stringify(testReceipt) !==
+    JSON.stringify(createLinuxCiTestReceipt([...LINUX_CI_REQUIRED_GATES]))
+  ) {
+    throw new Error("Linux release evidence test receipt mismatch");
+  }
+
+  const packageAudit = await parseJsonFile(
+    path.join(input.evidenceDirectory, "package-audit.json"),
+    "package audit receipt",
+  ) as {
+    readonly ok?: unknown;
+    readonly architecture?: unknown;
+  };
+  if (packageAudit.ok !== true || packageAudit.architecture !== "amd64") {
+    throw new Error("Linux release evidence package audit mismatch");
+  }
+
+  const pty = await parseJsonFile(
+    path.join(input.evidenceDirectory, "packaged-pty-smoke.json"),
+    "packaged PTY receipt",
+  ) as {
+    readonly ok?: unknown;
+    readonly backend?: unknown;
+    readonly packagedPlacement?: unknown;
+    readonly cleanShutdown?: unknown;
+    readonly tempRootRemoved?: unknown;
+  };
+  if (
+    pty.ok !== true ||
+    pty.backend !== "pty" ||
+    pty.packagedPlacement !== true ||
+    pty.cleanShutdown !== true ||
+    pty.tempRootRemoved !== true
+  ) {
+    throw new Error("Linux release evidence packaged PTY receipt mismatch");
+  }
+
+  const runtime = await parseJsonFile(
+    path.join(input.evidenceDirectory, "packaged-runtime-smoke.json"),
+    "packaged runtime receipt",
+  ) as {
+    readonly ok?: unknown;
+    readonly display?: unknown;
+    readonly workCli?: unknown;
+    readonly browserCli?: unknown;
+    readonly rendererSandbox?: {
+      readonly renderers?: unknown;
+      readonly noNewPrivs?: unknown;
+      readonly seccomp?: unknown;
+    };
+    readonly appArmor?: unknown;
+    readonly tcpListeners?: unknown;
+    readonly debugAuthority?: unknown;
+    readonly secretBearingOutput?: unknown;
+    readonly cleanShutdown?: unknown;
+    readonly tempRootRemoved?: unknown;
+  };
+  if (
+    runtime.ok !== true ||
+    runtime.display !== "xvfb" ||
+    runtime.workCli !== "ok" ||
+    runtime.browserCli !== "ok" ||
+    typeof runtime.rendererSandbox?.renderers !== "number" ||
+    !Number.isSafeInteger(runtime.rendererSandbox.renderers) ||
+    runtime.rendererSandbox.renderers < 1 ||
+    runtime.rendererSandbox.noNewPrivs !== true ||
+    runtime.rendererSandbox.seccomp !== true ||
+    runtime.appArmor !== "vellum" ||
+    runtime.tcpListeners !== 0 ||
+    runtime.debugAuthority !== false ||
+    runtime.secretBearingOutput !== false ||
+    runtime.cleanShutdown !== true ||
+    runtime.tempRootRemoved !== true
+  ) {
+    throw new Error("Linux release evidence packaged runtime receipt mismatch");
+  }
+};
+
 const requireRelativeEvidencePath = (
   root: string,
   candidate: string,
@@ -411,6 +526,8 @@ export const createLinuxCiReleaseManifest = async (input: {
     arch: "x64",
   });
   const diagnosticName = `${unpackedName}.tar.gz`;
+  const commit = requireHexCommit(input.commit);
+  const sourceDateEpoch = requireSourceDateEpoch(input.sourceDateEpoch);
   const releaseNames = await readdir(releaseDirectory);
   const evidenceNames = await readdir(evidenceDirectory);
   validateLinuxReleaseArtifactNames({
@@ -438,10 +555,29 @@ export const createLinuxCiReleaseManifest = async (input: {
   if (logNames.length === 0) {
     throw new Error("Linux release evidence requires sanitized logs");
   }
+  for (const name of logNames) {
+    const log = await readFile(path.join(logDirectory, name), "utf8");
+    if (
+      log.length === 0 ||
+      findSecretBearingOutput(log) ||
+      /\/(?:home|Users)\/[^/\s]+/u.test(log)
+    ) {
+      throw new Error(`Linux release evidence log is unsafe: ${name}`);
+    }
+  }
+  await validateLinuxCiReceipts({
+    evidenceDirectory,
+    commit,
+    sourceDateEpoch,
+  });
   files.push(...logNames.map((name) => path.join(logDirectory, name)));
   for (const file of files) {
     if (!(await isRegularFile(file))) {
       throw new Error(`Linux release evidence is missing ${path.basename(file)}`);
+    }
+    const metadata = await stat(file);
+    if (metadata.size <= 0) {
+      throw new Error(`Linux release evidence is empty: ${path.basename(file)}`);
     }
   }
 
@@ -466,8 +602,8 @@ export const createLinuxCiReleaseManifest = async (input: {
     schema: "vellum/linux-release-evidence/v1",
     target: LINUX_CI_TARGET,
     source: {
-      commit: requireHexCommit(input.commit),
-      sourceDateEpoch: requireSourceDateEpoch(input.sourceDateEpoch),
+      commit,
+      sourceDateEpoch,
     },
     publishable: { format: "deb", file: debName },
     diagnostic: { format: "tar.gz", file: diagnosticName },
