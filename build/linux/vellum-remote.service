@@ -15,7 +15,10 @@ Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=45s
 TimeoutStopSec=20s
-KillMode=control-group
+# Let the package-owned launcher ask Electron to exit cleanly before a
+# bounded, verified process-group escalation. systemd sends TERM only to the
+# launcher main process; it remains the sole shutdown authority.
+KillMode=mixed
 UMask=0077
 WorkingDirectory=%h
 Environment=PATH=/usr/bin:/bin

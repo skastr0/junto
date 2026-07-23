@@ -588,11 +588,25 @@ export const validateLinuxRemoteLauncher = (input: string): void => {
   const notifyLends = input.match(
     /^NOTIFY_SOCKET="\$SYSTEMD_NOTIFY_SOCKET" "\$SYSTEMD_NOTIFY" --ready --status='Vellum work control ready for current generation'$/gmu,
   ) ?? [];
+  const exactLeaderTerms = input.match(
+    /^  kill -TERM "\$vellum_pid" 2>\/dev\/null \|\| true$/gmu,
+  ) ?? [];
+  const verifiedGroupKills = input.match(
+    /^  \/bin\/kill -KILL -- "-\$vellum_group"$/gmu,
+  ) ?? [];
+  const detachedGroupTerms = input.match(
+    /^\s*(?:\/bin\/)?kill -TERM(?: --)? "-\$/gmu,
+  ) ?? [];
   if (
     !input.startsWith(EXPECTED_LINUX_REMOTE_LAUNCHER_BOOTSTRAP) ||
     cleanExecs.length !== 1 ||
     notifySocketDerivations.length !== 1 ||
-    notifyLends.length !== 1
+    notifyLends.length !== 1 ||
+    exactLeaderTerms.length !== 1 ||
+    verifiedGroupKills.length !== 1 ||
+    detachedGroupTerms.length !== 0 ||
+    !input.includes('is_owned_group_leader "$vellum_pid" || return 1') ||
+    input.includes('signal_owned_group TERM')
   ) {
     throw new Error(
       "Linux Remote launcher differs from the qualified clean-environment boundary",
@@ -660,7 +674,6 @@ export const validateSystemdUserUnit = (unit: string): void => {
     "Restart=on-failure",
     "TimeoutStartSec=45s",
     "TimeoutStopSec=20s",
-    "KillMode=control-group",
     "WorkingDirectory=%h",
     "ConditionFileIsExecutable=/opt/Vellum Command/vellum",
     "StandardOutput=null",
@@ -678,6 +691,17 @@ export const validateSystemdUserUnit = (unit: string): void => {
   ) {
     throw new Error(
       "systemd user unit WorkingDirectory must pin the clean shell PWD to HOME",
+    );
+  }
+  const killMode = directives.get("KillMode");
+  if (killMode?.length !== 1 || killMode[0] !== "mixed") {
+    throw new Error(
+      "systemd user unit KillMode must TERM only the launcher before bounded wrapper escalation",
+    );
+  }
+  if (directives.has("KillSignal")) {
+    throw new Error(
+      "systemd user unit must use systemd's default TERM signal for the launcher",
     );
   }
   const unsetEnvironment = directives.get("UnsetEnvironment");

@@ -149,17 +149,18 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(launcher).toContain('wait "$vellum_pid"');
     expect(launcher).toContain('vellum_status="$?"');
     expect(launcher).toContain('exit "$vellum_status"');
-    expect(launcher).toContain('signal_owned_group TERM "$vellum_pid"');
+    expect(launcher).toContain('kill -TERM "$vellum_pid" 2>/dev/null || true');
     expect(launcher).toContain('owned_child_alive "$xvfb_pid"');
     expect(launcher).toContain('ensure_owned_directory()');
     expect(launcher).toContain('refusing managed directory symlink');
     expect(launcher).not.toContain('chmod 0600 "$XAUTHORITY"');
-    expect(launcher).toContain('signal_owned_group KILL "$vellum_pid"');
-    expect(launcher).toContain('is_positive_pid "$group_leader"');
-    expect(launcher).toContain('/bin/kill "-$signal" -- "-$group_leader"');
+    expect(launcher).toContain('kill_owned_vellum_group 2>/dev/null || true');
+    expect(launcher).toContain('is_positive_pid "$leader"');
+    expect(launcher).toContain('is_owned_group_leader "$vellum_pid" || return 1');
+    expect(launcher).toContain('/bin/kill -KILL -- "-$vellum_group"');
     expect(launcher).toContain('while [ "$attempts" -lt 3 ]');
     expect(launcher).not.toContain('kill -TERM --');
-    expect(launcher).not.toContain('kill -KILL --');
+    expect(launcher).not.toContain('/bin/kill -TERM');
     expect(launcher).not.toMatch(/--no-sandbox|disable-setuid-sandbox|pkill|killall|sudo|loginctl enable-linger|-ac/u);
   });
 
@@ -179,7 +180,7 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(unit).toContain("TimeoutStartSec=45s");
     expect(unit).toContain("TimeoutStopSec=20s");
     expect(unit).toContain("ConditionFileIsExecutable=/opt/Vellum Command/vellum");
-    expect(unit).toContain("KillMode=control-group");
+    expect(unit).toContain("KillMode=mixed");
     expect(unit).toContain("UMask=0077");
     expect(unit).toContain("WorkingDirectory=%h");
     expect(unit).toContain("RuntimeDirectory=vellum-remote");
@@ -324,7 +325,7 @@ PY
     }
   }, 12_000);
 
-  it("cleans both owned child groups when the wrapper receives TERM", async () => {
+  it("terminates the exact owned Vellum leader and Xvfb when the wrapper receives TERM", async () => {
     if (process.platform !== "linux") return;
     const sandbox = await linuxLauncherSandbox();
     try {

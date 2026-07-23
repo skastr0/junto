@@ -178,6 +178,7 @@ owned_child_alive() {
 
 xvfb_pid=''
 vellum_pid=''
+vellum_group=''
 is_positive_pid() {
   case "$1" in
     ''|0|*[!0-9]*) return 1 ;;
@@ -185,22 +186,21 @@ is_positive_pid() {
   esac
 }
 
-signal_owned_group() {
-  signal="$1"
-  group_leader="$2"
-  case "$signal" in
-    TERM|KILL) ;;
-    *) return 1 ;;
-  esac
-  is_positive_pid "$group_leader" || return 1
-  # The leader is captured from this wrapper's own setsid child. The negative
-  # argument names exactly that process group; do not accept ambient PIDs.
-  # dash's kill builtin cannot delimit a negative process-group identifier.
-  # The fixed system binary accepts `--` without parsing the group as a flag.
-  # setsid may not have installed the child group at the first observation.
+is_owned_group_leader() {
+  leader="$1"
+  is_positive_pid "$leader" || return 1
+  owned_child_alive "$leader" || return 1
+  set -- $(/usr/bin/ps -o pid= -o pgid= -o sid= -p "$leader" 2>/dev/null)
+  [ "$#" -eq 3 ] && [ "$1" = "$leader" ] && [ "$2" = "$leader" ] && [ "$3" = "$leader" ]
+}
+
+capture_owned_vellum_group() {
+  # setsid is invoked by this wrapper, then its exact leader is checked as a
+  # fresh session/group leader before it becomes group-signal authority.
   attempts=0
   while [ "$attempts" -lt 3 ]; do
-    if /bin/kill "-$signal" -- "-$group_leader" 2>/dev/null; then
+    if is_owned_group_leader "$vellum_pid"; then
+      vellum_group="$vellum_pid"
       return 0
     fi
     attempts=$((attempts + 1))
@@ -209,14 +209,31 @@ signal_owned_group() {
   return 1
 }
 
+kill_owned_vellum_group() {
+  # Escalation is available only while the captured leader still proves that
+  # this process group/session is ours. No environment or manager PID is an
+  # authority input here.
+  [ -n "$vellum_group" ] && [ "$vellum_group" = "$vellum_pid" ] || return 1
+  is_owned_group_leader "$vellum_pid" || return 1
+  /bin/kill -KILL -- "-$vellum_group"
+}
+
+terminate_owned_vellum() {
+  [ -n "$vellum_pid" ] || return 0
+  # TERM reaches the captured Electron leader only. Chromium helpers get a
+  # chance to follow Electron's orderly shutdown instead of dying first.
+  kill -TERM "$vellum_pid" 2>/dev/null || true
+  if ! wait_bounded_child "$vellum_pid"; then
+    kill_owned_vellum_group 2>/dev/null || true
+  fi
+  wait "$vellum_pid" 2>/dev/null || true
+  vellum_pid=''
+  vellum_group=''
+}
+
 cleanup_owned_resources() {
   if [ -n "$vellum_pid" ]; then
-    signal_owned_group TERM "$vellum_pid" 2>/dev/null || true
-    if ! wait_bounded_group "$vellum_pid"; then
-      signal_owned_group KILL "$vellum_pid" 2>/dev/null || true
-    fi
-    wait "$vellum_pid" 2>/dev/null || true
-    vellum_pid=''
+    terminate_owned_vellum
   fi
   if [ -n "$xvfb_pid" ]; then
     kill -TERM "$xvfb_pid" 2>/dev/null || true
@@ -236,12 +253,6 @@ wait_bounded_child() {
     sleep 1
   done
   return 0
-}
-
-wait_bounded_group() {
-  # The setsid leader is the capability for this exact group; never accept a
-  # pid supplied by the environment or a system manager as signal authority.
-  wait_bounded_child "$1"
 }
 
 if [ -e "$AUTHORITY_DIRECTORY" ] || [ -L "$AUTHORITY_DIRECTORY" ]; then
@@ -296,6 +307,10 @@ if [ -e "$READY_RECEIPT" ] || [ -L "$READY_RECEIPT" ]; then
 fi
 "$SETSID" "$VELLUM" --vellum-headless --ozone-platform=x11 &
 vellum_pid="$!"
+if ! capture_owned_vellum_group; then
+  printf '%s\n' 'vellum-remote: could not verify managed product process group' >&2
+  exit 70
+fi
 ready_deadline=$(( $(date +%s) + 30 ))
 while :; do
   socket_after="$(file_identity "$control_socket")"
@@ -312,6 +327,7 @@ while :; do
     vellum_status="$?"
     set -e
     vellum_pid=''
+    vellum_group=''
     exit "$vellum_status"
   fi
   if [ "$(date +%s)" -ge "$ready_deadline" ]; then
@@ -323,14 +339,7 @@ done
 NOTIFY_SOCKET="$SYSTEMD_NOTIFY_SOCKET" "$SYSTEMD_NOTIFY" --ready --status='Vellum work control ready for current generation'
 while :; do
   if ! owned_child_alive "$xvfb_pid"; then
-    signal_owned_group TERM "$vellum_pid" 2>/dev/null || true
-    if ! wait_bounded_group "$vellum_pid"; then
-      signal_owned_group KILL "$vellum_pid" 2>/dev/null || true
-    fi
-    set +e
-    wait "$vellum_pid"
-    set -e
-    vellum_pid=''
+    terminate_owned_vellum
     exit 70
   fi
   if ! owned_child_alive "$vellum_pid"; then
@@ -339,6 +348,7 @@ while :; do
     vellum_status="$?"
     set -e
     vellum_pid=''
+    vellum_group=''
     exit "$vellum_status"
   fi
   sleep 1

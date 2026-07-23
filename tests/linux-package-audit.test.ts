@@ -380,6 +380,14 @@ describe("Linux systemd service environment boundary", () => {
         `printf 'ran before scrub\\n'\n${launcher}`,
       ),
     ).toThrow(/clean-environment boundary/u);
+    expect(() =>
+      validateLinuxRemoteLauncher(
+        launcher.replace(
+          'kill_owned_vellum_group 2>/dev/null || true',
+          '/bin/kill -TERM -- "-$vellum_group"',
+        ),
+      ),
+    ).toThrow(/clean-environment boundary/u);
   });
 
   it("pins the package-owned unit and audit to the qualified denylist", async () => {
@@ -389,6 +397,19 @@ describe("Linux systemd service environment boundary", () => {
     expect(unit).toContain(
       `UnsetEnvironment=${LINUX_SYSTEMD_UNSET_ENVIRONMENT.join(" ")}\n`,
     );
+  });
+
+  it("requires systemd to signal only the launcher before wrapper escalation", async () => {
+    const unit = await systemdUserUnit();
+    expect(() => validateSystemdUserUnit(
+      unit.replace("KillMode=mixed", "KillMode=control-group"),
+    )).toThrow(/KillMode/u);
+    expect(() => validateSystemdUserUnit(
+      unit.replace("KillMode=mixed", "KillMode=mixed\nKillMode=control-group"),
+    )).toThrow(/KillMode/mu);
+    expect(() => validateSystemdUserUnit(
+      unit.replace("KillMode=mixed", "KillMode=mixed\nKillSignal=SIGKILL"),
+    )).toThrow(/default TERM/u);
   });
 
   it("pins the clean shell working directory and rejects cwd authority", async () => {
