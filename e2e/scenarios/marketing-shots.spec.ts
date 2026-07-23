@@ -47,15 +47,17 @@ interface FleetPane {
 }
 
 // Hosts split local / remote-a so the multi-host story is visible on cards.
+// Agent names are the house avatar-crew names (assets/agent-avatars/library),
+// NOT harness brands — marketing frames carry no third-party marks.
 const fleet: readonly FleetPane[] = [
-  { id: "h1", host: "local", paneId: "w1:p01", terminalId: "term-p01", agent: "claude", label: "vellum · typecheck", status: "working", x: 0, y: 0 },
-  { id: "h2", host: "remote-a", paneId: "w1:p02", terminalId: "term-p02", agent: "codex", label: "ssh kernel", status: "working", x: 300, y: 0 },
-  { id: "h3", host: "local", paneId: "w1:p03", terminalId: "term-p03", agent: "kimi", label: "canvas sync", status: "done", x: 600, y: 0 },
-  { id: "h4", host: "remote-a", paneId: "w1:p04", terminalId: "term-p04", agent: "opencode", label: "release notes", status: "idle", x: 0, y: 180 },
-  { id: "h5", host: "local", paneId: "w1:p05", terminalId: "term-p05", agent: "claude", label: "landing copy pass", status: "working", x: 0, y: 580 },
-  { id: "h6", host: "local", paneId: "w1:p06", terminalId: "term-p06", agent: "hermes", label: "og plates", status: "blocked", x: 300, y: 580 },
-  { id: "h7", host: "remote-a", paneId: "w1:p07", terminalId: "term-p07", agent: "codex", label: "quasar mining", status: "working", x: 940, y: 580 },
-  { id: "h8", host: "local", paneId: "w1:p08", terminalId: "term-p08", agent: "claude", label: "session digests", status: "done", x: 940, y: 760 },
+  { id: "h1", host: "local", paneId: "w1:p01", terminalId: "term-p01", agent: "rivet", label: "vellum · typecheck", status: "working", x: 0, y: 0 },
+  { id: "h2", host: "remote-a", paneId: "w1:p02", terminalId: "term-p02", agent: "brisk", label: "ssh kernel", status: "working", x: 300, y: 0 },
+  { id: "h3", host: "local", paneId: "w1:p03", terminalId: "term-p03", agent: "mote", label: "canvas sync", status: "done", x: 600, y: 0 },
+  { id: "h4", host: "remote-a", paneId: "w1:p04", terminalId: "term-p04", agent: "ward", label: "release notes", status: "idle", x: 0, y: 180 },
+  { id: "h5", host: "local", paneId: "w1:p05", terminalId: "term-p05", agent: "relay", label: "landing copy pass", status: "working", x: 0, y: 580 },
+  { id: "h6", host: "local", paneId: "w1:p06", terminalId: "term-p06", agent: "vector", label: "og plates", status: "blocked", x: 300, y: 580 },
+  { id: "h7", host: "remote-a", paneId: "w1:p07", terminalId: "term-p07", agent: "gauge", label: "quasar mining", status: "working", x: 940, y: 580 },
+  { id: "h8", host: "local", paneId: "w1:p08", terminalId: "term-p08", agent: "folio", label: "session digests", status: "done", x: 940, y: 760 },
 ];
 
 const regions: readonly GroupNode[] = [
@@ -163,6 +165,17 @@ test("compose a staged fleet board and capture marketing frames", async () => {
       .evaluate((el) => {
         const chip = el.parentElement;
         if (chip) chip.style.display = "none";
+      })
+      .catch(() => undefined);
+
+    // Marketing frames carry no third-party marks: hide the connector-status
+    // chip in the top bar for these captures.
+    await page
+      .getByText("HERMES", { exact: true })
+      .first()
+      .evaluate((el) => {
+        const chip = el.closest("button, [class]") as HTMLElement | null;
+        (chip ?? el).style.visibility = "hidden";
       })
       .catch(() => undefined);
 
