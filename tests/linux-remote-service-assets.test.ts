@@ -1,5 +1,10 @@
 import { readFile, stat } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import {
+  LINUX_SYSTEMD_USER_UNIT_PATH,
+  parseSystemdExecStart,
+  validateSystemdUserUnit,
+} from "../scripts/audit-linux-package";
 
 const asset = (name: string) =>
   readFile(new URL(`../build/linux/${name}`, import.meta.url), "utf8");
@@ -17,12 +22,20 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(launcher).toContain('if [ -e "$SOCKET_FILE" ] || [ -L "$SOCKET_FILE" ]; then');
     expect(launcher).toContain("kill -TERM \"$xvfb_pid\"");
     expect(launcher).toContain("umask 077");
+    expect(launcher).toContain('wait "$vellum_pid"');
+    expect(launcher).toContain('vellum_status="$?"');
+    expect(launcher).toContain('exit "$vellum_status"');
     expect(launcher).not.toMatch(/--no-sandbox|disable-setuid-sandbox|pkill|killall|sudo|loginctl enable-linger|-ac/u);
   });
 
   it("defines a bounded user unit without role or host mutation", async () => {
     const unit = await asset("vellum-remote.service");
-    expect(unit).toContain("ExecStart=/opt/Vellum Command/resources/systemd/vellum-remote-launch-v1");
+    expect(unit).toContain("ExecStart=/opt/Vellum\\x20Command/resources/systemd/vellum-remote-launch-v1");
+    expect(parseSystemdExecStart(unit)).toBe(
+      "/opt/Vellum Command/resources/systemd/vellum-remote-launch-v1",
+    );
+    expect(() => parseSystemdExecStart(unit.replace("\\x20", " "))).toThrow(/escaped/u);
+    expect(() => validateSystemdUserUnit(unit)).not.toThrow();
     expect(unit).toContain("Restart=on-failure");
     expect(unit).toContain("StartLimitIntervalSec=60");
     expect(unit).toContain("StartLimitBurst=3");
@@ -45,5 +58,20 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(packageJson).toContain('"from": "build/linux/vellum-remote.service"');
     expect(packageJson).toContain('"to": "systemd/vellum-remote.service"');
     expect(afterPack).toContain('"resources", "systemd", "vellum-remote-launch-v1"');
+  });
+
+  it("registers only the exact immutable unit without activating a user manager", async () => {
+    const [beforeInstall, afterInstall, afterRemove] = await Promise.all([
+      asset("before-install.sh"),
+      asset("after-install.sh"),
+      asset("after-remove.sh"),
+    ]);
+    for (const hook of [beforeInstall, afterInstall, afterRemove]) {
+      expect(hook).toContain(LINUX_SYSTEMD_USER_UNIT_PATH);
+      expect(hook).not.toMatch(/systemctl|enable-linger|loginctl/u);
+    }
+    expect(beforeInstall).toContain("refusing an existing administrator-owned systemd user unit");
+    expect(afterInstall).toContain('ln -s "$UNIT_SOURCE" "$UNIT_TARGET"');
+    expect(afterRemove).toContain('rm -f -- "$UNIT_TARGET"');
   });
 });

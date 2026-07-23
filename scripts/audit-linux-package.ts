@@ -30,6 +30,13 @@ import { auditLinuxPtyPlacement } from "./linux-packaged-pty-smoke";
 export const LINUX_PACKAGE_NAME = "vellum";
 export const LINUX_INSTALL_DIRECTORY = "/opt/Vellum Command";
 export const LINUX_EXECUTABLE_NAME = "vellum";
+export const LINUX_SYSTEMD_USER_UNIT = "vellum-remote.service";
+export const LINUX_SYSTEMD_USER_UNIT_PATH =
+  `/usr/lib/systemd/user/${LINUX_SYSTEMD_USER_UNIT}`;
+export const LINUX_REMOTE_LAUNCHER_RESOURCE =
+  "resources/systemd/vellum-remote-launch-v1";
+export const LINUX_REMOTE_UNIT_RESOURCE =
+  `resources/systemd/${LINUX_SYSTEMD_USER_UNIT}`;
 
 export const LINUX_DEB_DEPENDENCIES = [
   "apparmor",
@@ -371,6 +378,45 @@ export const validateAppArmorProfile = (input: string): void => {
   }
 };
 
+/** Parses the one ExecStart token which systemd must execute, not a shell. */
+export const parseSystemdExecStart = (unit: string): string => {
+  const lines = unit.split(/\r?\n/u).filter((line) => line.startsWith("ExecStart="));
+  if (lines.length !== 1) {
+    throw new Error("systemd user unit must declare exactly one ExecStart");
+  }
+  const command = lines[0].slice("ExecStart=".length);
+  if (command.length === 0 || /[ \t]/u.test(command)) {
+    throw new Error("systemd ExecStart must be a single escaped executable token");
+  }
+  if (/\\(?!x[0-9A-Fa-f]{2})/u.test(command)) {
+    throw new Error("systemd ExecStart contains an unsupported escape");
+  }
+  return command.replaceAll(/\\x([0-9A-Fa-f]{2})/gu, (_match, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16))
+  );
+};
+
+export const validateSystemdUserUnit = (unit: string): void => {
+  if (
+    parseSystemdExecStart(unit) !==
+      `${LINUX_INSTALL_DIRECTORY}/${LINUX_REMOTE_LAUNCHER_RESOURCE}`
+  ) {
+    throw new Error("systemd user unit ExecStart does not address the packaged launcher");
+  }
+  for (const required of [
+    "Restart=on-failure",
+    "TimeoutStartSec=45s",
+    "TimeoutStopSec=20s",
+    "KillMode=control-group",
+    "StandardOutput=null",
+    "StandardError=null",
+  ]) {
+    if (!unit.includes(required)) {
+      throw new Error(`systemd user unit is missing ${required}`);
+    }
+  }
+};
+
 export const parseDesktopEntry = (input: string): ReadonlyMap<string, string> => {
   const result = new Map<string, string>();
   let inDesktopEntry = false;
@@ -702,6 +748,8 @@ export const auditLinuxPackage = async ({
     const browserCli = path.join(resources, "bin", "vellum-browser");
     const peerPidHelper = path.join(resources, "bin", "unix-peer-pid.py");
     const appArmorProfile = path.join(resources, "apparmor-profile");
+    const remoteLauncher = path.join(extractedReal, LINUX_REMOTE_LAUNCHER_RESOURCE);
+    const remoteUnit = path.join(extractedReal, LINUX_REMOTE_UNIT_RESOURCE);
 
     await Promise.all([
       requireRegularMode(mainExecutable, 0o755),
@@ -710,9 +758,12 @@ export const auditLinuxPackage = async ({
       requireRegularMode(browserCli, 0o755),
       requireRegularMode(peerPidHelper, 0o755),
       requireRegularMode(appArmorProfile, 0o644),
+      requireRegularMode(remoteLauncher, 0o755),
+      requireRegularMode(remoteUnit, 0o644),
       requireRegularMode(appAsar, 0o644),
     ]);
     validateAppArmorProfile(await readFile(appArmorProfile, "utf8"));
+    validateSystemdUserUnit(await readFile(remoteUnit, "utf8"));
 
     const pty = auditLinuxPtyPlacement(resources);
     assertAsarUnpacked(appAsar, pty.nativeModule, resources);

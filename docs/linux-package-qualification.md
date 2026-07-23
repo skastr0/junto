@@ -28,16 +28,15 @@ modes, and the complete Electron fuse wire.
 
 ## Headless Remote user service
 
-The deb carries, but does not automatically enable, the versioned
-`resources/systemd/vellum-remote-launch-v1` launcher and
-`resources/systemd/vellum-remote.service` unit. Activation is an operator or
-deployment action for the intended station user; the package never selects a
-role, host ID, or user on its own:
+The deb installs the immutable versioned
+`resources/systemd/vellum-remote-launch-v1` launcher and registers its
+`resources/systemd/vellum-remote.service` unit at
+`/usr/lib/systemd/user/vellum-remote.service` as a qualified symlink. It does
+not automatically enable the unit. Activation is an operator or deployment
+action for the intended station user; the package never selects a role, host
+ID, or user on its own:
 
 ```sh
-install -D -m 0644 \
-  '/opt/Vellum Command/resources/systemd/vellum-remote.service' \
-  "$HOME/.config/systemd/user/vellum-remote.service"
 systemctl --user daemon-reload
 systemctl --user enable --now vellum-remote.service
 ```

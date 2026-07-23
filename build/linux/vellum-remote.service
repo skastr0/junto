@@ -6,7 +6,7 @@ StartLimitBurst=3
 
 [Service]
 Type=simple
-ExecStart=/opt/Vellum Command/resources/systemd/vellum-remote-launch-v1
+ExecStart=/opt/Vellum\x20Command/resources/systemd/vellum-remote-launch-v1
 Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=45s
