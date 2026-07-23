@@ -49,6 +49,37 @@ describe("browser HostCapability admission", () => {
     });
   });
 
+  it("rejects a remote registry target even when Command Center settings name it", () => {
+    const studio = host("studio", ["browser", "terminal"]);
+    expect(
+      admitBrowserHostCapability(
+        "studio",
+        {
+          findHost: (hostId) => hostId === studio.id ? studio : undefined,
+          station: () => ({ hostId: "studio", role: "command-center" }),
+        },
+      ),
+    ).toMatchObject({
+      ok: false,
+      code: "unsupported_capability",
+      reason: "physical-host-mismatch",
+    });
+  });
+
+  it("fails closed until durable physical-station identity is ready", () => {
+    const local = host("local", ["browser", "terminal"]);
+    expect(
+      admitBrowserHostCapability("local", {
+        findHost: () => local,
+        station: () => undefined,
+      }),
+    ).toMatchObject({
+      ok: false,
+      code: "unsupported_capability",
+      reason: "station-identity-unavailable",
+    });
+  });
+
   it("fails closed when the host is missing or its browser capability was removed", () => {
     expect(admitBrowserHostCapability("studio", authority([], "studio"))).toMatchObject({
       ok: false,

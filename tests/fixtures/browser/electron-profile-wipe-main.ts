@@ -30,6 +30,7 @@ import {
 import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/vellum/browser/view-adapter";
 import { partitionNameForProfile } from "../../../src/shared/browser";
 import { formatNodeRef } from "../../../src/shared/node-ref";
+import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";
 
 const requiredArgument = (name: string): string => {
   const prefix = `--${name}=`;
@@ -334,6 +335,7 @@ const runPhaseA = async (): Promise<void> => {
   const harness = makeBrowserTestOnlyElectronHarness(exactOrigin, downloadPath);
   sessions = new BrowserSessionService(
     harness.adapter,
+    LOCAL_BROWSER_TEST_AUTHORITY,
     profiles,
     Date.now,
     randomUUID,
@@ -600,6 +602,7 @@ const runPhaseC = async (): Promise<void> => {
   const harness = makeBrowserTestOnlyElectronHarness(exactOrigin, downloadPath);
   sessions = new BrowserSessionService(
     harness.adapter,
+    LOCAL_BROWSER_TEST_AUTHORITY,
     profiles,
     Date.now,
     randomUUID,

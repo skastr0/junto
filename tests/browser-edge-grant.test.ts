@@ -23,6 +23,7 @@ import {
   type BrowserViewAdapter,
   type BrowserViewHandle,
 } from "../src/main/vellum/browser/sessions";
+import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 import { type ProcessPrincipal } from "../src/main/vellum/process-identity";
 import type {
   PageTargetResolver,
@@ -122,6 +123,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     let sessionCounter = 0;
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
+      LOCAL_BROWSER_TEST_AUTHORITY,
       makeBrowserProfileService(join(root, "browser")),
       Date.now,
       () => `session-${++sessionCounter}`,

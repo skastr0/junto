@@ -1,14 +1,18 @@
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE,
   BrowserCompositionStartupError,
   makeBrowserShutdownCoordinator,
+  startBrowserComposition,
 } from "../src/main/vellum/browser/composition";
 import { makeBrowserCapabilityRegistry } from "../src/main/vellum/browser/capabilities";
 import { makeBrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
 import type { BrowserSessionService } from "../src/main/vellum/browser/sessions";
+import type { BrowserHostCapabilityAuthorityLease } from "../src/main/vellum/browser/station-authority";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -108,6 +112,92 @@ describe("browser composition (no ceremony)", () => {
     const err = new BrowserCompositionStartupError();
     expect(err.message).toBe(BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE);
     expect(err.name).toBe("BrowserCompositionStartupError");
+  });
+
+  it("awaits physical-station identity before composition and adapter activation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-browser-composition-"));
+    const authority = deferred<BrowserHostCapabilityAuthorityLease>();
+    let activated = false;
+    let adapterCalls = 0;
+    const starting = startBrowserComposition(
+      async (composition) => {
+        activated = true;
+        expect(
+          await composition.sessions.open({
+            ref: "vellum://canvas/work?node=legacy-local",
+            nodeId: "legacy-local",
+            hostId: "local",
+            url: "https://example.com/",
+            profile: "personal",
+          }),
+        ).toMatchObject({
+          ok: false,
+          code: "unsupported_capability",
+        });
+      },
+      {
+        profileRoot: root,
+        prepareHostAuthority: () => authority.promise,
+        viewAdapter: () => {
+          adapterCalls += 1;
+          throw new Error("Remote boot must not construct a local view");
+        },
+        storagePlatform: {
+          currentRoots: () => ({
+            userDataPath: root,
+            sessionDataPath: root,
+          }),
+          sessionForPartition: () => {
+            throw new Error("storage session is not used by startup");
+          },
+        },
+        makeStorageLifecycle: () => ({
+          prepare: async () => {
+            throw new Error("wipe prepare is not used by startup");
+          },
+          executeLive: async () => ({ status: "complete" as const }),
+          recoverCold: async () => {},
+          beginShutdown: () => ({
+            epoch: 1,
+            activeOperations: [],
+            activeRawClearOperations: [],
+          }),
+          drainOnQuit: async () => storageShutdownReceipt(),
+        }),
+      },
+    );
+    await Promise.resolve();
+    expect(activated).toBe(false);
+    expect(adapterCalls).toBe(0);
+
+    authority.resolve({
+      authority: {
+        findHost: (hostId) =>
+          hostId === "local"
+            ? {
+                id: "local",
+                label: "local",
+                kind: "local",
+                capabilities: ["browser"],
+              }
+            : hostId === "studio"
+              ? {
+                  id: "studio",
+                  label: "studio",
+                  kind: "remote",
+                  endpoint: "studio",
+                  capabilities: ["browser"],
+                }
+              : undefined,
+        station: () => ({ hostId: "studio", role: "remote" }),
+      },
+      close: () => {},
+    });
+    const composition = await starting;
+    expect(activated).toBe(true);
+    expect(adapterCalls).toBe(0);
+    await composition.close("test complete");
+    await rm(root, { recursive: true, force: true });
   });
 
   it("closes every browser ingress synchronously and coalesces one aggregate drain", async () => {

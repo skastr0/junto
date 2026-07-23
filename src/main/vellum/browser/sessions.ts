@@ -37,7 +37,6 @@ import { parseNodeRef } from "@shared/node-ref";
 import type { PageTargetResult, ResolvedPageTarget } from "./page-target";
 import {
   admitBrowserHostCapability,
-  defaultBrowserHostCapabilityAuthority,
   type BrowserHostCapabilityAuthority,
 } from "./host-capability";
 import {
@@ -587,6 +586,7 @@ export class BrowserSessionService {
 
   constructor(
     private readonly adapter: BrowserViewAdapter,
+    private readonly hostAuthority: BrowserHostCapabilityAuthority,
     private readonly profiles: BrowserProfileServiceApi = makeBrowserProfileService(),
     private readonly now: () => number = Date.now,
     private readonly generateSessionId: () => string = randomUUID,
@@ -594,8 +594,6 @@ export class BrowserSessionService {
     private readonly profileGate: BrowserProfileGate = makeBrowserProfileGate(),
     viewDestroyTimeoutMs: number = BROWSER_PROFILE_VIEW_DESTROY_TIMEOUT_MS,
     uiShutdownDrainTimeoutMs: number = BROWSER_UI_SHUTDOWN_DRAIN_TIMEOUT_MS,
-    private readonly hostAuthority: BrowserHostCapabilityAuthority =
-      defaultBrowserHostCapabilityAuthority,
   ) {
     this.viewDestroyTimeoutMs =
       Number.isFinite(viewDestroyTimeoutMs) && viewDestroyTimeoutMs > 0

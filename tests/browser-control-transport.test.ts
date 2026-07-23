@@ -37,6 +37,7 @@ import {
   type BrowserCapabilityRegistry,
 } from "../src/main/vellum/browser/capabilities";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
+import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const TEST_ROOT_PREFIX = "/tmp/vct-";
@@ -127,6 +128,7 @@ const makeSessions = (root: string): BrowserSessionService => {
   };
   return new BrowserSessionService(
     adapter,
+    LOCAL_BROWSER_TEST_AUTHORITY,
     makeBrowserProfileService(join(root, "profiles")),
   );
 };

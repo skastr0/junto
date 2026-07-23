@@ -9,6 +9,7 @@ import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/vellum/bro
 import { isManagedBrowserWebContents } from "../../../src/main/vellum/browser/web-policy";
 import type { ResolvedPageTarget } from "../../../src/main/vellum/browser/page-target";
 import { formatNodeRef } from "../../../src/shared/node-ref";
+import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";
 
 const requiredArgument = (name: string): string => {
   const prefix = `--${name}=`;
@@ -113,6 +114,7 @@ void app.whenReady().then(async () => {
   const harness = makeBrowserTestOnlyElectronHarness(origin, downloadPath);
   sessions = new BrowserSessionService(
     harness.adapter,
+    LOCAL_BROWSER_TEST_AUTHORITY,
     makeBrowserProfileService(browserRoot),
     Date.now,
     randomUUID,

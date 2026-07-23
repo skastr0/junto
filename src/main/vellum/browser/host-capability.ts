@@ -3,15 +3,19 @@ import {
   type RemoteHost,
 } from "@shared/remote-hosts";
 import { isValidStationHostId, type StationRole } from "@shared/station";
-import { findHostById } from "../hosts/snapshot";
-import { getStationScope } from "../kernel/cycle";
 
 export interface BrowserHostCapabilityAuthority {
   readonly findHost: (hostId: string) => RemoteHost | undefined;
-  readonly station: () => {
-    readonly hostId: string;
-    readonly role: StationRole;
-  };
+  /**
+   * Durable, hydrated physical-station identity. `undefined` means startup or
+   * onboarding has not established an identity yet and must fail closed.
+   */
+  readonly station: () =>
+    | {
+        readonly hostId: string;
+        readonly role: StationRole;
+      }
+    | undefined;
 }
 
 export type BrowserHostCapabilityAdmission =
@@ -23,15 +27,10 @@ export type BrowserHostCapabilityAdmission =
         | "invalid-host"
         | "host-not-registered"
         | "browser-not-declared"
+        | "station-identity-unavailable"
         | "physical-host-mismatch";
       readonly message: string;
     };
-
-export const defaultBrowserHostCapabilityAuthority: BrowserHostCapabilityAuthority =
-  Object.freeze({
-    findHost: findHostById,
-    station: getStationScope,
-  });
 
 /**
  * A WebContentsView is a physical resource of this station. The page's host is
@@ -39,8 +38,7 @@ export const defaultBrowserHostCapabilityAuthority: BrowserHostCapabilityAuthori
  */
 export const admitBrowserHostCapability = (
   hostId: string,
-  authority: BrowserHostCapabilityAuthority =
-    defaultBrowserHostCapabilityAuthority,
+  authority: BrowserHostCapabilityAuthority,
 ): BrowserHostCapabilityAdmission => {
   if (!isValidStationHostId(hostId)) {
     return {
@@ -67,7 +65,24 @@ export const admitBrowserHostCapability = (
       message: "page host does not declare browser capability",
     };
   }
-  if (authority.station().hostId !== hostId) {
+  const station = authority.station();
+  if (station === undefined) {
+    return {
+      ok: false,
+      code: "unsupported_capability",
+      reason: "station-identity-unavailable",
+      message: "physical station identity is not ready for browser work",
+    };
+  }
+  const roleMatchesPhysicalHost =
+    station.role === "command-center"
+      ? station.hostId === "local" &&
+        host.id === "local" &&
+        host.kind === "local"
+      : station.hostId !== "local" &&
+        host.id === station.hostId &&
+        host.kind === "remote";
+  if (station.hostId !== hostId || !roleMatchesPhysicalHost) {
     return {
       ok: false,
       code: "unsupported_capability",

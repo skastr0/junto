@@ -45,6 +45,7 @@ import {
   type BrowserViewAdapter,
   type BrowserViewHandle,
 } from "../src/main/vellum/browser/sessions";
+import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
@@ -292,6 +293,7 @@ describe("control route handlers", () => {
   ) => {
     const sessions = new BrowserSessionService(
       adapter,
+      LOCAL_BROWSER_TEST_AUTHORITY,
       makeBrowserProfileService(join(root, "browser")),
       Date.now,
       () => `session-${++sessionCounter}`,

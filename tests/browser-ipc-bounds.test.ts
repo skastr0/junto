@@ -11,6 +11,7 @@ import {
   BrowserSessionService,
   type BrowserViewAdapter,
 } from "../src/main/vellum/browser/sessions";
+import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 
 type InvokeHandler = (event: unknown, ...args: ReadonlyArray<unknown>) => unknown;
 const PAGE_REF = "vellum://canvas/work?node=page-1";
@@ -53,7 +54,10 @@ describe("browser IPC bounds ingress", () => {
     const viewAdapter: BrowserViewAdapter = () => {
       throw new Error("invalid IPC input constructed a browser view");
     };
-    browserSessions = new BrowserSessionService(viewAdapter);
+    browserSessions = new BrowserSessionService(
+      viewAdapter,
+      LOCAL_BROWSER_TEST_AUTHORITY,
+    );
     const ipcMain = {
       handle: vi.fn((channel: string, handler: InvokeHandler) => {
         handlers.set(channel, handler);

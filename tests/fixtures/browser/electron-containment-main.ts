@@ -32,6 +32,7 @@ import {
 } from "../../../src/main/vellum/process-identity";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { partitionNameForProfile } from "../../../src/shared/browser";
+import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";
 
 app.commandLine.appendSwitch("no-proxy-server");
 
@@ -489,6 +490,7 @@ void app.whenReady().then(async () => {
   const profiles = makeBrowserProfileService(browserRoot);
   sessions = new BrowserSessionService(
     harness.adapter,
+    LOCAL_BROWSER_TEST_AUTHORITY,
     profiles,
     Date.now,
     randomUUID,
