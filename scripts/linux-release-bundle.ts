@@ -62,6 +62,7 @@ export type LinuxReleaseFileKind =
   | "changelog"
   | "source-revision"
   | "operator-runbook"
+  | "support-matrix"
   | "offline-verifier";
 
 export interface LinuxReleaseFile {
@@ -176,6 +177,9 @@ export interface LinuxReleaseVerificationInput {
   readonly workControlProtocol: string;
   readonly installedVersion?: string;
   readonly allowExplicitRollback?: boolean;
+  readonly trustedKeyring: LinuxReleaseKeyring;
+  readonly trustedKeyId: string;
+  readonly trustedKeyFingerprintSha256: string;
   readonly now?: number;
 }
 
@@ -204,6 +208,7 @@ const FILE_KINDS = new Set<LinuxReleaseFileKind>([
   "changelog",
   "source-revision",
   "operator-runbook",
+  "support-matrix",
   "offline-verifier",
 ]);
 
@@ -218,6 +223,7 @@ const REQUIRED_FIXED_FILES = Object.freeze([
   ["changelog", "CHANGELOG.md"],
   ["source-revision", "source-revision.json"],
   ["operator-runbook", "OPERATIONS.md"],
+  ["support-matrix", "SUPPORT.md"],
   ["offline-verifier", "vellum-linux-verify-x64"],
 ] as const satisfies ReadonlyArray<readonly [LinuxReleaseFileKind, string]>);
 
@@ -880,7 +886,7 @@ const checksumText = (files: ReadonlyArray<LinuxReleaseFile>): string =>
 const requireExactDirectoryInventory = async (
   directory: string,
   payloadFiles: ReadonlyArray<string>,
-  phase: "unsigned" | "signed",
+  phase: "unsigned" | "prepared" | "signed",
 ): Promise<void> => {
   const expected = new Set([
     LINUX_RELEASE_KEYRING,
@@ -890,7 +896,7 @@ const requireExactDirectoryInventory = async (
       : [
         LINUX_RELEASE_MANIFEST,
         LINUX_RELEASE_CHECKSUMS,
-        LINUX_RELEASE_SIGNATURE,
+        ...(phase === "signed" ? [LINUX_RELEASE_SIGNATURE] : []),
       ]),
   ]);
   const entries = await readdir(directory, { withFileTypes: true });
@@ -938,6 +944,27 @@ const readKeyring = async (
   return decodeLinuxReleaseKeyring(parsed.value, options);
 };
 
+export const readLinuxReleaseKeyringFile = async (
+  file: string,
+): Promise<LinuxReleaseKeyring> => {
+  const target = path.resolve(file);
+  const metadata = await lstat(target);
+  if (
+    !metadata.isFile() ||
+    metadata.isSymbolicLink() ||
+    metadata.size <= 0 ||
+    metadata.size > MAX_METADATA_BYTES
+  ) {
+    throw new Error("trusted Linux release keyring is not a regular file");
+  }
+  return decodeLinuxReleaseKeyring(
+    parseCanonicalJson<unknown>(
+      await readFile(target),
+      "trusted Linux release keyring",
+    ).value,
+  );
+};
+
 const safeEvidenceText = (text: string, label: string): void => {
   const forbidden = [
     /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/u,
@@ -973,6 +1000,166 @@ const validateSourceRevisionReceipt = (
   }
 };
 
+const parseEvidenceJson = (
+  input: string,
+  label: string,
+): Record<string, unknown> => {
+  try {
+    return record(JSON.parse(input), label);
+  } catch {
+    throw new Error(`malformed ${label}`);
+  }
+};
+
+const hasReleaseTarget = (value: unknown): boolean => {
+  const target = record(value, "release evidence target");
+  return (
+    target.os === "linux" &&
+    target.architecture === "x64" &&
+    target.machine === "x86_64" &&
+    target.debArchitecture === "amd64" &&
+    target.distribution === "ubuntu" &&
+    target.distributionVersion === "24.04" &&
+    target.libc === "glibc"
+  );
+};
+
+const REQUIRED_CI_GATES = [
+  "frozen-install",
+  "target-inventory",
+  "typecheck",
+  "complete-unit-suite",
+  "electron-and-cli-compile",
+  "native-package",
+  "package-audit",
+  "deb-install",
+  "packaged-pty-smoke",
+  "packaged-runtime-smoke",
+] as const;
+
+const validateEvidenceReceipt = (
+  file: string,
+  input: string,
+  manifest: LinuxReleaseManifest,
+): void => {
+  const receipt = parseEvidenceJson(input, file);
+  if (file === "build-receipt.json") {
+    const source = record(receipt.source, "build receipt source");
+    if (
+      receipt.schema !== "vellum/linux-ci-inventory/v1" ||
+      !hasReleaseTarget(receipt.target) ||
+      source.commit !== manifest.source.revision
+    ) {
+      throw new Error("build receipt does not match the signed release");
+    }
+    return;
+  }
+  if (file === "test-receipt.json") {
+    const gates = Array.isArray(receipt.gates) ? receipt.gates : [];
+    const names = gates.map((gate) => {
+      const decoded = record(gate, "test gate");
+      if (decoded.status !== "passed" || typeof decoded.name !== "string") {
+        throw new Error("release test receipt contains a failed gate");
+      }
+      return decoded.name;
+    });
+    if (
+      receipt.schema !== "vellum/linux-ci-test-receipt/v1" ||
+      receipt.ok !== true ||
+      !hasReleaseTarget(receipt.target) ||
+      JSON.stringify(names) !== JSON.stringify(REQUIRED_CI_GATES)
+    ) {
+      throw new Error("test receipt does not prove every release gate");
+    }
+    return;
+  }
+  if (file === "package-audit.json") {
+    if (
+      receipt.ok !== true ||
+      receipt.package !== "vellum" ||
+      receipt.version !== manifest.release.version ||
+      receipt.architecture !== "amd64" ||
+      receipt.chromeSandboxMode !== "0755" ||
+      receipt.appArmor !== "userns"
+    ) {
+      throw new Error("package audit receipt does not match the signed deb");
+    }
+    return;
+  }
+  if (file === "packaged-pty-smoke.json") {
+    if (
+      receipt.ok !== true ||
+      receipt.backend !== "pty" ||
+      receipt.packagedPlacement !== true ||
+      receipt.cleanShutdown !== true ||
+      receipt.tempRootRemoved !== true
+    ) {
+      throw new Error("packaged PTY receipt is not release-qualified");
+    }
+    return;
+  }
+  if (file === "packaged-runtime-smoke.json") {
+    const sandbox = record(receipt.rendererSandbox, "renderer sandbox receipt");
+    if (
+      receipt.ok !== true ||
+      receipt.display !== "xvfb" ||
+      receipt.workCli !== "ok" ||
+      receipt.browserCli !== "ok" ||
+      sandbox.noNewPrivs !== true ||
+      sandbox.seccomp !== true ||
+      typeof sandbox.renderers !== "number" ||
+      !Number.isSafeInteger(sandbox.renderers) ||
+      sandbox.renderers < 1 ||
+      receipt.appArmor !== "vellum" ||
+      receipt.tcpListeners !== 0 ||
+      receipt.debugAuthority !== false ||
+      receipt.secretBearingOutput !== false ||
+      receipt.cleanShutdown !== true ||
+      receipt.tempRootRemoved !== true
+    ) {
+      throw new Error("packaged runtime receipt is not release-qualified");
+    }
+    return;
+  }
+  if (file === "dependency-license-inventory.json") {
+    if (
+      receipt.schema !== "vellum/dependency-license-inventory/v1" ||
+      receipt.sourceRevision !== manifest.source.revision ||
+      !Array.isArray(receipt.packages) ||
+      receipt.packages.length === 0 ||
+      typeof receipt.unknownLicenseCount !== "number" ||
+      !Number.isSafeInteger(receipt.unknownLicenseCount) ||
+      receipt.unknownLicenseCount < 0
+    ) {
+      throw new Error("dependency/license inventory does not match the release");
+    }
+    return;
+  }
+  if (file === "sbom.cdx.json") {
+    const metadata = record(receipt.metadata, "SBOM metadata");
+    const component = record(metadata.component, "SBOM root component");
+    const properties = Array.isArray(component.properties)
+      ? component.properties
+      : [];
+    const revision = properties.some((property) => {
+      const decoded = record(property, "SBOM property");
+      return decoded.name === "vellum:source-revision" &&
+        decoded.value === manifest.source.revision;
+    });
+    if (
+      receipt.bomFormat !== "CycloneDX" ||
+      receipt.specVersion !== "1.6" ||
+      receipt.version !== 1 ||
+      component.version !== manifest.release.version ||
+      !Array.isArray(receipt.components) ||
+      receipt.components.length === 0 ||
+      !revision
+    ) {
+      throw new Error("CycloneDX SBOM does not match the release");
+    }
+  }
+};
+
 const validatePayloads = async (
   directory: string,
   manifest: LinuxReleaseManifest,
@@ -992,7 +1179,11 @@ const validatePayloads = async (
       throw new Error(`Linux release payload hash mismatch: ${entry.file}`);
     }
     if (entry.kind !== "package" && entry.kind !== "offline-verifier") {
-      const text = await readFile(admitted.file, "utf8");
+      const bytes = await readFile(admitted.file);
+      const text = bytes.toString("utf8");
+      if (!Buffer.from(text, "utf8").equals(bytes) || text.includes("\0")) {
+        throw new Error(`${entry.file} is not valid UTF-8 release evidence`);
+      }
       safeEvidenceText(text, entry.file);
       if (entry.kind === "source-revision") {
         validateSourceRevisionReceipt(text, manifest.source.revision);
@@ -1002,6 +1193,16 @@ const validatePayloads = async (
         /(?:NOT AUTHORIZED FOR PUBLICATION|RELEASE CANDIDATE TEMPLATE)/iu.test(text)
       ) {
         throw new Error("release changelog is still an unauthorized template");
+      }
+      if (
+        entry.kind === "build-receipt" ||
+        entry.kind === "test-receipt" ||
+        entry.kind === "package-audit" ||
+        entry.kind === "runtime-receipt" ||
+        entry.kind === "dependency-license-inventory" ||
+        entry.kind === "sbom"
+      ) {
+        validateEvidenceReceipt(entry.file, text, manifest);
       }
     }
   }
@@ -1153,7 +1354,12 @@ export const verifyLinuxReleaseBundle = async (
   input: LinuxReleaseVerificationInput,
 ): Promise<LinuxReleaseVerificationReceipt> => {
   const directory = path.resolve(input.bundleDirectory);
-  const [manifestRaw, signatureRaw, checksumFile, keyring] = await Promise.all([
+  const [
+    manifestRaw,
+    signatureRaw,
+    checksumFile,
+    bundledKeyring,
+  ] = await Promise.all([
     readCanonicalFile<unknown>(
       directory,
       LINUX_RELEASE_MANIFEST,
@@ -1174,11 +1380,24 @@ export const verifyLinuxReleaseBundle = async (
   const checksumBytes = await readFile(checksumFile.file);
   const manifest = decodeLinuxReleaseManifest(manifestRaw.value);
   const signature = decodeLinuxReleaseSignature(signatureRaw.value);
+  const keyring = decodeLinuxReleaseKeyring(input.trustedKeyring);
+  if (keyring.revision < bundledKeyring.revision) {
+    throw new Error("trusted keyring is older than the bundled keyring");
+  }
   const expectedChecksums = checksumText(manifest.files);
   if (checksumBytes.toString("utf8") !== expectedChecksums) {
     throw new Error("Linux release checksum inventory mismatch");
   }
   const key = selectTrustedKey(keyring, signature, manifest);
+  if (
+    key.keyId !== requireKeyId(input.trustedKeyId) ||
+    key.fingerprintSha256 !== requireSha256(
+      input.trustedKeyFingerprintSha256,
+      "trusted release key fingerprint",
+    )
+  ) {
+    throw new Error("release key does not match the independently pinned trust root");
+  }
   verifyMetadataSignatures(
     key,
     signature,
@@ -1381,6 +1600,7 @@ export const signLinuxReleaseMetadata = async (input: {
   }
   const key = keyring.keys.find((candidate) => candidate.keyId === keyId);
   if (
+    keyring.revision < manifest.trust.minimumKeyringRevision ||
     key === undefined ||
     key.status !== "active" ||
     Date.parse(signedAt) < Date.parse(key.validFrom) ||
@@ -1389,6 +1609,12 @@ export const signLinuxReleaseMetadata = async (input: {
   ) {
     throw new Error("release key is not authorized to sign this metadata");
   }
+  await requireExactDirectoryInventory(
+    directory,
+    manifest.files.map((entry) => entry.file),
+    "prepared",
+  );
+  await validatePayloads(directory, manifest);
   let privateKey: KeyObject;
   try {
     privateKey = createPrivateKey(input.privateKeyPem);

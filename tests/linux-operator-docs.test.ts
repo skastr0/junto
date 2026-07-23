@@ -30,6 +30,12 @@ describe("Linux v1 operator documentation", () => {
     expect(runbook).toContain("release-manifest.json");
     expect(runbook).toContain("SHA256SUMS");
     expect(runbook).toContain("vellum-linux-verify-x64");
+    expect(runbook).toContain("--keyring /path/to/authenticated/release-keyring.json");
+    expect(runbook).toContain("--trusted-key-id AUTHENTICATED_KEY_ID");
+    expect(runbook).toContain(
+      "--trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT",
+    );
+    expect(runbook).toContain("sha256sum --check --strict");
     expect(runbook).toContain("--peer-station-browser-protocol 1");
     expect(runbook).toContain("--peer-work-control-protocol vellum-work/v1");
     expect(runbook).toContain("systemctl --user enable --now vellum-remote.service");

@@ -88,21 +88,53 @@ const packageDirectories = async (
   nodeModulesDirectory: string,
 ): Promise<ReadonlyArray<string>> => {
   const directories: string[] = [];
-  for (const entry of await readdir(nodeModulesDirectory, {
-    withFileTypes: true,
-  })) {
-    if (entry.name.startsWith(".") || !entry.isDirectory()) continue;
-    if (entry.name.startsWith("@")) {
-      const scope = path.join(nodeModulesDirectory, entry.name);
-      for (const child of await readdir(scope, { withFileTypes: true })) {
-        if (!child.name.startsWith(".") && child.isDirectory()) {
-          directories.push(path.join(scope, child.name));
+  const visitNodeModules = async (root: string): Promise<void> => {
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      if (entry.name.startsWith(".") || !entry.isDirectory()) continue;
+      if (entry.name.startsWith("@")) {
+        const scope = path.join(root, entry.name);
+        for (const child of await readdir(scope, { withFileTypes: true })) {
+          if (child.name.startsWith(".") || !child.isDirectory()) continue;
+          const packageRoot = path.join(scope, child.name);
+          directories.push(packageRoot);
+          const nested = path.join(packageRoot, "node_modules");
+          try {
+            const metadata = await lstat(nested);
+            if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
+              await visitNodeModules(nested);
+            }
+          } catch (error) {
+            if (
+              !(error instanceof Error) ||
+              !("code" in error) ||
+              error.code !== "ENOENT"
+            ) {
+              throw error;
+            }
+          }
+        }
+      } else {
+        const packageRoot = path.join(root, entry.name);
+        directories.push(packageRoot);
+        const nested = path.join(packageRoot, "node_modules");
+        try {
+          const metadata = await lstat(nested);
+          if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
+            await visitNodeModules(nested);
+          }
+        } catch (error) {
+          if (
+            !(error instanceof Error) ||
+            !("code" in error) ||
+            error.code !== "ENOENT"
+          ) {
+            throw error;
+          }
         }
       }
-    } else {
-      directories.push(path.join(nodeModulesDirectory, entry.name));
     }
-  }
+  };
+  await visitNodeModules(nodeModulesDirectory);
   return directories.sort();
 };
 

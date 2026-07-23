@@ -3,6 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import {
   LINUX_RELEASE_PROTOCOLS,
+  readLinuxReleaseKeyringFile,
   verifyLinuxReleaseBundle,
   type LinuxReleaseHostFacts,
   type LinuxReleasePackageIdentity,
@@ -17,6 +18,9 @@ const parseOptions = (
   readonly peerVersion: string;
   readonly peerStationBrowserProtocol: number;
   readonly peerWorkControlProtocol: string;
+  readonly keyring: string;
+  readonly trustedKeyId: string;
+  readonly trustedKeyFingerprintSha256: string;
   readonly installedVersion?: string;
   readonly allowExplicitRollback: boolean;
 } => {
@@ -34,6 +38,9 @@ const parseOptions = (
       current !== "--peer-version" &&
       current !== "--peer-station-browser-protocol" &&
       current !== "--peer-work-control-protocol" &&
+      current !== "--keyring" &&
+      current !== "--trusted-key-id" &&
+      current !== "--trusted-key-fingerprint-sha256" &&
       current !== "--installed-version"
     ) {
       throw new Error(`unknown verifier option: ${current ?? "<missing>"}`);
@@ -49,15 +56,23 @@ const parseOptions = (
   const peerVersion = values.get("--peer-version");
   const stationBrowser = values.get("--peer-station-browser-protocol");
   const workControl = values.get("--peer-work-control-protocol");
+  const keyring = values.get("--keyring");
+  const trustedKeyId = values.get("--trusted-key-id");
+  const trustedKeyFingerprintSha256 = values.get(
+    "--trusted-key-fingerprint-sha256",
+  );
   if (
     bundle === undefined ||
     peerVersion === undefined ||
     stationBrowser === undefined ||
     workControl === undefined ||
+    keyring === undefined ||
+    trustedKeyId === undefined ||
+    trustedKeyFingerprintSha256 === undefined ||
     !/^[0-9]+$/u.test(stationBrowser)
   ) {
     throw new Error(
-      "usage: vellum-linux-verify-x64 --bundle DIR --peer-version X.Y.Z --peer-station-browser-protocol 1 --peer-work-control-protocol vellum-work/v1 [--installed-version X.Y.Z] [--allow-explicit-rollback]",
+      "usage: vellum-linux-verify-x64 --bundle DIR --keyring FILE --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-version X.Y.Z --peer-station-browser-protocol 1 --peer-work-control-protocol vellum-work/v1 [--installed-version X.Y.Z] [--allow-explicit-rollback]",
     );
   }
   return {
@@ -65,6 +80,9 @@ const parseOptions = (
     peerVersion,
     peerStationBrowserProtocol: Number(stationBrowser),
     peerWorkControlProtocol: workControl,
+    keyring,
+    trustedKeyId,
+    trustedKeyFingerprintSha256,
     ...(values.get("--installed-version") === undefined
       ? {}
       : { installedVersion: values.get("--installed-version") }),
@@ -170,9 +188,10 @@ export const linuxReleaseVerifyMain = async (
 ): Promise<void> => {
   const options = parseOptions(args);
   const bundleDirectory = path.resolve(options.bundle);
-  const [host, packageIdentity] = await Promise.all([
+  const [host, packageIdentity, trustedKeyring] = await Promise.all([
     inspectLinuxReleaseHost(),
     inspectLinuxDeb(bundleDirectory),
+    readLinuxReleaseKeyringFile(options.keyring),
   ]);
   const receipt = await verifyLinuxReleaseBundle({
     bundleDirectory,
@@ -181,6 +200,9 @@ export const linuxReleaseVerifyMain = async (
     peerVersion: options.peerVersion,
     stationBrowserProtocol: options.peerStationBrowserProtocol,
     workControlProtocol: options.peerWorkControlProtocol,
+    trustedKeyring,
+    trustedKeyId: options.trustedKeyId,
+    trustedKeyFingerprintSha256: options.trustedKeyFingerprintSha256,
     ...(options.installedVersion === undefined
       ? {}
       : { installedVersion: options.installedVersion }),

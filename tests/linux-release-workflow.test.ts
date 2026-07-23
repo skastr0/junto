@@ -85,6 +85,7 @@ describe("authoritative Linux release workflow", () => {
     expect(workflow).toContain("source-revision.json");
     expect(workflow).toContain("vellum-linux-verify-x64");
     expect(workflow).toContain("docs/linux-operator-runbook.md");
+    expect(workflow).toContain("docs/linux-v1-support-matrix.md");
     expect(workflow).toContain("docs/linux-release-changelog-template.md");
     expect(workflow).toContain("sanitize-log");
     expect(workflow).not.toMatch(

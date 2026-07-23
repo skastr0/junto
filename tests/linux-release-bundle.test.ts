@@ -34,6 +34,28 @@ const CREATED_AT = "2026-07-23T11:55:00.000Z";
 const EXPIRES_AT = "2026-08-01T12:00:00.000Z";
 const KEY_ID = "vellum-linux-2026a";
 const PACKAGE = `Vellum Command-${VERSION}-x64-linux.deb`;
+const ciTarget = {
+  runner: "ubuntu-24.04",
+  os: "linux",
+  architecture: "x64",
+  machine: "x86_64",
+  debArchitecture: "amd64",
+  distribution: "ubuntu",
+  distributionVersion: "24.04",
+  libc: "glibc",
+};
+const ciGates = [
+  "frozen-install",
+  "target-inventory",
+  "typecheck",
+  "complete-unit-suite",
+  "electron-and-cli-compile",
+  "native-package",
+  "package-audit",
+  "deb-install",
+  "packaged-pty-smoke",
+  "packaged-runtime-smoke",
+];
 
 const host: LinuxReleaseHostFacts = {
   platform: "linux",
@@ -69,6 +91,7 @@ const createFixture = async (options: {
   readonly keyStatus?: "active" | "retired" | "revoked";
   readonly downgradePolicy?: "forbid" | "explicit-rollback";
   readonly minimumDowngradeVersion?: string;
+  readonly testGates?: ReadonlyArray<string>;
 } = {}) => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "vellum-linux-release-bundle-"),
@@ -103,22 +126,71 @@ const createFixture = async (options: {
   await writeKeyring(directory, keyring);
   const payloads: Readonly<Record<string, string>> = {
     [PACKAGE]: "synthetic-deb-for-contract-tests",
-    "build-receipt.json": canonical({ schema: "build/v1", ok: true }),
-    "test-receipt.json": canonical({ schema: "tests/v1", ok: true }),
-    "package-audit.json": canonical({ schema: "audit/v1", ok: true }),
-    "packaged-pty-smoke.json": canonical({ schema: "pty/v1", ok: true }),
-    "packaged-runtime-smoke.json": canonical({
-      schema: "runtime/v1",
+    "build-receipt.json": canonical({
+      schema: "vellum/linux-ci-inventory/v1",
+      target: ciTarget,
+      source: { commit: REVISION, sourceDateEpoch: 1_784_772_800 },
+    }),
+    "test-receipt.json": canonical({
+      schema: "vellum/linux-ci-test-receipt/v1",
       ok: true,
+      target: ciTarget,
+      gates: (options.testGates ?? ciGates).map((name) => ({
+        name,
+        status: "passed",
+      })),
+    }),
+    "package-audit.json": canonical({
+      ok: true,
+      package: "vellum",
+      version: VERSION,
+      architecture: "amd64",
+      chromeSandboxMode: "0755",
+      appArmor: "userns",
+    }),
+    "packaged-pty-smoke.json": canonical({
+      ok: true,
+      backend: "pty",
+      packagedPlacement: true,
+      cleanShutdown: true,
+      tempRootRemoved: true,
+    }),
+    "packaged-runtime-smoke.json": canonical({
+      ok: true,
+      display: "xvfb",
+      workCli: "ok",
+      browserCli: "ok",
+      rendererSandbox: {
+        renderers: 1,
+        noNewPrivs: true,
+        seccomp: true,
+      },
+      appArmor: "vellum",
+      tcpListeners: 0,
+      debugAuthority: false,
+      secretBearingOutput: false,
+      cleanShutdown: true,
+      tempRootRemoved: true,
     }),
     "dependency-license-inventory.json": canonical({
       schema: "vellum/dependency-license-inventory/v1",
-      packages: [],
+      sourceRevision: REVISION,
+      packages: [{ name: "effect", version: "3.0.0", license: "MIT" }],
+      unknownLicenseCount: 0,
     }),
     "sbom.cdx.json": canonical({
       bomFormat: "CycloneDX",
       specVersion: "1.6",
       version: 1,
+      metadata: {
+        component: {
+          version: VERSION,
+          properties: [
+            { name: "vellum:source-revision", value: REVISION },
+          ],
+        },
+      },
+      components: [{ type: "library", name: "effect", version: "3.0.0" }],
     }),
     "CHANGELOG.md": "# Vellum Command 0.1.0\n\nExact Linux release notes.\n",
     "source-revision.json": canonical({
@@ -126,6 +198,7 @@ const createFixture = async (options: {
       revision: REVISION,
     }),
     "OPERATIONS.md": "# Linux operations\n\nVerify before install.\n",
+    "SUPPORT.md": "# Linux v1 support\n\nUbuntu 24.04 x86-64.\n",
     "vellum-linux-verify-x64": "compiled-verifier-placeholder",
   };
   await Promise.all(
@@ -165,11 +238,15 @@ const createFixture = async (options: {
   return { directory, keys, keyring };
 };
 
-const verifyFixture = (
+const verifyFixture = async (
   directory: string,
   overrides: Partial<Parameters<typeof verifyLinuxReleaseBundle>[0]> = {},
-) =>
-  verifyLinuxReleaseBundle({
+) => {
+  const trustedKeyring = JSON.parse(
+    await readFile(path.join(directory, LINUX_RELEASE_KEYRING), "utf8"),
+  ) as LinuxReleaseKeyring;
+  const trustedKey = trustedKeyring.keys[0];
+  return verifyLinuxReleaseBundle({
     bundleDirectory: directory,
     host,
     packageIdentity: {
@@ -180,9 +257,14 @@ const verifyFixture = (
     peerVersion: VERSION,
     stationBrowserProtocol: LINUX_RELEASE_PROTOCOLS.stationBrowser,
     workControlProtocol: LINUX_RELEASE_PROTOCOLS.workControl,
+    trustedKeyring,
+    trustedKeyId: trustedKey?.keyId ?? KEY_ID,
+    trustedKeyFingerprintSha256:
+      trustedKey?.fingerprintSha256 ?? "0".repeat(64),
     now: NOW,
     ...overrides,
   });
+};
 
 describe("signed Linux release bundle", () => {
   it("verifies both detached signatures, every payload, target, and protocol", async () => {
@@ -206,7 +288,7 @@ describe("signed Linux release bundle", () => {
       keyringRevision: 7,
       signedAt: "2026-07-23T11:58:00.000Z",
       expiresAt: EXPIRES_AT,
-      filesVerified: 12,
+      filesVerified: 13,
       packageSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
     });
   });
@@ -288,6 +370,8 @@ describe("signed Linux release bundle", () => {
       { peerVersion: "0.0.9" },
       { stationBrowserProtocol: 2 },
       { workControlProtocol: "vellum-work/v2" },
+      { trustedKeyId: "vellum-linux-other" },
+      { trustedKeyFingerprintSha256: "0".repeat(64) },
     ];
     for (const candidate of cases) {
       await expect(
@@ -339,6 +423,12 @@ describe("signed Linux release bundle", () => {
       revision: 1,
       keys: [],
     });
+  });
+
+  it("refuses to sign a bundle whose receipts do not prove every gate", async () => {
+    await expect(
+      createFixture({ testGates: ciGates.slice(1) }),
+    ).rejects.toThrow(/every release gate/u);
   });
 
   it("never emits private key material into signed metadata", async () => {

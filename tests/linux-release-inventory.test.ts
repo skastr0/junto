@@ -61,6 +61,12 @@ describe("Linux release dependency and SBOM evidence", () => {
         "@scope/unknown",
         "1.2.3",
       ),
+      writePackage(
+        path.join(modules, "effect", "node_modules", "nested"),
+        "nested",
+        "2.0.0",
+        "Apache-2.0",
+      ),
     ]);
 
     const inventory = await collectDependencyLicenseInventory({
@@ -84,6 +90,14 @@ describe("Linux release dependency and SBOM evidence", () => {
         development: false,
         license: "MIT",
         purl: "pkg:npm/effect@3.0.0",
+      },
+      {
+        name: "nested",
+        version: "2.0.0",
+        direct: false,
+        development: false,
+        license: "Apache-2.0",
+        purl: "pkg:npm/nested@2.0.0",
       },
       {
         name: "vitest",

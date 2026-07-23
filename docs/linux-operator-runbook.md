@@ -20,29 +20,36 @@ installer is the signed `deb`. A Remote station runs on the packaged X11/Xvfb
 path. A Command Center runs in a normal X11 session or through the desktop's
 native Wayland/XWayland path.
 
-Read the exact matrix in
-[`linux-v1-support-matrix.md`](linux-v1-support-matrix.md). Linux arm64,
-musl/Alpine, AppImage, RPM, Snap, Flatpak, and container-only hosts are not
-qualified in v1.
+Read the exact matrix shipped beside this runbook as `SUPPORT.md`. Linux
+arm64, musl/Alpine, AppImage, RPM, Snap, Flatpak, and container-only hosts are
+not qualified in v1.
 
 ## Before any package mutation
 
 1. Obtain the release archive from the HTTPS locator announced by the release
    authority. The archive name is
    `vellum-X.Y.Z-ubuntu-24.04-x64-release.tar.gz`.
-2. Obtain the current release-key fingerprint through a second authenticated
-   channel. A keyring carried only by the same untrusted download is not an
-   independent trust anchor.
+2. Through a second authenticated channel, obtain the current keyring, key ID,
+   release-key fingerprint, and SHA-256 of the offline verifier. A keyring or
+   verifier carried only by the same untrusted download is not an independent
+   trust anchor.
 3. Extract the archive into a new owner-only directory. Do not merge releases.
 4. From the Command Center, record the peer product version, station-browser
    protocol, and work-control protocol. Linux v1 expects station-browser `1`
    and work-control `vellum-work/v1`.
-5. Run the shipped verifier as the ordinary station user:
+5. Check the verifier against the independently authenticated hash, then run
+   it as the ordinary station user with the independently authenticated trust
+   values:
 
    ```sh
+   printf '%s  %s\n' AUTHENTICATED_VERIFIER_SHA256 \
+     ./vellum-linux-verify-x64 | sha256sum --check --strict -
    chmod 0755 ./vellum-linux-verify-x64
    ./vellum-linux-verify-x64 \
      --bundle . \
+     --keyring /path/to/authenticated/release-keyring.json \
+     --trusted-key-id AUTHENTICATED_KEY_ID \
+     --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
      --peer-version X.Y.Z \
      --peer-station-browser-protocol 1 \
      --peer-work-control-protocol vellum-work/v1
@@ -180,9 +187,12 @@ contain receipts and bounded status, never `~/.vellum` itself.
 2. Verify the new bundle before stopping anything. Add the installed version:
 
    ```sh
-   ./vellum-linux-verify-x64 \
-     --bundle . \
-     --peer-version X.Y.Z \
+    ./vellum-linux-verify-x64 \
+      --bundle . \
+      --keyring /path/to/authenticated/release-keyring.json \
+      --trusted-key-id AUTHENTICATED_KEY_ID \
+      --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
+      --peer-version X.Y.Z \
      --peer-station-browser-protocol 1 \
      --peer-work-control-protocol vellum-work/v1 \
      --installed-version CURRENT_VERSION
@@ -210,6 +220,9 @@ manifest must explicitly permit rollback down to that version.
 ```sh
 ./vellum-linux-verify-x64 \
   --bundle . \
+  --keyring /path/to/authenticated/release-keyring.json \
+  --trusted-key-id AUTHENTICATED_KEY_ID \
+  --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
   --peer-version X.Y.Z \
   --peer-station-browser-protocol 1 \
   --peer-work-control-protocol vellum-work/v1 \
