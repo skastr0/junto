@@ -40,6 +40,17 @@ describe("browser startup recovery gate", () => {
     expect(adapter).toBeGreaterThan(composition);
   });
 
+  it("uses the platform supervisor handoff before any composition host exists", () => {
+    const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
+    const supervised = ready.indexOf("if (!(await ensureSupervised())) return;");
+    const host = ready.indexOf("await browserCompositionHost.ensureHeadlessHost()");
+    expect(indexSrc).toContain('import { loadStationSupervisor } from "./vellum/supervision/select";');
+    expect(indexSrc).toContain("const handoff = await supervisor.requestHandoff();");
+    expect(indexSrc).not.toContain("kickstartLaunchAgent");
+    expect(supervised).toBeGreaterThanOrEqual(0);
+    expect(host).toBeGreaterThan(supervised);
+  });
+
   it("preserves non-browser IPC before recovery without registering browser IPC", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
     expect(ready.indexOf("registerIpcHandlers();")).toBeLessThan(

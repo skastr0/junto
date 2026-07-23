@@ -93,11 +93,7 @@ import {
   resolveTrustedRendererOrigin,
   type TrustedRendererOrigin,
 } from "@shared/trusted-renderer-origin";
-import {
-  kickstartLaunchAgent,
-  launchAgentTargetForCurrentUser,
-  printLaunchAgent,
-} from "./vellum/settings/launchctl-runner";
+import { loadStationSupervisor } from "./vellum/supervision/select";
 import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
 import { findPackagedSandboxDisablingSwitch } from "./vellum/packaged-sandbox-policy";
 
@@ -956,43 +952,36 @@ const recoverRendererSurface = (
 };
 
 
-// Supervision handoff — the operator contract: whenever the LaunchAgent is
-// installed, the running Vellum is ALWAYS the launchd-supervised instance.
-// Cmd-Q stays quit for good (KeepAlive revives crashes only, never a
-// deliberate quit); any manual re-open (Dock, Finder, `open`) routes itself
-// through launchd via kickstart and exits, so crash supervision is never
-// silently absent for the session the operator just started. Detection is by
-// pid identity against `launchctl print`, never argv — immune to stale plists.
-// Returns true when THIS process should keep running (it is the supervised
-// instance, or no LaunchAgent is installed, or the handoff failed safely).
+// A packaged station enters only through its installed platform supervisor.
+// Provider observations are status-only: neither launchd pid nor systemd
+// MainPID ever becomes process-signal authority in this process.
 const ensureSupervised = async (): Promise<boolean> => {
   if (!app.isPackaged) return true; // dev runs are never rerouted
-  const target = launchAgentTargetForCurrentUser();
-  if (target === undefined) return true;
-  const print = await printLaunchAgent(target);
-  if (!print.ok) return true; // no LaunchAgent — standalone launch is legitimate
-  const pidMatch = print.stdout.match(/\bpid = (\d+)/);
-  if (pidMatch && Number(pidMatch[1]) === process.pid) return true; // we ARE supervised
+  const supervisor = await loadStationSupervisor();
+  const observation = await supervisor.observe();
+  if (observation.state === "absent" || observation.state === "unsupported" ||
+      observation.state === "unknown" || observation.state === "degraded") return true;
+  if (observation.state === "active" && observation.ownership === "current") return true;
   // Valid locators were published in the early event handler. A storage
   // failure drops only that locator; it never weakens launchd ownership or
-  // prevents the app itself from starting.
+  // prevents the app itself from starting. The next instance receives them.
   await flushNodeRefPublications();
-  // Hand off: release the lock so the kickstarted instance can take it.
+  // Release the lock so the supervisor's new instance can take it.
   app.releaseSingleInstanceLock();
-  const kick = await kickstartLaunchAgent(target);
-  if (kick.ok) {
+  const handoff = await supervisor.requestHandoff();
+  if (handoff.accepted) {
     await flushNodeRefPublications();
-    exitAfterDetach(0, "launchd-handoff");
+    exitAfterDetach(0, `${supervisor.metadata.provider}-handoff`);
     return false;
   }
-  // Kickstart failed (odd job state) — reclaim the lock and run unsupervised
+  // Handoff failed — reclaim the lock and run unsupervised
   // rather than leaving the operator with nothing. Durable relay records stay
   // intact for whichever process owns the lock.
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return false;
   }
-  console.error("[launchd] kickstart failed — running unsupervised this session");
+  console.error(`[${supervisor.metadata.provider}] handoff failed — running unsupervised this session`);
   return true;
 };
 
