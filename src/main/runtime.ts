@@ -176,7 +176,9 @@ export const buildDoctorReport = Effect.gen(function* () {
     }));
     return {
       ...stationDoctor,
-      status: readiness.state === "ready" ? stationDoctor.status : "warning" as const,
+      status: stationDoctor.status === "error"
+        ? "error"
+        : readiness.state === "ready" ? stationDoctor.status : "warning" as const,
       detail: `${stationDoctor.detail}; readiness ${readiness.state}`,
       metadata: {
         ...(stationDoctor.metadata ?? {}),
