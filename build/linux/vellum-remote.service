@@ -7,6 +7,8 @@ ConditionFileIsExecutable=/opt/Vellum Command/vellum
 
 [Service]
 Type=notify
+# The launcher authenticates its child readiness receipt and asks
+# systemd-notify to identify that launcher's parent (the unit MainPID).
 NotifyAccess=main
 ExecStart=/opt/Vellum\x20Command/resources/systemd/vellum-remote-launch-v1
 Restart=on-failure
@@ -19,7 +21,9 @@ Environment=PATH=/usr/bin:/bin
 Environment=HOME=%h
 Environment=XDG_STATE_HOME=%h/.local/state
 Environment=XDG_RUNTIME_DIR=%t
-Environment=DISPLAY=:89
+RuntimeDirectory=vellum-remote
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=no
 Environment=ELECTRON_OZONE_PLATFORM_HINT=x11
 Environment=OZONE_PLATFORM=x11
 Environment=XDG_SESSION_TYPE=x11

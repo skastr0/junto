@@ -66,11 +66,12 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(launcher).toContain('"$VELLUM" --vellum-headless --ozone-platform=x11 &');
     expect(launcher).toContain('"$XVFB" "$DISPLAY" -screen 0 1280x1024x24 -nolisten tcp -auth "$XAUTHORITY" &');
     expect(launcher).toContain('"$XAUTH" -f "$XAUTHORITY" add "$DISPLAY" . "$(/usr/bin/mcookie)" >/dev/null 2>&1');
-    expect(launcher).toContain("DISPLAY_NUMBER='89'");
+    expect(launcher).toContain("DISPLAY_FIRST=89");
+    expect(launcher).toContain("DISPLAY_LAST=96");
     expect(launcher).not.toContain('rm -f -- "$LOCK_FILE"');
-    expect(launcher).toContain('managed display lock is already in use');
-    expect(launcher).toContain('"$SYSTEMD_NOTIFY" --ready --status=\'Vellum work control ready\'');
-    expect(launcher).toContain('if [ -e "$SOCKET_FILE" ] || [ -L "$SOCKET_FILE" ]; then');
+    expect(launcher).toContain('no managed display is available');
+    expect(launcher).toContain('"$SYSTEMD_NOTIFY" --pid=parent --ready');
+    expect(launcher).toContain('candidate_socket="/tmp/.X11-unix/X${candidate}"');
     expect(launcher).toContain("kill -TERM \"$xvfb_pid\"");
     expect(launcher).toContain("umask 077");
     expect(launcher).toContain('wait "$vellum_pid"');
@@ -103,7 +104,9 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(unit).toContain("ConditionFileIsExecutable=/opt/Vellum Command/vellum");
     expect(unit).toContain("KillMode=control-group");
     expect(unit).toContain("UMask=0077");
-    expect(unit).toContain("Environment=DISPLAY=:89");
+    expect(unit).toContain("RuntimeDirectory=vellum-remote");
+    expect(unit).toContain("RuntimeDirectoryMode=0700");
+    expect(unit).toContain("RuntimeDirectoryPreserve=no");
     expect(unit).toContain("Environment=ELECTRON_OZONE_PLATFORM_HINT=x11");
     expect(unit).toContain("StandardOutput=null");
     expect(unit).toContain("StandardError=null");

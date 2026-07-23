@@ -99,6 +99,38 @@ export const rotateWorkToken = (tokenPath: string): string => {
   return rotateControlFileToken(tokenPath);
 };
 
+const systemdReadinessReceipt = (): { readonly generation: string; readonly path: string } | undefined => {
+  const generation = process.env.INVOCATION_ID;
+  const runtimeDirectory = process.env.XDG_RUNTIME_DIR;
+  if (generation === undefined && runtimeDirectory === undefined) return undefined;
+  if (
+    generation === undefined || runtimeDirectory === undefined ||
+    !/^[0-9a-f]{32}$/.test(generation) || !runtimeDirectory.startsWith("/") ||
+    runtimeDirectory.includes("\0")
+  ) {
+    throw new Error("invalid systemd generation readiness environment");
+  }
+  return Object.freeze({
+    generation,
+    path: join(runtimeDirectory, "vellum-remote", `ready-${generation}`),
+  });
+};
+
+/**
+ * Witness the exact systemd invocation only after this process has rotated its
+ * token and bound the hardened work listener. The launcher owns consumption;
+ * this product process never signals systemd directly.
+ */
+export const publishSystemdGenerationReadiness = (): void => {
+  const readiness = systemdReadinessReceipt();
+  if (readiness === undefined) return;
+  writeFileSync(readiness.path, `${readiness.generation}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  const published = lstatSync(readiness.path);
+  if (!published.isFile() || (published.mode & 0o777) !== 0o600) {
+    throw new Error("systemd generation readiness receipt was not private regular file");
+  }
+};
+
 export const workTokenMatches = (
   presented: string | undefined,
   expected: string,
@@ -1119,6 +1151,8 @@ export const startWorkControlServer = async (
   server.on("error", (error) => {
     console.error("[work-control] server error:", error);
   });
+
+  publishSystemdGenerationReadiness();
 
   const beginShutdown = (): void => {
     if (shuttingDown) return;
