@@ -4,7 +4,9 @@
  * The checked-in policy is the sole build trust root. `check` fetches official
  * Electron sources for an operator report, but deliberately never writes it.
  */
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +17,8 @@ const INSTALLED_PACKAGE_PATH = path.join(ROOT, "node_modules/electron/package.js
 const INSTALLED_RUNTIME_PATH = path.join(ROOT, "node_modules/electron/dist/version");
 const SUPPORT_URL = "https://www.electronjs.org/docs/latest/tutorial/electron-timelines";
 const RELEASE_INDEX_URL = "https://releases.electronjs.org/releases.json";
+const observationPath = () => path.join(process.env.VELLUM_RELEASE_SECURITY_STATE_DIR ?? path.join(homedir(), ".vellum", "release-security"), "electron-observation.json");
+const policyHash = (raw: string) => createHash("sha256").update(raw).digest("hex");
 
 export interface ElectronSecurityPolicy {
   readonly schemaVersion: 1;
@@ -148,7 +152,14 @@ export const validateCheckedInElectronPolicy = async (now = new Date()) => {
   const manifest = JSON.parse(await readFile(PACKAGE_PATH, "utf8")) as { devDependencies?: Record<string, unknown> };
   const version = manifest.devDependencies?.electron;
   if (typeof version !== "string") fail("package.json is missing devDependencies.electron");
-  validateElectronSecurityPolicy(decodeElectronSecurityPolicy(JSON.parse(rawPolicy)), { now, manifestVersion: version as string, installedPackageVersion, installedRuntimeVersion });
+  const policy = decodeElectronSecurityPolicy(JSON.parse(rawPolicy));
+  validateElectronSecurityPolicy(policy, { now, manifestVersion: version as string, installedPackageVersion, installedRuntimeVersion });
+  try {
+    const receipt = JSON.parse(await readFile(observationPath(), "utf8")) as Record<string, unknown>;
+    if (receipt.schemaVersion !== 1 || receipt.policyVersion !== policy.electron.exactVersion || receipt.policyHash !== policyHash(rawPolicy) || receipt.overdue !== false || receipt.disposition !== "current") fail("recorded Electron observation is stale, malformed, or mismatched");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
 };
 
 export const checkOfficialElectronSources = async (now = new Date()) => {
@@ -173,7 +184,9 @@ export const checkOfficialElectronSources = async (now = new Date()) => {
   const observedAt = typeof currentLine?.fullDate === "string" ? date(currentLine.fullDate, "official release fullDate") : typeof currentLine?.date === "string" ? date(`${currentLine.date}T00:00:00.000Z`, "official release date") : fail("official current-line release is missing publication date");
   const dueAt = new Date(observedAt + policy.reviewSla.urgentHours * 3_600_000).toISOString();
   const overdue = eol || (disposition === "newer_patch_available" && now.getTime() >= Date.parse(dueAt));
-  return { checkedAt: now.toISOString(), policyVersion: policy.electron.exactVersion, supportedMajors, latestStable: latestByMajor.get(Math.max(...supportedMajors))?.version, currentLinePatch, disposition, eol, dueAt, overdue, sources: [SUPPORT_URL, RELEASE_INDEX_URL, policy.electron.auditedRelease.url] };
+  const receipt = { schemaVersion: 1, policyVersion: policy.electron.exactVersion, policyHash: policyHash(await readFile(POLICY_PATH, "utf8")), checkedAt: now.toISOString(), currentLinePatch, disposition, dueAt, overdue, sources: [SUPPORT_URL, RELEASE_INDEX_URL, policy.electron.auditedRelease.url] };
+  const target = observationPath(); await mkdir(path.dirname(target), { recursive: true, mode: 0o700 }); const temporary = `${target}.${process.pid}.tmp`; await writeFile(temporary, `${JSON.stringify(receipt)}\n`, { mode: 0o600 }); await rename(temporary, target);
+  return { ...receipt, supportedMajors, latestStable: latestByMajor.get(Math.max(...supportedMajors))?.version, eol };
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
