@@ -20,9 +20,21 @@ Copyright (c) 2026 Example
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction.
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 `;
 
 afterEach(async () => {
@@ -213,5 +225,55 @@ describe("Linux release dependency and SBOM evidence", () => {
         sourceRevision: "a".repeat(40),
       }),
     ).rejects.toThrow(/package name/u);
+  });
+
+  it("does not infer rights from modified MIT text or padded sentinels", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-release-sbom-"));
+    roots.push(root);
+    const modules = path.join(root, "node_modules");
+    await mkdir(modules);
+    await writeFile(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "vellum", version: "0.1.0" }),
+    );
+    await Promise.all([
+      writePackage(
+        path.join(modules, "restricted"),
+        "restricted",
+        "1.0.0",
+      ),
+      writePackage(
+        path.join(modules, "unlicensed"),
+        "unlicensed",
+        "1.0.0",
+        "UNLICENSED ",
+      ),
+    ]);
+    await writeFile(
+      path.join(modules, "restricted", "LICENSE"),
+      `${MIT_LICENSE}\nCommercial use is expressly prohibited.\n`,
+    );
+    const inventory = await collectDependencyLicenseInventory({
+      projectDirectory: root,
+      nodeModulesDirectory: modules,
+      sourceRevision: "a".repeat(40),
+    });
+    expect(inventory.unknownLicenseCount).toBe(2);
+    expect(inventory.packages).toEqual([
+      expect.objectContaining({
+        name: "restricted",
+        license: "UNKNOWN",
+        licenseSource: "unresolved",
+        licenseEvidence: {
+          file: "LICENSE",
+          sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        },
+      }),
+      expect.objectContaining({
+        name: "unlicensed",
+        license: "UNKNOWN",
+        licenseSource: "unresolved",
+      }),
+    ]);
   });
 });

@@ -55,6 +55,23 @@ const LICENSE_FILE_NAMES = [
   "LICENCE.md",
   "COPYING",
 ] as const;
+const MIT_LICENSE_BODY = `Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.`;
 
 const requireRevision = (value: unknown): string => {
   if (typeof value !== "string" || !SOURCE_REVISION.test(value)) {
@@ -74,8 +91,72 @@ const requirePackageText = (
   return value;
 };
 
+const isSpdxExpressionShape = (candidate: string): boolean => {
+  const tokens = candidate.match(
+    /\(|\)|AND\b|OR\b|WITH\b|[A-Za-z0-9][A-Za-z0-9.+:-]*/gu,
+  );
+  if (
+    tokens === null ||
+    tokens.join("") !== candidate.replaceAll(/\s+/gu, "")
+  ) {
+    return false;
+  }
+  let cursor = 0;
+  const parsePrimary = (): boolean => {
+    const token = tokens[cursor];
+    if (token === "(") {
+      cursor += 1;
+      if (!parseExpression() || tokens[cursor] !== ")") return false;
+      cursor += 1;
+      return true;
+    }
+    if (
+      token === undefined ||
+      token === ")" ||
+      token === "AND" ||
+      token === "OR" ||
+      token === "WITH"
+    ) {
+      return false;
+    }
+    cursor += 1;
+    if (tokens[cursor] === "WITH") {
+      cursor += 1;
+      const exception = tokens[cursor];
+      if (
+        exception === undefined ||
+        exception === ")" ||
+        exception === "AND" ||
+        exception === "OR" ||
+        exception === "WITH"
+      ) {
+        return false;
+      }
+      cursor += 1;
+    }
+    return true;
+  };
+  const parseAnd = (): boolean => {
+    if (!parsePrimary()) return false;
+    while (tokens[cursor] === "AND") {
+      cursor += 1;
+      if (!parsePrimary()) return false;
+    }
+    return true;
+  };
+  const parseExpression = (): boolean => {
+    if (!parseAnd()) return false;
+    while (tokens[cursor] === "OR") {
+      cursor += 1;
+      if (!parseAnd()) return false;
+    }
+    return true;
+  };
+  return parseExpression() && cursor === tokens.length;
+};
+
 const normalizeLicense = (value: unknown): string => {
-  const candidate =
+  const declared =
     typeof value === "string"
       ? value
       : Array.isArray(value)
@@ -91,10 +172,14 @@ const normalizeLicense = (value: unknown): string => {
           )
           .join(" OR ")
         : "";
+  const candidate = declared.trim();
   return candidate.length > 0 &&
       Buffer.byteLength(candidate, "utf8") <= 256 &&
       !/[\0\r\n]/u.test(candidate) &&
-      !/^(?:UNLICENSED|SEE LICENSE IN .+)$/iu.test(candidate)
+      !/^(?:UNKNOWN|UNLICENSED|NOASSERTION|NONE|SEE LICEN[CS]E IN .+)$/iu.test(
+        candidate,
+      ) &&
+      isSpdxExpressionShape(candidate)
     ? candidate
     : "UNKNOWN";
 };
@@ -112,12 +197,11 @@ const errno = (error: unknown): string | undefined =>
     : undefined;
 
 const identifyBundledLicense = (text: string): string => {
-  const normalized = text.replaceAll("\r\n", "\n");
-  return normalized.startsWith("MIT License\n") &&
-      normalized.includes(
-        "Permission is hereby granted, free of charge, to any person obtaining a copy",
-      ) &&
-      normalized.includes('THE SOFTWARE IS PROVIDED "AS IS"')
+  const normalized = text.replaceAll("\r\n", "\n").trimEnd();
+  const match = normalized.match(
+    /^MIT License\n\nCopyright(?: \(c\))? [^\n]{1,512}\n\n([\s\S]+)$/u,
+  );
+  return match?.[1] === MIT_LICENSE_BODY
     ? "MIT"
     : "UNKNOWN";
 };
