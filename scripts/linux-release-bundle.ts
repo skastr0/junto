@@ -1039,6 +1039,110 @@ const REQUIRED_CI_GATES = [
   "packaged-runtime-smoke",
 ] as const;
 
+const BUNDLED_LICENSE_FILES = new Set([
+  "LICENSE",
+  "LICENSE.txt",
+  "LICENSE.md",
+  "LICENCE",
+  "LICENCE.txt",
+  "LICENCE.md",
+  "COPYING",
+]);
+
+const validateDependencyLicenseInventory = (
+  receipt: Record<string, unknown>,
+  sourceRevision: string,
+): void => {
+  if (
+    receipt.schema !== "vellum/dependency-license-inventory/v1" ||
+    receipt.sourceRevision !== sourceRevision ||
+    !Array.isArray(receipt.packages) ||
+    receipt.packages.length === 0 ||
+    receipt.unknownLicenseCount !== 0
+  ) {
+    throw new Error(
+      "dependency/license inventory is incomplete or has unresolved rights",
+    );
+  }
+  const seen = new Set<string>();
+  for (const [index, value] of receipt.packages.entries()) {
+    const dependency = record(value, `dependency license ${index}`);
+    const source = dependency.licenseSource;
+    exactKeys(
+      dependency,
+      source === "bundled-license-file"
+        ? [
+          "name",
+          "version",
+          "direct",
+          "development",
+          "license",
+          "licenseSource",
+          "licenseEvidence",
+          "purl",
+        ]
+        : [
+          "name",
+          "version",
+          "direct",
+          "development",
+          "license",
+          "licenseSource",
+          "purl",
+        ],
+      `dependency license ${index}`,
+    );
+    const name = requiredString(dependency.name, "dependency name", 214);
+    const version = requiredString(
+      dependency.version,
+      "dependency version",
+      128,
+    );
+    const license = requiredString(
+      dependency.license,
+      "dependency license expression",
+      256,
+    );
+    const purl = requiredString(dependency.purl, "dependency purl", 512);
+    if (
+      dependency.direct !== true && dependency.direct !== false ||
+      dependency.development !== true &&
+        dependency.development !== false ||
+      seen.has(purl) ||
+      !purl.startsWith("pkg:npm/") ||
+      /^(?:UNKNOWN|UNLICENSED|SEE LICENSE IN .+)$/iu.test(license)
+    ) {
+      throw new Error(
+        "dependency/license inventory is incomplete or has unresolved rights",
+      );
+    }
+    seen.add(purl);
+    if (source === "package-metadata") continue;
+    if (source !== "bundled-license-file" || license !== "MIT") {
+      throw new Error(
+        "dependency/license inventory is incomplete or has unresolved rights",
+      );
+    }
+    const evidence = record(
+      dependency.licenseEvidence,
+      `dependency license evidence ${name}@${version}`,
+    );
+    exactKeys(
+      evidence,
+      ["file", "sha256"],
+      `dependency license evidence ${name}@${version}`,
+    );
+    if (
+      !BUNDLED_LICENSE_FILES.has(
+        requireSafeFileName(evidence.file, "dependency license evidence file"),
+      )
+    ) {
+      throw new Error("dependency license evidence file is not recognized");
+    }
+    requireSha256(evidence.sha256, "dependency license evidence hash");
+  }
+};
+
 const validateEvidenceReceipt = (
   file: string,
   input: string,
@@ -1124,17 +1228,7 @@ const validateEvidenceReceipt = (
     return;
   }
   if (file === "dependency-license-inventory.json") {
-    if (
-      receipt.schema !== "vellum/dependency-license-inventory/v1" ||
-      receipt.sourceRevision !== manifest.source.revision ||
-      !Array.isArray(receipt.packages) ||
-      receipt.packages.length === 0 ||
-      receipt.unknownLicenseCount !== 0
-    ) {
-      throw new Error(
-        "dependency/license inventory is incomplete or has unresolved rights",
-      );
-    }
+    validateDependencyLicenseInventory(receipt, manifest.source.revision);
     return;
   }
   if (file === "sbom.cdx.json") {

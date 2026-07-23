@@ -96,6 +96,11 @@ const createFixture = async (options: {
   readonly minimumDowngradeVersion?: string;
   readonly testGates?: ReadonlyArray<string>;
   readonly unknownLicenseCount?: number;
+  readonly dependencyLicense?: string;
+  readonly dependencyLicenseSource?:
+    | "package-metadata"
+    | "bundled-license-file"
+    | "unresolved";
 } = {}) => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "vellum-linux-release-bundle-"),
@@ -182,8 +187,12 @@ const createFixture = async (options: {
       packages: [{
         name: "effect",
         version: "3.0.0",
-        license: "MIT",
-        licenseSource: "package-metadata",
+        direct: true,
+        development: false,
+        license: options.dependencyLicense ?? "MIT",
+        licenseSource:
+          options.dependencyLicenseSource ?? "package-metadata",
+        purl: "pkg:npm/effect@3.0.0",
       }],
       unknownLicenseCount: options.unknownLicenseCount ?? 0,
     }),
@@ -471,6 +480,12 @@ describe("signed Linux release bundle", () => {
   it("refuses to create signed metadata with unresolved dependency rights", async () => {
     await expect(
       createFixture({ unknownLicenseCount: 1 }),
+    ).rejects.toThrow(/unresolved rights/u);
+    await expect(
+      createFixture({
+        dependencyLicense: "UNKNOWN",
+        dependencyLicenseSource: "unresolved",
+      }),
     ).rejects.toThrow(/unresolved rights/u);
   });
 

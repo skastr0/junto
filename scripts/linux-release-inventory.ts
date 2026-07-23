@@ -93,7 +93,8 @@ const normalizeLicense = (value: unknown): string => {
         : "";
   return candidate.length > 0 &&
       Buffer.byteLength(candidate, "utf8") <= 256 &&
-      !/[\0\r\n]/u.test(candidate)
+      !/[\0\r\n]/u.test(candidate) &&
+      !/^(?:UNLICENSED|SEE LICENSE IN .+)$/iu.test(candidate)
     ? candidate
     : "UNKNOWN";
 };
