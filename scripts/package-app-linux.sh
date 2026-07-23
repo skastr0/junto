@@ -14,4 +14,5 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 bun rebuild node-pty
 bunx electron-builder --linux --dir
+bun "$SCRIPT_DIR/finalize-linux-package.ts" --release-dir "$SCRIPT_DIR/../release"
 printf 'vellum: Linux unpacked package complete; deb policy is deferred to LX-005.\n'
