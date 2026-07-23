@@ -287,7 +287,7 @@ describe("packaged browser CLI contract", () => {
 });
 
 describe("browser CLI packaging contract", () => {
-  it("packages only the standalone helper and installs both stable command names exclusively", async () => {
+  it("packages the standalone helpers plus runtime policy and installs both stable command names exclusively", async () => {
     const pkg = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as {
       readonly build: {
         readonly files: ReadonlyArray<string>;
@@ -301,6 +301,10 @@ describe("browser CLI packaging contract", () => {
       { from: "dist/vellum", to: "bin/vellum" },
       { from: "dist/vellum-browser", to: "bin/vellum-browser" },
       { from: "scripts/unix-peer-pid.py", to: "bin/unix-peer-pid.py" },
+      {
+        from: "scripts/electron-security-policy.json",
+        to: "policy/electron-security-policy.json",
+      },
     ]);
     expect(pkg.build.files).not.toContain("scripts/**");
     expect(buildScript).toContain("--no-compile-autoload-dotenv");
