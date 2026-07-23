@@ -17,7 +17,13 @@ import {
   subscribeHostsSnapshot,
 } from "../hosts/snapshot";
 import { isLocalHost, TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
-import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
+import {
+  isTermMaintenanceObservationId,
+  TERM_REMOTE_SOCK_REL,
+  type TermMaintenanceDenialReason,
+  type TermMaintenanceEvidence,
+  type TermMaintenanceQuiescenceEvidence,
+} from "@shared/term-control";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import {
   makeRemoteCommand,
@@ -97,9 +103,79 @@ export interface TerminalRouterShutdownReceipt {
 export interface TerminalRouterRuntime {
   /** Tests may lower, never raise, the complete remote drain deadline. */
   readonly shutdownDeadlineMs?: number;
+  /** Tests may lower, never raise, host-cut proof and route-retirement time. */
+  readonly maintenanceDeadlineMs?: number;
 }
 
+declare const terminalRouterMaintenanceLeaseBrand: unique symbol;
+
+export type TerminalRouterBootstrapTarget = {
+  readonly hostId: string;
+  readonly endpoint: string;
+};
+
+export type TerminalRouterBootstrapAbsenceReceipt = {
+  readonly hostId: string;
+  readonly endpoint: string;
+  readonly packageState: "absent";
+  readonly unitState: "not-found";
+};
+
+/**
+ * Deployment-owned proof authority. Production reruns its fixed remote
+ * package/systemd preflight after the router installs the host cut.
+ */
+export interface TerminalRouterBootstrapAbsenceAuthority {
+  readonly prove: (
+    target: TerminalRouterBootstrapTarget,
+  ) => Promise<unknown>;
+}
+
+export type TerminalRouterMaintenanceEvidence =
+  | ({
+      readonly kind: "remote-zero-work";
+    } & TermMaintenanceQuiescenceEvidence)
+  | {
+      readonly kind: "bootstrap-package-absent";
+      readonly packageState: "absent";
+      readonly unitState: "not-found";
+    };
+
+/**
+ * Opaque Command Center authority for one remote host's route-admission cut.
+ * The release closure is bound to the exact in-process record; callers cannot
+ * synthesize a lease or redirect it to another host.
+ */
+export type TerminalRouterMaintenanceLease = {
+  readonly [terminalRouterMaintenanceLeaseBrand]: true;
+  readonly evidence: TerminalRouterMaintenanceEvidence;
+  readonly release: () => boolean;
+};
+
+export type TerminalRouterMaintenanceAcquireResult =
+  | {
+      readonly acquired: true;
+      readonly evidence: TerminalRouterMaintenanceEvidence & {
+        readonly kind: "remote-zero-work";
+      };
+      readonly lease: TerminalRouterMaintenanceLease;
+    }
+  | {
+      readonly acquired: false;
+      readonly evidence: TermMaintenanceEvidence;
+      readonly reason: TermMaintenanceDenialReason;
+    };
+
+type HostMaintenanceCut = {
+  readonly hostId: string;
+  readonly endpoint: string;
+  readonly generation: number;
+  phase: "acquiring" | "held" | "poisoned" | "retired";
+  lease?: TerminalRouterMaintenanceLease;
+};
+
 const ROUTER_SHUTDOWN_DEADLINE_MS = 3_000;
+const ROUTER_MAINTENANCE_DEADLINE_MS = 20_000;
 
 const boundedRuntimeValue = (value: number | undefined, ceiling: number): number =>
   value === undefined || !Number.isFinite(value) || value <= 0
@@ -108,6 +184,26 @@ const boundedRuntimeValue = (value: number | undefined, ceiling: number): number
 
 const wait = (durationMs: number): Promise<void> =>
   new Promise((resolveWait) => setTimeout(resolveWait, durationMs));
+
+const isExactBootstrapAbsenceReceipt = (
+  value: unknown,
+  target: TerminalRouterBootstrapTarget,
+): value is TerminalRouterBootstrapAbsenceReceipt => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  const expected = ["endpoint", "hostId", "packageState", "unitState"];
+  return (
+    keys.length === expected.length &&
+    keys.every((key, index) => key === expected[index]) &&
+    record.hostId === target.hostId &&
+    record.endpoint === target.endpoint &&
+    record.packageState === "absent" &&
+    record.unitState === "not-found"
+  );
+};
 
 const allSettledBefore = async (
   promises: ReadonlyArray<Promise<unknown>>,
@@ -150,16 +246,25 @@ export class TerminalRouter extends EventEmitter {
   private readonly remotes = new Map<string, RemoteEntry>();
   private readonly connecting = new Map<
     string,
-    { readonly endpoint: string; readonly promise: Promise<RemoteEntry> }
+    {
+      readonly endpoint: string;
+      readonly promise: Promise<RemoteEntry>;
+      readonly maintenanceCut?: HostMaintenanceCut;
+    }
   >();
   /** Every dial remains visible until its scope has settled, even if superseded. */
   private readonly inFlight = new Set<Promise<RemoteEntry>>();
+  /** Host provenance lets one maintenance cut drain only its target's dials. */
+  private readonly inFlightHosts = new Map<Promise<RemoteEntry>, string>();
+  /** Command Center cuts outlive target sockets and Remote process restarts. */
+  private readonly maintenanceCuts = new Map<string, HostMaintenanceCut>();
   /** Once shutdown begins, this router cannot acquire another remote authority. */
   private quiescing = false;
   private unsubscribed = false;
   private generation = 0;
   private readonly unsubscribeHosts: () => void;
   private readonly shutdownDeadlineMs: number;
+  private readonly maintenanceDeadlineMs: number;
   private drainFlight: Promise<TerminalRouterShutdownReceipt> | undefined;
   private readonly diagnostics: string[] = [];
 
@@ -171,6 +276,10 @@ export class TerminalRouter extends EventEmitter {
     this.shutdownDeadlineMs = boundedRuntimeValue(
       runtime.shutdownDeadlineMs,
       ROUTER_SHUTDOWN_DEADLINE_MS,
+    );
+    this.maintenanceDeadlineMs = boundedRuntimeValue(
+      runtime.maintenanceDeadlineMs,
+      ROUTER_MAINTENANCE_DEADLINE_MS,
     );
     local.on("event", (ev: LocalHostEvent) => this.emit("event", ev));
     this.unsubscribeHosts = subscribeHostsSnapshot(() => {
@@ -184,8 +293,34 @@ export class TerminalRouter extends EventEmitter {
     });
   }
 
-  private assertSessionAdmission(): void {
+  private assertSessionAdmission(hostId?: string): void {
     if (this.quiescing) throw new Error("terminal router is stopping");
+    if (hostId !== undefined && this.maintenanceCuts.has(hostId)) {
+      throw new Error("terminal route admission closed for maintenance");
+    }
+  }
+
+  private routeAdmissionOpen(
+    hostId: string,
+    maintenanceCut?: HostMaintenanceCut,
+  ): boolean {
+    if (this.quiescing) return false;
+    const current = this.maintenanceCuts.get(hostId);
+    if (current === undefined) return maintenanceCut === undefined;
+    return current === maintenanceCut && current.phase === "acquiring";
+  }
+
+  private assertRouteAdmission(
+    hostId: string,
+    maintenanceCut?: HostMaintenanceCut,
+  ): void {
+    if (!this.routeAdmissionOpen(hostId, maintenanceCut)) {
+      throw new Error(
+        this.quiescing
+          ? "terminal router is stopping"
+          : "terminal route admission closed for maintenance",
+      );
+    }
   }
 
   isLocalHostId(hostId: string | undefined | null): boolean {
@@ -197,12 +332,13 @@ export class TerminalRouter extends EventEmitter {
   async create(
     input: LocalHostCreateInput & { hostId?: string },
   ): Promise<TerminalSessionSummary> {
-    this.assertSessionAdmission();
     const hostId = input.hostId?.trim() || "local";
+    this.assertSessionAdmission(hostId);
     if (this.isLocalHostId(hostId)) {
       return this.local.create({ ...input, hostId: "local" });
     }
     const client = await this.ensureRemoteClient(hostId);
+    this.assertRouteAdmission(hostId);
     const summary = await client.create({
       bindingId: input.bindingId,
       launch: input.launch as TerminalLaunch | undefined,
@@ -217,9 +353,12 @@ export class TerminalRouter extends EventEmitter {
   }
 
   async list(hostId?: string): Promise<readonly TerminalSessionSummary[]> {
+    const normalizedHostId = hostId?.trim();
+    if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) return [];
     if (!hostId || this.isLocalHostId(hostId)) return this.local.list();
     try {
       const c = await this.ensureRemoteClient(hostId);
+      this.assertRouteAdmission(hostId);
       return (await c.list()).map((s) => ({ ...s, hostId }));
     } catch {
       return [];
@@ -249,9 +388,14 @@ export class TerminalRouter extends EventEmitter {
     bindingId: string,
     hostId?: string,
   ): Promise<TerminalSessionSummary | undefined> {
+    const normalizedHostId = hostId?.trim();
+    if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) {
+      return undefined;
+    }
     if (!hostId || this.isLocalHostId(hostId)) return this.local.get(bindingId);
     try {
       const c = await this.ensureRemoteClient(hostId);
+      this.assertRouteAdmission(hostId);
       const s = await c.get(bindingId);
       return s ? { ...s, hostId } : undefined;
     } catch {
@@ -261,9 +405,12 @@ export class TerminalRouter extends EventEmitter {
 
   async kill(bindingId: string, hostId?: string): Promise<boolean> {
     if (this.quiescing) return false;
+    const normalizedHostId = hostId?.trim();
+    if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) return false;
     if (!hostId || this.isLocalHostId(hostId)) return this.local.kill(bindingId);
     try {
       const c = await this.ensureRemoteClient(hostId);
+      this.assertRouteAdmission(hostId);
       return await c.kill(bindingId);
     } catch {
       return false;
@@ -275,12 +422,14 @@ export class TerminalRouter extends EventEmitter {
     ref: { canvasName?: string; nodeId?: string } | null,
     hostId?: string,
   ): Promise<void> {
-    this.assertSessionAdmission();
+    const normalizedHostId = hostId?.trim() || "local";
+    this.assertSessionAdmission(normalizedHostId);
     if (!hostId || this.isLocalHostId(hostId)) {
       this.local.bindCanvas(bindingId, ref);
       return;
     }
     const c = await this.ensureRemoteClient(hostId);
+    this.assertRouteAdmission(hostId);
     await c.bindCanvas(bindingId, ref);
   }
 
@@ -294,11 +443,18 @@ export class TerminalRouter extends EventEmitter {
       return { ok: false, message: "terminal router is stopping" };
     }
     const hostId = input.hostId?.trim() || "local";
+    if (this.maintenanceCuts.has(hostId)) {
+      return {
+        ok: false,
+        message: "terminal route admission closed for maintenance",
+      };
+    }
     if (this.isLocalHostId(hostId)) {
       return this.local.attach(input);
     }
     try {
       const entry = await this.ensureRemoteEntry(hostId);
+      this.assertRouteAdmission(hostId);
       const result = await entry.client.attach({
         bindingId: input.bindingId,
         mode: input.mode,
@@ -345,6 +501,8 @@ export class TerminalRouter extends EventEmitter {
 
   async write(lease: ControlLease, data: string, hostId?: string): Promise<boolean> {
     if (this.quiescing) return false;
+    const normalizedHostId = hostId?.trim();
+    if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) return false;
     if (!hostId || this.isLocalHostId(hostId)) return this.local.write(lease, data);
     const entry = await this.currentRemoteEntry(hostId);
     const remoteId = entry?.leaseMap.get(lease.leaseId);
@@ -363,6 +521,8 @@ export class TerminalRouter extends EventEmitter {
     hostId?: string,
   ): Promise<boolean> {
     if (this.quiescing) return false;
+    const normalizedHostId = hostId?.trim();
+    if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) return false;
     if (!hostId || this.isLocalHostId(hostId)) {
       return this.local.resize(lease, cols, rows);
     }
@@ -373,6 +533,219 @@ export class TerminalRouter extends EventEmitter {
       return await entry.client.resize(remoteId, cols, rows);
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Upgrade path: reserve the durable Command Center cut, obtain the target
+   * station's exact zero-session maintenance witness, then retire the entire
+   * route/forward before returning package-mutation authority.
+   */
+  async acquireRemoteHostMaintenance(
+    hostIdInput: string,
+  ): Promise<TerminalRouterMaintenanceAcquireResult> {
+    const cut = this.reserveMaintenanceCut(hostIdInput);
+    let routeRetirementRequired = false;
+    let routeRetirementStarted = false;
+    try {
+      const entry = await this.ensureRemoteEntry(cut.hostId, cut);
+      // A lost response may mean the target acquired its socket-bound cut.
+      // From this point onward the route must be retired before our CC cut can
+      // be removed or an error returned.
+      routeRetirementRequired = true;
+      const admission = await entry.client.acquireMaintenance();
+      if (!admission.acquired) {
+        routeRetirementRequired = false;
+        this.releaseMaintenanceCut(cut);
+        return admission;
+      }
+      if (
+        admission.evidence.activeTerminalSessions !== 0 ||
+        !isTermMaintenanceObservationId(admission.evidence.observationId)
+      ) {
+        throw new Error("terminal maintenance proof was invalid");
+      }
+
+      routeRetirementStarted = true;
+      await this.retireRemoteHostRoute(cut);
+      routeRetirementRequired = false;
+      this.assertMaintenanceTargetCurrent(cut);
+      const evidence = Object.freeze({
+        kind: "remote-zero-work" as const,
+        activeTerminalSessions: 0 as const,
+        observationId: admission.evidence.observationId,
+      });
+      const lease = this.holdMaintenanceCut(cut, evidence);
+      return { acquired: true, evidence, lease };
+    } catch (error) {
+      if (routeRetirementRequired && !routeRetirementStarted) {
+        try {
+          routeRetirementStarted = true;
+          await this.retireRemoteHostRoute(cut);
+          routeRetirementRequired = false;
+        } catch {
+          // Do not reopen a host when a target-side maintenance response or
+          // route close remains ambiguous. Shutdown can still drain it.
+          cut.phase = "poisoned";
+        }
+      }
+      if (routeRetirementRequired) cut.phase = "poisoned";
+      else this.releaseMaintenanceCut(cut);
+      throw error instanceof Error
+        ? error
+        : new Error("terminal route maintenance failed");
+    }
+  }
+
+  /**
+   * First-install path. No terminal socket is dialed because none may exist.
+   * The supplied authority must rerun the fixed package/systemd preflight after
+   * the host cut is installed and bind its receipt to this exact registry
+   * target.
+   */
+  async acquireRemoteHostBootstrapMaintenance(
+    hostIdInput: string,
+    absenceAuthority: TerminalRouterBootstrapAbsenceAuthority,
+  ): Promise<TerminalRouterMaintenanceLease> {
+    const cut = this.reserveMaintenanceCut(hostIdInput);
+    try {
+      await this.retireRemoteHostRoute(cut);
+      this.assertMaintenanceTargetCurrent(cut);
+      const target = Object.freeze({
+        hostId: cut.hostId,
+        endpoint: cut.endpoint,
+      });
+      const proofFlight = Promise.resolve().then(() =>
+        absenceAuthority.prove(target)
+      );
+      const deadline = performance.now() + this.maintenanceDeadlineMs;
+      const proofOutcome = await allSettledBefore([proofFlight], deadline);
+      if (
+        proofOutcome.timedOut ||
+        proofOutcome.outcomes[0]?.status !== "fulfilled" ||
+        !isExactBootstrapAbsenceReceipt(
+          proofOutcome.outcomes[0].value,
+          target,
+        )
+      ) {
+        throw new Error("remote bootstrap absence proof was denied");
+      }
+      this.assertMaintenanceTargetCurrent(cut);
+      return this.holdMaintenanceCut(
+        cut,
+        Object.freeze({
+          kind: "bootstrap-package-absent" as const,
+          packageState: "absent" as const,
+          unitState: "not-found" as const,
+        }),
+      );
+    } catch (error) {
+      this.releaseMaintenanceCut(cut);
+      throw error instanceof Error
+        ? error
+        : new Error("remote bootstrap maintenance failed");
+    }
+  }
+
+  private reserveMaintenanceCut(hostIdInput: string): HostMaintenanceCut {
+    const hostId = hostIdInput.trim();
+    if (this.quiescing) throw new Error("terminal router is stopping");
+    if (hostId.length === 0 || this.maintenanceCuts.has(hostId)) {
+      throw new Error("terminal route maintenance unavailable");
+    }
+    const host = findHostById(hostId);
+    if (!host || host.kind !== "remote" || !host.endpoint) {
+      throw new Error("terminal route maintenance requires a remote host");
+    }
+    const cut: HostMaintenanceCut = {
+      hostId,
+      endpoint: host.endpoint,
+      generation: this.generation,
+      phase: "acquiring",
+    };
+    this.maintenanceCuts.set(hostId, cut);
+    return cut;
+  }
+
+  private assertMaintenanceTargetCurrent(cut: HostMaintenanceCut): void {
+    if (
+      this.quiescing ||
+      this.maintenanceCuts.get(cut.hostId) !== cut ||
+      cut.phase !== "acquiring"
+    ) {
+      throw new Error("terminal route maintenance was revoked");
+    }
+    const current = findHostById(cut.hostId);
+    if (
+      current?.kind !== "remote" ||
+      current.endpoint !== cut.endpoint ||
+      this.generation !== cut.generation
+    ) {
+      throw new Error("terminal route maintenance target changed");
+    }
+  }
+
+  private holdMaintenanceCut(
+    cut: HostMaintenanceCut,
+    evidence: TerminalRouterMaintenanceEvidence,
+  ): TerminalRouterMaintenanceLease {
+    this.assertMaintenanceTargetCurrent(cut);
+    let lease!: TerminalRouterMaintenanceLease;
+    lease = Object.freeze({
+      evidence,
+      release: () =>
+        cut.lease === lease && this.releaseMaintenanceCut(cut),
+    }) as TerminalRouterMaintenanceLease;
+    cut.phase = "held";
+    cut.lease = lease;
+    return lease;
+  }
+
+  private releaseMaintenanceCut(cut: HostMaintenanceCut): boolean {
+    if (this.maintenanceCuts.get(cut.hostId) !== cut) return false;
+    this.maintenanceCuts.delete(cut.hostId);
+    cut.phase = "retired";
+    cut.lease = undefined;
+    return true;
+  }
+
+  /**
+   * Fixed-point target-only drain. It closes clients and SSH-forward scopes,
+   * never remote sessions. Superseded dials remain visible until their own
+   * cleanup settles.
+   */
+  private async retireRemoteHostRoute(cut: HostMaintenanceCut): Promise<void> {
+    const deadline = performance.now() + this.maintenanceDeadlineMs;
+    for (;;) {
+      if (
+        this.quiescing ||
+        this.maintenanceCuts.get(cut.hostId) !== cut
+      ) {
+        throw new Error("terminal route maintenance was revoked");
+      }
+      // A pre-cut dial captured this map slot in its admission predicate.
+      // Removing the slot makes that predicate fail before it can publish.
+      this.connecting.delete(cut.hostId);
+      const work: Promise<unknown>[] = [];
+      const entry = this.remotes.get(cut.hostId);
+      if (entry !== undefined) {
+        work.push(this.closeRemoteEntry(cut.hostId, entry));
+      }
+      for (const [flight, hostId] of this.inFlightHosts) {
+        if (hostId === cut.hostId) work.push(flight);
+      }
+      if (
+        work.length === 0 &&
+        this.remotes.get(cut.hostId) === undefined &&
+        ![...this.inFlightHosts.values()].includes(cut.hostId)
+      ) {
+        return;
+      }
+      const outcome = await allSettledBefore(work, deadline);
+      if (outcome.timedOut || performance.now() >= deadline) {
+        throw new Error("terminal remote route retirement timed out");
+      }
+      await wait(Math.min(5, Math.max(0, deadline - performance.now())));
     }
   }
 
@@ -391,6 +764,11 @@ export class TerminalRouter extends EventEmitter {
   beginShutdown(): void {
     if (this.quiescing) return;
     this.quiescing = true;
+    for (const cut of this.maintenanceCuts.values()) {
+      cut.phase = "retired";
+      cut.lease = undefined;
+    }
+    this.maintenanceCuts.clear();
     if (!this.unsubscribed) {
       this.unsubscribed = true;
       this.unsubscribeHosts();
@@ -532,8 +910,11 @@ export class TerminalRouter extends EventEmitter {
     return (await this.ensureRemoteEntry(hostId)).client;
   }
 
-  private async ensureRemoteEntry(hostId: string): Promise<RemoteEntry> {
-    if (this.quiescing) throw new Error("terminal router is stopping");
+  private async ensureRemoteEntry(
+    hostId: string,
+    maintenanceCut?: HostMaintenanceCut,
+  ): Promise<RemoteEntry> {
+    this.assertRouteAdmission(hostId, maintenanceCut);
     const host = findHostById(hostId);
     if (!host || host.kind !== "remote" || !host.endpoint) {
       const stale = this.remotes.get(hostId);
@@ -544,26 +925,41 @@ export class TerminalRouter extends EventEmitter {
     const existing = this.remotes.get(hostId);
     if (existing) {
       if (existing.endpoint === endpoint && existing.generation === this.generation) {
+        this.assertRouteAdmission(hostId, maintenanceCut);
         return existing;
       }
       await this.closeRemoteEntry(hostId, existing);
+      this.assertRouteAdmission(hostId, maintenanceCut);
     }
     const inflight = this.connecting.get(hostId);
-    if (inflight?.endpoint === endpoint) return inflight.promise;
+    if (
+      inflight?.endpoint === endpoint &&
+      inflight.maintenanceCut === maintenanceCut
+    ) {
+      return inflight.promise;
+    }
     if (inflight) this.connecting.delete(hostId);
 
     let promise!: Promise<RemoteEntry>;
     const generation = this.generation;
     const dialing = this.connectRemote(hostId, endpoint, generation, () =>
-      !this.quiescing &&
+      this.routeAdmissionOpen(hostId, maintenanceCut) &&
       this.connecting.get(hostId)?.promise === promise &&
       findHostById(hostId)?.kind === "remote" &&
       findHostById(hostId)?.endpoint === endpoint &&
       generation === this.generation,
     );
-    promise = dialing.finally(() => this.inFlight.delete(promise));
+    promise = dialing.finally(() => {
+      this.inFlight.delete(promise);
+      this.inFlightHosts.delete(promise);
+    });
     this.inFlight.add(promise);
-    this.connecting.set(hostId, { endpoint, promise });
+    this.inFlightHosts.set(promise, hostId);
+    this.connecting.set(hostId, {
+      endpoint,
+      promise,
+      ...(maintenanceCut === undefined ? {} : { maintenanceCut }),
+    });
     try {
       return await promise;
     } finally {
@@ -696,6 +1092,10 @@ export class TerminalRouter extends EventEmitter {
   private async currentRemoteEntry(hostId: string): Promise<RemoteEntry | undefined> {
     const entry = this.remotes.get(hostId);
     if (!entry) return undefined;
+    if (this.maintenanceCuts.has(hostId)) {
+      await this.closeRemoteEntry(hostId, entry).catch(() => undefined);
+      return undefined;
+    }
     const host = findHostById(hostId);
     if (
       host?.kind === "remote" &&
