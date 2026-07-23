@@ -3,14 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  pullRecordFromResult,
   configureRecordFromResult,
   deployRecordFromResult,
 } from "../src/shared/station-status";
+import { canvasPullResult } from "../src/shared/canvas-pull";
 import {
   readStationStatus,
+  recordStationPull,
   recordStationConfigure,
   recordStationDeployment,
   recordStationKernel,
+  subscribeStationStatus,
 } from "../src/main/vellum/station-status-store";
 
 describe("station status deployment persistence", () => {
@@ -89,6 +93,45 @@ describe("station status deployment persistence", () => {
     const status = await readStationStatus();
     expect(status.deployments?.studio).toEqual(deployment);
     expect(status.lastConfigure).toEqual(otherConfigure);
+  });
+
+  it("publishes typed status changes only after their atomic write commits", async () => {
+    const observed: string[] = [];
+    const unsubscribe = subscribeStationStatus((change) => {
+      observed.push(
+        `${change.kind}:${change.current.lastPull?.status ?? "none"}:${change.current.kernel?.armedRegionCount ?? "none"}`,
+      );
+    });
+    try {
+      await recordStationPull(
+        pullRecordFromResult(
+          canvasPullResult({
+            ok: false,
+            status: "unreachable",
+            detail: "offline",
+            commandCenterRef: "command",
+            pulled: [],
+            failed: [],
+            keptLocal: true,
+          }),
+        ),
+      );
+      await recordStationKernel({
+        observedAt: "2026-07-23T12:00:00.000Z",
+        armedRegionCount: 2,
+        orphanedArmingCount: 0,
+      });
+    } finally {
+      unsubscribe();
+    }
+    expect(observed).toEqual([
+      "pull:unreachable:none",
+      "kernel:unreachable:2",
+    ]);
+    await expect(readStationStatus()).resolves.toMatchObject({
+      lastPull: { status: "unreachable" },
+      kernel: { armedRegionCount: 2 },
+    });
   });
 
   it("persists only the bounded kernel heartbeat and keeps the status file owner-only", async () => {

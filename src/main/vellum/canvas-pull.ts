@@ -24,6 +24,7 @@ import {
 } from "@shared/canvas-pull";
 import { pullRecordFromResult } from "@shared/station-status";
 import { applyMirrorLaw, decodeCanvasDoc, serializeCanvas } from "@shared/canvas";
+import type { StationSettings } from "@shared/settings";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { SettingsService } from "./settings/service";
 import { HostsService } from "./hosts/service";
@@ -33,6 +34,11 @@ import {
   ensureCanvasesDir,
 } from "./canvases";
 import { recordStationPull } from "./station-status-store";
+import {
+  makeStationPullAdmissionWitness,
+  readLocalCanvasMirrorWitness,
+  stationSettingsWitness,
+} from "./station-witness";
 import {
   makeRemoteCommand,
   parseSshEndpoint,
@@ -45,6 +51,25 @@ import { SshTransport } from "./ssh/service";
 const PROBE_TIMEOUT_MS = 10_000;
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
+
+const pullStationContext = Symbol("vellum.pull-station-context");
+type StationBoundCanvasPullResult = CanvasPullResult & {
+  readonly [pullStationContext]?: StationSettings;
+};
+
+const stationBoundPullResult = (
+  station: StationSettings,
+  partial: Parameters<typeof canvasPullResult>[0],
+): StationBoundCanvasPullResult => {
+  const result = canvasPullResult(partial) as StationBoundCanvasPullResult;
+  Object.defineProperty(result, pullStationContext, {
+    value: Object.freeze({ ...station }),
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  return result;
+};
 
 const classifySshFailure = (message: string): string => {
   if (/Permission denied|publickey|Authentication failed/i.test(message)) {
@@ -296,7 +321,7 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
     const ref = station.commandCenterRef;
 
     if (station.role !== "remote") {
-      return canvasPullResult({
+      return stationBoundPullResult(station, {
         ok: false,
         status: "skipped_not_remote",
         detail:
@@ -316,7 +341,7 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
 
     const resolved = resolveCommandCenterEndpoint(ref, hosts);
     if (!resolved.ok) {
-      return canvasPullResult({
+      return stationBoundPullResult(station, {
         ok: false,
         status: "misconfigured",
         detail: resolved.detail,
@@ -329,7 +354,7 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
 
     const endpointEffect = yield* Effect.either(parseSshEndpoint(resolved.endpoint));
     if (endpointEffect._tag === "Left") {
-      return canvasPullResult({
+      return stationBoundPullResult(station, {
         ok: false,
         status: "misconfigured",
         detail: `Invalid Command Center endpoint: ${endpointEffect.left.message}`,
@@ -356,7 +381,7 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
       ),
     );
     if (warmResult._tag === "Left") {
-      return canvasPullResult({
+      return stationBoundPullResult(station, {
         ok: false,
         status: "unreachable",
         detail: `Command Center unreachable — kept last local canvases. ${formatUnknown(warmResult.left)}`,
@@ -370,7 +395,7 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
 
     const homeResult = yield* Effect.either(ssh.run(homeDirectoryLookup(endpoint)));
     if (homeResult._tag === "Left") {
-      return canvasPullResult({
+      return stationBoundPullResult(station, {
         ok: false,
         status: "unreachable",
         detail: `Command Center unreachable — kept last local canvases. ${formatUnknown(homeResult.left)}`,
@@ -384,7 +409,7 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
 
     const homePath = homeResult.right.stdout.trim();
     if (!homePath.startsWith("/")) {
-      return canvasPullResult({
+      return stationBoundPullResult(station, {
         ok: false,
         status: "unreachable",
         detail: `Command Center home not readable (got ${JSON.stringify(homePath)}) — kept last local canvases`,
@@ -402,7 +427,7 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
       listRemoteCanvasNames(ssh, endpoint, remoteCanvasesDir),
     );
     if (listResult._tag === "Left") {
-      return canvasPullResult({
+      return stationBoundPullResult(station, {
         ok: false,
         status: "unreachable",
         detail: `Failed to list Command Center canvases — kept last local. ${formatUnknown(listResult.left)}`,
@@ -476,7 +501,7 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
     }
 
     if (names.length === 0 && failed.length === 0) {
-      return canvasPullResult({
+      return stationBoundPullResult(station, {
         ok: true,
         status: "empty",
         detail:
@@ -491,7 +516,7 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
     }
 
     if (pulled.length === 0 && failed.length > 0) {
-      return canvasPullResult({
+      return stationBoundPullResult(station, {
         ok: false,
         status: "partial",
         detail:
@@ -506,7 +531,7 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
     }
 
     if (failed.length > 0) {
-      return canvasPullResult({
+      return stationBoundPullResult(station, {
         ok: false,
         status: "partial",
         detail:
@@ -521,7 +546,7 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
     }
 
     const changed = pulled.filter((row) => row.changed).length;
-    return canvasPullResult({
+    return stationBoundPullResult(station, {
       ok: true,
       status: "ok",
       detail:
@@ -547,9 +572,50 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
       }),
     ),
   ),
-  Effect.tap((result) =>
-    Effect.promise(() =>
-      recordStationPull(pullRecordFromResult(result)).catch(() => undefined),
-    ),
+  Effect.tap((result: StationBoundCanvasPullResult) =>
+    Effect.gen(function* () {
+      const settingsSvc = yield* SettingsService;
+      const stationAtPull = result[pullStationContext];
+      let admission: ReturnType<typeof makeStationPullAdmissionWitness> | undefined;
+      const complete =
+        result.ok &&
+        !result.keptLocal &&
+        result.failed.length === 0 &&
+        (result.status === "ok" || result.status === "empty");
+
+      if (complete && stationAtPull?.role === "remote") {
+        const currentSettings = yield* Effect.either(settingsSvc.get);
+        if (
+          currentSettings._tag === "Right" &&
+          currentSettings.right.station.role === "remote" &&
+          stationSettingsWitness(currentSettings.right.station) ===
+            stationSettingsWitness(stationAtPull) &&
+          result.commandCenterRef === stationAtPull.commandCenterRef
+        ) {
+          const mirror = yield* Effect.either(
+            Effect.tryPromise({
+              try: readLocalCanvasMirrorWitness,
+              catch: (error) =>
+                error instanceof Error ? error : new Error(String(error)),
+            }),
+          );
+          if (
+            mirror._tag === "Right" &&
+            mirror.right.canvasCount === result.pulled.length
+          ) {
+            admission = makeStationPullAdmissionWitness(
+              stationAtPull,
+              mirror.right,
+            );
+          }
+        }
+      }
+
+      yield* Effect.promise(() =>
+        recordStationPull(pullRecordFromResult(result, admission)).catch(
+          () => undefined,
+        ),
+      );
+    }),
   ),
 );

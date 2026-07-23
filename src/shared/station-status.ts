@@ -28,6 +28,19 @@ export const STATION_PULL_STALE_AFTER_MS = 24 * 60 * 60 * 1_000;
  */
 export const STATION_KERNEL_STALE_AFTER_MS = 2 * 60 * 1_000;
 
+export const STATION_PULL_ADMISSION_VERSION = 1 as const;
+
+export type StationPullAdmissionWitness = {
+  readonly version: typeof STATION_PULL_ADMISSION_VERSION;
+  /** Physical Remote identity at the successful pull boundary. */
+  readonly stationHostId: string;
+  /** SHA-256 of the complete station configuration tuple. */
+  readonly stationConfigSha256: string;
+  /** SHA-256 of canonical names + exact bytes in the local canvas mirror. */
+  readonly canvasMirrorSha256: string;
+  readonly canvasCount: number;
+};
+
 export type StationPullRecord = {
   readonly at: string;
   readonly status: CanvasPullStatus;
@@ -37,6 +50,12 @@ export type StationPullRecord = {
   readonly keptLocal: boolean;
   readonly pulledCount: number;
   readonly failedCount: number;
+  /**
+   * Present only after a complete Remote pull committed and the local mirror
+   * was observed under the same station configuration. Descriptive legacy
+   * pull rows intentionally decode without it and are never admission proof.
+   */
+  readonly admission?: StationPullAdmissionWitness;
 };
 
 export type StationConfigureRecord = {
@@ -118,9 +137,41 @@ const isFiniteNonNegativeInteger = (value: unknown): value is number =>
   Number.isInteger(value) &&
   value >= 0;
 
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
+
+const decodePullAdmissionWitness = (
+  value: unknown,
+): StationPullAdmissionWitness | undefined => {
+  if (
+    !isRecord(value) ||
+    value.version !== STATION_PULL_ADMISSION_VERSION ||
+    typeof value.stationHostId !== "string" ||
+    value.stationHostId.length === 0 ||
+    value.stationHostId.length > 64 ||
+    typeof value.stationConfigSha256 !== "string" ||
+    !SHA256_HEX_PATTERN.test(value.stationConfigSha256) ||
+    typeof value.canvasMirrorSha256 !== "string" ||
+    !SHA256_HEX_PATTERN.test(value.canvasMirrorSha256) ||
+    !isFiniteNonNegativeInteger(value.canvasCount)
+  ) {
+    return undefined;
+  }
+  return {
+    version: STATION_PULL_ADMISSION_VERSION,
+    stationHostId: value.stationHostId,
+    stationConfigSha256: value.stationConfigSha256,
+    canvasMirrorSha256: value.canvasMirrorSha256,
+    canvasCount: value.canvasCount,
+  };
+};
+
 const decodePullRecord = (value: unknown): StationPullRecord | undefined => {
   if (!isRecord(value)) return undefined;
   const status = value.status;
+  const admission =
+    value.admission === undefined
+      ? undefined
+      : decodePullAdmissionWitness(value.admission);
   if (
     typeof value.at !== "string" ||
     !["ok", "partial", "empty", "unreachable", "misconfigured", "skipped_not_remote"].includes(
@@ -131,7 +182,8 @@ const decodePullRecord = (value: unknown): StationPullRecord | undefined => {
     typeof value.commandCenterRef !== "string" ||
     typeof value.keptLocal !== "boolean" ||
     !isFiniteNonNegativeInteger(value.pulledCount) ||
-    !isFiniteNonNegativeInteger(value.failedCount)
+    !isFiniteNonNegativeInteger(value.failedCount) ||
+    (value.admission !== undefined && admission === undefined)
   ) {
     return undefined;
   }
@@ -144,6 +196,7 @@ const decodePullRecord = (value: unknown): StationPullRecord | undefined => {
     keptLocal: value.keptLocal,
     pulledCount: value.pulledCount,
     failedCount: value.failedCount,
+    ...(admission === undefined ? {} : { admission }),
   };
 };
 
@@ -323,7 +376,10 @@ export const decodeStationStatusDocument = (
   };
 };
 
-export const pullRecordFromResult = (result: CanvasPullResult): StationPullRecord => ({
+export const pullRecordFromResult = (
+  result: CanvasPullResult,
+  admission?: StationPullAdmissionWitness,
+): StationPullRecord => ({
   at: result.pulledAt,
   status: result.status,
   ok: result.ok,
@@ -332,6 +388,7 @@ export const pullRecordFromResult = (result: CanvasPullResult): StationPullRecor
   keptLocal: result.keptLocal,
   pulledCount: result.pulled.length,
   failedCount: result.failed.length,
+  ...(admission === undefined ? {} : { admission }),
 });
 
 export const configureRecordFromResult = (input: {

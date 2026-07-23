@@ -45,19 +45,57 @@ const writeStationStatus = async (doc: StationStatusDocument): Promise<void> => 
 
 let stationStatusWriteChain: Promise<void> = Promise.resolve();
 
+export type StationStatusChangeKind =
+  | "pull"
+  | "configure"
+  | "kernel"
+  | "deployment";
+
+export type StationStatusChange = {
+  readonly kind: StationStatusChangeKind;
+  readonly previous: StationStatusDocument;
+  readonly current: StationStatusDocument;
+};
+
+const stationStatusListeners = new Set<
+  (change: StationStatusChange) => void
+>();
+
+export const subscribeStationStatus = (
+  listener: (change: StationStatusChange) => void,
+): (() => void) => {
+  stationStatusListeners.add(listener);
+  return () => stationStatusListeners.delete(listener);
+};
+
+const notifyStationStatus = (change: StationStatusChange): void => {
+  for (const listener of stationStatusListeners) {
+    try {
+      listener(change);
+    } catch {
+      // The owner-local atomic write already committed. Continue notifying
+      // independent authority consumers without leaking receipt contents.
+      console.warn("[vellum:station-status] listener failed");
+    }
+  }
+};
+
 const updateStationStatus = (
+  kind: StationStatusChangeKind,
   update: (current: StationStatusDocument) => StationStatusDocument,
 ): Promise<void> => {
   const run = stationStatusWriteChain.then(async () => {
     const current = await readStationStatus();
-    await writeStationStatus(update(current));
+    const next = update(current);
+    await writeStationStatus(next);
+    notifyStationStatus({ kind, previous: current, current: next });
   });
   stationStatusWriteChain = run.catch(() => undefined);
   return run;
 };
 
 export const recordStationPull = async (pull: StationPullRecord): Promise<void> => {
-  await updateStationStatus((current) => ({
+  await updateStationStatus("pull", (current) => ({
     ...current,
     version: STATION_STATUS_VERSION,
     lastPull: pull,
@@ -67,7 +105,7 @@ export const recordStationPull = async (pull: StationPullRecord): Promise<void> 
 export const recordStationConfigure = async (
   configure: StationConfigureRecord,
 ): Promise<void> => {
-  await updateStationStatus((current) => ({
+  await updateStationStatus("configure", (current) => ({
     ...current,
     version: STATION_STATUS_VERSION,
     lastConfigure: configure,
@@ -77,7 +115,7 @@ export const recordStationConfigure = async (
 export const recordStationKernel = async (
   kernel: StationKernelRecord,
 ): Promise<void> => {
-  await updateStationStatus((current) => ({
+  await updateStationStatus("kernel", (current) => ({
     ...current,
     version: STATION_STATUS_VERSION,
     kernel,
@@ -88,7 +126,7 @@ export const recordStationDeployment = async (
   deployment: StationDeployRecord,
   configure: StationConfigureRecord,
 ): Promise<void> => {
-  await updateStationStatus((current) => {
+  await updateStationStatus("deployment", (current) => {
     const previous = current.deployments?.[deployment.hostId];
     const sameTarget = previous?.endpoint === deployment.endpoint;
     const packageUnchanged =

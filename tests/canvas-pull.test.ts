@@ -16,6 +16,11 @@ import {
   preparePulledCanvasBody,
   pullCanvasesFromCommandCenter,
 } from "../src/main/vellum/canvas-pull";
+import { readStationStatus } from "../src/main/vellum/station-status-store";
+import {
+  readLocalCanvasMirrorWitness,
+  stationSettingsWitness,
+} from "../src/main/vellum/station-witness";
 import { SettingsService, makeSettingsService } from "../src/main/vellum/settings/service";
 import { HostsService, makeHostsService } from "../src/main/vellum/hosts/service";
 import { makeHostsRegistry } from "../src/main/vellum/hosts/registry";
@@ -299,6 +304,10 @@ const makePullRuntime = async (input: {
   );
 
   process.env.VELLUM_CANVASES_DIR = canvasesDir;
+  process.env.VELLUM_STATION_STATUS_PATH = join(
+    settingsDir,
+    "station-status.json",
+  );
 
   const settingsSvc = makeSettingsService(settingsPath, {
     probeSupervised: async () => "absent",
@@ -320,6 +329,7 @@ const makePullRuntime = async (input: {
 describe("pullCanvasesFromCommandCenter", () => {
   afterEach(() => {
     delete process.env.VELLUM_CANVASES_DIR;
+    delete process.env.VELLUM_STATION_STATUS_PATH;
   });
 
   it("skips when station is not Remote", async () => {
@@ -392,6 +402,26 @@ describe("pullCanvasesFromCommandCenter", () => {
       "untouched",
     );
     expect(result.detail).toContain("1 stale local removed");
+    const mirror = await readLocalCanvasMirrorWitness();
+    await expect(readStationStatus()).resolves.toMatchObject({
+      lastPull: {
+        ok: true,
+        status: "ok",
+        keptLocal: false,
+        failedCount: 0,
+        admission: {
+          stationHostId: "local",
+          stationConfigSha256: stationSettingsWitness({
+            role: "remote",
+            hostId: "local",
+            commandCenterRef: "cc-laptop",
+            supervisedPreferred: true,
+          }),
+          canvasMirrorSha256: mirror.sha256,
+          canvasCount: 1,
+        },
+      },
+    });
     await runtime.dispose();
   });
 

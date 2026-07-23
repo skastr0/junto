@@ -41,6 +41,11 @@ describe("browser startup recovery gate", () => {
     expect(grant).toContain(
       "admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId)",
     );
+    expect(grant).toContain("admitStation: stationAdmission.admit");
+    expect(activation).toContain(
+      "const stationUnsubscribe = stationAdmission.subscribe(() =>",
+    );
+    expect(activation).toContain("edgeGrant.clear()");
   });
 
   it("creates the headless native parent before composition and injects the attachment target", () => {

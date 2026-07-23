@@ -175,6 +175,10 @@ describe("browser edge-grant process-bind dual admit", () => {
     identity?: {
       readonly processMap: ProcessIdentityMap;
       readonly readPeerPid: PeerPidReader;
+      readonly admitStation?: () => Promise<
+        | { readonly ok: true; readonly maxTtlMs?: number }
+        | { readonly ok: false; readonly message: string }
+      >;
     },
   ) => {
     let sessionCounter = 0;
@@ -363,6 +367,7 @@ describe("browser edge-grant process-bind dual admit", () => {
           ? { ok: true, data: { ...TARGET, hostId: "render" } }
           : { ok: false, code: "not_found", message: "missing" },
       station: authority.station,
+      admitStation: async () => ({ ok: true }),
       admitBrowserHost: (hostId) => {
         const host = authority.findHost(hostId);
         return host === undefined
@@ -408,6 +413,7 @@ describe("browser edge-grant process-bind dual admit", () => {
           ? { ok: true, data: { ...TARGET, hostId: "studio" } }
           : { ok: false, code: "not_found", message: "missing" },
       station: authority.station,
+      admitStation: async () => ({ ok: true }),
       admitBrowserHost: (hostId) => {
         const host = authority.findHost(hostId);
         return host === undefined
@@ -672,6 +678,35 @@ describe("browser edge-grant process-bind dual admit", () => {
         admission.expectedPrincipal,
       ),
     ).toEqual({ ok: false, denial: "unauthorized" });
+    lease.release();
+  });
+
+  it("caps Remote edge authority to the remaining pull freshness", async () => {
+    await mkdir(join(root, "canvases"), { recursive: true });
+    const doc = canvasDoc(true);
+    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
+    const { edgeGrant, capabilities } = makeStack(doc, undefined, {
+      processMap: makeProcessIdentityMap(),
+      readPeerPid: () => process.pid,
+      admitStation: async () => ({ ok: true, maxTtlMs: 5_000 }),
+    });
+    const before = Date.now();
+    const admission = await edgeGrant.admitPrincipal({
+      kind: "agent",
+      agentKey: "local:default",
+    });
+    expect(admission.ok).toBe(true);
+    if (!admission.ok) return;
+    const lease = capabilities.authorize(
+      admission.secret,
+      { action: "pages" },
+      {
+        requestId: "00000000-0000-4000-8000-000000000077",
+        expectedPrincipal: admission.expectedPrincipal,
+      },
+    );
+    expect(lease.expiresAt).toBeGreaterThan(before + 3_000);
+    expect(lease.expiresAt).toBeLessThanOrEqual(before + 4_100);
     lease.release();
   });
 

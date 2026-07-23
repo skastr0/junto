@@ -97,6 +97,7 @@ beforeAll(async () => {
         }
       : { ok: false, code: "not_found", message: "missing page" },
     station: remoteBrowserAuthority.station,
+    admitStation: async () => ({ ok: true }),
     admitBrowserHost: (hostId) =>
       admitBrowserHostCapability(hostId, remoteBrowserAuthority),
   });

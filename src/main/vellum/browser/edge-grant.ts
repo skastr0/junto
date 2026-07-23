@@ -22,9 +22,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Either } from "effect";
 import { decodeCanvasDoc } from "@shared/canvas";
-import { resolveNodeHostId } from "@shared/station";
+import { resolveNodeHostId, type StationRole } from "@shared/station";
 import { parseNodeRef } from "@shared/node-ref";
 import type { BrowserHostCapabilityAdmission } from "./host-capability";
+import type { BrowserStationAdmissionResult } from "./station-admission";
 
 // Edge-grant admission for process-bound callers:
 //   peer PID → registered principal → canvas agent|herdr node → edges → pages
@@ -34,6 +35,8 @@ import type { BrowserHostCapabilityAdmission } from "./host-capability";
 export const EDGE_GRANT_TTL_MS = 15 * 60 * 1_000;
 export const EDGE_GRANT_MAX_USES = 4_096;
 export const EDGE_GRANT_MAX_IN_FLIGHT = 8;
+/** Conservative issue-latency guard so registry expiry never crosses pull EOL. */
+export const EDGE_GRANT_STATION_EXPIRY_GUARD_MS = 1_000;
 
 const exactHttpOrigin = (value: string): string | undefined => {
   try {
@@ -57,6 +60,7 @@ export type EdgeGrantDenial =
   | "caller_wrong_kind"
   | "not_connected"
   | "physical_host_mismatch"
+  | "station_not_ready"
   | "canvas_unreadable"
   | "capacity"
   | "closed";
@@ -105,8 +109,15 @@ export interface EdgeGrantDependencies {
    * make station identity and advertised browser capability a pre-mint
    * condition, rather than allowing a short-lived secret for a foreign page.
    */
-  readonly station: () => { readonly hostId: string } | undefined;
+  readonly station: () =>
+    | { readonly hostId: string; readonly role: StationRole }
+    | undefined;
   readonly admitBrowserHost: (hostId: string) => BrowserHostCapabilityAdmission;
+  /**
+   * Private Remote freshness authority. Omission is accepted only for a local
+   * Command Center; a Remote can never fall through to ambient local state.
+   */
+  readonly admitStation?: () => Promise<BrowserStationAdmissionResult>;
   /** Optional single-doc loader override for tests. */
   readonly readCanvas?: (name: string) => Promise<CanvasDoc | undefined>;
 }
@@ -316,6 +327,25 @@ export const makeEdgeGrantService = (
     return undefined;
   };
 
+  const admitCurrentStation = async (): Promise<BrowserStationAdmissionResult> => {
+    if (dependencies.admitStation !== undefined) {
+      try {
+        return await dependencies.admitStation();
+      } catch {
+        return {
+          ok: false,
+          message: "station browser admission is unavailable",
+        };
+      }
+    }
+    return dependencies.station()?.role === "command-center"
+      ? { ok: true }
+      : {
+          ok: false,
+          message: "Remote browser admission requires a current pull witness",
+        };
+  };
+
   const admitPrincipal = async (
     principal: ProcessPrincipal,
   ): Promise<EdgeGrantResult> => {
@@ -390,6 +420,10 @@ export const makeEdgeGrantService = (
     }
     const targetStationDenial = targetsAdmitPhysicalStation(targets);
     if (targetStationDenial !== undefined) return targetStationDenial;
+    const stationAdmission = await admitCurrentStation();
+    if (!stationAdmission.ok) {
+      return fail("station_not_ready", stationAdmission.message);
+    }
     if (
       lastClearSequence > admissionStartedAt ||
       (canvasInvalidatedAt.get(match.canvasName) ?? 0) > admissionStartedAt
@@ -402,6 +436,22 @@ export const makeEdgeGrantService = (
 
     const cacheKey = processKeyOf(principal);
     const now = wallNow();
+    const effectiveTtlMs = Math.min(
+      ttlMs,
+      stationAdmission.maxTtlMs === undefined
+        ? ttlMs
+        : stationAdmission.maxTtlMs -
+            EDGE_GRANT_STATION_EXPIRY_GUARD_MS,
+    );
+    if (
+      !Number.isSafeInteger(effectiveTtlMs) ||
+      effectiveTtlMs <= 0
+    ) {
+      return fail(
+        "station_not_ready",
+        "station browser admission freshness has expired",
+      );
+    }
     const existing = cache.get(cacheKey);
     if (existing !== undefined) {
       if (
@@ -434,7 +484,7 @@ export const makeEdgeGrantService = (
       grant = dependencies.capabilities.issue(capPrincipal, {
         actions: [...BROWSER_CAPABILITY_ACTIONS],
         targets,
-        ttlMs,
+        ttlMs: effectiveTtlMs,
         maxUses: EDGE_GRANT_MAX_USES,
         maxInFlight: EDGE_GRANT_MAX_IN_FLIGHT,
       });

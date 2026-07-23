@@ -55,6 +55,7 @@ import { electronSecurityPolicyHealthy, packagedElectronObservationHighWaterPath
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 import { startWorkControlServer, type WorkControlServer } from "./vellum/work/control";
 import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
+import { prepareDefaultBrowserStationAdmissionAuthority } from "./vellum/browser/station-admission";
 import { configurePeerPidHelperRoots } from "./vellum/process-identity";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
 import {
@@ -1179,6 +1180,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
               return undefined;
             }
           };
+          const stationAdmission =
+            await prepareDefaultBrowserStationAdmissionAuthority();
           const edgeGrant = makeEdgeGrantService({
             capabilities: composition.registry,
             canvasesDir: join(app.getPath("home"), ".vellum", "canvases"),
@@ -1186,8 +1189,22 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             readCanvas: readCanvasFromCanvases,
             station: () => composition.sessions.stationIdentity(),
             admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId),
+            admitStation: stationAdmission.admit,
           });
-          unsubscribeCanvasEdgeGrants = await AppRuntime.runPromise(
+          let canvasUnsubscribe: (() => void) | undefined;
+          let admissionCleanupRan = false;
+          const stationUnsubscribe = stationAdmission.subscribe(() => {
+            edgeGrant.clear();
+          });
+          unsubscribeCanvasEdgeGrants = () => {
+            if (admissionCleanupRan) return;
+            admissionCleanupRan = true;
+            stationUnsubscribe();
+            stationAdmission.close();
+            canvasUnsubscribe?.();
+            edgeGrant.clear();
+          };
+          const acquiredCanvasUnsubscribe = await AppRuntime.runPromise(
             Effect.flatMap(CanvasesService, (canvases) =>
               Effect.sync(() =>
                 canvases.subscribeChanges((name) => {
@@ -1196,6 +1213,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
               ),
             ),
           );
+          if (admissionCleanupRan) acquiredCanvasUnsubscribe();
+          else canvasUnsubscribe = acquiredCanvasUnsubscribe;
 
           browserControl = await startBrowserControlServer({
             sessions: composition.sessions,
