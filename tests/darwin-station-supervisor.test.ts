@@ -20,7 +20,13 @@ vi.mock("../src/main/vellum/settings/launchctl-runner", () => ({
 
 import { createDarwinStationSupervisor } from "../src/main/vellum/supervision/darwin";
 
-const successful = (stdout = ""): LaunchctlRunResult => ({
+const launchdPrint = (
+  body: string,
+): string => `gui/501/skastr0.vellum = {\n${body}\n}\n`;
+
+const successful = (
+  stdout = launchdPrint("\tstate = not running"),
+): LaunchctlRunResult => ({
   action: "print",
   target: "gui/501/skastr0.vellum",
   stdout,
@@ -54,7 +60,7 @@ beforeEach(() => {
 describe("Darwin station supervisor observation", () => {
   it("identifies the current launchd-owned process without exposing its pid", async () => {
     mocks.printLaunchAgent.mockResolvedValue(
-      successful(`state = running\n\tpid = ${process.pid}\n`),
+      successful(launchdPrint(`\tstate = running\n\tpid = ${process.pid}`)),
     );
     const supervisor = createDarwinStationSupervisor();
 
@@ -75,7 +81,9 @@ describe("Darwin station supervisor observation", () => {
 
   it("distinguishes a foreign supervised process and an inactive job", async () => {
     mocks.printLaunchAgent.mockResolvedValueOnce(
-      successful(`\tpid = ${process.pid + 1}\n`),
+      successful(
+        launchdPrint(`\tstate = running\n\tpid = ${process.pid + 1}`),
+      ),
     );
     const supervisor = createDarwinStationSupervisor();
 
@@ -86,7 +94,7 @@ describe("Darwin station supervisor observation", () => {
     });
 
     mocks.printLaunchAgent.mockResolvedValueOnce(
-      successful("state = waiting\n"),
+      successful(launchdPrint("\tstate = not running")),
     );
     await expect(supervisor.observe()).resolves.toEqual({
       provider: "launchd",
@@ -96,10 +104,15 @@ describe("Darwin station supervisor observation", () => {
   });
 
   it.each([
-    "pid = nope",
-    "pid = 0",
-    "pid = 2147483648",
-    "pid = 7\npid = 8",
+    "",
+    "garbage",
+    launchdPrint("\tpid = 7"),
+    launchdPrint("\tstate = running"),
+    launchdPrint("\tstate = not running\n\tpid = 7"),
+    launchdPrint("\tstate = running\n\tpid = nope"),
+    launchdPrint("\tstate = running\n\tpid = 0"),
+    launchdPrint("\tstate = running\n\tpid = 2147483648"),
+    launchdPrint("\tstate = running\n\tpid = 7\n\tpid = 8"),
   ])("degrades on an ambiguous launchctl pid field: %s", async (stdout) => {
     mocks.printLaunchAgent.mockResolvedValue(successful(stdout));
     const supervisor = createDarwinStationSupervisor();
@@ -109,6 +122,19 @@ describe("Darwin station supervisor observation", () => {
       state: "degraded",
       ownership: "unknown",
       failure: { kind: "invalid-output" },
+    });
+  });
+
+  it("ignores nested state fields while decoding launchd's top-level state", async () => {
+    mocks.printLaunchAgent.mockResolvedValue(successful(launchdPrint(
+      `\tstate = running\n\tpid = ${process.pid}\n\tresource coalition = {\n\t\tstate = active\n\t}`,
+    )));
+    const supervisor = createDarwinStationSupervisor();
+
+    await expect(supervisor.observe()).resolves.toEqual({
+      provider: "launchd",
+      state: "active",
+      ownership: "current",
     });
   });
 

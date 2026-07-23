@@ -66,11 +66,51 @@ const knownAbsentLaunchAgent = (
   result.failure.kind === "exit-nonzero" &&
   result.close?.code === 113 && result.close.signal === null;
 
-const parseLaunchdPid = (stdout: string): ParsedLaunchdPid => {
-  const pidLines = stdout.split(/\r?\n/).filter((line) =>
-    /^\s*pid\s*=/.test(line)
+const parseLaunchdPid = (
+  stdout: string,
+  target: string,
+): ParsedLaunchdPid => {
+  const lines = stdout.split(/\r?\n/);
+  if (lines[0] !== `${target} = {` || lines.at(-1) !== "") {
+    return Object.freeze({
+      kind: "invalid",
+      diagnostic: "launchctl returned a malformed service envelope",
+    });
+  }
+  lines.pop();
+  if (lines.at(-1) !== "}") {
+    return Object.freeze({
+      kind: "invalid",
+      diagnostic: "launchctl returned an unterminated service envelope",
+    });
+  }
+
+  const stateLines = lines.filter((line) => /^\tstate\s*=/.test(line));
+  if (stateLines.length !== 1) {
+    return Object.freeze({
+      kind: "invalid",
+      diagnostic: "launchctl returned an ambiguous top-level state",
+    });
+  }
+  const stateMatch = /^\tstate\s*=\s*([a-z][a-z0-9 -]{0,63})\s*$/.exec(
+    stateLines[0]!,
   );
-  if (pidLines.length === 0) return Object.freeze({ kind: "none" });
+  if (stateMatch === null) {
+    return Object.freeze({
+      kind: "invalid",
+      diagnostic: "launchctl returned a malformed top-level state",
+    });
+  }
+
+  const pidLines = lines.filter((line) => /^\tpid\s*=/.test(line));
+  if (pidLines.length === 0) {
+    return stateMatch[1] === "running"
+      ? Object.freeze({
+        kind: "invalid",
+        diagnostic: "launchctl reported running without a pid",
+      })
+      : Object.freeze({ kind: "none" });
+  }
   if (pidLines.length !== 1) {
     return Object.freeze({
       kind: "invalid",
@@ -78,7 +118,7 @@ const parseLaunchdPid = (stdout: string): ParsedLaunchdPid => {
     });
   }
 
-  const match = /^\s*pid\s*=\s*([1-9]\d*)\s*$/.exec(pidLines[0]!);
+  const match = /^\tpid\s*=\s*([1-9]\d*)\s*$/.exec(pidLines[0]!);
   if (match === null) {
     return Object.freeze({
       kind: "invalid",
@@ -92,6 +132,12 @@ const parseLaunchdPid = (stdout: string): ParsedLaunchdPid => {
     return Object.freeze({
       kind: "invalid",
       diagnostic: "launchctl returned an out-of-range pid field",
+    });
+  }
+  if (stateMatch[1] !== "running") {
+    return Object.freeze({
+      kind: "invalid",
+      diagnostic: "launchctl returned a pid for a non-running service",
     });
   }
   return Object.freeze({ kind: "pid", pid: decoded.right });
@@ -132,7 +178,7 @@ const observeLaunchAgent = async (
     });
   }
 
-  const parsed = parseLaunchdPid(result.stdout);
+  const parsed = parseLaunchdPid(result.stdout, result.target);
   if (parsed.kind === "invalid") {
     return Object.freeze({
       provider: "launchd",
