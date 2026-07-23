@@ -675,6 +675,36 @@ describe("browser edge-grant process-bind dual admit", () => {
     lease.release();
   });
 
+  it("revokes only an exited process binding and remints for its replacement", async () => {
+    await mkdir(join(root, "canvases"), { recursive: true });
+    const doc = canvasDoc(true);
+    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
+    const processMap = makeProcessIdentityMap();
+    const principal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+    expect(processMap.bind(process.pid, principal)).toBe(true);
+    const { edgeGrant, capabilities } = makeStack(doc, undefined, {
+      processMap,
+      readPeerPid: () => process.pid,
+    });
+    const first = await edgeGrant.admitSocket({} as Socket);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const lease = capabilities.authorize(
+      first.secret,
+      { action: "pages" },
+      { requestId: "00000000-0000-4000-8000-000000000099", expectedPrincipal: first.expectedPrincipal },
+    );
+
+    processMap.unbind(process.pid);
+    expect(lease.signal.aborted).toBe(true);
+    expect(capabilities.stats().activeCapabilities).toBe(0);
+    expect(processMap.bind(process.pid, principal)).toBe(true);
+    const replacement = await edgeGrant.admitSocket({} as Socket);
+    expect(replacement.ok).toBe(true);
+    if (replacement.ok) expect(replacement.secret).not.toBe(first.secret);
+    lease.release();
+  });
+
   it("does not mint from a graph invalidated during async admission", async () => {
     await mkdir(join(root, "canvases"), { recursive: true });
     const doc = canvasDoc(true);

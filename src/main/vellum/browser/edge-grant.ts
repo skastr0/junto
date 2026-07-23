@@ -158,6 +158,12 @@ export const makeEdgeGrantService = (
   const cache = new Map<string, CacheEntry>();
   const cacheByCanvas = new Map<string, Set<string>>();
   const capabilityPrincipals = new Map<string, BrowserAutomationPrincipal>();
+  processMap.subscribe((principal) => {
+    if (principal.kind === "terminal") return;
+    const cacheKey = processKeyOf(principal);
+    revokeCacheEntry(cacheKey);
+    capabilityPrincipals.delete(cacheKey);
+  });
   // Admissions cross async document and page-target reads. Record every
   // canvas invalidation even when no cached grant exists yet, so a request
   // that observed an older graph cannot mint authority after an edge delete.

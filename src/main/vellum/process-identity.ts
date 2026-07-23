@@ -57,6 +57,8 @@ export interface ProcessIdentityMap {
     readonly principal: ProcessPrincipal;
     readonly startKey: string;
   }>;
+  /** Main-owned lifecycle signal; callers never provide identity epochs. */
+  readonly subscribe: (listener: (principal: ProcessPrincipal) => void) => () => void;
 }
 
 const samePrincipal = (a: ProcessPrincipal, b: ProcessPrincipal): boolean =>
@@ -98,9 +100,17 @@ export const processAlive = (pid: number): boolean => {
 
 export const makeProcessIdentityMap = (): ProcessIdentityMap => {
   const byPid = new Map<number, BoundRecord>();
+  const listeners = new Set<(principal: ProcessPrincipal) => void>();
+
+  const notify = (principal: ProcessPrincipal): void => {
+    for (const listener of listeners) listener(principal);
+  };
 
   const unbind = (pid: number): void => {
+    const existing = byPid.get(pid);
+    if (existing === undefined) return;
     byPid.delete(pid);
+    notify(existing.principal);
   };
 
   const bind = (pid: number, principal: ProcessPrincipal): boolean => {
@@ -135,14 +145,14 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
 
   const unbindPrincipal = (match: ProcessPrincipal): void => {
     for (const [pid, record] of byPid) {
-      if (samePrincipal(record.principal, match)) byPid.delete(pid);
+      if (samePrincipal(record.principal, match)) unbind(pid);
     }
   };
 
   const unbindAgentKey = (agentKey: string): void => {
     for (const [pid, record] of byPid) {
       if (record.principal.kind === "agent" && record.principal.agentKey === agentKey) {
-        byPid.delete(pid);
+        unbind(pid);
       }
     }
   };
@@ -150,7 +160,7 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
   const unbindHerdrPane = (paneId: string): void => {
     for (const [pid, record] of byPid) {
       if (record.principal.kind === "herdr" && record.principal.paneId === paneId) {
-        byPid.delete(pid);
+        unbind(pid);
       }
     }
   };
@@ -158,7 +168,7 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
   const unbindTerminalBinding = (bindingId: string): void => {
     for (const [pid, record] of byPid) {
       if (record.principal.kind === "terminal" && record.principal.bindingId === bindingId) {
-        byPid.delete(pid);
+        unbind(pid);
       }
     }
   };
@@ -167,12 +177,12 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
     const record = byPid.get(pid);
     if (record === undefined) return undefined;
     if (!processAlive(pid)) {
-      byPid.delete(pid);
+      unbind(pid);
       return undefined;
     }
     const startKey = readProcessStartKey(pid);
     if (startKey === undefined || startKey !== record.startKey) {
-      byPid.delete(pid);
+      unbind(pid);
       return undefined;
     }
     return record.principal;
@@ -197,7 +207,9 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
     unbindTerminalBinding,
     resolve: resolveLive,
     resolveInTree,
-    clear: () => byPid.clear(),
+    clear: () => {
+      for (const pid of [...byPid.keys()]) unbind(pid);
+    },
     size: () => byPid.size,
     snapshot: () =>
       [...byPid.entries()]
@@ -207,6 +219,10 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
           startKey: record.startKey,
         }))
         .sort((a, b) => a.pid - b.pid),
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
   };
 };
 
