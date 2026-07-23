@@ -1,6 +1,7 @@
 #!/bin/sh
 # Debian post-removal hook. User-authored ~/.vellum data is never in scope.
 set -eu
+set -f
 
 PROFILE_TARGET='/etc/apparmor.d/vellum'
 UNIT_TARGET='/usr/lib/systemd/user/vellum-remote.service'
@@ -35,17 +36,51 @@ remove_package_owned_root_file() {
     printf 'vellum: preserving root authority with an unsafe custody marker: %s\n' "$target" >&2
     return
   fi
-  expected_sha="$(/bin/cat "$marker" 2>/dev/null || true)"
-  case "$expected_sha" in ""|*[!0-9a-f]*) return ;; esac
-  [ "${#expected_sha}" -eq 64 ] || return
-  if [ -f "$target" ] && [ ! -L "$target" ] &&
-     [ "$(stat -c '%u:%g:%a:%h' "$target" 2>/dev/null || true)" = "0:0:$expected_mode:1" ] &&
-     [ "$(/usr/bin/sha256sum "$target" | /usr/bin/awk '{ print $1 }')" = "$expected_sha" ]; then
-    rm -f -- "$target"
-    rm -f -- "$marker"
+  marker_text="$(/bin/cat "$marker" 2>/dev/null || true)"
+  # Stable custody is one digest. A crash-safe publication transition is
+  # exactly "<old-or-none> <new>". Reconstructing the line rejects tabs,
+  # duplicate spaces, embedded newlines, and extra fields.
+  set -- $marker_text
+  if [ "$#" -eq 1 ] && [ "$marker_text" = "$1" ]; then
+    first_sha="$1"
+    second_sha=
+  elif [ "$#" -eq 2 ] && [ "$marker_text" = "$1 $2" ]; then
+    first_sha="$1"
+    second_sha="$2"
   else
-    printf 'vellum: preserving modified root authority: %s\n' "$target" >&2
+    printf 'vellum: preserving root authority with a malformed custody marker: %s\n' "$target" >&2
+    return
   fi
+  case "$first_sha" in
+    none) [ -n "$second_sha" ] || return ;;
+    ""|*[!0-9a-f]*) return ;;
+    *) [ "${#first_sha}" -eq 64 ] || return ;;
+  esac
+  if [ -n "$second_sha" ]; then
+    case "$second_sha" in ""|*[!0-9a-f]*) return ;; esac
+    [ "${#second_sha}" -eq 64 ] || return
+  fi
+
+  if [ ! -e "$target" ] && [ ! -L "$target" ]; then
+    if [ "$first_sha" = none ]; then
+      rm -f -- "$marker"
+      return
+    fi
+    printf 'vellum: preserving custody marker for a missing root authority: %s\n' "$target" >&2
+    return
+  fi
+  if [ -L "$target" ] || [ ! -f "$target" ] ||
+     [ "$(stat -c '%u:%g:%a:%h' "$target" 2>/dev/null || true)" != "0:0:$expected_mode:1" ]; then
+    printf 'vellum: preserving modified root authority: %s\n' "$target" >&2
+    return
+  fi
+  target_sha="$(/usr/bin/sha256sum "$target" | /usr/bin/awk '{ print $1 }')"
+  if [ "$target_sha" != "$first_sha" ] && [ "$target_sha" != "$second_sha" ]; then
+    printf 'vellum: preserving modified root authority: %s\n' "$target" >&2
+    return
+  fi
+  rm -f -- "$target"
+  rm -f -- "$marker"
 }
 
 # Preserve journals and rollback caches. Remove only exact package-minted

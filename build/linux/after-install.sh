@@ -1,6 +1,7 @@
 #!/bin/sh
 # Debian post-install hook for the Ubuntu 24.04 Vellum package.
 set -eu
+set -f
 
 APP_DIR='/opt/Vellum Command'
 EXECUTABLE="$APP_DIR/vellum"
@@ -112,22 +113,32 @@ admit_package_owned_target() {
       printf 'vellum: refusing a root target without its exact package custody marker\n' >&2
       exit 1
     fi
+    marker_text="$(/bin/cat "$marker" 2>/dev/null || true)"
+    set -- $marker_text
     marker_admitted=0
-    marker_valid=1
-    marker_fields=0
-    for marker_sha in $(/bin/cat "$marker" 2>/dev/null || true); do
-      marker_fields=$((marker_fields + 1))
-      case "$marker_sha" in
-        none) ;;
-        ""|*[!0-9a-f]*) marker_valid=0 ;;
-        *)
-          [ "${#marker_sha}" -eq 64 ] || marker_valid=0
-          [ "$marker_sha" = "$target_sha" ] && marker_admitted=1
-          ;;
-      esac
-    done
-    if [ "$marker_valid" != 1 ] || [ "$marker_fields" -lt 1 ] ||
-       [ "$marker_fields" -gt 2 ] || [ "$marker_admitted" != 1 ]; then
+    if [ "$#" -eq 1 ] && [ "$marker_text" = "$1" ]; then
+      first_sha="$1"
+      second_sha=
+    elif [ "$#" -eq 2 ] && [ "$marker_text" = "$1 $2" ]; then
+      first_sha="$1"
+      second_sha="$2"
+    else
+      first_sha=invalid
+      second_sha=invalid
+    fi
+    case "$first_sha" in
+      none) [ -n "$second_sha" ] || first_sha=invalid ;;
+      ""|*[!0-9a-f]*) first_sha=invalid ;;
+      *) [ "${#first_sha}" -eq 64 ] || first_sha=invalid ;;
+    esac
+    if [ -n "$second_sha" ]; then
+      case "$second_sha" in ""|*[!0-9a-f]*) second_sha=invalid ;; esac
+      [ "${#second_sha}" -eq 64 ] || second_sha=invalid
+    fi
+    [ "$first_sha" = "$target_sha" ] && marker_admitted=1
+    [ "$second_sha" = "$target_sha" ] && marker_admitted=1
+    if [ "$first_sha" = invalid ] || [ "$second_sha" = invalid ] ||
+       [ "$marker_admitted" != 1 ]; then
       printf 'vellum: refusing a root target without its exact package custody marker\n' >&2
       exit 1
     fi
@@ -142,7 +153,9 @@ publish_root_file() {
   target="$2"
   expected_mode="$3"
   target_directory="$(dirname "$target")"
-  temporary="$(mktemp "$INSTALLER_STATE/.package-file.XXXXXXXX")"
+  # The temporary must share the target filesystem. A rename from /var into
+  # /usr or /etc can degrade to copy+unlink and expose a torn root command.
+  temporary="$(mktemp "$target_directory/.vellum-package.XXXXXXXX")"
   /usr/bin/install -o root -g root -m "$expected_mode" -- "$source" "$temporary"
   /bin/sync -f "$temporary"
   mv -- "$temporary" "$target"
