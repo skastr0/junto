@@ -48,6 +48,7 @@ import {
   installProbeSignalDrain,
   type ProbeShutdownSignal,
 } from "./probe-signal-drain";
+import { createProbeResourceLifecycle } from "./probe-resource-lifecycle";
 import {
   KERNEL_PROBE_CANVAS,
   KERNEL_PROBE_REGION_ID,
@@ -84,8 +85,16 @@ const activeSandboxes = new Set<ProbeSandbox>();
 let watchdogExitRequested = false;
 let externalExitRequested = false;
 let mainSucceeded = false;
-let rendererServer: RendererServer | undefined;
-let rendererServerCloseFlight: Promise<boolean> | undefined;
+const rendererLifecycle = createProbeResourceLifecycle<RendererServer>(
+  "trusted renderer",
+  (error) => {
+    console.error(
+      `[probe] trusted renderer close failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  },
+);
 
 interface PulseRecordLike {
   readonly kind: string;
@@ -311,7 +320,9 @@ const startTrustedRendererRoot = async (): Promise<RendererServer> => {
 
 const main = async (): Promise<void> => {
   await assertProbeBuildInputs();
-  rendererServer = await startTrustedRendererRoot();
+  const rendererServer = await rendererLifecycle.acquire(
+    startTrustedRendererRoot,
+  );
   console.log(`[probe] trusted renderer root: ${rendererServer.url}`);
 
   if (STARTUP_SMOKE) {
@@ -366,30 +377,6 @@ const main = async (): Promise<void> => {
   mainSucceeded = true;
 };
 
-const closeRendererServer = (): Promise<boolean> => {
-  if (rendererServerCloseFlight !== undefined) {
-    return rendererServerCloseFlight;
-  }
-  const active = rendererServer;
-  rendererServer = undefined;
-  const flight =
-    active === undefined
-      ? Promise.resolve(true)
-      : active.close().then(
-          () => true,
-          (error: unknown) => {
-            console.error(
-              `[probe] trusted renderer close failed: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            );
-            return false;
-          },
-        );
-  rendererServerCloseFlight = flight;
-  return flight;
-};
-
 const finalize = async (reason: string): Promise<boolean> => {
   const drainReceipt = await probeSupervisor.shutdown(reason);
   let allRemoved = true;
@@ -402,7 +389,7 @@ const finalize = async (reason: string): Promise<boolean> => {
     if (removed) activeSandboxes.delete(sandbox);
     else allRemoved = false;
   }
-  const rendererClosed = await closeRendererServer();
+  const rendererClosed = await rendererLifecycle.close();
   return drainReceipt.clean && allRemoved && rendererClosed;
 };
 
