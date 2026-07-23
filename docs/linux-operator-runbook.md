@@ -33,7 +33,35 @@ not qualified in v1.
    release-key fingerprint, and SHA-256 of the offline verifier. A keyring or
    verifier carried only by the same untrusted download is not an independent
    trust anchor.
-3. Extract the archive into a new owner-only directory. Do not merge releases.
+3. Extract the archive into a new owner-only download directory. Do not merge
+   releases. Before executing or installing anything from it, copy the complete
+   bundle into a fresh root-owned staging directory without preserving source
+   ownership or mode. The version directory must not already exist:
+
+   ```sh
+   set -eu
+   sudo install -d -o root -g root -m 0755 \
+     /var/lib/vellum-release-stage
+   sudo mkdir -m 0755 -- \
+     /var/lib/vellum-release-stage/X.Y.Z
+   sudo cp -R --no-preserve=ownership,mode,timestamps -- \
+     ./. /var/lib/vellum-release-stage/X.Y.Z/
+   sudo find /var/lib/vellum-release-stage/X.Y.Z \
+     -type d -exec chmod 0755 {} +
+   sudo find /var/lib/vellum-release-stage/X.Y.Z \
+     -type f -exec chmod 0644 {} +
+   sudo test ! -L \
+     /var/lib/vellum-release-stage/X.Y.Z/vellum-linux-verify-x64
+   sudo test -f \
+     /var/lib/vellum-release-stage/X.Y.Z/vellum-linux-verify-x64
+   sudo chmod 0755 \
+     /var/lib/vellum-release-stage/X.Y.Z/vellum-linux-verify-x64
+   ```
+
+   Stop if the copy changes during staging, if any path is a symlink, or if
+   the staged directory is not entirely root-owned and non-writable by the
+   station user. The verifier's exact-inventory check rejects symlinks,
+   undeclared files, missing files, and changed bytes in this protected copy.
 4. From the Command Center, record the peer product version, station-browser
    protocol, and work-control protocol. Linux v1 expects station-browser `1`
    and work-control `vellum-work/v1`.
@@ -43,10 +71,10 @@ not qualified in v1.
 
    ```sh
    printf '%s  %s\n' AUTHENTICATED_VERIFIER_SHA256 \
-     ./vellum-linux-verify-x64 | sha256sum --check --strict -
-   chmod 0755 ./vellum-linux-verify-x64
-   ./vellum-linux-verify-x64 \
-     --bundle . \
+     /var/lib/vellum-release-stage/X.Y.Z/vellum-linux-verify-x64 \
+     | sha256sum --check --strict -
+   /var/lib/vellum-release-stage/X.Y.Z/vellum-linux-verify-x64 \
+     --bundle /var/lib/vellum-release-stage/X.Y.Z \
      --keyring /path/to/authenticated/release-keyring.json \
      --trusted-keyring-revision AUTHENTICATED_KEYRING_REVISION \
      --trusted-keyring-sha256 AUTHENTICATED_KEYRING_SHA256 \
@@ -57,11 +85,23 @@ not qualified in v1.
      --peer-work-control-protocol vellum-work/v1
    ```
 
-The verifier checks the pinned key ID and keyring revision, revocation state,
-both detached Ed25519 signatures, manifest expiry, target OS/architecture/libc,
-download locator, peer compatibility, `deb` metadata, and every file hash. It
-also rejects undeclared files. Continue only after it prints one JSON receipt
-with `"ok":true`.
+Run the staged verifier as the ordinary station user, never with `sudo`. It
+checks the pinned key ID and keyring revision, revocation state, both detached
+Ed25519 signatures, manifest expiry, target OS/architecture/libc, download
+locator, peer compatibility, `deb` metadata, and every file hash. It also
+rejects undeclared files. Continue only after it prints one JSON receipt with
+`"ok":true`. Record the receipt's exact `packageBytes` and `packageSha256`,
+then recheck both against the root-owned staged package immediately before
+package mutation:
+
+```sh
+sudo test "$(sudo stat --format=%s -- \
+  '/var/lib/vellum-release-stage/X.Y.Z/Vellum Command-X.Y.Z-x64-linux.deb')" \
+  -eq VERIFIED_PACKAGE_BYTES
+printf '%s  %s\n' VERIFIED_PACKAGE_SHA256 \
+  '/var/lib/vellum-release-stage/X.Y.Z/Vellum Command-X.Y.Z-x64-linux.deb' \
+  | sudo sha256sum --check --strict -
+```
 
 Signature, checksum, target, expiry, downgrade, or protocol failure is a stop
 condition. Do not stop a running service, invoke `apt`, or replace a package
@@ -92,7 +132,8 @@ Run package mutation with administrator authority, but run Vellum itself only
 as the intended ordinary station user:
 
 ```sh
-sudo apt-get install ./Vellum\ Command-X.Y.Z-x64-linux.deb
+sudo apt-get install \
+  '/var/lib/vellum-release-stage/X.Y.Z/Vellum Command-X.Y.Z-x64-linux.deb'
 dpkg-query -W -f='${Package} ${Version} ${Architecture}\n' vellum
 aa-status
 ```
@@ -186,11 +227,13 @@ contain receipts and bounded status, never `~/.vellum` itself.
 
 1. Keep the current signed bundle and state backup until the new version has
    passed its burn-in period.
-2. Verify the new bundle before stopping anything. Add the installed version:
+2. Repeat the protected staging procedure above into a fresh version directory,
+   then verify the new bundle before stopping anything. Add the installed
+   version:
 
    ```sh
-    ./vellum-linux-verify-x64 \
-      --bundle . \
+    /var/lib/vellum-release-stage/X.Y.Z/vellum-linux-verify-x64 \
+      --bundle /var/lib/vellum-release-stage/X.Y.Z \
       --keyring /path/to/authenticated/release-keyring.json \
       --trusted-keyring-revision AUTHENTICATED_KEYRING_REVISION \
       --trusted-keyring-sha256 AUTHENTICATED_KEYRING_SHA256 \
@@ -202,12 +245,14 @@ contain receipts and bounded status, never `~/.vellum` itself.
      --installed-version CURRENT_VERSION
    ```
 
-3. After a green receipt, stop only the Vellum user service, install the exact
-   admitted `deb`, reload the unit, and start it:
+3. After a green receipt, repeat the staged `packageBytes` and `packageSha256`
+   checks shown above. Only then stop the Vellum user service, install the exact
+   admitted root-owned `deb`, reload the unit, and start it:
 
    ```sh
    systemctl --user stop vellum-remote.service
-   sudo apt-get install ./Vellum\ Command-X.Y.Z-x64-linux.deb
+   sudo apt-get install \
+     '/var/lib/vellum-release-stage/X.Y.Z/Vellum Command-X.Y.Z-x64-linux.deb'
    systemctl --user daemon-reload
    systemctl --user start vellum-remote.service
    ```
@@ -220,10 +265,13 @@ contain receipts and bounded status, never `~/.vellum` itself.
 Rollback is a release operation, not a package-manager shortcut. The older
 bundle must still have valid metadata signed by a non-revoked key, and its
 manifest must explicitly permit rollback down to that version.
+Repeat the protected staging procedure into a fresh root-owned rollback
+directory. After the green rollback receipt, repeat the staged package size
+and SHA-256 checks immediately before `apt-get`.
 
 ```sh
-./vellum-linux-verify-x64 \
-  --bundle . \
+/var/lib/vellum-release-stage/ROLLBACK_VERSION/vellum-linux-verify-x64 \
+  --bundle /var/lib/vellum-release-stage/ROLLBACK_VERSION \
   --keyring /path/to/authenticated/release-keyring.json \
   --trusted-keyring-revision AUTHENTICATED_KEYRING_REVISION \
   --trusted-keyring-sha256 AUTHENTICATED_KEYRING_SHA256 \
@@ -236,7 +284,7 @@ manifest must explicitly permit rollback down to that version.
   --allow-explicit-rollback
 systemctl --user stop vellum-remote.service
 sudo apt-get install --allow-downgrades \
-  ./Vellum\ Command-ROLLBACK_VERSION-x64-linux.deb
+  '/var/lib/vellum-release-stage/ROLLBACK_VERSION/Vellum Command-ROLLBACK_VERSION-x64-linux.deb'
 systemctl --user daemon-reload
 systemctl --user start vellum-remote.service
 ```

@@ -42,6 +42,16 @@ describe("Linux v1 operator documentation", () => {
       "--trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT",
     );
     expect(runbook).toContain("sha256sum --check --strict");
+    expect(runbook).toContain("/var/lib/vellum-release-stage/X.Y.Z");
+    expect(runbook).toContain("--no-preserve=ownership,mode,timestamps");
+    expect(runbook).toContain("packageBytes");
+    expect(runbook).toContain("packageSha256");
+    expect(runbook).toContain(
+      "'/var/lib/vellum-release-stage/X.Y.Z/Vellum Command-X.Y.Z-x64-linux.deb'",
+    );
+    expect(runbook).toContain(
+      "Run the staged verifier as the ordinary station user, never with `sudo`",
+    );
     expect(runbook).toContain("--peer-station-browser-protocol 1");
     expect(runbook).toContain("--peer-work-control-protocol vellum-work/v1");
     expect(runbook).toContain("systemctl --user enable --now vellum-remote.service");
