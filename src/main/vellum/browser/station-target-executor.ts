@@ -26,6 +26,7 @@ import type { StationBrowserLocalClient } from "./station-router";
 import type {
   BrowserResult,
   BrowserSessionAuthorizationSnapshot,
+  BrowserTargetRevalidator,
 } from "./sessions";
 import type {
   PageTargetResolver,
@@ -41,7 +42,7 @@ type SessionPlane = {
     owner: string,
     target: ResolvedPageTarget,
     signal?: AbortSignal,
-    revalidateTarget?: PageTargetResolver,
+    revalidateTarget?: BrowserTargetRevalidator,
   ) => Promise<BrowserResult<BrowserSessionInfo>>;
   readonly awaitNavigationTerminalForOwner: (
     owner: string,

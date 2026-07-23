@@ -48,6 +48,31 @@ describe("browser startup recovery gate", () => {
     expect(activation).toContain("edgeGrant.clear()");
   });
 
+  it("composes station browser routes before exposing the owner-local control socket", () => {
+    const activation = indexSrc.slice(indexSrc.indexOf("async (composition) =>"));
+    const routes = activation.indexOf(
+      "await prepareStationBrowserRuntimeRoutes({",
+    );
+    const control = activation.indexOf(
+      "browserControl = await startBrowserControlServer({",
+    );
+    const bind = activation.indexOf(
+      "composition.bindControlShutdown(browserControl)",
+    );
+
+    expect(routes).toBeGreaterThanOrEqual(0);
+    expect(control).toBeGreaterThan(routes);
+    expect(bind).toBeGreaterThan(control);
+    const composition = activation.slice(routes, control);
+    expect(composition).toContain("sessions: composition.sessions");
+    expect(composition).toContain("stationAdmission");
+    expect(composition).toContain("hosts: hostsSnapshot");
+    expect(composition).toContain("ssh");
+    expect(activation.slice(control, bind)).toContain(
+      "...stationBrowserRoutes",
+    );
+  });
+
   it("creates the headless native parent before composition and injects the attachment target", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
     const host = ready.indexOf("await browserCompositionHost.ensureHeadlessHost()");

@@ -44,7 +44,7 @@ import { makeElectronBrowserViewAttachmentTarget } from "./vellum/browser/view-a
 import { makeElectronBrowserReadinessProductPath } from "./vellum/browser/readiness-product-path";
 import { makeBrowserProductPathProbe } from "./vellum/browser/readiness-probe";
 import { installBrowserProductPathProbe } from "./vellum/station-readiness";
-import { findHostById } from "./vellum/hosts/snapshot";
+import { findHostById, hostsSnapshot } from "./vellum/hosts/snapshot";
 import { hostHasCapability } from "@shared/remote-hosts";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
@@ -56,6 +56,8 @@ import { startBrowserControlServer, type BrowserControlServer } from "./vellum/b
 import { startWorkControlServer, type WorkControlServer } from "./vellum/work/control";
 import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
 import { prepareDefaultBrowserStationAdmissionAuthority } from "./vellum/browser/station-admission";
+import { prepareStationBrowserRuntimeRoutes } from "./vellum/browser/station-runtime";
+import { SshTransport } from "./vellum/ssh";
 import { configurePeerPidHelperRoots } from "./vellum/process-identity";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
 import {
@@ -1220,16 +1222,32 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           if (admissionCleanupRan) acquiredCanvasUnsubscribe();
           else canvasUnsubscribe = acquiredCanvasUnsubscribe;
 
+          const browserControlHome =
+            headless && !app.isPackaged
+              ? app.getPath("userData")
+              : app.getPath("home");
+          const ssh = await AppRuntime.runPromise(
+            Effect.map(SshTransport, (service) => service),
+          );
+          const stationBrowserRoutes =
+            await prepareStationBrowserRuntimeRoutes({
+              home: browserControlHome,
+              sessions: composition.sessions,
+              readCanvas: readCanvasFromCanvases,
+              resolvePageTarget: resolveBrowserPageTarget,
+              stationAdmission,
+              hosts: hostsSnapshot,
+              ssh,
+            });
           browserControl = await startBrowserControlServer({
             sessions: composition.sessions,
             capabilities: composition.registry,
             resolvePageTarget: resolveBrowserPageTarget,
             version: app.getVersion(),
-            home: headless && !app.isPackaged
-              ? app.getPath("userData")
-              : undefined,
+            home: browserControlHome,
             edgeGrant,
             readCanvas: readCanvasFromCanvases,
+            ...stationBrowserRoutes,
           });
           const productPath = makeElectronBrowserReadinessProductPath({
             compositionHost: browserCompositionHost,
