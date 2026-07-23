@@ -282,6 +282,14 @@ app.on("open-url", (event, uri) => {
 const headless = process.argv.includes("--vellum-headless");
 
 let trustedMainWindow: BrowserWindow | undefined;
+/** The Command Center is a trusted renderer identity, never "the first window". */
+const currentTrustedMainWindow = (): BrowserWindow | undefined => {
+  const candidate = trustedMainWindow;
+  if (candidate === undefined) return undefined;
+  if (!candidate.isDestroyed()) return candidate;
+  trustedMainWindow = undefined;
+  return undefined;
+};
 const browserViewAttachmentTarget = makeElectronBrowserViewAttachmentTarget();
 const browserCompositionHost = makeBrowserCompositionHost({
   createHiddenWindow: (options) => new BrowserWindow(options),
@@ -871,6 +879,7 @@ const createWindow = () => {
     ipcMain.removeListener(IPC_CHANNELS.rendererSurfaceReady, acknowledgeRendererSurface);
     disconnect();
     ipcMain.removeListener(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
+    quitWhenNoOperatorWindow();
   });
 
   registerCrashRecovery(mainWindow);
@@ -1030,7 +1039,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 } else {
   app.on("second-instance", () => {
     requestNodeRefDrain();
-    const [existing] = BrowserWindow.getAllWindows();
+    const existing = currentTrustedMainWindow();
     if (!existing) {
       // Windowless keep-alive: Spotlight/`open -a` must not leave a dead UI.
       if (!headless) createWindow();
@@ -1230,7 +1239,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 
     app.on("activate", () => {
       requestNodeRefDrain();
-      if (!headless && BrowserWindow.getAllWindows().length === 0) createWindow();
+      if (!headless && currentTrustedMainWindow() === undefined) createWindow();
     });
   })
     .catch(() => {
@@ -1244,14 +1253,19 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 // with zero windows. Dock icon remains; activate recreates the window.
 // Non-darwin still quits when all windows close (platform convention).
 app.on("window-all-closed", () => {
+  quitWhenNoOperatorWindow();
+});
+
+const quitWhenNoOperatorWindow = (): void => {
   if (
     process.platform !== "darwin" &&
+    currentTrustedMainWindow() === undefined &&
     !signalRendererDestroyInProgress &&
     !rendererRecoveryDestroyInProgress &&
     !signalQuitState.rendererQuiesced() &&
     !quitPreparationArbiter.committed()
   ) app.quit();
-});
+};
 
 const beginShutdownAdmission = (reason: string): void => {
   shutdownReason = reason;
@@ -1532,7 +1546,7 @@ const collectLiveWorkSnapshot = () =>
 /** Cancel left the process with no UI — give the operator a surface back. */
 const recreateWindowIfEmpty = (): void => {
   if (headless || runtimeDisposed) return;
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  if (currentTrustedMainWindow() === undefined) createWindow();
 };
 
 const invalidateQuitConfirm = (): void => {

@@ -19,25 +19,44 @@ describe("background continuity wiring", () => {
     const start = indexSrc.indexOf('app.on("window-all-closed"');
     expect(start).toBeGreaterThanOrEqual(0);
     const block = indexSrc.slice(start, indexSrc.indexOf("});", start) + 3);
-    expect(block).toMatch(/process\.platform\s*!==\s*["']darwin["']/);
-    expect(block).toMatch(/app\.quit\(\)/);
+    expect(block).toContain("quitWhenNoOperatorWindow()");
+    const quit = indexSrc.slice(indexSrc.indexOf("const quitWhenNoOperatorWindow"));
+    expect(quit).toMatch(/process\.platform\s*!==\s*["']darwin["']/);
+    expect(quit).toMatch(/app\.quit\(\)/);
     // No unconditional quit on every platform.
     expect(block).not.toMatch(/app\.on\("window-all-closed",\s*\(\)\s*=>\s*\{\s*app\.quit/);
   });
 
-  it("activate recreates the window when none remain (non-headless)", () => {
+  it("activate recreates the Command Center when only the hidden composition host remains", () => {
     expect(indexSrc).toMatch(
-      /app\.on\("activate"[\s\S]*BrowserWindow\.getAllWindows\(\)\.length\s*===\s*0[\s\S]*createWindow\(\)/,
+      /app\.on\("activate"[\s\S]*currentTrustedMainWindow\(\)\s*===\s*undefined[\s\S]*createWindow\(\)/,
     );
   });
 
-  it("second-instance recreates the window when the factory is windowless", () => {
+  it("second-instance recreates or focuses only the trusted Command Center", () => {
     const start = indexSrc.indexOf('app.on("second-instance"');
     expect(start).toBeGreaterThanOrEqual(0);
     const block = indexSrc.slice(start, indexSrc.indexOf("});", start) + 3);
+    expect(block).toContain("currentTrustedMainWindow()");
     expect(block).toMatch(/if\s*\(\s*!existing\s*\)/);
     expect(block).toMatch(/createWindow\(\)/);
     expect(block).toMatch(/headless/);
+    expect(block).not.toContain("BrowserWindow.getAllWindows");
+  });
+
+  it("does not treat any BrowserWindow as an operator surface", () => {
+    expect(indexSrc).not.toContain("BrowserWindow.getAllWindows");
+    expect(indexSrc).toMatch(/candidate\.isDestroyed\(\)[\s\S]*trustedMainWindow\s*=\s*undefined/);
+    expect(indexSrc).toMatch(/const recreateWindowIfEmpty[\s\S]*currentTrustedMainWindow\(\)\s*===\s*undefined/);
+  });
+
+  it("returns a closed Command Center to the hidden host while preserving Linux close semantics", () => {
+    const closed = indexSrc.slice(
+      indexSrc.indexOf('mainWindow.on("closed"'),
+      indexSrc.indexOf("registerCrashRecovery(mainWindow)"),
+    );
+    expect(closed).toContain("browserCompositionHost.releaseVisibleWindow(mainWindow)");
+    expect(closed).toContain("quitWhenNoOperatorWindow()");
   });
 
   it("before-quit gates on live work before final quiesce/detach (explicit quit only)", () => {
