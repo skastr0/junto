@@ -21,6 +21,10 @@ import { HermesTransportLive } from "./vellum/hermes/transport";
 import { HerdrPlaneLive } from "./vellum/herdr/plane";
 import { HerdrTransportLive } from "./vellum/herdr/transport";
 import { termPlane } from "./vellum/term/plane";
+import {
+  assessNativeTerminalDoctor,
+  probeNativeTerminalReadiness,
+} from "./vellum/term/native-readiness";
 import { KernelLive, KernelService } from "./vellum/kernel/service";
 import { WorkLive } from "./vellum/work/service";
 import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
@@ -175,19 +179,14 @@ export const buildDoctorReport = Effect.gen(function* () {
 
   const running = termPlane.router.runningCount();
   const sockOk = existsSync(termControlSocketPath());
-  const terminalCheck: ServiceCheck = sockOk
-    ? {
-        id: "terminal",
-        label: "Native terminal",
-        status: "ok",
-        detail: `local host + control UDS ready (${running} running)`,
-      }
-    : {
-        id: "terminal",
-        label: "Native terminal",
-        status: "warning",
-        detail: `session host up (${running} running) but control socket missing — remote attach unavailable until term plane starts`,
-      };
+  const nativeTerminalProbe = yield* Effect.promise(() =>
+    probeNativeTerminalReadiness()
+  );
+  const terminalCheck = assessNativeTerminalDoctor({
+    probe: nativeTerminalProbe,
+    controlReady: sockOk,
+    running,
+  });
   const services: ReadonlyArray<ServiceCheck> = [
     ...serviceResults,
     terminalCheck,
