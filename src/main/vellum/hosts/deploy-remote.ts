@@ -1065,6 +1065,7 @@ export const deployRemoteHost = (
           "Deploy Remote must run from a macOS Command Center (local .app source)",
         code: "validation" as const,
         stages,
+        disposition: "not-started" as const,
       };
     }
     if (host.kind !== "remote" || !host.endpoint) {
@@ -1073,6 +1074,7 @@ export const deployRemoteHost = (
         detail: `host ${host.id} is not a remote SSH endpoint`,
         code: "validation" as const,
         stages,
+        disposition: "not-started" as const,
       };
     }
 
@@ -1085,6 +1087,7 @@ export const deployRemoteHost = (
         code: "not_found" as const,
         message: "local app bundle missing",
         stages,
+        disposition: "not-started" as const,
       };
     }
     push(stages, `local bundle candidate ${resolvedLocalApp}`);
@@ -1101,6 +1104,7 @@ export const deployRemoteHost = (
         code: "validation" as const,
         message: admittedLocalApp.left.message,
         stages,
+        disposition: "not-started" as const,
       };
     }
     const localApp = admittedLocalApp.right;
@@ -1122,6 +1126,7 @@ export const deployRemoteHost = (
         detail: endpoint.left.message,
         code: "validation" as const,
         stages,
+        disposition: "not-started" as const,
       };
     }
     push(stages, "endpoint ok");
@@ -1133,6 +1138,7 @@ export const deployRemoteHost = (
         detail: `${host.label}: SSH warm failed — check SSH config / Tailscale / keys`,
         code: "io" as const,
         stages,
+        disposition: "not-started" as const,
       };
     }
     push(stages, "ssh warm ok");
@@ -1141,23 +1147,38 @@ export const deployRemoteHost = (
     const unameCmd = yield* makeRemoteCommand("uname", ["-s"]).pipe(
       Effect.either,
     );
-    if (unameCmd._tag === "Right") {
-      const unameRes = yield* ssh
-        .run(oneShot(endpoint.right, unameCmd.right, { budget: "short" }))
-        .pipe(Effect.either);
-      if (unameRes._tag === "Right") {
-        const osName = unameRes.right.stdout.trim();
-        push(stages, `remote uname ${osName}`);
-        if (osName !== "Darwin") {
-          return {
-            ok: false,
-            detail: `${host.label}: remote OS is ${osName || "unknown"} — full-app Deploy is macOS-only`,
-            code: "validation" as const,
-            message: "remote not Darwin",
-            stages,
-          };
-        }
-      }
+    if (unameCmd._tag === "Left") {
+      return {
+        ok: false,
+        detail: `${host.label}: could not construct the remote OS probe`,
+        code: "validation" as const,
+        stages,
+        disposition: "not-started" as const,
+      };
+    }
+    const unameRes = yield* ssh
+      .run(oneShot(endpoint.right, unameCmd.right, { budget: "short" }))
+      .pipe(Effect.either);
+    if (unameRes._tag === "Left") {
+      return {
+        ok: false,
+        detail: `${host.label}: remote OS probe failed`,
+        code: "io" as const,
+        stages,
+        disposition: "not-started" as const,
+      };
+    }
+    const osName = unameRes.right.stdout.trim();
+    push(stages, `remote uname ${osName}`);
+    if (osName !== "Darwin") {
+      return {
+        ok: false,
+        detail: `${host.label}: remote OS is ${osName || "unknown"} — full-app Deploy is macOS-only`,
+        code: "validation" as const,
+        message: "remote not Darwin",
+        stages,
+        disposition: "not-started" as const,
+      };
     }
 
     const homeResult = yield* ssh
@@ -1169,6 +1190,7 @@ export const deployRemoteHost = (
         detail: `${host.label}: remote home lookup failed`,
         code: "io" as const,
         stages,
+        disposition: "not-started" as const,
       };
     }
     const home = decodeRemoteHomeDirectoryOutput(homeResult.right.stdout);
@@ -1178,6 +1200,7 @@ export const deployRemoteHost = (
         detail: `${host.label}: remote home is not a canonical absolute path`,
         code: "io" as const,
         stages,
+        disposition: "not-started" as const,
       };
     }
     push(stages, `remote home ${home}`);

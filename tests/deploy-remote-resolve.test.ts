@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   buildRemoteDeployScript,
@@ -18,6 +19,7 @@ import {
   classifyDeployTransferDisposition,
   describeDeployTransferFailure,
   decodeRemoteHomeDirectoryOutput,
+  deployRemoteHost,
   captureTarStderr,
   awaitTarCloseBounded,
   isSafeRemoteHomePath,
@@ -38,6 +40,19 @@ describe("resolveLocalAppBundle", () => {
     expect(path === null || (typeof path === "string" && path.length > 0)).toBe(
       true,
     );
+  });
+
+  it("classifies every local preflight refusal as not started", async () => {
+    const result = await Effect.runPromise(
+      deployRemoteHost({} as never, {
+        id: "local",
+        label: "Local",
+        kind: "local",
+        capabilities: [],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.disposition).toBe("not-started");
   });
 });
 
