@@ -56,6 +56,7 @@ export const deployRecoveryGuidance = (
     case "restore-terminal-live-work-observation":
       return "Restore terminal live-work observation through the deployment runbook or support, then retry deployment.";
     case "provision-station-browser-trust":
+      return "Provision station browser trust through Command Center or the deployment runbook, then retry deployment.";
     case "bootstrap-linux-release-installer":
       return "Install the current signed Linux package and helper, then retry deployment.";
     case "repair-linux-release-transaction":

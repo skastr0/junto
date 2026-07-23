@@ -41,7 +41,7 @@ describe("Remote deploy recovery projection", () => {
     ],
     [
       { kind: "provision-station-browser-trust" },
-      "Install the current signed Linux package and helper, then retry deployment.",
+      "Provision station browser trust through Command Center or the deployment runbook, then retry deployment.",
     ],
     [
       { kind: "bootstrap-linux-release-installer" },
