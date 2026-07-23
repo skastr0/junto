@@ -99,6 +99,10 @@ describe("Linux v1 operator documentation", () => {
     expect(policy).toContain("## Exact remaining production ceremony");
     expect(policy).toContain("explicit GO or NO-GO");
     expect(policy).toContain("No script in this repository performs step 8 or step 9");
+    expect(policy).toContain("linux-release-tool.ts create");
+    expect(policy).toContain("linux-release-tool.ts sign");
+    expect(policy).toContain("< /offline/custody/vellum-linux-ed25519.pem");
+    expect(policy).toContain("gzip -n > vellum-X.Y.Z-ubuntu-24.04-x64-release.tar.gz");
   });
 
   it("keeps the checked-in changelog visibly non-publishable", async () => {
