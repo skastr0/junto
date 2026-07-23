@@ -33,6 +33,7 @@ const sha256 = (value: string): string =>
 
 let fixtureRoot = "";
 let harness = "";
+let retirementHarness = "";
 
 beforeAll(async () => {
   fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "vellum-custody-"));
@@ -81,6 +82,44 @@ remove_package_owned_root_file "$1" "$2" "$3"
     { mode: 0o755 },
   );
   await chmod(harness, 0o755);
+
+  const installSource = await readFile(afterInstallPath, "utf8");
+  const retirementStart = installSource.indexOf(
+    "retire_legacy_sudoers_policy() {",
+  );
+  const retirementTerminator = "\n}\n\nensure_root_directory";
+  const retirementEnd = installSource.indexOf(
+    retirementTerminator,
+    retirementStart,
+  );
+  if (retirementStart < 0 || retirementEnd < 0) {
+    throw new Error("legacy sudoers retirement function is missing");
+  }
+  const retirementSource = installSource.slice(
+    retirementStart,
+    retirementEnd + 2,
+  );
+  const sha256Binary = existsSync("/usr/bin/sha256sum")
+    ? "/usr/bin/sha256sum"
+    : "/sbin/sha256sum";
+  retirementHarness = path.join(
+    fixtureRoot,
+    "legacy-sudoers-retirement-harness.sh",
+  );
+  await writeFile(
+    retirementHarness,
+    `#!/bin/sh
+set -eu
+set -f
+sha256_file() {
+  ${sha256Binary} "$1" | /usr/bin/awk '{ print $1 }'
+}
+${retirementSource}
+retire_legacy_sudoers_policy "$1" "$2" "$3" "$4"
+`,
+    { mode: 0o755 },
+  );
+  await chmod(retirementHarness, 0o755);
 });
 
 afterAll(async () => {
@@ -104,6 +143,25 @@ const runRemoval = (
   });
   expect(result.status, result.stderr).toBe(0);
 };
+
+const runLegacyRetirement = (
+  target: string,
+  marker: string,
+  expectedSha: string,
+  action: "fail" | "preserve",
+) =>
+  spawnSync(
+    "/bin/sh",
+    [retirementHarness, target, marker, expectedSha, action],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EXPECTED_MODE: "440",
+        PATH: `${path.join(fixtureRoot, "bin")}:/usr/bin:/bin:/sbin`,
+      },
+    },
+  );
 
 const crashFixture = async (
   name: string,
@@ -189,5 +247,56 @@ describe("Linux package root-authority custody", () => {
     runRemoval(malformed.target, malformed.marker, "755");
     expect(await exists(malformed.target)).toBe(true);
     expect(await exists(malformed.marker)).toBe(true);
+  });
+
+  it("retires only the exact legacy sudoers policy and its admitted marker", async () => {
+    const body = "exact historical passwordless policy";
+    const fixture = await crashFixture("legacy-sudoers", {
+      target: body,
+      marker: `${sha256("prior")} ${sha256(body)}`,
+    });
+    const result = runLegacyRetirement(
+      fixture.target,
+      fixture.marker,
+      sha256(body),
+      "fail",
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(await exists(fixture.target)).toBe(false);
+    expect(await exists(fixture.marker)).toBe(false);
+  });
+
+  it("fails closed without deleting a modified or foreign sudoers policy", async () => {
+    const fixture = await crashFixture("foreign-sudoers", {
+      target: "administrator policy",
+      marker: sha256("historical policy"),
+    });
+    const result = runLegacyRetirement(
+      fixture.target,
+      fixture.marker,
+      sha256("historical policy"),
+      "fail",
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("preserving modified or foreign");
+    expect(await exists(fixture.target)).toBe(true);
+    expect(await exists(fixture.marker)).toBe(true);
+  });
+
+  it("preserves unknown custody evidence after removing exact legacy policy", async () => {
+    const body = "exact historical passwordless policy";
+    const fixture = await crashFixture("foreign-sudoers-marker", {
+      target: body,
+      marker: sha256("unrelated policy"),
+    });
+    const result = runLegacyRetirement(
+      fixture.target,
+      fixture.marker,
+      sha256(body),
+      "preserve",
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(await exists(fixture.target)).toBe(false);
+    expect(await exists(fixture.marker)).toBe(true);
   });
 });

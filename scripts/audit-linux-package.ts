@@ -40,7 +40,7 @@ export const LINUX_REMOTE_UNIT_RESOURCE =
   `resources/systemd/${LINUX_SYSTEMD_USER_UNIT}`;
 export const LINUX_RELEASE_INSTALLER_RESOURCE =
   "resources/bin/vellum-release-installer";
-export const LINUX_RELEASE_INSTALLER_SUDOERS_RESOURCE =
+const LINUX_LEGACY_RELEASE_INSTALLER_SUDOERS_RESOURCE =
   "resources/policy/vellum-release-installer.sudoers";
 
 export const LINUX_DEB_DEPENDENCIES = [
@@ -83,12 +83,6 @@ include <tunables/global>
 profile vellum "/opt/Vellum Command/vellum" flags=(unconfined) {
   userns,
 }
-`;
-
-export const EXPECTED_RELEASE_INSTALLER_SUDOERS = `Defaults!/usr/libexec/vellum-release-installer env_reset
-Defaults!/usr/libexec/vellum-release-installer !setenv
-Defaults!/usr/libexec/vellum-release-installer env_delete += "BUN_OPTIONS BUN_INSTALL BUN_RUNTIME_TRANSPILER_CACHE_PATH BUN_CONFIG_VERBOSE_FETCH BUN_CONFIG_LINK_NATIVE_BINS BUN_BE_BUN BUN_DEBUG_QUIET_LOGS NODE_OPTIONS LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH"
-%sudo ALL=(root) CWD=/ NOPASSWD:NOSETENV: /usr/libexec/vellum-release-installer ""
 `;
 
 interface PackageMetadata {
@@ -364,6 +358,14 @@ export const validateDebArchive = (
         throw new Error(`deb install-tree symlink escapes its package root: ${entry.path}`);
       }
     }
+    if (
+      entry.path ===
+      `${installPrefix}${LINUX_LEGACY_RELEASE_INSTALLER_SUDOERS_RESOURCE}`
+    ) {
+      throw new Error(
+        "deb must not package the legacy passwordless release-installer sudoers policy",
+      );
+    }
   }
   const requiredModes = new Map([
     [`${installPrefix}vellum`, "-rwxr-xr-x"],
@@ -372,7 +374,6 @@ export const validateDebArchive = (
     [`${installPrefix}resources/bin/vellum-browser`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/vellum-release-installer`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/unix-peer-pid.py`, "-rwxr-xr-x"],
-    [`${installPrefix}resources/policy/vellum-release-installer.sudoers`, "-r--r-----"],
     [`${installPrefix}resources/apparmor-profile`, "-rw-r--r--"],
   ]);
   for (const [requiredPath, requiredMode] of requiredModes) {
@@ -388,14 +389,6 @@ export const validateAppArmorProfile = (input: string): void => {
   if (input !== EXPECTED_APPARMOR_PROFILE) {
     throw new Error(
       "Linux AppArmor profile differs from the qualified userns-only policy",
-    );
-  }
-};
-
-export const validateReleaseInstallerSudoers = (input: string): void => {
-  if (input !== EXPECTED_RELEASE_INSTALLER_SUDOERS) {
-    throw new Error(
-      "Linux release installer sudoers policy differs from the fixed no-argument boundary",
     );
   }
 };
@@ -776,10 +769,6 @@ export const auditLinuxPackage = async ({
       LINUX_RELEASE_INSTALLER_RESOURCE,
     );
     const peerPidHelper = path.join(resources, "bin", "unix-peer-pid.py");
-    const releaseInstallerSudoers = path.join(
-      extractedReal,
-      LINUX_RELEASE_INSTALLER_SUDOERS_RESOURCE,
-    );
     const appArmorProfile = path.join(resources, "apparmor-profile");
     const remoteLauncher = path.join(extractedReal, LINUX_REMOTE_LAUNCHER_RESOURCE);
     const remoteUnit = path.join(extractedReal, LINUX_REMOTE_UNIT_RESOURCE);
@@ -791,16 +780,12 @@ export const auditLinuxPackage = async ({
       requireRegularMode(browserCli, 0o755),
       requireRegularMode(releaseInstaller, 0o755),
       requireRegularMode(peerPidHelper, 0o755),
-      requireRegularMode(releaseInstallerSudoers, 0o440),
       requireRegularMode(appArmorProfile, 0o644),
       requireRegularMode(remoteLauncher, 0o755),
       requireRegularMode(remoteUnit, 0o644),
       requireRegularMode(appAsar, 0o644),
     ]);
     validateAppArmorProfile(await readFile(appArmorProfile, "utf8"));
-    validateReleaseInstallerSudoers(
-      await readFile(releaseInstallerSudoers, "utf8"),
-    );
     validateSystemdUserUnit(await readFile(remoteUnit, "utf8"));
 
     const pty = auditLinuxPtyPlacement(resources);

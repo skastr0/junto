@@ -10,7 +10,6 @@ WORK_CLI="$APP_DIR/resources/bin/vellum"
 BROWSER_CLI="$APP_DIR/resources/bin/vellum-browser"
 RELEASE_INSTALLER_SOURCE="$APP_DIR/resources/bin/vellum-release-installer"
 PEER_PID_HELPER="$APP_DIR/resources/bin/unix-peer-pid.py"
-SUDOERS_SOURCE="$APP_DIR/resources/policy/vellum-release-installer.sudoers"
 PROFILE_SOURCE="$APP_DIR/resources/apparmor-profile"
 PROFILE_TARGET='/etc/apparmor.d/vellum'
 UNIT_SOURCE="$APP_DIR/resources/systemd/vellum-remote.service"
@@ -21,6 +20,7 @@ SUDOERS_TARGET='/etc/sudoers.d/vellum-release-installer'
 INSTALLER_STATE='/var/lib/vellum-release-installer'
 INSTALLER_MARKER="$INSTALLER_STATE/packaged-helper.sha256"
 SUDOERS_MARKER="$INSTALLER_STATE/packaged-sudoers.sha256"
+LEGACY_SUDOERS_SHA256='a6edc7952e89af7570f74c53390aeccb8b0fe61456248762330517c7031a2f72'
 
 require_regular_file() {
   if [ ! -f "$1" ] || [ -L "$1" ]; then
@@ -36,7 +36,6 @@ for packaged_file in \
   "$BROWSER_CLI" \
   "$RELEASE_INSTALLER_SOURCE" \
   "$PEER_PID_HELPER" \
-  "$SUDOERS_SOURCE" \
   "$PROFILE_SOURCE" \
   "$UNIT_SOURCE"
 do
@@ -47,13 +46,7 @@ if [ ! -x /usr/sbin/apparmor_parser ]; then
   printf 'vellum: AppArmor parser is required on Ubuntu 24.04\n' >&2
   exit 1
 fi
-if [ ! -x /usr/sbin/visudo ]; then
-  printf 'vellum: visudo is required to validate the fixed installer authority\n' >&2
-  exit 1
-fi
-
 /usr/sbin/apparmor_parser --skip-kernel-load --debug "$PROFILE_SOURCE" >/dev/null
-/usr/sbin/visudo -cf "$SUDOERS_SOURCE" >/dev/null
 
 load_live_profile=1
 if [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; then
@@ -69,7 +62,6 @@ chown root:root "$CHROME_SANDBOX"
 chmod 0755 "$CHROME_SANDBOX"
 chmod 0755 "$EXECUTABLE" "$WORK_CLI" "$BROWSER_CLI" "$PEER_PID_HELPER"
 chmod 0755 "$RELEASE_INSTALLER_SOURCE"
-chmod 0440 "$SUDOERS_SOURCE"
 chmod 0644 "$UNIT_SOURCE"
 
 ensure_root_directory() {
@@ -174,22 +166,87 @@ publish_marker() {
   /bin/sync -f "$INSTALLER_STATE"
 }
 
+retire_legacy_sudoers_policy() {
+  target="$1"
+  marker="$2"
+  expected_sha="$3"
+  unknown_action="$4"
+
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    if [ -L "$target" ] || [ ! -f "$target" ] ||
+       [ "$(stat -c '%u:%g:%a:%h' "$target" 2>/dev/null || true)" != '0:0:440:1' ]; then
+      printf 'vellum: preserving unsafe or foreign release-installer sudoers policy\n' >&2
+      [ "$unknown_action" != fail ] || return 1
+      return 0
+    fi
+    target_sha="$(sha256_file "$target")"
+    if [ "$target_sha" != "$expected_sha" ]; then
+      printf 'vellum: preserving modified or foreign release-installer sudoers policy\n' >&2
+      [ "$unknown_action" != fail ] || return 1
+      return 0
+    fi
+    rm -f -- "$target"
+  fi
+
+  if [ ! -e "$marker" ] && [ ! -L "$marker" ]; then
+    return 0
+  fi
+  if [ -L "$marker" ] || [ ! -f "$marker" ] ||
+     [ "$(stat -c '%u:%g:%a:%h' "$marker" 2>/dev/null || true)" != '0:0:600:1' ]; then
+    printf 'vellum: preserving unsafe legacy sudoers custody marker\n' >&2
+    return 0
+  fi
+
+  marker_text="$(/bin/cat "$marker" 2>/dev/null || true)"
+  set -- $marker_text
+  if [ "$#" -eq 1 ] && [ "$marker_text" = "$1" ]; then
+    first_sha="$1"
+    second_sha=
+  elif [ "$#" -eq 2 ] && [ "$marker_text" = "$1 $2" ]; then
+    first_sha="$1"
+    second_sha="$2"
+  else
+    printf 'vellum: preserving malformed legacy sudoers custody marker\n' >&2
+    return 0
+  fi
+  case "$first_sha" in
+    none) [ -n "$second_sha" ] || first_sha=invalid ;;
+    ""|*[!0-9a-f]*) first_sha=invalid ;;
+    *) [ "${#first_sha}" -eq 64 ] || first_sha=invalid ;;
+  esac
+  if [ -n "$second_sha" ]; then
+    case "$second_sha" in ""|*[!0-9a-f]*) second_sha=invalid ;; esac
+    [ "${#second_sha}" -eq 64 ] || second_sha=invalid
+  fi
+  if [ "$first_sha" = invalid ] || [ "$second_sha" = invalid ]; then
+    printf 'vellum: preserving malformed legacy sudoers custody marker\n' >&2
+    return 0
+  fi
+  if [ "$first_sha" != "$expected_sha" ] &&
+     [ "$second_sha" != "$expected_sha" ]; then
+    printf 'vellum: preserving unrelated legacy sudoers custody marker\n' >&2
+    return 0
+  fi
+  rm -f -- "$marker"
+}
+
 ensure_root_directory /usr/libexec 755
 ensure_root_directory /etc/sudoers.d 750
 ensure_root_directory "$INSTALLER_STATE" 700
 INSTALLER_SOURCE_SHA="$(sha256_file "$RELEASE_INSTALLER_SOURCE")"
-SUDOERS_SOURCE_SHA="$(sha256_file "$SUDOERS_SOURCE")"
+if ! retire_legacy_sudoers_policy \
+  "$SUDOERS_TARGET" \
+  "$SUDOERS_MARKER" \
+  "$LEGACY_SUDOERS_SHA256" \
+  fail
+then
+  exit 1
+fi
 admit_package_owned_target "$INSTALLER_TARGET" "$INSTALLER_MARKER" "$INSTALLER_SOURCE_SHA" 755
-admit_package_owned_target "$SUDOERS_TARGET" "$SUDOERS_MARKER" "$SUDOERS_SOURCE_SHA" 440
 if [ -f "$INSTALLER_TARGET" ] && [ ! -L "$INSTALLER_TARGET" ]; then
   INSTALLER_PRIOR_SHA="$(sha256_file "$INSTALLER_TARGET")"
 else
   INSTALLER_PRIOR_SHA=none
-fi
-if [ -f "$SUDOERS_TARGET" ] && [ ! -L "$SUDOERS_TARGET" ]; then
-  SUDOERS_PRIOR_SHA="$(sha256_file "$SUDOERS_TARGET")"
-else
-  SUDOERS_PRIOR_SHA=none
 fi
 
 created_profile_link=0
@@ -265,12 +322,9 @@ if [ "$load_live_profile" -eq 1 ]; then
   /usr/sbin/apparmor_parser --replace --write-cache --skip-read-cache "$PROFILE_SOURCE"
 fi
 
-# Publish the command policy before the executable. The policy grants one
-# no-argument, NOSETENV command from cwd=/; compile-time autoload is disabled.
-publish_marker "$SUDOERS_PRIOR_SHA $SUDOERS_SOURCE_SHA" "$SUDOERS_MARKER"
-publish_root_file "$SUDOERS_SOURCE" "$SUDOERS_TARGET" 0440
-/usr/sbin/visudo -cf "$SUDOERS_TARGET" >/dev/null
-publish_marker "$SUDOERS_SOURCE_SHA" "$SUDOERS_MARKER"
+# The helper remains a fixed root-owned executable, but the package grants no
+# passwordless mutation authority. Every privileged invocation must cross the
+# host's ordinary, visible sudo authentication boundary.
 publish_marker "$INSTALLER_PRIOR_SHA $INSTALLER_SOURCE_SHA" "$INSTALLER_MARKER"
 publish_root_file "$RELEASE_INSTALLER_SOURCE" "$INSTALLER_TARGET" 0755
 publish_marker "$INSTALLER_SOURCE_SHA" "$INSTALLER_MARKER"

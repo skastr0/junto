@@ -206,10 +206,6 @@
         {
           "from": "dist/vellum-release-installer",
           "to": "bin/vellum-release-installer"
-        },
-        {
-          "from": "build/linux/vellum-release-installer.sudoers",
-          "to": "policy/vellum-release-installer.sudoers"
         }
       ],
       "desktop": {

@@ -147,14 +147,18 @@ describe("native package pipeline contract", () => {
   });
 
   it("dispatches after-pack resources by platform and fixes their modes", async () => {
-    const afterPack = await script("electron-builder-after-pack.mjs");
+    const [afterPack, packageJson] = await Promise.all([
+      script("electron-builder-after-pack.mjs"),
+      readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ]);
     expect(afterPack).toContain('platform === "darwin"');
     expect(afterPack).toContain('platform === "linux"');
     expect(afterPack).toContain("context.packager.appInfo.productName");
     expect(afterPack).toContain('unsupported Vellum package platform');
     expect(afterPack).toContain('["vellum", "vellum-browser", "unix-peer-pid.py"]');
     expect(afterPack).toContain('"vellum-release-installer"');
-    expect(afterPack).toContain('"vellum-release-installer.sudoers"');
+    expect(afterPack).not.toContain('"vellum-release-installer.sudoers"');
+    expect(packageJson).not.toContain("vellum-release-installer.sudoers");
     expect(afterPack).toContain('chmod(resource, 0o755)');
     expect(afterPack).toContain('path.join(context.appOutDir, "chrome-sandbox"), 0o755');
     expect(afterPack).toContain('resetAdHocDarwinSignature: platform === "darwin"');
@@ -176,11 +180,18 @@ describe("native package pipeline contract", () => {
     expect(afterInstall).toContain(
       'publish_root_file "$RELEASE_INSTALLER_SOURCE" "$INSTALLER_TARGET" 0755',
     );
-    expect(afterInstall).toContain(
-      '/usr/sbin/visudo -cf "$SUDOERS_TARGET"',
-    );
+    expect(afterInstall).not.toContain("/usr/sbin/visudo");
     expect(afterInstall).toContain(
       "ensure_root_directory /etc/sudoers.d 750",
+    );
+    expect(afterInstall).toContain(
+      "LEGACY_SUDOERS_SHA256='a6edc7952e89af7570f74c53390aeccb8b0fe61456248762330517c7031a2f72'",
+    );
+    expect(afterInstall).toMatch(
+      /retire_legacy_sudoers_policy[\s\S]*"\$LEGACY_SUDOERS_SHA256"[\s\S]*fail/u,
+    );
+    expect(afterInstall).not.toContain(
+      'publish_root_file "$SUDOERS_SOURCE" "$SUDOERS_TARGET"',
     );
     expect(afterInstall).toContain(
       'admit_package_owned_target "$INSTALLER_TARGET"',
@@ -207,6 +218,9 @@ describe("native package pipeline contract", () => {
     );
     expect(afterRemove).toContain(
       'remove_package_owned_root_file "$INSTALLER_TARGET" "$INSTALLER_MARKER" 755',
+    );
+    expect(afterRemove).toMatch(
+      /retire_legacy_sudoers_policy[\s\S]*"\$LEGACY_SUDOERS_SHA256"[\s\S]*preserve/u,
     );
     expect(`${beforeInstall}\n${beforeRemove}\n${afterInstall}\n${afterRemove}`).not.toMatch(
       /sysctl|disable.*apparmor|\/home\/|\$\{?HOME\}?|rm\s+-rf/iu,
