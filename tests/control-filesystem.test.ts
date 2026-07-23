@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -9,6 +9,12 @@ import { CONTROL_DIRECTORY_MODE, CONTROL_FILE_MODE, prepareControlDirectory, rem
 const roots: string[] = [];
 const root = async () => { const path = await mkdtemp(join(tmpdir(), "vellum-control-fs-")); roots.push(path); return path; };
 afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
+const staleSocket = async (path: string): Promise<void> => {
+  const stage = `${path}.stage`; const server = createServer();
+  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(stage, resolve); });
+  renameSync(stage, path);
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+};
 
 describe("control filesystem lifecycle", () => {
   it("normalizes a pre-existing directory to 0700", async () => {
@@ -27,10 +33,17 @@ describe("control filesystem lifecycle", () => {
   });
 
   it("removes only an actual stale Unix socket", async () => {
-    const path = join(await root(), "control.sock"); const server = createServer();
-    await new Promise<void>((resolve) => server.listen(path, resolve));
-    await expect(removeObservedSocket(path)).rejects.toThrow(/live|ambiguous/);
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    const path = join(await root(), "control.sock"); await staleSocket(path);
+    expect(lstatSync(path).isSocket()).toBe(true); await removeObservedSocket(path); expect(existsSync(path)).toBe(false);
+  });
+
+  it("quarantines a deterministic replacement race without deleting the replacement", async () => {
+    const base = await root(); const path = join(base, "control.sock"); const replacement = join(base, "replacement");
+    await staleSocket(path); writeFileSync(replacement, "foreign");
+    await expect(removeObservedSocket(path, { beforeQuarantineRename: () => renameSync(replacement, path) })).rejects.toThrow(/changed during quarantine/);
+    const quarantines = (await (await import("node:fs/promises")).readdir(base)).filter((name) => name.startsWith(".vellum-stale-"));
+    expect(quarantines).toHaveLength(1);
+    expect(readFileSync(join(base, quarantines[0]!, "control.sock"), "utf8")).toBe("foreign");
   });
 
   it("does not follow a pre-created token temporary symlink and preserves its target", async () => {

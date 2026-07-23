@@ -32,7 +32,7 @@ import {
   type TermControlResponse,
 } from "@shared/term-control";
 import type { ControlLease, LocalHostEvent, LocalSessionHost } from "./local-host";
-import { prepareControlDirectory, rotateControlFileToken } from "../control-filesystem";
+import { prepareControlDirectory, removeObservedSocket, rotateControlFileToken } from "../control-filesystem";
 
 const tokenHash = (token: string): Buffer =>
   createHash("sha256").update(token, "utf8").digest();
@@ -217,34 +217,7 @@ export const startTermControlServer = async (
 
   const token = randomBytes(32).toString("hex");
 
-  if (existsSync(socketPath)) {
-    const observed = lstatSync(socketPath, { bigint: true });
-    if (!observed.isSocket()) {
-      throw new Error("refusing to replace non-socket terminal control path");
-    }
-    const state = await probeExistingSocket(socketPath);
-    if (state !== "stale") {
-      throw new Error(
-        state === "active"
-          ? "terminal control socket already has a live listener"
-          : "terminal control socket ownership is ambiguous",
-      );
-    }
-    if (existsSync(socketPath)) {
-      const current = lstatSync(socketPath, { bigint: true });
-      if (
-        !current.isSocket() ||
-        current.dev !== observed.dev ||
-        current.ino !== observed.ino ||
-        current.birthtimeNs !== observed.birthtimeNs
-      ) {
-        throw new Error("terminal control socket changed during stale-path probe");
-      }
-      // This is the only startup cleanup: the exact socket inode observed
-      // refusing connections above. Active and ambiguous paths fail closed.
-      unlinkSync(socketPath);
-    }
-  }
+  await removeObservedSocket(socketPath);
 
   /** leaseId → sockets subscribed to that session's events */
   const leaseSockets = new Map<string, Set<Socket>>();

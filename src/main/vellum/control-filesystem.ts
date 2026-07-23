@@ -1,17 +1,20 @@
 /** Hardened owner-local lifecycle for Unix control sockets and bearer tokens. */
 import { randomBytes } from "node:crypto";
-import { chmodSync, closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, openSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
+import { basename, dirname, join } from "node:path";
 
 export const CONTROL_DIRECTORY_MODE = 0o700;
 export const CONTROL_FILE_MODE = 0o600;
 
-type Identity = Readonly<{ dev: bigint; ino: bigint; birthtimeNs: bigint }>;
+type Identity = Readonly<{ dev: bigint; ino: bigint; birthtimeNs: bigint; uid: bigint }>;
 const identityOf = (path: string): Identity => {
   const value = lstatSync(path, { bigint: true });
-  return { dev: value.dev, ino: value.ino, birthtimeNs: value.birthtimeNs };
+  return { dev: value.dev, ino: value.ino, birthtimeNs: value.birthtimeNs, uid: value.uid };
 };
-const sameIdentity = (a: Identity, b: Identity): boolean => a.dev === b.dev && a.ino === b.ino && a.birthtimeNs === b.birthtimeNs;
+// dev+ino+uid identify the exact directory entry's inode for this lifecycle.
+// birthtime metadata is not stable across every supported Node filesystem.
+const sameIdentity = (a: Identity, b: Identity): boolean => a.dev === b.dev && a.ino === b.ino && a.uid === b.uid;
 
 export const prepareControlDirectory = (path: string): void => {
   mkdirSync(path, { recursive: true, mode: CONTROL_DIRECTORY_MODE });
@@ -21,7 +24,10 @@ export const prepareControlDirectory = (path: string): void => {
 };
 
 /** Removes only an observed stale Unix socket, never a symlink or arbitrary file. */
-export const removeObservedSocket = async (path: string): Promise<void> => {
+export const removeObservedSocket = async (
+  path: string,
+  runtime: { readonly beforeQuarantineRename?: () => void } = {},
+): Promise<void> => {
   let first: ReturnType<typeof lstatSync>;
   try { first = lstatSync(path, { bigint: true }); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
   if (!first.isSocket() || first.isSymbolicLink()) throw new Error("refusing to replace non-socket control path");
@@ -32,11 +38,26 @@ export const removeObservedSocket = async (path: string): Promise<void> => {
     socket.once("connect", () => { clearTimeout(timer); finish(true); });
     socket.once("error", (error: NodeJS.ErrnoException) => { clearTimeout(timer); finish(error.code !== "ECONNREFUSED" && error.code !== "ENOENT"); });
   });
-  if (active) throw new Error("control socket has a live or ambiguous listener");
-  const id: Identity = { dev: first.dev, ino: first.ino, birthtimeNs: first.birthtimeNs };
-  const current = lstatSync(path, { bigint: true });
-  if (!current.isSocket() || current.isSymbolicLink() || !sameIdentity(id, { dev: current.dev, ino: current.ino, birthtimeNs: current.birthtimeNs })) throw new Error("control socket changed during stale cleanup");
-  unlinkSync(path);
+  if (active) throw new Error("control socket has a live listener or ambiguous ownership");
+  const id: Identity = { dev: first.dev, ino: first.ino, birthtimeNs: first.birthtimeNs, uid: first.uid };
+  const quarantine = mkdtempSync(join(dirname(path), ".vellum-stale-"));
+  const quarantined = join(quarantine, basename(path));
+  try {
+    const qdir = lstatSync(quarantine);
+    if (!qdir.isDirectory() || qdir.isSymbolicLink() || (qdir.mode & 0o777) !== CONTROL_DIRECTORY_MODE) throw new Error("stale socket quarantine is not owner-only");
+    runtime.beforeQuarantineRename?.();
+    // rename moves the directory entry itself and never follows a symlink target.
+    renameSync(path, quarantined);
+    const moved = lstatSync(quarantined, { bigint: true });
+    const movedId: Identity = { dev: moved.dev, ino: moved.ino, birthtimeNs: moved.birthtimeNs, uid: moved.uid };
+    if (!moved.isSocket() || moved.isSymbolicLink() || !sameIdentity(id, movedId)) throw new Error("control socket changed during quarantine");
+    unlinkSync(quarantined);
+    rmdirSync(quarantine);
+  } catch (error) {
+    // A mismatched replacement remains quarantined, never deleted. The caller
+    // fails readiness and must not continue to bind a new canonical listener.
+    throw error;
+  }
 };
 
 /** Atomic, no-follow token publication; cleanup is restricted to our inode. */
@@ -51,10 +72,10 @@ export const rotateControlFileToken = (
   let fd: number | undefined; let owned: Identity | undefined;
   try {
     fd = openSync(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0), CONTROL_FILE_MODE);
-    const stat = fstatSync(fd, { bigint: true }); owned = { dev: stat.dev, ino: stat.ino, birthtimeNs: stat.birthtimeNs };
+    const stat = fstatSync(fd, { bigint: true }); owned = { dev: stat.dev, ino: stat.ino, birthtimeNs: stat.birthtimeNs, uid: stat.uid };
     fchmodSync(fd, CONTROL_FILE_MODE); writeFileSync(fd, `${token}\n`, "utf8"); fsyncSync(fd); closeSync(fd); fd = undefined;
     const current = identityOf(temp); if (!sameIdentity(owned, current) || !lstatSync(temp).isFile()) throw new Error("control token temporary path changed");
-    renameSync(temp, tokenPath); chmodSync(tokenPath, CONTROL_FILE_MODE);
+    renameSync(temp, tokenPath);
     const final = lstatSync(tokenPath); if (!final.isFile() || final.isSymbolicLink() || (final.mode & 0o777) !== CONTROL_FILE_MODE) throw new Error("control token permissions could not be hardened");
     return token;
   } catch (error) {
