@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
@@ -13,6 +14,16 @@ import {
 } from "../scripts/linux-release-inventory";
 
 const roots: string[] = [];
+const MIT_LICENSE = `MIT License
+
+Copyright (c) 2026 Example
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+`;
 
 afterEach(async () => {
   await Promise.all(
@@ -62,12 +73,21 @@ describe("Linux release dependency and SBOM evidence", () => {
         "1.2.3",
       ),
       writePackage(
+        path.join(modules, "@scope", "no-license"),
+        "@scope/no-license",
+        "1.0.0",
+      ),
+      writePackage(
         path.join(modules, "effect", "node_modules", "nested"),
         "nested",
         "2.0.0",
         "Apache-2.0",
       ),
     ]);
+    await writeFile(
+      path.join(modules, "@scope", "unknown", "LICENSE"),
+      MIT_LICENSE,
+    );
 
     const inventory = await collectDependencyLicenseInventory({
       projectDirectory: root,
@@ -76,11 +96,25 @@ describe("Linux release dependency and SBOM evidence", () => {
     });
     expect(inventory.packages).toEqual([
       {
+        name: "@scope/no-license",
+        version: "1.0.0",
+        direct: false,
+        development: false,
+        license: "UNKNOWN",
+        licenseSource: "unresolved",
+        purl: "pkg:npm/%40scope/no-license@1.0.0",
+      },
+      {
         name: "@scope/unknown",
         version: "1.2.3",
         direct: false,
         development: false,
-        license: "UNKNOWN",
+        license: "MIT",
+        licenseSource: "bundled-license-file",
+        licenseEvidence: {
+          file: "LICENSE",
+          sha256: createHash("sha256").update(MIT_LICENSE).digest("hex"),
+        },
         purl: "pkg:npm/%40scope/unknown@1.2.3",
       },
       {
@@ -89,6 +123,7 @@ describe("Linux release dependency and SBOM evidence", () => {
         direct: true,
         development: false,
         license: "MIT",
+        licenseSource: "package-metadata",
         purl: "pkg:npm/effect@3.0.0",
       },
       {
@@ -97,6 +132,7 @@ describe("Linux release dependency and SBOM evidence", () => {
         direct: false,
         development: false,
         license: "Apache-2.0",
+        licenseSource: "package-metadata",
         purl: "pkg:npm/nested@2.0.0",
       },
       {
@@ -105,6 +141,7 @@ describe("Linux release dependency and SBOM evidence", () => {
         direct: true,
         development: true,
         license: "MIT",
+        licenseSource: "package-metadata",
         purl: "pkg:npm/vitest@4.0.0",
       },
     ]);
@@ -128,6 +165,26 @@ describe("Linux release dependency and SBOM evidence", () => {
           version: "0.1.0",
         },
       },
+      components: expect.arrayContaining([
+        expect.objectContaining({
+          name: "@scope/unknown",
+          licenses: [{ expression: "MIT" }],
+          properties: expect.arrayContaining([
+            {
+              name: "vellum:license-source",
+              value: "bundled-license-file",
+            },
+            {
+              name: "vellum:license-evidence-file",
+              value: "LICENSE",
+            },
+            {
+              name: "vellum:license-evidence-sha256",
+              value: createHash("sha256").update(MIT_LICENSE).digest("hex"),
+            },
+          ]),
+        }),
+      ]),
     });
     expect(JSON.stringify(sbom)).not.toContain(root);
   });

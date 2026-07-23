@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
+import { constants } from "node:fs";
 import {
   lstat,
   mkdir,
+  open,
   readFile,
   readdir,
   writeFile,
@@ -14,6 +17,14 @@ export interface InstalledPackageLicense {
   readonly direct: boolean;
   readonly development: boolean;
   readonly license: string;
+  readonly licenseSource:
+    | "package-metadata"
+    | "bundled-license-file"
+    | "unresolved";
+  readonly licenseEvidence?: {
+    readonly file: string;
+    readonly sha256: string;
+  };
   readonly purl: string;
 }
 
@@ -34,6 +45,16 @@ interface RootPackage {
 const SOURCE_REVISION = /^[0-9a-f]{40}$/u;
 const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/iu;
 const PACKAGE_VERSION = /^[^\s\0]{1,128}$/u;
+const MAX_LICENSE_FILE_BYTES = 128 * 1024;
+const LICENSE_FILE_NAMES = [
+  "LICENSE",
+  "LICENSE.txt",
+  "LICENSE.md",
+  "LICENCE",
+  "LICENCE.txt",
+  "LICENCE.md",
+  "COPYING",
+] as const;
 
 const requireRevision = (value: unknown): string => {
   if (typeof value !== "string" || !SOURCE_REVISION.test(value)) {
@@ -75,6 +96,75 @@ const normalizeLicense = (value: unknown): string => {
       !/[\0\r\n]/u.test(candidate)
     ? candidate
     : "UNKNOWN";
+};
+
+interface BundledLicenseEvidence {
+  readonly license: string;
+  readonly file: string;
+  readonly sha256: string;
+}
+
+const errno = (error: unknown): string | undefined =>
+  error instanceof Error && "code" in error &&
+    typeof (error as { readonly code?: unknown }).code === "string"
+    ? (error as { readonly code: string }).code
+    : undefined;
+
+const identifyBundledLicense = (text: string): string => {
+  const normalized = text.replaceAll("\r\n", "\n");
+  return normalized.startsWith("MIT License\n") &&
+      normalized.includes(
+        "Permission is hereby granted, free of charge, to any person obtaining a copy",
+      ) &&
+      normalized.includes('THE SOFTWARE IS PROVIDED "AS IS"')
+    ? "MIT"
+    : "UNKNOWN";
+};
+
+const inspectBundledLicense = async (
+  packageDirectory: string,
+): Promise<BundledLicenseEvidence | undefined> => {
+  let unresolved: BundledLicenseEvidence | undefined;
+  for (const file of LICENSE_FILE_NAMES) {
+    const candidate = path.join(packageDirectory, file);
+    let handle;
+    try {
+      handle = await open(
+        candidate,
+        constants.O_RDONLY | constants.O_NOFOLLOW,
+      );
+    } catch (error) {
+      if (errno(error) === "ENOENT" || errno(error) === "ELOOP") continue;
+      throw error;
+    }
+    try {
+      const metadata = await handle.stat();
+      if (
+        !metadata.isFile() ||
+        metadata.size <= 0 ||
+        metadata.size > MAX_LICENSE_FILE_BYTES
+      ) {
+        continue;
+      }
+      const bytes = await handle.readFile();
+      let text: string;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch {
+        continue;
+      }
+      const evidence = {
+        license: identifyBundledLicense(text),
+        file,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      };
+      if (evidence.license !== "UNKNOWN") return evidence;
+      unresolved ??= evidence;
+    } finally {
+      await handle.close();
+    }
+  }
+  return unresolved;
 };
 
 const npmPurl = (name: string, version: string): string => {
@@ -181,9 +271,13 @@ export const collectDependencyLicenseInventory = async (input: {
       PACKAGE_VERSION,
       "version",
     );
-    const license = normalizeLicense(
+    const metadataLicense = normalizeLicense(
       packageJson.license ?? packageJson.licenses,
     );
+    const bundledLicense = metadataLicense === "UNKNOWN"
+      ? await inspectBundledLicense(directory)
+      : undefined;
+    const license = bundledLicense?.license ?? metadataLicense;
     const key = `${name}\0${version}`;
     packages.set(key, {
       name,
@@ -191,6 +285,19 @@ export const collectDependencyLicenseInventory = async (input: {
       direct: runtime.has(name) || development.has(name),
       development: development.has(name) && !runtime.has(name),
       license,
+      licenseSource: metadataLicense !== "UNKNOWN"
+        ? "package-metadata"
+        : license !== "UNKNOWN"
+          ? "bundled-license-file"
+          : "unresolved",
+      ...(bundledLicense === undefined
+        ? {}
+        : {
+          licenseEvidence: {
+            file: bundledLicense.file,
+            sha256: bundledLicense.sha256,
+          },
+        }),
       purl: npmPurl(name, version),
     });
   }
@@ -250,6 +357,19 @@ export const createCycloneDxSbom = (input: {
       properties: [
         { name: "vellum:direct", value: String(entry.direct) },
         { name: "vellum:development", value: String(entry.development) },
+        { name: "vellum:license-source", value: entry.licenseSource },
+        ...(entry.licenseEvidence === undefined
+          ? []
+          : [
+            {
+              name: "vellum:license-evidence-file",
+              value: entry.licenseEvidence.file,
+            },
+            {
+              name: "vellum:license-evidence-sha256",
+              value: entry.licenseEvidence.sha256,
+            },
+          ]),
       ],
     })),
   };

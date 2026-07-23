@@ -1127,11 +1127,11 @@ const validateEvidenceReceipt = (
       receipt.sourceRevision !== manifest.source.revision ||
       !Array.isArray(receipt.packages) ||
       receipt.packages.length === 0 ||
-      typeof receipt.unknownLicenseCount !== "number" ||
-      !Number.isSafeInteger(receipt.unknownLicenseCount) ||
-      receipt.unknownLicenseCount < 0
+      receipt.unknownLicenseCount !== 0
     ) {
-      throw new Error("dependency/license inventory does not match the release");
+      throw new Error(
+        "dependency/license inventory is incomplete or has unresolved rights",
+      );
     }
     return;
   }

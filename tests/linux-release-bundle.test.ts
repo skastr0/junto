@@ -92,6 +92,7 @@ const createFixture = async (options: {
   readonly downgradePolicy?: "forbid" | "explicit-rollback";
   readonly minimumDowngradeVersion?: string;
   readonly testGates?: ReadonlyArray<string>;
+  readonly unknownLicenseCount?: number;
 } = {}) => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "vellum-linux-release-bundle-"),
@@ -175,8 +176,13 @@ const createFixture = async (options: {
     "dependency-license-inventory.json": canonical({
       schema: "vellum/dependency-license-inventory/v1",
       sourceRevision: REVISION,
-      packages: [{ name: "effect", version: "3.0.0", license: "MIT" }],
-      unknownLicenseCount: 0,
+      packages: [{
+        name: "effect",
+        version: "3.0.0",
+        license: "MIT",
+        licenseSource: "package-metadata",
+      }],
+      unknownLicenseCount: options.unknownLicenseCount ?? 0,
     }),
     "sbom.cdx.json": canonical({
       bomFormat: "CycloneDX",
@@ -429,6 +435,12 @@ describe("signed Linux release bundle", () => {
     await expect(
       createFixture({ testGates: ciGates.slice(1) }),
     ).rejects.toThrow(/every release gate/u);
+  });
+
+  it("refuses to create signed metadata with unresolved dependency rights", async () => {
+    await expect(
+      createFixture({ unknownLicenseCount: 1 }),
+    ).rejects.toThrow(/unresolved rights/u);
   });
 
   it("never emits private key material into signed metadata", async () => {
