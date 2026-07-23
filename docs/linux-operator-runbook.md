@@ -261,6 +261,9 @@ A Linux attempt:
   and pre-mutation receipt;
 - re-verifies from root-protected descriptors, caches the rollback artifact,
   journals every package/activation phase, and serializes package mutation;
+- reaps the fixed sudo child, removes the exact descriptor-held staging
+  directory, and emits a fully bound `STAGE_CLEARED` receipt only after that
+  directory inode is proven unlinked;
 - reports ready only after the exact installed generation passes station
   readiness; and
 - restores the prior cached package, service state, and lingering state when a
@@ -273,10 +276,17 @@ baseline.
 
 Persistent `NOPASSWD` grants are not part of the product contract. Do not add a
 Vellum sudoers rule, run the helper directly, pipe a password through a shell,
-or pre-authorize package-manager commands. A wrong password, disconnect before
-`COMMIT`, malformed receipt, changed digest, or changed target ends the attempt
-without an automatic retry. A disconnect after `COMMIT` is indeterminate until
-the root journal and release fence are reconciled by the bounded repair path.
+or pre-authorize package-manager commands. Vellum never retries an
+administrator credential or a failed transaction automatically.
+
+A wrong password is reported as `auth-required`, and a pre-`COMMIT` installer
+refusal as `not-started`, only when the bridge exits successfully after
+returning the exact bound `STAGE_CLEARED` receipt. A disconnect, partial stage,
+malformed or mismatched receipt, changed digest or target, missing cleanup
+proof, or nonzero bridge exit is conservatively `indeterminate`, even if it
+happens before `COMMIT`. Any unexplained outcome after `COMMIT` is likewise
+indeterminate until the root journal and release fence are reconciled by the
+bounded repair path.
 
 Deployment failures expose one bounded recovery action in Settings:
 

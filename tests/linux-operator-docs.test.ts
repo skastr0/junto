@@ -72,8 +72,10 @@ describe("Linux v1 operator documentation", () => {
       "Persistent `NOPASSWD` grants are not part of the product contract",
     );
     expect(runbook).toContain(
-      "A disconnect after `COMMIT` is indeterminate",
+      "Any unexplained outcome after `COMMIT` is likewise",
     );
+    expect(runbook).toContain("exact bound `STAGE_CLEARED` receipt");
+    expect(runbook).toMatch(/even if it\s+happens before `COMMIT`/u);
   });
 
   it("contains no executable unsafe sandbox, root-app, TCP, wipe, or raw-socket guidance", async () => {
