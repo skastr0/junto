@@ -1,4 +1,12 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -45,6 +53,58 @@ describe("remote hosts registry", () => {
     expect(hosts.every((host) => host.kind === "local" || host.endpoint)).toBe(true);
     const raw = await readFile(path, "utf8");
     expect(JSON.parse(raw).version).toBe(1);
+    expect((await lstat(path)).mode & 0o777).toBe(0o600);
+  });
+
+  it("keeps atomic rewrites owner-only", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-mode-"));
+    dirs.push(root);
+    const path = join(root, "hosts.json");
+    const registry = makeHostsRegistry(path);
+    await registry.list();
+    await chmod(path, 0o664);
+
+    await registry.upsert({
+      id: "studio",
+      label: "Studio",
+      kind: "remote",
+      endpoint: "studio",
+      capabilities: ["hermes"],
+    });
+
+    expect((await lstat(path)).mode & 0o777).toBe(0o600);
+  });
+
+  it("repairs a legacy group/world-readable regular file before reading", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-legacy-mode-"));
+    dirs.push(root);
+    const path = join(root, "hosts.json");
+    await writeFile(path, `${JSON.stringify(defaultRemoteHostsDocument())}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    await chmod(path, 0o664);
+
+    await makeHostsRegistry(path).list();
+
+    expect((await lstat(path)).mode & 0o777).toBe(0o600);
+  });
+
+  it("rejects a symlink without changing or reading through its target", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-symlink-"));
+    dirs.push(root);
+    const target = join(root, "target.json");
+    const path = join(root, "hosts.json");
+    const body = `${JSON.stringify(defaultRemoteHostsDocument())}\n`;
+    await writeFile(target, body, { encoding: "utf8", mode: 0o600 });
+    await chmod(target, 0o664);
+    await symlink(target, path);
+
+    await expect(makeHostsRegistry(path).list()).rejects.toMatchObject({
+      code: "io",
+    });
+    expect(await readFile(target, "utf8")).toBe(body);
+    expect((await lstat(target)).mode & 0o777).toBe(0o664);
   });
 
   it("migrates browser onto the reserved local host without inventing it for SSH hosts", async () => {

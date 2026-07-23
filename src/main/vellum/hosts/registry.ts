@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { mkdir, open, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { isIP } from "node:net";
@@ -143,22 +144,32 @@ const atomicWrite = async (
     );
   }
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, body, "utf8");
+  await writeFile(tmp, body, {
+    encoding: "utf8",
+    flag: "wx",
+    mode: 0o600,
+  });
   await rename(tmp, path);
 };
 
 export const loadRemoteHostsDocument = async (
   path: string = remoteHostsFilePath(),
 ): Promise<RemoteHostsDocumentT> => {
+  let file: Awaited<ReturnType<typeof open>> | undefined;
   try {
-    const info = await stat(path);
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const info = await file.stat();
     if (!info.isFile()) {
       throw new RemoteHostsError("io", "hosts path is not a regular file");
     }
     if (info.size > MAX_BYTES) {
       throw new RemoteHostsError("io", "hosts file exceeds size ceiling");
     }
-    const raw = await readFile(path, "utf8");
+    // Older builds inherited the login umask and could leave hosts.json
+    // group/world-readable. Repair the already-open regular-file inode before
+    // reading it so a path swap cannot redirect chmod or the read.
+    await file.chmod(0o600);
+    const raw = await file.readFile("utf8");
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw) as unknown;
@@ -190,6 +201,8 @@ export const loadRemoteHostsDocument = async (
       "io",
       error instanceof Error ? error.message : String(error),
     );
+  } finally {
+    await file?.close();
   }
 };
 
