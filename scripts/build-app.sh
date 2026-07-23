@@ -51,6 +51,7 @@ if [[ "$NOTARIZE" -eq 1 && "$TARGET" != "mac" ]]; then
 fi
 
 cd "$REPO_ROOT"
+if [[ "$COMPILE_ONLY" -eq 0 ]]; then bun "$SCRIPT_DIR/electron-security-policy.ts" prepare-package; fi
 printf 'vellum: validating checked-in Electron security policy …\n'
 bun "$SCRIPT_DIR/electron-security-policy.ts" validate
 if [[ ! -d node_modules/electron-builder ]]; then

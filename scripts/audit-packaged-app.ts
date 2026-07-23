@@ -865,9 +865,11 @@ export const auditPackagedApp = async (
   const policy = PACKAGE_SECURITY_POLICY;
   const appPath = path.resolve(requestedPath);
   const embeddedPolicyPath = path.join(appPath, "Contents", "Resources", "policy", "electron-security-policy.json");
+  const embeddedObservationPath = path.join(appPath, "Contents", "Resources", "policy", "electron-observation.json");
   const workspacePolicyPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "electron-security-policy.json");
-  const [embeddedPolicyRaw, workspacePolicyRaw] = await Promise.all([readFile(embeddedPolicyPath, "utf8"), readFile(workspacePolicyPath, "utf8")]);
+  const [embeddedPolicyRaw, workspacePolicyRaw, embeddedObservationRaw, localObservationRaw] = await Promise.all([readFile(embeddedPolicyPath, "utf8"), readFile(workspacePolicyPath, "utf8"), readFile(embeddedObservationPath, "utf8"), readFile(path.join(process.env.VELLUM_RELEASE_SECURITY_STATE_DIR ?? path.join(process.env.HOME ?? "", ".vellum", "release-security"), "electron-observation.json"), "utf8")]);
   if (embeddedPolicyRaw !== workspacePolicyRaw) throw new Error("embedded Electron policy differs from reviewed workspace policy");
+  if (embeddedObservationRaw !== localObservationRaw) throw new Error("embedded Electron observation differs from release input");
   const electronInfoPath = path.join(appPath, "Contents", "Frameworks", "Electron Framework.framework", "Versions", "A", "Resources", "Info.plist");
   const electronInfo = JSON.parse(runFixedCommand("/usr/bin/plutil", ["-convert", "json", "-o", "-", electronInfoPath])) as Record<string, unknown>;
   const embeddedVersion = electronInfo.CFBundleVersion;

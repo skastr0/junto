@@ -18,6 +18,7 @@ const INSTALLED_RUNTIME_PATH = path.join(ROOT, "node_modules/electron/dist/versi
 const SUPPORT_URL = "https://www.electronjs.org/docs/latest/tutorial/electron-timelines";
 const RELEASE_INDEX_URL = "https://releases.electronjs.org/releases.json";
 const observationPath = () => path.join(process.env.VELLUM_RELEASE_SECURITY_STATE_DIR ?? path.join(homedir(), ".vellum", "release-security"), "electron-observation.json");
+const packagedObservationPath = path.join(ROOT, "build", "electron-observation.json");
 const policyHash = (raw: string) => createHash("sha256").update(raw).digest("hex");
 
 export interface ElectronSecurityPolicy {
@@ -189,6 +190,15 @@ export const checkOfficialElectronSources = async (now = new Date()) => {
   return { ...receipt, supportedMajors, latestStable: latestByMajor.get(Math.max(...supportedMajors))?.version, eol };
 };
 
+/** Release-only bridge: copies, never blesses, the explicit online observation. */
+export const prepareElectronObservationForPackaging = async () => {
+  const raw = await readFile(observationPath(), "utf8");
+  const receipt = JSON.parse(raw) as Record<string, unknown>;
+  if (receipt.schemaVersion !== 1 || receipt.overdue !== false || receipt.disposition !== "current") fail("a current Electron observation receipt is required for packaging");
+  await mkdir(path.dirname(packagedObservationPath), { recursive: true });
+  await writeFile(packagedObservationPath, raw, { mode: 0o600 });
+};
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const command = process.argv[2];
   if (command === "validate" && process.argv.length === 3) {
@@ -198,6 +208,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const receipt = await checkOfficialElectronSources();
     console.log(JSON.stringify(receipt, null, 2));
     if (receipt.overdue) process.exitCode = 1;
+  } else if (command === "prepare-package" && process.argv.length === 3) {
+    await prepareElectronObservationForPackaging();
   } else {
     console.error("usage: bun scripts/electron-security-policy.ts validate|check");
     process.exitCode = 1;
