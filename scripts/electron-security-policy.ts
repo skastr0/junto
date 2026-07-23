@@ -151,7 +151,7 @@ export const validateCheckedInElectronPolicy = async (now = new Date()) => {
   validateElectronSecurityPolicy(decodeElectronSecurityPolicy(JSON.parse(rawPolicy)), { now, manifestVersion: version as string, installedPackageVersion, installedRuntimeVersion });
 };
 
-export const checkOfficialElectronSources = async () => {
+export const checkOfficialElectronSources = async (now = new Date()) => {
   const policy = decodeElectronSecurityPolicy(JSON.parse(await readFile(POLICY_PATH, "utf8")));
   const [support, releases, release] = await Promise.all([
     fetch(SUPPORT_URL), fetch(RELEASE_INDEX_URL), fetch(policy.electron.auditedRelease.url),
@@ -163,14 +163,17 @@ export const checkOfficialElectronSources = async () => {
   if (!Array.isArray(rawList) || !rawList.some((entry) => isRecord(entry) && entry.version === policy.electron.auditedRelease.version)) fail(`official release index does not contain ${policy.electron.auditedRelease.version}`);
   const list = rawList as unknown[];
   const stable = list.filter((entry): entry is Record<string, unknown> => isRecord(entry) && typeof entry.version === "string" && /^(\d+)\.(\d+)\.(\d+)$/.test(entry.version));
-  const latestByMajor = new Map<number, string>();
-  for (const entry of stable) { const version = entry.version as string; const [major, minor, patch] = versionParts(version, "official release"); const prior = latestByMajor.get(major); if (!prior || minor > versionParts(prior, "official release")[1] || (minor === versionParts(prior, "official release")[1] && patch > versionParts(prior, "official release")[2])) latestByMajor.set(major, version); }
+  const latestByMajor = new Map<number, Record<string, unknown>>();
+  for (const entry of stable) { const version = entry.version as string; const [major, minor, patch] = versionParts(version, "official release"); const prior = latestByMajor.get(major); const priorVersion = prior?.version; if (typeof priorVersion !== "string" || minor > versionParts(priorVersion, "official release")[1] || (minor === versionParts(priorVersion, "official release")[1] && patch > versionParts(priorVersion, "official release")[2])) latestByMajor.set(major, entry); }
   const supportedMajors = [...latestByMajor.keys()].sort((a, b) => b - a).slice(0, 3).sort((a, b) => a - b);
-  const currentLinePatch = latestByMajor.get(versionParts(policy.electron.exactVersion, "policy version")[0]);
+  const currentLine = latestByMajor.get(versionParts(policy.electron.exactVersion, "policy version")[0]);
+  const currentLinePatch = currentLine?.version as string | undefined;
   const eol = !supportedMajors.includes(versionParts(policy.electron.exactVersion, "policy version")[0]);
   const disposition = eol ? "eol" : currentLinePatch === policy.electron.exactVersion ? "current" : "newer_patch_available";
-  const dueAt = new Date(Date.now() + policy.reviewSla.urgentHours * 3_600_000).toISOString();
-  return { checkedAt: new Date().toISOString(), policyVersion: policy.electron.exactVersion, supportedMajors, latestStable: latestByMajor.get(Math.max(...supportedMajors)), currentLinePatch, disposition, eol, dueAt, overdue: false, sources: [SUPPORT_URL, RELEASE_INDEX_URL, policy.electron.auditedRelease.url] };
+  const observedAt = typeof currentLine?.fullDate === "string" ? date(currentLine.fullDate, "official release fullDate") : typeof currentLine?.date === "string" ? date(`${currentLine.date}T00:00:00.000Z`, "official release date") : fail("official current-line release is missing publication date");
+  const dueAt = new Date(observedAt + policy.reviewSla.urgentHours * 3_600_000).toISOString();
+  const overdue = eol || (disposition === "newer_patch_available" && now.getTime() >= Date.parse(dueAt));
+  return { checkedAt: now.toISOString(), policyVersion: policy.electron.exactVersion, supportedMajors, latestStable: latestByMajor.get(Math.max(...supportedMajors))?.version, currentLinePatch, disposition, eol, dueAt, overdue, sources: [SUPPORT_URL, RELEASE_INDEX_URL, policy.electron.auditedRelease.url] };
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -179,7 +182,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     await validateCheckedInElectronPolicy();
     console.log("electron security policy: valid (offline)");
   } else if (command === "check" && process.argv.length === 3) {
-    console.log(JSON.stringify(await checkOfficialElectronSources(), null, 2));
+    const receipt = await checkOfficialElectronSources();
+    console.log(JSON.stringify(receipt, null, 2));
+    if (receipt.overdue) process.exitCode = 1;
   } else {
     console.error("usage: bun scripts/electron-security-policy.ts validate|check");
     process.exitCode = 1;
