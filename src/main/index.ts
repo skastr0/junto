@@ -689,7 +689,9 @@ const createWindow = () => {
     minHeight: 680,
     title: "Vellum Command",
     backgroundColor: "#0c0b0a",
-    titleBarStyle: "hiddenInset",
+    // `hiddenInset` and traffic-light geometry are a macOS presentation
+    // contract. Linux window managers receive Electron's native chrome.
+    ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
       contextIsolation: true,

@@ -97,6 +97,10 @@ body {
   display: flex;
   justify-content: center;
   box-sizing: border-box;
+  padding: 16px;
+}
+
+html[data-vellum-platform="darwin"] .focus-surface {
   /* traffic lights + breathing room under hiddenInset titlebar */
   padding: 40px 16px 16px;
 }
@@ -495,8 +499,7 @@ body {
   width: 100% !important;
 }
 
-/* hiddenInset macOS window: leave room for the traffic lights, and let the
-   bar itself drag the window — interactive children opt back out below. */
+/* Generic desktop chrome. macOS adds hiddenInset geometry below. */
 .station-bar {
   position: relative;
   z-index: 30;
@@ -506,17 +509,21 @@ body {
   gap: 14px;
   border-bottom: 1px solid rgba(237, 230, 218, 0.12);
   background: rgba(12, 11, 10, 0.88);
-  padding: 0 18px 0 84px;
+  padding: 0 18px;
   backdrop-filter: blur(16px);
+}
+
+html[data-vellum-platform="darwin"] .station-bar {
+  padding-left: 84px;
   -webkit-app-region: drag;
 }
 
-.station-bar button,
-.station-bar input,
-.station-bar select,
-.station-bar label,
-.station-bar aside,
-.station-bar .usage-hud {
+html[data-vellum-platform="darwin"] .station-bar button,
+html[data-vellum-platform="darwin"] .station-bar input,
+html[data-vellum-platform="darwin"] .station-bar select,
+html[data-vellum-platform="darwin"] .station-bar label,
+html[data-vellum-platform="darwin"] .station-bar aside,
+html[data-vellum-platform="darwin"] .station-bar .usage-hud {
   -webkit-app-region: no-drag;
 }
 

@@ -393,6 +393,7 @@ ipcRenderer.on(IPC_CHANNELS.rendererSurfaceChallenge, (_event, candidate: unknow
 });
 
 const vellumApi: VellumApi = {
+  platform: process.platform,
   rendererSurfaceReady: () => {
     rendererSurfaceMounted = true;
     sendRendererSurfaceReceipt();

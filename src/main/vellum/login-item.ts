@@ -2,7 +2,7 @@
 // app.setLoginItemSettings / getLoginItemSettings. Never silent enrollment —
 // only explicit toggle. Not stored in settings.json; OS is the source of truth.
 
-import type { LoginItemOpResult, LoginItemState } from "@shared/ipc";
+import type { LoginItemOpResult, LoginItemState, StartupProvider } from "@shared/ipc";
 
 export type { LoginItemOpResult, LoginItemState };
 
@@ -19,6 +19,20 @@ export interface LoginItemApp {
     readonly openAsHidden?: boolean;
   }) => void;
 }
+
+export interface StartupProviderPort {
+  readonly provider: StartupProvider;
+  readonly get: () => LoginItemOpResult;
+  readonly set: (openAtLogin: unknown) => LoginItemOpResult;
+}
+
+const unsupportedStartupProvider = (platform: NodeJS.Platform): StartupProvider =>
+  platform === "linux" ? "systemd-supervision" : "unsupported";
+
+const unsupportedStartupMessage = (provider: StartupProvider): string =>
+  provider === "systemd-supervision"
+    ? "Apple Login Items are unavailable on Linux; use systemd user supervision for Remote stations."
+    : "Apple Login Items are only available on macOS.";
 
 export const readLoginItemState = (electronApp: LoginItemApp): LoginItemState => {
   const raw = electronApp.getLoginItemSettings();
@@ -48,10 +62,53 @@ export const setLoginItemOpenAtLogin = (
 
 export const loginItemOpOk = (state: LoginItemState): LoginItemOpResult => ({
   ok: true,
+  provider: "apple-login-items",
   state,
 });
 
-export const loginItemOpFail = (message: string): LoginItemOpResult => ({
+export const loginItemOpFail = (
+  message: string,
+  provider: StartupProvider = "apple-login-items",
+): LoginItemOpResult => ({
   ok: false,
+  provider,
   message,
 });
+
+/**
+ * The sole main-process boundary for Apple Login Items. Unsupported platforms
+ * return a typed failure before Electron's Apple-only API can be reached.
+ */
+export const createStartupProvider = (
+  electronApp: LoginItemApp,
+  platform: NodeJS.Platform = process.platform,
+): StartupProviderPort => {
+  if (platform !== "darwin") {
+    const provider = unsupportedStartupProvider(platform);
+    const message = unsupportedStartupMessage(provider);
+    return Object.freeze({
+      provider,
+      get: () => loginItemOpFail(message, provider),
+      set: () => loginItemOpFail(message, provider),
+    });
+  }
+
+  return Object.freeze({
+    provider: "apple-login-items",
+    get: () => {
+      try {
+        return loginItemOpOk(readLoginItemState(electronApp));
+      } catch (error) {
+        return loginItemOpFail(error instanceof Error ? error.message : String(error));
+      }
+    },
+    set: (openAtLogin: unknown) => {
+      if (typeof openAtLogin !== "boolean") return loginItemOpFail("openAtLogin must be a boolean");
+      try {
+        return loginItemOpOk(setLoginItemOpenAtLogin(electronApp, openAtLogin));
+      } catch (error) {
+        return loginItemOpFail(error instanceof Error ? error.message : String(error));
+      }
+    },
+  });
+};

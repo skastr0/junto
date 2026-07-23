@@ -373,6 +373,7 @@ function AdvancedSection() {
   const [loginItemLoading, setLoginItemLoading] = useState(true);
   const [loginItemError, setLoginItemError] = useState<string | undefined>();
   const [loginItemBusy, setLoginItemBusy] = useState(false);
+  const [startupProvider, setStartupProvider] = useState<"apple-login-items" | "systemd-supervision" | "unsupported">();
 
   // OS is source of truth — read real getLoginItemSettings on every open; never assume.
   useEffect(() => {
@@ -390,6 +391,7 @@ function AdvancedSection() {
       try {
         const result = await api.loginItemGet();
         if (cancelled) return;
+        setStartupProvider(result.provider);
         if (result.ok && result.state) {
           setOpenAtLogin(result.state.openAtLogin);
           setLoginItemError(undefined);
@@ -432,6 +434,8 @@ function AdvancedSection() {
     }
   };
 
+  const usesAppleLoginItems = startupProvider === undefined || startupProvider === "apple-login-items";
+
   return (
     <div className="settings-section">
       <FieldRow label="Open last canvas" hint="resume the previous surface on launch">
@@ -444,18 +448,19 @@ function AdvancedSection() {
           }
         />
       </FieldRow>
-      <FieldRow
-        label="Start Vellum at login"
-        hint="macOS Login Items — opt-in only; never enrolled silently"
-      >
-        <input
-          type="checkbox"
-          checked={openAtLogin}
-          disabled={loginItemLoading || loginItemBusy}
-          aria-label="Start Vellum at login"
-          onChange={(event) => void onToggleLoginItem(event.target.checked)}
-        />
-      </FieldRow>
+      {usesAppleLoginItems ? (
+        <FieldRow label="Start Vellum at login" hint="macOS Login Items — opt-in only; never enrolled silently">
+          <input type="checkbox" checked={openAtLogin} disabled={loginItemLoading || loginItemBusy} aria-label="Start Vellum at login" onChange={(event) => void onToggleLoginItem(event.target.checked)} />
+        </FieldRow>
+      ) : startupProvider === "systemd-supervision" ? (
+        <FieldRow label="Station supervision" hint="Linux Remote stations use the systemd user-service flow; Command Center remains a desktop app.">
+          <span className="settings-field__value" aria-label="Systemd user supervision">systemd user</span>
+        </FieldRow>
+      ) : (
+        <FieldRow label="Station supervision" hint="No startup provider is available on this platform.">
+          <span className="settings-field__value">unavailable</span>
+        </FieldRow>
+      )}
       {loginItemError ? (
         <p className="settings-note" style={{ color: HUE.crimson }} role="status">
           {loginItemError}

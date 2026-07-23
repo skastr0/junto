@@ -18,6 +18,10 @@ if (!root) {
   throw new Error("Missing root element");
 }
 
+// Main owns platform-sensitive authority. This marker only selects renderer
+// geometry and copy; it never grants an OS capability.
+document.documentElement.dataset.vellumPlatform = window.vellum?.platform ?? "unknown";
+
 createRoot(root).render(
   <StrictMode>
     <App />

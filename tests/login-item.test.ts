@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   loginItemOpFail,
   loginItemOpOk,
+  createStartupProvider,
   readLoginItemState,
   setLoginItemOpenAtLogin,
   type LoginItemApp,
@@ -82,7 +83,24 @@ describe("login item state round-trip", () => {
 
   it("op result helpers", () => {
     const state = readLoginItemState(mockApp({ openAtLogin: true }));
-    expect(loginItemOpOk(state)).toEqual({ ok: true, state });
-    expect(loginItemOpFail("boom")).toEqual({ ok: false, message: "boom" });
+    expect(loginItemOpOk(state)).toEqual({ ok: true, provider: "apple-login-items", state });
+    expect(loginItemOpFail("boom")).toEqual({ ok: false, provider: "apple-login-items", message: "boom" });
+  });
+
+  it("never invokes Apple Login Items outside macOS", () => {
+    const app = mockApp({ openAtLogin: true });
+    const provider = createStartupProvider(app, "linux");
+    expect(provider.provider).toBe("systemd-supervision");
+    expect(provider.get()).toMatchObject({ ok: false, provider: "systemd-supervision" });
+    expect(provider.set(true).provider).toBe("systemd-supervision");
+    expect(app.sets).toEqual([]);
+  });
+
+  it("admits only macOS to the Apple Login Items provider", () => {
+    const app = mockApp({ openAtLogin: false });
+    const provider = createStartupProvider(app, "darwin");
+    expect(provider.get()).toMatchObject({ ok: true, provider: "apple-login-items" });
+    expect(provider.set(true)).toMatchObject({ ok: true, provider: "apple-login-items" });
+    expect(app.sets).toEqual([{ openAtLogin: true, openAsHidden: false }]);
   });
 });

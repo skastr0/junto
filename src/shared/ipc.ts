@@ -426,6 +426,8 @@ export interface ChatApi {
 }
 
 export interface VellumApi {
+  /** Read-only platform marker for renderer geometry and copy. */
+  readonly platform: NodeJS.Platform;
   /** Internal bootstrap receipt emitted after React commits the product shell. */
   readonly rendererSurfaceReady: () => void;
   readonly listCanvases: () => Promise<ReadonlyArray<CanvasSummary>>;
@@ -566,8 +568,12 @@ export interface LoginItemState {
   readonly wasOpenedAsHidden: boolean;
 }
 
+/** Startup authority is platform-owned; renderer copy never grants it. */
+export type StartupProvider = "apple-login-items" | "systemd-supervision" | "unsupported";
+
 export interface LoginItemOpResult {
   readonly ok: boolean;
+  readonly provider: StartupProvider;
   readonly state?: LoginItemState;
   readonly message?: string;
 }
