@@ -1406,7 +1406,10 @@ export const startBrowserControlServer = async (
       // This is the first request admission gate. It intentionally precedes
       // token checks and process/edge admission so shutdown cannot begin a new
       // filesystem scan or capability mint through an already-accepted peer.
-      if (shuttingDown) {
+      // Node's HTTP parser is downstream of the raw connection event, but an
+      // excess peer may already have request bytes buffered when the client
+      // ceiling rejects it. Never let such a peer reach any HTTP route.
+      if (shuttingDown || !admittedClients.has(req.socket)) {
         res.destroy();
         return;
       }
@@ -1657,7 +1660,7 @@ export const startBrowserControlServer = async (
   server.requestTimeout = CONTROL_REQUEST_TIMEOUT_MS;
   server.on("connection", (socket: Socket) => {
     if (shuttingDown || admittedClients.size >= maxActiveClients) {
-      socket.end();
+      socket.destroy();
       return;
     }
     admittedClients.add(socket);

@@ -74,13 +74,13 @@ const admittingEdgeGrant = (
   expectedPrincipal: BrowserAutomationPrincipal,
 ): EdgeGrantService => ({
   processMap: makeProcessIdentityMap(),
-  admitSocket: async () => ({
+  admitSocket: vi.fn(async () => ({
     ok: true,
     secret,
     expectedPrincipal,
     principal: { kind: "agent", agentKey: AGENT_KEY },
     targetCount: 1,
-  }),
+  })),
   admitPrincipal: async () => ({
     ok: true,
     secret,
@@ -148,6 +148,7 @@ const startStack = async (
   readonly token: string;
   readonly capability: string;
   readonly auditId: string;
+  readonly edgeGrant: EdgeGrantService;
 }> => {
   const sessions = makeSessions(root);
   const capabilities = makeBrowserCapabilityRegistry();
@@ -192,6 +193,7 @@ const startStack = async (
     token: (await readFile(controlTokenPath(root), "utf8")).trim(),
     capability: grant.secret,
     auditId: grant.auditId,
+    edgeGrant,
   };
 };
 
@@ -317,11 +319,19 @@ afterEach(async () => {
 describe("browser control Unix transport", () => {
   it("caps accepted peers before HTTP request admission and recovers after close", async () => {
     const root = await newRoot();
-    const { server, token } = await startStack(root, { chmodSocket: chmodSync, maxActiveClients: 1 });
+    const { server, token, edgeGrant } = await startStack(root, {
+      chmodSocket: chmodSync,
+      maxActiveClients: 1,
+    });
     const first = createConnection(server.socketPath);
     await new Promise<void>((resolve, reject) => { first.once("connect", resolve); first.once("error", reject); });
     const excess = createConnection(server.socketPath);
+    excess.on("error", () => undefined);
+    excess.once("connect", () => {
+      excess.write(requestHead("GET", "/profiles", protectedHeaders(token)));
+    });
     await new Promise<void>((resolve) => excess.once("close", resolve));
+    expect(edgeGrant.admitSocket).not.toHaveBeenCalled();
     first.destroy();
     await new Promise<void>((resolve) => first.once("close", resolve));
     await new Promise<void>((resolve) => setTimeout(resolve, 20));
