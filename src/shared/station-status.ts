@@ -1,5 +1,6 @@
 import type { ServiceCheck } from "./contracts";
 import type { CanvasPullResult, CanvasPullStatus } from "./canvas-pull";
+import type { KernelSnapshot } from "./ipc";
 import {
   assessSupervisedRuntime,
   type StationRole,
@@ -12,6 +13,20 @@ import {
  */
 
 export const STATION_STATUS_VERSION = 1 as const;
+
+/**
+ * Pulls are manual today, so freshness cannot pretend a tighter scheduler
+ * exists. One day is the explicit operator policy: older last-known canvases
+ * remain usable, but Doctor calls them stale.
+ */
+export const STATION_PULL_STALE_AFTER_MS = 24 * 60 * 60 * 1_000;
+
+/**
+ * The running kernel mirrors a heartbeat at least every 30 seconds. Four
+ * missed heartbeats (two minutes) is the point where armed/fire state stops
+ * being presented as live truth.
+ */
+export const STATION_KERNEL_STALE_AFTER_MS = 2 * 60 * 1_000;
 
 export type StationPullRecord = {
   readonly at: string;
@@ -54,12 +69,37 @@ export type StationDeployRecord = {
   readonly stages: ReadonlyArray<string>;
 };
 
+export type StationKernelRecord = {
+  readonly observedAt: string;
+  readonly armedRegionCount: number;
+  readonly lastFireAt?: string;
+  readonly lastFireKind?: "watcher" | "timer" | "manual";
+  readonly lastFireDry?: boolean;
+  readonly fault?: string;
+  readonly orphanedArmingCount: number;
+};
+
 export type StationStatusDocument = {
   readonly version: typeof STATION_STATUS_VERSION;
   readonly lastPull?: StationPullRecord;
   readonly lastConfigure?: StationConfigureRecord;
+  /** Bounded, non-authorial heartbeat for SSH-readable fleet diagnostics. */
+  readonly kernel?: StationKernelRecord;
   /** Latest durable deployment receipt for each registered Remote host. */
   readonly deployments?: Readonly<Record<string, StationDeployRecord>>;
+};
+
+export type StationRemoteObservation = {
+  readonly hostId: string;
+  readonly endpoint: string;
+  readonly reachability: "reachable" | "unreachable" | "unknown";
+  readonly reachabilityError?: string;
+  readonly settingsState: "observed" | "unavailable" | "invalid";
+  readonly stationRole?: string;
+  readonly stationHostId?: string;
+  readonly statusState: "observed" | "unavailable" | "invalid";
+  readonly status?: StationStatusDocument;
+  readonly observationError?: string;
 };
 
 export const defaultStationStatus = (): StationStatusDocument => ({
@@ -68,6 +108,220 @@ export const defaultStationStatus = (): StationStatusDocument => ({
 
 export const stationStatusPath = (home: string): string =>
   `${home}/.vellum/station-status.json`;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+const isFiniteNonNegativeInteger = (value: unknown): value is number =>
+  typeof value === "number" &&
+  Number.isFinite(value) &&
+  Number.isInteger(value) &&
+  value >= 0;
+
+const decodePullRecord = (value: unknown): StationPullRecord | undefined => {
+  if (!isRecord(value)) return undefined;
+  const status = value.status;
+  if (
+    typeof value.at !== "string" ||
+    !["ok", "partial", "empty", "unreachable", "misconfigured", "skipped_not_remote"].includes(
+      String(status),
+    ) ||
+    typeof value.ok !== "boolean" ||
+    typeof value.detail !== "string" ||
+    typeof value.commandCenterRef !== "string" ||
+    typeof value.keptLocal !== "boolean" ||
+    !isFiniteNonNegativeInteger(value.pulledCount) ||
+    !isFiniteNonNegativeInteger(value.failedCount)
+  ) {
+    return undefined;
+  }
+  return {
+    at: value.at,
+    status: status as CanvasPullStatus,
+    ok: value.ok,
+    detail: value.detail.slice(0, 4_096),
+    commandCenterRef: value.commandCenterRef.slice(0, 255),
+    keptLocal: value.keptLocal,
+    pulledCount: value.pulledCount,
+    failedCount: value.failedCount,
+  };
+};
+
+const decodeConfigureRecord = (
+  value: unknown,
+): StationConfigureRecord | undefined => {
+  if (
+    !isRecord(value) ||
+    typeof value.at !== "string" ||
+    typeof value.ok !== "boolean" ||
+    typeof value.hostId !== "string" ||
+    typeof value.detail !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    at: value.at,
+    ok: value.ok,
+    hostId: value.hostId.slice(0, 64),
+    detail: value.detail.slice(0, 4_096),
+  };
+};
+
+const decodeKernelRecord = (
+  value: unknown,
+): StationKernelRecord | undefined => {
+  if (
+    !isRecord(value) ||
+    typeof value.observedAt !== "string" ||
+    !isFiniteNonNegativeInteger(value.armedRegionCount) ||
+    !isFiniteNonNegativeInteger(value.orphanedArmingCount)
+  ) {
+    return undefined;
+  }
+  if (
+    value.lastFireAt !== undefined &&
+    typeof value.lastFireAt !== "string"
+  ) {
+    return undefined;
+  }
+  if (
+    value.lastFireKind !== undefined &&
+    value.lastFireKind !== "watcher" &&
+    value.lastFireKind !== "timer" &&
+    value.lastFireKind !== "manual"
+  ) {
+    return undefined;
+  }
+  if (
+    value.lastFireDry !== undefined &&
+    typeof value.lastFireDry !== "boolean"
+  ) {
+    return undefined;
+  }
+  if (value.fault !== undefined && typeof value.fault !== "string") {
+    return undefined;
+  }
+  return {
+    observedAt: value.observedAt,
+    armedRegionCount: value.armedRegionCount,
+    ...(typeof value.lastFireAt === "string"
+      ? { lastFireAt: value.lastFireAt }
+      : {}),
+    ...(value.lastFireKind === "watcher" ||
+    value.lastFireKind === "timer" ||
+    value.lastFireKind === "manual"
+      ? { lastFireKind: value.lastFireKind }
+      : {}),
+    ...(typeof value.lastFireDry === "boolean"
+      ? { lastFireDry: value.lastFireDry }
+      : {}),
+    ...(typeof value.fault === "string"
+      ? { fault: value.fault.slice(0, 1_024) }
+      : {}),
+    orphanedArmingCount: value.orphanedArmingCount,
+  };
+};
+
+const decodeDeployRecord = (
+  value: unknown,
+): StationDeployRecord | undefined => {
+  if (
+    !isRecord(value) ||
+    typeof value.at !== "string" ||
+    typeof value.hostId !== "string" ||
+    typeof value.endpoint !== "string" ||
+    typeof value.ok !== "boolean" ||
+    !["ready", "failed", "rolled-back", "indeterminate"].includes(
+      String(value.outcome),
+    ) ||
+    !["present", "previous", "unknown"].includes(
+      String(value.packageState),
+    ) ||
+    !["remote", "previous", "unknown"].includes(String(value.role)) ||
+    typeof value.version !== "string" ||
+    !["not-required", "restored", "failed"].includes(
+      String(value.rollback),
+    ) ||
+    typeof value.configurationOk !== "boolean" ||
+    typeof value.detail !== "string" ||
+    !Array.isArray(value.stages) ||
+    value.stages.length > 32 ||
+    !value.stages.every((stage) => typeof stage === "string") ||
+    (value.lastSeen !== undefined && typeof value.lastSeen !== "string")
+  ) {
+    return undefined;
+  }
+  return {
+    at: value.at,
+    hostId: value.hostId.slice(0, 64),
+    endpoint: value.endpoint.slice(0, 255),
+    ok: value.ok,
+    outcome: value.outcome as StationDeployOutcome,
+    packageState: value.packageState as StationDeployRecord["packageState"],
+    role: value.role as StationDeployRecord["role"],
+    version: value.version.slice(0, 128),
+    ...(typeof value.lastSeen === "string"
+      ? { lastSeen: value.lastSeen }
+      : {}),
+    rollback: value.rollback as StationDeployRecord["rollback"],
+    configurationOk: value.configurationOk,
+    detail: value.detail.slice(0, 4_096),
+    stages: value.stages.map((stage) => stage.slice(0, 512)),
+  };
+};
+
+/**
+ * Decode the owner-local or SSH-read status mirror without trusting its shape.
+ * Unknown fields are dropped; an invalid known field rejects the document so
+ * Doctor reports corruption instead of inventing health.
+ */
+export const decodeStationStatusDocument = (
+  value: unknown,
+): StationStatusDocument | undefined => {
+  if (!isRecord(value) || value.version !== STATION_STATUS_VERSION) {
+    return undefined;
+  }
+  const lastPull =
+    value.lastPull === undefined
+      ? undefined
+      : decodePullRecord(value.lastPull);
+  const lastConfigure =
+    value.lastConfigure === undefined
+      ? undefined
+      : decodeConfigureRecord(value.lastConfigure);
+  const kernel =
+    value.kernel === undefined
+      ? undefined
+      : decodeKernelRecord(value.kernel);
+  if (
+    (value.lastPull !== undefined && !lastPull) ||
+    (value.lastConfigure !== undefined && !lastConfigure) ||
+    (value.kernel !== undefined && !kernel)
+  ) {
+    return undefined;
+  }
+
+  let deployments: Record<string, StationDeployRecord> | undefined;
+  if (value.deployments !== undefined) {
+    if (!isRecord(value.deployments)) return undefined;
+    const entries = Object.entries(value.deployments);
+    if (entries.length > 32) return undefined;
+    deployments = {};
+    for (const [hostId, raw] of entries) {
+      const deployment = decodeDeployRecord(raw);
+      if (!deployment || deployment.hostId !== hostId) return undefined;
+      deployments[hostId] = deployment;
+    }
+  }
+
+  return {
+    version: STATION_STATUS_VERSION,
+    ...(lastPull ? { lastPull } : {}),
+    ...(lastConfigure ? { lastConfigure } : {}),
+    ...(kernel ? { kernel } : {}),
+    ...(deployments ? { deployments } : {}),
+  };
+};
 
 export const pullRecordFromResult = (result: CanvasPullResult): StationPullRecord => ({
   at: result.pulledAt,
@@ -122,17 +376,79 @@ export const deployRecordFromResult = (input: {
   stages: (input.stages ?? []).slice(-32).map((stage) => stage.slice(0, 512)),
 });
 
+/**
+ * Project the live kernel into the only facts fleet Doctor needs. Canvas
+ * names, node ids, summaries, agent keys, and instructions never cross into
+ * this durable status mirror.
+ */
+export const kernelRecordFromSnapshot = (
+  snapshot: KernelSnapshot,
+  observedAt = new Date().toISOString(),
+): StationKernelRecord => {
+  let armedRegionCount = 0;
+  for (const canvas of Object.values(snapshot.canvases)) {
+    armedRegionCount += Object.values(canvas.armed).filter(Boolean).length;
+  }
+
+  const latest = [...snapshot.pulseLog]
+    .filter((pulse) => Number.isFinite(pulse.at))
+    .sort((left, right) => right.at - left.at)[0];
+
+  return {
+    observedAt,
+    armedRegionCount,
+    ...(latest
+      ? {
+          lastFireAt: new Date(latest.at).toISOString(),
+          lastFireKind: latest.kind,
+          lastFireDry: latest.dry,
+        }
+      : {}),
+    ...(snapshot.fault ? { fault: snapshot.fault.slice(0, 1_024) } : {}),
+    orphanedArmingCount: snapshot.orphanedArming?.length ?? 0,
+  };
+};
+
 export type StationDoctorInput = {
   readonly role: string;
   readonly hostId: string;
   readonly commandCenterRef: string;
+  readonly version?: string;
   readonly supervisedPreferred: boolean;
   readonly supervisedInstalled: SupervisedInstallState;
   readonly status: StationStatusDocument;
+  /** Current in-process kernel truth for this station. */
+  readonly kernel?: StationKernelRecord;
   /** Current registry endpoints; omitted only when the registry cannot be read. */
   readonly registeredRemoteEndpoints?: Readonly<Record<string, string>>;
+  /** SSH observations for registered Remotes; omitted when host probing failed globally. */
+  readonly remoteObservations?: ReadonlyArray<StationRemoteObservation>;
   /** Work control socket present and token file readable (agent CLI plane). */
   readonly workControlReady: boolean;
+  /** Deterministic freshness seam for Doctor tests. */
+  readonly now?: number;
+};
+
+const timestampIsStale = (
+  value: string,
+  now: number,
+  thresholdMs: number,
+): boolean => {
+  const observed = Date.parse(value);
+  return !Number.isFinite(observed) || now - observed > thresholdMs;
+};
+
+const boundedDiagnostic = (value: string | undefined, fallback: string): string => {
+  const normalized = value?.replaceAll(/\s+/gu, " ").trim();
+  return (normalized || fallback).slice(0, 512);
+};
+
+type RemoteProjection = {
+  readonly line: string;
+  readonly metadata: Readonly<Record<string, string>>;
+  readonly fleetBlind: boolean;
+  readonly stale: boolean;
+  readonly error: boolean;
 };
 
 /**
@@ -140,6 +456,7 @@ export type StationDoctorInput = {
  */
 export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => {
   const role = input.role;
+  const now = input.now ?? Date.now();
   const supervised = assessSupervisedRuntime({
     role: input.role,
     hostId: input.hostId,
@@ -182,10 +499,14 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
   }
 
   const pull = input.status.lastPull;
+  const pullStale =
+    pull !== undefined &&
+    timestampIsStale(pull.at, now, STATION_PULL_STALE_AFTER_MS);
   if (pull) {
     lines.push(
-      `last pull ${pull.status}${pull.ok ? "" : " (failed)"} · ${pull.pulledCount} file(s) · ${pull.at}`,
+      `last pull ${pull.status}${pull.ok ? "" : " (failed)"}${pullStale ? " (stale)" : ""} · ${pull.pulledCount} file(s) · ${pull.at}`,
     );
+    if (pullStale) raise("warning");
     if (!pull.ok && pull.status === "unreachable") raise("warning");
     if (!pull.ok && pull.status === "misconfigured") raise("warning");
     if (!pull.ok && pull.status === "partial") raise("warning");
@@ -205,9 +526,34 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
   const deployments = Object.values(input.status.deployments ?? {}).sort((a, b) =>
     a.hostId.localeCompare(b.hostId),
   );
+  const deploymentByHost = new Map(
+    deployments.map((deployment) => [deployment.hostId, deployment] as const),
+  );
+  const observationByHost = new Map(
+    (input.remoteObservations ?? []).map(
+      (observation) => [observation.hostId, observation] as const,
+    ),
+  );
+  const registryKnown =
+    input.registeredRemoteEndpoints !== undefined ||
+    input.remoteObservations !== undefined;
+  const registeredEndpoints = new Map<string, string>(
+    Object.entries(input.registeredRemoteEndpoints ?? {}),
+  );
+  for (const observation of input.remoteObservations ?? []) {
+    if (!registeredEndpoints.has(observation.hostId)) {
+      registeredEndpoints.set(observation.hostId, observation.endpoint);
+    }
+  }
+  if (!registryKnown) {
+    for (const deployment of deployments) {
+      registeredEndpoints.set(deployment.hostId, deployment.endpoint);
+    }
+  }
+
   for (const deployment of deployments) {
-    const registeredEndpoint = input.registeredRemoteEndpoints?.[deployment.hostId];
-    if (input.registeredRemoteEndpoints !== undefined) {
+    const registeredEndpoint = registeredEndpoints.get(deployment.hostId);
+    if (registryKnown) {
       if (registeredEndpoint === undefined) {
         lines.push(
           `Remote ${deployment.hostId}: stale deployment receipt (host no longer registered)`,
@@ -223,33 +569,307 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         continue;
       }
     }
-    const seen = deployment.lastSeen ?? "never";
-    lines.push(
-      `Remote ${deployment.hostId} (${deployment.endpoint}): last observed package ${deployment.packageState} · role ${deployment.role} · version ${deployment.version} · last seen ${seen} · attempt ${deployment.outcome}`,
-    );
-    if (deployment.outcome === "indeterminate") raise("error");
-    else if (deployment.outcome !== "ready") raise("warning");
-    if (
-      deployment.outcome === "ready" &&
-      (deployment.packageState !== "present" ||
-        deployment.role !== "remote" ||
-        deployment.version === "unknown" ||
-        deployment.lastSeen === undefined)
-    ) {
-      raise("warning");
-    }
   }
 
   const activeDeployments = deployments.filter(
     (deployment) =>
-      input.registeredRemoteEndpoints === undefined ||
-      input.registeredRemoteEndpoints[deployment.hostId] === deployment.endpoint,
+      !registryKnown ||
+      registeredEndpoints.get(deployment.hostId) === deployment.endpoint,
   );
   const latestDeployment = [...activeDeployments].sort((a, b) =>
     b.at.localeCompare(a.at),
   )[0];
 
+  if (input.version !== undefined || input.kernel !== undefined) {
+    const localErrors: string[] = [];
+    const localKernel = input.kernel;
+    const localKernelStale =
+      localKernel !== undefined &&
+      timestampIsStale(
+        localKernel.observedAt,
+        now,
+        STATION_KERNEL_STALE_AFTER_MS,
+      );
+    if (localKernelStale) localErrors.push("kernel status stale");
+    if (localKernel?.fault) {
+      localErrors.push(boundedDiagnostic(localKernel.fault, "kernel fault"));
+      raise("error");
+    }
+    if ((localKernel?.orphanedArmingCount ?? 0) > 0) {
+      localErrors.push(
+        `${localKernel!.orphanedArmingCount} orphaned armed region(s)`,
+      );
+      raise("warning");
+    }
+    if (role === "remote" && localKernel?.armedRegionCount === 0) {
+      localErrors.push("Remote not armed");
+      raise("warning");
+    }
+    if (localKernelStale) raise("warning");
+    if (role === "remote" && pullStale) localErrors.push("pull stale");
+    if (role === "remote" && pull === undefined) {
+      localErrors.push("no canvas pull recorded");
+    }
+
+    const localLastPull =
+      role !== "remote"
+        ? "n/a"
+        : pull
+          ? `${pull.status} ${pull.at}${pullStale ? " (stale)" : ""}`
+          : "never";
+    const localArmed =
+      localKernel === undefined
+        ? "unknown"
+        : `${localKernel.armedRegionCount > 0 ? "yes" : "no"} (${localKernel.armedRegionCount}${localKernelStale ? ", stale" : ""})`;
+    const localLastFire =
+      localKernel?.lastFireAt
+        ? `${localKernel.lastFireAt} ${localKernel.lastFireKind ?? "unknown"} ${localKernel.lastFireDry ? "dry" : "live"}`
+        : localKernel
+          ? "never"
+          : "unknown";
+    lines.push(
+      `Local station: installed yes · role ${role || "unset"} · version ${input.version ?? "unknown"} · hostId ${input.hostId} · last pull ${localLastPull} · armed ${localArmed} · last fire ${localLastFire} · errors ${localErrors.join("; ") || "none"}`,
+    );
+  }
+
+  const remoteProjections: RemoteProjection[] = [];
+  for (const [hostId, endpoint] of [...registeredEndpoints].sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    const candidateDeployment = deploymentByHost.get(hostId);
+    const deployment =
+      candidateDeployment?.endpoint === endpoint
+        ? candidateDeployment
+        : undefined;
+    const candidateObservation = observationByHost.get(hostId);
+    const observation =
+      candidateObservation?.endpoint === endpoint
+        ? candidateObservation
+        : undefined;
+
+    const errors: string[] = [];
+    let hardError = false;
+    let fleetBlind = false;
+    let stale = false;
+
+    const installed =
+      deployment?.packageState === "present"
+        ? "yes"
+        : deployment?.packageState === "unknown"
+          ? "unknown"
+          : "no";
+    if (!deployment) {
+      errors.push("registered but not installed by Command Center");
+    } else {
+      if (deployment.outcome === "indeterminate") {
+        errors.push(
+          `deploy indeterminate (last seen ${deployment.lastSeen ?? "never"})`,
+        );
+        hardError = true;
+      } else if (deployment.outcome !== "ready") {
+        errors.push(`deploy ${deployment.outcome}`);
+      }
+      if (
+        deployment.lastSeen &&
+        timestampIsStale(
+          deployment.lastSeen,
+          now,
+          STATION_PULL_STALE_AFTER_MS,
+        )
+      ) {
+        errors.push("install observation stale");
+        stale = true;
+      }
+      if (deployment.packageState !== "present") {
+        errors.push(`package state ${deployment.packageState}`);
+      }
+      if (deployment.version === "unknown") errors.push("version unknown");
+    }
+
+    const reachability = observation?.reachability ?? "unknown";
+    if (reachability === "unreachable") {
+      hardError = true;
+      fleetBlind = true;
+      errors.push(
+        `fleet-blind: ${boundedDiagnostic(
+          observation?.reachabilityError,
+          "Remote unreachable",
+        )}`,
+      );
+    } else if (observation === undefined) {
+      fleetBlind = true;
+      errors.push("fleet-blind: Remote status not observed");
+    } else {
+      if (observation.settingsState === "invalid") {
+        hardError = true;
+        errors.push("Remote settings invalid");
+      } else if (observation.settingsState !== "observed") {
+        fleetBlind = true;
+      }
+      if (observation.statusState === "invalid") {
+        hardError = true;
+        errors.push("Remote station status invalid");
+      } else if (observation.statusState !== "observed") {
+        fleetBlind = true;
+      }
+      if (
+        observation.settingsState !== "observed" ||
+        observation.statusState !== "observed"
+      ) {
+        errors.push(
+          `fleet-blind: ${boundedDiagnostic(
+            observation.observationError,
+            "station status files unavailable",
+          )}`,
+        );
+      }
+    }
+
+    const observedRole =
+      observation?.settingsState === "observed"
+        ? observation.stationRole
+        : undefined;
+    const remoteRole =
+      observedRole ??
+      (deployment?.role === "remote" ? "remote" : "unknown");
+    if (observedRole !== undefined && observedRole !== "remote") {
+      errors.push(`role ${observedRole || "unset"} (expected remote)`);
+      hardError = true;
+    }
+    if (
+      observation?.settingsState === "observed" &&
+      observation.stationHostId !== undefined &&
+      observation.stationHostId !== hostId
+    ) {
+      errors.push(
+        `hostId ${observation.stationHostId} (expected ${hostId})`,
+      );
+      hardError = true;
+    }
+
+    const remoteStatus =
+      observation?.statusState === "observed"
+        ? observation.status
+        : undefined;
+    const remotePull = remoteStatus?.lastPull;
+    const remotePullStale =
+      remotePull !== undefined &&
+      timestampIsStale(
+        remotePull.at,
+        now,
+        STATION_PULL_STALE_AFTER_MS,
+      );
+    if (remotePullStale) {
+      errors.push("pull stale");
+      stale = true;
+    } else if (remoteStatus && !remotePull) {
+      errors.push("no canvas pull recorded");
+    }
+    const lastPullText = remotePull
+      ? `${remotePull.status} ${remotePull.at}${remotePullStale ? " (stale)" : ""}`
+      : remoteStatus
+        ? "never"
+        : "unknown";
+
+    const remoteKernel = remoteStatus?.kernel;
+    const remoteKernelStale =
+      remoteKernel !== undefined &&
+      timestampIsStale(
+        remoteKernel.observedAt,
+        now,
+        STATION_KERNEL_STALE_AFTER_MS,
+      );
+    if (remoteKernelStale) {
+      errors.push("kernel status stale");
+      stale = true;
+    }
+    if (remoteStatus && !remoteKernel) {
+      errors.push("fleet-blind: kernel status unavailable");
+      fleetBlind = true;
+    }
+    if (remoteKernel?.armedRegionCount === 0) {
+      errors.push("Remote not armed");
+    }
+    if (remoteKernel?.fault) {
+      errors.push(boundedDiagnostic(remoteKernel.fault, "kernel fault"));
+      hardError = true;
+    }
+    if ((remoteKernel?.orphanedArmingCount ?? 0) > 0) {
+      errors.push(
+        `${remoteKernel!.orphanedArmingCount} orphaned armed region(s)`,
+      );
+    }
+    const armedText =
+      remoteKernel === undefined
+        ? "unknown"
+        : `${remoteKernel.armedRegionCount > 0 ? "yes" : "no"} (${remoteKernel.armedRegionCount}${remoteKernelStale ? ", stale" : ""})`;
+    const lastFireText =
+      remoteKernel?.lastFireAt
+        ? `${remoteKernel.lastFireAt} ${remoteKernel.lastFireKind ?? "unknown"} ${remoteKernel.lastFireDry ? "dry" : "live"}`
+        : remoteKernel
+          ? "never"
+          : "unknown";
+
+    const state = hardError
+      ? "error"
+      : fleetBlind
+        ? "fleet-blind"
+        : stale
+          ? "stale"
+          : errors.length > 0
+            ? "warning"
+            : "ok";
+    if (hardError) raise("error");
+    else if (fleetBlind || stale || errors.length > 0) raise("warning");
+
+    const metadataPrefix = `remote.${hostId}.`;
+    remoteProjections.push({
+      line:
+        `Remote ${hostId} (${endpoint}): installed ${
+          installed === "no" && !deployment
+            ? "no (no managed install receipt)"
+            : installed
+        } · role ${remoteRole} · version ${deployment?.version ?? "unknown"} · hostId ${hostId} · ` +
+        `last pull ${lastPullText} · armed ${armedText} · last fire ${lastFireText} · reachability ${reachability} · errors ${errors.join("; ") || "none"}`,
+      metadata: {
+        [`${metadataPrefix}installed`]: installed,
+        [`${metadataPrefix}role`]: remoteRole,
+        [`${metadataPrefix}version`]: deployment?.version ?? "unknown",
+        [`${metadataPrefix}lastPullStatus`]: remotePull?.status ?? "unknown",
+        [`${metadataPrefix}lastPullAt`]: remotePull?.at ?? "",
+        [`${metadataPrefix}lastPullStale`]: remotePullStale ? "true" : "false",
+        [`${metadataPrefix}armed`]:
+          remoteKernel === undefined
+            ? "unknown"
+            : remoteKernel.armedRegionCount > 0
+              ? "true"
+              : "false",
+        [`${metadataPrefix}armedCount`]:
+          remoteKernel === undefined
+            ? ""
+            : String(remoteKernel.armedRegionCount),
+        [`${metadataPrefix}kernelObservedAt`]:
+          remoteKernel?.observedAt ?? "",
+        [`${metadataPrefix}kernelStale`]:
+          remoteKernelStale ? "true" : "false",
+        [`${metadataPrefix}lastFireAt`]:
+          remoteKernel?.lastFireAt ?? "",
+        [`${metadataPrefix}reachability`]: reachability,
+        [`${metadataPrefix}state`]: state,
+        [`${metadataPrefix}errorCount`]: String(errors.length),
+      },
+      fleetBlind,
+      stale,
+      error: hardError,
+    });
+  }
+  lines.push(...remoteProjections.map((projection) => projection.line));
+
   const roleKey = role.length > 0 ? role : "unset";
+  const remoteMetadata = Object.assign(
+    {},
+    ...remoteProjections.map((projection) => projection.metadata),
+  ) as Record<string, string>;
   return {
     id: "station",
     label: "Station",
@@ -269,6 +889,14 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
             lastPullOk: pull.ok ? "true" : "false",
             lastPullAt: pull.at,
             lastPullKeptLocal: pull.keptLocal ? "true" : "false",
+            lastPullStale: pullStale ? "true" : "false",
+          }
+        : {}),
+      ...(input.kernel
+        ? {
+            kernelObservedAt: input.kernel.observedAt,
+            kernelArmedCount: String(input.kernel.armedRegionCount),
+            kernelLastFireAt: input.kernel.lastFireAt ?? "",
           }
         : {}),
       ...(configure
@@ -280,6 +908,17 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         : {}),
       deploymentCount: String(activeDeployments.length),
       staleDeploymentCount: String(deployments.length - activeDeployments.length),
+      remoteCount: String(remoteProjections.length),
+      remoteFleetBlindCount: String(
+        remoteProjections.filter((projection) => projection.fleetBlind).length,
+      ),
+      remoteStaleCount: String(
+        remoteProjections.filter((projection) => projection.stale).length,
+      ),
+      remoteErrorCount: String(
+        remoteProjections.filter((projection) => projection.error).length,
+      ),
+      ...remoteMetadata,
       ...(latestDeployment
         ? {
             lastDeployHostId: latestDeployment.hostId,

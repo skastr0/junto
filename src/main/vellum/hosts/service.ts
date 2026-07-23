@@ -16,7 +16,12 @@ import {
   deployConfiguredRemoteHost,
   type ConfiguredRemoteDeployResult,
 } from "./deploy-configured-remote";
-import { runRemoteHostsDoctor, testHostConnection } from "./doctor";
+import {
+  runRemoteHostsDoctor,
+  runRemoteHostsDoctorSnapshot,
+  testHostConnection,
+  type RemoteHostsDoctorSnapshot,
+} from "./doctor";
 import {
   getDefaultHostsRegistry,
   type HostsRegistry,
@@ -31,6 +36,8 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
   HostsService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
+    /** One SSH pass shared by fleet Doctor and Station projection. */
+    readonly doctorSnapshot: Effect.Effect<RemoteHostsDoctorSnapshot>;
     readonly list: Effect.Effect<ReadonlyArray<RemoteHostT>, RemoteHostsError>;
     readonly get: (
       id: string,
@@ -134,6 +141,7 @@ export const makeHostsService = (
   return {
     path: () => registry.path(),
     doctor: runRemoteHostsDoctor(registry, ssh),
+    doctorSnapshot: runRemoteHostsDoctorSnapshot(registry, ssh),
     // Listing is the explicit durable reload boundary used by Settings and IPC.
     // Keep the synchronous routing snapshot in the same successful operation.
     list: loadHostsIntoRoutingSnapshot(() => registry.reload()),

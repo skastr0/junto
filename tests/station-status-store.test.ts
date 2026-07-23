@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import {
   readStationStatus,
   recordStationConfigure,
   recordStationDeployment,
+  recordStationKernel,
 } from "../src/main/vellum/station-status-store";
 
 describe("station status deployment persistence", () => {
@@ -88,6 +89,43 @@ describe("station status deployment persistence", () => {
     const status = await readStationStatus();
     expect(status.deployments?.studio).toEqual(deployment);
     expect(status.lastConfigure).toEqual(otherConfigure);
+  });
+
+  it("persists only the bounded kernel heartbeat and keeps the status file owner-only", async () => {
+    const kernel = {
+      observedAt: "2026-07-23T12:00:00.000Z",
+      armedRegionCount: 2,
+      lastFireAt: "2026-07-23T11:58:00.000Z",
+      lastFireKind: "watcher" as const,
+      lastFireDry: false,
+      orphanedArmingCount: 0,
+    };
+
+    await recordStationKernel(kernel);
+
+    await expect(readStationStatus()).resolves.toEqual({
+      version: 1,
+      kernel,
+    });
+    expect(
+      statSync(process.env.VELLUM_STATION_STATUS_PATH!).mode & 0o777,
+    ).toBe(0o600);
+  });
+
+  it("rejects a corrupt known kernel field instead of treating it as health", async () => {
+    writeFileSync(
+      process.env.VELLUM_STATION_STATUS_PATH!,
+      JSON.stringify({
+        version: 1,
+        kernel: {
+          observedAt: "2026-07-23T12:00:00.000Z",
+          armedRegionCount: "many",
+          orphanedArmingCount: 0,
+        },
+      }),
+    );
+
+    await expect(readStationStatus()).resolves.toEqual({ version: 1 });
   });
 
   it("keeps the last observed package across an admitted or rolled-back attempt", async () => {

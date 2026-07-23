@@ -25,6 +25,7 @@ import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { messageDelivery } from "./work/message-delivery";
 import { stampMessageDelivered } from "@shared/message-delivery";
+import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
 import { termPlane } from "./term/plane";
@@ -37,6 +38,7 @@ import {
   type MainAuthoringFinalOperation,
   type MainAuthoringLabel,
 } from "./main-authoring-gate";
+import { recordStationKernel } from "./station-status-store";
 
 const broadcast = (channel: string, payload: unknown) => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -494,7 +496,14 @@ export const registerVellumIpc = (): void => {
       // from the normal file-watch broadcast above — this is the explicit
       // push that keeps an open renderer's doc coherent with a kernel write.
       kernel.subscribeCanvasMutated((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
-      kernel.subscribe((snapshot) => broadcast(IPC_CHANNELS.kernelChanged, snapshot));
+      kernel.subscribe((snapshot) => {
+        broadcast(IPC_CHANNELS.kernelChanged, snapshot);
+        // Fleet Doctor reads this bounded heartbeat over SSH. Never persist
+        // canvas names, node ids, agent identities, instructions, or tokens.
+        void recordStationKernel(kernelRecordFromSnapshot(snapshot)).catch(
+          () => undefined,
+        );
+      });
 
       // Message nudge channel: ether.messages → live ACP / herdr terminal.input.
       // Retry only on session-live / stream-attach (no polling, no queue store).

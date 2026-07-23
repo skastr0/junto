@@ -3,7 +3,10 @@ import { constants, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
-import { assessStationDoctor } from "@shared/station-status";
+import {
+  assessStationDoctor,
+  kernelRecordFromSnapshot,
+} from "@shared/station-status";
 import { termControlSocketPath } from "@shared/term-control";
 import {
   workControlDir,
@@ -115,6 +118,10 @@ export const buildDoctorReport = Effect.gen(function* () {
   const hosts = yield* HostsService;
 
   const station = yield* prism.stationInfo;
+  // One bounded SSH pass feeds both the host service row and the station fleet
+  // projection. Doctor must not double-probe a host and accidentally present
+  // observations from two different moments as one report.
+  const hostsDoctorSnapshot = yield* hosts.doctorSnapshot;
   const stationCheck = yield* Effect.gen(function* () {
     const settingsDoc = yield* settings.get;
     const statusDoc = yield* Effect.promise(() => readStationStatus());
@@ -143,10 +150,13 @@ export const buildDoctorReport = Effect.gen(function* () {
       role: settingsDoc.station.role,
       hostId: settingsDoc.station.hostId,
       commandCenterRef: settingsDoc.station.commandCenterRef,
+      version: station.version,
       supervisedPreferred: settingsDoc.station.supervisedPreferred,
       supervisedInstalled,
       status: statusDoc,
+      kernel: kernelRecordFromSnapshot(kernel.getSnapshot()),
       registeredRemoteEndpoints,
+      remoteObservations: hostsDoctorSnapshot.observations,
       workControlReady,
     });
   }).pipe(
@@ -172,7 +182,7 @@ export const buildDoctorReport = Effect.gen(function* () {
       regionRollup.doctor,
       usage.doctor,
       settings.doctor,
-      hosts.doctor,
+      Effect.succeed(hostsDoctorSnapshot.check),
     ],
     { concurrency: "unbounded" },
   );

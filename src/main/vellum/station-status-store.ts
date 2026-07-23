@@ -7,10 +7,12 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import {
+  decodeStationStatusDocument,
   defaultStationStatus,
   STATION_STATUS_VERSION,
   type StationConfigureRecord,
   type StationDeployRecord,
+  type StationKernelRecord,
   type StationPullRecord,
   type StationStatusDocument,
 } from "@shared/station-status";
@@ -22,15 +24,8 @@ const statusPath = (): string =>
 export const readStationStatus = async (): Promise<StationStatusDocument> => {
   try {
     const raw = await readFile(statusPath(), "utf8");
-    const parsed = JSON.parse(raw) as unknown;
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      !Array.isArray(parsed) &&
-      (parsed as StationStatusDocument).version === STATION_STATUS_VERSION
-    ) {
-      return parsed as StationStatusDocument;
-    }
+    const parsed = decodeStationStatusDocument(JSON.parse(raw) as unknown);
+    if (parsed) return parsed;
   } catch {
     // missing or corrupt → defaults
   }
@@ -41,7 +36,10 @@ const writeStationStatus = async (doc: StationStatusDocument): Promise<void> => 
   const path = statusPath();
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${randomUUID()}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(doc, null, 2)}\n`, "utf8");
+  await writeFile(tmp, `${JSON.stringify(doc, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
   await rename(tmp, path);
 };
 
@@ -73,6 +71,16 @@ export const recordStationConfigure = async (
     ...current,
     version: STATION_STATUS_VERSION,
     lastConfigure: configure,
+  }));
+};
+
+export const recordStationKernel = async (
+  kernel: StationKernelRecord,
+): Promise<void> => {
+  await updateStationStatus((current) => ({
+    ...current,
+    version: STATION_STATUS_VERSION,
+    kernel,
   }));
 };
 

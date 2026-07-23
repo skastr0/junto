@@ -1,8 +1,13 @@
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
+import { posix } from "node:path";
 import type { Context } from "effect";
 import { Effect } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
+import {
+  decodeStationStatusDocument,
+  type StationRemoteObservation,
+} from "@shared/station-status";
 import {
   hermesKeyFor,
   hostHasCapability,
@@ -31,6 +36,17 @@ export type HostCliRunner = (
   args: ReadonlyArray<string>,
   timeoutMs?: number,
 ) => Promise<CliResult>;
+
+export type RemoteHostsDoctorSnapshot = {
+  readonly check: ServiceCheck;
+  readonly observations: ReadonlyArray<StationRemoteObservation>;
+};
+
+type RemoteHostProbeResult = {
+  readonly status: "ok" | "warning" | "error";
+  readonly detail: string;
+  readonly observation: StationRemoteObservation;
+};
 
 const binaryVersionArgs = (
   binary: "herdr" | "hermes",
@@ -121,18 +137,85 @@ const remoteBinary = (
     ),
   );
 
+type RemoteFileRead =
+  | { readonly ok: true; readonly body: string }
+  | { readonly ok: false; readonly detail: string };
+
+const describeUnknownSsh = (error: unknown): string =>
+  error && typeof error === "object" && "_tag" in error
+    ? describeSshError(error as SshError)
+    : error instanceof Error
+      ? error.message
+      : String(error);
+
+const readRemoteText = (
+  ssh: Ssh,
+  endpoint: Parameters<typeof oneShot>[0],
+  path: string,
+): Effect.Effect<RemoteFileRead> =>
+  makeRemoteCommand("cat", [path]).pipe(
+    Effect.flatMap((command) =>
+      ssh.run(oneShot(endpoint, command, { budget: "status" })),
+    ),
+    Effect.map(
+      (result): RemoteFileRead => ({ ok: true, body: result.stdout }),
+    ),
+    Effect.catchAll((error) =>
+      Effect.succeed({
+        ok: false as const,
+        detail: describeUnknownSsh(error),
+      }),
+    ),
+  );
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+const decodeRemoteStationSettings = (
+  raw: string,
+):
+  | {
+      readonly ok: true;
+      readonly role: string;
+      readonly hostId: string;
+    }
+  | { readonly ok: false } => {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed) || !isRecord(parsed.station)) return { ok: false };
+    if (
+      typeof parsed.station.role !== "string" ||
+      typeof parsed.station.hostId !== "string"
+    ) {
+      return { ok: false };
+    }
+    return {
+      ok: true,
+      role: parsed.station.role.slice(0, 64),
+      hostId: parsed.station.hostId.slice(0, 64),
+    };
+  } catch {
+    return { ok: false };
+  }
+};
+
 const probeSshHost = (
   ssh: Ssh,
   host: RemoteHost,
-): Effect.Effect<{
-  readonly status: "ok" | "warning" | "error";
-  readonly detail: string;
-}> =>
+): Effect.Effect<RemoteHostProbeResult> =>
   Effect.gen(function* () {
     if (!host.endpoint) {
       return {
         status: "error" as const,
         detail: `${host.id}: remote host missing endpoint`,
+        observation: {
+          hostId: host.id,
+          endpoint: "",
+          reachability: "unknown" as const,
+          reachabilityError: "remote host missing endpoint",
+          settingsState: "unavailable" as const,
+          statusState: "unavailable" as const,
+        },
       };
     }
 
@@ -156,11 +239,76 @@ const probeSshHost = (
       return {
         status: "error" as const,
         detail: `${host.id}: remote home not writable/readable (got ${JSON.stringify(homePath)})`,
+        observation: {
+          hostId: host.id,
+          endpoint: host.endpoint,
+          reachability: "reachable" as const,
+          settingsState: "unavailable" as const,
+          statusState: "unavailable" as const,
+          observationError: "remote home is not a canonical absolute path",
+        },
       };
     }
 
     const parts: string[] = [`auth ok · home ${homePath}`];
     let warnings = 0;
+    const [settingsRead, statusRead] = yield* Effect.all(
+      [
+        readRemoteText(
+          ssh,
+          endpoint,
+          posix.join(homePath, ".vellum", "settings.json"),
+        ),
+        readRemoteText(
+          ssh,
+          endpoint,
+          posix.join(homePath, ".vellum", "station-status.json"),
+        ),
+      ],
+      { concurrency: "unbounded" },
+    );
+
+    const settings = settingsRead.ok
+      ? decodeRemoteStationSettings(settingsRead.body)
+      : undefined;
+    const stationStatus = statusRead.ok
+      ? (() => {
+          try {
+            return decodeStationStatusDocument(
+              JSON.parse(statusRead.body) as unknown,
+            );
+          } catch {
+            return undefined;
+          }
+        })()
+      : undefined;
+    const observationErrors: string[] = [];
+    if (!settingsRead.ok) {
+      observationErrors.push(`settings unavailable (${settingsRead.detail})`);
+      warnings += 1;
+    } else if (!settings?.ok) {
+      observationErrors.push("settings invalid");
+      warnings += 1;
+    }
+    if (!statusRead.ok) {
+      observationErrors.push(
+        `station status unavailable (${statusRead.detail})`,
+      );
+      warnings += 1;
+    } else if (!stationStatus) {
+      observationErrors.push("station status invalid");
+      warnings += 1;
+    }
+    parts.push(
+      settings?.ok
+        ? `station role ${settings.role || "unset"} · hostId ${settings.hostId}`
+        : "station settings unavailable",
+    );
+    parts.push(
+      stationStatus
+        ? `station status observed ${stationStatus.kernel?.observedAt ?? "without kernel heartbeat"}`
+        : "station status unavailable",
+    );
 
     if (hostHasCapability(host, "browser")) {
       parts.push("browser capability declared");
@@ -179,16 +327,45 @@ const probeSshHost = (
     return {
       status: (warnings > 0 ? "warning" : "ok") as "ok" | "warning",
       detail: `${host.label} (${host.endpoint}): ${parts.join(" · ")}`,
+      observation: {
+        hostId: host.id,
+        endpoint: host.endpoint,
+        reachability: "reachable" as const,
+        settingsState: settingsRead.ok
+          ? settings?.ok
+            ? ("observed" as const)
+            : ("invalid" as const)
+          : ("unavailable" as const),
+        ...(settings?.ok
+          ? {
+              stationRole: settings.role,
+              stationHostId: settings.hostId,
+            }
+          : {}),
+        statusState: statusRead.ok
+          ? stationStatus
+            ? ("observed" as const)
+            : ("invalid" as const)
+          : ("unavailable" as const),
+        ...(stationStatus ? { status: stationStatus } : {}),
+        ...(observationErrors.length > 0
+          ? { observationError: observationErrors.join("; ").slice(0, 1_024) }
+          : {}),
+      },
     };
   }).pipe(
     Effect.catchAll((error) =>
       Effect.succeed({
         status: "error" as const,
-        detail: `${host.label}: ${
-          error && typeof error === "object" && "_tag" in error
-            ? describeSshError(error as SshError)
-            : String(error)
-        }`,
+        detail: `${host.label}: ${describeUnknownSsh(error)}`,
+        observation: {
+          hostId: host.id,
+          endpoint: host.endpoint ?? "",
+          reachability: "unreachable" as const,
+          reachabilityError: describeUnknownSsh(error),
+          settingsState: "unavailable" as const,
+          statusState: "unavailable" as const,
+        },
       }),
     ),
   );
@@ -196,10 +373,7 @@ const probeSshHost = (
 const boundedProbeSshHost = (
   ssh: Ssh,
   host: RemoteHost,
-): Effect.Effect<{
-  readonly status: "ok" | "warning" | "error";
-  readonly detail: string;
-}> =>
+): Effect.Effect<RemoteHostProbeResult> =>
   probeSshHost(ssh, host).pipe(
     Effect.timeoutFail({
       duration: HOST_PROBE_TOTAL_TIMEOUT_MS,
@@ -209,15 +383,23 @@ const boundedProbeSshHost = (
       Effect.succeed({
         status: "error" as const,
         detail: `${host.label}: probe timed out after ${HOST_PROBE_TOTAL_TIMEOUT_MS}ms`,
+        observation: {
+          hostId: host.id,
+          endpoint: host.endpoint ?? "",
+          reachability: "unreachable" as const,
+          reachabilityError: `probe timed out after ${HOST_PROBE_TOTAL_TIMEOUT_MS}ms`,
+          settingsState: "unavailable" as const,
+          statusState: "unavailable" as const,
+        },
       }),
     ),
   );
 
-export const runRemoteHostsDoctor = (
+export const runRemoteHostsDoctorSnapshot = (
   registry: HostsRegistry,
   ssh: Ssh,
   run: HostCliRunner = runCli,
-): Effect.Effect<ServiceCheck> =>
+): Effect.Effect<RemoteHostsDoctorSnapshot> =>
   Effect.gen(function* () {
     const clientPath = openSshClientPath();
     const sshBinaryOk = yield* Effect.tryPromise({
@@ -230,11 +412,14 @@ export const runRemoteHostsDoctor = (
 
     if (!sshBinaryOk) {
       return {
-        id: "remote-hosts",
-        label: "Remote hosts",
-        status: "error" as const,
-        detail: `OpenSSH client not executable at ${clientPath} — install the client or set VELLUM_SSH_EXECUTABLE`,
-      } satisfies ServiceCheck;
+        check: {
+          id: "remote-hosts",
+          label: "Remote hosts",
+          status: "error" as const,
+          detail: `OpenSSH client not executable at ${clientPath} — install the client or set VELLUM_SSH_EXECUTABLE`,
+        },
+        observations: [],
+      } satisfies RemoteHostsDoctorSnapshot;
     }
 
     const hosts = yield* Effect.tryPromise({
@@ -268,14 +453,17 @@ export const runRemoteHostsDoctor = (
     }
 
     const sshHosts = hosts.filter((host) => host.kind === "remote");
+    const results =
+      sshHosts.length === 0
+        ? []
+        : yield* Effect.forEach(
+            sshHosts,
+            (host) => boundedProbeSshHost(ssh, host),
+            { concurrency: "unbounded" },
+          );
     if (sshHosts.length === 0) {
       lines.push("no remote ssh hosts configured");
     } else {
-      const results = yield* Effect.forEach(
-        sshHosts,
-        (host) => boundedProbeSshHost(ssh, host),
-        { concurrency: "unbounded" },
-      );
       for (const result of results) {
         lines.push(result.detail);
         raise(result.status);
@@ -292,30 +480,45 @@ export const runRemoteHostsDoctor = (
       .join(", ");
 
     return {
-      id: "remote-hosts",
-      label: "Remote hosts",
-      status: worst,
-      detail: lines.join(" · "),
-      metadata: {
-        hostsPath: registry.path(),
-        hostCount: String(hosts.length),
-        remoteHostCount: String(sshHosts.length),
-        hermesKeys,
-        browserHostCount: String(
-          hosts.filter((host) => hostHasCapability(host, "browser")).length,
-        ),
-        browserHostIds,
+      check: {
+        id: "remote-hosts",
+        label: "Remote hosts",
+        status: worst,
+        detail: lines.join(" · "),
+        metadata: {
+          hostsPath: registry.path(),
+          hostCount: String(hosts.length),
+          remoteHostCount: String(sshHosts.length),
+          hermesKeys,
+          browserHostCount: String(
+            hosts.filter((host) => hostHasCapability(host, "browser")).length,
+          ),
+          browserHostIds,
+        },
       },
-    } satisfies ServiceCheck;
+      observations: results.map((result) => result.observation),
+    } satisfies RemoteHostsDoctorSnapshot;
   }).pipe(
     Effect.catchAll((error) =>
       Effect.succeed({
-        id: "remote-hosts",
-        label: "Remote hosts",
-        status: "error" as const,
-        detail: error instanceof Error ? error.message : String(error),
-      } satisfies ServiceCheck),
+        check: {
+          id: "remote-hosts",
+          label: "Remote hosts",
+          status: "error" as const,
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        observations: [],
+      } satisfies RemoteHostsDoctorSnapshot),
     ),
+  );
+
+export const runRemoteHostsDoctor = (
+  registry: HostsRegistry,
+  ssh: Ssh,
+  run: HostCliRunner = runCli,
+): Effect.Effect<ServiceCheck> =>
+  runRemoteHostsDoctorSnapshot(registry, ssh, run).pipe(
+    Effect.map((snapshot) => snapshot.check),
   );
 
 export const testHostConnection = (

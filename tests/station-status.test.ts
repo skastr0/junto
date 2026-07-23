@@ -4,7 +4,11 @@ import {
   configureRecordFromResult,
   defaultStationStatus,
   deployRecordFromResult,
+  kernelRecordFromSnapshot,
   pullRecordFromResult,
+  STATION_KERNEL_STALE_AFTER_MS,
+  STATION_PULL_STALE_AFTER_MS,
+  type StationRemoteObservation,
 } from "../src/shared/station-status";
 import { canvasPullResult } from "../src/shared/canvas-pull";
 import {
@@ -16,6 +20,22 @@ import {
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 
 describe("station status doctor", () => {
+  const now = Date.parse("2026-07-23T12:00:00.000Z");
+
+  const observedRemote = (
+    input: Partial<StationRemoteObservation> = {},
+  ): StationRemoteObservation => ({
+    hostId: "studio",
+    endpoint: "studio-box",
+    reachability: "reachable",
+    settingsState: "observed",
+    stationRole: "remote",
+    stationHostId: "studio",
+    statusState: "observed",
+    status: defaultStationStatus(),
+    ...input,
+  });
+
   it("warns when role is unset", () => {
     const check = assessStationDoctor({
       role: "",
@@ -40,10 +60,20 @@ describe("station status doctor", () => {
       supervisedInstalled: "absent",
       status: defaultStationStatus(),
       workControlReady: true,
+      version: "0.1.0",
+      kernel: {
+        observedAt: "2026-07-23T11:59:30.000Z",
+        armedRegionCount: 0,
+        orphanedArmingCount: 0,
+      },
+      now,
     });
     expect(check.status).toBe("ok");
     expect(check.metadata?.role).toBe("command-center");
     expect(check.metadata?.workControlReady).toBe("true");
+    expect(check.detail).toContain(
+      "Local station: installed yes · role command-center · version 0.1.0 · hostId local · last pull n/a · armed no (0) · last fire never · errors none",
+    );
   });
 
   it("warns Remote without pull history", () => {
@@ -130,12 +160,38 @@ describe("station status doctor", () => {
       supervisedPreferred: false,
       supervisedInstalled: "absent",
       status: { version: 1, deployments: { studio: deployment } },
+      remoteObservations: [
+        observedRemote({
+          status: {
+            version: 1,
+            lastPull: {
+              at: "2026-07-23T11:45:00.000Z",
+              status: "ok",
+              ok: true,
+              detail: "pulled 2",
+              commandCenterRef: "local",
+              keptLocal: false,
+              pulledCount: 2,
+              failedCount: 0,
+            },
+            kernel: {
+              observedAt: "2026-07-23T11:59:30.000Z",
+              armedRegionCount: 1,
+              lastFireAt: "2026-07-23T11:58:00.000Z",
+              lastFireKind: "watcher",
+              lastFireDry: false,
+              orphanedArmingCount: 0,
+            },
+          },
+        }),
+      ],
       workControlReady: true,
+      now,
     });
 
     expect(check.status).toBe("ok");
     expect(check.detail).toMatch(
-      /Remote studio \(studio-box\): last observed package present · role remote · version 0\.1\.0 · last seen 2026-07-22T20:00:00\.000Z · attempt ready/u,
+      /Remote studio \(studio-box\): installed yes · role remote · version 0\.1\.0 · hostId studio · last pull ok 2026-07-23T11:45:00\.000Z · armed yes \(1\) · last fire 2026-07-23T11:58:00\.000Z watcher live · reachability reachable · errors none/u,
     );
     expect(check.metadata).toMatchObject({
       deploymentCount: "1",
@@ -145,7 +201,206 @@ describe("station status doctor", () => {
       lastDeployRole: "remote",
       lastDeployVersion: "0.1.0",
       lastDeployLastSeen: "2026-07-22T20:00:00.000Z",
+      remoteCount: "1",
+      remoteFleetBlindCount: "0",
+      remoteStaleCount: "0",
+      "remote.studio.installed": "yes",
+      "remote.studio.role": "remote",
+      "remote.studio.version": "0.1.0",
+      "remote.studio.lastPullStatus": "ok",
+      "remote.studio.armed": "true",
+      "remote.studio.lastFireAt": "2026-07-23T11:58:00.000Z",
+      "remote.studio.reachability": "reachable",
     });
+  });
+
+  it("lists a registered Remote without a managed install receipt instead of omitting it", () => {
+    const check = assessStationDoctor({
+      role: "command-center",
+      hostId: "local",
+      commandCenterRef: "",
+      supervisedPreferred: false,
+      supervisedInstalled: "absent",
+      status: defaultStationStatus(),
+      registeredRemoteEndpoints: { studio: "studio-box" },
+      remoteObservations: [
+        observedRemote({
+          settingsState: "unavailable",
+          statusState: "unavailable",
+          observationError: "station status files unavailable",
+        }),
+      ],
+      workControlReady: true,
+      now,
+    });
+
+    expect(check.status).toBe("warning");
+    expect(check.detail).toMatch(
+      /Remote studio \(studio-box\): installed no \(no managed install receipt\) · role unknown · version unknown · hostId studio · last pull unknown · armed unknown · last fire unknown · reachability reachable · errors registered but not installed by Command Center; fleet-blind: station status files unavailable/u,
+    );
+    expect(check.metadata).toMatchObject({
+      remoteCount: "1",
+      remoteFleetBlindCount: "1",
+      "remote.studio.installed": "no",
+      "remote.studio.state": "fleet-blind",
+    });
+  });
+
+  it("reports an unreachable registered Remote without treating its deploy receipt as live health", () => {
+    const deployment = deployRecordFromResult({
+      hostId: "studio",
+      endpoint: "studio-box",
+      ok: true,
+      outcome: "ready",
+      packageState: "present",
+      role: "remote",
+      version: "0.1.0",
+      lastSeen: "2026-07-23T11:55:00.000Z",
+      rollback: "not-required",
+      configurationOk: true,
+      detail: "ready",
+      at: "2026-07-23T11:55:00.000Z",
+    });
+    const check = assessStationDoctor({
+      role: "command-center",
+      hostId: "local",
+      commandCenterRef: "",
+      supervisedPreferred: false,
+      supervisedInstalled: "absent",
+      status: { version: 1, deployments: { studio: deployment } },
+      remoteObservations: [
+        observedRemote({
+          reachability: "unreachable",
+          reachabilityError: "Timeout — host unreachable",
+          settingsState: "unavailable",
+          statusState: "unavailable",
+          stationRole: undefined,
+          stationHostId: undefined,
+          status: undefined,
+        }),
+      ],
+      workControlReady: true,
+      now,
+    });
+
+    expect(check.status).toBe("error");
+    expect(check.detail).toMatch(/reachability unreachable/u);
+    expect(check.detail).toMatch(/fleet-blind: Timeout — host unreachable/u);
+    expect(check.metadata).toMatchObject({
+      "remote.studio.installed": "yes",
+      "remote.studio.reachability": "unreachable",
+      "remote.studio.state": "error",
+    });
+  });
+
+  it("defines and reports pull and kernel freshness independently", () => {
+    const deployment = deployRecordFromResult({
+      hostId: "studio",
+      endpoint: "studio-box",
+      ok: true,
+      outcome: "ready",
+      packageState: "present",
+      role: "remote",
+      version: "0.1.0",
+      lastSeen: new Date(now - 60_000).toISOString(),
+      rollback: "not-required",
+      configurationOk: true,
+      detail: "ready",
+      at: new Date(now - 60_000).toISOString(),
+    });
+    const stalePullAt = new Date(now - STATION_PULL_STALE_AFTER_MS - 1).toISOString();
+    const staleKernelAt = new Date(now - STATION_KERNEL_STALE_AFTER_MS - 1).toISOString();
+    const check = assessStationDoctor({
+      role: "command-center",
+      hostId: "local",
+      commandCenterRef: "",
+      supervisedPreferred: false,
+      supervisedInstalled: "absent",
+      status: { version: 1, deployments: { studio: deployment } },
+      remoteObservations: [
+        observedRemote({
+          status: {
+            version: 1,
+            lastPull: {
+              at: stalePullAt,
+              status: "ok",
+              ok: true,
+              detail: "pulled",
+              commandCenterRef: "local",
+              keptLocal: false,
+              pulledCount: 1,
+              failedCount: 0,
+            },
+            kernel: {
+              observedAt: staleKernelAt,
+              armedRegionCount: 0,
+              orphanedArmingCount: 0,
+            },
+          },
+        }),
+      ],
+      workControlReady: true,
+      now,
+    });
+
+    expect(check.status).toBe("warning");
+    expect(check.detail).toMatch(/last pull ok .* \(stale\)/u);
+    expect(check.detail).toMatch(/armed no \(0, stale\)/u);
+    expect(check.detail).toMatch(/errors pull stale; kernel status stale; Remote not armed/u);
+    expect(check.metadata).toMatchObject({
+      remoteStaleCount: "1",
+      "remote.studio.lastPullStale": "true",
+      "remote.studio.kernelStale": "true",
+      "remote.studio.state": "stale",
+    });
+  });
+
+  it("projects only bounded kernel facts into the station mirror", () => {
+    const record = kernelRecordFromSnapshot(
+      {
+        canvases: {
+          alpha: {
+            watchers: {},
+            armed: { one: true, two: false },
+            nextFire: {},
+          },
+          beta: {
+            watchers: {},
+            armed: { three: true },
+            nextFire: {},
+          },
+        },
+        pulseLog: [
+          {
+            id: "pulse-secret",
+            at: Date.parse("2026-07-23T11:58:00.000Z"),
+            canvasName: "private-canvas",
+            sourceNodeId: "private-node",
+            regionId: "private-region",
+            kind: "watcher",
+            summary: "private instruction",
+            delivered: ["private:agent"],
+            dry: false,
+          },
+        ],
+        fault: "arming store unreadable",
+        orphanedArming: ["private-canvas::private-region"],
+      },
+      "2026-07-23T12:00:00.000Z",
+    );
+
+    expect(record).toEqual({
+      observedAt: "2026-07-23T12:00:00.000Z",
+      armedRegionCount: 2,
+      lastFireAt: "2026-07-23T11:58:00.000Z",
+      lastFireKind: "watcher",
+      lastFireDry: false,
+      fault: "arming store unreadable",
+      orphanedArmingCount: 1,
+    });
+    expect(JSON.stringify(record)).not.toMatch(
+      /private-canvas|private-node|private-region|private:agent|private instruction/u,
+    );
   });
 
   it("fails closed on an indeterminate deploy receipt", () => {
