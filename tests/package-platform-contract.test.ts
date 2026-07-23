@@ -41,6 +41,9 @@ describe("native package pipeline contract", () => {
       category: "Development",
       icon: "assets/brand/vellum-command-icon.png",
       files: [
+        "out/**",
+        "station/**",
+        "package.json",
         "!node_modules/node-pty/prebuilds/darwin-*/**",
         "!node_modules/node-pty/prebuilds/win32-*/**",
       ],

@@ -812,6 +812,33 @@ const assertAsarUnpacked = (
   }
 };
 
+const LINUX_ASAR_ROOTS = [
+  "node_modules",
+  "out",
+  "package.json",
+  "station",
+] as const;
+
+export const validateLinuxAsarRootInventory = (
+  entries: readonly string[],
+): void => {
+  const allowed = new Set<string>(LINUX_ASAR_ROOTS);
+  const observed = new Set<string>();
+  for (const entry of entries) {
+    const normalized = entry.replace(/^\/+/u, "");
+    const root = normalized.split("/", 1)[0];
+    if (root === undefined || root.length === 0 || !allowed.has(root)) {
+      throw new Error(`ASAR contains an undeclared application root: ${entry}`);
+    }
+    observed.add(root);
+  }
+  for (const expected of LINUX_ASAR_ROOTS) {
+    if (!observed.has(expected)) {
+      throw new Error(`ASAR is missing the required application root: ${expected}`);
+    }
+  }
+};
+
 const validateNodePtyAsarInventory = (
   asarPath: string,
   nativeModule: string,
@@ -822,7 +849,9 @@ const validateNodePtyAsarInventory = (
   const isAllowedNativeModule = (relative: string): boolean =>
     relative === nativeModuleRelative ||
     /^node_modules\/node-pty\/bin\/linux-x64-[^/]+\/node-pty\.node$/u.test(relative);
-  for (const entry of listPackage(asarPath, { isPack: false })) {
+  const entries = listPackage(asarPath, { isPack: false });
+  validateLinuxAsarRootInventory(entries);
+  for (const entry of entries) {
     const normalized = entry.replace(/^\//u, "");
     if (
       normalized.startsWith("node_modules/node-pty/prebuilds/") &&

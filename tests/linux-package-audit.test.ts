@@ -12,6 +12,7 @@ import {
   validateDebControl,
   validateDesktopEntry,
   validateElfX64,
+  validateLinuxAsarRootInventory,
   validateLinuxPackageArtifactNames,
   validateLinuxRemoteLauncher,
   validateNoFileCapabilities,
@@ -145,6 +146,46 @@ describe("Linux package artifact naming boundary", () => {
       debName,
     })).toThrow(/layout mismatch/u);
   });
+});
+
+describe("Linux ASAR application boundary", () => {
+  const exactInventory = [
+    "/node_modules",
+    "/node_modules/effect",
+    "/out",
+    "/out/main",
+    "/package.json",
+    "/station",
+    "/station/plugin.json",
+  ];
+
+  it("accepts only the packaged runtime roots", () => {
+    expect(() => validateLinuxAsarRootInventory(exactInventory)).not.toThrow();
+  });
+
+  it.each([
+    "/release-pre-version-witness/package.deb",
+    "/.electron-cache/electron.zip",
+    "/src/main/index.ts",
+    "/tests/linux-package-audit.test.ts",
+  ])("rejects an undeclared repository root: %s", (entry) => {
+    expect(() =>
+      validateLinuxAsarRootInventory([...exactInventory, entry]),
+    ).toThrow(/undeclared application root/u);
+  });
+
+  it.each(["node_modules", "out", "package.json", "station"])(
+    "rejects a missing required root: %s",
+    (root) => {
+      expect(() =>
+        validateLinuxAsarRootInventory(
+          exactInventory.filter(
+            (entry) => entry.replace(/^\//u, "").split("/", 1)[0] !== root,
+          ),
+        ),
+      ).toThrow(/missing the required application root/u);
+    },
+  );
 });
 
 describe("deb payload authority and modes", () => {
