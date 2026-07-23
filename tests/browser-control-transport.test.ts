@@ -33,6 +33,7 @@ import type { PageTargetResolver } from "../src/main/vellum/browser/page-target"
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
+  type BrowserAutomationPrincipal,
   type BrowserCapabilityRegistry,
 } from "../src/main/vellum/browser/capabilities";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
@@ -68,17 +69,22 @@ const resolvePageTarget: PageTargetResolver = async (ref) =>
     : { ok: false, code: "not_found", message: "page not found" };
 
 /** Transport tests: admit every socket with a pre-minted internal lease. */
-const admittingEdgeGrant = (secret: string): EdgeGrantService => ({
+const admittingEdgeGrant = (
+  secret: string,
+  expectedPrincipal: BrowserAutomationPrincipal,
+): EdgeGrantService => ({
   processMap: makeProcessIdentityMap(),
   admitSocket: async () => ({
     ok: true,
     secret,
+    expectedPrincipal,
     principal: { kind: "agent", agentKey: AGENT_KEY },
     targetCount: 1,
   }),
   admitPrincipal: async () => ({
     ok: true,
     secret,
+    expectedPrincipal,
     principal: { kind: "agent", agentKey: AGENT_KEY },
     targetCount: 1,
   }),
@@ -134,7 +140,7 @@ const startStack = async (
   root: string,
   runtime?: BrowserControlRuntime,
   resolver: PageTargetResolver = resolvePageTarget,
-  edgeGrantMode: "admit" | "deny" | "profiles-only" = "admit",
+  edgeGrantMode: "admit" | "deny" | "profiles-only" | "mismatched-principal" = "admit",
 ): Promise<{
   readonly server: BrowserControlServer;
   readonly sessions: BrowserSessionService;
@@ -161,7 +167,12 @@ const startStack = async (
   });
   const edgeGrant = edgeGrantMode === "deny"
     ? denyingEdgeGrant()
-    : admittingEdgeGrant(grant.secret);
+    : admittingEdgeGrant(
+        grant.secret,
+        edgeGrantMode === "mismatched-principal"
+          ? capabilities.createPrincipal()
+          : principal,
+      );
   const server = await startBrowserControlServer(
     {
       sessions,
@@ -882,6 +893,33 @@ describe("browser control Unix transport", () => {
     );
     expect(statusOf(forbidden)).toBe(403);
     expect(envelopeOf(forbidden)).toMatchObject({
+      ok: false,
+      error: { _tag: "forbidden" },
+    });
+
+    // The opaque secret and its registry principal are one admission value.
+    // A mixed pair is rejected before request-id or body validation.
+    const mismatchedRoot = await newRoot();
+    const mismatched = await startStack(
+      mismatchedRoot,
+      undefined,
+      resolvePageTarget,
+      "mismatched-principal",
+    );
+    const principalMismatch = await rawExchange(
+      mismatched.server.socketPath,
+      [
+        requestHead("POST", "/open", [
+          [CONTROL_TOKEN_HEADER, mismatched.token],
+          ["Content-Type", "application/json"],
+          ["Content-Length", "100"],
+        ]),
+        "{",
+      ],
+      false,
+    );
+    expect(statusOf(principalMismatch)).toBe(403);
+    expect(envelopeOf(principalMismatch)).toMatchObject({
       ok: false,
       error: { _tag: "forbidden" },
     });

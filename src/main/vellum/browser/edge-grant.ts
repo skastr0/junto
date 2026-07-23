@@ -60,6 +60,8 @@ export type EdgeGrantResult =
   | {
       readonly ok: true;
       readonly secret: string;
+      /** Registry-created identity that owns `secret`; never caller supplied. */
+      readonly expectedPrincipal: BrowserAutomationPrincipal;
       readonly principal: ProcessPrincipal;
       readonly targetCount: number;
     }
@@ -289,6 +291,7 @@ export const makeEdgeGrantService = (
         return {
           ok: true,
           secret: existing.secret,
+          expectedPrincipal: existing.principal,
           principal,
           targetCount: targets.length,
         };
@@ -344,6 +347,7 @@ export const makeEdgeGrantService = (
     return {
       ok: true,
       secret: grant.secret,
+      expectedPrincipal: capPrincipal,
       principal,
       targetCount: targets.length,
     };

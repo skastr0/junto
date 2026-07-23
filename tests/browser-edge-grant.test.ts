@@ -8,7 +8,10 @@ import {
   makeControlHandlers,
   rotateControlToken,
 } from "../src/main/vellum/browser/control";
-import { makeEdgeGrantService } from "../src/main/vellum/browser/edge-grant";
+import {
+  makeEdgeGrantService,
+  type EdgeGrantService,
+} from "../src/main/vellum/browser/edge-grant";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
@@ -192,6 +195,17 @@ describe("browser edge-grant process-bind dual admit", () => {
       const rows = admitted.envelope.data as ReadonlyArray<{ ref: string }>;
       expect(rows.map((r) => r.ref)).toEqual([REF_PAGE]);
     }
+    const admissionAudit = capabilities.auditSnapshot().find(
+      (event) => event.outcome === "admitted",
+    );
+    const edgeAdmission = await edgeGrant.admitPrincipal(processPrincipal);
+    expect(edgeAdmission.ok).toBe(true);
+    if (edgeAdmission.ok) {
+      expect(admissionAudit).toMatchObject({
+        principalId: edgeAdmission.expectedPrincipal.principalId,
+        jobId: edgeAdmission.expectedPrincipal.jobId,
+      });
+    }
 
     // Ceremony path remains available when a secret is presented.
     const principal = capabilities.createPrincipal();
@@ -254,6 +268,65 @@ describe("browser edge-grant process-bind dual admit", () => {
     }
   });
 
+  it("rejects a capability paired with a different registry principal", async () => {
+    await mkdir(join(root, "canvases"), { recursive: true });
+    const doc = canvasDoc(true);
+    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
+    const { handlers, edgeGrant, capabilities } = makeStack(doc);
+    const token = rotateControlToken(join(root, "token"));
+    const processPrincipal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+    const actual = await edgeGrant.admitPrincipal(processPrincipal);
+    expect(actual.ok).toBe(true);
+    if (!actual.ok) return;
+
+    const wrongExpectedPrincipal = capabilities.createPrincipal();
+    const confusedEdgeGrant: EdgeGrantService = {
+      ...edgeGrant,
+      admitPrincipal: async () => ({
+        ...actual,
+        expectedPrincipal: wrongExpectedPrincipal,
+      }),
+    };
+    const denied = await dispatchControlRequest(
+      handlers,
+      token,
+      {
+        method: "GET",
+        path: "/pages",
+        token,
+        // A valid presented secret cannot bypass the process-bound admission
+        // pair supplied below.
+        capability: actual.secret,
+        requestId: "d".repeat(32),
+        body: undefined,
+      },
+      undefined,
+      {
+        kind: "principal",
+        edgeGrant: confusedEdgeGrant,
+        principal: processPrincipal,
+      },
+    );
+
+    expect(denied).toMatchObject({
+      status: 403,
+      envelope: { ok: false, error: { _tag: "forbidden" } },
+    });
+    expect(capabilities.auditSnapshot()).toContainEqual(
+      expect.objectContaining({
+        outcome: "denied_scope",
+        principalId: actual.expectedPrincipal.principalId,
+        jobId: actual.expectedPrincipal.jobId,
+      }),
+    );
+    expect(capabilities.auditSnapshot()).not.toContainEqual(
+      expect.objectContaining({
+        outcome: "admitted",
+        principalId: wrongExpectedPrincipal.principalId,
+      }),
+    );
+  });
+
   it("reuses admission cache and remints after canvas invalidation", async () => {
     await mkdir(join(root, "canvases"), { recursive: true });
     const doc = canvasDoc(true);
@@ -269,6 +342,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     expect(second).toHaveProperty("secret");
     if (first.ok && second.ok) {
       expect(second.secret).toBe(first.secret);
+      expect(second.expectedPrincipal).toBe(first.expectedPrincipal);
     }
 
     edgeGrant.invalidateCanvas?.("other");
@@ -276,6 +350,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     expect(third.ok).toBe(true);
     if (third.ok && first.ok) {
       expect(third.secret).toBe(first.secret);
+      expect(third.expectedPrincipal).toBe(first.expectedPrincipal);
     }
 
     edgeGrant.invalidateCanvas?.("work");
@@ -283,6 +358,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     expect(fourth.ok).toBe(true);
     if (fourth.ok && first.ok) {
       expect(fourth.secret).not.toBe(first.secret);
+      expect(fourth.expectedPrincipal).toBe(first.expectedPrincipal);
     }
   });
 });

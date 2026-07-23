@@ -86,6 +86,7 @@ import {
   BrowserCapabilityDenied,
   BrowserCapabilityRegistry,
   BrowserCapabilityStateDenied,
+  type BrowserAutomationPrincipal,
   type BrowserCapabilityAction,
   type BrowserCapabilityCompletionOutcome,
   type BrowserCapabilityLease,
@@ -339,12 +340,17 @@ const removeScreenshot = async (path: string): Promise<void> => {
 
 interface ControlAuthorization {
   readonly capability: string;
+  /** Exact registry identity minted during process/edge admission. */
+  readonly expectedPrincipal?: BrowserAutomationPrincipal;
   readonly requestId: string;
 }
 
 interface ControlRouteHandler {
   readonly action: BrowserCapabilityAction | null;
-  readonly preflight: (capability: string | undefined) => BrowserCapabilityPreflightResult;
+  readonly preflight: (
+    capability: string | undefined,
+    expectedPrincipal?: BrowserAutomationPrincipal,
+  ) => BrowserCapabilityPreflightResult;
   readonly run: (
     body: unknown,
     authorization: ControlAuthorization | undefined,
@@ -481,7 +487,12 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       lease = deps.capabilities.authorize(
         authorization.capability,
         { action },
-        { requestId: authorization.requestId },
+        {
+          requestId: authorization.requestId,
+          ...(authorization.expectedPrincipal === undefined
+            ? {}
+            : { expectedPrincipal: authorization.expectedPrincipal }),
+        },
       );
     } catch (error) {
       return capabilityError(error);
@@ -537,10 +548,10 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
     run: ControlRouteHandler["run"],
   ): ControlRouteHandler => ({
     action,
-    preflight: (capability) =>
+    preflight: (capability, expectedPrincipal) =>
       action === null
         ? { ok: true }
-        : deps.capabilities.preflight(capability, action),
+        : deps.capabilities.preflight(capability, action, expectedPrincipal),
     run,
   });
 
@@ -968,7 +979,11 @@ const edgeGrantHttp = (
 
 /** Transport-free admit helpers for tests (product HTTP path always process-binds). */
 export type ControlAdmitContext =
-  | { readonly kind: "capability"; readonly capability: string }
+  | {
+      readonly kind: "capability";
+      readonly capability: string;
+      readonly expectedPrincipal: BrowserAutomationPrincipal;
+    }
   | { readonly kind: "principal"; readonly edgeGrant: EdgeGrantService; readonly principal: import("../process-identity").ProcessPrincipal };
 
 /**
@@ -1013,26 +1028,24 @@ export const dispatchControlRequest = async (
   }
   let authorization: ControlAuthorization | undefined;
   if (handler.action !== null) {
-    let capability = request.capability;
+    let capability =
+      admit?.kind === "capability" ? admit.capability : request.capability;
+    let expectedPrincipal =
+      admit?.kind === "capability" ? admit.expectedPrincipal : undefined;
     // Client-presented secrets are not identity. Only admit.principal mints
     // from a process principal, or a pre-minted internal lease is supplied.
-    if (!isValidControlCapability(capability ?? "")) {
-      if (admit === undefined) {
-        return { status: 401, envelope: capabilityDenied("unauthorized") };
-      }
-      if (admit.kind === "principal") {
-        const edge = await admit.edgeGrant.admitPrincipal(admit.principal);
-        if (!edge.ok) return edgeGrantHttp(edge.denial, edge.message);
-        capability = edge.secret;
-      } else {
-        // kind: "capability" — internal lease for unit tests only.
-        capability = admit.capability;
-      }
+    if (admit?.kind === "principal") {
+      const edge = await admit.edgeGrant.admitPrincipal(admit.principal);
+      if (!edge.ok) return edgeGrantHttp(edge.denial, edge.message);
+      capability = edge.secret;
+      expectedPrincipal = edge.expectedPrincipal;
+    } else if (!isValidControlCapability(capability ?? "")) {
+      return { status: 401, envelope: capabilityDenied("unauthorized") };
     }
     if (!isValidControlRequestId(request.requestId ?? "")) {
       return { status: 400, envelope: controlErr("bad_request", "invalid request id") };
     }
-    const admitted = handler.preflight(capability);
+    const admitted = handler.preflight(capability, expectedPrincipal);
     if (!admitted.ok) {
       return {
         status: admitted.denial === "unauthorized" ? 401 : 403,
@@ -1041,6 +1054,7 @@ export const dispatchControlRequest = async (
     }
     authorization = {
       capability: capability!,
+      ...(expectedPrincipal === undefined ? {} : { expectedPrincipal }),
       requestId: request.requestId!,
     };
   }
@@ -1449,7 +1463,12 @@ export const startBrowserControlServer = async (
         // Protected routes: process-bind only (peer PID → edges). Client
         // capability secrets are not identity — edge-grant mints an internal
         // lease after process admission.
-        let processCapability: string | undefined;
+        let processAdmission:
+          | {
+              readonly capability: string;
+              readonly expectedPrincipal: BrowserAutomationPrincipal;
+            }
+          | undefined;
         if (handler.action !== null) {
           const edge = await retainFlight(
             "edge-admission",
@@ -1468,8 +1487,14 @@ export const startBrowserControlServer = async (
             respond(denied.status, denied.envelope, true);
             return;
           }
-          processCapability = edge.secret;
-          const admitted = handler.preflight(processCapability);
+          processAdmission = {
+            capability: edge.secret,
+            expectedPrincipal: edge.expectedPrincipal,
+          };
+          const admitted = handler.preflight(
+            processAdmission.capability,
+            processAdmission.expectedPrincipal,
+          );
           if (!admitted.ok) {
             respond(
               admitted.denial === "unauthorized" ? 401 : 403,
@@ -1559,15 +1584,19 @@ export const startBrowserControlServer = async (
                 method,
                 path: rawTarget,
                 token: presentedToken,
-                ...(processCapability !== undefined
-                  ? { capability: processCapability }
-                  : {}),
                 ...(presentedRequestId === undefined
                   ? {}
                   : { requestId: presentedRequestId }),
                 body: body.body,
               },
               controller.signal,
+              processAdmission === undefined
+                ? undefined
+                : {
+                    kind: "capability",
+                    capability: processAdmission.capability,
+                    expectedPrincipal: processAdmission.expectedPrincipal,
+                  },
             );
           })().catch((_error: unknown) => ({
             status: 500,
