@@ -59,6 +59,27 @@ describe("full process epoch snapshots", () => {
     )).toBeUndefined();
   });
 
+  it("accepts Linux kernel rows with pgid zero without minting group authority", () => {
+    const snapshot = readFullProcessEpochSnapshot(
+      () => ({
+        status: 0,
+        stdout: `${psLine(2, 0, 0)}\n${psLine(51, 51, 9)}\n`,
+        stderr: "",
+      }),
+      51,
+    );
+
+    expect(snapshot).toEqual([
+      row(2, 0, 0, START),
+      row(51, 51, 9, START),
+    ]);
+    setProcessEpochReaderForTests({ snapshot: () => snapshot });
+    expect(captureProcessGroupObservation(2)).toBeUndefined();
+    expect(captureProcessGroupObservation(51)).toMatchObject({
+      originalProcessGroupId: 51,
+    });
+  });
+
   it("rejects the entire snapshot for any malformed nonblank row", () => {
     expect(readFullProcessEpochSnapshot(
       () => ({

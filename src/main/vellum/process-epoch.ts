@@ -63,7 +63,7 @@ const C_LSTART = "(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\s+" +
   "(?:[1-9]|[12][0-9]|3[01])\\s+" +
   "(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\s+[0-9]{4}";
 const PS_ROW = new RegExp(
-  `^\\s*([1-9][0-9]*)\\s+([1-9][0-9]*)\\s+(0|[1-9][0-9]*)\\s+(${C_LSTART})\\s*$`,
+  `^\\s*([1-9][0-9]*)\\s+(0|[1-9][0-9]*)\\s+(0|[1-9][0-9]*)\\s+(${C_LSTART})\\s*$`,
   "u",
 );
 
@@ -126,7 +126,11 @@ export const readFullProcessEpochSnapshot = (
     const match = PS_ROW.exec(line);
     if (!match) return undefined;
     const pid = parseSafeInteger(match[1]!, 1);
-    const processGroupId = parseSafeInteger(match[2]!, 1);
+    // Linux exposes kernel threads with PGID/SID 0 in an otherwise complete
+    // `ps` table. Preserve those rows as observations so they cannot make the
+    // whole snapshot unavailable. Group authority remains positive-only:
+    // capture requires processGroupId === the positive child pid.
+    const processGroupId = parseSafeInteger(match[2]!, 0);
     const sessionId = parseSafeInteger(match[3]!, 0);
     if (
       pid === undefined ||
