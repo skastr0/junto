@@ -1003,7 +1003,7 @@ function LinuxAdministratorAuthorizationDialog({ request, password, error, busy,
   return createPortal(
     <div className="settings-authorization-surface" role="presentation">
       <button type="button" className="settings-authorization-surface__backdrop" aria-label="Cancel administrator authorization" tabIndex={-1} disabled={busy} onClick={onCancel} />
-      <form className="settings-authorization-dialog" aria-modal="true" aria-labelledby="linux-authorization-title" aria-describedby="linux-authorization-copy linux-authorization-facts" onSubmit={onSubmit}>
+      <form className="settings-authorization-dialog" role="dialog" aria-modal="true" aria-labelledby="linux-authorization-title" aria-describedby="linux-authorization-copy linux-authorization-facts" onSubmit={onSubmit}>
         <p className="settings-authorization-dialog__eyebrow">Deployment authorization</p>
         <h3 id="linux-authorization-title">Fresh administrator authorization</h3>
         <p id="linux-authorization-copy" className="settings-authorization-dialog__copy">This fresh administrator authorization authorizes exactly one deployment: no retry/reuse.</p>
