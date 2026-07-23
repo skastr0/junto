@@ -98,6 +98,14 @@ interface ProbeAudit {
     readonly auditId: string;
     readonly targetCount: number;
   }>;
+  readonly edgeDenials: ReadonlyArray<{
+    readonly mode: "terminal" | "unbound";
+    readonly denial: string;
+    readonly capabilityIssuesBefore: number;
+    readonly capabilityIssuesAfter: number;
+    readonly webContentsBefore: number;
+    readonly webContentsAfter: number;
+  }>;
   readonly capabilityEvents: ReadonlyArray<{
     readonly sequence: number;
     readonly outcome: string;
@@ -118,7 +126,9 @@ type AdmissionMode =
   | "primary"
   | "expiring"
   | "sibling"
-  | "mismatched";
+  | "mismatched"
+  | "terminal"
+  | "unbound";
 
 type AdmissionAuthorityPath = "unix-peer-pid+process-map+canvas-edges" | "fixture-tuple";
 
@@ -127,7 +137,9 @@ const isAdmissionMode = (value: unknown): value is AdmissionMode =>
   value === "primary" ||
   value === "expiring" ||
   value === "sibling" ||
-  value === "mismatched";
+  value === "mismatched" ||
+  value === "terminal" ||
+  value === "unbound";
 
 const isBoundedId = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0 && value.length <= 256;
@@ -152,6 +164,7 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
     typeof value.defaultProxyResolution !== "string" ||
     typeof value.profileProxyResolution !== "string" ||
     !Array.isArray(value.edgeAdmissions) ||
+    !Array.isArray(value.edgeDenials) ||
     !Array.isArray(value.capabilityEvents) ||
     typeof value.shutdownRequested !== "boolean" ||
     typeof value.shutdownControlClean !== "boolean" ||
@@ -218,6 +231,27 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
       ...(entry.action === undefined ? {} : { action: entry.action }),
     };
   });
+  const edgeDenials = value.edgeDenials.map((entry) => {
+    if (
+      !isRecord(entry) ||
+      (entry.mode !== "terminal" && entry.mode !== "unbound") ||
+      !isBoundedId(entry.denial) ||
+      !Number.isSafeInteger(entry.capabilityIssuesBefore) ||
+      !Number.isSafeInteger(entry.capabilityIssuesAfter) ||
+      !Number.isSafeInteger(entry.webContentsBefore) ||
+      !Number.isSafeInteger(entry.webContentsAfter)
+    ) {
+      throw new Error("dedicated Electron probe emitted a malformed edge-denial audit");
+    }
+    return {
+      mode: entry.mode as "terminal" | "unbound",
+      denial: entry.denial,
+      capabilityIssuesBefore: Number(entry.capabilityIssuesBefore),
+      capabilityIssuesAfter: Number(entry.capabilityIssuesAfter),
+      webContentsBefore: Number(entry.webContentsBefore),
+      webContentsAfter: Number(entry.webContentsAfter),
+    };
+  });
   if (value.shutdownRetainedLabels.some((entry) => !isBoundedId(entry))) {
     throw new Error("dedicated Electron probe emitted malformed shutdown labels");
   }
@@ -239,6 +273,7 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
     defaultProxyResolution: value.defaultProxyResolution,
     profileProxyResolution: value.profileProxyResolution,
     edgeAdmissions,
+    edgeDenials,
     capabilityEvents,
     shutdownRequested: value.shutdownRequested,
     shutdownControlClean: value.shutdownControlClean,
@@ -666,6 +701,111 @@ const writeAdmissionMode = async (
     mode: 0o600,
   });
   await rename(temporary, path);
+};
+
+interface DenialProbeClient {
+  readonly request: (socketPath: string, token: string) => Promise<ControlEnvelope<unknown>>;
+}
+
+const DENIAL_PROBE_CLIENT_SOURCE = String.raw`
+const { readFile, writeFile } = require("node:fs/promises");
+const { request } = require("node:http");
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
+const main = async () => {
+  const { readyPath, requestPath, responsePath } = process.env;
+  await writeFile(readyPath, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+  let input;
+  for (;;) {
+    try { input = await readJson(requestPath); break; } catch { await delay(25); }
+  }
+  const result = await new Promise((resolve) => {
+    const req = request({
+      socketPath: input.socketPath,
+      method: "GET",
+      path: "/profiles",
+      headers: {
+        "x-vellum-token": input.token,
+        "x-vellum-request-id": input.requestId,
+      },
+    }, (res) => {
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => resolve({ statusCode: res.statusCode, body: Buffer.concat(chunks).toString("utf8") }));
+    });
+    req.on("error", (error) => resolve({ error: error.message }));
+    req.end();
+  });
+  await writeFile(responsePath, JSON.stringify(result), { mode: 0o600 });
+  setInterval(() => undefined, 60_000);
+};
+void main().catch(async (error) => {
+  await writeFile(process.env.responsePath, JSON.stringify({ error: error.message }), { mode: 0o600 });
+  process.exitCode = 2;
+});
+`;
+
+const waitForProbeClientPid = async (path: string): Promise<number> => {
+  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const value = JSON.parse(await readFile(path, "utf8"));
+      if (isRecord(value) && Number.isSafeInteger(value.pid) && Number(value.pid) > 0) {
+        return Number(value.pid);
+      }
+    } catch {
+      // The worker writes readiness atomically enough for this bounded probe.
+    }
+    await delay(25);
+  }
+  throw new Error("denial probe worker did not publish a live pid");
+};
+
+const launchDenialProbeClient = async (root: string, label: string): Promise<{
+  readonly client: DenialProbeClient;
+  readonly pid: number;
+}> => {
+  const readyPath = join(root, `${label}.ready.json`);
+  const requestPath = join(root, `${label}.request.json`);
+  const responsePath = join(root, `${label}.response.json`);
+  probeSupervisor.spawnGroup({
+    source: "browser-electron-containment-probe",
+    purpose: `${label} UDS denial peer`,
+    command: process.execPath,
+    args: ["--eval", DENIAL_PROBE_CLIENT_SOURCE],
+    cwd: repoRoot,
+    env: { ...process.env, readyPath, requestPath, responsePath },
+  });
+  const pid = await waitForProbeClientPid(readyPath);
+  return {
+    pid,
+    client: {
+      request: async (socketPath, token) => {
+        await writeFile(
+          requestPath,
+          JSON.stringify({ socketPath, token, requestId: randomUUID() }),
+          { encoding: "utf8", flag: "wx", mode: 0o600 },
+        );
+        const deadline = Date.now() + CONTROL_TIMEOUT_MS;
+        while (Date.now() < deadline) {
+          try {
+            const response = await readFile(responsePath, "utf8");
+            const value = JSON.parse(response);
+            if (!isRecord(value) || typeof value.body !== "string") {
+              throw new Error(`denial probe client failed: ${String(value?.error ?? "invalid response")}`);
+            }
+            const decoded = decodeControlEnvelope(JSON.parse(value.body));
+            if (Either.isLeft(decoded)) throw new Error(decoded.left.message);
+            return decoded.right;
+          } catch (error) {
+            if (error instanceof Error && !error.message.includes("ENOENT")) throw error;
+          }
+          await delay(25);
+        }
+        throw new Error(`${label} denial probe client timed out`);
+      },
+    },
+  };
 };
 
 const assertSecretsAbsent = (
@@ -1547,6 +1687,8 @@ const main = async (): Promise<void> => {
     ),
   );
   await writeAdmissionMode(admissionModePath, "primary");
+  const terminalProbe = await launchDenialProbeClient(root, "terminal-peer");
+  const unboundProbe = await launchDenialProbeClient(root, "unbound-peer");
 
   let privateSentinelRequests = 0;
   const sentinelServer = createServer((_req, res) => {
@@ -1685,6 +1827,8 @@ const main = async (): Promise<void> => {
       `--admission-mode-path=${options.admissionModePath}`,
       `--shutdown-request-path=${options.shutdownRequestPath}`,
       `--peer-pid-helper-root=${join(repoRoot, "scripts")}`,
+      `--terminal-peer-pid=${terminalProbe.pid}`,
+      `--unbound-peer-pid=${unboundProbe.pid}`,
     ];
   const electronArguments = makeElectronArguments({
     auditPath,
@@ -1740,6 +1884,33 @@ const main = async (): Promise<void> => {
     }
     assertRuntimeDevToolsAbsent(baselineAudit, "first launch baseline");
     await assertTcpControlAbsent(legacyTcpPort, token);
+
+    probeStage = "terminal and unbound UDS denial";
+    await writeAdmissionMode(admissionModePath, "terminal");
+    requireDenied(
+      await terminalProbe.client.request(socketPath, token),
+      "forbidden",
+      "registered terminal peer",
+    );
+    await writeAdmissionMode(admissionModePath, "unbound");
+    requireDenied(
+      await unboundProbe.client.request(socketPath, token),
+      "unauthorized",
+      "unbound descendant peer",
+    );
+    await writeAdmissionMode(admissionModePath, "primary");
+    await waitForAudit(
+      auditPath,
+      (audit) =>
+        ["terminal", "unbound"].every((mode) =>
+          audit.edgeDenials.some(
+            (denial) =>
+              denial.mode === mode &&
+              denial.capabilityIssuesBefore === denial.capabilityIssuesAfter &&
+              denial.webContentsBefore === denial.webContentsAfter,
+          ),
+        ),
+    );
 
     probeStage = "capability admission";
     await qualifyCapabilityAdmission(
@@ -2062,6 +2233,7 @@ const main = async (): Promise<void> => {
         unaffectedSessionRemainsUsable: true,
         replayIdentityRequired: true,
         processBoundEdgeAuthorityAdmitted: true,
+        terminalAndUnboundPeersDeniedBeforeCapabilityOrViewCreation: true,
         realPeerPidAndFiveCanvasEdgesQualified: true,
         processBoundRequestCarriedNoIdentityClaim: true,
         clientCapabilityHeadersIgnored: true,

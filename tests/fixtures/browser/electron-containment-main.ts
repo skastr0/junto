@@ -57,6 +57,8 @@ const revokeMarkerPath = requiredArgument("revoke-marker-path");
 const admissionModePath = requiredArgument("admission-mode-path");
 const shutdownRequestPath = requiredArgument("shutdown-request-path");
 const peerPidHelperRoot = requiredArgument("peer-pid-helper-root");
+const terminalPeerPid = Number(requiredArgument("terminal-peer-pid"));
+const unboundPeerPid = Number(requiredArgument("unbound-peer-pid"));
 
 for (const [name, path] of [
   ["browser-root", browserRoot],
@@ -70,6 +72,12 @@ for (const [name, path] of [
   ["peer-pid-helper-root", peerPidHelperRoot],
 ] as const) {
   if (!isAbsolute(path)) throw new Error(`${name} must be absolute`);
+}
+for (const [name, pid] of [
+  ["terminal-peer-pid", terminalPeerPid],
+  ["unbound-peer-pid", unboundPeerPid],
+] as const) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error(`${name} must be a live pid`);
 }
 configurePeerPidHelperRoots([peerPidHelperRoot]);
 
@@ -98,7 +106,9 @@ type AdmitMode =
   | "primary"
   | "expiring"
   | "sibling"
-  | "mismatched";
+  | "mismatched"
+  | "terminal"
+  | "unbound";
 
 type AdmissionAuthorityPath = "unix-peer-pid+process-map+canvas-edges" | "fixture-tuple";
 
@@ -127,7 +137,9 @@ const readAdmitMode = async (modePath: string): Promise<AdmitMode> => {
       raw === "primary" ||
       raw === "expiring" ||
       raw === "sibling" ||
-      raw === "mismatched"
+      raw === "mismatched" ||
+      raw === "terminal" ||
+      raw === "unbound"
     ) {
       return raw;
     }
@@ -138,10 +150,13 @@ const readAdmitMode = async (modePath: string): Promise<AdmitMode> => {
 };
 
 const admittingEdgeGrant = (
-  tuples: Readonly<Record<AdmitMode, AdmissionTuple>>,
+  tuples: Readonly<Record<Exclude<AdmitMode, "terminal" | "unbound">, AdmissionTuple>>,
   processBoundEdgeGrant: EdgeGrantService,
   admitModePath: string,
   onAdmission: (entry: EdgeAdmissionAudit) => void,
+  onDenial: (mode: "terminal" | "unbound", result: Extract<EdgeGrantResult, { readonly ok: false }>) => void,
+  probePeerPid: number,
+  processBoundPrincipal: ProcessPrincipal,
 ): EdgeGrantService => {
   const recordProcessBoundAdmission = (
     result: Extract<EdgeGrantResult, { readonly ok: true }>,
@@ -165,7 +180,7 @@ const admittingEdgeGrant = (
     });
   };
 
-  const admitTuple = async (mode: Exclude<AdmitMode, "process-bound">) => {
+  const admitTuple = async (mode: Exclude<AdmitMode, "process-bound" | "terminal" | "unbound">) => {
     const tuple = tuples[mode];
     onAdmission({
       sequence: 0,
@@ -189,14 +204,34 @@ const admittingEdgeGrant = (
     processMap: processBoundEdgeGrant.processMap,
     admitSocket: async (socket) => {
       const mode = await readAdmitMode(admitModePath);
-      if (mode !== "process-bound") return admitTuple(mode);
+      if (mode === "terminal" || mode === "unbound") {
+        if (mode === "unbound") processBoundEdgeGrant.processMap.unbind(probePeerPid);
+        try {
+          const result = await processBoundEdgeGrant.admitSocket(socket);
+          if (result.ok) throw new Error(`${mode} peer unexpectedly received browser authority`);
+          onDenial(mode, result);
+          return result;
+        } finally {
+          if (mode === "unbound" && !processBoundEdgeGrant.processMap.bind(probePeerPid, processBoundPrincipal)) {
+            throw new Error("dedicated browser probe could not restore its live process binding");
+          }
+        }
+      }
+      if (mode !== "process-bound") {
+        return admitTuple(mode as Exclude<AdmitMode, "process-bound" | "terminal" | "unbound">);
+      }
       const result = await processBoundEdgeGrant.admitSocket(socket);
       if (result.ok) recordProcessBoundAdmission(result);
       return result;
     },
     admitPrincipal: async (principal) => {
       const mode = await readAdmitMode(admitModePath);
-      if (mode !== "process-bound") return admitTuple(mode);
+      if (mode !== "process-bound" && mode !== "terminal" && mode !== "unbound") {
+        return admitTuple(mode);
+      }
+      if (mode === "terminal" || mode === "unbound") {
+        return processBoundEdgeGrant.admitPrincipal(principal);
+      }
       const result = await processBoundEdgeGrant.admitPrincipal(principal);
       if (result.ok) recordProcessBoundAdmission(result);
       return result;
@@ -257,6 +292,14 @@ interface ProbeAudit {
   defaultProxyResolution: string;
   profileProxyResolution: string;
   edgeAdmissions: EdgeAdmissionAudit[];
+  edgeDenials: Array<{
+    readonly mode: "terminal" | "unbound";
+    readonly denial: string;
+    readonly capabilityIssuesBefore: number;
+    readonly capabilityIssuesAfter: number;
+    readonly webContentsBefore: number;
+    readonly webContentsAfter: number;
+  }>;
   capabilityEvents: Array<{
     readonly sequence: number;
     readonly outcome: BrowserCapabilityAuditOutcome;
@@ -290,6 +333,7 @@ const audit: ProbeAudit = {
   defaultProxyResolution: "",
   profileProxyResolution: "",
   edgeAdmissions: [],
+  edgeDenials: [],
   capabilityEvents: [],
   shutdownRequested: false,
   shutdownControlClean: false,
@@ -315,6 +359,28 @@ const recordEdgeAdmission = (entry: EdgeAdmissionAudit): void => {
   // Registry preflight/authorization runs after EdgeGrant resolves. Capture its
   // secret-free audit on the following event-loop turn.
   setImmediate(() => {
+    void persistAudit();
+  });
+};
+
+const recordEdgeDenial = (
+  mode: "terminal" | "unbound",
+  result: Extract<EdgeGrantResult, { readonly ok: false }>,
+): void => {
+  const capabilityIssuesBefore = capabilities?.auditSnapshot().filter((event) => event.outcome === "issued").length ?? 0;
+  const webContentsBefore = webContents.getAllWebContents().length;
+  setImmediate(() => {
+    const capabilityIssuesAfter = capabilities?.auditSnapshot().filter((event) => event.outcome === "issued").length ?? 0;
+    const webContentsAfter = webContents.getAllWebContents().length;
+    audit.edgeDenials.push({
+      mode,
+      denial: result.denial,
+      capabilityIssuesBefore,
+      capabilityIssuesAfter,
+      webContentsBefore,
+      webContentsAfter,
+    });
+    if (audit.edgeDenials.length > MAX_SECURITY_AUDIT_EVENTS) audit.edgeDenials.shift();
     void persistAudit();
   });
 };
@@ -569,6 +635,17 @@ void app.whenReady().then(async () => {
   if (!processMap.bind(probePeerPid, processBoundPrincipal)) {
     throw new Error("dedicated browser probe could not register its live launcher process");
   }
+  if (!processMap.bind(terminalPeerPid, {
+    kind: "terminal",
+    bindingId: "browser-containment-terminal-peer",
+    canvasName,
+    nodeId: "probe-terminal",
+  })) {
+    throw new Error("dedicated browser probe could not register its live terminal peer");
+  }
+  if (processMap.resolve(unboundPeerPid) !== undefined) {
+    throw new Error("dedicated browser probe unbound peer unexpectedly had a direct identity");
+  }
   const processBoundEdgeGrant = makeEdgeGrantService({
     capabilities,
     canvasesDir: join(controlHome, ".vellum", "canvases"),
@@ -598,7 +675,7 @@ void app.whenReady().then(async () => {
     throw new Error("dedicated browser probe did not record the edge-derived grant issue");
   }
 
-  const admissionTuples: Readonly<Record<AdmitMode, AdmissionTuple>> = Object.freeze({
+  const admissionTuples: Readonly<Record<Exclude<AdmitMode, "terminal" | "unbound">, AdmissionTuple>> = Object.freeze({
     "process-bound": Object.freeze({
       secret: processBoundAdmission.secret,
       expectedPrincipal: processBoundAdmission.expectedPrincipal,
@@ -644,6 +721,9 @@ void app.whenReady().then(async () => {
       processBoundEdgeGrant,
       admissionModePath,
       recordEdgeAdmission,
+      recordEdgeDenial,
+      probePeerPid,
+      processBoundPrincipal,
     ),
   });
   await writeCapabilityHandoff({
