@@ -2,8 +2,8 @@ import {
   canonicalStationBrowserJson,
   decodeStationBrowserEnvelope,
   decodeStationBrowserResponse,
+  type StationBrowserAction,
   type StationBrowserDenial,
-  type StationBrowserResponse,
 } from "@shared/station-browser";
 import {
   StationBrowserReplayCache,
@@ -24,7 +24,7 @@ export interface StationBrowserWrapperDeps {
   readonly execute: (request: Parameters<StationBrowserVerificationContext["allowAction"]>[0]) => Promise<unknown>;
 }
 
-const rejected = (requestId: string, action: StationBrowserResponse["action"], hostId: string, error: StationBrowserDenial): StationBrowserResponse => ({ version: 1, requestId, action, ok: false, hostId, data: null, error });
+const rejected = (requestId: string, action: StationBrowserAction, hostId: string, error: StationBrowserDenial) => ({ version: 1, requestId, action, ok: false, hostId, data: null, error });
 
 /** Target-side fixed-wrapper core. The executable composition supplies only host-local services. */
 export const makeStationBrowserWrapper = (deps: StationBrowserWrapperDeps): StationBrowserWrapper => ({
@@ -35,7 +35,7 @@ export const makeStationBrowserWrapper = (deps: StationBrowserWrapperDeps): Stat
     if (!verified.ok) return canonicalStationBrowserJson(rejected(envelope.request.requestId, envelope.request.action, deps.verification().stationId, verified.denial));
     try {
       const data = await deps.execute(verified.request);
-      const response: StationBrowserResponse = { version: 1, requestId: verified.request.requestId, action: verified.request.action, ok: true, hostId: deps.verification().stationId, data, error: null };
+      const response = { version: 1 as const, requestId: verified.request.requestId, action: verified.request.action, ok: true as const, hostId: deps.verification().stationId, data, error: null };
       return typeof decodeStationBrowserResponse(canonicalStationBrowserJson(response)) === "string"
         ? canonicalStationBrowserJson(rejected(verified.request.requestId, verified.request.action, deps.verification().stationId, "limits"))
         : canonicalStationBrowserJson(response);
