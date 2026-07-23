@@ -27,6 +27,7 @@ describe("EffectAcpChild scoped teardown", () => {
     const connectedPromise = new Promise<void>((resolve) => { connected = resolve; });
     const lease: SshLease = {
       write: () => Effect.void,
+      writeSensitive: () => Effect.void,
       closeInput: Effect.void,
       stdout: Stream.fromEffect(Effect.never),
       stderr: Stream.fromEffect(Effect.never),
@@ -109,6 +110,7 @@ describe("EffectAcpChild scoped teardown", () => {
           );
         }
       }),
+      writeSensitive: () => Effect.void,
       closeInput: Effect.void,
       stdout: Stream.fromQueue(stdout),
       stderr: Stream.empty,
