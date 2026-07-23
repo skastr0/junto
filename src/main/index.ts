@@ -1021,7 +1021,8 @@ const ensureSupervised = async (): Promise<boolean> => {
   // unreadable or malformed document declines handoff rather than guessing.
   if (process.platform === "linux") {
     try {
-      const raw = readFileSync(settingsFilePath(), "utf8");
+      const path = settingsFilePath();
+      const raw = readFileSync(path, "utf8");
       if (Buffer.byteLength(raw, "utf8") > 64 * 1024) return true;
       const station = (JSON.parse(raw) as { station?: unknown }).station;
       if (
@@ -1029,6 +1030,15 @@ const ensureSupervised = async (): Promise<boolean> => {
         (station as { role?: unknown }).role !== "remote" ||
         (station as { supervisedPreferred?: unknown }).supervisedPreferred !== true
       ) return true;
+      // Doctrine: do not honor plaintext remote role without topology seal admit.
+      const { topologyFromStation, verifyTopologySeal } = await import(
+        "./vellum/settings/topology-seal"
+      );
+      const material = topologyFromStation(station as never);
+      const verified = await verifyTopologySeal(path, material);
+      if (verified.status !== "valid" && verified.status !== "bootstrap") {
+        return true;
+      }
     } catch {
       return true;
     }

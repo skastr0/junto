@@ -291,18 +291,28 @@ const appendPulseRecord = (record: PulseRecord): void => {
 // Host-scoped execution: this station only evaluates/fires executable nodes
 // stamped for its hostId. Role is user-selected (settings); never inferred.
 
+/**
+ * Runtime station scope. Doctrine fail-closed: unknown/empty role is "unset",
+ * never inferred as Command Center. Unset refuses both CC authoring power and
+ * Remote host-scoped execution fan-out that would assume a valid role.
+ */
+export type StationScopeRole = StationRole | "unset";
+
 let stationHostId: string = DEFAULT_STATION_HOST_ID;
-let stationRole: StationRole = "command-center";
+let stationRole: StationScopeRole = "unset";
 
 export const __setStationScopeForTest = (input: {
   readonly hostId: string;
-  readonly role: StationRole;
+  readonly role: StationScopeRole;
 }): void => {
   stationHostId = input.hostId;
   stationRole = input.role;
 };
 
-export const getStationScope = (): { readonly hostId: string; readonly role: StationRole } => ({
+export const getStationScope = (): {
+  readonly hostId: string;
+  readonly role: StationScopeRole;
+} => ({
   hostId: stationHostId,
   role: stationRole,
 });
@@ -315,7 +325,8 @@ export const setStationScope = (input: {
     typeof input.hostId === "string" && input.hostId.length > 0
       ? input.hostId
       : DEFAULT_STATION_HOST_ID;
-  stationRole = isStationRole(input.role) ? input.role : "command-center";
+  // Fail closed: invalid or empty role is not Command Center (security doctrine).
+  stationRole = isStationRole(input.role) ? input.role : "unset";
 };
 
 // --- delivery ----------------------------------------------------------------
@@ -373,23 +384,33 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
       const message = composePulseMessage(params.summary, instruction);
 
       // Primary fire routing: human edges from watcher/timer → agent.
-      // Region membership alone does not fan out.
-      let keys = agentKeysForExecutableSource(
-        doc,
-        params.sourceNodeId,
-        stationRole,
-        stationHostId,
-      );
+      // Region membership alone does not fan out. Unset role fires nothing.
+      let keys =
+        stationRole === "unset"
+          ? []
+          : agentKeysForExecutableSource(
+              doc,
+              params.sourceNodeId,
+              stationRole,
+              stationHostId,
+            );
 
       // Manual region pulse still uses region agents (operator intent), host-filtered on Remote.
       if (keys.length === 0 && params.kind === "manual" && params.regionId !== undefined) {
-        keys = agentKeysInRegion(doc, params.regionId).filter((key) => {
-          if (stationRole === "command-center") return true;
-          const agentNode = doc.nodes.find(
-            (node) => node.ether?.entity?.kind === "agent" && node.ether.entity.name === key,
-          );
-          return agentNode !== undefined && isNodeEligibleOnStation(agentNode, stationHostId);
-        });
+        keys =
+          stationRole === "unset"
+            ? []
+            : agentKeysInRegion(doc, params.regionId).filter((key) => {
+                if (stationRole === "command-center") return true;
+                const agentNode = doc.nodes.find(
+                  (node) =>
+                    node.ether?.entity?.kind === "agent" && node.ether.entity.name === key,
+                );
+                return (
+                  agentNode !== undefined &&
+                  isNodeEligibleOnStation(agentNode, stationHostId)
+                );
+              });
       }
 
       let contextBlocks: ReadonlyArray<string> | undefined;

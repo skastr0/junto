@@ -134,6 +134,7 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       writeSidecar: () => Effect.succeed(""),
       start: () => {},
       subscribeChanges: () => () => {},
+      liveDocuments: () => Effect.succeed([]),
     }),
   );
 

@@ -15,6 +15,7 @@ import { Context, Effect, Layer } from "effect";
 import { applyPhaseMirror, type CanvasDoc, type CanvasNode, type EdgePhase, type EtherFlag } from "@shared/canvas";
 import { identityHints } from "@shared/connections";
 import type { ServiceCheck } from "@shared/contracts";
+import { DEFAULT_STATION_HOST_ID } from "@shared/station";
 import type {
   ArmRegionResult,
   BindingHint,
@@ -175,7 +176,8 @@ const refreshStationScope = async (settings: SettingsShape): Promise<void> => {
       role: current.station.role,
     });
   } catch {
-    // Fail open to defaults already in cycle memory (local command-center).
+    // Fail closed: unreadable settings never mint Command Center authority.
+    setStationScope({ hostId: DEFAULT_STATION_HOST_ID, role: "" });
   }
 };
 

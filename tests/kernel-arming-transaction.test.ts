@@ -42,6 +42,7 @@ const fakeCanvases = Layer.succeed(
     writeSidecar: () => Effect.succeed(""),
     start: () => {},
     subscribeChanges: () => () => {},
+    liveDocuments: () => Effect.succeed([]),
   }),
 );
 

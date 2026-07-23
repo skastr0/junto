@@ -246,6 +246,17 @@ export const registerHostsIpc = (
       operations.run(HOST_OPERATION_ADMISSIONS.upsert, () =>
         AppRuntime.runPromise(
           Effect.gen(function* () {
+            // Doctrine: only Command Center authors fleet enrollment topology.
+            const settings = yield* SettingsService;
+            const current = yield* settings.get;
+            if (current.station.role !== "command-center") {
+              return {
+                ok: false,
+                code: "validation",
+                message:
+                  "Only a sealed Command Center may mutate the host registry",
+              } satisfies HostsOpResult;
+            }
             const hosts = yield* HostsService;
             const result = yield* Effect.either(hosts.upsert(input));
             return toOp(result as never);
@@ -261,6 +272,16 @@ export const registerHostsIpc = (
       operations.run(HOST_OPERATION_ADMISSIONS.remove, () =>
         AppRuntime.runPromise(
           Effect.gen(function* () {
+            const settings = yield* SettingsService;
+            const current = yield* settings.get;
+            if (current.station.role !== "command-center") {
+              return {
+                ok: false,
+                code: "validation",
+                message:
+                  "Only a sealed Command Center may mutate the host registry",
+              } satisfies HostsOpResult;
+            }
             if (typeof id !== "string" || id.length === 0) {
               return {
                 ok: false,

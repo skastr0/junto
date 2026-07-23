@@ -136,14 +136,19 @@ const runRendererWorkAuthoring = <A>(
     return Promise.reject(error);
   });
 
-/** Remote stations pull canvases; they must not rewrite authorial SoT. */
-const denyIfRemoteAuthorial = Effect.gen(function* () {
+/**
+ * Doctrine: only Command Center authors the canvas. Remote and seal-stripped
+ * (role unset) must fail closed — never mint authorial power by defaulting to CC.
+ */
+const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
   const settings = yield* SettingsService;
   const current = yield* settings.get;
-  if (current.station.role === "remote") {
+  if (current.station.role !== "command-center") {
     return yield* Effect.fail(
       new Error(
-        "Remote station cannot mutate authorial canvases. Author on the Command Center.",
+        current.station.role === "remote"
+          ? "Remote station cannot mutate authorial canvases. Author on the Command Center."
+          : "Station role is unset or untrusted; authorial canvas mutation is refused until topology is sealed as Command Center.",
       ),
     );
   }
@@ -181,7 +186,7 @@ export const registerVellumIpc = (): void => {
       "canvas.write",
       () => AppRuntime.runPromise(
         Effect.gen(function* () {
-          yield* denyIfRemoteAuthorial;
+          yield* denyUnlessCommandCenterAuthorial;
           const canvases = yield* CanvasesService;
           return yield* canvases.write(name, doc, expectedRevision);
         }),
@@ -197,7 +202,7 @@ export const registerVellumIpc = (): void => {
       "canvas.create",
       () => AppRuntime.runPromise(
         Effect.gen(function* () {
-          yield* denyIfRemoteAuthorial;
+          yield* denyUnlessCommandCenterAuthorial;
           const canvases = yield* CanvasesService;
           return yield* canvases.create(name);
         }),
@@ -210,7 +215,7 @@ export const registerVellumIpc = (): void => {
       "ipc.canvas.delete",
       () => AppRuntime.runPromise(
         Effect.gen(function* () {
-          yield* denyIfRemoteAuthorial;
+          yield* denyUnlessCommandCenterAuthorial;
           const canvases = yield* CanvasesService;
           return yield* canvases.remove(name);
         }),

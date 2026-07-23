@@ -433,6 +433,34 @@ describe("settings service", () => {
     expect(stripped.station.role).toBe("");
   });
 
+  it("refuses ambient reset of station topology", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    await run(svc.setStationTopology({ role: "remote", hostId: "box" }));
+    const result = await runEither(svc.reset("station"));
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.code).toBe("validation");
+      expect(result.left.message).toMatch(/transfer ceremony/i);
+    }
+    const still = await run(svc.get);
+    expect(still.station.role).toBe("remote");
+  });
+
+  it("full settings reset preserves sealed station topology", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    await run(
+      svc.setStationTopology({ role: "command-center", hostId: "local" }),
+    );
+    await run(svc.patch({ browser: { maxVisibleSurfaces: 4 } }));
+    const reset = await run(svc.reset());
+    expect(reset.station.role).toBe("command-center");
+    expect(reset.browser.maxVisibleSurfaces).toBe(
+      defaultSettings().browser.maxVisibleSurfaces,
+    );
+  });
+
   it("app-written seal matches sealed material helper", async () => {
     const svc = await fresh();
     await run(svc.get);

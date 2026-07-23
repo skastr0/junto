@@ -312,9 +312,27 @@ export const makeSettingsService = (
         try: () =>
           withWriteLock(async () => {
             const current = await ensureLoaded();
-            const next: Settings = section
-              ? { ...current, [section]: defaultSection(section) }
-              : defaultSettings();
+            // Doctrine: topology reset / role migration is catastrophic.
+            // Never clear station.* through ambient settings reset.
+            if (section === "station") {
+              throw new SettingsError({
+                message:
+                  "station topology cannot be reset from Settings — role migration requires an explicit Command Center transfer ceremony",
+                code: "validation",
+              });
+            }
+            if (section === undefined) {
+              // Full prefs reset preserves sealed topology.
+              const next: Settings = {
+                ...defaultSettings(),
+                station: current.station,
+              };
+              return writeState(next);
+            }
+            const next: Settings = {
+              ...current,
+              [section]: defaultSection(section),
+            };
             return writeState(next);
           }),
         catch: (error) => toIoError(error),
