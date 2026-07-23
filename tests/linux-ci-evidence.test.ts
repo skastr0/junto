@@ -13,10 +13,12 @@ import {
   createLinuxCiReleaseManifest,
   createLinuxCiTestReceipt,
   findSecretBearingOutput,
+  linuxCiChecksumLines,
   parseUbuntuRelease,
   redactLinuxCiLog,
   validateLinuxCiHost,
   validateLinuxReleaseArtifactNames,
+  verifyLinuxCiReleaseManifest,
 } from "../scripts/linux-ci-evidence";
 
 const roots: string[] = [];
@@ -210,11 +212,27 @@ describe("Linux release artifact identity", () => {
     });
     expect(manifest.evidence).toHaveLength(8);
     expect(manifest.evidence.every((entry) =>
+      (entry.scope === "release" || entry.scope === "evidence") &&
       !entry.file.startsWith("/") &&
       /^[0-9a-f]{64}$/u.test(entry.sha256) &&
       entry.bytes > 0
     )).toBe(true);
     expect(JSON.stringify(manifest)).not.toContain(root);
     expect(await readFile(path.join(logs, "unit.log"), "utf8")).toBe("passed\n");
+    expect(linuxCiChecksumLines(manifest)).toContain(
+      "release/Vellum Command-0.1.0-x64-linux.deb",
+    );
+    await expect(verifyLinuxCiReleaseManifest({
+      manifest,
+      releaseDirectory: release,
+      evidenceDirectory: evidence,
+    })).resolves.toEqual(manifest);
+
+    await writeFile(path.join(evidence, "inventory.json"), "tampered");
+    await expect(verifyLinuxCiReleaseManifest({
+      manifest,
+      releaseDirectory: release,
+      evidenceDirectory: evidence,
+    })).rejects.toThrow(/hash mismatch/u);
   });
 });

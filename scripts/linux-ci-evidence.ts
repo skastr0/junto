@@ -95,6 +95,7 @@ export interface LinuxCiReleaseManifest {
     readonly file: string;
   };
   readonly evidence: ReadonlyArray<{
+    readonly scope: "release" | "evidence";
     readonly file: string;
     readonly bytes: number;
     readonly sha256: string;
@@ -445,11 +446,15 @@ export const createLinuxCiReleaseManifest = async (input: {
   }
 
   const evidence = await Promise.all(files.map(async (file) => {
-    const root = file.startsWith(`${releaseDirectory}${path.sep}`)
-      ? releaseDirectory
-      : evidenceDirectory;
+    const scope: "release" | "evidence" = file.startsWith(
+      `${releaseDirectory}${path.sep}`,
+    )
+      ? "release"
+      : "evidence";
+    const root = scope === "release" ? releaseDirectory : evidenceDirectory;
     const metadata = await stat(file);
     return {
+      scope,
       file: requireRelativeEvidencePath(root, file),
       bytes: metadata.size,
       sha256: await sha256File(file),
@@ -477,6 +482,125 @@ export const createLinuxCiReleaseManifest = async (input: {
     ],
   };
 };
+
+const decodeLinuxCiReleaseManifest = (
+  value: unknown,
+): LinuxCiReleaseManifest => {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    (value as { schema?: unknown }).schema !==
+      "vellum/linux-release-evidence/v1"
+  ) {
+    throw new Error("malformed Linux release evidence manifest");
+  }
+  const manifest = value as LinuxCiReleaseManifest;
+  if (JSON.stringify(manifest.target) !== JSON.stringify(LINUX_CI_TARGET)) {
+    throw new Error("Linux release evidence target mismatch");
+  }
+  requireHexCommit(manifest.source?.commit);
+  requireSourceDateEpoch(manifest.source?.sourceDateEpoch);
+  if (
+    manifest.publishable?.format !== "deb" ||
+    manifest.diagnostic?.format !== "tar.gz" ||
+    !Array.isArray(manifest.evidence) ||
+    manifest.evidence.length === 0
+  ) {
+    throw new Error("Linux release evidence artifact contract mismatch");
+  }
+  return manifest;
+};
+
+export const verifyLinuxCiReleaseManifest = async (input: {
+  readonly manifest: unknown;
+  readonly releaseDirectory: string;
+  readonly evidenceDirectory: string;
+  readonly expectedCommit?: unknown;
+}): Promise<LinuxCiReleaseManifest> => {
+  const manifest = decodeLinuxCiReleaseManifest(input.manifest);
+  if (
+    input.expectedCommit !== undefined &&
+    manifest.source.commit !== requireHexCommit(input.expectedCommit)
+  ) {
+    throw new Error("Linux release evidence source commit mismatch");
+  }
+  const releaseDirectory = path.resolve(input.releaseDirectory);
+  const evidenceDirectory = path.resolve(input.evidenceDirectory);
+  const identity = await readPackageIdentity();
+  const expectedDeb = linuxDebArtifactName({
+    productName: identity.productName,
+    version: identity.version,
+    arch: "x64",
+  });
+  const expectedDiagnostic = `${linuxUnpackedArtifactName({
+    productName: identity.productName,
+    version: identity.version,
+    arch: "x64",
+  })}.tar.gz`;
+  if (
+    manifest.publishable.file !== expectedDeb ||
+    manifest.diagnostic.file !== expectedDiagnostic ||
+    JSON.stringify(manifest.unsupported) !==
+      JSON.stringify([
+        "linux-arm64",
+        "musl",
+        "appimage",
+        "snap",
+        "flatpak",
+        "rpm",
+      ])
+  ) {
+    throw new Error("Linux release evidence support matrix mismatch");
+  }
+  const seen = new Set<string>();
+  for (const entry of manifest.evidence) {
+    if (
+      (entry.scope !== "release" && entry.scope !== "evidence") ||
+      typeof entry.file !== "string" ||
+      typeof entry.bytes !== "number" ||
+      !Number.isSafeInteger(entry.bytes) ||
+      entry.bytes <= 0 ||
+      typeof entry.sha256 !== "string" ||
+      !/^[0-9a-f]{64}$/u.test(entry.sha256)
+    ) {
+      throw new Error("malformed Linux release evidence entry");
+    }
+    const key = `${entry.scope}:${entry.file}`;
+    if (seen.has(key)) throw new Error("duplicate Linux release evidence entry");
+    seen.add(key);
+    const root =
+      entry.scope === "release" ? releaseDirectory : evidenceDirectory;
+    const candidate = path.resolve(root, entry.file);
+    requireRelativeEvidencePath(root, candidate);
+    const metadata = await stat(candidate);
+    if (
+      !metadata.isFile() ||
+      metadata.size !== entry.bytes ||
+      (await sha256File(candidate)) !== entry.sha256
+    ) {
+      throw new Error(`Linux release evidence hash mismatch: ${entry.file}`);
+    }
+  }
+  if (
+    !seen.has(`release:${manifest.publishable.file}`) ||
+    !seen.has(`evidence:${manifest.diagnostic.file}`)
+  ) {
+    throw new Error("Linux release evidence omits a declared artifact");
+  }
+  return manifest;
+};
+
+export const linuxCiChecksumLines = (
+  manifest: LinuxCiReleaseManifest,
+): string =>
+  `${manifest.evidence
+    .map(
+      (entry) =>
+        `${entry.sha256}  ${entry.scope}/${entry.file}`,
+    )
+    .sort()
+    .join("\n")}\n`;
 
 const writeJson = async (file: string, value: unknown): Promise<void> => {
   const target = path.resolve(file);
@@ -538,12 +662,50 @@ const main = async (): Promise<void> => {
     const releaseDirectory = option(args, "--release-dir");
     const evidenceDirectory = option(args, "--evidence-dir");
     if (releaseDirectory !== undefined && evidenceDirectory !== undefined) {
-      await writeJson(out, await createLinuxCiReleaseManifest({
+      const manifest = await createLinuxCiReleaseManifest({
         releaseDirectory,
         evidenceDirectory,
         commit: process.env.GITHUB_SHA,
         sourceDateEpoch: process.env.SOURCE_DATE_EPOCH,
-      }));
+      });
+      await writeJson(out, manifest);
+      await writeFile(
+        path.join(path.dirname(path.resolve(out)), "SHA256SUMS"),
+        linuxCiChecksumLines(manifest),
+        { encoding: "utf8", mode: 0o600 },
+      );
+      return;
+    }
+  }
+  if (command === "verify-manifest") {
+    const manifestPath = option(args, "--manifest");
+    const releaseDirectory = option(args, "--release-dir");
+    const evidenceDirectory = option(args, "--evidence-dir");
+    if (
+      manifestPath !== undefined &&
+      releaseDirectory !== undefined &&
+      evidenceDirectory !== undefined
+    ) {
+      const manifest = await verifyLinuxCiReleaseManifest({
+        manifest: JSON.parse(await readFile(manifestPath, "utf8")),
+        releaseDirectory,
+        evidenceDirectory,
+        expectedCommit: process.env.GITHUB_SHA,
+      });
+      const checksums = await readFile(
+        path.join(path.dirname(path.resolve(manifestPath)), "SHA256SUMS"),
+        "utf8",
+      );
+      if (checksums !== linuxCiChecksumLines(manifest)) {
+        throw new Error("Linux release checksum file mismatch");
+      }
+      process.stdout.write(
+        `${JSON.stringify({
+          ok: true,
+          target: manifest.target,
+          source: manifest.source,
+        })}\n`,
+      );
       return;
     }
   }
