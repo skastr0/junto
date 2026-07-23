@@ -51,6 +51,7 @@ if [ -e "$LOCK_FILE" ]; then
     printf '%s\n' 'vellum-remote: refusing a display lock not owned by this user' >&2
     exit 73
   fi
+  lock_identity="$(/usr/bin/stat -c '%d:%i:%u' "$LOCK_FILE")"
   lock_pid="$(LC_ALL=C /usr/bin/sed 's/^[ \t]*//; s/[ \t]*$//' "$LOCK_FILE" 2>/dev/null || true)"
   case "$lock_pid" in
     ''|0|0*|*[!0-9]*) printf '%s\n' 'vellum-remote: refusing malformed display lock' >&2; exit 73 ;;
@@ -63,6 +64,12 @@ if [ -e "$LOCK_FILE" ]; then
   if kill -0 "$lock_pid" 2>/dev/null; then
     printf '%s\n' 'vellum-remote: managed display is already in use' >&2
     exit 75
+  fi
+  if [ ! -f "$LOCK_FILE" ] || [ -L "$LOCK_FILE" ] || \
+     [ ! -O "$LOCK_FILE" ] || \
+     [ "$(/usr/bin/stat -c '%d:%i:%u' "$LOCK_FILE" 2>/dev/null || true)" != "$lock_identity" ]; then
+    printf '%s\n' 'vellum-remote: display lock changed before stale cleanup' >&2
+    exit 73
   fi
   rm -f -- "$LOCK_FILE"
 fi
@@ -94,9 +101,15 @@ vellum_pid=''
 authority_identity=''
 authority_directory_owned=0
 cleanup_owned_resources() {
+  if [ -n "$vellum_pid" ]; then
+    kill -TERM -- "-$vellum_pid" 2>/dev/null || true
+    wait "$vellum_pid" 2>/dev/null || true
+    vellum_pid=''
+  fi
   if [ -n "$xvfb_pid" ]; then
     kill -TERM "$xvfb_pid" 2>/dev/null || true
     wait "$xvfb_pid" 2>/dev/null || true
+    xvfb_pid=''
   fi
   if [ "$authority_directory_owned" -eq 1 ] && \
      [ -f "$XAUTHORITY" ] && [ ! -L "$XAUTHORITY" ] && \
@@ -123,7 +136,10 @@ if ! : > "$XAUTHORITY"; then
 fi
 set +C
 authority_identity="$(/usr/bin/stat -c '%d:%i' "$XAUTHORITY")"
-trap cleanup_owned_resources EXIT HUP INT TERM
+trap cleanup_owned_resources EXIT
+trap 'cleanup_owned_resources; exit 129' HUP
+trap 'cleanup_owned_resources; exit 130' INT
+trap 'cleanup_owned_resources; exit 143' TERM
 "$XAUTH" -f "$XAUTHORITY" add "$DISPLAY" . "$(/usr/bin/mcookie)" >/dev/null 2>&1
 
 "$XVFB" "$DISPLAY" -screen 0 1280x1024x24 -nolisten tcp -auth "$XAUTHORITY" &
@@ -150,6 +166,7 @@ while :; do
     set +e
     wait "$vellum_pid"
     set -e
+    vellum_pid=''
     exit 70
   fi
   if ! owned_child_alive "$vellum_pid"; then
@@ -157,6 +174,7 @@ while :; do
     wait "$vellum_pid"
     vellum_status="$?"
     set -e
+    vellum_pid=''
     exit "$vellum_status"
   fi
   sleep 1

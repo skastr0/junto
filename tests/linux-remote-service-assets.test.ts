@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,6 +13,17 @@ import {
 const asset = (name: string) =>
   readFile(new URL(`../build/linux/${name}`, import.meta.url), "utf8");
 const execFileAsync = promisify(execFile);
+
+const waitForTextFile = async (file: string): Promise<string> => {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      return await readFile(file, "utf8");
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  throw new Error(`timed out waiting for ${file}`);
+};
 
 const linuxLauncherSandbox = async () => {
   const root = await mkdtemp(join(tmpdir(), "vellum-remote-launcher-"));
@@ -42,6 +53,7 @@ const linuxLauncherSandbox = async () => {
       XDG_RUNTIME_DIR: runtime,
       TEST_SOCKET: socket,
       TEST_VELLUM_PID: join(root, "vellum.pid"),
+      TEST_XVFB_PID: join(root, "xvfb.pid"),
     },
   };
 };
@@ -65,6 +77,8 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(launcher).toContain('kill -TERM -- "-$vellum_pid"');
     expect(launcher).toContain('owned_child_alive "$xvfb_pid"');
     expect(launcher).toContain('[ ! -O "$LOCK_FILE" ]');
+    expect(launcher).toContain("lock_identity=\"$(/usr/bin/stat -c '%d:%i:%u' \"$LOCK_FILE\")\"");
+    expect(launcher).toContain("display lock changed before stale cleanup");
     expect(launcher).toContain("LC_ALL=C /usr/bin/sed 's/^[ \\t]*//; s/[ \\t]*$//'");
     expect(launcher).not.toMatch(/--no-sandbox|disable-setuid-sandbox|pkill|killall|sudo|loginctl enable-linger|-ac/u);
   });
@@ -155,6 +169,41 @@ while :; do sleep 1; done
       });
       const pid = Number((await readFile(sandbox.env.TEST_VELLUM_PID, "utf8")).trim());
       expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      await rm(sandbox.root, { recursive: true, force: true });
+    }
+  });
+
+  it("cleans both owned child groups when the wrapper receives TERM", async () => {
+    if (process.platform !== "linux") return;
+    const sandbox = await linuxLauncherSandbox();
+    try {
+      await writeFile(join(sandbox.bin, "Xvfb"), `#!/bin/sh
+echo "$$" > "$TEST_XVFB_PID"
+exec python3 - "$TEST_SOCKET" <<'PY'
+import socket, sys, time
+sock = socket.socket(socket.AF_UNIX)
+sock.bind(sys.argv[1])
+while True: time.sleep(1)
+PY
+`, { mode: 0o755 });
+      await writeFile(join(sandbox.app, "vellum"), `#!/bin/sh
+echo "$$" > "$TEST_VELLUM_PID"
+while :; do sleep 1; done
+`, { mode: 0o755 });
+      const wrapper = spawn(sandbox.launcher, [], { env: sandbox.env, stdio: "ignore" });
+      const [vellumPid, xvfbPid] = await Promise.all([
+        waitForTextFile(sandbox.env.TEST_VELLUM_PID),
+        waitForTextFile(sandbox.env.TEST_XVFB_PID),
+      ]);
+      wrapper.kill("SIGTERM");
+      await new Promise<void>((resolve, reject) => {
+        wrapper.once("error", reject);
+        wrapper.once("close", () => resolve());
+      });
+      for (const pid of [vellumPid, xvfbPid].map((value) => Number(value.trim()))) {
+        expect(() => process.kill(pid, 0)).toThrow();
+      }
     } finally {
       await rm(sandbox.root, { recursive: true, force: true });
     }
