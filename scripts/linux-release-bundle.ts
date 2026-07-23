@@ -7,12 +7,13 @@ import {
   type KeyObject,
 } from "node:crypto";
 import {
-  lstat,
   mkdir,
-  readFile,
+  open,
   readdir,
   writeFile,
+  type FileHandle,
 } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { isRecognizedSpdxExpression } from "./spdx-license";
 
@@ -424,6 +425,11 @@ const parseCanonicalJson = <T>(
 const sha256Bytes = (input: Uint8Array | string): string =>
   createHash("sha256").update(input).digest("hex");
 
+const compareFileNames = (
+  left: { readonly file: string },
+  right: { readonly file: string },
+): number => left.file === right.file ? 0 : left.file < right.file ? -1 : 1;
+
 const metadataSignatureEnvelope = (
   keyId: string,
   signedAt: string,
@@ -442,26 +448,91 @@ const metadataSignatureEnvelope = (
     "utf8",
   );
 
-const sha256File = async (file: string): Promise<string> =>
-  sha256Bytes(await readFile(file));
+interface OpenRegularFile {
+  readonly handle: FileHandle;
+  readonly bytes: number;
+}
 
-const requireRegularFile = async (
+const openRegularPath = async (
+  file: string,
+  label: string,
+  maximumBytes: number,
+): Promise<OpenRegularFile> => {
+  let handle: FileHandle;
+  try {
+    handle = await open(
+      file,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+    );
+  } catch {
+    throw new Error(`${label} is not a regular file`);
+  }
+  try {
+    const metadata = await handle.stat();
+    if (
+      !metadata.isFile() ||
+      metadata.size <= 0 ||
+      metadata.size > maximumBytes
+    ) {
+      throw new Error(`${label} is not a bounded regular file`);
+    }
+    return { handle, bytes: metadata.size };
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+};
+
+const openRegularFile = async (
   directory: string,
   name: string,
   maximumBytes: number,
-): Promise<{ readonly file: string; readonly bytes: number }> => {
+): Promise<OpenRegularFile> => {
   const safeName = requireSafeFileName(name, "release file");
-  const file = path.join(directory, safeName);
-  const metadata = await lstat(file);
-  if (
-    !metadata.isFile() ||
-    metadata.isSymbolicLink() ||
-    metadata.size <= 0 ||
-    metadata.size > maximumBytes
-  ) {
-    throw new Error(`invalid release file: ${safeName}`);
+  return openRegularPath(
+    path.join(directory, safeName),
+    `invalid release file: ${safeName}`,
+    maximumBytes,
+  );
+};
+
+const readRegularFileBytes = async (
+  directory: string,
+  name: string,
+  maximumBytes: number,
+): Promise<Buffer> => {
+  const admitted = await openRegularFile(directory, name, maximumBytes);
+  try {
+    const bytes = await admitted.handle.readFile();
+    if (bytes.length !== admitted.bytes) {
+      throw new Error(`release file changed while reading: ${name}`);
+    }
+    return bytes;
+  } finally {
+    await admitted.handle.close();
   }
-  return { file, bytes: metadata.size };
+};
+
+const hashOpenedRegularFile = async (
+  admitted: OpenRegularFile,
+  label: string,
+): Promise<string> => {
+  const hash = createHash("sha256");
+  let bytesRead = 0;
+  for await (
+    const chunk of admitted.handle.createReadStream({
+      autoClose: false,
+      start: 0,
+      end: admitted.bytes - 1,
+    })
+  ) {
+    bytesRead += chunk.length;
+    hash.update(chunk);
+  }
+  if (bytesRead !== admitted.bytes) {
+    throw new Error(`${label} changed while hashing`);
+  }
+  return hash.digest("hex");
 };
 
 const publicKeyFingerprint = (key: KeyObject): string => {
@@ -950,12 +1021,11 @@ const readCanonicalFile = async <T>(
   name: string,
   label: string,
 ): Promise<{ readonly value: T; readonly bytes: Buffer }> => {
-  const admitted = await requireRegularFile(
+  const bytes = await readRegularFileBytes(
     directory,
     name,
     MAX_METADATA_BYTES,
   );
-  const bytes = await readFile(admitted.file);
   return {
     value: parseCanonicalJson<T>(bytes, label).value,
     bytes,
@@ -978,21 +1048,25 @@ export const readLinuxReleaseKeyringFile = async (
   file: string,
 ): Promise<LinuxReleaseKeyring> => {
   const target = path.resolve(file);
-  const metadata = await lstat(target);
-  if (
-    !metadata.isFile() ||
-    metadata.isSymbolicLink() ||
-    metadata.size <= 0 ||
-    metadata.size > MAX_METADATA_BYTES
-  ) {
-    throw new Error("trusted Linux release keyring is not a regular file");
-  }
-  return decodeLinuxReleaseKeyring(
-    parseCanonicalJson<unknown>(
-      await readFile(target),
-      "trusted Linux release keyring",
-    ).value,
+  const admitted = await openRegularPath(
+    target,
+    "trusted Linux release keyring",
+    MAX_METADATA_BYTES,
   );
+  try {
+    const bytes = await admitted.handle.readFile();
+    if (bytes.length !== admitted.bytes) {
+      throw new Error("trusted Linux release keyring changed while reading");
+    }
+    return decodeLinuxReleaseKeyring(
+      parseCanonicalJson<unknown>(
+        bytes,
+        "trusted Linux release keyring",
+      ).value,
+    );
+  } finally {
+    await admitted.handle.close();
+  }
 };
 
 const safeEvidenceText = (text: string, label: string): void => {
@@ -1383,15 +1457,26 @@ const validatePayloads = async (
         : entry.kind === "offline-verifier"
           ? MAX_VERIFIER_BYTES
           : MAX_TEXT_EVIDENCE_BYTES;
-    const admitted = await requireRegularFile(directory, entry.file, maximum);
-    if (
-      admitted.bytes !== entry.bytes ||
-      (await sha256File(admitted.file)) !== entry.sha256
-    ) {
-      throw new Error(`Linux release payload hash mismatch: ${entry.file}`);
-    }
-    if (entry.kind !== "package" && entry.kind !== "offline-verifier") {
-      const bytes = await readFile(admitted.file);
+    const admitted = await openRegularFile(directory, entry.file, maximum);
+    try {
+      if (admitted.bytes !== entry.bytes) {
+        throw new Error(`Linux release payload hash mismatch: ${entry.file}`);
+      }
+      if (entry.kind === "package" || entry.kind === "offline-verifier") {
+        if (
+          await hashOpenedRegularFile(admitted, entry.file) !== entry.sha256
+        ) {
+          throw new Error(`Linux release payload hash mismatch: ${entry.file}`);
+        }
+        continue;
+      }
+      const bytes = await admitted.handle.readFile();
+      if (
+        bytes.length !== admitted.bytes ||
+        sha256Bytes(bytes) !== entry.sha256
+      ) {
+        throw new Error(`Linux release payload hash mismatch: ${entry.file}`);
+      }
       const text = bytes.toString("utf8");
       if (!Buffer.from(text, "utf8").equals(bytes) || text.includes("\0")) {
         throw new Error(`${entry.file} is not valid UTF-8 release evidence`);
@@ -1425,6 +1510,8 @@ const validatePayloads = async (
       if (entry.kind === "sbom") {
         sbom = parseEvidenceJson(text, "CycloneDX SBOM");
       }
+    } finally {
+      await admitted.handle.close();
     }
   }
   if (dependencyInventory === undefined || sbom === undefined) {
@@ -1605,14 +1692,14 @@ export const verifyLinuxReleaseBundle = async (
       LINUX_RELEASE_SIGNATURE,
       "Linux release signature",
     ),
-    requireRegularFile(
+    readRegularFileBytes(
       directory,
       LINUX_RELEASE_CHECKSUMS,
       MAX_METADATA_BYTES,
     ),
     readKeyring(directory),
   ]);
-  const checksumBytes = await readFile(checksumFile.file);
+  const checksumBytes = checksumFile;
   const manifest = decodeLinuxReleaseManifest(manifestRaw.value);
   const signature = decodeLinuxReleaseSignature(signatureRaw.value);
   const keyring = decodeLinuxReleaseKeyring(input.trustedKeyring);
@@ -1702,7 +1789,7 @@ export const verifyLinuxReleaseBundle = async (
       bytes: checksumBytes.length,
       sha256: sha256Bytes(checksumBytes),
     },
-  ].sort((left, right) => left.file.localeCompare(right.file));
+  ].sort(compareFileNames);
   return {
     schema: "vellum/linux-release-verification-receipt/v1",
     ok: true,
@@ -1769,15 +1856,19 @@ export const createLinuxReleaseManifest = async (input: {
         : entry.kind === "offline-verifier"
           ? MAX_VERIFIER_BYTES
           : MAX_TEXT_EVIDENCE_BYTES;
-    const admitted = await requireRegularFile(directory, entry.file, maximum);
-    return {
-      kind: entry.kind,
-      file: entry.file,
-      bytes: admitted.bytes,
-      sha256: await sha256File(admitted.file),
-    };
+    const admitted = await openRegularFile(directory, entry.file, maximum);
+    try {
+      return {
+        kind: entry.kind,
+        file: entry.file,
+        bytes: admitted.bytes,
+        sha256: await hashOpenedRegularFile(admitted, entry.file),
+      };
+    } finally {
+      await admitted.handle.close();
+    }
   }));
-  files.sort((left, right) => left.file.localeCompare(right.file));
+  files.sort(compareFileNames);
   const packageReceipt = files.find((entry) => entry.kind === "package");
   if (packageReceipt === undefined) {
     throw new Error("Linux release bundle is missing its deb");
@@ -1859,14 +1950,14 @@ export const signLinuxReleaseMetadata = async (input: {
       LINUX_RELEASE_MANIFEST,
       "Linux release manifest",
     ),
-    requireRegularFile(
+    readRegularFileBytes(
       directory,
       LINUX_RELEASE_CHECKSUMS,
       MAX_METADATA_BYTES,
     ),
     readKeyring(directory),
   ]);
-  const checksumBytes = await readFile(checksumFile.file);
+  const checksumBytes = checksumFile;
   const manifest = decodeLinuxReleaseManifest(manifestRaw.value);
   const keyId = requireKeyId(input.keyId);
   const signedAt = requireIsoTimestamp(input.signedAt, "release signing time");

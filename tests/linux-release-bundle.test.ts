@@ -6,6 +6,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -393,6 +394,10 @@ describe("signed Linux release bundle", () => {
       },
       async (directory: string) => {
         await writeFile(path.join(directory, "unexpected.txt"), "extra");
+      },
+      async (directory: string) => {
+        await rm(path.join(directory, PACKAGE));
+        await symlink(LINUX_RELEASE_MANIFEST, path.join(directory, PACKAGE));
       },
     ];
     for (const mutate of cases) {
