@@ -142,6 +142,12 @@ export const makeEdgeGrantService = (
   const cache = new Map<string, CacheEntry>();
   const cacheByCanvas = new Map<string, Set<string>>();
   const capabilityPrincipals = new Map<string, BrowserAutomationPrincipal>();
+  // Admissions cross async document and page-target reads. Record every
+  // canvas invalidation even when no cached grant exists yet, so a request
+  // that observed an older graph cannot mint authority after an edge delete.
+  let changeSequence = 0;
+  let lastClearSequence = 0;
+  const canvasInvalidatedAt = new Map<string, number>();
 
   const removeCacheIndex = (canvasName: string, cacheKey: string): void => {
     const keys = cacheByCanvas.get(canvasName);
@@ -163,6 +169,8 @@ export const makeEdgeGrantService = (
   };
 
   const invalidateCanvas = (canvasName: string): void => {
+    changeSequence += 1;
+    canvasInvalidatedAt.set(canvasName, changeSequence);
     const affected = cacheByCanvas.get(canvasName);
     if (affected === undefined) return;
     for (const cacheKey of [...affected]) {
@@ -236,6 +244,7 @@ export const makeEdgeGrantService = (
   const admitPrincipal = async (
     principal: ProcessPrincipal,
   ): Promise<EdgeGrantResult> => {
+    const admissionStartedAt = changeSequence;
     const docs = await loadDocs();
     if (docs.length === 0) {
       return fail("canvas_unreadable", "no canvases available for process-bind resolution");
@@ -277,6 +286,15 @@ export const makeEdgeGrantService = (
       return fail(
         "not_connected",
         "missing edge between caller and a page node — draw an edge in Vellum",
+      );
+    }
+    if (
+      lastClearSequence > admissionStartedAt ||
+      (canvasInvalidatedAt.get(match.canvasName) ?? 0) > admissionStartedAt
+    ) {
+      return fail(
+        "not_connected",
+        "canvas changed during browser edge admission — retry against the current graph",
       );
     }
 
@@ -371,6 +389,8 @@ export const makeEdgeGrantService = (
     admitSocket,
     admitPrincipal,
     clear: () => {
+      changeSequence += 1;
+      lastClearSequence = changeSequence;
       const entries = [...cache.keys()];
       for (const cacheKey of entries) {
         revokeCacheEntry(cacheKey);
@@ -378,6 +398,7 @@ export const makeEdgeGrantService = (
       cache.clear();
       cacheByCanvas.clear();
       capabilityPrincipals.clear();
+      canvasInvalidatedAt.clear();
     },
     invalidateCanvas,
   });

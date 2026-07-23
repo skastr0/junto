@@ -114,7 +114,10 @@ describe("browser edge-grant process-bind dual admit", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  const makeStack = (doc: CanvasDoc) => {
+  const makeStack = (
+    doc: CanvasDoc,
+    resolvePageTargetOverride?: PageTargetResolver,
+  ) => {
     let sessionCounter = 0;
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
@@ -128,10 +131,12 @@ describe("browser edge-grant process-bind dual admit", () => {
       },
     });
     registries.push(capabilities);
-    const resolvePageTarget: PageTargetResolver = async (candidate) => {
-      if (candidate === REF_PAGE) return { ok: true, data: TARGET };
-      return { ok: false, code: "not_found", message: "missing" };
-    };
+    const resolvePageTarget: PageTargetResolver =
+      resolvePageTargetOverride ??
+      (async (candidate) => {
+        if (candidate === REF_PAGE) return { ok: true, data: TARGET };
+        return { ok: false, code: "not_found", message: "missing" };
+      });
     const edgeGrant = makeEdgeGrantService({
       capabilities,
       canvasesDir: join(root, "canvases"),
@@ -360,5 +365,97 @@ describe("browser edge-grant process-bind dual admit", () => {
       expect(fourth.secret).not.toBe(first.secret);
       expect(fourth.expectedPrincipal).toBe(first.expectedPrincipal);
     }
+  });
+
+  it("immediately revokes the affected cached grant and its active lease", async () => {
+    await mkdir(join(root, "canvases"), { recursive: true });
+    const doc = canvasDoc(true);
+    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
+    const { edgeGrant, capabilities } = makeStack(doc);
+    const principal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+    const admission = await edgeGrant.admitPrincipal(principal);
+    expect(admission.ok).toBe(true);
+    if (!admission.ok) return;
+
+    const lease = capabilities.authorize(
+      admission.secret,
+      { action: "pages" },
+      {
+        requestId: "00000000-0000-4000-8000-000000000001",
+        expectedPrincipal: admission.expectedPrincipal,
+      },
+    );
+    edgeGrant.invalidateCanvas?.("other");
+    expect(lease.signal.aborted).toBe(false);
+    expect(
+      capabilities.preflight(
+        admission.secret,
+        "pages",
+        admission.expectedPrincipal,
+      ),
+    ).toEqual({ ok: true });
+
+    edgeGrant.invalidateCanvas?.("work");
+    expect(lease.signal.aborted).toBe(true);
+    expect(capabilities.stats()).toMatchObject({
+      activeCapabilities: 0,
+      activeLeases: 0,
+    });
+    expect(
+      capabilities.preflight(
+        admission.secret,
+        "pages",
+        admission.expectedPrincipal,
+      ),
+    ).toEqual({ ok: false, denial: "unauthorized" });
+    lease.release();
+  });
+
+  it("does not mint from a graph invalidated during async admission", async () => {
+    await mkdir(join(root, "canvases"), { recursive: true });
+    const doc = canvasDoc(true);
+    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
+
+    let releaseResolution!: () => void;
+    const resolutionGate = new Promise<void>((resolve) => {
+      releaseResolution = resolve;
+    });
+    let markResolutionStarted!: () => void;
+    const resolutionStarted = new Promise<void>((resolve) => {
+      markResolutionStarted = resolve;
+    });
+    let shouldBlock = true;
+    const resolvePageTarget: PageTargetResolver = async (candidate) => {
+      if (candidate !== REF_PAGE) {
+        return { ok: false, code: "not_found", message: "missing" };
+      }
+      if (shouldBlock) {
+        markResolutionStarted();
+        await resolutionGate;
+      }
+      return { ok: true, data: TARGET };
+    };
+    const { edgeGrant, capabilities } = makeStack(doc, resolvePageTarget);
+    const principal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+
+    const staleAdmission = edgeGrant.admitPrincipal(principal);
+    await resolutionStarted;
+    edgeGrant.invalidateCanvas?.("work");
+    shouldBlock = false;
+    releaseResolution();
+
+    await expect(staleAdmission).resolves.toMatchObject({
+      ok: false,
+      denial: "not_connected",
+      message: expect.stringMatching(/canvas changed during browser edge admission/i),
+    });
+    expect(capabilities.stats()).toMatchObject({
+      activeCapabilities: 0,
+      activeLeases: 0,
+    });
+
+    const freshAdmission = await edgeGrant.admitPrincipal(principal);
+    expect(freshAdmission.ok).toBe(true);
+    expect(capabilities.stats().activeCapabilities).toBe(1);
   });
 });
