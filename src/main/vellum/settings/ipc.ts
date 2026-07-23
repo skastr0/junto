@@ -57,6 +57,24 @@ export const registerSettingsIpc = (
     ),
   );
 
+  // Topology (station role / host / CC ref / supervised) — dedicated channel.
+  // Generic settingsPatch refuses station keys; this path writes + seals.
+  ipcMain.handle(IPC_CHANNELS.settingsSetStationTopology, (_event, station: unknown) =>
+    AppRuntime.runPromise(
+      Effect.gen(function* () {
+        const settings = yield* SettingsService;
+        if (station === null || typeof station !== "object" || Array.isArray(station)) {
+          return settingsOpFail(
+            "validation",
+            "station topology patch must be a plain object",
+          );
+        }
+        const result = yield* Effect.either(settings.setStationTopology(station));
+        return toOpResult(result);
+      }),
+    ),
+  );
+
   ipcMain.handle(IPC_CHANNELS.settingsReset, (_event, section?: unknown) =>
     AppRuntime.runPromise(
       Effect.gen(function* () {

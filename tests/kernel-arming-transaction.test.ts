@@ -87,6 +87,7 @@ const runArm = (
     }),
     get: Effect.succeed(defaultSettings()),
     patch: () => Effect.succeed(defaultSettings()),
+    setStationTopology: () => Effect.succeed(defaultSettings()),
     reset: () => Effect.succeed(defaultSettings()),
     path: () => "/tmp/vellum-settings-test.json",
     subscribe: () => () => undefined,

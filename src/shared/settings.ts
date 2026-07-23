@@ -13,11 +13,20 @@ import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
 // Aggregate: whole-file consistency. Sections are value objects; version
 // ladders live in main/vellum/settings/migrate.ts.
 //
+// Mental model (Phase 3 topology protection):
+// - **prefs** — appearance/canvas/kernel/browser/audio/advanced. Ambient file
+//   edits may be accepted; generic settingsPatch mutates these.
+// - **topology** — station.role / hostId / agentHostId / commandCenterRef /
+//   supervisedPreferred. Not trusted from plaintext alone: main admits via
+//   topology.key + topology.seal (HMAC). Mutations go through
+//   settingsSetStationTopology only; generic settingsPatch rejects station.*.
+//
 // Invariants:
 // - Never store secrets here (full document is IPC-broadcast to all windows).
 // - BrowserPrefs (maxVisible/maxWarm) is the sole durable SoT for those limits;
 //   BrowserProfileService keeps profile identity/dirs/wipe only.
 // - Kernel arming stays in StoreService — not a preference.
+// - See docs/protected-topology-migration.md for residual risk / next steps.
 
 export const SETTINGS_VERSION = 1 as const;
 

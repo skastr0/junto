@@ -234,7 +234,7 @@ describe("Remote browser station admission", () => {
       statusListener({ kind: "pull", previous: current, current });
     }
     await Effect.runPromise(
-      service.patch({ station: { commandCenterRef: "new-command" } }),
+      service.setStationTopology({ commandCenterRef: "new-command" }),
     );
     const previousHosts = hosts;
     hosts = [{ ...remoteHost(), capabilities: ["terminal"] }];

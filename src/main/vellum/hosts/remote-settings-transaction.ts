@@ -150,6 +150,9 @@ else
 fi
 /bin/chmod "$NEXT_MODE" "$NEXT_TMP"
 /bin/mv -f "$NEXT_TMP" "$SETTINGS"
+# Operator-initiated CC stamp: invalidate remote topology seal so next app
+# start bootstraps a seal over the stamped role (see topology-seal.ts).
+/bin/rm -f -- "$DIR/topology.key" "$DIR/topology.seal"
 /usr/bin/printf 'STAMPED\n'
 `.trim();
 

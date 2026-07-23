@@ -40,11 +40,16 @@ export type ConfigureRemoteResult = {
   readonly message?: string;
 };
 
+// $1 = ~/.vellum dir, $2 = settings.json path.
+// After stamping settings, drop topology.key/seal so the remote app bootstraps
+// a seal for the operator-stamped role on next start (cannot mint remote key
+// over SSH). Residual: same-user who deletes key+seal can re-bootstrap.
 const REMOTE_SETTINGS_WRITE_SCRIPT = [
   "umask 077",
   "mkdir -p \"$1\"",
   "cat > \"$2\"",
   "chmod 600 \"$2\"",
+  'rm -f "$1/topology.key" "$1/topology.seal"',
 ].join("\n");
 
 const classifySshFailure = (message: string): string => {

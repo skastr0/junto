@@ -16,13 +16,27 @@ import { assessSupervisedRuntime } from "@shared/station";
 import {
   applyAndValidatePatch,
   decodePatchInput,
+  decodeStationTopologyPatch,
   migrateSettingsDocument,
 } from "./migrate";
 import { probeSupervisedRuntime, type SupervisedProbe } from "./supervised-probe";
+import {
+  admitStationTopology,
+  topologyFromStation,
+  writeTopologySeal,
+} from "./topology-seal";
 
-// SettingsService: single durable prefs aggregate. Path defaults to
-// ~/.vellum/settings.json (agent-readable home). Tests override via
-// VELLUM_SETTINGS_PATH (exact file) — never accept a path from the renderer.
+// SettingsService: durable prefs + topology gate.
+//
+// Path defaults to ~/.vellum/settings.json (agent-readable home). Tests override
+// via VELLUM_SETTINGS_PATH (exact file) — never accept a path from the renderer.
+//
+// Split mental model:
+// - **prefs** (appearance/canvas/kernel/browser/audio/advanced) — ambient
+//   settings.json, generic settingsPatch.
+// - **topology** (station.*) — app-owned seal (topology.key + topology.seal).
+//   Load admits only sealed topology; generic patch rejects station keys;
+//   setStationTopology is the sole app write path that mutates + reseals.
 
 export class SettingsService extends Context.Tag("@vellum/SettingsService")<
   SettingsService,
@@ -30,6 +44,13 @@ export class SettingsService extends Context.Tag("@vellum/SettingsService")<
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly get: Effect.Effect<Settings, SettingsError>;
     readonly patch: (input: unknown) => Effect.Effect<Settings, SettingsError>;
+    /**
+     * Dedicated topology transition. Merges station fields, persists, and
+     * writes the app-owned topology seal. Not available via settingsPatch.
+     */
+    readonly setStationTopology: (
+      input: unknown,
+    ) => Effect.Effect<Settings, SettingsError>;
     readonly reset: (
       section?: SettingsSectionKey,
     ) => Effect.Effect<Settings, SettingsError>;
@@ -91,6 +112,8 @@ const loadFromDisk = async (path: string): Promise<Settings> => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       const fresh = defaultSettings();
       await atomicWrite(path, fresh);
+      // First create: seal empty topology so later offline role mint fails closed.
+      await writeTopologySeal(path, topologyFromStation(fresh.station));
       return fresh;
     }
     throw error;
@@ -114,13 +137,22 @@ const loadFromDisk = async (path: string): Promise<Settings> => {
   if (Either.isLeft(migrated)) {
     throw migrated.left;
   }
-  return migrated.right;
+
+  const admitted = await admitStationTopology(path, migrated.right);
+  if (admitted.outcome === "stripped") {
+    // Persist fail-closed station so disk and live view agree (role unset → gate).
+    await atomicWrite(path, admitted.settings);
+  }
+  return admitted.settings;
 };
 
 export interface SettingsServiceApi {
   readonly doctor: Effect.Effect<ServiceCheck>;
   readonly get: Effect.Effect<Settings, SettingsError>;
   readonly patch: (input: unknown) => Effect.Effect<Settings, SettingsError>;
+  readonly setStationTopology: (
+    input: unknown,
+  ) => Effect.Effect<Settings, SettingsError>;
   readonly reset: (
     section?: SettingsSectionKey,
   ) => Effect.Effect<Settings, SettingsError>;
@@ -140,7 +172,7 @@ export const makeSettingsService = (
   const probeSupervised = options.probeSupervised ?? probeSupervisedRuntime;
   let cached: Settings | undefined;
   let inFlight: Promise<Settings> | null = null;
-  // Serialize patch/reset RMW so concurrent IPC cannot last-writer-clobber.
+  // Serialize patch/reset/topology RMW so concurrent IPC cannot last-writer-clobber.
   let writeChain: Promise<unknown> = Promise.resolve();
   const listeners = new Set<(settings: Settings) => void>();
 
@@ -165,6 +197,7 @@ export const makeSettingsService = (
 
   const writeState = async (settings: Settings): Promise<Settings> => {
     await atomicWrite(path, settings);
+    await writeTopologySeal(path, topologyFromStation(settings.station));
     cached = settings;
     notify(settings);
     return settings;
@@ -235,6 +268,14 @@ export const makeSettingsService = (
           withWriteLock(async () => {
             const patchEither = decodePatchInput(input);
             if (Either.isLeft(patchEither)) throw patchEither.left;
+            // Option B: topology never mutates through generic prefs patch.
+            if (patchEither.right.station !== undefined) {
+              throw new SettingsError({
+                message:
+                  "station topology is protected — use settingsSetStationTopology for role/host/commandCenterRef/supervisedPreferred",
+                code: "validation",
+              });
+            }
             const current = await ensureLoaded();
             const nextEither = applyAndValidatePatch(current, patchEither.right);
             if (Either.isLeft(nextEither)) throw nextEither.left;
@@ -242,6 +283,27 @@ export const makeSettingsService = (
               return current;
             }
             return writeState(nextEither.right);
+          }),
+        catch: (error) => toIoError(error),
+      }),
+    setStationTopology: (input: unknown) =>
+      Effect.tryPromise({
+        try: () =>
+          withWriteLock(async () => {
+            const patchEither = decodeStationTopologyPatch(input);
+            if (Either.isLeft(patchEither)) throw patchEither.left;
+            const current = await ensureLoaded();
+            // Validate via full aggregate decode after merge.
+            const validated = applyAndValidatePatch(current, {
+              station: patchEither.right,
+            });
+            if (Either.isLeft(validated)) throw validated.left;
+            if (JSON.stringify(current) === JSON.stringify(validated.right)) {
+              // Still reseal so bootstrap after external wipe recovers.
+              await writeTopologySeal(path, topologyFromStation(current.station));
+              return current;
+            }
+            return writeState(validated.right);
           }),
         catch: (error) => toIoError(error),
       }),

@@ -4,18 +4,27 @@ import {
   Settings,
   SettingsError,
   SettingsPatch,
+  StationPatch,
   applySettingsPatch,
   defaultSettings,
+  mergeSection,
   type Settings as SettingsT,
   type SettingsPatch as SettingsPatchT,
+  type StationPatch as StationPatchT,
+  type StationSettings,
 } from "@shared/settings";
 
 // Version ladder for the settings document. v1 is the floor; unknown future
 // versions fail closed (do not invent a downgrade). Partial / missing fields
 // on a known version soft-heal onto defaults before strict decode.
+//
+// Topology (station.*) is admitted at load via topology-seal.ts; generic
+// SettingsPatch.station is rejected by SettingsService.patch. Dedicated
+// transitions decode through decodeStationTopologyPatch.
 
 const decodeSettings = Schema.decodeUnknownEither(Settings);
 const decodeSettingsPatch = Schema.decodeUnknownEither(SettingsPatch);
+const decodeStationPatch = Schema.decodeUnknownEither(StationPatch);
 
 const SECTION_KEYS = [
   "appearance",
@@ -204,3 +213,31 @@ export const applyAndValidatePatch = (
     ),
   );
 };
+
+/** Decode a dedicated station topology transition (not a generic prefs patch). */
+export const decodeStationTopologyPatch = (
+  raw: unknown,
+): Either.Either<StationPatchT, SettingsError> => {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return Either.left(
+      new SettingsError({
+        message: "station topology patch must be a plain object",
+        code: "validation",
+      }),
+    );
+  }
+  return decodeStationPatch(raw).pipe(
+    Either.mapLeft(
+      (error) =>
+        new SettingsError({
+          message: `station topology patch invalid: ${formatParse(error)}`,
+          code: "validation",
+        }),
+    ),
+  );
+};
+
+export const mergeStationTopology = (
+  current: StationSettings,
+  patch: StationPatchT,
+): StationSettings => mergeSection(current, patch);

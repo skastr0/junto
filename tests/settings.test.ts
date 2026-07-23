@@ -14,6 +14,11 @@ import {
   migrateSettingsDocument,
 } from "../src/main/vellum/settings/migrate";
 import { makeSettingsService } from "../src/main/vellum/settings/service";
+import {
+  topologyFromStation,
+  topologyPathsForSettings,
+  writeTopologySeal,
+} from "../src/main/vellum/settings/topology-seal";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(effect);
 const runEither = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(Effect.either(effect));
@@ -213,8 +218,9 @@ describe("settings service", () => {
     });
     await run(svc.get);
     await run(
-      svc.patch({
-        station: { role: "remote", supervisedPreferred: true },
+      svc.setStationTopology({
+        role: "remote",
+        supervisedPreferred: true,
       }),
     );
     const check = await run(svc.doctor);
@@ -234,8 +240,10 @@ describe("settings service", () => {
     });
     await run(svc.get);
     await run(
-      svc.patch({
-        station: { role: "remote", hostId: "remote-a", supervisedPreferred: true },
+      svc.setStationTopology({
+        role: "remote",
+        hostId: "remote-a",
+        supervisedPreferred: true,
       }),
     );
     const check = await run(svc.doctor);
@@ -269,5 +277,174 @@ describe("settings service", () => {
     if (Either.isLeft(result)) {
       expect(result.left.code).toBe("corrupt");
     }
+  });
+
+  it("rejects station topology via generic settingsPatch", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    const result = await runEither(
+      svc.patch({ station: { role: "command-center" } }),
+    );
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.code).toBe("validation");
+      expect(result.left.message).toContain("settingsSetStationTopology");
+    }
+    const settings = await run(svc.get);
+    expect(settings.station.role).toBe("");
+  });
+
+  it("setStationTopology seals role and reloads sealed topology", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    const next = await run(
+      svc.setStationTopology({
+        role: "command-center",
+        hostId: "local",
+      }),
+    );
+    expect(next.station.role).toBe("command-center");
+    const paths = topologyPathsForSettings(path);
+    await stat(paths.key);
+    await stat(paths.seal);
+
+    // Cold load — seal must admit the role.
+    const svc2 = makeSettingsService(path);
+    const reloaded = await run(svc2.get);
+    expect(reloaded.station.role).toBe("command-center");
+    expect(reloaded.station.hostId).toBe("local");
+  });
+
+  it("tampered topology fields fail closed to role unset", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    await run(
+      svc.setStationTopology({
+        role: "command-center",
+        hostId: "local",
+      }),
+    );
+
+    // Offline mint: rewrite role without resealing.
+    const disk = JSON.parse(await readFile(path, "utf8")) as ReturnType<
+      typeof defaultSettings
+    >;
+    const tampered = {
+      ...disk,
+      station: {
+        ...disk.station,
+        role: "remote" as const,
+        commandCenterRef: "evil-cc",
+        supervisedPreferred: true,
+      },
+    };
+    await writeFile(path, `${JSON.stringify(tampered, null, 2)}\n`, "utf8");
+
+    const svc2 = makeSettingsService(path);
+    const admitted = await run(svc2.get);
+    expect(admitted.station.role).toBe("");
+    expect(admitted.station.commandCenterRef).toBe("");
+    expect(admitted.station.supervisedPreferred).toBe(false);
+
+    // Disk rewritten fail-closed.
+    const after = JSON.parse(await readFile(path, "utf8")) as {
+      station: { role: string };
+    };
+    expect(after.station.role).toBe("");
+  });
+
+  it("tampered seal mac fails closed", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    await run(svc.setStationTopology({ role: "remote", hostId: "box", commandCenterRef: "cc" }));
+
+    const paths = topologyPathsForSettings(path);
+    await writeFile(
+      paths.seal,
+      `${JSON.stringify({ version: 1, alg: "hmac-sha256", mac: "not-a-real-mac" })}\n`,
+      "utf8",
+    );
+
+    const svc2 = makeSettingsService(path);
+    const admitted = await run(svc2.get);
+    expect(admitted.station.role).toBe("");
+  });
+
+  it("missing seal after key exists fails closed", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    await run(svc.setStationTopology({ role: "command-center" }));
+
+    const paths = topologyPathsForSettings(path);
+    await rm(paths.seal);
+
+    const disk = JSON.parse(await readFile(path, "utf8")) as ReturnType<
+      typeof defaultSettings
+    >;
+    expect(disk.station.role).toBe("command-center");
+
+    const svc2 = makeSettingsService(path);
+    const admitted = await run(svc2.get);
+    expect(admitted.station.role).toBe("");
+  });
+
+  it("bootstrap admits unsealed topology once then seals", async () => {
+    // Simulate CC configure-remote stamp: settings with role, no seal material.
+    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
+    path = join(dir, "settings.json");
+    const stamped = {
+      ...defaultSettings(),
+      station: {
+        ...defaultSettings().station,
+        role: "remote" as const,
+        hostId: "studio",
+        commandCenterRef: "local",
+        supervisedPreferred: true,
+      },
+    };
+    await writeFile(path, `${JSON.stringify(stamped, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+
+    const svc = makeSettingsService(path);
+    const admitted = await run(svc.get);
+    expect(admitted.station.role).toBe("remote");
+    expect(admitted.station.hostId).toBe("studio");
+
+    const paths = topologyPathsForSettings(path);
+    await stat(paths.key);
+    await stat(paths.seal);
+
+    // Subsequent offline role flip fails closed.
+    const disk = JSON.parse(await readFile(path, "utf8")) as ReturnType<
+      typeof defaultSettings
+    >;
+    const flipped = {
+      ...disk,
+      station: {
+        ...disk.station,
+        role: "command-center" as const,
+      },
+    };
+    await writeFile(path, `${JSON.stringify(flipped, null, 2)}\n`, "utf8");
+    const svc2 = makeSettingsService(path);
+    const stripped = await run(svc2.get);
+    expect(stripped.station.role).toBe("");
+  });
+
+  it("app-written seal matches sealed material helper", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    const next = await run(
+      svc.setStationTopology({
+        role: "command-center",
+        hostId: "local",
+      }),
+    );
+    // Rewriting the same seal is a no-op admit.
+    await writeTopologySeal(path, topologyFromStation(next.station));
+    const svc2 = makeSettingsService(path);
+    expect((await run(svc2.get)).station.role).toBe("command-center");
   });
 });

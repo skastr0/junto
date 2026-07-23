@@ -15,7 +15,12 @@ import type {
 import type { SettingsSectionKey } from "@shared/settings";
 import { state$ } from "../lib/state";
 import { deployRecoveryGuidance } from "../lib/deploy-recovery";
-import { closeSettings, patchSettings, resetSettings } from "../lib/settings-state";
+import {
+  closeSettings,
+  patchSettings,
+  resetSettings,
+  setStationTopology,
+} from "../lib/settings-state";
 import {
   ALERT_SFX_IDS,
   SFX_LABELS,
@@ -1166,7 +1171,7 @@ function StationSection() {
           onChange={(event) => {
             const value = event.target.value.trim();
             if (value.length === 0) return;
-            void patchSettings({ station: { hostId: value } });
+            void setStationTopology({ hostId: value });
           }}
         />
       </FieldRow>
@@ -1180,7 +1185,7 @@ function StationSection() {
             value={station.commandCenterRef}
             aria-label="Command Center reachability"
             onChange={(event) =>
-              void patchSettings({ station: { commandCenterRef: event.target.value } })
+              void setStationTopology({ commandCenterRef: event.target.value })
             }
           />
         </FieldRow>
@@ -1215,7 +1220,7 @@ function StationSection() {
           checked={station.supervisedPreferred}
           aria-label="Prefer supervised runtime"
           onChange={(event) =>
-            void patchSettings({ station: { supervisedPreferred: event.target.checked } })
+            void setStationTopology({ supervisedPreferred: event.target.checked })
           }
         />
       </FieldRow>
@@ -1224,9 +1229,7 @@ function StationSection() {
           type="button"
           className="settings-panel__ghost"
           onClick={() =>
-            void patchSettings({
-              station: { role: "", commandCenterRef: "" },
-            })
+            void setStationTopology({ role: "", commandCenterRef: "" })
           }
         >
           Reset role (re-onboard)

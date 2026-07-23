@@ -33,6 +33,7 @@ import type {
   SettingsOpResult,
   SettingsPatch,
   SettingsSectionKey,
+  StationPatch,
 } from "./settings";
 import type { UsageState } from "./usage";
 import type { CanvasPullResult } from "./canvas-pull";
@@ -137,6 +138,8 @@ export const IPC_CHANNELS = {
   // user settings plane (schema document under ~/.vellum/settings.json)
   settingsGet: "vellum:settings-get",
   settingsPatch: "vellum:settings-patch",
+  /** Dedicated station topology transition (role/host/CC ref) — seals on write. */
+  settingsSetStationTopology: "vellum:settings-set-station-topology",
   settingsReset: "vellum:settings-reset",
   // OS login item (Electron get/setLoginItemSettings — not settings.json)
   loginItemGet: "vellum:login-item-get",
@@ -529,6 +532,13 @@ export interface VellumApi {
   // User settings document (Effect Schema aggregate; main owns the file).
   readonly settingsGet: () => Promise<SettingsOpResult>;
   readonly settingsPatch: (patch: SettingsPatch) => Promise<SettingsOpResult>;
+  /**
+   * Topology transitions only (station.role / hostId / agentHostId /
+   * commandCenterRef / supervisedPreferred). Generic settingsPatch rejects these.
+   */
+  readonly settingsSetStationTopology: (
+    station: StationPatch,
+  ) => Promise<SettingsOpResult>;
   readonly settingsReset: (section?: SettingsSectionKey) => Promise<SettingsOpResult>;
   readonly onSettingsChanged: (listener: (settings: Settings) => void) => () => void;
   /** OS login item — read real state; never assume. */

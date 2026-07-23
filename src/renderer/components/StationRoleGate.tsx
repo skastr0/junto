@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import type { StationRole } from "@shared/station";
 import { state$ } from "../lib/state";
-import { patchSettings } from "../lib/settings-state";
+import { setStationTopology } from "../lib/settings-state";
 import { DIM, HUE, INK, INSET, RAISE, STROKE, withAlpha } from "../lib/theme";
 import { Eyebrow } from "./ui/Eyebrow";
 // state$.settingsError used when patch fails
@@ -25,13 +25,11 @@ export function StationRoleGate() {
       setBusy(true);
       setError(undefined);
       try {
-        const ok = await patchSettings({
-          station: {
-            role: next,
-            hostId: settings?.station?.hostId || "local",
-            commandCenterRef: next === "remote" ? remoteRef.trim() : "",
-            supervisedPreferred: next === "remote",
-          },
+        const ok = await setStationTopology({
+          role: next,
+          hostId: settings?.station?.hostId || "local",
+          commandCenterRef: next === "remote" ? remoteRef.trim() : "",
+          supervisedPreferred: next === "remote",
         });
         if (!ok) {
           setError(state$.settingsError.peek() || "could not save station role");

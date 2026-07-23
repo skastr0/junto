@@ -463,6 +463,12 @@ const vellumApi: VellumApi = {
   settingsGet: () => invoke<SettingsOpResult>(IPC_CHANNELS.settingsGet, IPC_TIMEOUT_MS),
   settingsPatch: (patch: SettingsPatch) =>
     invoke<SettingsOpResult>(IPC_CHANNELS.settingsPatch, IPC_TIMEOUT_MS, patch),
+  settingsSetStationTopology: (station) =>
+    invoke<SettingsOpResult>(
+      IPC_CHANNELS.settingsSetStationTopology,
+      IPC_TIMEOUT_MS,
+      station,
+    ),
   settingsReset: (section?: SettingsSectionKey) =>
     invoke<SettingsOpResult>(IPC_CHANNELS.settingsReset, IPC_TIMEOUT_MS, section),
   loginItemGet: () => invoke<LoginItemOpResult>(IPC_CHANNELS.loginItemGet, IPC_TIMEOUT_MS),
