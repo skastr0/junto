@@ -44,7 +44,7 @@ import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane } from "./vellum/term/plane";
 import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
-import { electronSecurityPolicyHealthy, packagedElectronSecurityPolicyPath } from "./vellum/electron-security-health";
+import { electronSecurityPolicyHealthy, packagedElectronObservationPath, packagedElectronSecurityPolicyPath } from "./vellum/electron-security-health";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 import { startWorkControlServer, type WorkControlServer } from "./vellum/work/control";
 import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
@@ -1173,6 +1173,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
               ? packagedElectronSecurityPolicyPath(process.resourcesPath)
               : join(app.getAppPath(), "scripts", "electron-security-policy.json"),
             electronVersion: process.versions.electron,
+            observationPath: app.isPackaged ? packagedElectronObservationPath(process.resourcesPath) : undefined,
           }),
         },
       );
