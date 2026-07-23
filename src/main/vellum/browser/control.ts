@@ -93,6 +93,7 @@ import {
   type BrowserCapabilityTarget,
   type BrowserCapabilityUseTarget,
 } from "./capabilities";
+import { prepareControlDirectory, removeObservedSocket, rotateControlFileToken } from "../control-filesystem";
 
 // Local control plane for agents (the browser ACI): a tiny HTTP server on a
 // unix domain socket at ~/.vellum/browser/control.sock, hosted by the Electron
@@ -107,17 +108,7 @@ import {
 // browser authority is independently delegated by short-lived capabilities.
 
 export const rotateControlToken = (tokenPath: string): string => {
-  const token = randomBytes(32).toString("hex");
-  const temporaryPath = `${tokenPath}.${randomBytes(12).toString("hex")}.tmp`;
-  try {
-    writeFileSync(temporaryPath, `${token}\n`, { flag: "wx", mode: 0o600 });
-    chmodSync(temporaryPath, 0o600);
-    renameSync(temporaryPath, tokenPath);
-    chmodSync(tokenPath, 0o600);
-  } finally {
-    if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
-  }
-  return token;
+  return rotateControlFileToken(tokenPath);
 };
 
 export const tokenMatches = (presented: string | undefined, expected: string): boolean => {
@@ -1307,8 +1298,7 @@ export const startBrowserControlServer = async (
 ): Promise<BrowserControlServer> => {
   const home = options.home ?? homedir();
   const dir = controlDir(home);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  chmodSync(dir, 0o700);
+  prepareControlDirectory(dir);
   await ensureScreenshotDirectory(controlShotsDir(home));
 
   const token = rotateControlToken(controlTokenPath(home));
@@ -1666,7 +1656,7 @@ export const startBrowserControlServer = async (
 
   // Stale socket from a crashed run blocks listen — remove before binding.
   const socketPath = controlSocketPath(home);
-  unlinkSocket(socketPath);
+  removeObservedSocket(socketPath);
   await listenOnSocket(server, socketPath);
   type SocketPathIdentity = Readonly<{
     dev: bigint;

@@ -69,6 +69,7 @@ import {
   mainAuthoringLabelForWorkOperation,
   type MainAuthoringGate,
 } from "../main-authoring-gate";
+import { prepareControlDirectory, removeObservedSocket, rotateControlFileToken } from "../control-filesystem";
 
 // Local work control plane for agents: NDJSON over a Unix domain socket at
 // ~/.vellum/work/control.sock. Token + process-bind identity + edge authz;
@@ -85,17 +86,7 @@ export const resolveWorkHome = (home?: string, workHome?: string): string => {
 };
 
 export const rotateWorkToken = (tokenPath: string): string => {
-  const token = randomBytes(32).toString("hex");
-  const temporaryPath = `${tokenPath}.${randomBytes(12).toString("hex")}.tmp`;
-  try {
-    writeFileSync(temporaryPath, `${token}\n`, { flag: "wx", mode: 0o600 });
-    chmodSync(temporaryPath, 0o600);
-    renameSync(temporaryPath, tokenPath);
-    chmodSync(tokenPath, 0o600);
-  } finally {
-    if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
-  }
-  return token;
+  return rotateControlFileToken(tokenPath);
 };
 
 export const workTokenMatches = (
@@ -667,13 +658,12 @@ export const startWorkControlServer = async (
   runtime: WorkControlRuntime = {},
 ): Promise<WorkControlServer> => {
   const workHome = resolveWorkHome(options.home, options.workHome);
-  mkdirSync(workHome, { recursive: true, mode: 0o700 });
-  chmodSync(workHome, 0o700);
+  prepareControlDirectory(workHome);
 
   const tokenPath = workControlTokenPath(workHome);
   const socketPath = workControlSocketPath(workHome);
   const token = rotateWorkToken(tokenPath);
-  unlinkSocket(socketPath);
+  removeObservedSocket(socketPath);
   const processMap = options.processMap ?? getProcessIdentityMap();
   const readPeerPid = options.readPeerPid ?? readUnixPeerPid;
   const authoringGate = options.authoringGate ?? mainAuthoringGate;

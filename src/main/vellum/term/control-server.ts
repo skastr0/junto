@@ -32,6 +32,7 @@ import {
   type TermControlResponse,
 } from "@shared/term-control";
 import type { ControlLease, LocalHostEvent, LocalSessionHost } from "./local-host";
+import { prepareControlDirectory, rotateControlFileToken } from "../control-filesystem";
 
 const tokenHash = (token: string): Buffer =>
   createHash("sha256").update(token, "utf8").digest();
@@ -181,75 +182,7 @@ const probeExistingSocket = (
   });
 
 const publishTermToken = (tokenPath: string, token: string): void => {
-  let lastCollision: unknown;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const tmpToken = `${tokenPath}.tmp.${process.pid}.${randomBytes(12).toString("hex")}`;
-    let fd: number | undefined;
-    let identity:
-      | Readonly<{ dev: bigint; ino: bigint; birthtimeNs: bigint }>
-      | undefined;
-    try {
-      fd = openSync(
-        tmpToken,
-        constants.O_CREAT |
-          constants.O_EXCL |
-          constants.O_WRONLY |
-          (constants.O_NOFOLLOW ?? 0),
-        0o600,
-      );
-      const opened = fstatSync(fd, { bigint: true });
-      identity = Object.freeze({
-        dev: opened.dev,
-        ino: opened.ino,
-        birthtimeNs: opened.birthtimeNs,
-      });
-      fchmodSync(fd, 0o600);
-      writeFileSync(fd, `${token}\n`, { encoding: "utf8" });
-      fsyncSync(fd);
-      const current = lstatSync(tmpToken, { bigint: true });
-      if (
-        !current.isFile() ||
-        current.isSymbolicLink() ||
-        current.dev !== identity.dev ||
-        current.ino !== identity.ino ||
-        current.birthtimeNs !== identity.birthtimeNs
-      ) {
-        throw new Error("terminal token temp identity changed before publication");
-      }
-      renameSync(tmpToken, tokenPath);
-      closeSync(fd);
-      return;
-    } catch (error) {
-      lastCollision = error;
-      if (fd !== undefined) {
-        try {
-          closeSync(fd);
-        } catch {
-          // The write failure remains the primary error.
-        }
-      }
-      if (identity !== undefined) {
-        try {
-          const current = lstatSync(tmpToken, { bigint: true });
-          if (
-            current.isFile() &&
-            !current.isSymbolicLink() &&
-            current.dev === identity.dev &&
-            current.ino === identity.ino &&
-            current.birthtimeNs === identity.birthtimeNs
-          ) {
-            unlinkSync(tmpToken);
-          }
-        } catch {
-          // Never widen cleanup to a path whose exact identity was lost.
-        }
-      }
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
-  }
-  throw lastCollision instanceof Error
-    ? lastCollision
-    : new Error("could not reserve terminal token temp path");
+  rotateControlFileToken(tokenPath, token);
 };
 
 export const startTermControlServer = async (
@@ -276,8 +209,7 @@ export const startTermControlServer = async (
     options?.shutdownDeadlineMs,
     TERM_CONTROL_SHUTDOWN_DEADLINE_MS,
   );
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  chmodSync(dir, 0o700);
+  prepareControlDirectory(dir);
 
   const token = randomBytes(32).toString("hex");
 
