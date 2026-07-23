@@ -198,8 +198,8 @@ describe("process-signal authority", () => {
   it("attenuates graceful group shutdown to the spawn-bound exact leader", async () => {
     const spawned = spawnDetachedProcessGroup({
       source: "cooperative-group",
-      command: "/bin/sh",
-      args: ["-c", "sleep 5"],
+      command: "/bin/sleep",
+      args: ["5"],
     });
     const closed = once(spawned.child, "close");
     expect(spawned.mode).toBe("group");
