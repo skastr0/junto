@@ -66,6 +66,13 @@ export class SshTransferExitError extends Error {
 
 export interface SshLease {
   readonly write: (bytes: Uint8Array) => Effect.Effect<void, SshError>;
+  /**
+   * Writes one secret frame, waits until the sink has consumed it, and
+   * zeroizes the transport-owned copy before returning.
+   */
+  readonly writeSensitive: (
+    bytes: Uint8Array,
+  ) => Effect.Effect<void, SshError>;
   readonly closeInput: Effect.Effect<void, SshError>;
   readonly stdout: Stream.Stream<Uint8Array, SshError>;
   readonly stderr: Stream.Stream<Uint8Array, SshError>;
@@ -170,11 +177,16 @@ interface InputChunk {
   readonly bytes: Uint8Array;
 }
 
+interface InputBarrier {
+  readonly _tag: "Barrier";
+  readonly afterPriorWrite: Effect.Effect<void>;
+}
+
 interface InputEnd {
   readonly _tag: "End";
 }
 
-type InputMessage = InputChunk | InputEnd;
+type InputMessage = InputChunk | InputBarrier | InputEnd;
 
 interface InternalLease extends SshLease {
   readonly isRunning: Effect.Effect<boolean, SshError>;
@@ -402,13 +414,19 @@ export const SshTransportLayer = Layer.scoped(
         const inputDone = yield* Deferred.make<void, SshError>();
         const inputOpen = yield* Ref.make(true);
         const inputLock = yield* Effect.makeSemaphore(1);
+        const sensitiveCopies = new Set<Uint8Array>();
         const mappedInput = Stream.fromQueue(queue).pipe(
           Stream.takeUntil((message) => message._tag === "End"),
-          Stream.filterMap((message) =>
-            message._tag === "Chunk"
-              ? Option.some(message.bytes)
-              : Option.none(),
+          Stream.mapEffect((message) =>
+            message._tag === "Barrier"
+              ? message.afterPriorWrite.pipe(Effect.as(Option.none()))
+              : Effect.succeed(
+                  message._tag === "Chunk"
+                    ? Option.some(message.bytes)
+                    : Option.none(),
+                ),
           ),
+          Stream.filterMap((bytes) => bytes),
         );
         const pump = Stream.run(mappedInput, process.stdin).pipe(
           Effect.mapError(() => ioError(endpoint, operation)),
@@ -425,6 +443,13 @@ export const SshTransportLayer = Layer.scoped(
         );
         yield* Effect.forkIn(pump, child);
         yield* Scope.addFinalizer(child, Queue.shutdown(queue));
+        yield* Scope.addFinalizer(
+          child,
+          Effect.sync(() => {
+            for (const bytes of sensitiveCopies) bytes.fill(0);
+            sensitiveCopies.clear();
+          }),
+        );
 
         const inputUnavailable: Effect.Effect<never, SshError> = Deferred.await(
           inputDone,
@@ -472,6 +497,68 @@ export const SshTransportLayer = Layer.scoped(
               yield* offer({ _tag: "Chunk", bytes: Uint8Array.from(bytes) });
             }),
           );
+        const writeSensitive = (
+          bytes: Uint8Array,
+        ): Effect.Effect<void, SshError> =>
+          inputLock.withPermits(1)(
+            Effect.gen(function* () {
+              if (bytes.byteLength > INPUT_CHUNK_LIMIT_BYTES) {
+                return yield* Effect.fail(
+                  ioError(
+                    endpoint,
+                    operation,
+                    "SSH sensitive input chunk exceeds the 1 MiB write boundary",
+                  ),
+                );
+              }
+              if (!(yield* Ref.get(inputOpen))) {
+                return yield* Effect.fail(
+                  ioError(
+                    endpoint,
+                    operation,
+                    "SSH process input is already closed",
+                  ),
+                );
+              }
+              const owned = Uint8Array.from(bytes);
+              const flushed = yield* Deferred.make<void, SshError>();
+              sensitiveCopies.add(owned);
+              const zeroAndConfirm = Effect.sync(() => {
+                owned.fill(0);
+                sensitiveCopies.delete(owned);
+              }).pipe(
+                Effect.zipRight(Deferred.succeed(flushed, undefined)),
+                Effect.asVoid,
+              );
+              const submitted = offer({
+                _tag: "Chunk",
+                bytes: owned,
+              }).pipe(
+                Effect.zipRight(
+                  offer({
+                    _tag: "Barrier",
+                    afterPriorWrite: zeroAndConfirm,
+                  }),
+                ),
+                Effect.zipRight(
+                  Effect.raceFirst(
+                    Deferred.await(flushed),
+                    inputUnavailable,
+                  ),
+                ),
+              );
+              yield* submitted.pipe(
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    if (sensitiveCopies.has(owned)) {
+                      owned.fill(0);
+                      sensitiveCopies.delete(owned);
+                    }
+                  }),
+                ),
+              );
+            }),
+          );
         const closeInput = inputLock
           .withPermits(1)(
             Ref.getAndSet(inputOpen, false).pipe(
@@ -484,6 +571,7 @@ export const SshTransportLayer = Layer.scoped(
 
         return {
           write,
+          writeSensitive,
           closeInput,
           stdout: process.stdout.pipe(
             Stream.mapError(() => ioError(endpoint, operation)),

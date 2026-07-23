@@ -8,6 +8,7 @@ import {
   Either,
   Fiber,
   Layer,
+  Option,
   Scope,
   Sink,
   Stream,
@@ -512,6 +513,63 @@ describe("SshTransport", () => {
         remoteText(command).includes("release-bridge"),
       ),
     ).toBe(true);
+  });
+
+  it("flushes and clears the transport-owned copy of sensitive input", async () => {
+    const calls: Command.StandardCommand[] = [];
+    const releases: Command.StandardCommand[] = [];
+    const received: Uint8Array[] = [];
+    const sinkEntered = Effect.runSync(Deferred.make<void>());
+    const allowSink = Effect.runSync(Deferred.make<void>());
+    const input = Sink.forEach((chunk: Uint8Array) =>
+      Deferred.succeed(sinkEntered, undefined).pipe(
+        Effect.zipRight(Deferred.await(allowSink)),
+        Effect.zipRight(
+          Effect.sync(() => {
+            received.push(Uint8Array.from(chunk));
+          }),
+        ),
+      ),
+    );
+    const layer = await testLayer(
+      (command) =>
+        remoteText(command).includes("release-bridge")
+          ? { stdin: input }
+          : {},
+      calls,
+      releases,
+    );
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const endpoint = yield* parseSshEndpoint("linux-station");
+        const remote = yield* makeRemoteCommand(
+          "/usr/libexec/vellum-release-bridge",
+        );
+        yield* (yield* SshTransport).transact(
+          dedicatedStream(endpoint, remote),
+          (lease) =>
+            Effect.gen(function* () {
+              const passwordLine = Buffer.from("one-shot-secret\n", "utf8");
+              const write = yield* Effect.fork(
+                lease.writeSensitive(passwordLine),
+              );
+              yield* Deferred.await(sinkEntered);
+              expect(Option.isNone(yield* Fiber.poll(write))).toBe(true);
+              yield* Deferred.succeed(allowSink, undefined);
+              yield* Fiber.join(write);
+              passwordLine.fill(0);
+              yield* lease.closeInput;
+            }),
+        );
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(
+      Buffer.concat(received.map((chunk) => Buffer.from(chunk))).toString(
+        "utf8",
+      ),
+    ).toBe("one-shot-secret\n");
   });
 
   it("rejects a duplex transaction whose remote child exits non-zero", async () => {
