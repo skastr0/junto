@@ -178,7 +178,8 @@ describe("native package pipeline contract", () => {
     expect(beforeRemove).not.toMatch(/\|\|\s*true/u);
     expect(afterInstall).toContain('ln -s "$PROFILE_SOURCE" "$PROFILE_TARGET"');
     expect(afterInstall).not.toMatch(/mv\s+-f.*PROFILE_TARGET/u);
-    expect(afterRemove).toContain('upgrade|failed-upgrade|abort-install|abort-upgrade|disappear');
+    expect(afterRemove).toContain('upgrade|failed-upgrade|abort-upgrade|disappear');
+    expect(afterRemove).toMatch(/remove\|purge\)[\s\S]*update-alternatives/u);
     expect(afterRemove).toContain(
       "update-alternatives --remove vellum '/opt/Vellum Command/resources/bin/vellum'",
     );

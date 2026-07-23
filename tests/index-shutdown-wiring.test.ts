@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest";
 describe("index shutdown wiring", () => {
   const source = readFileSync(join(import.meta.dirname, "..", "src/main/index.ts"), "utf8");
 
-  it("routes launchd supervision through the bounded launchctl runner", () => {
-    expect(source).toContain("launchAgentTargetForCurrentUser()");
-    expect(source).toContain("printLaunchAgent(target)");
-    expect(source).toContain("kickstartLaunchAgent(target)");
-    expect(source).not.toContain('execFile("/bin/launchctl"');
+  it("routes packaged startup through the selected bounded supervisor", () => {
+    expect(source).toContain('import { loadStationSupervisor } from "./vellum/supervision/select";');
+    expect(source).toContain("const supervisor = await loadStationSupervisor();");
+    expect(source).toContain("const handoff = await supervisor.requestHandoff();");
+    expect(source).not.toContain("kickstartLaunchAgent(");
   });
 
   it("binds browser control shutdown into the browser composition", () => {
