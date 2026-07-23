@@ -4,6 +4,10 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  decodeLinuxReleaseFence,
+  type LinuxReleaseFence,
+} from "./linux-release-fence";
 import type { TerminalLaunch, TerminalSessionSummary } from "./terminal";
 
 export const TERM_CONTROL_PROTOCOL = 1 as const;
@@ -68,12 +72,13 @@ export type TermControlRequest =
       readonly rows: number;
     }
   | { readonly v: 1; readonly id: string; readonly op: "maintenance.acquire" }
+  | { readonly v: 1; readonly id: string; readonly op: "maintenance.fence" }
   | { readonly v: 1; readonly id: string; readonly op: "maintenance.release" }
   | { readonly v: 1; readonly id: string; readonly op: "shutdown" };
 
 export type TermMaintenanceRequest = Extract<
   TermControlRequest,
-  { readonly op: "maintenance.acquire" | "maintenance.release" }
+  { readonly op: "maintenance.acquire" | "maintenance.fence" | "maintenance.release" }
 >;
 
 export type TermControlResponse =
@@ -143,6 +148,12 @@ export type TermMaintenanceReleasePayload = {
   readonly released: boolean;
 };
 
+export type TermMaintenanceFencePayload = {
+  readonly acknowledged: true;
+  readonly evidence: TermMaintenanceQuiescenceEvidence;
+  readonly fence: LinuxReleaseFence;
+};
+
 const TERM_MAINTENANCE_OBSERVATION_PATTERN = /^tm_[0-9a-f]{16}$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -170,7 +181,9 @@ export const decodeTermMaintenanceRequest = (
     typeof value.id !== "string" ||
     value.id.length === 0 ||
     value.id.length > 128 ||
-    (value.op !== "maintenance.acquire" && value.op !== "maintenance.release")
+    (value.op !== "maintenance.acquire" &&
+      value.op !== "maintenance.fence" &&
+      value.op !== "maintenance.release")
   ) {
     return undefined;
   }
@@ -243,4 +256,29 @@ export const decodeTermMaintenanceReleasePayload = (
     return undefined;
   }
   return { released: value.released };
+};
+
+export const decodeTermMaintenanceFencePayload = (
+  value: unknown,
+): TermMaintenanceFencePayload | undefined => {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["acknowledged", "evidence", "fence"]) ||
+    value.acknowledged !== true
+  ) {
+    return undefined;
+  }
+  const evidence = decodeTermMaintenanceEvidence(value.evidence);
+  const fence = decodeLinuxReleaseFence(value.fence);
+  if (evidence?.activeTerminalSessions !== 0 || fence === undefined) {
+    return undefined;
+  }
+  return {
+    acknowledged: true,
+    evidence: {
+      activeTerminalSessions: 0,
+      observationId: evidence.observationId,
+    },
+    fence,
+  };
 };

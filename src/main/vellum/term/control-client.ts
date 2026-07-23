@@ -8,9 +8,11 @@ import { EventEmitter } from "node:events";
 import { performance } from "node:perf_hooks";
 import {
   decodeTermMaintenanceAcquirePayload,
+  decodeTermMaintenanceFencePayload,
   decodeTermMaintenanceReleasePayload,
   type TermMaintenanceDenialReason,
   type TermMaintenanceEvidence,
+  type TermMaintenanceFencePayload,
   type TermMaintenanceQuiescenceEvidence,
   type TermMaintenanceReleasePayload,
   type TermControlRequest,
@@ -36,6 +38,8 @@ export interface TermControlClientShutdownReceipt {
 
 export interface TermControlMaintenanceLease {
   readonly evidence: TermMaintenanceQuiescenceEvidence;
+  /** Observe the exact root-owned fence while this socket still holds the cut. */
+  readonly acknowledgeFence: () => Promise<TermMaintenanceFencePayload>;
   /** Idempotent and bounded; transport ambiguity rejects and closes the socket. */
   readonly release: () => Promise<TermMaintenanceReleasePayload>;
 }
@@ -393,6 +397,28 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     if (!payload.acquired) return payload;
 
     const evidence = Object.freeze(payload.evidence);
+    const acknowledgeFence = async (): Promise<TermMaintenanceFencePayload> => {
+      try {
+        const fenceResponse = await this.call(
+          { v: 1, id: this.nextId(), op: "maintenance.fence" },
+          MAINTENANCE_REQUEST_TIMEOUT_MS,
+        );
+        if (!fenceResponse.ok) throw new Error(fenceResponse.error);
+        const receipt = decodeTermMaintenanceFencePayload(fenceResponse.data);
+        if (
+          receipt === undefined ||
+          receipt.evidence.observationId !== evidence.observationId
+        ) {
+          throw new Error("invalid terminal maintenance fence response");
+        }
+        return Object.freeze(receipt);
+      } catch (error) {
+        // A malformed or ambiguous acknowledgment cannot retain useful
+        // maintenance authority on this client connection.
+        this.close();
+        throw error;
+      }
+    };
     let releaseFlight: Promise<TermMaintenanceReleasePayload> | undefined;
     const release = (): Promise<TermMaintenanceReleasePayload> => {
       if (releaseFlight !== undefined) return releaseFlight;
@@ -417,7 +443,7 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
       })();
       return releaseFlight;
     };
-    const lease = Object.freeze({ evidence, release });
+    const lease = Object.freeze({ evidence, acknowledgeFence, release });
     return { acquired: true, evidence, lease };
   }
 

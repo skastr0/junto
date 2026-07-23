@@ -29,6 +29,8 @@ import {
   termControlSocketPath,
   termControlTokenPath,
   type TermMaintenanceAcquirePayload,
+  type TermMaintenanceFencePayload,
+  type TermMaintenanceQuiescenceEvidence,
   type TermMaintenanceReleasePayload,
   type TermControlRequest,
   type TermControlResponse,
@@ -51,6 +53,10 @@ import {
   rotateControlFileToken,
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
+import {
+  observeLinuxReleaseFence,
+  type LinuxReleaseFenceObservation,
+} from "./release-fence";
 
 const tokenHash = (token: string): Buffer =>
   createHash("sha256").update(token, "utf8").digest();
@@ -216,6 +222,8 @@ export const startTermControlServer = async (
     readonly chmodSocket?: (path: string, mode: number) => void;
     /** Tests may lower, never raise, the accepted peer ceiling. */
     readonly maxActiveClients?: number;
+    /** Test seam for the fixed root-owned Linux release fence. */
+    readonly observeReleaseFence?: () => LinuxReleaseFenceObservation;
   },
 ): Promise<TermControlServer> => {
   const home = options?.home;
@@ -231,6 +239,8 @@ export const startTermControlServer = async (
     TERM_CONTROL_SHUTDOWN_DEADLINE_MS,
   );
   const maxActiveClients = boundedRuntimeValue(options?.maxActiveClients, TERM_CONTROL_MAX_CLIENTS);
+  const observeReleaseFence =
+    options?.observeReleaseFence ?? observeLinuxReleaseFence;
   prepareControlDirectory(dir);
 
   const token = randomBytes(32).toString("hex");
@@ -240,7 +250,13 @@ export const startTermControlServer = async (
   const socketLeases = new Map<Socket, Set<string>>();
   const leaseById = new Map<string, ControlLease>();
   /** Opaque host capabilities never cross the authenticated socket boundary. */
-  const maintenanceLeaseBySocket = new Map<Socket, LocalTerminalMaintenanceLease>();
+  const maintenanceLeaseBySocket = new Map<
+    Socket,
+    {
+      readonly lease: LocalTerminalMaintenanceLease;
+      readonly evidence: TermMaintenanceQuiescenceEvidence;
+    }
+  >();
   /** Accepted clients and every admitted handler remain visible through shutdown. */
   const sockets = new Map<number, TermControlSocket>();
   const activeFlights = new Map<number, TermControlFlight>();
@@ -305,10 +321,10 @@ export const startTermControlServer = async (
   };
 
   const releaseMaintenanceForSocket = (socket: Socket): boolean => {
-    const lease = maintenanceLeaseBySocket.get(socket);
-    if (lease === undefined) return false;
+    const entry = maintenanceLeaseBySocket.get(socket);
+    if (entry === undefined) return false;
     maintenanceLeaseBySocket.delete(socket);
-    return host.releaseMaintenanceLease(lease);
+    return host.releaseMaintenanceLease(entry.lease);
   };
 
   const dropSocket = (socket: Socket): void => {
@@ -440,11 +456,60 @@ export const startTermControlServer = async (
             } satisfies TermMaintenanceAcquirePayload;
             return { v: 1, id, ok: true, data };
           }
-          maintenanceLeaseBySocket.set(socket, result.lease);
+          maintenanceLeaseBySocket.set(socket, {
+            lease: result.lease,
+            evidence: result.evidence,
+          });
           const data = {
             acquired: true,
             evidence: result.evidence,
           } satisfies TermMaintenanceAcquirePayload;
+          return { v: 1, id, ok: true, data };
+        }
+        case "maintenance.fence": {
+          if (decodeTermMaintenanceRequest(req) === undefined) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "invalid maintenance request",
+            };
+          }
+          const entry = maintenanceLeaseBySocket.get(socket);
+          if (entry === undefined) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "terminal maintenance lease required",
+            };
+          }
+          if (host.runningCount() !== 0) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "terminal maintenance lost quiescence",
+            };
+          }
+          const observation = observeReleaseFence();
+          if (
+            observation.state !== "active" ||
+            observation.fence.targetUid !== process.getuid?.() ||
+            observation.fence.targetGid !== process.getgid?.()
+          ) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "root release fence is not exact for this station",
+            };
+          }
+          const data = {
+            acknowledged: true,
+            evidence: entry.evidence,
+            fence: observation.fence,
+          } satisfies TermMaintenanceFencePayload;
           return { v: 1, id, ok: true, data };
         }
         case "maintenance.release": {

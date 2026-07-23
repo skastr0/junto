@@ -5,11 +5,16 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   decodeTermMaintenanceAcquirePayload,
+  decodeTermMaintenanceFencePayload,
   decodeTermMaintenanceReleasePayload,
   decodeTermMaintenanceRequest,
   TERM_MAINTENANCE_MAX_ACTIVE_SESSIONS,
   type TermControlResponse,
 } from "../src/shared/term-control";
+import {
+  LINUX_RELEASE_FENCE_PROTOCOL,
+  type LinuxReleaseFence,
+} from "../src/shared/linux-release-fence";
 import {
   type TermControlMaintenanceLease,
   TermControlClient,
@@ -18,6 +23,7 @@ import {
   startTermControlServer,
   type TermControlServer,
 } from "../src/main/vellum/term/control-server";
+import type { LinuxReleaseFenceObservation } from "../src/main/vellum/term/release-fence";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
 import {
   makeProcessIdentityMap,
@@ -51,7 +57,9 @@ const waitUntil = async (predicate: () => boolean, timeoutMs = 1_000): Promise<v
   }
 };
 
-const makeRig = async (): Promise<TestRig> => {
+const makeRig = async (options?: {
+  readonly observeReleaseFence?: () => LinuxReleaseFenceObservation;
+}): Promise<TestRig> => {
   // Unix-domain socket paths are short on macOS; keep the synthetic home terse.
   const home = mkdtempSync(join(tmpdir(), "vtm-"));
   const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
@@ -67,6 +75,7 @@ const makeRig = async (): Promise<TestRig> => {
     home,
     shutdownGraceMs: 20,
     shutdownDeadlineMs: 500,
+    observeReleaseFence: options?.observeReleaseFence,
   });
   const clients: TermControlClient[] = [];
   let disposed = false;
@@ -164,6 +173,22 @@ const rawRequest = (
     socket.once("error", (error) => finish(error));
   });
 
+const releaseFence = (
+  overrides: Partial<LinuxReleaseFence> = {},
+): LinuxReleaseFence => ({
+  schema: LINUX_RELEASE_FENCE_PROTOCOL,
+  fenceId: "a".repeat(32),
+  transactionId: "b".repeat(32),
+  operation: "install",
+  targetUid: process.getuid?.() ?? 1_000,
+  targetGid: process.getgid?.() ?? 1_000,
+  stationId: "remote-01",
+  machineIdSha256: "c".repeat(64),
+  bootId: "01234567-89ab-cdef-0123-456789abcdef",
+  candidateDigest: "d".repeat(64),
+  ...overrides,
+});
+
 beforeEach(() => {
   setProcessIdentityMapForTests(makeProcessIdentityMap());
   setProcessEpochReaderForTests({
@@ -233,6 +258,67 @@ describe("terminal maintenance lease", () => {
     if (!acquired.acquired) return;
     await expect(acquired.lease.release()).resolves.toEqual({ released: true });
     expect(rig.fake.controllers[0]!.signals).toEqual([]);
+  });
+
+  it("acknowledges the exact root fence only while the same socket holds quiescence", async () => {
+    let observation: LinuxReleaseFenceObservation = { state: "inactive" };
+    const rig = await makeRig({
+      observeReleaseFence: () => observation,
+    });
+    const holder = await rig.connect();
+    const other = await rig.connect();
+    const acquisition = await holder.acquireMaintenance();
+    expect(acquisition.acquired).toBe(true);
+    if (!acquisition.acquired) return;
+
+    await expect(acquisition.lease.acknowledgeFence()).rejects.toThrow(
+      /root release fence is not exact/i,
+    );
+    await holder.whenClosed();
+
+    const successor = await rig.connect();
+    const successorAcquisition = await acquireEventually(successor);
+    const expected = releaseFence();
+    observation = { state: "active", fence: expected };
+    await expect(successorAcquisition.acknowledgeFence()).resolves.toEqual({
+      acknowledged: true,
+      evidence: successorAcquisition.evidence,
+      fence: expected,
+    });
+    await expect(
+      rawRequest(rig.server.socketPath, rig.server.token, {
+        v: 1,
+        id: "not-the-holder",
+        op: "maintenance.fence",
+      }),
+    ).resolves.toEqual({
+      v: 1,
+      id: "not-the-holder",
+      ok: false,
+      error: "terminal maintenance lease required",
+    });
+
+    await expect(successorAcquisition.release()).resolves.toEqual({
+      released: true,
+    });
+    other.close();
+  });
+
+  it("refuses a root fence for a different target identity", async () => {
+    const wrongUid = (process.getuid?.() ?? 1_000) + 1;
+    const rig = await makeRig({
+      observeReleaseFence: () => ({
+        state: "active",
+        fence: releaseFence({ targetUid: wrongUid }),
+      }),
+    });
+    const holder = await rig.connect();
+    const acquisition = await holder.acquireMaintenance();
+    expect(acquisition.acquired).toBe(true);
+    if (!acquisition.acquired) return;
+    await expect(acquisition.lease.acknowledgeFence()).rejects.toThrow(
+      /not exact for this station/i,
+    );
   });
 
   it("admits one concurrent holder, blocks every create path, and releases idempotently", async () => {
@@ -455,6 +541,25 @@ describe("terminal maintenance wire contract", () => {
     expect(decodeTermMaintenanceReleasePayload({ released: true })).toEqual({
       released: true,
     });
+    const exactFence = releaseFence();
+    expect(
+      decodeTermMaintenanceFencePayload({
+        acknowledged: true,
+        evidence: { activeTerminalSessions: 0, observationId },
+        fence: exactFence,
+      }),
+    ).toEqual({
+      acknowledged: true,
+      evidence: { activeTerminalSessions: 0, observationId },
+      fence: exactFence,
+    });
+    expect(
+      decodeTermMaintenanceFencePayload({
+        acknowledged: true,
+        evidence: { activeTerminalSessions: 0, observationId },
+        fence: { ...exactFence, markerPath: "/tmp/attacker" },
+      }),
+    ).toBeUndefined();
   });
 
   it("accepts only fixed maintenance request shapes", () => {
@@ -475,6 +580,25 @@ describe("terminal maintenance wire contract", () => {
         id: "0123456789abcdef",
         op: "maintenance.release",
         leaseId: "caller-minted",
+      }),
+    ).toBeUndefined();
+    expect(
+      decodeTermMaintenanceRequest({
+        v: 1,
+        id: "0123456789abcdef",
+        op: "maintenance.fence",
+      }),
+    ).toEqual({
+      v: 1,
+      id: "0123456789abcdef",
+      op: "maintenance.fence",
+    });
+    expect(
+      decodeTermMaintenanceRequest({
+        v: 1,
+        id: "0123456789abcdef",
+        op: "maintenance.fence",
+        fenceId: "caller-minted",
       }),
     ).toBeUndefined();
   });
