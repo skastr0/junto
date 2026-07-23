@@ -1147,7 +1147,11 @@ if (packagedSandboxDisablingSwitch !== undefined) {
   await AppRuntime.runPromise(herdr.start);
     // Local term control UDS — Remote stations expose this for CC SSH forward.
     try {
-      await termPlane.start();
+      await termPlane.start(
+        headless && !app.isPackaged
+          ? { controlHome: app.getPath("userData") }
+          : undefined,
+      );
     } catch (error) {
       console.error("[term] control socket failed to start:", error);
     }

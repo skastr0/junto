@@ -144,6 +144,22 @@ describe("terminal shutdown receipts", () => {
     expect(receipt.router?.clean).toBe(true);
   });
 
+  it("contains an isolated app control listener under its owned home", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vellum-term-plane-home-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const plane = new TermPlane(localHost());
+
+    await plane.start({ controlHome: home });
+
+    expect(existsSync(termControlSocketPath(home))).toBe(true);
+    expect(existsSync(termControlTokenPath(home))).toBe(true);
+    await expect(plane.drainOnQuit("isolated-home-test")).resolves.toMatchObject({
+      clean: true,
+      retainedLabels: [],
+    });
+    expect(existsSync(termControlSocketPath(home))).toBe(false);
+  });
+
   it("reports an exact local terminal generation that refuses both signals", async () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: undefined,

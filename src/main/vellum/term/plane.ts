@@ -19,6 +19,15 @@ export interface TermPlaneShutdownReceipt {
   readonly diagnostics: ReadonlyArray<string>;
 }
 
+export interface TermPlaneStartOptions {
+  /**
+   * Root for an app-owned control directory. Production omits this and keeps
+   * the canonical ~/.vellum/term contract; isolated app instances may supply
+   * their own Electron-owned userData path.
+   */
+  readonly controlHome?: string;
+}
+
 const TERM_PLANE_SHUTDOWN_DEADLINE_MS = 5_000;
 
 const settledBefore = async <A>(
@@ -83,7 +92,7 @@ export class TermPlane {
   }
 
   /** Start local control socket (idempotent). */
-  start = async (): Promise<void> => {
+  start = async (options?: TermPlaneStartOptions): Promise<void> => {
     if (this.shuttingDown) throw new Error("terminal plane is stopping");
     if (this.controlStartupFailure !== undefined) throw this.controlStartupFailure;
     if (this.control) return;
@@ -91,7 +100,9 @@ export class TermPlane {
     let current!: Promise<void>;
     current = (async () => {
       try {
-        const control = await startTermControlServer(this.host);
+        const control = await startTermControlServer(this.host, {
+          home: options?.controlHome,
+        });
         this.control = control;
         if (this.shuttingDown) control.beginShutdown();
         console.info(`[term] control socket ${control.socketPath}`);
