@@ -7,11 +7,14 @@
 
 import { EventEmitter } from "node:events";
 import * as os from "node:os";
-import { constants, existsSync, statSync } from "node:fs";
-import { isAbsolute } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { getProcessIdentityMap } from "../process-identity";
+import {
+  TerminalLaunchError,
+  validateExecutableShell,
+  type TerminalLaunchFailureCode,
+} from "./shell-policy";
 import {
   appProcessPlane,
   type AppProcessPlane,
@@ -159,44 +162,15 @@ const mintEpoch = (): string =>
 
 const mintLease = (): string => `ls_${randomBytes(8).toString("hex")}`;
 
-export type TerminalLaunchFailureCode =
-  | "shell_missing"
-  | "shell_not_executable"
-  | "shell_not_absolute";
-
-/** Typed before-spawn launch rejection; it never exposes process authority. */
-export class TerminalLaunchError extends Error {
-  constructor(
-    readonly code: TerminalLaunchFailureCode,
-    readonly shell: string,
-  ) {
-    super(`terminal shell ${code.replaceAll("_", " ")}: ${shell}`);
-    this.name = "TerminalLaunchError";
-  }
-}
-
-const validateShell = (shell: string): string => {
-  if (!isAbsolute(shell)) throw new TerminalLaunchError("shell_not_absolute", shell);
-  try {
-    if (!existsSync(shell) || !statSync(shell).isFile()) {
-      throw new TerminalLaunchError("shell_missing", shell);
-    }
-    if ((statSync(shell).mode & constants.S_IXUSR) === 0) {
-      throw new TerminalLaunchError("shell_not_executable", shell);
-    }
-  } catch (error) {
-    if (error instanceof TerminalLaunchError) throw error;
-    throw new TerminalLaunchError("shell_missing", shell);
-  }
-  return shell;
-};
+export { TerminalLaunchError };
+export type { TerminalLaunchFailureCode };
 
 const defaultShell = (): string => {
   if (process.platform === "win32") return process.env.COMSPEC || "cmd.exe";
   // Linux is deliberately bash-first; macOS retains its system login shell.
   const candidate = process.env.SHELL?.trim() ||
     (process.platform === "linux" ? "/bin/bash" : "/bin/zsh");
-  return validateShell(candidate);
+  return validateExecutableShell(candidate);
 };
 
 export const resolveLaunch = (
@@ -217,7 +191,7 @@ export const resolveLaunch = (
   if (launch?.kind === "shell" || !launch || argv.length === 0) {
     // An explicit shell argv wins over the user/default shell, but is still
     // validated before process ownership can be minted.
-    const shell = argv.length > 0 ? validateShell(argv[0]!) : defaultShell();
+    const shell = argv.length > 0 ? validateExecutableShell(argv[0]!) : defaultShell();
     if (process.platform !== "win32") {
       return { file: shell, args: argv.length > 1 ? argv.slice(1) : ["-l"], cwd, env };
     }
