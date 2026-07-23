@@ -1,7 +1,10 @@
 import type { EtherEdgeKind } from "@shared/canvas";
 
-// Deep-field palette. Ground is never pure black. Roughly 95% amber, sparse
-// others. Crimson is reserved for blockers only.
+// Deep-field palette — the TS mirror of the `@theme` block in styles.css
+// (Tailwind utilities) for runtime consumers: canvas paint, xterm themes,
+// inline styles. One palette, two projections — never a second source.
+// Ground is never pure black. Roughly 95% amber, sparse others. Crimson is
+// reserved for blockers only.
 export const HUE = {
   amber: "#E8A33D",
   cyan: "#39C6D6",
@@ -14,8 +17,15 @@ export const HUE = {
 } as const;
 
 export const GROUND = "#0c0b0a";
+export const RAISE = "#16130f";
+export const RAISE_2 = "#141210";
+export const INSET = "#131110";
+export const WELL = "#090807";
 export const INK = "#EDE6DA";
+export const INK_2 = "#c8c0b0";
 export const DIM = "#8a8378";
+export const FAINT = "#68604a";
+export const GREEN = "#5FB98E";
 
 // Translucent card fill — wireframe over solid.
 export const CARD_FILL = "rgba(255,255,255,0.03)";
@@ -28,7 +38,7 @@ const PRESET: Record<string, string> = {
   "1": HUE.crimson, // red
   "2": HUE.orange, // orange
   "3": HUE.gold, // yellow
-  "4": "#5FB98E", // green
+  "4": GREEN, // green
   "5": HUE.cyan, // cyan
   "6": HUE.violet, // purple
 };

@@ -1,5 +1,49 @@
 @import "tailwindcss";
 
+/* ============================================================================
+   VELLUM DESIGN TOKENS — the house palette, registered as Tailwind v4 theme
+   keys so utilities (`text-ink`, `bg-raise`, `border-stroke`, `text-amber`)
+   are generated from one source of truth. The TS mirror for runtime
+   consumers (canvas paint, xterm, inline styles) is lib/theme.ts — same
+   values, never a second palette.
+   Deep-field: ground is never pure black; ~95% amber, sparse accents;
+   crimson is reserved for blockers.
+   ========================================================================== */
+@theme {
+  /* field + elevation ladder */
+  --color-ground: #0c0b0a; /* the field itself */
+  --color-raise: #16130f; /* raised card / panel */
+  --color-raise-2: #141210; /* header strips on raised panels */
+  --color-inset: #131110; /* sunken inputs, toolbar pills */
+  --color-well: #090807; /* deepest inset (code blocks) */
+
+  /* ink ladder */
+  --color-ink: #ede6da; /* primary text */
+  --color-ink-2: #c8c0b0; /* secondary text (note body) */
+  --color-dim: #8a8378; /* meta text */
+  --color-faint: #68604a; /* eyebrows, placeholders, hints */
+
+  /* house hues — amber is home; the rest are sparse accents */
+  --color-amber: #e8a33d;
+  --color-amber-hi: #f0d9a8; /* lit amber (primary-action text, link hover) */
+  --color-cyan: #39c6d6;
+  --color-violet: #8b7beb;
+  --color-crimson: #e5484d; /* blockers only */
+  --color-steel: #8fa3b0;
+  --color-indigo: #6e7bf2;
+  --color-gold: #d4a94f;
+  --color-orange: #f07438;
+  --color-green: #5fb98e; /* JSON Canvas preset 4 / health ok */
+
+  /* hairline strokes (ink at low alpha — never greys) */
+  --color-stroke: rgb(237 230 218 / 0.14);
+  --color-stroke-hi: rgb(237 230 218 / 0.28);
+
+  /* house type: mono instrument + condensed display stamp */
+  --font-mono: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --font-display: "Arial Narrow", "Avenir Next Condensed", "Helvetica Neue", sans-serif;
+}
+
 /* Deep-field ground: never pure black, monospace-leaning type. */
 :root {
   --layer-tooltip: 20000;
@@ -1254,6 +1298,30 @@ body {
   }
   50% {
     box-shadow: 0 0 0 3px rgba(229, 72, 77, 0.22);
+  }
+}
+
+/* StatusDot live pulse — soft glow breathing, honors reduced motion. */
+.vellum-status-dot-pulse {
+  animation: vellumStatusDotPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes vellumStatusDotPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vellum-blocker,
+  .vellum-status-dot-pulse,
+  .vellum-edge-ripple .react-flow__edge-path,
+  path.vellum-edge-ripple {
+    animation: none;
   }
 }
 
