@@ -248,6 +248,12 @@ describe("Linux release dependency and SBOM evidence", () => {
         "1.0.0",
         "UNLICENSED ",
       ),
+      writePackage(
+        path.join(modules, "invented"),
+        "invented",
+        "1.0.0",
+        "Definitely-Not-A-License",
+      ),
     ]);
     await writeFile(
       path.join(modules, "restricted", "LICENSE"),
@@ -258,8 +264,13 @@ describe("Linux release dependency and SBOM evidence", () => {
       nodeModulesDirectory: modules,
       sourceRevision: "a".repeat(40),
     });
-    expect(inventory.unknownLicenseCount).toBe(2);
+    expect(inventory.unknownLicenseCount).toBe(3);
     expect(inventory.packages).toEqual([
+      expect.objectContaining({
+        name: "invented",
+        license: "UNKNOWN",
+        licenseSource: "unresolved",
+      }),
       expect.objectContaining({
         name: "restricted",
         license: "UNKNOWN",

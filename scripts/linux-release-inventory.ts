@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import parseSpdxExpression from "spdx-expression-parse";
 
 export interface InstalledPackageLicense {
   readonly name: string;
@@ -92,67 +93,15 @@ const requirePackageText = (
 };
 
 const isSpdxExpressionShape = (candidate: string): boolean => {
-  const tokens = candidate.match(
-    /\(|\)|AND\b|OR\b|WITH\b|[A-Za-z0-9][A-Za-z0-9.+:-]*/gu,
-  );
-  if (
-    tokens === null ||
-    tokens.join("") !== candidate.replaceAll(/\s+/gu, "")
-  ) {
+  if (/(?:DocumentRef-|LicenseRef-)/u.test(candidate)) {
     return false;
   }
-  let cursor = 0;
-  const parsePrimary = (): boolean => {
-    const token = tokens[cursor];
-    if (token === "(") {
-      cursor += 1;
-      if (!parseExpression() || tokens[cursor] !== ")") return false;
-      cursor += 1;
-      return true;
-    }
-    if (
-      token === undefined ||
-      token === ")" ||
-      token === "AND" ||
-      token === "OR" ||
-      token === "WITH"
-    ) {
-      return false;
-    }
-    cursor += 1;
-    if (tokens[cursor] === "WITH") {
-      cursor += 1;
-      const exception = tokens[cursor];
-      if (
-        exception === undefined ||
-        exception === ")" ||
-        exception === "AND" ||
-        exception === "OR" ||
-        exception === "WITH"
-      ) {
-        return false;
-      }
-      cursor += 1;
-    }
+  try {
+    parseSpdxExpression(candidate);
     return true;
-  };
-  const parseAnd = (): boolean => {
-    if (!parsePrimary()) return false;
-    while (tokens[cursor] === "AND") {
-      cursor += 1;
-      if (!parsePrimary()) return false;
-    }
-    return true;
-  };
-  const parseExpression = (): boolean => {
-    if (!parseAnd()) return false;
-    while (tokens[cursor] === "OR") {
-      cursor += 1;
-      if (!parseAnd()) return false;
-    }
-    return true;
-  };
-  return parseExpression() && cursor === tokens.length;
+  } catch {
+    return false;
+  }
 };
 
 const normalizeLicense = (value: unknown): string => {
