@@ -46,7 +46,7 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
   return (
     <NodeShell node={node} selected={selected} blocked={data.blocked} onEdit={() => setEditing(true)} onOpen={isPage ? undefined : () => window.open(url, "_blank")}>
       {editing ? (
-        <input ref={ref} autoFocus aria-label="Edit URL" className="nodrag nopan h-full w-full bg-transparent text-[12px] outline-none" style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") commit(); if (event.key === "Escape") setEditing(false); }} />
+        <input ref={ref} autoFocus aria-label="Edit URL" className="nodrag nopan h-full w-full bg-transparent font-mono text-[12px] outline-none" style={{ color: INK }} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") commit(); if (event.key === "Escape") setEditing(false); }} />
       ) : isPage ? (
         <PageCard node={node} />
       ) : (
@@ -55,15 +55,15 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
             <Link2 size={15} className="mt-0.5 shrink-0" style={{ color: HUE.cyan }} />
             <div className="min-w-0">
               <div
-                className="truncate text-[12px] font-semibold underline decoration-dotted underline-offset-2"
-                style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
+                className="truncate font-mono text-[12px] font-semibold underline decoration-dotted underline-offset-2"
+                style={{ color: INK }}
               >
                 {host}
               </div>
               {rest && rest !== "/" ? (
                 <div
-                  className="truncate text-[10px]"
-                  style={{ color: DIM, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
+                  className="truncate font-mono text-[10px]"
+                  style={{ color: DIM }}
                 >
                   {rest}
                 </div>
@@ -72,7 +72,7 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
           </button>
           <button
             type="button"
-            className="nodrag nopan mt-1 flex w-fit items-center gap-1 rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-slate-300 hover:bg-white/10"
+            className="nodrag nopan mt-1 flex w-fit items-center gap-1 rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-ink-2 hover:bg-white/10"
             title="Promote to a bound browser page work surface"
             onClick={(event) => {
               event.stopPropagation();

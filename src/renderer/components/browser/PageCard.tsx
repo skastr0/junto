@@ -50,7 +50,7 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
   }, [browser, pageRef]);
 
   if (!browser || !pageRef) {
-    return <div className="text-xs text-slate-500">page unbound</div>;
+    return <div className="text-xs text-faint">page unbound</div>;
   }
 
   const state = session?.state ?? "idle";
@@ -104,8 +104,8 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
         >
           <Globe size={13} className="shrink-0" style={{ color: HUE.steel }} />
           <span
-            className="truncate text-[14px] font-semibold leading-snug"
-            style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
+            className="truncate font-mono text-[14px] font-semibold leading-snug"
+            style={{ color: INK }}
           >
             {warm && title ? title : host}
           </span>
@@ -117,7 +117,7 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
       <div className="nodrag nopan flex flex-wrap items-center gap-1 pt-0.5">
         <button
           type="button"
-          className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-slate-300 hover:bg-white/10"
+          className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-ink-2 hover:bg-white/10"
           onClick={(e) => {
             e.stopPropagation();
             open();
@@ -128,7 +128,7 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
         {session?.attached ? (
           <button
             type="button"
-            className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-slate-300 hover:bg-white/10"
+            className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-ink-2 hover:bg-white/10"
             onClick={(e) => {
               e.stopPropagation();
               detach();

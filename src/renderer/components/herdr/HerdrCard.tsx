@@ -87,8 +87,8 @@ function RenameInput({
         el?.select();
       }}
       aria-label="Rename agent node"
-      className="nodrag nopan nowheel w-full truncate bg-transparent text-left text-[14px] font-semibold leading-snug outline-none"
-      style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
+      className="nodrag nopan nowheel w-full truncate bg-transparent text-left font-mono text-[14px] font-semibold leading-snug outline-none"
+      style={{ color: INK }}
       value={value}
       onChange={(event) => setValue(event.target.value)}
       onBlur={() => finish(true)}
@@ -167,7 +167,7 @@ export function HerdrCard({
   }, [node.id, herdr?.host, herdr?.paneId, herdr?.session, herdr?.terminalId, pushDriven]);
 
   if (!herdr) {
-    return <div className="text-xs text-slate-500">herdr unbound</div>;
+    return <div className="text-xs text-faint">herdr unbound</div>;
   }
 
   const meta = metaCache?.meta;
@@ -320,8 +320,8 @@ export function HerdrCard({
             ) : (
               <button
                 type="button"
-                className="nodrag nopan w-full truncate text-left text-[14px] font-semibold leading-snug"
-                style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}
+                className="nodrag nopan w-full truncate text-left font-mono text-[14px] font-semibold leading-snug"
+                style={{ color: INK }}
                 title={selected ? "double-click to rename" : "open terminal"}
                 onPointerDown={guardedOpen}
                 onClick={guardedOpen}

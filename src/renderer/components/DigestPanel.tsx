@@ -43,7 +43,7 @@ export function DigestPanel() {
   return <AnimatePresence>
     {open && digest ? <motion.aside key="digest" role="dialog" aria-label="Canvas digest" aria-modal="true" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }} className="absolute right-0 top-0 z-50 flex h-full w-[440px] max-w-[90vw] flex-col border-l" style={{ borderColor: "rgba(237,230,218,0.12)", background: "rgba(12,11,10,0.97)" }}>
       <DigestHeader path={digest.path} copied={copied} onCopy={copy} onClose={() => state$.digestOpen.set(false)} />
-      <pre className="flex-1 overflow-auto whitespace-pre-wrap px-4 py-3 text-[11px] leading-relaxed" style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}>{digest.digest}</pre>
+      <pre className="flex-1 overflow-auto whitespace-pre-wrap px-4 py-3 font-mono text-[11px] leading-relaxed" style={{ color: INK }}>{digest.digest}</pre>
     </motion.aside> : null}
   </AnimatePresence>;
 }

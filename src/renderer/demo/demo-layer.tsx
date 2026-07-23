@@ -70,7 +70,7 @@ export function DemoLayer() {
 
   return (
     <div
-      className="pointer-events-none fixed z-[60]"
+      className="pointer-events-none fixed z-[60] font-mono"
       style={{
         left: 12,
         bottom: 12,
@@ -79,7 +79,6 @@ export function DemoLayer() {
         background: "rgba(12,11,10,.85)",
         color: "#EDE6DA",
         fontSize: 11,
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
         border: "1px solid rgba(237,230,218,0.16)",
       }}
     >

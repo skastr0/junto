@@ -19,6 +19,7 @@ import { ChatView, InspectorTabs } from "./chat";
 import { chatState$ } from "../lib/chat-state";
 import { connectionStateOf, herdr$, refreshHerdrMeta } from "../lib/herdr-state";
 import { HarnessMark } from "./herdr/HarnessMark";
+import { NoteMarkdown } from "../lib/note-markdown";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
   { value: "1", label: "red", hue: HUE.crimson },
@@ -231,7 +232,7 @@ function AgentSections({ node }: { readonly node: CanvasNode }) {
       {sendError ? <div className="mt-2 text-[10px]" style={{ color: withAlpha(HUE.crimson, 0.75) }}>{sendError}</div> : null}
       {reply ? <div className="mt-2">
         <div className="text-[8px] uppercase tracking-[.14em]" style={{ color: DIM }}>reply · {new Date(reply.at).toLocaleTimeString()}</div>
-        <pre className="nowheel mt-1 max-h-[300px] overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed" style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}>{reply.text}</pre>
+        <pre className="nowheel mt-1 max-h-[300px] overflow-y-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed" style={{ color: INK }}>{reply.text}</pre>
       </div> : null}
     </div>
   </>;
@@ -271,8 +272,17 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
           <ChatView key={hermesKey} agentKey={hermesKey} />
         </div>
       ) : <>
-        {!isEntity ? <div className="inspector-detail">{nodeDetail(node) || "No description recorded."}</div> : null}
-        {isEntity && node.ether?.entity?.kind === "herdr" ? <HerdrSections key={node.id} node={node} /> : isEntity && node.ether?.entity?.kind === "agent" ? <LiveReadout node={node} /> : !isEntity || node.ether?.entity?.kind === "project" ? <div className="inspector-detail">{nodeDetail(node) || (node.ether?.entity?.kind === "project" ? "project (note)" : "No description recorded.")}</div> : null}
+        {isEntity && node.ether?.entity?.kind === "herdr" ? (
+          <HerdrSections key={node.id} node={node} />
+        ) : isEntity && node.ether?.entity?.kind === "agent" ? (
+          <LiveReadout node={node} />
+        ) : !isEntity && node.type === "text" ? (
+          <div className="inspector-detail note-surface">
+            <NoteMarkdown source={node.text.split("\n").slice(1).join("\n").trim()} />
+          </div>
+        ) : (
+          <div className="inspector-detail">{nodeDetail(node) || (node.ether?.entity?.kind === "project" ? "project (note)" : "No description recorded.")}</div>
+        )}
         {isAgent ? <AgentSections key={node.id} node={node} /> : null}
         <NodeCapabilityInventory key={`cap:${node.id}`} node={node} />
         <BrowserAutomationSection key={`${canvasName}:${node.id}`} canvasName={canvasName} node={node} />

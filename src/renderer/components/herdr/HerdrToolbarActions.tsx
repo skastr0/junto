@@ -61,7 +61,7 @@ export function HerdrToolbarActions({ node }: { readonly node: CanvasNode }) {
       <button
         aria-label={isArmed ? `confirm ${label}` : label}
         className={`nodrag nopan grid size-7 place-items-center rounded text-[11px] transition hover:bg-white/10 ${
-          isArmed ? "" : "text-slate-300 hover:text-[#EDE6DA]"
+          isArmed ? "" : "text-ink-2 hover:text-ink"
         }`}
         style={isArmed ? { color: HUE.crimson } : undefined}
         title={isArmed ? `confirm ${label}` : label}

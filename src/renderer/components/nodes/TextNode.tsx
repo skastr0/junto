@@ -80,7 +80,7 @@ function WatcherCard({ node }: { readonly node: CanvasNode }) {
           <ActivityMarkFromSpec spec={activity} />
           <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>watcher</span>
         </div>
-        <div className="mt-1 truncate text-[13px] font-semibold leading-snug" style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }} title={rawName}>
+        <div className="mt-1 truncate font-mono text-[13px] font-semibold leading-snug" style={{ color: INK }} title={rawName}>
           {rawName}
         </div>
       </div>
@@ -107,7 +107,7 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
           <ActivityMarkFromSpec spec={activity} />
           <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>timer</span>
         </div>
-        <div className="mt-1 truncate text-[13px] font-semibold leading-snug" style={{ color: INK, fontFamily: "ui-monospace, SFMono-Regular, monospace" }} title={rawName}>
+        <div className="mt-1 truncate font-mono text-[13px] font-semibold leading-snug" style={{ color: INK }} title={rawName}>
           {rawName}
         </div>
       </div>
@@ -195,7 +195,7 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
               {avatarUrl ? <img src={avatarUrl} alt="" className="size-full object-cover" /> : null}
             </span>
           ) : null}
-          <span className="truncate text-[14px] font-semibold leading-snug" style={{ color: nameHue, fontFamily: "ui-monospace, SFMono-Regular, monospace" }} title={rawName}>
+          <span className="truncate font-mono text-[14px] font-semibold leading-snug" style={{ color: nameHue }} title={rawName}>
             {displayName}
           </span>
         </div>
@@ -209,8 +209,6 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
 
 // Freeform note body: instrument mono for body; condensed display for heads
 // (CSS). Markdown is structure only — no wiki/chips/shorthand leak.
-const NOTE_FONT = "ui-monospace, SFMono-Regular, Menlo, monospace";
-const NOTE_MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 
 function NoteEditModal({
   draft,
@@ -391,8 +389,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           ref={ref}
           autoFocus
           aria-label="Edit note"
-          className="note-edit-inline nodrag nowheel h-full w-full resize-none bg-transparent outline-none"
-          style={{ color: INK, fontFamily: NOTE_MONO }}
+          className="note-edit-inline nodrag nowheel h-full w-full resize-none bg-transparent font-mono outline-none"
+          style={{ color: INK }}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
@@ -447,8 +445,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
         <div
           role="button"
           tabIndex={0}
-          className="note-surface nopan h-full w-full cursor-text overflow-hidden border-0 bg-transparent p-0 text-left items-stretch justify-start"
-          style={{ fontFamily: NOTE_FONT }}
+          className="note-surface nopan h-full w-full cursor-text overflow-hidden border-0 bg-transparent p-0 text-left font-mono items-stretch justify-start"
           onClick={(event) => {
             if (!selected) return;
             event.stopPropagation();

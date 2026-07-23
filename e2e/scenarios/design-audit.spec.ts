@@ -225,8 +225,21 @@ test("capture every surface for design review", async () => {
     JSON.stringify({
       mode: "healthy",
       quotas: [
-        { provider: "codex", label: "codex", usedPercent: 42, resetsIn: "3h 12m" },
-        { provider: "claude", label: "claude", usedPercent: 7, resetsIn: "5d 1h" },
+        {
+          provider: "codex",
+          usage: {
+            loginMethod: "auto",
+            primary: { usedPercent: 42, resetDescription: "3h 12m" },
+            secondary: { usedPercent: 7, resetDescription: "5d 1h" },
+          },
+        },
+        {
+          provider: "claude",
+          usage: {
+            loginMethod: "auto",
+            primary: { usedPercent: 18, resetDescription: "1h 40m" },
+          },
+        },
       ],
     }),
     "utf8",

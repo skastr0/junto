@@ -527,7 +527,7 @@ export function HerdrWizard() {
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]" onClick={() => closeHerdrWizard()}>
       <div
-        className="w-full max-w-md rounded-lg border border-white/10 bg-[#141210] shadow-2xl shadow-black/50"
+        className="w-full max-w-md rounded-lg border border-white/10 bg-raise-2 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Attach herdr pane"
@@ -537,7 +537,7 @@ export function HerdrWizard() {
             <div className="text-[10px] uppercase tracking-[0.18em]" style={{ color: HUE.steel }}>
               herdr · attach
             </div>
-            <div className="text-sm font-semibold text-[#EDE6DA]">
+            <div className="text-sm font-semibold text-ink">
               {step === "host" && "Host"}
               {step === "session" && "Session"}
               {step === "workspace" && "Space (workspace)"}
@@ -545,7 +545,7 @@ export function HerdrWizard() {
               {step === "pane" && "Pane"}
             </div>
             {seedApplied && seed?.host ? (
-              <div className="mt-0.5 text-[10px] text-slate-500">
+              <div className="mt-0.5 text-[10px] text-faint">
                 region · {[seed.host, seed.session === null ? "default" : seed.session, seed.workspaceId, seed.tabId]
                   .filter((part) => part != null && part !== "")
                   .join(" · ")}
@@ -556,7 +556,7 @@ export function HerdrWizard() {
             {seedApplied ? (
               <button
                 type="button"
-                className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-white/10 hover:text-[#EDE6DA]"
+                className="rounded px-2 py-1 text-xs text-dim hover:bg-white/10 hover:text-ink"
                 onClick={ignoreRegionDefaults}
                 title="Ignore region defaults and pick host/session freely"
               >
@@ -565,7 +565,7 @@ export function HerdrWizard() {
             ) : null}
             <button
               type="button"
-              className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-white/10 hover:text-[#EDE6DA]"
+              className="rounded px-2 py-1 text-xs text-dim hover:bg-white/10 hover:text-ink"
               onClick={() => closeHerdrWizard()}
             >
               cancel
@@ -575,15 +575,15 @@ export function HerdrWizard() {
         <div className="space-y-2 px-4 py-3">
           <input
             autoFocus
-            className="w-full rounded border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-[#EDE6DA] outline-none focus:border-amber-500/40"
+            className="w-full rounded border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-ink outline-none focus:border-amber-500/40"
             placeholder="filter…"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
-          {error ? <div className="text-xs text-[#E5484D]">{error}</div> : null}
+          {error ? <div className="text-xs text-crimson">{error}</div> : null}
           <div className="max-h-64 overflow-auto rounded border border-white/5">
             {rows.length === 0 ? (
-              <div className="flex items-center gap-2 px-3 py-4 text-xs text-slate-500">
+              <div className="flex items-center gap-2 px-3 py-4 text-xs text-faint">
                 {loading ? (
                   <>
                     <ActivityMark mode="wave" tone="amber" size="inline" label="loading" />
@@ -602,18 +602,18 @@ export function HerdrWizard() {
                   onPointerDown={() => applyPick(decidePickFromPointer, row.key, row.onPick)}
                   onClick={() => applyPick(decidePickFromClick, row.key, row.onPick)}
                 >
-                  <span className="text-sm text-[#EDE6DA]">{row.label}</span>
-                  <span className="text-[11px] text-slate-500">{row.sub}</span>
+                  <span className="text-sm text-ink">{row.label}</span>
+                  <span className="text-[11px] text-faint">{row.sub}</span>
                 </button>
               ))
             )}
           </div>
           {(step === "workspace" || step === "tab" || step === "pane") && (
             <div className="rounded border border-dashed border-white/10 p-2 space-y-2">
-              <div className="text-[10px] uppercase tracking-wider text-slate-500">+ create</div>
+              <div className="text-[10px] uppercase tracking-wider text-faint">+ create</div>
               {step === "workspace" || step === "pane" ? (
                 <input
-                  className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-xs text-[#EDE6DA]"
+                  className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-xs text-ink"
                   placeholder="cwd"
                   value={createCwd}
                   onChange={(e) => setCreateCwd(e.target.value)}
@@ -621,7 +621,7 @@ export function HerdrWizard() {
               ) : null}
               {step !== "pane" ? (
                 <input
-                  className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-xs text-[#EDE6DA]"
+                  className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-xs text-ink"
                   placeholder="label"
                   value={createLabel}
                   onChange={(e) => setCreateLabel(e.target.value)}

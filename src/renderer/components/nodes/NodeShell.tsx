@@ -196,7 +196,7 @@ export function NodeShell({
       />
       {onEdit && inlineEdit ? (
         <button
-          className="vellum-node__edit nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-slate-400 transition hover:bg-white/10 hover:text-[#EDE6DA]"
+          className="vellum-node__edit nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-dim transition hover:bg-white/10 hover:text-ink"
           aria-label="Edit item"
           title="edit item"
           onPointerDown={(event) => {
