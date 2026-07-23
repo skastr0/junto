@@ -84,6 +84,8 @@ build_compiled_cli "$REPO_ROOT/dist/vellum-browser" scripts/browser-cli.ts
 if [[ "$TARGET" == "linux" ]]; then
   printf 'vellum: standalone root-owned release installer → dist/vellum-release-installer …\n'
   build_compiled_cli "$REPO_ROOT/dist/vellum-release-installer" scripts/linux-release-installer.ts
+  printf 'vellum: standalone unprivileged release bridge → dist/vellum-release-bridge …\n'
+  build_compiled_cli "$REPO_ROOT/dist/vellum-release-bridge" scripts/linux-release-bridge.ts
 fi
 
 if [[ "$COMPILE_ONLY" -eq 1 ]]; then

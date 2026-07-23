@@ -14,6 +14,7 @@ import {
   validateElfX64,
   validateLinuxPackageArtifactNames,
   validateLinuxRemoteLauncher,
+  validateNoFileCapabilities,
   validateSystemdUserUnit,
 } from "../scripts/audit-linux-package";
 
@@ -54,6 +55,7 @@ drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum-browser
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum-release-installer
+-rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum-release-bridge
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/unix-peer-pid.py
 drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/policy/
 -rw-r--r-- root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/apparmor-profile
@@ -193,6 +195,15 @@ describe("deb payload authority and modes", () => {
     );
   });
 
+  it("rejects every packaged sudoers policy, not only the retired filename", () => {
+    const listing = archiveListing(
+      "-r--r----- root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/policy/alternate.sudoers",
+    );
+    expect(() => validateDebArchive(parseDebArchiveListing(listing))).toThrow(
+      /must not package any sudoers/u,
+    );
+  });
+
   it.each([
     [
       "./usr/share/applications/vellum.desktop",
@@ -213,6 +224,15 @@ describe("deb payload authority and modes", () => {
 });
 
 describe("Linux desktop and sandbox policy", () => {
+  it("rejects file capabilities independently of archive mode bits", () => {
+    expect(() => validateNoFileCapabilities("")).not.toThrow();
+    expect(() =>
+      validateNoFileCapabilities(
+        "/opt/Vellum Command/resources/bin/vellum-release-bridge cap_setuid=ep\n",
+      ),
+    ).toThrow(/file capabilities/u);
+  });
+
   it("pins the userns-only AppArmor profile", () => {
     expect(() => validateAppArmorProfile(EXPECTED_APPARMOR_PROFILE)).not.toThrow();
     expect(() =>

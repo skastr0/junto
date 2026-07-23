@@ -206,6 +206,10 @@
         {
           "from": "dist/vellum-release-installer",
           "to": "bin/vellum-release-installer"
+        },
+        {
+          "from": "dist/vellum-release-bridge",
+          "to": "bin/vellum-release-bridge"
         }
       ],
       "desktop": {

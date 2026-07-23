@@ -40,6 +40,8 @@ export const LINUX_REMOTE_UNIT_RESOURCE =
   `resources/systemd/${LINUX_SYSTEMD_USER_UNIT}`;
 export const LINUX_RELEASE_INSTALLER_RESOURCE =
   "resources/bin/vellum-release-installer";
+export const LINUX_RELEASE_BRIDGE_RESOURCE =
+  "resources/bin/vellum-release-bridge";
 const LINUX_LEGACY_RELEASE_INSTALLER_SUDOERS_RESOURCE =
   "resources/policy/vellum-release-installer.sudoers";
 
@@ -461,6 +463,10 @@ export const validateDebArchive = (
         "deb must not package the legacy passwordless release-installer sudoers policy",
       );
     }
+    const lowercasePath = entry.path.toLowerCase();
+    if (lowercasePath.includes("sudoers")) {
+      throw new Error("deb must not package any sudoers policy");
+    }
   }
   const requiredModes = new Map([
     [`${installPrefix}vellum`, "-rwxr-xr-x"],
@@ -468,6 +474,7 @@ export const validateDebArchive = (
     [`${installPrefix}resources/bin/vellum`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/vellum-browser`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/vellum-release-installer`, "-rwxr-xr-x"],
+    [`${installPrefix}resources/bin/vellum-release-bridge`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/unix-peer-pid.py`, "-rwxr-xr-x"],
     [`${installPrefix}resources/apparmor-profile`, "-rw-r--r--"],
   ]);
@@ -698,6 +705,16 @@ const requireLoadable = (filePath: string): void => {
   if (/\bnot found\b/u.test(output)) {
     throw new Error(`Linux native object has unresolved libraries: ${path.basename(filePath)}`);
   }
+};
+
+export const validateNoFileCapabilities = (output: string): void => {
+  if (output.trim().length !== 0) {
+    throw new Error("Linux package tree contains file capabilities");
+  }
+};
+
+const requireNoFileCapabilities = (root: string): void => {
+  validateNoFileCapabilities(runFixed("/usr/sbin/getcap", ["-r", root]));
 };
 
 const sha256 = (filePath: string): Promise<string> =>
@@ -954,6 +971,10 @@ export const auditLinuxPackage = async ({
       extractedReal,
       LINUX_RELEASE_INSTALLER_RESOURCE,
     );
+    const releaseBridge = path.join(
+      extractedReal,
+      LINUX_RELEASE_BRIDGE_RESOURCE,
+    );
     const peerPidHelper = path.join(resources, "bin", "unix-peer-pid.py");
     const appArmorProfile = path.join(resources, "apparmor-profile");
     const remoteLauncher = path.join(extractedReal, LINUX_REMOTE_LAUNCHER_RESOURCE);
@@ -965,6 +986,7 @@ export const auditLinuxPackage = async ({
       requireRegularMode(workCli, 0o755),
       requireRegularMode(browserCli, 0o755),
       requireRegularMode(releaseInstaller, 0o755),
+      requireRegularMode(releaseBridge, 0o755),
       requireRegularMode(peerPidHelper, 0o755),
       requireRegularMode(appArmorProfile, 0o644),
       requireRegularMode(remoteLauncher, 0o755),
@@ -987,12 +1009,16 @@ export const auditLinuxPackage = async ({
       workCli,
       browserCli,
       releaseInstaller,
+      releaseBridge,
       pty.nativeModule,
     ];
     await Promise.all(elfObjects.map(requireElfX64));
     requireLoadable(mainExecutable);
     requireLoadable(releaseInstaller);
+    requireLoadable(releaseBridge);
     requireLoadable(pty.nativeModule);
+    requireNoFileCapabilities(unpacked);
+    requireNoFileCapabilities(extraction);
 
     const fuseReceipt = validateFuseWire(await getCurrentFuseWire(mainExecutable));
     validateDesktopEntry(

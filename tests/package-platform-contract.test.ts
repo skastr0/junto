@@ -62,13 +62,16 @@ describe("native package pipeline contract", () => {
     });
   });
 
-  it("compiles both controls before dispatching to an explicit native packager", async () => {
+  it("compiles every control before dispatching to an explicit native packager", async () => {
     const build = await script("build-app.sh");
     expect(build).toContain('--target mac|linux');
     expect(build).toContain('build_compiled_cli "$REPO_ROOT/dist/vellum" src/cli/main.ts');
     expect(build).toContain('build_compiled_cli "$REPO_ROOT/dist/vellum-browser" scripts/browser-cli.ts');
     expect(build).toContain(
       'build_compiled_cli "$REPO_ROOT/dist/vellum-release-installer" scripts/linux-release-installer.ts',
+    );
+    expect(build).toContain(
+      'build_compiled_cli "$REPO_ROOT/dist/vellum-release-bridge" scripts/linux-release-bridge.ts',
     );
     expect(build).toContain("--no-compile-autoload-dotenv");
     expect(build).toContain("--no-compile-autoload-bunfig");
@@ -157,8 +160,10 @@ describe("native package pipeline contract", () => {
     expect(afterPack).toContain('unsupported Vellum package platform');
     expect(afterPack).toContain('["vellum", "vellum-browser", "unix-peer-pid.py"]');
     expect(afterPack).toContain('"vellum-release-installer"');
+    expect(afterPack).toContain('"vellum-release-bridge"');
     expect(afterPack).not.toContain('"vellum-release-installer.sudoers"');
     expect(packageJson).not.toContain("vellum-release-installer.sudoers");
+    expect(packageJson).toContain('"from": "dist/vellum-release-bridge"');
     expect(afterPack).toContain('chmod(resource, 0o755)');
     expect(afterPack).toContain('path.join(context.appOutDir, "chrome-sandbox"), 0o755');
     expect(afterPack).toContain('resetAdHocDarwinSignature: platform === "darwin"');
@@ -180,6 +185,16 @@ describe("native package pipeline contract", () => {
     expect(afterInstall).toContain(
       'publish_root_file "$RELEASE_INSTALLER_SOURCE" "$INSTALLER_TARGET" 0755',
     );
+    expect(afterInstall).toContain(
+      'publish_root_file "$RELEASE_BRIDGE_SOURCE" "$BRIDGE_TARGET" 0755',
+    );
+    expect(afterInstall).toContain(
+      "BRIDGE_STAGE_ROOT='/var/tmp/vellum-release-bridge'",
+    );
+    expect(afterInstall).toContain("chmod 1733 \"$BRIDGE_STAGE_ROOT\"");
+    expect(afterInstall).toContain(
+      'admit_package_owned_target "$BRIDGE_TARGET" "$BRIDGE_MARKER" "$BRIDGE_SOURCE_SHA" 755',
+    );
     expect(afterInstall).not.toContain("/usr/sbin/visudo");
     expect(afterInstall).toContain(
       "ensure_root_directory /etc/sudoers.d 750",
@@ -198,6 +213,9 @@ describe("native package pipeline contract", () => {
     );
     expect(beforeInstall).toContain(
       "qualify_root_file_if_present \"$INSTALLER_TARGET\" 755",
+    );
+    expect(beforeInstall).toContain(
+      "qualify_root_file_if_present \"$BRIDGE_TARGET\" 755",
     );
     expect(afterInstall).toContain(
       'update-alternatives --install /usr/bin/vellum vellum "$WORK_CLI" 100',
@@ -219,11 +237,15 @@ describe("native package pipeline contract", () => {
     expect(afterRemove).toContain(
       'remove_package_owned_root_file "$INSTALLER_TARGET" "$INSTALLER_MARKER" 755',
     );
+    expect(afterRemove).toContain(
+      'remove_package_owned_root_file "$BRIDGE_TARGET" "$BRIDGE_MARKER" 755',
+    );
+    expect(afterRemove).toContain("preserving a nonempty release bridge stage root");
     expect(afterRemove).toMatch(
       /retire_legacy_sudoers_policy[\s\S]*"\$LEGACY_SUDOERS_SHA256"[\s\S]*preserve/u,
     );
     expect(`${beforeInstall}\n${beforeRemove}\n${afterInstall}\n${afterRemove}`).not.toMatch(
-      /sysctl|disable.*apparmor|\/home\/|\$\{?HOME\}?|rm\s+-rf/iu,
+      /sysctl|disable.*apparmor|\/home\/|\$\{?HOME\}?|rm\s+-rf|\bsetcap\b|\bsetfattr\b|NOPASSWD/iu,
     );
   });
 

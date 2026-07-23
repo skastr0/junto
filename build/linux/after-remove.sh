@@ -7,9 +7,14 @@ PROFILE_TARGET='/etc/apparmor.d/vellum'
 UNIT_TARGET='/usr/lib/systemd/user/vellum-remote.service'
 UNIT_SOURCE='/opt/Vellum Command/resources/systemd/vellum-remote.service'
 INSTALLER_TARGET='/usr/libexec/vellum-release-installer'
+BRIDGE_TARGET='/usr/libexec/vellum-release-bridge'
+BRIDGE_STAGE_ROOT='/var/tmp/vellum-release-bridge'
 SUDOERS_TARGET='/etc/sudoers.d/vellum-release-installer'
 INSTALLER_STATE='/var/lib/vellum-release-installer'
 INSTALLER_MARKER="$INSTALLER_STATE/packaged-helper.sha256"
+BRIDGE_MARKER="$INSTALLER_STATE/packaged-bridge.sha256"
+BRIDGE_STAGE_MARKER="$INSTALLER_STATE/packaged-bridge-stage-root"
+BRIDGE_STAGE_MARKER_VALUE='vellum/linux-release-bridge-stage-root/v1'
 SUDOERS_MARKER="$INSTALLER_STATE/packaged-sudoers.sha256"
 LEGACY_SUDOERS_SHA256='a6edc7952e89af7570f74c53390aeccb8b0fe61456248762330517c7031a2f72'
 
@@ -84,6 +89,32 @@ remove_package_owned_root_file() {
   rm -f -- "$marker"
 }
 
+remove_package_owned_bridge_stage_root() {
+  if [ ! -e "$BRIDGE_STAGE_MARKER" ] && [ ! -L "$BRIDGE_STAGE_MARKER" ]; then
+    return
+  fi
+  if [ -L "$BRIDGE_STAGE_MARKER" ] || [ ! -f "$BRIDGE_STAGE_MARKER" ] ||
+     [ "$(stat -c '%u:%g:%a:%h' "$BRIDGE_STAGE_MARKER" 2>/dev/null || true)" != '0:0:600:1' ] ||
+     [ "$(/bin/cat "$BRIDGE_STAGE_MARKER" 2>/dev/null || true)" != "$BRIDGE_STAGE_MARKER_VALUE" ]; then
+    printf 'vellum: preserving a foreign release bridge stage root\n' >&2
+    return
+  fi
+  if [ ! -e "$BRIDGE_STAGE_ROOT" ] && [ ! -L "$BRIDGE_STAGE_ROOT" ]; then
+    rm -f -- "$BRIDGE_STAGE_MARKER"
+    return
+  fi
+  if [ -L "$BRIDGE_STAGE_ROOT" ] || [ ! -d "$BRIDGE_STAGE_ROOT" ] ||
+     [ "$(stat -c '%u:%g:%a' "$BRIDGE_STAGE_ROOT" 2>/dev/null || true)" != '0:0:1733' ]; then
+    printf 'vellum: preserving a modified release bridge stage root\n' >&2
+    return
+  fi
+  if rmdir -- "$BRIDGE_STAGE_ROOT" 2>/dev/null; then
+    rm -f -- "$BRIDGE_STAGE_MARKER"
+  else
+    printf 'vellum: preserving a nonempty release bridge stage root\n' >&2
+  fi
+}
+
 retire_legacy_sudoers_policy() {
   target="$1"
   marker="$2"
@@ -156,6 +187,8 @@ retire_legacy_sudoers_policy \
   "$LEGACY_SUDOERS_SHA256" \
   preserve
 remove_package_owned_root_file "$INSTALLER_TARGET" "$INSTALLER_MARKER" 755
+remove_package_owned_root_file "$BRIDGE_TARGET" "$BRIDGE_MARKER" 755
+remove_package_owned_bridge_stage_root
 
 if command -v update-alternatives >/dev/null 2>&1; then
   update-alternatives --remove vellum '/opt/Vellum Command/resources/bin/vellum'
