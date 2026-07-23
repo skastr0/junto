@@ -7,8 +7,10 @@ const signal = () => new AbortController().signal;
 
 const product = () => {
   const close = vi.fn(async () => undefined);
+  const closePath = vi.fn(async () => undefined);
   return {
     close,
+    closePath,
     path: {
       ensureCompositionHost: vi.fn(async () => true),
       loopbackOrigin: () => "http://127.0.0.1:49152/",
@@ -18,6 +20,7 @@ const product = () => {
         screenshot: async () => true,
         close,
       })),
+      close: closePath,
     },
   };
 };
@@ -30,6 +33,7 @@ describe("browser product-path readiness probe", () => {
     expect(receipt).toEqual({ version: 1, hostId: "studio", transport: "ready", composition: "ready", display: "ready", sandbox: "ready", capability: "ready" });
     expect(value.path.openSyntheticLoopbackPage).toHaveBeenCalledWith(expect.objectContaining({ url: "http://127.0.0.1:49152/vellum-readiness?nonce=nonce" }));
     expect(value.close).toHaveBeenCalledTimes(1);
+    expect(value.closePath).toHaveBeenCalledTimes(1);
   });
 
   it("does not expose a browser path when role, capability, display, sandbox, or control is not current", async () => {
@@ -50,7 +54,7 @@ describe("browser product-path readiness probe", () => {
     let resolve!: (value: boolean) => void;
     const pending = new Promise<boolean>((done) => { resolve = done; });
     const openSyntheticLoopbackPage = vi.fn(async () => ({ navigate: async () => pending, evaluate: async () => true, screenshot: async () => true, close }));
-    const probe = makeBrowserProductPathProbe({ station: station(), productPath: { ensureCompositionHost: async () => true, loopbackOrigin: () => "http://127.0.0.1:49152/", openSyntheticLoopbackPage } });
+    const probe = makeBrowserProductPathProbe({ station: station(), productPath: { ensureCompositionHost: async () => true, loopbackOrigin: () => "http://127.0.0.1:49152/", openSyntheticLoopbackPage, close: async () => undefined } });
     const first = probe.probe(signal());
     const second = probe.probe(signal());
     resolve(false);
@@ -65,7 +69,7 @@ describe("browser product-path readiness probe", () => {
     const probe = makeBrowserProductPathProbe({
       timeoutMs: 5,
       station: station(),
-      productPath: { ensureCompositionHost: async () => true, loopbackOrigin: () => "http://127.0.0.1:49152/", openSyntheticLoopbackPage: async () => ({ navigate: async () => new Promise<boolean>(() => undefined), evaluate: async () => true, screenshot: async () => true, close }) },
+      productPath: { ensureCompositionHost: async () => true, loopbackOrigin: () => "http://127.0.0.1:49152/", openSyntheticLoopbackPage: async () => ({ navigate: async () => new Promise<boolean>(() => undefined), evaluate: async () => true, screenshot: async () => true, close }), close: async () => undefined },
     });
     const result = probe.probe(signal());
     await vi.advanceTimersByTimeAsync(5);

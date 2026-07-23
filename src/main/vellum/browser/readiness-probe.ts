@@ -51,6 +51,8 @@ export interface BrowserReadinessProductPath {
   readonly openSyntheticLoopbackPage: (
     input: Readonly<{ url: string; signal: AbortSignal }>,
   ) => Promise<BrowserReadinessSyntheticPage>;
+  /** Closes the exact ephemeral listener even if opening the page failed. */
+  readonly close: () => Promise<void>;
 }
 
 export interface BrowserReadinessProbeOptions {
@@ -218,6 +220,7 @@ export const makeBrowserProductPathProbe = (
       } finally {
         callerSignal.removeEventListener("abort", abortCaller);
         if (page !== undefined) await page.close().catch(() => undefined);
+        await options.productPath.close().catch(() => undefined);
       }
     })();
     flight = current;

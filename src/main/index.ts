@@ -41,6 +41,11 @@ import {
 } from "./vellum/browser/composition";
 import { makeBrowserCompositionHost } from "./vellum/browser/composition-host";
 import { makeElectronBrowserViewAttachmentTarget } from "./vellum/browser/view-adapter";
+import { makeElectronBrowserReadinessProductPath } from "./vellum/browser/readiness-product-path";
+import { makeBrowserProductPathProbe } from "./vellum/browser/readiness-probe";
+import { installBrowserProductPathProbe } from "./vellum/station-readiness";
+import { findHostById } from "./vellum/hosts/snapshot";
+import { hostHasCapability } from "@shared/remote-hosts";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane } from "./vellum/term/plane";
@@ -300,6 +305,7 @@ const browserCompositionHost = makeBrowserCompositionHost({
 let trustedRendererOrigin: TrustedRendererOrigin | undefined;
 let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
+let uninstallBrowserReadinessProbe: (() => void) | undefined;
 let workControl: WorkControlServer | undefined;
 type HerdrPlaneService = Context.Tag.Service<typeof HerdrPlane>;
 type HermesPlaneService = Context.Tag.Service<typeof HermesPlane>;
@@ -1199,6 +1205,31 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             edgeGrant,
             readCanvas: readCanvasFromCanvases,
           });
+          const productPath = makeElectronBrowserReadinessProductPath({
+            compositionHost: browserCompositionHost,
+            viewAdapter: browserViewAttachmentTarget.adapter,
+          });
+          uninstallBrowserReadinessProbe?.();
+          uninstallBrowserReadinessProbe = installBrowserProductPathProbe(
+            makeBrowserProductPathProbe({
+              station: () => {
+                const identity = composition.sessions.stationIdentity();
+                const host = identity === undefined ? undefined : findHostById(identity.hostId);
+                const hostId = identity?.hostId ?? "";
+                return {
+                  role: identity?.role ?? "",
+                  hostId,
+                  browserCapabilityDeclared: host !== undefined && hostHasCapability(host, "browser"),
+                  controlReady: browserControl !== undefined,
+                  controlHostId: browserControl === undefined ? "" : hostId,
+                  registeredRemoteHostId: host?.kind === "remote" ? host.id : "",
+                  sandboxReady: !app.commandLine.hasSwitch("no-sandbox") && !app.commandLine.hasSwitch("disable-setuid-sandbox"),
+                  displayReady: browserCompositionHost.current() !== undefined,
+                };
+              },
+              productPath,
+            }),
+          );
           composition.bindControlShutdown(browserControl);
           registerBrowserIpcHandlers(composition.sessions);
         },
@@ -1366,6 +1397,8 @@ const requireCleanBrowserShutdown = async (reason: string): Promise<void> => {
       );
     }
     browserControl = undefined;
+    uninstallBrowserReadinessProbe?.();
+    uninstallBrowserReadinessProbe = undefined;
     browserComposition = undefined;
     unsubscribeCanvasEdgeGrants?.();
     unsubscribeCanvasEdgeGrants = undefined;

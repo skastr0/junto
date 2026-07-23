@@ -40,6 +40,10 @@ import { HostsService, HostsServiceLive } from "./vellum/hosts";
 import { SshTransportLive } from "./vellum/ssh";
 import { primeHostsSnapshot } from "./vellum/hosts/snapshot";
 import { readStationStatus } from "./vellum/station-status-store";
+import {
+  createStationReadinessCoordinator,
+  stationReadinessMetadata,
+} from "./vellum/station-readiness";
 
 // KernelLive requires CanvasesService/SnapshotsService/StoreService;
 // RegionRollupLive requires CanvasesService/SnapshotsService.
@@ -146,7 +150,7 @@ export const buildDoctorReport = Effect.gen(function* () {
       },
       catch: () => false as const,
     }).pipe(Effect.catchAll(() => Effect.succeed(false as const)));
-    return assessStationDoctor({
+    const stationDoctor = assessStationDoctor({
       role: settingsDoc.station.role,
       hostId: settingsDoc.station.hostId,
       commandCenterRef: settingsDoc.station.commandCenterRef,
@@ -159,6 +163,26 @@ export const buildDoctorReport = Effect.gen(function* () {
       remoteObservations: hostsDoctorSnapshot.observations,
       workControlReady,
     });
+    const readiness = yield* Effect.promise(() => createStationReadinessCoordinator().assess({
+      version: station.version,
+      role: settingsDoc.station.role,
+      hostId: settingsDoc.station.hostId,
+      packageIdentity: station.name,
+      supervisorAligned: supervisedInstalled === "installed",
+      canvasPull: settingsDoc.station.role === "remote"
+        ? statusDoc.lastPull?.ok ? "fresh" : "missing"
+        : "not-required",
+      workControlReady,
+    }));
+    return {
+      ...stationDoctor,
+      status: readiness.state === "ready" ? stationDoctor.status : "warning" as const,
+      detail: `${stationDoctor.detail}; readiness ${readiness.state}`,
+      metadata: {
+        ...(stationDoctor.metadata ?? {}),
+        ...stationReadinessMetadata(readiness),
+      },
+    } satisfies ServiceCheck;
   }).pipe(
     Effect.catchAll((error) =>
       Effect.succeed({

@@ -47,6 +47,18 @@ export interface BrowserProductPathProbe {
   readonly probe: (signal: AbortSignal) => Promise<BrowserProductPathReceipt>;
 }
 
+let installedBrowserProbe: BrowserProductPathProbe | undefined;
+
+/** Main-process-only registration; Doctor can read evidence but cannot invoke control. */
+export const installBrowserProductPathProbe = (
+  probe: BrowserProductPathProbe,
+): (() => void) => {
+  installedBrowserProbe = probe;
+  return () => {
+    if (installedBrowserProbe === probe) installedBrowserProbe = undefined;
+  };
+};
+
 export type StationReadinessComponents = Readonly<{
   version: StationReadinessComponentState;
   role: StationReadinessComponentState;
@@ -159,13 +171,13 @@ export const createStationReadinessCoordinator = (
       const abort = new AbortController();
       const [terminal, browser] = await Promise.all([
         settleBefore(terminalProbe(), timeoutMs, abort).catch(() => undefined),
-        options.browser === undefined
+        (options.browser ?? installedBrowserProbe) === undefined
           ? Promise.resolve<BrowserProductPathReceipt | undefined>(undefined)
-          : settleBefore(options.browser.probe(abort.signal), timeoutMs, abort).catch(() => undefined),
+          : settleBefore((options.browser ?? installedBrowserProbe)!.probe(abort.signal), timeoutMs, abort).catch(() => undefined),
       ]);
 
       const browserComponents =
-        options.browser === undefined
+          (options.browser ?? installedBrowserProbe) === undefined
           ? browserUnavailable("unsupported")
           : browser === undefined
             ? browserUnavailable("failed")
