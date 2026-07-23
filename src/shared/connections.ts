@@ -49,8 +49,11 @@ export const buildConnectionIndex = (snapshots: SnapshotState): ConnectionIndex 
   const boothByTowerLink = new Map<string, Entity>();
 
   for (const bundle of snapshots.bundles) {
-    if (!bundle.ok) continue;
     for (const entity of bundle.entities) {
+      // A failed bundle may still carry facts observed during this exact
+      // partial attempt. Admit only those explicit current rows; unspecified
+      // or retained stale facts must not become authoritative connections.
+      if (!bundle.ok && entity.stale !== false) continue;
       byKey.set(`${entity.source}:${entity.key}`, entity);
       const nameKey = `${entity.source}:${normalize(entity.title ?? entity.key)}`;
       const bucket = byName.get(nameKey);

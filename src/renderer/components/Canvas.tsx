@@ -36,7 +36,10 @@ import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
-import { snapshotAgentHostId } from "@shared/portfolio";
+import {
+  hermesAgentsFromSnapshots,
+  snapshotAgentHostId,
+} from "@shared/portfolio";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import {
   makeAgentNode,
@@ -723,10 +726,7 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
   const snapshots = use$(state$.snapshots);
   const stationHostId = use$(state$.settings.station.hostId) || "local";
   // bound to every source that knows it).
-  const agents = snapshots.bundles
-    .filter((bundle) => bundle.ok && bundle.source === "hermes")
-    .flatMap((bundle) => bundle.entities)
-    .filter((entity) => entity.kind === "agent");
+  const agents = hermesAgentsFromSnapshots(snapshots);
 
   const [query, setQuery] = useState("");
   const [highlighted, setHighlighted] = useState(0);

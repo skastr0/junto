@@ -5,8 +5,10 @@ import {
 } from "../src/shared/station";
 import {
   buildPortfolioDoc,
+  hermesAgentsFromSnapshots,
   snapshotAgentHostId,
 } from "../src/shared/portfolio";
+import { buildConnectionIndex } from "../src/shared/connections";
 import {
   isLocalHermesHost,
   parseAgentKey,
@@ -114,6 +116,36 @@ describe("canonical Hermes station identity", () => {
       .toBe("studio");
     expect(snapshotAgentHostId({ key: "fleet-render:default", stats: {} }, "studio"))
       .toBe("fleet-render");
+  });
+
+  it("keeps successful Hermes facts visible when another fleet host made the bundle partial", () => {
+    const state = {
+      bundles: [{
+        source: "hermes" as const,
+        fetchedAt: "2026-07-23T00:00:00.000Z",
+        ok: false,
+        stale: true,
+        error: "hermes host refresh failed (fleet-render)",
+        entities: [{
+          source: "hermes" as const,
+          key: "fleet-studio:default",
+          kind: "agent",
+          title: "default",
+          stats: { host: "Studio", hostId: "studio", running: 1 },
+          updatedAt: "2026-07-23T00:00:00.000Z",
+          stale: false,
+        }],
+      }],
+    };
+
+    expect(hermesAgentsFromSnapshots(state).map((entity) => entity.key))
+      .toEqual(["fleet-studio:default"]);
+    expect(buildPortfolioDoc(state).nodes[0]?.ether).toMatchObject({
+      entity: { name: "fleet-studio:default" },
+      host: "studio",
+    });
+    expect(buildConnectionIndex(state).byKey.get("hermes:fleet-studio:default"))
+      .toMatchObject({ stale: false });
   });
 
   it("delivers a Remote watcher to its canonical same-host agent locally", async () => {

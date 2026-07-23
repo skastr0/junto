@@ -48,6 +48,19 @@ export const snapshotAgentHostId = (
   return keyHost ?? stationHostId;
 };
 
+/**
+ * Hermes entities remain useful on an unhealthy partial bundle. Snapshot
+ * retention marks each entity stale/current individually; bundle.ok is source
+ * health, not permission to erase the successfully observed rows.
+ */
+export const hermesAgentsFromSnapshots = (
+  state: SnapshotState,
+): ReadonlyArray<Entity> =>
+  state.bundles
+    .filter((bundle) => bundle.source === "hermes")
+    .flatMap((bundle) => bundle.entities)
+    .filter((entity) => entity.kind === "agent");
+
 // Identity names already present on a doc, so a merge can skip agents that
 // already have a card (idempotent re-runs, preserved user authorship).
 const presentIdentities = (doc: CanvasDoc): Set<string> => {
@@ -63,10 +76,8 @@ const presentIdentities = (doc: CanvasDoc): Set<string> => {
 // "<host>:<profile>" key — the label stays free-form (host suffix and all)
 // because identity never derives from the title.
 const agentNodes = (state: SnapshotState, present: Set<string>, originY: number): CanvasNode[] => {
-  const agents = state.bundles
-    .filter((bundle) => bundle.ok && bundle.source === "hermes")
-    .flatMap((bundle) => bundle.entities)
-    .filter((entity) => entity.kind === "agent" && !present.has(normalizeName(entity.key)));
+  const agents = hermesAgentsFromSnapshots(state)
+    .filter((entity) => !present.has(normalizeName(entity.key)));
 
   return agents.map((agent, index) => {
     const col = index % COLUMNS;
