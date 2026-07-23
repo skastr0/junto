@@ -1,21 +1,26 @@
 import { randomUUID } from "node:crypto";
-import { access, mkdir, rename, writeFile } from "node:fs/promises";
+import { watch, type FSWatcher } from "node:fs";
+import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { url as inspectorUrl } from "node:inspector";
-import { dirname, isAbsolute } from "node:path";
+import { basename, dirname, isAbsolute } from "node:path";
 import { app, BrowserWindow, session, webContents } from "electron";
 import { Effect } from "effect";
 import { CanvasesLive, CanvasesService } from "../../../src/main/vellum/canvases";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
+  type BrowserAutomationPrincipal,
+  type BrowserCapabilityAuditOutcome,
   type BrowserCapabilityRegistry,
 } from "../../../src/main/vellum/browser/capabilities";
+import type { EdgeGrantService } from "../../../src/main/vellum/browser/edge-grant";
 import { startBrowserControlServer, type BrowserControlServer } from "../../../src/main/vellum/browser/control";
 import { makePageTargetResolver } from "../../../src/main/vellum/browser/page-target";
 import { makeBrowserProfileService } from "../../../src/main/vellum/browser/profiles";
 import { BrowserSessionService } from "../../../src/main/vellum/browser/sessions";
 import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/vellum/browser/view-adapter";
 import { isManagedBrowserWebContents } from "../../../src/main/vellum/browser/web-policy";
+import { makeProcessIdentityMap } from "../../../src/main/vellum/process-identity";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { partitionNameForProfile } from "../../../src/shared/browser";
 
@@ -39,6 +44,8 @@ const downloadPath = requiredArgument("download-path");
 const auditPath = requiredArgument("audit-path");
 const capabilityPath = requiredArgument("capability-path");
 const revokeMarkerPath = requiredArgument("revoke-marker-path");
+const admissionModePath = requiredArgument("admission-mode-path");
+const shutdownRequestPath = requiredArgument("shutdown-request-path");
 
 for (const [name, path] of [
   ["browser-root", browserRoot],
@@ -47,6 +54,8 @@ for (const [name, path] of [
   ["audit-path", auditPath],
   ["capability-path", capabilityPath],
   ["revoke-marker-path", revokeMarkerPath],
+  ["admission-mode-path", admissionModePath],
+  ["shutdown-request-path", shutdownRequestPath],
 ] as const) {
   if (!isAbsolute(path)) throw new Error(`${name} must be absolute`);
 }
@@ -70,14 +79,104 @@ if (siblingCapabilityTarget === undefined) {
   throw new Error("dedicated browser probe sibling target is missing");
 }
 
+type AdmitMode = "primary" | "expiring" | "sibling" | "mismatched";
+
+interface AdmissionTuple {
+  readonly secret: string;
+  readonly expectedPrincipal: BrowserAutomationPrincipal;
+  readonly auditId: string;
+  readonly targetCount: number;
+}
+
+interface EdgeAdmissionAudit {
+  readonly sequence: number;
+  readonly mode: AdmitMode;
+  readonly principalId: string;
+  readonly jobId: string;
+  readonly auditId: string;
+}
+
+const readAdmitMode = async (modePath: string): Promise<AdmitMode> => {
+  try {
+    const raw = (await readFile(modePath, "utf8")).trim();
+    if (
+      raw === "primary" ||
+      raw === "expiring" ||
+      raw === "sibling" ||
+      raw === "mismatched"
+    ) {
+      return raw;
+    }
+  } catch {
+    // Missing or unreadable mode files default to primary admission.
+  }
+  return "primary";
+};
+
+const admittingEdgeGrant = (
+  tuples: Readonly<Record<AdmitMode, AdmissionTuple>>,
+  admitModePath: string,
+  onAdmission: (entry: EdgeAdmissionAudit) => void,
+): EdgeGrantService => ({
+  processMap: makeProcessIdentityMap(),
+  admitSocket: async () => {
+    const mode = await readAdmitMode(admitModePath);
+    const tuple = tuples[mode];
+    onAdmission({
+      sequence: 0,
+      mode,
+      principalId: tuple.expectedPrincipal.principalId,
+      jobId: tuple.expectedPrincipal.jobId,
+      auditId: tuple.auditId,
+    });
+    return {
+      ok: true,
+      secret: tuple.secret,
+      expectedPrincipal: tuple.expectedPrincipal,
+      principal: { kind: "agent", agentKey: "browser-containment-probe" },
+      targetCount: tuple.targetCount,
+    };
+  },
+  admitPrincipal: async () => {
+    const mode = await readAdmitMode(admitModePath);
+    const tuple = tuples[mode];
+    onAdmission({
+      sequence: 0,
+      mode,
+      principalId: tuple.expectedPrincipal.principalId,
+      jobId: tuple.expectedPrincipal.jobId,
+      auditId: tuple.auditId,
+    });
+    return {
+      ok: true,
+      secret: tuple.secret,
+      expectedPrincipal: tuple.expectedPrincipal,
+      principal: { kind: "agent", agentKey: "browser-containment-probe" },
+      targetCount: tuple.targetCount,
+    };
+  },
+  clear: () => undefined,
+});
+
+interface PrincipalWitness {
+  readonly principalId: string;
+  readonly jobId: string;
+  readonly auditId: string;
+}
+
 interface CapabilityHandoff {
-  readonly version: 2;
+  readonly version: 3;
   readonly capability: string;
   readonly expiringCapability: string;
   readonly expiringIssuedAt: number;
   readonly expiringExpiresAt: number;
   readonly unrelatedCapability: string;
   readonly siblingCapability: string;
+  readonly principals: Readonly<{
+    primary: PrincipalWitness;
+    expiring: PrincipalWitness;
+    sibling: PrincipalWitness;
+  }>;
 }
 
 const writeCapabilityHandoff = async (handoff: CapabilityHandoff): Promise<void> => {
@@ -108,6 +207,19 @@ interface ProbeAudit {
   managedDevToolsCurrentlyOpen: number;
   defaultProxyResolution: string;
   profileProxyResolution: string;
+  edgeAdmissions: EdgeAdmissionAudit[];
+  capabilityEvents: Array<{
+    readonly sequence: number;
+    readonly outcome: BrowserCapabilityAuditOutcome;
+    readonly principalId?: string;
+    readonly jobId?: string;
+    readonly auditId?: string;
+    readonly action?: string;
+  }>;
+  shutdownRequested: boolean;
+  shutdownControlClean: boolean;
+  shutdownRetainedLabels: string[];
+  shutdownCompleted: boolean;
   ready: boolean;
 }
 
@@ -128,9 +240,35 @@ const audit: ProbeAudit = {
   managedDevToolsCurrentlyOpen: 0,
   defaultProxyResolution: "",
   profileProxyResolution: "",
+  edgeAdmissions: [],
+  capabilityEvents: [],
+  shutdownRequested: false,
+  shutdownControlClean: false,
+  shutdownRetainedLabels: [],
+  shutdownCompleted: false,
   ready: false,
 };
 let auditTail: Promise<void> = Promise.resolve();
+const MAX_SECURITY_AUDIT_EVENTS = 512;
+let nextEdgeAdmissionSequence = 0;
+
+const recordEdgeAdmission = (entry: EdgeAdmissionAudit): void => {
+  audit.edgeAdmissions.push({
+    ...entry,
+    sequence: ++nextEdgeAdmissionSequence,
+  });
+  if (audit.edgeAdmissions.length > MAX_SECURITY_AUDIT_EVENTS) {
+    audit.edgeAdmissions.splice(
+      0,
+      audit.edgeAdmissions.length - MAX_SECURITY_AUDIT_EVENTS,
+    );
+  }
+  // Registry preflight/authorization runs after EdgeGrant resolves. Capture its
+  // secret-free audit on the following event-loop turn.
+  setImmediate(() => {
+    void persistAudit();
+  });
+};
 
 const persistAudit = (): Promise<void> => {
   const allWebContents = webContents.getAllWebContents();
@@ -156,6 +294,16 @@ const persistAudit = (): Promise<void> => {
       return true;
     }
   }).length;
+  audit.capabilityEvents = (capabilities?.auditSnapshot() ?? [])
+    .slice(-MAX_SECURITY_AUDIT_EVENTS)
+    .map((event) => ({
+      sequence: event.sequence,
+      outcome: event.outcome,
+      ...(event.principalId === undefined ? {} : { principalId: event.principalId }),
+      ...(event.jobId === undefined ? {} : { jobId: event.jobId }),
+      ...(event.auditId === undefined ? {} : { auditId: event.auditId }),
+      ...(event.action === undefined ? {} : { action: event.action }),
+    }));
   const snapshot = `${JSON.stringify(audit)}\n`;
   const temporary = `${auditPath}.${randomUUID()}.tmp`;
   auditTail = auditTail.then(async () => {
@@ -206,19 +354,76 @@ let unrelatedCapabilities: BrowserCapabilityRegistry | undefined;
 let revocationWatcher: ReturnType<typeof setInterval> | undefined;
 let primaryCapabilityAuditId: string | undefined;
 let expiringCapabilityAuditId: string | undefined;
+let shutdownFlight: Promise<void> | undefined;
+let shutdownRequestWatcher: FSWatcher | undefined;
 
-app.on("before-quit", () => {
-  if (revocationWatcher !== undefined) clearInterval(revocationWatcher);
-  control?.close();
-  capabilities?.close();
-  unrelatedCapabilities?.close();
-  sessions?.detachAllOnQuit("browser containment probe");
-  void persistAudit();
+const beginFixtureShutdown = (): Promise<void> => {
+  if (shutdownFlight !== undefined) return shutdownFlight;
+  const flight = Promise.resolve().then(async () => {
+    audit.shutdownRequested = true;
+    shutdownRequestWatcher?.close();
+    shutdownRequestWatcher = undefined;
+    console.error(
+      `[browser-containment] shutdown begin control=${control !== undefined} sessions=${
+        sessions !== undefined
+      } capabilities=${capabilities !== undefined}`,
+    );
+    if (revocationWatcher !== undefined) clearInterval(revocationWatcher);
+    control?.beginShutdown();
+    const controlReceipt = await control?.drainOnQuit();
+    capabilities?.close();
+    unrelatedCapabilities?.close();
+    sessions?.detachAllOnQuit("browser containment probe");
+    if (controlReceipt === undefined) {
+      throw new Error("browser control was not started before fixture shutdown");
+    }
+    audit.shutdownControlClean = controlReceipt.clean;
+    audit.shutdownRetainedLabels = [...controlReceipt.retainedLabels];
+    audit.shutdownCompleted = controlReceipt.clean;
+    await persistAudit();
+    if (!controlReceipt.clean) {
+      throw new Error(
+        `browser control drain retained ${controlReceipt.retainedLabels.join(",")}`,
+      );
+    }
+    console.error("[browser-containment] shutdown clean");
+  });
+  shutdownFlight = flight;
+  return flight;
+};
+
+const exitAfterFixtureShutdown = (): void => {
+  void beginFixtureShutdown().then(
+    () => app.exit(0),
+    (error) => {
+      console.error(
+        `[browser-containment] shutdown failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      app.exit(2);
+    },
+  );
+};
+
+app.on("before-quit", (event) => {
+  event.preventDefault();
+  exitAfterFixtureShutdown();
 });
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
-  process.on(signal, () => app.quit());
+  process.on(signal, exitAfterFixtureShutdown);
 }
+
+shutdownRequestWatcher = watch(dirname(shutdownRequestPath), (_event, filename) => {
+  if (filename === basename(shutdownRequestPath)) exitAfterFixtureShutdown();
+});
+shutdownRequestWatcher.on("error", (error) => {
+  console.error(`[browser-containment] shutdown watcher failed: ${error.message}`);
+  app.exit(2);
+});
+// Close the race between directory watcher installation and the first event.
+void access(shutdownRequestPath).then(exitAfterFixtureShutdown, () => undefined);
 
 void app.whenReady().then(async () => {
   const proxyProbeUrl = "https://vellum-direct-network-probe.invalid/";
@@ -295,21 +500,72 @@ void app.whenReady().then(async () => {
     maxInFlight: 4,
   });
 
+  const admissionTuples: Readonly<Record<AdmitMode, AdmissionTuple>> = Object.freeze({
+    primary: Object.freeze({
+      secret: grant.secret,
+      expectedPrincipal: principal,
+      auditId: grant.auditId,
+      targetCount: capabilityTargets.length,
+    }),
+    expiring: Object.freeze({
+      secret: expiringGrant.secret,
+      expectedPrincipal: expiringPrincipal,
+      auditId: expiringGrant.auditId,
+      targetCount: 1,
+    }),
+    sibling: Object.freeze({
+      secret: siblingGrant.secret,
+      expectedPrincipal: siblingPrincipal,
+      auditId: siblingGrant.auditId,
+      targetCount: 1,
+    }),
+    // Adversarial fixture tuple: a real secret paired with a different
+    // registry-created principal must fail before request body dispatch.
+    mismatched: Object.freeze({
+      secret: grant.secret,
+      expectedPrincipal: siblingPrincipal,
+      auditId: grant.auditId,
+      targetCount: capabilityTargets.length,
+    }),
+  });
+
   control = await startBrowserControlServer({
     sessions,
     capabilities,
     resolvePageTarget: makePageTargetResolver(canvases),
     version: app.getVersion(),
     home: controlHome,
+    edgeGrant: admittingEdgeGrant(
+      admissionTuples,
+      admissionModePath,
+      recordEdgeAdmission,
+    ),
   });
   await writeCapabilityHandoff({
-    version: 2,
+    version: 3,
     capability: grant.secret,
     expiringCapability: expiringGrant.secret,
     expiringIssuedAt: expiringGrant.issuedAt,
     expiringExpiresAt: expiringGrant.expiresAt,
     unrelatedCapability: unrelatedGrant.secret,
     siblingCapability: siblingGrant.secret,
+    principals: Object.freeze({
+      primary: Object.freeze({
+        principalId: principal.principalId,
+        jobId: principal.jobId,
+        auditId: grant.auditId,
+      }),
+      expiring: Object.freeze({
+        principalId: expiringPrincipal.principalId,
+        jobId: expiringPrincipal.jobId,
+        auditId: expiringGrant.auditId,
+      }),
+      sibling: Object.freeze({
+        principalId: siblingPrincipal.principalId,
+        jobId: siblingPrincipal.jobId,
+        auditId: siblingGrant.auditId,
+      }),
+    }),
   });
 
   let revocationCheckInFlight = false;

@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import {
   access,
+  lstat,
   mkdir,
   readFile,
   readdir,
+  rename,
   stat,
   unlink,
   writeFile,
@@ -87,8 +89,38 @@ interface ProbeAudit {
   readonly managedDevToolsCurrentlyOpen: number;
   readonly defaultProxyResolution: string;
   readonly profileProxyResolution: string;
+  readonly edgeAdmissions: ReadonlyArray<{
+    readonly sequence: number;
+    readonly mode: AdmissionMode;
+    readonly principalId: string;
+    readonly jobId: string;
+    readonly auditId: string;
+  }>;
+  readonly capabilityEvents: ReadonlyArray<{
+    readonly sequence: number;
+    readonly outcome: string;
+    readonly principalId?: string;
+    readonly jobId?: string;
+    readonly auditId?: string;
+    readonly action?: string;
+  }>;
+  readonly shutdownRequested: boolean;
+  readonly shutdownControlClean: boolean;
+  readonly shutdownRetainedLabels: ReadonlyArray<string>;
+  readonly shutdownCompleted: boolean;
   readonly ready: boolean;
 }
+
+type AdmissionMode = "primary" | "expiring" | "sibling" | "mismatched";
+
+const isAdmissionMode = (value: unknown): value is AdmissionMode =>
+  value === "primary" ||
+  value === "expiring" ||
+  value === "sibling" ||
+  value === "mismatched";
+
+const isBoundedId = (value: unknown): value is string =>
+  typeof value === "string" && value.length > 0 && value.length <= 256;
 
 const decodeProbeAudit = (value: unknown): ProbeAudit => {
   if (
@@ -109,6 +141,12 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
     typeof value.managedDevToolsCurrentlyOpen !== "number" ||
     typeof value.defaultProxyResolution !== "string" ||
     typeof value.profileProxyResolution !== "string" ||
+    !Array.isArray(value.edgeAdmissions) ||
+    !Array.isArray(value.capabilityEvents) ||
+    typeof value.shutdownRequested !== "boolean" ||
+    typeof value.shutdownControlClean !== "boolean" ||
+    !Array.isArray(value.shutdownRetainedLabels) ||
+    typeof value.shutdownCompleted !== "boolean" ||
     typeof value.ready !== "boolean"
   ) {
     throw new Error("dedicated Electron probe emitted a malformed audit");
@@ -121,6 +159,51 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
   });
   if (value.externalProtocolDispatches.some((entry) => typeof entry !== "string")) {
     throw new Error("dedicated Electron probe emitted a malformed protocol audit");
+  }
+  const edgeAdmissions = value.edgeAdmissions.map((entry) => {
+    if (
+      !isRecord(entry) ||
+      !Number.isSafeInteger(entry.sequence) ||
+      Number(entry.sequence) <= 0 ||
+      !isAdmissionMode(entry.mode) ||
+      !isBoundedId(entry.principalId) ||
+      !isBoundedId(entry.jobId) ||
+      !isBoundedId(entry.auditId)
+    ) {
+      throw new Error("dedicated Electron probe emitted a malformed edge-admission audit");
+    }
+    return {
+      sequence: Number(entry.sequence),
+      mode: entry.mode,
+      principalId: entry.principalId,
+      jobId: entry.jobId,
+      auditId: entry.auditId,
+    };
+  });
+  const capabilityEvents = value.capabilityEvents.map((entry) => {
+    if (
+      !isRecord(entry) ||
+      !Number.isSafeInteger(entry.sequence) ||
+      Number(entry.sequence) <= 0 ||
+      !isBoundedId(entry.outcome) ||
+      (entry.principalId !== undefined && !isBoundedId(entry.principalId)) ||
+      (entry.jobId !== undefined && !isBoundedId(entry.jobId)) ||
+      (entry.auditId !== undefined && !isBoundedId(entry.auditId)) ||
+      (entry.action !== undefined && !isBoundedId(entry.action))
+    ) {
+      throw new Error("dedicated Electron probe emitted a malformed capability audit");
+    }
+    return {
+      sequence: Number(entry.sequence),
+      outcome: entry.outcome,
+      ...(entry.principalId === undefined ? {} : { principalId: entry.principalId }),
+      ...(entry.jobId === undefined ? {} : { jobId: entry.jobId }),
+      ...(entry.auditId === undefined ? {} : { auditId: entry.auditId }),
+      ...(entry.action === undefined ? {} : { action: entry.action }),
+    };
+  });
+  if (value.shutdownRetainedLabels.some((entry) => !isBoundedId(entry))) {
+    throw new Error("dedicated Electron probe emitted malformed shutdown labels");
   }
   return {
     baselineWebContents: value.baselineWebContents,
@@ -139,26 +222,55 @@ const decodeProbeAudit = (value: unknown): ProbeAudit => {
     managedDevToolsCurrentlyOpen: value.managedDevToolsCurrentlyOpen,
     defaultProxyResolution: value.defaultProxyResolution,
     profileProxyResolution: value.profileProxyResolution,
+    edgeAdmissions,
+    capabilityEvents,
+    shutdownRequested: value.shutdownRequested,
+    shutdownControlClean: value.shutdownControlClean,
+    shutdownRetainedLabels: value.shutdownRetainedLabels as string[],
+    shutdownCompleted: value.shutdownCompleted,
     ready: value.ready,
   };
 };
 
+interface PrincipalWitness {
+  readonly principalId: string;
+  readonly jobId: string;
+  readonly auditId: string;
+}
+
 interface CapabilityHandoff {
-  readonly version: 2;
+  readonly version: 3;
   readonly capability: string;
   readonly expiringCapability: string;
   readonly expiringIssuedAt: number;
   readonly expiringExpiresAt: number;
   readonly unrelatedCapability: string;
   readonly siblingCapability: string;
+  readonly principals: Readonly<{
+    primary: PrincipalWitness;
+    expiring: PrincipalWitness;
+    sibling: PrincipalWitness;
+  }>;
 }
 
 const CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
+const decodePrincipalWitness = (value: unknown): PrincipalWitness | undefined =>
+  isRecord(value) &&
+    isBoundedId(value.principalId) &&
+    isBoundedId(value.jobId) &&
+    isBoundedId(value.auditId)
+    ? {
+        principalId: value.principalId,
+        jobId: value.jobId,
+        auditId: value.auditId,
+      }
+    : undefined;
+
 const decodeCapabilityHandoff = (value: unknown): CapabilityHandoff => {
   if (
     !isRecord(value) ||
-    value.version !== 2 ||
+    value.version !== 3 ||
     typeof value.capability !== "string" ||
     typeof value.expiringCapability !== "string" ||
     typeof value.expiringIssuedAt !== "number" ||
@@ -169,6 +281,7 @@ const decodeCapabilityHandoff = (value: unknown): CapabilityHandoff => {
     value.expiringExpiresAt - value.expiringIssuedAt > 10_000 ||
     typeof value.unrelatedCapability !== "string" ||
     typeof value.siblingCapability !== "string" ||
+    !isRecord(value.principals) ||
     !CAPABILITY_PATTERN.test(value.capability) ||
     !CAPABILITY_PATTERN.test(value.expiringCapability) ||
     !CAPABILITY_PATTERN.test(value.unrelatedCapability) ||
@@ -182,14 +295,28 @@ const decodeCapabilityHandoff = (value: unknown): CapabilityHandoff => {
   ) {
     throw new Error("dedicated Electron probe emitted a malformed capability handoff");
   }
+  const primary = decodePrincipalWitness(value.principals.primary);
+  const expiring = decodePrincipalWitness(value.principals.expiring);
+  const sibling = decodePrincipalWitness(value.principals.sibling);
+  if (
+    primary === undefined ||
+    expiring === undefined ||
+    sibling === undefined ||
+    new Set([primary.principalId, expiring.principalId, sibling.principalId]).size !== 3 ||
+    new Set([primary.jobId, expiring.jobId, sibling.jobId]).size !== 3 ||
+    new Set([primary.auditId, expiring.auditId, sibling.auditId]).size !== 3
+  ) {
+    throw new Error("dedicated Electron probe emitted malformed principal witnesses");
+  }
   return {
-    version: 2,
+    version: 3,
     capability: value.capability,
     expiringCapability: value.expiringCapability,
     expiringIssuedAt: value.expiringIssuedAt,
     expiringExpiresAt: value.expiringExpiresAt,
     unrelatedCapability: value.unrelatedCapability,
     siblingCapability: value.siblingCapability,
+    principals: { primary, expiring, sibling },
   };
 };
 
@@ -237,6 +364,37 @@ const waitForAudit = async (
     await delay(50);
   }
   throw new Error(`Electron probe audit timed out: ${lastError}`);
+};
+
+const waitForAdmissionEvidence = async (options: {
+  readonly auditPath: string;
+  readonly mode: AdmissionMode;
+  readonly edgePrincipal: PrincipalWitness;
+  readonly edgeAuditId?: string;
+  readonly capabilityPrincipal: PrincipalWitness;
+  readonly action: string;
+  readonly outcome: string;
+}): Promise<void> => {
+  const edgeAuditId = options.edgeAuditId ?? options.edgePrincipal.auditId;
+  await waitForAudit(
+    options.auditPath,
+    (audit) =>
+      audit.edgeAdmissions.some(
+        (entry) =>
+          entry.mode === options.mode &&
+          entry.principalId === options.edgePrincipal.principalId &&
+          entry.jobId === options.edgePrincipal.jobId &&
+          entry.auditId === edgeAuditId,
+      ) &&
+      audit.capabilityEvents.some(
+        (event) =>
+          event.action === options.action &&
+          event.outcome === options.outcome &&
+          event.principalId === options.capabilityPrincipal.principalId &&
+          event.jobId === options.capabilityPrincipal.jobId &&
+          event.auditId === options.capabilityPrincipal.auditId,
+      ),
+  );
 };
 
 const assertDirectProxyResolution = (audit: ProbeAudit): void => {
@@ -301,6 +459,9 @@ const buildDedicatedElectronEntry = async (root: string): Promise<string> => {
 
 interface ElectronLaunch {
   readonly process: ProbeProcessHandle;
+  readonly shutdownRequestPath: string;
+  readonly auditPath: string;
+  readonly controlSocketPath: string;
   readonly exited: () => boolean;
   readonly setKnownCapabilities: (capabilities: ReadonlyArray<string>) => void;
   readonly output: () => {
@@ -313,6 +474,9 @@ interface ElectronLaunch {
 const launchDedicatedElectron = (
   electronArguments: ReadonlyArray<string>,
   env: NodeJS.ProcessEnv,
+  shutdownRequestPath: string,
+  auditPath: string,
+  expectedControlSocketPath: string,
 ): ElectronLaunch => {
   const probeProcess = probeSupervisor.spawnGroup({
     source: "browser-electron-containment-probe",
@@ -335,6 +499,9 @@ const launchDedicatedElectron = (
   });
   return {
     process: probeProcess,
+    shutdownRequestPath,
+    auditPath,
+    controlSocketPath: expectedControlSocketPath,
     exited: probeProcess.exited,
     setKnownCapabilities: (capabilities) => {
       knownCapabilities = [...capabilities];
@@ -353,7 +520,10 @@ const launchDedicatedElectron = (
 };
 
 interface ControlCallOptions {
+  /** Deliberate decoy: product admission must never select authority from it. */
   readonly capability?: string;
+  /** Protected routes require replay identity even though they require no client secret. */
+  readonly requestId?: string | false;
   readonly timeoutMs?: number;
 }
 
@@ -367,6 +537,9 @@ const controlCall = (
   new Promise((resolveCall, rejectCall) => {
     const route = CONTROL_ROUTES[routeName];
     const timeoutMs = options.timeoutMs ?? CONTROL_TIMEOUT_MS;
+    const requestId = options.requestId === false
+      ? undefined
+      : options.requestId ?? randomUUID();
     let settled = false;
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const settle = (result: { readonly value: ControlEnvelope<unknown> } | { readonly error: unknown }): void => {
@@ -384,11 +557,11 @@ const controlCall = (
         headers: {
           "content-type": "application/json",
           [CONTROL_TOKEN_HEADER]: token,
+          ...(requestId === undefined ? {} : { [CONTROL_REQUEST_ID_HEADER]: requestId }),
           ...(options.capability === undefined
             ? {}
             : {
                 [CONTROL_CAPABILITY_HEADER]: options.capability,
-                [CONTROL_REQUEST_ID_HEADER]: randomUUID(),
               }),
         },
       },
@@ -430,7 +603,7 @@ const requireOk = (envelope: ControlEnvelope<unknown>, operation: string): unkno
 
 const requireDenied = (
   envelope: ControlEnvelope<unknown>,
-  expectedTag: "unauthorized" | "forbidden",
+  expectedTag: "unauthorized" | "forbidden" | "bad_request",
   operation: string,
 ): void => {
   if (envelope.ok || envelope.error._tag !== expectedTag) {
@@ -440,6 +613,19 @@ const requireDenied = (
         : `${operation}: expected ${expectedTag}, received ${envelope.error._tag}`,
     );
   }
+};
+
+const writeAdmissionMode = async (
+  path: string,
+  mode: AdmissionMode,
+): Promise<void> => {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  await writeFile(temporary, `${mode}\n`, {
+    encoding: "utf8",
+    flag: "wx",
+    mode: 0o600,
+  });
+  await rename(temporary, path);
 };
 
 const assertSecretsAbsent = (
@@ -484,7 +670,6 @@ const waitForControl = async (
 const waitForReport = async (
   socketPath: string,
   token: string,
-  capability: string,
   sessionId: string,
 ): Promise<Record<string, unknown>> => {
   const deadline = Date.now() + PAGE_TIMEOUT_MS;
@@ -499,7 +684,7 @@ const waitForReport = async (
             if (node?.dataset.mainWorldPoisoned !== "true") return null;
             return JSON.parse(node.textContent || "null");
           })()`,
-        }, { capability }),
+        }),
         `eval ${sessionId}`,
       );
       if (isRecord(data) && isRecord(data.result)) return data.result;
@@ -514,7 +699,6 @@ const waitForReport = async (
 const waitForSessionInvalidation = async (
   socketPath: string,
   token: string,
-  capability: string,
   sessionId: string,
 ): Promise<void> => {
   const deadline = Date.now() + EVAL_INVALIDATION_TIMEOUT_MS;
@@ -522,7 +706,7 @@ const waitForSessionInvalidation = async (
   while (Date.now() < deadline) {
     try {
       const sessions = requireOk(
-        await controlCall(socketPath, token, "sessions", undefined, { capability }),
+        await controlCall(socketPath, token, "sessions"),
         "sessions",
       );
       if (!Array.isArray(sessions)) throw new Error("sessions response is not an array");
@@ -542,13 +726,12 @@ const waitForSessionInvalidation = async (
 const assertStaleSessionRejected = async (
   socketPath: string,
   token: string,
-  capability: string,
   sessionId: string,
 ): Promise<void> => {
   const envelope = await controlCall(socketPath, token, "eval", {
     sessionId,
     code: "1",
-  }, { capability });
+  });
   if (envelope.ok || envelope.error._tag !== "not_found") {
     throw new Error(`stale session ${sessionId} was not rejected as not_found`);
   }
@@ -557,7 +740,6 @@ const assertStaleSessionRejected = async (
 const startNeverReturningEval = async (
   socketPath: string,
   token: string,
-  capability: string,
   sessionId: string,
 ): Promise<void> => {
   const envelope = await controlCall(
@@ -568,7 +750,7 @@ const startNeverReturningEval = async (
       sessionId,
       code: "(() => { for (;;) {} })()",
     },
-    { capability, timeoutMs: EVAL_INVALIDATION_TIMEOUT_MS },
+    { timeoutMs: EVAL_INVALIDATION_TIMEOUT_MS },
   );
   if (envelope.ok || envelope.error._tag !== "timeout") {
     throw new Error(
@@ -587,7 +769,6 @@ interface InFlightEval {
 const beginNeverReturningEval = (
   socketPath: string,
   token: string,
-  capability: string,
   sessionId: string,
 ): InFlightEval => {
   let settled = false;
@@ -599,7 +780,7 @@ const beginNeverReturningEval = (
       sessionId,
       code: "(() => { for (;;) {} })()",
     },
-    { capability, timeoutMs: EVAL_INVALIDATION_TIMEOUT_MS },
+    { timeoutMs: EVAL_INVALIDATION_TIMEOUT_MS },
   ).finally(() => {
     settled = true;
   });
@@ -738,10 +919,70 @@ const assertTcpControlAbsent = (
     req.end();
   });
 
-const stopLaunch = async (launch: ElectronLaunch, reason: string): Promise<void> => {
-  const receipt = await probeSupervisor.stop(launch.process, reason);
-  if (!receipt.closed) {
-    throw new Error(`Electron fixture did not close: ${JSON.stringify(receipt)}`);
+const assertPathAbsent = async (path: string, label: string): Promise<void> => {
+  try {
+    const metadata = await lstat(path);
+    throw new Error(
+      `${label} remained after clean process close (${metadata.isSocket() ? "socket" : "non-socket"})`,
+    );
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return;
+    throw error;
+  }
+};
+
+const stopLaunch = async (
+  launch: ElectronLaunch,
+  reason: string,
+): Promise<void> => {
+  if (!launch.exited()) {
+    await writeFile(launch.shutdownRequestPath, `${reason}\n`, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600,
+    });
+  }
+
+  let close: Awaited<ProbeProcessHandle["closed"]>;
+  try {
+    close = await probeSupervisor.waitForClose(
+      launch.process,
+      STARTUP_TIMEOUT_MS,
+      "Electron fixture did not acknowledge its bounded shutdown request",
+    );
+  } catch (error) {
+    // The central supervisor remains the only emergency signal authority. Its
+    // receipt is diagnostic; an escalated close never qualifies clean shutdown.
+    const emergency = await probeSupervisor.stop(launch.process, `${reason}:emergency`);
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}; emergency=${JSON.stringify(emergency)}`,
+    );
+  }
+  if (close.exitCode !== 0 || close.signal !== null) {
+    throw new Error(
+      `Electron fixture lacked a clean process witness: ${JSON.stringify({
+        exitCode: close.exitCode,
+        signal: close.signal,
+        diagnostics: close.diagnostics,
+      })}`,
+    );
+  }
+  await assertPathAbsent(launch.controlSocketPath, "browser control socket");
+  const audit = decodeProbeAudit(JSON.parse(await readFile(launch.auditPath, "utf8")));
+  if (
+    !audit.shutdownRequested ||
+    !audit.shutdownControlClean ||
+    audit.shutdownRetainedLabels.length !== 0 ||
+    !audit.shutdownCompleted
+  ) {
+    throw new Error(
+      `Electron fixture lacked a clean shutdown receipt: ${JSON.stringify({
+        shutdownRequested: audit.shutdownRequested,
+        shutdownControlClean: audit.shutdownControlClean,
+        shutdownRetainedLabels: audit.shutdownRetainedLabels,
+        shutdownCompleted: audit.shutdownCompleted,
+      })}`,
+    );
   }
 };
 
@@ -751,42 +992,109 @@ const qualifyCapabilityAdmission = async (
   handoff: CapabilityHandoff,
   canvasName: string,
   pageTargets: ReadonlyArray<{ readonly nodeId: string }>,
+  admissionModePath: string,
+  auditPath: string,
 ): Promise<void> => {
   requireDenied(
-    await controlCall(socketPath, token, "profiles"),
-    "unauthorized",
-    "token-only protected call",
+    await controlCall(socketPath, token, "profiles", undefined, { requestId: false }),
+    "bad_request",
+    "protected call without replay identity",
   );
-  requireDenied(
+
+  const processBoundProfiles = requireOk(
+    await controlCall(socketPath, token, "profiles"),
+    "process-bound profiles without client capability",
+  );
+  if (!Array.isArray(processBoundProfiles)) {
+    throw new Error("process-bound profiles response is not an array");
+  }
+  await waitForAdmissionEvidence({
+    auditPath,
+    mode: "primary",
+    edgePrincipal: handoff.principals.primary,
+    capabilityPrincipal: handoff.principals.primary,
+    action: "profiles",
+    outcome: "admitted",
+  });
+
+  const profilesWithUnrelatedDecoy = requireOk(
     await controlCall(socketPath, token, "profiles", undefined, {
       capability: handoff.unrelatedCapability,
     }),
-    "unauthorized",
-    "unrelated-registry capability",
+    "profiles with unrelated client decoy",
   );
-  requireDenied(
+  if (
+    !Array.isArray(profilesWithUnrelatedDecoy) ||
+    profilesWithUnrelatedDecoy.length !== processBoundProfiles.length
+  ) {
+    throw new Error("client capability decoy changed process-bound profile scope");
+  }
+
+  const pagesWithSiblingDecoy = requireOk(
     await controlCall(socketPath, token, "pages", undefined, {
       capability: handoff.siblingCapability,
     }),
-    "forbidden",
-    "wrong-action capability",
+    "pages with sibling client decoy",
   );
-  requireDenied(
-    await controlCall(
-      socketPath,
-      token,
-      "open",
-      { ref: formatNodeRef({ canvasName, nodeId: "personal-seed" }) },
-      { capability: handoff.siblingCapability },
-    ),
-    "forbidden",
-    "wrong-target capability",
+  if (!Array.isArray(pagesWithSiblingDecoy) || pagesWithSiblingDecoy.length !== pageTargets.length) {
+    throw new Error("client capability decoy selected sibling action/target scope");
+  }
+
+  await writeAdmissionMode(admissionModePath, "mismatched");
+  try {
+    requireDenied(
+      await controlCall(socketPath, token, "profiles"),
+      "forbidden",
+      "mixed edge-grant secret/principal tuple",
+    );
+    await waitForAdmissionEvidence({
+      auditPath,
+      mode: "mismatched",
+      edgePrincipal: handoff.principals.sibling,
+      edgeAuditId: handoff.principals.primary.auditId,
+      capabilityPrincipal: handoff.principals.primary,
+      action: "profiles",
+      outcome: "denied_scope",
+    });
+  } finally {
+    await writeAdmissionMode(admissionModePath, "primary");
+  }
+  requireOk(
+    await controlCall(socketPath, token, "profiles"),
+    "primary process edge after mixed tuple rejection",
   );
 
+  await writeAdmissionMode(admissionModePath, "sibling");
+  try {
+    requireDenied(
+      await controlCall(socketPath, token, "pages"),
+      "forbidden",
+      "sibling edge wrong action",
+    );
+    await waitForAdmissionEvidence({
+      auditPath,
+      mode: "sibling",
+      edgePrincipal: handoff.principals.sibling,
+      capabilityPrincipal: handoff.principals.sibling,
+      action: "pages",
+      outcome: "denied_scope",
+    });
+    requireDenied(
+      await controlCall(
+        socketPath,
+        token,
+        "open",
+        { ref: formatNodeRef({ canvasName, nodeId: "personal-seed" }) },
+      ),
+      "forbidden",
+      "sibling edge wrong target",
+    );
+  } finally {
+    await writeAdmissionMode(admissionModePath, "primary");
+  }
+
   const profiles = requireOk(
-    await controlCall(socketPath, token, "profiles", undefined, {
-      capability: handoff.capability,
-    }),
+    await controlCall(socketPath, token, "profiles"),
     "profiles",
   );
   if (
@@ -799,9 +1107,7 @@ const qualifyCapabilityAdmission = async (
   }
 
   const pages = requireOk(
-    await controlCall(socketPath, token, "pages", undefined, {
-      capability: handoff.capability,
-    }),
+    await controlCall(socketPath, token, "pages"),
     "pages",
   );
   const expectedRefs = new Set<string>(
@@ -816,9 +1122,7 @@ const qualifyCapabilityAdmission = async (
   }
 
   const initialSessions = requireOk(
-    await controlCall(socketPath, token, "sessions", undefined, {
-      capability: handoff.capability,
-    }),
+    await controlCall(socketPath, token, "sessions"),
     "sessions",
   );
   if (!Array.isArray(initialSessions) || initialSessions.length !== 0) {
@@ -826,16 +1130,15 @@ const qualifyCapabilityAdmission = async (
   }
 };
 
-const openCapabilityPage = async (
+const openProcessBoundPage = async (
   socketPath: string,
   token: string,
-  capability: string,
   canvasName: string,
   nodeId: string,
 ): Promise<string> => {
   const ref = formatNodeRef({ canvasName, nodeId });
   const data = requireOk(
-    await controlCall(socketPath, token, "open", { ref }, { capability }),
+    await controlCall(socketPath, token, "open", { ref }),
     `open ${ref}`,
   );
   if (!isRecord(data) || typeof data.sessionId !== "string") {
@@ -852,70 +1155,97 @@ const qualifyCapabilityExpiry = async (options: {
   readonly fixtureOrigin: string;
   readonly customProtocolUrl: string;
   readonly auditPath: string;
+  readonly admissionModePath: string;
 }): Promise<void> => {
   if (options.handoff.expiringExpiresAt - Date.now() < 1_000) {
     throw new Error("short-TTL capability did not retain enough time for an in-flight use");
   }
-  const sessionId = await openCapabilityPage(
-    options.socketPath,
-    options.token,
-    options.handoff.expiringCapability,
-    options.canvasName,
-    "personal-seed",
-  );
-  const report = await waitForReport(
-    options.socketPath,
-    options.token,
-    options.handoff.expiringCapability,
-    sessionId,
-  );
-  assertContainment(report, options.fixtureOrigin, options.customProtocolUrl);
+  await writeAdmissionMode(options.admissionModePath, "expiring");
+  try {
+    const sessionId = await openProcessBoundPage(
+      options.socketPath,
+      options.token,
+      options.canvasName,
+      "personal-seed",
+    );
+    const report = await waitForReport(
+      options.socketPath,
+      options.token,
+      sessionId,
+    );
+    assertContainment(report, options.fixtureOrigin, options.customProtocolUrl);
 
-  const operation = beginNeverReturningEval(
-    options.socketPath,
-    options.token,
-    options.handoff.expiringCapability,
-    sessionId,
-  );
-  await requireInFlight(operation, "capability expiry");
-  await requireCancelled(operation, "capability expiry");
+    const operation = beginNeverReturningEval(
+      options.socketPath,
+      options.token,
+      sessionId,
+    );
+    await requireInFlight(operation, "capability expiry");
+    await requireCancelled(operation, "capability expiry");
 
-  const audit = await waitForAudit(
-    options.auditPath,
-    (candidate) =>
-      candidate.expiringCapabilityExpired &&
-      candidate.currentWebContents === candidate.baselineWebContents,
-  );
-  if (
-    audit.createdWebContents.length !== 1 ||
-    !Number.isSafeInteger(audit.expiringCapabilityDestroyedSessions) ||
-    audit.expiringCapabilityDestroyedSessions < 0 ||
-    audit.expiringCapabilityDestroyedSessions > 1 ||
-    audit.browserWindows !== 0
-  ) {
-    throw new Error("capability expiry did not remove exactly its one managed session");
+    const expiringPrincipal = options.handoff.principals.expiring;
+    const matchesExpiringPrincipal = (event: {
+      readonly principalId?: string;
+      readonly jobId?: string;
+      readonly auditId?: string;
+    }): boolean =>
+      event.principalId === expiringPrincipal.principalId &&
+      event.jobId === expiringPrincipal.jobId &&
+      event.auditId === expiringPrincipal.auditId;
+    const audit = await waitForAudit(options.auditPath, (candidate) => {
+      const exactEdgeAdmission = candidate.edgeAdmissions.some(
+        (entry) => entry.mode === "expiring" && matchesExpiringPrincipal(entry),
+      );
+      const exactExpiry = candidate.capabilityEvents.some(
+        (event) => event.outcome === "expired" && matchesExpiringPrincipal(event),
+      );
+      const exactInFlightAbort = candidate.capabilityEvents.some(
+        (event) =>
+          event.action === "eval" &&
+          event.outcome === "aborted_expired" &&
+          matchesExpiringPrincipal(event),
+      );
+      return (
+        candidate.expiringCapabilityExpired &&
+        candidate.currentWebContents === candidate.baselineWebContents &&
+        exactEdgeAdmission &&
+        exactExpiry &&
+        exactInFlightAbort
+      );
+    });
+    if (
+      audit.createdWebContents.length !== 1 ||
+      !Number.isSafeInteger(audit.expiringCapabilityDestroyedSessions) ||
+      audit.expiringCapabilityDestroyedSessions < 0 ||
+      audit.expiringCapabilityDestroyedSessions > 1 ||
+      audit.browserWindows !== 0
+    ) {
+      throw new Error("capability expiry did not remove exactly its one managed session");
+    }
+    assertRuntimeDevToolsAbsent(audit, "capability expiry");
+    requireDenied(
+      await controlCall(options.socketPath, options.token, "sessions"),
+      "unauthorized",
+      "expired process edge authority",
+    );
+  } finally {
+    await writeAdmissionMode(options.admissionModePath, "primary");
   }
-  assertRuntimeDevToolsAbsent(audit, "capability expiry");
-  requireDenied(
-    await controlCall(options.socketPath, options.token, "sessions", undefined, {
-      capability: options.handoff.expiringCapability,
-    }),
-    "unauthorized",
-    "expired capability",
-  );
-  const siblingSessions = requireOk(
-    await controlCall(options.socketPath, options.token, "sessions", undefined, {
-      capability: options.handoff.siblingCapability,
-    }),
-    "sibling authority after expiry",
-  );
-  if (!Array.isArray(siblingSessions) || siblingSessions.length !== 0) {
-    throw new Error("expiring one capability contaminated a sibling owner namespace");
+
+  await writeAdmissionMode(options.admissionModePath, "sibling");
+  try {
+    const siblingSessions = requireOk(
+      await controlCall(options.socketPath, options.token, "sessions"),
+      "sibling authority after expiry",
+    );
+    if (!Array.isArray(siblingSessions) || siblingSessions.length !== 0) {
+      throw new Error("expiring one capability contaminated a sibling owner namespace");
+    }
+  } finally {
+    await writeAdmissionMode(options.admissionModePath, "primary");
   }
   requireOk(
-    await controlCall(options.socketPath, options.token, "profiles", undefined, {
-      capability: options.handoff.capability,
-    }),
+    await controlCall(options.socketPath, options.token, "profiles"),
     "primary authority after sibling expiry",
   );
 };
@@ -923,24 +1253,20 @@ const qualifyCapabilityExpiry = async (options: {
 const openAndQualifySiblingOwner = async (
   socketPath: string,
   token: string,
-  siblingCapability: string,
   canvasName: string,
   fixtureOrigin: string,
   customProtocolUrl: string,
 ): Promise<string> => {
-  const sessionId = await openCapabilityPage(
+  const sessionId = await openProcessBoundPage(
     socketPath,
     token,
-    siblingCapability,
     canvasName,
     "work-read",
   );
-  const report = await waitForReport(socketPath, token, siblingCapability, sessionId);
+  const report = await waitForReport(socketPath, token, sessionId);
   assertContainment(report, fixtureOrigin, customProtocolUrl);
   const sessions = requireOk(
-    await controlCall(socketPath, token, "sessions", undefined, {
-      capability: siblingCapability,
-    }),
+    await controlCall(socketPath, token, "sessions"),
     "sibling sessions",
   );
   if (
@@ -956,12 +1282,12 @@ const openAndQualifySiblingOwner = async (
 const qualifyCapabilityRevocation = async (options: {
   readonly socketPath: string;
   readonly token: string;
-  readonly capability: string;
   readonly revokedSessionId: string;
-  readonly siblingCapability: string;
   readonly siblingSessionId: string;
+  readonly handoff: CapabilityHandoff;
   readonly auditPath: string;
   readonly revokeMarkerPath: string;
+  readonly admissionModePath: string;
   readonly fixtureOrigin: string;
   readonly customProtocolUrl: string;
   readonly legacyTcpPort: number;
@@ -969,10 +1295,10 @@ const qualifyCapabilityRevocation = async (options: {
   readonly privateSentinelRequests: number;
   readonly popupRequests: number;
 }): Promise<ProbeAudit> => {
+  await writeAdmissionMode(options.admissionModePath, "primary");
   const operation = beginNeverReturningEval(
     options.socketPath,
     options.token,
-    options.capability,
     options.revokedSessionId,
   );
   await requireInFlight(operation, "explicit capability revocation");
@@ -994,34 +1320,43 @@ const qualifyCapabilityRevocation = async (options: {
   }
   assertRuntimeDevToolsAbsent(audit, "explicit capability revocation");
   requireDenied(
-    await controlCall(options.socketPath, options.token, "sessions", undefined, {
-      capability: options.capability,
-    }),
+    await controlCall(options.socketPath, options.token, "sessions"),
     "unauthorized",
-    "revoked capability",
+    "revoked process edge authority",
   );
-  const siblingSessions = requireOk(
-    await controlCall(options.socketPath, options.token, "sessions", undefined, {
-      capability: options.siblingCapability,
-    }),
-    "sibling sessions after revocation",
-  );
-  if (
-    !Array.isArray(siblingSessions) ||
-    siblingSessions.length !== 1 ||
-    !siblingSessions.some(
-      (session) => isRecord(session) && session.sessionId === options.siblingSessionId,
-    )
-  ) {
-    throw new Error("revoking one capability destroyed a sibling owner's session");
+
+  await writeAdmissionMode(options.admissionModePath, "sibling");
+  try {
+    const siblingSessions = requireOk(
+      await controlCall(options.socketPath, options.token, "sessions"),
+      "sibling sessions after revocation",
+    );
+    if (
+      !Array.isArray(siblingSessions) ||
+      siblingSessions.length !== 1 ||
+      !siblingSessions.some(
+        (session) => isRecord(session) && session.sessionId === options.siblingSessionId,
+      )
+    ) {
+      throw new Error("revoking one capability destroyed a sibling owner's session");
+    }
+    const report = await waitForReport(
+      options.socketPath,
+      options.token,
+      options.siblingSessionId,
+    );
+    assertContainment(report, options.fixtureOrigin, options.customProtocolUrl);
+    await waitForAdmissionEvidence({
+      auditPath: options.auditPath,
+      mode: "sibling",
+      edgePrincipal: options.handoff.principals.sibling,
+      capabilityPrincipal: options.handoff.principals.sibling,
+      action: "sessions",
+      outcome: "admitted",
+    });
+  } finally {
+    await writeAdmissionMode(options.admissionModePath, "primary");
   }
-  const report = await waitForReport(
-    options.socketPath,
-    options.token,
-    options.siblingCapability,
-    options.siblingSessionId,
-  );
-  assertContainment(report, options.fixtureOrigin, options.customProtocolUrl);
   if (audit.browserWindows !== 0 || audit.externalProtocolDispatches.length !== 0) {
     throw new Error("revocation qualification left unmanaged browser authority");
   }
@@ -1119,6 +1454,9 @@ const main = async (): Promise<void> => {
   const restartCapabilityPath = join(root, "browser-capabilities-launch-two.json");
   const revokeMarkerPath = join(root, "revoke-capability-launch-one.marker");
   const restartRevokeMarkerPath = join(root, "revoke-capability-launch-two.marker");
+  const admissionModePath = join(root, "admission-mode");
+  const shutdownRequestPath = join(root, "shutdown-launch-one.request");
+  const restartShutdownRequestPath = join(root, "shutdown-launch-two.request");
   const markerPath = join(root, `host-marker-${randomUUID()}`);
   const nonce = randomUUID();
   const customProtocolUrl = `vellum-probe://denied/${nonce}`;
@@ -1128,6 +1466,7 @@ const main = async (): Promise<void> => {
       mkdir(path, { recursive: true }),
     ),
   );
+  await writeAdmissionMode(admissionModePath, "primary");
 
   let privateSentinelRequests = 0;
   const sentinelServer = createServer((_req, res) => {
@@ -1233,6 +1572,8 @@ const main = async (): Promise<void> => {
     readonly auditPath: string;
     readonly capabilityPath: string;
     readonly revokeMarkerPath: string;
+    readonly admissionModePath: string;
+    readonly shutdownRequestPath: string;
   }): string[] => [
       dedicatedMainPath,
       `--user-data-dir=${userData}`,
@@ -1243,11 +1584,15 @@ const main = async (): Promise<void> => {
       `--audit-path=${options.auditPath}`,
       `--capability-path=${options.capabilityPath}`,
       `--revoke-marker-path=${options.revokeMarkerPath}`,
+      `--admission-mode-path=${options.admissionModePath}`,
+      `--shutdown-request-path=${options.shutdownRequestPath}`,
     ];
   const electronArguments = makeElectronArguments({
     auditPath,
     capabilityPath,
     revokeMarkerPath,
+    admissionModePath,
+    shutdownRequestPath,
   });
   if (
     electronArguments.some((argument) =>
@@ -1257,9 +1602,16 @@ const main = async (): Promise<void> => {
     throw new Error("dedicated Electron entry unexpectedly enabled CDP or inspector authority");
   }
 
-  const firstLaunch = launchDedicatedElectron(electronArguments, env);
+  const firstLaunch = launchDedicatedElectron(
+    electronArguments,
+    env,
+    shutdownRequestPath,
+    auditPath,
+    controlSocketPath(home),
+  );
   let restartLaunch: ElectronLaunch | undefined;
   let knownCapabilities: string[] = [];
+  let siblingSessionId: string | undefined;
 
   try {
     probeStage = "control startup";
@@ -1291,7 +1643,15 @@ const main = async (): Promise<void> => {
     await assertTcpControlAbsent(legacyTcpPort, token);
 
     probeStage = "capability admission";
-    await qualifyCapabilityAdmission(socketPath, token, handoff, canvasName, pageTargets);
+    await qualifyCapabilityAdmission(
+      socketPath,
+      token,
+      handoff,
+      canvasName,
+      pageTargets,
+      admissionModePath,
+      auditPath,
+    );
 
     probeStage = "short-TTL capability expiry";
     await qualifyCapabilityExpiry({
@@ -1302,13 +1662,14 @@ const main = async (): Promise<void> => {
       fixtureOrigin: origin,
       customProtocolUrl,
       auditPath,
+      admissionModePath,
     });
 
     const open = (nodeId: string): Promise<string> =>
-      openCapabilityPage(socketPath, token, capability, canvasName, nodeId);
+      openProcessBoundPage(socketPath, token, canvasName, nodeId);
 
     const personalSeedSession = await open("personal-seed");
-    const personalSeed = await waitForReport(socketPath, token, capability, personalSeedSession);
+    const personalSeed = await waitForReport(socketPath, token, personalSeedSession);
     assertContainment(personalSeed, origin, customProtocolUrl);
     const afterFirstPageAudit = await waitForAudit(
       auditPath,
@@ -1330,7 +1691,7 @@ const main = async (): Promise<void> => {
     if (!(await markerAbsent(markerPath))) throw new Error("hostile page wrote a host marker");
 
     const workReadSession = await open("work-read");
-    const workRead = await waitForReport(socketPath, token, capability, workReadSession);
+    const workRead = await waitForReport(socketPath, token, workReadSession);
     assertContainment(workRead, origin, customProtocolUrl);
     if (workRead.cookieValue !== null || workRead.storageValue !== null) {
       throw new Error("work profile observed personal profile state");
@@ -1340,7 +1701,6 @@ const main = async (): Promise<void> => {
     const timeoutPersonal = await waitForReport(
       socketPath,
       token,
-      capability,
       timeoutPersonalSession,
     );
     assertContainment(timeoutPersonal, origin, customProtocolUrl);
@@ -1351,12 +1711,11 @@ const main = async (): Promise<void> => {
     const unaffectedBefore = await waitForReport(
       socketPath,
       token,
-      capability,
       unaffectedWorkSession,
     );
     assertContainment(unaffectedBefore, origin, customProtocolUrl);
     const sessions = requireOk(
-      await controlCall(socketPath, token, "sessions", undefined, { capability }),
+      await controlCall(socketPath, token, "sessions"),
       "sessions",
     );
     if (!Array.isArray(sessions)) throw new Error("sessions response is not an array");
@@ -1369,31 +1728,34 @@ const main = async (): Promise<void> => {
     }
 
     probeStage = "hung eval operation deadline";
-    await startNeverReturningEval(socketPath, token, capability, timeoutPersonalSession);
+    await startNeverReturningEval(socketPath, token, timeoutPersonalSession);
     probeStage = "hung eval session invalidation";
-    await waitForSessionInvalidation(socketPath, token, capability, timeoutPersonalSession);
+    await waitForSessionInvalidation(socketPath, token, timeoutPersonalSession);
     probeStage = "stale handle rejection";
-    await assertStaleSessionRejected(socketPath, token, capability, timeoutPersonalSession);
+    await assertStaleSessionRejected(socketPath, token, timeoutPersonalSession);
 
     probeStage = "owner-isolation capacity lane";
-    await startNeverReturningEval(socketPath, token, capability, workReadSession);
-    await waitForSessionInvalidation(socketPath, token, capability, workReadSession);
+    await startNeverReturningEval(socketPath, token, workReadSession);
+    await waitForSessionInvalidation(socketPath, token, workReadSession);
 
-    probeStage = "sibling owner isolation";
-    const siblingSessionId = await openAndQualifySiblingOwner(
-      socketPath,
-      token,
-      siblingCapability,
-      canvasName,
-      origin,
-      customProtocolUrl,
-    );
+    await writeAdmissionMode(admissionModePath, "sibling");
+    try {
+      probeStage = "sibling owner isolation";
+      siblingSessionId = await openAndQualifySiblingOwner(
+        socketPath,
+        token,
+        canvasName,
+        origin,
+        customProtocolUrl,
+      );
+    } finally {
+      await writeAdmissionMode(admissionModePath, "primary");
+    }
 
     probeStage = "unaffected work session";
     const unaffectedAfter = await waitForReport(
       socketPath,
       token,
-      capability,
       unaffectedWorkSession,
     );
     assertContainment(unaffectedAfter, origin, customProtocolUrl);
@@ -1402,7 +1764,6 @@ const main = async (): Promise<void> => {
     const personalRestored = await waitForReport(
       socketPath,
       token,
-      capability,
       personalRestoredSession,
     );
     assertContainment(personalRestored, origin, customProtocolUrl);
@@ -1426,12 +1787,12 @@ const main = async (): Promise<void> => {
     await qualifyCapabilityRevocation({
       socketPath,
       token,
-      capability,
       revokedSessionId: personalRestoredSession,
-      siblingCapability,
       siblingSessionId,
+      handoff,
       auditPath,
       revokeMarkerPath,
+      admissionModePath,
       fixtureOrigin: origin,
       customProtocolUrl,
       legacyTcpPort,
@@ -1442,15 +1803,15 @@ const main = async (): Promise<void> => {
 
     probeStage = "first fixture shutdown";
     await stopLaunch(firstLaunch, "containment-first-fixture-complete");
-    if (!(await markerAbsent(socketPath))) {
-      throw new Error("browser control socket remained after Electron quit");
-    }
 
     probeStage = "fresh process restart";
+    await writeAdmissionMode(admissionModePath, "primary");
     const restartElectronArguments = makeElectronArguments({
       auditPath: restartAuditPath,
       capabilityPath: restartCapabilityPath,
       revokeMarkerPath: restartRevokeMarkerPath,
+      admissionModePath,
+      shutdownRequestPath: restartShutdownRequestPath,
     });
     if (
       restartElectronArguments.some((argument) =>
@@ -1459,7 +1820,13 @@ const main = async (): Promise<void> => {
     ) {
       throw new Error("restarted Electron entry unexpectedly enabled CDP or inspector authority");
     }
-    restartLaunch = launchDedicatedElectron(restartElectronArguments, env);
+    restartLaunch = launchDedicatedElectron(
+      restartElectronArguments,
+      env,
+      restartShutdownRequestPath,
+      restartAuditPath,
+      controlSocketPath(home),
+    );
     const restartControl = await waitForControl(home, restartLaunch.exited);
     if (restartControl.token === token) {
       throw new Error("fresh Electron process reused the previous control token");
@@ -1508,7 +1875,7 @@ const main = async (): Promise<void> => {
       "previous launch control token",
     );
     for (const staleCapability of launchOneCapabilities) {
-      requireDenied(
+      const sessionsWithStaleDecoy = requireOk(
         await controlCall(
           restartControl.socketPath,
           restartControl.token,
@@ -1516,9 +1883,11 @@ const main = async (): Promise<void> => {
           undefined,
           { capability: staleCapability },
         ),
-        "unauthorized",
-        "previous launch capability",
+        "previous launch capability decoy",
       );
+      if (!Array.isArray(sessionsWithStaleDecoy) || sessionsWithStaleDecoy.length !== 0) {
+        throw new Error("previous launch client decoy changed fresh process-bound scope");
+      }
     }
     requireDenied(
       await controlCall(
@@ -1532,17 +1901,16 @@ const main = async (): Promise<void> => {
       "fresh capability with previous launch token",
     );
 
-    const restartSiblingSession = await openCapabilityPage(
+    await writeAdmissionMode(admissionModePath, "sibling");
+    const restartSiblingSession = await openProcessBoundPage(
       restartControl.socketPath,
       restartControl.token,
-      restartHandoff.siblingCapability,
       canvasName,
       "work-read",
     );
     const restartSiblingReport = await waitForReport(
       restartControl.socketPath,
       restartControl.token,
-      restartHandoff.siblingCapability,
       restartSiblingSession,
     );
     assertContainment(restartSiblingReport, origin, customProtocolUrl);
@@ -1556,13 +1924,18 @@ const main = async (): Promise<void> => {
       throw new Error("fresh authority created an unmanaged BrowserWindow");
     }
     assertRuntimeDevToolsAbsent(restartActiveAudit, "fresh authority use");
+    await waitForAdmissionEvidence({
+      auditPath: restartAuditPath,
+      mode: "sibling",
+      edgePrincipal: restartHandoff.principals.sibling,
+      capabilityPrincipal: restartHandoff.principals.sibling,
+      action: "open",
+      outcome: "admitted",
+    });
     await assertTcpControlAbsent(legacyTcpPort, restartControl.token);
 
     probeStage = "second fixture shutdown";
     await stopLaunch(restartLaunch, "containment-second-fixture-complete");
-    if (!(await markerAbsent(restartControl.socketPath))) {
-      throw new Error("browser control socket remained after restarted Electron quit");
-    }
 
     probeStage = "capability non-disclosure";
     const firstOutput = firstLaunch.output();
@@ -1578,41 +1951,44 @@ const main = async (): Promise<void> => {
     });
 
     successfulProbeOutput = JSON.stringify({
-        ok: true,
-        assertions: {
-          privilegedGlobalsAbsent: true,
-          hostWritesBlocked: true,
-          profilesIsolated: true,
-          partitionSurvivesEviction: true,
-          hungEvalDestroysOnlyTargetView: true,
-          staleSessionRejected: true,
-          profileSurvivesDestructiveTimeout: true,
-          unaffectedSessionRemainsUsable: true,
-          tokenOnlyAuthorityDenied: true,
-          unrelatedRegistryAuthorityDenied: true,
-          wrongActionAndTargetDenied: true,
-          fullFivePageCapabilityAdmitted: true,
-          freshRequestIdPerProtectedCall: true,
-          shortTtlExpiryCancelsInFlightUse: true,
-          expiryDestroysExactOwnerSessions: true,
-          siblingAuthoritySurvivesExpiry: true,
-          capabilityRevocationEnforced: true,
-          explicitRevocationCancelsInFlightUse: true,
-          siblingOwnerSurvivesRevocation: true,
-          freshProcessRotatesControlToken: true,
-          previousLaunchAuthorityRejected: true,
-          freshProcessAuthorityUsable: true,
-          capabilityAbsentFromArtifactsAndLogs: true,
-          tcpListenerAbsent: true,
-          runtimeDebugAuthorityAbsent: true,
-          popupAndNewWebContentsDenied: true,
-          permissionsDeniedWithoutPagePrompt: true,
-          downloadBlockedWithoutFile: true,
-          customProtocolNotDispatched: true,
-          privateLoopbackSentinelUnreached: true,
-          dedicatedEntryBuiltHermetically: true,
-        },
-      });
+      ok: true,
+      assertions: {
+        privilegedGlobalsAbsent: true,
+        hostWritesBlocked: true,
+        profilesIsolated: true,
+        partitionSurvivesEviction: true,
+        hungEvalDestroysOnlyTargetView: true,
+        staleSessionRejected: true,
+        profileSurvivesDestructiveTimeout: true,
+        unaffectedSessionRemainsUsable: true,
+        replayIdentityRequired: true,
+        processBoundEdgeAuthorityAdmitted: true,
+        clientCapabilityHeadersIgnored: true,
+        exactPrincipalTupleEnforced: true,
+        wrongActionAndTargetDenied: true,
+        fullFivePageEdgeScopeAdmitted: true,
+        freshRequestIdPerProtectedCall: true,
+        shortTtlExpiryCancelsInFlightUse: true,
+        expiryDestroysExactOwnerSessions: true,
+        siblingAuthoritySurvivesExpiry: true,
+        edgeLeaseRevocationEnforced: true,
+        explicitRevocationCancelsInFlightUse: true,
+        siblingOwnerSurvivesRevocation: true,
+        freshProcessRotatesControlToken: true,
+        previousControlTokenRejectedAndClientBearerIgnored: true,
+        freshProcessAuthorityUsable: true,
+        capabilityAbsentFromArtifactsAndLogs: true,
+        tcpListenerAbsent: true,
+        runtimeDebugAuthorityAbsent: true,
+        popupAndNewWebContentsDenied: true,
+        permissionsDeniedWithoutPagePrompt: true,
+        downloadBlockedWithoutFile: true,
+        customProtocolNotDispatched: true,
+        privateLoopbackSentinelUnreached: true,
+        dedicatedEntryBuiltHermetically: true,
+        cleanControlDrainBeforeProcessExit: true,
+      },
+    });
   } catch (error) {
     const firstOutput = firstLaunch.output();
     const restartOutput = restartLaunch?.output();
