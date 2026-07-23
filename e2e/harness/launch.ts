@@ -12,6 +12,10 @@
  *    resolve the operator's real CLIs
  *  - renderer served from a local static server (127.0.0.1, ephemeral port)
  *    since the trusted renderer protocol only installs when app.isPackaged
+ *  - focus isolation: VELLUM_E2E=1 creates off-screen, non-focusable windows
+ *    + accessory Dock policy so Playwright never steals macOS focus. Opt into
+ *    a visible window for debugging with VELLUM_E2E_SHOW=1 (not --vellum-headless —
+ *    that mode has no authoring renderer at all).
  */
 import { lstat, unlink } from "node:fs/promises";
 import { connect } from "node:net";
@@ -490,15 +494,31 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     await dismissStationRoleGate(page);
 
     // Native confirm dialogs (honest-quit live-work gate, browser-automation
-    // grant) can never be clicked headless — auto-accept them everywhere.
-    // Response index 1 is QUIT_CONFIRM_ACCEPT_INDEX ("quit anyway"); the
-    // browser grant flow uses the same index for "allow".
+    // grant) cannot be clicked under focus isolation — auto-accept them
+    // everywhere. Response index 1 is QUIT_CONFIRM_ACCEPT_INDEX ("quit anyway");
+    // the browser grant flow uses the same index for "allow".
     await app.evaluate(({ dialog }) => {
       dialog.showMessageBox = (async () => ({
         response: 1,
         checkboxChecked: false,
       })) as typeof dialog.showMessageBox;
     });
+
+    // Defense in depth: if a window was somehow shown, re-hide Dock and do not
+    // activate. Main already applies accessory policy + show:false when
+    // VELLUM_E2E=1 without VELLUM_E2E_SHOW.
+    if (process.env.VELLUM_E2E_SHOW !== "1") {
+      await app.evaluate(({ app: electronApp, BrowserWindow }) => {
+        try {
+          electronApp.dock?.hide();
+        } catch {
+          // ignore
+        }
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed() && win.isVisible()) win.hide();
+        }
+      });
+    }
 
     let closePromise: Promise<void> | undefined;
     const close = (): Promise<void> => {

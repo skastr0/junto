@@ -106,6 +106,12 @@ import { loadStationSupervisor } from "./vellum/supervision/select";
 import { settingsFilePath } from "./vellum/settings/service";
 import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
 import { findPackagedSandboxDisablingSwitch } from "./vellum/packaged-sandbox-policy";
+import {
+  applyE2eMacOsFocusIsolation,
+  e2eFocusIsolationActive,
+  e2eMainWindowOptions,
+  e2ePresentationFromEnv,
+} from "./vellum/e2e-presentation";
 
 // Browser sessions must resolve and connect directly. An inherited system
 // proxy can perform independent DNS resolution and bypass Vellum's URL/DNS
@@ -289,6 +295,20 @@ app.on("open-url", (event, uri) => {
 // services alive without creating a renderer. It replaces the former dev CDP
 // listener: headless qualification must never require a network control port.
 const headless = process.argv.includes("--vellum-headless");
+
+// Playwright E2E needs a real authoring renderer (not --vellum-headless), but
+// must never steal macOS focus or plant Dock icons. VELLUM_E2E_SHOW=1 opts out
+// for visual debugging of a single scenario.
+const e2ePresentation = e2ePresentationFromEnv();
+const e2eIsolateFocus = e2eFocusIsolationActive(e2ePresentation);
+applyE2eMacOsFocusIsolation({
+  active: e2eIsolateFocus,
+  platform: process.platform,
+  setActivationPolicy: (policy) => app.setActivationPolicy(policy),
+  hideDock: () => {
+    app.dock?.hide();
+  },
+});
 
 let trustedMainWindow: BrowserWindow | undefined;
 /** The Command Center is a trusted renderer identity, never "the first window". */
@@ -702,6 +722,9 @@ const createWindow = () => {
     // `hiddenInset` and traffic-light geometry are a macOS presentation
     // contract. Linux window managers receive Electron's native chrome.
     ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
+    // E2E: off-screen, non-focusable — Playwright still attaches; operator
+    // focus and Dock stay undisturbed (see e2e-presentation.ts).
+    ...e2eMainWindowOptions(e2ePresentation),
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
       contextIsolation: true,
@@ -862,9 +885,13 @@ const createWindow = () => {
         deliveryId: record.id,
       };
       mainWindow.webContents.send(IPC_CHANNELS.nodeRefOpened, payload);
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
+      // Never surface/focus during E2E focus isolation — that steals macOS
+      // focus from the operator's real work. Production still raises the CC.
+      if (!e2eIsolateFocus) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
     });
     disconnectNodeRefIngress = disconnect;
   });
@@ -915,8 +942,10 @@ const createWindow = () => {
 const createRendererFailureWindow = (): BrowserWindow => {
   const existing = rendererFailureWindow;
   if (existing !== undefined && !existing.isDestroyed()) {
-    existing.show();
-    existing.focus();
+    if (!e2eIsolateFocus) {
+      existing.show();
+      existing.focus();
+    }
     return existing;
   }
   const failureWindow = new BrowserWindow({
@@ -926,6 +955,7 @@ const createRendererFailureWindow = (): BrowserWindow => {
     minHeight: 300,
     title: "Vellum recovery",
     backgroundColor: "#0c0b0a",
+    ...e2eMainWindowOptions(e2ePresentation),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -945,6 +975,10 @@ const createRendererFailureWindow = (): BrowserWindow => {
   });
   const html = `<!doctype html><meta charset="utf-8"><title>Vellum recovery</title><style>html{color-scheme:dark;background:#0c0b0a;color:#ede6da;font:15px system-ui}body{max-width:52ch;margin:72px auto;padding:0 28px}h1{font-size:22px}p{line-height:1.55;color:#bdb5a8}</style><h1>Vellum could not render its workspace.</h1><p>A trusted workspace could not be restored safely. Quit and reopen Vellum; your canvas documents and local sessions were not deleted.</p>`;
   void failureWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  if (!e2eIsolateFocus) {
+    failureWindow.show();
+    failureWindow.focus();
+  }
   return failureWindow;
 };
 
@@ -1057,12 +1091,23 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       if (!headless) createWindow();
       return;
     }
+    if (e2eIsolateFocus) return;
     if (existing.isMinimized()) existing.restore();
     existing.show();
     existing.focus();
   });
 
   void app.whenReady().then(async () => {
+    // Re-apply after ready: dock.hide before ready is a no-op / race on some
+    // Electron builds, and E2E must never plant a Dock icon mid-suite.
+    applyE2eMacOsFocusIsolation({
+      active: e2eIsolateFocus,
+      platform: process.platform,
+      setActivationPolicy: (policy) => app.setActivationPolicy(policy),
+      hideDock: () => {
+        app.dock?.hide();
+      },
+    });
     if (!(await ensureSupervised())) return;
     if (shutdownAdmissionClosed) return;
 
