@@ -53,25 +53,6 @@ bunx --no-install electron-rebuild \
   --force \
   --sequential
 
-# node-pty only builds spawn-helper on macOS, but the packaged Linux runtime
-# resolves the helper from the same native-module directory. Compile the
-# Linux helper explicitly so the packaged tree carries the executable sidecar.
-NODE_PTY_PACKAGE_JSON="$(node -p 'require.resolve("node-pty/package.json")')"
-NODE_PTY_ROOT="$(dirname "$NODE_PTY_PACKAGE_JSON")"
-SPAWN_HELPER_SOURCE="$NODE_PTY_ROOT/src/unix/spawn-helper.cc"
-SPAWN_HELPER_TARGET="$NODE_PTY_ROOT/build/Release/spawn-helper"
-if [[ ! -f "$SPAWN_HELPER_SOURCE" ]]; then
-  printf 'vellum: error: node-pty spawn-helper source is missing\n' >&2
-  exit 1
-fi
-CXX="${CXX:-c++}"
-if ! command -v "$CXX" >/dev/null 2>&1; then
-  printf 'vellum: error: C++ compiler not found for node-pty spawn-helper\n' >&2
-  exit 1
-fi
-"$CXX" -O2 -std=c++17 -o "$SPAWN_HELPER_TARGET" "$SPAWN_HELPER_SOURCE"
-chmod 0755 "$SPAWN_HELPER_TARGET"
-
 bunx --no-install electron-builder --linux dir deb --x64 --config.npmRebuild=false
 finalized="$(bun "$SCRIPT_DIR/finalize-linux-package.ts" --release-dir "$SCRIPT_DIR/../release")"
 unpacked="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.artifact !== "string") process.exit(1); process.stdout.write(value.artifact)')"

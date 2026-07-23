@@ -22,18 +22,15 @@ const root = async (): Promise<string> => {
 afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
 describe("Linux packaged PTY layout audit", () => {
-  it("requires the unpacked Linux x64 native module and spawn helper", async () => {
+  it("requires the unpacked Linux x64 native module", async () => {
     const resources = await root();
     const base = join(resources, "app.asar.unpacked", "node_modules", "node-pty", "prebuilds", "linux-x64");
     mkdirSync(base, { recursive: true });
     writeFileSync(join(base, "pty.node"), "native");
-    writeFileSync(join(base, "spawn-helper"), "helper");
-    chmodSync(join(base, "spawn-helper"), 0o755);
 
     expect(auditLinuxPtyPlacement(resources)).toEqual({
       nodePtyRoot: join(resources, "app.asar.unpacked", "node_modules", "node-pty"),
       nativeModule: join(base, "pty.node"),
-      spawnHelper: join(base, "spawn-helper"),
     });
   });
 
@@ -44,15 +41,6 @@ describe("Linux packaged PTY layout audit", () => {
     writeFileSync(join(base, "spawn-helper"), "helper");
     chmodSync(join(base, "spawn-helper"), 0o755);
     expect(() => auditLinuxPtyPlacement(resources)).toThrow(/binary is missing/u);
-  });
-
-  it("rejects a native-only layout because Linux requires spawn-helper", async () => {
-    const resources = await root();
-    const base = join(resources, "app.asar.unpacked", "node_modules", "node-pty", "prebuilds", "linux-x64");
-    mkdirSync(base, { recursive: true });
-    writeFileSync(join(base, "pty.node"), "native");
-
-    expect(() => auditLinuxPtyPlacement(resources)).toThrow(/spawn-helper is missing/u);
   });
 });
 
