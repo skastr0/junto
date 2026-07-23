@@ -33,6 +33,7 @@ const sha256 = (value: string): string =>
 
 let fixtureRoot = "";
 let harness = "";
+let bridgeStageHarness = "";
 let retirementHarness = "";
 
 beforeAll(async () => {
@@ -64,6 +65,7 @@ last=
 for argument do last="$argument"; done
 case "$last" in
   *.marker) printf '0:0:600:1\\n' ;;
+  *stage-root) printf '0:0:1733\\n' ;;
   *) printf '0:0:%s:1\\n' "\${EXPECTED_MODE:?}" ;;
 esac
 `,
@@ -82,6 +84,40 @@ remove_package_owned_root_file "$1" "$2" "$3"
     { mode: 0o755 },
   );
   await chmod(harness, 0o755);
+
+  const bridgeStageStart = source.indexOf(
+    "remove_package_owned_bridge_stage_root() {",
+  );
+  const bridgeStageTerminator = "\n}\n\nretire_legacy_sudoers_policy";
+  const bridgeStageEnd = source.indexOf(
+    bridgeStageTerminator,
+    bridgeStageStart,
+  );
+  if (bridgeStageStart < 0 || bridgeStageEnd < 0) {
+    throw new Error("package bridge stage-root custody function is missing");
+  }
+  const bridgeStageSource = source.slice(
+    bridgeStageStart,
+    bridgeStageEnd + 2,
+  );
+  bridgeStageHarness = path.join(
+    fixtureRoot,
+    "bridge-stage-custody-harness.sh",
+  );
+  await writeFile(
+    bridgeStageHarness,
+    `#!/bin/sh
+set -eu
+set -f
+BRIDGE_STAGE_ROOT="$1"
+BRIDGE_STAGE_MARKER="$2"
+BRIDGE_STAGE_MARKER_VALUE="$3"
+${bridgeStageSource}
+remove_package_owned_bridge_stage_root
+`,
+    { mode: 0o755 },
+  );
+  await chmod(bridgeStageHarness, 0o755);
 
   const installSource = await readFile(afterInstallPath, "utf8");
   const retirementStart = installSource.indexOf(
@@ -158,6 +194,24 @@ const runLegacyRetirement = (
       env: {
         ...process.env,
         EXPECTED_MODE: "440",
+        PATH: `${path.join(fixtureRoot, "bin")}:/usr/bin:/bin:/sbin`,
+      },
+    },
+  );
+
+const runBridgeStageRemoval = (
+  root: string,
+  marker: string,
+  markerValue: string,
+) =>
+  spawnSync(
+    "/bin/sh",
+    [bridgeStageHarness, root, marker, markerValue],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EXPECTED_MODE: "755",
         PATH: `${path.join(fixtureRoot, "bin")}:/usr/bin:/bin:/sbin`,
       },
     },
@@ -298,5 +352,72 @@ describe("Linux package root-authority custody", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(await exists(fixture.target)).toBe(false);
     expect(await exists(fixture.marker)).toBe(true);
+  });
+
+  it("removes only an empty package-owned bridge stage root", async () => {
+    const directory = path.join(fixtureRoot, "empty-stage");
+    const root = path.join(directory, "stage-root");
+    const marker = path.join(directory, "stage.marker");
+    const markerValue = "vellum/linux-release-bridge-stage-root/v1";
+    await mkdir(root, { recursive: true, mode: 0o700 });
+    await chmod(root, 0o1733);
+    await writeFile(marker, `${markerValue}\n`, { mode: 0o600 });
+
+    const result = runBridgeStageRemoval(root, marker, markerValue);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(await exists(root)).toBe(false);
+    expect(await exists(marker)).toBe(false);
+  });
+
+  it("preserves nonempty or unclaimed bridge stage roots", async () => {
+    const directory = path.join(fixtureRoot, "retained-stage");
+    const nonemptyRoot = path.join(directory, "stage-root");
+    const nonemptyMarker = path.join(directory, "nonempty.marker");
+    const markerValue = "vellum/linux-release-bridge-stage-root/v1";
+    await mkdir(nonemptyRoot, { recursive: true, mode: 0o700 });
+    await chmod(nonemptyRoot, 0o1733);
+    await writeFile(path.join(nonemptyRoot, "foreign"), "preserve");
+    await writeFile(nonemptyMarker, `${markerValue}\n`, { mode: 0o600 });
+
+    const nonempty = runBridgeStageRemoval(
+      nonemptyRoot,
+      nonemptyMarker,
+      markerValue,
+    );
+    expect(nonempty.status, nonempty.stderr).toBe(0);
+    expect(nonempty.stderr).toContain("preserving a nonempty");
+    expect(await exists(nonemptyRoot)).toBe(true);
+    expect(await exists(nonemptyMarker)).toBe(true);
+
+    const unclaimedRoot = path.join(directory, "unclaimed-stage-root");
+    const missingMarker = path.join(directory, "missing.marker");
+    await mkdir(unclaimedRoot, { mode: 0o700 });
+    await chmod(unclaimedRoot, 0o1733);
+    const unclaimed = runBridgeStageRemoval(
+      unclaimedRoot,
+      missingMarker,
+      markerValue,
+    );
+    expect(unclaimed.status, unclaimed.stderr).toBe(0);
+    expect(await exists(unclaimedRoot)).toBe(true);
+    expect(await exists(missingMarker)).toBe(false);
+  });
+
+  it("preserves a bridge stage root with foreign custody evidence", async () => {
+    const directory = path.join(fixtureRoot, "foreign-stage");
+    const root = path.join(directory, "stage-root");
+    const marker = path.join(directory, "foreign.marker");
+    const markerValue = "vellum/linux-release-bridge-stage-root/v1";
+    await mkdir(root, { recursive: true, mode: 0o700 });
+    await chmod(root, 0o1733);
+    await writeFile(marker, "administrator-owned\n", { mode: 0o600 });
+
+    const result = runBridgeStageRemoval(root, marker, markerValue);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toContain("preserving a foreign");
+    expect(await exists(root)).toBe(true);
+    expect(await exists(marker)).toBe(true);
   });
 });
