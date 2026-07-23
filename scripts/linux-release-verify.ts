@@ -19,6 +19,8 @@ const parseOptions = (
   readonly peerStationBrowserProtocol: number;
   readonly peerWorkControlProtocol: string;
   readonly keyring: string;
+  readonly trustedKeyringRevision: number;
+  readonly trustedKeyringSha256: string;
   readonly trustedKeyId: string;
   readonly trustedKeyFingerprintSha256: string;
   readonly installedVersion?: string;
@@ -39,6 +41,8 @@ const parseOptions = (
       current !== "--peer-station-browser-protocol" &&
       current !== "--peer-work-control-protocol" &&
       current !== "--keyring" &&
+      current !== "--trusted-keyring-revision" &&
+      current !== "--trusted-keyring-sha256" &&
       current !== "--trusted-key-id" &&
       current !== "--trusted-key-fingerprint-sha256" &&
       current !== "--installed-version"
@@ -57,6 +61,8 @@ const parseOptions = (
   const stationBrowser = values.get("--peer-station-browser-protocol");
   const workControl = values.get("--peer-work-control-protocol");
   const keyring = values.get("--keyring");
+  const keyringRevision = values.get("--trusted-keyring-revision");
+  const keyringSha256 = values.get("--trusted-keyring-sha256");
   const trustedKeyId = values.get("--trusted-key-id");
   const trustedKeyFingerprintSha256 = values.get(
     "--trusted-key-fingerprint-sha256",
@@ -67,12 +73,16 @@ const parseOptions = (
     stationBrowser === undefined ||
     workControl === undefined ||
     keyring === undefined ||
+    keyringRevision === undefined ||
+    !/^[1-9][0-9]*$/u.test(keyringRevision) ||
+    keyringSha256 === undefined ||
+    !/^[0-9a-f]{64}$/u.test(keyringSha256) ||
     trustedKeyId === undefined ||
     trustedKeyFingerprintSha256 === undefined ||
     !/^[0-9]+$/u.test(stationBrowser)
   ) {
     throw new Error(
-      "usage: vellum-linux-verify-x64 --bundle DIR --keyring FILE --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-version X.Y.Z --peer-station-browser-protocol 1 --peer-work-control-protocol vellum-work/v1 [--installed-version X.Y.Z] [--allow-explicit-rollback]",
+      "usage: vellum-linux-verify-x64 --bundle DIR --keyring FILE --trusted-keyring-revision N --trusted-keyring-sha256 HEX --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-version X.Y.Z --peer-station-browser-protocol 1 --peer-work-control-protocol vellum-work/v1 [--installed-version X.Y.Z] [--allow-explicit-rollback]",
     );
   }
   return {
@@ -81,6 +91,8 @@ const parseOptions = (
     peerStationBrowserProtocol: Number(stationBrowser),
     peerWorkControlProtocol: workControl,
     keyring,
+    trustedKeyringRevision: Number(keyringRevision),
+    trustedKeyringSha256: keyringSha256,
     trustedKeyId,
     trustedKeyFingerprintSha256,
     ...(values.get("--installed-version") === undefined
@@ -201,6 +213,8 @@ export const linuxReleaseVerifyMain = async (
     stationBrowserProtocol: options.peerStationBrowserProtocol,
     workControlProtocol: options.peerWorkControlProtocol,
     trustedKeyring,
+    trustedKeyringRevision: options.trustedKeyringRevision,
+    trustedKeyringSha256: options.trustedKeyringSha256,
     trustedKeyId: options.trustedKeyId,
     trustedKeyFingerprintSha256: options.trustedKeyFingerprintSha256,
     ...(options.installedVersion === undefined

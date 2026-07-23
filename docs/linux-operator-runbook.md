@@ -48,6 +48,8 @@ not qualified in v1.
    ./vellum-linux-verify-x64 \
      --bundle . \
      --keyring /path/to/authenticated/release-keyring.json \
+     --trusted-keyring-revision AUTHENTICATED_KEYRING_REVISION \
+     --trusted-keyring-sha256 AUTHENTICATED_KEYRING_SHA256 \
      --trusted-key-id AUTHENTICATED_KEY_ID \
      --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
      --peer-version X.Y.Z \
@@ -190,6 +192,8 @@ contain receipts and bounded status, never `~/.vellum` itself.
     ./vellum-linux-verify-x64 \
       --bundle . \
       --keyring /path/to/authenticated/release-keyring.json \
+      --trusted-keyring-revision AUTHENTICATED_KEYRING_REVISION \
+      --trusted-keyring-sha256 AUTHENTICATED_KEYRING_SHA256 \
       --trusted-key-id AUTHENTICATED_KEY_ID \
       --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
       --peer-version X.Y.Z \
@@ -221,6 +225,8 @@ manifest must explicitly permit rollback down to that version.
 ./vellum-linux-verify-x64 \
   --bundle . \
   --keyring /path/to/authenticated/release-keyring.json \
+  --trusted-keyring-revision AUTHENTICATED_KEYRING_REVISION \
+  --trusted-keyring-sha256 AUTHENTICATED_KEYRING_SHA256 \
   --trusted-key-id AUTHENTICATED_KEY_ID \
   --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
   --peer-version X.Y.Z \

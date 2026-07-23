@@ -1,0 +1,10 @@
+{
+  "schema": "vellum/linux-release-trust-policy/v1",
+  "state": "unconfigured",
+  "issuedAt": null,
+  "expiresAt": null,
+  "trustedKeyringRevision": null,
+  "trustedKeyringSha256": null,
+  "trustedKeyId": null,
+  "trustedKeyFingerprintSha256": null
+}

@@ -1,38 +1,212 @@
-import { constants as fsConstants } from "node:fs";
-import { lstat, open } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { constants as fsConstants, type ReadStream } from "node:fs";
+import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
 import path from "node:path";
+import embeddedReleaseKeyring from "../../../../build/linux/release-keyring.json";
+import embeddedReleaseTrustPolicy from "../../../../build/linux/release-trust-policy.json";
 import productMetadata from "../../../../package.json";
+import { STATION_BROWSER_PROTOCOL_VERSION } from "../../../shared/station-browser";
+import { WORK_PROTOCOL_VERSION } from "../../../shared/work-control";
 import {
   LINUX_RELEASE_MANIFEST,
-  LINUX_RELEASE_PROTOCOLS,
   LINUX_RELEASE_TARGET,
+  decodeLinuxReleaseKeyring,
   decodeLinuxReleaseManifest,
+  compareReleaseVersions,
+  releaseKeyringSha256,
   verifyLinuxReleaseBundle,
   type LinuxReleaseKeyring,
   type LinuxReleaseVerificationReceipt,
 } from "../../../../scripts/linux-release-bundle";
 
 const MAX_RELEASE_MANIFEST_BYTES = 512 * 1024;
+const KEY_ID = /^[a-z0-9][a-z0-9._-]{7,63}$/u;
+const SHA256 = /^[0-9a-f]{64}$/u;
+const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
+const LIBC_VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
+const TRUST_MAX_VALIDITY_MS = 31 * 24 * 60 * 60 * 1_000;
+const productionCandidateBrand: unique symbol = Symbol(
+  "ProductionLinuxDeployBundleCandidate",
+);
+const productionAdmissionBrand: unique symbol = Symbol(
+  "ProductionLinuxDeployBundleAdmission",
+);
 
 export interface ProductionLinuxDeployBundleInput {
   readonly bundleDirectory: string;
-  /**
-   * This trust source must ship independently of bundleDirectory. A keyring
-   * copied out of the candidate bundle is not a trust anchor.
-   */
-  readonly trustedKeyring: LinuxReleaseKeyring;
-  readonly trustedKeyId: string;
-  readonly trustedKeyFingerprintSha256: string;
   readonly now?: number;
 }
 
-export interface ProductionLinuxDeployBundleAdmission {
-  readonly packagePath: string;
+export interface ProductionLinuxDeployBundleCandidate {
+  readonly [productionCandidateBrand]: true;
   readonly bytes: number;
   readonly sha256: string;
   readonly version: string;
   readonly receipt: LinuxReleaseVerificationReceipt;
 }
+
+export interface ProductionLinuxDeployBundleAdmission {
+  readonly [productionAdmissionBrand]: true;
+  readonly bytes: number;
+  readonly sha256: string;
+  readonly version: string;
+  readonly remoteDebInspection: "required-before-mutation";
+  readonly receipt: LinuxReleaseVerificationReceipt;
+}
+
+export interface ProductionLinuxDeployAuthorizationInput {
+  readonly installedVersion?: string;
+  readonly remoteTarget: {
+    readonly distribution: "ubuntu";
+    readonly distributionVersion: "24.04";
+    readonly architecture: "x86_64";
+    readonly libcFamily: "glibc";
+    readonly libcVersion: string;
+  };
+}
+
+export interface OpenVerifiedProductionLinuxDeployPackage {
+  readonly handle: FileHandle;
+  readonly stream: ReadStream;
+}
+
+export interface OpenVerifiedProductionLinuxDeployBundleEntry {
+  readonly name: string;
+  readonly bytes: number;
+  readonly sha256: string;
+  /**
+   * Consume this stream before requesting the next entry from the iterator.
+   * The iterator owns and closes the underlying descriptor.
+   */
+  readonly stream: ReadStream;
+}
+
+interface EmbeddedProductionLinuxReleaseTrust {
+  readonly keyring: LinuxReleaseKeyring;
+  readonly trustedKeyringRevision: number;
+  readonly trustedKeyringSha256: string;
+  readonly trustedKeyId: string;
+  readonly trustedKeyFingerprintSha256: string;
+}
+
+interface ProductionLinuxDeployBundleState {
+  readonly bundleDirectory: string;
+  readonly bundleFiles: LinuxReleaseVerificationReceipt["bundleFiles"];
+  readonly packageFile: string;
+}
+
+const candidateBundleStates = new WeakMap<
+  ProductionLinuxDeployBundleCandidate,
+  ProductionLinuxDeployBundleState
+>();
+const admittedBundleStates = new WeakMap<
+  ProductionLinuxDeployBundleAdmission,
+  ProductionLinuxDeployBundleState
+>();
+
+const compareDottedVersion = (left: string, right: string): number => {
+  const leftMatch = LIBC_VERSION.exec(left);
+  const rightMatch = LIBC_VERSION.exec(right);
+  if (leftMatch === null || rightMatch === null) {
+    throw new Error("Linux deploy Remote glibc version is malformed");
+  }
+  for (let index = 1; index <= 2; index += 1) {
+    const difference = Number(leftMatch[index]) - Number(rightMatch[index]);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+};
+
+const embeddedProductionLinuxReleaseTrust =
+  (now: number): EmbeddedProductionLinuxReleaseTrust => {
+    const policy = embeddedReleaseTrustPolicy as {
+      readonly schema?: unknown;
+      readonly state?: unknown;
+      readonly issuedAt?: unknown;
+      readonly expiresAt?: unknown;
+      readonly trustedKeyringRevision?: unknown;
+      readonly trustedKeyringSha256?: unknown;
+      readonly trustedKeyId?: unknown;
+      readonly trustedKeyFingerprintSha256?: unknown;
+    };
+    if (
+      policy.schema !== "vellum/linux-release-trust-policy/v1" ||
+      Object.keys(policy).sort().join("\0") !==
+        [
+          "schema",
+          "state",
+          "issuedAt",
+          "expiresAt",
+          "trustedKeyringRevision",
+          "trustedKeyringSha256",
+          "trustedKeyFingerprintSha256",
+          "trustedKeyId",
+        ].sort().join("\0")
+    ) {
+      throw new Error("embedded Linux release trust policy is malformed");
+    }
+    if (policy.state === "unconfigured") {
+      if (
+        policy.issuedAt !== null ||
+        policy.expiresAt !== null ||
+        policy.trustedKeyringRevision !== null ||
+        policy.trustedKeyringSha256 !== null ||
+        policy.trustedKeyId !== null ||
+        policy.trustedKeyFingerprintSha256 !== null
+      ) {
+        throw new Error("unconfigured Linux release trust has unexpected pins");
+      }
+      throw new Error(
+        "production Linux release trust is not configured by release authority",
+      );
+    }
+    if (
+      policy.state !== "configured" ||
+      typeof policy.issuedAt !== "string" ||
+      typeof policy.expiresAt !== "string" ||
+      new Date(policy.issuedAt).toISOString() !== policy.issuedAt ||
+      new Date(policy.expiresAt).toISOString() !== policy.expiresAt ||
+      Date.parse(policy.expiresAt) <= Date.parse(policy.issuedAt) ||
+      Date.parse(policy.expiresAt) - Date.parse(policy.issuedAt) >
+        TRUST_MAX_VALIDITY_MS ||
+      now < Date.parse(policy.issuedAt) ||
+      now > Date.parse(policy.expiresAt) ||
+      typeof policy.trustedKeyringRevision !== "number" ||
+      !Number.isSafeInteger(policy.trustedKeyringRevision) ||
+      policy.trustedKeyringRevision < 1 ||
+      typeof policy.trustedKeyringSha256 !== "string" ||
+      !SHA256.test(policy.trustedKeyringSha256) ||
+      typeof policy.trustedKeyId !== "string" ||
+      !KEY_ID.test(policy.trustedKeyId) ||
+      typeof policy.trustedKeyFingerprintSha256 !== "string" ||
+      !SHA256.test(policy.trustedKeyFingerprintSha256)
+    ) {
+      throw new Error("embedded Linux release trust pins are malformed");
+    }
+    const keyring = decodeLinuxReleaseKeyring(
+      embeddedReleaseKeyring as unknown,
+    );
+    const trustedKey = keyring.keys.find((key) =>
+      key.keyId === policy.trustedKeyId
+    );
+    if (
+      trustedKey === undefined ||
+      trustedKey.fingerprintSha256 !==
+        policy.trustedKeyFingerprintSha256 ||
+      keyring.revision !== policy.trustedKeyringRevision ||
+      releaseKeyringSha256(keyring) !== policy.trustedKeyringSha256
+    ) {
+      throw new Error("embedded Linux release trust pins do not match keyring");
+    }
+    return Object.freeze({
+      keyring,
+      trustedKeyringRevision: policy.trustedKeyringRevision,
+      trustedKeyringSha256: policy.trustedKeyringSha256,
+      trustedKeyId: policy.trustedKeyId,
+      trustedKeyFingerprintSha256:
+        policy.trustedKeyFingerprintSha256,
+    });
+  };
 
 const readCandidateManifestIdentity = async (
   bundleDirectory: string,
@@ -75,15 +249,41 @@ const readCandidateManifestIdentity = async (
 /**
  * Admits one signed public Linux bundle for the production Remote deployer.
  *
- * The candidate supplies no trusted version, hash, or package path. The small
- * pre-read only derives the deb identity needed by the general verifier; all
- * returned authority comes from the subsequently verified signed manifest.
- * Remote deployment must still inspect the deb with dpkg-deb before mutation.
+ * Trust is compiled into the independently installed application and cannot
+ * be supplied by the mutable release candidate. The candidate supplies no
+ * trusted version, hash, or package path. The small pre-read only derives the
+ * deb identity needed by the general verifier; all returned authority comes
+ * from the subsequently verified signed manifest.
+ *
+ * The opaque result must be opened through
+ * openVerifiedProductionLinuxDeployPackage. Remote deployment must then
+ * enforce the transmitted size/SHA-256 and inspect Package, Version, and
+ * Architecture with dpkg-deb before any privileged mutation.
  */
 export const verifyProductionLinuxDeployBundle = async (
   input: ProductionLinuxDeployBundleInput,
-): Promise<ProductionLinuxDeployBundleAdmission> => {
-  const bundleDirectory = path.resolve(input.bundleDirectory);
+): Promise<ProductionLinuxDeployBundleCandidate> => {
+  const requestedBundleDirectory = path.resolve(input.bundleDirectory);
+  const requestedMetadata = await lstat(requestedBundleDirectory);
+  if (
+    !requestedMetadata.isDirectory() ||
+    requestedMetadata.isSymbolicLink()
+  ) {
+    throw new Error("Linux deploy release bundle is not a regular directory");
+  }
+  const bundleDirectory = await realpath(requestedBundleDirectory);
+  const canonicalMetadata = await lstat(bundleDirectory);
+  if (
+    !canonicalMetadata.isDirectory() ||
+    canonicalMetadata.isSymbolicLink()
+  ) {
+    throw new Error("Linux deploy release bundle is not a regular directory");
+  }
+  const now = input.now ?? Date.now();
+  if (!Number.isSafeInteger(now) || now < 0) {
+    throw new Error("Linux deploy verification time is invalid");
+  }
+  const trust = embeddedProductionLinuxReleaseTrust(now);
   const packageIdentity = await readCandidateManifestIdentity(bundleDirectory);
   const receipt = await verifyLinuxReleaseBundle({
     bundleDirectory,
@@ -98,27 +298,182 @@ export const verifyProductionLinuxDeployBundle = async (
     },
     packageIdentity,
     peerVersion: productMetadata.version,
-    stationBrowserProtocol: LINUX_RELEASE_PROTOCOLS.stationBrowser,
-    workControlProtocol: LINUX_RELEASE_PROTOCOLS.workControl,
-    trustedKeyring: input.trustedKeyring,
-    trustedKeyId: input.trustedKeyId,
-    trustedKeyFingerprintSha256: input.trustedKeyFingerprintSha256,
-    ...(input.now === undefined ? {} : { now: input.now }),
+    stationBrowserProtocol: STATION_BROWSER_PROTOCOL_VERSION,
+    workControlProtocol: WORK_PROTOCOL_VERSION,
+    trustedKeyring: trust.keyring,
+    trustedKeyringRevision: trust.trustedKeyringRevision,
+    trustedKeyringSha256: trust.trustedKeyringSha256,
+    trustedKeyId: trust.trustedKeyId,
+    trustedKeyFingerprintSha256:
+      trust.trustedKeyFingerprintSha256,
+    now,
   });
-  const packagePath = path.join(bundleDirectory, receipt.packageFile);
-  const metadata = await lstat(packagePath);
-  if (
-    !metadata.isFile() ||
-    metadata.isSymbolicLink() ||
-    metadata.size !== receipt.packageBytes
-  ) {
-    throw new Error("signed Linux deploy package changed after verification");
-  }
-  return Object.freeze({
-    packagePath,
+  const candidate: ProductionLinuxDeployBundleCandidate = Object.freeze({
+    [productionCandidateBrand]: true as const,
     bytes: receipt.packageBytes,
     sha256: receipt.packageSha256,
     version: receipt.version,
     receipt,
   });
+  candidateBundleStates.set(candidate, Object.freeze({
+    bundleDirectory,
+    bundleFiles: Object.freeze(
+      receipt.bundleFiles.map((entry) => Object.freeze({ ...entry })),
+    ),
+    packageFile: receipt.packageFile,
+  }));
+  return candidate;
+};
+
+/**
+ * Converts a signed candidate into transfer authority only after the caller
+ * supplies its read-only Remote preflight. Automatic deployment never carries
+ * explicit rollback authority: an older candidate is always rejected.
+ */
+export const authorizeProductionLinuxDeployBundle = (
+  candidate: ProductionLinuxDeployBundleCandidate,
+  input: ProductionLinuxDeployAuthorizationInput,
+): ProductionLinuxDeployBundleAdmission => {
+  const bundleState = candidateBundleStates.get(candidate);
+  if (bundleState === undefined) {
+    throw new Error("Linux deploy candidate was not minted here");
+  }
+  if (
+    input.remoteTarget.distribution !== "ubuntu" ||
+    input.remoteTarget.distributionVersion !== "24.04" ||
+    input.remoteTarget.architecture !== "x86_64" ||
+    input.remoteTarget.libcFamily !== "glibc" ||
+    !LIBC_VERSION.test(input.remoteTarget.libcVersion) ||
+    compareDottedVersion(input.remoteTarget.libcVersion, "2.39") < 0
+  ) {
+    throw new Error("Linux deploy Remote preflight target is unsupported");
+  }
+  if (
+    input.installedVersion !== undefined &&
+    (!SEMVER.test(input.installedVersion) ||
+      compareReleaseVersions(candidate.version, input.installedVersion) < 0)
+  ) {
+    throw new Error(
+      "automatic Linux deployment refuses a downgrade; use the human rollback ceremony",
+    );
+  }
+  const admission: ProductionLinuxDeployBundleAdmission = Object.freeze({
+    [productionAdmissionBrand]: true as const,
+    bytes: candidate.bytes,
+    sha256: candidate.sha256,
+    version: candidate.version,
+    remoteDebInspection: "required-before-mutation",
+    receipt: candidate.receipt,
+  });
+  admittedBundleStates.set(admission, bundleState);
+  return admission;
+};
+
+const openVerifiedBundleEntry = async (
+  state: ProductionLinuxDeployBundleState,
+  expected: ProductionLinuxDeployBundleState["bundleFiles"][number],
+): Promise<{
+  readonly handle: FileHandle;
+  readonly stream: ReadStream;
+}> => {
+  if (
+    path.basename(expected.file) !== expected.file ||
+    expected.bytes <= 0 ||
+    !Number.isSafeInteger(expected.bytes) ||
+    !SHA256.test(expected.sha256)
+  ) {
+    throw new Error("signed Linux deploy bundle inventory is malformed");
+  }
+  const handle = await open(
+    path.join(state.bundleDirectory, expected.file),
+    fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+  );
+  try {
+    const metadata = await handle.stat();
+    if (!metadata.isFile() || metadata.size !== expected.bytes) {
+      throw new Error("signed Linux deploy bundle changed after verification");
+    }
+    const hash = createHash("sha256");
+    for await (
+      const chunk of handle.createReadStream({
+        autoClose: false,
+        start: 0,
+        end: expected.bytes - 1,
+      })
+    ) {
+      hash.update(chunk);
+    }
+    if (hash.digest("hex") !== expected.sha256) {
+      throw new Error("signed Linux deploy bundle changed after verification");
+    }
+    return {
+      handle,
+      stream: handle.createReadStream({
+        autoClose: false,
+        start: 0,
+        end: expected.bytes - 1,
+      }),
+    };
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+};
+
+/**
+ * Opens every file from the exact verified bundle inventory, in lexical order,
+ * without exposing a candidate-controlled path. The consumer must fully drain
+ * each stream before advancing the iterator. A privileged receiver must still
+ * write into a root-only spool and independently verify the complete bundle
+ * with its own embedded trust before package inspection or mutation.
+ */
+export const openVerifiedProductionLinuxDeployBundle = (
+  admission: ProductionLinuxDeployBundleAdmission,
+): AsyncIterable<OpenVerifiedProductionLinuxDeployBundleEntry> => {
+  const state = admittedBundleStates.get(admission);
+  if (state === undefined) {
+    throw new Error("Linux deploy bundle admission was not minted here");
+  }
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const expected of state.bundleFiles) {
+        const opened = await openVerifiedBundleEntry(state, expected);
+        try {
+          yield Object.freeze({
+            name: expected.file,
+            bytes: expected.bytes,
+            sha256: expected.sha256,
+            stream: opened.stream,
+          });
+        } finally {
+          opened.stream.destroy();
+          await opened.handle.close();
+        }
+      }
+    },
+  };
+};
+
+/**
+ * Reopens the exact admitted inode without following a symlink and rehashes it
+ * before exposing a stream. Callers must close the returned handle.
+ */
+export const openVerifiedProductionLinuxDeployPackage = async (
+  admission: ProductionLinuxDeployBundleAdmission,
+): Promise<OpenVerifiedProductionLinuxDeployPackage> => {
+  const state = admittedBundleStates.get(admission);
+  if (state === undefined) {
+    throw new Error("Linux deploy package admission was not minted here");
+  }
+  const expected = state.bundleFiles.find(
+    (entry) => entry.file === state.packageFile,
+  );
+  if (
+    expected === undefined ||
+    expected.bytes !== admission.bytes ||
+    expected.sha256 !== admission.sha256
+  ) {
+    throw new Error("signed Linux deploy package inventory is inconsistent");
+  }
+  return openVerifiedBundleEntry(state, expected);
 };

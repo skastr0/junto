@@ -180,6 +180,8 @@ export interface LinuxReleaseVerificationInput {
   readonly installedVersion?: string;
   readonly allowExplicitRollback?: boolean;
   readonly trustedKeyring: LinuxReleaseKeyring;
+  readonly trustedKeyringRevision: number;
+  readonly trustedKeyringSha256: string;
   readonly trustedKeyId: string;
   readonly trustedKeyFingerprintSha256: string;
   readonly now?: number;
@@ -196,6 +198,11 @@ export interface LinuxReleaseVerificationReceipt {
   readonly signedAt: string;
   readonly expiresAt: string;
   readonly filesVerified: number;
+  readonly bundleFiles: ReadonlyArray<{
+    readonly file: string;
+    readonly bytes: number;
+    readonly sha256: string;
+  }>;
   readonly packageFile: string;
   readonly packageBytes: number;
   readonly packageSha256: string;
@@ -1609,6 +1616,24 @@ export const verifyLinuxReleaseBundle = async (
   const manifest = decodeLinuxReleaseManifest(manifestRaw.value);
   const signature = decodeLinuxReleaseSignature(signatureRaw.value);
   const keyring = decodeLinuxReleaseKeyring(input.trustedKeyring);
+  const trustedKeyringRevision = requireInteger(
+    input.trustedKeyringRevision,
+    "trusted keyring revision",
+    1,
+    Number.MAX_SAFE_INTEGER,
+  );
+  const trustedKeyringSha256 = requireSha256(
+    input.trustedKeyringSha256,
+    "trusted keyring SHA-256",
+  );
+  if (
+    keyring.revision !== trustedKeyringRevision ||
+    releaseKeyringSha256(keyring) !== trustedKeyringSha256
+  ) {
+    throw new Error(
+      "release keyring does not match the independently pinned revision and digest",
+    );
+  }
   if (keyring.revision < bundledKeyring.revision) {
     throw new Error("trusted keyring is older than the bundled keyring");
   }
@@ -1634,6 +1659,9 @@ export const verifyLinuxReleaseBundle = async (
   );
 
   const now = input.now ?? Date.now();
+  if (!Number.isSafeInteger(now) || now < 0) {
+    throw new Error("Linux release verification time is invalid");
+  }
   if (
     Date.parse(manifest.release.createdAt) > now + LINUX_RELEASE_CLOCK_SKEW_MS ||
     Date.parse(signature.signedAt) > now + LINUX_RELEASE_CLOCK_SKEW_MS ||
@@ -1653,6 +1681,28 @@ export const verifyLinuxReleaseBundle = async (
   await validatePayloads(directory, manifest);
   validateCompatibility(manifest, input);
 
+  const bundleFiles = [
+    ...manifest.files.map(({ file, bytes, sha256 }) => ({
+      file,
+      bytes,
+      sha256,
+    })),
+    {
+      file: LINUX_RELEASE_MANIFEST,
+      bytes: manifestRaw.bytes.length,
+      sha256: sha256Bytes(manifestRaw.bytes),
+    },
+    {
+      file: LINUX_RELEASE_SIGNATURE,
+      bytes: signatureRaw.bytes.length,
+      sha256: sha256Bytes(signatureRaw.bytes),
+    },
+    {
+      file: LINUX_RELEASE_CHECKSUMS,
+      bytes: checksumBytes.length,
+      sha256: sha256Bytes(checksumBytes),
+    },
+  ].sort((left, right) => left.file.localeCompare(right.file));
   return {
     schema: "vellum/linux-release-verification-receipt/v1",
     ok: true,
@@ -1664,6 +1714,7 @@ export const verifyLinuxReleaseBundle = async (
     signedAt: signature.signedAt,
     expiresAt: manifest.release.expiresAt,
     filesVerified: manifest.files.length,
+    bundleFiles,
     packageFile: manifest.package.file,
     packageBytes: manifest.package.bytes,
     packageSha256: manifest.package.sha256,
@@ -1924,6 +1975,11 @@ export const writeEmptyLinuxReleaseKeyring = async (
 
 export const releasePublicKeyFingerprint = (publicKeyPem: string): string =>
   publicKeyFingerprint(createPublicKey(publicKeyPem));
+
+export const releaseKeyringSha256 = (
+  value: LinuxReleaseKeyring,
+): string =>
+  sha256Bytes(canonicalJson(decodeLinuxReleaseKeyring(value)));
 
 export const linuxReleasePayloadFileNames = (
   version: string,

@@ -19,6 +19,7 @@ import {
   LINUX_RELEASE_SIGNATURE,
   createLinuxReleaseManifest,
   decodeLinuxReleaseKeyring,
+  releaseKeyringSha256,
   releasePublicKeyFingerprint,
   signLinuxReleaseMetadata,
   verifyLinuxReleaseBundle,
@@ -286,6 +287,8 @@ const verifyFixture = async (
     stationBrowserProtocol: LINUX_RELEASE_PROTOCOLS.stationBrowser,
     workControlProtocol: LINUX_RELEASE_PROTOCOLS.workControl,
     trustedKeyring,
+    trustedKeyringRevision: trustedKeyring.revision,
+    trustedKeyringSha256: releaseKeyringSha256(trustedKeyring),
     trustedKeyId: trustedKey?.keyId ?? KEY_ID,
     trustedKeyFingerprintSha256:
       trustedKey?.fingerprintSha256 ?? "0".repeat(64),
@@ -317,6 +320,28 @@ describe("signed Linux release bundle", () => {
       signedAt: "2026-07-23T11:58:00.000Z",
       expiresAt: EXPIRES_AT,
       filesVerified: 14,
+      bundleFiles: expect.arrayContaining([
+        expect.objectContaining({
+          file: PACKAGE,
+          bytes: Buffer.byteLength(
+            "synthetic-deb-for-contract-tests",
+            "utf8",
+          ),
+          sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        }),
+        expect.objectContaining({
+          file: LINUX_RELEASE_MANIFEST,
+          sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        }),
+        expect.objectContaining({
+          file: LINUX_RELEASE_SIGNATURE,
+          sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        }),
+        expect.objectContaining({
+          file: LINUX_RELEASE_CHECKSUMS,
+          sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        }),
+      ]),
       packageFile: PACKAGE,
       packageBytes: Buffer.byteLength(
         "synthetic-deb-for-contract-tests",
@@ -416,6 +441,7 @@ describe("signed Linux release bundle", () => {
     > = [
       { host: { ...host, distributionVersion: "22.04" } },
       { now: Date.parse("2026-08-02T00:00:00.000Z") },
+      { now: Number.NaN },
       {
         packageIdentity: {
           packageName: "vellum",
@@ -427,6 +453,8 @@ describe("signed Linux release bundle", () => {
       { stationBrowserProtocol: 2 },
       { workControlProtocol: "vellum-work/v2" },
       { trustedKeyId: "vellum-linux-other" },
+      { trustedKeyringRevision: 8 },
+      { trustedKeyringSha256: "0".repeat(64) },
       { trustedKeyFingerprintSha256: "0".repeat(64) },
     ];
     for (const candidate of cases) {

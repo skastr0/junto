@@ -31,6 +31,12 @@ describe("Linux v1 operator documentation", () => {
     expect(runbook).toContain("SHA256SUMS");
     expect(runbook).toContain("vellum-linux-verify-x64");
     expect(runbook).toContain("--keyring /path/to/authenticated/release-keyring.json");
+    expect(runbook).toContain(
+      "--trusted-keyring-revision AUTHENTICATED_KEYRING_REVISION",
+    );
+    expect(runbook).toContain(
+      "--trusted-keyring-sha256 AUTHENTICATED_KEYRING_SHA256",
+    );
     expect(runbook).toContain("--trusted-key-id AUTHENTICATED_KEY_ID");
     expect(runbook).toContain(
       "--trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT",
