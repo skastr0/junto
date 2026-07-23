@@ -5,7 +5,7 @@
  * Electron sources for an operator report, but deliberately never writes it.
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -186,7 +186,7 @@ export const checkOfficialElectronSources = async (now = new Date()) => {
   const dueAt = new Date(observedAt + policy.reviewSla.urgentHours * 3_600_000).toISOString();
   const overdue = eol || (disposition === "newer_patch_available" && now.getTime() >= Date.parse(dueAt));
   const receipt = { schemaVersion: 1, policyVersion: policy.electron.exactVersion, policyHash: policyHash(await readFile(POLICY_PATH, "utf8")), checkedAt: now.toISOString(), currentLinePatch, disposition, dueAt, overdue, sources: [SUPPORT_URL, RELEASE_INDEX_URL, policy.electron.auditedRelease.url] };
-  const target = observationPath(); await mkdir(path.dirname(target), { recursive: true, mode: 0o700 }); const temporary = `${target}.${process.pid}.tmp`; await writeFile(temporary, `${JSON.stringify(receipt)}\n`, { mode: 0o600 }); await rename(temporary, target);
+  const target = observationPath(); const directory = path.dirname(target); await mkdir(directory, { recursive: true, mode: 0o700 }); const temporary = `${target}.${randomBytes(16).toString("hex")}.tmp`; const handle = await (await import("node:fs/promises")).open(temporary, "wx", 0o600); try { await handle.writeFile(`${JSON.stringify(receipt)}\n`); await handle.sync(); } finally { await handle.close(); } await rename(temporary, target);
   return { ...receipt, supportedMajors, latestStable: latestByMajor.get(Math.max(...supportedMajors))?.version, eol };
 };
 
