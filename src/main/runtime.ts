@@ -114,6 +114,17 @@ export const buildDoctorReport = Effect.gen(function* () {
   const stationCheck = yield* Effect.gen(function* () {
     const settingsDoc = yield* settings.get;
     const statusDoc = yield* Effect.promise(() => readStationStatus());
+    const registeredHosts = yield* Effect.either(hosts.list);
+    const registeredRemoteEndpoints =
+      registeredHosts._tag === "Right"
+        ? Object.fromEntries(
+            registeredHosts.right.flatMap((host) =>
+              host.kind === "remote" && host.endpoint
+                ? [[host.id, host.endpoint] as const]
+                : [],
+            ),
+          )
+        : undefined;
     const supervisedInstalled = yield* Effect.promise(() => probeLaunchAgentLoaded());
     const workHome = process.env[WORK_HOME_ENV] || workControlDir(homedir());
     const workControlReady = yield* Effect.tryPromise({
@@ -131,6 +142,7 @@ export const buildDoctorReport = Effect.gen(function* () {
       supervisedPreferred: settingsDoc.station.supervisedPreferred,
       supervisedInstalled,
       status: statusDoc,
+      registeredRemoteEndpoints,
       workControlReady,
     });
   }).pipe(

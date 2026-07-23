@@ -23,7 +23,7 @@ import { SshTransport } from "../ssh/service";
 import { migrateSettingsDocument } from "../settings/migrate";
 import { configureRecordFromResult } from "@shared/station-status";
 import { recordStationConfigure } from "../station-status-store";
-import { isSafeRemoteHomePath } from "./deploy-remote";
+import { decodeRemoteHomeDirectoryOutput } from "./deploy-remote";
 
 // SSH write of ~/.vellum/settings.json on a registered remote host.
 // Pattern matches herdr stage-image: opaque /bin/sh -c + stdin body.
@@ -31,13 +31,6 @@ import { isSafeRemoteHomePath } from "./deploy-remote";
 const PROBE_TIMEOUT_MS = 10_000;
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
-
-const decodeRemoteHomeOutput = (output: string): string | null => {
-  if (!output.endsWith("\n")) return null;
-  const path = output.slice(0, -1);
-  if (path.includes("\n") || path.trim() !== path) return null;
-  return isSafeRemoteHomePath(path) ? path : null;
-};
 
 export type ConfigureRemoteResult = {
   readonly ok: boolean;
@@ -203,6 +196,8 @@ export const configureRemoteHost = (
   options: {
     readonly commandCenterRef: string;
     readonly supervisedPreferred?: boolean;
+    /** A larger deploy transaction records only its final durable outcome. */
+    readonly recordStatus?: boolean;
   },
 ): Effect.Effect<ConfigureRemoteResult, RemoteHostsError> =>
   Effect.gen(function* () {
@@ -267,7 +262,7 @@ export const configureRemoteHost = (
           new RemoteHostsError("io", `${host.label}: ${formatUnknown(error)}`),
       ),
     );
-    const homePath = decodeRemoteHomeOutput(homeResult.stdout);
+    const homePath = decodeRemoteHomeDirectoryOutput(homeResult.stdout);
     if (homePath === null) {
       return yield* Effect.fail(
         new RemoteHostsError(
@@ -341,15 +336,17 @@ export const configureRemoteHost = (
         code: "io" as const,
         message: probe.detail,
       } satisfies ConfigureRemoteResult;
-      yield* Effect.promise(() =>
-        recordStationConfigure(
-          configureRecordFromResult({
-            ok: false,
-            hostId: host.id,
-            detail: failed.detail,
-          }),
-        ).catch(() => undefined),
-      );
+      if (options.recordStatus !== false) {
+        yield* Effect.promise(() =>
+          recordStationConfigure(
+            configureRecordFromResult({
+              ok: false,
+              hostId: host.id,
+              detail: failed.detail,
+            }),
+          ).catch(() => undefined),
+        );
+      }
       return failed;
     }
 
@@ -358,15 +355,17 @@ export const configureRemoteHost = (
       detail: `${host.label} (${host.endpoint}): ${probe.detail}`,
       station: probe.station ?? plan.station,
     } satisfies ConfigureRemoteResult;
-    yield* Effect.promise(() =>
-      recordStationConfigure(
-        configureRecordFromResult({
-          ok: true,
-          hostId: host.id,
-          detail: okResult.detail,
-        }),
-      ).catch(() => undefined),
-    );
+    if (options.recordStatus !== false) {
+      yield* Effect.promise(() =>
+        recordStationConfigure(
+          configureRecordFromResult({
+            ok: true,
+            hostId: host.id,
+            detail: okResult.detail,
+          }),
+        ).catch(() => undefined),
+      );
+    }
     return okResult;
   }).pipe(
     Effect.catchAll((error) => {

@@ -8,8 +8,13 @@ import type {
   HostsTestResult,
 } from "@shared/ipc";
 import { RemoteHostsError } from "@shared/remote-hosts";
+import {
+  configureRecordFromResult,
+  deployRecordFromResult,
+} from "@shared/station-status";
 import { AppRuntime } from "../../runtime";
 import { SettingsService } from "../settings/service";
+import { recordStationDeployment } from "../station-status-store";
 import { HostsService } from "./service";
 import {
   HOST_OPERATION_ADMISSIONS,
@@ -250,39 +255,96 @@ export const registerHostsIpc = (
               } satisfies HostsDeployRemoteResult;
             }
 
-            // Stamp station role first so the launched app boots as Remote.
-            const configure = yield* Effect.either(
-              hosts.configureRemote(id, {
-                commandCenterRef: settingsResult.right.station.hostId,
-                supervisedPreferred: true,
-              }),
-            );
-            if (configure._tag === "Left") {
-              return {
-                ok: false,
-                detail: configure.left.message,
-                code: configure.left.code,
-                message: configure.left.message,
-              } satisfies HostsDeployRemoteResult;
-            }
-            if (!configure.right.ok) {
-              return {
-                ok: false,
-                detail: configure.right.detail,
-                code: configure.right.code,
-                message: configure.right.message ?? configure.right.detail,
-              } satisfies HostsDeployRemoteResult;
-            }
-
-            const deploy = yield* hosts.deployRemote(id);
+            const deploy = yield* hosts.deployConfiguredRemote(id, {
+              commandCenterRef: settingsResult.right.station.hostId,
+              supervisedPreferred: true,
+              onAdmitted: (host) => {
+                const admittedAt = new Date().toISOString();
+                const detail = `${host.label}: deployment admitted; completion receipt pending`;
+                return Effect.tryPromise({
+                  try: () =>
+                    recordStationDeployment(
+                      deployRecordFromResult({
+                        hostId: host.id,
+                        endpoint: host.endpoint ?? "",
+                        ok: false,
+                        outcome: "indeterminate",
+                        packageState: "previous",
+                        role: "previous",
+                        rollback: "not-required",
+                        configurationOk: false,
+                        detail,
+                        stages: ["durable deployment admission recorded"],
+                        at: admittedAt,
+                      }),
+                      configureRecordFromResult({
+                        ok: false,
+                        hostId: host.id,
+                        detail,
+                        at: admittedAt,
+                      }),
+                    ),
+                  catch: (error) =>
+                    new RemoteHostsError(
+                      "io",
+                      error instanceof Error ? error.message : String(error),
+                    ),
+                });
+              },
+            });
+            const recordedAt = new Date().toISOString();
+            const deploymentEndpoint = deploy.hostEndpoint;
+            const statusWrite =
+              deploy.hostResolved === false || !deploymentEndpoint
+                ? undefined
+                : yield* Effect.tryPromise({
+                    try: () =>
+                      recordStationDeployment(
+                        deployRecordFromResult({
+                          hostId: id,
+                          endpoint: deploymentEndpoint,
+                          ok: deploy.ok,
+                          outcome: deploy.outcome,
+                          packageState: deploy.packageState,
+                          role: deploy.role,
+                          version: deploy.version,
+                          lastSeen: deploy.lastSeen,
+                          rollback: deploy.rollback,
+                          configurationOk: deploy.configuration.ok,
+                          detail: deploy.detail,
+                          stages: deploy.stages,
+                          at: recordedAt,
+                        }),
+                        configureRecordFromResult({
+                          ok: deploy.outcome === "ready",
+                          hostId: id,
+                          detail: deploy.configuration.detail,
+                          at: recordedAt,
+                        }),
+                      ),
+                    catch: (error) =>
+                      error instanceof Error ? error : new Error(String(error)),
+                  }).pipe(Effect.either);
+            const statusRecorded = statusWrite?._tag === "Right";
+            const persistenceDetail =
+              statusWrite?._tag === "Left"
+                ? ` · local deployment receipt could not be persisted: ${statusWrite.left.message}`
+                : "";
             return {
               ok: deploy.ok,
-              detail: deploy.ok
-                ? `${configure.right.detail} · ${deploy.detail}`
-                : deploy.detail,
+              detail: `${deploy.detail}${persistenceDetail}`,
               code: deploy.code,
-              message: deploy.message ?? deploy.detail,
+              message:
+                deploy.message ??
+                (statusRecorded ? deploy.detail : `${deploy.detail}${persistenceDetail}`),
               stages: deploy.stages,
+              outcome: deploy.outcome,
+              packageState: deploy.packageState,
+              role: deploy.role,
+              version: deploy.version,
+              lastSeen: deploy.lastSeen,
+              rollback: deploy.rollback,
+              statusRecorded,
             } satisfies HostsDeployRemoteResult;
           }),
         ),

@@ -12,6 +12,10 @@ import {
   type ConfigureRemoteResult,
 } from "./configure-remote";
 import { deployRemoteHost, type DeployRemoteResult } from "./deploy-remote";
+import {
+  deployConfiguredRemoteHost,
+  type ConfiguredRemoteDeployResult,
+} from "./deploy-configured-remote";
 import { runRemoteHostsDoctor, testHostConnection } from "./doctor";
 import {
   getDefaultHostsRegistry,
@@ -50,6 +54,21 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
     ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
     /** Command Center → install/update .app over SSH + start Remote station. */
     readonly deployRemote: (id: string) => Effect.Effect<DeployRemoteResult>;
+    /** Configure + deploy under one per-host compensating transaction. */
+    readonly deployConfiguredRemote: (
+      id: string,
+      options: {
+        readonly commandCenterRef: string;
+        readonly supervisedPreferred?: boolean;
+        /**
+         * Durable admission barrier run after registry resolution and before
+         * any remote mutation. A failure prevents the deployment from starting.
+         */
+        readonly onAdmitted?: (
+          host: RemoteHostT,
+        ) => Effect.Effect<void, RemoteHostsError>;
+      },
+    ) => Effect.Effect<ConfiguredRemoteDeployResult>;
     readonly path: () => string;
   }
 >() {}
@@ -79,98 +98,208 @@ const loadHostsIntoRoutingSnapshot = (
 export const makeHostsService = (
   registry: HostsRegistry,
   ssh: Context.Tag.Service<typeof SshTransport>,
-): Context.Tag.Service<typeof HostsService> => ({
-  path: () => registry.path(),
-  doctor: runRemoteHostsDoctor(registry, ssh),
-  // Listing is the explicit durable reload boundary used by Settings and IPC.
-  // Keep the synchronous routing snapshot in the same successful operation.
-  list: loadHostsIntoRoutingSnapshot(() => registry.reload()),
-  get: (id) =>
-    Effect.tryPromise({
-      try: () => registry.get(id),
-      catch: asRemoteHostsError,
-    }),
-  upsert: (input) =>
-    Effect.gen(function* () {
-      const decoded = decodeHost(input);
-      if (Either.isLeft(decoded)) {
-        return yield* Effect.fail(
-          new RemoteHostsError(
-            "validation",
-            `invalid host: ${decoded.left.message}`,
-          ),
-        );
-      }
-      const hosts = yield* Effect.tryPromise({
-        try: () => registry.upsert(decoded.right),
-        catch: asRemoteHostsError,
-      });
-      setHostsSnapshot(hosts);
-      return hosts;
-    }),
-  remove: (id) =>
-    Effect.gen(function* () {
-      const hosts = yield* Effect.tryPromise({
-        try: () => registry.remove(id),
-        catch: asRemoteHostsError,
-      });
-      setHostsSnapshot(hosts);
-      return hosts;
-    }),
-  test: (id) =>
-    Effect.gen(function* () {
-      const host = yield* Effect.tryPromise({
+  operations: {
+    readonly configureRemoteHost: typeof configureRemoteHost;
+    readonly deployRemoteHost: typeof deployRemoteHost;
+    readonly deployConfiguredRemoteHost: typeof deployConfiguredRemoteHost;
+  } = {
+    configureRemoteHost,
+    deployRemoteHost,
+    deployConfiguredRemoteHost,
+  },
+): Context.Tag.Service<typeof HostsService> => {
+  const mutationLocks = new Map<string, Effect.Semaphore>();
+  const mutationTarget = (host: RemoteHostT): string =>
+    host.kind === "remote" && host.endpoint
+      ? `remote:${host.endpoint}`
+      : `local:${host.id}`;
+  const mutationLockFor = (target: string): Effect.Semaphore => {
+    const existing = mutationLocks.get(target);
+    if (existing) return existing;
+    const created = Effect.unsafeMakeSemaphore(1);
+    mutationLocks.set(target, created);
+    return created;
+  };
+  const serializeHostMutation = <A, E, R>(
+    host: RemoteHostT,
+    effect: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E, R> =>
+    mutationLockFor(mutationTarget(host)).withPermits(1)(effect);
+
+  return {
+    path: () => registry.path(),
+    doctor: runRemoteHostsDoctor(registry, ssh),
+    // Listing is the explicit durable reload boundary used by Settings and IPC.
+    // Keep the synchronous routing snapshot in the same successful operation.
+    list: loadHostsIntoRoutingSnapshot(() => registry.reload()),
+    get: (id) =>
+      Effect.tryPromise({
         try: () => registry.get(id),
         catch: asRemoteHostsError,
-      });
-      if (!host) {
-        return yield* Effect.fail(
-          new RemoteHostsError("not_found", `unknown host: ${id}`),
-        );
-      }
-      return yield* testHostConnection(ssh, host);
-    }),
-  configureRemote: (id, options) =>
-    Effect.gen(function* () {
-      const host = yield* Effect.tryPromise({
-        try: () => registry.get(id),
-        catch: asRemoteHostsError,
-      });
-      if (!host) {
-        return yield* Effect.fail(
-          new RemoteHostsError("not_found", `unknown host: ${id}`),
-        );
-      }
-      return yield* configureRemoteHost(ssh, host, options);
-    }),
-  deployRemote: (id) =>
-    Effect.gen(function* () {
-      const hostResult = yield* Effect.either(
-        Effect.tryPromise({
+      }),
+    upsert: (input) =>
+      Effect.gen(function* () {
+        const decoded = decodeHost(input);
+        if (Either.isLeft(decoded)) {
+          return yield* Effect.fail(
+            new RemoteHostsError(
+              "validation",
+              `invalid host: ${decoded.left.message}`,
+            ),
+          );
+        }
+        const hosts = yield* Effect.tryPromise({
+          try: () => registry.upsert(decoded.right),
+          catch: asRemoteHostsError,
+        });
+        setHostsSnapshot(hosts);
+        return hosts;
+      }),
+    remove: (id) =>
+      Effect.gen(function* () {
+        const hosts = yield* Effect.tryPromise({
+          try: () => registry.remove(id),
+          catch: asRemoteHostsError,
+        });
+        setHostsSnapshot(hosts);
+        return hosts;
+      }),
+    test: (id) =>
+      Effect.gen(function* () {
+        const host = yield* Effect.tryPromise({
           try: () => registry.get(id),
           catch: asRemoteHostsError,
-        }),
-      );
-      if (hostResult._tag === "Left") {
-        return {
-          ok: false,
-          detail: hostResult.left.message,
-          code: hostResult.left.code,
-          stages: [],
-        } satisfies DeployRemoteResult;
-      }
-      const host = hostResult.right;
-      if (!host) {
-        return {
-          ok: false,
-          detail: `unknown host: ${id}`,
-          code: "not_found" as const,
-          stages: [],
-        } satisfies DeployRemoteResult;
-      }
-      return yield* deployRemoteHost(ssh, host);
-    }),
-});
+        });
+        if (!host) {
+          return yield* Effect.fail(
+            new RemoteHostsError("not_found", `unknown host: ${id}`),
+          );
+        }
+        return yield* testHostConnection(ssh, host);
+      }),
+    configureRemote: (id, options) =>
+      Effect.gen(function* () {
+        const host = yield* Effect.tryPromise({
+          try: () => registry.get(id),
+          catch: asRemoteHostsError,
+        });
+        if (!host) {
+          return yield* Effect.fail(
+            new RemoteHostsError("not_found", `unknown host: ${id}`),
+          );
+        }
+        return yield* serializeHostMutation(
+          host,
+          operations.configureRemoteHost(ssh, host, options),
+        );
+      }),
+    deployRemote: (id) =>
+      Effect.gen(function* () {
+        const hostResult = yield* Effect.either(
+          Effect.tryPromise({
+            try: () => registry.get(id),
+            catch: asRemoteHostsError,
+          }),
+        );
+        if (hostResult._tag === "Left") {
+          return {
+            ok: false,
+            detail: hostResult.left.message,
+            code: hostResult.left.code,
+            stages: [],
+          } satisfies DeployRemoteResult;
+        }
+        const host = hostResult.right;
+        if (!host) {
+          return {
+            ok: false,
+            detail: `unknown host: ${id}`,
+            code: "not_found" as const,
+            stages: [],
+          } satisfies DeployRemoteResult;
+        }
+        return yield* serializeHostMutation(
+          host,
+          operations.deployRemoteHost(ssh, host),
+        );
+      }),
+    deployConfiguredRemote: (id, options) =>
+      Effect.gen(function* () {
+        const hostResult = yield* Effect.either(
+          Effect.tryPromise({
+            try: () => registry.get(id),
+            catch: asRemoteHostsError,
+          }),
+        );
+        if (hostResult._tag === "Left") {
+          return {
+            ok: false,
+            detail: hostResult.left.message,
+            code: hostResult.left.code,
+            message: hostResult.left.message,
+            hostResolved: false,
+            stages: [],
+            disposition: "not-started" as const,
+            outcome: "failed" as const,
+            packageState: "previous" as const,
+            role: "previous" as const,
+            rollback: "not-required" as const,
+            configuration: { ok: false, detail: hostResult.left.message },
+          } satisfies ConfiguredRemoteDeployResult;
+        }
+        const host = hostResult.right;
+        if (!host) {
+          const detail = `unknown host: ${id}`;
+          return {
+            ok: false,
+            detail,
+            code: "not_found" as const,
+            message: detail,
+            hostResolved: false,
+            stages: [],
+            disposition: "not-started" as const,
+            outcome: "failed" as const,
+            packageState: "previous" as const,
+            role: "previous" as const,
+            rollback: "not-required" as const,
+            configuration: { ok: false, detail },
+          } satisfies ConfiguredRemoteDeployResult;
+        }
+        return yield* serializeHostMutation(
+          host,
+          Effect.gen(function* () {
+            if (options.onAdmitted) {
+              const admission = yield* options.onAdmitted(host).pipe(
+                Effect.either,
+              );
+              if (admission._tag === "Left") {
+                const detail = `${host.label}: deployment did not start because its durable admission receipt could not be persisted — ${admission.left.message}`;
+                return {
+                  ok: false,
+                  detail,
+                  code: admission.left.code,
+                  message: detail,
+                  hostEndpoint: host.endpoint,
+                  stages: [],
+                  disposition: "not-started" as const,
+                  outcome: "failed" as const,
+                  packageState: "previous" as const,
+                  role: "previous" as const,
+                  rollback: "not-required" as const,
+                  configuration: { ok: false, detail },
+                } satisfies ConfiguredRemoteDeployResult;
+              }
+            }
+            return yield* operations.deployConfiguredRemoteHost(
+              ssh,
+              host,
+              options,
+            );
+          }),
+        );
+      }),
+  };
+};
 
 export const HostsServiceLive = Layer.effect(
   HostsService,

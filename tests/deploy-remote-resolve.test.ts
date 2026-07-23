@@ -15,7 +15,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildRemoteDeployScript,
   buildRemoteDeployScriptForTest,
+  classifyDeployTransferDisposition,
   describeDeployTransferFailure,
+  decodeRemoteHomeDirectoryOutput,
   captureTarStderr,
   awaitTarCloseBounded,
   isSafeRemoteHomePath,
@@ -54,11 +56,14 @@ describe("validateLocalBundleProvenance", () => {
     "TeamIdentifier=EXAMP12345",
   ].join("\n");
 
-  const valid = (overrides: Partial<Parameters<typeof validateLocalBundleProvenance>[0]> = {}) => ({
+  const valid = (
+    overrides: Partial<Parameters<typeof validateLocalBundleProvenance>[0]> = {},
+  ): Parameters<typeof validateLocalBundleProvenance>[0] => ({
     appPath,
     executablePath,
     bundleIdentifier: "skastr0.vellum",
     bundleExecutable: "Vellum Command",
+    bundleVersion: "0.1.0",
     codesignMetadata: metadata,
     ...overrides,
   });
@@ -68,6 +73,7 @@ describe("validateLocalBundleProvenance", () => {
       appPath,
       bundleIdentifier: "skastr0.vellum",
       bundleExecutable: "Vellum Command",
+      version: "0.1.0",
       teamIdentifier: "EXAMP12345",
       signingAuthority:
         "Developer ID Application: Example Maintainer (EXAMP12345)",
@@ -79,6 +85,7 @@ describe("validateLocalBundleProvenance", () => {
     ["arbitrary directory", { appPath: "/release/Other.app" }],
     ["wrong bundle", { bundleIdentifier: "evil.vellum" }],
     ["wrong executable", { bundleExecutable: "Other" }],
+    ["invalid version", { bundleVersion: "0.1.0 unsafe" }],
     [
       "wrong signed path",
       { codesignMetadata: metadata.replace(executablePath, "/tmp/Other") },
@@ -299,6 +306,23 @@ describe("buildRemoteDeployScript", () => {
       expect(() => buildRemoteDeployScript(home, TEST_CDHASH)).toThrow(
         "canonical absolute path",
       );
+    }
+  });
+
+  it("decodes exactly one canonical home record with one LF terminator", () => {
+    expect(decodeRemoteHomeDirectoryOutput("/Users/remote station\n")).toBe(
+      "/Users/remote station",
+    );
+    for (const output of [
+      "/Users/remote",
+      "/Users/remote\r\n",
+      "/Users/remote\n\n",
+      "/Users/remote\n/Users/other\n",
+      " /Users/remote\n",
+      "/Users/remote \n",
+      "/Users/../Applications\n",
+    ]) {
+      expect(decodeRemoteHomeDirectoryOutput(output)).toBeNull();
     }
   });
 });
@@ -686,5 +710,22 @@ describe("deploy transfer lifecycle", () => {
       "STATION_PARTIAL term=0 browser=0",
     );
     expect(describeDeployTransferFailure(timeout)).toContain("STATION_PARTIAL");
+  });
+
+  it("maps remote transaction exit receipts without overstating rollback", () => {
+    const failure = (code: number) =>
+      new SshTransferExitError("remote" as never, code, "", "failed");
+
+    expect(classifyDeployTransferDisposition(failure(8))).toBe(
+      "indeterminate",
+    );
+    expect(classifyDeployTransferDisposition(failure(9))).toBe(
+      "indeterminate",
+    );
+    expect(classifyDeployTransferDisposition(failure(10))).toBe("ready");
+    expect(classifyDeployTransferDisposition(failure(7))).toBe("rolled-back");
+    expect(classifyDeployTransferDisposition(new Error("transport"))).toBe(
+      "indeterminate",
+    );
   });
 });

@@ -68,10 +68,18 @@ export const isSafeRemoteHomePath = (value: string): boolean => {
   );
 };
 
+export const decodeRemoteHomeDirectoryOutput = (output: string): string | null => {
+  if (!output.endsWith("\n")) return null;
+  const path = output.slice(0, -1);
+  if (path.includes("\n") || path.trim() !== path) return null;
+  return isSafeRemoteHomePath(path) ? path : null;
+};
+
 export type LocalBundleProvenanceReceipt = {
   readonly appPath: string;
   readonly bundleIdentifier: typeof LABEL;
   readonly bundleExecutable: typeof PRODUCT_NAME;
+  readonly version: string;
   readonly teamIdentifier: typeof TEAM_IDENTIFIER;
   readonly signingAuthority: typeof SIGNING_AUTHORITY;
   readonly cdHash: string;
@@ -95,6 +103,7 @@ export const validateLocalBundleProvenance = (input: {
   readonly executablePath: string;
   readonly bundleIdentifier: string;
   readonly bundleExecutable: string;
+  readonly bundleVersion: string;
   readonly codesignMetadata: string;
 }): LocalBundleProvenanceReceipt => {
   if (basename(input.appPath) !== APP_BUNDLE_NAME) {
@@ -105,6 +114,10 @@ export const validateLocalBundleProvenance = (input: {
   }
   if (input.bundleExecutable.trim() !== PRODUCT_NAME) {
     throw new Error("local bundle executable identity does not match Vellum");
+  }
+  const bundleVersion = input.bundleVersion.trim();
+  if (!/^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$/u.test(bundleVersion)) {
+    throw new Error("local bundle version is missing or invalid");
   }
   if (
     singleCodesignValue(input.codesignMetadata, "Executable") !==
@@ -153,6 +166,7 @@ export const validateLocalBundleProvenance = (input: {
     appPath: input.appPath,
     bundleIdentifier: LABEL,
     bundleExecutable: PRODUCT_NAME,
+    version: bundleVersion,
     teamIdentifier: TEAM_IDENTIFIER,
     signingAuthority: SIGNING_AUTHORITY,
     cdHash: cdHash.toLowerCase(),
@@ -222,7 +236,7 @@ export const admitLocalAppBundle = async (
     DEVELOPER_ID_REQUIREMENT,
     canonicalPath,
   ]);
-  const [codesign, bundleIdentifier, bundleExecutable] = await Promise.all([
+  const [codesign, bundleIdentifier, bundleExecutable, bundleVersion] = await Promise.all([
     runBundleAdmissionCommand("/usr/bin/codesign", [
       "-d",
       "--verbose=4",
@@ -244,12 +258,21 @@ export const admitLocalAppBundle = async (
       "-",
       infoPlistPath,
     ]),
+    runBundleAdmissionCommand("/usr/bin/plutil", [
+      "-extract",
+      "CFBundleShortVersionString",
+      "raw",
+      "-o",
+      "-",
+      infoPlistPath,
+    ]),
   ]);
   return validateLocalBundleProvenance({
     appPath: canonicalPath,
     executablePath,
     bundleIdentifier: bundleIdentifier.stdout,
     bundleExecutable: bundleExecutable.stdout,
+    bundleVersion: bundleVersion.stdout,
     codesignMetadata: `${codesign.stdout}\n${codesign.stderr}`,
   });
 };
@@ -284,6 +307,10 @@ export type DeployRemoteResult = {
   readonly code?: "io" | "validation" | "not_found" | "conflict";
   readonly message?: string;
   readonly stages: readonly string[];
+  /** Remote package transaction disposition; absent only on legacy test doubles. */
+  readonly disposition?: "not-started" | "ready" | "rolled-back" | "indeterminate";
+  /** Exact signed bundle version pushed by this operation. */
+  readonly version?: string;
 };
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
@@ -436,6 +463,15 @@ export const describeDeployTransferFailure = (error: unknown): string => {
     return diagnostic || error.message;
   }
   return error instanceof Error ? error.message : String(error);
+};
+
+export const classifyDeployTransferDisposition = (
+  error: unknown,
+): NonNullable<DeployRemoteResult["disposition"]> => {
+  if (!(error instanceof SshTransferExitError)) return "indeterminate";
+  if (error.code === 10) return "ready";
+  if (error.code === 8 || error.code === 9) return "indeterminate";
+  return "rolled-back";
 };
 
 type RemoteDeployScriptCommands = {
@@ -1135,8 +1171,8 @@ export const deployRemoteHost = (
         stages,
       };
     }
-    const home = homeResult.right.stdout.trim();
-    if (!isSafeRemoteHomePath(home)) {
+    const home = decodeRemoteHomeDirectoryOutput(homeResult.right.stdout);
+    if (home === null) {
       return {
         ok: false,
         detail: `${host.label}: remote home is not a canonical absolute path`,
@@ -1152,12 +1188,15 @@ export const deployRemoteHost = (
     }).pipe(Effect.either);
 
     if (streamed._tag === "Left") {
+      const disposition = classifyDeployTransferDisposition(streamed.left);
       return {
         ok: false,
         detail: `${host.label}: ${describeDeployTransferFailure(streamed.left)}`,
         code: "io" as const,
         message: describeDeployTransferFailure(streamed.left),
         stages,
+        disposition,
+        version: localApp.version,
       };
     }
     push(stages, streamed.right.detail);
@@ -1168,6 +1207,8 @@ export const deployRemoteHost = (
         code: "io" as const,
         message: streamed.right.detail,
         stages,
+        disposition: "indeterminate" as const,
+        version: localApp.version,
       };
     }
 
@@ -1189,5 +1230,7 @@ export const deployRemoteHost = (
       ok: true,
       detail: `${host.label} (${host.endpoint}): ${streamed.right.detail}`,
       stages,
+      disposition: "ready",
+      version: localApp.version,
     } satisfies DeployRemoteResult;
   });

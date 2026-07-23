@@ -3,6 +3,7 @@ import {
   assessStationDoctor,
   configureRecordFromResult,
   defaultStationStatus,
+  deployRecordFromResult,
   pullRecordFromResult,
 } from "../src/shared/station-status";
 import { canvasPullResult } from "../src/shared/canvas-pull";
@@ -105,6 +106,107 @@ describe("station status doctor", () => {
     });
     expect(check.status).toBe("warning");
     expect(check.detail).toMatch(/work control not ready/i);
+  });
+
+  it("reports a ready Remote package, role, version, and last-seen receipt", () => {
+    const deployment = deployRecordFromResult({
+      hostId: "studio",
+      endpoint: "studio-box",
+      ok: true,
+      outcome: "ready",
+      packageState: "present",
+      role: "remote",
+      version: "0.1.0",
+      lastSeen: "2026-07-22T20:00:00.000Z",
+      rollback: "not-required",
+      configurationOk: true,
+      detail: "ready",
+      at: "2026-07-22T20:00:00.000Z",
+    });
+    const check = assessStationDoctor({
+      role: "command-center",
+      hostId: "local",
+      commandCenterRef: "",
+      supervisedPreferred: false,
+      supervisedInstalled: "absent",
+      status: { version: 1, deployments: { studio: deployment } },
+      workControlReady: true,
+    });
+
+    expect(check.status).toBe("ok");
+    expect(check.detail).toMatch(
+      /Remote studio \(studio-box\): last observed package present · role remote · version 0\.1\.0 · last seen 2026-07-22T20:00:00\.000Z · attempt ready/u,
+    );
+    expect(check.metadata).toMatchObject({
+      deploymentCount: "1",
+      lastDeployHostId: "studio",
+      lastDeployOutcome: "ready",
+      lastDeployPackageState: "present",
+      lastDeployRole: "remote",
+      lastDeployVersion: "0.1.0",
+      lastDeployLastSeen: "2026-07-22T20:00:00.000Z",
+    });
+  });
+
+  it("fails closed on an indeterminate deploy receipt", () => {
+    const deployment = deployRecordFromResult({
+      hostId: "studio",
+      endpoint: "studio-box",
+      ok: false,
+      outcome: "indeterminate",
+      packageState: "unknown",
+      role: "unknown",
+      rollback: "failed",
+      configurationOk: true,
+      detail: "inspect host",
+    });
+    const check = assessStationDoctor({
+      role: "command-center",
+      hostId: "local",
+      commandCenterRef: "",
+      supervisedPreferred: false,
+      supervisedInstalled: "absent",
+      status: { version: 1, deployments: { studio: deployment } },
+      workControlReady: true,
+    });
+
+    expect(check.status).toBe("error");
+    expect(check.metadata?.lastDeployOutcome).toBe("indeterminate");
+    expect(check.detail).toMatch(/last seen never/u);
+  });
+
+  it("does not attribute a receipt to a removed or repointed host", () => {
+    const deployment = deployRecordFromResult({
+      hostId: "studio",
+      endpoint: "old-box",
+      ok: true,
+      outcome: "ready",
+      packageState: "present",
+      role: "remote",
+      version: "0.1.0",
+      lastSeen: "2026-07-22T20:00:00.000Z",
+      rollback: "not-required",
+      configurationOk: true,
+      detail: "ready",
+    });
+    const check = assessStationDoctor({
+      role: "command-center",
+      hostId: "local",
+      commandCenterRef: "",
+      supervisedPreferred: false,
+      supervisedInstalled: "absent",
+      status: { version: 1, deployments: { studio: deployment } },
+      registeredRemoteEndpoints: { studio: "new-box" },
+      workControlReady: true,
+    });
+
+    expect(check.status).toBe("warning");
+    expect(check.detail).toMatch(/stale deployment receipt/u);
+    expect(check.detail).not.toMatch(/version 0\.1\.0/u);
+    expect(check.metadata).toMatchObject({
+      deploymentCount: "0",
+      staleDeploymentCount: "1",
+    });
   });
 });
 

@@ -594,6 +594,13 @@ export interface HostsDeployRemoteResult {
   readonly code?: string;
   readonly message?: string;
   readonly stages?: readonly string[];
+  readonly outcome?: "ready" | "failed" | "rolled-back" | "indeterminate";
+  readonly packageState?: "present" | "previous" | "unknown";
+  readonly role?: "remote" | "previous" | "unknown";
+  readonly version?: string;
+  readonly lastSeen?: string;
+  readonly rollback?: "not-required" | "restored" | "failed";
+  readonly statusRecorded?: boolean;
 }
 
 // The attached-chat surface is declared separately and merged into the

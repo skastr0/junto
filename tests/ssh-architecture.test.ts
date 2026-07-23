@@ -72,6 +72,8 @@ describe("SSH architecture", () => {
       "src/main/vellum/hosts/configure-remote.ts",
       // Product policy renders the remote installer command; SshTransport owns OpenSSH.
       "src/main/vellum/hosts/deploy-remote.ts",
+      // Exact settings snapshot/CAS/rollback policy; SshTransport still owns OpenSSH.
+      "src/main/vellum/hosts/remote-settings-transaction.ts",
       "src/main/vellum/term/router.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
