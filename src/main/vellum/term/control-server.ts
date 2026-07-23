@@ -57,13 +57,6 @@ import {
   observeLinuxReleaseFence,
   type LinuxReleaseFenceObservation,
 } from "./release-fence";
-import {
-  admitProcessIdentity,
-  getProcessIdentityMap,
-  type PeerPidReader,
-  type ProcessIdentityMap,
-  readUnixPeerPid,
-} from "../process-identity";
 
 const tokenHash = (token: string): Buffer =>
   createHash("sha256").update(token, "utf8").digest();
@@ -221,8 +214,6 @@ export const startTermControlServer = async (
   host: LocalSessionHost,
   options?: {
     readonly home?: string;
-    readonly processMap?: ProcessIdentityMap;
-    readonly readPeerPid?: PeerPidReader;
     /** Tests may lower, never raise, the graceful peer-close window. */
     readonly shutdownGraceMs?: number;
     /** Tests may lower, never raise, the complete drain deadline. */
@@ -248,8 +239,6 @@ export const startTermControlServer = async (
     TERM_CONTROL_SHUTDOWN_DEADLINE_MS,
   );
   const maxActiveClients = boundedRuntimeValue(options?.maxActiveClients, TERM_CONTROL_MAX_CLIENTS);
-  const processMap = options?.processMap ?? getProcessIdentityMap();
-  const readPeerPid = options?.readPeerPid ?? readUnixPeerPid;
   const observeReleaseFence =
     options?.observeReleaseFence ?? observeLinuxReleaseFence;
   prepareControlDirectory(dir);
@@ -555,13 +544,6 @@ export const startTermControlServer = async (
     }
     admittedClients.add(socket);
     const socketId = ++nextSocketId;
-    let cachedPeerPid: number | undefined | null = null;
-    const readPeerOnce = (): number | undefined => {
-      if (cachedPeerPid === null) {
-        cachedPeerPid = readPeerPid(socket);
-      }
-      return cachedPeerPid === null ? undefined : cachedPeerPid;
-    };
     let resolveSocketClosed!: () => void;
     const socketClosed = new Promise<void>((resolve) => {
       resolveSocketClosed = resolve;
@@ -612,11 +594,6 @@ export const startTermControlServer = async (
           const auth = msg as { token?: string };
           if (typeof auth?.token !== "string" || !safeEqualToken(auth.token, token)) {
             fail("unauthorized");
-            return;
-          }
-          const admission = admitProcessIdentity(socket, processMap, readPeerOnce);
-          if (!admission.ok) {
-            fail(admission.message);
             return;
           }
           authed = true;
