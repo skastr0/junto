@@ -31,6 +31,18 @@ const archiveListing = (extra = ""): string => `
 drwxr-xr-x root/root 0 2026-07-22 00:00 ./
 drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/
 drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./usr/
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./usr/share/
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./usr/share/doc/
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./usr/share/doc/vellum/
+-rw-r--r-- root/root 1 2026-07-22 00:00 ./usr/share/doc/vellum/changelog.gz
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./usr/share/applications/
+-rw-r--r-- root/root 1 2026-07-22 00:00 ./usr/share/applications/vellum.desktop
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./usr/share/icons/
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./usr/share/icons/hicolor/
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./usr/share/icons/hicolor/1024x1024/
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./usr/share/icons/hicolor/1024x1024/apps/
+-rw-r--r-- root/root 1 2026-07-22 00:00 ./usr/share/icons/hicolor/1024x1024/apps/vellum.png
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/vellum
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/chrome-sandbox
 drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/
@@ -39,7 +51,7 @@ drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum-browser
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/unix-peer-pid.py
 -rw-r--r-- root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/apparmor-profile
-${extra}`;
+${extra}`.trimStart();
 
 const desktopEntry = `
 [Desktop Entry]
@@ -155,12 +167,18 @@ describe("deb payload authority and modes", () => {
   });
 
   it.each([
-    "./usr/share/applications/vellum.desktop -> /tmp/vellum.desktop",
-    "./usr/share/icons/hicolor/1024x1024/apps/vellum.png -> /tmp/vellum.png",
-  ])("rejects a mutable system-surface symlink at %s", (entry) => {
-    const listing = archiveListing(
-      `lrwxrwxrwx root/root 0 2026-07-22 00:00 ${entry}`,
-    );
+    [
+      "./usr/share/applications/vellum.desktop",
+      "-rw-r--r-- root/root 1 2026-07-22 00:00 ./usr/share/applications/vellum.desktop",
+      "lrwxrwxrwx root/root 0 2026-07-22 00:00 ./usr/share/applications/vellum.desktop -> /tmp/vellum.desktop",
+    ],
+    [
+      "./usr/share/icons/hicolor/1024x1024/apps/vellum.png",
+      "-rw-r--r-- root/root 1 2026-07-22 00:00 ./usr/share/icons/hicolor/1024x1024/apps/vellum.png",
+      "lrwxrwxrwx root/root 0 2026-07-22 00:00 ./usr/share/icons/hicolor/1024x1024/apps/vellum.png -> /tmp/vellum.png",
+    ],
+  ])("rejects a mutable system-surface symlink at %s", (_path, original, replacement) => {
+    const listing = archiveListing().replace(original, replacement);
     expect(() => validateDebArchive(parseDebArchiveListing(listing))).toThrow(
       /type or mode mismatch/u,
     );
