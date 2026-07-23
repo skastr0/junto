@@ -3,6 +3,7 @@ Description=Vellum Remote headless station
 After=default.target
 StartLimitIntervalSec=60
 StartLimitBurst=3
+ConditionPathIsExecutable=/opt/Vellum\x20Command/vellum
 
 [Service]
 Type=simple
