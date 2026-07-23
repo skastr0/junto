@@ -79,7 +79,11 @@ export const prepareStationBrowserRuntimeRoutes = async (
     identity === undefined ||
     !deps.sessions.admitAutomationHost(identity.hostId).ok
   ) {
-    throw new StationBrowserRuntimeCompositionError();
+    // Onboarding and temporarily-invalid station settings must not prevent
+    // the rest of Vellum from starting. The closed result publishes neither
+    // station route; once a station is configured, restart establishes the
+    // role-specific authority from a clean composition boundary.
+    return Object.freeze({});
   }
 
   const trust = makeStationBrowserTrustStore(deps.home);

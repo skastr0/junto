@@ -14,7 +14,6 @@ import {
 } from "../src/main/vellum/browser/station-delegation";
 import {
   prepareStationBrowserRuntimeRoutes,
-  StationBrowserRuntimeCompositionError,
 } from "../src/main/vellum/browser/station-runtime";
 import { decodeStationBrowserResponse } from "../src/shared/station-browser";
 
@@ -100,11 +99,11 @@ const deps = async (
 });
 
 describe("station browser production runtime composition", () => {
-  it("fails closed before route publication without current physical authority", async () => {
+  it("publishes no route without current physical authority", async () => {
     const missing = sessionHarness(undefined);
     await expect(
       prepareStationBrowserRuntimeRoutes(await deps(missing.sessions)),
-    ).rejects.toBeInstanceOf(StationBrowserRuntimeCompositionError);
+    ).resolves.toEqual({});
 
     const denied = sessionHarness({
       hostId: "local",
@@ -113,7 +112,7 @@ describe("station browser production runtime composition", () => {
     denied.setCapable(false);
     await expect(
       prepareStationBrowserRuntimeRoutes(await deps(denied.sessions)),
-    ).rejects.toBeInstanceOf(StationBrowserRuntimeCompositionError);
+    ).resolves.toEqual({});
   });
 
   it("publishes only the Command Center origin and revokes it on identity drift", async () => {
