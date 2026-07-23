@@ -55,24 +55,13 @@ chmod 0755 "$CHROME_SANDBOX"
 chmod 0755 "$EXECUTABLE" "$WORK_CLI" "$BROWSER_CLI" "$PEER_PID_HELPER"
 chmod 0644 "$UNIT_SOURCE"
 
-if ! command -v update-alternatives >/dev/null 2>&1; then
-  printf 'vellum: update-alternatives is required to install the vellum command\n' >&2
-  exit 1
-fi
-update-alternatives --install /usr/bin/vellum vellum "$WORK_CLI" 100
-
-if command -v update-mime-database >/dev/null 2>&1; then
-  update-mime-database /usr/share/mime >/dev/null 2>&1 || true
-fi
-if command -v update-desktop-database >/dev/null 2>&1; then
-  update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
-fi
-
-# The global registration is a qualified symlink to an immutable package file.
-# Never overwrite administrator content or a link owned by another package.
 created_profile_link=0
 created_unit_link=0
+registered_alternative=0
 cleanup_new_links() {
+  if [ "$registered_alternative" -eq 1 ] && command -v update-alternatives >/dev/null 2>&1; then
+    update-alternatives --remove vellum "$WORK_CLI" || true
+  fi
   if [ "$created_unit_link" -eq 1 ] && [ -L "$UNIT_TARGET" ] && \
      [ "$(readlink "$UNIT_TARGET")" = "$UNIT_SOURCE" ]; then
     rm -f -- "$UNIT_TARGET"
@@ -83,6 +72,27 @@ cleanup_new_links() {
   fi
 }
 trap cleanup_new_links EXIT HUP INT TERM
+
+if ! command -v update-alternatives >/dev/null 2>&1; then
+  printf 'vellum: update-alternatives is required to install the vellum command\n' >&2
+  exit 1
+fi
+# A later registration/profile action can still fail. Record whether this run
+# added the package alternative so the exit trap rolls back only that entry.
+if ! update-alternatives --query vellum 2>/dev/null | /bin/grep -Fqx "Alternative: $WORK_CLI"; then
+  update-alternatives --install /usr/bin/vellum vellum "$WORK_CLI" 100
+  registered_alternative=1
+fi
+
+if command -v update-mime-database >/dev/null 2>&1; then
+  update-mime-database /usr/share/mime >/dev/null 2>&1 || true
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+fi
+
+# The global registration is a qualified symlink to an immutable package file.
+# Never overwrite administrator content or a link owned by another package.
 if [ -L "$PROFILE_TARGET" ]; then
   if [ "$(readlink "$PROFILE_TARGET")" != "$PROFILE_SOURCE" ]; then
     printf 'vellum: refusing an AppArmor link not owned by this package\n' >&2
