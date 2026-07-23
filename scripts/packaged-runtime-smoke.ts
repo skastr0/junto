@@ -779,7 +779,9 @@ export const smokePackagedRuntime = async (
       throw new Error(`packaged Vellum reported a child lifecycle error: ${exited.error.message}`);
     }
     if (exited.code !== 0 || exited.signal !== null) {
-      throw new Error("packaged Vellum did not complete its normal SIGTERM contract");
+      throw new Error(
+        `packaged Vellum did not complete its normal SIGTERM contract (code=${String(exited.code)}, signal=${String(exited.signal)})`,
+      );
     }
     let shutdownSocketGone = false;
     let shutdownAliveCount = knownRows.length;

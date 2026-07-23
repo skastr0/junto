@@ -442,7 +442,9 @@ export const smokeLinuxPackagedPty = async (
       throw new Error(`packaged Vellum lifecycle error: ${terminal.error.message}`);
     }
     if (terminal.code !== 0 || terminal.signal !== null) {
-      throw new Error("packaged Vellum did not complete its normal SIGTERM contract");
+      throw new Error(
+        `packaged Vellum did not complete its normal SIGTERM contract (code=${String(terminal.code)}, signal=${String(terminal.signal)})`,
+      );
     }
     await waitUntil("terminal control cleanup", SHUTDOWN_TIMEOUT_MS, async () =>
       !(await pathExists(socketPath))

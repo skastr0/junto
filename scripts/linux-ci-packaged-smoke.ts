@@ -442,7 +442,9 @@ export const smokeLinuxCiPackagedRuntime = async (
       terminal.code !== 0 ||
       terminal.signal !== null
     ) {
-      throw new Error("packaged Vellum did not complete normal SIGTERM shutdown");
+      throw new Error(
+        `packaged Vellum did not complete normal SIGTERM shutdown (code=${String(terminal.code)}, signal=${String(terminal.signal)}, error=${terminal.error?.message ?? "none"})`,
+      );
     }
     await waitUntil(
       "descendant and socket cleanup",
