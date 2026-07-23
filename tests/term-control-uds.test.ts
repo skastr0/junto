@@ -126,6 +126,24 @@ describe("term control UDS", () => {
     ).rejects.toThrow(/unauth|auth/i);
   });
 
+  it("caps accepted peers before frame admission and recovers after close", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vellum-term-cap-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(() => host.shutdownAll("test"));
+    const server = await startTermControlServer(host, { home, maxActiveClients: 1 });
+    cleanups.push(() => server.close());
+    const first = createConnection(server.socketPath);
+    await new Promise<void>((resolve, reject) => { first.once("connect", resolve); first.once("error", reject); });
+    const excess = createConnection(server.socketPath);
+    await new Promise<void>((resolve) => excess.once("close", resolve));
+    first.destroy();
+    await new Promise<void>((resolve) => first.once("close", resolve));
+    const recovered = createConnection(server.socketPath);
+    await new Promise<void>((resolve, reject) => { recovered.once("connect", resolve); recovered.once("error", reject); });
+    recovered.destroy();
+  });
+
   it("boundedly drains an active client when the control server closes", async () => {
     const home = mkdtempSync(join(tmpdir(), "vellum-term-close-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));

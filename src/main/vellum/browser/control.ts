@@ -1163,6 +1163,8 @@ export interface BrowserControlRuntime {
   readonly chmodSocket: (path: string, mode: number) => void;
   /** Tests may lower, never raise, the production admission ceiling. */
   readonly maxActiveHandlers?: number;
+  /** Tests may lower, never raise, the accepted peer ceiling. */
+  readonly maxActiveClients?: number;
   /** Tests may lower, never raise, the production handler deadline. */
   readonly handlerTimeoutMs?: number;
   /** Tests may lower, never raise, the grace before server-side socket destroy. */
@@ -1177,6 +1179,7 @@ const defaultControlRuntime: BrowserControlRuntime = {
 
 const BROWSER_CONTROL_SHUTDOWN_GRACE_MS = 100;
 const BROWSER_CONTROL_SHUTDOWN_DEADLINE_MS = 2_000;
+const BROWSER_CONTROL_MAX_CLIENTS = 32;
 
 type BrowserControlFlightKind =
   | "request"
@@ -1315,6 +1318,10 @@ export const startBrowserControlServer = async (
     runtime.maxActiveHandlers,
     BROWSER_MAX_ACTIVE_HTTP_HANDLERS,
   );
+  const maxActiveClients = boundedRuntimeValue(
+    runtime.maxActiveClients,
+    BROWSER_CONTROL_MAX_CLIENTS,
+  );
   const handlerTimeoutMs = boundedRuntimeValue(
     runtime.handlerTimeoutMs,
     BROWSER_CONTROL_HANDLER_TIMEOUT_MS,
@@ -1338,6 +1345,7 @@ export const startBrowserControlServer = async (
   const shutdownJournal = new Map<number, BrowserControlFlight>();
   const requestControllers = new Map<number, AbortController>();
   const sockets = new Map<number, BrowserControlSocket>();
+  const admittedClients = new Set<Socket>();
 
   const retainFlight = <A>(
     kind: BrowserControlFlightKind,
@@ -1619,6 +1627,11 @@ export const startBrowserControlServer = async (
   server.headersTimeout = CONTROL_HEADERS_TIMEOUT_MS;
   server.requestTimeout = CONTROL_REQUEST_TIMEOUT_MS;
   server.on("connection", (socket: Socket) => {
+    if (shuttingDown || admittedClients.size >= maxActiveClients) {
+      socket.end();
+      return;
+    }
+    admittedClients.add(socket);
     const id = ++nextSocketId;
     let resolveClosed!: () => void;
     const closed = new Promise<void>((resolveSocketClosed) => {
@@ -1628,6 +1641,7 @@ export const startBrowserControlServer = async (
     sockets.set(id, record);
     void retainFlight("socket-close", "socket", closed);
     socket.once("close", () => {
+      admittedClients.delete(socket);
       sockets.delete(id);
       resolveClosed();
     });

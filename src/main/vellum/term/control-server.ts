@@ -111,6 +111,7 @@ type TermControlSocket = {
 
 const TERM_CONTROL_SHUTDOWN_GRACE_MS = 100;
 const TERM_CONTROL_SHUTDOWN_DEADLINE_MS = 2_000;
+const TERM_CONTROL_MAX_CLIENTS = 32;
 
 const boundedRuntimeValue = (value: number | undefined, ceiling: number): number =>
   value === undefined || !Number.isFinite(value) || value <= 0
@@ -195,6 +196,8 @@ export const startTermControlServer = async (
     readonly shutdownDeadlineMs?: number;
     /** Test seam for path-replacement races; production uses chmodSync. */
     readonly chmodSocket?: (path: string, mode: number) => void;
+    /** Tests may lower, never raise, the accepted peer ceiling. */
+    readonly maxActiveClients?: number;
   },
 ): Promise<TermControlServer> => {
   const home = options?.home;
@@ -209,6 +212,7 @@ export const startTermControlServer = async (
     options?.shutdownDeadlineMs,
     TERM_CONTROL_SHUTDOWN_DEADLINE_MS,
   );
+  const maxActiveClients = boundedRuntimeValue(options?.maxActiveClients, TERM_CONTROL_MAX_CLIENTS);
   prepareControlDirectory(dir);
 
   const token = randomBytes(32).toString("hex");
@@ -256,6 +260,7 @@ export const startTermControlServer = async (
   let closing = false;
   let listenerCloseFlight: Promise<void> | undefined;
   let drainFlight: Promise<TermControlServerShutdownReceipt> | undefined;
+  const admittedClients = new Set<Socket>();
 
   const recordDiagnostic = (label: string, error: unknown): void => {
     const message = error instanceof Error ? error.message : String(error);
@@ -441,6 +446,11 @@ export const startTermControlServer = async (
   };
 
   const server: Server = createServer((socket) => {
+    if (closing || admittedClients.size >= maxActiveClients) {
+      socket.end();
+      return;
+    }
+    admittedClients.add(socket);
     const socketId = ++nextSocketId;
     let resolveSocketClosed!: () => void;
     const socketClosed = new Promise<void>((resolve) => {
@@ -522,6 +532,7 @@ export const startTermControlServer = async (
       }
     });
     socket.on("close", () => {
+      admittedClients.delete(socket);
       closed = true;
       sockets.delete(socketId);
       dropSocket(socket);

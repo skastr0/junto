@@ -529,10 +529,13 @@ export interface WorkControlRuntime {
   readonly shutdownGraceMs?: number;
   /** Tests may lower, never raise, the complete transport drain deadline. */
   readonly shutdownDeadlineMs?: number;
+  /** Tests may lower, never raise, the accepted peer ceiling. */
+  readonly maxActiveClients?: number;
 }
 
 const WORK_CONTROL_SHUTDOWN_GRACE_MS = 100;
 const WORK_CONTROL_SHUTDOWN_DEADLINE_MS = 2_000;
+const WORK_CONTROL_MAX_CLIENTS = 32;
 
 type WorkControlFlightKind =
   | "line-handler"
@@ -678,6 +681,7 @@ export const startWorkControlServer = async (
     runtime.shutdownDeadlineMs,
     WORK_CONTROL_SHUTDOWN_DEADLINE_MS,
   );
+  const maxActiveClients = boundedRuntimeValue(runtime.maxActiveClients, WORK_CONTROL_MAX_CLIENTS);
   let shuttingDown = false;
   let nextFlightId = 0;
   let nextSocketId = 0;
@@ -686,6 +690,7 @@ export const startWorkControlServer = async (
   const activeFlights = new Map<number, WorkControlFlight>();
   const shutdownJournal = new Map<number, WorkControlFlight>();
   const sockets = new Map<number, WorkControlSocket>();
+  const admittedClients = new Set<Socket>();
 
   const retainFlight = <A>(
     kind: WorkControlFlightKind,
@@ -763,10 +768,11 @@ export const startWorkControlServer = async (
   };
 
   const server: Server = createServer((socket) => {
-    if (shuttingDown) {
+    if (shuttingDown || admittedClients.size >= maxActiveClients) {
       socket.end();
       return;
     }
+    admittedClients.add(socket);
     let buffer = Buffer.alloc(0);
     let closed = false;
     // Peer PID is stable for the life of the connection — read once.
@@ -983,6 +989,7 @@ export const startWorkControlServer = async (
     });
     socket.on("close", () => {
       closed = true;
+      admittedClients.delete(socket);
     });
 
     void WorkOpName;
