@@ -51,7 +51,7 @@ import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane } from "./vellum/term/plane";
 import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
-import { electronSecurityPolicyHealthy, packagedElectronObservationHighWaterPath, packagedElectronObservationPath, packagedElectronSecurityPolicyPath } from "./vellum/electron-security-health";
+import { developmentElectronSecurityPolicyPath, electronSecurityPolicyHealthy, packagedElectronObservationHighWaterPath, packagedElectronObservationPath, packagedElectronSecurityPolicyPath } from "./vellum/electron-security-health";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 import { startWorkControlServer, type WorkControlServer } from "./vellum/work/control";
 import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
@@ -1261,7 +1261,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           primaryCredentialHealth: () => electronSecurityPolicyHealthy({
             policyPath: app.isPackaged
               ? packagedElectronSecurityPolicyPath(process.resourcesPath)
-              : join(app.getAppPath(), "scripts", "electron-security-policy.json"),
+              : developmentElectronSecurityPolicyPath(import.meta.url),
             electronVersion: process.versions.electron,
             observationPath: app.isPackaged ? packagedElectronObservationPath(process.resourcesPath) : undefined,
             observationHighWaterPath: app.isPackaged ? packagedElectronObservationHighWaterPath(process.resourcesPath) : undefined,

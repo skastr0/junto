@@ -2,6 +2,7 @@
  * same canonical decoder used by release tooling. */
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   decodeElectronObservation,
   decodeElectronSecurityPolicy,
@@ -41,6 +42,12 @@ export const electronSecurityPolicyHealthy = (input: {
 
 export const packagedElectronSecurityPolicyPath = (resourcesPath: string): string =>
   path.join(resourcesPath, "policy", "electron-security-policy.json");
+/** Source and electron-vite output both live exactly two levels below root. */
+export const developmentElectronSecurityPolicyPath = (mainModuleUrl: string): string =>
+  path.resolve(
+    path.dirname(fileURLToPath(mainModuleUrl)),
+    "../../scripts/electron-security-policy.json",
+  );
 export const packagedElectronObservationPath = (resourcesPath: string): string =>
   path.join(resourcesPath, "policy", "electron-observation.json");
 export const packagedElectronObservationHighWaterPath = (resourcesPath: string): string =>

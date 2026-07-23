@@ -2,9 +2,21 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { electronSecurityPolicyHealthy } from "../src/main/vellum/electron-security-health";
+import {
+  developmentElectronSecurityPolicyPath,
+  electronSecurityPolicyHealthy,
+} from "../src/main/vellum/electron-security-health";
 
 describe("Electron credential admission health", () => {
+  it("resolves the reviewed policy from source and bundled main entries", () => {
+    const expected = path.resolve("scripts/electron-security-policy.json");
+    const sourceEntry = new URL("../src/main/index.ts", import.meta.url).href;
+    const bundledEntry = new URL("../out/main/index.js", import.meta.url).href;
+
+    expect(developmentElectronSecurityPolicyPath(sourceEntry)).toBe(expected);
+    expect(developmentElectronSecurityPolicyPath(bundledEntry)).toBe(expected);
+  });
+
   it("fails closed when an offline policy is expired or its runtime mismatches", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "vellum-electron-health-"));
     const policyPath = path.join(directory, "policy.json");
