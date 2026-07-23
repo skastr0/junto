@@ -1,4 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import {
+  chmodSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   TerminalLaunchError,
   validateExecutableShell,
@@ -13,6 +21,14 @@ const filesystem = (input?: {
   accessExecutable: vi.fn(() => {
     if (input?.accessError !== undefined) throw input.accessError;
   }),
+});
+
+const tempRoots: string[] = [];
+
+afterEach(() => {
+  for (const root of tempRoots.splice(0)) {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 describe("terminal shell executable policy", () => {
@@ -32,6 +48,17 @@ describe("terminal shell executable policy", () => {
       "/opt/vellum/shell",
     );
     expect(order).toEqual(["stat", "access:X_OK"]);
+  });
+
+  it("uses the operating system's actual X_OK decision", () => {
+    const root = mkdtempSync(join(tmpdir(), "vellum-shell-policy-"));
+    tempRoots.push(root);
+    const shell = join(root, "shell");
+    writeFileSync(shell, "#!/bin/sh\nexit 0\n", { mode: 0o600 });
+
+    expect(() => validateExecutableShell(shell)).toThrowError(TerminalLaunchError);
+    chmodSync(shell, 0o700);
+    expect(validateExecutableShell(shell)).toBe(shell);
   });
 
   it("returns typed errors for relative, missing, non-regular, and inaccessible shells", () => {

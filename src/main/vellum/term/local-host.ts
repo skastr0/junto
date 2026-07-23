@@ -167,10 +167,20 @@ export type { TerminalLaunchFailureCode };
 
 const defaultShell = (): string => {
   if (process.platform === "win32") return process.env.COMSPEC || "cmd.exe";
+  const userShell = process.env.SHELL?.trim();
+  if (userShell) {
+    try {
+      return validateExecutableShell(userShell);
+    } catch (error) {
+      if (!(error instanceof TerminalLaunchError)) throw error;
+      // `$SHELL` is ambient preference, not executable authority. A stale or
+      // malformed value falls through to the fixed platform policy below.
+    }
+  }
   // Linux is deliberately bash-first; macOS retains its system login shell.
-  const candidate = process.env.SHELL?.trim() ||
-    (process.platform === "linux" ? "/bin/bash" : "/bin/zsh");
-  return validateExecutableShell(candidate);
+  return validateExecutableShell(
+    process.platform === "linux" ? "/bin/bash" : "/bin/zsh",
+  );
 };
 
 export const resolveLaunch = (

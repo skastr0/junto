@@ -41,6 +41,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   for (const host of hosts.splice(0)) {
     await host.shutdownAll("test_cleanup");
   }
@@ -72,6 +73,16 @@ describe("LocalSessionHost", () => {
     expect(() => resolveLaunch({ kind: "shell", argv: ["/no/such/shell"] })).toThrow(
       TerminalLaunchError,
     );
+  });
+
+  it("falls through invalid ambient SHELL preferences to the fixed platform shell", () => {
+    const fallback = process.platform === "linux" ? "/bin/bash" : "/bin/zsh";
+
+    vi.stubEnv("SHELL", "relative-shell");
+    expect(resolveLaunch(undefined)).toMatchObject({ file: fallback, args: ["-l"] });
+
+    vi.stubEnv("SHELL", "/no/such/user-shell");
+    expect(resolveLaunch(undefined)).toMatchObject({ file: fallback, args: ["-l"] });
   });
 
   it("delegates terminal spawn to the central authority and observes its exact witness", async () => {

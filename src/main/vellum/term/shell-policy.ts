@@ -25,8 +25,8 @@ export interface ShellFilesystem {
 const systemShellFilesystem: ShellFilesystem = {
   stat: (path) => statSync(path),
   // Permission bits are not an executability decision: access(2) also honors
-  // the effective identity and platform ACLs. Always validate X_OK after the
-  // regular-file check.
+  // the current process identity and platform ACLs. Always validate X_OK
+  // after the regular-file check.
   accessExecutable: (path) => accessSync(path, constants.X_OK),
 };
 
