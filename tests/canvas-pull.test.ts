@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Context } from "effect";
@@ -20,9 +20,18 @@ import { SettingsService, makeSettingsService } from "../src/main/vellum/setting
 import { HostsService, makeHostsService } from "../src/main/vellum/hosts/service";
 import { makeHostsRegistry } from "../src/main/vellum/hosts/registry";
 import { SshTransport } from "../src/main/vellum/ssh/service";
+import {
+  SshExitError,
+  SshTimeoutError,
+  type SshError,
+} from "../src/main/vellum/ssh/domain";
 import { defaultSettings, type Settings } from "../src/shared/settings";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import { applyMirrorLaw, serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
+import {
+  agentKeysForWatcher,
+  isNodeEligibleOnStation,
+} from "../src/shared/station";
 
 describe("canvas pull pure helpers", () => {
   it("accepts valid canvas names", () => {
@@ -197,6 +206,8 @@ const makeMockSsh = (options?: {
   readonly failWarm?: boolean;
   readonly listing?: string;
   readonly files?: Readonly<Record<string, string>>;
+  readonly listError?: SshError;
+  readonly catError?: SshError;
 }): Ssh => {
   const files = options?.files ?? {};
   let runCount = 0;
@@ -211,25 +222,29 @@ const makeMockSsh = (options?: {
             timeoutMs: 1,
           } as never)
         : Effect.void,
-    run: () =>
-      Effect.sync(() => {
-        runCount += 1;
-        // Call order: homeDirectoryLookup → ls → cat*
-        if (runCount === 1) {
-          return { stdout: "/Users/cc\n", stderr: "" };
-        }
-        if (runCount === 2) {
-          return {
-            stdout: options?.listing ?? "portfolio.canvas\n",
-            stderr: "",
-          };
-        }
-        const names = Object.keys(files);
-        const idx = runCount - 3;
-        const name = names[idx] ?? names[0] ?? "portfolio";
-        const body = files[name] ?? files.portfolio ?? JSON.stringify(sampleDoc);
-        return { stdout: body, stderr: "" };
-      }),
+    run: () => {
+      runCount += 1;
+      // Call order: homeDirectoryLookup → ls → cat*
+      if (runCount === 1) {
+        return Effect.succeed({ stdout: "/Users/cc\n", stderr: "" });
+      }
+      if (runCount === 2) {
+        return options?.listError
+          ? Effect.fail(options.listError)
+          : Effect.succeed({
+              stdout: options?.listing ?? "portfolio.canvas\n",
+              stderr: "",
+            });
+      }
+      if (options?.catError) {
+        return Effect.fail(options.catError);
+      }
+      const names = Object.keys(files);
+      const idx = runCount - 3;
+      const name = names[idx] ?? names[0] ?? "portfolio";
+      const body = files[name] ?? files.portfolio ?? JSON.stringify(sampleDoc);
+      return Effect.succeed({ stdout: body, stderr: "" });
+    },
     connect: () => Effect.die("unused"),
     forward: () => Effect.die("unused"),
     handoff: () => Effect.die("unused"),
@@ -243,6 +258,7 @@ const makePullRuntime = async (input: {
   readonly ssh: Ssh;
   readonly hosts: ReadonlyArray<RemoteHost>;
   readonly canvasesDir?: string;
+  readonly hostId?: string;
 }) => {
   const settingsDir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
   const settingsPath = join(settingsDir, "settings.json");
@@ -255,7 +271,7 @@ const makePullRuntime = async (input: {
     ...defaultSettings(),
     station: {
       role: input.role,
-      hostId: "local",
+      hostId: input.hostId ?? "local",
       commandCenterRef: input.commandCenterRef,
       supervisedPreferred: input.role === "remote",
     },
@@ -344,7 +360,13 @@ describe("pullCanvasesFromCommandCenter", () => {
 
   it("pulls canvases from Command Center when reachable", async () => {
     const remoteBody = JSON.stringify(sampleDoc);
-    const { runtime, canvasesDir } = await makePullRuntime({
+    const canvasesDir = await mkdtemp(join(tmpdir(), "vellum-canvases-"));
+    const oldBody = serializeCanvas(applyMirrorLaw({ nodes: [], edges: [] }));
+    await writeFile(join(canvasesDir, "portfolio.canvas"), oldBody, "utf8");
+    await writeFile(join(canvasesDir, "stale.canvas"), oldBody, "utf8");
+    await writeFile(join(canvasesDir, "operator-note.txt"), "untouched", "utf8");
+
+    const { runtime } = await makePullRuntime({
       role: "remote",
       commandCenterRef: "cc-laptop",
       ssh: makeMockSsh({
@@ -352,6 +374,7 @@ describe("pullCanvasesFromCommandCenter", () => {
         files: { portfolio: remoteBody },
       }),
       hosts: [remoteHost],
+      canvasesDir,
     });
 
     const result = await runtime.runPromise(pullCanvasesFromCommandCenter);
@@ -362,6 +385,176 @@ describe("pullCanvasesFromCommandCenter", () => {
 
     const installed = await readFile(join(canvasesDir, "portfolio.canvas"), "utf8");
     expect(installed).toBe(serializeCanvas(applyMirrorLaw(sampleDoc)));
+    await expect(readFile(join(canvasesDir, "stale.canvas"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(await readFile(join(canvasesDir, "operator-note.txt"), "utf8")).toBe(
+      "untouched",
+    );
+    expect(result.detail).toContain("1 stale local removed");
+    await runtime.dispose();
+  });
+
+  it("treats an authoritative empty listing as an empty mirror", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vellum-canvases-"));
+    const body = serializeCanvas(applyMirrorLaw({ nodes: [], edges: [] }));
+    await writeFile(join(dir, "first.canvas"), body, "utf8");
+    await writeFile(join(dir, "second.canvas"), body, "utf8");
+    await writeFile(join(dir, "operator-note.txt"), "untouched", "utf8");
+
+    const { runtime } = await makePullRuntime({
+      role: "remote",
+      commandCenterRef: "cc-laptop",
+      ssh: makeMockSsh({ listing: "" }),
+      hosts: [remoteHost],
+      canvasesDir: dir,
+    });
+
+    const result = await runtime.runPromise(pullCanvasesFromCommandCenter);
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe("empty");
+    expect(result.keptLocal).toBe(false);
+    expect(result.detail).toContain("2 stale local removed");
+    expect(await readdir(dir)).toEqual(["operator-note.txt"]);
+    await runtime.dispose();
+  });
+
+  it.each([
+    {
+      label: "non-zero remote listing",
+      error: new SshExitError({
+        endpoint: "cc-laptop",
+        operation: "one-shot",
+        code: 255,
+      }),
+    },
+    {
+      label: "listing transport timeout",
+      error: new SshTimeoutError({
+        endpoint: "cc-laptop",
+        operation: "one-shot",
+        timeoutMs: 10_000,
+      }),
+    },
+  ])("keeps the last mirror on $label failure", async ({ error }) => {
+    const dir = await mkdtemp(join(tmpdir(), "vellum-canvases-"));
+    const body = serializeCanvas(applyMirrorLaw({ nodes: [], edges: [] }));
+    await writeFile(join(dir, "kept.canvas"), body, "utf8");
+
+    const { runtime } = await makePullRuntime({
+      role: "remote",
+      commandCenterRef: "cc-laptop",
+      ssh: makeMockSsh({ listError: error }),
+      hosts: [remoteHost],
+      canvasesDir: dir,
+    });
+
+    const result = await runtime.runPromise(pullCanvasesFromCommandCenter);
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe("unreachable");
+    expect(result.status).not.toBe("empty");
+    expect(result.keptLocal).toBe(true);
+    expect(result.detail).toMatch(/failed to list command center canvases/i);
+    expect(await readFile(join(dir, "kept.canvas"), "utf8")).toBe(body);
+    await runtime.dispose();
+  });
+
+  it("preserves host stamps for configured-host eligibility after pull", async () => {
+    const hostScopedDoc: CanvasDoc = {
+      nodes: [
+        {
+          id: "watch-studio",
+          type: "text",
+          text: "studio watcher",
+          x: 0,
+          y: 0,
+          width: 120,
+          height: 80,
+          ether: {
+            entity: { kind: "watcher" },
+            host: "studio",
+            watch: { kind: "glyphs_done" },
+          },
+        },
+        {
+          id: "agent-studio",
+          type: "text",
+          text: "studio agent",
+          x: 160,
+          y: 0,
+          width: 120,
+          height: 80,
+          ether: {
+            entity: { kind: "agent", name: "studio:codex" },
+            host: "studio",
+          },
+        },
+        {
+          id: "watch-other",
+          type: "text",
+          text: "other watcher",
+          x: 0,
+          y: 120,
+          width: 120,
+          height: 80,
+          ether: {
+            entity: { kind: "watcher" },
+            host: "other",
+            watch: { kind: "glyphs_done" },
+          },
+        },
+        {
+          id: "agent-other",
+          type: "text",
+          text: "other agent",
+          x: 160,
+          y: 120,
+          width: 120,
+          height: 80,
+          ether: {
+            entity: { kind: "agent", name: "other:codex" },
+            host: "other",
+          },
+        },
+      ],
+      edges: [
+        {
+          id: "edge-studio",
+          fromNode: "watch-studio",
+          toNode: "agent-studio",
+        },
+        {
+          id: "edge-other",
+          fromNode: "watch-other",
+          toNode: "agent-other",
+        },
+      ],
+    };
+    const { runtime, canvasesDir } = await makePullRuntime({
+      role: "remote",
+      hostId: "studio",
+      commandCenterRef: "cc-laptop",
+      ssh: makeMockSsh({
+        listing: "fleet.canvas\n",
+        files: { fleet: JSON.stringify(hostScopedDoc) },
+      }),
+      hosts: [remoteHost],
+    });
+
+    const result = await runtime.runPromise(pullCanvasesFromCommandCenter);
+    expect(result.ok).toBe(true);
+
+    const installed = JSON.parse(
+      await readFile(join(canvasesDir, "fleet.canvas"), "utf8"),
+    ) as CanvasDoc;
+    const configured = installed.nodes.find((node) => node.id === "watch-studio");
+    const wrongHost = installed.nodes.find((node) => node.id === "watch-other");
+    expect(configured && isNodeEligibleOnStation(configured, "studio")).toBe(true);
+    expect(wrongHost && isNodeEligibleOnStation(wrongHost, "studio")).toBe(false);
+    expect(agentKeysForWatcher(installed, "watch-studio", "remote", "studio")).toEqual([
+      "studio:codex",
+    ]);
+    expect(agentKeysForWatcher(installed, "watch-other", "remote", "studio")).toEqual([]);
     await runtime.dispose();
   });
 

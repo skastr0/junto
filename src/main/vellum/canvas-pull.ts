@@ -6,13 +6,14 @@
  * Authorial writeCanvas remains denied for role=remote (ipc denyIfRemoteAuthorial).
  */
 
-import { lstat, open, readFile, rename, rm } from "node:fs/promises";
+import { lstat, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { posix } from "node:path";
 import type { Context } from "effect";
 import { Effect, Either } from "effect";
 import {
+  canvasNameFromListingEntry,
   canvasPullFileName,
   canvasPullResult,
   parseRemoteCanvasListing,
@@ -86,6 +87,24 @@ const formatUnknown = (error: unknown): string => {
   return error instanceof Error ? error.message : String(error);
 };
 
+const syncCanvasDirectoryBestEffort = async (
+  targetDir: string,
+  operation: "install" | "delete",
+): Promise<void> => {
+  let directory: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    directory = await open(targetDir, "r");
+    await directory.sync();
+  } catch (error) {
+    console.error(
+      `[canvas-pull] directory sync failed after committed ${operation}:`,
+      error,
+    );
+  } finally {
+    await directory?.close().catch(() => undefined);
+  }
+};
+
 /**
  * Atomic install of validated canvas file bytes into the local canvases dir.
  * Replace-entire-file semantics (no merge). Returns whether content changed.
@@ -135,15 +154,7 @@ export const atomicInstallCanvasFile = async (
     throw error;
   }
 
-  let directory: Awaited<ReturnType<typeof open>> | undefined;
-  try {
-    directory = await open(targetDir, "r");
-    await directory.sync();
-  } catch (error) {
-    console.error("[canvas-pull] directory sync failed after committed install:", error);
-  } finally {
-    await directory?.close().catch(() => undefined);
-  }
+  await syncCanvasDirectoryBestEffort(targetDir, "install");
   return { bytes: Buffer.byteLength(prepared.body, "utf8"), changed: true };
 };
 
@@ -195,19 +206,6 @@ const listRemoteCanvasNames = (
   makeRemoteCommand("ls", ["-1", remoteCanvasesDir]).pipe(
     Effect.flatMap((command) => ssh.run(oneShot(endpoint, command, { budget: "list" }))),
     Effect.map((result) => parseRemoteCanvasListing(result.stdout)),
-    Effect.catchAll((error) => {
-      // Missing directory or empty → treat as empty listing when exit is non-zero
-      // with empty stdout; hard transport failures propagate.
-      if (
-        error &&
-        typeof error === "object" &&
-        "_tag" in error &&
-        (error as SshError)._tag === "SshExitError"
-      ) {
-        return Effect.succeed([] as ReadonlyArray<string>);
-      }
-      return Effect.fail(error as SshError);
-    }),
   );
 
 const catRemoteCanvas = (
@@ -219,6 +217,58 @@ const catRemoteCanvas = (
     Effect.flatMap((command) => ssh.run(oneShot(endpoint, command, { budget: "bulk" }))),
     Effect.map((result) => result.stdout),
   );
+
+type CanvasMirrorDeletionResult = {
+  readonly deleted: ReadonlyArray<string>;
+  readonly failed: ReadonlyArray<CanvasPullFileFailure>;
+};
+
+/**
+ * Reconcile the local document set to an authoritative successful remote
+ * listing. Only canonical, regular `.canvas` files inside the configured
+ * canvas directory are eligible for removal; sidecars and unknown entries
+ * are not part of this authority.
+ */
+const deleteLocalCanvasesAbsentFrom = async (
+  remoteNames: ReadonlyArray<string>,
+): Promise<CanvasMirrorDeletionResult> => {
+  const targetDir = await ensureCanvasesDir();
+  const remoteFiles = new Set(remoteNames.map(canvasPullFileName));
+  const entries = await readdir(targetDir, { withFileTypes: true });
+  const stale = entries
+    .filter((entry) => entry.isFile() && !remoteFiles.has(entry.name))
+    .flatMap((entry) => {
+      const name = canvasNameFromListingEntry(entry.name);
+      return name === undefined ? [] : [{ name, fileName: entry.name }];
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const deleted: string[] = [];
+  const failed: CanvasPullFileFailure[] = [];
+  for (const candidate of stale) {
+    const path = join(targetDir, candidate.fileName);
+    try {
+      const info = await lstat(path);
+      if (!info.isFile() || info.isSymbolicLink()) {
+        throw new CanvasError({
+          message: `refusing non-regular canvas file: ${candidate.fileName}`,
+        });
+      }
+      await rm(path);
+      deleted.push(candidate.name);
+    } catch (error) {
+      failed.push({
+        name: candidate.name,
+        detail: `failed to remove local canvas absent from Command Center: ${formatUnknown(error)}`,
+      });
+    }
+  }
+
+  if (deleted.length > 0) {
+    await syncCanvasDirectoryBestEffort(targetDir, "delete");
+  }
+  return { deleted, failed };
+};
 
 /**
  * Pull all .canvas documents from the Command Center into the local canvases dir.
@@ -365,19 +415,6 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
     }
 
     const names = listResult.right;
-    if (names.length === 0) {
-      return canvasPullResult({
-        ok: true,
-        status: "empty",
-        detail: `No .canvas files on Command Center at ${remoteCanvasesDir}`,
-        commandCenterRef: ref,
-        endpoint: resolved.endpoint,
-        pulled: [],
-        failed: [],
-        keptLocal: true,
-      });
-    }
-
     const pulled: CanvasPullFileResult[] = [];
     const failed: CanvasPullFileFailure[] = [];
 
@@ -420,16 +457,51 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
       });
     }
 
+    const mirrorResult = yield* Effect.either(
+      Effect.tryPromise({
+        try: () => deleteLocalCanvasesAbsentFrom(names),
+        catch: (error) =>
+          error instanceof Error ? error : new Error(String(error)),
+      }),
+    );
+    const deleted =
+      mirrorResult._tag === "Right" ? mirrorResult.right.deleted : [];
+    if (mirrorResult._tag === "Right") {
+      failed.push(...mirrorResult.right.failed);
+    } else {
+      failed.push({
+        name: "local-mirror",
+        detail: `failed to reconcile the local canvas mirror: ${mirrorResult.left.message}`,
+      });
+    }
+
+    if (names.length === 0 && failed.length === 0) {
+      return canvasPullResult({
+        ok: true,
+        status: "empty",
+        detail:
+          `No .canvas files on Command Center at ${remoteCanvasesDir}` +
+          ` (${deleted.length} stale local removed)`,
+        commandCenterRef: ref,
+        endpoint: resolved.endpoint,
+        pulled: [],
+        failed: [],
+        keptLocal: false,
+      });
+    }
+
     if (pulled.length === 0 && failed.length > 0) {
       return canvasPullResult({
         ok: false,
         status: "partial",
-        detail: `Pulled 0/${names.length} canvases from Command Center — all failed`,
+        detail:
+          `Pulled 0/${names.length} canvases from Command Center — all failed` +
+          ` (${deleted.length} stale local removed)`,
         commandCenterRef: ref,
         endpoint: resolved.endpoint,
         pulled,
         failed,
-        keptLocal: true,
+        keptLocal: deleted.length === 0,
       });
     }
 
@@ -437,7 +509,9 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
       return canvasPullResult({
         ok: false,
         status: "partial",
-        detail: `Pulled ${pulled.length}/${names.length} canvases from Command Center (${failed.length} failed)`,
+        detail:
+          `Pulled ${pulled.length}/${names.length} canvases from Command Center` +
+          ` (${failed.length} failed; ${deleted.length} stale local removed)`,
         commandCenterRef: ref,
         endpoint: resolved.endpoint,
         pulled,
@@ -450,7 +524,9 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
     return canvasPullResult({
       ok: true,
       status: "ok",
-      detail: `Pulled ${pulled.length} canvas(es) from Command Center (${changed} updated)`,
+      detail:
+        `Pulled ${pulled.length} canvas(es) from Command Center` +
+        ` (${changed} updated; ${deleted.length} stale local removed)`,
       commandCenterRef: ref,
       endpoint: resolved.endpoint,
       pulled,
