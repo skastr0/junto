@@ -15,6 +15,7 @@ import { recreateHerdrPane } from "../../lib/herdr-actions";
 import { extractHerdrClipboardImage } from "../../lib/herdr-clipboard-image";
 import { dock$, herdrSurfaceId } from "../../lib/dock-state";
 import { getVellumApi } from "../../lib/vellum-api";
+import { VELLUM_XTERM_THEME } from "../../lib/terminal-theme";
 import { ActivityMark } from "../ActivityMark";
 import { FocusSurface } from "../FocusSurface";
 
@@ -277,11 +278,7 @@ export function HerdrTerminalPanel({
       cursorBlink: true,
       fontSize: 13,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
-      theme: {
-        background: "#0c0b0a",
-        foreground: "#EDE6DA",
-        cursor: "#E8A33D",
-      },
+      theme: VELLUM_XTERM_THEME,
       allowProposedApi: true,
       scrollback: 0,
       convertEol: false,

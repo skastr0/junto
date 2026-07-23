@@ -4,11 +4,16 @@ import { makeTerminalNode } from "../../lib/node-factories";
 import { addNode } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
+import { FocusSurface } from "../FocusSurface";
+import { Button, Eyebrow, FieldLabel, Input, Select } from "../ui";
 
 type HostOpt = { readonly id: string; readonly label: string };
+type Preset = "shell" | "claude" | "codex" | "custom";
+
+const PRESETS: ReadonlyArray<Preset> = ["shell", "claude", "codex", "custom"];
 
 export function TerminalWizard({ anchor, onClose }: { readonly anchor: { x: number; y: number }; readonly onClose: () => void }) {
-  const [preset, setPreset] = useState<"shell" | "claude" | "codex" | "custom">("shell");
+  const [preset, setPreset] = useState<Preset>("shell");
   const [command, setCommand] = useState("");
   const stationHost = state$.settings.station.hostId.peek() || "local";
   const [hostOptions, setHostOptions] = useState<HostOpt[]>([
@@ -53,21 +58,48 @@ export function TerminalWizard({ anchor, onClose }: { readonly anchor: { x: numb
     state$.focusNodeId.set(node.id);
     onClose();
   };
-  return <div className="terminal-wizard-backdrop" onMouseDown={onClose}>
-    <section className="terminal-wizard" role="dialog" aria-modal="true" aria-label="New terminal" onMouseDown={(e) => e.stopPropagation()}>
-      <header><span>NEW TERMINAL</span><button type="button" onClick={onClose}>×</button></header>
-      <label className="terminal-wizard__host">
-        <span>Host</span>
-        <select value={hostId} onChange={(e) => setHostId(e.target.value)}>
-          {hostOptions.map((h) => <option key={h.id} value={h.id}>{h.label}</option>)}
-        </select>
-      </label>
-      <div className="terminal-wizard__presets">
-        {(["shell", "claude", "codex", "custom"] as const).map((item) => <button type="button" key={item} className={preset === item ? "is-active" : ""} onClick={() => setPreset(item)}>{item}</button>)}
+  return (
+    <FocusSurface measure="form" height="fit" layer="detail" label="New terminal" onClose={onClose}>
+      <div className="grid gap-4 p-5" onKeyDown={(e) => { if (e.key === "Enter" && preset === "custom") create(); }}>
+        <div>
+          <Eyebrow tone="steel">terminal · attach</Eyebrow>
+          <div className="mt-1 font-mono text-[16px] font-semibold text-ink">New terminal</div>
+        </div>
+        <FieldLabel>
+          Host
+          <Select aria-label="Host" value={hostId} onChange={(e) => setHostId(e.target.value)}>
+            {hostOptions.map((h) => <option key={h.id} value={h.id}>{h.label}</option>)}
+          </Select>
+        </FieldLabel>
+        <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Launch preset">
+          {PRESETS.map((item) => (
+            <Button
+              key={item}
+              size="sm"
+              variant={preset === item ? "primary" : "chrome"}
+              onClick={() => setPreset(item)}
+            >
+              {item}
+            </Button>
+          ))}
+        </div>
+        {preset === "custom" ? (
+          <Input
+            autoFocus
+            aria-label="Command and arguments"
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            placeholder="command and arguments"
+          />
+        ) : null}
+        <p className="text-[10px] leading-relaxed text-faint">
+          Runs on the selected host. Remote needs Vellum running there. Card stays stopped until Start.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="subtle" onClick={onClose}>cancel</Button>
+          <Button size="sm" variant="primary" onClick={create}>Create terminal</Button>
+        </div>
       </div>
-      {preset === "custom" ? <input autoFocus value={command} onChange={(e) => setCommand(e.target.value)} placeholder="command and arguments" onKeyDown={(e) => { if (e.key === "Enter") create(); }} /> : null}
-      <p>Runs on the selected host. Remote needs Vellum running there. Card stays stopped until Start.</p>
-      <button type="button" className="terminal-wizard__create" onClick={create}>Create terminal</button>
-    </section>
-  </div>;
+    </FocusSurface>
+  );
 }

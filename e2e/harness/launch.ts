@@ -489,6 +489,17 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     const page = await app.firstWindow();
     await dismissStationRoleGate(page);
 
+    // Native confirm dialogs (honest-quit live-work gate, browser-automation
+    // grant) can never be clicked headless — auto-accept them everywhere.
+    // Response index 1 is QUIT_CONFIRM_ACCEPT_INDEX ("quit anyway"); the
+    // browser grant flow uses the same index for "allow".
+    await app.evaluate(({ dialog }) => {
+      dialog.showMessageBox = (async () => ({
+        response: 1,
+        checkboxChecked: false,
+      })) as typeof dialog.showMessageBox;
+    });
+
     let closePromise: Promise<void> | undefined;
     const close = (): Promise<void> => {
       closePromise ??= cleanupVellumHarness({

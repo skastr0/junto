@@ -1960,7 +1960,8 @@ ol.note-md__list > .note-md__li::before {
 /* Native terminal — fill focus/dock body.
    Critical: flex:1 1 0 + height:0 so the host gets the pane's flex-assigned
    box. Without height:0, the chain content-sizes to xterm's default 80×24
-   canvas and FitAddon freezes on that island forever. */
+   canvas and FitAddon freezes on that island forever. Chrome is the shared
+   OverlayHeader — see components/ui/OverlayHeader.tsx. */
 .native-terminal-surface {
   position: relative;
   display: flex;
@@ -1970,32 +1971,8 @@ ol.note-md__list > .note-md__li::before {
   min-width: 0;
   width: 100%;
   height: 0;
-  background: #0b0d0c;
+  background: #0c0b0a;
   overflow: hidden;
-}
-.native-terminal-surface__status {
-  height: 28px;
-  flex: 0 0 28px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 0 10px;
-  border-bottom: 1px solid rgba(214, 182, 111, 0.22);
-  color: #d6b66f;
-  font: 10px ui-monospace, monospace;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  z-index: 1;
-}
-.native-terminal-surface__title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.native-terminal-surface__status span:last-child {
-  color: #827d72;
-  flex: none;
 }
 .native-terminal-surface__xterm {
   position: relative;
@@ -2024,7 +2001,3 @@ ol.note-md__list > .note-md__li::before {
 .native-terminal-surface__xterm .xterm-screen {
   width: 100% !important;
 }
-.terminal-card{height:100%;display:flex;flex-direction:column;gap:7px;color:#e7e0d3;font:11px ui-monospace,monospace}.terminal-card__head{display:flex;gap:7px;align-items:center}.terminal-card__lamp{width:7px;height:7px;border-radius:50%;background:#625e57}.terminal-card__lamp.is-running{background:#75b798;box-shadow:0 0 8px #75b79888}.terminal-card__meta{color:#888177}.terminal-card__error{color:#e8a0a0;font-size:10px;line-height:1.35;max-height:4.2em;overflow:hidden;word-break:break-word}.terminal-card__actions{margin-top:auto;display:flex;gap:6px}.terminal-card button,.terminal-inventory button,.terminal-wizard button{border:1px solid #554c3d;background:#171713;color:#d6b66f;padding:4px 8px;font:10px ui-monospace,monospace}.terminal-card button:disabled{opacity:.5;cursor:wait}
-
-.terminal-wizard-backdrop{position:fixed;inset:0;z-index:90;background:#05050499;display:grid;place-items:center}.terminal-wizard{width:420px;border:1px solid #78643f;background:#11120f;padding:16px;color:#d8d1c5;box-shadow:0 24px 70px #000}.terminal-wizard header{display:flex;justify-content:space-between;color:#d6b66f;font:11px ui-monospace,monospace;letter-spacing:.12em}.terminal-wizard__presets{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:20px 0}.terminal-wizard button.is-active{background:#d6b66f;color:#111}.terminal-wizard input{width:100%;border:1px solid #554c3d;background:#090a08;color:#eee;padding:9px;font:12px ui-monospace,monospace}.terminal-wizard p{color:#817b71;font:11px ui-monospace,monospace}.terminal-wizard__create{width:100%;margin-top:10px}
-.terminal-inventory{position:absolute;right:12px;top:52px;z-index:55}.terminal-inventory>section{position:absolute;right:0;top:30px;width:330px;border:1px solid #554c3d;background:#10110e;color:#ddd;padding:12px;box-shadow:0 18px 50px #000}.terminal-inventory header{display:flex;justify-content:space-between;color:#d6b66f;font:10px ui-monospace,monospace}.terminal-inventory section>div{display:grid;grid-template-columns:1fr auto;gap:3px;margin-top:10px;padding-top:10px;border-top:1px solid #292821;font:11px ui-monospace,monospace}.terminal-inventory small{grid-column:1;color:#777;overflow:hidden;text-overflow:ellipsis}.terminal-inventory section>div button{grid-column:2;grid-row:1/3}

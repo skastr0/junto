@@ -244,15 +244,6 @@ test("capture every surface for design review", async () => {
   try {
     const { page } = vellum;
 
-    // Auto-confirm the honest-quit dialog (QUIT_CONFIRM_ACCEPT_INDEX = 1) —
-    // live terminal sessions otherwise block app quit in headless runs.
-    await vellum.app.evaluate(({ dialog }) => {
-      dialog.showMessageBox = (async () => ({
-        response: 1,
-        checkboxChecked: false,
-      })) as typeof dialog.showMessageBox;
-    });
-
     // React Flow only mounts on-screen nodes: wait for the first, fit the
     // whole board, THEN distant entity nodes exist in the DOM.
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
@@ -368,9 +359,8 @@ test("capture every surface for design review", async () => {
       if (await termWiz.isVisible().catch(() => false)) {
         await termWiz.click();
         await shot(page, "21-terminal-wizard");
-        // The wizard closes on backdrop mousedown only (no Escape handler);
-        // dispatch the event directly — the TopBar hit-wins corner clicks.
-        await page.locator(".terminal-wizard-backdrop").dispatchEvent("mousedown");
+        // FocusSurface-backed now — Escape closes.
+        await page.keyboard.press("Escape");
         await page.waitForTimeout(300);
       }
       await addItem.click();

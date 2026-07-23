@@ -6,7 +6,14 @@ import type { CanvasNode } from "@shared/canvas";
 import type { VellumTerminalApi } from "@shared/ipc";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { MONO_CELL } from "../../lib/focus-measure";
+import { closeWorkbenchSurface, terminalSurfaceId } from "../../lib/dock-state";
 import { getVellumApi } from "../../lib/vellum-api";
+import {
+  VELLUM_XTERM_FONT_FAMILY,
+  VELLUM_XTERM_THEME,
+} from "../../lib/terminal-theme";
+import { ActivityMark } from "../ActivityMark";
+import { Button, OverlayHeader } from "../ui";
 
 type AttachResult = {
   readonly ok: boolean;
@@ -154,15 +161,10 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       cursorBlink: true,
       scrollback: 10_000,
       allowProposedApi: true,
-      fontFamily: "SFMono-Regular, Menlo, ui-monospace, monospace",
+      fontFamily: VELLUM_XTERM_FONT_FAMILY,
       fontSize: FONT_SIZE,
       lineHeight: 1.2,
-      theme: {
-        background: "#0b0d0c",
-        foreground: "#e7e0d3",
-        cursor: "#d6b66f",
-        selectionBackground: "#6e604c88",
-      },
+      theme: VELLUM_XTERM_THEME,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -300,21 +302,49 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     };
   }, [bindingId, hostId]);
 
+  const label = node.type === "text" ? node.text : "terminal";
+  const closeSurface = () => closeWorkbenchSurface(terminalSurfaceId(node.id));
+  const killSession = () => {
+    void getVellumApi()
+      ?.terminalKill?.(bindingId, hostId)
+      .then(() => setStatus("exited"));
+  };
+  const attached = status === "control";
+
   return (
     <div
       ref={rootRef}
       className="native-terminal-surface"
       onMouseDown={() => termRef.current?.focus()}
     >
-      <div className="native-terminal-surface__status">
-        <span className="native-terminal-surface__title">
-          {node.type === "text" ? node.text : "terminal"}
-        </span>
-        <span>
-          {status}
-          {geomLabel ? ` · ${geomLabel}` : ""}
-        </span>
-      </div>
+      <OverlayHeader
+        eyebrow={`terminal · ${hostId} · close detaches (session keeps running)`}
+        title={label}
+        status={
+          <span className="native-terminal-surface__status inline-flex items-center gap-1.5">
+            <ActivityMark
+              mode={attached ? "static" : "wave"}
+              tone={status === "exited" ? "crimson" : "amber"}
+              size="inline"
+              label={status}
+            />
+            {status}
+            {geomLabel ? ` · ${geomLabel}` : ""}
+          </span>
+        }
+        actions={
+          <>
+            {attached ? (
+              <Button size="xs" variant="danger" onClick={killSession}>
+                Kill
+              </Button>
+            ) : null}
+            <Button size="xs" variant="primary" onClick={closeSurface}>
+              Close
+            </Button>
+          </>
+        }
+      />
       <div ref={hostRef} className="native-terminal-surface__xterm" />
     </div>
   );

@@ -1,10 +1,20 @@
 import { useEffect, useState, type SyntheticEvent } from "react";
+import { SquareTerminal } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { getVellumApi } from "../../lib/vellum-api";
 import { openTerminalSurface, terminal$ } from "../../lib/terminal-state";
 import { state$ } from "../../lib/state";
+import { Button, StatusDot } from "../ui";
+
+const launchSummary = (
+  launch: { readonly kind: string; readonly argv?: readonly string[] } | undefined,
+): string => {
+  if (!launch) return "shell";
+  if (launch.kind === "command" && launch.argv?.length) return launch.argv.join(" ");
+  return launch.kind;
+};
 
 export function TerminalCard({ node }: { readonly node: CanvasNode }) {
   const binding = resolveTerminalBinding(node);
@@ -36,7 +46,7 @@ export function TerminalCard({ node }: { readonly node: CanvasNode }) {
       window.clearInterval(timer);
     };
   }, [native?.bindingId, native?.hostId]);
-  if (!native) return <div className="terminal-card">unbound terminal</div>;
+  if (!native) return <div className="text-[11px] text-dim">unbound terminal</div>;
   const running = session?.status === "running" || session?.status === "starting";
   const stop = (event: SyntheticEvent) => {
     event.stopPropagation();
@@ -75,47 +85,66 @@ export function TerminalCard({ node }: { readonly node: CanvasNode }) {
       })
       .finally(() => setBusy(false));
   };
+  const label = native.label ?? (node.type === "text" ? node.text : "terminal");
   return (
     <div
-      className="terminal-card"
+      className="group flex h-full w-full flex-col justify-between overflow-hidden"
       onDoubleClick={(e) => {
         e.stopPropagation();
         if (running) openTerminalSurface(node);
       }}
     >
-      <div className="terminal-card__head">
-        <span className={`terminal-card__lamp ${running ? "is-running" : ""}`} />{" "}
-        <strong>{native.label ?? (node.type === "text" ? node.text : "terminal")}</strong>
-      </div>
-      <div className="terminal-card__meta">
-        {native.hostId} · {busy ? "starting…" : (session?.status ?? "stopped")}
-        {session?.pid ? ` · pid ${session.pid}` : ""}
-      </div>
-      {error ? (
-        <div className="terminal-card__error" role="alert" title={error}>
-          {error}
+      <div>
+        <div className="flex items-center gap-2">
+          <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
+            <SquareTerminal size={15} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-mono text-[14px] font-semibold leading-snug text-ink">
+              {label}
+            </div>
+            <div className="truncate text-[11px] text-dim">{launchSummary(native.launch)}</div>
+          </div>
+          <StatusDot tone={running ? "green" : "dim"} pulse={running} title={session?.status ?? "stopped"} />
         </div>
-      ) : null}
-      <div className="terminal-card__actions">
+        <div className="mt-1 truncate text-[10px] tabular-nums text-dim">
+          {native.hostId} · {busy ? "starting…" : (session?.status ?? "stopped")}
+          {session?.pid ? ` · pid ${session.pid}` : ""}
+        </div>
+        {error ? (
+          <div role="alert" title={error} className="mt-1 line-clamp-2 break-words text-[10px] leading-snug text-crimson">
+            {error}
+          </div>
+        ) : null}
+      </div>
+      <div className="mt-auto flex gap-1.5 pt-1.5">
         {running ? (
           <>
-            <button
-              type="button"
+            <Button
+              size="xs"
+              variant="primary"
+              className="nodrag nopan"
               onClick={(e) => {
                 e.stopPropagation();
                 openTerminalSurface(node);
               }}
             >
               Open
-            </button>
-            <button type="button" onClick={stop}>
+            </Button>
+            <Button size="xs" variant="danger" className="nodrag nopan" onClick={stop}>
               Kill
-            </button>
+            </Button>
           </>
         ) : (
-          <button type="button" disabled={busy} onClick={start}>
+          <Button
+            size="xs"
+            variant="primary"
+            className="nodrag nopan"
+            disabled={busy}
+            onClick={start}
+          >
             {busy ? "Starting…" : "Start"}
-          </button>
+          </Button>
         )}
       </div>
     </div>
