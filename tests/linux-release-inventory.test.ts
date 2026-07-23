@@ -3,6 +3,7 @@ import {
   mkdir,
   mkdtemp,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -286,5 +287,40 @@ describe("Linux release dependency and SBOM evidence", () => {
         licenseSource: "unresolved",
       }),
     ]);
+  });
+
+  it("rejects symlink-hidden and missing declared dependencies", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-release-sbom-"));
+    roots.push(root);
+    const modules = path.join(root, "node_modules");
+    const hidden = path.join(root, "hidden");
+    await mkdir(modules);
+    await writeFile(
+      path.join(root, "package.json"),
+      JSON.stringify({
+        name: "vellum",
+        version: "0.1.0",
+        dependencies: { hidden: "1.0.0" },
+      }),
+    );
+    await writePackage(hidden, "hidden", "1.0.0", "UNLICENSED");
+    await symlink("../hidden", path.join(modules, "hidden"), "dir");
+    await expect(
+      collectDependencyLicenseInventory({
+        projectDirectory: root,
+        nodeModulesDirectory: modules,
+        sourceRevision: "a".repeat(40),
+      }),
+    ).rejects.toThrow(/non-directory entry/u);
+
+    await rm(path.join(modules, "hidden"));
+    await writePackage(path.join(modules, "good"), "good", "1.0.0", "MIT");
+    await expect(
+      collectDependencyLicenseInventory({
+        projectDirectory: root,
+        nodeModulesDirectory: modules,
+        sourceRevision: "a".repeat(40),
+      }),
+    ).rejects.toThrow(/missing declared package/u);
   });
 });

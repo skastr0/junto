@@ -212,61 +212,76 @@ const packageDirectories = async (
   nodeModulesDirectory: string,
 ): Promise<ReadonlyArray<string>> => {
   const directories: string[] = [];
+  const visitNestedDependencies = async (
+    packageRoot: string,
+    visit: (root: string) => Promise<void>,
+  ): Promise<void> => {
+    const nested = path.join(packageRoot, "node_modules");
+    try {
+      const metadata = await lstat(nested);
+      if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+        throw new Error(
+          "dependency inventory refuses non-directory nested node_modules",
+        );
+      }
+      await visit(nested);
+    } catch (error) {
+      if (errno(error) !== "ENOENT") throw error;
+    }
+  };
   const visitNodeModules = async (root: string): Promise<void> => {
     for (const entry of await readdir(root, { withFileTypes: true })) {
-      if (entry.name.startsWith(".") || !entry.isDirectory()) continue;
+      if (entry.name.startsWith(".")) continue;
+      if (!entry.isDirectory() || entry.isSymbolicLink()) {
+        throw new Error(
+          `dependency inventory refuses non-directory entry: ${entry.name}`,
+        );
+      }
       if (entry.name.startsWith("@")) {
         const scope = path.join(root, entry.name);
         for (const child of await readdir(scope, { withFileTypes: true })) {
-          if (child.name.startsWith(".") || !child.isDirectory()) continue;
+          if (child.name.startsWith(".")) continue;
+          if (!child.isDirectory() || child.isSymbolicLink()) {
+            throw new Error(
+              `dependency inventory refuses non-directory scoped entry: ${entry.name}/${child.name}`,
+            );
+          }
           const packageRoot = path.join(scope, child.name);
           directories.push(packageRoot);
-          const nested = path.join(packageRoot, "node_modules");
-          try {
-            const metadata = await lstat(nested);
-            if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
-              await visitNodeModules(nested);
-            }
-          } catch (error) {
-            if (
-              !(error instanceof Error) ||
-              !("code" in error) ||
-              error.code !== "ENOENT"
-            ) {
-              throw error;
-            }
-          }
+          await visitNestedDependencies(packageRoot, visitNodeModules);
         }
       } else {
         const packageRoot = path.join(root, entry.name);
         directories.push(packageRoot);
-        const nested = path.join(packageRoot, "node_modules");
-        try {
-          const metadata = await lstat(nested);
-          if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
-            await visitNodeModules(nested);
-          }
-        } catch (error) {
-          if (
-            !(error instanceof Error) ||
-            !("code" in error) ||
-            error.code !== "ENOENT"
-          ) {
-            throw error;
-          }
-        }
+        await visitNestedDependencies(packageRoot, visitNodeModules);
       }
     }
   };
+  const rootMetadata = await lstat(nodeModulesDirectory);
+  if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()) {
+    throw new Error("dependency inventory requires a regular node_modules");
+  }
   await visitNodeModules(nodeModulesDirectory);
   return directories.sort();
 };
 
 const readJson = async (file: string, label: string): Promise<unknown> => {
+  let handle;
   try {
-    return JSON.parse(await readFile(file, "utf8"));
+    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const metadata = await handle.stat();
+    if (
+      !metadata.isFile() ||
+      metadata.size <= 0 ||
+      metadata.size > 1024 * 1024
+    ) {
+      throw new Error("not a bounded regular file");
+    }
+    return JSON.parse(await handle.readFile({ encoding: "utf8" }));
   } catch {
     throw new Error(`could not decode ${label}`);
+  } finally {
+    await handle?.close();
   }
 };
 
@@ -339,6 +354,14 @@ export const collectDependencyLicenseInventory = async (input: {
     left.name.localeCompare(right.name) ||
     left.version.localeCompare(right.version)
   );
+  const installedNames = new Set(sorted.map((entry) => entry.name));
+  for (const declared of new Set([...runtime, ...development])) {
+    if (!installedNames.has(declared)) {
+      throw new Error(
+        `dependency inventory is missing declared package: ${declared}`,
+      );
+    }
+  }
   return {
     schema: "vellum/dependency-license-inventory/v1",
     sourceRevision: requireRevision(input.sourceRevision),
