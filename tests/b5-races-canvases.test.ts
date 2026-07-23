@@ -109,34 +109,32 @@ describe("canvases.ts write() — same-name concurrency", () => {
     expect(textOf(readB.doc)).toMatch(/^write-20\d\d$/);
   });
 
-  it("rejects a stale renderer revision without overwriting the external document", async () => {
+  it("rejects a stale live revision without admitting external disk bytes", async () => {
     const name = "revision-conflict";
     await runtime.runPromise(canvases.write(name, docFor(1)));
     const stale = await runtime.runPromise(canvases.read(name));
-    const external = docFor(2);
-    await writeFile(stale.path, serializeCanvas(external), "utf8");
+    // Concurrent app write advances live revision.
+    await runtime.runPromise(canvases.write(name, docFor(2)));
 
     await expect(
       runtime.runPromise(canvases.write(name, docFor(3), stale.revision)),
-    ).rejects.toThrow("changed on disk");
+    ).rejects.toThrow("revision conflict");
 
     const preserved = await runtime.runPromise(canvases.read(name));
     expect(textOf(preserved.doc)).toBe("write-2");
     expect(preserved.revision).not.toBe(stale.revision);
   });
 
-  it("reapplies an idempotent mutation over a direct-file edit instead of overwriting it", async () => {
+  it("mutates live authority only — external disk edits do not become the base document", async () => {
     const name = "mutate-external-conflict";
     await runtime.runPromise(canvases.write(name, docFor(20)));
     const initial = await runtime.runPromise(canvases.read(name));
-    let injectedExternalWrite = false;
+    // External forge on disk must not re-enter live authority.
+    writeFileSync(initial.path, serializeCanvas(docFor(21)), "utf8");
 
     await runtime.runPromise(
       canvases.mutate(name, (current) => {
-        if (!injectedExternalWrite) {
-          injectedExternalWrite = true;
-          writeFileSync(initial.path, serializeCanvas(docFor(21)), "utf8");
-        }
+        expect(textOf(current)).toBe("write-20");
         return {
           ...current,
           nodes: current.nodes.map((node) => ({
@@ -148,7 +146,8 @@ describe("canvases.ts write() — same-name concurrency", () => {
     );
 
     const result = await runtime.runPromise(canvases.read(name));
-    expect(textOf(result.doc)).toBe("write-21");
+    // Live authority still holds write-20 + attention flag; external write-21 ignored.
+    expect(textOf(result.doc)).toBe("write-20");
     expect(result.doc.nodes[0]?.ether?.flags).toEqual(["attention"]);
   });
 
@@ -164,15 +163,12 @@ describe("canvases.ts write() — same-name concurrency", () => {
 
       const current = await runtime.runPromise(canvases.read(name));
       await writeFile(current.path, serializeCanvas(docFor(11)), "utf8");
-      // Former watch debounce was 300ms; wait past that window to prove we are
-      // not rehydrating from external bytes via fs.watch.
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       expect(notifications.filter((changed) => changed === name)).toHaveLength(1);
-      // Disk bytes changed (read sees them) but live subscribers were not told
-      // to replace the running document from that external write.
-      const onDisk = await runtime.runPromise(canvases.read(name));
-      expect(textOf(onDisk.doc)).toBe("write-11");
+      // Live authority is app-owned: read still returns write-10 despite disk forge.
+      const live = await runtime.runPromise(canvases.read(name));
+      expect(textOf(live.doc)).toBe("write-10");
     } finally {
       unsubscribe();
     }

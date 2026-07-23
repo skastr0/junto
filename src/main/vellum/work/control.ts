@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect, Either, Schema } from "effect";
 import { ulid } from "ulid";
-import type { Artifact, Message, Part } from "@shared/canvas";
+import type { Artifact, CanvasDoc, Message, Part } from "@shared/canvas";
 import {
   makeAgentMessage,
   makeUserMessage,
@@ -737,8 +737,8 @@ export const startWorkControlServer = async (
   const processMap = options.processMap ?? getProcessIdentityMap();
   const readPeerPid = options.readPeerPid ?? readUnixPeerPid;
   const authoringGate = options.authoringGate ?? mainAuthoringGate;
-  const canvasesDir =
-    options.canvasesDir ?? join(options.home ?? homedir(), ".vellum", "canvases");
+  // Legacy option retained for callers; live authority no longer scans this path.
+  void options.canvasesDir;
 
   const shutdownGraceMs = boundedRuntimeValue(
     runtime.shutdownGraceMs,
@@ -922,8 +922,30 @@ export const startWorkControlServer = async (
         return;
       }
 
-      const callerResolved = await resolveCallerAcrossCanvases(
-        canvasesDir,
+      // Live authority only — never scan raw .canvas files for capability mint.
+      let liveDocs: ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>;
+      try {
+        liveDocs = await options.run(
+          Effect.flatMap(CanvasesService, (c) => c.liveDocuments()),
+        );
+      } catch {
+        respond(
+          socket,
+          workErr(
+            "StaleNodeRef",
+            "live canvas authority is unavailable",
+            {
+              retryable: true,
+              next_step: "open Vellum and ensure canvases are loaded",
+            },
+            req.op,
+            req.id,
+          ),
+        );
+        return;
+      }
+      const callerResolved = resolveCallerAcrossCanvases(
+        liveDocs,
         identity.principal,
       );
       if (!callerResolved.ok) {

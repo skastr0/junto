@@ -1,12 +1,12 @@
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { Either } from "effect";
-import { decodeCanvasDoc, type CanvasDoc, type CanvasNode } from "@shared/canvas";
+import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { ProcessPrincipal } from "../process-identity";
 import { findNode, nodeKind } from "./authz";
 
 // Resolve a process-bound principal to a concrete canvas caller node.
 // Agents never claim a nodeRef — main finds the live agent|herdr card(s).
+//
+// Doctrine: resolution uses live in-process canvas authority only. Raw disk
+// scans must never mint capability from external file edits.
 
 export interface ResolvedWorkCaller {
   readonly canvasName: string;
@@ -72,7 +72,7 @@ export const resolveCallerOnDoc = (
     return {
       ok: false,
       code: "ambiguous",
-      message: `multiple canvas nodes match the connecting process on "${canvasName}"`,
+      message: `multiple canvas nodes match the connecting process on canvas "${canvasName}"`,
     };
   }
   const node = hits[0]!;
@@ -80,46 +80,25 @@ export const resolveCallerOnDoc = (
 };
 
 /**
- * Scan ~/.vellum/canvases for a unique agent|herdr node matching the principal.
+ * Resolve against the live authority document set (not raw disk).
  * Used when the process was bound by agentKey/paneId without a canvas anchor.
  */
-export const resolveCallerAcrossCanvases = async (
-  canvasesDir: string,
+export const resolveCallerAcrossCanvases = (
+  documents: ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>,
   principal: ProcessPrincipal,
-): Promise<CallerResolveResult> => {
+): CallerResolveResult => {
   if (principal.canvasName !== undefined) {
-    try {
-      const path = join(canvasesDir, `${principal.canvasName}.canvas`);
-      const raw = await readFile(path, "utf8");
-      const decoded = decodeCanvasDoc(JSON.parse(raw));
-      if (Either.isLeft(decoded)) {
-        return { ok: false, code: "not_found", message: "bound canvas is unreadable" };
-      }
-      return resolveCallerOnDoc(decoded.right, principal.canvasName, principal);
-    } catch {
-      return { ok: false, code: "not_found", message: "bound canvas is missing" };
+    const match = documents.find((d) => d.canvasName === principal.canvasName);
+    if (!match) {
+      return { ok: false, code: "not_found", message: "bound canvas is missing from live authority" };
     }
-  }
-
-  let names: string[];
-  try {
-    names = (await readdir(canvasesDir)).filter((n) => n.endsWith(".canvas"));
-  } catch {
-    return { ok: false, code: "not_found", message: "canvases directory unavailable" };
+    return resolveCallerOnDoc(match.doc, match.canvasName, principal);
   }
 
   const hits: ResolvedWorkCaller[] = [];
-  for (const file of names.sort()) {
-    const canvasName = file.slice(0, -".canvas".length);
-    try {
-      const raw = await readFile(join(canvasesDir, file), "utf8");
-      const decoded = decodeCanvasDoc(JSON.parse(raw));
-      if (Either.isLeft(decoded)) continue;
-      const resolved = resolveCallerOnDoc(decoded.right, canvasName, principal);
-      if (resolved.ok) hits.push(resolved.caller);
-    } catch {
-      // skip unreadable
-    }
+  for (const { canvasName, doc } of documents) {
+    const resolved = resolveCallerOnDoc(doc, canvasName, principal);
+    if (resolved.ok) hits.push(resolved.caller);
   }
 
   if (hits.length === 0) {
@@ -128,8 +107,8 @@ export const resolveCallerAcrossCanvases = async (
       code: "not_found",
       message:
         principal.kind === "agent"
-          ? `no agent node for ${principal.agentKey ?? "unknown"} on any canvas`
-          : `no herdr node for pane ${principal.paneId ?? "unknown"} on any canvas`,
+          ? `no agent node for ${principal.agentKey ?? "unknown"} on any live canvas`
+          : `no herdr node for pane ${principal.paneId ?? "unknown"} on any live canvas`,
     };
   }
   if (hits.length > 1) {

@@ -186,10 +186,14 @@ export const writeCanvasSidecar = async (
 };
 
 // The document plane. All writes go through validate -> mirror law ->
-// canonical serialize -> atomic write (tmp + rename). Live rehydration is
-// driven only by app-owned write/create/remove/mutate (notifyListeners).
-// External disk edits under the canvases dir are not live authoring — they
-// must not rehydrate factory intent (security doctrine Phase 3 first cut).
+// canonical serialize -> atomic write (tmp + rename).
+//
+// Doctrine (security-doctrine.md § protected operator-intent plane):
+// Live authorization authority is the in-process live document map, not raw
+// disk bytes. Disk is durability + import/export material. A one-time bootstrap
+// load admits existing files at process start; after that, only app-owned
+// write/create/remove/mutate update live authority. External file edits never
+// mint edges, agent cards, or work-control capability.
 export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
   CanvasesService,
   {
@@ -201,11 +205,9 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       doc: CanvasDoc,
       expectedRevision?: string,
     ) => Effect.Effect<CanvasWriteResult, CanvasError>;
-    // Retrying optimistic read-modify-write under the same per-canvas mutex
-    // as write(). fn must be a pure/idempotent document transform because a
-    // concurrent direct-file write (or concurrent mutate) can make mutate
-    // re-read and reapply it. That is conflict safety on the write path, not
-    // external-edit live authoring.
+    // Optimistic RMW under the per-canvas mutex against the live authority
+    // document. Concurrent app mutates serialize; external disk bytes are never
+    // re-admitted as the base document.
     readonly mutate: (
       name: string,
       fn: (doc: CanvasDoc) => CanvasDoc,
@@ -223,10 +225,14 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       suffix: string,
       contents: string,
     ) => Effect.Effect<string, CanvasError>;
-    // Historical hook for dir watching. Idempotent no-op: external file-watch
-    // rehydration is disabled (not a supported live authoring path).
+    // Bootstraps the live authority map from disk once (idempotent).
     readonly start: () => void;
     readonly subscribeChanges: (listener: (name: string) => void) => () => void;
+    /** Snapshot of live authority docs for process-bind caller resolution. */
+    readonly liveDocuments: () => Effect.Effect<
+      ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>,
+      CanvasError
+    >;
   }
 >() {}
 
@@ -237,10 +243,19 @@ const toCanvasError = (error: unknown): CanvasError =>
 
 const canvasFileName = (name: CanvasName) => `${name}.canvas`;
 
-const MAX_MUTATE_REVISION_RETRIES = 8;
-
 export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const listeners = new Set<(name: string) => void>();
+
+  // Live operator-intent authority. Disk durability is separate; external
+  // edits to .canvas files never update this map after bootstrap.
+  type LiveAuthority = {
+    readonly doc: CanvasDoc;
+    readonly revision: string;
+    readonly path: string;
+  };
+  const liveAuthority = new Map<string, LiveAuthority>();
+  let bootstrapPromise: Promise<void> | undefined;
+  let bootstrapped = false;
 
   // Per-canvas-file write mutex: overlapping write() calls for the same
   // name queue behind each other instead of racing the same tmp file. Each
@@ -274,58 +289,18 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     }
   };
 
-  const list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError> = Effect.tryPromise({
-    try: async () => {
-      const root = await ensureCanvasesDir();
-      const files = (await readdir(root)).filter((file) => {
-        if (!file.endsWith(".canvas")) return false;
-        try {
-          canvasNameFrom(basename(file, ".canvas"));
-          return true;
-        } catch {
-          return false;
-        }
-      });
-      const summaries = await Promise.all(
-        files.map(async (file): Promise<CanvasSummary | null> => {
-          const name = canvasNameFrom(basename(file, ".canvas"));
-          const path = canvasDocumentPathIn(root, name);
-          try {
-            await assertRegularOrMissing(path);
-          } catch {
-            // A directory entry is untrusted external input. Ignore a
-            // symlink/special file rather than traversing it or making the
-            // whole repository unavailable.
-            return null;
-          }
-          const info = await stat(path);
-          return {
-            name,
-            path,
-            modifiedAt: info.mtime.toISOString(),
-          };
-        }),
-      );
-      return summaries
-        .filter((summary): summary is CanvasSummary => summary !== null)
-        .sort((a, b) => a.name.localeCompare(b.name));
-    },
-    catch: toCanvasError,
-  });
-
   const revisionOf = (raw: string): string =>
     createHash("sha256").update(raw, "utf8").digest("hex");
 
-  // Shared by read() and mutate(): parse + decode the file on disk. Thrown
-  // errors are CanvasError already, so callers can let them propagate as-is.
-  const readAndDecode = async (
+  // One-time bootstrap from disk at process start. Subsequent external file
+  // edits are ignored for live authority (security doctrine).
+  const decodeDiskDocument = async (
     root: string,
     name: CanvasName,
-  ): Promise<{ readonly doc: CanvasDoc; readonly revision: string; readonly path: string }> => {
+  ): Promise<LiveAuthority> => {
     const path = canvasDocumentPathIn(root, name);
     await assertRegularOrMissing(path);
     const raw = await readFile(path, "utf8");
-
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -336,31 +311,93 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
         }`,
       });
     }
-
     const decoded = decodeCanvasDoc(parsed);
     if (Either.isLeft(decoded)) {
       throw new CanvasError({
         message: `${canvasFileName(name)} failed validation: ${decoded.left.message}`,
       });
     }
-
     return { doc: decoded.right, revision: revisionOf(raw), path };
   };
+
+  const bootstrapLiveAuthority = async (): Promise<void> => {
+    if (bootstrapped) return;
+    if (bootstrapPromise) return bootstrapPromise;
+    bootstrapPromise = (async () => {
+      const root = await ensureCanvasesDir();
+      let files: string[] = [];
+      try {
+        files = (await readdir(root)).filter((file) => file.endsWith(".canvas"));
+      } catch {
+        files = [];
+      }
+      for (const file of files) {
+        let name: CanvasName;
+        try {
+          name = canvasNameFrom(basename(file, ".canvas"));
+        } catch {
+          continue;
+        }
+        try {
+          await assertRegularOrMissing(canvasDocumentPathIn(root, name));
+          const entry = await decodeDiskDocument(root, name);
+          liveAuthority.set(name, entry);
+        } catch {
+          // Skip unreadable / non-regular entries rather than refusing boot.
+        }
+      }
+      bootstrapped = true;
+    })();
+    try {
+      await bootstrapPromise;
+    } finally {
+      bootstrapPromise = undefined;
+    }
+  };
+
+  const requireLive = async (name: CanvasName): Promise<LiveAuthority> => {
+    await bootstrapLiveAuthority();
+    const entry = liveAuthority.get(name);
+    if (!entry) {
+      throw new CanvasError({
+        message: `canvas "${name}" is not in live authority (missing or never admitted)`,
+      });
+    }
+    return entry;
+  };
+
+  const list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError> = Effect.tryPromise({
+    try: async () => {
+      await bootstrapLiveAuthority();
+      const now = new Date().toISOString();
+      return [...liveAuthority.entries()]
+        .map(([name, entry]) => ({
+          name,
+          path: entry.path,
+          modifiedAt: now,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
+    catch: toCanvasError,
+  });
 
   const read = (name: string): Effect.Effect<CanvasReadResult, CanvasError> =>
     Effect.tryPromise({
       try: async () => {
         const canonicalName = canvasNameFrom(name);
-        const root = await ensureCanvasesDir();
-        const result = await readAndDecode(root, canonicalName);
-        return { name: canonicalName, ...result };
+        const entry = await requireLive(canonicalName);
+        return {
+          name: canonicalName,
+          doc: entry.doc,
+          revision: entry.revision,
+          path: entry.path,
+        };
       },
       catch: toCanvasError,
     });
 
   // Validates, applies the mirror law, serializes canonically, and writes
-  // atomically (tmp file + rename). Notifies subscribers so kernel/UI
-  // rehydrate from the app-owned write (the only live mutation plane).
+  // atomically (tmp file + rename). Updates live authority then notifies.
   const write = (
     name: string,
     doc: CanvasDoc,
@@ -369,6 +406,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     Effect.tryPromise({
       try: () =>
         withCanvasMutex(canvasFileName(canvasNameFrom(name)), async () => {
+          await bootstrapLiveAuthority();
           const canonicalName = canvasNameFrom(name);
           const decoded = decodeCanvasDoc(doc);
           if (Either.isLeft(decoded)) {
@@ -377,52 +415,29 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             });
           }
 
-          const serialized = serializeCanvas(applyMirrorLaw(decoded.right));
+          const nextDoc = applyMirrorLaw(decoded.right);
+          const serialized = serializeCanvas(nextDoc);
           const revision = revisionOf(serialized);
 
           const root = await ensureCanvasesDir();
           const path = canvasDocumentPathIn(root, canonicalName);
           await assertRegularOrMissing(path);
+
+          // CAS against live authority revision only — external disk edits
+          // do not invent a conflicting revision for app writers.
           if (expectedRevision !== undefined) {
-            let currentRevision: string | undefined;
-            try {
-              currentRevision = revisionOf(await readFile(path, "utf8"));
-            } catch {
-              currentRevision = undefined;
-            }
-            if (currentRevision !== expectedRevision) {
+            const current = liveAuthority.get(canonicalName);
+            if (current === undefined || current.revision !== expectedRevision) {
               throw new CanvasError({
-                message: `${canvasFileName(canonicalName)} changed on disk; reload before saving`,
+                message: `${canvasFileName(canonicalName)} revision conflict; reload before saving`,
               });
             }
           }
-          // Unique per write so two overlapping writers (even outside the
-          // mutex above, e.g. a separate OS process like populate.ts) never
-          // share one tmp file.
+
           const tmpPath = `${path}.${randomUUID()}.tmp`;
           let ownsTemp = false;
           await writeExclusiveTemp(tmpPath, serialized);
           ownsTemp = true;
-          // Recheck immediately before replacement. This rejects when the
-          // on-disk document differs at either revision read, and rename
-          // guarantees the installed file is complete. It is not an atomic
-          // filesystem compare-and-swap: writers outside this mutex do not
-          // share it, so a write in the final read-to-rename interval can still
-          // be replaced. Node's portable rename API has no conditional form.
-          if (expectedRevision !== undefined) {
-            let currentRevision: string | undefined;
-            try {
-              currentRevision = revisionOf(await readFile(path, "utf8"));
-            } catch {
-              currentRevision = undefined;
-            }
-            if (currentRevision !== expectedRevision) {
-              if (ownsTemp) await rm(tmpPath, { force: true });
-              throw new CanvasError({
-                message: `${canvasFileName(canonicalName)} changed on disk; reload before saving`,
-              });
-            }
-          }
           try {
             await rename(tmpPath, path);
             ownsTemp = false;
@@ -432,69 +447,54 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           }
           await syncDirectoryBestEffort(root);
 
-          // Notify subscribers so the kernel/UI rehydrate immediately after an
-          // app-owned write. External disk edits never take this path.
+          liveAuthority.set(canonicalName, {
+            doc: nextDoc,
+            revision,
+            path,
+          });
           notifyListeners(canonicalName);
           return { revision };
         }),
       catch: toCanvasError,
     });
 
-  // Same mutex key as write() (canvasFileName(name)), so in-process writes
-  // serialize. Concurrent writers outside that mutex can still race the
-  // on-disk bytes: detect revision immediately before rename and reapply the
-  // idempotent transform to the newest document. As with write(), the final
-  // read-to-rename window cannot be a true portable filesystem compare-and-swap.
+  // Mutex-serialized transform of live authority; external disk never re-admitted.
   const mutate = (name: string, fn: (doc: CanvasDoc) => CanvasDoc): Effect.Effect<void, CanvasError> =>
     Effect.tryPromise({
       try: () =>
         withCanvasMutex(canvasFileName(canvasNameFrom(name)), async () => {
+          await bootstrapLiveAuthority();
           const canonicalName = canvasNameFrom(name);
-          const root = await ensureCanvasesDir();
-          const path = canvasDocumentPathIn(root, canonicalName);
-          await assertRegularOrMissing(path);
-          for (let attempt = 0; attempt < MAX_MUTATE_REVISION_RETRIES; attempt += 1) {
-            const current = await readAndDecode(root, canonicalName);
-            const next = fn(current.doc);
+          const current = await requireLive(canonicalName);
+          const next = fn(current.doc);
 
-            const decoded = decodeCanvasDoc(next);
-            if (Either.isLeft(decoded)) {
-              throw new CanvasError({
-                message: `cannot mutate ${canvasFileName(canonicalName)}: ${decoded.left.message}`,
-              });
-            }
-
-            const serialized = serializeCanvas(applyMirrorLaw(decoded.right));
-            const revision = revisionOf(serialized);
-            const tmpPath = `${path}.${randomUUID()}.tmp`;
-            await writeExclusiveTemp(tmpPath, serialized);
-
-            let observedRevision: string | undefined;
-            try {
-              observedRevision = revisionOf(await readFile(path, "utf8"));
-            } catch {
-              observedRevision = undefined;
-            }
-            if (observedRevision !== current.revision) {
-              await rm(tmpPath, { force: true });
-              continue;
-            }
-
-            try {
-              await rename(tmpPath, path);
-            } catch (error) {
-              await rm(tmpPath, { force: true });
-              throw error;
-            }
-
-            await syncDirectoryBestEffort(root);
-            notifyListeners(canonicalName);
-            return;
+          const decoded = decodeCanvasDoc(next);
+          if (Either.isLeft(decoded)) {
+            throw new CanvasError({
+              message: `cannot mutate ${canvasFileName(canonicalName)}: ${decoded.left.message}`,
+            });
           }
 
-          throw new CanvasError({
-            message: `${canvasFileName(canonicalName)} kept changing on disk; mutation was not applied`,
+          const nextDoc = applyMirrorLaw(decoded.right);
+          const serialized = serializeCanvas(nextDoc);
+          const revision = revisionOf(serialized);
+          const path = current.path;
+          const tmpPath = `${path}.${randomUUID()}.tmp`;
+          await writeExclusiveTemp(tmpPath, serialized);
+          try {
+            await rename(tmpPath, path);
+          } catch (error) {
+            await rm(tmpPath, { force: true });
+            throw error;
+          }
+
+          await syncDirectoryBestEffort(dirname(path));
+          liveAuthority.set(canonicalName, {
+            doc: nextDoc,
+            revision,
+            path,
           });
+          notifyListeners(canonicalName);
         }),
       catch: toCanvasError,
     });
@@ -507,6 +507,10 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       try: async () => {
         const sanitized = canvasNameFrom(name);
         return withCanvasMutex(canvasFileName(sanitized), async () => {
+          await bootstrapLiveAuthority();
+          if (liveAuthority.has(sanitized)) {
+            throw new CanvasError({ message: `canvas "${sanitized}" already exists` });
+          }
           const doc = applyMirrorLaw({ nodes: [], edges: [] });
           const serialized = serializeCanvas(doc);
           const revision = revisionOf(serialized);
@@ -521,6 +525,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             }
             throw error;
           }
+          liveAuthority.set(sanitized, { doc, revision, path });
           notifyListeners(sanitized);
           return { name: sanitized, doc, revision, path };
         });
@@ -537,16 +542,15 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       yield* Effect.tryPromise({
         try: () =>
           withCanvasMutex(canvasFileName(sanitized), async () => {
+            await bootstrapLiveAuthority();
             const root = await ensureCanvasesDir();
             const path = canvasDocumentPathIn(root, sanitized);
             await assertRegularOrMissing(path);
-            try {
-              await stat(path);
-            } catch {
+            if (!liveAuthority.has(sanitized)) {
               throw new CanvasError({ message: `canvas "${sanitized}" does not exist` });
             }
 
-            await rm(path);
+            await rm(path, { force: true });
 
             for (const suffix of SIDECAR_SUFFIXES) {
               try {
@@ -556,7 +560,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
               }
             }
 
-            // Notify subscribers so kernel resync drops the hydrated doc.
+            liveAuthority.delete(sanitized);
             await syncDirectoryBestEffort(root);
             notifyListeners(sanitized);
           }),
@@ -589,11 +593,12 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       catch: toCanvasError,
     });
 
-  // No-op: external fs.watch rehydration was migration debt. App-owned
-  // write/create/remove/mutate already call notifyListeners; a raw disk edit
-  // must not mint live factory intent. Export/import may land later without
-  // restoring silent external authoring.
-  const start = () => {};
+  // Bootstrap live authority once; do not watch for external authoring.
+  const start = (): void => {
+    void bootstrapLiveAuthority().catch((error) => {
+      console.error("[canvases] live authority bootstrap failed:", error);
+    });
+  };
 
   const subscribeChanges = (listener: (name: string) => void) => {
     listeners.add(listener);
@@ -601,6 +606,21 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       listeners.delete(listener);
     };
   };
+
+  const liveDocuments = (): Effect.Effect<
+    ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>,
+    CanvasError
+  > =>
+    Effect.tryPromise({
+      try: async () => {
+        await bootstrapLiveAuthority();
+        return [...liveAuthority.entries()].map(([canvasName, entry]) => ({
+          canvasName,
+          doc: entry.doc,
+        }));
+      },
+      catch: toCanvasError,
+    });
 
   return CanvasesService.of({
     doctor: Effect.succeed({
@@ -619,5 +639,6 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     writeSidecar,
     start,
     subscribeChanges,
+    liveDocuments,
   });
 });
