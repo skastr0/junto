@@ -69,6 +69,7 @@ const isExecutable = (candidate: string): boolean => {
 export const auditLinuxPtyPlacement = (resources: string): {
   readonly nodePtyRoot: string;
   readonly nativeModule: string;
+  readonly spawnHelper: string;
 } => {
   const root = path.resolve(nodePtyRoot(resources));
   if (!root.includes("app.asar.unpacked")) {
@@ -78,6 +79,10 @@ export const auditLinuxPtyPlacement = (resources: string): {
     path.join(root, "prebuilds", "linux-x64", "pty.node"),
     path.join(root, "build", "Release", "pty.node"),
   ];
+  const helperCandidates = [
+    path.join(root, "prebuilds", "linux-x64", "spawn-helper"),
+    path.join(root, "build", "Release", "spawn-helper"),
+  ];
   const nativeModule = nativeCandidates.find((candidate) => {
     try {
       return statSync(candidate).isFile();
@@ -85,8 +90,12 @@ export const auditLinuxPtyPlacement = (resources: string): {
       return false;
     }
   });
+  const spawnHelper = helperCandidates.find(isExecutable);
   if (!nativeModule) throw new Error("packaged Linux node-pty binary is missing");
-  return { nodePtyRoot: root, nativeModule };
+  if (!spawnHelper) {
+    throw new Error("packaged Linux node-pty spawn-helper is missing or not executable");
+  }
+  return { nodePtyRoot: root, nativeModule, spawnHelper };
 };
 
 export const LINUX_PTY_PROBE_COMMAND =

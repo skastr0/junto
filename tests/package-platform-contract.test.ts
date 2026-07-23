@@ -81,6 +81,9 @@ describe("native package pipeline contract", () => {
     expect(linux).toContain("bunx --no-install electron-rebuild");
     expect(linux).toContain("--only node-pty");
     expect(linux).toContain("--sequential");
+    expect(linux).toContain("node-pty only builds spawn-helper on macOS");
+    expect(linux).toContain("src/unix/spawn-helper.cc");
+    expect(linux).toContain('chmod 0755 "$SPAWN_HELPER_TARGET"');
     expect(linux).toContain(
       "bunx --no-install electron-builder --linux dir deb --x64 --config.npmRebuild=false",
     );
