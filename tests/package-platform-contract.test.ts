@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  electronBuilderLinuxDebArtifactName,
   finalizeLinuxUnpackedArtifact,
   linuxDebArtifactName,
   linuxUnpackedArtifactName,
@@ -104,7 +105,13 @@ describe("native package pipeline contract", () => {
         arch: "x64",
       });
       expect(debName).toBe("Vellum Command-0.1.0-x64-linux.deb");
-      await writeFile(path.join(release, debName), "deb");
+      const builderDebName = electronBuilderLinuxDebArtifactName({
+        productName: "Vellum Command",
+        version: "0.1.0",
+        arch: "x64",
+      });
+      expect(builderDebName).toBe("Vellum Command-0.1.0-amd64-linux.deb");
+      await writeFile(path.join(release, builderDebName), "deb");
       const result = await finalizeLinuxUnpackedArtifact({
         releaseDirectory: release,
         productName: "Vellum Command",
@@ -115,6 +122,10 @@ describe("native package pipeline contract", () => {
         '{\n  "productName": "Vellum Command",\n  "version": "0.1.0",\n  "arch": "x64",\n  "os": "linux",\n  "artifact": "Vellum Command-0.1.0-x64-linux.unpacked",\n  "deb": "Vellum Command-0.1.0-x64-linux.deb",\n  "support": {\n    "distribution": "ubuntu",\n    "version": "24.04",\n    "libc": "glibc"\n  }\n}\n',
       );
       expect(result.deb).toBe(path.join(release, debName));
+      await expect(readFile(result.deb, "utf8")).resolves.toBe("deb");
+      await expect(readFile(path.join(release, builderDebName), "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
       await expect(mkdir(result.artifact)).rejects.toMatchObject({ code: "EEXIST" });
     } finally {
       await rm(release, { recursive: true, force: true });

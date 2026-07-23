@@ -18,6 +18,26 @@ const requireReleaseDirectory = (value: unknown): string => {
   return path.resolve(value);
 };
 
+const requireLinuxV1Architecture = (value: unknown): "x64" => {
+  const arch = requireSafeSegment(value, "architecture");
+  if (arch !== "x64") {
+    throw new Error(`Linux v1 artifacts require x64, got ${arch}`);
+  }
+  return arch;
+};
+
+const requireMissing = async (candidate: string, label: string): Promise<void> => {
+  try {
+    await access(candidate);
+    throw new Error(`${label} already exists: ${candidate}`);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+};
+
 export const linuxUnpackedArtifactName = ({
   productName,
   version,
@@ -40,6 +60,19 @@ export const linuxDebArtifactName = ({
 }): string =>
   `${requireSafeSegment(productName, "product name")}-${requireSafeSegment(version, "version")}-${requireSafeSegment(arch, "architecture")}-linux.deb`;
 
+export const electronBuilderLinuxDebArtifactName = ({
+  productName,
+  version,
+  arch,
+}: {
+  readonly productName: unknown;
+  readonly version: unknown;
+  readonly arch: unknown;
+}): string => {
+  requireLinuxV1Architecture(arch);
+  return `${requireSafeSegment(productName, "product name")}-${requireSafeSegment(version, "version")}-amd64-linux.deb`;
+};
+
 export const finalizeLinuxUnpackedArtifact = async ({
   releaseDirectory,
   productName,
@@ -57,30 +90,34 @@ export const finalizeLinuxUnpackedArtifact = async ({
   readonly artifactName: string;
 }> => {
   const release = requireReleaseDirectory(releaseDirectory);
-  const artifactName = linuxUnpackedArtifactName({ productName, version, arch });
-  const debArtifactName = linuxDebArtifactName({ productName, version, arch });
+  const canonicalArch = requireLinuxV1Architecture(arch);
+  const artifactName = linuxUnpackedArtifactName({
+    productName,
+    version,
+    arch: canonicalArch,
+  });
+  const debArtifactName = linuxDebArtifactName({
+    productName,
+    version,
+    arch: canonicalArch,
+  });
+  const builderDebArtifactName = electronBuilderLinuxDebArtifactName({
+    productName,
+    version,
+    arch: canonicalArch,
+  });
   const source = path.join(release, "linux-unpacked");
   const artifact = path.join(release, artifactName);
+  const builderDebArtifact = path.join(release, builderDebArtifactName);
   const debArtifact = path.join(release, debArtifactName);
-  if (arch !== "x64") {
-    throw new Error(`Linux v1 artifacts require x64, got ${String(arch)}`);
-  }
-  await access(debArtifact);
-  await access(source);
-  try {
-    await access(artifact);
-    throw new Error(`Linux unpacked artifact already exists: ${artifact}`);
-  } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      // Expected: electron-builder's generic directory is renamed exactly once.
-    } else if (error instanceof Error && error.message.startsWith("Linux unpacked artifact already exists:")) {
-      throw error;
-    } else {
-      throw error;
-    }
-  }
-  await rename(source, artifact);
   const manifest = path.join(release, `${artifactName}.manifest.json`);
+  await access(builderDebArtifact);
+  await access(source);
+  await requireMissing(artifact, "Linux unpacked artifact");
+  await requireMissing(debArtifact, "canonical Linux deb artifact");
+  await requireMissing(manifest, "Linux artifact manifest");
+  await rename(source, artifact);
+  await rename(builderDebArtifact, debArtifact);
   await writeFile(
     manifest,
     `${JSON.stringify({

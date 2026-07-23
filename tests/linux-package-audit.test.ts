@@ -10,6 +10,7 @@ import {
   validateDebControl,
   validateDesktopEntry,
   validateElfX64,
+  validateLinuxPackageArtifactNames,
 } from "../scripts/audit-linux-package";
 
 const debControl = (overrides: Record<string, string> = {}): string => {
@@ -78,6 +79,39 @@ describe("Ubuntu deb control policy", () => {
       ),
     ).toThrow(/dependency inventory/u);
     expect(() => parseDebControl("Package: vellum\nPackage: other")).toThrow(/duplicate/u);
+  });
+});
+
+describe("Linux package artifact naming boundary", () => {
+  const identity = {
+    productName: "Vellum Command",
+    version: "0.1.0",
+  } as const;
+
+  it("accepts only the exact builder and canonical artifact pairs", () => {
+    expect(validateLinuxPackageArtifactNames({
+      ...identity,
+      unpackedName: "linux-unpacked",
+      debName: "Vellum Command-0.1.0-amd64-linux.deb",
+    })).toBe("builder");
+    expect(validateLinuxPackageArtifactNames({
+      ...identity,
+      unpackedName: "Vellum Command-0.1.0-x64-linux.unpacked",
+      debName: "Vellum Command-0.1.0-x64-linux.deb",
+    })).toBe("canonical");
+  });
+
+  it.each([
+    ["linux-unpacked", "Vellum Command-0.1.0-x64-linux.deb"],
+    ["Vellum Command-0.1.0-x64-linux.unpacked", "Vellum Command-0.1.0-amd64-linux.deb"],
+    ["linux-unpacked", "Vellum Command-0.1.0-x86_64-linux.deb"],
+    ["other", "Vellum Command-0.1.0-amd64-linux.deb"],
+  ])("rejects mixed or approximate names: %s / %s", (unpackedName, debName) => {
+    expect(() => validateLinuxPackageArtifactNames({
+      ...identity,
+      unpackedName,
+      debName,
+    })).toThrow(/layout mismatch/u);
   });
 });
 

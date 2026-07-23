@@ -21,6 +21,7 @@ import { listPackage, statFile } from "@electron/asar";
 import { getCurrentFuseWire } from "@electron/fuses";
 import { validateFuseWire } from "./audit-packaged-app";
 import {
+  electronBuilderLinuxDebArtifactName,
   linuxDebArtifactName,
   linuxUnpackedArtifactName,
 } from "./finalize-linux-package";
@@ -105,8 +106,47 @@ export interface LinuxPackageAuditReceipt {
   readonly appArmor: "userns";
 }
 
+export type LinuxPackageArtifactLayout = "builder" | "canonical";
+
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const PACKAGE_JSON_PATH = path.join(PACKAGE_ROOT, "package.json");
+
+export const validateLinuxPackageArtifactNames = ({
+  unpackedName,
+  debName,
+  productName,
+  version,
+}: {
+  readonly unpackedName: string;
+  readonly debName: string;
+  readonly productName: string;
+  readonly version: string;
+}): LinuxPackageArtifactLayout => {
+  const canonicalUnpackedName = linuxUnpackedArtifactName({
+    productName,
+    version,
+    arch: "x64",
+  });
+  const canonicalDebName = linuxDebArtifactName({
+    productName,
+    version,
+    arch: "x64",
+  });
+  if (unpackedName === canonicalUnpackedName && debName === canonicalDebName) {
+    return "canonical";
+  }
+  const builderDebName = electronBuilderLinuxDebArtifactName({
+    productName,
+    version,
+    arch: "x64",
+  });
+  if (unpackedName === "linux-unpacked" && debName === builderDebName) {
+    return "builder";
+  }
+  throw new Error(
+    `Linux package artifact layout mismatch: unpacked=${unpackedName} deb=${debName}`,
+  );
+};
 
 const isPathWithin = (root: string, candidate: string): boolean => {
   const relative = path.relative(root, candidate);
@@ -575,24 +615,12 @@ export const auditLinuxPackage = async ({
 
   const unpacked = await realpath(path.resolve(unpackedPath));
   const deb = await realpath(path.resolve(debPath));
-  const expectedDebName = linuxDebArtifactName({
+  validateLinuxPackageArtifactNames({
+    unpackedName: path.basename(unpacked),
+    debName: path.basename(deb),
     productName: packageJson.build.productName,
     version: packageJson.version,
-    arch: "x64",
   });
-  if (path.basename(deb) !== expectedDebName) {
-    throw new Error(`Linux deb artifact name mismatch: ${path.basename(deb)}`);
-  }
-  const expectedUnpackedName = linuxUnpackedArtifactName({
-    productName: packageJson.build.productName,
-    version: packageJson.version,
-    arch: "x64",
-  });
-  if (path.basename(unpacked) !== expectedUnpackedName) {
-    throw new Error(
-      `Linux unpacked artifact name mismatch: ${path.basename(unpacked)}`,
-    );
-  }
   if (!(await stat(unpacked)).isDirectory() || !(await stat(deb)).isFile()) {
     throw new Error("Linux package audit requires an unpacked directory and deb file");
   }
