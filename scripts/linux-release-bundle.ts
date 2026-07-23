@@ -1163,6 +1163,92 @@ const validateDependencyLicenseInventory = (
   }
 };
 
+const validateSbomInventoryConsistency = (
+  inventory: Record<string, unknown>,
+  sbom: Record<string, unknown>,
+): void => {
+  if (!Array.isArray(inventory.packages) || !Array.isArray(sbom.components)) {
+    throw new Error("SBOM does not match dependency/license inventory");
+  }
+  const components = new Map<string, Record<string, unknown>>();
+  for (const [index, value] of sbom.components.entries()) {
+    const component = record(value, `SBOM component ${index}`);
+    exactKeys(
+      component,
+      ["type", "name", "version", "purl", "licenses", "properties"],
+      `SBOM component ${index}`,
+    );
+    const purl = requiredString(component.purl, "SBOM component purl", 512);
+    if (component.type !== "library" || components.has(purl)) {
+      throw new Error("SBOM does not match dependency/license inventory");
+    }
+    components.set(purl, component);
+  }
+  if (components.size !== inventory.packages.length) {
+    throw new Error("SBOM does not match dependency/license inventory");
+  }
+  for (const [index, value] of inventory.packages.entries()) {
+    const dependency = record(value, `dependency license ${index}`);
+    const purl = requiredString(dependency.purl, "dependency purl", 512);
+    const component = components.get(purl);
+    if (
+      component === undefined ||
+      component.name !== dependency.name ||
+      component.version !== dependency.version ||
+      !Array.isArray(component.licenses) ||
+      component.licenses.length !== 1 ||
+      !Array.isArray(component.properties)
+    ) {
+      throw new Error("SBOM does not match dependency/license inventory");
+    }
+    const license = record(component.licenses[0], "SBOM component license");
+    exactKeys(license, ["expression"], "SBOM component license");
+    if (license.expression !== dependency.license) {
+      throw new Error("SBOM does not match dependency/license inventory");
+    }
+    const properties = new Map<string, string>();
+    for (const value of component.properties) {
+      const property = record(value, "SBOM component property");
+      exactKeys(property, ["name", "value"], "SBOM component property");
+      const name = requiredString(property.name, "SBOM property name", 128);
+      const propertyValue = requiredString(
+        property.value,
+        "SBOM property value",
+        512,
+      );
+      if (properties.has(name)) {
+        throw new Error("SBOM contains a duplicate component property");
+      }
+      properties.set(name, propertyValue);
+    }
+    const evidence = dependency.licenseEvidence === undefined
+      ? undefined
+      : record(dependency.licenseEvidence, "dependency license evidence");
+    const expectedProperties = new Map([
+      ["vellum:direct", String(dependency.direct)],
+      ["vellum:development", String(dependency.development)],
+      ["vellum:license-source", String(dependency.licenseSource)],
+      ...(evidence === undefined
+        ? []
+        : [
+          ["vellum:license-evidence-file", String(evidence.file)] as const,
+          [
+            "vellum:license-evidence-sha256",
+            String(evidence.sha256),
+          ] as const,
+        ]),
+    ]);
+    if (
+      properties.size !== expectedProperties.size ||
+      [...expectedProperties].some(([name, expected]) =>
+        properties.get(name) !== expected
+      )
+    ) {
+      throw new Error("SBOM does not match dependency/license inventory");
+    }
+  }
+};
+
 const validateEvidenceReceipt = (
   file: string,
   input: string,
@@ -1280,6 +1366,8 @@ const validatePayloads = async (
   directory: string,
   manifest: LinuxReleaseManifest,
 ): Promise<void> => {
+  let dependencyInventory: Record<string, unknown> | undefined;
+  let sbom: Record<string, unknown> | undefined;
   for (const entry of manifest.files) {
     const maximum =
       entry.kind === "package"
@@ -1320,8 +1408,21 @@ const validatePayloads = async (
       ) {
         validateEvidenceReceipt(entry.file, text, manifest);
       }
+      if (entry.kind === "dependency-license-inventory") {
+        dependencyInventory = parseEvidenceJson(
+          text,
+          "dependency/license inventory",
+        );
+      }
+      if (entry.kind === "sbom") {
+        sbom = parseEvidenceJson(text, "CycloneDX SBOM");
+      }
     }
   }
+  if (dependencyInventory === undefined || sbom === undefined) {
+    throw new Error("release supply-chain evidence is incomplete");
+  }
+  validateSbomInventoryConsistency(dependencyInventory, sbom);
 };
 
 const validateHost = (host: LinuxReleaseHostFacts): void => {

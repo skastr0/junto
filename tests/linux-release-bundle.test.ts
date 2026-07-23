@@ -101,6 +101,7 @@ const createFixture = async (options: {
     | "package-metadata"
     | "bundled-license-file"
     | "unresolved";
+  readonly sbomLicense?: string;
 } = {}) => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "vellum-linux-release-bundle-"),
@@ -208,7 +209,18 @@ const createFixture = async (options: {
           ],
         },
       },
-      components: [{ type: "library", name: "effect", version: "3.0.0" }],
+      components: [{
+        type: "library",
+        name: "effect",
+        version: "3.0.0",
+        purl: "pkg:npm/effect@3.0.0",
+        licenses: [{ expression: options.sbomLicense ?? "MIT" }],
+        properties: [
+          { name: "vellum:direct", value: "true" },
+          { name: "vellum:development", value: "false" },
+          { name: "vellum:license-source", value: "package-metadata" },
+        ],
+      }],
     }),
     "CHANGELOG.md": "# Vellum Command 0.1.0\n\nExact Linux release notes.\n",
     "source-revision.json": canonical({
@@ -500,6 +512,12 @@ describe("signed Linux release bundle", () => {
         dependencyLicenseSource: "unresolved",
       }),
     ).rejects.toThrow(/unresolved rights/u);
+  });
+
+  it("refuses inconsistent dependency inventory and SBOM evidence", async () => {
+    await expect(
+      createFixture({ sbomLicense: "Apache-2.0" }),
+    ).rejects.toThrow(/SBOM does not match/u);
   });
 
   it("never emits private key material into signed metadata", async () => {
