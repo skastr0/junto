@@ -1,13 +1,57 @@
 import { sign, verify, type KeyObject } from "node:crypto";
+import type { Socket } from "node:net";
 import { canonicalStationBrowserJson, decodeStationBrowserEnvelope, isStationBrowserKeyId, STATION_BROWSER_CLOCK_SKEW_MS, STATION_BROWSER_MAX_TTL_MS, type StationBrowserDenial, type StationBrowserEnvelope, type StationBrowserRequest } from "@shared/station-browser";
-import { parseNodeRef } from "@shared/node-ref";
+import { formatNodeRef } from "@shared/node-ref";
+import type { EdgeGrantService } from "./edge-grant";
 
 declare const witnessBrand: unique symbol;
 export interface AdmittedDelegationWitness { readonly [witnessBrand]: never }
 type WitnessData = Readonly<{ kind: "agent-edge" | "operator-ui"; stationId: string; agentRef?: string }>;
 const witnesses = new WeakMap<object, WitnessData>();
-/** Main-process admission seam: callers must first have passed process-bind plus edge checks. */
-export const admitAgentEdgeDelegation = (admitted: Readonly<{ stationId: string; canonicalAgentRef: string }>): AdmittedDelegationWitness => { if (!/^[A-Za-z0-9._:-]+$/.test(admitted.stationId) || !parseNodeRef(admitted.canonicalAgentRef).ok) throw new Error("main admission requires canonical station and agent references"); const witness = {} as AdmittedDelegationWitness; witnesses.set(witness, { kind: "agent-edge", stationId: admitted.stationId, agentRef: admitted.canonicalAgentRef }); return witness; };
+export interface AgentEdgeDelegationAdmission {
+  readonly stationId: string;
+  readonly socket: Socket;
+  readonly edgeGrant: Pick<EdgeGrantService, "admitSocket">;
+}
+/**
+ * Main-process admission seam. The product edge-grant path performs Unix peer
+ * process-bind and current canvas-edge authorization; locator strings alone
+ * can never mint this opaque witness.
+ */
+export const admitAgentEdgeDelegation = async (
+  admitted: AgentEdgeDelegationAdmission,
+): Promise<AdmittedDelegationWitness> => {
+  if (
+    typeof admitted !== "object" ||
+    admitted === null ||
+    !/^[A-Za-z0-9._:-]+$/.test(admitted.stationId) ||
+    typeof admitted.edgeGrant?.admitSocket !== "function"
+  ) {
+    throw new Error("agent delegation requires process-bound edge admission");
+  }
+  const grant = await admitted.edgeGrant.admitSocket(admitted.socket);
+  if (!grant.ok) {
+    throw new Error("agent delegation requires process-bound edge admission");
+  }
+  const principal = grant.principal;
+  if (
+    principal.kind !== "agent" ||
+    principal.canvasName === undefined ||
+    principal.nodeId === undefined
+  ) {
+    throw new Error("agent delegation requires a canvas-pinned agent process");
+  }
+  const witness = Object.freeze({}) as AdmittedDelegationWitness;
+  witnesses.set(witness, {
+    kind: "agent-edge",
+    stationId: admitted.stationId,
+    agentRef: formatNodeRef({
+      canvasName: principal.canvasName,
+      nodeId: principal.nodeId,
+    }),
+  });
+  return witness;
+};
 /** Main-process UI admission seam. This constructor deliberately has no client principal argument. */
 export const admitOperatorUiDelegation = (stationId: string): AdmittedDelegationWitness => { if (!/^[A-Za-z0-9._:-]+$/.test(stationId)) throw new Error("main admission requires a canonical station reference"); const witness = {} as AdmittedDelegationWitness; witnesses.set(witness, { kind: "operator-ui", stationId }); return witness; };
 export interface StationBrowserTrust { readonly keyId: string; readonly publicKey: KeyObject; readonly originStationId: string }
