@@ -43,6 +43,7 @@ vi.mock("../src/main/vellum/process-epoch", async (importOriginal) => {
 import {
   APP_PROCESS_PLANE_QUIESCING_ERROR,
   createAppProcessPlane,
+  TerminalBackendUnavailableError,
   type AppProcessLease,
   type AppTerminalLease,
 } from "../src/main/vellum/app-process-plane";
@@ -382,7 +383,7 @@ describe("app terminal process plane", () => {
     const pty = new FakePty();
     const ptySpawn = vi.spyOn(nodePty, "spawn").mockReturnValue(pty.asPty());
     const originalKill = pty.kill;
-    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15, allowPipeTerminalFallback: true });
     const lease = plane.spawnTerminal(terminalSpec("interactive shell"));
 
     expect(ptySpawn).toHaveBeenCalledWith(
@@ -454,7 +455,7 @@ describe("app terminal process plane", () => {
     const child = new FakeChild();
     const write = vi.spyOn(child.stdin, "write");
     mocks.spawn.mockReturnValue(child);
-    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15, allowPipeTerminalFallback: true });
     const lease = plane.spawnTerminal(terminalSpec("pipe terminal"));
 
     expect(mocks.spawn).toHaveBeenCalledWith(
@@ -468,6 +469,7 @@ describe("app terminal process plane", () => {
       },
     );
     expect(lease.io.resize).toBeUndefined();
+    expect(lease.backend).toBe("pipe");
 
     const data = vi.fn();
     const exit = vi.fn();
@@ -517,7 +519,7 @@ describe("app terminal process plane", () => {
     });
     const child = new FakeChild();
     mocks.spawn.mockReturnValue(child);
-    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15, allowPipeTerminalFallback: true });
     const lease = plane.spawnTerminal(terminalSpec("close-only pipe"));
     const exit = vi.fn();
     lease.io.onExit(exit);
@@ -534,6 +536,17 @@ describe("app terminal process plane", () => {
       clean: true,
       stragglers: [],
     });
+  });
+
+  it("fails closed when node-pty cannot load in the default release policy", () => {
+    const nodePty = require("node-pty") as typeof import("node-pty");
+    vi.spyOn(nodePty, "spawn").mockImplementation(() => {
+      throw new Error("PTY unavailable");
+    });
+    const plane = createAppProcessPlane();
+
+    expect(() => plane.spawnTerminal(terminalSpec())).toThrow(TerminalBackendUnavailableError);
+    expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
   it("boundedly tears down listener setup failure without spawning a fallback", async () => {

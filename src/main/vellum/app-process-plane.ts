@@ -104,6 +104,18 @@ export interface AppTerminalIo {
   readonly onError: (listener: (error: Error) => void) => () => void;
 }
 
+/** Backend provenance is observable but carries no process authority. */
+export type AppTerminalBackend = "pty" | "pipe";
+
+export class TerminalBackendUnavailableError extends Error {
+  readonly code = "terminal_pty_unavailable" as const;
+
+  constructor(cause: unknown) {
+    super("native PTY backend is unavailable", { cause });
+    this.name = "TerminalBackendUnavailableError";
+  }
+}
+
 const AppTerminalLeaseTypeId: unique symbol = Symbol("@vellum/AppTerminalLease");
 
 export interface AppTerminalLease {
@@ -111,6 +123,7 @@ export interface AppTerminalLease {
   readonly generation: number;
   readonly source: string;
   readonly purpose: string;
+  readonly backend: AppTerminalBackend;
   readonly io: AppTerminalIo;
 }
 
@@ -158,6 +171,8 @@ export type AppProcessDrainResult =
 export interface AppProcessPlaneOptions {
   readonly termGraceMs?: number;
   readonly killGraceMs?: number;
+  /** Test/development seam only. Production planes always require node-pty. */
+  readonly allowPipeTerminalFallback?: boolean;
 }
 
 export interface AppProcessPlane {
@@ -210,7 +225,7 @@ interface AppProcessRecord extends AppOwnedRecord {
 
 interface AppTerminalRecord extends AppOwnedRecord {
   readonly mode: "terminal";
-  readonly backend: "pty" | "pipe";
+  readonly backend: AppTerminalBackend;
   readonly dataListeners: Set<(data: string) => void>;
   readonly exitListeners: Set<(event: AppTerminalExit) => void>;
   readonly errorListeners: Set<(error: Error) => void>;
@@ -525,6 +540,8 @@ export const createAppProcessPlane = (
     APP_PROCESS_KILL_GRACE_MS,
     "app process KILL grace",
   );
+  const allowPipeTerminalFallback = options.allowPipeTerminalFallback === true &&
+    process.env.NODE_ENV !== "production";
 
   const records = new Set<AppRecord>();
   const leases = new WeakMap<AppProcessLease, AppProcessRecord>();
@@ -928,6 +945,7 @@ export const createAppProcessPlane = (
       generation: record.generation,
       source: record.source,
       purpose: record.purpose,
+      backend: record.backend,
       io,
     };
     const lease = Object.freeze(leaseValue);
@@ -1010,7 +1028,10 @@ export const createAppProcessPlane = (
         env: spec.env === undefined ? undefined : { ...spec.env },
         handleFlowControl: true,
       });
-    } catch {
+    } catch (error) {
+      if (!allowPipeTerminalFallback) {
+        throw new TerminalBackendUnavailableError(error);
+      }
       const child = spawn(spec.command, [...(spec.args ?? [])], {
         cwd: spec.cwd,
         env: spec.env === undefined ? undefined : { ...spec.env },

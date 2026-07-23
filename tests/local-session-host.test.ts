@@ -5,6 +5,8 @@ import type {
 } from "../src/main/vellum/app-process-plane";
 import {
   LocalSessionHost,
+  resolveLaunch,
+  TerminalLaunchError,
   type LocalTerminalProcessAuthority,
 } from "../src/main/vellum/term/local-host";
 import {
@@ -57,6 +59,21 @@ const hostWith = (
 };
 
 describe("LocalSessionHost", () => {
+  it("uses the explicit shell argv before the ambient user shell", () => {
+    const launch = resolveLaunch({ kind: "shell", argv: ["/bin/sh", "-l"] });
+    expect(launch.file).toBe("/bin/sh");
+    expect(launch.args).toEqual(["-l"]);
+  });
+
+  it("rejects a missing or non-absolute shell before process spawn", () => {
+    expect(() => resolveLaunch({ kind: "shell", argv: ["sh"] })).toThrow(
+      TerminalLaunchError,
+    );
+    expect(() => resolveLaunch({ kind: "shell", argv: ["/no/such/shell"] })).toThrow(
+      TerminalLaunchError,
+    );
+  });
+
   it("delegates terminal spawn to the central authority and observes its exact witness", async () => {
     const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
       pid: trackSyntheticPid(42_420 + index),

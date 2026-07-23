@@ -7,6 +7,8 @@
 
 import { EventEmitter } from "node:events";
 import * as os from "node:os";
+import { constants, existsSync, statSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { getProcessIdentityMap } from "../process-identity";
@@ -99,6 +101,7 @@ type SessionRec = {
   cwd: string;
   title?: string;
   label?: string;
+  backend: "pty" | "pipe" | undefined;
   canvasName?: string;
   nodeId?: string;
   detached: boolean;
@@ -156,9 +159,44 @@ const mintEpoch = (): string =>
 
 const mintLease = (): string => `ls_${randomBytes(8).toString("hex")}`;
 
+export type TerminalLaunchFailureCode =
+  | "shell_missing"
+  | "shell_not_executable"
+  | "shell_not_absolute";
+
+/** Typed before-spawn launch rejection; it never exposes process authority. */
+export class TerminalLaunchError extends Error {
+  constructor(
+    readonly code: TerminalLaunchFailureCode,
+    readonly shell: string,
+  ) {
+    super(`terminal shell ${code.replaceAll("_", " ")}: ${shell}`);
+    this.name = "TerminalLaunchError";
+  }
+}
+
+const validateShell = (shell: string): string => {
+  if (!isAbsolute(shell)) throw new TerminalLaunchError("shell_not_absolute", shell);
+  try {
+    if (!existsSync(shell) || !statSync(shell).isFile()) {
+      throw new TerminalLaunchError("shell_missing", shell);
+    }
+    if ((statSync(shell).mode & constants.S_IXUSR) === 0) {
+      throw new TerminalLaunchError("shell_not_executable", shell);
+    }
+  } catch (error) {
+    if (error instanceof TerminalLaunchError) throw error;
+    throw new TerminalLaunchError("shell_missing", shell);
+  }
+  return shell;
+};
+
 const defaultShell = (): string => {
   if (process.platform === "win32") return process.env.COMSPEC || "cmd.exe";
-  return process.env.SHELL || "/bin/zsh";
+  // Linux is deliberately bash-first; macOS retains its system login shell.
+  const candidate = process.env.SHELL?.trim() ||
+    (process.platform === "linux" ? "/bin/bash" : "/bin/zsh");
+  return validateShell(candidate);
 };
 
 export const resolveLaunch = (
@@ -177,9 +215,11 @@ export const resolveLaunch = (
   };
   const argv = launch?.argv?.filter((a) => typeof a === "string" && a.length > 0) ?? [];
   if (launch?.kind === "shell" || !launch || argv.length === 0) {
-    const shell = defaultShell();
+    // An explicit shell argv wins over the user/default shell, but is still
+    // validated before process ownership can be minted.
+    const shell = argv.length > 0 ? validateShell(argv[0]!) : defaultShell();
     if (process.platform !== "win32") {
-      return { file: shell, args: ["-l"], cwd, env };
+      return { file: shell, args: argv.length > 1 ? argv.slice(1) : ["-l"], cwd, env };
     }
     return { file: shell, args: [], cwd, env };
   }
@@ -241,6 +281,7 @@ export class LocalSessionHost extends EventEmitter {
       cwd: launch.cwd,
       title: input.title,
       label: input.label,
+      backend: undefined,
       canvasName: input.canvasName,
       nodeId: input.nodeId,
       detached: !(input.canvasName && input.nodeId),
@@ -277,6 +318,7 @@ export class LocalSessionHost extends EventEmitter {
 
     try {
       rec.lease = lease;
+      rec.backend = lease.backend;
       rec.exitWitness = lease.io.exited;
       rec.pid = lease.io.pidForDiagnostics;
       rec.status = "running";
@@ -777,6 +819,7 @@ export class LocalSessionHost extends EventEmitter {
       nodeId: rec.nodeId,
       createdAt: rec.createdAt,
       label: rec.label,
+      backend: rec.backend,
     };
   }
 

@@ -214,4 +214,6 @@ export type TerminalSessionSummary = {
   readonly nodeId?: string;
   readonly createdAt: number;
   readonly label?: string;
+  /** Runtime backend; pipe sessions are never release-ready. */
+  readonly backend?: "pty" | "pipe";
 };

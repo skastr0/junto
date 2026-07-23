@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { resolveSystemPs } from "./platform-executables";
 
 /** One row from one `ps` observation; never compose identity from multiple reads. */
 export type ProcessEpochRow = {
@@ -20,7 +21,7 @@ export type ProcessEpochReader = {
 };
 
 export type ProcessEpochPsRequest = {
-  readonly command: "ps";
+  readonly command: string;
   readonly args: readonly ["-axo", "pid=,pgid=,sess=,lstart="];
   readonly env: NodeJS.ProcessEnv;
   readonly timeoutMs: number;
@@ -95,10 +96,12 @@ export const readFullProcessEpochSnapshot = (
   runPs: ProcessEpochPsRunner = systemPsRunner,
   witnessPid: number = process.pid,
 ): readonly ProcessEpochRow[] | undefined => {
+  const ps = resolveSystemPs();
+  if (ps === undefined) return undefined;
   let result: ProcessEpochPsResult;
   try {
     result = runPs({
-      command: "ps",
+      command: ps,
       args: PS_ARGS,
       // `lstart` includes wall-clock time. Pin both locale and timezone so an
       // operator timezone change cannot make one live pid look like a new epoch.

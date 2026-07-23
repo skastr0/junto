@@ -44,7 +44,7 @@ describe("full process epoch snapshots", () => {
     );
 
     expect(request).toMatchObject({
-      command: "ps",
+      command: expect.stringMatching(/^\/.*\/ps$/u),
       args: ["-axo", "pid=,pgid=,sess=,lstart="],
       env: { LC_ALL: "C", TZ: "UTC" },
     });

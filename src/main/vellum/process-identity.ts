@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Socket } from "node:net";
+import { resolveSystemPs } from "./platform-executables";
 
 // Process-bind identity for local agent tooling (work + browser control).
 //
@@ -69,9 +70,11 @@ const samePrincipal = (a: ProcessPrincipal, b: ProcessPrincipal): boolean =>
 /** Stable process start identity for epoch checks (cross-platform via `ps`). */
 export const readProcessStartKey = (pid: number): string | undefined => {
   if (!Number.isInteger(pid) || pid <= 0) return undefined;
+  const ps = resolveSystemPs();
+  if (ps === undefined) return undefined;
   try {
     // lstart is stable for the life of the process on macOS/Linux ps.
-    const result = spawnSync("ps", ["-p", String(pid), "-o", "lstart="], {
+    const result = spawnSync(ps, ["-p", String(pid), "-o", "lstart="], {
       encoding: "utf8",
       timeout: 500,
     });
@@ -222,8 +225,10 @@ export const setProcessIdentityMapForTests = (map: ProcessIdentityMap | undefine
 
 export const readParentPid = (pid: number): number | undefined => {
   if (!Number.isInteger(pid) || pid <= 0) return undefined;
+  const ps = resolveSystemPs();
+  if (ps === undefined) return undefined;
   try {
-    const result = spawnSync("ps", ["-p", String(pid), "-o", "ppid="], {
+    const result = spawnSync(ps, ["-p", String(pid), "-o", "ppid="], {
       encoding: "utf8",
       timeout: 500,
     });
