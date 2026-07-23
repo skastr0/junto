@@ -378,7 +378,25 @@ const onCanvasQuiesceAndFlushRequested = (
   };
 };
 
+let rendererSurfaceMounted = false;
+let rendererSurfaceChallenge: string | undefined;
+
+const sendRendererSurfaceReceipt = (): void => {
+  if (!rendererSurfaceMounted || rendererSurfaceChallenge === undefined) return;
+  ipcRenderer.send(IPC_CHANNELS.rendererSurfaceReady, rendererSurfaceChallenge);
+};
+
+ipcRenderer.on(IPC_CHANNELS.rendererSurfaceChallenge, (_event, candidate: unknown) => {
+  if (typeof candidate !== "string" || candidate.length === 0) return;
+  rendererSurfaceChallenge = candidate;
+  sendRendererSurfaceReceipt();
+});
+
 const vellumApi: VellumApi = {
+  rendererSurfaceReady: () => {
+    rendererSurfaceMounted = true;
+    sendRendererSurfaceReceipt();
+  },
   listCanvases: () => invoke(IPC_CHANNELS.listCanvases, IPC_TIMEOUT_MS),
   readCanvas: (name) => invoke(IPC_CHANNELS.readCanvas, IPC_TIMEOUT_MS, name),
   writeCanvas: (name, doc, expectedRevision) =>

@@ -77,6 +77,12 @@ const emitCanvasQuiesceAndFlush = (payload: unknown): void => {
   listener({}, payload);
 };
 
+const emitRendererSurfaceChallenge = (payload: unknown): void => {
+  const listener = electron.handlers.get(IPC_CHANNELS.rendererSurfaceChallenge);
+  if (listener === undefined) throw new Error("preload did not register renderer challenge ingress");
+  listener({}, payload);
+};
+
 const settle = async (): Promise<void> => {
   await new Promise<void>((resolve) => setImmediate(resolve));
 };
@@ -87,6 +93,50 @@ beforeEach(() => {
   electron.exposed.clear();
   electron.sent.length = 0;
   electron.invoked.length = 0;
+});
+
+describe("preload renderer surface readiness", () => {
+  it("answers a challenge only after the React surface reports its commit", async () => {
+    const api = await loadPreload();
+
+    emitRendererSurfaceChallenge("generation-1");
+    expect(electron.sent).toEqual([]);
+
+    api.rendererSurfaceReady();
+    expect(electron.sent).toEqual([
+      [IPC_CHANNELS.rendererSurfaceReady, "generation-1"],
+    ]);
+  });
+
+  it("never carries a previous preload challenge into a fresh module generation", async () => {
+    const first = await loadPreload();
+    emitRendererSurfaceChallenge("generation-1");
+    first.rendererSurfaceReady();
+    expect(electron.sent).toEqual([
+      [IPC_CHANNELS.rendererSurfaceReady, "generation-1"],
+    ]);
+
+    vi.resetModules();
+    electron.handlers.clear();
+    electron.exposed.clear();
+    electron.sent.length = 0;
+    const replacement = await loadPreload();
+    replacement.rendererSurfaceReady();
+    expect(electron.sent).toEqual([]);
+
+    emitRendererSurfaceChallenge("generation-2");
+    expect(electron.sent).toEqual([
+      [IPC_CHANNELS.rendererSurfaceReady, "generation-2"],
+    ]);
+  });
+
+  it("ignores malformed challenges", async () => {
+    const api = await loadPreload();
+    api.rendererSurfaceReady();
+    emitRendererSurfaceChallenge(1);
+    emitRendererSurfaceChallenge("");
+    expect(electron.sent).toEqual([]);
+  });
 });
 
 describe("preload node-reference delivery", () => {

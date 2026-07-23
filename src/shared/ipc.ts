@@ -150,6 +150,10 @@ export const IPC_CHANNELS = {
   hostsConfigureRemote: "vellum:hosts-configure-remote",
   /** Command Center: install/update .app + start Remote station over SSH. */
   hostsDeployRemote: "vellum:hosts-deploy-remote",
+  // main -> renderer freshness challenge; renderer -> main bootstrap receipt.
+  // The opaque challenge is generation identity, never product authority.
+  rendererSurfaceChallenge: "vellum:renderer-surface-challenge",
+  rendererSurfaceReady: "vellum:renderer-surface-ready",
   // main -> renderer pushes
   nodeRefOpened: "vellum:node-ref-opened",
   nodeRefOpenedAck: "vellum:node-ref-opened-ack",
@@ -422,6 +426,8 @@ export interface ChatApi {
 }
 
 export interface VellumApi {
+  /** Internal bootstrap receipt emitted after React commits the product shell. */
+  readonly rendererSurfaceReady: () => void;
   readonly listCanvases: () => Promise<ReadonlyArray<CanvasSummary>>;
   readonly readCanvas: (name: string) => Promise<CanvasReadResult>;
   readonly writeCanvas: (

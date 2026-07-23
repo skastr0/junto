@@ -294,6 +294,10 @@ export function App() {
       return;
     }
     const vellum = window.vellum;
+    // A live renderer process is not proof that the product rendered. This
+    // payload-free receipt lets main fail closed instead of leaving a black
+    // BrowserWindow alive indefinitely when React never commits.
+    vellum.rendererSurfaceReady();
 
     // Subscribe before boot touches a default canvas. Preload can deliver a
     // buffered cold-start locator synchronously from this call; returning the

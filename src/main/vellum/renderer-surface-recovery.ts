@@ -33,7 +33,11 @@ export const createRendererSurfaceRecovery = (
   let retries = 0;
 
   return {
-    failed(): "retry" | "diagnostic" {
+    failed(input: { readonly admissionClosed: boolean }): "retry" | "diagnostic" {
+      // Once shutdown admission closes, a replacement authoring renderer is
+      // forbidden. Keep a visible, non-authoring diagnostic surface instead,
+      // even when retry budget remains.
+      if (input.admissionClosed) return "diagnostic";
       const observedAt = now();
       if (observedAt - windowStartedAt > options.windowMs) {
         windowStartedAt = observedAt;

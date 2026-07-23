@@ -25,14 +25,27 @@ describe("renderer surface recovery", () => {
       now: () => clock,
     });
 
-    expect(recovery.failed()).toBe("retry");
-    expect(recovery.failed()).toBe("retry");
-    expect(recovery.failed()).toBe("diagnostic");
+    expect(recovery.failed({ admissionClosed: false })).toBe("retry");
+    expect(recovery.failed({ admissionClosed: false })).toBe("retry");
+    expect(recovery.failed({ admissionClosed: false })).toBe("diagnostic");
 
     recovery.succeeded();
-    expect(recovery.failed()).toBe("retry");
+    expect(recovery.failed({ admissionClosed: false })).toBe("retry");
 
     clock = 2_000;
-    expect(recovery.failed()).toBe("retry");
+    expect(recovery.failed({ admissionClosed: false })).toBe("retry");
+  });
+
+  it("fails visibly instead of retrying after authoring admission closes", () => {
+    const recovery = createRendererSurfaceRecovery({
+      maxRetries: 2,
+      windowMs: 1_000,
+      now: () => 0,
+    });
+
+    expect(recovery.failed({ admissionClosed: true })).toBe("diagnostic");
+    // The shutdown-only diagnostic does not consume a future process-lifetime
+    // retry if the caller was merely modeling the state in isolation.
+    expect(recovery.failed({ admissionClosed: false })).toBe("retry");
   });
 });

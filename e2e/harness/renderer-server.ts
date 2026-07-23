@@ -43,6 +43,21 @@ export const startRendererServer = async (rendererDir: string): Promise<Renderer
       try {
         const parsed = new URL(req.url ?? "/", "http://127.0.0.1");
         let pathname = decodeURIComponent(parsed.pathname);
+        if (pathname === "/__vellum_redirect") {
+          res.writeHead(302, { location: "/" }).end();
+          return;
+        }
+        if (pathname === "/__vellum_stall") {
+          // Intentionally leave the main-document response pending. The app's
+          // bounded renderer-load watchdog must terminate the black window.
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          return;
+        }
+        if (pathname === "/__vellum_blank") {
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end("<!doctype html><meta charset=utf-8><title>blank renderer fixture</title>");
+          return;
+        }
         if (pathname === "/" || pathname === "") pathname = "/index.html";
         const resolved = normalize(join(root, pathname));
         if (!resolved.startsWith(root)) {

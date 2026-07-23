@@ -455,7 +455,13 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
       HOME: sandbox.homeDir,
       SHELL: "/bin/sh",
       VELLUM_CANVASES_DIR: sandbox.canvasesDir,
-      ELECTRON_RENDERER_URL: server.url,
+      VELLUM_E2E: "1",
+      // Match electron-vite's real development contract exactly. It supplies
+      // the loopback authority without a trailing slash; using a normalized
+      // test-only URL here previously hid a black-window startup regression.
+      ELECTRON_RENDERER_URL: server.url.endsWith("/")
+        ? server.url.slice(0, -1)
+        : server.url,
       ...(options.demo ? { VELLUM_DEMO: "1" } : {}),
       // Restrict PATH to e2e/fakes/bin + the system floor on every launch — no
       // operator CLI, no real host, no AI tokens. Never opt-in: app boot
