@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -14,6 +15,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultRemoteHostsDocument, hermesKeyFor } from "../src/shared/remote-hosts";
 import { ProductPlanesLive } from "../src/main/runtime";
 import { HostsService } from "../src/main/vellum/hosts/service";
+import {
+  hostsPathsForDocument,
+  writeHostsSeal,
+} from "../src/main/vellum/hosts/hosts-seal";
 import {
   makeHostsRegistry,
   resetDefaultHostsRegistryForTests,
@@ -54,6 +59,170 @@ describe("remote hosts registry", () => {
     const raw = await readFile(path, "utf8");
     expect(JSON.parse(raw).version).toBe(1);
     expect((await lstat(path)).mode & 0o777).toBe(0o600);
+    // First create seals enrollment so later offline mint fails closed.
+    const sealPaths = hostsPathsForDocument(path);
+    await stat(sealPaths.key);
+    await stat(sealPaths.seal);
+  });
+
+  it("app write seals and reloads sealed membership", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-seal-write-"));
+    dirs.push(root);
+    const path = join(root, "hosts.json");
+    const registry = makeHostsRegistry(path);
+    await registry.list();
+    await registry.upsert({
+      id: "studio",
+      label: "Studio",
+      kind: "remote",
+      endpoint: "studio",
+      capabilities: ["hermes"],
+    });
+    const sealPaths = hostsPathsForDocument(path);
+    await stat(sealPaths.key);
+    await stat(sealPaths.seal);
+
+    const cold = makeHostsRegistry(path);
+    const hosts = await cold.list();
+    expect(hosts.map((host) => host.id).sort()).toEqual(["local", "studio"]);
+  });
+
+  it("tampered hosts.json fails closed to local-only", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-seal-tamper-"));
+    dirs.push(root);
+    const path = join(root, "hosts.json");
+    const registry = makeHostsRegistry(path);
+    await registry.list();
+    await registry.upsert({
+      id: "studio",
+      label: "Studio",
+      kind: "remote",
+      endpoint: "studio",
+      capabilities: ["hermes", "herdr"],
+    });
+
+    // Offline mint: rewrite membership without resealing.
+    const tampered = {
+      version: 1,
+      hosts: [
+        ...defaultRemoteHostsDocument().hosts,
+        {
+          id: "evil",
+          label: "Evil",
+          kind: "remote",
+          endpoint: "evil-ssh",
+          capabilities: ["hermes"],
+        },
+      ],
+    };
+    await writeFile(path, `${JSON.stringify(tampered, null, 2)}\n`, "utf8");
+
+    const cold = makeHostsRegistry(path);
+    const hosts = await cold.list();
+    expect(hosts.map((host) => host.id)).toEqual(["local"]);
+    expect(hosts.some((host) => host.id === "evil")).toBe(false);
+
+    // Disk rewritten fail-closed.
+    const after = JSON.parse(await readFile(path, "utf8")) as {
+      hosts: Array<{ id: string }>;
+    };
+    expect(after.hosts.map((host) => host.id)).toEqual(["local"]);
+  });
+
+  it("tampered seal mac fails closed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-seal-mac-"));
+    dirs.push(root);
+    const path = join(root, "hosts.json");
+    const registry = makeHostsRegistry(path);
+    await registry.list();
+    await registry.upsert({
+      id: "studio",
+      label: "Studio",
+      kind: "remote",
+      endpoint: "studio",
+      capabilities: ["hermes"],
+    });
+
+    const sealPaths = hostsPathsForDocument(path);
+    await writeFile(
+      sealPaths.seal,
+      `${JSON.stringify({ version: 1, alg: "hmac-sha256", mac: "not-a-real-mac" })}\n`,
+      "utf8",
+    );
+
+    const cold = makeHostsRegistry(path);
+    expect((await cold.list()).map((host) => host.id)).toEqual(["local"]);
+  });
+
+  it("bootstrap admits unsealed hosts once then seals", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-seal-bootstrap-"));
+    dirs.push(root);
+    const path = join(root, "hosts.json");
+    const stamped = {
+      version: 1 as const,
+      hosts: [
+        ...defaultRemoteHostsDocument().hosts,
+        {
+          id: "studio",
+          label: "Studio",
+          kind: "remote" as const,
+          endpoint: "studio",
+          capabilities: ["hermes" as const],
+        },
+      ],
+    };
+    await writeFile(path, `${JSON.stringify(stamped, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+
+    const registry = makeHostsRegistry(path);
+    const admitted = await registry.list();
+    expect(admitted.map((host) => host.id).sort()).toEqual(["local", "studio"]);
+
+    const sealPaths = hostsPathsForDocument(path);
+    await stat(sealPaths.key);
+    await stat(sealPaths.seal);
+
+    // Subsequent offline membership flip fails closed.
+    const flipped = {
+      version: 1,
+      hosts: [
+        ...defaultRemoteHostsDocument().hosts,
+        {
+          id: "evil",
+          label: "Evil",
+          kind: "remote",
+          endpoint: "evil",
+          capabilities: ["hermes"],
+        },
+      ],
+    };
+    await writeFile(path, `${JSON.stringify(flipped, null, 2)}\n`, "utf8");
+    const cold = makeHostsRegistry(path);
+    expect((await cold.list()).map((host) => host.id)).toEqual(["local"]);
+  });
+
+  it("app-written seal matches sealed material helper", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-seal-rewrite-"));
+    dirs.push(root);
+    const path = join(root, "hosts.json");
+    const registry = makeHostsRegistry(path);
+    await registry.list();
+    const hosts = await registry.upsert({
+      id: "studio",
+      label: "Studio",
+      kind: "remote",
+      endpoint: "studio",
+      capabilities: ["hermes"],
+    });
+    // Rewriting the same seal is a no-op admit.
+    await writeHostsSeal(path, { version: 1, hosts: [...hosts] });
+    const cold = makeHostsRegistry(path);
+    expect((await cold.list()).map((host) => host.id).sort()).toEqual([
+      "local",
+      "studio",
+    ]);
   });
 
   it("keeps atomic rewrites owner-only", async () => {
@@ -186,6 +355,7 @@ describe("remote hosts registry", () => {
     dirs.push(root);
     const path = join(root, "hosts.json");
     process.env.VELLUM_HOSTS_PATH = path;
+    // Unsealed on-disk document bootstraps a seal on first load.
     await writeFile(
       path,
       `${JSON.stringify({
@@ -214,25 +384,16 @@ describe("remote hosts registry", () => {
         const hosts = yield* HostsService;
         const firstRoute = herdr.mirrors.mirrorFor("studio") !== undefined;
 
-        yield* Effect.promise(() =>
-          writeFile(
-            path,
-            `${JSON.stringify({
-              version: 1,
-              hosts: [
-                ...defaultRemoteHostsDocument().hosts,
-                {
-                  id: "render",
-                  label: "Render",
-                  kind: "remote",
-                  endpoint: "render-ssh",
-                  capabilities: ["herdr"],
-                },
-              ],
-            })}\n`,
-            "utf8",
-          ),
-        );
+        // Membership changes go through the app write path (reseals). Offline
+        // plaintext rewrites of hosts.json alone are no longer live authority.
+        yield* hosts.remove("studio");
+        yield* hosts.upsert({
+          id: "render",
+          label: "Render",
+          kind: "remote",
+          endpoint: "render-ssh",
+          capabilities: ["herdr"],
+        });
         const reloaded = yield* hosts.list;
 
         return {

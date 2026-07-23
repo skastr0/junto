@@ -80,18 +80,21 @@ Landed first cuts:
   `settingsSetStationTopology` reseals. Tampered topology fails closed to
   role unset (StationRoleGate). See
   [`protected-topology-migration.md`](./protected-topology-migration.md).
+- **Hosts enrollment:** `hosts.json` is seal-gated (`hosts.key` +
+  `hosts.seal` HMAC). App registry writes reseal; offline membership mint
+  fails closed to local-only. Same residual as station: same-UID wipe of
+  both key and seal re-bootstraps.
 
 Remaining debt (not production-complete protection):
 
 - Canvas bytes still at `~/.vellum/canvases/*.canvas` (not app-private store;
   no import/export ceremony)
-- Same-user delete of **both** topology key and seal re-enables bootstrap
-  mint (same-UID non-claim)
-- `hosts.json` enrollment registry still ordinary sealed-permission file
+- Same-user delete of **both** topology/hosts key and seal re-enables
+  bootstrap mint (same-UID non-claim)
 - Recovery codes / CC transfer ceremony not implemented
 
 “Protected” in a full production claim still requires the private canvas
-store, hosts enrollment protection, and recovery ceremony.
+store and recovery ceremony.
 
 ### Secure (doctrine-bound)
 

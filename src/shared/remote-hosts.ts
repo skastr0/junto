@@ -4,6 +4,10 @@ import { Schema } from "effect";
 // The document is the product surface for multi-host fleets. Source only seeds
 // the immutable local host — remote machines are user-authored, never product
 // constants.
+//
+// Enrollment integrity: app-owned hosts.key + hosts.seal (HMAC) admit the
+// document on load. Offline plaintext edits after a seal exists fail closed to
+// local-only. See hosts/hosts-seal.ts and docs/protected-topology-migration.md.
 
 export const REMOTE_HOSTS_VERSION = 1 as const;
 

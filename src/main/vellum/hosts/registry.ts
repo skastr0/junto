@@ -16,6 +16,7 @@ import {
   type RemoteHost,
   type RemoteHostsDocument as RemoteHostsDocumentT,
 } from "@shared/remote-hosts";
+import { admitHostsDocument, writeHostsSeal } from "./hosts-seal";
 
 const decodeDocument = Schema.decodeUnknownEither(RemoteHostsDocument);
 const MAX_BYTES = 64 * 1024;
@@ -152,6 +153,15 @@ const atomicWrite = async (
   await rename(tmp, path);
 };
 
+/** Persist document body and reseal app-owned enrollment integrity material. */
+const atomicWriteAndSeal = async (
+  path: string,
+  document: RemoteHostsDocumentT,
+): Promise<void> => {
+  await atomicWrite(path, document);
+  await writeHostsSeal(path, document);
+};
+
 export const loadRemoteHostsDocument = async (
   path: string = remoteHostsFilePath(),
 ): Promise<RemoteHostsDocumentT> => {
@@ -186,15 +196,27 @@ export const loadRemoteHostsDocument = async (
         `hosts.json schema invalid: ${decoded.left.message}`,
       );
     }
-    const migrated = migrateBrowserCapability(decoded.right);
+    // Admit the on-disk document first (seal covers pre-migration body), then
+    // apply soft migrations and reseal only when the body actually changes.
+    validateHosts(decoded.right.hosts);
+    const admitted = await admitHostsDocument(path, decoded.right);
+    if (admitted.outcome === "stripped") {
+      // Persist fail-closed local-only so disk and live view agree.
+      await atomicWrite(path, admitted.document);
+      return admitted.document;
+    }
+    const migrated = migrateBrowserCapability(admitted.document);
     validateHosts(migrated.hosts);
-    if (migrated !== decoded.right) await atomicWrite(path, migrated);
+    if (migrated !== admitted.document) {
+      await atomicWriteAndSeal(path, migrated);
+    }
     return migrated;
   } catch (error) {
     if (error instanceof RemoteHostsError) throw error;
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       const fresh = defaultRemoteHostsDocument();
-      await atomicWrite(path, fresh);
+      // First create: seal so later offline membership mint fails closed.
+      await atomicWriteAndSeal(path, fresh);
       return fresh;
     }
     throw new RemoteHostsError(
@@ -217,7 +239,7 @@ export const saveRemoteHostsDocument = async (
     );
   }
   validateHosts(document.hosts);
-  await atomicWrite(path, document);
+  await atomicWriteAndSeal(path, document);
   return document;
 };
 
