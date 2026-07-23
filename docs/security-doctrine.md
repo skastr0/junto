@@ -252,21 +252,26 @@ operator interface.
 
 The target product contract is:
 
-- canvas and protected settings are authenticated and encrypted at rest;
+- canvas and protected settings have one app-owned authoring path and
+  integrity protection appropriate to operator intent;
 - only direct operator actions in Command Center author intent;
 - agents never write the canonical canvas;
 - agents consume read-only compiled projections and Vellum tools;
 - automatic history records operator changes without adding authoring chores;
 - undo, recovery, and "what authority changed?" remain operator facilities.
 
-Plaintext JSON Canvas is an import/export and interoperability format. It is not
-the canonical live authority store. Importing an edited document is an explicit
-operator action. Exporting a document does not grant the exported file live
-authority over a running factory.
+JSON Canvas is an import/export and interoperability format. Its contents are
+not inherently secret. It is not the canonical live authority store. Importing
+an edited document is an explicit operator action. Exporting a document does
+not grant the exported file live authority over a running factory.
 
-The current plaintext `~/.vellum/canvases/*.canvas` implementation and external
-file-watch authority are migration debt. They do not define the final security
-model.
+The current externally writable `~/.vellum/canvases/*.canvas` authority and
+external file-watch authoring path are migration debt. Plaintext by itself is
+not the defect; allowing an ordinary file edit to become operator intent is.
+
+Canvas confidentiality follows the operator's operating-system account, disk,
+backup, and export choices. Vellum does not become a general secret-management
+or key-management system merely because the canvas is authoritative.
 
 ### Agent surface
 
@@ -289,11 +294,10 @@ An exported derivative:
 - carries no live authority over a running factory;
 - may be consumed by the operator or an attached agent through an authorized
   Vellum tool;
-- is outside the protected canonical store when deliberately persisted as
-  plaintext.
+- remains an ordinary operator-owned file when deliberately persisted.
 
-Vellum must not silently persist plaintext derivatives as though they were
-internal protected state. This rule protects the canonical document without
+Vellum must not silently treat an exported derivative as authorial input or
+live factory state. This protects the canonical authoring boundary without
 turning deliberate operator portability into a warning ceremony.
 
 ### Protected settings
@@ -305,11 +309,10 @@ authority.
 
 Ordinary use should favor operator comfort. Explicit reauthentication or
 recovery ceremony is reserved for catastrophic actions such as Command Center
-transfer, factory recovery or reset, key export, and unencrypted document
-export.
+transfer, factory recovery or reset, and factory identity or recovery export.
 
-The exact key hierarchy, unlock mechanism, and recovery design remain open
-decisions below.
+The exact authoring lock, catastrophic-action reauthentication, factory
+pairing, and recovery design remain open decisions below.
 
 ## Factory topology
 
@@ -441,6 +444,33 @@ Runtime placement and provider capability remain legible because they affect
 available ports and termination guarantees, not because Vellum requires a
 special disclosure ceremony for an operator-owned resource.
 
+## Credential ownership
+
+Vellum is not a KMS and does not become the owner of credentials belonging to
+the operator's operating system, network, harness, or provider.
+
+- SSH configuration, private keys, known-host decisions, and agent state remain
+  OpenSSH and operator-machine concerns. Vellum may invoke the operator's
+  configured SSH client after explicit host enrollment; it does not import,
+  copy, escrow, or reissue SSH private keys.
+- Harness and provider credentials remain in their native harness or provider
+  configuration. Vellum integrates with the authenticated tool; it does not
+  absorb the provider's secrets.
+- Tailscale identity and credentials remain owned by Tailscale and the
+  operator's installation.
+- Browser cookies and authenticated session data remain in the browser profile
+  on the Station that hosts the page. Moving or recreating a page elsewhere
+  does not copy or migrate that profile.
+- Administrator passwords may cross Vellum only for one explicit privileged
+  transaction, remain memory-bounded, and are never retained as fleet
+  credentials.
+
+Vellum may mint only credentials intrinsic to a Vellum-owned protocol, such as
+owner-local control tokens or the minimum factory/Station pairing material
+required by the final transport. Those credentials are narrowly scoped to
+Vellum; they never substitute for general SSH, provider, operating-system, or
+root credentials.
+
 ## Privilege and machine safety
 
 Root or administrator authority is a real boundary.
@@ -545,7 +575,7 @@ the most adversarial imaginable model.
 The following current surfaces contradict or predate this doctrine and must be
 treated as migration work:
 
-- plaintext canonical `.canvas` files;
+- externally writable `.canvas` files acting as canonical authority;
 - external file edits becoming live canvas authority;
 - language that calls the file the agent API;
 - role or topology authority represented as ordinary editable settings;
@@ -563,8 +593,8 @@ It is not evidence that the conflicting behavior belongs in the final product.
 These questions remain intentionally open. Implementations must not resolve
 them by accident:
 
-1. Exact Command Center key hierarchy, password derivation, OS credential-store
-   integration, unlock behavior, and recovery-code format.
+1. Exact operator authoring lock, catastrophic-action reauthentication,
+   factory/Station pairing, and recovery-code format.
 2. Permanent Command Center loss and whether recovery material may reclaim
    Stations.
 3. Exact Command Center transfer protocol and catastrophic-action

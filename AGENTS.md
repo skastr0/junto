@@ -12,9 +12,10 @@ review, backlog item, test, or older architecture note conflicts with it, the
 conflict is migration work rather than an exception.
 
 **Normative direction:** the protected document is the product; compiled
-projections and capability-bound tools are the agent API. The current plaintext
-canvas file and external file-watch authority are transitional implementation
-facts, not the final security contract.
+projections and capability-bound tools are the agent API. The current
+externally writable canvas authority and external file-watch authoring path are
+transitional implementation facts, not the final security contract. Plaintext
+is not itself the defect; ordinary file edits becoming operator intent is.
 
 ## The agent surface (headless — no GUI needed)
 
