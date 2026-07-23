@@ -1,7 +1,18 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { normalizeLinuxArtifactModes } from "../scripts/electron-builder-after-pack.mjs";
 import {
   electronBuilderLinuxDebArtifactName,
   finalizeLinuxUnpackedArtifact,
@@ -94,6 +105,7 @@ describe("native package pipeline contract", () => {
 
   it("keeps Linux free of macOS tooling and builds both canonical artifacts", async () => {
     const linux = await script("package-app-linux.sh");
+    expect(linux).toContain("set -euo pipefail\numask 0022\n");
     expect(linux).not.toContain("bun rebuild");
     expect(linux).not.toContain("electron-builder install-app-deps");
     expect(linux).toContain("Linux packaging requires Node >=22.12.0");
@@ -102,8 +114,19 @@ describe("native package pipeline contract", () => {
     expect(linux).toContain("--only node-pty");
     expect(linux).toContain("--sequential");
     expect(linux).toContain(
-      "bunx --no-install electron-builder --linux dir deb --x64 --config.npmRebuild=false",
+      "bunx --no-install electron-builder --linux dir deb --x64",
     );
+    expect(linux).toContain(
+      'PACKAGE_ASSET_DIR="$(mktemp -d -t vellum-linux-assets.XXXXXX)"',
+    );
+    expect(linux).toContain(
+      'install -m 0644 -- assets/brand/vellum-command-icon.png "$PACKAGE_ICON"',
+    );
+    expect(linux).toContain('rm -f -- "$PACKAGE_ICON"');
+    expect(linux).toContain('rmdir -- "$PACKAGE_ASSET_DIR"');
+    expect(linux).not.toContain("rm -rf");
+    expect(linux).toContain('--config.linux.icon="$PACKAGE_ICON"');
+    expect(linux).not.toMatch(/chmod.*assets\/brand/u);
     expect(linux).toContain('finalize-linux-package.ts');
     expect(linux).toContain('audit-linux-package.ts');
     expect(linux).toContain('electron-security-policy.ts" validate');
@@ -115,6 +138,67 @@ describe("native package pipeline contract", () => {
     expect(mac).toContain('bunx electron-builder --mac');
     expect(mac).toContain('notarize-app.sh');
     expect(mac).toContain('electron-security-policy.ts" validate');
+  });
+
+  it("normalizes only the completed Linux artifact without following links", async () => {
+    const sandbox = await mkdtemp(path.join(tmpdir(), "vellum-linux-modes-"));
+    const artifact = path.join(sandbox, "artifact");
+    const nested = path.join(artifact, "nested");
+    const regular = path.join(nested, "regular");
+    const executable = path.join(nested, "executable");
+    const restrictive = path.join(nested, "restrictive");
+    const external = path.join(sandbox, "external");
+    try {
+      await mkdir(nested, { recursive: true });
+      await Promise.all([
+        writeFile(regular, "regular"),
+        writeFile(executable, "executable"),
+        writeFile(restrictive, "restrictive"),
+        writeFile(external, "external"),
+      ]);
+      await chmod(artifact, 0o775);
+      await chmod(nested, 0o775);
+      await chmod(regular, 0o664);
+      await chmod(executable, 0o775);
+      await chmod(restrictive, 0o600);
+      await chmod(external, 0o666);
+      await symlink(external, path.join(artifact, "external-link"));
+
+      await normalizeLinuxArtifactModes(artifact);
+
+      const mode = async (candidate: string) =>
+        (await lstat(candidate)).mode & 0o7777;
+      await expect(mode(artifact)).resolves.toBe(0o755);
+      await expect(mode(nested)).resolves.toBe(0o755);
+      await expect(mode(regular)).resolves.toBe(0o644);
+      await expect(mode(executable)).resolves.toBe(0o755);
+      await expect(mode(restrictive)).resolves.toBe(0o600);
+      await expect(mode(external)).resolves.toBe(0o666);
+      expect(
+        (await lstat(path.join(artifact, "external-link"))).isSymbolicLink(),
+      ).toBe(true);
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses artifact hard links before mutating their source inode", async () => {
+    const sandbox = await mkdtemp(path.join(tmpdir(), "vellum-linux-hardlink-"));
+    const artifact = path.join(sandbox, "artifact");
+    const source = path.join(sandbox, "source");
+    try {
+      await mkdir(artifact);
+      await writeFile(source, "source");
+      await chmod(source, 0o664);
+      await link(source, path.join(artifact, "linked-source"));
+
+      await expect(normalizeLinuxArtifactModes(artifact)).rejects.toThrow(
+        /hard-linked file/u,
+      );
+      expect((await lstat(source)).mode & 0o7777).toBe(0o664);
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
+    }
   });
 
   it("renames electron-builder's generic Linux directory into the declared artifact identity", async () => {
@@ -179,6 +263,9 @@ describe("native package pipeline contract", () => {
       'writeFile(path.join(context.appOutDir, "version"), runtimeVersion',
     );
     expect(afterPack).toContain('flag: "wx"');
+    expect(afterPack).toContain(
+      "normalizeLinuxArtifactModes(context.appOutDir)",
+    );
     expect(afterPack).not.toContain('"vellum-release-installer.sudoers"');
     expect(packageJson).not.toContain("vellum-release-installer.sudoers");
     expect(packageJson).toContain('"from": "dist/vellum-release-bridge"');

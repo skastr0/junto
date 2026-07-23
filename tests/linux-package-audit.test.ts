@@ -237,6 +237,15 @@ describe("Linux ASAR application boundary", () => {
 });
 
 describe("deb payload authority and modes", () => {
+  it("rejects a package produced under a group-writable build umask", () => {
+    const listing = archiveListing()
+      .replaceAll("drwxr-xr-x", "drwxrwxr-x")
+      .replaceAll("-rw-r--r--", "-rw-rw-r--");
+    expect(() => validateDebArchive(parseDebArchiveListing(listing))).toThrow(
+      /mode mismatch|group\/world writable/u,
+    );
+  });
+
   it("normalizes numeric dpkg root ownership into the root-owned contract", () => {
     const numericOwnerEntries = parseDebArchiveListing(
       archiveListing().replaceAll("root/root", "0/0"),

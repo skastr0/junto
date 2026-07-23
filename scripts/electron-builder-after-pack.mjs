@@ -1,4 +1,11 @@
-import { access, chmod, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  lstat,
+  readFile,
+  readdir,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -85,6 +92,39 @@ const assertFuseWire = (wire, policy) => {
   }
 };
 
+export const normalizeLinuxArtifactModes = async (artifactRoot) => {
+  const mutableEntries = [];
+  const inventory = async (current) => {
+    const metadata = await lstat(current);
+    if (metadata.isSymbolicLink()) return;
+    if (metadata.isFile()) {
+      if (metadata.nlink !== 1) {
+        throw new Error(
+          `Linux package artifact contains a hard-linked file: ${current}`,
+        );
+      }
+      mutableEntries.push({ path: current, mode: metadata.mode });
+      return;
+    }
+    if (!metadata.isDirectory()) {
+      throw new Error(
+        `Linux package artifact contains a non-file object: ${current}`,
+      );
+    }
+    mutableEntries.push({ path: current, mode: metadata.mode });
+    const children = await readdir(current);
+    children.sort();
+    for (const child of children) {
+      await inventory(path.join(current, child));
+    }
+  };
+
+  await inventory(path.resolve(artifactRoot));
+  for (const entry of mutableEntries) {
+    await chmod(entry.path, (entry.mode & 0o7777) & ~0o022);
+  }
+};
+
 export default async function afterPack(context) {
   const platform = context.electronPlatformName;
   const policy = await loadPolicy();
@@ -159,4 +199,7 @@ export default async function afterPack(context) {
     );
   }
   assertFuseWire(await getCurrentFuseWire(executablePath), policy);
+  if (platform === "linux") {
+    await normalizeLinuxArtifactModes(context.appOutDir);
+  }
 }

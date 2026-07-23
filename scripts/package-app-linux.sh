@@ -2,6 +2,7 @@
 # Native Ubuntu 24.04 x64 package seam. It emits the diagnostic unpacked tree
 # and the canonical deb from the same target-native Electron rebuild.
 set -euo pipefail
+umask 0022
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   printf 'vellum: error: native linux packaging must run on Linux\n' >&2
@@ -54,7 +55,20 @@ bunx --no-install electron-rebuild \
   --force \
   --sequential
 
-bunx --no-install electron-builder --linux dir deb --x64 --config.npmRebuild=false
+# FPM preserves the mode of icon inputs. Stage a private copy so a checkout
+# created under a permissive umask cannot leak group-write into the package.
+PACKAGE_ASSET_DIR="$(mktemp -d -t vellum-linux-assets.XXXXXX)"
+PACKAGE_ICON="$PACKAGE_ASSET_DIR/vellum-command-icon.png"
+cleanup_package_assets() {
+  rm -f -- "$PACKAGE_ICON"
+  rmdir -- "$PACKAGE_ASSET_DIR"
+}
+trap cleanup_package_assets EXIT
+install -m 0644 -- assets/brand/vellum-command-icon.png "$PACKAGE_ICON"
+
+bunx --no-install electron-builder --linux dir deb --x64 \
+  --config.npmRebuild=false \
+  --config.linux.icon="$PACKAGE_ICON"
 finalized="$(bun "$SCRIPT_DIR/finalize-linux-package.ts" --release-dir "$SCRIPT_DIR/../release")"
 unpacked="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.artifact !== "string") process.exit(1); process.stdout.write(value.artifact)')"
 deb="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.deb !== "string") process.exit(1); process.stdout.write(value.deb)')"
