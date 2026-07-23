@@ -87,6 +87,8 @@ require_cmd python3
 require_cmd ditto
 require_cmd shasum
 
+bun "$SCRIPT_DIR/electron-security-policy.ts" validate
+
 canonical_existing_nonlink_directory() {
   local description="$1"
   local path="$2"
@@ -216,6 +218,7 @@ fi
 
 assert_release_app_capability "$APP_PATH" || exit 1
 assert_release_zip_capability "$ZIP_SRC" || exit 1
+bun "$SCRIPT_DIR/audit-packaged-app.ts" "$APP_PATH"
 APP_ID="$(path_id "$APP_PATH")"
 ZIP_ID="$(path_id "$ZIP_SRC")"
 RECEIPT_PATH="$RELEASE_ROOT/notarization-receipt.json"

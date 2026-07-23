@@ -686,6 +686,7 @@ export class BrowserCapabilityRegistry {
     expectedPrincipal?: BrowserAutomationPrincipal,
   ): BrowserCapabilityPreflightResult {
     const unauthorized = Object.freeze({ ok: false, denial: "unauthorized" } as const);
+    if (!this.#credentialHealthy()) return unauthorized;
     const forbidden = Object.freeze({ ok: false, denial: "forbidden" } as const);
     if (this.#closed) {
       this.#recordDenial(undefined, "closed", undefined);
@@ -736,6 +737,9 @@ export class BrowserCapabilityRegistry {
     request: BrowserCapabilityUseRequest,
     context: BrowserCapabilityAuthorizationContext,
   ): BrowserCapabilityLease {
+    if (!this.#credentialHealthy()) {
+      throw new BrowserCapabilityDenied("credential");
+    }
     if (this.#closed) {
       this.#recordDenial(undefined, "closed", request);
       throw new BrowserCapabilityDenied("closed");
@@ -1220,6 +1224,16 @@ export class BrowserCapabilityRegistry {
         revocationGeneration: record.revocationGeneration,
       });
     }
+  }
+
+  #credentialHealthy(): boolean {
+    let healthy = false;
+    try { healthy = this.#primaryCredentialHealth(); } catch { healthy = false; }
+    if (healthy) return true;
+    for (const record of [...this.#records.values()]) {
+      this.#terminateRecord(record, "revoked_operator", "revoked");
+    }
+    return false;
   }
 
   #scheduleExpiry(record: CapabilityRecord): void {
