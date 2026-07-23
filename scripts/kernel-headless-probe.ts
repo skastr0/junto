@@ -11,17 +11,17 @@
 //      path, kernel-design.md §3) for a fixture region, boots the app,
 //      boots the app in its explicit no-window mode (the app + kernel keep
 //      running with zero windows, exactly the packaged/launchd shape), and
-//      waits for a rising-edge TIMER pulse
+//      waits for a TIMER pulse routed over a human-authored timer → agent edge
 //      to deliver: a real ChatService.chatOpen + chatPrompt against a local
 //      hermes agent, landing a PulseRecord with delivered.length > 0.
 //   2. DISARMED — same fixture, armed:false from boot. Asserts the resulting
 //      PulseRecord is dry (delivered: [], dry: true) — no agent turn spent.
 //
-// A TIMER watcher (not a stat_threshold/glyphs_* watcher) is the deterministic
+// A TIMER (not a stat_threshold/glyphs_* watcher) is the deterministic
 // trigger on purpose: it has no live tower/quasar/booth dependency, so this
-// probe isolates exactly the claim it exists to back — headless delivery with
-// zero windows — from watcher-edge correctness, which the ported unit tests
-// (tests/kernel.test.ts, tests/b2-kernel-edge.test.ts) already cover.
+// probe proves headless delivery with zero windows through the same executable
+// entity + human-edge router used by watcher fire. Region membership supplies
+// arming and instruction context only.
 //
 // External control surface is file-based (store.json + the canvas file),
 // matching AGENTS.md's headless contract — this app exposes no IPC to a
@@ -39,6 +39,11 @@ import {
   type ProbeProcessHandle,
   type ProbeSandbox,
 } from "./probe-process-supervisor";
+import {
+  KERNEL_PROBE_CANVAS,
+  KERNEL_PROBE_REGION_ID,
+  makeKernelHeadlessFixture,
+} from "./kernel-headless-fixture";
 
 // Scripts in this repo are always invoked from the repo root (`bun run
 // scripts/...` / `bun scripts/...`), matching every other script here — no
@@ -46,18 +51,6 @@ import {
 const REPO_ROOT = process.cwd();
 const ELECTRON_BIN = join(REPO_ROOT, "node_modules", ".bin", "electron");
 const MAIN_ENTRY = join(REPO_ROOT, "out", "main", "index.js");
-
-const FIXTURE_CANVAS = "__kernel-probe-fixture__";
-const REGION_ID = "probe-region";
-const TIMER_NODE_ID = "probe-timer";
-const AGENT_NODE_ID = "probe-agent";
-// A real local hermes profile (not a fake/stub target) — this is the whole
-// point: prove a genuine ChatService.chatOpen + chatPrompt fires headlessly,
-// not just that the delivery seam was called.
-const AGENT_KEY = "local:default";
-const TIMER_EVERY_MINUTES = 0.02; // ~1.2s — fast enough for a probe, still a
-// real interval scheduled one period out on first sight (never fires on
-// discovery, per the kernel's re-baseline law).
 
 const BOOT_POLL_MS = 500;
 const ARMED_DELIVERY_TIMEOUT_MS = 90_000; // headroom for a real model turn
@@ -79,42 +72,6 @@ interface PulseRecordLike {
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
-const fixtureDoc = () => ({
-  nodes: [
-    {
-      id: REGION_ID,
-      type: "group",
-      x: 0,
-      y: 0,
-      width: 400,
-      height: 300,
-      label: "probe region",
-      ether: { region: { instruction: "[probe] reply with the single word ack" } },
-    },
-    {
-      id: TIMER_NODE_ID,
-      type: "text",
-      x: 20,
-      y: 20,
-      width: 200,
-      height: 80,
-      text: "probe timer",
-      ether: { timer: { everyMinutes: TIMER_EVERY_MINUTES } },
-    },
-    {
-      id: AGENT_NODE_ID,
-      type: "text",
-      x: 20,
-      y: 140,
-      width: 200,
-      height: 80,
-      text: "probe agent",
-      ether: { entity: { kind: "agent", name: AGENT_KEY } },
-    },
-  ],
-  edges: [],
-});
 
 const storePath = (userDataDir: string): string => join(userDataDir, "store.json");
 
@@ -143,9 +100,17 @@ const setUpFixture = async (armed: boolean): Promise<Fixture> => {
   const userDataDir = join(root, "userData");
   const canvasesDir = join(root, "canvases");
   await mkdir(canvasesDir, { recursive: true });
-  await writeFile(join(canvasesDir, `${FIXTURE_CANVAS}.canvas`), JSON.stringify(fixtureDoc(), null, 2), "utf8");
+  await writeFile(
+    join(canvasesDir, `${KERNEL_PROBE_CANVAS}.canvas`),
+    JSON.stringify(makeKernelHeadlessFixture(), null, 2),
+    "utf8",
+  );
   if (armed) {
-    await writeStore(userDataDir, { "kernel.armed": { [`${FIXTURE_CANVAS}::${REGION_ID}`]: true } });
+    await writeStore(userDataDir, {
+      "kernel.armed": {
+        [`${KERNEL_PROBE_CANVAS}::${KERNEL_PROBE_REGION_ID}`]: true,
+      },
+    });
   }
   return { userDataDir, canvasesDir };
 };
@@ -176,7 +141,10 @@ const waitForPulse = async (
     if (watchdogExitRequested) throw new Error("kernel probe watchdog expired");
     const store = await readStore(fixture.userDataDir);
     const debug = store["kernel.debug"] as { pulseLog?: ReadonlyArray<PulseRecordLike> } | undefined;
-    const match = debug?.pulseLog?.find((record) => record.canvasName === FIXTURE_CANVAS && predicate(record));
+    const match = debug?.pulseLog?.find(
+      (record) =>
+        record.canvasName === KERNEL_PROBE_CANVAS && predicate(record),
+    );
     if (match) return match;
     await sleep(BOOT_POLL_MS);
   }
