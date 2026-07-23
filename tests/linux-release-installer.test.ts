@@ -270,27 +270,7 @@ const makeFenceControl = () => {
   });
 };
 
-const makeReadiness = (): string =>
-  `${JSON.stringify({
-    version: 1,
-    generation,
-    state: "ready",
-    components: {
-      version: "ready",
-      role: "ready",
-      host: "ready",
-      package: "ready",
-      supervisor: "ready",
-      canvasPull: "ready",
-      work: "ready",
-      terminal: "ready",
-      browserTransport: "ready",
-      browserComposition: "ready",
-      display: "ready",
-      sandbox: "ready",
-      browserCapability: "ready",
-    },
-  })}\n`;
+const makeReadiness = (): string => `${generation}\n`;
 
 const startBus = async (
   runtimeRoot: string,
@@ -542,8 +522,8 @@ const readinessPath = (fixture: Fixture): string =>
   path.join(
     fixture.paths.runtimeRoot,
     String(fixture.invocation.sudoUid),
-    "vellum",
-    "station-ready.json",
+    "vellum-remote",
+    `ready-${generation}`,
   );
 
 const seedReadiness = async (fixture: Fixture): Promise<void> => {
@@ -794,13 +774,13 @@ const makeRunner = (
         const directory = path.join(
           paths.runtimeRoot,
           String(targetUid()),
-          "vellum",
+          "vellum-remote",
         );
         await mkdir(directory, { recursive: true, mode: 0o700 });
         if (rootOwnerUid() === 0) {
           await chown(directory, targetUid(), targetGid());
         }
-        const receipt = path.join(directory, "station-ready.json");
+        const receipt = path.join(directory, `ready-${generation}`);
         await writeFile(receipt, makeReadiness(), { mode: 0o600 });
         if (rootOwnerUid() === 0) {
           await chown(receipt, targetUid(), targetGid());

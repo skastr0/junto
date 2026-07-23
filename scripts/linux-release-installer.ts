@@ -2116,58 +2116,11 @@ const decodeCacheMetadata = (value: unknown): CacheMetadata => {
 const cacheMetadataText = (metadata: CacheMetadata): string =>
   `${JSON.stringify(metadata)}\n`;
 
-const canonicalJson = (value: unknown): string => `${JSON.stringify(value)}\n`;
-
+/** Work-control generation readiness: plain `${INVOCATION_ID}\n` only. */
 const validateReadinessReceipt = (
   raw: string,
   generation: string,
-): boolean => {
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    return false;
-  }
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value) ||
-    canonicalJson(value) !== raw
-  ) {
-    return false;
-  }
-  const receipt = value as Record<string, unknown>;
-  const components = receipt.components;
-  const expected = [
-    "version",
-    "role",
-    "host",
-    "package",
-    "supervisor",
-    "canvasPull",
-    "work",
-    "terminal",
-    "browserTransport",
-    "browserComposition",
-    "display",
-    "sandbox",
-    "browserCapability",
-  ];
-  if (
-    receipt.version !== 1 ||
-    receipt.generation !== generation ||
-    receipt.state !== "ready" ||
-    typeof components !== "object" ||
-    components === null ||
-    Array.isArray(components)
-  ) {
-    return false;
-  }
-  const decoded = components as Record<string, unknown>;
-  return JSON.stringify(Object.keys(decoded).sort()) ===
-      JSON.stringify([...expected].sort()) &&
-    expected.every((name) => decoded[name] === "ready");
-};
+): boolean => raw === `${generation}\n`;
 
 export class NodeLinuxReleaseInstallerHost
   implements LinuxReleaseInstallerHost
@@ -4498,11 +4451,12 @@ export class NodeLinuxReleaseInstallerHost
         "readiness binding is malformed",
       );
     }
+    // Generation readiness from work-control: not Doctor / product-plane deep readiness.
     const readinessPath = path.join(
       this.#runtimeRoot,
       String(invocation.sudoUid),
-      "vellum",
-      "station-ready.json",
+      "vellum-remote",
+      `ready-${generation}`,
     );
     const deadline = Date.now() + 45_000;
     while (Date.now() < deadline) {
@@ -4555,7 +4509,9 @@ export class NodeLinuxReleaseInstallerHost
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    throw new Error("fresh Remote station readiness receipt did not arrive");
+    throw new Error(
+      "fresh Remote generation readiness receipt did not arrive",
+    );
   }
 
   async #restoreOperationalState(

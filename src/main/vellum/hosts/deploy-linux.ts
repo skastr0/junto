@@ -215,57 +215,6 @@ exact_field() {
     END { if (count == 1 && length(value) > 0) print value; else exit 1 }
   '
 }
-station_ready_receipt() {
-  READY_PATH="$1" READY_GENERATION="$2" /usr/bin/python3 - <<'PY'
-import json
-import os
-import stat
-
-components = {
-    "version": "ready",
-    "role": "ready",
-    "host": "ready",
-    "package": "ready",
-    "supervisor": "ready",
-    "canvasPull": "ready",
-    "work": "ready",
-    "terminal": "ready",
-    "browserTransport": "ready",
-    "browserComposition": "ready",
-    "display": "ready",
-    "sandbox": "ready",
-    "browserCapability": "ready",
-}
-expected = (
-    json.dumps(
-        {
-            "version": 1,
-            "generation": os.environ["READY_GENERATION"],
-            "state": "ready",
-            "components": components,
-        },
-        separators=(",", ":"),
-    )
-    + "\n"
-).encode("ascii")
-descriptor = os.open(
-    os.environ["READY_PATH"],
-    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-)
-try:
-    metadata = os.fstat(descriptor)
-    if (
-        not stat.S_ISREG(metadata.st_mode)
-        or stat.S_IMODE(metadata.st_mode) != 0o600
-        or metadata.st_uid != os.getuid()
-        or metadata.st_size != len(expected)
-        or os.read(descriptor, len(expected) + 1) != expected
-    ):
-        raise SystemExit(1)
-finally:
-    os.close(descriptor)
-PY
-}
 IFS= read -r BUNDLE_BYTES || refuse disk
 IFS= read -r EXPECTED_VERSION || refuse version
 IFS= read -r EXPECTED_DEB_SHA || refuse package
@@ -289,6 +238,7 @@ esac
 for REQUIRED_COMMAND in \
   /bin/hostname \
   /usr/bin/awk \
+  /usr/bin/cat \
   /usr/bin/df \
   /usr/bin/dpkg \
   /usr/bin/dpkg-query \
@@ -296,7 +246,6 @@ for REQUIRED_COMMAND in \
   /usr/bin/grep \
   /usr/bin/id \
   /usr/bin/loginctl \
-  /usr/bin/python3 \
   /usr/bin/stat \
   /usr/bin/sudo \
   /usr/bin/systemctl \
@@ -411,15 +360,11 @@ if [ "$ENABLED" = 1 ] && [ "$ACTIVE" = 1 ]; then
      [ "$MAIN_PID" -gt 1 ] && [ "${"$"}{#INVOCATION}" -eq 32 ] &&
      [ "$PACKAGE_VERIFY_OK" = 1 ] && [ -z "$PACKAGE_VERIFY" ] &&
      private_file "$READY_RECEIPT" &&
-     station_ready_receipt "$READY_RECEIPT" "$INVOCATION" &&
+     [ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$INVOCATION" ] &&
      /usr/bin/tr '\0' '\n' < "/proc/$MAIN_PID/cmdline" |
        /usr/bin/grep -Fqx '/opt/Vellum Command/resources/systemd/vellum-remote-launch-v1' &&
      private_socket "$HOME/.vellum/work/control.sock" &&
-     private_file "$HOME/.vellum/work/token" &&
-     private_socket "$HOME/.vellum/term/control.sock" &&
-     private_file "$HOME/.vellum/term/token" &&
-     private_socket "$HOME/.vellum/browser/control.sock" &&
-     private_file "$HOME/.vellum/browser/control.token"; then
+     private_file "$HOME/.vellum/work/token"; then
     CURRENT_READY=1
     CURRENT_GENERATION="$INVOCATION"
   fi
@@ -2288,7 +2233,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
         );
         appendStage(
           stages,
-          `systemd generation ${receipt.readiness.generation} and all product planes ready`,
+          `systemd generation ${receipt.readiness.generation} work control ready`,
         );
         const result: DeployRemoteResult = {
           ok: true,
