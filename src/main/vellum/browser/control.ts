@@ -1347,6 +1347,8 @@ export const startBrowserControlServer = async (
       capabilities: options.capabilities,
       canvasesDir,
       resolvePageTarget: options.resolvePageTarget,
+      station: () => options.sessions.stationIdentity(),
+      admitBrowserHost: (hostId) => options.sessions.admitAutomationHost(hostId),
       ...(options.readCanvas === undefined ? {} : { readCanvas: options.readCanvas }),
     });
   const maxActiveHandlers = boundedRuntimeValue(

@@ -37,6 +37,7 @@ import { parseNodeRef } from "@shared/node-ref";
 import type { PageTargetResult, ResolvedPageTarget } from "./page-target";
 import {
   admitBrowserHostCapability,
+  type BrowserHostCapabilityAdmission,
   type BrowserHostCapabilityAuthority,
 } from "./host-capability";
 import {
@@ -623,6 +624,21 @@ export class BrowserSessionService {
       this.uiShutdownClosedAt === undefined &&
       snapshot.epoch === this.uiShutdownEpoch
     );
+  }
+
+  /**
+   * Read-only physical-station seam for local control admission. The control
+   * socket is hosted by this same BrowserSessionService, so edge grants can
+   * reject a foreign page before minting a capability instead of discovering
+   * the mismatch only while opening its view.
+   */
+  stationIdentity(): ReturnType<BrowserHostCapabilityAuthority["station"]> {
+    return this.hostAuthority.station();
+  }
+
+  /** Validate a document-derived page host against this process's station. */
+  admitAutomationHost(hostId: string): BrowserHostCapabilityAdmission {
+    return admitBrowserHostCapability(hostId, this.hostAuthority);
   }
 
   private retainUiOperation<A>(

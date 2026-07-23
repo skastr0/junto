@@ -35,6 +35,7 @@ import type {
   PageTargetResolver,
   ResolvedPageTarget,
 } from "../src/main/vellum/browser/page-target";
+import type { BrowserHostCapabilityAuthority } from "../src/main/vellum/browser/host-capability";
 
 const REF_PAGE = "vellum://canvas/work?node=p1";
 const TARGET: ResolvedPageTarget = {
@@ -106,6 +107,23 @@ const canvasDoc = (withEdge: boolean): CanvasDoc => ({
     },
   ],
   edges: withEdge ? [{ id: "e1", fromNode: "agent", toNode: "p1" }] : [],
+});
+
+const stationAuthority = (hostId: string): BrowserHostCapabilityAuthority => ({
+  findHost: (id) =>
+    id === hostId
+      ? {
+          id,
+          label: id,
+          kind: id === "local" ? "local" : "remote",
+          ...(id === "local" ? {} : { endpoint: id }),
+          capabilities: ["browser"],
+        }
+      : undefined,
+  station: () => ({
+    hostId,
+    role: hostId === "local" ? "command-center" : "remote",
+  }),
 });
 
 const terminalCanvasDoc = (): CanvasDoc => ({
@@ -315,6 +333,135 @@ describe("browser edge-grant process-bind dual admit", () => {
     if (!denied.envelope.ok) {
       expect(denied.envelope.error.message).toMatch(/missing edge/i);
     }
+  });
+
+  it("refuses a cross-host page edge before minting browser authority", async () => {
+    await mkdir(join(root, "canvases"), { recursive: true });
+    const base = canvasDoc(true);
+    const doc: CanvasDoc = {
+      ...base,
+      nodes: base.nodes.map((node) => ({
+        ...node,
+        ether: {
+          ...node.ether,
+          host: node.id === "agent" ? "studio" : "render",
+        },
+      })),
+    };
+    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
+
+    const capabilities = makeBrowserCapabilityRegistry();
+    registries.push(capabilities);
+    const authority = stationAuthority("studio");
+    const edgeGrant = makeEdgeGrantService({
+      capabilities,
+      canvasesDir: join(root, "canvases"),
+      resolvePageTarget: async (candidate) =>
+        candidate === REF_PAGE
+          ? { ok: true, data: { ...TARGET, hostId: "render" } }
+          : { ok: false, code: "not_found", message: "missing" },
+      station: authority.station,
+      admitBrowserHost: (hostId) => {
+        const host = authority.findHost(hostId);
+        return host === undefined
+          ? {
+              ok: false as const,
+              code: "unsupported_capability" as const,
+              reason: "host-not-registered" as const,
+              message: "missing",
+            }
+          : { ok: true as const, host };
+      },
+    });
+
+    await expect(
+      edgeGrant.admitPrincipal({ kind: "agent", agentKey: "local:default" }),
+    ).resolves.toMatchObject({
+      ok: false,
+      denial: "physical_host_mismatch",
+    });
+    expect(capabilities.stats().activeCapabilities).toBe(0);
+  });
+
+  it("mints only when the Remote caller, document page, and resolved target share its host", async () => {
+    await mkdir(join(root, "canvases"), { recursive: true });
+    const base = canvasDoc(true);
+    const doc: CanvasDoc = {
+      ...base,
+      nodes: base.nodes.map((node) => ({
+        ...node,
+        ether: { ...node.ether, host: "studio" },
+      })),
+    };
+    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
+
+    const capabilities = makeBrowserCapabilityRegistry();
+    registries.push(capabilities);
+    const authority = stationAuthority("studio");
+    const edgeGrant = makeEdgeGrantService({
+      capabilities,
+      canvasesDir: join(root, "canvases"),
+      resolvePageTarget: async (candidate) =>
+        candidate === REF_PAGE
+          ? { ok: true, data: { ...TARGET, hostId: "studio" } }
+          : { ok: false, code: "not_found", message: "missing" },
+      station: authority.station,
+      admitBrowserHost: (hostId) => {
+        const host = authority.findHost(hostId);
+        return host === undefined
+          ? {
+              ok: false as const,
+              code: "unsupported_capability" as const,
+              reason: "host-not-registered" as const,
+              message: "missing",
+            }
+          : { ok: true as const, host };
+      },
+    });
+
+    await expect(
+      edgeGrant.admitPrincipal({ kind: "agent", agentKey: "local:default" }),
+    ).resolves.toMatchObject({ ok: true, targetCount: 1 });
+    expect(capabilities.stats().activeCapabilities).toBe(1);
+  });
+
+  it("refuses a resolver result that disagrees with its same-host page node", async () => {
+    await mkdir(join(root, "canvases"), { recursive: true });
+    const base = canvasDoc(true);
+    const doc: CanvasDoc = {
+      ...base,
+      nodes: base.nodes.map((node) => ({
+        ...node,
+        ether: { ...node.ether, host: "studio" },
+      })),
+    };
+    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
+
+    const capabilities = makeBrowserCapabilityRegistry();
+    registries.push(capabilities);
+    const authority = stationAuthority("studio");
+    const edgeGrant = makeEdgeGrantService({
+      capabilities,
+      canvasesDir: join(root, "canvases"),
+      resolvePageTarget: async () => ({ ok: true, data: { ...TARGET, hostId: "render" } }),
+      station: authority.station,
+      admitBrowserHost: (hostId) => {
+        const host = authority.findHost(hostId);
+        return host === undefined
+          ? {
+              ok: false as const,
+              code: "unsupported_capability" as const,
+              reason: "host-not-registered" as const,
+              message: "missing",
+            }
+          : { ok: true as const, host };
+      },
+    });
+
+    await expect(
+      edgeGrant.admitPrincipal({ kind: "agent", agentKey: "local:default" }),
+    ).resolves.toMatchObject({ ok: false, denial: "physical_host_mismatch" });
+    expect(capabilities.stats().activeCapabilities).toBe(0);
   });
 
   it("denies a registered native terminal on protected routes despite a human page edge", async () => {

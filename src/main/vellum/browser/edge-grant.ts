@@ -22,6 +22,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Either } from "effect";
 import { decodeCanvasDoc } from "@shared/canvas";
+import { resolveNodeHostId } from "@shared/station";
+import type { BrowserHostCapabilityAdmission } from "./host-capability";
 
 // Edge-grant admission for process-bound callers:
 //   peer PID → registered principal → canvas agent|herdr node → edges → pages
@@ -53,6 +55,7 @@ export type EdgeGrantDenial =
   | "ambiguous"
   | "caller_wrong_kind"
   | "not_connected"
+  | "physical_host_mismatch"
   | "canvas_unreadable"
   | "capacity"
   | "closed";
@@ -96,6 +99,13 @@ export interface EdgeGrantDependencies {
   readonly readPeerPid?: PeerPidReader;
   readonly wallNow?: () => number;
   readonly ttlMs?: number;
+  /**
+   * Browser composition supplies these from its local session service. They
+   * make station identity and advertised browser capability a pre-mint
+   * condition, rather than allowing a short-lived secret for a foreign page.
+   */
+  readonly station?: () => { readonly hostId: string } | undefined;
+  readonly admitBrowserHost?: (hostId: string) => BrowserHostCapabilityAdmission;
   /** Optional single-doc loader override for tests. */
   readonly readCanvas?: (name: string) => Promise<CanvasDoc | undefined>;
 }
@@ -247,6 +257,62 @@ export const makeEdgeGrantService = (
     );
   };
 
+  const admitsPhysicalStation = (
+    doc: CanvasDoc,
+    callerNodeId: string,
+    pageRefs: ReadonlyArray<string>,
+  ): EdgeGrantResult | undefined => {
+    if (dependencies.station === undefined || dependencies.admitBrowserHost === undefined) {
+      return undefined;
+    }
+    const station = dependencies.station();
+    const caller = doc.nodes.find((node) => node.id === callerNodeId);
+    if (station === undefined || caller === undefined || resolveNodeHostId(caller) !== station.hostId) {
+      return fail(
+        "physical_host_mismatch",
+        "caller node is not assigned to this physical station",
+      );
+    }
+    const stationBrowser = dependencies.admitBrowserHost(station.hostId);
+    if (!stationBrowser.ok) {
+      return fail(
+        "physical_host_mismatch",
+        "this physical station cannot host browser automation",
+      );
+    }
+    for (const ref of pageRefs) {
+      const nodeId = ref.split("node=")[1];
+      const page = nodeId === undefined ? undefined : doc.nodes.find((node) => node.id === nodeId);
+      if (page === undefined || resolveNodeHostId(page) !== station.hostId) {
+        return fail(
+          "physical_host_mismatch",
+          "connected page is not assigned to this physical station",
+        );
+      }
+    }
+    return undefined;
+  };
+
+  const targetsAdmitPhysicalStation = (
+    targets: ReadonlyArray<BrowserCapabilityTarget>,
+  ): EdgeGrantResult | undefined => {
+    if (dependencies.station === undefined || dependencies.admitBrowserHost === undefined) {
+      return undefined;
+    }
+    const station = dependencies.station();
+    if (
+      station === undefined ||
+      targets.some((target) => target.hostId !== station.hostId) ||
+      targets.some((target) => !dependencies.admitBrowserHost!(target.hostId).ok)
+    ) {
+      return fail(
+        "physical_host_mismatch",
+        "resolved page target is not hosted by this physical station",
+      );
+    }
+    return undefined;
+  };
+
   const admitPrincipal = async (
     principal: ProcessPrincipal,
   ): Promise<EdgeGrantResult> => {
@@ -263,7 +329,12 @@ export const makeEdgeGrantService = (
       return fail("canvas_unreadable", "no canvases available for process-bind resolution");
     }
 
-    const matches: Array<{ canvasName: string; pageRefs: ReadonlyArray<string> }> = [];
+    const matches: Array<{
+      canvasName: string;
+      callerNodeId: string;
+      doc: CanvasDoc;
+      pageRefs: ReadonlyArray<string>;
+    }> = [];
 
     let lastDenial: EdgeGrantDenial = "not_found";
     let lastMessage = "no matching agent|herdr node for connecting process";
@@ -282,7 +353,12 @@ export const makeEdgeGrantService = (
         lastMessage = resolved.message;
         continue;
       }
-      matches.push({ canvasName: resolved.principal.canvasName, pageRefs: resolved.pageRefs });
+      matches.push({
+        canvasName: resolved.principal.canvasName,
+        callerNodeId: resolved.principal.nodeId,
+        doc,
+        pageRefs: resolved.pageRefs,
+      });
     }
 
     if (matches.length === 0) {
@@ -296,6 +372,12 @@ export const makeEdgeGrantService = (
     }
 
     const match = matches[0]!;
+    const stationDenial = admitsPhysicalStation(
+      match.doc,
+      match.callerNodeId,
+      match.pageRefs,
+    );
+    if (stationDenial !== undefined) return stationDenial;
     const targets = await buildTargets(match.pageRefs);
     if (targets.length === 0) {
       return fail(
@@ -303,6 +385,8 @@ export const makeEdgeGrantService = (
         "missing edge between caller and a page node — draw an edge in Vellum",
       );
     }
+    const targetStationDenial = targetsAdmitPhysicalStation(targets);
+    if (targetStationDenial !== undefined) return targetStationDenial;
     if (
       lastClearSequence > admissionStartedAt ||
       (canvasInvalidatedAt.get(match.canvasName) ?? 0) > admissionStartedAt
