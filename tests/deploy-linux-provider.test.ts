@@ -1,8 +1,31 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+  admitLinuxRemoteArtifact,
   buildLinuxRemoteDeployScript,
   decodeLinuxRemoteReceipt,
 } from "../src/main/vellum/hosts/deploy-linux";
+
+const receipt = (scope: "release" | "evidence", file: string, body: string) => ({
+  scope, file, bytes: Buffer.byteLength(body), sha256: createHash("sha256").update(body).digest("hex"),
+});
+
+const fixture = async () => {
+  const root = await mkdtemp(join(tmpdir(), "vellum-linux-admit-"));
+  const release = join(root, "release"); const evidence = join(root, "evidence");
+  await Promise.all([mkdir(release), mkdir(evidence)]);
+  const deb = "Vellum Command-1.2.3-x64-linux.deb"; const debBody = "deb-bytes";
+  await writeFile(join(release, deb), debBody);
+  const required = ["package-audit.json", "packaged-pty-smoke.json", "packaged-runtime-smoke.json", "test-receipt.json"];
+  await Promise.all(required.map((file) => writeFile(join(evidence, file), `{\"${file}\":true}\n`)));
+  const evidenceEntries = await Promise.all(required.map(async (file) => {
+    const body = `{\"${file}\":true}\n`; return receipt("evidence", file, body);
+  }));
+  return { root, release, evidence, manifest: { schema: "vellum/linux-release-evidence/v1", target: { os: "linux", architecture: "x64", machine: "x86_64", distribution: "ubuntu", distributionVersion: "24.04", libc: "glibc" }, publishable: { format: "deb", file: deb }, evidence: [receipt("release", deb, debBody), ...evidenceEntries] } };
+};
 
 describe("Linux Remote deployment program", () => {
   it("accepts only one bounded readiness receipt", () => {
@@ -18,5 +41,16 @@ describe("Linux Remote deployment program", () => {
     expect(script).toContain('trap cleanup EXIT HUP INT TERM');
     expect(script).toContain('dpkg-deb --info "$DEB"');
     expect(script).not.toMatch(/sudo|apt-get|curl|wget|systemctl|loginctl|pkill|killall|--no-sandbox/u);
+  });
+
+  it("admits only the exact CI deb plus audited readiness receipts", async () => {
+    const input = await fixture();
+    try {
+      await expect(admitLinuxRemoteArtifact({ manifest: input.manifest, releaseDirectory: input.release, evidenceDirectory: input.evidence })).resolves.toMatchObject({ version: "1.2.3", bytes: 9 });
+      await expect(admitLinuxRemoteArtifact({ manifest: { ...input.manifest, target: { ...input.manifest.target, libc: "musl" } }, releaseDirectory: input.release, evidenceDirectory: input.evidence })).rejects.toThrow(/Ubuntu 24.04/u);
+      await expect(admitLinuxRemoteArtifact({ manifest: { ...input.manifest, publishable: { format: "deb", file: "other.deb" } }, releaseDirectory: input.release, evidenceDirectory: input.evidence })).rejects.toThrow(/invalid deb identity/u);
+      await expect(admitLinuxRemoteArtifact({ manifest: { ...input.manifest, evidence: input.manifest.evidence.slice(0, -1) }, releaseDirectory: input.release, evidenceDirectory: input.evidence })).rejects.toThrow(/required evidence/u);
+      await expect(admitLinuxRemoteArtifact({ manifest: { ...input.manifest, evidence: [...input.manifest.evidence, receipt("release", "Vellum Command-9-x64-linux.deb", "other")] }, releaseDirectory: input.release, evidenceDirectory: input.evidence })).rejects.toThrow(/single bounded/u);
+    } finally { await rm(input.root, { recursive: true, force: true }); }
   });
 });
