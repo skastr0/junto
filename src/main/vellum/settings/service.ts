@@ -17,10 +17,7 @@ import {
   decodePatchInput,
   migrateSettingsDocument,
 } from "./migrate";
-import {
-  probeLaunchAgentLoaded,
-  type SupervisedProbe,
-} from "./supervised-probe";
+import { probeSupervisedRuntime, type SupervisedProbe } from "./supervised-probe";
 
 // SettingsService: single durable prefs aggregate. Path defaults to
 // ~/.vellum/settings.json (agent-readable home). Tests override via
@@ -131,7 +128,7 @@ export const makeSettingsService = (
   path: string = settingsFilePath(),
   options: SettingsServiceOptions = {},
 ): SettingsServiceApi => {
-  const probeSupervised = options.probeSupervised ?? probeLaunchAgentLoaded;
+  const probeSupervised = options.probeSupervised ?? probeSupervisedRuntime;
   let cached: Settings | undefined;
   let inFlight: Promise<Settings> | null = null;
   // Serialize patch/reset RMW so concurrent IPC cannot last-writer-clobber.

@@ -70,7 +70,7 @@ beforeEach(() => {
 });
 
 describe("systemd user station supervisor observation", () => {
-  it("identifies current and foreign active services without exposing MainPID", async () => {
+  it("does not derive Electron ownership from systemd wrapper MainPID", async () => {
     mocks.showVellumSystemdUserUnit.mockResolvedValueOnce(successful());
     const supervisor = createSystemdUserStationSupervisor();
 
@@ -82,7 +82,7 @@ describe("systemd user station supervisor observation", () => {
     expect(current).toEqual({
       provider: "systemd-user",
       state: "active",
-      ownership: "current",
+      ownership: "other",
     });
     expect(current).not.toHaveProperty("pid");
     expect(current).not.toHaveProperty("MainPID");

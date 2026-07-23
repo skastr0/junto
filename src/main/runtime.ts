@@ -32,7 +32,7 @@ import { KernelLive, KernelService } from "./vellum/kernel/service";
 import { WorkLive } from "./vellum/work/service";
 import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
 import { SettingsLive, SettingsService } from "./vellum/settings/service";
-import { probeLaunchAgentLoaded } from "./vellum/settings/supervised-probe";
+import { probeSupervisedRuntime } from "./vellum/settings/supervised-probe";
 import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
 import { UsageLive } from "./vellum/usage/live";
 import { UsageService } from "./vellum/usage/usage-service";
@@ -136,7 +136,7 @@ export const buildDoctorReport = Effect.gen(function* () {
             ),
           )
         : undefined;
-    const supervisedInstalled = yield* Effect.promise(() => probeLaunchAgentLoaded());
+    const supervisedInstalled = yield* Effect.promise(() => probeSupervisedRuntime());
     const workHome = process.env[WORK_HOME_ENV] || workControlDir(homedir());
     const workControlReady = yield* Effect.tryPromise({
       try: async () => {

@@ -174,7 +174,11 @@ const classifySystemdShow = (
     return Object.freeze({
       provider: "systemd-user",
       state: "active",
-      ownership: parsed.mainPid === process.pid ? "current" : "other",
+      // Type=notify keeps systemd's MainPID on the package-owned launcher;
+      // Electron is a separately spawned process group. A pid comparison
+      // would manufacture authority from an observation, so this provider
+      // never claims process ownership from MainPID.
+      ownership: "other",
     });
   }
   if (parsed.fields.ActiveState === "inactive" && parsed.mainPid === 0) {

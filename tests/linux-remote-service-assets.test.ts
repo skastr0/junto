@@ -67,7 +67,9 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(launcher).toContain('"$XVFB" "$DISPLAY" -screen 0 1280x1024x24 -nolisten tcp -auth "$XAUTHORITY" &');
     expect(launcher).toContain('"$XAUTH" -f "$XAUTHORITY" add "$DISPLAY" . "$(/usr/bin/mcookie)" >/dev/null 2>&1');
     expect(launcher).toContain("DISPLAY_NUMBER='89'");
-    expect(launcher).toContain('rm -f -- "$LOCK_FILE"');
+    expect(launcher).not.toContain('rm -f -- "$LOCK_FILE"');
+    expect(launcher).toContain('managed display lock is already in use');
+    expect(launcher).toContain('"$SYSTEMD_NOTIFY" --ready --status=\'Vellum work control ready\'');
     expect(launcher).toContain('if [ -e "$SOCKET_FILE" ] || [ -L "$SOCKET_FILE" ]; then');
     expect(launcher).toContain("kill -TERM \"$xvfb_pid\"");
     expect(launcher).toContain("umask 077");
@@ -76,10 +78,10 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(launcher).toContain('exit "$vellum_status"');
     expect(launcher).toContain('kill -TERM -- "-$vellum_pid"');
     expect(launcher).toContain('owned_child_alive "$xvfb_pid"');
-    expect(launcher).toContain('[ ! -O "$LOCK_FILE" ]');
-    expect(launcher).toContain("lock_identity=\"$(/usr/bin/stat -c '%d:%i:%u' \"$LOCK_FILE\")\"");
-    expect(launcher).toContain("display lock changed before stale cleanup");
-    expect(launcher).toContain("LC_ALL=C /usr/bin/sed 's/^[ \\t]*//; s/[ \\t]*$//'");
+    expect(launcher).toContain('ensure_owned_directory()');
+    expect(launcher).toContain('refusing managed directory symlink');
+    expect(launcher).not.toContain('chmod 0600 "$XAUTHORITY"');
+    expect(launcher).toContain('kill -KILL -- "-$vellum_pid"');
     expect(launcher).not.toMatch(/--no-sandbox|disable-setuid-sandbox|pkill|killall|sudo|loginctl enable-linger|-ac/u);
   });
 
@@ -92,6 +94,8 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(() => parseSystemdExecStart(unit.replace("ExecStart=/opt/Vellum\\x20", "ExecStart=/opt/Vellum "))).toThrow(/escaped/u);
     expect(() => validateSystemdUserUnit(unit)).not.toThrow();
     expect(unit).toContain("Restart=on-failure");
+    expect(unit).toContain("Type=notify");
+    expect(unit).toContain("NotifyAccess=main");
     expect(unit).toContain("StartLimitIntervalSec=60");
     expect(unit).toContain("StartLimitBurst=3");
     expect(unit).toContain("TimeoutStartSec=45s");

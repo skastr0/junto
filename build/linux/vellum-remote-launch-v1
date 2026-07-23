@@ -12,6 +12,7 @@ VELLUM="$APP_DIR/vellum"
 XVFB='/usr/bin/Xvfb'
 XAUTH='/usr/bin/xauth'
 SETSID='/usr/bin/setsid'
+SYSTEMD_NOTIFY='/usr/bin/systemd-notify'
 DISPLAY_NUMBER='89'
 DISPLAY=":$DISPLAY_NUMBER"
 LOCK_FILE="/tmp/.X${DISPLAY_NUMBER}-lock"
@@ -27,51 +28,41 @@ case "$RUNTIME_HOME" in
 esac
 
 if [ ! -x "$VELLUM" ] || [ ! -x "$XVFB" ] || [ ! -x "$XAUTH" ] || \
-   [ ! -x "$SETSID" ]; then
+   [ ! -x "$SETSID" ] || [ ! -x "$SYSTEMD_NOTIFY" ]; then
   printf '%s\n' 'vellum-remote: packaged runtime is unavailable' >&2
   exit 69
 fi
 
-mkdir -p "$RUNTIME_HOME/.vellum" "$RUNTIME_HOME/.local/state"
-chmod 0700 "$RUNTIME_HOME/.vellum" "$RUNTIME_HOME/.local/state"
+ensure_owned_directory() {
+  directory="$1"
+  if [ -L "$directory" ]; then
+    printf '%s\n' 'vellum-remote: refusing managed directory symlink' >&2
+    exit 73
+  fi
+  if [ -e "$directory" ]; then
+    if [ ! -d "$directory" ] || [ ! -O "$directory" ] || \
+       [ "$(/usr/bin/stat -c '%a' "$directory" 2>/dev/null || true)" != '700' ]; then
+      printf '%s\n' 'vellum-remote: refusing unmanaged directory' >&2
+      exit 73
+    fi
+    return
+  fi
+  mkdir -m 0700 -- "$directory"
+}
 
-# Do not claim another display. A stale lock is removable only when it is a
-# regular file owned by this service UID and contains a dead PID; sockets are
-# never unlinked here.
-if [ -L "$LOCK_FILE" ]; then
-  printf '%s\n' 'vellum-remote: refusing display lock symlink' >&2
+if [ ! -d "$RUNTIME_HOME" ] || [ -L "$RUNTIME_HOME" ] || [ ! -O "$RUNTIME_HOME" ]; then
+  printf '%s\n' 'vellum-remote: HOME must be an owned non-symlink directory' >&2
   exit 73
 fi
-if [ -e "$LOCK_FILE" ]; then
-  if [ ! -f "$LOCK_FILE" ]; then
-    printf '%s\n' 'vellum-remote: refusing non-regular display lock' >&2
-    exit 73
-  fi
-  if [ ! -O "$LOCK_FILE" ]; then
-    printf '%s\n' 'vellum-remote: refusing a display lock not owned by this user' >&2
-    exit 73
-  fi
-  lock_identity="$(/usr/bin/stat -c '%d:%i:%u' "$LOCK_FILE")"
-  lock_pid="$(LC_ALL=C /usr/bin/sed 's/^[ \t]*//; s/[ \t]*$//' "$LOCK_FILE" 2>/dev/null || true)"
-  case "$lock_pid" in
-    ''|0|0*|*[!0-9]*) printf '%s\n' 'vellum-remote: refusing malformed display lock' >&2; exit 73 ;;
-  esac
-  if [ "${#lock_pid}" -gt 10 ] || \
-     { [ "${#lock_pid}" -eq 10 ] && [ "$lock_pid" -gt 2147483647 ]; }; then
-    printf '%s\n' 'vellum-remote: refusing out-of-range display lock' >&2
-    exit 73
-  fi
-  if kill -0 "$lock_pid" 2>/dev/null; then
-    printf '%s\n' 'vellum-remote: managed display is already in use' >&2
-    exit 75
-  fi
-  if [ ! -f "$LOCK_FILE" ] || [ -L "$LOCK_FILE" ] || \
-     [ ! -O "$LOCK_FILE" ] || \
-     [ "$(/usr/bin/stat -c '%d:%i:%u' "$LOCK_FILE" 2>/dev/null || true)" != "$lock_identity" ]; then
-    printf '%s\n' 'vellum-remote: display lock changed before stale cleanup' >&2
-    exit 73
-  fi
-  rm -f -- "$LOCK_FILE"
+ensure_owned_directory "$RUNTIME_HOME/.vellum"
+ensure_owned_directory "$RUNTIME_HOME/.local"
+ensure_owned_directory "$RUNTIME_HOME/.local/state"
+
+# Shell cannot bind a stat to a later unlink. Any X lock is therefore an
+# operator-visible conflict, never a stale-cleanup target.
+if [ -e "$LOCK_FILE" ] || [ -L "$LOCK_FILE" ]; then
+  printf '%s\n' 'vellum-remote: managed display lock is already in use' >&2
+  exit 75
 fi
 if [ -e "$SOCKET_FILE" ] || [ -L "$SOCKET_FILE" ]; then
   printf '%s\n' 'vellum-remote: managed display socket is already in use' >&2
@@ -98,27 +89,45 @@ owned_child_alive() {
 
 xvfb_pid=''
 vellum_pid=''
-authority_identity=''
 authority_directory_owned=0
 cleanup_owned_resources() {
   if [ -n "$vellum_pid" ]; then
     kill -TERM -- "-$vellum_pid" 2>/dev/null || true
+    if ! wait_bounded_group "$vellum_pid"; then
+      kill -KILL -- "-$vellum_pid" 2>/dev/null || true
+    fi
     wait "$vellum_pid" 2>/dev/null || true
     vellum_pid=''
   fi
   if [ -n "$xvfb_pid" ]; then
     kill -TERM "$xvfb_pid" 2>/dev/null || true
+    if ! wait_bounded_child "$xvfb_pid"; then
+      kill -KILL "$xvfb_pid" 2>/dev/null || true
+    fi
     wait "$xvfb_pid" 2>/dev/null || true
     xvfb_pid=''
   fi
-  if [ "$authority_directory_owned" -eq 1 ] && \
-     [ -f "$XAUTHORITY" ] && [ ! -L "$XAUTHORITY" ] && \
-     [ "$(/usr/bin/stat -c '%d:%i' "$XAUTHORITY" 2>/dev/null || true)" = "$authority_identity" ]; then
-    rm -f -- "$XAUTHORITY"
-  fi
+  # Do not unlink Xauthority after a check: POSIX shell has no descriptor-bound
+  # unlink. A replacement remains in the private directory for inspection.
   if [ "$authority_directory_owned" -eq 1 ]; then
     rmdir "$AUTHORITY_DIRECTORY" 2>/dev/null || true
   fi
+}
+
+wait_bounded_child() {
+  child="$1"
+  deadline=$(( $(date +%s) + 5 ))
+  while owned_child_alive "$child"; do
+    [ "$(date +%s)" -lt "$deadline" ] || return 1
+    sleep 1
+  done
+  return 0
+}
+
+wait_bounded_group() {
+  # The setsid leader is the capability for this exact group; never accept a
+  # pid supplied by the environment or a system manager as signal authority.
+  wait_bounded_child "$1"
 }
 
 if [ -e "$AUTHORITY_DIRECTORY" ] || [ -L "$AUTHORITY_DIRECTORY" ]; then
@@ -140,18 +149,14 @@ trap 'cleanup_owned_resources; exit 129' HUP
 trap 'cleanup_owned_resources; exit 130' INT
 trap 'cleanup_owned_resources; exit 143' TERM
 if ! "$XAUTH" -f "$XAUTHORITY" add "$DISPLAY" . "$(/usr/bin/mcookie)" >/dev/null 2>&1; then
-  authority_identity="$(/usr/bin/stat -c '%d:%i' "$XAUTHORITY" 2>/dev/null || true)"
   printf '%s\n' 'vellum-remote: could not initialize managed X11 authority' >&2
   exit 70
 fi
-if [ ! -f "$XAUTHORITY" ] || [ -L "$XAUTHORITY" ] || [ ! -O "$XAUTHORITY" ]; then
+if [ ! -f "$XAUTHORITY" ] || [ -L "$XAUTHORITY" ] || [ ! -O "$XAUTHORITY" ] || \
+   [ "$(/usr/bin/stat -c '%a' "$XAUTHORITY" 2>/dev/null || true)" != '600' ]; then
   printf '%s\n' 'vellum-remote: managed X11 authority changed during initialization' >&2
   exit 73
 fi
-chmod 0600 "$XAUTHORITY"
-# xauth writes through a temporary file and rename on real Linux systems.
-# Capture the cleanup lease only after that atomic replacement completes.
-authority_identity="$(/usr/bin/stat -c '%d:%i' "$XAUTHORITY")"
 
 "$XVFB" "$DISPLAY" -screen 0 1280x1024x24 -nolisten tcp -auth "$XAUTHORITY" &
 xvfb_pid="$!"
@@ -171,9 +176,30 @@ done
 
 "$SETSID" "$VELLUM" --vellum-headless --ozone-platform=x11 &
 vellum_pid="$!"
+ready_deadline=$(( $(date +%s) + 30 ))
+while [ ! -S "$RUNTIME_HOME/.vellum/work/control.sock" ] || \
+      [ ! -r "$RUNTIME_HOME/.vellum/work/token" ]; do
+  if ! owned_child_alive "$vellum_pid"; then
+    set +e
+    wait "$vellum_pid"
+    vellum_status="$?"
+    set -e
+    vellum_pid=''
+    exit "$vellum_status"
+  fi
+  if [ "$(date +%s)" -ge "$ready_deadline" ]; then
+    printf '%s\n' 'vellum-remote: product control plane did not become ready' >&2
+    exit 70
+  fi
+  sleep 1
+done
+"$SYSTEMD_NOTIFY" --ready --status='Vellum work control ready'
 while :; do
   if ! owned_child_alive "$xvfb_pid"; then
     kill -TERM -- "-$vellum_pid" 2>/dev/null || true
+    if ! wait_bounded_group "$vellum_pid"; then
+      kill -KILL -- "-$vellum_pid" 2>/dev/null || true
+    fi
     set +e
     wait "$vellum_pid"
     set -e

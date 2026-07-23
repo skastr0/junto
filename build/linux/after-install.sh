@@ -72,6 +72,17 @@ fi
 # Never overwrite administrator content or a link owned by another package.
 created_profile_link=0
 created_unit_link=0
+cleanup_new_links() {
+  if [ "$created_unit_link" -eq 1 ] && [ -L "$UNIT_TARGET" ] && \
+     [ "$(readlink "$UNIT_TARGET")" = "$UNIT_SOURCE" ]; then
+    rm -f -- "$UNIT_TARGET"
+  fi
+  if [ "$created_profile_link" -eq 1 ] && [ -L "$PROFILE_TARGET" ] && \
+     [ "$(readlink "$PROFILE_TARGET")" = "$PROFILE_SOURCE" ]; then
+    rm -f -- "$PROFILE_TARGET"
+  fi
+}
+trap cleanup_new_links EXIT HUP INT TERM
 if [ -L "$PROFILE_TARGET" ]; then
   if [ "$(readlink "$PROFILE_TARGET")" != "$PROFILE_SOURCE" ]; then
     printf 'vellum: refusing an AppArmor link not owned by this package\n' >&2
@@ -100,17 +111,6 @@ else
   ln -s "$UNIT_SOURCE" "$UNIT_TARGET"
   created_unit_link=1
 fi
-cleanup_new_links() {
-  if [ "$created_unit_link" -eq 1 ] && [ -L "$UNIT_TARGET" ] && \
-     [ "$(readlink "$UNIT_TARGET")" = "$UNIT_SOURCE" ]; then
-    rm -f -- "$UNIT_TARGET"
-  fi
-  if [ "$created_profile_link" -eq 1 ] && [ -L "$PROFILE_TARGET" ] && \
-     [ "$(readlink "$PROFILE_TARGET")" = "$PROFILE_SOURCE" ]; then
-    rm -f -- "$PROFILE_TARGET"
-  fi
-}
-trap cleanup_new_links EXIT HUP INT TERM
 
 # A chroot/package-image build can validate but cannot load host policy. On a
 # real installation, live AppArmor replacement is the final fallible action.
