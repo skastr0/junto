@@ -66,7 +66,7 @@ describe("authoritative Linux release workflow", () => {
     expect(workflow).not.toContain("continue-on-error");
   });
 
-  it("uploads only target-specific deb, diagnostic, manifest, hashes, receipts, and safe logs", () => {
+  it("uploads target-specific evidence and unsigned release inputs", () => {
     expect(workflow).toContain(
       "name: vellum-ubuntu-24.04-x64-${{ github.sha }}",
     );
@@ -78,6 +78,14 @@ describe("authoritative Linux release workflow", () => {
     expect(workflow).toContain("packaged-pty-smoke.json");
     expect(workflow).toContain("packaged-runtime-smoke.json");
     expect(workflow).toContain("test-receipt.json");
+    expect(workflow).toContain("ci-release-inputs/ubuntu-24.04-x64/**");
+    expect(workflow).toContain("scripts/linux-release-inventory.ts");
+    expect(workflow).toContain("dependency-license-inventory.json");
+    expect(workflow).toContain("sbom.cdx.json");
+    expect(workflow).toContain("source-revision.json");
+    expect(workflow).toContain("vellum-linux-verify-x64");
+    expect(workflow).toContain("docs/linux-operator-runbook.md");
+    expect(workflow).toContain("docs/linux-release-changelog-template.md");
     expect(workflow).toContain("sanitize-log");
     expect(workflow).not.toMatch(
       /(?:arm64|aarch64|musl|appimage|flatpak|\.rpm|\.snap)/iu,
@@ -101,6 +109,22 @@ describe("authoritative Linux release workflow", () => {
     expect(workflow).toContain("github.event_name != 'pull_request'");
     expect(workflow).not.toMatch(
       /(?:softprops\/action-gh-release|gh\s+release\s+(?:create|upload))/u,
+    );
+  });
+
+  it("never gives CI signing or publication authority", () => {
+    expect(workflow).toContain("permissions:\n  contents: read");
+    expect(workflow).toContain("releaseAuthorization: \"not-granted\"");
+    expect(workflow).toContain("publishable: false");
+    expect(workflow).toContain(
+      'test ! -e "$RELEASE_INPUT_DIR/release-manifest.sig"',
+    );
+    expect(workflow).toContain(
+      'test ! -e "$candidate/release-manifest.sig"',
+    );
+    expect(workflow).not.toContain("linux-release-tool.ts sign");
+    expect(workflow).not.toMatch(
+      /(?:PRIVATE_KEY|SIGNING_KEY|RELEASE_KEY_SECRET|secrets\.)/u,
     );
   });
 });
