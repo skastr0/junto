@@ -142,6 +142,10 @@
       {
         "from": "build/electron-observation.json",
         "to": "policy/electron-observation.json"
+      },
+      {
+        "from": "build/electron-observation-high-water.json",
+        "to": "policy/electron-observation-high-water.json"
       }
     ],
     "protocols": [

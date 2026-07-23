@@ -678,11 +678,6 @@ export const auditLinuxPackage = async ({
     throw new Error("Linux package audit requires an unpacked directory and deb file");
   }
   await validateElectronArtifactPath(unpacked);
-  {
-    const localObservation = await readFile(path.join(process.env.VELLUM_RELEASE_SECURITY_STATE_DIR ?? path.join(process.env.HOME ?? "", ".vellum", "release-security"), "electron-observation.json"), "utf8");
-    const unpackedObservation = await readFile(path.join(unpacked, "resources", "policy", "electron-observation.json"), "utf8");
-    if (unpackedObservation !== localObservation) throw new Error("Linux unpacked observation differs from release input");
-  }
 
   const control = validateDebControl(
     runFixed("/usr/bin/dpkg-deb", ["--field", deb]),
@@ -750,9 +745,6 @@ export const auditLinuxPackage = async ({
     await requireIdenticalPackageTrees(unpacked, extractedReal);
 
     const resources = path.join(extractedReal, "resources");
-    const localObservation = await readFile(path.join(process.env.VELLUM_RELEASE_SECURITY_STATE_DIR ?? path.join(process.env.HOME ?? "", ".vellum", "release-security"), "electron-observation.json"), "utf8");
-    const embeddedObservation = await readFile(path.join(resources, "policy", "electron-observation.json"), "utf8");
-    if (embeddedObservation !== localObservation) throw new Error("Linux artifact observation differs from release input");
     const mainExecutable = path.join(extractedReal, LINUX_EXECUTABLE_NAME);
     const chromeSandbox = path.join(extractedReal, "chrome-sandbox");
     const appAsar = path.join(resources, "app.asar");

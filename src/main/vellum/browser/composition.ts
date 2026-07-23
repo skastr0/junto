@@ -5,7 +5,7 @@ import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
 } from "./capabilities";
-import { electronSecurityPolicyHealthy, packagedElectronSecurityPolicyPath } from "../electron-security-health";
+import { electronSecurityPolicyHealthy, packagedElectronObservationHighWaterPath, packagedElectronObservationPath, packagedElectronSecurityPolicyPath } from "../electron-security-health";
 import type {
   BrowserControlShutdownReceipt as RuntimeBrowserControlShutdownReceipt,
 } from "./control";
@@ -535,6 +535,8 @@ export const startBrowserComposition = async (
       primaryCredentialHealth: runtime.primaryCredentialHealth ?? (() => electronSecurityPolicyHealthy({
         policyPath: packagedElectronSecurityPolicyPath(process.resourcesPath),
         electronVersion: process.versions.electron,
+        observationPath: packagedElectronObservationPath(process.resourcesPath),
+        observationHighWaterPath: packagedElectronObservationHighWaterPath(process.resourcesPath),
       })),
       profileGate,
       onTerminate: (notice) => {

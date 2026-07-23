@@ -55,7 +55,7 @@ describe("Electron observation receipt", () => {
     const persisted = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
     const policy = await readFile(new URL("../scripts/electron-security-policy.json", import.meta.url), "utf8");
     expect(persisted).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       policyVersion: "43.2.0",
       policyHash: createHash("sha256").update(policy).digest("hex"),
       disposition: "current",
@@ -65,6 +65,6 @@ describe("Electron observation receipt", () => {
 
     await writeFile(receiptPath, JSON.stringify({ ...persisted, policyHash: "tampered" }));
     await expect(validateCheckedInElectronPolicy(new Date("2026-07-24T00:00:00.000Z")))
-      .rejects.toThrow(/recorded Electron observation is stale, malformed, or mismatched/u);
+      .rejects.toThrow(/observation has an invalid shape/u);
   });
 });

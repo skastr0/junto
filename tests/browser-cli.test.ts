@@ -305,6 +305,14 @@ describe("browser CLI packaging contract", () => {
         from: "scripts/electron-security-policy.json",
         to: "policy/electron-security-policy.json",
       },
+      {
+        from: "build/electron-observation.json",
+        to: "policy/electron-observation.json",
+      },
+      {
+        from: "build/electron-observation-high-water.json",
+        to: "policy/electron-observation-high-water.json",
+      },
     ]);
     expect(pkg.build.files).not.toContain("scripts/**");
     expect(buildScript).toContain("--no-compile-autoload-dotenv");

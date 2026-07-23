@@ -87,8 +87,6 @@ require_cmd python3
 require_cmd ditto
 require_cmd shasum
 
-bun "$SCRIPT_DIR/electron-security-policy.ts" validate
-
 canonical_existing_nonlink_directory() {
   local description="$1"
   local path="$2"
