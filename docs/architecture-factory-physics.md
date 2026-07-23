@@ -134,8 +134,9 @@ current capabilities and whose phase or occupancy will change.
 - Cone depth for phase = derived blocked closure (existing graph semantics).
 - Cone never includes “everything in the region” without edges.
 
-Region pulse delivers **instruction** to agents *inside* the region; it does
-not mint capabilities to sinks outside their drawn edges.
+Region `instruction` supplies briefing context. Watcher/timer pulses deliver
+only to edge-connected eligible agents; geometry does not mint a route. A
+manual region pulse remains an explicit operator action over eligible members.
 
 ### 7. Fail closed (authz)
 
@@ -190,7 +191,7 @@ the act can touch the OS.
 | Process-bind (peer PID) | Occupant admission to seat |
 | `authz` / `ScopeError` | Capability plane enforcement |
 | Derived `blocks` / `depends` / `relates` | Phase plane |
-| Region `instruction` + watchers/timers | Scheduler pulse into region geography |
+| Region `instruction` + watchers/timers | Briefing context + edge-routed scheduler pulse |
 | Digest / render | Read-only projections; no capability mint |
 
 Vocabulary note: schema may still name historical sources (`tower`, `quasar`,

@@ -85,7 +85,7 @@ Region activation gated by three structures (`src/shared/canvas.ts`):
 
 **EtherTimer** (123–126): `{ everyMinutes }`. Bare pulse on interval.
 
-**EtherRegion** (88–92): `{ hold, instruction }` on group nodes. `hold: true` = structural container. `instruction` = pulse briefing sent to every agent node inside when a watcher fires, timer ticks, or manual pulse triggers.
+**EtherRegion** (88–92): `{ hold, instruction }` on group nodes. `hold: true` = structural container. `instruction` is briefing context appended to a pulse. Watchers/timers deliver only to edge-connected eligible agents; a manual region pulse may target eligible agents inside.
 
 **Three laws**: (1) Watcher state is derived, never stored in the document. (2) Edge-detection memory is app-local — restart re-baselines, no latent fire. (3) Arming lives only in the running app: document defines pulses, app flips the switch.
 

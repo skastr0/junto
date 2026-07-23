@@ -135,8 +135,8 @@ Derived state (blocked closure, region membership, binding health, live phase) i
 | **task** | text | A2A task list store (`ether.tasks.items`) | Protocol tasks, not chat chaos |
 | **requests** | text | Pending input-required shelf | Operator attention queue |
 | **artifacts** | text | Published artifact shelf | Shareable outputs on the board |
-| **watcher** | text | Predicate over live data (`ether.watch`) | Region pulse when conditions hit |
-| **timer** | text | Interval clock (`ether.timer.everyMinutes`) | Periodic region pulse |
+| **watcher** | text | Predicate over live data (`ether.watch`) | Edge-routed pulse when conditions hit |
+| **timer** | text | Interval clock (`ether.timer.everyMinutes`) | Periodic edge-routed pulse |
 | **project / orbit / plugin / station / skill** | text | Document vocabulary labels | Portfolio geography; private sources offline-degrade |
 
 ### Structural stamps
@@ -147,7 +147,7 @@ Derived state (blocked closure, region membership, binding health, live phase) i
 | **View slice** | `ether.view` — orbit / glyphQuery / states filter |
 | **Host stamp** | `ether.host` — multi-fleet execution locality |
 | **Region defaults** | Create-time defaults for herdr/page inside a region |
-| **Region hold / instruction** | Structural container + pulse briefing for agents inside |
+| **Region hold / instruction** | Structural container + briefing context; not an automatic delivery route |
 | **Messages store** | `ether.messages` on agent/herdr principals |
 
 **Not blockable:** agent, watcher, timer, herdr, page, free notes, groups — never members of the blocked set.
@@ -269,7 +269,7 @@ Connection states: connected · degraded · lost · failed · reconnect. Clipboa
 | **Watcher** | Predicate → pulse (`glyphs_done` · `glyphs_entered_state` · `stat_threshold`) |
 | **Timer** | `everyMinutes` pulse |
 | **Arming** | Per canvas::region switch in app store — **not in the document** |
-| **Pulse** | Manual / watcher / timer → agents in region receive the instruction |
+| **Pulse** | Watcher/timer → edge-connected eligible agents; manual region pulse may target eligible members |
 | **Host-scoped fire** | Remote stations only fire nodes on their hostId |
 
 Settings → Kernel: pulse log retention, verbose debug. Arming faults and orphan armed keys surface in station chrome.
@@ -292,6 +292,9 @@ Role is **never inferred** — you pick it. `hostId` identifies this machine (de
 | Remote host | SSH endpoint + capabilities; optional hermesId remap |
 | Canvas pull | Remote pulls `.canvas` from Command Center |
 | Tailscale | Optional serve/peer catalog in Settings → Hosts |
+
+Advanced local, multi-host, and offline-island proof:
+[`docs/remote-station-checklist.md`](docs/remote-station-checklist.md).
 
 ---
 
@@ -384,7 +387,7 @@ Canvas cards bound to Herdr PTY panes (local or remote). Wizard bind: host → s
 | **Watcher** | `glyphs_done` · `glyphs_entered_state` · `stat_threshold` → pulse |
 | **Timer** | `everyMinutes` pulse |
 | **Arming** | Per region switch in the app — **not stored in the document** |
-| **Pulse** | Manual / watcher / timer → agents in region receive the instruction |
+| **Pulse** | Watcher/timer → edge-connected eligible agents; manual region pulse may target eligible members |
 | **Host-scoped fire** | Remotes only fire nodes on their hostId |
 
 ---
@@ -484,7 +487,7 @@ Canvas cards bound to Herdr PTY panes (local or remote). Wizard: host → sessio
 | **Watcher** | `glyphs_done` · `glyphs_entered_state` · `stat_threshold` → pulse |
 | **Timer** | `everyMinutes` pulse |
 | **Arming** | App store switch — **not in the document** |
-| **Pulse** | Instruction delivery to agents in region |
+| **Pulse** | Edge-routed watcher/timer delivery; manual region pulse may target eligible members |
 | **Host-scoped fire** | Remotes fire only their hostId |
 
 ---
