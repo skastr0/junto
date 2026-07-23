@@ -281,6 +281,53 @@ describe("app process plane admission", () => {
     expect(redirectedKill).not.toHaveBeenCalled();
   });
 
+  it("inherits only a validated parent descriptor as child fd 3", () => {
+    const child = new FakeChild();
+    mocks.spawn.mockReturnValue(child);
+    const plane = createAppProcessPlane();
+
+    plane.spawnChild({
+      ...spec("descriptor-backed child"),
+      inheritedFileDescriptor: {
+        parentFd: 57,
+        childFd: 3,
+      },
+    });
+
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      "/usr/bin/example",
+      ["--probe"],
+      {
+        cwd: undefined,
+        env: undefined,
+        shell: undefined,
+        uid: undefined,
+        gid: undefined,
+        detached: false,
+        stdio: ["pipe", "pipe", "pipe", 57],
+      },
+    );
+
+    mocks.spawn.mockClear();
+    expect(() => plane.spawnChild({
+      ...spec("invalid descriptor"),
+      inheritedFileDescriptor: {
+        parentFd: -1,
+        childFd: 3,
+      },
+    })).toThrow(/non-stdio parent descriptor/);
+    expect(mocks.spawn).not.toHaveBeenCalled();
+
+    expect(() => plane.spawnChild({
+      ...spec("invalid child mapping"),
+      inheritedFileDescriptor: {
+        parentFd: 57,
+        childFd: 4,
+      } as never,
+    })).toThrow(/child fd 3/);
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
   it("coalesces repeated TERM and KILL requests to their first frozen receipts", () => {
     const child = new FakeChild();
     mocks.spawn.mockReturnValue(child);

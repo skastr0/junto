@@ -1,9 +1,13 @@
 /** Hardened owner-local lifecycle for Unix control sockets and bearer tokens. */
-import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { basename, dirname, join } from "node:path";
+import {
+  appProcessPlane,
+  type AppProcessClose,
+  type AppProcessLease,
+} from "./app-process-plane";
 
 export const CONTROL_DIRECTORY_MODE = 0o700;
 export const CONTROL_FILE_MODE = 0o600;
@@ -104,7 +108,7 @@ const acquireDarwinFileLease = async (
     constants.O_CREAT | constants.O_RDWR | (constants.O_NOFOLLOW ?? 0),
     CONTROL_FILE_MODE,
   );
-  let child: ChildProcess;
+  let child: AppProcessLease;
   try {
     const stat = fstatSync(fd, { bigint: true });
     if (!stat.isFile()) throw new Error("control listener lock is not a regular file");
@@ -117,9 +121,11 @@ const acquireDarwinFileLease = async (
     if (stat.nlink !== 1n || (stat.mode & 0o077n) !== 0n) {
       throw new Error("control listener lock is not an owner-private inode");
     }
-    child = spawn(
-      "/usr/bin/lockf",
-      [
+    child = appProcessPlane.spawnChild({
+      source: "control-listener-lease",
+      purpose: "hold the Darwin control-listener lock",
+      command: "/usr/bin/lockf",
+      args: [
         "-s",
         "-t",
         "0",
@@ -129,69 +135,69 @@ const acquireDarwinFileLease = async (
         "-c",
         "printf '\\001'; /bin/cat >/dev/null",
       ],
-      {
-        stdio: ["pipe", "pipe", "ignore", fd],
+      inheritedFileDescriptor: {
+        parentFd: fd,
+        childFd: 3,
       },
-    );
+    });
   } finally {
     closeSync(fd);
   }
 
-  let exited = false;
-  let exitCode: number | null = null;
-  let exitSignal: NodeJS.Signals | null = null;
-  child.once("exit", (code, signal) => {
-    exited = true;
-    exitCode = code;
-    exitSignal = signal;
+  let closed: AppProcessClose | undefined;
+  void child.io.closed.then((event) => {
+    closed = event;
   });
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let unsubscribeError = (): void => undefined;
+    let unsubscribeClose = (): void => undefined;
     const cleanup = (): void => {
-      child.off("error", fail);
-      child.off("exit", onExit);
-      child.stdout?.off("data", onData);
+      unsubscribeError();
+      unsubscribeClose();
+      child.io.stdout.off("data", onData);
     };
     const fail = (error: Error): void => {
+      if (settled) return;
+      settled = true;
       cleanup();
-      child.stdin?.end();
+      child.io.stdin.end();
       reject(error);
     };
-    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+    const onClose = (event: AppProcessClose): void => {
       fail(
         new Error(
-          `control listener lock unavailable (code=${String(code)} signal=${String(signal)})`,
+          `control listener lock unavailable (code=${String(event.code)} signal=${String(event.signal)})`,
         ),
       );
     };
     const onData = (chunk: Buffer): void => {
+      if (settled) return;
       if (chunk[0] !== 1) {
         fail(new Error("control listener lock readiness handshake failed"));
         return;
       }
+      settled = true;
       cleanup();
       resolve();
     };
-    child.once("error", fail);
-    child.once("exit", onExit);
-    child.stdout?.once("data", onData);
+    unsubscribeError = child.io.onError(fail);
+    unsubscribeClose = child.io.onClose(onClose);
+    if (settled) return;
+    child.io.stdout.once("data", onData);
   });
 
   let releaseFlight: Promise<void> | undefined;
   return {
-    held: () => !exited,
+    held: () => closed === undefined,
     release: () => {
-      releaseFlight ??= new Promise<void>((resolve, reject) => {
-        if (exited) {
-          if (exitCode === 0 && exitSignal === null) resolve();
-          else reject(new Error("control listener lock holder exited unexpectedly"));
-          return;
+      releaseFlight ??= (async () => {
+        child.io.stdin.end();
+        const event = await child.io.closed;
+        if (event.code !== 0 || event.signal !== null) {
+          throw new Error("control listener lock holder failed to release");
         }
-        child.once("exit", (code, signal) => {
-          if (code === 0 && signal === null) resolve();
-          else reject(new Error("control listener lock holder failed to release"));
-        });
-        child.stdin?.end();
-      });
+      })();
       return releaseFlight;
     },
   };

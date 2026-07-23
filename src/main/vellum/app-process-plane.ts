@@ -78,6 +78,18 @@ export interface AppProcessSpawnSpec {
   readonly gid?: number;
 }
 
+export interface AppProcessChildSpawnSpec extends AppProcessSpawnSpec {
+  /**
+   * Exact already-open descriptor inherited as child fd 3. The caller keeps
+   * ownership of the parent descriptor and may close it after spawn returns.
+   * No arbitrary child-fd mapping is exposed outside this central plane.
+   */
+  readonly inheritedFileDescriptor?: {
+    readonly parentFd: number;
+    readonly childFd: 3;
+  };
+}
+
 export interface AppTerminalSpawnSpec {
   readonly source: string;
   readonly purpose: string;
@@ -172,7 +184,7 @@ export interface AppProcessPlaneOptions {
 }
 
 export interface AppProcessPlane {
-  readonly spawnChild: (spec: AppProcessSpawnSpec) => AppProcessLease;
+  readonly spawnChild: (spec: AppProcessChildSpawnSpec) => AppProcessLease;
   readonly spawnGroup: (spec: AppProcessSpawnSpec) => AppProcessLease;
   readonly spawnTerminal: (spec: AppTerminalSpawnSpec) => AppTerminalLease;
   readonly spawnOutlivingDaemon: (
@@ -368,6 +380,23 @@ const spawnOptions = (spec: AppProcessSpawnSpec) => ({
   uid: spec.uid,
   gid: spec.gid,
 });
+
+const inheritedStdio = (
+  spec: AppProcessChildSpawnSpec,
+): "pipe" | ["pipe", "pipe", "pipe", number] => {
+  const inherited = spec.inheritedFileDescriptor;
+  if (inherited === undefined) return "pipe";
+  if (
+    inherited.childFd !== 3 ||
+    !Number.isSafeInteger(inherited.parentFd) ||
+    inherited.parentFd <= 2
+  ) {
+    throw new RangeError(
+      "inherited child fd 3 requires a non-stdio parent descriptor",
+    );
+  }
+  return ["pipe", "pipe", "pipe", inherited.parentFd];
+};
 
 const rejectedSignalReceipt = (
   signal: AppProcessSignal,
@@ -885,13 +914,16 @@ export const createAppProcessPlane = (
     return lease;
   };
 
-  const spawnChild = (spec: AppProcessSpawnSpec): AppProcessLease => {
+  const spawnChild = (spec: AppProcessChildSpawnSpec): AppProcessLease => {
     assertSpawnAllowed();
+    // @types/node models only the first three stdio tuple entries. The central
+    // builder above fixes all three to "pipe"; an optional fourth numeric
+    // entry cannot make stdin/stdout/stderr nullable at runtime.
     const child = spawn(spec.command, [...(spec.args ?? [])], {
       ...spawnOptions(spec),
       detached: false,
-      stdio: "pipe",
-    });
+      stdio: inheritedStdio(spec),
+    }) as ChildProcessWithoutNullStreams;
     const signalSink = makeSignalSink(child);
     const owned = admitChildProcess({ source: spec.source, child: signalSink });
     return register({
