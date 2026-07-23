@@ -13,6 +13,7 @@ XVFB='/usr/bin/Xvfb'
 XAUTH='/usr/bin/xauth'
 SETSID='/usr/bin/setsid'
 SYSTEMD_NOTIFY='/usr/bin/systemd-notify'
+SYSTEMD_NOTIFY_SOCKET="${NOTIFY_SOCKET:?vellum-remote-launch-v1 requires NOTIFY_SOCKET}"
 DISPLAY_FIRST=89
 DISPLAY_LAST=96
 RUNTIME_HOME="${HOME:?vellum-remote-launch-v1 requires HOME}"
@@ -30,6 +31,13 @@ case "$GENERATION" in
     exit 64
     ;;
 esac
+case "$SYSTEMD_NOTIFY_SOCKET" in
+  /*) ;;
+  *) printf '%s\n' 'vellum-remote: NOTIFY_SOCKET must be absolute' >&2; exit 64 ;;
+esac
+# The readiness capability belongs only to the wrapper. Xvfb, Electron, and
+# every helper inherit an environment with no notification socket.
+unset NOTIFY_SOCKET
 if [ "${#GENERATION}" -ne 32 ]; then
   printf '%s\n' 'vellum-remote: INVOCATION_ID must be 32 lowercase hexadecimal characters' >&2
   exit 64
@@ -70,6 +78,18 @@ file_identity() {
   else
     printf '%s\n' 'missing'
   fi
+}
+
+is_owned_private_socket() {
+  path="$1"
+  [ -S "$path" ] && [ ! -L "$path" ] && [ -O "$path" ] && \
+    [ "$(/usr/bin/stat -c '%a' "$path" 2>/dev/null || true)" = 600 ]
+}
+
+is_owned_private_file() {
+  path="$1"
+  [ -f "$path" ] && [ ! -L "$path" ] && [ -O "$path" ] && \
+    [ "$(/usr/bin/stat -c '%a' "$path" 2>/dev/null || true)" = 600 ]
 }
 
 if [ ! -d "$RUNTIME_HOME" ] || [ -L "$RUNTIME_HOME" ] || [ ! -O "$RUNTIME_HOME" ]; then
@@ -220,11 +240,9 @@ ready_deadline=$(( $(date +%s) + 30 ))
 while :; do
   socket_after="$(file_identity "$control_socket")"
   token_after="$(file_identity "$control_token")"
-  if [ "$socket_after" != 'missing' ] && [ "$socket_after" != 'symlink' ] && \
-     [ "$token_after" != 'missing' ] && [ "$token_after" != 'symlink' ] && \
+  if is_owned_private_socket "$control_socket" && is_owned_private_file "$control_token" && \
      [ "$socket_after" != "$socket_before" ] && [ "$token_after" != "$token_before" ] && \
-     [ -f "$READY_RECEIPT" ] && [ ! -L "$READY_RECEIPT" ] && [ -O "$READY_RECEIPT" ] && \
-     [ "$(/usr/bin/stat -c '%a' "$READY_RECEIPT" 2>/dev/null || true)" = '600' ] && \
+     is_owned_private_file "$READY_RECEIPT" && \
      [ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$GENERATION" ]; then
     break
   fi
@@ -242,7 +260,7 @@ while :; do
   fi
   sleep 1
 done
-"$SYSTEMD_NOTIFY" --pid=parent --ready --status='Vellum work control ready for current generation'
+NOTIFY_SOCKET="$SYSTEMD_NOTIFY_SOCKET" "$SYSTEMD_NOTIFY" --ready --status='Vellum work control ready for current generation'
 while :; do
   if ! owned_child_alive "$xvfb_pid"; then
     kill -TERM -- "-$vellum_pid" 2>/dev/null || true

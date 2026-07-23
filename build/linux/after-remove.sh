@@ -7,7 +7,7 @@ UNIT_TARGET='/usr/lib/systemd/user/vellum-remote.service'
 UNIT_SOURCE='/opt/Vellum Command/resources/systemd/vellum-remote.service'
 
 case "${1:-remove}" in
-  upgrade|failed-upgrade|abort-upgrade|disappear)
+  upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
     exit 0
     ;;
   remove|purge)

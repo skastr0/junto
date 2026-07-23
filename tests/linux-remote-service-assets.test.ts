@@ -70,7 +70,11 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(launcher).toContain("DISPLAY_LAST=96");
     expect(launcher).not.toContain('rm -f -- "$LOCK_FILE"');
     expect(launcher).toContain('no managed display is available');
-    expect(launcher).toContain('"$SYSTEMD_NOTIFY" --pid=parent --ready');
+    expect(launcher).not.toContain('--pid=parent');
+    expect(launcher).toContain('unset NOTIFY_SOCKET');
+    expect(launcher).toContain('NOTIFY_SOCKET="$SYSTEMD_NOTIFY_SOCKET" "$SYSTEMD_NOTIFY" --ready');
+    expect(launcher).toContain('is_owned_private_socket "$control_socket"');
+    expect(launcher).toContain('is_owned_private_file "$control_token"');
     expect(launcher).toContain('candidate_socket="/tmp/.X11-unix/X${candidate}"');
     expect(launcher).toContain("kill -TERM \"$xvfb_pid\"");
     expect(launcher).toContain("umask 077");
@@ -96,7 +100,7 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(() => validateSystemdUserUnit(unit)).not.toThrow();
     expect(unit).toContain("Restart=on-failure");
     expect(unit).toContain("Type=notify");
-    expect(unit).toContain("NotifyAccess=main");
+    expect(unit).toContain("NotifyAccess=all");
     expect(unit).toContain("StartLimitIntervalSec=60");
     expect(unit).toContain("StartLimitBurst=3");
     expect(unit).toContain("TimeoutStartSec=45s");

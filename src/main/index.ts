@@ -972,7 +972,7 @@ const ensureSupervised = async (): Promise<boolean> => {
   // The Linux unit is a Remote/headless facility, never a role inference.
   // Read only the bounded canonical setting before services initialize; an
   // unreadable or malformed document declines handoff rather than guessing.
-  if (process.platform === "linux" && !headless) {
+  if (process.platform === "linux") {
     try {
       const raw = readFileSync(settingsFilePath(), "utf8");
       if (Buffer.byteLength(raw, "utf8") > 64 * 1024) return true;

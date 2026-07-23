@@ -7,9 +7,9 @@ ConditionFileIsExecutable=/opt/Vellum Command/vellum
 
 [Service]
 Type=notify
-# The launcher authenticates its child readiness receipt and asks
-# systemd-notify to identify that launcher's parent (the unit MainPID).
-NotifyAccess=main
+# The launcher removes NOTIFY_SOCKET from every long-lived child and lends it
+# only to its exact package-owned notifier after validating the generation.
+NotifyAccess=all
 ExecStart=/opt/Vellum\x20Command/resources/systemd/vellum-remote-launch-v1
 Restart=on-failure
 RestartSec=5s
