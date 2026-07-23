@@ -408,7 +408,7 @@ export const validateSystemdUserUnit = (unit: string): void => {
     "TimeoutStartSec=45s",
     "TimeoutStopSec=20s",
     "KillMode=control-group",
-    "ConditionFileIsExecutable=/opt/Vellum\\x20Command/vellum",
+    "ConditionFileIsExecutable=/opt/Vellum Command/vellum",
     "StandardOutput=null",
     "StandardError=null",
   ]) {
