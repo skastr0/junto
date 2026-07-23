@@ -11,6 +11,7 @@ import {
   type StationBrowserTrust,
   type StationBrowserVerificationContext,
 } from "./station-delegation";
+import { StationBrowserTargetExecutionError } from "./station-target-executor";
 
 export interface StationBrowserWrapper {
   readonly handle: (frame: string, signal?: AbortSignal) => Promise<string>;
@@ -86,8 +87,13 @@ export const makeStationBrowserWrapper = (deps: StationBrowserWrapperDeps): Stat
       return typeof decodeStationBrowserResponse(canonicalStationBrowserJson(response)) === "string"
         ? canonicalStationBrowserJson(rejected(verified.request.requestId, verified.request.action, context.stationId, "limits"))
         : canonicalStationBrowserJson(response);
-    } catch {
-      return canonicalStationBrowserJson(rejected(verified.request.requestId, verified.request.action, context.stationId, "forbidden"));
+    } catch (error) {
+      const denial =
+        error instanceof StationBrowserTargetExecutionError &&
+        error.code === "stale_generation"
+          ? "stale_generation"
+          : "forbidden";
+      return canonicalStationBrowserJson(rejected(verified.request.requestId, verified.request.action, context.stationId, denial));
     }
   },
 });

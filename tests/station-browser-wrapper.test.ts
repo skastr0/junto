@@ -2,6 +2,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { decodeStationBrowserResponse } from "../src/shared/station-browser";
 import { admitOperatorUiDelegation, mintStationBrowserEnvelope, StationBrowserReplayCache } from "../src/main/vellum/browser/station-delegation";
+import { StationBrowserTargetExecutionError } from "../src/main/vellum/browser/station-target-executor";
 import { makeStationBrowserWrapper } from "../src/main/vellum/browser/station-wrapper";
 
 const keys = generateKeyPairSync("ed25519");
@@ -67,5 +68,21 @@ describe("station browser target wrapper", () => {
     expect(decodeStationBrowserResponse(await revoked.handle(stale)))
       .toMatchObject({ ok: false, error: "key" });
     expect(calls).toBe(1);
+  });
+  it("preserves an executor stale-generation denial on the signed wire", async () => {
+    const wrapper = makeStationBrowserWrapper({
+      trust: {
+        keyId: "fleet-1",
+        publicKey: keys.publicKey,
+        originStationId: "command-a",
+      },
+      verification: context,
+      replays: new StationBrowserReplayCache(),
+      execute: async () => {
+        throw new StationBrowserTargetExecutionError("stale_generation");
+      },
+    });
+    expect(decodeStationBrowserResponse(await wrapper.handle(request())))
+      .toMatchObject({ ok: false, error: "stale_generation" });
   });
 });
