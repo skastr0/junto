@@ -25,8 +25,10 @@ const runOwnedCommand = async (
 ): Promise<ProbeProcessClose> => {
   const supervisor = createProbeProcessSupervisor({
     maxLogBytes: 512 * 1024,
-    termGraceMs: 1_000,
-    killGraceMs: 1_500,
+    // The nested probe receives TERM and drains its separately-owned Electron
+    // group. Give that capability-owned cleanup time before outer escalation.
+    termGraceMs: 5_000,
+    killGraceMs: 3_000,
   });
   const child = supervisor.spawnGroup({
     source: "test.kernel-headless-probe",
@@ -100,7 +102,7 @@ describe.runIf(canLaunchElectron)("kernel headless real startup wiring", () => {
     const probe = await runOwnedCommand(
       "run kernel headless startup smoke",
       ["scripts/kernel-headless-probe.ts", "--startup-smoke"],
-      60_000,
+      140_000,
     );
     const output = `${probe.stdout}\n${probe.stderr}`;
 
@@ -111,5 +113,5 @@ describe.runIf(canLaunchElectron)("kernel headless real startup wiring", () => {
     expect(output).toContain("startup wiring PulseRecord");
     expect(output).toContain("kernel-headless-probe: STARTUP SMOKE GREEN");
     expect(output).not.toContain("trusted renderer protocol setup failed");
-  }, 65_000);
+  }, 150_000);
 });

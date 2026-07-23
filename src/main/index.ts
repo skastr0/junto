@@ -1225,6 +1225,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             capabilities: composition.registry,
             resolvePageTarget: resolveBrowserPageTarget,
             version: app.getVersion(),
+            home: headless && !app.isPackaged
+              ? app.getPath("userData")
+              : undefined,
             edgeGrant,
             readCanvas: readCanvasFromCanvases,
           });

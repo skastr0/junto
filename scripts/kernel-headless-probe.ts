@@ -45,6 +45,10 @@ import {
   type ProbeSandbox,
 } from "./probe-process-supervisor";
 import {
+  installProbeSignalDrain,
+  type ProbeShutdownSignal,
+} from "./probe-signal-drain";
+import {
   KERNEL_PROBE_CANVAS,
   KERNEL_PROBE_REGION_ID,
   KERNEL_PROBE_TIMER_EVERY_MINUTES,
@@ -69,10 +73,16 @@ const ARMED_DELIVERY_TIMEOUT_MS = 90_000; // headroom for a real model turn
 const DRY_PULSE_TIMEOUT_MS = 45_000;
 const PROBE_RUNTIME_TIMEOUT_MS = 130_000;
 const PROBE_LOG_BYTES = 256 * 1024;
-const PROBE_TEMP_PREFIX = join(tmpdir(), "vellum-kernel-probe-");
+// Darwin's sockaddr_un limit is 104 bytes and its reported tmpdir is already
+// deeply nested. mkdtemp still mints the exact deletion capability, but the
+// short system alias keeps isolated UDS paths representable.
+const PROBE_TEMP_PREFIX = process.platform === "darwin"
+  ? "/tmp/vkh-"
+  : join(tmpdir(), "vellum-kernel-probe-");
 const probeSupervisor = createProbeProcessSupervisor({ maxLogBytes: PROBE_LOG_BYTES });
 const activeSandboxes = new Set<ProbeSandbox>();
 let watchdogExitRequested = false;
+let externalExitRequested = false;
 let mainSucceeded = false;
 let rendererServer: RendererServer | undefined;
 let rendererServerCloseFlight: Promise<boolean> | undefined;
@@ -152,7 +162,7 @@ const spawnApp = (
       // renderer; never weaken or bypass the guard for headless mode.
       ELECTRON_RENDERER_URL: rendererUrl,
       VELLUM_BROWSER_DIR: join(fixture.root, "browser"),
-      VELLUM_BROWSER_HOME: join(fixture.root, "browser-control"),
+      VELLUM_BROWSER_HOME: fixture.userDataDir,
       VELLUM_CANVASES_DIR: fixture.canvasesDir,
       VELLUM_HOSTS_PATH: join(fixture.root, "hosts.json"),
       VELLUM_SETTINGS_PATH: join(fixture.root, "settings.json"),
@@ -396,6 +406,29 @@ const finalize = async (reason: string): Promise<boolean> => {
   return drainReceipt.clean && allRemoved && rendererClosed;
 };
 
+const signalExitCode = (signal: ProbeShutdownSignal): number => {
+  switch (signal) {
+    case "SIGHUP":
+      return 129;
+    case "SIGINT":
+      return 130;
+    case "SIGTERM":
+      return 143;
+  }
+};
+
+const signalDrain = installProbeSignalDrain({
+  finalize,
+  beforeDrain: (signal) => {
+    externalExitRequested = true;
+    process.exitCode = signalExitCode(signal);
+    console.error(`\nkernel-headless-probe: ${signal} RECEIVED; DRAINING`);
+  },
+  onFailure: (_signal, error) => {
+    console.error(error instanceof Error ? error.stack ?? error.message : error);
+  },
+});
+
 const watchdog = setTimeout(() => {
   watchdogExitRequested = true;
   console.error("\nkernel-headless-probe: GLOBAL WATCHDOG EXPIRED");
@@ -414,7 +447,7 @@ try {
 } catch (err) {
   console.error("\nkernel-headless-probe: FAILED");
   console.error(err instanceof Error ? err.stack ?? err.message : err);
-  if (!watchdogExitRequested) process.exitCode = 2;
+  if (!watchdogExitRequested && !externalExitRequested) process.exitCode = 2;
 } finally {
   const clean = await finalize("kernel-headless-probe-finalize");
   if (!clean && !watchdogExitRequested && (process.exitCode ?? 0) === 0) {
@@ -433,4 +466,5 @@ try {
     );
   }
   clearTimeout(watchdog);
+  signalDrain.uninstall();
 }
