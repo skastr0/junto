@@ -993,12 +993,16 @@ const packagedSandboxDisablingSwitch = findPackagedSandboxDisablingSwitch({
 const gotSingleInstanceLock =
   packagedSandboxDisablingSwitch === undefined && app.requestSingleInstanceLock();
 if (packagedSandboxDisablingSwitch !== undefined) {
-  // No owned process, socket, renderer, or document authority has started at
-  // this boundary, so an immediate app exit cannot strand product resources.
   console.error(
     `[sandbox] packaged startup rejected --${packagedSandboxDisablingSwitch}`,
   );
-  app.exit(1);
+  // Do not acquire the singleton lock or start product surfaces. Defer only
+  // until module evaluation and Electron readiness complete so the canonical
+  // owned-resource teardown seam is initialized and remains the sole direct
+  // exit authority.
+  app.once("ready", () => {
+    exitAfterDetach(1, "packaged-sandbox-policy");
+  });
 } else if (!gotSingleInstanceLock) {
   app.quit();
 } else {
