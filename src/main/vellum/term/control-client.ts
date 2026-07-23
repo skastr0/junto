@@ -6,9 +6,15 @@ import { createConnection, type Socket } from "node:net";
 import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { performance } from "node:perf_hooks";
-import type {
-  TermControlRequest,
-  TermControlResponse,
+import {
+  decodeTermMaintenanceAcquirePayload,
+  decodeTermMaintenanceReleasePayload,
+  type TermMaintenanceDenialReason,
+  type TermMaintenanceEvidence,
+  type TermMaintenanceQuiescenceEvidence,
+  type TermMaintenanceReleasePayload,
+  type TermControlRequest,
+  type TermControlResponse,
 } from "@shared/term-control";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import type { ControlLease, JournalEntry, LocalHostEvent } from "./local-host";
@@ -28,8 +34,32 @@ export interface TermControlClientShutdownReceipt {
   readonly diagnostics: ReadonlyArray<string>;
 }
 
+export interface TermControlMaintenanceLease {
+  readonly evidence: TermMaintenanceQuiescenceEvidence;
+  /** Idempotent and bounded; transport ambiguity rejects and closes the socket. */
+  readonly release: () => Promise<TermMaintenanceReleasePayload>;
+}
+
+export type TermControlMaintenanceAcquireResult =
+  | {
+      readonly acquired: true;
+      readonly evidence: TermMaintenanceQuiescenceEvidence;
+      readonly lease: TermControlMaintenanceLease;
+    }
+  | {
+      readonly acquired: false;
+      readonly evidence: TermMaintenanceEvidence;
+      readonly reason: TermMaintenanceDenialReason;
+    };
+
+/** Narrow package-internal port consumed by deployment coordination. */
+export interface TermMaintenanceControlPort {
+  acquireMaintenance(): Promise<TermControlMaintenanceAcquireResult>;
+}
+
 const CLIENT_SHUTDOWN_GRACE_MS = 100;
 const CLIENT_SHUTDOWN_DEADLINE_MS = 2_000;
+const MAINTENANCE_REQUEST_TIMEOUT_MS = 5_000;
 
 const settlesWithin = async (
   promise: Promise<unknown>,
@@ -131,7 +161,7 @@ const reviveHostEvent = (raw: unknown): LocalHostEvent | undefined => {
   return undefined;
 };
 
-export class TermControlClient extends EventEmitter {
+export class TermControlClient extends EventEmitter implements TermMaintenanceControlPort {
   private socket: Socket | undefined;
   private buf = "";
   private authed = false;
@@ -336,6 +366,59 @@ export class TermControlClient extends EventEmitter {
     const res = await this.call({ v: 1, id: this.nextId(), op: "kill", bindingId });
     if (!res.ok) throw new Error(res.error);
     return Boolean(res.data);
+  }
+
+  async acquireMaintenance(): Promise<TermControlMaintenanceAcquireResult> {
+    let response: TermControlResponse;
+    try {
+      response = await this.call(
+        { v: 1, id: this.nextId(), op: "maintenance.acquire" },
+        MAINTENANCE_REQUEST_TIMEOUT_MS,
+      );
+    } catch (error) {
+      // The server may have acquired the cut even when its response was lost.
+      // Closing this exact socket is the only safe recovery.
+      this.close();
+      throw error;
+    }
+    if (!response.ok) {
+      this.close();
+      throw new Error(response.error);
+    }
+    const payload = decodeTermMaintenanceAcquirePayload(response.data);
+    if (payload === undefined) {
+      this.close();
+      throw new Error("invalid terminal maintenance acquisition response");
+    }
+    if (!payload.acquired) return payload;
+
+    const evidence = Object.freeze(payload.evidence);
+    let releaseFlight: Promise<TermMaintenanceReleasePayload> | undefined;
+    const release = (): Promise<TermMaintenanceReleasePayload> => {
+      if (releaseFlight !== undefined) return releaseFlight;
+      releaseFlight = (async () => {
+        try {
+          const releaseResponse = await this.call(
+            { v: 1, id: this.nextId(), op: "maintenance.release" },
+            MAINTENANCE_REQUEST_TIMEOUT_MS,
+          );
+          if (!releaseResponse.ok) throw new Error(releaseResponse.error);
+          const receipt = decodeTermMaintenanceReleasePayload(releaseResponse.data);
+          if (receipt === undefined) {
+            throw new Error("invalid terminal maintenance release response");
+          }
+          return Object.freeze(receipt);
+        } catch (error) {
+          // A bounded release timeout cannot be treated as release success.
+          // Force connection loss so the server's socket-bound cleanup runs.
+          this.close();
+          throw error;
+        }
+      })();
+      return releaseFlight;
+    };
+    const lease = Object.freeze({ evidence, release });
+    return { acquired: true, evidence, lease };
   }
 
   async bindCanvas(

@@ -22,15 +22,23 @@ import {
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { performance } from "node:perf_hooks";
 import {
+  decodeTermMaintenanceRequest,
   TERM_CONTROL_PROTOCOL,
   TERM_MAX_FRAME_BYTES,
   termControlDir,
   termControlSocketPath,
   termControlTokenPath,
+  type TermMaintenanceAcquirePayload,
+  type TermMaintenanceReleasePayload,
   type TermControlRequest,
   type TermControlResponse,
 } from "@shared/term-control";
-import type { ControlLease, LocalHostEvent, LocalSessionHost } from "./local-host";
+import type {
+  ControlLease,
+  LocalHostEvent,
+  LocalSessionHost,
+  LocalTerminalMaintenanceLease,
+} from "./local-host";
 import {
   acquireControlListenerLease,
   captureControlSocketPathIdentity,
@@ -231,6 +239,8 @@ export const startTermControlServer = async (
   const leaseSockets = new Map<string, Set<Socket>>();
   const socketLeases = new Map<Socket, Set<string>>();
   const leaseById = new Map<string, ControlLease>();
+  /** Opaque host capabilities never cross the authenticated socket boundary. */
+  const maintenanceLeaseBySocket = new Map<Socket, LocalTerminalMaintenanceLease>();
   /** Accepted clients and every admitted handler remain visible through shutdown. */
   const sockets = new Map<number, TermControlSocket>();
   const activeFlights = new Map<number, TermControlFlight>();
@@ -292,6 +302,13 @@ export const startTermControlServer = async (
       socketLeases.set(socket, owned);
     }
     owned.add(lease.leaseId);
+  };
+
+  const releaseMaintenanceForSocket = (socket: Socket): boolean => {
+    const lease = maintenanceLeaseBySocket.get(socket);
+    if (lease === undefined) return false;
+    maintenanceLeaseBySocket.delete(socket);
+    return host.releaseMaintenanceLease(lease);
   };
 
   const dropSocket = (socket: Socket): void => {
@@ -410,6 +427,35 @@ export const startTermControlServer = async (
             data: host.resize(lease, req.cols, req.rows),
           };
         }
+        case "maintenance.acquire": {
+          if (decodeTermMaintenanceRequest(req) === undefined) {
+            return { v: 1, id, ok: false, error: "invalid maintenance request" };
+          }
+          const result = host.acquireMaintenanceLease();
+          if (!result.acquired) {
+            const data = {
+              acquired: false,
+              evidence: result.evidence,
+              reason: result.reason,
+            } satisfies TermMaintenanceAcquirePayload;
+            return { v: 1, id, ok: true, data };
+          }
+          maintenanceLeaseBySocket.set(socket, result.lease);
+          const data = {
+            acquired: true,
+            evidence: result.evidence,
+          } satisfies TermMaintenanceAcquirePayload;
+          return { v: 1, id, ok: true, data };
+        }
+        case "maintenance.release": {
+          if (decodeTermMaintenanceRequest(req) === undefined) {
+            return { v: 1, id, ok: false, error: "invalid maintenance request" };
+          }
+          const data = {
+            released: releaseMaintenanceForSocket(socket),
+          } satisfies TermMaintenanceReleasePayload;
+          return { v: 1, id, ok: true, data };
+        }
         case "shutdown":
           // Remote operator must not mass-kill via socket; only local app quit.
           return { v: 1, id, ok: false, error: "shutdown not allowed over control socket" };
@@ -499,13 +545,18 @@ export const startTermControlServer = async (
           return;
         }
         const operation = Promise.resolve()
-          .then(() => handle(req, socket))
+          .then(() =>
+            closed || closing || socket.destroyed
+              ? undefined
+              : handle(req, socket),
+          )
           .then((res) => {
-            if (socket.destroyed || closing) return;
+            if (res === undefined || socket.destroyed || closing) return;
             try {
               socket.write(jsonLine(res));
             } catch (error) {
               dropSocket(socket);
+              socket.destroy();
               throw error;
             }
           });
@@ -516,6 +567,7 @@ export const startTermControlServer = async (
       admittedClients.delete(socket);
       closed = true;
       sockets.delete(socketId);
+      releaseMaintenanceForSocket(socket);
       dropSocket(socket);
       resolveSocketClosed();
     });

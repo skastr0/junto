@@ -9,6 +9,12 @@ import { EventEmitter } from "node:events";
 import * as os from "node:os";
 import { randomBytes } from "node:crypto";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import {
+  TERM_MAINTENANCE_OBSERVATION_BYTES,
+  type TermMaintenanceDenialReason,
+  type TermMaintenanceEvidence,
+  type TermMaintenanceQuiescenceEvidence,
+} from "@shared/term-control";
 import { getProcessIdentityMap } from "../process-identity";
 import {
   TerminalLaunchError,
@@ -74,6 +80,28 @@ export type ControlLease = {
   readonly epoch: string;
   readonly mode: "control" | "observe";
 };
+
+declare const localTerminalMaintenanceLeaseBrand: unique symbol;
+
+/**
+ * Opaque host authority for one zero-session terminal admission cut.
+ * Only exact object identity can release the cut; it is never serialized.
+ */
+export type LocalTerminalMaintenanceLease = {
+  readonly [localTerminalMaintenanceLeaseBrand]: true;
+};
+
+export type LocalTerminalMaintenanceAcquireResult =
+  | {
+      readonly acquired: true;
+      readonly evidence: TermMaintenanceQuiescenceEvidence;
+      readonly lease: LocalTerminalMaintenanceLease;
+    }
+  | {
+      readonly acquired: false;
+      readonly evidence: TermMaintenanceEvidence;
+      readonly reason: TermMaintenanceDenialReason;
+    };
 
 export type JournalEntry =
   | { readonly seq: bigint; readonly type: "output"; readonly data: string }
@@ -161,6 +189,8 @@ const mintEpoch = (): string =>
   `ep_${Date.now().toString(36)}_${randomBytes(4).toString("hex")}`;
 
 const mintLease = (): string => `ls_${randomBytes(8).toString("hex")}`;
+const mintMaintenanceObservation = (): string =>
+  `tm_${randomBytes(TERM_MAINTENANCE_OBSERVATION_BYTES).toString("hex")}`;
 
 export { TerminalLaunchError };
 export type { TerminalLaunchFailureCode };
@@ -217,6 +247,7 @@ export class LocalSessionHost extends EventEmitter {
   private readonly liveRecords = new Set<SessionRec>();
   /** Bounded waiters used only after shutdown has prevented further creates. */
   private readonly allExitedWaiters = new Set<AllExitedWaiter>();
+  private maintenanceLease: LocalTerminalMaintenanceLease | undefined;
   private shuttingDown = false;
   private shutdownFlight: Promise<LocalHostShutdownResult> | undefined;
   private readonly processAuthority: LocalTerminalProcessAuthority;
@@ -238,6 +269,9 @@ export class LocalSessionHost extends EventEmitter {
   create(input: LocalHostCreateInput): TerminalSessionSummary {
     if (this.shuttingDown) {
       throw new Error("terminal host shutting down");
+    }
+    if (this.maintenanceLease !== undefined) {
+      throw new Error("terminal admission closed for maintenance");
     }
     const bindingId = input.bindingId.trim();
     if (!bindingId) throw new Error("bindingId required");
@@ -480,6 +514,46 @@ export class LocalSessionHost extends EventEmitter {
     return this.liveRecords.size;
   }
 
+  /**
+   * Atomically observes the exact live-generation set and closes create
+   * admission only when it is empty. JavaScript execution cannot interleave a
+   * synchronous create/shutdown call between the observation and capability
+   * mint.
+   */
+  acquireMaintenanceLease(): LocalTerminalMaintenanceAcquireResult {
+    const activeTerminalSessions = this.liveRecords.size;
+    const evidence = Object.freeze({
+      activeTerminalSessions,
+      observationId: mintMaintenanceObservation(),
+    });
+    if (this.shuttingDown) {
+      return { acquired: false, evidence, reason: "shutting_down" };
+    }
+    if (this.maintenanceLease !== undefined) {
+      return { acquired: false, evidence, reason: "maintenance_held" };
+    }
+    if (activeTerminalSessions !== 0) {
+      return { acquired: false, evidence, reason: "active_sessions" };
+    }
+    const lease = Object.freeze({}) as LocalTerminalMaintenanceLease;
+    this.maintenanceLease = lease;
+    return {
+      acquired: true,
+      evidence: {
+        activeTerminalSessions: 0,
+        observationId: evidence.observationId,
+      },
+      lease,
+    };
+  }
+
+  /** Release requires the exact in-process capability minted above. */
+  releaseMaintenanceLease(lease: LocalTerminalMaintenanceLease): boolean {
+    if (this.maintenanceLease !== lease) return false;
+    this.maintenanceLease = undefined;
+    return true;
+  }
+
   detachedRunning(): readonly TerminalSessionSummary[] {
     return [...this.sessions.values()]
       .filter((s) => s.detached && (s.status === "running" || s.status === "starting"))
@@ -491,6 +565,7 @@ export class LocalSessionHost extends EventEmitter {
     // Close admission synchronously, then defer signaling until the shared
     // promise is published. A terminal backend callback can re-enter this host.
     this.shuttingDown = true;
+    this.maintenanceLease = undefined;
     const flight = Promise.resolve()
       .then(() => this.performShutdown(reason))
       .finally(() => {
