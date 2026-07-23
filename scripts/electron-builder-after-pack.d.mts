@@ -1,6 +1,6 @@
-export declare const normalizeLinuxArtifactModes: (
-  artifactRoot: string,
-) => Promise<void>;
+export declare const isExpectedLinuxArtifactRoot: (
+  candidate: unknown,
+) => boolean;
 
 declare const afterPack: (context: unknown) => Promise<void>;
 

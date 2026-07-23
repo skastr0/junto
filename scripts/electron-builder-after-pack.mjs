@@ -1,9 +1,10 @@
+import { constants as fsConstants } from "node:fs";
 import {
   access,
   chmod,
   lstat,
+  open,
   readFile,
-  readdir,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -21,6 +22,12 @@ const POLICY_PATH = fileURLToPath(
 );
 const ELECTRON_RUNTIME_VERSION_PATH = fileURLToPath(
   new URL("../node_modules/electron/dist/version", import.meta.url),
+);
+const LINUX_RELEASE_ROOT = fileURLToPath(
+  new URL("../release", import.meta.url),
+);
+const LINUX_ARTIFACT_ROOT = fileURLToPath(
+  new URL("../release/linux-unpacked", import.meta.url),
 );
 
 const libraryFuseNames = () =>
@@ -92,37 +99,191 @@ const assertFuseWire = (wire, policy) => {
   }
 };
 
-export const normalizeLinuxArtifactModes = async (artifactRoot) => {
-  const mutableEntries = [];
-  const inventory = async (current) => {
-    const metadata = await lstat(current);
-    if (metadata.isSymbolicLink()) return;
-    if (metadata.isFile()) {
-      if (metadata.nlink !== 1) {
-        throw new Error(
-          `Linux package artifact contains a hard-linked file: ${current}`,
-        );
-      }
-      mutableEntries.push({ path: current, mode: metadata.mode });
-      return;
-    }
-    if (!metadata.isDirectory()) {
+export const isExpectedLinuxArtifactRoot = (candidate) =>
+  typeof candidate === "string" &&
+  path.resolve(candidate) === LINUX_ARTIFACT_ROOT;
+
+const sameIdentity = (left, right) =>
+  left.dev === right.dev && left.ino === right.ino;
+
+const procDescriptorPath = (handle, relativePath = "") =>
+  path.posix.join("/proc/self/fd", String(handle.fd), relativePath);
+
+const admitLinuxArtifact = async (candidate) => {
+  if (!isExpectedLinuxArtifactRoot(candidate)) {
+    throw new Error(
+      `Linux package artifact root must be ${LINUX_ARTIFACT_ROOT}`,
+    );
+  }
+  if (
+    !Number.isInteger(fsConstants.O_DIRECTORY) ||
+    !Number.isInteger(fsConstants.O_NOFOLLOW)
+  ) {
+    throw new Error("Linux package admission requires no-follow opens");
+  }
+  const releasePathMetadata = await lstat(LINUX_RELEASE_ROOT);
+  if (
+    releasePathMetadata.isSymbolicLink() ||
+    !releasePathMetadata.isDirectory()
+  ) {
+    throw new Error(
+      "Linux package release root must be a non-symlink directory",
+    );
+  }
+  const releaseHandle = await open(
+    LINUX_RELEASE_ROOT,
+    fsConstants.O_RDONLY |
+      fsConstants.O_DIRECTORY |
+      fsConstants.O_NOFOLLOW,
+  );
+  let rootHandle;
+  let executableHandle;
+  try {
+    const releaseHandleMetadata = await releaseHandle.stat();
+    if (
+      !releaseHandleMetadata.isDirectory() ||
+      !sameIdentity(releasePathMetadata, releaseHandleMetadata)
+    ) {
       throw new Error(
-        `Linux package artifact contains a non-file object: ${current}`,
+        "Linux package release root identity changed during admission",
       );
     }
-    mutableEntries.push({ path: current, mode: metadata.mode });
-    const children = await readdir(current);
-    children.sort();
-    for (const child of children) {
-      await inventory(path.join(current, child));
+    const rootPath = procDescriptorPath(releaseHandle, "linux-unpacked");
+    const rootPathMetadata = await lstat(rootPath);
+    if (
+      rootPathMetadata.isSymbolicLink() ||
+      !rootPathMetadata.isDirectory()
+    ) {
+      throw new Error(
+        "Linux package artifact root must be a non-symlink directory",
+      );
     }
-  };
-
-  await inventory(path.resolve(artifactRoot));
-  for (const entry of mutableEntries) {
-    await chmod(entry.path, (entry.mode & 0o7777) & ~0o022);
+    rootHandle = await open(
+      rootPath,
+      fsConstants.O_RDONLY |
+        fsConstants.O_DIRECTORY |
+        fsConstants.O_NOFOLLOW,
+    );
+    const rootHandleMetadata = await rootHandle.stat();
+    if (
+      !rootHandleMetadata.isDirectory() ||
+      !sameIdentity(rootPathMetadata, rootHandleMetadata)
+    ) {
+      throw new Error(
+        "Linux package artifact root identity changed during admission",
+      );
+    }
+    const executablePath = procDescriptorPath(rootHandle, "vellum");
+    const executablePathMetadata = await lstat(executablePath);
+    if (
+      executablePathMetadata.isSymbolicLink() ||
+      !executablePathMetadata.isFile() ||
+      executablePathMetadata.nlink !== 1
+    ) {
+      throw new Error(
+        "Linux package executable must be a privately owned regular file",
+      );
+    }
+    executableHandle = await open(
+      executablePath,
+      fsConstants.O_RDWR | fsConstants.O_NOFOLLOW,
+    );
+    const executableHandleMetadata = await executableHandle.stat();
+    if (
+      !executableHandleMetadata.isFile() ||
+      executableHandleMetadata.nlink !== 1 ||
+      !sameIdentity(executablePathMetadata, executableHandleMetadata)
+    ) {
+      await executableHandle.close();
+      throw new Error(
+        "Linux package executable identity changed during admission",
+      );
+    }
+    return {
+      executable: {
+        handle: executableHandle,
+        identity: {
+          dev: executableHandleMetadata.dev,
+          ino: executableHandleMetadata.ino,
+        },
+      },
+      root: {
+        handle: rootHandle,
+        identity: {
+          dev: rootHandleMetadata.dev,
+          ino: rootHandleMetadata.ino,
+        },
+      },
+      release: {
+        handle: releaseHandle,
+        identity: {
+          dev: releaseHandleMetadata.dev,
+          ino: releaseHandleMetadata.ino,
+        },
+      },
+    };
+  } catch (error) {
+    await Promise.allSettled([
+      executableHandle?.close(),
+      rootHandle?.close(),
+      releaseHandle.close(),
+    ]);
+    throw error;
   }
+};
+
+const assertLinuxArtifactIdentity = async (artifact) => {
+  const [releasePathMetadata, releaseHandleMetadata] = await Promise.all([
+    lstat(LINUX_RELEASE_ROOT),
+    artifact.release.handle.stat(),
+  ]);
+  if (
+    releasePathMetadata.isSymbolicLink() ||
+    !releasePathMetadata.isDirectory() ||
+    !releaseHandleMetadata.isDirectory() ||
+    !sameIdentity(releasePathMetadata, artifact.release.identity) ||
+    !sameIdentity(releaseHandleMetadata, artifact.release.identity)
+  ) {
+    throw new Error("Linux package release root identity changed");
+  }
+  const [rootPathMetadata, rootHandleMetadata] = await Promise.all([
+    lstat(procDescriptorPath(artifact.release.handle, "linux-unpacked")),
+    artifact.root.handle.stat(),
+  ]);
+  if (
+    rootPathMetadata.isSymbolicLink() ||
+    !rootPathMetadata.isDirectory() ||
+    !rootHandleMetadata.isDirectory() ||
+    !sameIdentity(rootPathMetadata, artifact.root.identity) ||
+    !sameIdentity(rootHandleMetadata, artifact.root.identity)
+  ) {
+    throw new Error("Linux package artifact root identity changed");
+  }
+  const [executablePathMetadata, executableHandleMetadata] = await Promise.all([
+    lstat(procDescriptorPath(artifact.root.handle, "vellum")),
+    artifact.executable.handle.stat(),
+  ]);
+  if (
+    executablePathMetadata.isSymbolicLink() ||
+    !executablePathMetadata.isFile() ||
+    executablePathMetadata.nlink !== 1 ||
+    !executableHandleMetadata.isFile() ||
+    executableHandleMetadata.nlink !== 1 ||
+    !sameIdentity(executablePathMetadata, artifact.executable.identity) ||
+    !sameIdentity(executableHandleMetadata, artifact.executable.identity)
+  ) {
+    throw new Error("Linux package executable identity changed");
+  }
+};
+
+const closeLinuxArtifact = async (artifact) => {
+  const results = await Promise.allSettled([
+    artifact.executable.handle.close(),
+    artifact.root.handle.close(),
+    artifact.release.handle.close(),
+  ]);
+  const failure = results.find((result) => result.status === "rejected");
+  if (failure !== undefined) throw failure.reason;
 };
 
 export default async function afterPack(context) {
@@ -135,71 +296,90 @@ export default async function afterPack(context) {
       `packaged product name mismatch: got ${productName} want ${policy.productName}`,
     );
   }
-  const resourceDirectory =
-    platform === "darwin"
-      ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents", "Resources", "bin")
-      : platform === "linux"
-        ? path.join(context.appOutDir, "resources", "bin")
-        : null;
-  if (resourceDirectory === null) {
+  if (platform !== "darwin" && platform !== "linux") {
     throw new Error(`unsupported Vellum package platform: ${platform}`);
   }
-  for (const name of ["vellum", "vellum-browser", "unix-peer-pid.py"]) {
-    const resource = path.join(resourceDirectory, name);
-    await access(resource);
-    await chmod(resource, 0o755);
+  if (
+    platform === "linux" &&
+    context.packager.executableName !== "vellum"
+  ) {
+    throw new Error("Linux package executable identity is not vellum");
   }
-  if (platform === "linux") {
-    const runtimeVersion = await readFile(
-      ELECTRON_RUNTIME_VERSION_PATH,
-      "utf8",
-    );
-    if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(
-      runtimeVersion,
-    )) {
-      throw new Error("materialized Electron runtime version is not canonical");
+  const linuxArtifact =
+    platform === "linux"
+      ? await admitLinuxArtifact(context.appOutDir)
+      : undefined;
+  try {
+    if (platform === "darwin") {
+      const resourceDirectory = path.join(
+        context.appOutDir,
+        `${context.packager.appInfo.productFilename}.app`,
+        "Contents",
+        "Resources",
+        "bin",
+      );
+      for (const name of ["vellum", "vellum-browser", "unix-peer-pid.py"]) {
+        const resource = path.join(resourceDirectory, name);
+        await access(resource);
+        await chmod(resource, 0o755);
+      }
+    } else {
+      await assertLinuxArtifactIdentity(linuxArtifact);
+      const runtimeVersion = await readFile(
+        ELECTRON_RUNTIME_VERSION_PATH,
+        "utf8",
+      );
+      if (
+        !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(
+          runtimeVersion,
+        )
+      ) {
+        throw new Error(
+          "materialized Electron runtime version is not canonical",
+        );
+      }
+      await writeFile(
+        procDescriptorPath(linuxArtifact.root.handle, "version"),
+        runtimeVersion,
+        {
+          encoding: "utf8",
+          flag: "wx",
+          mode: 0o644,
+        },
+      );
+      await assertLinuxArtifactIdentity(linuxArtifact);
     }
-    await writeFile(path.join(context.appOutDir, "version"), runtimeVersion, {
-      encoding: "utf8",
-      flag: "wx",
-      mode: 0o644,
-    });
-    for (const name of [
-      "vellum-release-installer",
-      "vellum-release-bridge",
-    ]) {
-      await chmod(path.join(resourceDirectory, name), 0o755);
+    const executablePath =
+      platform === "darwin"
+        ? path.join(context.appOutDir, `${productFilename}.app`)
+        : procDescriptorPath(linuxArtifact.executable.handle);
+    if (platform === "darwin") await access(executablePath);
+
+    const fuseConfig = {
+      version: FuseVersion.V1,
+      resetAdHocDarwinSignature: platform === "darwin",
+      strictlyRequireAllFuses: true,
+    };
+    for (const name of libraryFuseNames()) {
+      // The trusted renderer still loads from file://. Its standard+secure custom
+      // scheme migration must land before file protocol privileges can be disabled.
+      fuseConfig[FuseV1Options[name]] = policy.fuses[name];
     }
-    await chmod(path.join(context.appOutDir, "chrome-sandbox"), 0o755);
-    await chmod(path.join(context.appOutDir, "resources", "apparmor-profile"), 0o644);
-    await chmod(path.join(context.appOutDir, "resources", "systemd", "vellum-remote-launch-v1"), 0o755);
-    await chmod(path.join(context.appOutDir, "resources", "systemd", "vellum-remote.service"), 0o644);
-  }
-  const executablePath =
-    platform === "darwin"
-      ? path.join(context.appOutDir, `${productFilename}.app`)
-      : path.join(context.appOutDir, context.packager.executableName);
-  await access(executablePath);
 
-  const fuseConfig = {
-    version: FuseVersion.V1,
-    resetAdHocDarwinSignature: platform === "darwin",
-    strictlyRequireAllFuses: true,
-  };
-  for (const name of libraryFuseNames()) {
-    // The trusted renderer still loads from file://. Its standard+secure custom
-    // scheme migration must land before file protocol privileges can be disabled.
-    fuseConfig[FuseV1Options[name]] = policy.fuses[name];
-  }
-
-  const sentinelCount = await flipFuses(executablePath, fuseConfig);
-  if (sentinelCount < 1 || sentinelCount > 2) {
-    throw new Error(
-      `unexpected Electron fuse sentinel count ${sentinelCount}`,
-    );
-  }
-  assertFuseWire(await getCurrentFuseWire(executablePath), policy);
-  if (platform === "linux") {
-    await normalizeLinuxArtifactModes(context.appOutDir);
+    if (platform === "linux") await assertLinuxArtifactIdentity(linuxArtifact);
+    const sentinelCount = await flipFuses(executablePath, fuseConfig);
+    if (sentinelCount < 1 || sentinelCount > 2) {
+      throw new Error(
+        `unexpected Electron fuse sentinel count ${sentinelCount}`,
+      );
+    }
+    if (platform === "linux") {
+      await assertLinuxArtifactIdentity(linuxArtifact);
+    }
+    assertFuseWire(await getCurrentFuseWire(executablePath), policy);
+  } finally {
+    if (linuxArtifact !== undefined) {
+      await closeLinuxArtifact(linuxArtifact);
+    }
   }
 }

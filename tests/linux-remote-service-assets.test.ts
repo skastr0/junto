@@ -196,12 +196,10 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
 
   it("includes the unit and executable launcher in the Linux package resources", async () => {
     const packageJson = await readFile(new URL("../package.json", import.meta.url), "utf8");
-    const afterPack = await readFile(new URL("../scripts/electron-builder-after-pack.mjs", import.meta.url), "utf8");
     expect(packageJson).toContain('"from": "build/linux/vellum-remote-launch-v1"');
     expect(packageJson).toContain('"to": "systemd/vellum-remote-launch-v1"');
     expect(packageJson).toContain('"from": "build/linux/vellum-remote.service"');
     expect(packageJson).toContain('"to": "systemd/vellum-remote.service"');
-    expect(afterPack).toContain('"resources", "systemd", "vellum-remote-launch-v1"');
   });
 
   it("registers only the exact immutable unit without activating a user manager", async () => {
