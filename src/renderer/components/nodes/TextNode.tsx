@@ -11,7 +11,7 @@ import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
 import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { state$ } from "../../lib/state";
-import { findEntity } from "@shared/entities";
+import { findEntity, findFreshEntity } from "@shared/entities";
 import { chatActivity, timerActivity, watcherActivity } from "../../lib/activity";
 import { chatCoarse$ } from "../../lib/chat-state";
 import { accentColor, INK, DIM, SOURCE_HUE, withAlpha } from "../../lib/theme";
@@ -157,7 +157,7 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
   });
   const hermesFresh = use$(() => {
     if (!hermesKey) return false;
-    return findEntity(state$.snapshots.get(), "hermes", hermesKey) !== undefined;
+    return findFreshEntity(state$.snapshots.get(), "hermes", hermesKey) !== undefined;
   });
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [identity, setIdentity] = useState<AgentIdentity | null>(null);
