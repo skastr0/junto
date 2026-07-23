@@ -1,6 +1,7 @@
 /** Hardened owner-local lifecycle for Unix control sockets and bearer tokens. */
 import { randomBytes } from "node:crypto";
 import { chmodSync, closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, openSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { createConnection } from "node:net";
 
 export const CONTROL_DIRECTORY_MODE = 0o700;
 export const CONTROL_FILE_MODE = 0o600;
@@ -20,10 +21,18 @@ export const prepareControlDirectory = (path: string): void => {
 };
 
 /** Removes only an observed stale Unix socket, never a symlink or arbitrary file. */
-export const removeObservedSocket = (path: string): void => {
+export const removeObservedSocket = async (path: string): Promise<void> => {
   let first: ReturnType<typeof lstatSync>;
   try { first = lstatSync(path, { bigint: true }); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
   if (!first.isSocket() || first.isSymbolicLink()) throw new Error("refusing to replace non-socket control path");
+  const active = await new Promise<boolean>((resolve) => {
+    const socket = createConnection({ path }); let done = false;
+    const finish = (value: boolean) => { if (done) return; done = true; socket.destroy(); resolve(value); };
+    const timer = setTimeout(() => finish(true), 100);
+    socket.once("connect", () => { clearTimeout(timer); finish(true); });
+    socket.once("error", (error: NodeJS.ErrnoException) => { clearTimeout(timer); finish(error.code !== "ECONNREFUSED" && error.code !== "ENOENT"); });
+  });
+  if (active) throw new Error("control socket has a live or ambiguous listener");
   const id: Identity = { dev: first.dev, ino: first.ino, birthtimeNs: first.birthtimeNs };
   const current = lstatSync(path, { bigint: true });
   if (!current.isSocket() || current.isSymbolicLink() || !sameIdentity(id, { dev: current.dev, ino: current.ino, birthtimeNs: current.birthtimeNs })) throw new Error("control socket changed during stale cleanup");
@@ -31,9 +40,14 @@ export const removeObservedSocket = (path: string): void => {
 };
 
 /** Atomic, no-follow token publication; cleanup is restricted to our inode. */
-export const rotateControlFileToken = (tokenPath: string, suppliedToken?: string): string => {
+export const rotateControlFileToken = (
+  tokenPath: string,
+  suppliedToken?: string,
+  /** Test-only deterministic leaf; production always uses random entropy. */
+  temporaryLeaf?: string,
+): string => {
   const token = suppliedToken ?? randomBytes(32).toString("hex");
-  const temp = `${tokenPath}.${randomBytes(16).toString("hex")}.tmp`;
+  const temp = `${tokenPath}.${temporaryLeaf ?? randomBytes(16).toString("hex")}.tmp`;
   let fd: number | undefined; let owned: Identity | undefined;
   try {
     fd = openSync(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0), CONTROL_FILE_MODE);

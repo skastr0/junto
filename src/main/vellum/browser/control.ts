@@ -1656,7 +1656,7 @@ export const startBrowserControlServer = async (
 
   // Stale socket from a crashed run blocks listen — remove before binding.
   const socketPath = controlSocketPath(home);
-  removeObservedSocket(socketPath);
+  await removeObservedSocket(socketPath);
   await listenOnSocket(server, socketPath);
   type SocketPathIdentity = Readonly<{
     dev: bigint;

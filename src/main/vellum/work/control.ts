@@ -663,7 +663,7 @@ export const startWorkControlServer = async (
   const tokenPath = workControlTokenPath(workHome);
   const socketPath = workControlSocketPath(workHome);
   const token = rotateWorkToken(tokenPath);
-  removeObservedSocket(socketPath);
+  await removeObservedSocket(socketPath);
   const processMap = options.processMap ?? getProcessIdentityMap();
   const readPeerPid = options.readPeerPid ?? readUnixPeerPid;
   const authoringGate = options.authoringGate ?? mainAuthoringGate;
