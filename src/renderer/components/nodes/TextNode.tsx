@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
 import { X } from "lucide-react";
@@ -22,6 +21,8 @@ import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { TerminalCard } from "../terminal/TerminalCard";
 import { HerdrToolbarActions } from "../herdr/HerdrToolbarActions";
+import { FocusSurface } from "../FocusSurface";
+import { Button, Eyebrow, IconButton } from "../ui";
 import {
   ArtifactsCard,
   ArtifactsDetail,
@@ -221,7 +222,6 @@ function NoteEditModal({
   readonly onCommit: () => void;
   readonly onDiscard: () => void;
 }) {
-  const overlayRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const commitRef = useRef(onCommit);
   commitRef.current = onCommit;
@@ -256,24 +256,28 @@ function NoteEditModal({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onCommit, onDiscard]);
 
-  return createPortal(
-    <div
-      ref={overlayRef}
-      className="vellum-modal-overlay"
-      onMouseDown={(event) => {
-        if (event.target === overlayRef.current) onCommit();
-      }}
+  // House FocusSurface owns portal/backdrop/enter-animation/session size.
+  // Semantics preserved: backdrop click SAVES (onClose=onCommit), Escape
+  // discards (own keydown; FocusSurface Escape stays off).
+  return (
+    <FocusSurface
+      measure="document"
+      height="resizable"
+      layer="detail"
+      label="Edit note"
+      onClose={onCommit}
+      closeOnEscape={false}
     >
-      <div className="vellum-modal note-edit-modal nowheel" role="dialog" aria-modal="true" aria-label="Edit note">
+      <div className="note-edit-modal nowheel">
         <div className="note-edit-modal__chrome">
-          <span className="note-edit-modal__eyebrow">note · markdown</span>
+          <Eyebrow tone="faint" size="xs">note · markdown</Eyebrow>
           <div className="note-edit-modal__actions">
-            <button type="button" className="note-edit-modal__done" onClick={onCommit}>
+            <Button size="xs" variant="chrome" onClick={onCommit}>
               done
-            </button>
-            <button type="button" className="vellum-modal__close" aria-label="Close without saving" onClick={onDiscard}>
+            </Button>
+            <IconButton size="sm" aria-label="Close without saving" title="discard" onClick={onDiscard}>
               <X size={13} />
-            </button>
+            </IconButton>
           </div>
         </div>
         <textarea
@@ -287,8 +291,7 @@ function NoteEditModal({
         />
         <div className="note-edit-modal__hint">⌘↵ save · esc discard</div>
       </div>
-    </div>,
-    document.body,
+    </FocusSurface>
   );
 }
 

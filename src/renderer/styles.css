@@ -1299,19 +1299,7 @@ path.vellum-edge-ripple {
 .vellum-row-button:focus-visible { outline: 1px solid rgba(232, 163, 61, 0.5); outline-offset: 1px; }
 
 /* Detail chrome (content classes live under vellum-modal__*).
-   Preferred host: FocusSurface measure=document. Legacy self-hosted
-   overlay kept for note-edit and any one-off that still portals itself. */
-.vellum-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.72);
-  backdrop-filter: blur(2px);
-}
+   Host: FocusSurface measure=document — every overlay goes through it. */
 .vellum-modal {
   position: relative;
   width: min(760px, 84vw);
@@ -1747,15 +1735,13 @@ ol.note-md__list > .note-md__li::before {
   font-style: italic;
 }
 
-/* Expanded note editor — same shell as detail modals, write-first layout. */
+/* Expanded note editor — fills a FocusSurface document panel; write-first
+   layout. Chrome (eyebrow/done/close) is the shared ui primitives. */
 .note-edit-modal {
   display: flex;
   flex-direction: column;
-  width: min(720px, 88vw);
-  height: min(72vh, 820px);
-  min-width: 420px;
-  min-height: 360px;
-  padding: 16px 18px 14px;
+  width: 100%;
+  height: 100%;
 }
 .note-edit-modal__chrome {
   display: flex;
@@ -1765,35 +1751,10 @@ ol.note-md__list > .note-md__li::before {
   margin-bottom: 10px;
   padding-right: 4px;
 }
-.note-edit-modal__eyebrow {
-  color: #68604a;
-  font-size: 8px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
 .note-edit-modal__actions {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-.note-edit-modal__actions .vellum-modal__close {
-  position: static;
-}
-.note-edit-modal__done {
-  border: 1px solid rgba(237, 230, 218, 0.16);
-  border-radius: 4px;
-  background: transparent;
-  color: #8a8378;
-  padding: 5px 10px;
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-.note-edit-modal__done:hover {
-  background: rgba(57, 198, 214, 0.08);
-  border-color: rgba(57, 198, 214, 0.4);
-  color: #ede6da;
 }
 .note-edit-modal__textarea {
   flex: 1;

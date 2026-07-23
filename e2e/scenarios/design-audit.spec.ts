@@ -293,6 +293,14 @@ test("capture every surface for design review", async () => {
     // Select a note → toolbar + inspector.
     await page.locator(".react-flow__node", { hasText: "Field notes" }).first().click();
     await shot(page, "08-node-selected-inspector");
+
+    // Expanded note editor (FocusSurface document panel).
+    await page.getByRole("button", { name: "Expand note editor" }).click();
+    const noteEditor = page.getByRole("dialog", { name: "Edit note" });
+    await expect(noteEditor).toBeVisible({ timeout: 10_000 });
+    await shot(page, "25-note-edit");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
     const pageNode = page.locator(".react-flow__node", { hasText: "jsoncanvas.org" }).first();
     await pageNode.dispatchEvent("click");
     await expect(page.getByLabel("Page browser host")).toBeVisible();
