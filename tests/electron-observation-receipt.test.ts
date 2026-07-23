@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -66,5 +66,42 @@ describe("Electron observation receipt", () => {
     await writeFile(receiptPath, JSON.stringify({ ...persisted, policyHash: "tampered" }));
     await expect(validateCheckedInElectronPolicy(new Date("2026-07-24T00:00:00.000Z")))
       .rejects.toThrow(/observation has an invalid shape/u);
+  });
+
+  it("cannot replay an authentic current receipt after a later EOL observation", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "vellum-electron-replay-"));
+    stateDirectories.push(directory);
+    vi.stubEnv("VELLUM_RELEASE_SECURITY_STATE_DIR", directory);
+
+    installCurrentReleaseSources();
+    await checkOfficialElectronSources(new Date("2026-07-24T00:00:00.000Z"));
+    const receiptPath = path.join(directory, "electron-observation.json");
+    const oldCurrent = await readFile(receiptPath, "utf8");
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === SUPPORT_URL) return new Response("Electron supports the latest 3 stable releases.");
+      if (url === RELEASE_INDEX_URL) return Response.json([
+        { version: "43.2.0", fullDate: "2026-07-21T16:00:22.000Z" },
+        { version: "44.0.0", fullDate: "2026-07-22T00:00:00.000Z" },
+        { version: "45.0.0", fullDate: "2026-07-22T01:00:00.000Z" },
+        { version: "46.0.0", fullDate: "2026-07-22T02:00:00.000Z" },
+      ]);
+      if (url === AUDITED_RELEASE_URL) return new Response("audited release");
+      return new Response("unexpected official source", { status: 404 });
+    }));
+    await checkOfficialElectronSources(new Date("2026-07-25T00:00:00.000Z"));
+    await writeFile(receiptPath, oldCurrent);
+    await expect(validateCheckedInElectronPolicy(new Date("2026-07-25T00:00:00.000Z")))
+      .rejects.toThrow(/current high-water state/u);
+  });
+
+  it("rejects an existing world-writable state directory instead of repairing it", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "vellum-electron-private-"));
+    stateDirectories.push(directory);
+    vi.stubEnv("VELLUM_RELEASE_SECURITY_STATE_DIR", directory);
+    await chmod(directory, 0o777);
+    installCurrentReleaseSources();
+    await expect(checkOfficialElectronSources(new Date("2026-07-24T00:00:00.000Z")))
+      .rejects.toThrow(/owner-owned non-symlink private directory/u);
   });
 });
