@@ -1,4 +1,5 @@
 import { LocalSessionHost } from "./local-host";
+import { linuxReleaseFenceActive } from "./release-fence";
 import { TerminalRouter } from "./router";
 import {
   startTermControlServer,
@@ -58,6 +59,11 @@ const settledBefore = async <A>(
  * - Term control UDS exposes that host to remote CCs via SSH forward
  * - TerminalRouter routes IPC by hostId
  */
+const productionLocalSessionHost = (): LocalSessionHost =>
+  new LocalSessionHost(undefined, {
+    externalMaintenanceFence: linuxReleaseFenceActive,
+  });
+
 export class TermPlane {
   readonly host: LocalSessionHost;
   readonly router: TerminalRouter;
@@ -69,7 +75,7 @@ export class TermPlane {
   private localShutdownFlight: Promise<LocalHostShutdownResult> | undefined;
   private drainFlight: Promise<TermPlaneShutdownReceipt> | undefined;
 
-  constructor(host = new LocalSessionHost()) {
+  constructor(host = productionLocalSessionHost()) {
     this.host = host;
     this.router = new TerminalRouter(host);
   }

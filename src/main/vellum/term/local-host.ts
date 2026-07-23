@@ -171,6 +171,12 @@ export type LocalSessionHostOptions = {
   readonly shutdownGraceMs?: number;
   /** Final event-driven window for a late observed exit after SIGKILL. */
   readonly lateExitGraceMs?: number;
+  /**
+   * Read-only external admission fence. Production observes the fixed
+   * root-owned Linux release marker; tests inject state without touching the
+   * host filesystem. Errors close admission.
+   */
+  readonly externalMaintenanceFence?: () => boolean;
 };
 
 type AllExitedWaiter = {
@@ -254,6 +260,7 @@ export class LocalSessionHost extends EventEmitter {
   private readonly killGraceMs: number;
   private readonly shutdownGraceMs: number;
   private readonly lateExitGraceMs: number;
+  private readonly externalMaintenanceFence: () => boolean;
 
   constructor(
     processAuthority: LocalTerminalProcessAuthority = appProcessPlane,
@@ -264,13 +271,22 @@ export class LocalSessionHost extends EventEmitter {
     this.killGraceMs = Math.max(0, options.killGraceMs ?? KILL_GRACE_MS);
     this.shutdownGraceMs = Math.max(0, options.shutdownGraceMs ?? SHUTDOWN_GRACE_MS);
     this.lateExitGraceMs = Math.max(0, options.lateExitGraceMs ?? LATE_EXIT_GRACE_MS);
+    this.externalMaintenanceFence =
+      options.externalMaintenanceFence ?? (() => false);
   }
 
   create(input: LocalHostCreateInput): TerminalSessionSummary {
     if (this.shuttingDown) {
       throw new Error("terminal host shutting down");
     }
-    if (this.maintenanceLease !== undefined) {
+    let externallyFenced = true;
+    try {
+      externallyFenced = this.externalMaintenanceFence();
+    } catch {
+      // Cross-privilege maintenance state is fail-closed. A broken observation
+      // must never become permission to create a new terminal.
+    }
+    if (this.maintenanceLease !== undefined || externallyFenced) {
       throw new Error("terminal admission closed for maintenance");
     }
     const bindingId = input.bindingId.trim();

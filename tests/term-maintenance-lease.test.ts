@@ -184,6 +184,33 @@ afterEach(async () => {
 });
 
 describe("terminal maintenance lease", () => {
+  it("rechecks a durable external fence for every create and fails closed", () => {
+    const fake = makeFakeTerminalProcessAuthority();
+    let fenced = true;
+    const host = new LocalSessionHost(fake.authority, {
+      externalMaintenanceFence: () => fenced,
+    });
+
+    expect(() => host.create({ bindingId: "during-release" })).toThrow(
+      /admission closed for maintenance/i,
+    );
+    expect(fake.controllers).toHaveLength(0);
+
+    fenced = false;
+    expect(host.create({ bindingId: "after-release" }).status).toBe("running");
+    expect(fake.controllers).toHaveLength(1);
+
+    const failClosed = new LocalSessionHost(fake.authority, {
+      externalMaintenanceFence: () => {
+        throw new Error("root fence unreadable");
+      },
+    });
+    expect(() => failClosed.create({ bindingId: "unreadable" })).toThrow(
+      /admission closed for maintenance/i,
+    );
+    expect(fake.controllers).toHaveLength(1);
+  });
+
   it("reports the exact active generation count without signaling it", async () => {
     const rig = await makeRig();
     const terminalClient = await rig.connect();
