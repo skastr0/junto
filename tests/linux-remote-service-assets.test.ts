@@ -96,7 +96,7 @@ describe("Linux Remote systemd/Xvfb package assets", () => {
     expect(unit).toContain("StartLimitBurst=3");
     expect(unit).toContain("TimeoutStartSec=45s");
     expect(unit).toContain("TimeoutStopSec=20s");
-    expect(unit).toContain("ConditionPathIsExecutable=/opt/Vellum\\x20Command/vellum");
+    expect(unit).toContain("ConditionFileIsExecutable=/opt/Vellum\\x20Command/vellum");
     expect(unit).toContain("KillMode=control-group");
     expect(unit).toContain("UMask=0077");
     expect(unit).toContain("Environment=DISPLAY=:89");
