@@ -57,6 +57,7 @@ describe("renderer delete quiesce boundary", () => {
       ref,
       nodeId: "page",
       url: "https://example.com",
+      hostId: "local",
       profile: "personal",
       state: "ready",
       attached: false,

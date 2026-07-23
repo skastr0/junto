@@ -2,6 +2,7 @@ import { Effect, Either } from "effect";
 import { isValidProfileId } from "@shared/browser";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
+import { resolveNodeHostId } from "@shared/station";
 import {
   resolveNodeRef,
   type CanvasNodeReader,
@@ -11,6 +12,7 @@ import {
 export interface ResolvedPageTarget {
   readonly ref: NodeRefKey;
   readonly nodeId: string;
+  readonly hostId: string;
   readonly url: string;
   readonly profile: string;
 }
@@ -74,6 +76,7 @@ export const makePageTargetResolver = (canvases: CanvasNodeReader): PageTargetRe
         data: {
           ref: resolved.right.key,
           nodeId: node.id,
+          hostId: resolveNodeHostId(node),
           url: node.url,
           profile,
         },

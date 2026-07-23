@@ -56,6 +56,7 @@ import {
   type PageNodeRow,
 } from "@shared/browser-control";
 import type { CanvasDoc } from "@shared/canvas";
+import { resolveNodeHostId } from "@shared/station";
 import {
   makeEdgeGrantService,
   type EdgeGrantDenial,
@@ -225,6 +226,7 @@ export const listPageNodes = async (
           sessionId,
           canvas: canvasName,
           nodeId: node.id,
+          hostId: resolveNodeHostId(node),
           url: node.url,
           ...(profile !== undefined ? { profile } : {}),
         };
@@ -266,7 +268,8 @@ const httpStatus = (tag: ControlErrorTag): number =>
               ? 429
               : tag === "result_too_large"
                 ? 413
-                : tag === "unsupported_result"
+                : tag === "unsupported_result" ||
+                    tag === "unsupported_capability"
                   ? 422
                   : tag === "bad_request" || tag === "invalid"
                     ? 400
@@ -435,6 +438,7 @@ const useTargetForResolved = (
     ? undefined
     : {
         ref: target.ref,
+        hostId: target.hostId,
         profile: target.profile,
         exactOrigins: origins,
       };
@@ -447,6 +451,7 @@ const scopeAllows = (
   scope.some(
     (allowed) =>
       allowed.ref === target.ref &&
+      allowed.hostId === target.hostId &&
       allowed.profile === target.profile &&
       target.exactOrigins.every((origin) => allowed.exactOrigins.includes(origin)),
   );
@@ -457,6 +462,7 @@ const sameResolvedTarget = (
 ): boolean =>
   left.ref === right.ref &&
   left.nodeId === right.nodeId &&
+  left.hostId === right.hostId &&
   left.url === right.url &&
   left.profile === right.profile;
 
@@ -610,6 +616,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       snapshot: snapshot.data,
       target: {
         ref: snapshot.data.ref,
+        hostId: snapshot.data.hostId,
         profile: snapshot.data.profile,
         exactOrigins: origins,
         generation: snapshot.data.generation,
@@ -681,6 +688,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
           sessionId,
           canvas: row.canvas,
           nodeId: resolved.data.nodeId,
+          hostId: resolved.data.hostId,
           url: resolved.data.url,
           profile: resolved.data.profile,
         });
@@ -705,7 +713,12 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
           : { ...target, generation: admittedGeneration },
       );
 
-      const opened = await deps.sessions.openForOwner(lease.auditId, resolved.data, signal);
+      const opened = await deps.sessions.openForOwner(
+        lease.auditId,
+        resolved.data,
+        signal,
+        () => deps.resolvePageTarget(input.ref),
+      );
       if (!opened.ok) {
         deps.sessions.destroyOwnerSessions(lease.auditId, "browser open failed closed");
         return fromResult(opened);
@@ -737,6 +750,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         if (
           !current.ok ||
           current.data.ref !== resolved.data.ref ||
+          current.data.hostId !== resolved.data.hostId ||
           current.data.profile !== resolved.data.profile ||
           current.data.origin !== target.exactOrigins[0] ||
           current.data.navigationInFlight
@@ -933,6 +947,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       if (exact === undefined) return capabilityDenied("forbidden");
       const target: BrowserCapabilityUseTarget = {
         ref: snapshot.ref,
+        hostId: snapshot.hostId,
         profile: snapshot.profile,
         exactOrigins: exact,
         ...(live.ok ? { generation: snapshot.generation } : {}),

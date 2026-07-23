@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, renameGroup, setNodeColor, setNodeView, setRegionDefaults, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
+import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, renameGroup, setNodeColor, setNodeView, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
@@ -42,6 +42,7 @@ describe("renderer graph mutations", () => {
     browserStop.mockResolvedValue({ ok: true });
     browser$.sessionByRef.set({});
     dock$.stopErrorByRef.set({});
+    state$.settings.station.hostId.set("local");
     clearGraphFilters();
     loadDoc({ nodes: [], edges: [] });
   });
@@ -70,6 +71,7 @@ describe("renderer graph mutations", () => {
       ref,
       nodeId: "page",
       url: "https://example.com",
+      hostId: "local",
       profile: "personal",
       state: "ready",
       attached: false,
@@ -112,6 +114,7 @@ describe("renderer graph mutations", () => {
       ref,
       nodeId: "page",
       url: "https://example.com",
+      hostId: "local",
       profile: "personal",
       state: "ready",
       attached: false,
@@ -147,6 +150,7 @@ describe("renderer graph mutations", () => {
       ref,
       nodeId: "page",
       url: "https://example.com",
+      hostId: "local",
       profile: "personal",
       state: "ready",
       attached: false,
@@ -188,6 +192,7 @@ describe("renderer graph mutations", () => {
       ref,
       nodeId: "page",
       url: "https://old.example.com",
+      hostId: "local",
       profile: "personal",
       state: "ready",
       attached: false,
@@ -806,18 +811,24 @@ describe("renderer graph mutations", () => {
 
   it("promotes a plain link node in place into a bound browser page work surface", () => {
     state$.canvasName.set("mutation-test");
+    state$.settings.station.hostId.set("studio");
     loadDoc({ nodes: [
       { id: "link", type: "link", url: "https://before.example", x: 0, y: 0, width: 200, height: 80 },
     ], edges: [] });
 
     promoteLinkToPage("link", "work");
+    state$.settings.station.hostId.set("local");
 
     const node = state$.doc.peek().nodes[0];
     expect(node).toMatchObject({
       id: "link",
       type: "link",
       url: "https://before.example", // url untouched — only ether is stamped
-      ether: { entity: { kind: "page" }, browser: { profile: "work", onDelete: "detach" } },
+      ether: {
+        entity: { kind: "page" },
+        host: "studio",
+        browser: { profile: "work", onDelete: "detach" },
+      },
     });
     expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
@@ -830,6 +841,38 @@ describe("renderer graph mutations", () => {
     promoteLinkToPage("note", "personal");
 
     expect(state$.doc.peek().nodes[0]).toEqual(note);
+  });
+
+  it("edits page host/profile without dropping URL, delete policy, or sibling ether", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({ nodes: [{
+      id: "page",
+      type: "link",
+      url: "https://before.example",
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 80,
+      ether: {
+        entity: { kind: "page" },
+        host: "local",
+        flags: ["attention"],
+        browser: { profile: "personal", onDelete: "kill-session" },
+      },
+    }], edges: [] });
+
+    setPageBinding("page", { profile: "work", host: "studio" });
+
+    expect(state$.doc.peek().nodes[0]).toMatchObject({
+      url: "https://before.example",
+      ether: {
+        entity: { kind: "page" },
+        host: "studio",
+        flags: ["attention"],
+        browser: { profile: "work", onDelete: "kill-session" },
+      },
+    });
+    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
   it("includes a node whose center lies inside the region and excludes one merely overlapping its edge", () => {

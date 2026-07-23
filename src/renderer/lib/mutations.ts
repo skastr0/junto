@@ -14,6 +14,7 @@ import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch } from "@legendapp/state";
 import type { BindingHint } from "@shared/ipc";
 import { formatNodeRef } from "@shared/node-ref";
+import { DEFAULT_STATION_HOST_ID, isValidStationHostId } from "@shared/station";
 import { state$ } from "./state";
 
 const past: CanvasDoc[] = [];
@@ -724,12 +725,47 @@ export const editLink = (id: string, url: string): void => {
   });
 };
 
+/** Edit the authorial browser binding without disturbing URL or sibling ether. */
+export const setPageBinding = (
+  id: string,
+  input: { readonly profile: string; readonly host: string },
+): void => {
+  const profile = input.profile.trim();
+  const host = input.host.trim();
+  if (!profile || !isValidStationHostId(host)) return;
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((node) =>
+      node.id === id &&
+      node.type === "link" &&
+      node.ether?.entity?.kind === "page"
+        ? {
+            ...node,
+            ether: {
+              ...node.ether,
+              host,
+              browser: {
+                ...(node.ether.browser ?? {}),
+                profile,
+              },
+            },
+          }
+        : node,
+    ),
+  });
+};
+
 // Promote a plain link node in place into a bound browser page work surface —
 // stamps entity.kind "page" + ether.browser onto the EXISTING node.id (never
 // spawns a new node; the JSON Canvas `link` type never changes). Product
 // default onDelete is detach, matching makePageNode/makeHerdrNode.
 export const promoteLinkToPage = (id: string, profile: string): void => {
   const doc = state$.doc.peek();
+  const stationHost = state$.settings.station.hostId.peek();
+  const fallbackHost = isValidStationHostId(stationHost)
+    ? stationHost
+    : DEFAULT_STATION_HOST_ID;
   commitDoc({
     ...doc,
     nodes: doc.nodes.map((n) =>
@@ -739,6 +775,7 @@ export const promoteLinkToPage = (id: string, profile: string): void => {
             ether: {
               ...(n.ether ?? {}),
               entity: { kind: "page" },
+              host: n.ether?.host ?? fallbackHost,
               browser: { profile, onDelete: "detach" },
             },
           }

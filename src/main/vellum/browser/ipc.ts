@@ -149,7 +149,13 @@ export const registerBrowserIpc = (
     if (!browserSessions.isUiAdmissionCurrent(admission)) {
       return browserUiShuttingDown();
     }
-    return target.ok ? browserSessions.open(target.data) : target;
+    return target.ok
+      ? browserSessions.open(
+          target.data,
+          undefined,
+          () => pageTargetResolver(input.ref),
+        )
+      : target;
   });
 
   ipcMain.handle(IPC_CHANNELS.browserClose, (_e, ...args: ReadonlyArray<unknown>) => {

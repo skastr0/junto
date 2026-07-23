@@ -63,13 +63,14 @@ const regionHasHerdrHost = (group: GroupNode): boolean => {
   return typeof host === "string" && host.trim().length > 0;
 };
 
-/** True when the region bag has a non-empty page url or profile. */
+/** True when the region bag has a non-empty page url, profile, or host. */
 const regionHasPageSpawnFields = (group: GroupNode): boolean => {
   const page = group.ether?.region?.defaults?.page;
   if (!page) return false;
   const url = page.url?.trim() ?? "";
   const profile = page.profile?.trim() ?? "";
-  return url.length > 0 || profile.length > 0;
+  const host = page.host?.trim() ?? "";
+  return url.length > 0 || profile.length > 0 || host.length > 0;
 };
 
 /**
@@ -99,7 +100,7 @@ export const resolveHerdrSpawnDefaults = (
 
 /**
  * Bag-atomic page spawn defaults from the innermost region that defines them.
- * Returns undefined when neither url nor profile is set on any containing bag.
+ * Returns undefined when url, profile, and host are all unset on every containing bag.
  */
 export const resolvePageSpawnDefaults = (
   doc: CanvasDoc,
@@ -111,10 +112,12 @@ export const resolvePageSpawnDefaults = (
   if (!page) return undefined;
   const url = page.url?.trim();
   const profile = page.profile?.trim();
-  if (!url && !profile) return undefined;
+  const host = page.host?.trim();
+  if (!url && !profile && !host) return undefined;
   return {
     ...(url ? { url } : {}),
     ...(profile ? { profile } : {}),
+    ...(host ? { host } : {}),
   };
 };
 
@@ -151,11 +154,13 @@ export const stripEmptyRegionDefaults = (
   }
   const pageUrl = defaults.page?.url?.trim();
   const pageProfile = defaults.page?.profile?.trim();
+  const pageHost = defaults.page?.host?.trim();
   let page: EtherRegionPageDefaults | undefined;
-  if (pageUrl || pageProfile) {
+  if (pageUrl || pageProfile || pageHost) {
     page = {
       ...(pageUrl ? { url: pageUrl } : {}),
       ...(pageProfile ? { profile: pageProfile } : {}),
+      ...(pageHost ? { host: pageHost } : {}),
     };
   }
   if (!herdr && !page) return undefined;

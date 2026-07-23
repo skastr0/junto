@@ -17,6 +17,7 @@ import {
 } from "../../lib/herdr-state";
 import { harnessDisplayName } from "../../lib/harness-icons";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
+import { resolveNodeHostId } from "@shared/station";
 import { addNode, editText } from "../../lib/mutations";
 import { makePageNode } from "../../lib/node-factories";
 import { state$ } from "../../lib/state";
@@ -259,6 +260,7 @@ export function HerdrCard({
       y,
       url,
       seed?.profile ? { profile: seed.profile } : undefined,
+      resolveNodeHostId(node),
     );
     addNode(page, { focus: true });
   };

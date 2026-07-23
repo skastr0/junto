@@ -9,6 +9,7 @@ const page = (
   id: string,
   url: string,
   profile: string | null = "personal",
+  host?: string,
 ): CanvasDoc["nodes"][number] => ({
   id,
   type: "link",
@@ -19,6 +20,7 @@ const page = (
   height: 300,
   ether: {
     entity: { kind: "page" },
+    ...(host === undefined ? {} : { host }),
     ...(profile === null ? {} : { browser: { profile } }),
   },
 });
@@ -52,9 +54,33 @@ describe("canonical browser page target resolution", () => {
       data: {
         ref: "vellum://canvas/work?node=same",
         nodeId: "same",
+        hostId: "local",
         url: "https://work.example.com",
         profile: "work",
       },
+    });
+  });
+
+  it("derives host affinity from the current page node, including legacy local fallback", async () => {
+    const resolve = makePageTargetResolver(
+      reader({
+        work: {
+          nodes: [
+            page("legacy", "https://legacy.example.com"),
+            page("remote", "https://remote.example.com", "work", "studio"),
+          ],
+          edges: [],
+        },
+      }),
+    );
+
+    expect(await resolve("vellum://canvas/work?node=legacy")).toMatchObject({
+      ok: true,
+      data: { hostId: "local" },
+    });
+    expect(await resolve("vellum://canvas/work?node=remote")).toMatchObject({
+      ok: true,
+      data: { hostId: "studio" },
     });
   });
 

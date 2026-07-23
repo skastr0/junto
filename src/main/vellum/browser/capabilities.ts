@@ -15,6 +15,7 @@ import {
 } from "@shared/browser-limits";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
+import { isValidStationHostId } from "@shared/station";
 import { makeBrowserProfileGate, type BrowserProfileGate } from "./profile-gate";
 
 export const BROWSER_CAPABILITY_ACTIONS = [
@@ -65,6 +66,7 @@ const REVOCATION_REASONS = new Set<BrowserCapabilityRevocationReason>([
 
 export interface BrowserCapabilityTarget {
   readonly ref: NodeRefKey;
+  readonly hostId: string;
   readonly profile: string;
   readonly exactOrigins: ReadonlyArray<string>;
 }
@@ -105,6 +107,7 @@ export interface BrowserCapabilityGrant extends BrowserCapabilityHandle {
 
 export interface BrowserCapabilityUseTarget {
   readonly ref: NodeRefKey;
+  readonly hostId: string;
   readonly profile: string;
   readonly exactOrigins: ReadonlyArray<string>;
   readonly generation?: string;
@@ -388,12 +391,24 @@ const normalizeOrigins = (input: unknown): ReadonlyArray<string> | undefined => 
 const normalizeTarget = (input: unknown): BrowserCapabilityTarget | undefined => {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined;
   const candidate = input as Partial<BrowserCapabilityTarget>;
-  if (!isCanonicalRef(candidate.ref) || typeof candidate.profile !== "string") return undefined;
+  if (
+    !isCanonicalRef(candidate.ref) ||
+    typeof candidate.hostId !== "string" ||
+    !isValidStationHostId(candidate.hostId) ||
+    typeof candidate.profile !== "string"
+  ) {
+    return undefined;
+  }
   if (!isValidProfileId(candidate.profile)) return undefined;
   const exactOrigins = normalizeOrigins(candidate.exactOrigins);
   return exactOrigins === undefined
     ? undefined
-    : Object.freeze({ ref: candidate.ref, profile: candidate.profile, exactOrigins });
+    : Object.freeze({
+        ref: candidate.ref,
+        hostId: candidate.hostId,
+        profile: candidate.profile,
+        exactOrigins,
+      });
 };
 
 const normalizeUseTarget = (input: unknown): BrowserCapabilityUseTarget | undefined => {
@@ -946,6 +961,7 @@ export class BrowserCapabilityRegistry {
     const allowed = record.targetsByRef.get(target.ref);
     if (
       allowed === undefined ||
+      allowed.hostId !== target.hostId ||
       allowed.profile !== target.profile ||
       target.exactOrigins.some((origin) => !allowed.exactOrigins.includes(origin))
     ) {
@@ -981,6 +997,7 @@ export class BrowserCapabilityRegistry {
       lease.target === undefined ||
       (target !== undefined &&
         lease.target.ref === target.ref &&
+        lease.target.hostId === target.hostId &&
         lease.target.profile === target.profile &&
         lease.target.generation === target.generation &&
         lease.target.exactOrigins.length === target.exactOrigins.length &&
@@ -1282,7 +1299,12 @@ export class BrowserCapabilityRegistry {
   }
 
   #targetTag(target: BrowserCapabilityTarget): string {
-    return this.#fingerprint("target", [target.ref, target.profile, ...target.exactOrigins]);
+    return this.#fingerprint("target", [
+      target.ref,
+      target.hostId,
+      target.profile,
+      ...target.exactOrigins,
+    ]);
   }
 
   #fingerprint(domain: "target" | "generation", fields: ReadonlyArray<string>): string {

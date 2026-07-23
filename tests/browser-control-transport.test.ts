@@ -62,6 +62,7 @@ const resolvePageTarget: PageTargetResolver = async (ref) =>
         data: {
           ref: PAGE_REF,
           nodeId: "cli-node",
+          hostId: "local",
           url: "https://example.com/",
           profile: "personal",
         },
@@ -159,6 +160,7 @@ const startStack = async (
     actions: edgeGrantMode === "profiles-only" ? ["profiles"] : BROWSER_CAPABILITY_ACTIONS,
     targets: [{
       ref: PAGE_REF,
+      hostId: "local",
       profile: "personal",
       exactOrigins: ["https://example.com"],
     }],

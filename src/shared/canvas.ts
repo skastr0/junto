@@ -151,10 +151,20 @@ export const EtherView = Schema.Struct({
 });
 export type EtherView = typeof EtherView.Type;
 
+// Authorial host stamp for executable nodes (agent, herdr, page, watcher, timer).
+// Same alphabet as remote-hosts HostId. Absence means "local" at resolve time
+// (see shared/station resolveNodeHostId) so existing canvases stay valid.
+export const EtherHostId = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(64),
+  Schema.pattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/),
+);
+export type EtherHostId = typeof EtherHostId.Type;
+
 // Spawn defaults for work-surface nodes created *inside* a region.
 // Applied only at create time (stamp source) — never a live parent scope.
 // Herdr stops before pane: pane is the instance; host/session/workspace are the place.
-// Page stamps start url + browser profile name only (cookies stay runtime).
+// Page stamps start url + browser profile + physical host (cookies stay runtime).
 export const EtherRegionHerdrDefaults = Schema.Struct({
   host: Schema.String,
   session: Schema.optionalWith(Schema.NullOr(Schema.String), { exact: true }),
@@ -166,6 +176,7 @@ export type EtherRegionHerdrDefaults = typeof EtherRegionHerdrDefaults.Type;
 export const EtherRegionPageDefaults = Schema.Struct({
   url: Schema.optionalWith(Schema.String, { exact: true }),
   profile: Schema.optionalWith(Schema.String, { exact: true }),
+  host: Schema.optionalWith(EtherHostId, { exact: true }),
 });
 export type EtherRegionPageDefaults = typeof EtherRegionPageDefaults.Type;
 
@@ -362,16 +373,6 @@ export type EdgeCriteriaTasks = typeof EdgeCriteriaTasks.Type;
 
 export const EdgeCriteria = Schema.Union(EdgeCriteriaGlyphs, EdgeCriteriaWip, EdgeCriteriaTasks);
 export type EdgeCriteria = typeof EdgeCriteria.Type;
-
-// Authorial host stamp for executable nodes (agent, herdr, page, watcher, timer).
-// Same alphabet as remote-hosts HostId. Absence means "local" at resolve time
-// (see shared/station resolveNodeHostId) so existing canvases stay valid.
-export const EtherHostId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
-  Schema.pattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/),
-);
-export type EtherHostId = typeof EtherHostId.Type;
 
 export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalWith(EtherEntity, { exact: true }),

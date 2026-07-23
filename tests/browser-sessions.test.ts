@@ -23,6 +23,8 @@ import {
   utf8ByteLength,
 } from "../src/shared/browser-limits";
 import type { ResolvedPageTarget } from "../src/main/vellum/browser/page-target";
+import type { RemoteHost } from "../src/shared/remote-hosts";
+import type { BrowserHostCapabilityAuthority } from "../src/main/vellum/browser/host-capability";
 import {
   BrowserProfileError,
   makeBrowserProfileService,
@@ -138,6 +140,7 @@ const target = (
   ref: `vellum://canvas/work?node=${nodeId}`,
   nodeId,
   url: `https://${nodeId}.example.com`,
+  hostId: "local",
   profile: "personal",
   ...overrides,
 });
@@ -285,6 +288,84 @@ describe("BrowserSessionService", () => {
     ]) {
       expect((await service.open(candidate)).ok).toBe(false);
     }
+    expect(views).toHaveLength(0);
+  });
+
+  it("fails before adapter creation when a page targets another physical host", async () => {
+    const { adapter, views } = makeSpyAdapter();
+    const remote: RemoteHost = {
+      id: "studio",
+      label: "studio",
+      kind: "remote",
+      endpoint: "studio",
+      capabilities: ["browser"],
+    };
+    const hostAuthority: BrowserHostCapabilityAuthority = {
+      findHost: (hostId) => hostId === remote.id ? remote : undefined,
+      station: () => ({ hostId: "local", role: "command-center" }),
+    };
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      hostAuthority,
+    );
+
+    expect(await service.open(target("remote", { hostId: "studio" }))).toMatchObject({
+      ok: false,
+      code: "unsupported_capability",
+    });
+    expect(views).toHaveLength(0);
+  });
+
+  it("rechecks host capability and the canvas target immediately before adapter creation", async () => {
+    const { adapter, views } = makeSpyAdapter();
+    let browserDeclared = true;
+    const local = (): RemoteHost => ({
+      id: "local",
+      label: "local",
+      kind: "local",
+      capabilities: browserDeclared ? ["browser"] : ["terminal"],
+    });
+    const hostAuthority: BrowserHostCapabilityAuthority = {
+      findHost: (hostId) => hostId === "local" ? local() : undefined,
+      station: () => ({ hostId: "local", role: "command-center" }),
+    };
+    const service = new BrowserSessionService(
+      adapter,
+      makeBrowserProfileService(root),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      hostAuthority,
+    );
+    const original = target("removed-capability");
+
+    expect(await service.open(original, undefined, async () => {
+      browserDeclared = false;
+      return { ok: true, data: original };
+    })).toMatchObject({
+      ok: false,
+      code: "unsupported_capability",
+    });
+    expect(views).toHaveLength(0);
+
+    browserDeclared = true;
+    expect(await service.open(target("host-changed"), undefined, async () => ({
+      ok: true,
+      data: target("host-changed", { hostId: "studio" }),
+    }))).toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
     expect(views).toHaveLength(0);
   });
 

@@ -150,14 +150,16 @@ describe("browser page document model", () => {
     expect(node.ether?.entity?.kind).toBe("page");
     expect(node.ether?.browser?.profile).toBe("personal");
     expect(node.ether?.browser?.onDelete).toBe("detach");
+    expect(node.ether?.host).toBe("local");
   });
 
   it("makePageNode accepts profile and onDelete override", () => {
     const node = makePageNode(0, 0, "https://example.com", {
       profile: "work",
       onDelete: "kill-session",
-    });
+    }, "studio");
     expect(node.ether?.browser?.profile).toBe("work");
     expect(node.ether?.browser?.onDelete).toBe("kill-session");
+    expect(node.ether?.host).toBe("studio");
   });
 });

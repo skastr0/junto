@@ -122,6 +122,7 @@ const makeTargetSignature = (targets: ReadonlyArray<BrowserCapabilityTarget>): s
     .map((target) =>
       JSON.stringify({
         ref: target.ref,
+        hostId: target.hostId,
         profile: target.profile,
         exactOrigins: [...target.exactOrigins].sort(),
       }),
@@ -231,6 +232,7 @@ export const makeEdgeGrantService = (
       targets.push(
         Object.freeze({
           ref,
+          hostId: resolved.data.hostId,
           profile: resolved.data.profile,
           exactOrigins: Object.freeze([origin]),
         }),

@@ -25,11 +25,13 @@ const REF_TWO = "vellum://canvas/work?node=n2";
 const REF_THREE = "vellum://canvas/work?node=n3";
 const TARGET_ONE: BrowserCapabilityTarget = {
   ref: REF_ONE,
+  hostId: "local",
   profile: "personal",
   exactOrigins: ["https://example.com"],
 };
 const TARGET_TWO: BrowserCapabilityTarget = {
   ref: REF_TWO,
+  hostId: "local",
   profile: "work",
   exactOrigins: ["https://github.com", "https://www.github.com"],
 };
@@ -209,6 +211,7 @@ describe("browser capability issuance", () => {
       { ...base, targets: [] },
       { ...base, targets: [TARGET_ONE, TARGET_ONE] },
       { ...base, targets: [{ ...TARGET_ONE, ref: "vellum://canvas/work?node=%6e1" }] },
+      { ...base, targets: [{ ...TARGET_ONE, hostId: "-remote" }] },
       { ...base, targets: [{ ...TARGET_ONE, profile: "*" }] },
       { ...base, targets: [{ ...TARGET_ONE, exactOrigins: ["*"] }] },
       { ...base, targets: [{ ...TARGET_ONE, exactOrigins: ["https://example.com/"] }] },
@@ -391,6 +394,11 @@ describe("browser capability admission and exact scope", () => {
       grant.secret,
       { action: "open", target: { ...useTarget(), profile: "work" } },
       { requestId: requestId(3) },
+    )).reason).toBe("scope");
+    expect(captureDenial(() => registry.authorize(
+      grant.secret,
+      { action: "open", target: { ...useTarget(), hostId: "studio" } },
+      { requestId: requestId(99) },
     )).reason).toBe("scope");
     expect(captureDenial(() => registry.authorize(
       grant.secret,
@@ -819,6 +827,7 @@ describe("browser capability lifetime and bounded state", () => {
       actions: ["pages"],
       targets: [{
         ref: REF_THREE,
+        hostId: "local",
         profile: "personal-archive",
         exactOrigins: ["https://archive.example.com"],
       }],

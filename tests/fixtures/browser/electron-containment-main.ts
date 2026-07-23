@@ -81,6 +81,7 @@ const capabilityTargets = [
   { nodeId: "personal-restored", profile: "personal" },
 ].map(({ nodeId, profile }) => ({
   ref: formatNodeRef({ canvasName, nodeId }),
+  hostId: "local",
   profile,
   exactOrigins: [exactOrigin],
 }));

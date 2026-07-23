@@ -34,7 +34,12 @@ import {
 } from "@shared/browser-limits";
 import type { BrowserSessionInfo, BrowserSurfaceBounds } from "@shared/ipc";
 import { parseNodeRef } from "@shared/node-ref";
-import type { ResolvedPageTarget } from "./page-target";
+import type { PageTargetResult, ResolvedPageTarget } from "./page-target";
+import {
+  admitBrowserHostCapability,
+  defaultBrowserHostCapabilityAuthority,
+  type BrowserHostCapabilityAuthority,
+} from "./host-capability";
 import {
   makeBrowserProfileService,
   type BrowserProfileServiceApi,
@@ -109,6 +114,7 @@ export type BrowserErrorCode =
   | "timeout"
   | "cancelled"
   | "resource_exhausted"
+  | "unsupported_capability"
   | "unsupported_result"
   | "result_too_large";
 
@@ -218,6 +224,7 @@ interface SessionEntry {
   sessionId: string;
   readonly ref: string;
   readonly nodeId: string;
+  readonly hostId: string;
   readonly profile: string;
   readonly targetUrl: string;
   currentUrl: string | undefined;
@@ -277,6 +284,7 @@ export interface BrowserSessionAuthorizationSnapshot {
   readonly sessionId: string;
   readonly generation: string;
   readonly ref: string;
+  readonly hostId: string;
   readonly profile: string;
   readonly origin?: string;
   readonly navigationInFlight: boolean;
@@ -484,6 +492,7 @@ const decodeEvalEnvelope = (value: unknown): BrowserResult<{ result: unknown }> 
 const sameTarget = (left: ResolvedPageTarget, right: ResolvedPageTarget): boolean =>
   left.ref === right.ref &&
   left.nodeId === right.nodeId &&
+  left.hostId === right.hostId &&
   left.url === right.url &&
   left.profile === right.profile;
 
@@ -545,6 +554,8 @@ export type BrowserPoolLimits = {
   readonly maxWarmSessions: number;
 };
 
+export type BrowserTargetRevalidator = () => Promise<PageTargetResult>;
+
 export class BrowserSessionService {
   private static readonly MAX_STOP_RECEIPTS = 1_024;
   private readonly sessions = new Map<string, SessionEntry>();
@@ -583,6 +594,8 @@ export class BrowserSessionService {
     private readonly profileGate: BrowserProfileGate = makeBrowserProfileGate(),
     viewDestroyTimeoutMs: number = BROWSER_PROFILE_VIEW_DESTROY_TIMEOUT_MS,
     uiShutdownDrainTimeoutMs: number = BROWSER_UI_SHUTDOWN_DRAIN_TIMEOUT_MS,
+    private readonly hostAuthority: BrowserHostCapabilityAuthority =
+      defaultBrowserHostCapabilityAuthority,
   ) {
     this.viewDestroyTimeoutMs =
       Number.isFinite(viewDestroyTimeoutMs) && viewDestroyTimeoutMs > 0
@@ -914,6 +927,7 @@ export class BrowserSessionService {
       sessionId: entry.sessionId,
       ref: entry.ref,
       nodeId: entry.nodeId,
+      hostId: entry.hostId,
       url: clampUtf8Bytes(entry.url, BROWSER_MAX_METADATA_BYTES),
       profile: entry.profile,
       state: entry.machine.state,
@@ -933,6 +947,7 @@ export class BrowserSessionService {
       sessionId: entry.sessionId,
       generation: entry.sessionId,
       ref: entry.ref,
+      hostId: entry.hostId,
       profile: entry.profile,
       ...(entry.currentOrigin !== undefined ? { origin: entry.currentOrigin } : {}),
       navigationInFlight: entry.navigationInFlight === entry.sessionId,
@@ -1264,8 +1279,14 @@ export class BrowserSessionService {
   async open(
     target: ResolvedPageTarget,
     signal?: AbortSignal,
+    revalidateTarget?: BrowserTargetRevalidator,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
-    return this.openForOwner(BROWSER_UI_SESSION_OWNER, target, signal);
+    return this.openForOwner(
+      BROWSER_UI_SESSION_OWNER,
+      target,
+      signal,
+      revalidateTarget,
+    );
   }
 
   /** Same owner+ref callers share one creation attempt; owners never share a view. */
@@ -1273,9 +1294,10 @@ export class BrowserSessionService {
     owner: string,
     target: ResolvedPageTarget,
     signal?: AbortSignal,
+    revalidateTarget?: BrowserTargetRevalidator,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     return this.runUiOperation("open", () =>
-      this.openForOwnerAdmitted(owner, target, signal),
+      this.openForOwnerAdmitted(owner, target, signal, revalidateTarget),
     );
   }
 
@@ -1283,9 +1305,17 @@ export class BrowserSessionService {
     owner: string,
     target: ResolvedPageTarget,
     signal?: AbortSignal,
+    revalidateTarget?: BrowserTargetRevalidator,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     const invalid = validateTarget(target, this.targetAdmission);
     if (invalid !== undefined) return invalid;
+    const hostAdmission = admitBrowserHostCapability(
+      target.hostId,
+      this.hostAuthority,
+    );
+    if (!hostAdmission.ok) {
+      return err(hostAdmission.code, hostAdmission.message);
+    }
     if (
       owner !== BROWSER_UI_SESSION_OWNER &&
       exactBrowserOrigin(target.url) === undefined
@@ -1307,7 +1337,14 @@ export class BrowserSessionService {
         : err("invalid", "canonical page ref resolved to conflicting page metadata");
     }
 
-    const promise = this.openResolved(owner, epoch, profileSnapshot, target, signal);
+    const promise = this.openResolved(
+      owner,
+      epoch,
+      profileSnapshot,
+      target,
+      signal,
+      revalidateTarget,
+    );
     const record: PendingOpen = {
       target,
       ownerEpoch: epoch,
@@ -1333,6 +1370,7 @@ export class BrowserSessionService {
     profileSnapshot: BrowserProfileSnapshot,
     target: ResolvedPageTarget,
     signal?: AbortSignal,
+    revalidateTarget?: BrowserTargetRevalidator,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
       return err("cancelled", "navigation cancelled");
@@ -1345,6 +1383,7 @@ export class BrowserSessionService {
       const currentTarget: ResolvedPageTarget = {
         ref: existing.ref,
         nodeId: existing.nodeId,
+        hostId: existing.hostId,
         url: existing.targetUrl,
         profile: existing.profile,
       };
@@ -1379,6 +1418,27 @@ export class BrowserSessionService {
     if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
       return err("cancelled", "navigation cancelled");
     }
+    if (revalidateTarget !== undefined) {
+      const refreshed = await revalidateTarget().catch(() => ({
+        ok: false as const,
+        code: "failed" as const,
+        message: "page ref resolution failed",
+      }));
+      if (!refreshed.ok) return err(refreshed.code, refreshed.message);
+      if (!sameTarget(target, refreshed.data)) {
+        return err("invalid", "canonical page target changed before browser session creation");
+      }
+    }
+    const currentHostAdmission = admitBrowserHostCapability(
+      target.hostId,
+      this.hostAuthority,
+    );
+    if (!currentHostAdmission.ok) {
+      return err(currentHostAdmission.code, currentHostAdmission.message);
+    }
+    if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
+      return err("cancelled", "navigation cancelled");
+    }
 
     const minted = this.mintSessionId();
     if (!minted.ok) return minted;
@@ -1405,6 +1465,7 @@ export class BrowserSessionService {
       sessionId: minted.data,
       ref: target.ref,
       nodeId: target.nodeId,
+      hostId: target.hostId,
       profile: target.profile,
       targetUrl: target.url,
       currentUrl: exactBrowserUrl(target.url),

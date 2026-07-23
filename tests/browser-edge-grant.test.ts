@@ -33,6 +33,7 @@ const REF_PAGE = "vellum://canvas/work?node=p1";
 const TARGET: ResolvedPageTarget = {
   ref: REF_PAGE,
   nodeId: "p1",
+  hostId: "local",
   url: "https://example.com/",
   profile: "personal",
 };
@@ -219,6 +220,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       targets: [
         {
           ref: REF_PAGE,
+          hostId: "local",
           profile: "personal",
           exactOrigins: ["https://example.com"],
         },

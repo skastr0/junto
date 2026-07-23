@@ -79,6 +79,7 @@ const target = (origin: string, nodeId: string): ResolvedPageTarget => ({
   ref: formatNodeRef({ canvasName: "renderer-crash-recovery", nodeId }),
   nodeId,
   url: `${origin}/${nodeId}`,
+  hostId: "local",
   profile: "personal",
 });
 

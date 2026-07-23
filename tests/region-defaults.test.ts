@@ -29,7 +29,7 @@ const baseDoc = (): CanvasDoc =>
               hold: true,
               defaults: {
                 herdr: { host: "local", session: null, workspaceId: "w-outer" },
-                page: { url: "https://outer.example", profile: "work" },
+                page: { url: "https://outer.example", profile: "work", host: "studio" },
               },
             },
           },
@@ -86,6 +86,7 @@ describe("region spawn defaults", () => {
     if (outer?.type === "group") {
       expect(outer.ether?.region?.defaults?.herdr?.host).toBe("local");
       expect(outer.ether?.region?.defaults?.page?.profile).toBe("work");
+      expect(outer.ether?.region?.defaults?.page?.host).toBe("studio");
     }
   });
 
@@ -112,7 +113,11 @@ describe("region spawn defaults", () => {
     const doc = baseDoc();
     // Inner has only herdr defaults — page resolves from outer.
     const page = resolvePageSpawnDefaults(doc, 150, 150);
-    expect(page).toEqual({ url: "https://outer.example", profile: "work" });
+    expect(page).toEqual({
+      url: "https://outer.example",
+      profile: "work",
+      host: "studio",
+    });
     // page-only region has page, no herdr.
     expect(resolvePageSpawnDefaults(doc, 550, 120)).toEqual({
       url: "https://page-only.example",
@@ -135,17 +140,17 @@ describe("region spawn defaults", () => {
     expect(
       stripEmptyRegionDefaults({
         herdr: { host: "  ", workspaceId: "w1" },
-        page: { url: "", profile: "  " },
+        page: { url: "", profile: "  ", host: "" },
       }),
     ).toBeUndefined();
     expect(
       stripEmptyRegionDefaults({
         herdr: { host: "local", session: null, workspaceId: " w1 " },
-        page: { url: " https://x ", profile: "" },
+        page: { url: " https://x ", profile: "", host: " studio " },
       }),
     ).toEqual({
       herdr: { host: "local", session: null, workspaceId: "w1" },
-      page: { url: "https://x" },
+      page: { url: "https://x", host: "studio" },
     });
   });
 

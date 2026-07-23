@@ -21,10 +21,11 @@ import {
   type ResolvedSpecValue,
 } from "@shared/physics";
 import { addEdge, setEdgeCriteria } from "../lib/edge-mutations";
-import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTimer, setNodeView, setNodeWatch, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTimer, setNodeView, setNodeWatch, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
 import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
+import { resolveNodeHostId } from "@shared/station";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
 
@@ -301,6 +302,9 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   return <>
     {node.type === "text" ? <label className="inspector-editor"><span>{node.ether?.entity ? "label" : "note text"}</span><textarea aria-label={node.ether?.entity ? "Node label" : "Note text"} value={textDraft} onChange={(event) => setTextDraft(event.target.value)} onBlur={commitText} onKeyDown={(event) => { if (event.key === "Escape") { setTextDraft(textValue); event.currentTarget.blur(); } }} /></label> : null}
     {node.type === "link" ? <label className="inspector-editor"><span>web reference</span><input aria-label="Link URL" value={linkDraft} onChange={(event) => setLinkDraft(event.target.value)} onBlur={commitLink} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitLink(); event.currentTarget.blur(); } if (event.key === "Escape") { setLinkDraft(linkValue); event.currentTarget.blur(); } }} /></label> : null}
+    {node.type === "link" && node.ether?.entity?.kind === "page"
+      ? <PageBindingControl node={node} />
+      : null}
     {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); event.currentTarget.blur(); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); event.currentTarget.blur(); } }} /></label> : null}
     {node.type === "file" ? <div className="inspector-section"><div className="inspector-section__label">file reference</div><div className="inspector-file-fields"><label><span>path</span><input aria-label="File path" value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setFileDraft(fileValue); event.currentTarget.blur(); } }} /></label><label><span>subpath</span><input aria-label="File subpath" value={subpathDraft} placeholder="#section or block" onChange={(event) => setSubpathDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setSubpathDraft(subpathValue); event.currentTarget.blur(); } }} /></label></div></div> : null}
     {node.type === "group" ? <div className="inspector-section"><div className="inspector-section__label">background</div><div className="inspector-background"><input aria-label="Region background source" value={backgroundDraft} placeholder="image URL or file path" onChange={(event) => setBackgroundDraft(event.target.value)} onBlur={() => commitBackground()} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitBackground(); event.currentTarget.blur(); } if (event.key === "Escape") { setBackgroundDraft(backgroundValue); event.currentTarget.blur(); } }} /><label><span>fit</span><select aria-label="Region background fit" value={backgroundStyleDraft} onChange={(event) => { const style = event.target.value as "cover" | "ratio" | "repeat"; setBackgroundStyleDraft(style); commitBackground(backgroundDraft, style); }}><option value="cover">cover</option><option value="ratio">contain</option><option value="repeat">repeat</option></select></label></div></div> : null}
@@ -309,6 +313,86 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     <KernelFieldEditors node={node} />
     {node.ether?.entity?.kind === "project" ? <ViewSliceFields node={node} /> : null}
   </>;
+}
+
+function PageBindingControl({ node }: { readonly node: CanvasNode }) {
+  const storedProfile = node.ether?.browser?.profile ?? "personal";
+  const storedHost = resolveNodeHostId(node);
+  const [profile, setProfile] = useState(storedProfile);
+  const [host, setHost] = useState(storedHost);
+  const [hostOptions, setHostOptions] = useState<
+    ReadonlyArray<{ readonly id: string; readonly label: string }>
+  >([{ id: storedHost, label: storedHost }]);
+
+  useEffect(() => {
+    setProfile(storedProfile);
+    setHost(storedHost);
+  }, [node.id, storedHost, storedProfile]);
+
+  useEffect(() => {
+    let current = true;
+    void window.vellum?.hostsList?.()
+      .then((result) => {
+        if (!current || !result.ok || !result.hosts) return;
+        const declared = result.hosts
+          .filter((candidate) => candidate.capabilities.includes("browser"))
+          .map((candidate) => ({ id: candidate.id, label: candidate.label }));
+        setHostOptions(
+          declared.some((candidate) => candidate.id === storedHost)
+            ? declared
+            : [{ id: storedHost, label: `${storedHost} (unavailable)` }, ...declared],
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [storedHost]);
+
+  const commit = (nextProfile = profile, nextHost = host) => {
+    setPageBinding(node.id, { profile: nextProfile, host: nextHost });
+  };
+
+  return <div className="inspector-section">
+    <div className="inspector-section__label">browser binding</div>
+    <label className="inspector-editor">
+      <span>host</span>
+      <select
+        aria-label="Page browser host"
+        value={host}
+        onChange={(event) => {
+          const next = event.target.value;
+          setHost(next);
+          commit(profile, next);
+        }}
+      >
+        {hostOptions.map((candidate) => (
+          <option key={candidate.id} value={candidate.id}>{candidate.label}</option>
+        ))}
+      </select>
+    </label>
+    <label className="inspector-editor">
+      <span>profile</span>
+      <input
+        aria-label="Page browser profile"
+        value={profile}
+        onChange={(event) => setProfile(event.target.value)}
+        onBlur={() => commit()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+            event.currentTarget.blur();
+          }
+          if (event.key === "Escape") {
+            setProfile(storedProfile);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
+    <div className="inspector-detail">The page opens only on this exact registered browser host.</div>
+  </div>;
 }
 
 // Watcher/timer/region-pulse editors, grouped behind one call so the
@@ -493,6 +577,7 @@ function RegionDefaultsControl({ node }: { readonly node: CanvasNode }) {
   const [tabId, setTabId] = useState(stored?.herdr?.tabId ?? "");
   const [pageUrl, setPageUrl] = useState(stored?.page?.url ?? "");
   const [pageProfile, setPageProfile] = useState(stored?.page?.profile ?? "");
+  const [pageHost, setPageHost] = useState(stored?.page?.host ?? "");
 
   useEffect(() => {
     setHost(stored?.herdr?.host ?? "");
@@ -501,7 +586,8 @@ function RegionDefaultsControl({ node }: { readonly node: CanvasNode }) {
     setTabId(stored?.herdr?.tabId ?? "");
     setPageUrl(stored?.page?.url ?? "");
     setPageProfile(stored?.page?.profile ?? "");
-  }, [node.id, stored?.herdr?.host, stored?.herdr?.session, stored?.herdr?.workspaceId, stored?.herdr?.tabId, stored?.page?.url, stored?.page?.profile]);
+    setPageHost(stored?.page?.host ?? "");
+  }, [node.id, stored?.herdr?.host, stored?.herdr?.session, stored?.herdr?.workspaceId, stored?.herdr?.tabId, stored?.page?.url, stored?.page?.profile, stored?.page?.host]);
 
   const commit = () => {
     const hostTrim = host.trim();
@@ -523,11 +609,12 @@ function RegionDefaultsControl({ node }: { readonly node: CanvasNode }) {
             },
           }
         : {}),
-      ...(pageUrl.trim() || pageProfile.trim()
+      ...(pageUrl.trim() || pageProfile.trim() || pageHost.trim()
         ? {
             page: {
               ...(pageUrl.trim() ? { url: pageUrl.trim() } : {}),
               ...(pageProfile.trim() ? { profile: pageProfile.trim() } : {}),
+              ...(pageHost.trim() ? { host: pageHost.trim() } : {}),
             },
           }
         : {}),
@@ -542,6 +629,7 @@ function RegionDefaultsControl({ node }: { readonly node: CanvasNode }) {
     setTabId("");
     setPageUrl("");
     setPageProfile("");
+    setPageHost("");
     setRegionDefaults(node.id, undefined);
   };
 
@@ -573,6 +661,10 @@ function RegionDefaultsControl({ node }: { readonly node: CanvasNode }) {
     <label className="inspector-editor">
       <span>page profile</span>
       <input aria-label="Region page profile default" value={pageProfile} placeholder="personal" onChange={(e) => setPageProfile(e.target.value)} onBlur={commit} onKeyDown={onEnter} />
+    </label>
+    <label className="inspector-editor">
+      <span>page host</span>
+      <input aria-label="Region page host default" value={pageHost} placeholder="local · browser host id" onChange={(e) => setPageHost(e.target.value)} onBlur={commit} onKeyDown={onEnter} />
     </label>
     <div className="inspector-flags mt-1">
       <button type="button" className="inspector-flag-toggle" onClick={clearAll}>clear defaults</button>

@@ -673,6 +673,7 @@ const makeAddActions = (
       position.y,
       seed?.url?.trim() || "https://example.com",
       seed?.profile ? { profile: seed.profile } : undefined,
+      (seed?.host ?? state$.settings.station.hostId.peek()) || "local",
     );
     addNode(node);
     dismiss();

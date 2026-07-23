@@ -89,7 +89,13 @@ export function HostServeCatalog({
     const x = anchor ? Math.round(anchor.x + (anchor.width ?? width) + 40) : 160;
     const y = anchor ? Math.round(anchor.y) : 160;
     const seed = resolvePageSpawnDefaults(doc, x + width / 2, y + 55);
-    const page = makePageNode(x, y, url, seed?.profile ? { profile: seed.profile } : undefined);
+    const page = makePageNode(
+      x,
+      y,
+      url,
+      seed?.profile ? { profile: seed.profile } : undefined,
+      hostId,
+    );
     addNode(page, { edit: false, focus: true });
     closeSettings();
   };

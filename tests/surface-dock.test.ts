@@ -170,6 +170,7 @@ const baseSession = (
   sessionId,
   nodeId,
   url: "https://example.com",
+  hostId: "local",
   profile: "personal",
   state: "loading",
   attached: false,

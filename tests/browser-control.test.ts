@@ -55,6 +55,7 @@ const REF = "vellum://canvas/work?node=n1";
 const DEFAULT_TARGET: ResolvedPageTarget = {
   ref: REF,
   nodeId: "n1",
+  hostId: "local",
   url: "https://example.com/",
   profile: "personal",
 };
@@ -309,6 +310,7 @@ describe("control route handlers", () => {
       actions: BROWSER_CAPABILITY_ACTIONS,
       targets: [{
         ref: REF,
+        hostId: DEFAULT_TARGET.hostId,
         profile: DEFAULT_TARGET.profile,
         exactOrigins: [new URL(DEFAULT_TARGET.url).origin],
       }],
@@ -406,6 +408,7 @@ describe("control route handlers", () => {
       actions: ["profiles"],
       targets: [{
         ref: REF,
+        hostId: DEFAULT_TARGET.hostId,
         profile: DEFAULT_TARGET.profile,
         exactOrigins: [new URL(DEFAULT_TARGET.url).origin],
       }],
@@ -465,6 +468,7 @@ describe("control route handlers", () => {
       actions: BROWSER_CAPABILITY_ACTIONS,
       targets: [{
         ref: REF,
+        hostId: DEFAULT_TARGET.hostId,
         profile: DEFAULT_TARGET.profile,
         exactOrigins: [new URL(DEFAULT_TARGET.url).origin],
       }],
@@ -553,6 +557,7 @@ describe("control route handlers", () => {
       actions: ["sessions", "pages"],
       targets: [{
         ref: REF,
+        hostId: DEFAULT_TARGET.hostId,
         profile: DEFAULT_TARGET.profile,
         exactOrigins: [new URL(DEFAULT_TARGET.url).origin],
       }],
@@ -672,8 +677,8 @@ describe("control route handlers", () => {
     };
     const { call, sessions, grant } = makeStack(makeSpyAdapter().adapter, resolver);
     expect(await call("POST", "/open", { ref: REF })).toMatchObject({
-      status: 403,
-      envelope: { ok: false, error: { _tag: "forbidden" } },
+      status: 400,
+      envelope: { ok: false, error: { _tag: "invalid" } },
     });
     expect(sessions.listForOwner(grant.auditId)).toMatchObject({ ok: true, data: [] });
   });
@@ -876,6 +881,7 @@ describe("control route handlers", () => {
         [badRef]: {
           ref: badRef,
           nodeId: "bad",
+          hostId: "local",
           url: "file:///etc/passwd",
           profile: "personal",
         },
@@ -1091,6 +1097,7 @@ describe("listPageNodes", () => {
         canvas: "work",
         nodeId: "p1",
         url: "https://mail.example.com",
+        hostId: "local",
         profile: "personal",
       },
     ]);
@@ -1162,6 +1169,7 @@ describe("listPageNodes", () => {
       canvas: "bounded",
       nodeId: "good",
       url: "https://good.example.com",
+      hostId: "local",
       profile: "personal",
     }]);
 

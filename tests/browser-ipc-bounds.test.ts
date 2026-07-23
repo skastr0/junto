@@ -20,6 +20,7 @@ const session = (): BrowserSessionInfo => ({
   ref: PAGE_REF,
   nodeId: "page-1",
   url: "https://example.com/",
+  hostId: "local",
   profile: "default",
   state: "ready",
   attached: true,
@@ -153,6 +154,7 @@ describe("browser IPC bounds ingress", () => {
         readonly ref: string;
         readonly nodeId: string;
         readonly url: string;
+        readonly hostId: string;
         readonly profile: string;
       };
     }>();
@@ -169,6 +171,7 @@ describe("browser IPC bounds ingress", () => {
         ref: PAGE_REF,
         nodeId: "page-1",
         url: "https://example.com",
+        hostId: "local",
         profile: "default",
       },
     });

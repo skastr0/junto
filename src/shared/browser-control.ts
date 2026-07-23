@@ -57,6 +57,7 @@ export const ControlErrorTag = Schema.Literal(
   "timeout", // operation exceeded its deadline
   "cancelled", // operation was aborted by its caller
   "resource_exhausted", // bounded browser capacity is currently full
+  "unsupported_capability", // resolved page host cannot run browser work here
   "unsupported_result", // result is not losslessly representable as JSON
   "result_too_large", // result or response exceeds its byte budget
   "failed", // operation attempted and failed (load error, eval throw, io)
@@ -313,6 +314,7 @@ export const SessionData = Schema.Struct({
   sessionId: Schema.String,
   ref: Schema.String,
   nodeId: Schema.String,
+  hostId: Schema.String,
   url: Schema.String,
   profile: Schema.String,
   state: Schema.String,
@@ -340,6 +342,7 @@ export const PageNodeRow = Schema.Struct({
   sessionId: Schema.NullOr(Schema.String),
   canvas: Schema.String,
   nodeId: Schema.String,
+  hostId: Schema.String,
   url: Schema.String,
   profile: Schema.optionalWith(Schema.String, { exact: true }),
 });
