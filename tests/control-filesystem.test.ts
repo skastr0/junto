@@ -1,14 +1,18 @@
+import { EventEmitter } from "node:events";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { CONTROL_DIRECTORY_MODE, CONTROL_FILE_MODE, prepareControlDirectory, removeObservedSocket, rotateControlFileToken } from "../src/main/vellum/control-filesystem";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CONTROL_DIRECTORY_MODE, CONTROL_FILE_MODE, CONTROL_SOCKET_CONFIRM_TIMEOUT_MS, CONTROL_SOCKET_DISCOVERY_TIMEOUT_MS, prepareControlDirectory, removeObservedSocket, rotateControlFileToken } from "../src/main/vellum/control-filesystem";
 
 const roots: string[] = [];
 const root = async () => { const path = await mkdtemp(join(tmpdir(), "vellum-control-fs-")); roots.push(path); return path; };
-afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
+afterEach(async () => {
+  vi.useRealTimers();
+  await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
 const staleSocket = async (path: string): Promise<void> => {
   const stage = `${path}.stage`; const server = createServer();
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(stage, resolve); });
@@ -42,6 +46,109 @@ describe("control filesystem lifecycle", () => {
   it("removes only an actual stale Unix socket", async () => {
     const path = join(await root(), "control.sock"); await staleSocket(path);
     expect(lstatSync(path).isSocket()).toBe(true); await removeObservedSocket(path); expect(existsSync(path)).toBe(false);
+  });
+
+  it("waits through a delayed ECONNREFUSED callback before removing the observed stale socket", async () => {
+    const path = join(await root(), "control.sock"); await staleSocket(path);
+    const sockets = [
+      Object.assign(new EventEmitter(), { destroy: vi.fn() }),
+      Object.assign(new EventEmitter(), { destroy: vi.fn() }),
+    ];
+    let attempt = 0;
+    const removal = removeObservedSocket(path, {
+      connect: () => {
+        const socket = sockets[attempt++];
+        if (socket === undefined) throw new Error("unexpected probe");
+        if (attempt === 1) {
+          setTimeout(() => {
+            socket.emit(
+              "error",
+              Object.assign(new Error("connect refused"), { code: "ECONNREFUSED" }),
+            );
+          }, 150);
+        } else {
+          queueMicrotask(() => {
+            socket.emit(
+              "error",
+              Object.assign(new Error("connect refused"), { code: "ECONNREFUSED" }),
+            );
+          });
+        }
+        return socket as never;
+      },
+    });
+
+    await removal;
+
+    expect(CONTROL_SOCKET_DISCOVERY_TIMEOUT_MS).toBe(5_000);
+    expect(CONTROL_SOCKET_CONFIRM_TIMEOUT_MS).toBe(100);
+    expect(sockets[0].destroy).toHaveBeenCalledOnce();
+    expect(sockets[1].destroy).toHaveBeenCalledOnce();
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("retains the same socket inode when it begins listening after a delayed refusal", async () => {
+    const path = join(await root(), "control.sock"); await staleSocket(path);
+    const sockets = [
+      Object.assign(new EventEmitter(), { destroy: vi.fn() }),
+      Object.assign(new EventEmitter(), { destroy: vi.fn() }),
+    ];
+    let attempt = 0;
+    const removal = removeObservedSocket(path, {
+      connect: () => {
+        const socket = sockets[attempt++];
+        if (socket === undefined) throw new Error("unexpected probe");
+        if (attempt === 1) {
+          setTimeout(() => {
+            socket.emit(
+              "error",
+              Object.assign(new Error("connect refused"), { code: "ECONNREFUSED" }),
+            );
+          }, 150);
+        } else {
+          queueMicrotask(() => socket.emit("connect"));
+        }
+        return socket as never;
+      },
+    });
+
+    await expect(removal).rejects.toThrow(/became live/);
+
+    expect(sockets[0].destroy).toHaveBeenCalledOnce();
+    expect(sockets[1].destroy).toHaveBeenCalledOnce();
+    expect(lstatSync(path).isSocket()).toBe(true);
+  });
+
+  it("keeps an observed socket when a listener accepts the liveness probe", async () => {
+    const path = join(await root(), "control.sock");
+    const server = createServer();
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(path, resolve);
+    });
+    try {
+      await expect(removeObservedSocket(path)).rejects.toThrow(/live listener/);
+      expect(lstatSync(path).isSocket()).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("fails closed when a probe remains ambiguous through the bounded deadline", async () => {
+    vi.useFakeTimers();
+    const path = join(await root(), "control.sock"); await staleSocket(path);
+    const socket = Object.assign(new EventEmitter(), { destroy: vi.fn() });
+    const removal = expect(
+      removeObservedSocket(path, {
+        connect: () => socket as never,
+      }),
+    ).rejects.toThrow(/ambiguous ownership/);
+
+    await vi.advanceTimersByTimeAsync(CONTROL_SOCKET_DISCOVERY_TIMEOUT_MS);
+    await removal;
+
+    expect(socket.destroy).toHaveBeenCalledOnce();
+    expect(lstatSync(path).isSocket()).toBe(true);
   });
 
   it("fails a deterministic replacement race before moving the replacement", async () => {

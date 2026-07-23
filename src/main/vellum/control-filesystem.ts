@@ -6,6 +6,56 @@ import { basename, dirname, join } from "node:path";
 
 export const CONTROL_DIRECTORY_MODE = 0o700;
 export const CONTROL_FILE_MODE = 0o600;
+/**
+ * A local Unix connect normally settles immediately, but Electron can delay
+ * the JavaScript callback while its cold main loop is under load. A short
+ * wall-clock deadline can therefore misclassify the kernel's ECONNREFUSED as
+ * ambiguous and strand an otherwise recoverable packaged startup.
+ */
+export const CONTROL_SOCKET_DISCOVERY_TIMEOUT_MS = 5_000;
+export const CONTROL_SOCKET_CONFIRM_TIMEOUT_MS = 100;
+
+interface ControlSocketProbe {
+  readonly destroy: () => void;
+  readonly once: {
+    (event: "connect", listener: () => void): ControlSocketProbe;
+    (event: "error", listener: (error: NodeJS.ErrnoException) => void): ControlSocketProbe;
+  };
+}
+
+type ControlSocketProbeOutcome = "stale" | "active" | "ambiguous";
+
+const probeControlSocket = (
+  path: string,
+  timeoutMs: number,
+  connect: (path: string) => ControlSocketProbe,
+): Promise<ControlSocketProbeOutcome> =>
+  new Promise((resolve) => {
+    const socket = connect(path);
+    let done = false;
+    const finish = (outcome: ControlSocketProbeOutcome) => {
+      if (done) return;
+      done = true;
+      socket.destroy();
+      resolve(outcome);
+    };
+    const timer = setTimeout(
+      () => finish("ambiguous"),
+      timeoutMs,
+    );
+    socket.once("connect", () => {
+      clearTimeout(timer);
+      finish("active");
+    });
+    socket.once("error", (error: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
+      finish(
+        error.code === "ECONNREFUSED" || error.code === "ENOENT"
+          ? "stale"
+          : "ambiguous",
+      );
+    });
+  });
 
 type Identity = Readonly<{ dev: bigint; ino: bigint; birthtimeNs: bigint; uid: bigint }>;
 const identityOf = (path: string): Identity => {
@@ -38,19 +88,36 @@ export const prepareControlDirectory = (path: string): void => {
 /** Removes only an observed stale Unix socket, never a symlink or arbitrary file. */
 export const removeObservedSocket = async (
   path: string,
-  runtime: { readonly beforeQuarantineRename?: () => void } = {},
+  runtime: {
+    readonly beforeQuarantineRename?: () => void;
+    /** Test seam for delayed/erroring local-connect delivery. */
+    readonly connect?: (path: string) => ControlSocketProbe;
+  } = {},
 ): Promise<void> => {
   let first: ReturnType<typeof lstatSync>;
   try { first = lstatSync(path, { bigint: true }); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
   if (!first.isSocket() || first.isSymbolicLink()) throw new Error("refusing to replace non-socket control path");
-  const active = await new Promise<boolean>((resolve) => {
-    const socket = createConnection({ path }); let done = false;
-    const finish = (value: boolean) => { if (done) return; done = true; socket.destroy(); resolve(value); };
-    const timer = setTimeout(() => finish(true), 100);
-    socket.once("connect", () => { clearTimeout(timer); finish(true); });
-    socket.once("error", (error: NodeJS.ErrnoException) => { clearTimeout(timer); finish(error.code !== "ECONNREFUSED" && error.code !== "ENOENT"); });
-  });
-  if (active) throw new Error("control socket has a live listener or ambiguous ownership");
+  const connect =
+    runtime.connect ?? ((candidate: string) => createConnection({ path: candidate }));
+  const discovered = await probeControlSocket(
+    path,
+    CONTROL_SOCKET_DISCOVERY_TIMEOUT_MS,
+    connect,
+  );
+  if (discovered !== "stale") {
+    throw new Error("control socket has a live listener or ambiguous ownership");
+  }
+  // A cold Electron loop may deliver the discovery refusal seconds after the
+  // kernel observed it. Never let that aged observation authorize unlink:
+  // require a second refusal inside the original narrow freshness window.
+  const confirmed = await probeControlSocket(
+    path,
+    CONTROL_SOCKET_CONFIRM_TIMEOUT_MS,
+    connect,
+  );
+  if (confirmed !== "stale") {
+    throw new Error("control socket became live or ambiguous before quarantine");
+  }
   const id: Identity = { dev: first.dev, ino: first.ino, birthtimeNs: first.birthtimeNs, uid: first.uid };
   const quarantine = mkdtempSync(join(dirname(path), ".vellum-stale-"));
   const quarantined = join(quarantine, basename(path));
