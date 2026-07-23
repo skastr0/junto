@@ -175,7 +175,9 @@ assert_no_symlink_components() {
   current="$root"
   for component in "${components[@]}"; do
     current="$current/$component"
-    if [[ -L "$current" ]]; then
+    # The leaf may already be the symlink we own/replace (CLI links). Intermediate
+    # symlink components remain forbidden — they escape the capability root.
+    if [[ -L "$current" && "$current" != "$target" ]]; then
       err "$description crosses symlink component $current"
       return 1
     fi

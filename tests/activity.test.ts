@@ -59,7 +59,6 @@ describe("herdrActivity", () => {
 
   it("gives each wave state a distinct (tone, pattern) pair", () => {
     const waves = [
-      herdrActivity({ metaStatus: "loading" }),
       herdrActivity({ agentStatus: "working" }),
       herdrActivity({ agentStatus: "blocked" }),
       herdrActivity({ agentStatus: "done" }),
@@ -69,11 +68,12 @@ describe("herdrActivity", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("meta loading beats agent idle (cyan diagonal, not working snake)", () => {
+  it("meta loading stays static (fleet-safe) and beats agent idle", () => {
+    // First-hydrate loading must not wave — N unbound cards would peg the GPU.
     expect(herdrActivity({ agentStatus: "idle", metaStatus: "loading" })).toMatchObject({
-      mode: "wave",
+      mode: "static",
       tone: "cyan",
-      pattern: "diagonal",
+      label: "loading meta",
     });
   });
 

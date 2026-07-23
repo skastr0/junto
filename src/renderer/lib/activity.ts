@@ -119,8 +119,11 @@ export function herdrActivity(input: {
   readonly metaStatus?: HerdrMetaStatus | null;
   readonly connState?: HerdrConnState | null;
 }): ActivitySpec {
+  // First-hydrate must stay static. A fleet of unbound cards all hit
+  // metaStatus:"loading" together — waving every GradientSpin pegs the
+  // renderer (~70% CPU idle on an 80-pane board). Working/blocked still wave.
   if (input.metaStatus === "loading") {
-    return { mode: "wave", tone: SEVERITY_TONE.working, pattern: "diagonal", label: "loading meta" };
+    return { mode: "static", tone: SEVERITY_TONE.working, label: "loading meta" };
   }
   const agent = input.agentStatus ?? "unknown";
   if (agent === "working") {
