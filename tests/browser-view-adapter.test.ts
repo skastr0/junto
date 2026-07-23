@@ -176,6 +176,7 @@ import {
   BROWSER_AUTOMATION_WORLD_ID,
   buildBoundedEvalScript,
   electronViewAdapter,
+  makeElectronBrowserViewAttachmentTarget,
 } from "../src/main/vellum/browser/view-adapter";
 import type { BrowserViewEvents } from "../src/main/vellum/browser/sessions";
 
@@ -236,6 +237,44 @@ describe("electron browser view generation seam", () => {
       unexpectedTerminations,
     };
   };
+
+  it("parents views only through the injected host and rebinds without double parents", () => {
+    const target = makeElectronBrowserViewAttachmentTarget();
+    const firstChildren: unknown[] = [];
+    const secondChildren: unknown[] = [];
+    const host = (children: unknown[]) => ({
+      destroyed: false,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      contentView: {
+        addChildView(view: unknown) { children.push(view); },
+        removeChildView(view: unknown) {
+          const index = children.indexOf(view);
+          if (index >= 0) children.splice(index, 1);
+        },
+      },
+    });
+    const first = host(firstChildren);
+    const second = host(secondChildren);
+    const handle = target.adapter("persist:test", {
+      onNavigationStart: () => "session",
+      onNavigationAmbiguous: () => undefined,
+      onNavigationUrl: () => undefined,
+      onLoadOk: () => undefined,
+      onLoadFail: () => undefined,
+      onUnexpectedTermination: () => undefined,
+    });
+
+    target.rebind(first as never);
+    handle.attach({ x: 1, y: 2, width: 3, height: 4 });
+    target.detach();
+    target.rebind(second as never);
+
+    expect(firstChildren).toEqual([]);
+    expect(secondChildren).toHaveLength(1);
+    handle.detach();
+    expect(secondChildren).toEqual([]);
+  });
 
   it("coalesces renderer-loss signals and suppresses intentional destruction", () => {
     const crashed = setup();

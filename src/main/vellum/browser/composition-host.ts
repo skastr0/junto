@@ -133,8 +133,12 @@ export const makeBrowserCompositionHost = (
   const releaseVisibleWindow = (window: BrowserCompositionHostWindow): Promise<void> =>
     enqueue(async () => {
       if (active?.kind !== "visible" || active.window !== window) return;
-      await dependencies.views.detach();
-      active = undefined;
+      // A visible Command Center can close while browser sessions remain live.
+      // Keep their Chromium parents explicit by immediately returning them to
+      // our one hidden host; the next visible window can rebind them later.
+      const hidden = dependencies.createHiddenWindow(HIDDEN_COMPOSITION_HOST_WINDOW_OPTIONS);
+      if (!usable(hidden)) throw new Error("hidden composition host was destroyed during creation");
+      await select({ kind: "hidden", window: hidden });
     });
 
   const shutdown = (): Promise<void> => {

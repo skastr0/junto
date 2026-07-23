@@ -11,6 +11,10 @@ import {
 } from "@shared/browser-limits";
 import type { BrowserSurfaceBounds } from "@shared/ipc";
 import type { BrowserViewAdapter, BrowserViewHandle } from "./sessions";
+import type {
+  BrowserCompositionHostWindow,
+  BrowserCompositionViewBinder,
+} from "./composition-host";
 import {
   canonicalBrowserOrigin,
   hardenBrowserPartition,
@@ -21,7 +25,7 @@ import {
   type BrowserTestOnlyExactOriginGrant,
 } from "./web-policy";
 
-const { BrowserWindow, session } = electron;
+const { session } = electron;
 type ElectronWebContentsViewConstructor = typeof electron.WebContentsView;
 
 const requireWebContentsView = (): ElectronWebContentsViewConstructor => {
@@ -33,13 +37,21 @@ const requireWebContentsView = (): ElectronWebContentsViewConstructor => {
 };
 
 // The only file that touches Electron for browser sessions. Views are parented
-// under the main BrowserWindow.contentView (native layer, above the renderer)
-// — never under an xyflow node; the renderer only measures the DOM rect and
+// through an explicit composition host (native layer, above the renderer) —
+// never under an xyflow node; the renderer only measures the DOM rect and
 // sends it over browserSetBounds. Kept thin on purpose: all decisions
 // (eviction, state, url policy) live in sessions.ts / shared/browser.ts.
 
-const mainWindow = (): ElectronBrowserWindow | undefined =>
-  BrowserWindow.getAllWindows()[0];
+interface AttachedElectronView {
+  readonly view: electron.WebContentsView;
+  readonly isAttached: () => boolean;
+  readonly attachTo: (host: ElectronBrowserWindow) => void;
+  readonly detachFromHost: () => void;
+}
+
+export interface ElectronBrowserViewAttachmentTarget extends BrowserCompositionViewBinder {
+  readonly adapter: BrowserViewAdapter;
+}
 
 const normalizeUrl = (url: string): string => {
   try {
@@ -348,6 +360,10 @@ export const buildBoundedEvalScript = (source: string): string => {
 };
 
 const makeElectronViewAdapter = (
+  attachmentTarget?: {
+    readonly register: (view: AttachedElectronView) => () => void;
+    readonly current: () => ElectronBrowserWindow | undefined;
+  },
   testOnlyGrant?: BrowserTestOnlyExactOriginGrant,
   testOnlyDownloadPath?: string,
 ): BrowserViewAdapter => (partition, events, options) => {
@@ -486,14 +502,39 @@ const makeElectronViewAdapter = (
     events.onLoadFail(active.sessionId, `${description || "load failed"} (${code})`);
   });
 
-  // The window this view is actually parented under — tracked locally because
-  // sessions.ts's `attached` boolean can go stale across a window close/reopen
-  // (mac red-button close + Dock reopen creates a NEW BrowserWindow; nothing
-  // resets `attached`). setBounds self-heals against that staleness by
-  // re-parenting whenever the live window differs from the one last attached
-  // to, so a setBounds call is always enough to make the surface visible
-  // again regardless of what the caller's bookkeeping believes.
+  // Physical attachment is distinct from the session's logical attachment.
+  // The composition host detaches/rebinds physical parents as windows close
+  // or reopen while the retained session identity stays intact.
   let attachedWindow: ElectronBrowserWindow | undefined;
+  let logicallyAttached = false;
+  const applyBounds = (bounds: BrowserSurfaceBounds): void => {
+    view.setBounds({
+      x: Math.round(bounds.x),
+      y: Math.round(bounds.y),
+      width: Math.round(bounds.width),
+      height: Math.round(bounds.height),
+    });
+  };
+  const attachTo = (host: ElectronBrowserWindow): void => {
+    if (!logicallyAttached || host.isDestroyed() || attachedWindow === host) return;
+    if (attachedWindow !== undefined && !attachedWindow.isDestroyed()) {
+      attachedWindow.contentView.removeChildView(view);
+    }
+    host.contentView.addChildView(view);
+    attachedWindow = host;
+  };
+  const detachFromHost = (): void => {
+    if (attachedWindow !== undefined && !attachedWindow.isDestroyed()) {
+      attachedWindow.contentView.removeChildView(view);
+    }
+    attachedWindow = undefined;
+  };
+  const unregister = attachmentTarget?.register({
+    view,
+    isAttached: () => logicallyAttached,
+    attachTo,
+    detachFromHost,
+  });
 
   const handle: BrowserViewHandle = {
     loadUrl: (url, expectedSessionId) => {
@@ -530,30 +571,19 @@ const makeElectronViewAdapter = (
       exactTopLevelOrigin = canonicalBrowserOrigin(origin);
     },
     attach: (bounds) => {
-      const win = mainWindow();
-      if (!win || win.isDestroyed()) return;
-      win.contentView.addChildView(view);
-      attachedWindow = win;
-      handle.setBounds(bounds);
+      logicallyAttached = true;
+      const host = attachmentTarget?.current();
+      if (host !== undefined) attachTo(host);
+      applyBounds(bounds);
     },
     setBounds: (bounds: BrowserSurfaceBounds) => {
-      const win = mainWindow();
-      if (win && !win.isDestroyed() && win !== attachedWindow) {
-        win.contentView.addChildView(view);
-        attachedWindow = win;
-      }
-      view.setBounds({
-        x: Math.round(bounds.x),
-        y: Math.round(bounds.y),
-        width: Math.round(bounds.width),
-        height: Math.round(bounds.height),
-      });
+      const host = attachmentTarget?.current();
+      if (host !== undefined) attachTo(host);
+      applyBounds(bounds);
     },
     detach: () => {
-      if (attachedWindow && !attachedWindow.isDestroyed()) {
-        attachedWindow.contentView.removeChildView(view);
-      }
-      attachedWindow = undefined;
+      logicallyAttached = false;
+      detachFromHost();
     },
     stopLoading: () => {
       if (!view.webContents.isDestroyed()) view.webContents.stop();
@@ -562,6 +592,8 @@ const makeElectronViewAdapter = (
       // Runtime teardown only — the persist: partition (cookies) is on disk.
       if (terminationExpected) return;
       terminationExpected = true;
+      unregister?.();
+      detachFromHost();
       try {
         if (!view.webContents.isDestroyed()) view.webContents.close();
       } catch (error) {
@@ -593,6 +625,46 @@ const makeElectronViewAdapter = (
 export const electronViewAdapter: BrowserViewAdapter = makeElectronViewAdapter();
 
 /**
+ * Produces the only adapter allowed to parent browser views in production.
+ * The composition host injects the native parent; no global BrowserWindow
+ * discovery is available to a session handle.
+ */
+export const makeElectronBrowserViewAttachmentTarget = (): ElectronBrowserViewAttachmentTarget => {
+  let currentHost: ElectronBrowserWindow | undefined;
+  const views = new Set<AttachedElectronView>();
+  const attachmentTarget = {
+    register: (view: AttachedElectronView): (() => void) => {
+      views.add(view);
+      return () => views.delete(view);
+    },
+    current: (): ElectronBrowserWindow | undefined =>
+      currentHost !== undefined && !currentHost.isDestroyed() ? currentHost : undefined,
+  };
+  const adapter = makeElectronViewAdapter(attachmentTarget);
+  const toElectronWindow = (host: BrowserCompositionHostWindow): ElectronBrowserWindow => {
+    const candidate = host as ElectronBrowserWindow;
+    if (typeof candidate.contentView?.addChildView !== "function") {
+      throw new TypeError("composition host does not expose an Electron content view");
+    }
+    return candidate;
+  };
+  return Object.freeze({
+    adapter,
+    detach: (): void => {
+      for (const view of views) view.detachFromHost();
+      currentHost = undefined;
+    },
+    rebind: (host: BrowserCompositionHostWindow): void => {
+      const next = toElectronWindow(host);
+      currentHost = next;
+      for (const view of views) {
+        if (view.isAttached()) view.attachTo(next);
+      }
+    },
+  });
+};
+
+/**
  * Dedicated Electron qualification seam. It is deliberately not wired into
  * the app entrypoint: only the test main calls it, with the exact origin of a
  * listener it just bound and an isolated download directory under probe temp.
@@ -609,7 +681,7 @@ export const makeBrowserTestOnlyElectronHarness = (
   }
   const grant = makeBrowserTestOnlyExactOriginGrant(exactOrigin);
   return {
-    adapter: makeElectronViewAdapter(grant, downloadPath),
+    adapter: makeElectronViewAdapter(undefined, grant, downloadPath),
     targetAdmission: (url) =>
       isAllowedBrowserUrl(url) || isAllowedByBrowserTestOnlyExactOriginGrant(url, grant),
   };

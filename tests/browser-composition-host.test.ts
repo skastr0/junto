@@ -59,10 +59,16 @@ describe("browser composition host", () => {
   it("rebinds close/recreate deterministically and destroys the former hidden host only after detach", async () => {
     const events: string[] = [];
     const hidden = window("hidden", events);
+    const returnedHidden = window("returned-hidden", events);
     const first = window("first", events);
     const replacement = window("replacement", events);
+    const hiddenWindows = [hidden, returnedHidden];
     const host = makeBrowserCompositionHost({
-      createHiddenWindow: () => hidden,
+      createHiddenWindow: () => {
+        const next = hiddenWindows.shift();
+        if (next === undefined) throw new Error("unexpected hidden host creation");
+        return next;
+      },
       views: {
         detach: () => { events.push("views:detach"); },
         rebind: (target) => { events.push(target === first ? "views:bind:first" : target === replacement ? "views:bind:replacement" : "views:bind:hidden"); },
@@ -81,8 +87,10 @@ describe("browser composition host", () => {
       "views:bind:first",
       "hidden:destroy",
       "views:detach",
+      "views:bind:hidden",
       "views:detach",
       "views:bind:replacement",
+      "returned-hidden:destroy",
     ]);
     expect(host.current()).toBe(replacement);
     expect(first.destroyed).toBe(false);

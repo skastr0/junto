@@ -39,6 +39,8 @@ import {
   startBrowserComposition,
   type BrowserComposition,
 } from "./vellum/browser/composition";
+import { makeBrowserCompositionHost } from "./vellum/browser/composition-host";
+import { makeElectronBrowserViewAttachmentTarget } from "./vellum/browser/view-adapter";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane } from "./vellum/term/plane";
@@ -283,6 +285,11 @@ app.on("open-url", (event, uri) => {
 const headless = process.argv.includes("--vellum-headless");
 
 let trustedMainWindow: BrowserWindow | undefined;
+const browserViewAttachmentTarget = makeElectronBrowserViewAttachmentTarget();
+const browserCompositionHost = makeBrowserCompositionHost({
+  createHiddenWindow: (options) => new BrowserWindow(options),
+  views: browserViewAttachmentTarget,
+});
 // Parsed before BrowserWindow construction. A renderer never becomes trusted
 // merely because it happens to be the application's first WebContents.
 let trustedRendererOrigin: TrustedRendererOrigin | undefined;
@@ -685,6 +692,10 @@ const createWindow = () => {
       sandbox: true,
     },
   });
+  void browserCompositionHost.bindVisibleWindow(mainWindow).catch(() => {
+    if (!mainWindow.isDestroyed()) mainWindow.destroy();
+    exitAfterDetach(1, "browser-composition-host-bind-failure");
+  });
   trustedMainWindow = mainWindow;
   // BrowserWindow's `closed` event fires after its native object and
   // WebContents have been destroyed. Capture the routing identity while it is
@@ -841,6 +852,9 @@ const createWindow = () => {
     disconnectNodeRefIngress = disconnect;
   });
   mainWindow.on("closed", () => {
+    void browserCompositionHost.releaseVisibleWindow(mainWindow).catch(() => {
+      exitAfterDetach(1, "browser-composition-host-release-failure");
+    });
     const pending = pendingCanvasFlushes.get(mainWebContentsId);
     if (pending !== undefined) {
       clearTimeout(pending.timer);
@@ -1127,6 +1141,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // The activation callback is the only place browser IPC, agent IPC, or
     // the local control socket can become reachable.
     try {
+      if (headless) await browserCompositionHost.ensureHeadlessHost();
       browserComposition = await startBrowserComposition(
         async (composition) => {
           const readCanvasFromCanvases = async (name: string) => {
@@ -1168,6 +1183,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           registerBrowserIpcHandlers(composition.sessions);
         },
         {
+          viewAdapter: browserViewAttachmentTarget.adapter,
           primaryCredentialHealth: () => electronSecurityPolicyHealthy({
             policyPath: app.isPackaged
               ? packagedElectronSecurityPolicyPath(process.resourcesPath)
@@ -1316,18 +1332,19 @@ let runtimeDispose: Promise<void> | undefined;
 let runtimeDisposed = false;
 
 const requireCleanBrowserShutdown = async (reason: string): Promise<void> => {
-  if (browserComposition === undefined && browserShutdown === undefined) return;
   const receipt = await (browserShutdown ??= browserComposition?.drainOnQuit(reason));
-  if (receipt === undefined) return;
-  if (!receipt.clean) {
-    throw new Error(
-      `browser shutdown retained automation state${receipt.timedOut ? " (deadline)" : ""}`,
-    );
+  if (receipt !== undefined) {
+    if (!receipt.clean) {
+      throw new Error(
+        `browser shutdown retained automation state${receipt.timedOut ? " (deadline)" : ""}`,
+      );
+    }
+    browserControl = undefined;
+    browserComposition = undefined;
+    unsubscribeCanvasEdgeGrants?.();
+    unsubscribeCanvasEdgeGrants = undefined;
   }
-  browserControl = undefined;
-  browserComposition = undefined;
-  unsubscribeCanvasEdgeGrants?.();
-  unsubscribeCanvasEdgeGrants = undefined;
+  await browserCompositionHost.shutdown();
 };
 
 const requireCleanWorkControlShutdown = async (): Promise<void> => {

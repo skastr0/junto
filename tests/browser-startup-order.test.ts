@@ -29,6 +29,17 @@ describe("browser startup recovery gate", () => {
     expect(ready.slice(composition, window)).not.toContain("session.fromPartition");
   });
 
+  it("creates the headless native parent before composition and injects the attachment target", () => {
+    const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
+    const host = ready.indexOf("await browserCompositionHost.ensureHeadlessHost()");
+    const composition = ready.indexOf("startBrowserComposition(");
+    const adapter = ready.indexOf("viewAdapter: browserViewAttachmentTarget.adapter", composition);
+
+    expect(host).toBeGreaterThanOrEqual(0);
+    expect(host).toBeLessThan(composition);
+    expect(adapter).toBeGreaterThan(composition);
+  });
+
   it("preserves non-browser IPC before recovery without registering browser IPC", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
     expect(ready.indexOf("registerIpcHandlers();")).toBeLessThan(
