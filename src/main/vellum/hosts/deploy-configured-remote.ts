@@ -5,7 +5,15 @@ import type { RemoteHost } from "@shared/remote-hosts";
 import { RemoteHostsError } from "@shared/remote-hosts";
 import type { RemoteStationConfigInput } from "@shared/remote-station-config";
 import { SshTransport } from "../ssh";
-import { deployRemoteHost, type DeployRemoteResult } from "./deploy-remote";
+import {
+  deployRemoteHost,
+  dispatchRemoteDeployment,
+  prepareRemoteDeployment,
+  type DeployRemoteResult,
+  type RemoteDeploymentPreparation,
+  type RemoteDeploymentStationConfiguration,
+  type RemoteDeploymentTarget,
+} from "./deploy-remote";
 import {
   captureRemoteSettingsSnapshot,
   describeRemoteSettingsSnapshot,
@@ -48,6 +56,17 @@ export type ConfiguredRemoteDeployOperations = {
     ssh: Ssh,
     host: RemoteHost,
   ) => Effect.Effect<DeployRemoteResult, never>;
+  /** Production target admission runs before the settings transaction mutates. */
+  readonly prepare?: (
+    ssh: Ssh,
+    host: RemoteHost,
+  ) => Effect.Effect<RemoteDeploymentPreparation, never>;
+  /** Paired with prepare; executes only the already-admitted provider. */
+  readonly deployPrepared?: (
+    ssh: Ssh,
+    target: RemoteDeploymentTarget,
+    stationConfiguration: RemoteDeploymentStationConfiguration,
+  ) => Effect.Effect<DeployRemoteResult, never>;
   readonly capture: (
     ssh: Ssh,
     host: RemoteHost,
@@ -68,6 +87,9 @@ export type ConfiguredRemoteDeployOperations = {
 
 const defaultOperations: ConfiguredRemoteDeployOperations = {
   deploy: deployRemoteHost,
+  prepare: prepareRemoteDeployment,
+  deployPrepared: (ssh, target, stationConfiguration) =>
+    dispatchRemoteDeployment(target, ssh, stationConfiguration),
   capture: captureRemoteSettingsSnapshot,
   stamp: stampRemoteSettingsSnapshot,
   restore: restoreRemoteSettingsSnapshot,
@@ -90,6 +112,21 @@ const failedBeforeMutation = (
   role: "previous",
   rollback: "not-required",
   configuration: { ok: false, detail },
+});
+
+const refusedBeforeMutation = (
+  host: RemoteHost,
+  result: DeployRemoteResult,
+): ConfiguredRemoteDeployResult => ({
+  ...result,
+  ok: false,
+  hostEndpoint: host.endpoint,
+  disposition: "not-started",
+  outcome: "failed",
+  packageState: "previous",
+  role: "previous",
+  rollback: "not-required",
+  configuration: { ok: false, detail: result.detail },
 });
 
 const compensate = (
@@ -178,6 +215,22 @@ export const deployConfiguredRemoteHost = (
     | "indeterminate" = "not-begun";
 
   const transaction = Effect.gen(function* () {
+    const hasPrepare = operations.prepare !== undefined;
+    const hasPreparedDeploy = operations.deployPrepared !== undefined;
+    if (hasPrepare !== hasPreparedDeploy) {
+      return failedBeforeMutation(
+        host,
+        `${host.label}: Remote deployment operations have an incomplete target-admission contract`,
+        "validation",
+      );
+    }
+    const preparation = operations.prepare
+      ? yield* operations.prepare(ssh, host)
+      : undefined;
+    if (preparation && !preparation.ok) {
+      return refusedBeforeMutation(host, preparation.result);
+    }
+
     const before = yield* operations.capture(ssh, host).pipe(Effect.either);
     if (before._tag === "Left") {
       return failedBeforeMutation(
@@ -240,7 +293,14 @@ export const deployConfiguredRemoteHost = (
     }
 
     deploymentDisposition = "in-flight";
-    const deployed = yield* operations.deploy(ssh, host);
+    const deployed =
+      preparation?.ok && operations.deployPrepared
+        ? yield* operations.deployPrepared(ssh, preparation.target, {
+            state: "applied",
+            remoteHostId: host.id,
+            commandCenterRef: options.commandCenterRef,
+          })
+        : yield* operations.deploy(ssh, host);
     deploymentDisposition = deployed.ok
       ? "ready"
       : (deployed.disposition ?? "indeterminate");

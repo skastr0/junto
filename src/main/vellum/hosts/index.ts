@@ -14,4 +14,5 @@ export {
 } from "./registry";
 export { runRemoteHostsDoctor, testHostConnection } from "./doctor";
 export { configureRemoteHost } from "./configure-remote";
-export { deployRemoteHost, resolveLocalAppBundle } from "./deploy-remote";
+export { deployRemoteHost } from "./deploy-remote";
+export { resolveLocalAppBundle } from "./deploy-darwin";

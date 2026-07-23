@@ -70,8 +70,9 @@ describe("SSH architecture", () => {
       // Remote station pull + host configure: product policy over shared SSH kernel.
       "src/main/vellum/canvas-pull.ts",
       "src/main/vellum/hosts/configure-remote.ts",
-      // Product policy renders the remote installer command; SshTransport owns OpenSSH.
-      "src/main/vellum/hosts/deploy-remote.ts",
+      // Platform admission probes uname; Darwin renders the installer command.
+      "src/main/vellum/hosts/remote-platform.ts",
+      "src/main/vellum/hosts/deploy-darwin.ts",
       // Exact settings snapshot/CAS/rollback policy; SshTransport still owns OpenSSH.
       "src/main/vellum/hosts/remote-settings-transaction.ts",
       "src/main/vellum/term/router.ts",

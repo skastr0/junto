@@ -23,7 +23,7 @@ import {
 import { homeDirectoryLookup, oneShot, oneShotWithStdin } from "../ssh/program";
 import { SshTransport } from "../ssh/service";
 import { migrateSettingsDocument } from "../settings/migrate";
-import { decodeRemoteHomeDirectoryOutput } from "./deploy-remote";
+import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
 

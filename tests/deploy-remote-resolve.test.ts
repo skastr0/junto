@@ -19,7 +19,6 @@ import {
   classifyDeployTransferDisposition,
   describeDeployTransferFailure,
   decodeRemoteHomeDirectoryOutput,
-  deployRemoteHost,
   captureTarStderr,
   awaitTarCloseBounded,
   isSafeRemoteHomePath,
@@ -28,7 +27,8 @@ import {
   validateLocalBundleProvenance,
   type RemoteDeployScriptTestRuntime,
   watchTarExit,
-} from "../src/main/vellum/hosts/deploy-remote";
+} from "../src/main/vellum/hosts/deploy-darwin";
+import { deployRemoteHost } from "../src/main/vellum/hosts/deploy-remote";
 import { SshTransferExitError } from "../src/main/vellum/ssh/service";
 
 const TEST_CDHASH = "0123456789abcdef0123456789abcdef01234567";

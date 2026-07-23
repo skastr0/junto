@@ -23,7 +23,7 @@ import { SshTransport } from "../ssh/service";
 import { migrateSettingsDocument } from "../settings/migrate";
 import { configureRecordFromResult } from "@shared/station-status";
 import { recordStationConfigure } from "../station-status-store";
-import { decodeRemoteHomeDirectoryOutput } from "./deploy-remote";
+import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
 
 // SSH write of ~/.vellum/settings.json on a registered remote host.
 // Pattern matches herdr stage-image: opaque /bin/sh -c + stdin body.
