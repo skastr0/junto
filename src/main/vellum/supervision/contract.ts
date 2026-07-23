@@ -15,7 +15,8 @@ export type StationSupervisorFailureKind =
   | "deadline"
   | "command-failed"
   | "close-unconfirmed"
-  | "invalid-output";
+  | "invalid-output"
+  | "service-degraded";
 
 export interface StationSupervisorFailure {
   readonly kind: StationSupervisorFailureKind;
