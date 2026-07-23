@@ -28,7 +28,11 @@ export interface StationBrowserWrapperDeps {
         | StationBrowserTrust
         | undefined
         | Promise<StationBrowserTrust | undefined>);
-  readonly verification: () => StationBrowserVerificationContext;
+  readonly verification: (
+    request: Parameters<StationBrowserVerificationContext["allowAction"]>[0],
+  ) =>
+    | StationBrowserVerificationContext
+    | Promise<StationBrowserVerificationContext>;
   readonly replays: StationBrowserReplayCache;
   /** Target-local execution only; it receives a request only after verification. */
   readonly execute: (
@@ -44,7 +48,7 @@ export const makeStationBrowserWrapper = (deps: StationBrowserWrapperDeps): Stat
   handle: async (frame, signal) => {
     const envelope = decodeStationBrowserEnvelope(frame);
     if (typeof envelope === "string") return "";
-    const context = deps.verification();
+    const context = await deps.verification(envelope.request);
     let trust: StationBrowserTrust | undefined;
     try {
       trust =
