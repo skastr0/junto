@@ -1,4 +1,14 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -9,8 +19,15 @@ const script = join(root, "scripts", "notarize-app.sh");
 const source = readFileSync(script, "utf8");
 const temporaryRoots: string[] = [];
 
+interface NotarizeFixture {
+  readonly root: string;
+  readonly script: string;
+  readonly app: string;
+  readonly zip: string;
+}
+
 function temporaryRoot(): string {
-  const directory = mkdtempSync(join(tmpdir(), "vellum-notarize-security."));
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "vellum-notarize-security.")));
   temporaryRoots.push(directory);
   return directory;
 }
@@ -26,15 +43,43 @@ function mockRequiredCommands(directory: string): string {
   return bin;
 }
 
-function runNotarize(args: string[], environment: NodeJS.ProcessEnv = {}) {
-  const temp = temporaryRoot();
-  const bin = mockRequiredCommands(temp);
-  return spawnSync("/bin/bash", [script, ...args], {
-    cwd: root,
+function notarizeFixture(): NotarizeFixture {
+  const fixtureRoot = temporaryRoot();
+  const scripts = join(fixtureRoot, "scripts");
+  const release = join(fixtureRoot, "release");
+  const app = join(release, "mac-arm64", "Vellum Command.app");
+  const executable = join(app, "Contents", "MacOS", "Vellum Command");
+  const zip = join(release, "Vellum Command-0.1.0-arm64-mac.zip");
+  mkdirSync(scripts, { recursive: true });
+  mkdirSync(join(app, "Contents", "MacOS"), { recursive: true });
+  copyFileSync(script, join(scripts, "notarize-app.sh"));
+  copyFileSync(join(root, "scripts", "app-paths.sh"), join(scripts, "app-paths.sh"));
+  writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  writeFileSync(join(app, "Contents", "Info.plist"), "<plist/>\n");
+  writeFileSync(zip, "fixture\n");
+  return { root: fixtureRoot, script: join(scripts, "notarize-app.sh"), app, zip };
+}
+
+function runNotarize(
+  args: string[] | ((fixture: NotarizeFixture) => string[]),
+  environment: NodeJS.ProcessEnv | ((fixture: NotarizeFixture) => NodeJS.ProcessEnv) = {},
+) {
+  const fixture = notarizeFixture();
+  const bin = mockRequiredCommands(fixture.root);
+  const resolvedArgs = typeof args === "function" ? args(fixture) : args;
+  const resolvedEnvironment = typeof environment === "function" ? environment(fixture) : environment;
+  const bashEnvironment = join(fixture.root, "bash-env");
+  writeFileSync(
+    bashEnvironment,
+    'function /usr/libexec/PlistBuddy() { printf "%s\\n" "skastr0.vellum"; }\n',
+  );
+  return spawnSync("/bin/bash", [fixture.script, ...resolvedArgs], {
+    cwd: fixture.root,
     env: {
       ...process.env,
+      BASH_ENV: bashEnvironment,
       PATH: `${bin}:${process.env.PATH}`,
-      ...environment,
+      ...resolvedEnvironment,
     },
     encoding: "utf8",
   });
@@ -62,10 +107,15 @@ describe("notarization path capabilities", () => {
   });
 
   it.each([
-    ["CLI app outside release", ["--app", "/tmp/evil.app", "--zip", "/tmp/evil.zip"]],
-    ["CLI zip outside release", ["--app", join(root, "release/mac-arm64/Vellum Command.app"), "--zip", "/tmp/evil.zip"]],
-    ["newline and quote app injection", ["--app", "/tmp/evil'\nPY\n.app", "--zip", "/tmp/evil.zip"]],
-    ["path traversal app", ["--app", join(root, "release/mac-arm64/../mac-arm64/Vellum Command.app"), "--zip", "/tmp/evil.zip"]],
+    ["CLI app outside release", () => ["--app", "/tmp/evil.app", "--zip", "/tmp/evil.zip"]],
+    ["CLI zip outside release", (fixture: NotarizeFixture) => ["--app", fixture.app, "--zip", "/tmp/evil.zip"]],
+    ["newline and quote app injection", () => ["--app", "/tmp/evil'\nPY\n.app", "--zip", "/tmp/evil.zip"]],
+    ["path traversal app", (fixture: NotarizeFixture) => [
+      "--app",
+      `${fixture.root}/release/mac-arm64/../mac-arm64/Vellum Command.app`,
+      "--zip",
+      "/tmp/evil.zip",
+    ]],
   ])("refuses %s", (_name, args) => {
     const result = runNotarize(args);
     expect(result.status).not.toBe(0);
@@ -73,13 +123,11 @@ describe("notarization path capabilities", () => {
   });
 
   it("refuses symlink candidates even when they point at a release artifact", () => {
-    const temp = temporaryRoot();
-    const link = join(temp, "Vellum Command-0.1.0-arm64-mac.zip");
-    symlinkSync(join(root, "release", "Vellum Command-0.1.0-arm64-mac.zip"), link);
-    const result = runNotarize([
-      "--app", join(root, "release/mac-arm64/Vellum Command.app"),
-      "--zip", link,
-    ]);
+    const result = runNotarize((fixture) => {
+      const link = join(fixture.root, "Vellum Command-0.1.0-arm64-mac.zip");
+      symlinkSync(fixture.zip, link);
+      return ["--app", fixture.app, "--zip", link];
+    });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("zip must be an existing non-symlink file");
   });
@@ -92,10 +140,10 @@ describe("notarization path capabilities", () => {
     expect(appOutside.status).not.toBe(0);
     expect(appOutside.stderr).toContain("app must be an existing non-symlink bundle");
 
-    const zipOutside = runNotarize([], {
-      VELLUM_APP_SRC: join(root, "release/mac-arm64/Vellum Command.app"),
+    const zipOutside = runNotarize([], (fixture) => ({
+      VELLUM_APP_SRC: fixture.app,
       VELLUM_ZIP_SRC: "/tmp/outside.zip",
-    });
+    }));
     expect(zipOutside.status).not.toBe(0);
     expect(zipOutside.stderr).toContain("zip must be an existing non-symlink file");
   });
