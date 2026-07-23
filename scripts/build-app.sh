@@ -51,6 +51,18 @@ if [[ "$NOTARIZE" -eq 1 && "$TARGET" != "mac" ]]; then
 fi
 
 cd "$REPO_ROOT"
+ELECTRON_INSTALLER="$REPO_ROOT/node_modules/electron/install.js"
+NODE_EXECUTABLE="$(type -P node || true)"
+if [[ -z "$NODE_EXECUTABLE" || ! -x "$NODE_EXECUTABLE" ]]; then
+  printf 'vellum: error: Node is required to materialize the pinned Electron runtime\n' >&2
+  exit 1
+fi
+if [[ ! -f "$ELECTRON_INSTALLER" || -L "$ELECTRON_INSTALLER" ]]; then
+  printf 'vellum: error: Electron installer missing — run: bun install --frozen-lockfile\n' >&2
+  exit 1
+fi
+printf 'vellum: materializing pinned Electron runtime …\n'
+"$NODE_EXECUTABLE" "$ELECTRON_INSTALLER"
 if [[ "$COMPILE_ONLY" -eq 0 ]]; then bun "$SCRIPT_DIR/electron-security-policy.ts" prepare-package; fi
 printf 'vellum: validating checked-in Electron security policy …\n'
 bun "$SCRIPT_DIR/electron-security-policy.ts" validate

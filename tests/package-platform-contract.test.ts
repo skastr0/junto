@@ -73,6 +73,14 @@ describe("native package pipeline contract", () => {
     expect(build).toContain(
       'build_compiled_cli "$REPO_ROOT/dist/vellum-release-bridge" scripts/linux-release-bridge.ts',
     );
+    expect(build).toContain(
+      '"$NODE_EXECUTABLE" "$ELECTRON_INSTALLER"',
+    );
+    expect(
+      build.indexOf('"$NODE_EXECUTABLE" "$ELECTRON_INSTALLER"'),
+    ).toBeLessThan(
+      build.indexOf('electron-security-policy.ts" validate'),
+    );
     expect(build).toContain("--no-compile-autoload-dotenv");
     expect(build).toContain("--no-compile-autoload-bunfig");
     expect(build).toContain('native %s packaging must run on its target OS');
