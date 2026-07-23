@@ -7,12 +7,19 @@ EXECUTABLE="$APP_DIR/vellum"
 CHROME_SANDBOX="$APP_DIR/chrome-sandbox"
 WORK_CLI="$APP_DIR/resources/bin/vellum"
 BROWSER_CLI="$APP_DIR/resources/bin/vellum-browser"
+RELEASE_INSTALLER_SOURCE="$APP_DIR/resources/bin/vellum-release-installer"
 PEER_PID_HELPER="$APP_DIR/resources/bin/unix-peer-pid.py"
+SUDOERS_SOURCE="$APP_DIR/resources/policy/vellum-release-installer.sudoers"
 PROFILE_SOURCE="$APP_DIR/resources/apparmor-profile"
 PROFILE_TARGET='/etc/apparmor.d/vellum'
 UNIT_SOURCE="$APP_DIR/resources/systemd/vellum-remote.service"
 UNIT_TARGET='/usr/lib/systemd/user/vellum-remote.service'
 UNIT_DIRECTORY='/usr/lib/systemd/user'
+INSTALLER_TARGET='/usr/libexec/vellum-release-installer'
+SUDOERS_TARGET='/etc/sudoers.d/vellum-release-installer'
+INSTALLER_STATE='/var/lib/vellum-release-installer'
+INSTALLER_MARKER="$INSTALLER_STATE/packaged-helper.sha256"
+SUDOERS_MARKER="$INSTALLER_STATE/packaged-sudoers.sha256"
 
 require_regular_file() {
   if [ ! -f "$1" ] || [ -L "$1" ]; then
@@ -26,7 +33,9 @@ for packaged_file in \
   "$CHROME_SANDBOX" \
   "$WORK_CLI" \
   "$BROWSER_CLI" \
+  "$RELEASE_INSTALLER_SOURCE" \
   "$PEER_PID_HELPER" \
+  "$SUDOERS_SOURCE" \
   "$PROFILE_SOURCE" \
   "$UNIT_SOURCE"
 do
@@ -37,8 +46,13 @@ if [ ! -x /usr/sbin/apparmor_parser ]; then
   printf 'vellum: AppArmor parser is required on Ubuntu 24.04\n' >&2
   exit 1
 fi
+if [ ! -x /usr/sbin/visudo ]; then
+  printf 'vellum: visudo is required to validate the fixed installer authority\n' >&2
+  exit 1
+fi
 
 /usr/sbin/apparmor_parser --skip-kernel-load --debug "$PROFILE_SOURCE" >/dev/null
+/usr/sbin/visudo -cf "$SUDOERS_SOURCE" >/dev/null
 
 load_live_profile=1
 if [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; then
@@ -53,7 +67,117 @@ fi
 chown root:root "$CHROME_SANDBOX"
 chmod 0755 "$CHROME_SANDBOX"
 chmod 0755 "$EXECUTABLE" "$WORK_CLI" "$BROWSER_CLI" "$PEER_PID_HELPER"
+chmod 0755 "$RELEASE_INSTALLER_SOURCE"
+chmod 0440 "$SUDOERS_SOURCE"
 chmod 0644 "$UNIT_SOURCE"
+
+ensure_root_directory() {
+  directory="$1"
+  expected_mode="$2"
+  if [ -L "$directory" ]; then
+    printf 'vellum: refusing a root authority directory symlink: %s\n' "$directory" >&2
+    exit 1
+  fi
+  if [ ! -e "$directory" ]; then
+    mkdir -m "$expected_mode" -- "$directory"
+  fi
+  if [ ! -d "$directory" ] ||
+     [ "$(stat -c '%u:%g:%a' "$directory" 2>/dev/null || true)" != "0:0:$expected_mode" ]; then
+    printf 'vellum: root authority directory is unsafe: %s\n' "$directory" >&2
+    exit 1
+  fi
+}
+
+sha256_file() {
+  /usr/bin/sha256sum "$1" | /usr/bin/awk '{ print $1 }'
+}
+
+admit_package_owned_target() {
+  target="$1"
+  marker="$2"
+  source_sha="$3"
+  expected_mode="$4"
+  if [ ! -e "$target" ] && [ ! -L "$target" ]; then
+    return
+  fi
+  if [ -L "$target" ] || [ ! -f "$target" ] ||
+     [ "$(stat -c '%u:%g:%a:%h' "$target" 2>/dev/null || true)" != "0:0:$expected_mode:1" ]; then
+    printf 'vellum: refusing an unsafe root-owned installer target\n' >&2
+    exit 1
+  fi
+  target_sha="$(sha256_file "$target")"
+  if [ -e "$marker" ] || [ -L "$marker" ]; then
+    if [ -L "$marker" ] || [ ! -f "$marker" ] ||
+       [ "$(stat -c '%u:%g:%a:%h' "$marker" 2>/dev/null || true)" != '0:0:600:1' ]; then
+      printf 'vellum: refusing a root target without its exact package custody marker\n' >&2
+      exit 1
+    fi
+    marker_admitted=0
+    marker_valid=1
+    marker_fields=0
+    for marker_sha in $(/bin/cat "$marker" 2>/dev/null || true); do
+      marker_fields=$((marker_fields + 1))
+      case "$marker_sha" in
+        none) ;;
+        ""|*[!0-9a-f]*) marker_valid=0 ;;
+        *)
+          [ "${#marker_sha}" -eq 64 ] || marker_valid=0
+          [ "$marker_sha" = "$target_sha" ] && marker_admitted=1
+          ;;
+      esac
+    done
+    if [ "$marker_valid" != 1 ] || [ "$marker_fields" -lt 1 ] ||
+       [ "$marker_fields" -gt 2 ] || [ "$marker_admitted" != 1 ]; then
+      printf 'vellum: refusing a root target without its exact package custody marker\n' >&2
+      exit 1
+    fi
+  elif [ "$target_sha" != "$source_sha" ]; then
+    printf 'vellum: preserving an unclaimed root-owned installer target\n' >&2
+    exit 1
+  fi
+}
+
+publish_root_file() {
+  source="$1"
+  target="$2"
+  expected_mode="$3"
+  target_directory="$(dirname "$target")"
+  temporary="$(mktemp "$INSTALLER_STATE/.package-file.XXXXXXXX")"
+  /usr/bin/install -o root -g root -m "$expected_mode" -- "$source" "$temporary"
+  /bin/sync -f "$temporary"
+  mv -- "$temporary" "$target"
+  /bin/sync -f "$target_directory"
+}
+
+publish_marker() {
+  digest_set="$1"
+  marker="$2"
+  temporary="$(mktemp "$INSTALLER_STATE/.package-marker.XXXXXXXX")"
+  printf '%s\n' "$digest_set" > "$temporary"
+  chown root:root "$temporary"
+  chmod 0600 "$temporary"
+  /bin/sync -f "$temporary"
+  mv -- "$temporary" "$marker"
+  /bin/sync -f "$INSTALLER_STATE"
+}
+
+ensure_root_directory /usr/libexec 755
+ensure_root_directory /etc/sudoers.d 750
+ensure_root_directory "$INSTALLER_STATE" 700
+INSTALLER_SOURCE_SHA="$(sha256_file "$RELEASE_INSTALLER_SOURCE")"
+SUDOERS_SOURCE_SHA="$(sha256_file "$SUDOERS_SOURCE")"
+admit_package_owned_target "$INSTALLER_TARGET" "$INSTALLER_MARKER" "$INSTALLER_SOURCE_SHA" 755
+admit_package_owned_target "$SUDOERS_TARGET" "$SUDOERS_MARKER" "$SUDOERS_SOURCE_SHA" 440
+if [ -f "$INSTALLER_TARGET" ] && [ ! -L "$INSTALLER_TARGET" ]; then
+  INSTALLER_PRIOR_SHA="$(sha256_file "$INSTALLER_TARGET")"
+else
+  INSTALLER_PRIOR_SHA=none
+fi
+if [ -f "$SUDOERS_TARGET" ] && [ ! -L "$SUDOERS_TARGET" ]; then
+  SUDOERS_PRIOR_SHA="$(sha256_file "$SUDOERS_TARGET")"
+else
+  SUDOERS_PRIOR_SHA=none
+fi
 
 created_profile_link=0
 created_unit_link=0
@@ -127,4 +251,14 @@ fi
 if [ "$load_live_profile" -eq 1 ]; then
   /usr/sbin/apparmor_parser --replace --write-cache --skip-read-cache "$PROFILE_SOURCE"
 fi
+
+# Publish the command policy before the executable. The policy grants one
+# no-argument, NOSETENV command from cwd=/; compile-time autoload is disabled.
+publish_marker "$SUDOERS_PRIOR_SHA $SUDOERS_SOURCE_SHA" "$SUDOERS_MARKER"
+publish_root_file "$SUDOERS_SOURCE" "$SUDOERS_TARGET" 0440
+/usr/sbin/visudo -cf "$SUDOERS_TARGET" >/dev/null
+publish_marker "$SUDOERS_SOURCE_SHA" "$SUDOERS_MARKER"
+publish_marker "$INSTALLER_PRIOR_SHA $INSTALLER_SOURCE_SHA" "$INSTALLER_MARKER"
+publish_root_file "$RELEASE_INSTALLER_SOURCE" "$INSTALLER_TARGET" 0755
+publish_marker "$INSTALLER_SOURCE_SHA" "$INSTALLER_MARKER"
 trap - EXIT HUP INT TERM

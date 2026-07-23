@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EXPECTED_APPARMOR_PROFILE,
+  EXPECTED_RELEASE_INSTALLER_SUDOERS,
   LINUX_DEB_DEPENDENCIES,
   parseDebArchiveListing,
   parseDebControl,
@@ -11,6 +12,7 @@ import {
   validateDesktopEntry,
   validateElfX64,
   validateLinuxPackageArtifactNames,
+  validateReleaseInstallerSudoers,
 } from "../scripts/audit-linux-package";
 
 const debControl = (overrides: Record<string, string> = {}): string => {
@@ -49,7 +51,10 @@ drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/
 drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum-browser
+-rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum-release-installer
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/unix-peer-pid.py
+drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/policy/
+-r--r----- root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/policy/vellum-release-installer.sudoers
 -rw-r--r-- root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/apparmor-profile
 ${extra}`.trimStart();
 
@@ -191,6 +196,24 @@ describe("Linux desktop and sandbox policy", () => {
     expect(() =>
       validateAppArmorProfile(EXPECTED_APPARMOR_PROFILE.replace("userns,", "network,")),
     ).toThrow(/userns-only/u);
+  });
+
+  it("pins the no-argument, hostile-environment-safe installer sudo policy", () => {
+    expect(() =>
+      validateReleaseInstallerSudoers(
+        EXPECTED_RELEASE_INSTALLER_SUDOERS,
+      ),
+    ).not.toThrow();
+    expect(EXPECTED_RELEASE_INSTALLER_SUDOERS).toContain("CWD=/");
+    expect(EXPECTED_RELEASE_INSTALLER_SUDOERS).toContain("NOSETENV");
+    expect(EXPECTED_RELEASE_INSTALLER_SUDOERS).toContain(
+      'vellum-release-installer ""',
+    );
+    expect(() =>
+      validateReleaseInstallerSudoers(
+        EXPECTED_RELEASE_INSTALLER_SUDOERS.replace("NOSETENV:", "SETENV:"),
+      ),
+    ).toThrow(/no-argument boundary/u);
   });
 
   it("pins the installed executable, icon, category, and protocol handler", () => {

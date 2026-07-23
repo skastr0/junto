@@ -1,0 +1,4 @@
+Defaults!/usr/libexec/vellum-release-installer env_reset
+Defaults!/usr/libexec/vellum-release-installer !setenv
+Defaults!/usr/libexec/vellum-release-installer env_delete += "BUN_OPTIONS BUN_INSTALL BUN_RUNTIME_TRANSPILER_CACHE_PATH BUN_CONFIG_VERBOSE_FETCH BUN_CONFIG_LINK_NATIVE_BINS BUN_BE_BUN BUN_DEBUG_QUIET_LOGS NODE_OPTIONS LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH"
+%sudo ALL=(root) CWD=/ NOPASSWD:NOSETENV: /usr/libexec/vellum-release-installer ""

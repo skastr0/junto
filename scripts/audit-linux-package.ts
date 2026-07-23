@@ -38,6 +38,10 @@ export const LINUX_REMOTE_LAUNCHER_RESOURCE =
   "resources/systemd/vellum-remote-launch-v1";
 export const LINUX_REMOTE_UNIT_RESOURCE =
   `resources/systemd/${LINUX_SYSTEMD_USER_UNIT}`;
+export const LINUX_RELEASE_INSTALLER_RESOURCE =
+  "resources/bin/vellum-release-installer";
+export const LINUX_RELEASE_INSTALLER_SUDOERS_RESOURCE =
+  "resources/policy/vellum-release-installer.sudoers";
 
 export const LINUX_DEB_DEPENDENCIES = [
   "apparmor",
@@ -64,6 +68,7 @@ export const LINUX_DEB_DEPENDENCIES = [
   "openssh-client",
   "procps",
   "python3",
+  "sudo",
   "xauth",
   "xdg-utils",
   "xvfb",
@@ -78,6 +83,12 @@ include <tunables/global>
 profile vellum "/opt/Vellum Command/vellum" flags=(unconfined) {
   userns,
 }
+`;
+
+export const EXPECTED_RELEASE_INSTALLER_SUDOERS = `Defaults!/usr/libexec/vellum-release-installer env_reset
+Defaults!/usr/libexec/vellum-release-installer !setenv
+Defaults!/usr/libexec/vellum-release-installer env_delete += "BUN_OPTIONS BUN_INSTALL BUN_RUNTIME_TRANSPILER_CACHE_PATH BUN_CONFIG_VERBOSE_FETCH BUN_CONFIG_LINK_NATIVE_BINS BUN_BE_BUN BUN_DEBUG_QUIET_LOGS NODE_OPTIONS LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH"
+%sudo ALL=(root) CWD=/ NOPASSWD:NOSETENV: /usr/libexec/vellum-release-installer ""
 `;
 
 interface PackageMetadata {
@@ -359,7 +370,9 @@ export const validateDebArchive = (
     [`${installPrefix}chrome-sandbox`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/vellum`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/vellum-browser`, "-rwxr-xr-x"],
+    [`${installPrefix}resources/bin/vellum-release-installer`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/unix-peer-pid.py`, "-rwxr-xr-x"],
+    [`${installPrefix}resources/policy/vellum-release-installer.sudoers`, "-r--r-----"],
     [`${installPrefix}resources/apparmor-profile`, "-rw-r--r--"],
   ]);
   for (const [requiredPath, requiredMode] of requiredModes) {
@@ -375,6 +388,14 @@ export const validateAppArmorProfile = (input: string): void => {
   if (input !== EXPECTED_APPARMOR_PROFILE) {
     throw new Error(
       "Linux AppArmor profile differs from the qualified userns-only policy",
+    );
+  }
+};
+
+export const validateReleaseInstallerSudoers = (input: string): void => {
+  if (input !== EXPECTED_RELEASE_INSTALLER_SUDOERS) {
+    throw new Error(
+      "Linux release installer sudoers policy differs from the fixed no-argument boundary",
     );
   }
 };
@@ -474,7 +495,7 @@ export const validateElfX64 = (header: Uint8Array, label: string): void => {
 
 const requireRegularMode = async (
   filePath: string,
-  mode: 0o644 | 0o755,
+  mode: 0o440 | 0o644 | 0o755,
 ): Promise<void> => {
   const metadata = await lstat(filePath);
   if (!metadata.isFile() || (metadata.mode & 0o7777) !== mode) {
@@ -750,7 +771,15 @@ export const auditLinuxPackage = async ({
     const appAsar = path.join(resources, "app.asar");
     const workCli = path.join(resources, "bin", "vellum");
     const browserCli = path.join(resources, "bin", "vellum-browser");
+    const releaseInstaller = path.join(
+      extractedReal,
+      LINUX_RELEASE_INSTALLER_RESOURCE,
+    );
     const peerPidHelper = path.join(resources, "bin", "unix-peer-pid.py");
+    const releaseInstallerSudoers = path.join(
+      extractedReal,
+      LINUX_RELEASE_INSTALLER_SUDOERS_RESOURCE,
+    );
     const appArmorProfile = path.join(resources, "apparmor-profile");
     const remoteLauncher = path.join(extractedReal, LINUX_REMOTE_LAUNCHER_RESOURCE);
     const remoteUnit = path.join(extractedReal, LINUX_REMOTE_UNIT_RESOURCE);
@@ -760,13 +789,18 @@ export const auditLinuxPackage = async ({
       requireRegularMode(chromeSandbox, 0o755),
       requireRegularMode(workCli, 0o755),
       requireRegularMode(browserCli, 0o755),
+      requireRegularMode(releaseInstaller, 0o755),
       requireRegularMode(peerPidHelper, 0o755),
+      requireRegularMode(releaseInstallerSudoers, 0o440),
       requireRegularMode(appArmorProfile, 0o644),
       requireRegularMode(remoteLauncher, 0o755),
       requireRegularMode(remoteUnit, 0o644),
       requireRegularMode(appAsar, 0o644),
     ]);
     validateAppArmorProfile(await readFile(appArmorProfile, "utf8"));
+    validateReleaseInstallerSudoers(
+      await readFile(releaseInstallerSudoers, "utf8"),
+    );
     validateSystemdUserUnit(await readFile(remoteUnit, "utf8"));
 
     const pty = auditLinuxPtyPlacement(resources);
@@ -780,10 +814,12 @@ export const auditLinuxPackage = async ({
       mainExecutable,
       workCli,
       browserCli,
+      releaseInstaller,
       pty.nativeModule,
     ];
     await Promise.all(elfObjects.map(requireElfX64));
     requireLoadable(mainExecutable);
+    requireLoadable(releaseInstaller);
     requireLoadable(pty.nativeModule);
 
     const fuseReceipt = validateFuseWire(await getCurrentFuseWire(mainExecutable));

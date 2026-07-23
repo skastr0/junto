@@ -81,9 +81,13 @@ printf 'vellum: standalone work CLI → dist/vellum …\n'
 build_compiled_cli "$REPO_ROOT/dist/vellum" src/cli/main.ts
 printf 'vellum: standalone browser CLI → dist/vellum-browser …\n'
 build_compiled_cli "$REPO_ROOT/dist/vellum-browser" scripts/browser-cli.ts
+if [[ "$TARGET" == "linux" ]]; then
+  printf 'vellum: standalone root-owned release installer → dist/vellum-release-installer …\n'
+  build_compiled_cli "$REPO_ROOT/dist/vellum-release-installer" scripts/linux-release-installer.ts
+fi
 
 if [[ "$COMPILE_ONLY" -eq 1 ]]; then
-  printf 'vellum: compile-only done (out/ + dist/vellum + dist/vellum-browser). Skip packaging.\n'
+  printf 'vellum: compile-only done (out/ + standalone controls). Skip packaging.\n'
   exit 0
 fi
 

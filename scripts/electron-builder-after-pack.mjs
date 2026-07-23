@@ -107,6 +107,19 @@ export default async function afterPack(context) {
     await chmod(resource, 0o755);
   }
   if (platform === "linux") {
+    await chmod(
+      path.join(resourceDirectory, "vellum-release-installer"),
+      0o755,
+    );
+    await chmod(
+      path.join(
+        context.appOutDir,
+        "resources",
+        "policy",
+        "vellum-release-installer.sudoers",
+      ),
+      0o440,
+    );
     await chmod(path.join(context.appOutDir, "chrome-sandbox"), 0o755);
     await chmod(path.join(context.appOutDir, "resources", "apparmor-profile"), 0o644);
     await chmod(path.join(context.appOutDir, "resources", "systemd", "vellum-remote-launch-v1"), 0o755);

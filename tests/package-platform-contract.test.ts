@@ -67,6 +67,11 @@ describe("native package pipeline contract", () => {
     expect(build).toContain('--target mac|linux');
     expect(build).toContain('build_compiled_cli "$REPO_ROOT/dist/vellum" src/cli/main.ts');
     expect(build).toContain('build_compiled_cli "$REPO_ROOT/dist/vellum-browser" scripts/browser-cli.ts');
+    expect(build).toContain(
+      'build_compiled_cli "$REPO_ROOT/dist/vellum-release-installer" scripts/linux-release-installer.ts',
+    );
+    expect(build).toContain("--no-compile-autoload-dotenv");
+    expect(build).toContain("--no-compile-autoload-bunfig");
     expect(build).toContain('native %s packaging must run on its target OS');
     expect(build).toContain('mac) exec bash "$SCRIPT_DIR/package-app-macos.sh"');
     expect(build).toContain('linux) exec bash "$SCRIPT_DIR/package-app-linux.sh"');
@@ -148,6 +153,8 @@ describe("native package pipeline contract", () => {
     expect(afterPack).toContain("context.packager.appInfo.productName");
     expect(afterPack).toContain('unsupported Vellum package platform');
     expect(afterPack).toContain('["vellum", "vellum-browser", "unix-peer-pid.py"]');
+    expect(afterPack).toContain('"vellum-release-installer"');
+    expect(afterPack).toContain('"vellum-release-installer.sudoers"');
     expect(afterPack).toContain('chmod(resource, 0o755)');
     expect(afterPack).toContain('path.join(context.appOutDir, "chrome-sandbox"), 0o755');
     expect(afterPack).toContain('resetAdHocDarwinSignature: platform === "darwin"');
@@ -167,6 +174,21 @@ describe("native package pipeline contract", () => {
     expect(profile).not.toMatch(/network,|capability,|mount,|ptrace,|signal,/u);
     expect(afterInstall).toContain("chmod 0755 \"$CHROME_SANDBOX\"");
     expect(afterInstall).toContain(
+      'publish_root_file "$RELEASE_INSTALLER_SOURCE" "$INSTALLER_TARGET" 0755',
+    );
+    expect(afterInstall).toContain(
+      '/usr/sbin/visudo -cf "$SUDOERS_TARGET"',
+    );
+    expect(afterInstall).toContain(
+      "ensure_root_directory /etc/sudoers.d 750",
+    );
+    expect(afterInstall).toContain(
+      'admit_package_owned_target "$INSTALLER_TARGET"',
+    );
+    expect(beforeInstall).toContain(
+      "qualify_root_file_if_present \"$INSTALLER_TARGET\" 755",
+    );
+    expect(afterInstall).toContain(
       'update-alternatives --install /usr/bin/vellum vellum "$WORK_CLI" 100',
     );
     expect(afterInstall).not.toContain(
@@ -182,6 +204,9 @@ describe("native package pipeline contract", () => {
     expect(afterRemove).toMatch(/remove\|purge\)[\s\S]*update-alternatives/u);
     expect(afterRemove).toContain(
       "update-alternatives --remove vellum '/opt/Vellum Command/resources/bin/vellum'",
+    );
+    expect(afterRemove).toContain(
+      'remove_package_owned_root_file "$INSTALLER_TARGET" "$INSTALLER_MARKER" 755',
     );
     expect(`${beforeInstall}\n${beforeRemove}\n${afterInstall}\n${afterRemove}`).not.toMatch(
       /sysctl|disable.*apparmor|\/home\/|\$\{?HOME\}?|rm\s+-rf/iu,

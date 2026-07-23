@@ -202,6 +202,14 @@
         {
           "from": "build/linux/vellum-remote.service",
           "to": "systemd/vellum-remote.service"
+        },
+        {
+          "from": "dist/vellum-release-installer",
+          "to": "bin/vellum-release-installer"
+        },
+        {
+          "from": "build/linux/vellum-release-installer.sudoers",
+          "to": "policy/vellum-release-installer.sudoers"
         }
       ],
       "desktop": {
@@ -244,6 +252,7 @@
         "openssh-client",
         "procps",
         "python3",
+        "sudo",
         "xauth",
         "xdg-utils",
         "xvfb"
