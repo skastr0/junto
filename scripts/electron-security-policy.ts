@@ -263,4 +263,19 @@ export const prepareElectronObservationForPackaging = async (now = new Date()) =
   await mkdir(path.dirname(packagedObservationPath), { recursive: true }); const content = `${JSON.stringify(receipt)}\n`; await writeFile(packagedObservationPath, content, { mode: 0o600 }); await writeFile(packagedHighWaterPath, content, { mode: 0o600 });
 };
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) { const command = process.argv[2]; if (command === "validate" && process.argv.length === 3) { await validateCheckedInElectronPolicy(); console.log("electron security policy: valid (offline)"); } else if (command === "check" && process.argv.length === 3) { const receipt = await checkOfficialElectronSources(); console.log(JSON.stringify(receipt, null, 2)); if (receipt.overdue) process.exitCode = 1; } else if (command === "prepare-package" && process.argv.length === 3) await prepareElectronObservationForPackaging(); else { console.error("usage: bun scripts/electron-security-policy.ts validate|check|prepare-package"); process.exitCode = 1; } }
+/**
+ * Bundlers rewrite `import.meta.url` to the bundle entry. Electron also puts
+ * that same entry in argv[1], so equality alone can turn this imported module
+ * into a CLI inside the application. Require the canonical script basename as
+ * well as exact direct invocation.
+ */
+export const isElectronSecurityPolicyCli = (
+  moduleUrl: string,
+  argvEntry: string | undefined,
+): boolean => {
+  if (argvEntry === undefined) return false;
+  const modulePath = fileURLToPath(moduleUrl);
+  return path.basename(modulePath) === "electron-security-policy.ts" && argvEntry === modulePath;
+};
+
+if (isElectronSecurityPolicyCli(import.meta.url, process.argv[1])) { const command = process.argv[2]; if (command === "validate" && process.argv.length === 3) { await validateCheckedInElectronPolicy(); console.log("electron security policy: valid (offline)"); } else if (command === "check" && process.argv.length === 3) { const receipt = await checkOfficialElectronSources(); console.log(JSON.stringify(receipt, null, 2)); if (receipt.overdue) process.exitCode = 1; } else if (command === "prepare-package" && process.argv.length === 3) await prepareElectronObservationForPackaging(); else { console.error("usage: bun scripts/electron-security-policy.ts validate|check|prepare-package"); process.exitCode = 1; } }

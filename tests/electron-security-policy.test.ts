@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   checkOfficialElectronSources,
   decodeElectronSecurityPolicy,
+  isElectronSecurityPolicyCli,
   validateElectronSecurityPolicy,
 } from "../scripts/electron-security-policy";
 
@@ -13,6 +14,18 @@ const SUPPORT_URL = "https://www.electronjs.org/docs/latest/tutorial/electron-ti
 const RELEASE_INDEX_URL = "https://releases.electronjs.org/releases.json";
 const AUDITED_RELEASE_URL = "https://releases.electronjs.org/release/v43.2.0";
 const SCRIPT_PATH = fileURLToPath(new URL("../scripts/electron-security-policy.ts", import.meta.url));
+
+describe("electron security policy CLI boundary", () => {
+  it("admits only direct execution of the canonical source script", () => {
+    const sourceUrl = new URL("../scripts/electron-security-policy.ts", import.meta.url).href;
+    const bundledUrl = new URL("../out/main/index.js", import.meta.url).href;
+
+    expect(isElectronSecurityPolicyCli(sourceUrl, SCRIPT_PATH)).toBe(true);
+    expect(isElectronSecurityPolicyCli(sourceUrl, undefined)).toBe(false);
+    expect(isElectronSecurityPolicyCli(bundledUrl, fileURLToPath(bundledUrl))).toBe(false);
+    expect(isElectronSecurityPolicyCli(sourceUrl, fileURLToPath(bundledUrl))).toBe(false);
+  });
+});
 
 const loadPolicy = async () => decodeElectronSecurityPolicy(JSON.parse(
   await readFile(new URL("../scripts/electron-security-policy.json", import.meta.url), "utf8"),
