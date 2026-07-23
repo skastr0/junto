@@ -24,6 +24,9 @@ beforeEach(() => {
       startKey: "synthetic-9001",
     }],
   });
+  const identities = makeProcessIdentityMap();
+  expect(identities.bind(process.pid, { kind: "agent", agentKey: "local:test-agent" })).toBe(true);
+  setProcessIdentityMapForTests(identities);
 });
 
 afterEach(async () => {
@@ -42,8 +45,19 @@ const fakeAuthority = () => makeFakeTerminalProcessAuthority(() => ({
 })).authority;
 
 describe("term control UDS", () => {
+  const startServer = (
+    host: LocalSessionHost,
+    home: string,
+    options?: Omit<Parameters<typeof startTermControlServer>[1], "home" | "readPeerPid">,
+  ): ReturnType<typeof startTermControlServer> => {
+    return startTermControlServer(host, {
+      home,
+      readPeerPid: () => process.pid,
+      ...options,
+    });
+  };
+
   it("auth + create + attach + write + kill over NDJSON with bigint journal", async () => {
-    setProcessIdentityMapForTests(makeProcessIdentityMap());
     const home = mkdtempSync(join(tmpdir(), "vellum-term-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
 
@@ -52,7 +66,7 @@ describe("term control UDS", () => {
       await host.shutdownAll("test");
     });
 
-    const server = await startTermControlServer(host, { home });
+    const server = await startServer(host, home);
     cleanups.push(() => server.close());
 
     const client = await TermControlClient.connect({
@@ -114,7 +128,7 @@ describe("term control UDS", () => {
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
-    const server = await startTermControlServer(host, { home });
+    const server = await startServer(host, home);
     cleanups.push(() => server.close());
 
     await expect(
@@ -126,12 +140,38 @@ describe("term control UDS", () => {
     ).rejects.toThrow(/unauth|auth/i);
   });
 
+  it("rejects a valid token from an unbound peer process", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vellum-term-peer-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+
+    const processMap = makeProcessIdentityMap();
+    expect(processMap.bind(process.pid, { kind: "agent", agentKey: "local:test-agent" })).toBe(true);
+    const server = await startTermControlServer(host, {
+      home,
+      processMap,
+      readPeerPid: () => process.pid + 1,
+    });
+    cleanups.push(() => server.close());
+
+    await expect(
+      TermControlClient.connect({
+        socketPath: server.socketPath,
+        token: server.token,
+        timeoutMs: 3_000,
+      }),
+    ).rejects.toThrow(/not a registered|open the agent/i);
+  });
+
   it("caps accepted peers before frame admission and recovers after close", async () => {
     const home = mkdtempSync(join(tmpdir(), "vellum-term-cap-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const host = new LocalSessionHost(fakeAuthority());
     cleanups.push(async () => { await host.shutdownAll("test"); });
-    const server = await startTermControlServer(host, { home, maxActiveClients: 1 });
+    const server = await startServer(host, home, { maxActiveClients: 1 });
     cleanups.push(() => server.close());
     const first = createConnection(server.socketPath);
     await new Promise<void>((resolve, reject) => { first.once("connect", resolve); first.once("error", reject); });
@@ -151,7 +191,7 @@ describe("term control UDS", () => {
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
-    const server = await startTermControlServer(host, { home });
+    const server = await startServer(host, home);
 
     const socket = createConnection(server.socketPath);
     await new Promise<void>((resolve, reject) => {
@@ -170,14 +210,13 @@ describe("term control UDS", () => {
   });
 
   it("stops accepting late clients and commands when close begins", async () => {
-    setProcessIdentityMapForTests(makeProcessIdentityMap());
     const home = mkdtempSync(join(tmpdir(), "vellum-term-late-close-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const host = new LocalSessionHost(fakeAuthority());
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
-    const server = await startTermControlServer(host, { home });
+    const server = await startServer(host, home);
     const active = createConnection(server.socketPath);
     await new Promise<void>((resolve, reject) => {
       active.once("connect", resolve);
