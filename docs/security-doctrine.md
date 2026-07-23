@@ -471,6 +471,19 @@ required by the final transport. Those credentials are narrowly scoped to
 Vellum; they never substitute for general SSH, provider, operating-system, or
 root credentials.
 
+Before introducing a Vellum-specific credential, the design must show that it:
+
+1. establishes a real boundary not already supplied by SSH, Tailscale, the
+   operating system, or the provider;
+2. materially improves security or operator ergonomics;
+3. has a comprehensible creation, rotation, revocation, and recovery lifecycle;
+4. does not duplicate an existing authentication step or create a ceremonial
+   proof that the underlying system does not enforce.
+
+If those conditions are not met, Vellum reuses the native authenticated
+transport and adds no credential. Factory, Station, actor, and resource
+identifiers are not secrets merely because they participate in routing.
+
 ## Privilege and machine safety
 
 Root or administrator authority is a real boundary.
