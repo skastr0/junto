@@ -102,10 +102,12 @@ export const rotateWorkToken = (tokenPath: string): string => {
 const systemdReadinessReceipt = (): { readonly generation: string; readonly path: string } | undefined => {
   const generation = process.env.INVOCATION_ID;
   const runtimeDirectory = process.env.XDG_RUNTIME_DIR;
-  if (generation === undefined && runtimeDirectory === undefined) return undefined;
+  // XDG_RUNTIME_DIR is ambient in ordinary Linux desktop sessions. Only a
+  // systemd invocation id opts this process into Remote readiness publication.
+  if (generation === undefined) return undefined;
   if (
-    generation === undefined || runtimeDirectory === undefined ||
-    !/^[0-9a-f]{32}$/.test(generation) || !runtimeDirectory.startsWith("/") ||
+    runtimeDirectory === undefined || !/^[0-9a-f]{32}$/.test(generation) ||
+    !runtimeDirectory.startsWith("/") ||
     runtimeDirectory.includes("\0")
   ) {
     throw new Error("invalid systemd generation readiness environment");
