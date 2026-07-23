@@ -43,20 +43,22 @@ fi
 
 ensure_owned_directory() {
   directory="$1"
-  expected_mode="$2"
+  kind="$2"
   if [ -L "$directory" ]; then
     printf '%s\n' 'vellum-remote: refusing managed directory symlink' >&2
     exit 73
   fi
   if [ -e "$directory" ]; then
+    mode="$(/usr/bin/stat -c '%a' "$directory" 2>/dev/null || true)"
     if [ ! -d "$directory" ] || [ ! -O "$directory" ] || \
-       [ "$(/usr/bin/stat -c '%a' "$directory" 2>/dev/null || true)" != "$expected_mode" ]; then
+       { [ "$kind" = private ] && [ "$mode" != 700 ]; } || \
+       { [ "$kind" = parent ] && [ "$mode" != 700 ] && [ "$mode" != 755 ]; }; then
       printf '%s\n' 'vellum-remote: refusing unmanaged directory' >&2
       exit 73
     fi
     return
   fi
-  mkdir -m "$expected_mode" -- "$directory"
+  if [ "$kind" = private ]; then mkdir -m 700 -- "$directory"; else mkdir -m 755 -- "$directory"; fi
 }
 
 file_identity() {
@@ -74,10 +76,10 @@ if [ ! -d "$RUNTIME_HOME" ] || [ -L "$RUNTIME_HOME" ] || [ ! -O "$RUNTIME_HOME" 
   printf '%s\n' 'vellum-remote: HOME must be an owned non-symlink directory' >&2
   exit 73
 fi
-ensure_owned_directory "$RUNTIME_HOME/.vellum" 700
+ensure_owned_directory "$RUNTIME_HOME/.vellum" private
 # .local is a normal XDG parent, not a Vellum-private leaf.
-ensure_owned_directory "$RUNTIME_HOME/.local" 755
-ensure_owned_directory "$RUNTIME_HOME/.local/state" 700
+ensure_owned_directory "$RUNTIME_HOME/.local" parent
+ensure_owned_directory "$RUNTIME_HOME/.local/state" parent
 if [ ! -d "$SERVICE_RUNTIME_DIRECTORY" ] || [ -L "$SERVICE_RUNTIME_DIRECTORY" ] || \
    [ ! -O "$SERVICE_RUNTIME_DIRECTORY" ] || \
    [ "$(/usr/bin/stat -c '%a' "$SERVICE_RUNTIME_DIRECTORY" 2>/dev/null || true)" != '700' ]; then

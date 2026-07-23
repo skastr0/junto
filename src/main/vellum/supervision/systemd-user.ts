@@ -30,8 +30,8 @@ const SystemdShowFields = Schema.Struct({
   ActiveState: SystemdStateToken,
   SubState: SystemdStateToken,
   MainPID: SystemdMainPidText,
-  ControlGroup: Schema.String.pipe(Schema.maxLength(512), Schema.pattern(/^\/[\x21-\x7e]*$/)),
-  InvocationID: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{32}$/)),
+  ControlGroup: Schema.String.pipe(Schema.maxLength(512)),
+  InvocationID: Schema.String.pipe(Schema.maxLength(32)),
 });
 type SystemdShowFields = typeof SystemdShowFields.Type;
 
@@ -118,6 +118,16 @@ const parseSystemdShow = (stdout: string): ParsedSystemdShow => {
     return Object.freeze({
       kind: "invalid",
       diagnostic: "systemctl returned invalid property values",
+    });
+  }
+  if (
+    decoded.right.ActiveState === "active" &&
+    (!/^\/[\x21-\x7e]*$/.test(decoded.right.ControlGroup) ||
+      !/^[0-9a-f]{32}$/.test(decoded.right.InvocationID))
+  ) {
+    return Object.freeze({
+      kind: "invalid",
+      diagnostic: "systemctl returned invalid active service identity fields",
     });
   }
   const decodedPid = Schema.decodeUnknownEither(SystemdObservedPid)(

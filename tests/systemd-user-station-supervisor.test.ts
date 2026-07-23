@@ -115,11 +115,22 @@ describe("systemd user station supervisor observation", () => {
       ActiveState: "inactive",
       SubState: "dead",
       MainPID: "0",
+      ControlGroup: "",
+      InvocationID: "",
     });
     mocks.showVellumSystemdUserUnit.mockResolvedValueOnce(successful(absent));
     await expect(supervisor.observe()).resolves.toEqual({
       provider: "systemd-user",
       state: "absent",
+      ownership: "none",
+    });
+
+    mocks.showVellumSystemdUserUnit.mockResolvedValueOnce(successful(
+      showOutput({ ActiveState: "inactive", SubState: "dead", MainPID: "0", ControlGroup: "", InvocationID: "" }),
+    ));
+    await expect(supervisor.observe()).resolves.toEqual({
+      provider: "systemd-user",
+      state: "inactive",
       ownership: "none",
     });
 
