@@ -1050,9 +1050,6 @@ function FieldControls() {
 function RtsMinimapStack() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const severityByNodeId = use$(state$.regionSeverityByNodeId) as Readonly<Record<string, string>>;
-  // Unmount MiniMap while panning — its transform store sub recomputes the mask
-  // SVG every wheel tick and is the loudest scroll-time cost on the board.
-  const viewportBusy = use$(viewportBusy$);
   const lastClickAt = useRef(0);
   const lastClickPos = useRef<{ x: number; y: number } | null>(null);
 
@@ -1096,32 +1093,30 @@ function RtsMinimapStack() {
     state$.focusNodeId.set(node.id);
   }, []);
 
+  // MiniMap stays mounted for every pan/zoom frame — chrome must not blank.
+  // Viewport-busy only freezes rebuilds/IPC/CSS, not this panel.
   return (
     <>
-      {viewportBusy ? (
-        <div className="rts-minimap-frozen" aria-hidden />
-      ) : (
-        <MiniMap
-          pannable
-          zoomable
-          nodeColor={miniMapNodeColor}
-          nodeStrokeColor={(node) => {
-            const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
-            if (severity && severity !== "idle") return signalMark(severity).hue;
-            return "rgba(12,11,10,0.85)";
-          }}
-          nodeStrokeWidth={1.5}
-          maskColor="rgba(12,11,10,0.72)"
-          onClick={onMiniMapClick}
-          onNodeClick={onMiniMapNodeClick}
-          ariaLabel="Strategic minimap — click to move camera, double-click to zoom, click a node to focus"
-          // Never put width/height: "100%" here. xyflow reads style.width/height as
-          // *numbers* for viewScale + mask path math (`M${x}h${w}v${h}…`). A percent
-          // string → NaN → console spam on every pan/scroll. Size the panel via
-          // .rts-minimap-wrap CSS (100% inset); math falls back to 200×150 defaults.
-          style={{ background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }}
-        />
-      )}
+      <MiniMap
+        pannable
+        zoomable
+        nodeColor={miniMapNodeColor}
+        nodeStrokeColor={(node) => {
+          const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
+          if (severity && severity !== "idle") return signalMark(severity).hue;
+          return "rgba(12,11,10,0.85)";
+        }}
+        nodeStrokeWidth={1.5}
+        maskColor="rgba(12,11,10,0.72)"
+        onClick={onMiniMapClick}
+        onNodeClick={onMiniMapNodeClick}
+        ariaLabel="Strategic minimap — click to move camera, double-click to zoom, click a node to focus"
+        // Never put width/height: "100%" here. xyflow reads style.width/height as
+        // *numbers* for viewScale + mask path math (`M${x}h${w}v${h}…`). A percent
+        // string → NaN → console spam on every pan/scroll. Size the panel via
+        // .rts-minimap-wrap CSS (100% inset); math falls back to 200×150 defaults.
+        style={{ background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }}
+      />
       <FieldControls />
     </>
   );
@@ -1283,12 +1278,17 @@ function CanvasGraph() {
   }, [interactions.onPaneClick, closeMenus]);
   // Boolean only — flips when a cone appears/clears, not on every kernel tick.
   const impactMode = use$(impactModeActive$);
-  // Viewport freeze: one boolean flip at gesture edges (never per-frame).
+  // Viewport freeze: boolean flip at gesture edges only (never per-frame setState).
+  // Does not unmount MiniMap/Background — chrome stays live.
   const viewportBusy = use$(viewportBusy$);
   const onMoveStart = useCallback(() => {
     markViewportBusy();
     closeMenus();
   }, [closeMenus]);
+  // Continuous move keeps the freeze latched across wheel bursts; no React work.
+  const onMove = useCallback(() => {
+    markViewportBusy();
+  }, []);
   const onMoveEnd = useCallback(() => {
     releaseViewportBusy();
   }, []);
@@ -1313,6 +1313,7 @@ function CanvasGraph() {
       onNodeContextMenu={onNodeContextMenu}
       onSelectionContextMenu={onSelectionContextMenu}
       onMoveStart={onMoveStart}
+      onMove={onMove}
       onMoveEnd={onMoveEnd}
       connectionMode={ConnectionMode.Loose}
       connectionRadius={42}
@@ -1333,10 +1334,7 @@ function CanvasGraph() {
       proOptions={{ hideAttribution: true }}
       style={{ background: GROUND }}
     >
-      {/* Background pattern re-renders from transform every pan tick — drop it mid-gesture. */}
-      {viewportBusy ? null : (
-        <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
-      )}
+      <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
       <ImpactSeedChip />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>

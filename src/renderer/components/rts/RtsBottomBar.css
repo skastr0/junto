@@ -630,17 +630,8 @@
   z-index: 0;
 }
 
-/* Static shell while MiniMap is unmounted mid pan/zoom (keeps slot size). */
-.rts-minimap-frozen {
-  position: absolute;
-  inset: 0;
-  background: rgba(12, 11, 10, 0.9);
-  pointer-events: none;
-}
-
 /* Drop blur while the field is busy — backdrop-filter is compositor-heavy. */
-.react-flow.is-viewport-busy .rts-panel,
-.react-flow.is-viewport-busy .rts-minimap-wrap {
+.react-flow.is-viewport-busy .rts-panel {
   backdrop-filter: none !important;
 }
 

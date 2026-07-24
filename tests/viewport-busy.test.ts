@@ -34,6 +34,17 @@ describe("viewportBusy$", () => {
     expect(viewportBusy$.peek()).toBe(false);
   });
 
+  it("forces idle after the hard max even if release is dropped", () => {
+    vi.useFakeTimers();
+    markViewportBusy();
+    expect(viewportBusy$.peek()).toBe(true);
+    // No releaseViewportBusy — only the max timer.
+    vi.advanceTimersByTime(1_999);
+    expect(viewportBusy$.peek()).toBe(true);
+    vi.advanceTimersByTime(2);
+    expect(viewportBusy$.peek()).toBe(false);
+  });
+
   it("reset clears timers and forces idle", () => {
     vi.useFakeTimers();
     markViewportBusy();

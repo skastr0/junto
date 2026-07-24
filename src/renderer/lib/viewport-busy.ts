@@ -1,10 +1,12 @@
-// Viewport busy gate — freeze expensive canvas work while the operator pans/zooms.
+// Viewport busy gate — freeze *non-chrome* canvas work while the operator pans/zooms.
 //
-// React Flow's panOnScroll updates `transform` every wheel tick. Subscribers that
-// recompute from that (MiniMap mask, Background pattern, setNodes rebuilds, herdr
-// meta mounts) fight the compositor and make scroll feel stuttery — especially in
-// the React development build. Mark busy on move start; release after a short
-// hold so wheel bursts stay one continuous freeze.
+// Does NOT hide UI chrome (MiniMap stays mounted and live). It only defers
+// setNodes rebuilds, herdr meta IPC, rollup publishes, and CSS transitions so
+// the RF transform path stays free of competing React work.
+//
+// Mark on move start / continuous move; release after a short hold past
+// panOnScroll's end debounce. A hard max duration guarantees we never stick busy
+// if onMoveEnd is dropped.
 
 import { observable } from "@legendapp/state";
 
@@ -13,32 +15,53 @@ export const viewportBusy$ = observable(false);
 
 /** Hold past panOnScroll's ~150ms end debounce so consecutive ticks stay frozen. */
 const END_HOLD_MS = 160;
+/** Absolute cap — if move-end is missed, force idle so deferred work flushes. */
+const MAX_BUSY_MS = 2_000;
 
 let endTimer: ReturnType<typeof setTimeout> | undefined;
+let maxTimer: ReturnType<typeof setTimeout> | undefined;
+
+const clearEndTimer = (): void => {
+  if (endTimer === undefined) return;
+  clearTimeout(endTimer);
+  endTimer = undefined;
+};
+
+const clearMaxTimer = (): void => {
+  if (maxTimer === undefined) return;
+  clearTimeout(maxTimer);
+  maxTimer = undefined;
+};
+
+const setIdle = (): void => {
+  clearEndTimer();
+  clearMaxTimer();
+  if (viewportBusy$.peek()) viewportBusy$.set(false);
+};
 
 /** Enter (or stay in) the busy freeze. Idempotent; cancels a pending release. */
 export const markViewportBusy = (): void => {
-  if (endTimer !== undefined) {
-    clearTimeout(endTimer);
-    endTimer = undefined;
+  clearEndTimer();
+  if (!viewportBusy$.peek()) {
+    viewportBusy$.set(true);
+    clearMaxTimer();
+    maxTimer = setTimeout(() => {
+      maxTimer = undefined;
+      setIdle();
+    }, MAX_BUSY_MS);
   }
-  if (!viewportBusy$.peek()) viewportBusy$.set(true);
 };
 
 /** Schedule release after END_HOLD_MS of no further marks. */
 export const releaseViewportBusy = (): void => {
-  if (endTimer !== undefined) clearTimeout(endTimer);
+  clearEndTimer();
   endTimer = setTimeout(() => {
     endTimer = undefined;
-    if (viewportBusy$.peek()) viewportBusy$.set(false);
+    setIdle();
   }, END_HOLD_MS);
 };
 
 /** Test / unmount helper — drop timers and force idle. */
 export const resetViewportBusy = (): void => {
-  if (endTimer !== undefined) {
-    clearTimeout(endTimer);
-    endTimer = undefined;
-  }
-  viewportBusy$.set(false);
+  setIdle();
 };
