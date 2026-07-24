@@ -1,5 +1,6 @@
-import type { CanvasDoc, CanvasNode } from "../canvas";
-import { isTerminalTaskState, taskBrief } from "../task";
+import type { CanvasDoc, CanvasNode, Task } from "../canvas";
+import { claimedByOf, taskBrief } from "../task";
+import { needsHuman } from "../attention";
 import type { ExecutionGraph } from "../execution-graph";
 import type { OccupancySpectrumName } from "../occupancy";
 import { impactCone, type ImpactCone } from "./cone";
@@ -52,6 +53,12 @@ export const collectStoppageSeedIds = (
   return doc.nodes.map((n) => n.id).filter((id) => ids.has(id));
 };
 
+/** Items on a task seed that actually generate stoppage: claimed attention. */
+const stallingItemsOf = (node: CanvasNode | undefined): ReadonlyArray<Task> =>
+  (node?.ether?.tasks?.items ?? []).filter(
+    (item) => needsHuman(item) && claimedByOf(item) !== undefined,
+  );
+
 const seedBriefOf = (node: CanvasNode | undefined, isManualSeed: boolean): string => {
   if (!node) return isManualSeed ? "blocker" : "stoppage";
   const kind = node.ether?.entity?.kind;
@@ -62,9 +69,7 @@ const seedBriefOf = (node: CanvasNode | undefined, isManualSeed: boolean): strin
     return n === 1 ? "1 request" : `${n} requests`;
   }
   if (kind === "task") {
-    const items = node.ether?.tasks?.items ?? [];
-    const open = items.filter((item) => !isTerminalTaskState(item.state));
-    const n = open.length;
+    const n = stallingItemsOf(node).length;
     return n === 1 ? "1 task" : `${n} tasks`;
   }
   if (isManualSeed || node.ether?.flags?.includes("blocker")) return "blocker";
@@ -83,10 +88,8 @@ const clearActionOf = (
     if (pending[0]) return `resolve: ${taskBrief(pending[0])}`;
   }
   if (kind === "task") {
-    const open = (node?.ether?.tasks?.items ?? []).filter(
-      (item) => !isTerminalTaskState(item.state),
-    );
-    if (open[0]) return `settle: ${taskBrief(open[0])}`;
+    const stalling = stallingItemsOf(node);
+    if (stalling[0]) return `settle: ${taskBrief(stalling[0])}`;
   }
   const first = cone.seedReasons[0];
   if (first?.kind === "edge" && first.detail) return `clear: ${first.detail}`;

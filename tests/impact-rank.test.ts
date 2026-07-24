@@ -125,6 +125,33 @@ describe("rankStoppageSeeds — blast-radius ranking", () => {
     const ranked = rankStoppageSeeds(doc, graph);
     expect(ranked[0]!.clearAction).toMatch(/resolve:|approve deploy/i);
   });
+
+  it("task seed counts only claimed attention items, not the whole queue", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        text("t1", "Queue", {
+          entity: { kind: "task" },
+          tasks: {
+            items: [
+              taskItem("i1", "backlog thing", "submitted"),
+              taskItem("i2", "someone should look", "input-required"),
+              {
+                ...taskItem("i3", "stuck on key approval", "auth-required"),
+                metadata: { claimedBy: "w1" },
+              },
+            ],
+          },
+        }),
+        seat("w1", "actor", { label: "Worker" }),
+      ],
+      edges: [{ id: "e1", fromNode: "t1", toNode: "w1", ether: { criteria: { mode: "tasks" } } }],
+    };
+    const graph = deriveExecutionGraph(doc);
+    const ranked = rankStoppageSeeds(doc, graph);
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]!.seedBrief).toBe("1 task");
+    expect(ranked[0]!.clearAction).toBe("settle: stuck on key approval");
+  });
 });
 
 describe("waitingOnPath — reverse walk to seed", () => {

@@ -319,7 +319,11 @@ export const workTaskClaim = (
         `task "${taskId}" already claimed by "${existing}"`,
       );
     }
-    if (!canTransitionTaskState(current.state, "working") && current.state !== "working") {
+    // Claims take submitted or working items only. An attention task is
+    // waiting on a HUMAN — a claim must never consume that wait — and
+    // terminal work is closed. (Contention above already guards working
+    // items held by another actor.)
+    if (current.state !== "submitted" && current.state !== "working") {
       throw new WorkError(
         "illegal_transition",
         `cannot claim task "${taskId}" in state ${current.state}`,

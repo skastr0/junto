@@ -97,6 +97,29 @@ describe("work pure transforms", () => {
     expect(done.task.history.at(-1)?.parts[0]).toEqual({ kind: "text", text: "shipped" });
   });
 
+  it("claim refuses attention states — an unclaimed human wait is never consumed", () => {
+    let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+    const created = workTaskCreate(doc, "c", "tasks", "needs answer", undefined, ids);
+    doc = created.doc;
+    const waiting = workTaskTransition(
+      doc,
+      "c",
+      "tasks",
+      created.task.id,
+      "input-required",
+      undefined,
+      ids,
+    );
+    doc = waiting.doc;
+    try {
+      workTaskClaim(doc, "c", "tasks", created.task.id, "worker-1", ids);
+      expect.unreachable("claiming an unclaimed attention task must throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(WorkError);
+      expect((e as WorkError).code).toBe("illegal_transition");
+    }
+  });
+
   it("describe re-authors the brief in place, keeps later notes, updates mirror text", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", undefined, ids);
@@ -238,6 +261,10 @@ describe("work pure transforms", () => {
     expect(canTransitionTaskState("completed", "working")).toBe(false);
     expect(canTransitionTaskState("submitted", "working")).toBe(true);
     expect(canTransitionTaskState("input-required", "rejected")).toBe(true);
+    // Attention states are symmetric: both can fail, complete, or swap.
+    expect(canTransitionTaskState("input-required", "failed")).toBe(true);
+    expect(canTransitionTaskState("auth-required", "completed")).toBe(true);
+    expect(canTransitionTaskState("auth-required", "input-required")).toBe(true);
   });
 });
 

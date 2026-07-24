@@ -19,8 +19,8 @@ export type AttentionSignal = "fire" | "ice" | "idle" | "empty";
 const needsHuman = (item: Task): boolean =>
   item.state === "input-required" || item.state === "auth-required";
 
-const inFlight = (item: Task): boolean =>
-  item.state === "working" || item.state === "submitted" || needsHuman(item);
+/** In flight = actively being worked. Queue inventory and human waits are not flight. */
+const inFlight = (item: Task): boolean => item.state === "working";
 
 const roleOfNode = (node: CanvasNode) =>
   roleOf(
@@ -30,17 +30,24 @@ const roleOfNode = (node: CanvasNode) =>
     }),
   );
 
-/** Sink-card glance counts (tasks / requests). */
+/** Sink-card glance counts (tasks / requests): queued / in flight / needs input. */
 export const sinkGlance = (
   items: ReadonlyArray<Task>,
-): { readonly inFlight: number; readonly needsInput: number; readonly total: number } => {
+): {
+  readonly queued: number;
+  readonly inFlight: number;
+  readonly needsInput: number;
+  readonly total: number;
+} => {
+  let queued = 0;
   let inFlightCount = 0;
   let needsInput = 0;
   for (const item of items) {
+    if (item.state === "submitted") queued += 1;
     if (inFlight(item)) inFlightCount += 1;
     if (needsHuman(item)) needsInput += 1;
   }
-  return { inFlight: inFlightCount, needsInput, total: items.length };
+  return { queued, inFlight: inFlightCount, needsInput, total: items.length };
 };
 
 /**
@@ -77,6 +84,9 @@ export const attentionOf = (
 
   if (role === "actor" || isBlockableNode(node)) {
     if (graph?.blocked.has(node.id)) return "fire";
+    if (node.ether?.flags?.includes("blocker")) return "fire";
+    if (node.ether?.flags?.includes("attention")) return "fire";
+    if (node.ether?.flags?.includes("parked")) return "idle";
     return "ice";
   }
 

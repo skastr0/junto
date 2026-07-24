@@ -30,14 +30,14 @@ const tasksNode = (
 });
 
 describe("sinkGlance + attention", () => {
-  it("counts in-flight and needs-input only", () => {
+  it("splits queued / in-flight / needs-input; only working is in flight", () => {
     const items = [
       taskItem("a", "one", "submitted"),
       taskItem("b", "two", "working"),
       taskItem("c", "three", "input-required"),
       taskItem("d", "four", "completed"),
     ];
-    expect(sinkGlance(items)).toEqual({ inFlight: 3, needsInput: 1, total: 4 });
+    expect(sinkGlance(items)).toEqual({ queued: 1, inFlight: 1, needsInput: 1, total: 4 });
   });
 
   it("task sink fires on input-required; ice when empty", () => {
@@ -70,6 +70,13 @@ describe("sinkGlance + attention", () => {
     expect(graph.blocked.has("a1")).toBe(true);
     expect(attentionOf(actor, graph)).toBe("fire");
     expect(attentionOf(actor, deriveExecutionGraph({ nodes: [actor], edges: [] }))).toBe("ice");
+  });
+
+  it("actor manual flags: attention fires, parked idles", () => {
+    const flagged = (flags: ReadonlyArray<"blocker" | "parked" | "attention">) =>
+      seat("a1", "actor", { flags });
+    expect(attentionOf(flagged(["attention"]), undefined)).toBe("fire");
+    expect(attentionOf(flagged(["parked"]), undefined)).toBe("idle");
   });
 
   it("workerClaimId never invents operator", () => {
