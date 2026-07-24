@@ -173,7 +173,7 @@ function RequestCreateDialog({
     <FocusSurface
       measure="form"
       height="fit"
-      layer="detail"
+      layer="work"
       label="Create input request"
       onClose={onClose}
       closeOnBackdrop={!pending}

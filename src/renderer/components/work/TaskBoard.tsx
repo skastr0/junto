@@ -623,7 +623,7 @@ function TaskCreateDialog({
     <FocusSurface
       measure="form"
       height="fit"
-      layer="detail"
+      layer="work"
       label="Create task"
       onClose={onClose}
       closeOnBackdrop={!pending}
