@@ -423,7 +423,7 @@ test("capture every surface for design review", async () => {
     // Task flow: the full five-lane board, including attention and terminal
     // variants. Double-click is the work-surface affordance on canvas nodes.
     const tasksNodeCard = page.locator(".react-flow__node", { hasText: "Fix stale host badge" }).first();
-    await tasksNodeCard.dblclick();
+    await tasksNodeCard.dispatchEvent("dblclick");
     const taskFlow = page.getByRole("dialog", { name: "Task flow" });
     await expect(taskFlow).toBeVisible({ timeout: 10_000 });
     await expect(taskFlow.getByTestId("task-board")).toBeVisible();
