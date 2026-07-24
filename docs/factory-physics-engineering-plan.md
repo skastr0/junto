@@ -66,7 +66,7 @@ left is wrong by definition.
 | I19 | actor class + runtime tier constrain creatable edges and admittable ports; each port carries a tier floor; facility (tier 4) never admits and never wields | absent (no class/tier types exist) | type + test (S11) |
 | I20 | revocation honesty: receipts are per reachable runtime; an unreachable Station is shown stale/unreachable — Vellum never manufactures a revocation receipt it cannot prove | prose (doctrine) | test (S4) |
 | I21 | agents never author the canvas; physics consumes projections; any migration stamp (S3) commits only through the app-owned canvas-authority store (`~/.vellum/state/canvas-authority-v1`) | doctrine + in-flight canvas-authority lane | construction (S3 lands on that path) |
-| I22 | doctrine-open decisions are operator-closed only: sink/scheduler taxonomy + CC-offline behavior (doctrine open #4) and Station projection contents (#5). A slice that quietly resolves one is wrong regardless of code quality | — | process gate, every slice |
+| I22 | doctrine-open decisions are operator-closed only. **#4 closed 2026-07-24** (§4.5: D1 sink residency + honest deny, D2 split scheduler residency, D1x parked). **#5 (projection contents) remains open, fleet-lane owned** — a slice that quietly resolves it is wrong regardless of code quality | — | process gate, every slice |
 
 ---
 
@@ -472,9 +472,10 @@ source strings degrades cleanly (test fixture).
 ### S11 · Placement plane — actor classes, tiers, runtime routing
 
 **Lane:** `src/shared/physics/` + a typed seam to the fleet lane. **Contract
-draftable now; implementation blocked** on (a) the fleet lane's topology types
+draftable now; implementation blocked** on the fleet lane's topology types
 stabilizing (`ether.host`, `shared/station` `resolveNodeHostId`,
-`station-status`, topology seal) and (b) the two operator decisions in §4.5.
+`station-status`, topology seal). The §4.5 residency decisions are closed
+(D1/D2) — placement semantics are no longer a blocker.
 
 **Why this is physics, not fleet plumbing (doctrine, verbatim intent):** actor
 classes — Command Center actor · Station actor · External actor · Facility —
@@ -512,25 +513,39 @@ relays — doctrine law 6 says relays repeat the checks.
 
 ---
 
-### §4.5 · Operator decision requests (doctrine open #4/#5 — physics blocked on these)
+### §4.5 · Residency decisions — **CLOSED by operator 2026-07-24**
 
-**D1 — Sink residency taxonomy** (doctrine open decision #4). Proposal on the
-table: **data sinks** (`task`, `requests`, `artifacts`) are Command-Center
-plane resources — reachable only via CC connection; **physical sinks**
-(`page`; runtime surfaces) are Station-resident, accessible to that Station's
-actors and CC actors. Consequence worth naming: mailboxes-are-sinks + CC-owned
-data sinks ⇒ every actor↔actor message is CC-routed **by construction** —
-law 6 (no Station↔Station control plane) holds with zero extra machinery.
+**D1 — Sink residency: DECIDED.** Data sinks (`task`, `requests`,
+`artifacts`) are Command-Center plane resources; physical sinks (`page`,
+runtime surfaces) are Station-resident, accessible to that Station's actors
+and CC actors. When CC is unreachable, a Station actor's **reads** come from
+the intent projection; **mutations** (task claim, msg send, stamp publish)
+require CC live and fail with an honest "work plane unreachable" denial. No
+queue-and-forward machinery. Consequence: mailboxes-are-sinks + CC-owned data
+sinks ⇒ every actor↔actor message is CC-routed **by construction** — law 6
+holds with zero extra machinery.
 
-**D2 — Scheduler residency + CC-offline behavior** (same open decision).
-Proposal: fleet-wide schedulers execute at CC only; Station-scoped watchers
-ship inside the Station's intent projection and keep pulsing Station-local
-targets under last-received intent while CC is unavailable (consistent with
-stateless-Station law 7 — the projection is the intent, the tick is runtime).
+**D1x — Station-locked sinks (parked extension, operator-designed).** A data
+sink may be locked to a specific Station (`sink[station]`, like pages) and is
+then accessible only there, as a local resource. Changing a locked sink's
+Station is a **CC-mediated data migration**: a small migration window during
+which the sink's edges are set to a `disabled` state, until the connected
+nodes are reassigned to the destination Station. Parked as a separate feature
+— but the migration/edge-disable mechanics are needed **wholesale for page
+nodes anyway** (page relocation already implies session teardown per the
+doctrine's revocation section), so design them once, there.
 
-Both are **proposals, not plan content** — no slice implements either until
-the operator closes them (with the fleet lane in the loop, since projection
-contents are decision #5).
+**D2 — Scheduler residency: DECIDED.** Fleet-wide schedulers execute at CC
+only. Station-scoped watchers ship inside the Station's intent projection and
+keep pulsing Station-local targets under last-received intent while CC is
+unavailable (stateless-Station consistent — projection is intent, tick is
+runtime).
+
+**A2A shape: CONFIRMED** — discovery default; direct actor↔actor inboxes
+survive as explicit opt-in `msg.*` edge ports (S3 as written).
+
+Doctrine open decision **#5** (exact Station projection contents) remains
+open and fleet-lane owned; I22 still applies to it.
 
 ---
 
