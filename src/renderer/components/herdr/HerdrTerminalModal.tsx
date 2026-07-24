@@ -39,6 +39,8 @@ const XTERM_PAD_Y = 12;
 const RESIZE_DEBOUNCE_MS = 48;
 /** After open/attach, wait for focus-shell enter + stored size apply. */
 const SETTLE_FITS_MS = [0, 50, 160, 320, 600] as const;
+/** One ±1-row PTY nudge after settle so TUIs redraw on pin/dock remount. */
+const PTY_NUDGE_AFTER_SETTLE_MS = 650;
 
 type XtermCore = {
   readonly _renderService?: {
@@ -405,28 +407,17 @@ export function HerdrTerminalPanel({
     }
 
     /**
-     * Host-box geometry is authority. FitAddon is a secondary vote that can
-     * only grow — never shrink into the content-sized 80×24 island.
-     * Returns null while the flex host has not yet been assigned a real box.
+     * Host-box geometry is authority once getBoundingClientRect is real.
+     * Do not max with FitAddon — that blocked focus→pin shrink. Island
+     * defense is CSS (flex:1;height:0). Returns null while the flex host
+     * has not yet been assigned a real box.
      */
     const measure = (): { cols: number; rows: number } | null => {
       const measured = measureHost(hostEl, term);
       if (!measured) return null;
 
-      let { cols, rows } = measured;
-
-      try {
-        const proposed = fit.proposeDimensions();
-        if (proposed && !Number.isNaN(proposed.cols) && !Number.isNaN(proposed.rows)) {
-          cols = Math.max(cols, Math.min(300, proposed.cols | 0));
-          rows = Math.max(rows, Math.min(120, proposed.rows | 0));
-        }
-      } catch {
-        // host measure is enough
-      }
-
-      cols = Math.max(20, Math.min(300, cols));
-      rows = Math.max(5, Math.min(120, rows));
+      const cols = Math.max(20, Math.min(300, measured.cols));
+      const rows = Math.max(5, Math.min(120, measured.rows));
 
       if (term.cols !== cols || term.rows !== rows) {
         try {
@@ -448,12 +439,44 @@ export function HerdrTerminalPanel({
       void api.herdrStreamResize(id, geomNow.cols, geomNow.rows);
     };
 
+    /** Temporary ±1 row then restore — forces TUI redraw after pin settle. */
+    const forcePtyNudge = (): void => {
+      const id = streamIdRef.current;
+      if (!id || cancelled) return;
+      const measured = measureHost(hostEl, term);
+      if (!measured) return;
+      const cols = Math.max(20, Math.min(300, measured.cols));
+      const rows = Math.max(5, Math.min(120, measured.rows));
+      const nudgedRows = Math.max(5, rows - 1);
+      try {
+        term.resize(cols, nudgedRows);
+      } catch {
+        return;
+      }
+      void api.herdrStreamResize(id, cols, nudgedRows);
+      requestAnimationFrame(() => {
+        if (cancelled || streamIdRef.current !== id) return;
+        try {
+          term.resize(cols, rows);
+        } catch {
+          return;
+        }
+        void api.herdrStreamResize(id, cols, rows);
+        setGeom({ cols, rows });
+      });
+    };
+
     const hardFitBurst = (): void => {
       for (const ms of SETTLE_FITS_MS) {
         settleTimers.push(setTimeout(() => {
           if (!cancelled) pushResize();
         }, ms));
       }
+      settleTimers.push(
+        setTimeout(() => {
+          if (!cancelled) forcePtyNudge();
+        }, PTY_NUDGE_AFTER_SETTLE_MS),
+      );
     };
 
     const openStream = async () => {
@@ -586,6 +609,7 @@ export function HerdrTerminalPanel({
         hostEl.closest(".workbench-pane"),
         hostEl.closest(".workbench-panes"),
         hostEl.closest(".work-focus-shell"),
+        hostEl.closest(".work-surface-dock"),
         hostEl.closest(".dock-slot"),
       ];
       for (const el of ancestors) {
