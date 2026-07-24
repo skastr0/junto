@@ -464,6 +464,21 @@
   pointer-events: none;
 }
 
+.task-board-card__menu-separator {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--color-stroke);
+}
+
+.task-board-card__menu-body button[data-terminal-action="failed"],
+.task-board-card__menu-body button[data-terminal-action="rejected"] {
+  color: var(--color-crimson);
+}
+
+.task-board-card__menu-body button[data-terminal-action="canceled"] {
+  color: var(--color-dim);
+}
+
 .task-board-card__editor {
   display: grid;
   gap: 7px;

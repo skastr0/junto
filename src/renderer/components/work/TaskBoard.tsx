@@ -25,6 +25,7 @@ import { useSortable } from "@dnd-kit/react/sortable";
 import type { CanvasNode, Part, TaskState } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import { sinkGlance, workRoleOf } from "@shared/attention";
+import { canTransitionTaskState, claimedByOf, taskBrief } from "@shared/task";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
 import { Chip, type ChipTone } from "../ui/Chip";
@@ -164,22 +165,6 @@ const toneForState = (state: TaskState): StatusTone => {
 const chipToneForState = (state: TaskState): ChipTone => {
   const tone = toneForState(state);
   return tone === "dim" ? "steel" : tone;
-};
-
-const taskBrief = (task: WorkTask): string => {
-  for (const message of task.history) {
-    for (const part of message.parts) {
-      if (part.kind !== "text") continue;
-      const line = part.text.split("\n")[0]?.trim();
-      if (line) return line;
-    }
-  }
-  return task.id;
-};
-
-const claimedBy = (task: WorkTask): string | undefined => {
-  const value = task.metadata?.claimedBy;
-  return typeof value === "string" && value.trim() ? value : undefined;
 };
 
 const latestText = (task: WorkTask): string | undefined => {
@@ -351,11 +336,22 @@ function TaskCard({
     },
   });
   const brief = taskBrief(task);
-  const claim = claimedBy(task);
+  const claim = claimedByOf(task);
   const context = latestText(task);
   const availableMoves = LANES.filter(
-    (destination) => destination.state && destination.id !== lane.id && destination.id !== "queue",
+    (destination) =>
+      destination.state &&
+      destination.id !== lane.id &&
+      canTransitionTaskState(task.state, destination.state),
   );
+  const terminalActions = (
+    [
+      ["completed", "Complete task"],
+      ["failed", "Mark as failed"],
+      ["rejected", "Reject task"],
+      ["canceled", "Cancel task"],
+    ] as const
+  ).filter(([state]) => canTransitionTaskState(task.state, state));
 
   return (
     <article
@@ -446,6 +442,20 @@ function TaskCard({
                   Move to {destination.label}
                 </button>
               ))}
+              {terminalActions.length > 0 ? (
+                <div className="task-board-card__menu-separator" aria-hidden />
+              ) : null}
+              {terminalActions.map(([state, label]) => (
+                <button
+                  key={state}
+                  type="button"
+                  disabled={pending}
+                  data-terminal-action={state}
+                  onClick={() => onMove(task, state)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </details>
         ) : null}
@@ -476,7 +486,7 @@ function DragCardPreview({ task }: { readonly task: WorkTask }) {
           <h3 className="task-board-card__title">{taskBrief(task)}</h3>
           <div className="task-board-card__meta">
             <StatusDot tone={toneForState(task.state)} />
-            <span>{claimedBy(task) ?? "Unclaimed"}</span>
+            <span>{claimedByOf(task) ?? "Unclaimed"}</span>
           </div>
         </div>
       </div>
@@ -512,7 +522,7 @@ export function TaskBoard({
     const normalized = query.trim().toLowerCase();
     if (!normalized) return items;
     return items.filter((task) => {
-      const claim = claimedBy(task)?.toLowerCase() ?? "";
+      const claim = claimedByOf(task)?.toLowerCase() ?? "";
       return taskBrief(task).toLowerCase().includes(normalized) || claim.includes(normalized);
     });
   }, [items, query]);
@@ -833,4 +843,3 @@ export function TaskBoard({
     </FocusSurface>
   );
 }
-
