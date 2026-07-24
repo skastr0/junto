@@ -89,6 +89,11 @@ describe("SSH architecture", () => {
       "src/main/vellum/projection/product-push.ts",
       // Remote drop path constants + apply (reads confined plan path names only).
       "src/main/vellum/projection/incoming.ts",
+      // Owner-only ack receipt path constants only; no command construction.
+      "src/main/vellum/projection/ack.ts",
+      // Command Center projection pull: named home lookup + remoteCat recipe,
+      // never hand-authored shell (mirrors remote-delivery.ts's push side).
+      "src/main/vellum/projection/reconcile.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
     const violations = files.flatMap((path) => {
