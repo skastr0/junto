@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc, EtherWatch } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
 import type { TowerGlyphRow } from "../src/shared/ipc";
+import { groupMembers } from "../src/shared/graph";
 import {
   detectPulses,
   evaluateWatcher,
@@ -406,5 +407,63 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
     await deliverPulse({ canvasName, sourceNodeId: regionId, kind: "manual", regionId, summary: "go", deps });
     const record = getPulseLog()[0];
     expect(record?.delivered).toEqual(["remote-a:nova"]);
+  });
+});
+
+// --- I9: one membership authority — kernel path matches rollup path --------------
+// Region 0,0,400,400. "straddler"'s CENTER (375,375) lies inside the region,
+// but its full rect extends past the right/bottom edge (300+150=450 > 400).
+// Full-rect containment (the single authority, shared/graph.ts groupMembers)
+// must exclude it everywhere — proven here via two independent call paths:
+// the shared function directly (the rollup/digest/a2a-work path) and kernel
+// pulse delivery (agentKeysInRegion, routed through the same groupMembers).
+describe("I9 — single membership authority: kernel path matches rollup path", () => {
+  const canvasName = "test-canvas";
+  const regionId = "region-partial";
+  const doc: CanvasDoc = {
+    nodes: [
+      { id: regionId, type: "group", x: 0, y: 0, width: 400, height: 400 },
+      {
+        id: "agent-inside",
+        type: "text",
+        text: "agent inside",
+        x: 50,
+        y: 50,
+        width: 100,
+        height: 50,
+        ether: { entity: { kind: "agent", name: "remote-a:inside" } },
+      },
+      {
+        id: "agent-straddler",
+        type: "text",
+        text: "agent straddler",
+        x: 300,
+        y: 300,
+        width: 150,
+        height: 150,
+        ether: { entity: { kind: "agent", name: "remote-a:straddler" } },
+      },
+    ],
+    edges: [],
+  };
+
+  it("rollup path (groupMembers) excludes the straddler", () => {
+    expect(groupMembers(doc).get(regionId)).toEqual(["agent-inside"]);
+  });
+
+  it("kernel path (deliverPulse) excludes the straddler identically", async () => {
+    __setStationScopeForTest({ hostId: "local", role: "command-center" });
+    __resetPulseLogForTest();
+    __setDocsForTest(new Map([[canvasName, doc]]));
+    setArmed(`${canvasName}::${regionId}`, true);
+    const deps: PulseDeliverDeps = {
+      isLive: () => true,
+      openChat: async () => undefined,
+      sendPrompt: async () => undefined,
+    };
+    await deliverPulse({ canvasName, sourceNodeId: regionId, kind: "manual", regionId, summary: "go", deps });
+    const record = getPulseLog()[0];
+    expect(record?.delivered).toEqual(["remote-a:inside"]);
+    __setDeliveryDepsForTest(undefined);
   });
 });

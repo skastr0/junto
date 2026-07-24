@@ -22,16 +22,22 @@ export const blockedEdgeIds = (
 
 export const isGroup = (node: CanvasNode): node is GroupNode => node.type === "group";
 
-const containsCenter = (group: GroupNode, node: CanvasNode): boolean => {
-  const cx = node.x + node.width / 2;
-  const cy = node.y + node.height / 2;
-  return (
-    cx >= group.x && cx <= group.x + group.width && cy >= group.y && cy <= group.y + group.height
-  );
-};
+// The single membership predicate (I9): a node is a region member only when
+// its FULL bounding rect lies inside the region's rect — a node partially
+// overlapping a region is out. Promoted from the kernel's stricter rule
+// (formerly duplicated center-point rules in kernel/cycle.ts and
+// renderer/lib/geometry.ts); every membership consumer — kernel pulse
+// delivery, region rollups, digest, a2a-work, and renderer displays — derives
+// from this one function. Renderer keeps a separate, explicitly non-membership
+// helper for drag-hold interaction (center-point, includes nested regions).
+const isFullyContained = (group: GroupNode, node: CanvasNode): boolean =>
+  node.x >= group.x &&
+  node.y >= group.y &&
+  node.x + node.width <= group.x + group.width &&
+  node.y + node.height <= group.y + group.height;
 
-// Named geography: membership is containment of the node's center inside the
-// group rect. Groups never contain groups (flat, POC rule).
+// Named geography: membership is full-rect containment inside the group
+// rect. Groups never contain groups (flat, POC rule).
 export const groupMembers = (doc: CanvasDoc): ReadonlyMap<string, ReadonlyArray<string>> => {
   const groups = doc.nodes.filter(isGroup);
   const members = new Map<string, string[]>();
@@ -39,7 +45,7 @@ export const groupMembers = (doc: CanvasDoc): ReadonlyMap<string, ReadonlyArray<
     members.set(
       group.id,
       doc.nodes
-        .filter((node) => node.id !== group.id && !isGroup(node) && containsCenter(group, node))
+        .filter((node) => node.id !== group.id && !isGroup(node) && isFullyContained(group, node))
         .map((node) => node.id),
     );
   }

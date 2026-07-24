@@ -46,13 +46,15 @@ export const resizeNode = (id: string, params: { readonly x: number; readonly y:
   }, false, true);
 };
 
-// Region hold membership: every node — including nested regions — whose
-// CENTER lies within the region's rect, the region itself always excluded.
-// Pure and re-derived at drag time; membership is never persisted (the
-// product's derived-state law). Unlike groupMembers (shared/graph.ts, the
-// flat POC rule that skips nested groups), a hold region's contents include
-// other regions so a region can hold a region.
-export const containedNodeIds = (doc: CanvasDoc, regionNode: GroupNode): string[] =>
+// Drag-hold interaction ONLY — not membership truth. Every node — including
+// nested regions — whose CENTER lies within the region's rect, the region
+// itself always excluded. Pure and re-derived at drag time; never persisted
+// (the product's derived-state law). Unlike the shared membership authority
+// (groupMembers / I9 in shared/graph.ts: full-rect containment, flat POC
+// rule that skips nested groups), this exists solely to decide which nodes
+// ride along when an operator drags a hold region — center-point, and
+// deliberately includes nested regions so a region can hold a region.
+export const dragHoldMemberIds = (doc: CanvasDoc, regionNode: GroupNode): string[] =>
   doc.nodes
     .filter((node) => node.id !== regionNode.id)
     .filter((node) => {

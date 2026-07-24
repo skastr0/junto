@@ -3,7 +3,7 @@ import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
 import { addNode, commitDoc, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setNodeColor, setNodeView, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
-import { containedNodeIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
+import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
 import { dock$ } from "../src/renderer/lib/dock-state";
@@ -1038,7 +1038,7 @@ describe("renderer graph mutations", () => {
     const edgeOverlap: CanvasDoc["nodes"][number] = { id: "edge-overlap", type: "text", text: "edge", x: 380, y: 100, width: 80, height: 40 };
     const doc: CanvasDoc = { nodes: [region, centered, edgeOverlap], edges: [] };
 
-    const ids = containedNodeIds(doc, region);
+    const ids = dragHoldMemberIds(doc, region);
 
     expect(ids).toEqual(["centered"]);
   });
@@ -1048,14 +1048,14 @@ describe("renderer graph mutations", () => {
     const inner: GroupNode = { id: "inner", type: "group", label: "Inner", x: 100, y: 100, width: 200, height: 200 };
     const doc: CanvasDoc = { nodes: [outer, inner], edges: [] };
 
-    expect(containedNodeIds(doc, outer)).toEqual(["inner"]);
+    expect(dragHoldMemberIds(doc, outer)).toEqual(["inner"]);
   });
 
   it("never includes the region itself", () => {
     const region: GroupNode = { id: "self", type: "group", label: "Self", x: 0, y: 0, width: 200, height: 200 };
     const doc: CanvasDoc = { nodes: [region], edges: [] };
 
-    expect(containedNodeIds(doc, region)).toEqual([]);
+    expect(dragHoldMemberIds(doc, region)).toEqual([]);
   });
 
   it("writes and strips ether.region.hold following the flag-strip pattern", () => {

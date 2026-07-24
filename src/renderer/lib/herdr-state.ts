@@ -96,8 +96,8 @@ const closeStreamIfAny = (streamId: string | undefined): void => {
   void api?.herdrStreamClose?.(streamId).catch(() => undefined);
 };
 
-// Default herdr card size — seed resolves against the card center so membership
-// matches geometry.containedNodeIds (center-in-region).
+// Default herdr card size — seed resolves against the card center so drag-hold
+// grouping matches geometry.dragHoldMemberIds (center-in-region).
 const HERDR_NODE_SIZE = { width: 260, height: 110 } as const;
 
 /** True while this wizard session is still the active one. */

@@ -35,7 +35,7 @@ import { markViewportBusy, releaseViewportBusy, viewportBusy$ } from "../lib/vie
 import { nodeTitle } from "../lib/presentation";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
-import { containedNodeIds, findOpenPosition, syncPositions } from "../lib/geometry";
+import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import {
   hermesAgentsFromSnapshots,
@@ -490,7 +490,7 @@ function useCanvasInteractions(
     const regionDoc = doc.nodes.find((n) => n.id === node.id);
     if (!regionDoc || regionDoc.type !== "group") return;
     const startPositions = new Map<string, { x: number; y: number }>();
-    for (const id of containedNodeIds(doc, regionDoc)) {
+    for (const id of dragHoldMemberIds(doc, regionDoc)) {
       const member = rf.getNode(id);
       if (!member || member.selected) continue;
       startPositions.set(id, member.position);

@@ -150,7 +150,10 @@ describe("work authz — edges as capability", () => {
         type: "group",
         x: -20,
         y: -20,
-        width: 500,
+        // Wide/tall enough to FULLY contain agent/tasks/req (I9: membership
+        // is full-rect containment, not center-point) while leaving stranger
+        // (x:600-700) outside.
+        width: 520,
         height: 120,
         label: "Forge",
         ether: { region: { hold: false, instruction: "ship work" } },
@@ -167,7 +170,7 @@ describe("work authz — edges as capability", () => {
   });
 
   it("classifies region co-members vs invisible", () => {
-    // agent, tasks, req centers are inside the group; stranger is not
+    // agent, tasks, req are fully inside the group rect; stranger is not
     expect(regionCoMemberIds(board, "agent")).toEqual(
       expect.arrayContaining(["tasks", "req"]),
     );

@@ -75,31 +75,18 @@ export interface KernelSnapshot {
 
 // --- region geometry (derived, never persisted) ------------------------------
 
-// Copied from renderer to maintain geometry evaluation consistency.
-// Helper to find all node IDs contained within a group.
-const containedNodeIds = (doc: CanvasDoc, group: GroupNode): string[] => {
-  const ids: string[] = [];
-  const isInside = (nodeId: string): boolean => {
-    const node = doc.nodes.find((n) => n.id === nodeId);
-    if (!node) return false;
-    return node.x >= group.x && node.y >= group.y && node.x + node.width <= group.x + group.width && node.y + node.height <= group.y + group.height;
-  };
-  for (const node of doc.nodes) {
-    if (node.id !== group.id && isInside(node.id)) {
-      ids.push(node.id);
-    }
-  }
-  return ids;
-};
+// Membership is the single shared authority (I9, `groupMembers` in
+// shared/graph.ts, full-rect containment) — no local copy here.
 
-// "containedNodeIds reversed": scan every group node, keep the ones whose
+// Reverse lookup over the shared membership map: keep the groups whose
 // derived membership includes this node, and pick the smallest-area match —
 // the innermost region wins when regions nest.
 const findContainingRegionId = (doc: CanvasDoc, nodeId: string): string | undefined => {
+  const members = groupMembers(doc);
   let best: GroupNode | undefined;
   for (const node of doc.nodes) {
     if (node.type !== "group") continue;
-    if (!containedNodeIds(doc, node).includes(nodeId)) continue;
+    if (!(members.get(node.id) ?? []).includes(nodeId)) continue;
     if (!best || node.width * node.height < best.width * best.height) best = node;
   }
   return best?.id;
@@ -111,7 +98,7 @@ const findContainingRegionId = (doc: CanvasDoc, nodeId: string): string | undefi
 const agentKeysInRegion = (doc: CanvasDoc, regionId: string): ReadonlyArray<string> => {
   const region = doc.nodes.find((node): node is GroupNode => node.id === regionId && node.type === "group");
   if (!region) return [];
-  const memberIds = new Set(containedNodeIds(doc, region));
+  const memberIds = new Set(groupMembers(doc).get(regionId) ?? []);
   const keys: string[] = [];
   for (const node of doc.nodes) {
     if (!memberIds.has(node.id)) continue;
@@ -415,11 +402,7 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
 
       let contextBlocks: ReadonlyArray<string> | undefined;
       if (params.regionId !== undefined && region?.type === "group") {
-        const centerMembers = groupMembers(doc).get(params.regionId) ?? [];
-        const memberIds =
-          centerMembers.length > 0
-            ? centerMembers
-            : containedNodeIds(doc, region as GroupNode);
+        const memberIds = groupMembers(doc).get(params.regionId) ?? [];
         const glyphView = lastGlyphIndex ?? new Map();
         const graph = deriveExecutionGraph(doc, glyphView as GlyphView);
         const executionContext = composeRegionExecutionContext(
