@@ -83,6 +83,19 @@ export const AdvancedSettings = Schema.Struct({
 });
 export type AdvancedSettings = typeof AdvancedSettings.Type;
 
+/**
+ * Fleet operator prefs (not secrets). Kill-switch for remote package + plugin
+ * installs; UI shows disabled buttons when false. Main re-gates every invoke.
+ */
+export const FleetSettings = Schema.Struct({
+  /**
+   * When false (default), remote T2 deploy and remote T3 plugin install refuse
+   * even if the release line enables them. Local plugin install is unaffected.
+   */
+  remoteManagedInstalls: Schema.Boolean,
+});
+export type FleetSettings = typeof FleetSettings.Type;
+
 // Station role: user-selected Command Center or Remote. Empty role means
 // onboarding has not completed — UI must not guess.
 export const StationRoleSetting = Schema.Literal(...STATION_ROLES, "");
@@ -168,6 +181,7 @@ export const Settings = Schema.Struct({
   advanced: AdvancedSettings,
   audio: AudioSettings,
   station: StationSettings,
+  fleet: FleetSettings,
 });
 export type Settings = typeof Settings.Type;
 
@@ -211,6 +225,11 @@ export const AdvancedPatch = Schema.Struct({
 });
 export type AdvancedPatch = typeof AdvancedPatch.Type;
 
+export const FleetPatch = Schema.Struct({
+  remoteManagedInstalls: Schema.optionalWith(Schema.Boolean, { exact: true }),
+});
+export type FleetPatch = typeof FleetPatch.Type;
+
 export const StationPatch = Schema.Struct({
   role: Schema.optionalWith(StationRoleSetting, { exact: true }),
   hostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
@@ -252,6 +271,7 @@ export const SettingsPatch = Schema.Struct({
   advanced: Schema.optionalWith(AdvancedPatch, { exact: true }),
   audio: Schema.optionalWith(AudioPatch, { exact: true }),
   station: Schema.optionalWith(StationPatch, { exact: true }),
+  fleet: Schema.optionalWith(FleetPatch, { exact: true }),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 
@@ -263,6 +283,7 @@ export const SettingsSectionKey = Schema.Literal(
   "advanced",
   "audio",
   "station",
+  "fleet",
 );
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
@@ -290,6 +311,11 @@ export const defaultBrowser = (): BrowserPrefs => ({
 
 export const defaultAdvanced = (): AdvancedSettings => ({
   openLastCanvas: true,
+});
+
+/** Fail-closed: remote package/plugin installs require explicit operator opt-in. */
+export const defaultFleet = (): FleetSettings => ({
+  remoteManagedInstalls: false,
 });
 
 export const defaultStation = (): StationSettings => ({
@@ -326,6 +352,7 @@ export const defaultSettings = (): Settings => ({
   advanced: defaultAdvanced(),
   audio: defaultAudio(),
   station: defaultStation(),
+  fleet: defaultFleet(),
 });
 
 export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectionKey] => {
@@ -344,6 +371,8 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultAudio();
     case "station":
       return defaultStation();
+    case "fleet":
+      return defaultFleet();
   }
 };
 

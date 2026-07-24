@@ -34,6 +34,7 @@ const SECTION_KEYS = [
   "advanced",
   "audio",
   "station",
+  "fleet",
 ] as const;
 
 /** Pick only known keys from a raw section object (no untrusted key sprawl). */

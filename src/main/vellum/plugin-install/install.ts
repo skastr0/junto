@@ -199,13 +199,24 @@ export function installVellumPlugin(
         }),
       );
     }
+    if (opts.applyRoot === undefined || opts.applyRoot.trim().length === 0) {
+      return Effect.fail(
+        new InstallError({
+          kind: "validation",
+          message:
+            "remote install requires applyRoot (harness home confinement — refuse free absolute writes)",
+          target: opts.target,
+        }),
+      );
+    }
     const endpoint = opts.endpoint;
+    const applyRoot = opts.applyRoot.trim();
     return compileForInstall(opts).pipe(
       Effect.flatMap((packaged) =>
         applyDesiredFilesRemote({
           endpoint,
-          files: desiredFilesFromPackage(packaged, opts.applyRoot),
-          ...(opts.applyRoot !== undefined ? { root: opts.applyRoot } : {}),
+          files: desiredFilesFromPackage(packaged, applyRoot),
+          root: applyRoot,
         }).pipe(
           Effect.mapError((error) => mapApplyError(error, opts.target)),
           Effect.map((apply) => toReceipt(packaged, apply)),

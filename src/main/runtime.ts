@@ -36,6 +36,7 @@ import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
 import { UsageLive } from "./vellum/usage/live";
 import { UsageService } from "./vellum/usage/usage-service";
 import { HostsService, HostsServiceLive } from "./vellum/hosts";
+import { InstallPlaneLive } from "./vellum/install-plane";
 import { SshTransportLive } from "./vellum/ssh";
 import { primeHostsSnapshot } from "./vellum/hosts/snapshot";
 import { readStationStatus } from "./vellum/station-status-store";
@@ -62,6 +63,12 @@ import { workControlReadiness } from "./vellum/work/control";
 const HostsWithSshLive = Layer.provideMerge(
   HostsServiceLive,
   SshTransportLive,
+);
+
+/** Install plane: capabilities, plugin install, route-tokens (needs hosts+ssh+settings). */
+const InstallPlaneWithDepsLive = Layer.provideMerge(
+  InstallPlaneLive,
+  Layer.mergeAll(HostsWithSshLive, SettingsLive),
 );
 
 // HostsServiceLive loads the durable registry while acquiring HostsWithSshLive.
@@ -107,6 +114,7 @@ const BaseLayer = Layer.mergeAll(
   SnapshotsWithProductsLive,
   UsageLive,
   SettingsLive,
+  InstallPlaneWithDepsLive,
 );
 
 // Pause plane sits between the base services and the acting planes so the

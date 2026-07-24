@@ -269,6 +269,32 @@ export const loadRouteTokenRecord = (
   return record;
 };
 
+/** Public list — never includes tokenHash or plaintext. */
+export type RouteTokenPublicRecord = {
+  readonly id: string;
+  readonly principal: RouteTokenMintPrincipal;
+  readonly createdAt: number;
+  readonly revokedAt?: number;
+};
+
+export const listRouteTokens = (
+  routesHome?: string,
+): ReadonlyArray<RouteTokenPublicRecord> => {
+  const home = resolveRoutesHome(undefined, routesHome);
+  return listRecords(home)
+    .map((record) =>
+      Object.freeze({
+        id: record.id,
+        principal: Object.freeze({ ...record.principal }),
+        createdAt: record.createdAt,
+        ...(record.revokedAt !== undefined
+          ? { revokedAt: record.revokedAt }
+          : {}),
+      }),
+    )
+    .sort((a, b) => b.createdAt - a.createdAt);
+};
+
 /**
  * Mint a route-token for a canvas seat. Returns plaintext once; only the hash
  * is stored under the routes home (mode 0600 file, 0700 dir).

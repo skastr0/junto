@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Pragmatic acceptance: packagePluginForTarget dry-run for claude-code + codex-cli.
+ * Pragmatic acceptance: packagePluginForTarget dry-run for the Tier-3 min set.
  *
  * Run from repo root or package dir:
  *   bun packages/vellum-plugin/scripts/compile-smoke.ts
@@ -18,7 +18,8 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const pluginPath = resolve(here, "..");
 
-const targets = ["claude-code", "codex-cli"] as const;
+/** Operator-locked Tier-3 minimum harness set. */
+const targets = ["claude-code", "codex-cli", "grok", "hermes"] as const;
 
 const summarize = (result: PackageResult) => ({
   target: result.target,

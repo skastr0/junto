@@ -42,7 +42,9 @@ import {
   MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
   RELEASE_CAPABILITIES,
 } from "@shared/release-capabilities";
+import { computeInstallCapabilities } from "@shared/install-capabilities";
 import { pushLiveProjectionToEnrolledRemotes } from "../projection/product-push";
+import { InstallPlane } from "../install-plane";
 
 const toOp = (
   either: { readonly _tag: "Right"; readonly right: ReadonlyArray<unknown> } | {
@@ -538,21 +540,121 @@ export const registerHostsIpc = (
     ),
   );
 
+  // Effective install capabilities (RELEASE ∩ operator kill-switch ∩ role).
+  ipcMain.handle(IPC_CHANNELS.hostsInstallCapabilities, () =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const plane = yield* InstallPlane;
+            return yield* plane.capabilities;
+          }),
+        ),
+      ),
+      (error) => ({
+        ok: false as const,
+        code: error.code,
+        message: error.message,
+      }),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.hostsInstallPlugin, (_event, input: unknown) =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const plane = yield* InstallPlane;
+            return yield* plane.installPlugin(input);
+          }),
+        ),
+      ),
+      (error) => ({
+        ok: false,
+        detail: error.message,
+        code: error.code,
+        message: error.message,
+      }),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.routeTokenList, () =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const plane = yield* InstallPlane;
+            return yield* plane.listRouteTokens;
+          }),
+        ),
+      ),
+      (error) => ({
+        ok: false as const,
+        code: error.code,
+        message: error.message,
+      }),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.routeTokenMint, (_event, input: unknown) =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const plane = yield* InstallPlane;
+            return yield* plane.mintRouteToken(input);
+          }),
+        ),
+      ),
+      (error) => ({
+        ok: false as const,
+        code: error.code,
+        message: error.message,
+      }),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.routeTokenRotate, (_event, input: unknown) =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const plane = yield* InstallPlane;
+            return yield* plane.rotateRouteToken(input);
+          }),
+        ),
+      ),
+      (error) => ({
+        ok: false as const,
+        code: error.code,
+        message: error.message,
+      }),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.routeTokenRevoke, (_event, input: unknown) =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const plane = yield* InstallPlane;
+            return yield* plane.revokeRouteToken(input);
+          }),
+        ),
+      ),
+      (error) => ({
+        ok: false as const,
+        code: error.code,
+        message: error.message,
+      }),
+    ),
+  );
+
   // Install/update Vellum.app on remote over SSH + start headless station.
-  // Beta: managed deploy is compile-time disabled (manual .deb only).
+  // Gated by RELEASE_CAPABILITIES and operator kill-switch (effective.deployRemote).
   ipcMain.handle(IPC_CHANNELS.hostsDeployRemote, (_event, input: unknown) =>
     surfaceShutdownRefusal(
       operations.run(HOST_OPERATION_ADMISSIONS.deployRemote, () => {
-        if (!RELEASE_CAPABILITIES.managedRemoteDeploy) {
-          return Promise.resolve({
-            ok: false,
-            detail: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
-            code: "validation",
-            message: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
-            stages: [],
-          } satisfies HostsDeployRemoteResult);
-        }
-
         const decoded = decodeHostsDeployRemoteInput(input);
         if (decoded === undefined) {
           return Promise.resolve({
@@ -581,14 +683,23 @@ export const registerHostsIpc = (
                   } satisfies HostsDeployRemoteResult;
                 }
 
-                if (settingsResult.right.station.role !== "command-center") {
+                const effective = computeInstallCapabilities({
+                  stationRole: settingsResult.right.station.role,
+                  remoteManagedInstalls:
+                    settingsResult.right.fleet.remoteManagedInstalls,
+                  release: RELEASE_CAPABILITIES,
+                  platform: process.platform,
+                });
+                if (!effective.effective.deployRemote) {
+                  const detail =
+                    effective.detail.deployRemote ??
+                    MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL;
                   return {
                     ok: false,
-                    detail:
-                      "Deploy Remote is only available on Command Center",
+                    detail,
                     code: "validation",
-                    message:
-                      "Deploy Remote is only available on Command Center",
+                    message: detail,
+                    stages: [],
                   } satisfies HostsDeployRemoteResult;
                 }
 
