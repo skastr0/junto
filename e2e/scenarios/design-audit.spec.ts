@@ -510,7 +510,9 @@ test("capture every surface for design review", async () => {
     await expect(taskFlow.getByText("Needs authorization", { exact: true })).toBeVisible();
     await shot(page, "06b-task-flow-kanban");
     await taskFlow.getByLabel("Open details for Fix stale host badge").click();
-    await expect(taskFlow.getByLabel("Details for Fix stale host badge")).toBeVisible();
+    await expect(
+      taskFlow.getByRole("complementary", { name: "Details for Fix stale host badge" }),
+    ).toBeVisible();
     await shot(page, "06c-task-flow-details");
     await taskFlow.getByRole("button", { name: "New task" }).click();
     const taskCreator = page.getByRole("dialog", { name: "Create task" });

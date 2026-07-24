@@ -32,6 +32,7 @@ import { canTransitionTaskState, claimedByOf, taskBrief } from "@shared/task";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
 import { Chip, type ChipTone } from "../ui/Chip";
+import { Dropdown } from "../ui/Dropdown";
 import { IconButton } from "../ui/IconButton";
 import { Input, Textarea } from "../ui/Field";
 import { OverlayHeader } from "../ui/OverlayHeader";
@@ -715,16 +716,26 @@ function TaskDetailPanel({
   const role = taskRole(task);
   const claim = claimedByOf(task);
   const details = taskDetails(task);
-  const moves = LANES.filter(
-    (lane) => lane.state && canTransitionTaskState(task.state, lane.state),
-  );
-  const terminalActions = (
-    [
-      ["completed", "Complete"],
-      ["rejected", "Reject"],
-      ["canceled", "Cancel"],
-    ] as const
-  ).filter(([state]) => canTransitionTaskState(task.state, state));
+  const transitionOptions = [
+    ...LANES.flatMap((lane) =>
+      lane.state && canTransitionTaskState(task.state, lane.state)
+        ? [{ value: lane.state, label: `Move to ${lane.label}` }]
+        : [],
+    ),
+    ...(
+      [
+        ["completed", "Complete task"],
+        ["failed", "Mark as failed"],
+        ["rejected", "Reject task"],
+        ["canceled", "Cancel task"],
+      ] as const
+    ).flatMap(([state, label]) =>
+      canTransitionTaskState(task.state, state) &&
+      !LANES.some((lane) => lane.state === state)
+        ? [{ value: state, label }]
+        : [],
+    ),
+  ];
 
   return (
     <aside className="task-detail-panel" aria-label={`Details for ${taskTitle(task)}`}>
@@ -829,30 +840,17 @@ function TaskDetailPanel({
       </div>
 
       <footer className="task-detail-panel__actions">
-        {moves.map((lane) => (
-          <Button
-            key={lane.id}
-            size="sm"
-            variant="subtle"
-            disabled={pending}
-            onClick={() => {
-              if (lane.state) onMove(task, lane.state);
-            }}
-          >
-            Move to {lane.label}
-          </Button>
-        ))}
-        {terminalActions.map(([state, label]) => (
-          <Button
-            key={state}
-            size="sm"
-            variant={state === "rejected" ? "danger" : "chrome"}
-            disabled={pending}
-            onClick={() => onMove(task, state)}
-          >
-            {label}
-          </Button>
-        ))}
+        <Dropdown
+          value=""
+          options={transitionOptions}
+          disabled={pending || transitionOptions.length === 0}
+          aria-label="Change task status"
+          placeholder={transitionOptions.length > 0 ? "Change status…" : "No available transitions"}
+          onChange={(state) => onMove(task, state as TaskState)}
+          className="task-detail-panel__status-menu"
+          triggerClassName="h-8 rounded-[5px] border border-white/10 bg-white/[0.04] px-2 text-[10px] uppercase tracking-[0.08em]"
+          align="end"
+        />
       </footer>
     </aside>
   );

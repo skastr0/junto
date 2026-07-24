@@ -436,6 +436,10 @@
   box-shadow: 0 8px 8px rgb(0 0 0 / 0.42);
 }
 
+.task-board-card__menu-popover:not(:popover-open) {
+  display: none;
+}
+
 .task-board-card__menu-popover::backdrop {
   background: transparent;
 }
@@ -687,12 +691,14 @@
 
 .task-detail-panel__actions {
   display: flex;
-  flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px;
   padding: 11px 16px;
   border-top: 1px solid var(--color-stroke);
   background: var(--color-raise-2);
+}
+
+.task-detail-panel__status-menu {
+  min-width: 190px;
 }
 
 @media (max-width: 980px) {
