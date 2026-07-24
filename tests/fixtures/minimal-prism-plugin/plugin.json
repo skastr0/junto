@@ -1,0 +1,8 @@
+{
+  "name": "minimal-prism-plugin",
+  "version": "0.0.1",
+  "description": "Minimal fixture for packager-embed install tests",
+  "targets": {
+    "rules": ["claude-code", "codex-cli"]
+  }
+}

@@ -76,6 +76,7 @@
     "@legendapp/state": "^3.0.0-beta.31",
     "@pierre/diffs": "^1.1.21",
     "@pierre/trees": "^1.0.0-beta.3",
+    "@skastr0/prism-packager": "0.4.4",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.11.2",
