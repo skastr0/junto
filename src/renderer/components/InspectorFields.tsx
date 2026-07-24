@@ -8,13 +8,16 @@ import { isGroup } from "@shared/graph";
 import {
   ALL_PORTS,
   Port,
+  actorClassLabel,
   asNodeId,
   canvasDocToCapabilityView,
   grantLawForRoles,
   offersOf,
+  resolveNodePlacement,
   resolveSpec,
   roleOf,
   selectGrant,
+  tierLabel,
   undirectedEdgeKey,
   type FactoryRoleName,
   type PortName,
@@ -29,6 +32,7 @@ import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
 import { resolveNodeHostId } from "@shared/station";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
+import { Chip, type ChipTone } from "./ui";
 
 // ---------------------------------------------------------------------------
 // Factory physics — capability inventory (read-only) + "limit this key" editor
@@ -313,6 +317,63 @@ export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode })
       )}
       <div className="inspector-detail" style={{ marginTop: 8 }}>
         Capability from edges + ports. Process-bind still required to wield.
+      </div>
+    </div>
+  );
+}
+
+const placementTone = (className: string): ChipTone => {
+  switch (className) {
+    case "facility":
+      return "steel";
+    case "external":
+      return "violet";
+    case "station":
+      return "cyan";
+    case "command_center":
+    default:
+      return "amber";
+  }
+};
+
+/**
+ * Placement chips (I18/I19) — class · tier · assignment.
+ * Pure resolve from ether.host + default topology (null fleet producer).
+ * Visible in inspection overlays per security doctrine.
+ */
+export function NodePlacementSection({ node }: { readonly node: CanvasNode }) {
+  const placement = useMemo(() => resolveNodePlacement(node), [node]);
+  const classLabel = actorClassLabel(placement.class);
+  const tLabel = tierLabel(placement.tier);
+  const assign = placement.assignment ?? "—";
+  const tone = placementTone(placement.class);
+  const title = [
+    `class ${classLabel}`,
+    `tier ${placement.tier}`,
+    placement.assignment ? `host ${placement.assignment}` : "unassigned",
+    placement.runtime._tag === "Facility" ? "no execution authority" : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">placement</div>
+      <div className="inspector-flags" role="list" aria-label="Node placement" title={title}>
+        <Chip tone={tone} title={`actor class: ${placement.class}`}>
+          {classLabel}
+        </Chip>
+        <Chip tone={tone} title={`runtime tier ${placement.tier}`}>
+          {tLabel}
+        </Chip>
+        <Chip tone="steel" title={`assignment: ${assign}`}>
+          {assign}
+        </Chip>
+      </div>
+      <div className="inspector-detail" style={{ marginTop: 8 }}>
+        {placement.class === "facility"
+          ? "Facility — acknowledged only; never admits or wields."
+          : "Class · tier · host assignment. Inter-runtime routes are CC↔Station only."}
       </div>
     </div>
   );

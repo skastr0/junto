@@ -5,7 +5,7 @@ import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import { deriveExecutionGraph } from "@shared/execution-graph";
 import { deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../lib/edge-mutations";
-import { EdgeCapabilitySection, EdgeCriteriaEditor, EdgePortsAttenuator, NodeCapabilityInventory, NodeFieldEditors } from "./InspectorFields";
+import { EdgeCapabilitySection, EdgeCriteriaEditor, EdgePortsAttenuator, NodeCapabilityInventory, NodeFieldEditors, NodePlacementSection } from "./InspectorFields";
 import { clearSelection, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { DIM, GREEN, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
@@ -286,6 +286,7 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
         )}
         {isAgent ? <AgentSections key={node.id} node={node} /> : null}
         <WaitingOnSection key={`waiting:${node.id}`} nodeId={node.id} />
+        <NodePlacementSection key={`place:${node.id}`} node={node} />
         <NodeCapabilityInventory key={`cap:${node.id}`} node={node} />
         <BrowserAutomationSection key={`${canvasName}:${node.id}`} canvasName={canvasName} node={node} />
         <NodeFieldEditors node={node} />
