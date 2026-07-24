@@ -25,7 +25,7 @@ import {
   taskItem,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
-import type { CanvasEdge, CanvasNode, GroupNode, LinkNode, Task } from "../../src/shared/canvas";
+import type { Artifact, CanvasEdge, CanvasNode, GroupNode, LinkNode, Task } from "../../src/shared/canvas";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 
@@ -160,7 +160,16 @@ const auditTask = (id: string, brief: string, state: Task["state"], claimedBy?: 
   const task = taskItem(id, brief, state);
   return {
     ...task,
-    ...(claimedBy ? { metadata: { claimedBy } } : {}),
+    ...(claimedBy
+      ? {
+          metadata: {
+            claimedBy,
+            workRole: "Security Agent",
+            details:
+              "Validate the task against the station capability boundary, preserve the operator’s declared intent, and return concrete proof with the result.",
+          },
+        }
+      : {}),
     ...(update
       ? {
           history: [
@@ -230,9 +239,80 @@ const nodes: CanvasNode[] = [
     id: "req1",
     x: 260,
     y: 620,
-    items: [taskItem("r-1", "approve copy", "input-required")],
+    items: [
+      {
+        ...taskItem("r-1", "Confirm release signing identity", "input-required"),
+        metadata: {
+          title: "Confirm release signing identity",
+          details:
+            "Verify which signing identity should be used before the release artifact is distributed to remote stations.",
+        },
+        history: [
+          ...taskItem("r-1", "Confirm release signing identity", "input-required").history,
+          {
+            messageId: "r-1-m1",
+            role: "agent",
+            parts: [
+              {
+                kind: "text",
+                text: "The distribution step is paused until the operator confirms the identity.",
+              },
+              {
+                kind: "url",
+                url: "https://example.com/release-signing-checklist",
+                mediaType: "text/html",
+              },
+            ],
+            taskId: "r-1",
+            contextId: "e2e",
+          },
+        ],
+      },
+      {
+        ...taskItem("r-2", "Choose retention window", "completed"),
+        metadata: {
+          title: "Choose retention window",
+          details: "Select the duration for preserving completed task telemetry.",
+        },
+      },
+    ],
   }),
-  artifactsNode({ id: "art1", x: 520, y: 620 }),
+  artifactsNode({
+    id: "art1",
+    x: 520,
+    y: 620,
+    items: [
+      {
+        artifactId: "a-1",
+        name: "release-v1.4.2-sigstore.json",
+        taskId: "t-2",
+        parts: [
+          {
+            kind: "text",
+            text: '{\n  "subject": "vellum-command",\n  "verified": true,\n  "issuer": "sigstore"\n}',
+          },
+        ],
+        metadata: { mediaType: "application/json", proof: "verified" },
+      },
+      {
+        artifactId: "a-2",
+        name: "station-deployment-report",
+        taskId: "t-5",
+        parts: [
+          {
+            kind: "url",
+            url: "https://example.com/deployment-report",
+            mediaType: "text/html",
+          },
+        ],
+      },
+      {
+        artifactId: "a-3",
+        name: "containment-observations.txt",
+        parts: [{ kind: "text", text: "No capability escaped the connected task edge." }],
+      },
+    ] satisfies Artifact[],
+  }),
   terminalTextNode({
     id: "term1",
     bindingId: "audit-term-binding",
@@ -429,8 +509,36 @@ test("capture every surface for design review", async () => {
     await expect(taskFlow.getByTestId("task-board")).toBeVisible();
     await expect(taskFlow.getByText("Needs authorization", { exact: true })).toBeVisible();
     await shot(page, "06b-task-flow-kanban");
+    await taskFlow.getByLabel("Open details for Fix stale host badge").click();
+    await expect(taskFlow.getByLabel("Details for Fix stale host badge")).toBeVisible();
+    await shot(page, "06c-task-flow-details");
+    await taskFlow.getByRole("button", { name: "New task" }).click();
+    const taskCreator = page.getByRole("dialog", { name: "Create task" });
+    await expect(taskCreator).toBeVisible();
+    await shot(page, "06d-task-flow-create");
+    await taskCreator.getByRole("button", { name: "Close task creator" }).click();
+    await expect(taskCreator).toBeHidden();
     await taskFlow.locator('button[title="Close"]').click();
     await expect(taskFlow).toBeHidden();
+
+    // Requests and artifacts reuse the same master-detail grammar.
+    const requestsNodeCard = page.locator('.react-flow__node[data-id="req1"]');
+    await requestsNodeCard.getByTestId("requests-card").dispatchEvent("dblclick");
+    const requestInbox = page.getByRole("dialog", { name: "Input requests" });
+    await expect(requestInbox).toBeVisible();
+    await expect(requestInbox.getByText("Confirm release signing identity", { exact: true }).first()).toBeVisible();
+    await shot(page, "06e-input-requests");
+    await requestInbox.getByRole("button", { name: "Close input requests" }).click();
+    await expect(requestInbox).toBeHidden();
+
+    const artifactsNodeCard = page.locator('.react-flow__node[data-id="art1"]');
+    await artifactsNodeCard.getByTestId("artifacts-card").dispatchEvent("dblclick");
+    const artifactLibrary = page.getByRole("dialog", { name: "Artifacts" });
+    await expect(artifactLibrary).toBeVisible();
+    await expect(artifactLibrary.getByText("release-v1.4.2-sigstore.json", { exact: true }).first()).toBeVisible();
+    await shot(page, "06f-artifact-library");
+    await artifactLibrary.getByRole("button", { name: "Close artifacts" }).click();
+    await expect(artifactLibrary).toBeHidden();
 
     // Edge label closeup.
     const edgeLabel = page.locator(".vellum-edge-label").first();

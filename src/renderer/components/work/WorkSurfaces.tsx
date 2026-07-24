@@ -110,7 +110,7 @@ export function RequestsCard({ node }: { readonly node: CanvasNode }) {
   const items = node.ether?.requests?.items ?? [];
   const pending = items.filter((t) => t.state === "input-required").length;
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden">
+    <div className="flex h-full w-full flex-col overflow-hidden" data-testid="requests-card">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
           requests
@@ -133,7 +133,7 @@ export function RequestsCard({ node }: { readonly node: CanvasNode }) {
 export function ArtifactsCard({ node }: { readonly node: CanvasNode }) {
   const items = node.ether?.artifacts?.items ?? [];
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden">
+    <div className="flex h-full w-full flex-col overflow-hidden" data-testid="artifacts-card">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
           artifacts
