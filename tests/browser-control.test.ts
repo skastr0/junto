@@ -1201,4 +1201,51 @@ describe("listPageNodes", () => {
   it("returns empty for a missing canvases directory", async () => {
     expect(await listPageNodes(join(root, "nowhere"))).toEqual([]);
   });
+
+  it("lists page nodes from listDocuments without scanning .canvas files", async () => {
+    const dir = join(root, "canvases-absent");
+    // No mkdir / writeFile under dir — authority path must not readdir.
+    const doc = {
+      nodes: [
+        {
+          id: "p1",
+          type: "link" as const,
+          url: "https://mail.example.com",
+          x: 0,
+          y: 0,
+          width: 400,
+          height: 300,
+          ether: { entity: { kind: "page" as const }, browser: { profile: "personal" } },
+        },
+        {
+          id: "l1",
+          type: "link" as const,
+          url: "https://plain.example.com",
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+        },
+      ],
+      edges: [],
+    };
+    const rows = await listPageNodes(
+      dir,
+      undefined,
+      {},
+      "vellum-ui",
+      async () => [{ name: "work", doc }],
+    );
+    expect(rows).toEqual([
+      {
+        ref: "vellum://canvas/work?node=p1",
+        sessionId: null,
+        canvas: "work",
+        nodeId: "p1",
+        url: "https://mail.example.com",
+        hostId: "local",
+        profile: "personal",
+      },
+    ]);
+  });
 });

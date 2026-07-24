@@ -118,7 +118,16 @@ export interface EdgeGrantDependencies {
    * Command Center; a Remote can never fall through to ambient local state.
    */
   readonly admitStation?: () => Promise<BrowserStationAdmissionResult>;
-  /** Optional single-doc loader override for tests. */
+  /**
+   * Live-authority document source. When set, loadDocs never readdir()s
+   * ~/.vellum/canvases — sole SoT is canvas-authority-v1 via CanvasesService.
+   */
+  readonly listCanvasDocuments?: () => Promise<
+    ReadonlyArray<{ readonly name: string; readonly doc: CanvasDoc }>
+  >;
+  /** Name list for live authority when documents are loaded via readCanvas. */
+  readonly listCanvasNames?: () => Promise<ReadonlyArray<string>>;
+  /** Optional single-doc loader (paired with listCanvasNames, or tests). */
   readonly readCanvas?: (name: string) => Promise<CanvasDoc | undefined>;
 }
 
@@ -212,24 +221,40 @@ export const makeEdgeGrantService = (
   };
 
   const loadDocs = async (): Promise<ReadonlyArray<{ name: string; doc: CanvasDoc }>> => {
-    if (dependencies.readCanvas !== undefined) {
-      // Test path: try common names via override by scanning dir when possible.
+    // Prefer live authority bulk docs — never dual-scan .canvas when provided.
+    if (dependencies.listCanvasDocuments !== undefined) {
       try {
-        const names = (await readdir(dependencies.canvasesDir)).filter((n) =>
-          n.endsWith(".canvas"),
-        );
+        const rows = await dependencies.listCanvasDocuments();
+        return [...rows]
+          .map((r) => ({ name: r.name, doc: r.doc }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      } catch {
+        return [];
+      }
+    }
+    // Names from live authority + per-doc readCanvas (no directory scan).
+    if (
+      dependencies.listCanvasNames !== undefined &&
+      dependencies.readCanvas !== undefined
+    ) {
+      try {
+        const names = await dependencies.listCanvasNames();
         const out: Array<{ name: string; doc: CanvasDoc }> = [];
-        for (const file of names.sort()) {
-          const name = file.slice(0, -".canvas".length);
+        for (const name of [...names].sort()) {
           const doc = await dependencies.readCanvas(name);
           if (doc) out.push({ name, doc });
         }
-        if (out.length > 0) return out;
+        return out;
       } catch {
-        // fall through
+        return [];
       }
+    }
+    // readCanvas without a list helper has no name source under sole authority;
+    // do not readdir for names (that dual-path breaks when disk is not SoT).
+    if (dependencies.readCanvas !== undefined) {
       return [];
     }
+    // Fallback: pure disk scan for tests that seed .canvas files only.
     try {
       const names = (await readdir(dependencies.canvasesDir)).filter((n) =>
         n.endsWith(".canvas"),

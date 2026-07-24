@@ -1257,6 +1257,19 @@ if (packagedSandboxDisablingSwitch !== undefined) {
               return undefined;
             }
           };
+          const listCanvasDocuments = async () => {
+            try {
+              return await AppRuntime.runPromise(
+                Effect.flatMap(CanvasesService, (canvases) =>
+                  Effect.map(canvases.liveDocuments(), (rows) =>
+                    rows.map((r) => ({ name: r.canvasName, doc: r.doc })),
+                  ),
+                ),
+              );
+            } catch {
+              return [];
+            }
+          };
           const stationAdmission =
             await prepareDefaultBrowserStationAdmissionAuthority();
           const edgeGrant = makeEdgeGrantService({
@@ -1265,6 +1278,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             // never app.getPath("home"), which ignores sandboxed E2E HOME.
             canvasesDir: canvasesDir(),
             resolvePageTarget: resolveBrowserPageTarget,
+            listCanvasDocuments,
             readCanvas: readCanvasFromCanvases,
             station: () => composition.sessions.stationIdentity(),
             admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId),
@@ -1315,6 +1329,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             version: app.getVersion(),
             home: browserControlHome,
             edgeGrant,
+            listCanvasDocuments,
             readCanvas: readCanvasFromCanvases,
             ...stationBrowserRoutes,
           });

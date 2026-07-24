@@ -191,13 +191,75 @@ export interface PageListRuntime {
   readonly maxScanBytes?: number;
 }
 
+export type ListCanvasDocuments = () => Promise<
+  ReadonlyArray<{ readonly name: string; readonly doc: CanvasDoc }>
+>;
+
+const appendPageRowsFromDoc = (
+  canvasName: string,
+  doc: CanvasDoc,
+  sessions: BrowserSessionService | undefined,
+  owner: string,
+  rows: PageNodeRow[],
+  budget: { responseBytes: number; responseNodes: number },
+): boolean => {
+  if (!isUtf8WithinLimit(canvasName, BROWSER_MAX_METADATA_BYTES)) return true;
+  for (const node of doc.nodes) {
+    if (node.type !== "link" || node.ether?.entity?.kind !== "page") continue;
+    if (
+      !isUtf8WithinLimit(node.id, BROWSER_MAX_METADATA_BYTES) ||
+      !isUtf8WithinLimit(node.url, BROWSER_MAX_URL_BYTES)
+    ) {
+      continue;
+    }
+    const profile = node.ether.browser?.profile;
+    if (profile !== undefined && !isUtf8WithinLimit(profile, BROWSER_MAX_METADATA_BYTES)) {
+      continue;
+    }
+    const ref = formatNodeRef({
+      canvasName,
+      nodeId: node.id,
+    });
+    if (!isUtf8WithinLimit(ref, BROWSER_MAX_REF_BYTES)) continue;
+    const sessionId = sessions?.sessionIdForRefForOwner(owner, ref) ?? null;
+    if (sessionId !== null && !isValidBrowserSessionId(sessionId)) continue;
+    const row: PageNodeRow = {
+      ref,
+      sessionId,
+      canvas: canvasName,
+      nodeId: node.id,
+      hostId: resolveNodeHostId(node),
+      url: node.url,
+      ...(profile !== undefined ? { profile } : {}),
+    };
+    const rowBytes = utf8ByteLength(JSON.stringify(row)) + (rows.length === 0 ? 0 : 1);
+    const rowNodes = 1 + Object.keys(row).length;
+    if (
+      rows.length >= BROWSER_MAX_LIST_ROWS ||
+      budget.responseBytes + rowBytes > BROWSER_CONTROL_MAX_RESPONSE_BYTES ||
+      budget.responseNodes + rowNodes > BROWSER_MAX_EVAL_RESULT_NODES
+    ) {
+      return false;
+    }
+    rows.push(row);
+    budget.responseBytes += rowBytes;
+    budget.responseNodes += rowNodes;
+  }
+  return true;
+};
+
+/**
+ * List page nodes across canvases. Prefer `listDocuments` (live authority) so
+ * production never readdir()s ~/.vellum/canvases when CanvasesService is SoT.
+ * Directory scan remains for tests that only pass a canvasesDir of .canvas files.
+ */
 export const listPageNodes = async (
   canvasesDir: string,
   sessions?: BrowserSessionService,
   runtime: PageListRuntime = {},
   owner = BROWSER_UI_SESSION_OWNER,
+  listDocuments?: ListCanvasDocuments,
 ): Promise<ReadonlyArray<PageNodeRow>> => {
-  await mkdir(canvasesDir, { recursive: true });
   const maxDirectoryEntries = boundedRuntimeValue(
     runtime.maxDirectoryEntries,
     BROWSER_MAX_CANVAS_DIRECTORY_ENTRIES,
@@ -206,6 +268,43 @@ export const listPageNodes = async (
     runtime.maxScanBytes,
     BROWSER_MAX_CANVAS_SCAN_BYTES,
   );
+  const rows: PageNodeRow[] = [];
+  const budget = {
+    responseBytes: utf8ByteLength(encodeControlEnvelope(controlOk([]))),
+    responseNodes: 3, // envelope object + ok boolean + data array
+  };
+
+  if (listDocuments !== undefined) {
+    try {
+      const documents = await listDocuments();
+      let directoryEntries = 0;
+      let scannedBytes = 0;
+      for (const { name, doc } of [...documents].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      )) {
+        directoryEntries += 1;
+        if (directoryEntries > maxDirectoryEntries) break;
+        // Bound by serialized JSON length when docs come from live authority.
+        let sourceBytes = 0;
+        try {
+          sourceBytes = utf8ByteLength(JSON.stringify(doc));
+        } catch {
+          continue;
+        }
+        if (sourceBytes > BROWSER_MAX_CANVAS_SOURCE_BYTES) continue;
+        if (scannedBytes + sourceBytes > maxScanBytes) continue;
+        scannedBytes += sourceBytes;
+        if (!appendPageRowsFromDoc(name, doc, sessions, owner, rows, budget)) {
+          return rows;
+        }
+      }
+    } catch {
+      // live authority unavailable — empty listing rather than dual-scan disk
+    }
+    return rows;
+  }
+
+  await mkdir(canvasesDir, { recursive: true });
   const directory = await opendir(canvasesDir);
   const files: string[] = [];
   let directoryEntries = 0;
@@ -214,14 +313,10 @@ export const listPageNodes = async (
     if (directoryEntries > maxDirectoryEntries) break;
     if (entry.isFile() && entry.name.endsWith(".canvas")) files.push(entry.name);
   }
-  const rows: PageNodeRow[] = [];
-  let responseBytes = utf8ByteLength(encodeControlEnvelope(controlOk([])));
-  let responseNodes = 3; // envelope object + ok boolean + data array
   let scannedBytes = 0;
   for (const file of files.sort()) {
     try {
       const canvasName = file.slice(0, -".canvas".length);
-      if (!isUtf8WithinLimit(canvasName, BROWSER_MAX_METADATA_BYTES)) continue;
       const admitted = await readBoundedCanvasSource(
         join(canvasesDir, file),
         maxScanBytes - scannedBytes,
@@ -230,46 +325,17 @@ export const listPageNodes = async (
       scannedBytes += admitted.bytes;
       const decoded = decodeCanvasDoc(JSON.parse(admitted.source));
       if (Either.isLeft(decoded)) continue;
-      for (const node of decoded.right.nodes) {
-        if (node.type !== "link" || node.ether?.entity?.kind !== "page") continue;
-        if (
-          !isUtf8WithinLimit(node.id, BROWSER_MAX_METADATA_BYTES) ||
-          !isUtf8WithinLimit(node.url, BROWSER_MAX_URL_BYTES)
-        ) {
-          continue;
-        }
-        const profile = node.ether.browser?.profile;
-        if (profile !== undefined && !isUtf8WithinLimit(profile, BROWSER_MAX_METADATA_BYTES)) {
-          continue;
-        }
-        const ref = formatNodeRef({
+      if (
+        !appendPageRowsFromDoc(
           canvasName,
-          nodeId: node.id,
-        });
-        if (!isUtf8WithinLimit(ref, BROWSER_MAX_REF_BYTES)) continue;
-        const sessionId = sessions?.sessionIdForRefForOwner(owner, ref) ?? null;
-        if (sessionId !== null && !isValidBrowserSessionId(sessionId)) continue;
-        const row: PageNodeRow = {
-          ref,
-          sessionId,
-          canvas: canvasName,
-          nodeId: node.id,
-          hostId: resolveNodeHostId(node),
-          url: node.url,
-          ...(profile !== undefined ? { profile } : {}),
-        };
-        const rowBytes = utf8ByteLength(JSON.stringify(row)) + (rows.length === 0 ? 0 : 1);
-        const rowNodes = 1 + Object.keys(row).length;
-        if (
-          rows.length >= BROWSER_MAX_LIST_ROWS ||
-          responseBytes + rowBytes > BROWSER_CONTROL_MAX_RESPONSE_BYTES ||
-          responseNodes + rowNodes > BROWSER_MAX_EVAL_RESULT_NODES
-        ) {
-          return rows;
-        }
-        rows.push(row);
-        responseBytes += rowBytes;
-        responseNodes += rowNodes;
+          decoded.right,
+          sessions,
+          owner,
+          rows,
+          budget,
+        )
+      ) {
+        return rows;
       }
     } catch {
       // unreadable/corrupt canvas — skip, listing must not crash
@@ -321,6 +387,8 @@ export interface ControlDeps {
   readonly resolvePageTarget: PageTargetResolver;
   readonly version: string;
   readonly canvasesDir: string;
+  /** Live-authority docs; when set, GET /pages skips .canvas directory scan. */
+  readonly listDocuments?: ListCanvasDocuments;
   readonly shotsDir: string;
   readonly screenshotFiles?: {
     readonly ensureDirectory?: (path: string) => Promise<void>;
@@ -694,6 +762,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         deps.sessions,
         {},
         lease.auditId,
+        deps.listDocuments,
       );
       const filtered: PageNodeRow[] = [];
       for (const row of rows) {
@@ -1483,6 +1552,8 @@ export const startBrowserControlServer = async (
     readonly home?: string;
     /** Enables process-bind + edge admission without capability ceremony. */
     readonly readCanvas?: (name: string) => Promise<CanvasDoc | undefined>;
+    /** Live-authority docs for page listing + edge-grant (no .canvas readdir). */
+    readonly listCanvasDocuments?: ListCanvasDocuments;
     readonly edgeGrant?: EdgeGrantService;
     readonly stationBrowserWrapper?: StationBrowserWrapper;
     readonly stationBrowserOrigin?: StationBrowserOriginControlRoute;
@@ -1504,6 +1575,9 @@ export const startBrowserControlServer = async (
       resolvePageTarget: options.resolvePageTarget,
       station: () => options.sessions.stationIdentity(),
       admitBrowserHost: (hostId) => options.sessions.admitAutomationHost(hostId),
+      ...(options.listCanvasDocuments === undefined
+        ? {}
+        : { listCanvasDocuments: options.listCanvasDocuments }),
       ...(options.readCanvas === undefined ? {} : { readCanvas: options.readCanvas }),
     });
   const maxActiveHandlers = boundedRuntimeValue(
@@ -1572,6 +1646,9 @@ export const startBrowserControlServer = async (
     resolvePageTarget: options.resolvePageTarget,
     version: options.version,
     canvasesDir,
+    ...(options.listCanvasDocuments === undefined
+      ? {}
+      : { listDocuments: options.listCanvasDocuments }),
     shotsDir: controlShotsDir(home),
     edgeGrant,
     ...(options.stationBrowserWrapper === undefined

@@ -201,11 +201,12 @@ describe("browser edge-grant process-bind dual admit", () => {
         if (candidate === REF_PAGE) return { ok: true, data: TARGET };
         return { ok: false, code: "not_found", message: "missing" };
       });
+    const listCanvasDocuments = async () => [{ name: "work", doc }];
     const edgeGrant = makeEdgeGrantService({
       capabilities,
       canvasesDir: join(root, "canvases"),
       resolvePageTarget,
-      readCanvas: async (name) => (name === "work" ? doc : undefined),
+      listCanvasDocuments,
       station: () => sessions.stationIdentity(),
       admitBrowserHost: (hostId) => sessions.admitAutomationHost(hostId),
       ...(identity ?? {}),
@@ -216,6 +217,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       resolvePageTarget,
       version: "0.0.0-test",
       canvasesDir: join(root, "canvases"),
+      listDocuments: listCanvasDocuments,
       shotsDir: join(root, "shots"),
       edgeGrant,
     });
@@ -223,10 +225,9 @@ describe("browser edge-grant process-bind dual admit", () => {
   };
 
   it("admits protected list routes via process principal without capability secret", async () => {
-    await mkdir(join(root, "canvases"), { recursive: true });
     const doc = canvasDoc(true);
-    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
-      const { handlers, edgeGrant, capabilities } = makeStack(doc);
+    // Live authority path: listCanvasDocuments / listDocuments — no .canvas write.
+    const { handlers, edgeGrant, capabilities } = makeStack(doc);
       const token = rotateControlToken(join(root, "token"));
       const processPrincipal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
       const requestId = "a".repeat(32);
