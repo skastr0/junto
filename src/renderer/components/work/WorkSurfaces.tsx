@@ -1,8 +1,6 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ulid } from "ulid";
 import type {
-  Task,
-  Artifact,
   CanvasNode,
   Message,
   Part,
@@ -11,13 +9,13 @@ import type {
 import { isTerminalTaskState, taskBrief } from "@shared/task";
 import { sinkGlance, workRoleOf } from "@shared/attention";
 import type { WorkOpResult } from "@shared/ipc";
-import { DetailModal } from "../DetailModal";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { getVellumApi } from "../../lib/vellum-api";
 import { state$ } from "../../lib/state";
-import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
+import { DIM, HUE, INK } from "../../lib/theme";
 import { TaskBoard } from "./TaskBoard";
+import { ArtifactLibrary, RequestInbox } from "./WorkLedger";
 
 /** Baseline renderer revision + merge freeform after every successful work op. */
 const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpResult<T> => {
@@ -57,96 +55,6 @@ const stateHue = (state: TaskState): string => {
 };
 
 const canvasName = (): string => state$.canvasName.peek() || "";
-
-const isImagePart = (part: Part): boolean => {
-  if (part.kind === "url" && part.mediaType?.startsWith("image/")) return true;
-  if (part.kind === "raw" && part.mediaType?.startsWith("image/")) return true;
-  if (part.kind === "url" && /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(part.url)) return true;
-  return false;
-};
-
-const imageSrc = (part: Part): string | undefined => {
-  if (part.kind === "url" && isImagePart(part)) return part.url;
-  if (part.kind === "raw" && part.mediaType?.startsWith("image/")) {
-    return `data:${part.mediaType};base64,${part.bytesBase64}`;
-  }
-  return undefined;
-};
-
-function PartView({ part }: { readonly part: Part }) {
-  if (part.kind === "text") {
-    return (
-      <div className="whitespace-pre-wrap text-[12px] leading-snug" style={{ color: INK }}>
-        {part.text}
-      </div>
-    );
-  }
-  if (part.kind === "url") {
-    const src = imageSrc(part);
-    if (src) {
-      return (
-        <a href={part.url} target="_blank" rel="noreferrer" className="block">
-          <img
-            src={src}
-            alt={part.mediaType ?? "image"}
-            className="max-h-48 max-w-full rounded border object-contain"
-            style={{ borderColor: withAlpha(HUE.amber, 0.25) }}
-          />
-        </a>
-      );
-    }
-    return (
-      <a
-        href={part.url}
-        target="_blank"
-        rel="noreferrer"
-        className="text-[12px] underline"
-        style={{ color: HUE.cyan }}
-      >
-        {part.url}
-      </a>
-    );
-  }
-  if (part.kind === "raw") {
-    const src = imageSrc(part);
-    if (src) {
-      return (
-        <img
-          src={src}
-          alt={part.mediaType ?? "image"}
-          className="max-h-48 max-w-full rounded border object-contain"
-          style={{ borderColor: withAlpha(HUE.amber, 0.25) }}
-        />
-      );
-    }
-    const blob = () => {
-      try {
-        const binary = atob(part.bytesBase64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-        const file = new Blob([bytes], { type: part.mediaType ?? "application/octet-stream" });
-        const url = URL.createObjectURL(file);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `artifact-${Date.now()}`;
-        a.click();
-        URL.revokeObjectURL(url);
-      } catch {
-        // ignore
-      }
-    };
-    return (
-      <button type="button" className="text-[12px]" style={{ color: HUE.cyan }} onClick={blob}>
-        save raw ({part.mediaType ?? "bytes"})
-      </button>
-    );
-  }
-  return (
-    <pre className="overflow-auto text-[11px]" style={{ color: DIM }}>
-      {JSON.stringify(part.data, null, 2)}
-    </pre>
-  );
-}
 
 // --- Cards -----------------------------------------------------------------
 
@@ -264,157 +172,7 @@ export function RequestsDetail({
   readonly node: CanvasNode;
   readonly onClose: () => void;
 }) {
-  const items = node.ether?.requests?.items ?? [];
-  const [brief, setBrief] = useState("");
-  const [error, setError] = useState("");
-  const api = getVellumApi();
-  const name = canvasName();
-
-  const create = async () => {
-    if (!api || !brief.trim()) return;
-    setError("");
-    try {
-      const result = await runWorkCanvasMutation(
-        name,
-        () => api.workRequestCreate(name, node.id, brief.trim()),
-      );
-      if (result === undefined) return;
-      if (!result.ok) setError(result.message);
-      else setBrief("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  return (
-    <DetailModal onClose={onClose}>
-      <div className="flex h-full flex-col gap-3 p-4">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.16em]" style={{ color: DIM }}>
-            requests
-          </div>
-          <div className="text-[16px] font-semibold" style={{ color: INK }}>
-            {items.filter((i) => i.state === "input-required").length} pending
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <input
-            className="flex-1"
-            aria-label="New request brief"
-            placeholder="ask…"
-            value={brief}
-            onChange={(e) => setBrief(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void create();
-            }}
-          />
-          <button type="button" onClick={() => void create()}>
-            request
-          </button>
-        </div>
-        {error ? (
-          <div className="text-[11px]" style={{ color: HUE.crimson }}>
-            {error}
-          </div>
-        ) : null}
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto">
-          {items.map((task) => (
-            <RequestRow key={task.id} task={task} nodeId={node.id} canvas={name} />
-          ))}
-        </div>
-      </div>
-    </DetailModal>
-  );
-}
-
-function RequestRow({
-  task,
-  nodeId,
-  canvas,
-}: {
-  readonly task: Task;
-  readonly nodeId: string;
-  readonly canvas: string;
-}) {
-  const [response, setResponse] = useState("");
-  const [error, setError] = useState("");
-  const api = getVellumApi();
-  const imageParts = useMemo(
-    () =>
-      task.history.flatMap((m) => m.parts).filter((p) => isImagePart(p)),
-    [task.history],
-  );
-
-  const resolve = async (disposition: "completed" | "rejected") => {
-    if (!api || !response.trim()) return;
-    setError("");
-    try {
-      const result = await runWorkCanvasMutation(
-        canvas,
-        () => api.workRequestResolve(
-          canvas,
-          nodeId,
-          task.id,
-          response.trim(),
-          disposition,
-        ),
-      );
-      if (result === undefined) return;
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      setResponse("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  return (
-    <div
-      className="rounded border p-2"
-      style={{ borderColor: withAlpha(HUE.amber, 0.2), background: withAlpha("#0c0b09", 0.4) }}
-    >
-      <div className="text-[13px] font-medium" style={{ color: INK }}>
-        {taskBrief(task)}
-      </div>
-      <div className="mt-0.5 text-[10px]" style={{ color: stateHue(task.state) }}>
-        {task.state}
-        {task.metadata ? ` · ${JSON.stringify(task.metadata)}` : ""}
-      </div>
-      {imageParts.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {imageParts.map((part, i) => (
-            <PartView key={i} part={part} />
-          ))}
-        </div>
-      ) : null}
-      {task.state === "input-required" ? (
-        <div className="mt-2 flex flex-col gap-1.5">
-          <textarea
-            aria-label="Request response"
-            className="min-h-[56px] w-full text-[12px]"
-            value={response}
-            onChange={(e) => setResponse(e.target.value)}
-            placeholder="response…"
-          />
-          {error ? (
-            <div className="text-[10px]" style={{ color: HUE.crimson }}>
-              {error}
-            </div>
-          ) : null}
-          <div className="flex gap-2">
-            <button type="button" onClick={() => void resolve("completed")}>
-              complete
-            </button>
-            <button type="button" className="inspector-action--danger" onClick={() => void resolve("rejected")}>
-              reject
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
+  return <RequestInbox node={node} onClose={onClose} />;
 }
 
 export function ArtifactsDetail({
@@ -424,49 +182,7 @@ export function ArtifactsDetail({
   readonly node: CanvasNode;
   readonly onClose: () => void;
 }) {
-  const items = node.ether?.artifacts?.items ?? [];
-  return (
-    <DetailModal onClose={onClose}>
-      <div className="flex h-full flex-col gap-3 p-4">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.16em]" style={{ color: DIM }}>
-            artifacts
-          </div>
-          <div className="text-[16px] font-semibold" style={{ color: INK }}>
-            {items.length} published
-          </div>
-        </div>
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto">
-          {items.map((item) => (
-            <ArtifactRow key={item.artifactId} artifact={item} />
-          ))}
-        </div>
-      </div>
-    </DetailModal>
-  );
-}
-
-function ArtifactRow({ artifact }: { readonly artifact: Artifact }) {
-  return (
-    <div
-      className="rounded border p-2"
-      style={{ borderColor: withAlpha(HUE.amber, 0.2), background: withAlpha("#0c0b09", 0.4) }}
-    >
-      <div className="text-[13px] font-medium" style={{ color: INK }}>
-        {artifact.name?.trim() || artifact.artifactId}
-      </div>
-      {artifact.taskId ? (
-        <div className="text-[10px]" style={{ color: DIM }}>
-          taskId · {artifact.taskId}
-        </div>
-      ) : null}
-      <div className="mt-2 flex flex-col gap-1.5">
-        {artifact.parts.map((part, i) => (
-          <PartView key={i} part={part} />
-        ))}
-      </div>
-    </div>
-  );
+  return <ArtifactLibrary node={node} onClose={onClose} />;
 }
 
 export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
