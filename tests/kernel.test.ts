@@ -467,3 +467,234 @@ describe("I9 — single membership authority: kernel path matches rollup path", 
     __setDeliveryDepsForTest(undefined);
   });
 });
+
+// --- I14: scheduler pulses route via edges; geometry never mints a route -------
+// Watcher/timer delivery uses agentKeysForExecutableSource (human-authored edges).
+// Region geometry supplies evaluation context + the *manual* pulse audience only.
+// Membership for that audience is the single shared groupMembers (I9 / S1).
+describe("I14 — pulse delivery: edges route; geometry does not mint", () => {
+  const canvasName = "i14-canvas";
+  const regionId = "region-i14";
+  const watcherId = "watcher-i14";
+  const timerId = "timer-i14";
+
+  const baseNodes = (): CanvasDoc["nodes"] => [
+    {
+      id: regionId,
+      type: "group",
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 400,
+      ether: { region: { instruction: "brief the floor" } },
+    },
+    {
+      id: watcherId,
+      type: "text",
+      text: "watch",
+      x: 20,
+      y: 20,
+      width: 100,
+      height: 40,
+      ether: {
+        entity: { kind: "watcher" },
+        watch: {
+          kind: "stat_threshold",
+          source: "tower",
+          key: "proj",
+          stat: "signals",
+          op: "gt",
+          value: 10,
+        },
+      },
+    },
+    {
+      id: timerId,
+      type: "text",
+      text: "timer",
+      x: 20,
+      y: 80,
+      width: 100,
+      height: 40,
+      ether: { entity: { kind: "timer" }, timer: { everyMinutes: 15 } },
+    },
+    // In-region, no edge — must NOT receive watcher/timer pulses.
+    {
+      id: "agent-inedged",
+      type: "text",
+      text: "in region no edge",
+      x: 50,
+      y: 200,
+      width: 100,
+      height: 50,
+      ether: { entity: { kind: "agent", name: "local:in-region-no-edge" } },
+    },
+    // In-region, edged from watcher.
+    {
+      id: "agent-inedged-w",
+      type: "text",
+      text: "in region edged",
+      x: 200,
+      y: 200,
+      width: 100,
+      height: 50,
+      ether: { entity: { kind: "agent", name: "local:in-region-edged" } },
+    },
+    // Outside region, edged from watcher — still receives (geometry is not the router).
+    {
+      id: "agent-out-edged",
+      type: "text",
+      text: "outside edged",
+      x: 900,
+      y: 900,
+      width: 100,
+      height: 50,
+      ether: { entity: { kind: "agent", name: "local:outside-edged" } },
+    },
+    // Outside region, no edge — never receives.
+    {
+      id: "agent-out-none",
+      type: "text",
+      text: "outside none",
+      x: 1100,
+      y: 900,
+      width: 100,
+      height: 50,
+      ether: { entity: { kind: "agent", name: "local:outside-no-edge" } },
+    },
+  ];
+
+  const recordingDeps = () => {
+    const sent: string[] = [];
+    const deps: PulseDeliverDeps = {
+      isLive: () => true,
+      openChat: async () => undefined,
+      sendPrompt: async (key) => {
+        sent.push(key);
+      },
+    };
+    return { deps, sent };
+  };
+
+  beforeEach(() => {
+    __setStationScopeForTest({ hostId: "local", role: "command-center" });
+    __resetPulseLogForTest();
+    setArmed(`${canvasName}::${regionId}`, true);
+  });
+
+  afterEach(() => {
+    __setDeliveryDepsForTest(undefined);
+  });
+
+  it("watcher fire: in-region actor without an edge receives nothing", async () => {
+    const doc: CanvasDoc = {
+      nodes: baseNodes(),
+      // No edges at all — geometry alone must not mint delivery.
+      edges: [],
+    };
+    __setDocsForTest(new Map([[canvasName, doc]]));
+    const { deps, sent } = recordingDeps();
+
+    await deliverPulse({
+      canvasName,
+      sourceNodeId: watcherId,
+      kind: "watcher",
+      regionId,
+      summary: "threshold crossed",
+      deps,
+    });
+
+    const record = getPulseLog()[0];
+    expect(record?.dry).toBe(false);
+    expect(record?.kind).toBe("watcher");
+    expect(record?.delivered).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  it("watcher fire: edged actors receive the pulse whether in or out of the region", async () => {
+    const doc: CanvasDoc = {
+      nodes: baseNodes(),
+      edges: [
+        { id: "e-in", fromNode: watcherId, toNode: "agent-inedged-w" },
+        { id: "e-out", fromNode: watcherId, toNode: "agent-out-edged" },
+      ],
+    };
+    __setDocsForTest(new Map([[canvasName, doc]]));
+    const { deps, sent } = recordingDeps();
+
+    await deliverPulse({
+      canvasName,
+      sourceNodeId: watcherId,
+      kind: "watcher",
+      regionId,
+      summary: "threshold crossed",
+      deps,
+    });
+
+    const record = getPulseLog()[0];
+    expect(record?.dry).toBe(false);
+    // In-region unedged and outside unedged stay dark.
+    expect(record?.delivered).toEqual(
+      expect.arrayContaining(["local:in-region-edged", "local:outside-edged"]),
+    );
+    expect(record?.delivered).toHaveLength(2);
+    expect(record?.delivered).not.toContain("local:in-region-no-edge");
+    expect(record?.delivered).not.toContain("local:outside-no-edge");
+    expect(sent).toEqual(record?.delivered);
+  });
+
+  it("timer fire: same edge-only routing (geometry does not mint)", async () => {
+    const doc: CanvasDoc = {
+      nodes: baseNodes(),
+      edges: [{ id: "e-timer", fromNode: timerId, toNode: "agent-out-edged" }],
+    };
+    __setDocsForTest(new Map([[canvasName, doc]]));
+    const { deps, sent } = recordingDeps();
+
+    await deliverPulse({
+      canvasName,
+      sourceNodeId: timerId,
+      kind: "timer",
+      regionId,
+      summary: "timer fired · every 15m",
+      deps,
+    });
+
+    const record = getPulseLog()[0];
+    expect(record?.dry).toBe(false);
+    expect(record?.kind).toBe("timer");
+    expect(record?.delivered).toEqual(["local:outside-edged"]);
+    expect(sent).toEqual(["local:outside-edged"]);
+  });
+
+  it("manual region pulse still reaches eligible members (operator action, unchanged)", async () => {
+    const doc: CanvasDoc = {
+      nodes: baseNodes(),
+      // No edges — manual falls back to agentKeysInRegion / groupMembers.
+      edges: [],
+    };
+    __setDocsForTest(new Map([[canvasName, doc]]));
+    const { deps, sent } = recordingDeps();
+
+    await deliverPulse({
+      canvasName,
+      sourceNodeId: regionId,
+      kind: "manual",
+      regionId,
+      summary: "manual pulse",
+      deps,
+    });
+
+    const record = getPulseLog()[0];
+    expect(record?.dry).toBe(false);
+    expect(record?.kind).toBe("manual");
+    // Full-rect members only — outside agents never, even with no edges.
+    expect(record?.delivered).toEqual(
+      expect.arrayContaining(["local:in-region-no-edge", "local:in-region-edged"]),
+    );
+    expect(record?.delivered).toHaveLength(2);
+    expect(record?.delivered).not.toContain("local:outside-edged");
+    expect(record?.delivered).not.toContain("local:outside-no-edge");
+    expect(sent).toEqual(record?.delivered);
+  });
+});
