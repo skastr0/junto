@@ -9,7 +9,6 @@ import type {
   NodeSide,
 } from "@shared/canvas";
 import { resolveBrowserOnDelete } from "@shared/canvas";
-import { factoryClaimTick } from "@shared/factory-tick";
 import { mergeLocalCanvasWithWorkWrite } from "@shared/work-canvas-merge";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch } from "@legendapp/state";
@@ -1047,16 +1046,9 @@ export const setNodeWorkRole = (id: string, workRole: string | undefined): void 
   });
 };
 
-/** Document-level claim sim: free edged workers pull submitted tasks. */
-export const runFactoryClaimTick = (): {
-  readonly claimed: ReadonlyArray<{ taskId: string; actor: string }>;
-} => {
-  const doc = state$.doc.peek();
-  const name = state$.canvasName.peek() || "canvas";
-  const { doc: next, claimed } = factoryClaimTick(doc, name);
-  if (claimed.length > 0) commitDoc(next);
-  return { claimed };
-};
+// The claim tick runs in the kernel only (kernel/service.ts runClaimTicks,
+// pause-gated). The old renderer-side tick wrapper is gone — a canvas-door
+// tick would bypass the pause plane.
 
 // Watcher/timer definitions are document data (the kernel's runtime state
 // derived from them is not — that lives only in kernel-state.ts / app
