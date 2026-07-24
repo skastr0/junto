@@ -236,7 +236,7 @@ export function Dropdown({
         left: box.left,
         minWidth: box.minWidth,
         maxHeight: box.maxHeight,
-        zIndex: 200,
+        zIndex: 10020,
         ...(box.placement === "below"
           ? { top: box.top }
           : { top: box.top, transform: "translateY(-100%)" }),

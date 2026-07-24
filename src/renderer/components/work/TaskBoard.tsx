@@ -12,8 +12,11 @@ import {
   MoreHorizontal,
   PanelRightClose,
   Plus,
+  Reply,
   Search,
   Send,
+  ShieldCheck,
+  ShieldX,
   UserRound,
   X,
 } from "lucide-react";
@@ -702,6 +705,7 @@ function TaskDetailPanel({
   onClose,
   onSaveTitle,
   onAppendNote,
+  onRespond,
   onMove,
 }: {
   readonly task: WorkTask;
@@ -709,13 +713,22 @@ function TaskDetailPanel({
   readonly onClose: () => void;
   readonly onSaveTitle: (task: WorkTask, title: string) => void;
   readonly onAppendNote: (task: WorkTask, note: string) => void;
+  readonly onRespond: (
+    task: WorkTask,
+    response: string,
+    nextState: TaskState,
+  ) => Promise<boolean>;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
 }) {
   const [title, setTitle] = useState(() => taskTitle(task));
   const [note, setNote] = useState("");
+  const [response, setResponse] = useState("");
   const role = taskRole(task);
   const claim = claimedByOf(task);
   const details = taskDetails(task);
+  const attentionRequired = task.state === "input-required" || task.state === "auth-required";
+  const authorizationRequired = task.state === "auth-required";
+  const requestContext = latestText(task);
   const transitionOptions = [
     ...LANES.flatMap((lane) =>
       lane.state && canTransitionTaskState(task.state, lane.state)
@@ -759,6 +772,112 @@ function TaskDetailPanel({
       </div>
 
       <div className="task-detail-panel__scroll">
+        {attentionRequired ? (
+          <section
+            className={`task-detail-panel__attention ${
+              authorizationRequired ? "is-authorization" : "is-input"
+            }`}
+            aria-labelledby={`task-response-${task.id}`}
+          >
+            <div className="task-detail-panel__attention-heading">
+              <span className="task-detail-panel__attention-icon" aria-hidden>
+                {authorizationRequired ? (
+                  <KeyRound size={15} />
+                ) : (
+                  <MessageSquareWarning size={15} />
+                )}
+              </span>
+              <div>
+                <p>{authorizationRequired ? "Operator decision" : "Operator response"}</p>
+                <h3 id={`task-response-${task.id}`}>
+                  {authorizationRequired ? "Authorization required" : "Input required"}
+                </h3>
+              </div>
+            </div>
+
+            <div className="task-detail-panel__request-context">
+              <span>{authorizationRequired ? "Requested action" : "Worker is waiting on"}</span>
+              <p>
+                {requestContext ??
+                  (authorizationRequired
+                    ? "The worker requested explicit operator authority to proceed."
+                    : "The worker requested additional context before continuing.")}
+              </p>
+            </div>
+
+            <label className="task-detail-panel__response-field">
+              <span>{authorizationRequired ? "Decision note" : "Your response"}</span>
+              <Textarea
+                value={response}
+                onChange={(event) => setResponse(event.target.value)}
+                placeholder={
+                  authorizationRequired
+                    ? "Record constraints, scope, or the reason for this decision…"
+                    : "Give the worker the context, decision, or answer needed to continue…"
+                }
+                rows={5}
+              />
+              <small>
+                {authorizationRequired
+                  ? "Your decision is recorded in the task activity before its state changes."
+                  : "This response becomes durable task context and returns the work to motion."}
+              </small>
+            </label>
+
+            <div className="task-detail-panel__response-actions">
+              {authorizationRequired ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={pending}
+                    onClick={async () => {
+                      const saved = await onRespond(
+                        task,
+                        response.trim() || "Authorization denied by operator.",
+                        "rejected",
+                      );
+                      if (saved) setResponse("");
+                    }}
+                  >
+                    <ShieldX size={13} />
+                    Deny request
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={pending}
+                    onClick={async () => {
+                      const saved = await onRespond(
+                        task,
+                        response.trim() || "Authorization granted by operator.",
+                        "working",
+                      );
+                      if (saved) setResponse("");
+                    }}
+                  >
+                    <ShieldCheck size={13} />
+                    Authorize &amp; resume
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={pending || !response.trim()}
+                  onClick={async () => {
+                    const saved = await onRespond(task, response.trim(), "working");
+                    if (saved) setResponse("");
+                  }}
+                >
+                  <Reply size={13} />
+                  Send input &amp; resume
+                </Button>
+              )}
+            </div>
+          </section>
+        ) : null}
+
         <section className="task-detail-panel__section">
           <h3>Title</h3>
           <form
@@ -837,21 +956,31 @@ function TaskDetailPanel({
             Add note
           </Button>
         </section>
-      </div>
 
-      <footer className="task-detail-panel__actions">
-        <Dropdown
-          value=""
-          options={transitionOptions}
-          disabled={pending || transitionOptions.length === 0}
-          aria-label="Change task status"
-          placeholder={transitionOptions.length > 0 ? "Change status…" : "No available transitions"}
-          onChange={(state) => onMove(task, state as TaskState)}
-          className="task-detail-panel__status-menu"
-          triggerClassName="h-8 rounded-[5px] border border-white/10 bg-white/[0.04] px-2 text-[10px] uppercase tracking-[0.08em]"
-          align="end"
-        />
-      </footer>
+        <section className="task-detail-panel__section task-detail-panel__status">
+          <div>
+            <h3>{attentionRequired ? "Other status changes" : "Status"}</h3>
+            <p>
+              {attentionRequired
+                ? "Use this only when the task should leave the response workflow without resuming."
+                : "Move this task to another valid stage in its lifecycle."}
+            </p>
+          </div>
+          <Dropdown
+            value=""
+            options={transitionOptions}
+            disabled={pending || transitionOptions.length === 0}
+            aria-label="Change task status"
+            placeholder={
+              transitionOptions.length > 0 ? "Choose a status…" : "No available transitions"
+            }
+            onChange={(state) => onMove(task, state as TaskState)}
+            className="task-detail-panel__status-menu"
+            triggerClassName="h-9 w-full rounded-[5px] border border-white/10 bg-white/[0.04] px-3 text-[10px] uppercase tracking-[0.08em]"
+            align="start"
+          />
+        </section>
+      </div>
     </aside>
   );
 }
@@ -1013,6 +1142,59 @@ export function TaskBoard({
       setAnnouncement(`Added a note to ${taskTitle(task)}.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPendingTaskId(null);
+    }
+  };
+
+  const respondToTask = async (
+    task: WorkTask,
+    text: string,
+    nextState: TaskState,
+  ): Promise<boolean> => {
+    if (!api || !text.trim() || task.state === nextState) return false;
+    setError("");
+    setPendingTaskId(task.id);
+    const message: Message = {
+      messageId: ulid(),
+      role: "user",
+      parts: [{ kind: "text", text: text.trim() }],
+      taskId: task.id,
+    };
+    try {
+      const appendResult = await runWorkCanvasMutation(name, () =>
+        api.workMessageAppend(name, node.id, task.id, message),
+      );
+      if (appendResult === undefined) return false;
+      if (!appendResult.ok) {
+        setError(appendResult.message);
+        setAnnouncement(`Could not record your response. ${appendResult.message}`);
+        return false;
+      }
+
+      const transitionResult = await runWorkCanvasMutation(name, () =>
+        api.workTaskTransition(name, node.id, task.id, nextState),
+      );
+      if (transitionResult === undefined) return false;
+      if (!transitionResult.ok) {
+        setError(transitionResult.message);
+        setAnnouncement(
+          `Your response was saved, but the task could not move to ${stateLabel(nextState)}. ${transitionResult.message}`,
+        );
+        return false;
+      }
+
+      setAnnouncement(
+        nextState === "working"
+          ? `Responded to ${taskTitle(task)} and returned it to Working.`
+          : `Recorded the decision and moved ${taskTitle(task)} to ${stateLabel(nextState)}.`,
+      );
+      return true;
+    } catch (cause) {
+      const messageText = cause instanceof Error ? cause.message : String(cause);
+      setError(messageText);
+      setAnnouncement(`Could not respond to ${taskTitle(task)}. ${messageText}`);
+      return false;
     } finally {
       setPendingTaskId(null);
     }
@@ -1206,6 +1388,7 @@ export function TaskBoard({
               onClose={() => setSelectedTaskId(null)}
               onSaveTitle={(task, title) => void saveTaskTitle(task, title)}
               onAppendNote={(task, note) => void appendTaskNote(task, note)}
+              onRespond={respondToTask}
               onMove={(task, state) => void transitionTask(task, state)}
             />
           ) : null}
