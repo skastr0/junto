@@ -21,31 +21,62 @@ import {
 } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const CANVAS = "a2a-work";
+const fixtureDoc = canvasDoc(
+  [
+    tasksNode({ id: "tasks", x: 40, y: 40 }),
+    requestsNode({ id: "req", x: 320, y: 40 }),
+    artifactsNode({ id: "art", x: 600, y: 40 }),
+    agentTextNode({
+      id: "target",
+      key: "local:downstream",
+      label: "downstream",
+      x: 320,
+      y: 240,
+    }),
+  ],
+  [tasksCriteriaEdge("e-req", "req", "target")],
+);
 
-test.use({
-  vellumOptions: {
-    seedCanvases: {
-      // Name sorts first so boot opens this canvas (App.tsx list[0]).
-      // Target is a physics **actor** — only actors enter the blocked set.
-      [CANVAS]: canvasDoc(
-        [
-          tasksNode({ id: "tasks", x: 40, y: 40 }),
-          requestsNode({ id: "req", x: 320, y: 40 }),
-          artifactsNode({ id: "art", x: 600, y: 40 }),
-          agentTextNode({
-            id: "target",
-            key: "local:downstream",
-            label: "downstream",
-            x: 320,
-            y: 240,
-          }),
-        ],
-        [tasksCriteriaEdge("e-req", "req", "target")],
-      ),
-    },
-  },
-});
+/** Authority-only boot: disk seed is not live. Install via writeCanvas. */
+const installWorkBoard = async (page: import("@playwright/test").Page): Promise<string> => {
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const runtime = globalThis as unknown as {
+            readonly vellum?: { readonly listCanvases: () => Promise<unknown[]> };
+          };
+          return Boolean(runtime.vellum?.listCanvases);
+        }),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+  return page.evaluate(async (document) => {
+    const api = (
+      globalThis as unknown as {
+        readonly vellum: {
+          readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
+          readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
+          readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
+          readonly writeCanvas: (
+            name: string,
+            doc: unknown,
+            expectedRevision?: string,
+          ) => Promise<unknown>;
+        };
+      }
+    ).vellum;
+    let list = await api.listCanvases();
+    let name = list[0]?.name;
+    if (!name) {
+      const created = await api.createCanvas("a2a-work");
+      name = created.name;
+    }
+    const read = await api.readCanvas(name);
+    await api.writeCanvas(name, document, read.revision);
+    return name;
+  }, fixtureDoc);
+};
 
 type WorkApi = {
   workTaskCreate: (
@@ -140,7 +171,10 @@ test("A2A work plane: task claim/transition, request blocks then clears, artifac
   const api = await work(page);
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator(".react-flow__node", { hasText: "tasks" })).toBeVisible();
+  const CANVAS = await installWorkBoard(page);
+  await expect(page.locator(".react-flow__node", { hasText: "tasks" })).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(page.locator(".react-flow__node", { hasText: "0 pending" })).toBeVisible();
   await expect(page.locator(".react-flow__node", { hasText: "downstream" })).toBeVisible();
 
@@ -180,14 +214,11 @@ test("A2A work plane: task claim/transition, request blocks then clears, artifac
   );
   expect(done.ok).toBe(true);
 
-  // Card mirror + file
-  await expect(page.locator(".react-flow__node", { hasText: "ship e2e plane" })).toBeVisible({
-    timeout: 10_000,
-  });
+  // Live authority (not disk seed) holds completed state; glance hides settled.
   await expect(async () => {
-    const doc = await readCanvasFile(sandbox, CANVAS);
-    const tasks = doc.nodes.find((n) => n.id === "tasks");
-    const item = tasks?.ether?.tasks?.items.find((t) => t.id === created.data.id);
+    const live = await page.evaluate(async (name) => window.vellum!.readCanvas(name), CANVAS);
+    const tasks = live.doc.nodes.find((n) => n.id === "tasks");
+    const item = tasks?.ether?.tasks?.items?.find((t) => t.id === created.data.id);
     expect(item?.state).toBe("completed");
     expect(item?.metadata?.claimedBy).toBe("e2e-worker");
   }).toPass({ timeout: 10_000 });
@@ -204,8 +235,8 @@ test("A2A work plane: task claim/transition, request blocks then clears, artifac
   expect(req.data.state).toBe("input-required");
 
   await expect(async () => {
-    const doc = await readCanvasFile(sandbox, CANVAS);
-    const items = doc.nodes.find((n) => n.id === "req")?.ether?.requests?.items ?? [];
+    const live = await page.evaluate(async (name) => window.vellum!.readCanvas(name), CANVAS);
+    const items = live.doc.nodes.find((n) => n.id === "req")?.ether?.requests?.items ?? [];
     expect(items.some((t) => t.id === req.data.id && t.state === "input-required")).toBe(true);
   }).toPass({ timeout: 10_000 });
 
@@ -241,27 +272,31 @@ test("A2A work plane: task claim/transition, request blocks then clears, artifac
     timeout: 10_000,
   });
   await expect(async () => {
-    const doc = await readCanvasFile(sandbox, CANVAS);
-    const items = doc.nodes.find((n) => n.id === "art")?.ether?.artifacts?.items ?? [];
+    const live = await page.evaluate(async (name) => window.vellum!.readCanvas(name), CANVAS);
+    const items = live.doc.nodes.find((n) => n.id === "art")?.ether?.artifacts?.items ?? [];
     expect(items.some((a) => a.artifactId === "art-e2e-1" && a.taskId === created.data.id)).toBe(
       true,
     );
   }).toPass({ timeout: 10_000 });
 });
 
-test("A2A work plane: bad ids reject without mutating the file", async ({ vellum }) => {
-  const { page, sandbox } = vellum;
+test("A2A work plane: bad ids reject without mutating the live doc", async ({ vellum }) => {
+  const { page } = vellum;
   const api = await work(page);
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  const CANVAS = await installWorkBoard(page);
+  await expect(page.locator(".react-flow__node", { hasText: "tasks" })).toBeVisible({
+    timeout: 30_000,
+  });
 
-  const before = await readCanvasFile(sandbox, CANVAS);
-  const beforeJson = JSON.stringify(before);
+  const before = await page.evaluate(async (name) => window.vellum!.readCanvas(name), CANVAS);
+  const beforeJson = JSON.stringify(before.doc);
 
   const missingNode = await api.workTaskCreate(CANVAS, "no-such-node", "x");
   expect(missingNode.ok).toBe(false);
   if (!missingNode.ok) expect(missingNode.code).toBe("node_not_found");
 
-  const after = await readCanvasFile(sandbox, CANVAS);
-  expect(JSON.stringify(after)).toBe(beforeJson);
+  const after = await page.evaluate(async (name) => window.vellum!.readCanvas(name), CANVAS);
+  expect(JSON.stringify(after.doc)).toBe(beforeJson);
 });

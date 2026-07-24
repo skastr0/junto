@@ -74,8 +74,9 @@ export function EtherEdge({
         }}
       />
       <EdgeLabelRenderer>
+        {label || title ? (
         <button
-          aria-label={`Select edge · ${phase}`}
+          aria-label={label ? `Select edge · ${label}` : "Select edge"}
           className={[
             "nodrag nopan vellum-edge-label",
             impactIn ? "vellum-edge-label--impact-in" : "",
@@ -93,6 +94,19 @@ export function EtherEdge({
         >
           {label}
         </button>
+        ) : (
+          <button
+            type="button"
+            aria-label="Select edge"
+            className="nodrag nopan vellum-edge-label vellum-edge-label--silent"
+            style={{ top: labelY, left: labelX, opacity: 0, width: 12, height: 12, padding: 0 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              state$.selectedNodeId.set("");
+              state$.selectedEdgeId.set(id);
+            }}
+          />
+        )}
       </EdgeLabelRenderer>
     </>
   );

@@ -134,7 +134,8 @@ export const toFlow = (
     const projected: CanvasEdge = {
       ...edge,
       ether: { ...edge.ether, kind: phase },
-      label: edge.ether?.criteria ? phase : edge.label ?? phase,
+      // Face text is phase-driven in EtherEdge; never invent "relates"/phase as label.
+      label: edge.label,
     };
     const flowEdge: FlowEdge = {
       id: edge.id,

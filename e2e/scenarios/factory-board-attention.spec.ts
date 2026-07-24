@@ -1,19 +1,14 @@
 /**
- * Buckets 1–3 board contract: phase membership, calm vs fire, noise silence.
+ * Buckets 1–3 board contract (authority install — disk seed is not live map).
  *
- * Seeded board:
+ * Installs a board via app write path after boot:
  * - tasks sink with submitted + input-required items
  * - actor edged via tasks criteria
- * - soft relates edge (no label)
+ * - soft relates edge (must not stamp RELATES)
  *
- * Asserts:
- * - submitted alone does not block the actor
- * - input-required blocks the actor (data-blocked + data-attention=fire)
- * - tasks card glance shows in-flight + need input (not seven-chip pile)
- * - soft edge has no "relates" face label
- * - no browser-access wall / pid chrome in inspector for terminal
+ * Asserts calm/fire phase membership, tasks glance, noise silence.
  */
-import type { A2ATask } from "../../src/shared/canvas";
+import type { A2ATask, CanvasDoc } from "../../src/shared/canvas";
 import {
   a2aTask,
   agentTextNode,
@@ -24,54 +19,86 @@ import {
 } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const CANVAS = "factory-board";
-
 const seededTasks: ReadonlyArray<A2ATask> = [
   a2aTask("open-1", "queue work", "submitted"),
   a2aTask("hot-1", "needs human", "input-required"),
 ];
 
-test.use({
-  vellumOptions: {
-    seedCanvases: {
-      [CANVAS]: canvasDoc(
-        [
-          tasksNode({
-            id: "tasks",
-            x: 40,
-            y: 40,
-            items: seededTasks,
-          }),
-          agentTextNode({
-            id: "worker",
-            key: "local:e2e-worker",
-            label: "worker seat",
-            x: 360,
-            y: 40,
-          }),
-          terminalTextNode({
-            id: "term",
-            bindingId: "e2e-term-1",
-            label: "shell",
-            x: 360,
-            y: 200,
-          }),
-        ],
-        [
-          tasksCriteriaEdge("e-tasks-worker", "tasks", "worker"),
-          // Soft relates — must not paint a RELATES stamp.
-          {
-            id: "e-soft",
-            fromNode: "worker",
-            toNode: "term",
-            fromSide: "bottom",
-            toSide: "top",
-          },
-        ],
-      ),
-    },
-  },
-});
+const fixtureDoc = (): CanvasDoc =>
+  canvasDoc(
+    [
+      tasksNode({ id: "tasks", x: 40, y: 40, items: seededTasks }),
+      agentTextNode({
+        id: "worker",
+        key: "local:e2e-worker",
+        label: "worker seat",
+        x: 360,
+        y: 40,
+      }),
+      terminalTextNode({
+        id: "term",
+        bindingId: "e2e-term-1",
+        label: "shell",
+        x: 360,
+        y: 200,
+      }),
+    ],
+    [
+      tasksCriteriaEdge("e-tasks-worker", "tasks", "worker"),
+      {
+        id: "e-soft",
+        fromNode: "worker",
+        toNode: "term",
+        fromSide: "bottom",
+        toSide: "top",
+      },
+    ],
+  );
+
+/** Authority-only: write fixture into the boot canvas (list[0]). */
+const installBoard = async (
+  page: import("@playwright/test").Page,
+  doc: CanvasDoc,
+): Promise<string> => {
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const runtime = globalThis as unknown as {
+            readonly vellum?: { readonly listCanvases: () => Promise<unknown[]> };
+          };
+          return Boolean(runtime.vellum?.listCanvases);
+        }),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+
+  return page.evaluate(async (document) => {
+    const api = (
+      globalThis as unknown as {
+        readonly vellum: {
+          readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
+          readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
+          readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
+          readonly writeCanvas: (
+            name: string,
+            doc: unknown,
+            expectedRevision?: string,
+          ) => Promise<unknown>;
+        };
+      }
+    ).vellum;
+    let list = await api.listCanvases();
+    let name = list[0]?.name;
+    if (!name) {
+      const created = await api.createCanvas("factory-board");
+      name = created.name;
+    }
+    const read = await api.readCanvas(name);
+    await api.writeCanvas(name, document, read.revision);
+    return name;
+  }, doc);
+};
 
 test("factory board: fire on input-required, calm edges silent, tasks glance", async ({
   vellum,
@@ -79,29 +106,26 @@ test("factory board: fire on input-required, calm edges silent, tasks glance", a
   const { page } = vellum;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  await installBoard(page, fixtureDoc());
 
-  // Tasks card glance-grade (not seven state chips).
   const tasksCard = page.locator('.react-flow__node[data-id="tasks"]');
-  await expect(tasksCard).toBeVisible();
+  await expect(tasksCard).toBeVisible({ timeout: 30_000 });
   await expect(tasksCard.getByTestId("tasks-glance")).toContainText("in flight");
   await expect(tasksCard.getByTestId("tasks-glance")).toContainText("need input");
   await expect(tasksCard.locator("text=SUBMITTED")).toHaveCount(0);
 
-  // Actor is blocked by input-required (physics: actors only).
   const workerShell = page.locator('.react-flow__node[data-id="worker"] .vellum-node');
   await expect(workerShell).toHaveAttribute("data-blocked", "true", { timeout: 15_000 });
   await expect(workerShell).toHaveAttribute("data-attention", "fire");
 
-  // Soft relates edge: no face label "relates".
-  const relatesStamps = page.locator(".vellum-edge-label", { hasText: /^relates$/i });
-  await expect(relatesStamps).toHaveCount(0);
+  // Soft edges stay silent — no face label text "relates" on edge chips.
+  const edgeFace = await page.locator(".vellum-edge-label").allTextContents();
+  expect(edgeFace.every((t) => t.trim().toLowerCase() !== "relates")).toBe(true);
 
-  // Terminal card: no pid dump.
   const term = page.locator('.react-flow__node[data-id="term"]');
   await expect(term).toBeVisible();
   await expect(term.locator("text=/pid \\d+/")).toHaveCount(0);
 
-  // Open terminal inspector — no browser-access instructional wall.
   await term.dblclick();
   await expect(page.locator(".inspector-panel")).toBeVisible({ timeout: 10_000 });
   await expect(page.locator("text=/browser access/i")).toHaveCount(0);
@@ -112,25 +136,32 @@ test("factory board: fire on input-required, calm edges silent, tasks glance", a
 test("submitted-only queue does not block edged actor", async ({ vellum }) => {
   const { page } = vellum;
 
-  // Re-seed via IPC if available is heavy; use evaluate to rewrite work store
-  // through workTaskTransition when possible — simpler: second test uses
-  // a fresh env by replacing task states via window.vellum if exposed.
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  const canvasName = await installBoard(page, fixtureDoc());
 
-  // Transition hot task to completed so only submitted remains → actor unblocks.
-  const hasWork = await page.evaluate(() => typeof window.vellum?.workTaskTransition === "function");
-  expect(hasWork).toBe(true);
-
-  const done = await page.evaluate(async () => {
-    const res = await window.vellum!.workTaskTransition(
-      "factory-board",
-      "tasks",
-      "hot-1",
-      "completed",
-    );
-    return res;
+  await expect(page.locator('.react-flow__node[data-id="worker"]')).toBeVisible({
+    timeout: 30_000,
   });
-  expect(done.ok).toBe(true);
+
+  const done = await page.evaluate(
+    async ({ name }) => {
+      const api = (
+        globalThis as unknown as {
+          readonly vellum: {
+            readonly workTaskTransition: (
+              canvas: string,
+              nodeId: string,
+              taskId: string,
+              state: string,
+            ) => Promise<{ ok: boolean; code?: string; message?: string }>;
+          };
+        }
+      ).vellum;
+      return api.workTaskTransition(name, "tasks", "hot-1", "completed");
+    },
+    { name: canvasName },
+  );
+  expect(done.ok, done.message ?? done.code).toBe(true);
 
   const workerShell = page.locator('.react-flow__node[data-id="worker"] .vellum-node');
   await expect(async () => {
