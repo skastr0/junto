@@ -181,7 +181,7 @@ describe("canvas contract", () => {
     expect(again.nodes.find((n) => n.id === "w1")?.ether?.watch?.source).toBeUndefined();
   });
 
-  it("applyMirrorLaw sets edge label + color for blocks edges and color for blocker nodes", () => {
+  it("applyMirrorLaw mirrors color only — labels stay authorial, stamps strip", () => {
     const doc: CanvasDoc = {
       nodes: [
         { id: "n1", type: "text", text: "Blocker", x: 0, y: 0, width: 200, height: 80, ether: { flags: ["blocker"] } },
@@ -203,12 +203,12 @@ describe("canvas contract", () => {
     expect(plainNode?.color).toBeUndefined();
 
     const blocksEdge = mirrored.edges.find((e) => e.id === "e-blocks");
-    expect(blocksEdge?.label).toBe("blocks");
+    expect(blocksEdge?.label).toBeUndefined();
     expect(blocksEdge?.color).toBe("1");
 
-    // relates phase mirror projects label when kind is set; depends is retired.
+    // Phase never projects into the authorial label field.
     const relatesEdge = mirrored.edges.find((e) => e.id === "e-relates");
-    expect(relatesEdge?.label).toBe("relates");
+    expect(relatesEdge?.label).toBeUndefined();
     expect(relatesEdge?.color).toBeUndefined();
 
     const labeledEdge = mirrored.edges.find((e) => e.id === "e-relates-labeled");
@@ -243,7 +243,8 @@ describe("canvas contract", () => {
     const mirrored = applyMirrorLaw(doc);
     const stuck = mirrored.edges.find((e) => e.id === "e-stuck");
     expect(stuck?.color).toBeUndefined();
-    expect(stuck?.label).toBe("depends");
+    // "depends" is old-mirror vocabulary — stripped on save, not preserved.
+    expect(stuck?.label).toBeUndefined();
     // Soft relates with no kind mirror: leave user color alone.
     const soft = mirrored.edges.find((e) => e.id === "e-soft");
     expect(soft?.color).toBe("4");

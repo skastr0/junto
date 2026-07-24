@@ -655,24 +655,37 @@ export const serializeCanvas = (doc: CanvasDoc): string => {
 };
 
 // Mirror law: extension semantics must remain visible to plain JSON Canvas
-// readers. Applied on every save. Edge ether.kind is a derived phase mirror
-// only (authorial truth is criteria); when present it projects to label/color.
+// readers. Applied on every save. Edge ether.kind is the machine-readable
+// phase mirror and color "1" its visual projection; `label` stays authorial.
+// Labels matching mirror vocabulary were stamped by the old law and are
+// stripped on save so documents self-heal.
+const MIRROR_STAMPED_LABELS: ReadonlySet<string> = new Set(["blocks", "relates", "depends"]);
+
+const withoutMirrorLabel = (edge: CanvasEdge): CanvasEdge => {
+  if (edge.label !== undefined && MIRROR_STAMPED_LABELS.has(edge.label)) {
+    const { label: _l, ...rest } = edge;
+    return rest;
+  }
+  return edge;
+};
+
 export const applyMirrorLaw = (doc: CanvasDoc): CanvasDoc => ({
   nodes: doc.nodes.map((node) =>
     node.ether?.flags?.includes("blocker") ? { ...node, color: "1" } : node,
   ),
   edges: doc.edges.map((edge) => {
-    const kind = edge.ether?.kind;
-    if (kind === undefined) return edge;
+    const base = withoutMirrorLabel(edge);
+    const kind = base.ether?.kind;
+    if (kind === undefined) return base;
     if (kind === "blocks") {
-      return { ...edge, label: edge.label ?? kind, color: "1" as CanvasColor };
+      return { ...base, color: "1" as CanvasColor };
     }
     // Leaving blocks: drop mirror crimson "1" so demotion is visible offline.
-    if (edge.color === "1") {
-      const { color: _c, ...rest } = edge;
-      return { ...rest, label: edge.label ?? kind };
+    if (base.color === "1") {
+      const { color: _c, ...rest } = base;
+      return rest;
     }
-    return { ...edge, label: edge.label ?? kind };
+    return base;
   }),
 });
 

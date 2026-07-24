@@ -18,20 +18,6 @@ export function EtherEdge({
   const phase = data?.phase ?? data?.edge.ether?.kind ?? "relates";
   const detail = data?.detail ?? "";
   const hasCriteria = Boolean(data?.edge.ether?.criteria);
-  // Silence is semantic: only "blocks" (+ short detail) gets face text.
-  // Soft relates / calm depends stay unlabeled; authorial edge.label still shows.
-  const label =
-    phase === "blocks" && detail
-      ? `blocks · ${detail.length > 28 ? `${detail.slice(0, 26)}…` : detail}`
-      : phase === "blocks"
-        ? "blocks"
-        : (data?.edge.label ?? "");
-  const title =
-    phase === "blocks" && detail
-      ? `blocks · ${detail}`
-      : phase === "blocks"
-        ? "blocks"
-        : data?.edge.label || undefined;
   const rippling = data?.rippling ?? false;
   // Prefer live phase palette; only honor non-mirror accents (not stuck "1").
   const color =
@@ -74,39 +60,21 @@ export function EtherEdge({
         }}
       />
       <EdgeLabelRenderer>
-        {label || title ? (
+        {/* Edge faces are silent by design: phase reads through stroke color,
+            node attention states, and the stoppage rank; details live in the
+            edge inspector on selection. This midpoint target only aids
+            clicking (paths already select) and screen readers. */}
         <button
-          aria-label={label ? `Select edge · ${label}` : "Select edge"}
-          className={[
-            "nodrag nopan vellum-edge-label",
-            impactIn ? "vellum-edge-label--impact-in" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          style={{ top: labelY, left: labelX }}
-          title={title}
+          type="button"
+          aria-label={detail ? `Select edge · ${phase} · ${detail}` : `Select edge · ${phase}`}
+          className="nodrag nopan vellum-edge-label vellum-edge-label--silent"
+          style={{ top: labelY, left: labelX, opacity: 0, width: 14, height: 14, padding: 0 }}
           onClick={(e) => {
             e.stopPropagation();
-            // Select for inspector — do not cycle kind (that was the old model).
             state$.selectedNodeId.set("");
             state$.selectedEdgeId.set(id);
           }}
-        >
-          {label}
-        </button>
-        ) : (
-          <button
-            type="button"
-            aria-label="Select edge"
-            className="nodrag nopan vellum-edge-label vellum-edge-label--silent"
-            style={{ top: labelY, left: labelX, opacity: 0, width: 12, height: 12, padding: 0 }}
-            onClick={(e) => {
-              e.stopPropagation();
-              state$.selectedNodeId.set("");
-              state$.selectedEdgeId.set(id);
-            }}
-          />
-        )}
+        />
       </EdgeLabelRenderer>
     </>
   );
