@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Background,
@@ -54,6 +54,8 @@ import {
   makeTextNode,
 } from "../lib/node-factories";
 import { openHerdrWizard } from "../lib/herdr-state";
+import { describeConnectPreview } from "../lib/connect-preview";
+import { resolveSpec, roleOf, type FactoryRoleName } from "@shared/physics";
 import { GROUND, HUE } from "../lib/theme";
 import type { MemberSeverity } from "@shared/region-rollup";
 import { minimapFill, signalMark } from "../lib/signal-mark";
@@ -729,12 +731,29 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
   }, [active, dismiss]);
 };
 
+// Palette sections — derived from the same roleOf the capability kernel
+// uses (region + furniture fold into Geography: neither holds a seat nor
+// wields an ocap). Never a hand-maintained per-entry group list.
+type PaletteGroup = "Actors" | "Sinks" | "Schedulers" | "Geography";
+
+const PALETTE_GROUP_BY_ROLE: Record<FactoryRoleName, PaletteGroup> = {
+  actor: "Actors",
+  sink: "Sinks",
+  scheduler: "Schedulers",
+  region: "Geography",
+  furniture: "Geography",
+};
+
+const paletteGroupFor = (kind: string | undefined, isGroupNode: boolean): PaletteGroup =>
+  PALETTE_GROUP_BY_ROLE[roleOf(resolveSpec({ isGroup: isGroupNode, kind }))];
+
 type MenuEntry = {
   readonly key: string;
   readonly label: string;
   readonly sub: string;
   readonly icon: React.ReactNode;
   readonly ariaLabel: string;
+  readonly group: PaletteGroup;
   readonly onSelect: () => void;
 };
 
@@ -759,21 +778,23 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
     inputRef.current?.focus();
   }, [picker]);
 
+  // Grouped Actors / Sinks / Schedulers / Geography, in that order — group
+  // membership is paletteGroupFor(kind, isGroup), never authored per entry.
   const entries: ReadonlyArray<MenuEntry> = !picker
     ? [
-      { key: "text", label: "note", sub: "freeform text", icon: <FileText size={14} />, ariaLabel: "Add note", onSelect: () => actions.create("text") },
-      { key: "file", label: "file", sub: "workspace path", icon: <FileText size={14} />, ariaLabel: "Add file", onSelect: () => actions.create("file") },
-      { key: "link", label: "link", sub: "web reference", icon: <Link2 size={14} />, ariaLabel: "Add link", onSelect: () => actions.create("link") },
-      { key: "group", label: "region", sub: "spatial container", icon: <SquareDashed size={14} />, ariaLabel: "Add region", onSelect: () => actions.create("group") },
-      { key: "watcher", label: "watcher", sub: "condition over live data", icon: <Eye size={14} />, ariaLabel: "Add watcher", onSelect: () => actions.addWatcher() },
-      { key: "timer", label: "timer", sub: "pulse on an interval", icon: <Timer size={14} />, ariaLabel: "Add timer", onSelect: () => actions.addTimer() },
-      { key: "tasks", label: "tasks", sub: "A2A task list · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", onSelect: () => actions.addTasks() },
-      { key: "requests", label: "requests", sub: "input-required · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add requests", onSelect: () => actions.addRequests() },
-      { key: "artifacts", label: "artifacts", sub: "published parts shelf", icon: <FileText size={14} />, ariaLabel: "Add artifacts", onSelect: () => actions.addArtifacts() },
-      { key: "terminal", label: "terminal", sub: "native work surface · default", icon: <Terminal size={14} />, ariaLabel: "Add native terminal work surface", onSelect: () => actions.addTerminal() },
-      { key: "herdr", label: "Herdr (legacy)", sub: "optional · attach existing pane", icon: <Terminal size={14} />, ariaLabel: "Add legacy herdr work surface", onSelect: () => actions.addHerdr() },
-      { key: "page", label: "page", sub: "work surface · browser session", icon: <Globe size={14} />, ariaLabel: "Add browser page work surface", onSelect: () => actions.addPage() },
-      { key: "agent", label: "agent", sub: "hermes profile", icon: <Bot size={14} />, ariaLabel: "Add agent", onSelect: () => setPicker("agent") },
+      { key: "agent", label: "agent", sub: "hermes profile", icon: <Bot size={14} />, ariaLabel: "Add agent", group: paletteGroupFor("agent", false), onSelect: () => setPicker("agent") },
+      { key: "terminal", label: "terminal", sub: "native work surface · default", icon: <Terminal size={14} />, ariaLabel: "Add native terminal work surface", group: paletteGroupFor("terminal", false), onSelect: () => actions.addTerminal() },
+      { key: "herdr", label: "Herdr (legacy)", sub: "optional · attach existing pane", icon: <Terminal size={14} />, ariaLabel: "Add legacy herdr work surface", group: paletteGroupFor("herdr", false), onSelect: () => actions.addHerdr() },
+      { key: "tasks", label: "tasks", sub: "A2A task list · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", group: paletteGroupFor("task", false), onSelect: () => actions.addTasks() },
+      { key: "requests", label: "requests", sub: "input-required · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add requests", group: paletteGroupFor("requests", false), onSelect: () => actions.addRequests() },
+      { key: "artifacts", label: "artifacts", sub: "published parts shelf", icon: <FileText size={14} />, ariaLabel: "Add artifacts", group: paletteGroupFor("artifacts", false), onSelect: () => actions.addArtifacts() },
+      { key: "page", label: "page", sub: "work surface · browser session", icon: <Globe size={14} />, ariaLabel: "Add browser page work surface", group: paletteGroupFor("page", false), onSelect: () => actions.addPage() },
+      { key: "watcher", label: "watcher", sub: "condition over live data", icon: <Eye size={14} />, ariaLabel: "Add watcher", group: paletteGroupFor("watcher", false), onSelect: () => actions.addWatcher() },
+      { key: "timer", label: "timer", sub: "pulse on an interval", icon: <Timer size={14} />, ariaLabel: "Add timer", group: paletteGroupFor("timer", false), onSelect: () => actions.addTimer() },
+      { key: "text", label: "note", sub: "freeform text", icon: <FileText size={14} />, ariaLabel: "Add note", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("text") },
+      { key: "file", label: "file", sub: "workspace path", icon: <FileText size={14} />, ariaLabel: "Add file", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("file") },
+      { key: "link", label: "link", sub: "web reference", icon: <Link2 size={14} />, ariaLabel: "Add link", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("link") },
+      { key: "group", label: "region", sub: "spatial container", icon: <SquareDashed size={14} />, ariaLabel: "Add region", group: paletteGroupFor(undefined, true), onSelect: () => actions.create("group") },
     ]
     : agents.map((agent) => {
         const hostLabel = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
@@ -785,6 +806,7 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
           sub: hostLabel ?? hostId,
           icon: <Bot size={13} />,
           ariaLabel: `Add agent ${title}`,
+          group: "Actors" as const,
           onSelect: () =>
             actions.addAgent(
               hostLabel ? `${title} · ${hostLabel}` : title,
@@ -831,18 +853,29 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
     />
     {isPicker && entries.length === 0 ? <div className="node-palette__picker-empty">{emptyLabel}</div>
       : filtered.length === 0 ? <div className="node-palette__picker-empty">No matches.</div>
-        : filtered.map((entry, index) => (
-          <button
-            key={entry.key}
-            role={isPicker ? "option" : undefined}
-            aria-label={entry.ariaLabel}
-            className={index === activeIndex ? "is-active" : undefined}
-            onMouseEnter={() => setHighlighted(index)}
-            onClick={entry.onSelect}
-          >
-            {entry.icon}<span><strong>{entry.label}</strong><small>{entry.sub}</small></span>
-          </button>
-        ))}
+        : (() => {
+            // Root menu is already group-major order — a header renders once
+            // per group boundary crossed while walking the filtered list.
+            let lastGroup: PaletteGroup | null = null;
+            return filtered.map((entry, index) => {
+              const showHeader = !isPicker && entry.group !== lastGroup;
+              lastGroup = entry.group;
+              return (
+                <Fragment key={entry.key}>
+                  {showHeader ? <div className="node-palette__group-label">{entry.group}</div> : null}
+                  <button
+                    role={isPicker ? "option" : undefined}
+                    aria-label={entry.ariaLabel}
+                    className={index === activeIndex ? "is-active" : undefined}
+                    onMouseEnter={() => setHighlighted(index)}
+                    onClick={entry.onSelect}
+                  >
+                    {entry.icon}<span><strong>{entry.label}</strong><small>{entry.sub}</small></span>
+                  </button>
+                </Fragment>
+              );
+            });
+          })()}
   </div>;
 }
 
@@ -1186,6 +1219,26 @@ function ImpactSeedChip() {
   );
 }
 
+/**
+ * Connect preview — role pair + would-be grant, live while a connection drag
+ * hovers a candidate target, before the edge is drawn. Copy is computed by
+ * describeConnectPreview (defaultGrantForRoles + target offers, the same
+ * inputs admit itself uses) — never a hardcoded per-pair table.
+ */
+function ConnectPreviewChip() {
+  const connection = useConnection<FlowNode>();
+  if (!connection.inProgress || !connection.toNode) return null;
+  const preview = describeConnectPreview(connection.fromNode.data.node, connection.toNode.data.node);
+  return (
+    <Panel position="top-center" className="connect-preview-panel">
+      <div className="connect-preview-chip" role="status" aria-live="polite">
+        <span className="connect-preview-chip__pair">{preview.fromRole} → {preview.toRole}</span>
+        <span className="connect-preview-chip__grant">{preview.label}</span>
+      </div>
+    </Panel>
+  );
+}
+
 function CanvasGraph() {
   const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
   // While a connection drag is live, every card shows its dots so targets are
@@ -1336,6 +1389,7 @@ function CanvasGraph() {
     >
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
       <ImpactSeedChip />
+      <ConnectPreviewChip />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>
         <RtsBottomBar tools={<CanvasFieldTools />} minimap={<RtsMinimapStack />} />

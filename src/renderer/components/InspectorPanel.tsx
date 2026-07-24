@@ -5,7 +5,7 @@ import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import { deriveExecutionGraph } from "@shared/execution-graph";
 import { deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../lib/edge-mutations";
-import { EdgeCapabilitySection, EdgeCriteriaEditor, NodeCapabilityInventory, NodeFieldEditors } from "./InspectorFields";
+import { EdgeCapabilitySection, EdgeCriteriaEditor, EdgePortsAttenuator, NodeCapabilityInventory, NodeFieldEditors } from "./InspectorFields";
 import { clearSelection, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { DIM, GREEN, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
@@ -325,6 +325,7 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
           <span>{target ? nodeTitle(target) : edge.toNode}</span>
         </div>
         <EdgeCapabilitySection edge={edge} fromNode={source} toNode={target} />
+        <EdgePortsAttenuator edge={edge} />
         <EdgeCriteriaEditor
           edgeId={edge.id}
           fromNode={source}

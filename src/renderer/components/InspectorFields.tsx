@@ -20,7 +20,8 @@ import {
   type PortName,
   type ResolvedSpecValue,
 } from "@shared/physics";
-import { addEdge, setEdgeCriteria } from "../lib/edge-mutations";
+import { addEdge, setEdgeCriteria, setEdgePorts } from "../lib/edge-mutations";
+import { specOf } from "../lib/node-spec";
 import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTimer, setNodeView, setNodeWatch, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
@@ -30,15 +31,9 @@ import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
 
 // ---------------------------------------------------------------------------
-// Factory physics — capability inventory (read-only; setEdgePorts for later)
+// Factory physics — capability inventory (read-only) + "limit this key" editor
 
 const decodePort = Schema.decodeUnknownOption(Port);
-
-const specOf = (node: CanvasNode | undefined): ResolvedSpecValue =>
-  resolveSpec({
-    isGroup: node !== undefined && isGroup(node),
-    kind: node?.ether?.entity?.kind,
-  });
 
 /** Valid edge.ether.ports → mask; absent / empty / all-invalid → undefined (full offers). */
 const readEdgePortMask = (
@@ -160,6 +155,75 @@ export function EdgeCapabilitySection({
       <div className="inspector-detail" style={{ marginTop: 8 }}>
         Access plane only — does not block work. Phase filter is separate below.
       </div>
+    </div>
+  );
+}
+
+/**
+ * "Limit this key" — explicit port allow-list editor for `edge.ether.ports`.
+ * Absent field means full default (every port the target offers); the mask
+ * array, when present, is an explicit allow-list. Toggling a port off the
+ * allow-list down to zero clears the field entirely — the editor can never
+ * write `ports: []`, which would (under attenuation) grant nothing at all
+ * instead of restoring the full default.
+ */
+export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
+  const mask = readEdgePortMask(edge);
+  const active = mask ?? HashSet.empty<PortName>();
+
+  const commit = (next: HashSet.HashSet<PortName>): void => {
+    if (HashSet.size(next) === 0) {
+      setEdgePorts(edge.id, undefined);
+      return;
+    }
+    setEdgePorts(edge.id, [...HashSet.values(next)]);
+  };
+
+  const toggle = (port: PortName): void => {
+    commit(HashSet.has(active, port) ? HashSet.remove(active, port) : HashSet.add(active, port));
+  };
+
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">limit this key</div>
+      <div className="inspector-detail" style={{ marginBottom: 8 }}>
+        {mask === undefined
+          ? "Full default — every port the target offers. Toggle a port to start an explicit allow-list."
+          : "Explicit allow-list. Toggling off the last port restores full default."}
+      </div>
+      <div className="inspector-flags" role="list" aria-label="Limit edge ports">
+        {ALL_PORTS.map((port) => {
+          const isActive = HashSet.has(active, port);
+          return (
+            <button
+              key={port}
+              type="button"
+              role="listitem"
+              aria-pressed={isActive}
+              className="inspector-flag-toggle"
+              title={port}
+              style={{
+                color: isActive ? HUE.cyan : "#68604a",
+                borderColor: isActive ? withAlpha(HUE.cyan, 0.5) : "rgba(237,230,218,.12)",
+                background: isActive ? withAlpha(HUE.cyan, 0.1) : "rgba(255,255,255,.02)",
+              }}
+              onClick={() => toggle(port)}
+            >
+              {port}
+            </button>
+          );
+        })}
+      </div>
+      {mask !== undefined ? (
+        <button
+          type="button"
+          className="inspector-flag-toggle"
+          style={{ marginTop: 8 }}
+          onClick={() => setEdgePorts(edge.id, undefined)}
+        >
+          restore full default
+        </button>
+      ) : null}
     </div>
   );
 }
