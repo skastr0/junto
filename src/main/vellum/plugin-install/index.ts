@@ -1,6 +1,9 @@
 /**
- * Packager-embed plugin install — compile via `@skastr0/prism-packager`,
+ * Packager-embed plugin install — compile via Bun subprocess
+ * (`scripts/package-plugin-dry-run.ts` + `@skastr0/prism-packager`),
  * apply DesiredFile[] locally or over SshTransport.
+ *
+ * Never import prism-packager in the Electron Node process.
  */
 
 export type {

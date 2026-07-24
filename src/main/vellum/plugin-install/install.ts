@@ -2,12 +2,6 @@
  * Orchestration: packager dryRun compile → apply DesiredFile[] local or remote.
  */
 
-import type {
-  HarnessId,
-  HarnessScope,
-  PackageResult,
-  PackageWriteOperation,
-} from "@skastr0/prism-packager";
 import { Effect, Schema } from "effect";
 import type { SshEndpoint } from "../ssh/domain";
 import type { SshTransport } from "../ssh/service";
@@ -22,6 +16,12 @@ import {
 import type { ApplyOperation, ApplyReceipt, DesiredFile } from "./desired";
 import { compilePluginPackage } from "./package";
 import { PathSafetyError, rehomeDesiredFiles } from "./paths";
+import type {
+  HarnessId,
+  HarnessScope,
+  PackageResult,
+  PackageWriteOperation,
+} from "./types";
 
 export class InstallError extends Schema.TaggedError<InstallError>()("InstallError", {
   kind: Schema.Literal("compile", "apply", "validation", "path", "ssh"),

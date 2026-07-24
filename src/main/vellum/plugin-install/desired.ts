@@ -1,15 +1,13 @@
 /**
  * DesiredFile transport for packager-embed install.
- *
- * Do not fork packager types — re-export the source of truth and expose a thin
- * Effect Schema for IPC / ledger boundaries.
+ * Local types only — no runtime import from @skastr0/prism-packager (Bun-only).
  */
 
-import type { DesiredFile as PackagerDesiredFile } from "@skastr0/prism-packager";
 import { Schema } from "effect";
+import type { DesiredFile as LocalDesiredFile } from "./types";
 
 /** Packager DesiredFile — path + content + optional mode. */
-export type DesiredFile = PackagerDesiredFile;
+export type DesiredFile = LocalDesiredFile;
 
 /**
  * Wire schema for DesiredFile. `plugin` is diagnostic attribution from the

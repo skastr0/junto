@@ -215,7 +215,8 @@ describe("compilePluginPackage", () => {
         expect(file.plugin).toBe("minimal-prism-plugin");
       }
       // dryRun must not write package root payloads
-      await expect(readFile(result.manifestPath, "utf8")).rejects.toThrow();
+      expect(result.manifestPath).toBeTruthy();
+      await expect(readFile(result.manifestPath!, "utf8")).rejects.toThrow();
     },
   );
 

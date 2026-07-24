@@ -1,14 +1,14 @@
 /**
  * Closed harness set for Fleet install UI / IPC (Tier-3 minimum + expand carefully).
+ * Local string union — no import from @skastr0/prism-packager (Bun-only package).
  */
-import type { HarnessId } from "@skastr0/prism-packager";
 
 export const FLEET_PLUGIN_TARGETS = [
   "claude-code",
   "codex-cli",
   "grok",
   "hermes",
-] as const satisfies ReadonlyArray<HarnessId>;
+] as const;
 
 export type FleetPluginTarget = (typeof FLEET_PLUGIN_TARGETS)[number];
 
