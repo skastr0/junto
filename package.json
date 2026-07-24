@@ -21,6 +21,7 @@
   "main": "./out/main/index.js",
   "packageManager": "bun@1.3.13",
   "scripts": {
+    "postinstall": "bun scripts/ensure-node-pty-perms.ts",
     "dev": "electron-vite dev",
     "build": "bash scripts/build-app.sh --fast",
     "build:pack": "bun scripts/electron-security-policy.ts prepare-package && bun run electron:policy:validate && electron-vite build && electron-builder",
