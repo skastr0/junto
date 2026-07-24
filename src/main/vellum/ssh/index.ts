@@ -31,7 +31,9 @@ export {
 export { SshTransportLive } from "./live";
 export { makeScopedPromiseRunner, type ScopedPromiseRunner } from "./scoped-runner";
 export {
-  compileDarwinRemoteDeployScript,
+  // Darwin freeform deploy compiler is intentionally not public: beta keeps
+  // Darwin Remote deploy capability-gated, and the freeform bash -lc mint must
+  // not be reachable from the product barrel (hosts deep-import remote-plan).
   compileHerdrImageStage,
   compileLinuxReleaseBridge,
   compileLinuxRemotePreflight,
@@ -41,6 +43,7 @@ export {
   compileRemoteSettingsRestore,
   compileRemoteSettingsSnapshot,
   compileRemoteSettingsStamp,
+  compileRemoteTopologyEvidencePresence,
   compileRemoteTopologySealPresence,
   confineHerdrStagePath,
   confineVellumDirectory,

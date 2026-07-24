@@ -146,7 +146,8 @@ posture:
 
 | Site | Class |
 |---|---|
-| `hosts/deploy-darwin.ts` remote install ceremony | KEEP for now — macOS package/installer ceremony |
+| `hosts/deploy-darwin.ts` remote install ceremony | **BETA-GATED** — `RELEASE_CAPABILITIES.darwinRemoteDeploy=false` refuses load/entry before `compileDarwinRemoteDeployScript` / `bash -lc`. Dormant code kept; not on public `ssh` barrel. |
+| `makeRemoteCommand` freeform mint | **SEALED** — single WeakMap brand; mint only inside `ssh/*` named compilers/read-commands. No parallel command types. |
 | `build/linux/*` package hooks / launcher | KEEP — package-owned assets, not runtime-authored |
 | `control-filesystem.ts` lockf hold one-liner | KEEP — local Darwin lock, fixed tokens |
 | Hermes identity/avatar | MIGRATED — closed sources in hermes-remote-plan |

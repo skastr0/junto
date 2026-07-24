@@ -15,6 +15,10 @@ import { basename, dirname, join, resolve } from "node:path";
 import type { Context } from "effect";
 import { Effect, Stream } from "effect";
 import { controlSocketPath as browserControlSocketPath } from "@shared/browser-control";
+import {
+  DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
+  RELEASE_CAPABILITIES,
+} from "@shared/release-capabilities";
 import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
 import type { SshEndpoint } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
@@ -1037,6 +1041,19 @@ const deployDarwinRemote = (
     const stages: string[] = [];
     const { ssh, target } = input;
     const { host } = target;
+    // Beta Cut 3: refuse before any freeform bash -lc script compilation.
+    // Production loader also gates on RELEASE_CAPABILITIES.darwinRemoteDeploy
+    // before importing this module; this is defense-in-depth for direct import.
+    if (!RELEASE_CAPABILITIES.darwinRemoteDeploy) {
+      return {
+        ok: false,
+        detail: DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
+        code: "validation" as const,
+        message: DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
+        stages,
+        disposition: "not-started" as const,
+      };
+    }
     if (target.platform.platform !== "darwin") {
       return {
         ok: false,

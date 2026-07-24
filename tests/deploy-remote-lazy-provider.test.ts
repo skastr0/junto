@@ -102,38 +102,63 @@ describe("Remote deployment provider evaluation", () => {
     expect(providerEvaluations).toEqual({ darwin: 0, linux: 0 });
   });
 
-  it.each([
-    ["Linux\n", "linux", "linux ready"],
-    ["Darwin\n", "darwin", "darwin ready"],
-  ] as const)(
-    "evaluates only the admitted %s provider branch",
-    async (uname, selected, detail) => {
-      const {
-        loadRemoteDeploymentProvider,
-        makeRemoteDeploymentDispatcher,
-      } = await import("../src/main/vellum/hosts/deploy-remote");
-      const dispatcher = makeRemoteDeploymentDispatcher({
-        commandCenterPlatform: "darwin",
-        loadProvider: loadRemoteDeploymentProvider,
-      });
+  it("evaluates only the admitted Linux provider branch", async () => {
+    const {
+      loadRemoteDeploymentProvider,
+      makeRemoteDeploymentDispatcher,
+    } = await import("../src/main/vellum/hosts/deploy-remote");
+    const dispatcher = makeRemoteDeploymentDispatcher({
+      commandCenterPlatform: "darwin",
+      loadProvider: loadRemoteDeploymentProvider,
+    });
 
-      expect(providerEvaluations).toEqual({ darwin: 0, linux: 0 });
+    expect(providerEvaluations).toEqual({ darwin: 0, linux: 0 });
 
-      const result = await Effect.runPromise(
-        dispatcher.deploy(makeSsh(uname) as never, host, {
-          state: "managed-externally",
-        }),
-      );
+    const result = await Effect.runPromise(
+      dispatcher.deploy(makeSsh("Linux\n") as never, host, {
+        state: "managed-externally",
+      }),
+    );
 
-      expect(result).toMatchObject({
-        ok: true,
-        detail,
-        disposition: "ready",
-      });
-      expect(providerEvaluations.darwin).toBe(selected === "darwin" ? 1 : 0);
-      expect(providerEvaluations.linux).toBe(selected === "linux" ? 1 : 0);
-    },
-  );
+    expect(result).toMatchObject({
+      ok: true,
+      detail: "linux ready",
+      disposition: "ready",
+    });
+    expect(providerEvaluations).toEqual({ darwin: 0, linux: 1 });
+  });
+
+  it("refuses Darwin provider load under beta without evaluating deploy-darwin", async () => {
+    const { DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL } = await import(
+      "../src/shared/release-capabilities"
+    );
+    const {
+      loadRemoteDeploymentProvider,
+      makeRemoteDeploymentDispatcher,
+    } = await import("../src/main/vellum/hosts/deploy-remote");
+
+    await expect(loadRemoteDeploymentProvider("darwin")).rejects.toThrow(
+      DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
+    );
+    expect(providerEvaluations).toEqual({ darwin: 0, linux: 0 });
+
+    const dispatcher = makeRemoteDeploymentDispatcher({
+      commandCenterPlatform: "darwin",
+      loadProvider: loadRemoteDeploymentProvider,
+    });
+    const result = await Effect.runPromise(
+      dispatcher.deploy(makeSsh("Darwin\n") as never, host, {
+        state: "managed-externally",
+      }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      code: "validation",
+      disposition: "not-started",
+      message: "remote deployment provider unavailable",
+    });
+    expect(providerEvaluations).toEqual({ darwin: 0, linux: 0 });
+  });
 
   it("fails closed on an unsupported target without evaluating a provider", async () => {
     const {

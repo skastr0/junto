@@ -52,3 +52,17 @@ Staging enrollment is not readiness. SSH exit zero alone is not fleet sync.
 Do not label the beta production-ready or fleet-grade until native Ubuntu
 acceptance (CC + Remote + projection interruption/reboot scenarios) and the
 existing signed release lane promote an exact artifact.
+
+## Cut 3 residual — SSH command construction
+
+Beta seals freeform remote command mint behind named recipes. Residual debt
+is intentional and must not grow:
+
+| Item | Status |
+|---|---|
+| `makeRemoteCommand` | Single WeakMap brand in `ssh/domain.ts`; **not** on `ssh/index.ts`. Mint only from `remote-plan` / `hermes-remote-plan` / `read-commands` (+ kernel tests). Architecture tests ban product imports. |
+| Named recipes | Product hosts use read constructors + plan compilers only. |
+| Darwin `bash -lc` | `compileDarwinRemoteDeployScript` remains in `remote-plan` for dormant Darwin code/tests; **not** public. Product path refused first via `RELEASE_CAPABILITIES.darwinRemoteDeploy` (loader + provider entry) — no script compile on beta fleet path. |
+| Parallel command types | **Do not invent** separate WeakMap brands for sh vs bash vs argv — seal at named-compiler boundary. |
+
+Post-beta: re-enable `darwinRemoteDeploy` only with an explicit product decision; prefer migrating Darwin install ceremony toward typed plans before widening the freeform surface.

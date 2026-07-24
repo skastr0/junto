@@ -110,10 +110,13 @@ describe("SSH domain", () => {
     type HasGenericStdin = "makeRemoteStdin" extends keyof PublicSsh ? true : false;
     type HasOneShot = "oneShot" extends keyof PublicSsh ? true : false;
     type HasDedicatedStream = "dedicatedStream" extends keyof PublicSsh ? true : false;
+    type HasDarwinFreeform =
+      "compileDarwinRemoteDeployScript" extends keyof PublicSsh ? true : false;
 
     expectTypeOf<HasGenericCommand>().toEqualTypeOf<false>();
     expectTypeOf<HasGenericStdin>().toEqualTypeOf<false>();
     expectTypeOf<HasOneShot>().toEqualTypeOf<false>();
     expectTypeOf<HasDedicatedStream>().toEqualTypeOf<false>();
+    expectTypeOf<HasDarwinFreeform>().toEqualTypeOf<false>();
   });
 });

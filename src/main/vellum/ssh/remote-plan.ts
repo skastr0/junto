@@ -939,6 +939,13 @@ export const compileLinuxReleaseBridge = (): Effect.Effect<
 /**
  * Darwin app stream receiver: product deploy script as `bash -lc <source>`.
  *
+ * **Beta residual (Cut 3):** not on the public `ssh` barrel. Product load of
+ * the Darwin provider is refused first via `RELEASE_CAPABILITIES.darwinRemoteDeploy`
+ * (see `hosts/deploy-remote.ts` + `deploy-darwin.ts` entry gate). This compiler
+ * remains for dormant Darwin code + unit tests; free-form shell is refused by
+ * product markers. Single WeakMap mint (`makeRemoteCommand`) — no parallel
+ * command brands for bash vs argv recipes.
+ *
  * Source must be the Vellum Darwin deploy program (product markers required).
  * Free-form shell — including `rm -rf -- /` — is not a product deploy script.
  */

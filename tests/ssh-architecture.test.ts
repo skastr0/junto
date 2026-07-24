@@ -130,6 +130,48 @@ describe("SSH architecture", () => {
     expect(violations).toEqual([]);
   });
 
+  it("public ssh barrel does not export makeRemoteCommand or Darwin freeform compiler", () => {
+    const barrel = readFileSync(join(root, "src/main/vellum/ssh/index.ts"), "utf8");
+    expect(barrel).not.toMatch(/\bmakeRemoteCommand\b/u);
+    expect(barrel).not.toMatch(/\bcompileDarwinRemoteDeployScript\b/u);
+  });
+
+  it("hosts never freeform-construct bash -lc remote shell", () => {
+    // Darwin residual freeform lives only behind compileDarwinRemoteDeployScript
+    // in ssh/remote-plan.ts. Product hosts must not mint bash -lc argv themselves.
+    const freeformBashLc = [
+      /["'`]bash["'`]\s*,\s*\[\s*["'`]-lc["'`]/u,
+      /makeRemoteCommand\s*\(\s*["'`]bash["'`]/u,
+      /\[\s*["'`]bash["'`]\s*,\s*["'`]-lc["'`]/u,
+      /spawn(?:Sync)?\s*\(\s*["'`](?:\/[^"'`]+\/)?bash["'`]\s*,\s*\[\s*["'`]-lc["'`]/u,
+    ];
+    const hostFiles = files.filter((path) =>
+      display(path).startsWith("src/main/vellum/hosts/"),
+    );
+    const violations = hostFiles.flatMap((path) => {
+      const source = readFileSync(path, "utf8");
+      return freeformBashLc.some((pattern) => pattern.test(source))
+        ? [display(path)]
+        : [];
+    });
+    expect(violations).toEqual([]);
+  });
+
+  it("compileDarwinRemoteDeployScript is confined to residual Darwin path + compiler", () => {
+    const allowed = new Set([
+      "src/main/vellum/ssh/remote-plan.ts",
+      "src/main/vellum/hosts/deploy-darwin.ts",
+    ]);
+    const importOrCall = /\bcompileDarwinRemoteDeployScript\b/u;
+    const violations = files.flatMap((path) => {
+      const name = display(path);
+      if (!name.startsWith("src/")) return [];
+      if (allowed.has(name)) return [];
+      return importOrCall.test(readFileSync(path, "utf8")) ? [name] : [];
+    });
+    expect(violations).toEqual([]);
+  });
+
   it("reserves shared ControlMaster -O exit for the explicit teardown op, never Layer/Scope disposal", () => {
     // Shared masters are command-scoped (ControlPersist=no), but a headless
     // CLI and the GUI may concurrently share the same ControlPath while the
