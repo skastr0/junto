@@ -39,7 +39,7 @@ echo "$$" > ${shellQuote(vellumPid)}
 work="$HOME/.vellum/work"
 mkdir -p "$work"
 printf 'test-token\\n' > "$work/token"
-printf '%s' "$INVOCATION_ID" > "$XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID"
+printf '%s\n' "$INVOCATION_ID" > "$XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID"
 exec python3 - "$work/control.sock" <<'PY'
 import os, socket, sys, time
 path = sys.argv[1]
@@ -376,8 +376,13 @@ PY
         `XDG_STATE_HOME=${join(sandbox.root, ".local", "state")}`,
       ]);
       const argv = wrapperArguments.split("\0").filter(Boolean);
-      expect(["/bin/sh", "/bin/dash", "/usr/bin/dash"]).toContain(argv[0]);
-      expect(argv.slice(1)).toEqual([sandbox.launcher, "--clean"]);
+      // OrbStack (and some qemu-user hosts) prefix the interpreter with
+      // qemu-x86_64; product contract is still: shell runs launcher --clean.
+      const shellIdx = argv.findIndex((token) =>
+        ["/bin/sh", "/bin/dash", "/usr/bin/dash"].includes(token),
+      );
+      expect(shellIdx).toBeGreaterThanOrEqual(0);
+      expect(argv.slice(shellIdx + 1)).toEqual([sandbox.launcher, "--clean"]);
       wrapper.kill("SIGTERM");
       const wrapperExit = await new Promise<number | null>((resolve, reject) => {
         wrapper.once("error", reject);

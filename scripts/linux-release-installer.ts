@@ -352,6 +352,10 @@ export interface LinuxReleaseInstallerHost {
     invocation: LinuxReleaseInstallerInvocation,
     version: string,
   ) => Promise<LinuxReleaseInstallerReadinessEvidence>;
+  /** Unit InvocationID for the live Remote service (work-control generation). */
+  readonly currentServiceGeneration: (
+    invocation: LinuxReleaseInstallerInvocation,
+  ) => Promise<string>;
   readonly verifyCurrentReadiness: (
     invocation: LinuxReleaseInstallerInvocation,
     version: string,
@@ -1025,12 +1029,20 @@ const recoverInterruptedTransaction = async (
             : "interrupted transaction recovery failed",
         );
       }
-      lease = await fenceControl.acquire();
-      await lease.acknowledge(authority);
+      // TermControl lease is observational after package restore.
+      try {
+        lease = await fenceControl.acquire();
+        await lease.acknowledge(authority);
+      } catch {
+        await lease?.release().catch(() => undefined);
+        lease = undefined;
+      }
     }
+    let recoveryGeneration: string | undefined = lease?.peer.generation;
     if (
       recovering.fence.postGeneration !== null &&
-      recovering.fence.postGeneration !== lease.peer.generation
+      recoveryGeneration !== undefined &&
+      recovering.fence.postGeneration !== recoveryGeneration
     ) {
       throw new InstallerError(
         "unsafe-state",
@@ -1051,12 +1063,21 @@ const recoverInterruptedTransaction = async (
           "recovered fence requires an authoritative active generation",
         );
       }
+      if (recoveryGeneration === undefined) {
+        recoveryGeneration = await host.currentServiceGeneration(invocation);
+      }
       await host.verifyCurrentReadiness(
         invocation,
         expectedVersion,
-        lease.peer.generation,
+        recoveryGeneration,
       );
+    } else if (recoveryGeneration === undefined) {
+      // Aborted without a live TermControl lease: postGeneration still required.
+      recoveryGeneration = recovering.fence.postGeneration ??
+        await host.currentServiceGeneration(invocation);
     }
+    const postGeneration = recoveryGeneration ??
+      await host.currentServiceGeneration(invocation);
     const acknowledgedPhase: LinuxReleaseInstallerJournalPhase =
       resolution === "rollback"
         ? "rollback-acknowledged"
@@ -1081,7 +1102,7 @@ const recoverInterruptedTransaction = async (
         owner: invocation.process,
         fence: {
           ...recovering.fence,
-          postGeneration: lease.peer.generation,
+          postGeneration,
         },
         phase: acknowledgedPhase,
       };
@@ -1488,7 +1509,7 @@ const runPreparedInstall = async (
       await host.writeJournal(activeJournal);
       // Boot gate is generation + work control only (production contract).
       // TermControl is observational: best-effort fence for terminal cut-over.
-      // Missing TermControl must not roll back a work-ready package.
+      // Missing or stale TermControl must not roll back a work-ready package.
       {
         const fenceDeadline = Date.now() + 5_000;
         while (Date.now() < fenceDeadline) {
@@ -1501,26 +1522,32 @@ const runPreparedInstall = async (
         }
       }
       if (finalLease !== undefined) {
-        if (
+        const leaseStale =
           finalLease.peer.generation ===
             activeJournal.fence.preGeneration ||
           (finalLease.tokenDevice === preTokenDevice &&
             finalLease.tokenInode === preTokenInode) ||
-          finalLease.peer.generation !== readiness.generation
-        ) {
-          throw new InstallerError(
-            "unsafe-state",
-            "Remote service did not establish a fresh exact generation",
-          );
+          finalLease.peer.generation !== readiness.generation;
+        if (leaseStale) {
+          // Soft-skip: work-control readiness already proven for this generation.
+          await finalLease.release().catch(() => undefined);
+          finalLease = undefined;
+        } else {
+          try {
+            await finalLease.acknowledge(fenceAuthority);
+            readiness = await host.verifyCurrentReadiness(
+              invocation,
+              verified.version,
+              finalLease.peer.generation,
+            );
+          } catch {
+            // TermControl remains observational after work-ready — never install-fail.
+            await finalLease.release().catch(() => undefined);
+            finalLease = undefined;
+          }
         }
-        await finalLease.acknowledge(fenceAuthority);
-        readiness = await host.verifyCurrentReadiness(
-          invocation,
-          verified.version,
-          finalLease.peer.generation,
-        );
       }
-      // else: work-control generation receipt already verified; proceed.
+      // else / soft-skip: work-control generation receipt already verified; proceed.
     }
     const postGeneration =
       finalLease?.peer.generation ?? readiness.generation;
@@ -1646,18 +1673,33 @@ const runPreparedInstall = async (
             "rolled-back service has no authoritative active generation",
           );
         }
-        finalLease = await rollbackControl.acquire();
-        await finalLease.acknowledge(rollbackAuthority);
+        // Work-control generation is authoritative after package restore + restart.
+        // TermControl fence is best-effort and must not fail an otherwise complete rollback.
+        const unitGeneration = await host.currentServiceGeneration(invocation);
         await host.verifyCurrentReadiness(
           invocation,
           activeJournal.fromVersion,
-          finalLease.peer.generation,
+          unitGeneration,
         );
+        try {
+          finalLease = await rollbackControl.acquire();
+          if (finalLease.peer.generation !== unitGeneration) {
+            await finalLease.release().catch(() => undefined);
+            finalLease = undefined;
+          } else {
+            await finalLease.acknowledge(rollbackAuthority);
+          }
+        } catch {
+          await finalLease?.release().catch(() => undefined);
+          finalLease = undefined;
+        }
+        const rollbackPostGeneration =
+          finalLease?.peer.generation ?? unitGeneration;
         activeJournal = {
           ...activeJournal,
           fence: {
             ...activeJournal.fence,
-            postGeneration: finalLease.peer.generation,
+            postGeneration: rollbackPostGeneration,
           },
           phase: "rollback-acknowledged",
         };
@@ -4447,6 +4489,17 @@ export class NodeLinuxReleaseInstallerHost
         throw new Error("failed to activate Remote service");
       }
     }
+    const generation = await this.currentServiceGeneration(invocation);
+    return await this.verifyCurrentReadiness(
+      invocation,
+      version,
+      generation,
+    );
+  }
+
+  public async currentServiceGeneration(
+    invocation: LinuxReleaseInstallerInvocation,
+  ): Promise<string> {
     const generationResult = await this.#runUserSystemctl(invocation, [
       "show",
       "vellum-remote.service",
@@ -4462,11 +4515,7 @@ export class NodeLinuxReleaseInstallerHost
     ) {
       throw new Error("Remote service generation is unavailable");
     }
-    return await this.verifyCurrentReadiness(
-      invocation,
-      version,
-      generation,
-    );
+    return generation;
   }
 
   public async verifyCurrentReadiness(

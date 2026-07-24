@@ -395,6 +395,12 @@ describe("Linux systemd service environment boundary", () => {
     expect(launcher).toContain(
       'READY_RECEIPT="$SERVICE_RUNTIME_DIRECTORY/ready-$GENERATION"',
     );
+    expect(launcher).toContain(
+      '/usr/bin/printf \'%s\\n\' "$GENERATION" | /usr/bin/cmp -s - "$READY_RECEIPT"',
+    );
+    expect(launcher).not.toContain(
+      '[ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$GENERATION" ]',
+    );
     expect(launcher).not.toContain("station-ready.json");
     expect(() =>
       validateLinuxRemoteLauncher(

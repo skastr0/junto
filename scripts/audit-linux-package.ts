@@ -617,6 +617,9 @@ export const validateLinuxRemoteLauncher = (input: string): void => {
       '[ "$(/usr/bin/wc -c < "$READY_RECEIPT" 2>/dev/null | /usr/bin/tr -d \' \')" = 33 ]',
     ) ||
     !input.includes(
+      '/usr/bin/printf \'%s\\n\' "$GENERATION" | /usr/bin/cmp -s - "$READY_RECEIPT"',
+    ) ||
+    input.includes(
       '[ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$GENERATION" ]',
     ) ||
     !input.includes('is_owned_private_socket "$control_socket"') ||

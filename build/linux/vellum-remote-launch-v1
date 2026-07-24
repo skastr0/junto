@@ -317,11 +317,13 @@ ready_deadline=$(( $(date +%s) + 30 ))
 while :; do
   socket_after="$(file_identity "$control_socket")"
   token_after="$(file_identity "$control_token")"
+  # Exact body is gen (32 hex) + newline (33 bytes). Shell cat/= strips NULs;
+  # cmp against printf is byte-exact and rejects padded or truncated receipts.
   if is_owned_private_socket "$control_socket" && is_owned_private_file "$control_token" && \
      [ "$socket_after" != "$socket_before" ] && [ "$token_after" != "$token_before" ] && \
      is_owned_private_file "$READY_RECEIPT" && \
      [ "$(/usr/bin/wc -c < "$READY_RECEIPT" 2>/dev/null | /usr/bin/tr -d ' ')" = 33 ] && \
-     [ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$GENERATION" ]; then
+     /usr/bin/printf '%s\n' "$GENERATION" | /usr/bin/cmp -s - "$READY_RECEIPT"; then
     break
   fi
   if ! owned_child_alive "$vellum_pid"; then
