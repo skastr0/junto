@@ -4,6 +4,7 @@ import type { SnapshotState } from "../src/shared/entities";
 import { resetWatcherMemory } from "../src/main/vellum/kernel/evaluate";
 import {
   __resetDeliveryQueueForTest,
+  __resetPulseLogForTest,
   __setDeliveryDepsForTest,
   __setSnapshotsForTest,
   __setDocsForTest,
@@ -13,6 +14,7 @@ import {
   runEvaluationCycle,
   type PulseDeliverDeps,
   setArmed,
+  setPausedLookup,
   getPulseLog,
 } from "../src/main/vellum/kernel/cycle";
 
@@ -165,5 +167,99 @@ describe("deliverPulse — live-pulse spacing holds past 200 mixed-region record
     const second = aRecords[aRecords.length - 1];
     expect(second?.dry).toBe(true);
     expect(second?.summary).toContain("cooldown");
+  });
+});
+
+// --- pause law on delivery: the factory never acts UPON a paused seat ---------
+
+describe("deliverPulse — pause gates the target seat, not only the source", () => {
+  const regionId = "region-pause";
+  const canvasName = "pause-canvas";
+  // Live watcher source with human edges to two agents; only agent-a is paused.
+  const doc: CanvasDoc = {
+    nodes: [
+      { id: regionId, type: "group", x: 0, y: 0, width: 400, height: 400 },
+      {
+        id: "watcher-1",
+        type: "text",
+        text: "watch",
+        x: 40,
+        y: 40,
+        width: 120,
+        height: 40,
+        ether: { entity: { kind: "watcher" } },
+      },
+      {
+        id: "agent-a",
+        type: "text",
+        text: "agent a",
+        x: 60,
+        y: 140,
+        width: 100,
+        height: 50,
+        ether: { entity: { kind: "agent", name: "local:vega" } },
+      },
+      {
+        id: "agent-b",
+        type: "text",
+        text: "agent b",
+        x: 220,
+        y: 140,
+        width: 100,
+        height: 50,
+        ether: { entity: { kind: "agent", name: "local:rigel" } },
+      },
+    ],
+    edges: [
+      { id: "e-a", fromNode: "watcher-1", toNode: "agent-a" },
+      { id: "e-b", fromNode: "watcher-1", toNode: "agent-b" },
+    ],
+  };
+
+  beforeEach(() => {
+    resetWatcherMemory();
+    __resetDeliveryQueueForTest();
+    __resetPulseLogForTest();
+    __setStationScopeForTest({ hostId: "local", role: "command-center" });
+    __setDocsForTest(new Map([[canvasName, doc]]));
+    setArmed(`${canvasName}::${regionId}`, true);
+  });
+
+  afterEach(() => {
+    __resetDeliveryQueueForTest();
+    __setDeliveryDepsForTest(undefined);
+    setPausedLookup(() => false);
+  });
+
+  it("a live source never opens or prompts a paused agent seat; unpaused seats still receive", async () => {
+    const opened: string[] = [];
+    const prompted: string[] = [];
+    __setDeliveryDepsForTest({
+      // isLive false: an un-gated path would even wake a dead session (openChat).
+      isLive: () => false,
+      openChat: async (key) => {
+        opened.push(key);
+      },
+      sendPrompt: async (key) => {
+        prompted.push(key);
+      },
+    });
+    // Operator paused node agent-a; source watcher, region, and canvas stay live.
+    setPausedLookup((canvas, nodeId) => canvas === canvasName && nodeId === "agent-a");
+
+    await deliverPulse({
+      canvasName,
+      sourceNodeId: "watcher-1",
+      kind: "watcher",
+      regionId,
+      summary: "fire",
+    });
+
+    expect(opened).toEqual(["local:rigel"]);
+    expect(prompted).toEqual(["local:rigel"]);
+    const log = getPulseLog();
+    const record = log[log.length - 1];
+    expect(record?.dry).toBe(false);
+    expect(record?.delivered).toEqual(["local:rigel"]);
   });
 });

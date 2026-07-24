@@ -655,6 +655,30 @@ export const registerHostsIpc = (
   ipcMain.handle(IPC_CHANNELS.hostsDeployRemote, (_event, input: unknown) =>
     surfaceShutdownRefusal(
       operations.run(HOST_OPERATION_ADMISSIONS.deployRemote, () => {
+        // Release-frozen surface refuses BEFORE credential decode and BEFORE
+        // entering the app runtime: no credential parse, no provider load, no
+        // Effect flight retention. Operator/role inputs are forced permissive
+        // so this gate can only ever deny for release-surface reasons — the
+        // settings-backed operator/role gates still run inside the runtime.
+        const releaseGate = computeInstallCapabilities({
+          stationRole: "command-center",
+          remoteManagedInstalls: true,
+          release: RELEASE_CAPABILITIES,
+          platform: process.platform,
+        });
+        if (!releaseGate.effective.deployRemote) {
+          const detail =
+            releaseGate.detail.deployRemote ??
+            MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL;
+          return Promise.resolve({
+            ok: false,
+            detail,
+            code: "validation",
+            message: detail,
+            stages: [],
+          } satisfies HostsDeployRemoteResult);
+        }
+
         const decoded = decodeHostsDeployRemoteInput(input);
         if (decoded === undefined) {
           return Promise.resolve({

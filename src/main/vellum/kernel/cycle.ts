@@ -411,6 +411,23 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
               });
       }
 
+      // The pause plane gates the TARGET seat too (mirror of the work
+      // message-delivery gate): a live source never acts upon a paused agent
+      // seat — node-paused, inside a paused region, or on a paused canvas.
+      // Fail closed per key: any paused node bound to the key suppresses it.
+      if (keys.length > 0 && pausedLookup !== undefined) {
+        const lookup = pausedLookup;
+        keys = keys.filter(
+          (key) =>
+            !doc.nodes.some(
+              (node) =>
+                node.ether?.entity?.kind === "agent" &&
+                node.ether.entity.name === key &&
+                lookup(params.canvasName, node.id),
+            ),
+        );
+      }
+
       let contextBlocks: ReadonlyArray<string> | undefined;
       if (params.regionId !== undefined && region?.type === "group") {
         const memberIds = groupMembers(doc).get(params.regionId) ?? [];
