@@ -2,13 +2,18 @@ import { Effect, Either } from "effect";
 import { describe, expect, it } from "vitest";
 import { inspectRemoteCommand } from "../src/main/vellum/ssh/domain";
 import {
+  compileHerdrImageStage,
+  compileLinuxRemotePreflight,
+  compileLinuxRemotePreflightSource,
   compileRemotePlan,
   compileRemotePlanSource,
   compileRemoteSettingsRestore,
   compileRemoteSettingsSnapshot,
   compileRemoteSettingsStamp,
+  confineHerdrStagePath,
   confineVellumDirectory,
   confineVellumLeaf,
+  HERDR_IMAGE_STAGE_DIR,
   remotePlanPathFootprint,
   remoteStationSettingsInstallPlan,
 } from "../src/main/vellum/ssh/remote-plan";
@@ -137,5 +142,89 @@ describe("remote settings snapshot/stamp/restore compilers", () => {
     expect(src).toContain("/var/home/op/.vellum/settings.json");
     expect(src).toContain("RESTORED");
     expect(src).not.toMatch(/rm\s+-r[f\s]/);
+  });
+});
+
+describe("linux remote preflight compiler", () => {
+  it("emits V3 protocol with fixed product helper/bridge paths only", () => {
+    const source = compileLinuxRemotePreflightSource();
+    expect(source).toContain("LINUX_REMOTE_PREFLIGHT_V3");
+    expect(source).toContain("LINUX_REMOTE_PREFLIGHT_REFUSED_V3");
+    expect(source).toContain("/usr/libexec/vellum-release-installer");
+    expect(source).toContain("/usr/libexec/vellum-release-bridge");
+    expect(source).toContain(
+      'READY_RECEIPT="/run/user/$UID_VALUE/vellum-remote/ready-$INVOCATION"',
+    );
+    expect(source).toContain(
+      '[ "$(/usr/bin/wc -c < "$READY_RECEIPT" 2>/dev/null | /usr/bin/tr -d \' \')" = 33 ]',
+    );
+    expect(source).toContain('private_socket "$HOME/.vellum/work/control.sock"');
+    expect(source).toContain('private_file "$HOME/.vellum/work/token"');
+    expect(source).not.toContain("station_ready_receipt");
+    expect(source).not.toContain("station-ready.json");
+    expect(source).not.toContain("python3");
+    expect(source).not.toContain(
+      'private_socket "$HOME/.vellum/term/control.sock"',
+    );
+    expect(source).not.toContain(
+      'private_socket "$HOME/.vellum/browser/control.sock"',
+    );
+    // Named program: no recursive wipe or mktemp staging.
+    expect(source).not.toMatch(/rm\s+-rf\s+\//);
+    expect(source).not.toContain("mktemp");
+  });
+
+  it("compiles to a branded RemoteCommand with plan argv label", () => {
+    const command = run(compileLinuxRemotePreflight());
+    const parts = inspectRemoteCommand(command);
+    expect(parts.executable).toBe("/bin/sh");
+    expect(parts.args[0]).toBe("-c");
+    expect(parts.args[2]).toBe("vellum-plan:linux-remote-preflight");
+    expect(parts.args[1]).toBe(compileLinuxRemotePreflightSource());
+  });
+});
+
+describe("herdr image stage plan", () => {
+  const productName = "vellum-clip-lk9abc12-deadbeef.png";
+
+  it("admits product basenames under the fixed stage root", () => {
+    expect(run(confineHerdrStagePath(productName))).toBe(
+      `${HERDR_IMAGE_STAGE_DIR}/${productName}`,
+    );
+  });
+
+  it("rejects free-form, traversal, and shell-metachar basenames", () => {
+    for (const bad of [
+      "../etc/passwd",
+      "evil.png",
+      "vellum-clip-x-deadbeef.sh",
+      "vellum-clip-x-deadbeef.png;rm",
+      "vellum-clip-x-$(id)-deadbeef.png",
+      "vellum-clip-x-deadbeef.png/../y",
+      "",
+    ]) {
+      expect(Either.isLeft(Effect.runSync(Effect.either(confineHerdrStagePath(bad))))).toBe(
+        true,
+      );
+    }
+  });
+
+  it("compiles a branded plan with umask, exclusive write, and no hand path args", () => {
+    const staged = run(compileHerdrImageStage(productName));
+    const parts = inspectRemoteCommand(staged.command);
+    expect(parts.executable).toBe("/bin/sh");
+    expect(parts.args[0]).toBe("-c");
+    expect(parts.args[2]).toBe("vellum-plan:herdr-image-stage");
+    const src = parts.args[1]!;
+    expect(src).toContain("set -eu");
+    expect(src).toContain("umask 077");
+    expect(src).toContain(HERDR_IMAGE_STAGE_DIR);
+    expect(src).toContain(productName);
+    expect(src).toContain("set -C");
+    expect(src).toContain("chmod 600");
+    expect(src).not.toMatch(/rm\s+-rf\s+\//);
+    expect(src).not.toContain("$1");
+    expect(src).not.toContain("$2");
+    expect(staged.path).toBe(`${HERDR_IMAGE_STAGE_DIR}/${productName}`);
   });
 });

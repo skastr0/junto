@@ -47,6 +47,10 @@ import {
   deploymentStream,
   oneShotWithStdin,
 } from "../ssh/program";
+import {
+  compileLinuxRemotePreflight,
+  compileLinuxRemotePreflightSource,
+} from "../ssh/remote-plan";
 import type { SshLease } from "../ssh/service";
 import {
   authorizeProductionLinuxDeployBundle,
@@ -193,188 +197,10 @@ export const decodeLinuxRemotePreflight = (
 /**
  * Read-only platform and generation proof. Privileged recovery and package
  * state are deliberately absent: those belong exclusively to the helper.
+ * Source of truth: `compileLinuxRemotePreflightSource` in remote-plan.
  */
-const LINUX_REMOTE_PREFLIGHT_SCRIPT = String.raw`
-set -eu
-umask 077
-refuse() {
-  echo "LINUX_REMOTE_PREFLIGHT_REFUSED_V3 reason=$1"
-  exit 0
-}
-private_file() {
-  [ -f "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] &&
-    [ "$(/usr/bin/stat -c '%a' "$1" 2>/dev/null || true)" = 600 ]
-}
-private_socket() {
-  [ -S "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] &&
-    [ "$(/usr/bin/stat -c '%a' "$1" 2>/dev/null || true)" = 600 ]
-}
-exact_field() {
-  echo "$1" | /usr/bin/awk -F= -v wanted="$2" '
-    $1 == wanted { count += 1; value = substr($0, length(wanted) + 2) }
-    END { if (count == 1 && length(value) > 0) print value; else exit 1 }
-  '
-}
-IFS= read -r BUNDLE_BYTES || refuse disk
-IFS= read -r EXPECTED_VERSION || refuse version
-IFS= read -r EXPECTED_DEB_SHA || refuse package
-IFS= read -r EXPECTED_MANIFEST_SHA || refuse package
-case "$BUNDLE_BYTES" in ""|*[!0-9]*) refuse disk ;; esac
-[ "$BUNDLE_BYTES" -gt 0 ] && [ "$BUNDLE_BYTES" -le 3221225472 ] || refuse disk
-case "$EXPECTED_VERSION" in
-  0|*[!0-9.]*|.*|*.) refuse version ;;
-esac
-echo "$EXPECTED_VERSION" | /usr/bin/awk -F. '
-  NF == 3 && $1 ~ /^(0|[1-9][0-9]*)$/ &&
-  $2 ~ /^(0|[1-9][0-9]*)$/ &&
-  $3 ~ /^(0|[1-9][0-9]*)$/ { ok = 1 }
-  END { exit(ok ? 0 : 1) }
-' || refuse version
-case "$EXPECTED_DEB_SHA:$EXPECTED_MANIFEST_SHA" in
-  *[!0-9a-f:]*|*:*:* ) refuse package ;;
-esac
-[ "${"$"}{#EXPECTED_DEB_SHA}" -eq 64 ] || refuse package
-[ "${"$"}{#EXPECTED_MANIFEST_SHA}" -eq 64 ] || refuse package
-for REQUIRED_COMMAND in \
-  /bin/hostname \
-  /usr/bin/awk \
-  /usr/bin/cat \
-  /usr/bin/df \
-  /usr/bin/dpkg \
-  /usr/bin/dpkg-query \
-  /usr/bin/getconf \
-  /usr/bin/grep \
-  /usr/bin/id \
-  /usr/bin/loginctl \
-  /usr/bin/stat \
-  /usr/bin/sudo \
-  /usr/bin/systemctl \
-  /usr/bin/tr \
-  /usr/bin/uname
-do
-  [ -x "$REQUIRED_COMMAND" ] || refuse commands
-done
-OS_ID=$(/usr/bin/awk -F= '$1 == "ID" { gsub(/^"|"$/, "", $2); print $2 }' /etc/os-release)
-OS_RELEASE=$(/usr/bin/awk -F= '$1 == "VERSION_ID" { gsub(/^"|"$/, "", $2); print $2 }' /etc/os-release)
-[ "$OS_ID" = ubuntu ] || refuse os
-[ "$OS_RELEASE" = 24.04 ] || refuse release
-[ "$(/usr/bin/uname -m)" = x86_64 ] || refuse architecture
-GLIBC_FACT=$(/usr/bin/getconf GNU_LIBC_VERSION 2>/dev/null || true)
-case "$GLIBC_FACT" in "glibc "[0-9]*.[0-9]*) ;; *) refuse libc ;; esac
-LIBC_VERSION=${"$"}{GLIBC_FACT#glibc }
-LIBC_VERSION=$(/usr/bin/awk -F. '{ print $1 "." $2 }' <<EOF
-$LIBC_VERSION
-EOF
-)
-LIBC_MAJOR=${"$"}{LIBC_VERSION%%.*}
-LIBC_MINOR=${"$"}{LIBC_VERSION#*.}
-case "$LIBC_MAJOR:$LIBC_MINOR" in *[!0-9:]*) refuse libc ;; esac
-if [ "$LIBC_MAJOR" -lt 2 ] ||
-   { [ "$LIBC_MAJOR" -eq 2 ] && [ "$LIBC_MINOR" -lt 39 ]; }; then
-  refuse libc
-fi
-UID_VALUE=$(/usr/bin/id -u)
-GID_VALUE=$(/usr/bin/id -g)
-HOST_VALUE=$(/bin/hostname)
-case "$UID_VALUE:$GID_VALUE" in
-  0:*|*:0|*[!0-9:]*) refuse identity ;;
-esac
-case "$HOST_VALUE" in
-  ""|*[!a-z0-9.-]*|.*|*.) refuse identity ;;
-esac
-[ "${"$"}{#HOST_VALUE}" -le 253 ] || refuse identity
-/usr/bin/systemctl --user show-environment >/dev/null 2>&1 || refuse systemd-user
-AVAILABLE_BYTES=$(
-  /usr/bin/df -PB1 /var /opt "$HOME" |
-    /usr/bin/awk 'NR > 1 && $4 ~ /^[0-9]+$/ {
-      if (minimum == "" || $4 < minimum) minimum = $4
-    } END { print minimum }'
-)
-case "$AVAILABLE_BYTES" in ""|*[!0-9]*) refuse disk ;; esac
-REQUIRED_BYTES=$((BUNDLE_BYTES * 3 + 536870912))
-[ "$AVAILABLE_BYTES" -ge "$REQUIRED_BYTES" ] || refuse disk
-PACKAGE_STATE=$(/usr/bin/dpkg-query -W -f='${"$"}{Status}\t${"$"}{Version}\n' vellum 2>/dev/null || true)
-if [ -z "$PACKAGE_STATE" ]; then
-  CURRENT_VERSION=none
-else
-  CURRENT_VERSION=$(echo "$PACKAGE_STATE" | /usr/bin/awk -F '\t' '$1 == "install ok installed" && NF == 2 { print $2 }')
-  if [ -n "$CURRENT_VERSION" ]; then
-    echo "$CURRENT_VERSION" | /usr/bin/awk -F. '
-      NF == 3 && $1 ~ /^(0|[1-9][0-9]*)$/ &&
-      $2 ~ /^(0|[1-9][0-9]*)$/ &&
-      $3 ~ /^(0|[1-9][0-9]*)$/ { ok = 1 }
-      END { exit(ok ? 0 : 1) }
-    ' || refuse package
-  elif echo "$PACKAGE_STATE" | /usr/bin/awk -F '\t' '
-    $1 == "deinstall ok config-files" && NF == 2 { found = 1 }
-    END { exit(found ? 0 : 1) }
-  '; then
-    CURRENT_VERSION=none
-  else
-    refuse package
-  fi
-fi
-ENABLE_STATE=$(/usr/bin/systemctl --user is-enabled vellum-remote.service 2>/dev/null || true)
-ACTIVE_STATE=$(/usr/bin/systemctl --user is-active vellum-remote.service 2>/dev/null || true)
-if [ "$CURRENT_VERSION" = none ]; then
-  [ "$ENABLE_STATE" = not-found ] || refuse systemd-user
-  [ "$ACTIVE_STATE" = inactive ] || refuse systemd-user
-  ENABLED=0
-  ACTIVE=0
-  UNIT_STATE=not-found
-else
-  case "$ENABLE_STATE" in enabled) ENABLED=1 ;; disabled) ENABLED=0 ;; *) refuse systemd-user ;; esac
-  case "$ACTIVE_STATE" in active) ACTIVE=1 ;; inactive) ACTIVE=0 ;; *) refuse systemd-user ;; esac
-  UNIT_STATE=present
-fi
-LINGER_VALUE=$(/usr/bin/loginctl show-user "$UID_VALUE" -p Linger --value 2>/dev/null || true)
-case "$LINGER_VALUE" in yes) LINGER=1 ;; no) LINGER=0 ;; *) refuse linger ;; esac
-HELPER_READY=0
-if [ -f "${HELPER}" ] && [ ! -L "${HELPER}" ] &&
-   [ "$(/usr/bin/stat -c '%u:%g:%a:%h' "${HELPER}" 2>/dev/null || true)" = "0:0:755:1" ]; then
-  HELPER_READY=1
-fi
-BRIDGE_READY=0
-if [ -f "${BRIDGE}" ] && [ ! -L "${BRIDGE}" ] &&
-   [ "$(/usr/bin/stat -c '%u:%g:%a:%h' "${BRIDGE}" 2>/dev/null || true)" = "0:0:755:1" ]; then
-  BRIDGE_READY=1
-fi
-CURRENT_READY=0
-CURRENT_GENERATION=none
-if [ "$ENABLED" = 1 ] && [ "$ACTIVE" = 1 ]; then
-  SHOW=$(/usr/bin/systemctl --user show vellum-remote.service -p ActiveState -p SubState -p MainPID -p InvocationID 2>/dev/null || true)
-  ACTIVE_DETAIL=$(exact_field "$SHOW" ActiveState 2>/dev/null || true)
-  SUB_STATE=$(exact_field "$SHOW" SubState 2>/dev/null || true)
-  MAIN_PID=$(exact_field "$SHOW" MainPID 2>/dev/null || true)
-  INVOCATION=$(exact_field "$SHOW" InvocationID 2>/dev/null || true)
-  case "$MAIN_PID" in ""|*[!0-9]*) MAIN_PID=0 ;; esac
-  case "$INVOCATION" in *[!0-9a-f]*|"") INVOCATION=invalid ;; esac
-  READY_RECEIPT="/run/user/$UID_VALUE/vellum-remote/ready-$INVOCATION"
-  PACKAGE_VERIFY=
-  if PACKAGE_VERIFY=$(/usr/bin/dpkg --verify vellum 2>/dev/null); then
-    PACKAGE_VERIFY_OK=1
-  else
-    PACKAGE_VERIFY_OK=0
-  fi
-  if [ "$ACTIVE_DETAIL" = active ] && [ "$SUB_STATE" = running ] &&
-     [ "$MAIN_PID" -gt 1 ] && [ "${"$"}{#INVOCATION}" -eq 32 ] &&
-     [ "$PACKAGE_VERIFY_OK" = 1 ] && [ -z "$PACKAGE_VERIFY" ] &&
-     private_file "$READY_RECEIPT" &&
-     [ "$(/usr/bin/wc -c < "$READY_RECEIPT" 2>/dev/null | /usr/bin/tr -d ' ')" = 33 ] &&
-     [ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$INVOCATION" ] &&
-     /usr/bin/tr '\0' '\n' < "/proc/$MAIN_PID/cmdline" |
-       /usr/bin/grep -Fqx '/opt/Vellum Command/resources/systemd/vellum-remote-launch-v1' &&
-     private_socket "$HOME/.vellum/work/control.sock" &&
-     private_file "$HOME/.vellum/work/token"; then
-    CURRENT_READY=1
-    CURRENT_GENERATION="$INVOCATION"
-  fi
-fi
-echo "LINUX_REMOTE_PREFLIGHT_V3 disk=$AVAILABLE_BYTES current=$CURRENT_VERSION enabled=$ENABLED active=$ACTIVE linger=$LINGER helper=$HELPER_READY bridge=$BRIDGE_READY ready=$CURRENT_READY generation=$CURRENT_GENERATION uid=$UID_VALUE gid=$GID_VALUE host=$HOST_VALUE libc=$LIBC_VERSION unit=$UNIT_STATE"
-`.trim();
-
 export const buildLinuxRemotePreflightScript = (): string =>
-  LINUX_REMOTE_PREFLIGHT_SCRIPT;
+  compileLinuxRemotePreflightSource();
 
 /** The mutation command is a fixed executable with no caller-controlled argv. */
 export const buildLinuxRemoteDeployCommand = (): Readonly<{
@@ -769,11 +595,7 @@ const runPreflight = (
   candidate: LinuxRemoteArtifactCandidate,
 ) =>
   Effect.gen(function* () {
-    const command = yield* makeRemoteCommand("/bin/sh", [
-      "-c",
-      LINUX_REMOTE_PREFLIGHT_SCRIPT,
-      "vellum-linux-preflight",
-    ]);
+    const command = yield* compileLinuxRemotePreflight();
     const stdin = yield* makeRemoteStdin(preflightInput(candidate));
     const result = yield* input.ssh.run(
       oneShotWithStdin(input.target.endpoint, command, stdin, {

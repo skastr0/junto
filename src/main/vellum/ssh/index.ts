@@ -31,13 +31,18 @@ export {
 export { SshTransportLive } from "./live";
 export { makeScopedPromiseRunner, type ScopedPromiseRunner } from "./scoped-runner";
 export {
+  compileHerdrImageStage,
+  compileLinuxRemotePreflight,
+  compileLinuxRemotePreflightSource,
   compileRemotePlan,
   compileRemotePlanSource,
   compileRemoteSettingsRestore,
   compileRemoteSettingsSnapshot,
   compileRemoteSettingsStamp,
+  confineHerdrStagePath,
   confineVellumDirectory,
   confineVellumLeaf,
+  HERDR_IMAGE_STAGE_DIR,
   remotePlanPathFootprint,
   remoteStationSettingsInstallPlan,
   type ConfinedRemotePath,
@@ -45,3 +50,9 @@ export {
   type RemotePlanStep,
   type VellumLeafBasename,
 } from "./remote-plan";
+export {
+  compileHermesAvatar,
+  compileHermesIdentityBatch,
+  hermesAvatarSource,
+  hermesIdentityBatchSource,
+} from "./hermes-remote-plan";
