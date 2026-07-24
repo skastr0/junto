@@ -8,6 +8,8 @@ import { resizeNode } from "../../lib/geometry";
 import { deleteNode, toggleFlag } from "../../lib/mutations";
 import { herdr$ } from "../../lib/herdr-state";
 import { isHerdrCanvasNode, nodeBlockPresentation } from "../../lib/node-block-state";
+import { deriveOccupancy } from "@shared/occupancy";
+import { useNodeOccupancyClue } from "../../lib/occupancy-feed";
 import { IconButton, ToolbarPill } from "../ui";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
@@ -147,6 +149,17 @@ export function NodeShell({
     graphBlocked: blocked,
     herdrAgentStatus,
   });
+  // Occupancy (S5 cut 2): derived, never document truth (I11) — this never
+  // writes to `node`. ActivityFeed today only has an opinion on agent seats
+  // (ACP chat plane) and document flags; every other node renders "empty".
+  const occupancyClue = useNodeOccupancyClue(node);
+  const occupancyState = deriveOccupancy({
+    hasOccupant: occupancyClue?.hasOccupant ?? false,
+    activity: occupancyClue?.activity,
+    lastSeenAtMs: occupancyClue?.lastSeenAtMs,
+    flags: occupancyClue?.flags,
+    nowMs: Date.now(),
+  });
   const flagBlocker = flags.includes("blocker");
   const primaryFlag: EtherFlag | undefined = isBlocker
     ? "blocker"
@@ -179,6 +192,7 @@ export function NodeShell({
       className={`vellum-node group relative flex h-full w-full flex-col overflow-visible rounded-[10px] px-3.5 py-3 ${isBlocker ? "vellum-blocker" : ""}`}
       data-blocked={shellBlocked ? "true" : undefined}
       data-herdr-blocked={liveHerdrBlocked ? "true" : undefined}
+      data-occupancy={occupancyState}
       style={{
         border: `1px solid ${selected ? withAlpha(isBlocker ? HUE.crimson : accent, 0.75) : border}`,
         background,
