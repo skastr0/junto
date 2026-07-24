@@ -71,7 +71,7 @@ export type StageImageDeps = {
 /**
  * Write image bytes onto the host that owns the herdr pane.
  * local: $TMPDIR/vellum-herdr-images-<uid>/file
- * remote: /tmp/vellum-herdr-images/file via ssh + cat (binary stdin)
+ * remote: /tmp/vellum-herdr-images/file via typed remote-plan stage + binary stdin
  *
  * The remote implementation is supplied by the scoped Herdr transport layer.
  */

@@ -21,6 +21,7 @@ import {
   unixForward,
   type OneShotBudget,
 } from "../ssh/program";
+import { compileHerdrImageStage } from "../ssh/remote-plan";
 import {
   SshTransport,
   type ConfirmSshReady,
@@ -30,14 +31,6 @@ import {
 } from "../ssh/service";
 import { isKnownHerdrHost, type HerdrHostId } from "./hosts";
 import type { HerdrServerRoute } from "./route";
-
-const REMOTE_STAGE_DIR = "/tmp/vellum-herdr-images";
-const REMOTE_STAGE_SCRIPT = [
-  "umask 077",
-  "mkdir -p \"$1\"",
-  "cat > \"$2\"",
-  "chmod 600 \"$2\"",
-].join("\n");
 
 const withSession = (
   args: ReadonlyArray<string>,
@@ -238,28 +231,21 @@ export const HerdrTransportLive = Layer.effect(
       hostId,
       remoteName,
       bytes,
-    ) => {
-      const remotePath = `${REMOTE_STAGE_DIR}/${remoteName}`;
-      return resolveRemoteEndpoint(hostId).pipe(
+    ) =>
+      resolveRemoteEndpoint(hostId).pipe(
         Effect.flatMap((endpoint) =>
           Effect.all({
-            command: makeRemoteCommand("/bin/sh", [
-              "-c",
-              REMOTE_STAGE_SCRIPT,
-              "vellum-stage-image",
-              REMOTE_STAGE_DIR,
-              remotePath,
-            ]),
+            staged: compileHerdrImageStage(remoteName),
             input: makeRemoteStdin(bytes),
           }).pipe(
-            Effect.flatMap(({ command, input }) =>
-              ssh.run(oneShotWithStdin(endpoint, command, input)),
+            Effect.flatMap(({ staged, input }) =>
+              ssh
+                .run(oneShotWithStdin(endpoint, staged.command, input))
+                .pipe(Effect.as(staged.path)),
             ),
-            Effect.as(remotePath),
           ),
         ),
       );
-    };
 
     // Warm every configured ssh herdr host (best-effort, concurrent).
     const warm: Effect.Effect<void, SshError | SshInputError> = Effect.suspend(() => {
