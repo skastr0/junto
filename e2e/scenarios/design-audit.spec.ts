@@ -347,12 +347,6 @@ test("capture every surface for design review", async () => {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
 
-    // Connectors popover.
-    await page.getByRole("button", { name: "Open connectors" }).click();
-    await shot(page, "14-connectors");
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
-
     // Interaction help popover.
     await page.getByRole("button", { name: "Open interaction help" }).click();
     await shot(page, "15-help");

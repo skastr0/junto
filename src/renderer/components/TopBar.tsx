@@ -1,63 +1,14 @@
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useRef, useState } from "react";
-import { Activity, CircleHelp, Plus, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
-import type { EntitySource } from "@shared/entities";
+import { CircleHelp, Plus, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
 import { state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
-import { HUE, INK, SOURCE_HUE } from "../lib/theme";
-import { Dropdown, HelpMap } from "./ui";
+import { HUE, INK } from "../lib/theme";
+import { Dropdown } from "./ui";
 import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
 import { UsageHud } from "./UsageHud";
-
-const SOURCES: ReadonlyArray<EntitySource> = ["hermes"];
-
-function SourceDot({ source, active, onClick }: { readonly source: EntitySource; readonly active: boolean; readonly onClick: () => void }) {
-  const snapshots = use$(state$.snapshots);
-  const bundle = snapshots.bundles.find((b) => b.source === source);
-  const ok = bundle?.ok ?? false;
-  const hue = ok ? SOURCE_HUE[source] : HUE.crimson;
-  const when = bundle ? new Date(bundle.fetchedAt).toLocaleTimeString() : "never";
-  return <button type="button" className={`station-source-button${active ? " is-active" : ""}`} aria-label={`${source} connector ${ok ? "fresh" : "stale"}`} aria-haspopup="dialog" aria-expanded={active} style={{ color: ok ? SOURCE_HUE[source] : "#8a8378" }} title={`${source} · ${ok ? "fresh" : "stale"} · ${when}`} onClick={onClick}><span className="size-2 rounded-full" style={{ background: hue, opacity: ok ? 0.9 : 0.5 }} />{source}</button>;
-}
-
-// Honest connector health: per-source dot + name + last-fetch detail. Lit when
-// fresh, dim when stale/down. It never filters the canvas. Shell is HelpMap so
-// station instrument popovers share one chrome.
-function ConnectorsPopover({ onClose }: { readonly onClose: () => void }) {
-  const snapshots = use$(state$.snapshots);
-  return (
-    <HelpMap
-      className="help-map--dock-top-right help-map--narrow"
-      tone="cyan"
-      eyebrow="adapter plane"
-      title="connectors"
-      aria-label="Connectors"
-      closeLabel="Close connectors"
-      onClose={onClose}
-    >
-      <div className="station-health-popover__list">
-        {SOURCES.map((source) => {
-          const bundle = snapshots.bundles.find((item) => item.source === source);
-          const ok = bundle?.ok ?? false;
-          const fetched = bundle ? new Date(bundle.fetchedAt).toLocaleTimeString() : "never";
-          return (
-            <div key={source} className="station-health-popover__row">
-              <span className="station-health-popover__name">
-                <i style={{ background: ok ? SOURCE_HUE[source] : HUE.crimson }} />
-                {source}
-              </span>
-              <span className={ok ? "station-health-popover__ok" : "station-health-popover__error"}>
-                {ok ? `fresh · ${fetched}` : bundle?.error ?? "stale"}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </HelpMap>
-  );
-}
 
 function CanvasPicker({
   canvases,
@@ -217,14 +168,15 @@ export function TopBar({
   const canvasName = use$(state$.canvasName);
   const canvasLoading = use$(state$.canvasLoading);
   const refreshing = use$(state$.refreshing);
-  const [healthOpen, setHealthOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   useEffect(() => {
-    if (!healthOpen && !helpOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") { setHealthOpen(false); setHelpOpen(false); } };
+    if (!helpOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setHelpOpen(false);
+    };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
-      if (target instanceof Element && !target.closest(".station-actions")) { setHealthOpen(false); setHelpOpen(false); }
+      if (target instanceof Element && !target.closest(".station-actions")) setHelpOpen(false);
     };
     window.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
@@ -232,7 +184,7 @@ export function TopBar({
       window.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown);
     };
-  }, [healthOpen, helpOpen]);
+  }, [helpOpen]);
   return (
     <header className="station-bar">
       <UsageHud />
@@ -240,20 +192,11 @@ export function TopBar({
       <SearchField canvasName={canvasName} />
       <SaveStatus />
       <div className="station-actions relative ml-auto flex items-center gap-3">
-        <div className="station-sources">
-          {SOURCES.map((source) => (
-            <SourceDot key={source} source={source} active={healthOpen} onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }} />
-          ))}
-        </div>
-        <button type="button" className="station-health-trigger" aria-label="Open connectors" aria-expanded={healthOpen} aria-haspopup="dialog" onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }}>
-          <Activity size={14} />
-        </button>
-        <button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => { setHealthOpen(false); setHelpOpen((open) => !open); }}>
+        <button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => setHelpOpen((open) => !open)}>
           <CircleHelp size={14} />
         </button>
-        {healthOpen ? <ConnectorsPopover onClose={() => setHealthOpen(false)} /> : null}
         {helpOpen ? <CanvasInteractionMap onClose={() => setHelpOpen(false)} /> : null}
-        <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="settings" onClick={() => { setHealthOpen(false); setHelpOpen(false); openSettings(); }}>
+        <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="settings" onClick={() => { setHelpOpen(false); openSettings(); }}>
           <Settings2 size={15} />
         </button>
         <button className="station-icon-button" disabled={refreshing} aria-label={refreshing ? "Refreshing snapshots" : "Refresh snapshots"} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.cyan }} title={refreshing ? "refreshing snapshots" : "refresh snapshots"} onClick={onRefresh}>

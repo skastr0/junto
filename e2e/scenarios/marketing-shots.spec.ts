@@ -168,11 +168,10 @@ test("compose a staged fleet board and capture marketing frames", async () => {
       })
       .catch(() => undefined);
 
-    // Marketing frames carry no third-party marks: hide the connector-status
-    // chip (renders a runtime name) and the provider usage HUD for these
-    // captures. Presentation only — no product state is faked.
+    // Marketing frames carry no third-party marks: hide the provider usage
+    // HUD for these captures. Presentation only — no product state is faked.
     await page.addStyleTag({
-      content: ".station-source-button, .usage-hud { visibility: hidden !important; }",
+      content: ".usage-hud { visibility: hidden !important; }",
     });
 
     const fit = page.getByRole("button", { name: /fit all/i });
