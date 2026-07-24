@@ -29,7 +29,6 @@ import { startSettingsBridge, closeSettings } from "./lib/settings-state";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
-import { DigestPanel } from "./components/DigestPanel";
 import { CanvasChrome } from "./components/CanvasChrome";
 import { KernelStatus } from "./components/KernelStatus";
 import { InspectorPanel } from "./components/InspectorPanel";
@@ -41,7 +40,6 @@ import { HerdrToast } from "./components/herdr/HerdrToast";
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { WorkFocusShell } from "./components/workbench";
 import { TooltipLayer } from "./components/TooltipLayer";
-import { TerminalInventory } from "./components/terminal/TerminalInventory";
 import { DemoCameraBridge } from "./demo/camera-bridge";
 import { DemoLayer } from "./demo/demo-layer";
 import { SEED_CANVAS_NAME } from "@shared/seed";
@@ -76,7 +74,6 @@ const resetCanvasView = (): void => {
     state$.searchQuery.set("");
     state$.edgeFilter.set("");
     state$.flagFilter.set("");
-    state$.digestOpen.set(false);
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");
@@ -182,7 +179,6 @@ const createCanvas = async (name: string) => {
       if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) return;
       state$.canvasName.set(result.name);
       resetCanvasView();
-      state$.digestOpen.set(false);
       loadDoc(result.doc, result.revision, result.name);
       state$.error.set("");
       await refreshSnapshotsSoft(result.doc);
@@ -228,29 +224,6 @@ const deleteCanvas = async (name: string) => {
   });
 };
 
-const exportDigest = async () => {
-  const name = state$.canvasName.peek();
-  if (!window.vellum || !name) return;
-  state$.exporting.set(true);
-  state$.error.set("");
-  try {
-    const result = await Promise.race([
-      window.vellum.exportDigest(name),
-      new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 8000)),
-    ]);
-    if (!result) {
-      state$.error.set("digest export timed out; no panel opened");
-      return;
-    }
-    state$.digest.set(result);
-    state$.digestOpen.set(true);
-  } catch (error) {
-    setError(error);
-  } finally {
-    state$.exporting.set(false);
-  }
-};
-
 const refreshSnapshots = async () => {
   if (!window.vellum) return;
   state$.refreshing.set(true);
@@ -272,7 +245,6 @@ const refreshSnapshots = async () => {
 const retryActionForError = (message: string): { readonly label: string; readonly run: () => Promise<void> } | undefined => {
   if (message.includes("write-canvas") || message.includes("cannot write")) return { label: "retry save", run: async () => retrySave() };
   if (message.includes("snapshot refresh timed out")) return { label: "retry refresh", run: refreshSnapshots };
-  if (message.includes("digest export timed out")) return { label: "retry digest", run: exportDigest };
   return undefined;
 };
 
@@ -405,11 +377,6 @@ export function App() {
           closeSettings();
           return;
         }
-        if (state$.digestOpen.peek()) {
-          event.preventDefault();
-          state$.digestOpen.set(false);
-          return;
-        }
         if (state$.selectedNodeId.peek() || state$.selectedEdgeId.peek() || state$.selectedNodeIds.peek().length > 0) {
           event.preventDefault();
           state$.selectedNodeId.set("");
@@ -436,7 +403,6 @@ export function App() {
         onOpen={(name) => void openCanvas(name)}
         onCreate={(name) => void createCanvas(name)}
         onDelete={(name) => void deleteCanvas(name)}
-        onExport={() => void exportDigest()}
         onRefresh={() => void refreshSnapshots()}
       />
 
@@ -471,7 +437,6 @@ export function App() {
         <KernelStatus />
         <InspectorPanel />
 
-        <DigestPanel />
         <SettingsPanel />
         <StationRoleGate />
         {/* PulseTray mounts inside RtsBottomBar (right third, above minimap). */}
@@ -481,7 +446,6 @@ export function App() {
         <WorkFocusShell />
         <HerdrToast />
         <DemoLayer />
-        <TerminalInventory />
         </div>
         <WorkSurfaceDock />
       </div>

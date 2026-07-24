@@ -100,19 +100,22 @@
   }
 }
 
-/* [glyph | bar] per provider */
+/* [glyph / bar] vertical split — icon above meter, not side-by-side */
 .usage-hud__cell {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
+  gap: 2px;
   min-width: 0;
+  flex: 0 0 auto;
 }
 
 .usage-hud__bar {
   position: relative;
   display: block;
-  width: 18px;
-  height: 7px;
+  width: 14px;
+  height: 3px;
   overflow: hidden;
   border-radius: 1px;
   background: rgba(255, 255, 255, 0.07);
@@ -190,6 +193,11 @@
   .usage-hud__bar > i {
     transition: none;
   }
+}
+
+/* Error cells keep the vertical track with a hatch, no fill height. */
+.usage-hud__cell.is-error .usage-hud__bar > i {
+  display: none;
 }
 
 /* —— detail surface —— */

@@ -365,14 +365,6 @@ test("capture every surface for design review", async () => {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
 
-    // Digest panel.
-    await page.getByRole("button", { name: "Export digest" }).click();
-    const digest = page.getByRole("dialog", { name: "Canvas digest" });
-    await expect(digest).toBeVisible({ timeout: 15_000 });
-    await shot(page, "17-digest");
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
-
     // Usage HUD + popover.
     const hud = page.getByRole("button", { name: "Provider limits", exact: true });
     if (await hud.isVisible().catch(() => false)) {
@@ -381,18 +373,6 @@ test("capture every surface for design review", async () => {
       await shot(page, "19-usage-hud-popover");
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
-    }
-
-    // Terminal inventory popover (detached sessions).
-    const terms = page.getByRole("button", { name: /^terms/ });
-    if (await terms.isVisible().catch(() => false)) {
-      await terms.click();
-      await shot(page, "23-terminal-inventory");
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(200);
-      if (await terms.getAttribute("aria-expanded").catch(() => null) === "true") {
-        await terms.click();
-      }
     }
 
     // Wizards via the add-item palette.

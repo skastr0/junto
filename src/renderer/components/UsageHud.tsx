@@ -8,10 +8,10 @@ import { FocusSurface } from "./FocusSurface";
 import { HarnessMark } from "./herdr/HarnessMark";
 import "./UsageHud.css";
 
-// Compact provider-usage rail: one [glyph|bar] cell per quota.
-// Always paints: last-good (possibly stale) when live is slow/fails;
-// loading only before any last-good exists; error chip only when live
-// failed and we have never had quotas. Never hide the top-bar slot.
+// Compact provider-usage rail: one [glyph / bar] cell per quota (vertical
+// split — icon above meter). Always paints: last-good (possibly stale)
+// when live is slow/fails; loading only before any last-good exists;
+// error chip only when live failed and we have never had quotas.
 
 const EMPTY_USAGE: UsageState = { snapshots: [] };
 
