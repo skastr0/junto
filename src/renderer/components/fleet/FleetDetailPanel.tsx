@@ -1,14 +1,18 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { X } from "lucide-react";
+import type { DiscoveredPeer } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { probeHost, refreshFleet, type FleetProbeState } from "../../lib/fleet-state";
 import { FLEET_COLORS, FLEET_GLYPHS, hostColor } from "../../lib/fleet-layout";
 import { HUE, withAlpha } from "../../lib/theme";
 import { getVellumApi } from "../../lib/vellum-api";
 import { Button, Chip, Eyebrow, IconButton, type ChipTone } from "../ui";
-import { fleetGlyphIcon } from "./FleetNodes";
+import { fleetGlyphIcon, peerOsIcon } from "./FleetNodes";
 
-export type FleetSelection = { readonly kind: "cc" } | { readonly kind: "station"; readonly host: RemoteHost };
+export type FleetSelection =
+  | { readonly kind: "cc" }
+  | { readonly kind: "station"; readonly host: RemoteHost }
+  | { readonly kind: "ghost"; readonly peer: DiscoveredPeer };
 
 const CAPABILITY_TONE: Record<string, ChipTone> = {
   terminal: "cyan",
@@ -212,17 +216,65 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   );
 }
 
+function GhostDetail({
+  peer,
+  onClaim,
+}: {
+  readonly peer: DiscoveredPeer;
+  readonly onClaim: (peer: DiscoveredPeer) => void;
+}) {
+  const OsIcon = peerOsIcon(peer.os);
+  return (
+    <div className="fleet-detail__body">
+      <section className="fleet-detail__section">
+        <Eyebrow tone="steel">unclaimed peer</Eyebrow>
+        <div className="fleet-detail__title fleet-detail__title--icon">
+          <OsIcon size={15} strokeWidth={1.6} />
+          {peer.name}
+        </div>
+        <div className="fleet-detail__kv">
+          <span>os</span>
+          <span>{peer.os ?? "unknown"}</span>
+          <span>status</span>
+          <span>{peer.online ? "online on the tailnet" : "offline"}</span>
+          {peer.addresses.map((address, index) => (
+            <Fragment key={address}>
+              <span>{index === 0 ? (peer.addresses.length > 1 ? "addresses" : "address") : ""}</span>
+              <span>{address}</span>
+            </Fragment>
+          ))}
+        </div>
+        <p className="fleet-detail__note">
+          Detected on the Tailscale mesh but not enrolled. Claiming enrolls it as a fleet host —
+          configure and install stay separate operator actions.
+        </p>
+      </section>
+
+      <section className="fleet-detail__section">
+        <Eyebrow tone="steel">operator actions</Eyebrow>
+        <div className="fleet-detail__actions">
+          <Button size="xs" onClick={() => onClaim(peer)}>
+            Claim as station
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 /** Right-hand detail column for the selected star-map node. */
 export function FleetDetailPanel({
   selection,
   probe,
   ccHostId,
   onClose,
+  onClaimPeer,
 }: {
   readonly selection: FleetSelection;
   readonly probe?: FleetProbeState;
   readonly ccHostId: string;
   readonly onClose: () => void;
+  readonly onClaimPeer: (peer: DiscoveredPeer) => void;
 }) {
   return (
     <aside className="fleet-detail" aria-label="Fleet node detail">
@@ -234,8 +286,10 @@ export function FleetDetailPanel({
       </div>
       {selection.kind === "cc" ? (
         <CommandCenterDetail hostId={ccHostId} />
-      ) : (
+      ) : selection.kind === "station" ? (
         <StationDetail key={selection.host.id} host={selection.host} probe={probe} />
+      ) : (
+        <GhostDetail key={selection.peer.name} peer={selection.peer} onClaim={onClaimPeer} />
       )}
     </aside>
   );

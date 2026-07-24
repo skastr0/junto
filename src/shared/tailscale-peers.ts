@@ -7,6 +7,8 @@ export interface TailscalePeer {
   /** Preferred IPv4 mesh address when present. */
   readonly ipv4?: string;
   readonly online?: boolean;
+  /** Device OS as reported by tailscale ("iOS", "macOS", "linux", …). */
+  readonly os?: string;
 }
 
 export interface TailscaleStatusSnapshot {
@@ -60,8 +62,9 @@ const asPeer = (row: unknown): TailscalePeer | undefined => {
   const dnsName = typeof r.DNSName === "string" ? r.DNSName : undefined;
   const ipv4 = peerIpv4(r.TailscaleIPs);
   const online = typeof r.Online === "boolean" ? r.Online : undefined;
+  const os = typeof r.OS === "string" && r.OS.trim() ? r.OS.trim() : undefined;
   if (!hostName && !dnsName && !ipv4) return undefined;
-  return { hostName, dnsName, ipv4, online };
+  return { hostName, dnsName, ipv4, online, ...(os ? { os } : {}) };
 };
 
 /**

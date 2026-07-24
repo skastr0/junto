@@ -2443,6 +2443,16 @@ ol.note-md__list > .note-md__li::before {
   border-color: rgba(237, 230, 218, 0.45);
   color: var(--color-dim);
 }
+.fleet-ghost--selected .fleet-ghost__medallion {
+  border-color: rgba(237, 230, 218, 0.5);
+  color: var(--color-dim);
+  background: var(--color-raise-2);
+}
+.fleet-detail__title--icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
 
 /* --- Add / claim host form ------------------------------------------------- */
 .fleet-form-backdrop {

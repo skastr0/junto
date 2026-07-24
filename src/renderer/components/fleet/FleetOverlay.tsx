@@ -9,7 +9,7 @@ import { FocusSurface } from "../FocusSurface";
 import { Button, OverlayHeader } from "../ui";
 import { FleetDetailPanel, type FleetSelection } from "./FleetDetailPanel";
 import { FleetHostForm } from "./FleetHostForm";
-import { COMMAND_CENTER_ID, FleetMap } from "./FleetMap";
+import { COMMAND_CENTER_ID, FleetMap, ghostNodeId } from "./FleetMap";
 
 type FormState = { readonly label?: string; readonly endpoint?: string } | null;
 
@@ -38,12 +38,18 @@ function FleetOverlayInner() {
   }, []);
 
   const selectedHost = hosts.find((host) => host.id === selectedId);
+  const selectedPeer =
+    selectedId !== null && selectedId.startsWith("ghost:")
+      ? peers.find((peer) => ghostNodeId(peer) === selectedId)
+      : undefined;
   const selection: FleetSelection | null =
     selectedId === COMMAND_CENTER_ID
       ? { kind: "cc" }
       : selectedHost
         ? { kind: "station", host: selectedHost }
-        : null;
+        : selectedPeer
+          ? { kind: "ghost", peer: selectedPeer }
+          : null;
 
   const claimPeer = (peer: DiscoveredPeer) => {
     // MagicDNS name is the preferred endpoint — stable across tailnet IPs.
@@ -82,7 +88,6 @@ function FleetOverlayInner() {
             ccHostId={ccHostId}
             selectedId={selectedId}
             onSelect={setSelectedId}
-            onClaimPeer={claimPeer}
           />
         </div>
         {selection ? (
@@ -91,6 +96,7 @@ function FleetOverlayInner() {
             probe={selection.kind === "station" ? probes[selection.host.id] : undefined}
             ccHostId={ccHostId}
             onClose={() => setSelectedId(null)}
+            onClaimPeer={claimPeer}
           />
         ) : null}
       </div>

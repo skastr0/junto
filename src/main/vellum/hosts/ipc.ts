@@ -282,7 +282,7 @@ const toDiscoveredPeer = (peer: TailscalePeer): DiscoveredPeer | undefined => {
   const addresses = [dns, peer.ipv4].filter(
     (value): value is string => typeof value === "string" && value.length > 0,
   );
-  return { name, addresses, online: peer.online === true };
+  return { name, addresses, online: peer.online === true, ...(peer.os ? { os: peer.os } : {}) };
 };
 
 const DISCOVER_PEERS_EMPTY: HostsDiscoverPeersResult = {

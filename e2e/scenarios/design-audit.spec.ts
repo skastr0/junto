@@ -498,6 +498,16 @@ test("capture the fleet manager overlay", async () => {
     // capture time — the frame asserts the fleet, not the probe outcome.
     await page.waitForTimeout(1500);
     await shot(page, "26-fleet-overlay");
+    // When the sandbox sees an unclaimed peer, its detail panel shows what
+    // the device is (OS, addresses, online state) + the claim action.
+    const ghost = page.locator(".fleet-ghost").first();
+    if ((await ghost.count()) > 0) {
+      await ghost.click();
+      const detail = page.locator(".fleet-detail");
+      await expect(detail).toBeVisible({ timeout: 5_000 });
+      await expect(detail.getByRole("button", { name: "Claim as station" })).toBeVisible();
+      await shot(page, "27-fleet-ghost-detail");
+    }
   } finally {
     await vellum.close();
   }

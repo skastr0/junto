@@ -4,11 +4,13 @@ import {
   Cpu,
   Globe,
   Laptop,
+  Monitor,
   Orbit,
   Radar,
   Rocket,
   Satellite,
   Server,
+  Smartphone,
   Star,
   type LucideIcon,
 } from "lucide-react";
@@ -120,19 +122,35 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
 export type GhostStationNodeData = { readonly peer: DiscoveredPeer };
 export type GhostStationFlowNode = Node<GhostStationNodeData, "ghost">;
 
-export function GhostStationNode({ data }: NodeProps<GhostStationFlowNode>) {
+const PEER_OS_ICONS: Record<string, LucideIcon> = {
+  ios: Smartphone,
+  android: Smartphone,
+  macos: Laptop,
+  linux: Server,
+  windows: Monitor,
+};
+
+/** OS-aware device icon for a discovered peer; Radar when the OS is unknown. */
+export const peerOsIcon = (os?: string): LucideIcon =>
+  (os ? PEER_OS_ICONS[os.trim().toLowerCase()] : undefined) ?? Radar;
+
+export function GhostStationNode({ data, selected }: NodeProps<GhostStationFlowNode>) {
+  const { peer } = data;
+  const Icon = peerOsIcon(peer.os);
   return (
-    <div className="fleet-ghost">
+    <div className={`fleet-ghost${selected ? " fleet-ghost--selected" : ""}`}>
       <Handle type="target" position={Position.Left} className="fleet-handle" />
       <div className="fleet-node__medallion fleet-ghost__medallion">
-        <Radar size={20} strokeWidth={1.5} />
+        <Icon size={20} strokeWidth={1.5} />
         <span
-          className={data.peer.online ? "fleet-pip fleet-pip--reachable" : "fleet-pip fleet-pip--unknown"}
-          title={data.peer.online ? "online on the tailnet" : "offline"}
+          className={peer.online ? "fleet-pip fleet-pip--reachable" : "fleet-pip fleet-pip--unknown"}
+          title={peer.online ? "online on the tailnet" : "offline"}
         />
       </div>
-      <div className="fleet-station__label">{data.peer.name}</div>
-      <div className="fleet-node__meta">unclaimed</div>
+      <div className="fleet-station__label">{peer.name}</div>
+      <div className="fleet-node__meta">
+        {`${peer.os ?? "device"} · ${peer.online ? "online" : "offline"}`}
+      </div>
     </div>
   );
 }

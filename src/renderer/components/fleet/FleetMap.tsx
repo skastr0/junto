@@ -29,7 +29,7 @@ export const COMMAND_CENTER_ID = "command-center";
 
 type FleetFlowNode = CommandCenterFlowNode | StationFlowNode | GhostStationFlowNode;
 
-const ghostId = (peer: DiscoveredPeer): string => `ghost:${peer.name}`;
+export const ghostNodeId = (peer: DiscoveredPeer): string => `ghost:${peer.name}`;
 
 type FleetLinkData = {
   readonly status: FleetEdgeStatus;
@@ -106,7 +106,6 @@ function FleetMapInner({
   ccHostId,
   selectedId,
   onSelect,
-  onClaimPeer,
 }: {
   readonly hosts: ReadonlyArray<RemoteHost>;
   readonly peers: ReadonlyArray<DiscoveredPeer>;
@@ -114,7 +113,6 @@ function FleetMapInner({
   readonly ccHostId: string;
   readonly selectedId: string | null;
   readonly onSelect: (id: string | null) => void;
-  readonly onClaimPeer: (peer: DiscoveredPeer) => void;
 }) {
   const stations = useMemo(() => hosts.filter((host) => host.kind === "remote"), [hosts]);
 
@@ -126,7 +124,7 @@ function FleetMapInner({
       const p = positions[id];
       return p ? Math.max(max, Math.round(Math.hypot(p.x, p.y) / ORBIT_BASE_RADIUS)) : max;
     }, 0);
-    const ghostPositions = orbitLayout(peers.map(ghostId), outerOrbit);
+    const ghostPositions = orbitLayout(peers.map(ghostNodeId), outerOrbit);
     const cc: CommandCenterFlowNode = {
       id: COMMAND_CENTER_ID,
       type: "commandCenter",
@@ -146,11 +144,11 @@ function FleetMapInner({
       connectable: false,
     }));
     const ghosts: Array<GhostStationFlowNode> = peers.map((peer) => ({
-      id: ghostId(peer),
+      id: ghostNodeId(peer),
       type: "ghost",
-      position: ghostPositions[ghostId(peer)] ?? { x: 0, y: 0 },
+      position: ghostPositions[ghostNodeId(peer)] ?? { x: 0, y: 0 },
       data: { peer },
-      selected: false,
+      selected: selectedId === ghostNodeId(peer),
       draggable: false,
       connectable: false,
     }));
@@ -179,9 +177,9 @@ function FleetMapInner({
     // Detected-but-unclaimed peers get a whisper of a link: seen, not enrolled.
     for (const peer of peers) {
       links.push({
-        id: `fleet-${ghostId(peer)}`,
+        id: `fleet-${ghostNodeId(peer)}`,
         source: COMMAND_CENTER_ID,
-        target: ghostId(peer),
+        target: ghostNodeId(peer),
         type: "fleetLink",
         data: { status: "unknown", ghost: true },
         selectable: false,
@@ -197,14 +195,7 @@ function FleetMapInner({
       edges={edges as Array<Edge>}
       nodeTypes={fleetNodeTypes}
       edgeTypes={fleetEdgeTypes}
-      onNodeClick={(_, node) => {
-        if (node.type === "ghost") {
-          const peer = peers.find((p) => ghostId(p) === node.id);
-          if (peer) onClaimPeer(peer);
-          return;
-        }
-        onSelect(node.id);
-      }}
+      onNodeClick={(_, node) => onSelect(node.id)}
       onPaneClick={() => onSelect(null)}
       fitView
       fitViewOptions={{ padding: 0.28, maxZoom: 1.1 }}
