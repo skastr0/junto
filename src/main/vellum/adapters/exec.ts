@@ -10,7 +10,7 @@ import {
 // size are consistent, and so a failing CLI degrades to a result object
 // instead of throwing — adapters decide how to fold that into a SnapshotBundle.
 
-// Bulk queries over the tailnet (e.g. `tower projects --json` plus per-hint
+// Bulk queries over the tailnet (e.g. `hermes profiles --json` plus per-hint
 // dashboard fan-out) routinely exceed 10s, so the default is generous.
 // Callers with a tighter budget can override per call.
 const TIMEOUT_MS = 30_000;
@@ -323,7 +323,7 @@ const runRegisteredAdapterOperation = (
 // Well-known install roots, in priority order. This is the guaranteed floor:
 // under a packaged/launchd/Finder launch the process inherits launchd's
 // minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin) and does NOT source the user's
-// shell rc, so bare CLI names (tower/quasar/booth/hermes/codex/bun) would
+// shell rc, so bare CLI names (hermes/codex/bun) would
 // ENOENT. These dirs — ~/.local/bin + the mise shims dir chiefly — resolve all
 // of them without any login shell, so even a broken login shell still works.
 export const staticPathDirs = (home: string): ReadonlyArray<string> => [

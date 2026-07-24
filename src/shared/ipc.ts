@@ -242,10 +242,10 @@ export interface DigestResult {
   readonly path: string;
 }
 
-// Renderer passes the open document's bindings so adapters only pay for
-// per-project detail (e.g. quasar session counts) where a node actually binds.
+// Renderer passes open-document identity keys so adapters can enrich where a
+// node actually binds (hermes agents). Live plane is hermes-only.
 export interface BindingHint {
-  readonly source: "tower" | "quasar" | "booth" | "hermes";
+  readonly source: "hermes";
   readonly key: string;
 }
 
@@ -486,9 +486,8 @@ export interface VellumApi {
   /** Remote-only: pull full canvases from Command Center into local ~/.vellum/canvases. */
   readonly pullCanvases: () => Promise<CanvasPullResult>;
   readonly exportDigest: (name: string) => Promise<DigestResult>;
-  // Merge the live corpus (tower/quasar/booth projects) onto the named canvas
-  // as bound, hydrated nodes. Preserves existing nodes; appends new ones.
-  // { all: true } includes every indexed repo, not just owned/registered.
+  // Merge live hermes agents onto the named canvas as identity cards.
+  // Preserves existing nodes; appends agents not already present.
   readonly generatePortfolio: (
     name: string,
     options?: { all?: boolean },

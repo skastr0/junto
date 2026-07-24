@@ -221,8 +221,8 @@ export const EtherWatch = Schema.Struct({
   orbit: Schema.optionalWith(Schema.String, { exact: true }),
   glyphIds: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
   state: Schema.optionalWith(Schema.String, { exact: true }), // entered-state target; default "committed"
-  // stat rule: a numeric stat on a bound entity
-  source: Schema.optionalWith(Schema.Literal("tower", "quasar", "booth", "hermes"), { exact: true }),
+  // stat rule: a numeric stat on a bound hermes entity
+  source: Schema.optionalWith(Schema.Literal("hermes"), { exact: true }),
   key: Schema.optionalWith(Schema.String, { exact: true }),
   stat: Schema.optionalWith(Schema.String, { exact: true }),
   op: Schema.optionalWith(Schema.Literal("gt", "lt", "eq"), { exact: true }),
@@ -493,7 +493,13 @@ const workStoreDecoders: ReadonlyArray<{
   { key: "messages", decode: Schema.decodeUnknownEither(EtherMessages) },
 ];
 
-/** Drop invalid A2A work stores before full document decode. */
+// Historical private-source names retired from EntitySource / watch.source.
+// Old documents that still carry them must load; strip so decode succeeds
+// and live evaluation degrades (incomplete stat rule → unknown) without
+// inventing grants.
+const RETIRED_SOURCE_NAMES = new Set(["tower", "quasar", "booth"]);
+
+/** Drop invalid A2A work stores + retired source vocabulary before full decode. */
 export const sanitizeWorkStores = (input: unknown): unknown => {
   if (input === null || typeof input !== "object" || Array.isArray(input)) return input;
   const doc = input as Record<string, unknown>;
@@ -504,16 +510,27 @@ export const sanitizeWorkStores = (input: unknown): unknown => {
     const n = node as Record<string, unknown>;
     if (n.ether === null || typeof n.ether !== "object" || Array.isArray(n.ether)) return node;
     const etherIn = n.ether as Record<string, unknown>;
-    let storeDropped = false;
+    let changed = false;
     const ether: Record<string, unknown> = { ...etherIn };
     for (const { key, decode } of workStoreDecoders) {
       if (!(key in ether)) continue;
       if (decode(ether[key])._tag === "Left") {
         delete ether[key];
-        storeDropped = true;
+        changed = true;
       }
     }
-    if (!storeDropped) return node;
+    // Strip retired watch.source; leave other watch fields so glyphs_* rules
+    // still decode. Unknown ether keys (e.g. legacy bindings[]) are dropped
+    // by Schema.Struct decode — no grant invented from them.
+    if (ether.watch !== null && typeof ether.watch === "object" && !Array.isArray(ether.watch)) {
+      const watchIn = ether.watch as Record<string, unknown>;
+      if (typeof watchIn.source === "string" && RETIRED_SOURCE_NAMES.has(watchIn.source)) {
+        const { source: _retired, ...watchRest } = watchIn;
+        ether.watch = watchRest;
+        changed = true;
+      }
+    }
+    if (!changed) return node;
     anyNodeChanged = true;
     if (Object.keys(ether).length === 0) {
       const { ether: _dropped, ...rest } = n;

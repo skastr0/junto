@@ -2,7 +2,7 @@ import type { CanvasDoc } from "./canvas";
 import { edgeGlyphProjects, type GlyphRow, type GlyphView } from "./execution-graph";
 
 // Build a GlyphView for digest/export paths. Pure over the fetch results so
-// unit tests can supply rows without tower. Partial/failed project reads are
+// unit tests can supply rows without a live glyph source. Partial/failed project reads are
 // omitted (missing key → criteria stay non-generating / relates).
 
 export type GlyphFetchResult = {

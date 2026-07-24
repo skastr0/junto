@@ -199,7 +199,7 @@ export function evaluateWatcher(
   // source recovers. Skipping the write lets recovery re-baseline silently
   // against the last known level: a satisfied -> unknown -> satisfied blip
   // leaves `previous` at "satisfied", so it can never re-fire an already-met
-  // condition on nothing more than a transient tower/quasar outage.
+  // condition on nothing more than a transient hermes outage.
   if (evaluation.status !== "unknown") {
     seenLevelStatus.set(memoryKey, evaluation.status);
   }

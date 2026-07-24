@@ -29,10 +29,10 @@ import {
 const snapshotsWithStat = (stat: string, value: number): SnapshotState => ({
   bundles: [
     {
-      source: "tower",
+      source: "hermes",
       fetchedAt: new Date().toISOString(),
       ok: true,
-      entities: [{ source: "tower", key: "proj", kind: "project", stats: { [stat]: value }, updatedAt: new Date().toISOString() }],
+      entities: [{ source: "hermes", key: "proj", kind: "project", stats: { [stat]: value }, updatedAt: new Date().toISOString() }],
     },
   ],
 });
@@ -47,7 +47,7 @@ const watcherNode = (id: string) => ({
   height: 40,
   ether: {
     entity: { kind: "watcher" as const },
-    watch: { kind: "stat_threshold" as const, source: "tower" as const, key: "proj", stat: "signals", op: "gt" as const, value: 10 },
+    watch: { kind: "stat_threshold" as const, source: "hermes" as const, key: "proj", stat: "signals", op: "gt" as const, value: 10 },
   },
 });
 

@@ -32,7 +32,7 @@ export type { WatcherRuntimeState, PulseRecord, ExecutionSnapshot };
 //
 // `execution` is the open canvas's live edge phase + blocked closure from the
 // kernel cycle (glyph-aware). Canvas toFlow consumes it so criteria edges
-// paint blocks/depends without the renderer re-fetching tower browse.
+// paint blocks/depends without the renderer re-fetching glyph browse.
 export const kernel$ = observable<{
   watchers: Record<string, WatcherRuntimeState>;
   armed: Record<string, boolean>;

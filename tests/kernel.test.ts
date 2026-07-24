@@ -39,12 +39,12 @@ const glyphIndexOf = (project: string, rows: ReadonlyArray<TowerGlyphRow>): Glyp
 const snapshotsWithStat = (stat: string, value: number | string): SnapshotState => ({
   bundles: [
     {
-      source: "tower",
+      source: "hermes",
       fetchedAt: new Date().toISOString(),
       ok: true,
       entities: [
         {
-          source: "tower",
+          source: "hermes",
           key: "proj",
           kind: "project",
           stats: { [stat]: value },
@@ -105,7 +105,7 @@ describe("evaluateWatcher — glyphs_done", () => {
 // --- stat_threshold --------------------------------------------------------------
 
 describe("evaluateWatcher — stat_threshold", () => {
-  const watch: EtherWatch = { kind: "stat_threshold", source: "tower", key: "proj", stat: "signals", op: "gt", value: 10 };
+  const watch: EtherWatch = { kind: "stat_threshold", source: "hermes", key: "proj", stat: "signals", op: "gt", value: 10 };
   const canvasName = "test-canvas";
 
   it("is unknown when the bound entity is missing", () => {
@@ -500,7 +500,7 @@ describe("I14 — pulse delivery: edges route; geometry does not mint", () => {
         entity: { kind: "watcher" },
         watch: {
           kind: "stat_threshold",
-          source: "tower",
+          source: "hermes",
           key: "proj",
           stat: "signals",
           op: "gt",

@@ -104,10 +104,10 @@ export const isBlockableNode = (node: CanvasNode | undefined): boolean => {
   return true;
 };
 
-// The node's identity name IS the tower project key when tower knows the
-// project (tower keys are the canonical project names). Edge criteria that
-// need a different key carry an explicit criteria.project.
-export const towerProjectKey = (node: CanvasNode | undefined): string | undefined => {
+// The node's identity name is the project key for glyph/wip criteria when the
+// entity is not an agent. Edge criteria that need a different key carry an
+// explicit criteria.project.
+export const entityProjectKey = (node: CanvasNode | undefined): string | undefined => {
   const entity = node?.ether?.entity;
   if (!entity?.name || entity.kind === "agent") return undefined;
   return entity.name;
@@ -121,7 +121,7 @@ const evalGlyphsCriteria = (
   fromNode: CanvasNode | undefined,
   glyphs: GlyphView,
 ): EdgeEval => {
-  const project = criteria.project ?? towerProjectKey(fromNode);
+  const project = criteria.project ?? entityProjectKey(fromNode);
   if (!project) {
     return { phase: "relates", detail: "no project for glyph criteria", generates: false, relays: false };
   }
@@ -170,7 +170,7 @@ const evalWipCriteria = (
   fromNode: CanvasNode | undefined,
   glyphs: GlyphView,
 ): EdgeEval => {
-  const project = criteria.project ?? towerProjectKey(fromNode);
+  const project = criteria.project ?? entityProjectKey(fromNode);
   if (!project) {
     return { phase: "relates", detail: "no project for wip criteria", generates: false, relays: false };
   }
@@ -301,7 +301,7 @@ export const edgeGlyphProjects = (doc: CanvasDoc): ReadonlySet<string> => {
     const criteria = edge.ether?.criteria;
     if (!criteria || criteria.mode === "tasks") continue;
     const from = byId.get(edge.fromNode);
-    const project = criteria.project ?? towerProjectKey(from);
+    const project = criteria.project ?? entityProjectKey(from);
     if (project) projects.add(project);
   }
   return projects;

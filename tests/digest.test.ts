@@ -81,31 +81,18 @@ const doc: CanvasDoc = {
 const snapshots: SnapshotState = {
   bundles: [
     {
-      source: "tower",
+      source: "hermes",
       fetchedAt: "2026-01-01T00:00:00.000Z",
       ok: true,
       entities: [
         {
-          source: "tower",
-          key: "foo",
-          kind: "project",
+          source: "hermes",
+          key: "host:agent",
+          kind: "agent",
           stats: { b: "x", a: 1 },
           updatedAt: "2026-01-01T00:00:00.000Z",
         },
       ],
-    },
-    {
-      source: "quasar",
-      fetchedAt: "2026-01-01T00:00:00.000Z",
-      ok: false,
-      error: "timeout",
-      entities: [],
-    },
-    {
-      source: "booth",
-      fetchedAt: "2026-01-01T00:00:00.000Z",
-      ok: true,
-      entities: [],
     },
   ],
 };
@@ -127,7 +114,6 @@ capabilities :: criteria=1 soft=3
 
 entities
 Foo :: project
-  tower: a=1 b=x
 Bar :: orbit
 Baz :: project
 Ops :: task
@@ -144,15 +130,22 @@ Bar
 blocked closure :: 1 nodes
 Baz · 0/1 tasks settled · open: ship
 
+impact
+1 task · stops 2
+  seed: Ops
+  settle: ship
+blocker · stops 1
+  seed: Bar
+  clear: blocker flag
+
 seeds
+Foo
 Bar
 Baz
 Ops
 
 sources
-tower :: ok (1 entities)
-quasar :: down (timeout)
-booth :: ok (0 entities)
+hermes :: ok (1 entities)
 `;
 
 describe("digestCanvas", () => {

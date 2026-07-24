@@ -130,7 +130,7 @@ const regionLabel = (group: GroupNode): string => (group.label ?? "").trim() || 
 
 // First WIP state on the member's own project rows, when the view knows the
 // project at all. Missing key / undefined rows = data unavailable = no work
-// invented. Project identity is ether.entity.name (the tower project key).
+// invented. Project identity is ether.entity.name (the project key).
 const wipStateOf = (node: CanvasNode, glyphs: GlyphView | undefined): string | undefined => {
   const entity = node.ether?.entity;
   if (entity?.kind !== "project" || entity.name === undefined || glyphs === undefined) {

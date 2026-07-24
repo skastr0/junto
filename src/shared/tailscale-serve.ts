@@ -6,7 +6,7 @@ export type TailscaleServeEntryKind = "svc" | "web" | "tcp-forward";
 
 export interface TailscaleServeEntry {
   readonly kind: TailscaleServeEntryKind;
-  /** e.g. svc:booth-control, machine-web, tcp:8090 */
+  /** e.g. svc:control, machine-web, tcp:8090 */
   readonly id: string;
   readonly label: string;
   /**

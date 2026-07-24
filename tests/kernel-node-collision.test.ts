@@ -19,10 +19,10 @@ import {
 const snapshotsWithStat = (stat: string, value: number): SnapshotState => ({
   bundles: [
     {
-      source: "tower",
+      source: "hermes",
       fetchedAt: new Date().toISOString(),
       ok: true,
-      entities: [{ source: "tower", key: "proj", kind: "project", stats: { [stat]: value }, updatedAt: new Date().toISOString() }],
+      entities: [{ source: "hermes", key: "proj", kind: "project", stats: { [stat]: value }, updatedAt: new Date().toISOString() }],
     },
   ],
 });
@@ -42,7 +42,7 @@ const docWithWatcher = (nodeId: string): CanvasDoc => ({
       height: 40,
       ether: {
         entity: { kind: "watcher" },
-        watch: { kind: "stat_threshold", source: "tower", key: "proj", stat: "signals", op: "gt", value: 10, flagOnUnsatisfied: true },
+        watch: { kind: "stat_threshold", source: "hermes", key: "proj", stat: "signals", op: "gt", value: 10, flagOnUnsatisfied: true },
       },
     },
   ],

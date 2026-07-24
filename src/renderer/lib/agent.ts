@@ -4,7 +4,7 @@ import { getVellumApi } from "./vellum-api";
 // Module-level so every agent card and inspector section sharing a hermes key
 // share one in-flight (then settled) fetch instead of hammering the fleet.
 // Cached forever for the session: avatars and identity are effectively
-// static, unlike the tower/quasar browse data in lib/browse.ts.
+// static, unlike historical private-source browse data.
 const avatarCache = new Map<string, Promise<string | null>>();
 const identityCache = new Map<string, Promise<AgentIdentity | null>>();
 

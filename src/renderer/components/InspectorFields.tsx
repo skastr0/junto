@@ -3,18 +3,18 @@ import { Flag, SlidersHorizontal } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { HashMap, HashSet, Option, Schema } from "effect";
 import type { CanvasDoc, CanvasEdge, CanvasNode, EdgeCriteria, EtherFlag, EtherRegionDefaults, EtherView, EtherWatch } from "@shared/canvas";
-import { towerProjectKey } from "@shared/execution-graph";
-import { findEntity } from "@shared/entities";
+import { entityProjectKey } from "@shared/execution-graph";
 import { isGroup } from "@shared/graph";
 import {
   ALL_PORTS,
   Port,
   asNodeId,
   canvasDocToCapabilityView,
-  defaultGrantForRoles,
+  grantLawForRoles,
   offersOf,
   resolveSpec,
   roleOf,
+  selectGrant,
   undirectedEdgeKey,
   type FactoryRoleName,
   type PortName,
@@ -53,15 +53,15 @@ const readEdgePortMask = (
   return any ? set : undefined;
 };
 
-/** Effective ports for caller → target: role law grant, attenuated by mask, ∩ offers. */
+/** Effective ports for caller → target: GrantLaw + mask → PortGrant ∩ offers. */
 const effectivePorts = (
   caller: ResolvedSpecValue,
   target: ResolvedSpecValue,
   mask: HashSet.HashSet<PortName> | undefined,
 ): ReadonlyArray<PortName> => {
-  let grant = defaultGrantForRoles(roleOf(caller), roleOf(target));
+  const law = grantLawForRoles(roleOf(caller), roleOf(target));
+  const grant = selectGrant(law, mask);
   if (grant.isEmpty()) return [];
-  if (mask !== undefined) grant = grant.attenuate(mask);
   const offers = offersOf(target);
   return ALL_PORTS.filter((port) => grant.allows(port, offers));
 };
@@ -319,7 +319,7 @@ export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode })
 }
 
 // Watcher vocabulary (schema strings) — no live browse.
-const TOWER_STATES = ["backlog", "exploring", "committed", "building", "reviewing", "done", "abandoned"] as const;
+const GLYPH_STATES = ["backlog", "exploring", "committed", "building", "reviewing", "done", "abandoned"] as const;
 const ORBIT_BASE = ["forge", "beacon", "survey", "scribe", "oracle", "atelier", "manual", "showcase", "cartography"] as const;
 const orbitOptions = (_stats?: Readonly<Record<string, string | number>>): ReadonlyArray<string> =>
   [...ORBIT_BASE];
@@ -497,7 +497,7 @@ export function EdgeCriteriaEditor({
   const fromKind = fromNode?.ether?.entity?.kind;
   const fromIsTask = fromKind === "task" || fromKind === "requests";
   const fromIsProject = fromKind === "project";
-  const towerKey = towerProjectKey(fromNode) ?? "";
+  const projectKey = entityProjectKey(fromNode) ?? "";
 
   // Local draft only — never persist empty glyphs criteria (mutation also strips).
   const [glyphsDraft, setGlyphsDraft] = useState(false);
@@ -520,7 +520,7 @@ export function EdgeCriteriaEditor({
     }
     if (next === "wip") {
       setGlyphsDraft(false);
-      setEdgeCriteria(edgeId, { mode: "wip", ...(towerKey ? { project: towerKey } : {}) });
+      setEdgeCriteria(edgeId, { mode: "wip", ...(projectKey ? { project: projectKey } : {}) });
       return;
     }
     if (next === "tasks") {
@@ -539,7 +539,7 @@ export function EdgeCriteriaEditor({
     setEdgeCriteria(edgeId, {
       mode: "glyphs",
       glyphIds: [...existing],
-      ...(towerKey ? { project: towerKey } : {}),
+      ...(projectKey ? { project: projectKey } : {}),
     });
   };
 
@@ -573,24 +573,24 @@ export function EdgeCriteriaEditor({
                 : "tasks · incomplete A2A tasks block"}
             </option>
           ) : null}
-          {fromIsProject || towerKey ? (
+          {fromIsProject || projectKey ? (
             <option value="wip">WIP · committed/building/reviewing (opt-in)</option>
           ) : null}
-          {fromIsProject || towerKey ? (
+          {fromIsProject || projectKey ? (
             <option value="glyphs">glyphs · selected must be done</option>
           ) : null}
         </select>
       </label>
       {mode === "glyphs" ? (
         <div className="inspector-detail">
-          {towerKey
-            ? "Glyph ids are authored on the edge (no live tower browse)."
+          {projectKey
+            ? "Glyph ids are authored on the edge (no live glyph browse)."
             : "Source needs a project identity (ether.entity.name) for glyph criteria."}
         </div>
       ) : null}
       {mode === "wip" ? (
         <div className="inspector-detail">
-          Blocks while any glyph on the source tower project is in committed, building, or reviewing.
+          Blocks while any glyph on the source project is in committed, building, or reviewing.
         </div>
       ) : null}
       {mode === "tasks" ? (
@@ -838,7 +838,7 @@ const WATCH_KIND_OPTIONS: ReadonlyArray<{ readonly value: EtherWatch["kind"]; re
   { value: "stat_threshold", label: "stat threshold" },
 ];
 
-const STAT_SOURCE_OPTIONS: ReadonlyArray<NonNullable<EtherWatch["source"]>> = ["tower", "quasar", "booth", "hermes"];
+const STAT_SOURCE_OPTIONS: ReadonlyArray<NonNullable<EtherWatch["source"]>> = ["hermes"];
 
 const STAT_OP_OPTIONS: ReadonlyArray<{ readonly value: NonNullable<EtherWatch["op"]>; readonly label: string }> = [
   { value: "gt", label: "greater than" },
@@ -856,11 +856,11 @@ const commitOnEnter = (onCommit: () => void) => (event: React.KeyboardEvent<HTML
 
 // The glyph-rule scope (glyphs_done, glyphs_entered_state): project + orbit
 // + an explicit glyphIds allowlist. Empty glyphIds means every glyph in scope.
-function GlyphScopeFields({ project, orbit, glyphIdsText, towerKey, onProject, onOrbit, onGlyphIds, onCommit }: {
+function GlyphScopeFields({ project, orbit, glyphIdsText, projectKey, onProject, onOrbit, onGlyphIds, onCommit }: {
   readonly project: string;
   readonly orbit: string;
   readonly glyphIdsText: string;
-  readonly towerKey: string | undefined;
+  readonly projectKey: string | undefined;
   readonly onProject: (value: string) => void;
   readonly onOrbit: (value: string) => void;
   readonly onGlyphIds: (value: string) => void;
@@ -870,7 +870,7 @@ function GlyphScopeFields({ project, orbit, glyphIdsText, towerKey, onProject, o
   return <>
     <label className="inspector-editor">
       <span>project</span>
-      <input aria-label="Watcher project" value={project} placeholder={towerKey ?? "project key"} onChange={(event) => onProject(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
+      <input aria-label="Watcher project" value={project} placeholder={projectKey ?? "project key"} onChange={(event) => onProject(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
     </label>
     <label className="inspector-editor">
       <span>orbit</span>
@@ -934,11 +934,10 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
 // Every watch field's draft state, reset together whenever the inspected
 // node changes — split out of WatcherEditor so the component body reads as
 // "options + commit", not a wall of useState declarations.
-function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, towerKey: string | undefined) {
-  // Fresh watchers on a station without tower default to the shape that can
-  // actually evaluate there; authored values always win.
+function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, projectKey: string | undefined) {
+  // Fresh watchers default to hermes (live plane); authored values always win.
   const [kind, setKind] = useState<EtherWatch["kind"]>(watch?.kind ?? "stat_threshold");
-  const [project, setProject] = useState(watch?.project ?? towerKey ?? "");
+  const [project, setProject] = useState(watch?.project ?? projectKey ?? "");
   const [orbit, setOrbit] = useState(watch?.orbit ?? "");
   const [glyphIdsText, setGlyphIdsText] = useState((watch?.glyphIds ?? []).join(", "));
   const [stateName, setStateName] = useState(watch?.state ?? "committed");
@@ -951,7 +950,7 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, towerKey: 
 
   useEffect(() => {
     setKind(watch?.kind ?? "stat_threshold");
-    setProject(watch?.project ?? towerKey ?? "");
+    setProject(watch?.project ?? projectKey ?? "");
     setOrbit(watch?.orbit ?? "");
     setGlyphIdsText((watch?.glyphIds ?? []).join(", "));
     setStateName(watch?.state ?? "committed");
@@ -977,14 +976,13 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, towerKey: 
 // with no persistent "unsatisfied" state to mirror (see canvas.ts).
 function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   const watch = node.ether?.watch;
-  const towerKey = towerProjectKey(node);
-  // Glyph-rule kinds are tower semantics: offer them only where tower is
-  // configured (an authored kind stays visible regardless).
+  const projectKey = entityProjectKey(node);
+  // Glyph-rule kinds use document project identity; stat_threshold is hermes-only.
   const {
     kind, setKind, project, setProject, orbit, setOrbit, glyphIdsText, setGlyphIdsText,
     stateName, setStateName, source, setSource, key, setKey, stat, setStat, op, setOp,
     valueText, setValueText, flagOnUnsatisfied, setFlagOnUnsatisfied,
-  } = useWatchDraft(node.id, watch, towerKey);
+  } = useWatchDraft(node.id, watch, projectKey);
 
   type Overrides = Partial<{
     readonly kind: EtherWatch["kind"];
@@ -1032,7 +1030,7 @@ function WatcherEditor({ node }: { readonly node: CanvasNode }) {
         project={project}
         orbit={orbit}
         glyphIdsText={glyphIdsText}
-        towerKey={towerKey}
+        projectKey={projectKey}
         onProject={setProject}
         onOrbit={setOrbit}
         onGlyphIds={setGlyphIdsText}
@@ -1043,7 +1041,7 @@ function WatcherEditor({ node }: { readonly node: CanvasNode }) {
       <label className="inspector-editor">
         <span>entered state</span>
         <select aria-label="Watcher target state" value={stateName} onChange={(event) => { setStateName(event.target.value); commit({ state: event.target.value }); }}>
-          {TOWER_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+          {GLYPH_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </label>
     ) : null}
@@ -1128,10 +1126,7 @@ function TimerEditor({ node }: { readonly node: CanvasNode }) {
 // different slices ("prism · forge" here, "prism · beacon" there). Purely
 // presentational; setNodeView never touches the binding itself.
 export function ViewSliceFields({ node }: { readonly node: CanvasNode }) {
-  const snapshots = use$(state$.snapshots);
-  const towerKey = towerProjectKey(node);
-  const towerEntity = towerKey ? findEntity(snapshots, "tower", towerKey) : undefined;
-  const orbits = orbitOptions(towerEntity?.stats);
+  const orbits = orbitOptions();
   const view = node.ether?.view;
   const orbitValue = view?.orbit ?? "";
   const queryValue = view?.glyphQuery ?? "";
@@ -1182,7 +1177,7 @@ export function ViewSliceFields({ node }: { readonly node: CanvasNode }) {
       />
     </label>
     <div className="inspector-flags">
-      {TOWER_STATES.map((stateName) => {
+      {GLYPH_STATES.map((stateName) => {
         const active = statesValue.includes(stateName);
         const hue = glyphStateHue(stateName);
         return <button key={stateName} type="button" className="inspector-flag-toggle" aria-pressed={active} style={{ color: active ? hue : "#68604a", borderColor: active ? withAlpha(hue, 0.5) : "rgba(237,230,218,.12)", background: active ? withAlpha(hue, 0.1) : "rgba(255,255,255,.02)" }} onClick={() => toggleState(stateName)}>{stateName}</button>;

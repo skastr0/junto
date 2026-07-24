@@ -19,11 +19,11 @@ import {
 const snapshotsWithStat = (stat: string, value: number): SnapshotState => ({
   bundles: [
     {
-      source: "tower",
+      source: "hermes",
       fetchedAt: new Date().toISOString(),
       ok: true,
       entities: [
-        { source: "tower", key: "proj", kind: "project", stats: { [stat]: value }, updatedAt: new Date().toISOString() },
+        { source: "hermes", key: "proj", kind: "project", stats: { [stat]: value }, updatedAt: new Date().toISOString() },
       ],
     },
   ],
@@ -52,7 +52,7 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
         height: 40,
         ether: {
           entity: { kind: "watcher" },
-          watch: { kind: "stat_threshold", source: "tower", key: "proj", stat: "signals", op: "gt", value: 10 },
+          watch: { kind: "stat_threshold", source: "hermes", key: "proj", stat: "signals", op: "gt", value: 10 },
         },
       },
       {

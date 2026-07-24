@@ -13,7 +13,7 @@ import {
 } from "../src/main/vellum/canvases";
 
 // Headless agent surface: `bun run digest [name]` — hermes snapshots only.
-// Canvases with tower/quasar bindings still decode; live private data is gone.
+// Canvases with retired private-source bindings still decode; live private data is gone.
 // Document bytes come from canvas-authority-v1 via CanvasesService (sole store).
 
 const hermesRuntime = ManagedRuntime.make(HermesStandaloneLive);

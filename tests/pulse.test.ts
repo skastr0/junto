@@ -8,12 +8,12 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-1",
                 kind: "project",
                 title: "Project 1",
@@ -33,12 +33,12 @@ describe("pulse.ts", () => {
       const shared: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-1",
                 kind: "project",
                 title: "Project 1",
@@ -58,12 +58,12 @@ describe("pulse.ts", () => {
       const prev: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-1",
                 kind: "project",
                 title: "My Project",
@@ -78,12 +78,12 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:01:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-1",
                 kind: "project",
                 title: "My Project",
@@ -97,7 +97,7 @@ describe("pulse.ts", () => {
 
       const items = comparePulse(prev, next);
       expect(items).toHaveLength(1);
-      expect(items[0]?.source).toBe("tower");
+      expect(items[0]?.source).toBe("hermes");
       expect(items[0]?.text).toBe("My Project · glyphs_active +2");
     });
 
@@ -105,12 +105,12 @@ describe("pulse.ts", () => {
       const prev: SnapshotState = {
         bundles: [
           {
-            source: "quasar",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: true,
             entities: [
               {
-                source: "quasar",
+                source: "hermes",
                 key: "vellum",
                 kind: "project",
                 title: "Vellum",
@@ -125,12 +125,12 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "quasar",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:01:00Z",
             ok: true,
             entities: [
               {
-                source: "quasar",
+                source: "hermes",
                 key: "vellum",
                 kind: "project",
                 title: "Vellum",
@@ -151,7 +151,7 @@ describe("pulse.ts", () => {
       const prev: SnapshotState = {
         bundles: [
           {
-            source: "booth",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: false,
             error: "connection failed",
@@ -163,7 +163,7 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "booth",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:01:00Z",
             ok: true,
             entities: [],
@@ -173,8 +173,8 @@ describe("pulse.ts", () => {
 
       const items = comparePulse(prev, next);
       expect(items).toHaveLength(1);
-      expect(items[0]?.source).toBe("booth");
-      expect(items[0]?.text).toBe("booth back online");
+      expect(items[0]?.source).toBe("hermes");
+      expect(items[0]?.text).toBe("hermes back online");
     });
 
     it("detects source ok:true → ok:false flip", () => {
@@ -211,12 +211,12 @@ describe("pulse.ts", () => {
       const prev: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-no-title",
                 kind: "project",
                 stats: { glyphs_active: 1 },
@@ -230,12 +230,12 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:01:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-no-title",
                 kind: "project",
                 stats: { glyphs_active: 2 },
@@ -251,34 +251,27 @@ describe("pulse.ts", () => {
       expect(items[0]?.text).toBe("proj-no-title · glyphs_active +1");
     });
 
-    it("handles multiple sources in one snapshot", () => {
+    it("handles multiple entities in one hermes snapshot", () => {
       const prev: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
-                key: "proj-1",
-                kind: "project",
-                title: "Tower Project",
+                source: "hermes",
+                key: "host:agent-a",
+                kind: "agent",
+                title: "Agent A",
                 stats: { glyphs_active: 2 },
                 updatedAt: "2025-01-01T00:00:00Z",
               },
-            ],
-          },
-          {
-            source: "quasar",
-            fetchedAt: "2025-01-01T00:00:00Z",
-            ok: true,
-            entities: [
               {
-                source: "quasar",
-                key: "vellum",
-                kind: "project",
-                title: "Vellum Sessions",
+                source: "hermes",
+                key: "host:agent-b",
+                kind: "agent",
+                title: "Agent B",
                 stats: { sessions: 5 },
                 updatedAt: "2025-01-01T00:00:00Z",
               },
@@ -290,30 +283,23 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:01:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
-                key: "proj-1",
-                kind: "project",
-                title: "Tower Project",
+                source: "hermes",
+                key: "host:agent-a",
+                kind: "agent",
+                title: "Agent A",
                 stats: { glyphs_active: 4 },
                 updatedAt: "2025-01-01T00:01:00Z",
               },
-            ],
-          },
-          {
-            source: "quasar",
-            fetchedAt: "2025-01-01T00:01:00Z",
-            ok: true,
-            entities: [
               {
-                source: "quasar",
-                key: "vellum",
-                kind: "project",
-                title: "Vellum Sessions",
+                source: "hermes",
+                key: "host:agent-b",
+                kind: "agent",
+                title: "Agent B",
                 stats: { sessions: 8 },
                 updatedAt: "2025-01-01T00:01:00Z",
               },
@@ -324,15 +310,15 @@ describe("pulse.ts", () => {
 
       const items = comparePulse(prev, next);
       expect(items).toHaveLength(2);
-      expect(items.map((i) => i.text)).toContainEqual("Tower Project · glyphs_active +2");
-      expect(items.map((i) => i.text)).toContainEqual("Vellum Sessions · sessions +3");
+      expect(items.map((i) => i.text)).toContainEqual("Agent A · glyphs_active +2");
+      expect(items.map((i) => i.text)).toContainEqual("Agent B · sessions +3");
     });
 
     it("skips broken bundles (ok:false)", () => {
       const prev: SnapshotState = {
         bundles: [
           {
-            source: "booth",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: false,
             error: "failed",
@@ -344,7 +330,7 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "booth",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:01:00Z",
             ok: false,
             error: "still failed",
@@ -362,12 +348,12 @@ describe("pulse.ts", () => {
       const prev: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-1",
                 kind: "project",
                 title: "Project",
@@ -382,12 +368,12 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:01:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-1",
                 kind: "project",
                 title: "Project",
@@ -407,12 +393,12 @@ describe("pulse.ts", () => {
       const prev: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-1",
                 kind: "project",
                 title: "Project 1",
@@ -427,12 +413,12 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:01:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-1",
                 kind: "project",
                 title: "Project 1",
@@ -440,7 +426,7 @@ describe("pulse.ts", () => {
                 updatedAt: "2025-01-01T00:01:00Z",
               },
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-2",
                 kind: "project",
                 title: "Project 2",
@@ -461,12 +447,12 @@ describe("pulse.ts", () => {
       const prev: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "prism",
                 kind: "project",
                 title: "Prism",
@@ -481,12 +467,12 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:01:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "prism",
                 kind: "project",
                 title: "Prism",
@@ -508,12 +494,12 @@ describe("pulse.ts", () => {
       const prev: SnapshotState = {
         bundles: [
           {
-            source: "booth",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: true,
             entities: [
               {
-                source: "booth",
+                source: "hermes",
                 key: "review-1",
                 kind: "review",
                 title: "Code Review",
@@ -528,12 +514,12 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "booth",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:01:00Z",
             ok: true,
             entities: [
               {
-                source: "booth",
+                source: "hermes",
                 key: "review-1",
                 kind: "review",
                 title: "Code Review",
@@ -599,12 +585,12 @@ describe("pulse.ts", () => {
       const prev: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-1",
                 kind: "project",
                 stats: { glyphs_active: 1 },
@@ -618,12 +604,12 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:01:00Z",
             ok: true,
             entities: [
               {
-                source: "tower",
+                source: "hermes",
                 key: "proj-1",
                 kind: "project",
                 stats: { glyphs_active: 2 },
@@ -636,16 +622,16 @@ describe("pulse.ts", () => {
 
       const items = comparePulse(prev, next);
       expect(items).toHaveLength(1);
-      expect(items[0]?.id).toMatch(/tower-proj-1-glyphs_active-\d+/);
+      expect(items[0]?.id).toMatch(/hermes-proj-1-glyphs_active-\d+/);
       expect(items[0]?.at).toBeGreaterThan(0);
       expect(typeof items[0]?.at).toBe("number");
     });
 
-    it("handles source with no prior bundle (skipped, not errored)", () => {
+    it("handles new entity keys with no prior row (skipped, not errored)", () => {
       const prev: SnapshotState = {
         bundles: [
           {
-            source: "tower",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:00:00Z",
             ok: true,
             entities: [],
@@ -656,21 +642,15 @@ describe("pulse.ts", () => {
       const next: SnapshotState = {
         bundles: [
           {
-            source: "tower",
-            fetchedAt: "2025-01-01T00:01:00Z",
-            ok: true,
-            entities: [],
-          },
-          {
-            source: "quasar",
+            source: "hermes",
             fetchedAt: "2025-01-01T00:01:00Z",
             ok: true,
             entities: [
               {
-                source: "quasar",
-                key: "vellum",
-                kind: "project",
-                title: "Vellum",
+                source: "hermes",
+                key: "host:new-agent",
+                kind: "agent",
+                title: "New Agent",
                 stats: { sessions: 5 },
                 updatedAt: "2025-01-01T00:01:00Z",
               },
@@ -680,7 +660,7 @@ describe("pulse.ts", () => {
       };
 
       const items = comparePulse(prev, next);
-      // quasar has no prior bundle, so entities are ignored
+      // New entity keys have no prior row — no delta emitted
       expect(items).toEqual([]);
     });
   });

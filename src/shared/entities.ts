@@ -4,7 +4,9 @@ import { Schema } from "effect";
 // canvas document are pointers into these; the document never stores server
 // data, so a down server degrades to a stale badge and nothing else.
 
-export const EntitySource = Schema.Literal("tower", "quasar", "booth", "hermes");
+// Live adapter plane is hermes-only. Historical private-source names
+// (tower / quasar / booth) are retired — never reintroduce as EntitySource.
+export const EntitySource = Schema.Literal("hermes");
 export type EntitySource = typeof EntitySource.Type;
 
 export const Entity = Schema.Struct({

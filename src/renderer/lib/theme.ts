@@ -70,10 +70,7 @@ export function withAlpha(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-// Per-source accent for entity chips / status dots.
+// Per-source accent for entity chips / status dots. Live plane is hermes-only.
 export const SOURCE_HUE: Record<string, string> = {
-  tower: HUE.amber,
-  quasar: HUE.cyan,
-  booth: HUE.violet,
   hermes: HUE.orange,
 };

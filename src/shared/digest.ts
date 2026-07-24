@@ -3,6 +3,10 @@ import { buildConnectionIndex, resolveConnections, type Connection } from "./con
 import type { EntitySource, SnapshotState } from "./entities";
 import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
 import { groupMembers, isGroup } from "./graph";
+import {
+  formatRankedStoppageLine,
+  rankStoppageSeeds,
+} from "./impact";
 import { resolveSpec, roleOf, type FactoryRole } from "./physics";
 import { deriveRegionRollups } from "./region-rollup";
 
@@ -21,7 +25,7 @@ import { deriveRegionRollups } from "./region-rollup";
 // No live PIDs / process-bind / occupancy.
 
 // Fixed rendering order for the sources section, independent of fetch order.
-const SOURCE_ORDER: ReadonlyArray<EntitySource> = ["tower", "quasar", "booth", "hermes"];
+const SOURCE_ORDER: ReadonlyArray<EntitySource> = ["hermes"];
 
 // Fixed role count key order for the factory physics section.
 const ROLE_ORDER: ReadonlyArray<FactoryRole> = [
@@ -254,6 +258,21 @@ export const digestCanvas = (
       }
     }
     sections.push(blockerLines);
+  }
+
+  // impact — stoppage seeds ranked by blast-radius cone size (S7).
+  // seed · stops · leads · clear-action. No occupancy in headless digest
+  // (live plane); empty lead seats are not marked unstaffed here.
+  const rankedStoppages = rankStoppageSeeds(doc, graph);
+  if (rankedStoppages.length > 0) {
+    const impactLines = ["impact"];
+    for (const ranked of rankedStoppages) {
+      const line = formatRankedStoppageLine(ranked, { titleOf: titleForId });
+      impactLines.push(line);
+      impactLines.push(`  seed: ${titleForId(ranked.seedNodeId)}`);
+      impactLines.push(`  ${ranked.clearAction}`);
+    }
+    sections.push(impactLines);
   }
 
   // seeds
