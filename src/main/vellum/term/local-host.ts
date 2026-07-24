@@ -10,6 +10,12 @@ import * as os from "node:os";
 import { randomBytes } from "node:crypto";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import {
+  productStatusFromSessionPhase,
+  sessionPhaseAllowsWrite,
+  SessionPhase,
+  type SessionPhase as SessionPhaseT,
+} from "@shared/terminal-session-domain";
+import {
   TERM_MAINTENANCE_OBSERVATION_BYTES,
   type TermMaintenanceDenialReason,
   type TermMaintenanceEvidence,
@@ -123,6 +129,11 @@ type SessionRec = {
   epoch: string;
   hostId: string;
   status: "starting" | "running" | "exited";
+  /**
+   * Product session phase (shared domain with herdr control).
+   * Write only while Live; Broken still "running" for inventory until exit.
+   */
+  phase: SessionPhaseT;
   lease: AppTerminalLease | undefined;
   exitWitness: Promise<AppTerminalExit> | undefined;
   listenerCleanups: Array<() => void>;
@@ -306,6 +317,7 @@ export class LocalSessionHost extends EventEmitter {
       epoch,
       hostId: input.hostId?.trim() || "local",
       status: "starting",
+      phase: SessionPhase.Opening({ surface: "native" }),
       lease: undefined,
       exitWitness: undefined,
       listenerCleanups: [],
@@ -356,6 +368,7 @@ export class LocalSessionHost extends EventEmitter {
       rec.exitWitness = lease.io.exited;
       rec.pid = lease.io.pidForDiagnostics;
       rec.status = "running";
+      rec.phase = SessionPhase.Live({ surface: "native" });
       // Retain the central plane's exact native-PTY exit witness before any
       // fallible presentation setup. Rejection is diagnostic only: authority
       // stays registered centrally and this generation remains a straggler.
@@ -483,20 +496,23 @@ export class LocalSessionHost extends EventEmitter {
 
   write(lease: ControlLease, data: string): boolean {
     const rec = this.sessions.get(lease.bindingId);
-    if (!rec || rec.killed || !rec.lease || rec.status !== "running") return false;
+    if (!rec || rec.killed || !rec.lease || !sessionPhaseAllowsWrite(rec.phase)) return false;
     if (lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId) return false;
     if (lease.epoch !== rec.epoch) return false;
     try {
       rec.lease.io.write(data);
       return true;
     } catch {
+      // PTY write failure (broken pipe family) — leave generation registered
+      // until exact exit witness; refuse further writes via phase.
+      rec.phase = SessionPhase.Broken({ surface: "native", reason: "pipe" });
       return false;
     }
   }
 
   resize(lease: ControlLease, cols: number, rows: number): boolean {
     const rec = this.sessions.get(lease.bindingId);
-    if (!rec || rec.killed || !rec.lease || rec.status !== "running") return false;
+    if (!rec || rec.killed || !rec.lease || !sessionPhaseAllowsWrite(rec.phase)) return false;
     if (lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId) return false;
     if (lease.epoch !== rec.epoch) return false;
     const c = Math.max(20, Math.min(300, cols | 0));
@@ -725,6 +741,10 @@ export class LocalSessionHost extends EventEmitter {
       }
     }
     rec.status = "exited";
+    rec.phase = SessionPhase.Closed({
+      surface: "native",
+      reason: signal !== undefined ? `signal_${signal}` : `exit_${code ?? "null"}`,
+    });
     rec.lease = undefined;
     rec.exitWitness = undefined;
     if (current !== rec) return;
@@ -750,6 +770,7 @@ export class LocalSessionHost extends EventEmitter {
   private failBeforeOwnership(rec: SessionRec, error: unknown): void {
     this.removeLiveRecord(rec);
     rec.status = "exited";
+    rec.phase = SessionPhase.Closed({ surface: "native", reason: "spawn_failed" });
     rec.seq = rec.seq + 1n;
     const message = error instanceof Error ? error.message : String(error);
     this.pushJournal(rec, {
@@ -794,6 +815,9 @@ export class LocalSessionHost extends EventEmitter {
 
   private observeTerminalError(rec: SessionRec, error: Error): void {
     if (!this.liveRecords.has(rec)) return;
+    if (sessionPhaseAllowsWrite(rec.phase)) {
+      rec.phase = SessionPhase.Broken({ surface: "native", reason: "io" });
+    }
     console.error(
       `[term] terminal process error for ${rec.bindingId}@${rec.epoch}; awaiting exact exit witness:`,
       error,
@@ -876,16 +900,20 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   private summaryOf(rec: SessionRec): TerminalSessionSummary {
+    const fromPhase = productStatusFromSessionPhase(rec.phase);
     return {
       bindingId: rec.bindingId,
       epoch: rec.epoch,
       hostId: rec.hostId,
+      // Prefer domain phase; fall back to legacy status field if phase lag.
       status:
-        rec.status === "starting"
-          ? "starting"
-          : rec.status === "running"
-            ? "running"
-            : "exited",
+        fromPhase === "missing"
+          ? rec.status === "starting"
+            ? "starting"
+            : rec.status === "running"
+              ? "running"
+              : "exited"
+          : fromPhase,
       title: rec.title,
       cwd: rec.cwd,
       pid: rec.pid,
@@ -896,6 +924,11 @@ export class LocalSessionHost extends EventEmitter {
       label: rec.label,
       backend: rec.backend,
     };
+  }
+
+  /** Domain phase for tests / Effect consumers (not canvas). */
+  phaseOf(bindingId: string): SessionPhaseT | undefined {
+    return this.sessions.get(bindingId)?.phase;
   }
 
   private emitEvent(ev: LocalHostEvent): void {

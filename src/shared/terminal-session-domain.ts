@@ -1,9 +1,12 @@
 /**
- * Terminal session runtime domain (Phase A).
+ * Terminal session runtime domain (Phase A–C).
  *
- * PCMI: pristine symbols for control lifetime + herdr NDJSON seam.
- * Glue (Node pipes, SSH, Electron IPC) stays plastic; illegal states are
- * narrowed here so adapters cannot invent write-after-death or dual text+bytes.
+ * PCMI: pristine symbols for session lifetime + herdr NDJSON seam.
+ * Glue (Node pipes, SSH, Electron IPC, node-pty) stays plastic.
+ *
+ * Surfaces:
+ *   - native PTY (TermPlane / LocalSessionHost) — owns kill on quit
+ *   - herdr control/observe client — detach-only, never pane murder
  *
  * Stock herdr contract: `herdr terminal session control|observe` NDJSON
  * (client TerminalControlCommand / write_terminal_session_output).
@@ -12,6 +15,18 @@
 import { Data, Either, Schema } from "effect";
 
 // ── Brands ────────────────────────────────────────────────────────────────
+
+export const BindingId = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.brand("BindingId"),
+);
+export type BindingId = typeof BindingId.Type;
+
+export const SessionEpoch = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.brand("SessionEpoch"),
+);
+export type SessionEpoch = typeof SessionEpoch.Type;
 
 export const HerdrStreamId = Schema.String.pipe(
   Schema.minLength(1),
@@ -24,6 +39,9 @@ export const HerdrTerminalId = Schema.String.pipe(
   Schema.brand("HerdrTerminalId"),
 );
 export type HerdrTerminalId = typeof HerdrTerminalId.Type;
+
+/** Which adapter owns the session generation. */
+export type SessionSurface = "native" | "herdr-control";
 
 /** Product geometry floors for control attach / resize (renderer → herdr). */
 export const ControlCols = Schema.Number.pipe(
@@ -63,6 +81,63 @@ export const controlPhaseIsLive = (phase: ControlIoPhase): boolean =>
 
 export const controlPhaseRefusesWrite = (phase: ControlIoPhase): boolean =>
   phase._tag !== "Live";
+
+// ── Product session phase (native + herdr share vocabulary) ───────────────
+
+/**
+ * One phase machine for both surfaces. Write only on Live.
+ * Opening → Live → (Broken | Closed); Broken → Closed on process exit.
+ */
+export type SessionPhase = Data.TaggedEnum<{
+  Opening: { readonly surface: SessionSurface };
+  Live: { readonly surface: SessionSurface };
+  Broken: {
+    readonly surface: SessionSurface;
+    readonly reason: "pipe" | "overflow" | "child" | "io";
+  };
+  Closed: {
+    readonly surface: SessionSurface;
+    readonly reason: string;
+  };
+}>;
+
+export const SessionPhase = Data.taggedEnum<SessionPhase>();
+
+export const sessionPhaseAllowsWrite = (phase: SessionPhase): boolean =>
+  phase._tag === "Live";
+
+export const sessionPhaseIsOpen = (phase: SessionPhase): boolean =>
+  phase._tag === "Opening" || phase._tag === "Live" || phase._tag === "Broken";
+
+/** Map product phase → existing TerminalSessionStatus wire vocab. */
+export const productStatusFromSessionPhase = (
+  phase: SessionPhase,
+): "starting" | "running" | "exited" | "missing" => {
+  switch (phase._tag) {
+    case "Opening":
+      return "starting";
+    case "Live":
+    case "Broken":
+      return "running";
+    case "Closed":
+      return "exited";
+  }
+};
+
+/** Map herdr control I/O phase into product SessionPhase. */
+export const sessionPhaseFromControlIo = (
+  phase: ControlIoPhase,
+  surface: SessionSurface = "herdr-control",
+): SessionPhase => {
+  switch (phase._tag) {
+    case "Live":
+      return SessionPhase.Live({ surface });
+    case "Broken":
+      return SessionPhase.Broken({ surface, reason: phase.reason });
+    case "Closed":
+      return SessionPhase.Closed({ surface, reason: phase.reason });
+  }
+};
 
 // ── Tagged errors ─────────────────────────────────────────────────────────
 
@@ -108,6 +183,45 @@ export type HerdrControlError =
   | HerdrControlProtocolError
   | HerdrControlOverflowError
   | HerdrControlShutdownError;
+
+export class TerminalSpawnError extends Schema.TaggedError<TerminalSpawnError>()(
+  "TerminalSpawnError",
+  {
+    surface: Schema.Literal("native", "herdr-control"),
+    message: Schema.String,
+  },
+) {}
+
+export class TerminalAdmitError extends Schema.TaggedError<TerminalAdmitError>()(
+  "TerminalAdmitError",
+  {
+    message: Schema.String,
+  },
+) {}
+
+export class TerminalWriteError extends Schema.TaggedError<TerminalWriteError>()(
+  "TerminalWriteError",
+  {
+    surface: Schema.Literal("native", "herdr-control"),
+    message: Schema.String,
+  },
+) {}
+
+export type TerminalSessionError =
+  | HerdrControlError
+  | TerminalSpawnError
+  | TerminalAdmitError
+  | TerminalWriteError;
+
+export const terminalSpawnError = (
+  surface: SessionSurface,
+  message: string,
+): TerminalSpawnError => new TerminalSpawnError({ surface, message });
+
+export const terminalWriteError = (
+  surface: SessionSurface,
+  message: string,
+): TerminalWriteError => new TerminalWriteError({ surface, message });
 
 /** Public write/open helper result — typed cause, IPC-flattenable message. */
 export type HerdrControlWriteResult =
@@ -258,3 +372,23 @@ export const normalizeControlGeometry = (
   cols: Number.isFinite(cols) ? Math.max(20, Math.floor(cols)) : 80,
   rows: Number.isFinite(rows) ? Math.max(5, Math.floor(rows)) : 24,
 });
+
+// ── Write channel shape (Phase D — interface only; adapters implement) ─────
+
+/**
+ * Ordered write offer to a Live session. Adapters (herdr NDJSON, native PTY)
+ * implement this; callers never touch raw Writable/stdin.
+ * Plastic implementations may still use Node streams under the hood.
+ */
+export type ControlWriteOffer = {
+  readonly kind: "text" | "bytes" | "resize" | "scroll" | "release";
+  readonly payload: string;
+};
+
+/**
+ * Capability present only while session is Live (construction: callers hold
+ * this handle from open, not a free-floating stream id from a Closed session).
+ */
+export type LiveWriteChannel = {
+  readonly offer: (line: string) => HerdrControlWriteResult;
+};

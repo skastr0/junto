@@ -19,6 +19,7 @@ import { ChatServiceFromHermesLive, HermesPlaneLive } from "./vellum/hermes/plan
 import { HermesTransportLive } from "./vellum/hermes/transport";
 import { HerdrPlaneLive } from "./vellum/herdr/plane";
 import { HerdrTransportLive } from "./vellum/herdr/transport";
+import { TerminalSessionsLive } from "./vellum/term/sessions";
 import { termPlane } from "./vellum/term/plane";
 import {
   assessNativeTerminalDoctor,
@@ -70,8 +71,14 @@ const ProductTransportsLive = Layer.provideMerge(
   HostsWithSshLive,
 );
 
+// TerminalSessionsLive needs HerdrPlane — provideMerge keeps one plane instance.
+const HerdrWithSessionsLive = Layer.provideMerge(
+  TerminalSessionsLive,
+  HerdrPlaneLive,
+);
+
 export const ProductPlanesLive = Layer.provideMerge(
-  Layer.mergeAll(HerdrPlaneLive, HermesPlaneLive),
+  Layer.mergeAll(HerdrWithSessionsLive, HermesPlaneLive),
   Layer.mergeAll(ProductTransportsLive, SettingsLive),
 );
 

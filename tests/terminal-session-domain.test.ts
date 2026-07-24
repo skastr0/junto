@@ -15,6 +15,10 @@ import {
   normalizeControlGeometry,
   parseHerdrControlInbound,
   pipeControlError,
+  productStatusFromSessionPhase,
+  SessionPhase,
+  sessionPhaseAllowsWrite,
+  sessionPhaseFromControlIo,
 } from "../src/shared/terminal-session-domain";
 
 describe("ControlIoPhase", () => {
@@ -92,5 +96,17 @@ describe("normalizeControlGeometry", () => {
       cols: 80,
       rows: 24,
     });
+  });
+});
+
+describe("SessionPhase (product vocabulary)", () => {
+  it("write only on Live; maps to product status", () => {
+    expect(sessionPhaseAllowsWrite(SessionPhase.Opening({ surface: "native" }))).toBe(false);
+    expect(sessionPhaseAllowsWrite(SessionPhase.Live({ surface: "herdr-control" }))).toBe(true);
+    expect(
+      productStatusFromSessionPhase(
+        sessionPhaseFromControlIo(ControlIoPhase.Broken({ reason: "pipe" })),
+      ),
+    ).toBe("running");
   });
 });
