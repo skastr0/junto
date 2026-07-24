@@ -20,6 +20,7 @@ import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { openHerdrTerminal } from "../../lib/herdr-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { openAgentChatSurface } from "../../lib/dock-state";
+import { workDetailOpen$ } from "../../lib/work-detail-open";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { TerminalCard } from "../terminal/TerminalCard";
@@ -344,6 +345,15 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     else setEditing(true);
     state$.editNodeId.set("");
   }, [isEditTarget, node.id, isFreeNote, isHerdr, text]);
+
+  // Cross-surface open trigger (RTS bars): mirrors the editNodeId pattern —
+  // consume the target, open the work-plane detail overlay, clear.
+  const isWorkDetailTarget = use$(() => workDetailOpen$.nodeId.get() === node.id);
+  useEffect(() => {
+    if (!isWorkDetailTarget) return;
+    if (isWorkSurface) setWorkDetail(true);
+    workDetailOpen$.nodeId.set("");
+  }, [isWorkDetailTarget, isWorkSurface]);
 
   const commit = () => {
     setEditing(false);

@@ -3,20 +3,17 @@ import { use$ } from "@legendapp/state/react";
 import {
   AlertTriangle,
   Ban,
-  CheckCheck,
   CircleDot,
   Copy,
   Crosshair,
   ExternalLink,
+  Eye,
   HardHat,
   Hash,
   Link2,
-  ListTree,
   PauseCircle,
   Pencil,
-  Search,
   Shield,
-  SquareX,
   Trash2,
   Zap,
 } from "lucide-react";
@@ -36,13 +33,7 @@ import { signalMark, signalMarkForMember } from "../../lib/signal-mark";
 import { deleteNode, deleteNodes, setNodeColor, toggleFlag, setFlagForNodes, addNode } from "../../lib/mutations";
 import { makeGroupNode } from "../../lib/node-factories";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
-import {
-  herdr$,
-  markHerdrPaneSeenLocal,
-  markHerdrPaneSeenRemote,
-  openHerdrTerminal,
-} from "../../lib/herdr-state";
-import { killHerdrPane } from "../../lib/herdr-actions";
+import { herdr$ } from "../../lib/herdr-state";
 import {
   deriveIdleHerdrQueue,
   nextIdleHerdrNodeId,
@@ -60,10 +51,13 @@ import { playAlert } from "../../lib/sfx";
 import { HUE, withAlpha } from "../../lib/theme";
 import { armRegion, disarmOrphan, kernel$, pulseRegion } from "../../lib/kernel-view";
 import { useAlertAttention } from "../../lib/alert-attention";
+import { specOf } from "../../lib/node-spec";
+import { roleOf } from "@shared/physics";
+import { openWorkDetail } from "../../lib/work-detail-open";
 import { ConnectEditor } from "../InspectorFields";
-import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
 import { PulseTray } from "../PulseTray";
 import { StoppageRank } from "./StoppageRank";
+import { EdgeCommandCard, KindStrip, PauseScopeKey, RegionPauseDot } from "./RtsControls";
 import "./RtsBottomBar.css";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -144,10 +138,16 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
   const doc = use$(state$.doc);
   const selectedNodeId = use$(state$.selectedNodeId);
   const selectedNodeIds = use$(state$.selectedNodeIds);
+  const selectedEdgeId = use$(state$.selectedEdgeId);
   const multi = selectedNodeIds.length > 1;
   const node = !multi && selectedNodeId
     ? doc.nodes.find((candidate) => candidate.id === selectedNodeId)
     : undefined;
+
+  // Relation selected: general edge controls left; pair controls live middle.
+  if (!multi && !node && selectedEdgeId) {
+    return <EdgeCommandCard edgeId={selectedEdgeId} />;
+  }
 
   if (multi) {
     return (
@@ -351,6 +351,7 @@ function RegionCommandCard({
           )}
         </div>
         <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Region actions">
+          <PauseScopeKey scope={{ kind: "region", id: node.id }} />
           {primary.map(primaryKey)}
           <span className="rts-cmd-keys__rule" aria-hidden />
           <CmdKey label="Focus region" onClick={() => state$.focusNodeId.set(node.id)}>
@@ -368,8 +369,6 @@ function RegionCommandCard({
   );
 }
 
-const KILL_ARM_MS = 3000;
-
 function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
@@ -379,27 +378,14 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const [connectOpen, setConnectOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [copyDetail, setCopyDetail] = useState("");
-  const [killArmed, setKillArmed] = useState(false);
-    const copyRequest = useRef(0);
-  const killTimer = useRef<number | null>(null);
+  const copyRequest = useRef(0);
 
   useEffect(() => {
     copyRequest.current += 1;
     setCopyStatus("idle");
     setCopyDetail("");
     setConnectOpen(false);
-    setKillArmed(false);
-    if (killTimer.current !== null) {
-      window.clearTimeout(killTimer.current);
-      killTimer.current = null;
-    }
   }, [canvasName, nodeId]);
-
-  useEffect(() => {
-    return () => {
-      if (killTimer.current !== null) window.clearTimeout(killTimer.current);
-    };
-  }, []);
 
   if (!node) {
     return (
@@ -415,13 +401,14 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const flags = node.ether?.flags ?? [];
   const herdr = node.ether?.herdr;
   const kind = commandSelectionKind(node);
+  const entityKind = node.ether?.entity?.kind;
   const agentStatus = herdrMeta?.meta?.agentStatus;
-  const canMarkSeen = Boolean(herdr?.paneId) && agentStatus === "done";
-  const canKill = Boolean(herdr?.paneId);
-  const primary = primaryCommandActions(kind, {
-    canMarkSeen,
-    canKill,
-  });
+  // Physics role from the kind registry — never hardcoded per node.
+  const role = roleOf(specOf(node));
+  const executableRole = role === "actor" || role === "sink" || role === "scheduler";
+  // Kind-specific actions (herdr open/mark-seen/kill etc.) live in the
+  // middle-bar kind strip now; the left card keeps type/base actions only.
+  const primary = kind === "herdr" ? [] : primaryCommandActions(kind);
 
   const metaLine = (() => {
     if (kind === "herdr" && herdr) {
@@ -463,86 +450,19 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     }
   };
 
-  const fireKill = () => {
-    if (!herdr) return;
-    if (!killArmed) {
-      setKillArmed(true);
-      if (killTimer.current !== null) window.clearTimeout(killTimer.current);
-      killTimer.current = window.setTimeout(() => {
-        killTimer.current = null;
-        setKillArmed(false);
-      }, KILL_ARM_MS);
-      return;
-    }
-    if (killTimer.current !== null) {
-      window.clearTimeout(killTimer.current);
-      killTimer.current = null;
-    }
-    setKillArmed(false);
-    void killHerdrPane(node.id, herdr);
-  };
-
-
-  const renderPrimary = (action: PrimaryCommandAction) => {
-    switch (action) {
-      case "open-terminal":
-        return herdr ? (
-          <CmdKey
-            key={action}
-            label="Open work surface"
-            title={`open · ${herdr.host}`}
-            style={{ color: HUE.cyan }}
-            onClick={() => openHerdrTerminal(node.id, herdr, nodeTitle(node))}
-          >
-            <OpenHerdrMark size={ICON} />
-          </CmdKey>
-        ) : null;
-      case "mark-seen":
-        return herdr ? (
-          <CmdKey
-            key={action}
-            label="Mark seen"
-            title="mark pane seen (done → idle)"
-            style={{ color: HUE.amber }}
-            onClick={() => {
-              markHerdrPaneSeenLocal(node.id, herdr);
-              void markHerdrPaneSeenRemote(herdr, node.id);
-            }}
-          >
-            <CheckCheck size={ICON} />
-          </CmdKey>
-        ) : null;
-      case "kill-pane":
-        return herdr ? (
-          <CmdKey
-            key={action}
-            label={killArmed ? "Confirm kill pane" : "Kill pane"}
-            title={killArmed ? "click again to kill pane" : "arm kill pane (3s)"}
-            danger
-            active={killArmed}
-            style={killArmed ? { color: HUE.crimson } : undefined}
-            onClick={fireKill}
-          >
-            <SquareX size={ICON} />
-          </CmdKey>
-        ) : null;
-      case "open-link":
-        return node.type === "link" ? (
-          <CmdKey key={action} label="Open link" onClick={() => window.open(node.url, "_blank")}>
-            <ExternalLink size={ICON} />
-          </CmdKey>
-        ) : null;
-      case "arm-region":
-      case "pulse-region":
-      case "slot-cue":
-      default:
-        return null;
-    }
-  };
+  // Only the link type action renders here now — every entity-kind action
+  // (herdr open/mark-seen/kill, agent chat, …) lives in the middle-bar strip,
+  // and region actions render in RegionCommandCard.
+  const renderPrimary = (action: PrimaryCommandAction) =>
+    action === "open-link" && node.type === "link" ? (
+      <CmdKey key={action} label="Open link" onClick={() => window.open(node.url, "_blank")}>
+        <ExternalLink size={ICON} />
+      </CmdKey>
+    ) : null;
 
   return (
     <div className="rts-panel rts-panel--cmd">
-      <div className="rts-panel__label">command · {kind}</div>
+      <div className="rts-panel__label">command · {role !== "furniture" ? role : kind}</div>
       <div className="rts-panel__body rts-cmd-shell">
         <div className="rts-cmd-head">
           <div className="rts-cmd__meta">{metaLine}</div>
@@ -575,8 +495,22 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
           ))}
         </div>
 
-        {/* Flags + kind primary + shared utilities — no SC2 letter grid */}
+        {/* Role base actions + flags + shared utilities — kind actions live middle */}
         <div className="rts-cmd-keys" role="toolbar" aria-label="Node actions">
+          {executableRole ? (
+            <PauseScopeKey scope={{ kind: "node", id: node.id }} />
+          ) : null}
+          {role === "sink" &&
+          (entityKind === "task" || entityKind === "requests" || entityKind === "artifacts") ? (
+            <CmdKey
+              label="Open detail"
+              title="open the work surface"
+              onClick={() => openWorkDetail(node.id)}
+            >
+              <Eye size={ICON} />
+            </CmdKey>
+          ) : null}
+          {executableRole ? <span className="rts-cmd-keys__rule" aria-hidden /> : null}
           {FLAG_META.map(({ flag, hue, label, Icon }) => {
             const active = flags.includes(flag);
             return (
@@ -761,14 +695,17 @@ function RegionMiddle({
     focusNode(regionId);
   };
 
-  // Middle is the nervous system: ALWAYS region chips. Never swaps to rollcall.
+  // Middle is the nervous system: region chips always; the selected node's
+  // kind-specific actions (or the selected relation's pair controls) stack
+  // above them — the two-bar split (base/type left, kind middle).
   return (
-    <div className="rts-panel">
+    <div className="rts-panel rts-panel--mid">
       <div className="rts-panel__label">
         regions · 1–9
         <IdleHerdrButton queue={idleQueue} />
       </div>
-      <div className="rts-panel__body">
+      <div className="rts-panel__body rts-mid-body">
+        <KindStrip />
         {slots.length === 0 ? (
           <div className="rts-quiet">No regions yet — group nodes, or Ctrl+1–9 on a selection.</div>
         ) : (
@@ -824,6 +761,7 @@ function RegionMiddle({
                     {rollup.counts.working > 0 ? <span style={{ color: HUE.cyan }}><b>{rollup.counts.working}</b>w</span> : null}
                     <span><b>{rollup.counts.total}</b></span>
                   </span>
+                  <RegionPauseDot regionId={rollup.regionId} />
                 </button>
               );
             })}

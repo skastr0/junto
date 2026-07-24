@@ -1,0 +1,141 @@
+/* RTS two-bar controls — component-scoped (never styles.css).
+   Kind strip (middle bar), relation cards, and region-chip pause dots.
+   Shares the .rts-key chrome from RtsBottomBar.css. */
+
+/* Middle panel variant that lets pops escape above (mirrors .rts-panel--cmd).
+   Double class beats the base .rts-panel overflow regardless of import order. */
+.rts-panel.rts-panel--mid {
+  position: relative;
+  overflow: visible;
+}
+
+.rts-panel.rts-panel--mid .rts-panel__body {
+  overflow: hidden;
+}
+
+/* Middle body stacks: kind strip (when a selection has one) above the chips. */
+.rts-mid-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* One-row kind strip: micro label + fixed keys, RTS bar language. */
+.rts-kind-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 1px 0;
+}
+
+.rts-kind-strip__label {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(143, 163, 176, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+  margin-right: 2px;
+}
+
+.rts-kind-strip__meta {
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(138, 131, 120, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Pop above the middle panel (add-task, criteria editor). Containing block is
+   .rts-panel--mid, so the body's overflow:hidden never clips it. */
+.rts-kind-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 40;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(237, 230, 218, 0.14);
+  background: rgba(12, 11, 10, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+.rts-kind-pop--editor {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.rts-kind-pop__field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(143, 163, 176, 0.9);
+}
+
+.rts-kind-pop__field input {
+  width: 100%;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(237, 230, 218, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: #ede6da;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.rts-kind-pop__error {
+  margin-top: 4px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(229, 72, 77, 0.85);
+}
+
+/* The criteria editor reuses inspector chrome inside the pop. */
+.rts-kind-pop--editor .inspector-section {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* Region chip pause dot — span (chips are buttons; buttons cannot nest). */
+.rts-chip__pause {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(237, 230, 218, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(143, 163, 176, 0.75);
+  cursor: pointer;
+  transition: border-color 0.1s ease, color 0.1s ease, background 0.1s ease;
+}
+
+.rts-chip__pause:hover {
+  border-color: rgba(237, 230, 218, 0.4);
+  color: #ede6da;
+}
+
+.rts-chip__pause.is-paused {
+  color: #e8a33d;
+  border-color: rgba(232, 163, 61, 0.55);
+  background: rgba(232, 163, 61, 0.12);
+}

@@ -1,13 +1,15 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Handle, NodeResizer, NodeToolbar, Position } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
-import { Ban, ExternalLink, Maximize2, Pencil, Trash2 } from "lucide-react";
+import { Ban, ExternalLink, Maximize2, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { actorClassLabel, resolveNodePlacement, tierLabel } from "@shared/physics";
 import { isExecutableNode } from "@shared/station";
 import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
 import { resizeNode } from "../../lib/geometry";
 import { deleteNode, toggleFlag } from "../../lib/mutations";
+import { state$ } from "../../lib/state";
+import { ensurePauseState, nodePausedIn, pause$, setScopePaused } from "../../lib/pause-state";
 import { herdr$ } from "../../lib/herdr-state";
 import { isHerdrCanvasNode, nodeBlockPresentation } from "../../lib/node-block-state";
 import { attentionOf } from "@shared/attention";
@@ -34,6 +36,7 @@ function NodeActions({
   toolbarExtras,
   flagBlocker,
   liveHerdrBlocked,
+  nodePaused,
 }: {
   readonly node: CanvasNode;
   readonly selected: boolean;
@@ -44,6 +47,8 @@ function NodeActions({
   readonly flagBlocker: boolean;
   /** Live herdr agent_status blocked — not a document flag. */
   readonly liveHerdrBlocked: boolean;
+  /** Node-scope pause (undefined = not an executable seat, no toggle). */
+  readonly nodePaused?: boolean;
 }) {
   // Toolbar toggle only mutates the document flag. Live herdr blocked paints
   // crimson but clear still means "clear flag" (or no-op if flag absent).
@@ -85,6 +90,23 @@ function NodeActions({
           </IconButton>
         ) : null}
         {toolbarExtras}
+        {nodePaused !== undefined ? (
+          <IconButton
+            className="nodrag nopan"
+            aria-label={nodePaused ? "Resume node" : "Pause node"}
+            style={{ color: nodePaused ? HUE.amber : undefined }}
+            title={nodePaused ? "node paused — click to resume" : "pause node (seat stops acting)"}
+            data-testid="node-toolbar-pause"
+            data-paused={nodePaused ? "true" : "false"}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void setScopePaused({ kind: "node", id: node.id }, !nodePaused);
+            }}
+          >
+            {nodePaused ? <Play size={14} /> : <Pause size={14} />}
+          </IconButton>
+        ) : null}
         <IconButton
           className="nodrag nopan"
           aria-label={flagBlocker ? "Clear blocker flag" : "Flag blocker"}
@@ -190,6 +212,15 @@ export function NodeShell({
   // Placement chips (S11/I18): class · tier · host on executable seats.
   // Pure resolve — no live fleet producer (null PlacementView pattern).
   const showPlacement = isExecutableNode(node);
+  // Node-scope pause (executable seats only). Fine-grained selector: only
+  // this node re-renders when its own pausedNodes membership flips.
+  const nodePaused = use$(() =>
+    showPlacement ? nodePausedIn(pause$.state.get(), node.id) : false,
+  );
+  useEffect(() => {
+    if (!showPlacement) return;
+    ensurePauseState(state$.canvasName.peek());
+  }, [showPlacement, node.id]);
   const placement = showPlacement ? resolveNodePlacement(node) : undefined;
   const placementChipTone: ChipTone =
     placement?.class === "facility"
@@ -284,6 +315,7 @@ export function NodeShell({
         toolbarExtras={toolbarExtras}
         flagBlocker={flagBlocker}
         liveHerdrBlocked={liveHerdrBlocked}
+        nodePaused={showPlacement ? nodePaused : undefined}
       />
       {flags.length > 0 || liveHerdrBlocked || showPlacement ? (
         <div className="vellum-node__flag-rail">
