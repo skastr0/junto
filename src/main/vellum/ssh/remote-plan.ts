@@ -895,6 +895,7 @@ export const compileLinuxRemotePreflight = (): Effect.Effect<
  * Command Center stages complete frames here; Remote applies on boot/poll.
  */
 export const PROJECTION_INCOMING_BASENAME = "incoming.frame" as const;
+export const PROJECTION_ACK_BASENAME = "applied.ack" as const;
 export const PROJECTION_DROP_RELATIVE_DIR = "projections" as const;
 
 /**
@@ -924,6 +925,38 @@ export const confineProjectionIncomingPath = (
   ) {
     return Effect.fail(
       new SshInputError({ message: "projection drop path is not confining" }),
+    );
+  }
+  return Effect.succeed(path);
+};
+
+/**
+ * Admit remote home and return the confined absolute path for
+ * `<home>/.vellum/projections/applied.ack`.
+ */
+export const confineProjectionAckPath = (
+  remoteHome: string,
+): Effect.Effect<string, SshInputError> => {
+  if (!isSafeAbsPath(remoteHome)) {
+    return Effect.fail(
+      new SshInputError({
+        message: "remote home must be a clean absolute POSIX path",
+      }),
+    );
+  }
+  const vellumDir = `${remoteHome}/.vellum`;
+  const projectionsDir = `${vellumDir}/${PROJECTION_DROP_RELATIVE_DIR}`;
+  const path = `${projectionsDir}/${PROJECTION_ACK_BASENAME}`;
+  if (
+    !isSafeAbsPath(vellumDir) ||
+    !isSafeAbsPath(projectionsDir) ||
+    !isSafeAbsPath(path) ||
+    !vellumDir.startsWith(`${remoteHome}/`) ||
+    !projectionsDir.startsWith(`${vellumDir}/`) ||
+    !path.startsWith(`${projectionsDir}/`)
+  ) {
+    return Effect.fail(
+      new SshInputError({ message: "projection ack path is not confining" }),
     );
   }
   return Effect.succeed(path);

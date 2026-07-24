@@ -28,6 +28,7 @@ import {
   stationProjectionRoot,
   type ApplyStationProjectionResult,
 } from "./station-store";
+import { writeProjectionAppliedAck } from "./ack";
 
 export const projectionDropRoot = (): string =>
   resolve(
@@ -84,6 +85,13 @@ export type ApplyIncomingProjectionDeps = {
    * `targetWitness` (wrong-target fail closed).
    */
   readonly localStationWitness?: string;
+  /**
+   * When true (and stationHostId + localStationWitness present), write
+   * applied.ack after applied/idempotent. Product Remote path sets this.
+   */
+  readonly writeAck?: boolean;
+  /** Local station host id for applied.ack (with writeAck). */
+  readonly stationHostId?: string;
 };
 
 const readIncomingFrame = async (
@@ -281,23 +289,52 @@ export const applyIncomingProjectionFrame = async (
 
   await consumeIncomingFrame(framePath, dropRoot);
 
-  if (storeResult.status === "idempotent") {
-    return {
-      status: "idempotent",
-      generation: storeResult.generation,
-      frameSha256: storeResult.frameSha256,
-      names,
-      store: storeResult,
-      detail: `idempotent re-apply of generation ${storeResult.generation}`,
-    };
+  const result =
+    storeResult.status === "idempotent"
+      ? ({
+          status: "idempotent" as const,
+          generation: storeResult.generation,
+          frameSha256: storeResult.frameSha256,
+          names,
+          store: storeResult,
+          detail: `idempotent re-apply of generation ${storeResult.generation}`,
+        })
+      : ({
+          status: "applied" as const,
+          generation: storeResult.generation,
+          frameSha256: storeResult.frameSha256,
+          names,
+          store: storeResult,
+          detail: `installed generation ${storeResult.generation} (${names.length} canvas(es))`,
+        });
+
+  if (
+    deps.writeAck &&
+    typeof deps.stationHostId === "string" &&
+    deps.stationHostId.length > 0 &&
+    typeof deps.localStationWitness === "string" &&
+    deps.localStationWitness.length === 64
+  ) {
+    try {
+      const pointer = storeResult.snapshot.pointer;
+      await writeProjectionAppliedAck({
+        stationHostId: deps.stationHostId,
+        stationWitness: deps.localStationWitness,
+        generation: result.generation,
+        frameSha256: result.frameSha256,
+        manifestSha256: pointer.manifestSha256,
+        intentSha256: pointer.intentSha256,
+        dropRoot,
+      });
+    } catch (error) {
+      // Apply already committed — surface ack failure in detail but keep success.
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        ...result,
+        detail: `${result.detail}; ack write failed: ${message}`.slice(0, 4_096),
+      };
+    }
   }
 
-  return {
-    status: "applied",
-    generation: storeResult.generation,
-    frameSha256: storeResult.frameSha256,
-    names,
-    store: storeResult,
-    detail: `installed generation ${storeResult.generation} (${names.length} canvas(es))`,
-  };
+  return result;
 };

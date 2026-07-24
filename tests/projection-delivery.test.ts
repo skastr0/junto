@@ -90,8 +90,20 @@ describe("projection delivery status machine", () => {
     }
   });
 
-  it("refuses outcome events outside pending", () => {
-    for (const status of ["applied", "staged", "rejected", "unreachable"] as const) {
+  it("promotes staged → applied after matching ack", () => {
+    const next = reduceProjectionDelivery("staged", {
+      type: "applied",
+      detail: "remote ack confirms generation 3",
+    });
+    expect(next.ok).toBe(true);
+    if (next.ok) {
+      expect(next.status).toBe("applied");
+      expect(next.terminal).toBe(true);
+    }
+  });
+
+  it("refuses outcome events outside pending (except staged→applied ack)", () => {
+    for (const status of ["applied", "rejected", "unreachable"] as const) {
       const next = reduceProjectionDelivery(status, {
         type: "applied",
         detail: "nope",
@@ -101,6 +113,12 @@ describe("projection delivery status machine", () => {
         expect(next.error).toMatch(/cannot apply event applied/);
       }
     }
+    // staged + rejected still refused
+    const rejectedFromStaged = reduceProjectionDelivery("staged", {
+      type: "rejected",
+      detail: "nope",
+    });
+    expect(rejectedFromStaged.ok).toBe(false);
   });
 
   it("allows schedule from a terminal status (new attempt)", () => {

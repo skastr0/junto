@@ -4,8 +4,8 @@
  * Product policy renderer: home lookup + named `compileProjectionFrameDeliver`
  * recipe + bounded stdin frame. Never hand-authors remote shell.
  *
- * Residual: packaged apply bridge binary is not required — Remote stations
- * apply `~/.vellum/projections/incoming.frame` on boot (see incoming.ts).
+ * Remote stations apply `~/.vellum/projections/incoming.frame` via boot + live
+ * inbox poll and write `applied.ack` for CC reconvergence (see inbox.ts).
  */
 
 import type { Context } from "effect";

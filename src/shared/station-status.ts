@@ -6,6 +6,7 @@ import {
   type StationRole,
   type SupervisedInstallState,
 } from "./station";
+import { RELEASE_CAPABILITIES } from "./release-capabilities";
 
 /**
  * Durable, local-only station fleet status (not authorial canvas).
@@ -719,7 +720,33 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
   const pullStale =
     pull !== undefined &&
     timestampIsStale(pull.at, now, STATION_PULL_STALE_AFTER_MS);
-  if (pull) {
+  const projectionPrimary =
+    RELEASE_CAPABILITIES.stationProjection === true;
+  // Prefer lastProjection / ack generation over lastPull for Remote readiness
+  // when the projection capability is on (pull is residual fallback only).
+  if (projectionPrimary && role === "remote") {
+    const proj = input.status.lastProjection;
+    if (proj) {
+      lines.push(
+        `last projection ${proj.status} · gen ${proj.generation} · ${proj.at}`,
+      );
+      if (proj.status === "rejected" || proj.status === "unreachable") {
+        raise("warning");
+      }
+      if (proj.status === "pending") raise("warning");
+      if (proj.status === "staged") {
+        lines.push("projection staged (awaiting apply/ack)");
+      }
+    } else {
+      lines.push("no projection apply recorded yet");
+      raise("warning");
+    }
+    if (pull) {
+      lines.push(
+        `last pull ${pull.status}${pull.ok ? "" : " (failed)"}${pullStale ? " (stale)" : ""} · residual`,
+      );
+    }
+  } else if (pull) {
     lines.push(
       `last pull ${pull.status}${pull.ok ? "" : " (failed)"}${pullStale ? " (stale)" : ""} · ${pull.pulledCount} file(s) · ${pull.at}`,
     );
@@ -741,13 +768,17 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
   }
 
   const lastProjection = input.status.lastProjection;
-  if (lastProjection) {
+  // Remote + projection-primary already surfaced lastProjection above.
+  if (lastProjection && !(projectionPrimary && role === "remote")) {
     lines.push(
       `last projection ${lastProjection.status} · gen ${lastProjection.generation} · host ${lastProjection.hostId} · ${lastProjection.at}`,
     );
     if (lastProjection.status === "rejected") raise("warning");
     if (lastProjection.status === "unreachable") raise("warning");
     if (lastProjection.status === "pending") raise("warning");
+    if (lastProjection.status === "staged") {
+      // staged is delivery-ok but not fully applied yet — soft note, no raise
+    }
   }
 
   const deployments = Object.values(input.status.deployments ?? {}).sort((a, b) =>
@@ -986,17 +1017,45 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         now,
         STATION_PULL_STALE_AFTER_MS,
       );
-    if (remotePullStale) {
+    // Local CC projection receipt for this host (authoritative for push path).
+    const hostProjection = input.status.projections?.[hostId];
+    if (projectionPrimary) {
+      if (hostProjection) {
+        if (
+          hostProjection.status === "rejected" ||
+          hostProjection.status === "unreachable"
+        ) {
+          errors.push(`projection ${hostProjection.status}`);
+        } else if (hostProjection.status === "pending") {
+          errors.push("projection pending");
+        } else if (hostProjection.status === "staged") {
+          errors.push("projection staged (awaiting remote ack)");
+        }
+      } else if (remoteStatus) {
+        errors.push("no projection delivery recorded");
+      }
+      // residual pull: report stale only, never invent pull requirement
+      if (remotePullStale) {
+        errors.push("pull stale (residual)");
+        stale = true;
+      }
+    } else if (remotePullStale) {
       errors.push("pull stale");
       stale = true;
     } else if (remoteStatus && !remotePull) {
       errors.push("no canvas pull recorded");
     }
-    const lastPullText = remotePull
-      ? `${remotePull.status} ${remotePull.at}${remotePullStale ? " (stale)" : ""}`
-      : remoteStatus
-        ? "never"
-        : "unknown";
+    const lastPullText = projectionPrimary
+      ? hostProjection
+        ? `proj ${hostProjection.status} gen ${hostProjection.generation}`
+        : remoteStatus
+          ? "proj never"
+          : "unknown"
+      : remotePull
+        ? `${remotePull.status} ${remotePull.at}${remotePullStale ? " (stale)" : ""}`
+        : remoteStatus
+          ? "never"
+          : "unknown";
 
     const remoteKernel = remoteStatus?.kernel;
     const remoteKernelStale =
@@ -1057,7 +1116,7 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
             ? "no (no managed install receipt)"
             : installed
         } · role ${remoteRole} · version ${deployment?.version ?? "unknown"} · hostId ${hostId} · ` +
-        `last pull ${lastPullText} · armed ${armedText} · last fire ${lastFireText} · reachability ${reachability} · errors ${errors.join("; ") || "none"}`,
+        `${projectionPrimary ? "delivery" : "last pull"} ${lastPullText} · armed ${armedText} · last fire ${lastFireText} · reachability ${reachability} · errors ${errors.join("; ") || "none"}`,
       metadata: {
         [`${metadataPrefix}installed`]: installed,
         [`${metadataPrefix}role`]: remoteRole,

@@ -11,8 +11,9 @@
  * (stdin atomic write to `~/.vellum/projections/incoming.frame`). Without a
  * transport, remote targets record honest `unreachable`.
  *
- * Residual: auto-tick on Command Center canvas writes; Remote interval poll
- * (boot apply is wired). canvas-pull remains fallback for operators.
+ * Remote live inbox + applied.ack reconvergence: CC promotes staged→applied
+ * when remote ack matches; re-pushes when ack gen lags desired generation.
+ * canvas-pull remains residual fallback for operators.
  */
 
 import type { CanvasDoc } from "@shared/canvas";
@@ -86,6 +87,16 @@ export const reduceProjectionDelivery = (
       status: "pending",
       terminal: false,
       detail: DEFAULT_DETAILS.schedule,
+    };
+  }
+
+  // Ack promotion: staged frame later confirmed applied on Remote.
+  if (event.type === "applied" && current === "staged") {
+    return {
+      ok: true,
+      status: "applied",
+      terminal: true,
+      detail: event.detail ?? DEFAULT_DETAILS.applied,
     };
   }
 

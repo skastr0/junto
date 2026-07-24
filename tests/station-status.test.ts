@@ -5,6 +5,7 @@ import {
   defaultStationStatus,
   deployRecordFromResult,
   kernelRecordFromSnapshot,
+  projectionRecordFromResult,
   pullRecordFromResult,
   STATION_KERNEL_STALE_AFTER_MS,
   STATION_PULL_STALE_AFTER_MS,
@@ -76,7 +77,7 @@ describe("station status doctor", () => {
     );
   });
 
-  it("warns Remote without pull history", () => {
+  it("warns Remote without projection history when projection capability is on", () => {
     const check = assessStationDoctor({
       role: "remote",
       hostId: "remote-a",
@@ -87,7 +88,7 @@ describe("station status doctor", () => {
       workControlReady: true,
     });
     expect(check.status).toBe("warning");
-    expect(check.detail).toMatch(/no canvas pull/i);
+    expect(check.detail).toMatch(/no projection apply/i);
   });
 
   it("records pull and configure into doctor metadata", () => {
@@ -110,18 +111,32 @@ describe("station status doctor", () => {
       hostId: "remote-a",
       detail: "configured",
     });
+    const projection = projectionRecordFromResult({
+      hostId: "remote-a",
+      generation: "1",
+      manifestSha256: "a".repeat(64),
+      status: "applied",
+      detail: "applied",
+      at: "2026-07-23T11:00:00.000Z",
+    });
     const check = assessStationDoctor({
       role: "remote",
       hostId: "remote-a",
       commandCenterRef: "laptop",
       supervisedPreferred: true,
       supervisedInstalled: "installed",
-      status: { version: 1, lastPull: pull, lastConfigure: configure },
+      status: {
+        version: 1,
+        lastPull: pull,
+        lastConfigure: configure,
+        lastProjection: projection,
+      },
       workControlReady: true,
     });
     expect(check.status).toBe("ok");
     expect(check.metadata?.lastPullStatus).toBe("ok");
     expect(check.metadata?.lastConfigureOk).toBe("true");
+    expect(check.metadata?.lastProjectionStatus).toBe("applied");
   });
 
   it("warns when work control is down", () => {
@@ -153,13 +168,28 @@ describe("station status doctor", () => {
       detail: "ready",
       at: "2026-07-22T20:00:00.000Z",
     });
+    const projection = projectionRecordFromResult({
+      hostId: "studio",
+      endpoint: "studio-box",
+      generation: "3",
+      manifestSha256: "a".repeat(64),
+      frameSha256: "b".repeat(64),
+      status: "applied",
+      detail: "applied",
+      at: "2026-07-23T11:45:00.000Z",
+    });
     const check = assessStationDoctor({
       role: "command-center",
       hostId: "local",
       commandCenterRef: "",
       supervisedPreferred: false,
       supervisedInstalled: "absent",
-      status: { version: 1, deployments: { studio: deployment } },
+      status: {
+        version: 1,
+        deployments: { studio: deployment },
+        projections: { studio: projection },
+        lastProjection: projection,
+      },
       remoteObservations: [
         observedRemote({
           status: {
@@ -191,7 +221,7 @@ describe("station status doctor", () => {
 
     expect(check.status).toBe("ok");
     expect(check.detail).toMatch(
-      /Remote studio \(studio-box\): installed yes · role remote · version 0\.1\.0 · hostId studio · last pull ok 2026-07-23T11:45:00\.000Z · armed yes \(1\) · last fire 2026-07-23T11:58:00\.000Z watcher live · reachability reachable · errors none/u,
+      /Remote studio \(studio-box\): installed yes · role remote · version 0\.1\.0 · hostId studio · delivery proj applied gen 3 · armed yes \(1\) · last fire 2026-07-23T11:58:00\.000Z watcher live · reachability reachable · errors none/u,
     );
     expect(check.metadata).toMatchObject({
       deploymentCount: "1",
@@ -236,7 +266,7 @@ describe("station status doctor", () => {
 
     expect(check.status).toBe("warning");
     expect(check.detail).toMatch(
-      /Remote studio \(studio-box\): installed no \(no managed install receipt\) · role unknown · version unknown · hostId studio · last pull unknown · armed unknown · last fire unknown · reachability reachable · errors registered but not installed by Command Center; fleet-blind: station status files unavailable/u,
+      /Remote studio \(studio-box\): installed no \(no managed install receipt\) · role unknown · version unknown · hostId studio · delivery unknown · armed unknown · last fire unknown · reachability reachable · errors registered but not installed by Command Center; fleet-blind: station status files unavailable/u,
     );
     expect(check.metadata).toMatchObject({
       remoteCount: "1",
@@ -344,9 +374,12 @@ describe("station status doctor", () => {
     });
 
     expect(check.status).toBe("warning");
-    expect(check.detail).toMatch(/last pull ok .* \(stale\)/u);
+    expect(check.detail).toMatch(/delivery proj never/u);
     expect(check.detail).toMatch(/armed no \(0, stale\)/u);
-    expect(check.detail).toMatch(/errors pull stale; kernel status stale; Remote not armed/u);
+    expect(check.detail).toMatch(/no projection delivery recorded/u);
+    expect(check.detail).toMatch(/pull stale \(residual\)/u);
+    expect(check.detail).toMatch(/kernel status stale/u);
+    expect(check.detail).toMatch(/Remote not armed/u);
     expect(check.metadata).toMatchObject({
       remoteStaleCount: "1",
       "remote.studio.lastPullStale": "true",
