@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { A2ATask, CanvasDoc } from "../src/shared/canvas";
+import type { Task, CanvasDoc } from "../src/shared/canvas";
 import type { GlyphRow, GlyphView } from "../src/shared/execution-graph";
 import { deriveRegionRollups, type AgentActivity } from "../src/shared/region-rollup";
 import type { WorkSurfaceActivity } from "../src/shared/terminal";
-import { a2aTask, claimed } from "./helpers/a2a-fixtures";
+import { taskItem, claimed } from "./helpers/task-fixtures";
 import { kindForRole } from "./helpers/physics-seats";
 
 type Node = CanvasDoc["nodes"][number];
@@ -47,7 +47,7 @@ const taskNode = (
   x: number,
   y: number,
   label: string,
-  items: ReadonlyArray<A2ATask>,
+  items: ReadonlyArray<Task>,
 ): Node => node(id, x, y, label, { entity: { kind: "task" }, tasks: { items: [...items] } });
 
 const glyphRow = (state: string): GlyphRow => ({ glyphId: "g-1", orbit: "forge", title: "work", state });
@@ -70,7 +70,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        taskNode("t", 10, 10, "Ops tasks", [claimed(a2aTask("i1", "ship", "input-required"), "p")]),
+        taskNode("t", 10, 10, "Ops tasks", [claimed(taskItem("i1", "ship", "input-required"), "p")]),
         actorSeat("p", 10, 100, "prism"),
       ],
       edges: [{ id: "e1", fromNode: "t", toNode: "p", ether: { criteria: { mode: "tasks" } } }],
@@ -111,7 +111,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        taskNode("t", 10, 10, "Ops tasks", [claimed(a2aTask("i1", "ship", "input-required"), "a")]),
+        taskNode("t", 10, 10, "Ops tasks", [claimed(taskItem("i1", "ship", "input-required"), "a")]),
         actorSeat("a", 10, 100, "prism"),
         actorSeat("b", 10, 200, "quasar"),
       ],
@@ -133,7 +133,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const base: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 800, 800, "ops"),
-        taskNode("u", 10, 10, "Ops tasks", [claimed(a2aTask("i1", "ship", "input-required"), "t")]),
+        taskNode("u", 10, 10, "Ops tasks", [claimed(taskItem("i1", "ship", "input-required"), "t")]),
         actorSeat("t", 10, 210, "Target"),
       ],
       edges: [{ id: "e1", fromNode: "u", toNode: "t", ether: { criteria: { mode: "tasks" } } }],
@@ -436,7 +436,7 @@ describe("deriveRegionRollups — derivation edges", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        taskNode("u", 10, 10, "Ops tasks", [claimed(a2aTask("i1", "ship", "input-required"), "t")]),
+        taskNode("u", 10, 10, "Ops tasks", [claimed(taskItem("i1", "ship", "input-required"), "t")]),
         {
           ...actorSeat("t", 10, 100, "Target"),
           ether: {

@@ -1,16 +1,16 @@
 import type {
-  A2AMetadata,
-  A2ATask,
+  WorkMetadata,
+  Task,
   Artifact,
   Message,
   Part,
   TaskState,
 } from "./canvas";
 
-// Display + transition helpers for the A2A work plane. Pure — no I/O.
+// Display + transition helpers for the work plane. Pure — no I/O.
 
 /** First text line of history[0] (the brief); falls back to task id. */
-export const taskBrief = (task: A2ATask): string => {
+export const taskBrief = (task: Task): string => {
   const first = task.history[0];
   if (!first) return task.id;
   for (const part of first.parts) {
@@ -57,13 +57,13 @@ export const canTransitionTaskState = (from: TaskState, to: TaskState): boolean 
   LEGAL_TRANSITIONS[from].has(to);
 
 /** Tasks node text mirror: one brief line per item (human-readable offline). */
-export const mirrorTasksText = (items: ReadonlyArray<A2ATask>): string => {
+export const mirrorTasksText = (items: ReadonlyArray<Task>): string => {
   if (items.length === 0) return "tasks";
   return items.map(taskBrief).join("\n");
 };
 
 /** Requests node text mirror: pending count + briefs. */
-export const mirrorRequestsText = (items: ReadonlyArray<A2ATask>): string => {
+export const mirrorRequestsText = (items: ReadonlyArray<Task>): string => {
   const pending = items.filter((item) => item.state === "input-required").length;
   const header = `${pending} pending`;
   if (items.length === 0) return header;
@@ -77,7 +77,7 @@ export const mirrorArtifactsText = (items: ReadonlyArray<Artifact>): string => {
 };
 
 export const countByTaskState = (
-  items: ReadonlyArray<A2ATask>,
+  items: ReadonlyArray<Task>,
 ): Readonly<Record<TaskState, number>> => {
   const counts: Record<TaskState, number> = {
     submitted: 0,
@@ -100,7 +100,7 @@ export const makeUserMessage = (params: {
   readonly text: string;
   readonly contextId: string;
   readonly taskId?: string;
-  readonly metadata?: A2AMetadata;
+  readonly metadata?: WorkMetadata;
 }): Message => ({
   messageId: params.messageId,
   role: "user",
@@ -115,7 +115,7 @@ export const makeAgentMessage = (params: {
   readonly text: string;
   readonly contextId: string;
   readonly taskId?: string;
-  readonly metadata?: A2AMetadata;
+  readonly metadata?: WorkMetadata;
 }): Message => ({
   messageId: params.messageId,
   role: "agent",
@@ -125,7 +125,7 @@ export const makeAgentMessage = (params: {
   ...(params.metadata ? { metadata: params.metadata } : {}),
 });
 
-export const claimedByOf = (task: A2ATask): string | undefined => {
+export const claimedByOf = (task: Task): string | undefined => {
   const raw = task.metadata?.claimedBy;
   return typeof raw === "string" && raw.length > 0 ? raw : undefined;
 };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { mergeLocalCanvasWithWorkWrite } from "../src/shared/work-canvas-merge";
-import { a2aTask } from "./helpers/a2a-fixtures";
+import { taskItem } from "./helpers/task-fixtures";
 
 const base = (): CanvasDoc => ({
   nodes: [
@@ -29,7 +29,7 @@ const base = (): CanvasDoc => ({
 });
 
 describe("mergeLocalCanvasWithWorkWrite", () => {
-  it("keeps freeform geometry and edges; overlays A2A stores and mirrored text", () => {
+  it("keeps freeform geometry and edges; overlays stores and mirrored text", () => {
     // Operator dragged the tasks card and edited the free note.
     const local: CanvasDoc = {
       ...base(),
@@ -54,7 +54,7 @@ describe("mergeLocalCanvasWithWorkWrite", () => {
           height: 120,
           ether: {
             entity: { kind: "task" },
-            tasks: { items: [a2aTask("t1", "ship it", "working")] },
+            tasks: { items: [taskItem("t1", "ship it", "working")] },
           },
         },
         {

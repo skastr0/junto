@@ -8,9 +8,9 @@
  *
  * Asserts calm/fire phase membership, tasks glance, noise silence.
  */
-import type { A2ATask, CanvasDoc } from "../../src/shared/canvas";
+import type { Task, CanvasDoc } from "../../src/shared/canvas";
 import {
-  a2aTask,
+  taskItem,
   agentTextNode,
   canvasDoc,
   tasksCriteriaEdge,
@@ -19,9 +19,9 @@ import {
 } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const seededTasks: ReadonlyArray<A2ATask> = [
-  a2aTask("open-1", "queue work", "submitted"),
-  a2aTask("hot-1", "needs human", "input-required"),
+const seededTasks: ReadonlyArray<Task> = [
+  taskItem("open-1", "queue work", "submitted"),
+  taskItem("hot-1", "needs human", "input-required"),
 ];
 
 const fixtureDoc = (): CanvasDoc =>

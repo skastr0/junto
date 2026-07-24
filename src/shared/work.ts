@@ -1,6 +1,6 @@
 import type {
-  A2AMetadata,
-  A2ATask,
+  WorkMetadata,
+  Task,
   Artifact,
   CanvasDoc,
   CanvasNode,
@@ -11,17 +11,18 @@ import type {
 import {
   canTransitionTaskState,
   claimedByOf,
+  isTerminalTaskState,
   makeAgentMessage,
   makeUserMessage,
   mirrorArtifactsText,
   mirrorRequestsText,
   mirrorTasksText,
-} from "./a2a";
+} from "./task";
 import { groupMembers, isGroup } from "./graph";
 
-// Pure document transforms for the A2A work plane.
+// Pure document transforms for the work plane.
 // Kernel WorkService applies these under CanvasesService.mutate.
-// No dual shapes: only A2ATask / Message / Artifact.
+// No dual shapes: only Task / Message / Artifact.
 
 export type WorkErrorCode =
   | "canvas_not_found"
@@ -82,7 +83,7 @@ const requireKind = (node: CanvasNode, kinds: ReadonlyArray<string>): string => 
 const withTasks = (
   doc: CanvasDoc,
   nodeId: string,
-  items: ReadonlyArray<A2ATask>,
+  items: ReadonlyArray<Task>,
 ): CanvasDoc => ({
   ...doc,
   nodes: doc.nodes.map((n) => {
@@ -106,7 +107,7 @@ const withTasks = (
 const withRequests = (
   doc: CanvasDoc,
   nodeId: string,
-  items: ReadonlyArray<A2ATask>,
+  items: ReadonlyArray<Task>,
 ): CanvasDoc => ({
   ...doc,
   nodes: doc.nodes.map((n) => {
@@ -164,26 +165,26 @@ const withMessages = (
 });
 
 const patchTaskInList = (
-  items: ReadonlyArray<A2ATask>,
+  items: ReadonlyArray<Task>,
   taskId: string,
-  patch: (task: A2ATask) => A2ATask,
-): { readonly items: A2ATask[]; readonly task: A2ATask } => {
+  patch: (task: Task) => Task,
+): { readonly items: Task[]; readonly task: Task } => {
   const idx = items.findIndex((t) => t.id === taskId);
   if (idx < 0) throw new WorkError("task_not_found", `task "${taskId}" not found`);
   const next = items.map((t, i) => (i === idx ? patch(t) : t));
-  return { items: next as A2ATask[], task: next[idx]! };
+  return { items: next as Task[], task: next[idx]! };
 };
 
 const mergeMetadata = (
-  existing: A2AMetadata | undefined,
-  patch: A2AMetadata | undefined,
-): A2AMetadata | undefined => {
+  existing: WorkMetadata | undefined,
+  patch: WorkMetadata | undefined,
+): WorkMetadata | undefined => {
   if (!existing && !patch) return undefined;
   return { ...(existing ?? {}), ...(patch ?? {}) };
 };
 
-export type WorkTaskCreateResult = { readonly doc: CanvasDoc; readonly task: A2ATask };
-export type WorkTaskResult = { readonly doc: CanvasDoc; readonly task: A2ATask };
+export type WorkTaskCreateResult = { readonly doc: CanvasDoc; readonly task: Task };
+export type WorkTaskResult = { readonly doc: CanvasDoc; readonly task: Task };
 export type WorkMessageResult = { readonly doc: CanvasDoc; readonly message: Message };
 export type WorkArtifactResult = { readonly doc: CanvasDoc; readonly artifact: Artifact };
 
@@ -192,7 +193,7 @@ export const workTaskCreate = (
   canvasName: string,
   nodeId: string,
   brief: string,
-  metadata: A2AMetadata | undefined,
+  metadata: WorkMetadata | undefined,
   ids: WorkIds,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
@@ -207,7 +208,7 @@ export const workTaskCreate = (
     contextId,
     taskId,
   });
-  const task: A2ATask = {
+  const task: Task = {
     id: taskId,
     state: "submitted",
     history: [briefMessage],
@@ -215,6 +216,40 @@ export const workTaskCreate = (
   };
   const items = [...(node.ether?.tasks?.items ?? []), task];
   return { doc: withTasks(doc, nodeId, items), task };
+};
+
+export const workTaskDescribe = (
+  doc: CanvasDoc,
+  canvasName: string,
+  nodeId: string,
+  taskId: string,
+  brief: string,
+  ids: WorkIds,
+): WorkTaskResult => {
+  const node = requireNode(doc, nodeId);
+  requireKind(node, ["task"]);
+  const trimmed = brief.trim();
+  if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
+  const items = node.ether?.tasks?.items ?? [];
+  const contextId = regionContextId(doc, nodeId, canvasName);
+  const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
+    if (isTerminalTaskState(current.state)) {
+      throw new WorkError(
+        "illegal_transition",
+        `cannot re-describe task "${taskId}" in terminal state ${current.state}`,
+      );
+    }
+    // Re-author the brief in place: history[0] IS the ask (taskBrief reads it).
+    // Later status notes stay appended and untouched.
+    const briefMessage = makeUserMessage({
+      messageId: ids.messageId(),
+      text: trimmed,
+      contextId,
+      taskId,
+    });
+    return { ...current, history: [briefMessage, ...current.history.slice(1)] };
+  });
+  return { doc: withTasks(doc, nodeId, nextItems), task };
 };
 
 export const workTaskTransition = (
@@ -361,7 +396,7 @@ export const workRequestCreate = (
   canvasName: string,
   nodeId: string,
   brief: string,
-  metadata: A2AMetadata | undefined,
+  metadata: WorkMetadata | undefined,
   ids: WorkIds,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
@@ -376,7 +411,7 @@ export const workRequestCreate = (
     contextId,
     taskId,
   });
-  const task: A2ATask = {
+  const task: Task = {
     id: taskId,
     state: "input-required",
     history: [briefMessage],

@@ -17,7 +17,7 @@ import type { Artifact, CanvasDoc, Message, Part } from "@shared/canvas";
 import {
   makeAgentMessage,
   makeUserMessage,
-} from "@shared/a2a";
+} from "@shared/task";
 import { formatNodeRef } from "@shared/node-ref";
 import {
   artifactPublishAuthority,

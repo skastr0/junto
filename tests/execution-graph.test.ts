@@ -9,7 +9,7 @@ import {
 } from "../src/shared/execution-graph";
 import { groupMembers } from "../src/shared/graph";
 import type { ProofStamp, StampView } from "../src/shared/proof-stamps";
-import { a2aTask, claimed } from "./helpers/a2a-fixtures";
+import { taskItem, claimed } from "./helpers/task-fixtures";
 import { furnitureSeat, seat } from "./helpers/physics-seats";
 
 const text = (
@@ -53,7 +53,7 @@ describe("evaluateEdge — authorial modes", () => {
     const openQueue = text("t1", "Checklist", {
       entity: { kind: "task" },
       tasks: {
-        items: [a2aTask("i1", "one", "submitted"), a2aTask("i2", "two", "working")],
+        items: [taskItem("i1", "one", "submitted"), taskItem("i2", "two", "working")],
       },
     });
     expect(evaluateEdge(edge, openQueue, worker).phase).toBe("relates");
@@ -62,7 +62,7 @@ describe("evaluateEdge — authorial modes", () => {
     const unclaimedAttention = text("t1", "Checklist", {
       entity: { kind: "task" },
       tasks: {
-        items: [a2aTask("i1", "one", "input-required"), a2aTask("i2", "two", "completed")],
+        items: [taskItem("i1", "one", "input-required"), taskItem("i2", "two", "completed")],
       },
     });
     expect(evaluateEdge(edge, unclaimedAttention, worker).phase).toBe("relates");
@@ -71,7 +71,7 @@ describe("evaluateEdge — authorial modes", () => {
     const heldHere = text("t1", "Checklist", {
       entity: { kind: "task" },
       tasks: {
-        items: [claimed(a2aTask("i1", "one", "input-required"), "b")],
+        items: [claimed(taskItem("i1", "one", "input-required"), "b")],
       },
     });
     expect(evaluateEdge(edge, heldHere, worker).phase).toBe("blocks");
@@ -80,7 +80,7 @@ describe("evaluateEdge — authorial modes", () => {
     const heldElsewhere = text("t1", "Checklist", {
       entity: { kind: "task" },
       tasks: {
-        items: [claimed(a2aTask("i1", "one", "input-required"), "someone-else")],
+        items: [claimed(taskItem("i1", "one", "input-required"), "someone-else")],
       },
     });
     expect(evaluateEdge(edge, heldElsewhere, worker).phase).toBe("relates");
@@ -99,14 +99,14 @@ describe("evaluateEdge — authorial modes", () => {
     const worker = seat("b", "actor", { label: "B" });
     const pending = text("r1", "Requests", {
       entity: { kind: "requests" },
-      requests: { items: [a2aTask("q1", "approve?", "input-required")] },
+      requests: { items: [taskItem("q1", "approve?", "input-required")] },
     });
     expect(evaluateEdge(edge, pending, worker).phase).toBe("blocks");
 
     for (const state of ["completed", "rejected", "canceled"] as const) {
       const resolved = text("r1", "Requests", {
         entity: { kind: "requests" },
-        requests: { items: [a2aTask("q1", "approve?", state)] },
+        requests: { items: [taskItem("q1", "approve?", state)] },
       });
       expect(evaluateEdge(edge, resolved, worker).phase).toBe("relates");
     }
@@ -119,7 +119,7 @@ describe("deriveExecutionGraph — no cascade", () => {
       nodes: [
         text("t1", "Checklist", {
           entity: { kind: "task" },
-          tasks: { items: [claimed(a2aTask("i1", "do it", "input-required"), "a1")] },
+          tasks: { items: [claimed(taskItem("i1", "do it", "input-required"), "a1")] },
         }),
         seat("a1", "actor", { label: "A1" }),
         seat("a2", "actor", { label: "A2" }),
@@ -148,7 +148,7 @@ describe("deriveExecutionGraph — no cascade", () => {
   });
 
   it("unclaimed attention blocks nobody; a claim lands the block on that worker alone", () => {
-    const docFor = (items: ReadonlyArray<ReturnType<typeof a2aTask>>): CanvasDoc => ({
+    const docFor = (items: ReadonlyArray<ReturnType<typeof taskItem>>): CanvasDoc => ({
       nodes: [
         text("t1", "Queue", { entity: { kind: "task" }, tasks: { items: [...items] } }),
         seat("a1", "actor", { label: "A1" }),
@@ -160,13 +160,13 @@ describe("deriveExecutionGraph — no cascade", () => {
       ],
     });
 
-    const calm = deriveExecutionGraph(docFor([a2aTask("i1", "needs a human", "input-required")]));
+    const calm = deriveExecutionGraph(docFor([taskItem("i1", "needs a human", "input-required")]));
     expect(calm.blocked.size).toBe(0);
     expect(calm.phaseByEdgeId.get("e1")).toBe("relates");
     expect(calm.phaseByEdgeId.get("e2")).toBe("relates");
 
     const held = deriveExecutionGraph(
-      docFor([claimed(a2aTask("i1", "needs a human", "auth-required"), "a2")]),
+      docFor([claimed(taskItem("i1", "needs a human", "auth-required"), "a2")]),
     );
     expect(held.blocked).toEqual(new Set(["a2"]));
     expect(held.phaseByEdgeId.get("e1")).toBe("relates");
@@ -178,7 +178,7 @@ describe("deriveExecutionGraph — no cascade", () => {
       nodes: [
         text("t1", "Checklist", {
           entity: { kind: "task" },
-          tasks: { items: [claimed(a2aTask("i1", "do it", "input-required"), "s1")] },
+          tasks: { items: [claimed(taskItem("i1", "do it", "input-required"), "s1")] },
         }),
         seat("s1", "sink", { label: "sink" }),
       ],
@@ -222,7 +222,7 @@ describe("deriveExecutionGraph — no cascade", () => {
       nodes: [
         text("t1", "Checklist", {
           entity: { kind: "task" },
-          tasks: { items: [claimed(a2aTask("i1", "x", "input-required"), "actor1")] },
+          tasks: { items: [claimed(taskItem("i1", "x", "input-required"), "actor1")] },
         }),
         furnitureSeat("note1"),
         seat("actor1", "actor"),
@@ -251,7 +251,7 @@ describe("composeRegionExecutionContext", () => {
         seat("b", "actor", { label: "Beta", x: 200, y: 20 }),
         text("t1", "Ops", {
           entity: { kind: "task" },
-          tasks: { items: [claimed(a2aTask("i1", "ship docs", "input-required"), "b")] },
+          tasks: { items: [claimed(taskItem("i1", "ship docs", "input-required"), "b")] },
         }),
       ],
       edges: [

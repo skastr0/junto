@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 import { ulid } from "ulid";
 import type {
-  A2ATask,
+  Task,
   Artifact,
   CanvasNode,
   Message,
   Part,
   TaskState,
 } from "@shared/canvas";
-import { claimedByOf, isTerminalTaskState, taskBrief } from "@shared/a2a";
+import { claimedByOf, isTerminalTaskState, taskBrief } from "@shared/task";
 import { sinkGlance, workRoleOf } from "@shared/attention";
 import type { WorkOpResult } from "@shared/ipc";
 import { DetailModal } from "../DetailModal";
@@ -251,7 +251,7 @@ function TaskFocusRow({
   onTransition,
   error,
 }: {
-  readonly task: A2ATask;
+  readonly task: Task;
   readonly onTransition: (state: TaskState, note?: string) => void | Promise<void>;
   readonly error?: string;
 }) {
@@ -518,7 +518,7 @@ function RequestRow({
   nodeId,
   canvas,
 }: {
-  readonly task: A2ATask;
+  readonly task: Task;
   readonly nodeId: string;
   readonly canvas: string;
 }) {

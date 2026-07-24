@@ -415,7 +415,7 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
 // but its full rect extends past the right/bottom edge (300+150=450 > 400).
 // Full-rect containment (the single authority, shared/graph.ts groupMembers)
 // must exclude it everywhere — proven here via two independent call paths:
-// the shared function directly (the rollup/digest/a2a-work path) and kernel
+// the shared function directly (the rollup/digest/work path) and kernel
 // pulse delivery (agentKeysInRegion, routed through the same groupMembers).
 describe("I9 — single membership authority: kernel path matches rollup path", () => {
   const canvasName = "test-canvas";

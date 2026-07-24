@@ -5,10 +5,10 @@ import {
   sanitizeWorkStores,
   type CanvasDoc,
 } from "../src/shared/canvas";
-import { a2aTask } from "./helpers/a2a-fixtures";
+import { taskItem } from "./helpers/task-fixtures";
 
-describe("A2A schema + graceful drop", () => {
-  it("decodes valid A2A tasks/requests/artifacts/messages stores", () => {
+describe("task schema + graceful drop", () => {
+  it("decodes valid tasks/requests/artifacts/messages stores", () => {
     const raw = {
       nodes: [
         {
@@ -21,7 +21,7 @@ describe("A2A schema + graceful drop", () => {
           height: 50,
           ether: {
             entity: { kind: "task" },
-            tasks: { items: [a2aTask("i1", "ship", "working")] },
+            tasks: { items: [taskItem("i1", "ship", "working")] },
           },
         },
         {
@@ -34,7 +34,7 @@ describe("A2A schema + graceful drop", () => {
           height: 50,
           ether: {
             entity: { kind: "requests" },
-            requests: { items: [a2aTask("q1", "approve?", "input-required")] },
+            requests: { items: [taskItem("q1", "approve?", "input-required")] },
           },
         },
         {

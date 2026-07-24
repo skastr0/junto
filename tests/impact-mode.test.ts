@@ -7,7 +7,7 @@ import {
   nodeImpactClass,
   selectionImpact,
 } from "../src/renderer/lib/impact-mode";
-import { a2aTask } from "./helpers/a2a-fixtures";
+import { taskItem } from "./helpers/task-fixtures";
 import { seat } from "./helpers/physics-seats";
 
 const text = (
@@ -29,7 +29,7 @@ const stoppageDoc = (): CanvasDoc => ({
   nodes: [
     text("r1", "Requests", {
       entity: { kind: "requests" },
-      requests: { items: [a2aTask("q1", "approve deploy?", "input-required")] },
+      requests: { items: [taskItem("q1", "approve deploy?", "input-required")] },
     }),
     seat("a1", "actor", { label: "Ship" }),
     seat("a2", "actor", { label: "Release" }),

@@ -1,5 +1,5 @@
 import type { CanvasDoc, CanvasNode } from "../canvas";
-import { isTerminalTaskState, taskBrief } from "../a2a";
+import { isTerminalTaskState, taskBrief } from "../task";
 import type { ExecutionGraph } from "../execution-graph";
 import type { OccupancySpectrumName } from "../occupancy";
 import { impactCone, type ImpactCone } from "./cone";

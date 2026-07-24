@@ -159,7 +159,7 @@ deleted if all call sites want membership truth.
 
 **|- acceptance**
 - exactly one containment predicate exists in the tree (`grep` proves it)
-- kernel pulse membership, region rollup, digest, a2a-work, and renderer
+- kernel pulse membership, region rollup, digest, work, and renderer
   membership displays all consume it
 - a node partially overlapping a region is **out** everywhere (full-rect), and
   one test witnesses the same node classified identically via kernel path and

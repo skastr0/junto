@@ -1,11 +1,11 @@
-import type { A2ATask, TaskState } from "../../src/shared/canvas";
+import type { Task, TaskState } from "../../src/shared/canvas";
 
-/** Minimal A2A task for tests — brief is history[0] first text line. */
-export const a2aTask = (
+/** Minimal task for tests — brief is history[0] first text line. */
+export const taskItem = (
   id: string,
   brief: string,
   state: TaskState = "submitted",
-): A2ATask => ({
+): Task => ({
   id,
   state,
   history: [
@@ -20,7 +20,7 @@ export const a2aTask = (
 });
 
 /** Stamp a worker claim the way workTaskClaim does (metadata.claimedBy). */
-export const claimed = (task: A2ATask, by: string): A2ATask => ({
+export const claimed = (task: Task, by: string): Task => ({
   ...task,
   metadata: { ...(task.metadata ?? {}), claimedBy: by },
 });

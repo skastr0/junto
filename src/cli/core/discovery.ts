@@ -81,7 +81,7 @@ export const tasksUpdateSchema: CommandSchemaContract = {
   command_id: "tasks.update",
   command: "tasks update",
   schema_id: "tasks.update.input/v1",
-  description: "Transition a task to a new A2A state.",
+  description: "Transition a task to a new task state.",
   schema: TasksUpdateArgs,
   accepts_batch: true,
   input_modes: inputModes,

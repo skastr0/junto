@@ -424,6 +424,8 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
   workTaskCreate: (canvas, nodeId, brief, metadata) =>
     invoke(IPC_CHANNELS.workTaskCreate, IPC_TIMEOUT_MS, canvas, nodeId, brief, metadata),
+  workTaskDescribe: (canvas, nodeId, taskId, brief) =>
+    invoke(IPC_CHANNELS.workTaskDescribe, IPC_TIMEOUT_MS, canvas, nodeId, taskId, brief),
   workTaskTransition: (canvas, nodeId, taskId, state, note) =>
     invoke(IPC_CHANNELS.workTaskTransition, IPC_TIMEOUT_MS, canvas, nodeId, taskId, state, note),
   workTaskClaim: (canvas, nodeId, taskId, actor) =>

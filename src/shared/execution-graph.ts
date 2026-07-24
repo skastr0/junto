@@ -1,12 +1,12 @@
 import type {
-  A2ATask,
+  Task,
   CanvasDoc,
   CanvasEdge,
   CanvasNode,
   EdgeCriteria,
   EdgePhase,
 } from "./canvas";
-import { claimedByOf, isTerminalTaskState, taskBrief } from "./a2a";
+import { claimedByOf, isTerminalTaskState, taskBrief } from "./task";
 import { workerClaimId } from "./attention";
 import { seatMayBeBlocked } from "./physics/phase-membership";
 import {
@@ -104,7 +104,7 @@ export const isBlockableNode = (node: CanvasNode | undefined): boolean => {
   });
 };
 
-const a2aItemsOn = (node: CanvasNode | undefined): ReadonlyArray<A2ATask> => {
+const workItemsOn = (node: CanvasNode | undefined): ReadonlyArray<Task> => {
   if (!node) return [];
   const kind = node.ether?.entity?.kind;
   if (kind === "requests") return node.ether?.requests?.items ?? [];
@@ -113,7 +113,7 @@ const a2aItemsOn = (node: CanvasNode | undefined): ReadonlyArray<A2ATask> => {
 };
 
 /** Attention states only — open queue (submitted/working) does not stop actors. */
-const isAttentionTaskItem = (item: A2ATask): boolean =>
+const isAttentionTaskItem = (item: Task): boolean =>
   item.state === "input-required" || item.state === "auth-required";
 
 const softRelates = (detail = "relates"): EdgeEval => ({
@@ -128,7 +128,7 @@ const evalTasksCriteria = (
   toNode: CanvasNode | undefined,
 ): EdgeEval => {
   const fromKind = fromNode?.ether?.entity?.kind;
-  const items = a2aItemsOn(fromNode);
+  const items = workItemsOn(fromNode);
   const scoped =
     criteria.itemIds && criteria.itemIds.length > 0
       ? items.filter((item) => criteria.itemIds!.includes(item.id))

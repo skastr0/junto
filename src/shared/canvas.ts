@@ -236,7 +236,7 @@ export const EtherTimer = Schema.Struct({
 });
 export type EtherTimer = typeof EtherTimer.Type;
 
-// A2A work plane — document-local tasks / requests / artifacts / messages.
+// work plane — document-local tasks / requests / artifacts / messages.
 // State lives in the document. Incomplete tasks and pending requests do NOT
 // auto-seed blocks — only an edge whose criteria mode is "tasks" can turn
 // them into a generating relation. Old checklist {id,text,done} is dead:
@@ -274,8 +274,8 @@ export type Part = typeof Part.Type;
 export const MessageRole = Schema.Literal("user", "agent");
 export type MessageRole = typeof MessageRole.Type;
 
-export const A2AMetadata = Schema.Record({ key: Schema.String, value: Schema.Unknown });
-export type A2AMetadata = typeof A2AMetadata.Type;
+export const WorkMetadata = Schema.Record({ key: Schema.String, value: Schema.Unknown });
+export type WorkMetadata = typeof WorkMetadata.Type;
 
 export const Message = Schema.Struct({
   messageId: Schema.String,
@@ -284,7 +284,7 @@ export const Message = Schema.Struct({
   taskId: Schema.optionalWith(Schema.String, { exact: true }),
   contextId: Schema.optionalWith(Schema.String, { exact: true }),
   referenceTaskIds: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
-  metadata: Schema.optionalWith(A2AMetadata, { exact: true }),
+  metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
 });
 export type Message = typeof Message.Type;
 
@@ -300,33 +300,33 @@ export const TaskState = Schema.Literal(
 );
 export type TaskState = typeof TaskState.Type;
 
-export const A2ATask = Schema.Struct({
+export const Task = Schema.Struct({
   id: Schema.String,
   state: TaskState,
   history: Schema.Array(Message),
   artifactIds: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
-  metadata: Schema.optionalWith(A2AMetadata, { exact: true }),
+  metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
 });
-export type A2ATask = typeof A2ATask.Type;
+export type Task = typeof Task.Type;
 
 export const Artifact = Schema.Struct({
   artifactId: Schema.String,
   name: Schema.optionalWith(Schema.String, { exact: true }),
   parts: Schema.Array(Part),
   taskId: Schema.optionalWith(Schema.String, { exact: true }),
-  metadata: Schema.optionalWith(A2AMetadata, { exact: true }),
+  metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
 });
 export type Artifact = typeof Artifact.Type;
 
 /** Tasks node store (entity.kind === "task"). */
 export const EtherTasks = Schema.Struct({
-  items: Schema.Array(A2ATask),
+  items: Schema.Array(Task),
 });
 export type EtherTasks = typeof EtherTasks.Type;
 
 /** Requests node store (entity.kind === "requests") — items live around input-required. */
 export const EtherRequests = Schema.Struct({
-  items: Schema.Array(A2ATask),
+  items: Schema.Array(Task),
 });
 export type EtherRequests = typeof EtherRequests.Type;
 
@@ -498,7 +498,7 @@ export type CanvasDoc = typeof CanvasDoc.Type;
 const decodeCanvasDocStrict = Schema.decodeUnknownEither(CanvasDoc);
 export const encodeCanvasDoc = Schema.encodeEither(CanvasDoc);
 
-// Work-store keys that must decode as A2A shapes. A pre-existing doc whose
+// Work-store keys that must decode as task shapes. A pre-existing doc whose
 // ether.tasks (etc.) fails the schema drops that key on read — never mapped
 // or shimmed. Other ether fields still decode strictly.
 const workStoreDecoders: ReadonlyArray<{
@@ -517,7 +517,7 @@ const workStoreDecoders: ReadonlyArray<{
 // inventing grants.
 const RETIRED_SOURCE_NAMES = new Set(["tower", "quasar", "booth"]);
 
-/** Drop invalid A2A work stores + retired vocabulary before full decode. */
+/** Drop invalid work stores + retired vocabulary before full decode. */
 export const sanitizeWorkStores = (input: unknown): unknown => {
   if (input === null || typeof input !== "object" || Array.isArray(input)) return input;
   const doc = input as Record<string, unknown>;

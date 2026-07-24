@@ -1,5 +1,5 @@
 /**
- * Backpressure e2e for the A2A work plane.
+ * Backpressure e2e for the work plane.
  *
  * Drives the real IPC path (window.vellum.work*) against a sandboxed app,
  * then asserts the product contracts that unit tests cannot: file write,
@@ -8,7 +8,7 @@
  * Isolation: throwaway VELLUM_CANVASES_DIR + HOME (harness/launch.ts).
  * Run: `bun run test:e2e` (builds) or `bun run test:e2e:fast` (uses out/).
  */
-import type { A2ATask, Artifact, Message } from "../../src/shared/canvas";
+import type { Task, Artifact, Message } from "../../src/shared/canvas";
 import type { WorkOpResult } from "../../src/shared/ipc";
 import {
   agentTextNode,
@@ -69,7 +69,7 @@ const installWorkBoard = async (page: import("@playwright/test").Page): Promise<
     let list = await api.listCanvases();
     let name = list[0]?.name;
     if (!name) {
-      const created = await api.createCanvas("a2a-work");
+      const created = await api.createCanvas("work");
       name = created.name;
     }
     const read = await api.readCanvas(name);
@@ -83,32 +83,32 @@ type WorkApi = {
     canvas: string,
     nodeId: string,
     brief: string,
-  ) => Promise<WorkOpResult<A2ATask>>;
+  ) => Promise<WorkOpResult<Task>>;
   workTaskClaim: (
     canvas: string,
     nodeId: string,
     taskId: string,
     actor: string,
-  ) => Promise<WorkOpResult<A2ATask>>;
+  ) => Promise<WorkOpResult<Task>>;
   workTaskTransition: (
     canvas: string,
     nodeId: string,
     taskId: string,
-    state: A2ATask["state"],
+    state: Task["state"],
     note?: string,
-  ) => Promise<WorkOpResult<A2ATask>>;
+  ) => Promise<WorkOpResult<Task>>;
   workRequestCreate: (
     canvas: string,
     nodeId: string,
     brief: string,
-  ) => Promise<WorkOpResult<A2ATask>>;
+  ) => Promise<WorkOpResult<Task>>;
   workRequestResolve: (
     canvas: string,
     nodeId: string,
     taskId: string,
     responseText: string,
     disposition: "completed" | "rejected",
-  ) => Promise<WorkOpResult<A2ATask>>;
+  ) => Promise<WorkOpResult<Task>>;
   workArtifactPublish: (
     canvas: string,
     nodeId: string,
@@ -164,7 +164,7 @@ const work = async (page: import("@playwright/test").Page): Promise<WorkApi> => 
   };
 };
 
-test("A2A work plane: task claim/transition, request blocks then clears, artifact on disk", async ({
+test("work plane: task claim/transition, request blocks then clears, artifact on disk", async ({
   vellum,
 }) => {
   const { page, sandbox } = vellum;
@@ -280,7 +280,7 @@ test("A2A work plane: task claim/transition, request blocks then clears, artifac
   }).toPass({ timeout: 10_000 });
 });
 
-test("A2A work plane: bad ids reject without mutating the live doc", async ({ vellum }) => {
+test("work plane: bad ids reject without mutating the live doc", async ({ vellum }) => {
   const { page } = vellum;
   const api = await work(page);
 

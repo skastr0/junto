@@ -1,5 +1,5 @@
-import type { A2ATask, CanvasDoc, CanvasNode } from "./canvas";
-import { claimedByOf, isTerminalTaskState } from "./a2a";
+import type { Task, CanvasDoc, CanvasNode } from "./canvas";
+import { claimedByOf, isTerminalTaskState } from "./task";
 import { isBlockableNode, type ExecutionGraph } from "./execution-graph";
 import { resolveSpec, roleOf } from "./physics/kinds";
 
@@ -16,10 +16,10 @@ import { resolveSpec, roleOf } from "./physics/kinds";
 
 export type AttentionSignal = "fire" | "ice" | "idle" | "empty";
 
-const needsHuman = (item: A2ATask): boolean =>
+const needsHuman = (item: Task): boolean =>
   item.state === "input-required" || item.state === "auth-required";
 
-const inFlight = (item: A2ATask): boolean =>
+const inFlight = (item: Task): boolean =>
   item.state === "working" || item.state === "submitted" || needsHuman(item);
 
 const roleOfNode = (node: CanvasNode) =>
@@ -32,7 +32,7 @@ const roleOfNode = (node: CanvasNode) =>
 
 /** Sink-card glance counts (tasks / requests). */
 export const sinkGlance = (
-  items: ReadonlyArray<A2ATask>,
+  items: ReadonlyArray<Task>,
 ): { readonly inFlight: number; readonly needsInput: number; readonly total: number } => {
   let inFlightCount = 0;
   let needsInput = 0;
@@ -92,10 +92,12 @@ export const workRoleOf = (node: CanvasNode | undefined): string | undefined => 
   return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : undefined;
 };
 
-/** Worker claim identity for a seat — never "operator". */
+/**
+ * Worker claim identity for a seat — never "operator", never the work role.
+ * Identity is per-seat (name, else node id); the role is a routing tag shared
+ * by many seats and would collapse them into one worker if used as identity.
+ */
 export const workerClaimId = (node: CanvasNode): string => {
-  const role = workRoleOf(node);
-  if (role) return role;
   const name = node.ether?.entity?.name?.trim();
   if (name) return name;
   return node.id;

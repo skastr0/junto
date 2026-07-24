@@ -510,7 +510,7 @@ function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
       <div className="inspector-section">
         <div className="inspector-section__label">work plane</div>
         <div className="inspector-detail">
-          Double-click the card for the full {kind} surface. Mutations go through the A2A work service.
+          Double-click the card for the full {kind} surface. Mutations go through the work service.
         </div>
       </div>
     ) : null}

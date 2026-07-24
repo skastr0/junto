@@ -31,7 +31,7 @@ import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
 import { termPlane } from "./term/plane";
 import { isTrustedMainWebContents, trustedRendererIpc } from "./trusted-main-webcontents";
-import type { A2AMetadata, Artifact, Message, TaskState } from "@shared/canvas";
+import type { WorkMetadata, Artifact, Message, TaskState } from "@shared/canvas";
 import {
   MainAuthoringRefused,
   MainAuthoringTransitionError,
@@ -341,7 +341,7 @@ export const registerVellumIpc = (): void => {
     AppRuntime.runPromise(Effect.flatMap(RegionRollupService, (service) => service.rollups(name))),
   );
 
-  // A2A work plane — seven ops, all serialized through CanvasesService write.
+  // work plane — seven ops, all serialized through CanvasesService write.
   // Remote stations get a typed WorkOpResult (never a rejected IPC promise).
   const denyRemoteWork = Effect.gen(function* () {
     const settings = yield* SettingsService;
@@ -359,7 +359,7 @@ export const registerVellumIpc = (): void => {
 
   privilegedIpc.handle(
     IPC_CHANNELS.workTaskCreate,
-    (_event, canvas: string, nodeId: string, brief: string, metadata?: A2AMetadata) =>
+    (_event, canvas: string, nodeId: string, brief: string, metadata?: WorkMetadata) =>
       runRendererWorkAuthoring(
         "ipc.work.task-create",
         () => AppRuntime.runPromise(
@@ -368,6 +368,21 @@ export const registerVellumIpc = (): void => {
             if (denied) return denied;
             const work = yield* WorkService;
             return yield* work.workTaskCreate(canvas, nodeId, brief, metadata);
+          }),
+        ),
+      ),
+  );
+  privilegedIpc.handle(
+    IPC_CHANNELS.workTaskDescribe,
+    (_event, canvas: string, nodeId: string, taskId: string, brief: string) =>
+      runRendererWorkAuthoring(
+        "ipc.work.task-describe",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workTaskDescribe(canvas, nodeId, taskId, brief);
           }),
         ),
       ),
@@ -426,7 +441,7 @@ export const registerVellumIpc = (): void => {
   );
   privilegedIpc.handle(
     IPC_CHANNELS.workRequestCreate,
-    (_event, canvas: string, nodeId: string, brief: string, metadata?: A2AMetadata) =>
+    (_event, canvas: string, nodeId: string, brief: string, metadata?: WorkMetadata) =>
       runRendererWorkAuthoring(
         "ipc.work.request-create",
         () => AppRuntime.runPromise(

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
 import { blockedClosure, blockedEdgeIds, groupMembers } from "../src/shared/graph";
-import { a2aTask, claimed } from "./helpers/a2a-fixtures";
+import { taskItem, claimed } from "./helpers/task-fixtures";
 import { seat } from "./helpers/physics-seats";
 
 const tasks = (id: string, needsInput: boolean, heldBy?: string) => ({
@@ -18,8 +18,8 @@ const tasks = (id: string, needsInput: boolean, heldBy?: string) => ({
     tasks: {
       items: [
         needsInput && heldBy !== undefined
-          ? claimed(a2aTask("i1", "item", "input-required"), heldBy)
-          : a2aTask("i1", "item", needsInput ? "input-required" : "completed"),
+          ? claimed(taskItem("i1", "item", "input-required"), heldBy)
+          : taskItem("i1", "item", needsInput ? "input-required" : "completed"),
       ],
     },
   },

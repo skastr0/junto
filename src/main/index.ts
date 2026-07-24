@@ -1177,7 +1177,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     registerDemoIpcHandlers();
     if (shutdownAdmissionClosed) return;
 
-    // Work control socket: agent protocol surface over the A2A work plane.
+    // Work control socket: agent protocol surface over the work plane.
     // Independent of browser composition; owns ~/.vellum/work/{control.sock,token}.
     try {
       workControl = await startWorkControlServer({

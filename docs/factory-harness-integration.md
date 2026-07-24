@@ -109,7 +109,7 @@ Narrow, and only the things that change whether the worker can proceed:
 - a task claimed for this seat,
 - a request answered (unblocks the worker),
 - input-required resolved (unblocks the worker),
-- an a2a message arrived.
+- a work message arrived.
 
 (Artifact events are a *soft* nudge at most — artifacts never block — and are not
 a wake trigger. Artifact comments remain a floated idea, not built.)

@@ -11,8 +11,8 @@ export type {
 } from "./browser";
 import type { DirectoryEntry, DoctorReport, FolderSnapshot, ServiceCheck } from "./contracts";
 import type {
-  A2AMetadata,
-  A2ATask,
+  WorkMetadata,
+  Task,
   Artifact,
   CanvasDoc,
   Message,
@@ -80,8 +80,9 @@ export const IPC_CHANNELS = {
   armRegion: "vellum:arm-region",
   pulseRegion: "vellum:pulse-region",
   regionRollups: "vellum:region-rollups",
-  // A2A work plane (serialized canvas mutations)
+  // work plane (serialized canvas mutations)
   workTaskCreate: "vellum:work-task-create",
+  workTaskDescribe: "vellum:work-task-describe",
   workTaskTransition: "vellum:work-task-transition",
   workTaskClaim: "vellum:work-task-claim",
   workMessageAppend: "vellum:work-message-append",
@@ -511,26 +512,32 @@ export interface VellumApi {
   // Region severity rollups for the bottom bar, derived live per call from
   // the document + snapshots + ACP chat activity (shared/region-rollup.ts).
   readonly regionRollups: (name: string) => Promise<ReadonlyArray<RegionRollup>>;
-  // A2A work plane — all mutations serialized through main canvas write path.
+  // work plane — all mutations serialized through main canvas write path.
   readonly workTaskCreate: (
     canvas: string,
     nodeId: string,
     brief: string,
-    metadata?: A2AMetadata,
-  ) => Promise<WorkOpResult<A2ATask>>;
+    metadata?: WorkMetadata,
+  ) => Promise<WorkOpResult<Task>>;
+  readonly workTaskDescribe: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
+    brief: string,
+  ) => Promise<WorkOpResult<Task>>;
   readonly workTaskTransition: (
     canvas: string,
     nodeId: string,
     taskId: string,
     state: TaskState,
     note?: string,
-  ) => Promise<WorkOpResult<A2ATask>>;
+  ) => Promise<WorkOpResult<Task>>;
   readonly workTaskClaim: (
     canvas: string,
     nodeId: string,
     taskId: string,
     actor: string,
-  ) => Promise<WorkOpResult<A2ATask>>;
+  ) => Promise<WorkOpResult<Task>>;
   readonly workMessageAppend: (
     canvas: string,
     nodeId: string,
@@ -541,15 +548,15 @@ export interface VellumApi {
     canvas: string,
     nodeId: string,
     brief: string,
-    metadata?: A2AMetadata,
-  ) => Promise<WorkOpResult<A2ATask>>;
+    metadata?: WorkMetadata,
+  ) => Promise<WorkOpResult<Task>>;
   readonly workRequestResolve: (
     canvas: string,
     nodeId: string,
     taskId: string,
     responseText: string,
     disposition: "completed" | "rejected",
-  ) => Promise<WorkOpResult<A2ATask>>;
+  ) => Promise<WorkOpResult<Task>>;
   readonly workArtifactPublish: (
     canvas: string,
     nodeId: string,

@@ -50,7 +50,7 @@ While Vellum is running, agents talk to the **local** work control socket (not t
 
 Browser control (`bun run browser` / `vellum-browser`) uses the same process-bind identity on protected routes. There is **no enable-grant ceremony** and no client capability secret — only a live registered process + human-drawn edges to page nodes.
 
-Ops go through WorkService (A2A tasks/messages/requests/artifacts). That is the agent write path; freeform canvas authoring remains human/Command Center.
+Ops go through WorkService (tasks/messages/requests/artifacts). That is the agent write path; freeform canvas authoring remains human/Command Center.
 
 ### Station roles
 

@@ -1,11 +1,11 @@
-// WorkService — A2A work-plane mutations serialized through CanvasesService.mutate.
+// WorkService — work-plane mutations serialized through CanvasesService.mutate.
 // All seven ops reject unknown canvas/node/task ids and illegal transitions.
 // No silent writes. No dual shapes.
 
 import { Context, Effect, Layer, Schema } from "effect";
 import type {
-  A2AMetadata,
-  A2ATask,
+  WorkMetadata,
+  Task,
   Artifact,
   CanvasDoc,
   Message,
@@ -20,9 +20,10 @@ import {
   workRequestResolve,
   workTaskClaim,
   workTaskCreate,
+  workTaskDescribe,
   workTaskTransition,
   type WorkIds,
-} from "@shared/a2a-work";
+} from "@shared/work";
 import { CanvasesService, CanvasError } from "../canvases";
 import { messageDelivery } from "./message-delivery";
 import { ulid } from "ulid";
@@ -99,21 +100,27 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       canvas: string,
       nodeId: string,
       brief: string,
-      metadata?: A2AMetadata,
-    ) => Effect.Effect<WorkOpResult<A2ATask>>;
+      metadata?: WorkMetadata,
+    ) => Effect.Effect<WorkOpResult<Task>>;
+    readonly workTaskDescribe: (
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+      brief: string,
+    ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskTransition: (
       canvas: string,
       nodeId: string,
       taskId: string,
       state: TaskState,
       note?: string,
-    ) => Effect.Effect<WorkOpResult<A2ATask>>;
+    ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskClaim: (
       canvas: string,
       nodeId: string,
       taskId: string,
       actor: string,
-    ) => Effect.Effect<WorkOpResult<A2ATask>>;
+    ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workMessageAppend: (
       canvas: string,
       nodeId: string,
@@ -124,15 +131,15 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       canvas: string,
       nodeId: string,
       brief: string,
-      metadata?: A2AMetadata,
-    ) => Effect.Effect<WorkOpResult<A2ATask>>;
+      metadata?: WorkMetadata,
+    ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workRequestResolve: (
       canvas: string,
       nodeId: string,
       taskId: string,
       responseText: string,
       disposition: "completed" | "rejected",
-    ) => Effect.Effect<WorkOpResult<A2ATask>>;
+    ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workArtifactPublish: (
       canvas: string,
       nodeId: string,
@@ -203,6 +210,14 @@ export const WorkLive = Layer.effect(
         asResult(
           apply(canvas, (doc) => {
             const result = workTaskCreate(doc, canvas, nodeId, brief, metadata, ids);
+            return { doc: result.doc, value: result.task };
+          }),
+        ),
+
+      workTaskDescribe: (canvas, nodeId, taskId, brief) =>
+        asResult(
+          apply(canvas, (doc) => {
+            const result = workTaskDescribe(doc, canvas, nodeId, taskId, brief, ids);
             return { doc: result.doc, value: result.task };
           }),
         ),

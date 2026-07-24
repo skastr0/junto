@@ -103,7 +103,7 @@ const nextRecoveryName = (): string => {
 
 // Prefer rebase when disk advanced under a local save (work ops, kernel
 // mirrors, external edits that share node ids): keep freeform local geometry
-// and graph membership, take A2A work stores from disk, write at disk revision.
+// and graph membership, take work stores from disk, write at disk revision.
 // Falls through to recovery-canvas only when rebase cannot complete.
 const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => {
   const api = window.vellum;
@@ -343,7 +343,7 @@ export const quiesceCanvasMutations = (commitDrafts: () => void): void => {
  * Apply a successful WorkService write into the open renderer document.
  * Baselines `revisionsByName` at the work revision so a concurrent freeform
  * flush cannot treat the work write as a foreign conflict (recovery canvas).
- * Freeform geometry / edges stay local; A2A stores + mirrored text come from
+ * Freeform geometry / edges stay local; stores + mirrored text come from
  * `workDoc`.
  */
 export const applyWorkCanvasWrite = (
@@ -1118,4 +1118,4 @@ export const setNodeTimer = (id: string, timer: EtherTimer | undefined): void =>
   });
 };
 
-// Checklist mutator deleted — A2A work ops live in main (WorkService).
+// Checklist mutator deleted — work ops live in main (WorkService).

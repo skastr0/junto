@@ -22,7 +22,7 @@ import {
   tasksNode,
   terminalTextNode,
   textNode,
-  a2aTask,
+  taskItem,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
 import type { CanvasEdge, CanvasNode, GroupNode, LinkNode } from "../../src/shared/canvas";
@@ -130,8 +130,8 @@ const nodes: CanvasNode[] = [
   projectNode({ id: "proj1", name: "prism", x: 0, y: 460 }),
   projectNode({ id: "proj2", name: "vellum", x: 260, y: 460 }),
   agentTextNode({ id: "agent1", key: "local:default", label: "builder", x: 520, y: 460 }),
-  tasksNode({ id: "tasks1", x: 0, y: 620, items: [a2aTask("t-1", "ship design tokens", "working")] }),
-  requestsNode({ id: "req1", x: 260, y: 620, items: [a2aTask("r-1", "approve copy", "input-required")] }),
+  tasksNode({ id: "tasks1", x: 0, y: 620, items: [taskItem("t-1", "ship design tokens", "working")] }),
+  requestsNode({ id: "req1", x: 260, y: 620, items: [taskItem("r-1", "approve copy", "input-required")] }),
   artifactsNode({ id: "art1", x: 520, y: 620 }),
   terminalTextNode({
     id: "term1",

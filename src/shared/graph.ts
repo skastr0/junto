@@ -27,7 +27,7 @@ export const isGroup = (node: CanvasNode): node is GroupNode => node.type === "g
 // overlapping a region is out. Promoted from the kernel's stricter rule
 // (formerly duplicated center-point rules in kernel/cycle.ts and
 // renderer/lib/geometry.ts); every membership consumer — kernel pulse
-// delivery, region rollups, digest, a2a-work, and renderer displays — derives
+// delivery, region rollups, digest, work, and renderer displays — derives
 // from this one function. Renderer keeps a separate, explicitly non-membership
 // helper for drag-hold interaction (center-point, includes nested regions).
 const isFullyContained = (group: GroupNode, node: CanvasNode): boolean =>

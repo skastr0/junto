@@ -10,11 +10,12 @@ import {
   workRequestResolve,
   workTaskClaim,
   workTaskCreate,
+  workTaskDescribe,
   workTaskTransition,
   WorkError,
-} from "../src/shared/a2a-work";
+} from "../src/shared/work";
 import type { CanvasDoc, Message } from "../src/shared/canvas";
-import { canTransitionTaskState } from "../src/shared/a2a";
+import { canTransitionTaskState } from "../src/shared/task";
 
 const ids = (() => {
   let n = 0;
@@ -57,7 +58,7 @@ const agentNode = (id = "agent"): CanvasDoc["nodes"][number] => ({
   ether: { entity: { kind: "agent", name: "local:mira" }, messages: { items: [] } },
 });
 
-describe("a2a-work pure transforms", () => {
+describe("work pure transforms", () => {
   it("create → claim → transition, with contextId from canvas name", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", undefined, ids);
@@ -94,6 +95,41 @@ describe("a2a-work pure transforms", () => {
     expect(done.task.state).toBe("completed");
     expect(done.task.history.at(-1)?.role).toBe("agent");
     expect(done.task.history.at(-1)?.parts[0]).toEqual({ kind: "text", text: "shipped" });
+  });
+
+  it("describe re-authors the brief in place, keeps later notes, updates mirror text", () => {
+    let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+    const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", undefined, ids);
+    doc = created.doc;
+    const noted = workTaskTransition(doc, "alpha", "tasks", created.task.id, "working", "on it", ids);
+    doc = noted.doc;
+
+    const described = workTaskDescribe(doc, "alpha", "tasks", created.task.id, "ship the docs site", ids);
+    doc = described.doc;
+    expect(described.task.history[0]?.parts[0]).toEqual({ kind: "text", text: "ship the docs site" });
+    expect(described.task.history[0]?.role).toBe("user");
+    expect(described.task.history.at(-1)?.parts[0]).toEqual({ kind: "text", text: "on it" });
+    expect(described.task.state).toBe("working");
+    expect((doc.nodes[0] as { text: string }).text).toBe("ship the docs site");
+  });
+
+  it("describe rejects empty briefs, terminal states, and unknown ids", () => {
+    let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+    const created = workTaskCreate(doc, "c", "tasks", "x", undefined, ids);
+    doc = created.doc;
+
+    expect(() => workTaskDescribe(doc, "c", "tasks", created.task.id, "   ", ids)).toThrow(WorkError);
+    expect(() => workTaskDescribe(doc, "c", "tasks", "nope", "y", ids)).toThrow(WorkError);
+
+    const done = workTaskTransition(doc, "c", "tasks", created.task.id, "completed", undefined, ids);
+    doc = done.doc;
+    try {
+      workTaskDescribe(doc, "c", "tasks", created.task.id, "rewrite history", ids);
+      expect.unreachable("terminal task must not be re-described");
+    } catch (e) {
+      expect(e).toBeInstanceOf(WorkError);
+      expect((e as WorkError).code).toBe("illegal_transition");
+    }
   });
 
   it("rejects illegal transitions and unknown ids", () => {
@@ -207,7 +243,7 @@ describe("a2a-work pure transforms", () => {
 
 // --- service serialization under concurrent claims -------------------------
 
-const mockCanvasesHome = join(tmpdir(), `vellum-a2a-work-${randomUUID()}`);
+const mockCanvasesHome = join(tmpdir(), `vellum-work-${randomUUID()}`);
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();

@@ -8,7 +8,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
-  A2ATask,
+  Task,
   Artifact,
   CanvasDoc,
   CanvasEdge,
@@ -169,13 +169,13 @@ export const canvasDoc = (
   edges: readonly CanvasEdge[] = [],
 ): CanvasDoc => ({ nodes: [...nodes], edges: [...edges] });
 
-// --- A2A work-plane fixtures (no legacy checklist shape) --------------------
+// --- work-plane fixtures (no legacy checklist shape) --------------------
 
-export const a2aTask = (
+export const taskItem = (
   id: string,
   brief: string,
-  state: A2ATask["state"] = "submitted",
-): A2ATask => ({
+  state: Task["state"] = "submitted",
+): Task => ({
   id,
   state,
   history: [
@@ -194,7 +194,7 @@ export const tasksNode = (input: {
   readonly id: string;
   readonly x?: number;
   readonly y?: number;
-  readonly items?: ReadonlyArray<A2ATask>;
+  readonly items?: ReadonlyArray<Task>;
 }): TextNode => ({
   id: input.id,
   type: "text",
@@ -221,7 +221,7 @@ export const requestsNode = (input: {
   readonly id: string;
   readonly x?: number;
   readonly y?: number;
-  readonly items?: ReadonlyArray<A2ATask>;
+  readonly items?: ReadonlyArray<Task>;
 }): TextNode => {
   const items = input.items ?? [];
   const pending = items.filter((t) => t.state === "input-required").length;

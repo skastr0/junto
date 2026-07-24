@@ -1,7 +1,7 @@
 import type { CanvasDoc, CanvasNode, EtherNodeExtension } from "./canvas";
 
 // Merge a disk/work write into the operator's local document so freeform
-// geometry and graph structure are preserved while A2A work stores (and their
+// geometry and graph structure are preserved while work stores (and their
 // mirrored text) take the authoritative write's values.
 //
 // Local is structural authority for membership (nodes/edges the operator has

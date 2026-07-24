@@ -13,6 +13,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.canvas.portfolio",
   "startup.canvas.ensure-seed",
   "ipc.work.task-create",
+  "ipc.work.task-describe",
   "ipc.work.task-transition",
   "ipc.work.task-claim",
   "ipc.work.message-append",

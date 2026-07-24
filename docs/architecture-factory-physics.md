@@ -28,7 +28,7 @@ that reaches that power.
 |-------|---------------------|----------|------------|
 | **Capability** | What may this principal reach? | Drawn edges + ports + process-bind | Human draw/delete; admit/release of bound process |
 | **Phase** | Is work blocked or free to proceed? | Derived edge phase (`blocks` \| `relates`) from criteria + live worker/trust state | Recomputed; never authorial `ether.kind` input |
-| **Attention / occupancy** | Is the seat empty, busy, or needing a human? | Live runtime state on seats | Process lifecycle, A2A status, operator focus |
+| **Attention / occupancy** | Is the seat empty, busy, or needing a human? | Live runtime state on seats | Process lifecycle, task status, operator focus |
 
 Laws of plane separation:
 

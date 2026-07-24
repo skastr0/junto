@@ -8,7 +8,7 @@ import {
   rankStoppageSeeds,
   waitingOnPath,
 } from "../src/shared/impact";
-import { a2aTask } from "./helpers/a2a-fixtures";
+import { taskItem } from "./helpers/task-fixtures";
 import { seat } from "./helpers/physics-seats";
 
 const text = (
@@ -34,14 +34,14 @@ const twoSeedDoc = (): CanvasDoc => ({
   nodes: [
     text("r-big", "Big Requests", {
       entity: { kind: "requests" },
-      requests: { items: [a2aTask("q1", "approve deploy?", "input-required")] },
+      requests: { items: [taskItem("q1", "approve deploy?", "input-required")] },
     }),
     seat("p1", "actor", { label: "Ship" }),
     seat("p2", "actor", { label: "Release" }),
     seat("p3", "actor", { label: "Announce" }),
     text("r-small", "Small Requests", {
       entity: { kind: "requests" },
-      requests: { items: [a2aTask("q2", "ping?", "input-required")] },
+      requests: { items: [taskItem("q2", "ping?", "input-required")] },
     }),
     seat("s1", "actor", { label: "Side" }),
     // Soft attention lead into the big cone (free actor, not blocked)

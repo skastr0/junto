@@ -13,7 +13,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { demoCommand } from "../harness/demo";
 import {
-  a2aTask,
+  taskItem,
   artifactsNode,
   canvasDoc,
   herdrTextNode,
@@ -98,13 +98,13 @@ const nodes: readonly CanvasNode[] = [
   tasksNode({
     id: "tasks-forge",
     x: 300, y: 180,
-    items: [a2aTask("t-1", "ship design tokens", "working"), a2aTask("t-2", "wire founder checkout", "submitted")],
+    items: [taskItem("t-1", "ship design tokens", "working"), taskItem("t-2", "wire founder checkout", "submitted")],
   }),
   projectNode({ id: "proj-vellum", name: "vellum", x: 680, y: 190 }),
   requestsNode({
     id: "req-beacon",
     x: 600, y: 580,
-    items: [a2aTask("r-1", "approve founder pricing", "input-required")],
+    items: [taskItem("r-1", "approve founder pricing", "input-required")],
   }),
   artifactsNode({ id: "art-beacon", x: 300, y: 760 }),
   projectNode({ id: "proj-launch", name: "launch", x: 600, y: 770 }),

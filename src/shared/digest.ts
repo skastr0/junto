@@ -293,7 +293,7 @@ export const digestCanvas = (
             : `  ${connection.source}: stale`,
         );
       }
-      // Local A2A work stores live in the document.
+      // Local work stores live in the document.
       if (entity.kind === "task") {
         const items = node.ether?.tasks?.items ?? [];
         const open = items.filter(

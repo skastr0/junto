@@ -1,7 +1,7 @@
 import { ulid } from "ulid";
-import type { A2ATask, CanvasDoc, CanvasNode } from "./canvas";
-import { claimedByOf } from "./a2a";
-import { workTaskClaim, type WorkIds } from "./a2a-work";
+import type { Task, CanvasDoc, CanvasNode } from "./canvas";
+import { claimedByOf } from "./task";
+import { workTaskClaim, type WorkIds } from "./work";
 import { isReservedClaimActor, workRoleOf, workerClaimId } from "./attention";
 import { resolveSpec, roleOf } from "./physics/kinds";
 
@@ -114,4 +114,4 @@ export const factoryClaimTick = (
   return { doc: next, claimed };
 };
 
-export type { A2ATask };
+export type { Task };

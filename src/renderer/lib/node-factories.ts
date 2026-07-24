@@ -72,7 +72,7 @@ export const makeAgentNode = (
   ether: { entity: { kind: "agent", name: key }, host },
 });
 
-// A tasks node — A2A task list; blocks only when edged with criteria.mode tasks.
+// A tasks node — task list; blocks only when edged with criteria.mode tasks.
 export const makeTasksNode = (x: number, y: number): TextNode => ({
   id: `task-${ulid()}`,
   type: "text",

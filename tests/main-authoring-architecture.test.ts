@@ -61,6 +61,7 @@ describe("main authoring architecture", () => {
       "ipc.work.request-resolve",
       "ipc.work.task-claim",
       "ipc.work.task-create",
+      "ipc.work.task-describe",
       "ipc.work.task-transition",
       "startup.canvas.ensure-seed",
     ].sort());
