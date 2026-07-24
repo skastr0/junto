@@ -5,6 +5,7 @@ import type { CanvasDoc } from "@shared/canvas";
 import { digestCanvas } from "@shared/digest";
 import { buildGlyphView } from "@shared/glyph-view";
 import { mergePortfolioInto } from "@shared/portfolio";
+import { RELEASE_CAPABILITIES } from "@shared/release-capabilities";
 import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
@@ -573,6 +574,55 @@ export const registerVellumIpc = (): void => {
       // codexbar can take ~15-20s so it never blocks window open.
       usage.start();
       kernel.start();
+
+      // Remote beta: apply any staged projection frame drop after live maps start.
+      // Failures are logged; canvas-pull remains the operator fallback.
+      void AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const settings = yield* SettingsService;
+          const current = yield* settings.get;
+          if (current.station.role !== "remote") return;
+          if (!RELEASE_CAPABILITIES.stationProjection) return;
+          const { applyIncomingProjectionFrame } = yield* Effect.promise(
+            () => import("./projection/incoming"),
+          );
+          const canvasesSvc = yield* CanvasesService;
+          const outcome = yield* Effect.promise(() =>
+            applyIncomingProjectionFrame({
+              replaceLiveAuthority: async (names) => {
+                const admit = await AppRuntime.runPromise(
+                  canvasesSvc
+                    .replaceLiveAuthorityFromInstall(names)
+                    .pipe(Effect.either),
+                );
+                if (admit._tag === "Left") {
+                  throw new Error(admit.left.message);
+                }
+              },
+            }),
+          );
+          if (outcome.status === "rejected") {
+            console.error(
+              "[projection] incoming frame apply rejected:",
+              outcome.detail,
+            );
+          } else if (
+            outcome.status === "applied" ||
+            outcome.status === "idempotent"
+          ) {
+            console.info("[projection]", outcome.detail);
+          }
+        }).pipe(
+          Effect.catchAll((error) =>
+            Effect.sync(() => {
+              console.error(
+                "[projection] incoming frame apply failed:",
+                error instanceof Error ? error.message : String(error),
+              );
+            }),
+          ),
+        ),
+      );
     }),
   );
 };
