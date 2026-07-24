@@ -1,4 +1,24 @@
 import type { HerdrPointerCell, HerdrRetainedPayload } from "@shared/ipc";
+import {
+  ControlIoPhase,
+  controlPhaseIsLive,
+  controlPhaseRefusesWrite,
+  encodeHerdrControlLine,
+  herdrControlWriteFailed,
+  herdrControlWriteOk,
+  herdrControlWriteWire,
+  herdrInputBytes,
+  herdrInputText,
+  herdrRelease,
+  herdrResize,
+  herdrScroll,
+  inactiveControlError,
+  normalizeControlGeometry,
+  parseHerdrControlInbound,
+  pipeControlError,
+  type ControlIoPhase as ControlIoPhaseT,
+  type HerdrControlWriteResult,
+} from "@shared/terminal-session-domain";
 import { isKnownHerdrHost } from "./hosts";
 import { feedNdjson } from "./ndjson";
 import { pastePathPayload, stageImageOnHost, type StageRemoteImage } from "./stage-image";
@@ -12,6 +32,13 @@ import {
   type HerdrShutdownCause,
   validateHerdrShutdownTimeout,
 } from "./shutdown";
+
+/** IPC-stable write result (message string) from domain typed result. */
+export type HerdrStreamWriteResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: string };
+
+export type { HerdrControlWriteResult };
 
 export interface HerdrStreamFrame {
   readonly streamId: string;
@@ -76,6 +103,11 @@ interface ActiveStream {
    */
   pendingWrite?: Promise<void>;
   /**
+   * Control I/O phase (domain). Live accepts stdin; Broken/Closed refuse writes
+   * and suppress double emit on pipe/child races. Replaces writeBroken/ioFailed.
+   */
+  phase: ControlIoPhaseT;
+  /**
    * Set the moment inbound overflow kills the child. SIGTERM delivery is
    * not instantaneous — a wedged child can keep emitting unterminated
    * garbage after the signal until it actually exits, and each chunk would
@@ -84,17 +116,6 @@ interface ActiveStream {
    * for the same stream in that window.
    */
   overflowed?: boolean;
-  /**
-   * Stdin pipe is dead (EPIPE/EIO or sync write throw). Further enqueueWrite
-   * calls fail closed without touching the Writable — async Node EPIPE is not
-   * a ChildProcess event (same doctrine as process/codex service planes).
-   */
-  writeBroken?: boolean;
-  /**
-   * Stream-level I/O already drove teardown. Prevents double emit/close when
-   * stdin error, stdout error, and child close race after herdr dies.
-   */
-  ioFailed?: boolean;
 }
 
 /**
@@ -350,6 +371,7 @@ export class HerdrStreamManager {
     if (priorStreamId) this.detachControl(priorStreamId, "superseded");
 
     const streamId = `hs-${Date.now().toString(36)}-${(++this.seq).toString(36)}`;
+    const attachGeometry = normalizeControlGeometry(input.cols || 80, input.rows || 24);
     const args = [
       "terminal",
       "session",
@@ -357,9 +379,9 @@ export class HerdrStreamManager {
       input.terminalId,
       ...(input.takeover === false ? [] : ["--takeover"]),
       "--cols",
-      String(Math.max(20, Math.floor(input.cols || 80))),
+      String(attachGeometry.cols),
       "--rows",
-      String(Math.max(5, Math.floor(input.rows || 24))),
+      String(attachGeometry.rows),
     ];
     // Capture retained observe frames BEFORE the observe child is killed —
     // the renderer paints these synchronously while live frames spin up.
@@ -402,6 +424,7 @@ export class HerdrStreamManager {
       return { ok: false, message: `failed to spawn control stream: ${message}` };
     }
 
+    const geometry = normalizeControlGeometry(input.cols || 80, input.rows || 24);
     const active: ActiveStream = {
       streamId,
       hostId: input.hostId,
@@ -411,9 +434,10 @@ export class HerdrStreamManager {
       lifetime: "session-owned",
       lifecycle,
       openedAt: Date.now(),
-      cols: Math.max(20, Math.floor(input.cols || 80)),
-      rows: Math.max(5, Math.floor(input.rows || 24)),
+      cols: geometry.cols,
+      rows: geometry.rows,
       firstFrameSeen: false,
+      phase: ControlIoPhase.Live(),
     };
     try {
       // Control now provides frames: kill the terminal's observe child but keep
@@ -463,22 +487,10 @@ export class HerdrStreamManager {
       });
 
       child.stdin.on?.("error", (error) => {
-        active.writeBroken = true;
         this.handleControlIoError(streamId, active, "stdin", error);
       });
 
       child.on("close", (code) => {
-        active.writeBroken = true;
-        if (active.ioFailed) {
-          // I/O path already removed the stream and emitted closed; still settle
-          // the exact generation so quit drain does not retain a zombie lifecycle.
-          if (active.lifecycle.kind === "remote-scope") {
-            this.terminateControl(active);
-          } else {
-            this.settleLocalControl(active);
-          }
-          return;
-        }
         if (active.lifecycle.kind === "remote-scope") {
           // Natural remote exit still owns scope finalizers. Route it through
           // the same bounded receipt flight used by explicit detach.
@@ -487,18 +499,30 @@ export class HerdrStreamManager {
           this.settleLocalControl(active);
         }
         const closing = this.streams.get(streamId);
-        if (!closing) return;
+        if (!closing) {
+          // Detach / pipe path already removed + emitted closed — generation only.
+          return;
+        }
+        // Overflow (and similar) leave the stream mapped until process exit so
+        // the normal close frame still fires once — even though phase left Live.
+        const reason =
+          closing.phase._tag === "Broken" && closing.phase.reason === "overflow"
+            ? "overflow"
+            : code === 0
+              ? "exit"
+              : `exit_${code ?? "null"}`;
+        closing.phase = ControlIoPhase.Closed({ reason });
         this.removeStream(streamId, closing.terminalId);
         this.handBackToObservePool(closing);
         this.emit({
           streamId,
           type: "closed",
-          reason: code === 0 ? "exit" : `exit_${code ?? "null"}`,
+          reason,
         });
       });
 
       child.on("error", (error) => {
-        if (active.ioFailed) {
+        if (!controlPhaseIsLive(active.phase)) {
           this.terminateControl(active);
           return;
         }
@@ -510,8 +534,7 @@ export class HerdrStreamManager {
           this.terminateControl(active);
           return;
         }
-        closing.writeBroken = true;
-        closing.ioFailed = true;
+        closing.phase = ControlIoPhase.Broken({ reason: "child" });
         this.removeStream(streamId, closing.terminalId);
         this.terminateControl(active);
         this.handBackToObservePool(closing);
@@ -535,28 +558,18 @@ export class HerdrStreamManager {
   }
 
   /**
-   * herdr control protocol (verified against herdr client):
+   * herdr control protocol (domain Schema + stock client):
    *   { type: "terminal.input", bytes: "<base64>" }
    *   { type: "terminal.input", text: "<utf8>" }
    * Field name `data` is IGNORED → empty write, silent no-op (not an error).
    */
-  input(streamId: string, dataBase64: string): { readonly ok: boolean; readonly error?: string } {
-    const stream = this.require(streamId);
-    if (!stream.ok) return stream;
-    return this.writeJson(stream.stream, {
-      type: "terminal.input",
-      bytes: dataBase64,
-    });
+  input(streamId: string, dataBase64: string): HerdrStreamWriteResult {
+    return herdrControlWriteWire(this.writeCommand(streamId, herdrInputBytes(dataBase64)));
   }
 
   /** Plaintext path — herdr accepts `text` without base64. */
-  inputText(streamId: string, text: string): { readonly ok: boolean; readonly error?: string } {
-    const stream = this.require(streamId);
-    if (!stream.ok) return stream;
-    return this.writeJson(stream.stream, {
-      type: "terminal.input",
-      text,
-    });
+  inputText(streamId: string, text: string): HerdrStreamWriteResult {
+    return herdrControlWriteWire(this.writeCommand(streamId, herdrInputText(text)));
   }
 
 
@@ -570,9 +583,15 @@ export class HerdrStreamManager {
     streamId: string,
     extension: string,
     dataBase64: string,
-  ): Promise<{ readonly ok: boolean; readonly error?: string; readonly path?: string }> {
+  ): Promise<HerdrStreamWriteResult & { readonly path?: string }> {
     if (this.shutDown) {
-      return Promise.resolve({ ok: false, error: "herdr streams shut down (app quitting)" });
+      return Promise.resolve(
+        herdrControlWriteWire(
+          herdrControlWriteFailed(
+            inactiveControlError("herdr streams shut down (app quitting)"),
+          ),
+        ),
+      );
     }
     return this.trackOperation(
       this.pasteImageOnce(streamId, extension, dataBase64),
@@ -584,9 +603,9 @@ export class HerdrStreamManager {
     streamId: string,
     extension: string,
     dataBase64: string,
-  ): Promise<{ readonly ok: boolean; readonly error?: string; readonly path?: string }> {
+  ): Promise<HerdrStreamWriteResult & { readonly path?: string }> {
     const opened = this.require(streamId);
-    if (!opened.ok) return opened;
+    if (!opened.ok) return herdrControlWriteWire(opened);
     // Capture host before await — stream may detach during remote stage.
     const hostId = opened.stream.hostId;
     const staged = await stageImageOnHost(hostId, extension, dataBase64, {
@@ -595,35 +614,31 @@ export class HerdrStreamManager {
     if (!staged.ok) return { ok: false, error: staged.error };
     // Re-bind after stage: close/takeover must not write a stale stdin.
     const live = this.require(streamId);
-    if (!live.ok) return live;
-    const written = this.writeJson(live.stream, {
-      type: "terminal.input",
-      text: pastePathPayload(staged.path),
-    });
-    if (!written.ok) return written;
+    if (!live.ok) return herdrControlWriteWire(live);
+    const written = this.writeCommand(
+      streamId,
+      herdrInputText(pastePathPayload(staged.path)),
+      live.stream,
+    );
+    if (!written.ok) return herdrControlWriteWire(written);
     return { ok: true, path: staged.path };
   }
 
-  resize(
-    streamId: string,
-    cols: number,
-    rows: number,
-  ): { readonly ok: boolean; readonly error?: string } {
+  resize(streamId: string, cols: number, rows: number): HerdrStreamWriteResult {
     const stream = this.require(streamId);
-    if (!stream.ok) return stream;
-    const nextCols = Number.isFinite(cols) ? Math.max(20, Math.floor(cols)) : 80;
-    const nextRows = Number.isFinite(rows) ? Math.max(5, Math.floor(rows)) : 24;
-    const written = this.writeJson(stream.stream, {
-      type: "terminal.resize",
-      cols: nextCols,
-      rows: nextRows,
-    });
+    if (!stream.ok) return herdrControlWriteWire(stream);
+    const next = normalizeControlGeometry(cols, rows);
+    const written = this.writeCommand(
+      streamId,
+      herdrResize(next.cols, next.rows),
+      stream.stream,
+    );
     if (written.ok) {
       // Track last geometry so the post-detach observe re-attach matches.
-      stream.stream.cols = nextCols;
-      stream.stream.rows = nextRows;
+      stream.stream.cols = next.cols;
+      stream.stream.rows = next.rows;
     }
-    return written;
+    return herdrControlWriteWire(written);
   }
 
   /**
@@ -639,32 +654,33 @@ export class HerdrStreamManager {
     streamId: string,
     delta: number,
     at?: HerdrPointerCell,
-  ): { readonly ok: boolean; readonly error?: string } {
+  ): HerdrStreamWriteResult {
     const stream = this.require(streamId);
-    if (!stream.ok) return stream;
+    if (!stream.ok) return herdrControlWriteWire(stream);
     const rawDelta = Number.isFinite(delta) ? Math.round(delta) : 1;
     const ticks = Math.max(1, Math.min(20, Math.abs(rawDelta) || 1));
     // Browser wheel: deltaY > 0 → scroll down; herdr uses direction up/down.
     const direction = rawDelta < 0 ? "up" : "down";
-    const payload = JSON.stringify({
-      type: "terminal.scroll",
-      direction,
-      lines: 1,
-      ...(at
-        ? {
-            column: Math.max(0, Math.floor(Number.isFinite(at.column) ? at.column : 0)),
-            row: Math.max(0, Math.floor(Number.isFinite(at.row) ? at.row : 0)),
-            modifiers: (Number.isFinite(at.modifiers) ? at.modifiers : 0) & 0xff,
-          }
-        : {}),
-    });
+    const line = encodeHerdrControlLine(
+      herdrScroll({
+        direction,
+        lines: 1,
+        ...(at
+          ? {
+              column: Math.max(0, Math.floor(Number.isFinite(at.column) ? at.column : 0)),
+              row: Math.max(0, Math.floor(Number.isFinite(at.row) ? at.row : 0)),
+              modifiers: (Number.isFinite(at.modifiers) ? at.modifiers : 0) & 0xff,
+            }
+          : {}),
+      }),
+    );
     // One command per wheel tick, batched into a single stdin write: stock
     // herdr emits one wheel report per command for mouse-reporting apps, so a
     // coalesced gesture keeps real per-tick semantics. Host scrollback apps
     // see the same total (N × 1 line). No patched binary required.
     // Routed through enqueueWrite (not a bare child.stdin.write) so a scroll
     // can never interleave into the middle of a paste's in-flight slices.
-    return this.enqueueWrite(stream.stream, `${payload}\n`.repeat(ticks));
+    return herdrControlWriteWire(this.enqueueWrite(stream.stream, line.repeat(ticks)));
   }
 
   /**
@@ -708,17 +724,20 @@ export class HerdrStreamManager {
     streamId: string,
     reason: string,
     handBack: boolean,
-  ): { readonly ok: boolean; readonly error?: string } {
+  ): HerdrStreamWriteResult {
     const active = this.streams.get(streamId);
     if (!active) {
       return { ok: true };
     }
     try {
       // Protocol: release input ownership; PTY continues on host.
-      this.writeJson(active, { type: "terminal.release" });
+      if (controlPhaseIsLive(active.phase)) {
+        void this.enqueueWrite(active, encodeHerdrControlLine(herdrRelease()));
+      }
     } catch {
       // ignore
     }
+    active.phase = ControlIoPhase.Closed({ reason });
     // Local clients use their sealed child capability; remote clients close
     // only their captured Effect scope. Neither branch accepts a bare pid.
     this.removeStream(streamId, active.terminalId);
@@ -922,13 +941,23 @@ export class HerdrStreamManager {
 
   private require(
     streamId: string,
-  ): { readonly ok: true; readonly stream: ActiveStream } | { readonly ok: false; readonly error: string } {
+  ):
+    | { readonly ok: true; readonly stream: ActiveStream }
+    | { readonly ok: false; readonly cause: ReturnType<typeof inactiveControlError> } {
     if (this.shutDown) {
-      return { ok: false, error: "herdr streams shut down (app quitting)" };
+      return {
+        ok: false,
+        cause: inactiveControlError("herdr streams shut down (app quitting)"),
+      };
     }
     const stream = this.streams.get(streamId);
-    if (!stream) {
-      return { ok: false, error: "stream not active" };
+    if (!stream || controlPhaseRefusesWrite(stream.phase)) {
+      return {
+        ok: false,
+        cause: inactiveControlError(
+          !stream ? "stream not active" : "herdr control stdin is closed",
+        ),
+      };
     }
     return { ok: true, stream };
   }
@@ -1036,11 +1065,21 @@ export class HerdrStreamManager {
     });
   }
 
-  private writeJson(
-    stream: ActiveStream,
-    payload: Record<string, unknown>,
-  ): { readonly ok: boolean; readonly error?: string } {
-    return this.enqueueWrite(stream, `${JSON.stringify(payload)}\n`);
+  /**
+   * Encode a domain outbound command and offer it to a live stream's stdin.
+   * When `active` is provided, skip a second map lookup (paste re-bind path).
+   */
+  private writeCommand(
+    streamId: string,
+    command: Parameters<typeof encodeHerdrControlLine>[0],
+    active?: ActiveStream,
+  ): HerdrControlWriteResult {
+    if (active) {
+      return this.enqueueWrite(active, encodeHerdrControlLine(command));
+    }
+    const req = this.require(streamId);
+    if (!req.ok) return herdrControlWriteFailed(req.cause);
+    return this.enqueueWrite(req.stream, encodeHerdrControlLine(command));
   }
 
   /**
@@ -1050,41 +1089,44 @@ export class HerdrStreamManager {
    *    racing straight through — a resize must never overtake a paste.
    * Small writes with nothing in flight take the exact synchronous path
    * writeJson always had (one write() call, try/catch around it).
+   * |- refuses write when phase is not Live (domain).
    */
   private enqueueWrite(
     stream: ActiveStream,
     payload: string,
-  ): { readonly ok: boolean; readonly error?: string } {
-    if (stream.writeBroken || stream.ioFailed) {
-      return { ok: false, error: "herdr control stdin is closed" };
+  ): HerdrControlWriteResult {
+    if (controlPhaseRefusesWrite(stream.phase)) {
+      return herdrControlWriteFailed(
+        inactiveControlError("herdr control stdin is closed"),
+      );
     }
     if (!stream.pendingWrite && payload.length <= DEFAULT_WRITE_CHUNK_CHARS) {
       try {
         stream.child.stdin.write(payload);
-        return { ok: true };
+        return herdrControlWriteOk();
       } catch (error) {
-        stream.writeBroken = true;
         this.handleControlIoError(
           stream.streamId,
           stream,
           "stdin",
           error instanceof Error ? error : new Error(String(error)),
         );
-        return {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
+        return herdrControlWriteFailed(
+          pipeControlError(
+            "stdin",
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
       }
     }
     const prior = stream.pendingWrite ?? Promise.resolve();
     const queued = prior
       .catch(() => undefined)
       .then(async () => {
-        if (stream.writeBroken || stream.ioFailed) return;
+        if (controlPhaseRefusesWrite(stream.phase)) return;
         try {
           await writeChunked(stream.child.stdin, payload);
         } catch (error) {
-          stream.writeBroken = true;
           this.handleControlIoError(
             stream.streamId,
             stream,
@@ -1098,7 +1140,7 @@ export class HerdrStreamManager {
     void tracked.finally(() => {
       if (stream.pendingWrite === tracked) stream.pendingWrite = undefined;
     });
-    return { ok: true };
+    return herdrControlWriteOk();
   }
 
   /**
@@ -1109,8 +1151,9 @@ export class HerdrStreamManager {
    */
   private handleInboundOverflow(streamId: string): void {
     const active = this.streams.get(streamId);
-    if (!active || active.overflowed) return;
+    if (!active || active.overflowed || !controlPhaseIsLive(active.phase)) return;
     active.overflowed = true;
+    active.phase = ControlIoPhase.Broken({ reason: "overflow" });
     this.emit({
       streamId,
       type: "error",
@@ -1126,7 +1169,7 @@ export class HerdrStreamManager {
    * on ChildProcess — an unowned listener becomes Electron's main dialog.
    *
    * Idempotent with close/child-error: first path wins emit; later paths only
-   * settle generation authority.
+   * settle generation authority. Phase leaves Live so further writes fail closed.
    */
   private handleControlIoError(
     streamId: string,
@@ -1134,10 +1177,7 @@ export class HerdrStreamManager {
     channel: "stdin" | "stdout" | "stderr",
     error: Error,
   ): void {
-    if (channel === "stdin" || isHerdrBrokenPipeError(error)) {
-      active.writeBroken = true;
-    }
-    if (active.ioFailed) {
+    if (!controlPhaseIsLive(active.phase)) {
       this.terminateControl(active);
       return;
     }
@@ -1145,15 +1185,15 @@ export class HerdrStreamManager {
     if (!closing) {
       // Already detached (common: terminal.release write races child exit).
       // Swallow — do not re-emit; still drive generation teardown.
+      active.phase = ControlIoPhase.Broken({ reason: "pipe" });
       this.terminateControl(active);
       return;
     }
-    closing.ioFailed = true;
-    closing.writeBroken = true;
+    const pipe = isHerdrBrokenPipeError(error);
+    closing.phase = ControlIoPhase.Broken({ reason: pipe ? "pipe" : "io" });
     this.removeStream(streamId, closing.terminalId);
     this.terminateControl(closing);
     this.handBackToObservePool(closing);
-    const pipe = isHerdrBrokenPipeError(error);
     this.emit({
       streamId,
       type: "error",
@@ -1171,18 +1211,15 @@ export class HerdrStreamManager {
   private handleLine(streamId: string, line: string): void {
     // Drop late IO after detach/supersede so IPC does not fan-out unowned frames.
     if (!this.streams.has(streamId)) return;
-    let obj: Record<string, unknown>;
-    try {
-      obj = JSON.parse(line) as Record<string, unknown>;
-    } catch {
+    const inbound = parseHerdrControlInbound(line);
+    if (!inbound) {
       // Non-JSON diagnostics (protocol nags) — surface without killing stream.
       if (/input ignored|invalid json|error/i.test(line)) {
         this.emit({ streamId, type: "error", message: line.slice(0, 400) });
       }
       return;
     }
-    const type = typeof obj.type === "string" ? obj.type : "";
-    if (type === "terminal.frame") {
+    if (inbound.type === "terminal.frame") {
       // First live control frame: renderer has fresher pixels than the pool's
       // retained observe frames — clear that terminal's retention.
       const active = this.streams.get(streamId);
@@ -1193,23 +1230,24 @@ export class HerdrStreamManager {
       this.emit({
         streamId,
         type: "frame",
-        bytes: typeof obj.bytes === "string" ? obj.bytes : "",
-        encoding: typeof obj.encoding === "string" ? obj.encoding : "ansi",
-        full: typeof obj.full === "boolean" ? obj.full : undefined,
-        width: typeof obj.width === "number" ? obj.width : undefined,
-        height: typeof obj.height === "number" ? obj.height : undefined,
-        seq: typeof obj.seq === "number" ? obj.seq : undefined,
+        bytes: inbound.bytes,
+        encoding: inbound.encoding ?? "ansi",
+        full: inbound.full,
+        width: inbound.width,
+        height: inbound.height,
+        seq: inbound.seq,
       });
       return;
     }
-    if (type === "terminal.closed") {
+    if (inbound.type === "terminal.closed") {
       this.emit({
         streamId,
         type: "closed",
-        reason: typeof obj.reason === "string" ? obj.reason : "closed",
+        reason: inbound.reason ?? "closed",
       });
       const closing = this.streams.get(streamId);
       if (closing) {
+        closing.phase = ControlIoPhase.Closed({ reason: inbound.reason ?? "closed" });
         this.removeStream(streamId, closing.terminalId);
         this.terminateControl(closing);
         // Host reported the terminal genuinely closed — do NOT re-observe a
