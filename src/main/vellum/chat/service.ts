@@ -442,12 +442,48 @@ export class ChatService {
     session.boundPid = undefined;
   }
 
+  /** In-flight close per agent — second close joins; open waits. */
+  private readonly closeFlights = new Map<
+    string,
+    Promise<ReadonlyArray<AcpTeardownResult>>
+  >();
+  /**
+   * Unclean teardown tombstones: empty-session chatClose must not report clean
+   * after a failed verified exit (doctrine: no silent clean-on-retry).
+   */
+  private readonly uncleanCloses = new Set<string>();
+
   private closeCurrent(agentKey: string): Promise<ReadonlyArray<AcpTeardownResult>> {
+    const inflight = this.closeFlights.get(agentKey);
+    if (inflight !== undefined) return inflight;
+
     const session = this.sessions.get(agentKey);
-    if (session === undefined) return Promise.resolve([]);
+    if (session === undefined) {
+      // No live session: unclean tombstone stays unclean; genuine no-op is clean.
+      return Promise.resolve([]);
+    }
+
+    // Revoke process-bind immediately; keep the session entry until teardown
+    // settles so a concurrent open/close cannot race a half-closed seat.
     this.unbindLocalProcess(session);
-    if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
-    return this.closeClient(session.client);
+    const flight = this.closeClient(session.client).then((receipts) => {
+      if (this.sessions.get(agentKey) === session) {
+        this.sessions.delete(agentKey);
+      }
+      const clean =
+        receipts.length === 0 ||
+        receipts.every((receipt) => receipt.kind === "terminal");
+      if (clean) this.uncleanCloses.delete(agentKey);
+      else this.uncleanCloses.add(agentKey);
+      return receipts;
+    });
+    const tracked = flight.finally(() => {
+      if (this.closeFlights.get(agentKey) === tracked) {
+        this.closeFlights.delete(agentKey);
+      }
+    });
+    this.closeFlights.set(agentKey, tracked);
+    return tracked;
   }
 
   private makeSession(
@@ -570,6 +606,9 @@ export class ChatService {
     if (bindPin !== undefined) this.setAgentBindPin(bindPin);
     const authorityRestart = this.authorityRestartInFlight.get(agentKey);
     if (authorityRestart !== undefined) return authorityRestart;
+    // Never open a replacement seat while close/teardown is in flight.
+    const closing = this.closeFlights.get(agentKey);
+    if (closing !== undefined) await closing;
     const existing = this.sessions.get(agentKey);
     if (existing && !existing.client.closed && existing.sessionId !== "") {
       this.touch(existing);
@@ -580,7 +619,9 @@ export class ChatService {
     const inFlight = this.openInFlight.get(agentKey);
     if (inFlight) return inFlight.promise;
 
-    return this.beginOpen(agentKey, resumeSessionId);
+    const opened = await this.beginOpen(agentKey, resumeSessionId);
+    if (opened.ok) this.uncleanCloses.delete(agentKey);
+    return opened;
   }
 
   async chatOpenWithLocalBrowserAuthority(
@@ -854,13 +895,24 @@ export class ChatService {
 
   async chatClose(agentKey: string): Promise<{ ok: boolean; clean: boolean }> {
     this.nextGeneration(agentKey);
+    const hadSession = this.sessions.has(agentKey);
+    const hadFlight = this.closeFlights.has(agentKey);
     const receipts = await this.closeCurrent(agentKey);
-    // No session is a clean no-op. Otherwise every owned teardown must report
-    // terminal (doctrine: verified exit, not best-effort ok:true).
-    const clean =
-      receipts.length === 0 ||
-      receipts.every((receipt) => receipt.kind === "terminal");
-    return { ok: clean, clean };
+    if (receipts.length > 0) {
+      const clean = receipts.every((receipt) => receipt.kind === "terminal");
+      return { ok: clean, clean };
+    }
+    // Empty receipts: only clean when there was never a session/flight and no
+    // unclean tombstone (true no-op). Unclean prior close stays unclean.
+    if (this.uncleanCloses.has(agentKey)) {
+      return { ok: false, clean: false };
+    }
+    if (!hadSession && !hadFlight) {
+      return { ok: true, clean: true };
+    }
+    // Had a session that produced empty receipts — treat as unclean.
+    this.uncleanCloses.add(agentKey);
+    return { ok: false, clean: false };
   }
 
   closeAll(): Promise<ChatCloseAllResult> {

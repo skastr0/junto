@@ -668,6 +668,20 @@ const deleteNodesInternal = async (
     }
   }
 
+  // After any await (page stop / agent close), the operator may have switched
+  // canvases. Re-check identity before mutating — never write canvas A's
+  // filtered document over canvas B via commitDoc → scheduleSave.
+  if (
+    state$.canvasName.peek() !== canvasName ||
+    state$.docEpoch.peek() !== docEpoch
+  ) {
+    state$.error.set(
+      "Canvas changed before deletion completed; no nodes were deleted.",
+    );
+    return;
+  }
+  if (!canvasMutationAdmissionOpen) return;
+
   if (pageActions.length > 0) {
     sideEffects.push(
       import("./dock-state").then(({ closeDockBrowser }) => {
@@ -688,11 +702,14 @@ const deleteNodesInternal = async (
     await Promise.all(sideEffects);
     return;
   }
+  // Re-read doc only if still on the same canvas epoch; filter from the
+  // capture used for identity checks (same epoch ⇒ same doc generation).
+  const liveDoc = state$.doc.peek();
   if (nonHerdr.has(state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
   if (removed.has(state$.selectedEdgeId.peek())) state$.selectedEdgeId.set("");
   commitDoc({
-    nodes: doc.nodes.filter((n) => !nonHerdr.has(n.id)),
-    edges: doc.edges.filter((e) => !nonHerdr.has(e.fromNode) && !nonHerdr.has(e.toNode)),
+    nodes: liveDoc.nodes.filter((n) => !nonHerdr.has(n.id)),
+    edges: liveDoc.edges.filter((e) => !nonHerdr.has(e.fromNode) && !nonHerdr.has(e.toNode)),
   });
   await Promise.all(sideEffects);
 };

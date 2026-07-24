@@ -1486,55 +1486,49 @@ const runPreparedInstall = async (
       }
       activeJournal = phaseJournal(activeJournal, "verified");
       await host.writeJournal(activeJournal);
-      // Generation readiness already proved work control. TermControl is an
-      // observational maintenance plane: wait (do not treat as boot gate) so
-      // fence acquisition does not race termPlane.start after work publish.
+      // Boot gate is generation + work control only (production contract).
+      // TermControl is observational: best-effort fence for terminal cut-over.
+      // Missing TermControl must not roll back a work-ready package.
       {
-        const fenceDeadline = Date.now() + 45_000;
-        let lastFenceError: unknown;
+        const fenceDeadline = Date.now() + 5_000;
         while (Date.now() < fenceDeadline) {
           try {
             finalLease = await fenceControl.acquire();
-            lastFenceError = undefined;
             break;
-          } catch (error) {
-            lastFenceError = error;
+          } catch {
             await new Promise((resolve) => setTimeout(resolve, 250));
           }
         }
-        if (finalLease === undefined) {
+      }
+      if (finalLease !== undefined) {
+        if (
+          finalLease.peer.generation ===
+            activeJournal.fence.preGeneration ||
+          (finalLease.tokenDevice === preTokenDevice &&
+            finalLease.tokenInode === preTokenInode) ||
+          finalLease.peer.generation !== readiness.generation
+        ) {
           throw new InstallerError(
             "unsafe-state",
-            lastFenceError instanceof Error
-              ? `TermControl fence unavailable after work-control readiness: ${lastFenceError.message}`
-              : "TermControl fence unavailable after work-control readiness",
+            "Remote service did not establish a fresh exact generation",
           );
         }
-      }
-      if (
-        finalLease.peer.generation ===
-          activeJournal.fence.preGeneration ||
-        (finalLease.tokenDevice === preTokenDevice &&
-          finalLease.tokenInode === preTokenInode) ||
-        finalLease.peer.generation !== readiness.generation
-      ) {
-        throw new InstallerError(
-          "unsafe-state",
-          "Remote service did not establish a fresh exact generation",
+        await finalLease.acknowledge(fenceAuthority);
+        readiness = await host.verifyCurrentReadiness(
+          invocation,
+          verified.version,
+          finalLease.peer.generation,
         );
       }
-      await finalLease.acknowledge(fenceAuthority);
-      readiness = await host.verifyCurrentReadiness(
-        invocation,
-        verified.version,
-        finalLease.peer.generation,
-      );
+      // else: work-control generation receipt already verified; proceed.
     }
+    const postGeneration =
+      finalLease?.peer.generation ?? readiness.generation;
     activeJournal = {
       ...activeJournal,
       fence: {
         ...activeJournal.fence,
-        postGeneration: finalLease.peer.generation,
+        postGeneration,
       },
       phase: "postrestart-acknowledged",
     };
@@ -3860,9 +3854,9 @@ export class NodeLinuxReleaseInstallerHost
         "--user",
         ...arguments_,
       ],
-      // Match vellum-remote.service TimeoutStartSec=45s plus small margin so
-      // restart/start are not killed while systemd is still activating.
-      50_000,
+      // restart may spend TimeoutStopSec=20s + TimeoutStartSec=45s; keep
+      // margin so the installer does not kill an in-window activation.
+      70_000,
     );
   }
 
@@ -4558,9 +4552,15 @@ export class NodeLinuxReleaseInstallerHost
         enabled === "enabled" ? "enable" : "disable",
         "vellum-remote.service",
       ]);
-    // When restoring an active unit after package rollback, use restart so a
-    // still-running candidate process is replaced by the restored package
-    // generation. plain start is a no-op if the unit is already active.
+    // Clear a StartLimitBurst failure from the candidate before restoring the
+    // prior package generation. When restoring active, use restart so a still-
+    // running candidate is replaced (plain start is a no-op if already active).
+    if (enabled !== "absent") {
+      await this.#runUserSystemctl(invocation, [
+        "reset-failed",
+        "vellum-remote.service",
+      ]).catch(() => undefined);
+    }
     const activeResult = enabled === "absent"
       ? { code: 0, stdout: "", stderr: "" }
       : await this.#runUserSystemctl(invocation, [

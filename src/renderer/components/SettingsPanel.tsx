@@ -1224,17 +1224,24 @@ function StationSection() {
           }
         />
       </FieldRow>
-      <FieldRow label="Change role" hint="Clears role and reopens the station gate">
-        <button
-          type="button"
-          className="settings-panel__ghost"
-          onClick={() =>
-            void setStationTopology({ role: "", commandCenterRef: "" })
-          }
+      {station.role === "" ? (
+        <FieldRow label="Role" hint="Complete onboarding via the station gate">
+          <span className="settings-note" style={{ color: DIM }}>
+            Unset — pick Command Center or Remote in the gate
+          </span>
+        </FieldRow>
+      ) : (
+        <FieldRow
+          label="Role migration"
+          hint="Sealed roles cannot be cleared or flipped from Settings"
         >
-          Reset role (re-onboard)
-        </button>
-      </FieldRow>
+          <span className="settings-note" style={{ color: DIM }}>
+            {station.role === "remote"
+              ? "Remote → Command Center requires an explicit transfer ceremony (not yet shipped)."
+              : "Command Center role is sealed. Demotion or re-onboard requires an explicit transfer ceremony."}
+          </span>
+        </FieldRow>
+      )}
       <p className="settings-note" style={{ color: DIM }}>
         Canvas authoring is human-only on the Command Center. Agents never write the canvas.
         Remote is a capability host for this machine only.

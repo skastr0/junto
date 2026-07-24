@@ -233,6 +233,14 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>,
       CanvasError
     >;
+    /**
+     * Command Center projection install (Remote pull): re-admit installed
+     * disk bytes into live authority and drop names no longer present.
+     * Not a general external-edit path — only the pull/install plane calls this.
+     */
+    readonly replaceLiveAuthorityFromInstall: (
+      installedNames: ReadonlyArray<string>,
+    ) => Effect.Effect<void, CanvasError>;
   }
 >() {}
 
@@ -622,6 +630,37 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       catch: toCanvasError,
     });
 
+  /**
+   * Remote pull / projection install: replace live authority with the
+   * installed set. Names not in installedNames are dropped (CC deleted them).
+   * Each installed name is re-decoded from disk under its mutex.
+   */
+  const replaceLiveAuthorityFromInstall = (
+    installedNames: ReadonlyArray<string>,
+  ): Effect.Effect<void, CanvasError> =>
+    Effect.tryPromise({
+      try: async () => {
+        await bootstrapLiveAuthority();
+        const root = await ensureCanvasesDir();
+        const keep = new Set<string>();
+        for (const rawName of installedNames) {
+          const name = canvasNameFrom(rawName);
+          keep.add(name);
+          await withCanvasMutex(canvasFileName(name), async () => {
+            const entry = await decodeDiskDocument(root, name);
+            liveAuthority.set(name, entry);
+            notifyListeners(name);
+          });
+        }
+        for (const name of [...liveAuthority.keys()]) {
+          if (keep.has(name)) continue;
+          liveAuthority.delete(name);
+          notifyListeners(name as CanvasName);
+        }
+      },
+      catch: toCanvasError,
+    });
+
   return CanvasesService.of({
     doctor: Effect.succeed({
       id: "canvases",
@@ -640,5 +679,6 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     start,
     subscribeChanges,
     liveDocuments,
+    replaceLiveAuthorityFromInstall,
   });
 });

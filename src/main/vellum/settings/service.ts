@@ -298,6 +298,21 @@ export const makeSettingsService = (
               station: patchEither.right,
             });
             if (Either.isLeft(validated)) throw validated.left;
+            const prevRole = current.station.role;
+            const nextRole = validated.right.station.role;
+            // Doctrine: role transitions between sealed roles (or clearing a
+            // sealed role) are Command Center transfer / migration ceremonies —
+            // not Settings toggles. First-run "" → command-center|remote is ok.
+            if (
+              (prevRole === "command-center" || prevRole === "remote") &&
+              nextRole !== prevRole
+            ) {
+              throw new SettingsError({
+                message:
+                  "Station role migration requires an explicit Command Center transfer ceremony — Settings cannot promote, demote, or clear a sealed role",
+                code: "validation",
+              });
+            }
             if (JSON.stringify(current) === JSON.stringify(validated.right)) {
               // Still reseal so bootstrap after external wipe recovers.
               await writeTopologySeal(path, topologyFromStation(current.station));

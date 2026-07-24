@@ -30,6 +30,7 @@ import { SettingsService } from "./settings/service";
 import { HostsService } from "./hosts/service";
 import {
   CanvasError,
+  CanvasesService,
   canvasNameFrom,
   ensureCanvasesDir,
 } from "./canvases";
@@ -497,6 +498,20 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
       failed.push({
         name: "local-mirror",
         detail: `failed to reconcile the local canvas mirror: ${mirrorResult.left.message}`,
+      });
+    }
+
+    // Doctrine: disk install is not live authority. Re-admit the post-pull
+    // set into the in-process live map so work control / kernel see CC intent
+    // without restart. Failures here are projection-install failures.
+    const canvases = yield* CanvasesService;
+    const admitResult = yield* Effect.either(
+      canvases.replaceLiveAuthorityFromInstall(names),
+    );
+    if (admitResult._tag === "Left") {
+      failed.push({
+        name: "live-authority",
+        detail: `failed to admit pulled canvases into live authority: ${admitResult.left.message}`,
       });
     }
 
