@@ -1,14 +1,13 @@
 #!/usr/bin/env bun
-import { mkdir, readFile, readdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, join } from "node:path";
-import { Either } from "effect";
-import { decodeCanvasDoc } from "../src/shared/canvas";
+import { ManagedRuntime } from "effect";
+import {
+  CanvasesLive,
+  CanvasesService,
+} from "../src/main/vellum/canvases";
 
-// Headless agent surface: `bun run canvas:ls` lists every canvas under
-// ~/.vellum/canvases without the GUI. Plain aligned text by default;
-// `--json` emits machine-readable JSON. A corrupt/invalid canvas degrades to
-// an error cell rather than crashing the whole listing.
+// Headless agent surface: `bun run canvas:ls` lists every canvas in live
+// authority (canvas-authority-v1 via CanvasesService). Plain aligned text by
+// default; `--json` emits machine-readable JSON.
 
 interface CanvasRow {
   readonly name: string;
@@ -19,45 +18,12 @@ interface CanvasRow {
   readonly error?: string;
 }
 
-const canvasesDir = () => join(homedir(), ".vellum", "canvases");
-
-const readRow = async (file: string): Promise<CanvasRow> => {
-  const path = join(canvasesDir(), file);
-  const name = basename(file, ".canvas");
-
-  try {
-    const [info, raw] = await Promise.all([stat(path), readFile(path, "utf8")]);
-    const modifiedAt = info.mtime.toISOString();
-
-    const decoded = decodeCanvasDoc(JSON.parse(raw));
-    if (Either.isLeft(decoded)) {
-      return { name, nodes: null, edges: null, path, modifiedAt, error: "invalid" };
-    }
-
-    return {
-      name,
-      nodes: decoded.right.nodes.length,
-      edges: decoded.right.edges.length,
-      path,
-      modifiedAt,
-    };
-  } catch (error) {
-    return {
-      name,
-      nodes: null,
-      edges: null,
-      path,
-      modifiedAt: "",
-      error: error instanceof Error ? error.message : "invalid",
-    };
-  }
-};
-
-const pad = (value: string, width: number): string => value + " ".repeat(Math.max(0, width - value.length));
+const pad = (value: string, width: number): string =>
+  value + " ".repeat(Math.max(0, width - value.length));
 
 const printTable = (rows: ReadonlyArray<CanvasRow>): void => {
   if (rows.length === 0) {
-    console.log(`no canvases found in ${canvasesDir()}`);
+    console.log("no canvases found in live authority");
     return;
   }
 
@@ -87,17 +53,45 @@ const printTable = (rows: ReadonlyArray<CanvasRow>): void => {
 
 const main = async () => {
   const jsonMode = process.argv.slice(2).includes("--json");
+  const runtime = ManagedRuntime.make(CanvasesLive);
+  try {
+    const canvases = await runtime.runPromise(CanvasesService);
+    const [summaries, live] = await Promise.all([
+      runtime.runPromise(canvases.list),
+      runtime.runPromise(canvases.liveDocuments()),
+    ]);
+    const docsByName = new Map(live.map((entry) => [entry.canvasName, entry.doc]));
 
-  await mkdir(canvasesDir(), { recursive: true });
-  const files = (await readdir(canvasesDir())).filter((file) => file.endsWith(".canvas"));
-  const rows = (await Promise.all(files.map(readRow))).slice().sort((a, b) => a.name.localeCompare(b.name));
+    const rows: CanvasRow[] = summaries.map((summary) => {
+      const doc = docsByName.get(summary.name);
+      if (doc === undefined) {
+        return {
+          name: summary.name,
+          nodes: null,
+          edges: null,
+          path: summary.path,
+          modifiedAt: summary.modifiedAt,
+          error: "missing",
+        };
+      }
+      return {
+        name: summary.name,
+        nodes: doc.nodes.length,
+        edges: doc.edges.length,
+        path: summary.path,
+        modifiedAt: summary.modifiedAt,
+      };
+    });
 
-  if (jsonMode) {
-    console.log(JSON.stringify(rows, null, 2));
-    return;
+    if (jsonMode) {
+      console.log(JSON.stringify(rows, null, 2));
+      return;
+    }
+
+    printTable(rows);
+  } finally {
+    await runtime.dispose();
   }
-
-  printTable(rows);
 };
 
 await main();

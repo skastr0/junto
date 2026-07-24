@@ -1,22 +1,23 @@
 #!/usr/bin/env bun
-import { readFile } from "node:fs/promises";
-import { Either, ManagedRuntime } from "effect";
-import { decodeCanvasDoc, type CanvasDoc } from "../src/shared/canvas";
+import { Effect, ManagedRuntime } from "effect";
 import { digestCanvas } from "../src/shared/digest";
 import type { SnapshotBundle, SnapshotState } from "../src/shared/entities";
 import { buildGlyphView } from "../src/shared/glyph-view";
 import { HermesPlane } from "../src/main/vellum/hermes/plane";
 import { HermesStandaloneLive } from "../src/main/vellum/hermes/live";
 import {
-  canvasDocumentPathForRead,
+  CanvasesLive,
+  CanvasesService,
   canvasNameFrom,
   writeCanvasSidecar,
 } from "../src/main/vellum/canvases";
 
 // Headless agent surface: `bun run digest [name]` — hermes snapshots only.
 // Canvases with tower/quasar bindings still decode; live private data is gone.
+// Document bytes come from canvas-authority-v1 via CanvasesService (sole store).
 
 const hermesRuntime = ManagedRuntime.make(HermesStandaloneLive);
+const canvasesRuntime = ManagedRuntime.make(CanvasesLive);
 
 class DigestExit extends Error {}
 
@@ -37,46 +38,30 @@ const guarded = async (
   }
 };
 
-const readCanvas = async (name: string, path: string): Promise<CanvasDoc> => {
-  let raw: string;
-  try {
-    raw = await readFile(path, "utf8");
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    throw new DigestExit(
-      code === "ENOENT"
-        ? `canvas "${name}" not found at ${path}`
-        : `cannot read ${path}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+const errorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message: unknown }).message;
+    if (typeof message === "string") return message;
   }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new DigestExit(
-      `${path} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  const decoded = decodeCanvasDoc(parsed);
-  if (Either.isLeft(decoded)) {
-    throw new DigestExit(`${path} failed validation: ${decoded.left.message}`);
-  }
-  return decoded.right;
+  return String(error);
 };
 
 const main = async () => {
   let name: string;
-  let path: string;
   try {
     name = canvasNameFrom(process.argv[2] ?? "portfolio");
-    path = await canvasDocumentPathForRead(name);
   } catch (error) {
-    throw new DigestExit(error instanceof Error ? error.message : String(error));
+    throw new DigestExit(errorMessage(error));
   }
 
-  const doc = await readCanvas(name, path);
+  const canvases = await canvasesRuntime.runPromise(CanvasesService);
+  const read = await canvasesRuntime.runPromise(Effect.either(canvases.read(name)));
+  if (read._tag === "Left") {
+    throw new DigestExit(errorMessage(read.left));
+  }
+  const doc = read.right.doc;
+
   const hermesPlane = await hermesRuntime.runPromise(HermesPlane);
 
   const hermes = await guarded("hermes", hermesPlane.fetchBundle);
@@ -98,5 +83,5 @@ try {
   }
   throw error;
 } finally {
-  await hermesRuntime.dispose();
+  await Promise.all([hermesRuntime.dispose(), canvasesRuntime.dispose()]);
 }
