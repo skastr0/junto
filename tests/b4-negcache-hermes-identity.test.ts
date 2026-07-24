@@ -34,7 +34,7 @@ const fail = (error = "ssh: connect to host remote-a port 22: Operation timed ou
   error,
 });
 
-// Matches REMOTE_IDENTITY_SCRIPT's tab-separated output shape.
+// Matches hermes identity-batch compiler tab-separated output shape.
 const scriptOutput = (rows: ReadonlyArray<[string, string, string, string, string]>) =>
   rows.map((cols) => cols.join("\t")).join("\n");
 

@@ -262,7 +262,9 @@ describe("SSH policy surface", () => {
 
     const remoteCalls = calls.map(sshArgs).filter((args) => !args.includes("-O"));
     const profiles = remoteCalls.find((args) => args.at(-1)?.includes("'profile' 'list'"));
-    const avatar = remoteCalls.find((args) => args.at(-1)?.includes("vellum-hermes-avatar"));
+    const avatar = remoteCalls.find((args) =>
+      args.at(-1)?.includes("vellum-plan:hermes-avatar"),
+    );
     const acp = remoteCalls.find((args) => args.at(-1)?.includes("'acp'"));
 
     expect(profiles).toContain("ControlMaster=auto");

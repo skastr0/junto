@@ -10,9 +10,14 @@ import {
   makeRemoteCommand,
   parseSshEndpoint,
   SshInputError,
+  type RemoteCommand,
   type SshEndpoint,
   type SshError,
 } from "../ssh/domain";
+import {
+  compileHermesAvatar,
+  compileHermesIdentityBatch,
+} from "../ssh/hermes-remote-plan";
 import {
   dedicatedStream,
   oneShot,
@@ -29,48 +34,6 @@ import {
   type HermesHostId,
   type HermesProfileName,
 } from "./domain";
-
-// Closed scripts are product policy, not caller-provided shell. Dynamic
-// values cross the boundary as positional arguments after domain parsing.
-const REMOTE_IDENTITY_SCRIPT = `
-emit() {
-  name="$1"; dir="$2"
-  display=""
-  for brief in "$dir/assets/identity-brief.md" "$dir/identity-brief.md"; do
-    if [ -f "$brief" ]; then
-      display=$(grep -m1 -E "Display name/code:" "$brief" 2>/dev/null | sed -E 's/.*Display name\\/code:[[:space:]]*//')
-      [ -n "$display" ] && break
-    fi
-  done
-  muid=""
-  room=""
-  env="$dir/.env"
-  if [ -f "$env" ]; then
-    muid=$(grep -m1 "^MATRIX_USER_ID=" "$env" 2>/dev/null | cut -d= -f2-)
-    room=$(grep -m1 "^MATRIX_HOME_ROOM_NAME=" "$env" 2>/dev/null | cut -d= -f2-)
-  fi
-  avatar="false"
-  [ -f "$dir/assets/profile-picture.png" ] && avatar="true"
-  printf '%s\\t%s\\t%s\\t%s\\t%s\\n' "$name" "$display" "$muid" "$room" "$avatar"
-}
-emit default "$HOME/.hermes"
-if [ -d "$HOME/.hermes/profiles" ]; then
-  for d in "$HOME/.hermes/profiles"/*/; do
-    [ -d "$d" ] || continue
-    n=$(basename "$d")
-    emit "$n" "$HOME/.hermes/profiles/$n"
-  done
-fi
-`;
-
-const REMOTE_AVATAR_SCRIPT = `
-if [ "$1" = default ]; then
-  path="$HOME/.hermes/assets/profile-picture.png"
-else
-  path="$HOME/.hermes/profiles/$1/assets/profile-picture.png"
-fi
-exec base64 < "$path"
-`;
 
 const commandArgs = (
   profile: HermesProfileName,
@@ -151,13 +114,13 @@ export const HermesTransportLive = Layer.effect(
         ),
       );
 
-    const remoteOn = (
+    /** Pure argv remote hermes CLI — no shell. */
+    const remoteArgv = (
       endpoint: SshEndpoint,
-      executable: string,
       args: ReadonlyArray<string>,
       budget: OneShotBudget,
     ): Effect.Effect<CliResult> =>
-      makeRemoteCommand(executable, args).pipe(
+      makeRemoteCommand("hermes", args).pipe(
         Effect.flatMap((command) => ssh.run(oneShot(endpoint, command, { budget }))),
         Effect.map((result): CliResult => ({ ok: true, stdout: result.stdout })),
         Effect.catchAll((error) =>
@@ -185,7 +148,7 @@ export const HermesTransportLive = Layer.effect(
         });
       }
       return parseSshEndpoint(resolved.endpoint).pipe(
-        Effect.flatMap((endpoint) => remoteOn(endpoint, "hermes", args, budget)),
+        Effect.flatMap((endpoint) => remoteArgv(endpoint, args, budget)),
         Effect.catchAll((error) =>
           Effect.succeed({
             ok: false,
@@ -196,21 +159,29 @@ export const HermesTransportLive = Layer.effect(
       );
     };
 
-    const remoteScript = (
+    /**
+     * Run a branded RemoteCommand on a remote hermes host.
+     * Compilers live in hermes-remote-plan — never hand-built shell here.
+     */
+    const remoteCompiled = (
       host: HermesHostId,
-      executable: string,
-      args: ReadonlyArray<string>,
+      command: Effect.Effect<RemoteCommand, SshInputError>,
       budget: OneShotBudget,
     ): Effect.Effect<CliResult> => {
       if (host === "local") {
         return Effect.succeed({
           ok: false,
           stdout: "",
-          error: "remote hermes script requires a remote host",
+          error: "remote hermes program requires a remote host",
         });
       }
       return resolveHermesEndpoint(host).pipe(
-        Effect.flatMap((endpoint) => remoteOn(endpoint, executable, args, budget)),
+        Effect.flatMap((endpoint) =>
+          command.pipe(
+            Effect.flatMap((cmd) => ssh.run(oneShot(endpoint, cmd, { budget }))),
+            Effect.map((result): CliResult => ({ ok: true, stdout: result.stdout })),
+          ),
+        ),
         Effect.catchAll((error) =>
           Effect.succeed({
             ok: false,
@@ -248,19 +219,9 @@ export const HermesTransportLive = Layer.effect(
       profiles: (host) => onHost(host, ["profile", "list"], "standard", 12_000),
       version: (host) => onHost(host, ["version"], "standard", 12_000),
       identityBatch: (host) =>
-        remoteScript(
-          host,
-          "/bin/sh",
-          ["-c", REMOTE_IDENTITY_SCRIPT, "vellum-hermes-identity"],
-          "bulk",
-        ),
+        remoteCompiled(host, compileHermesIdentityBatch(), "bulk"),
       avatar: (host, profile) =>
-        remoteScript(
-          host,
-          "/bin/sh",
-          ["-c", REMOTE_AVATAR_SCRIPT, "vellum-hermes-avatar", profile],
-          "bulk",
-        ),
+        remoteCompiled(host, compileHermesAvatar(profile), "bulk"),
       connectAcp,
     });
   }),
