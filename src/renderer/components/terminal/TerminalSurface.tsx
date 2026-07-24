@@ -21,8 +21,9 @@ import {
   VELLUM_XTERM_THEME,
 } from "../../lib/terminal-theme";
 import { ActivityMark } from "../ActivityMark";
-import { FocusSurface } from "../FocusSurface";
-import { Button, Eyebrow, OverlayHeader } from "../ui";
+import { Button, OverlayHeader } from "../ui";
+
+const KILL_ARM_MS = 3000;
 
 type AttachResult = {
   readonly ok: boolean;
@@ -316,14 +317,31 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const registry = use$(dock$.registry);
   const surface = surfaceById(registry, surfaceId);
   const pinned = surface?.zone === "pinned";
-  const [killConfirmOpen, setKillConfirmOpen] = useState(false);
+  const [killArmed, setKillArmed] = useState(false);
+  const killArmTimer = useRef<number | null>(null);
   const closeSurface = () => closeWorkbenchSurface(surfaceId);
   const togglePin = () => {
     if (pinned) unpinWorkbenchSurface(surfaceId);
     else pinWorkbenchSurface(surfaceId);
   };
-  const killSession = () => {
-    setKillConfirmOpen(false);
+  const disarmKill = () => {
+    if (killArmTimer.current !== null) {
+      window.clearTimeout(killArmTimer.current);
+      killArmTimer.current = null;
+    }
+    setKillArmed(false);
+  };
+  const fireKill = () => {
+    if (!killArmed) {
+      if (killArmTimer.current !== null) window.clearTimeout(killArmTimer.current);
+      setKillArmed(true);
+      killArmTimer.current = window.setTimeout(() => {
+        killArmTimer.current = null;
+        setKillArmed(false);
+      }, KILL_ARM_MS);
+      return;
+    }
+    disarmKill();
     void getVellumApi()
       ?.terminalKill?.(bindingId, hostId)
       .then(() => setStatus("exited"));
@@ -331,8 +349,14 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const attached = status === "control";
 
   useEffect(() => {
-    if (!attached && killConfirmOpen) setKillConfirmOpen(false);
-  }, [attached, killConfirmOpen]);
+    return () => {
+      if (killArmTimer.current !== null) window.clearTimeout(killArmTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!attached) disarmKill();
+  }, [attached]);
 
   return (
     <div
@@ -369,10 +393,12 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
               <Button
                 size="xs"
                 variant="danger"
-                title="Kill terminal session"
-                onClick={() => setKillConfirmOpen(true)}
+                title={killArmed ? "click again to kill session" : "arm kill session (3s)"}
+                aria-label={killArmed ? "Confirm kill session" : "Kill session"}
+                className={killArmed ? "ring-1 ring-crimson/60" : undefined}
+                onClick={fireKill}
               >
-                Kill
+                {killArmed ? "Confirm" : "Kill"}
               </Button>
             ) : null}
             <Button size="xs" variant="primary" onClick={closeSurface}>
@@ -382,35 +408,6 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         }
       />
       <div ref={hostRef} className="native-terminal-surface__xterm" />
-      {killConfirmOpen ? (
-        <FocusSurface
-          measure="form"
-          height="fit"
-          layer="work"
-          label="Confirm kill terminal"
-          onClose={() => setKillConfirmOpen(false)}
-        >
-          <div className="grid gap-4 p-5">
-            <div>
-              <Eyebrow tone="steel">terminal · kill</Eyebrow>
-              <div className="mt-1 font-mono text-[16px] font-semibold text-ink">
-                Kill this session?
-              </div>
-              <p className="mt-2 text-[12px] leading-relaxed text-dim">
-                Terminates the process. Close detaches without killing.
-              </p>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button size="sm" variant="subtle" onClick={() => setKillConfirmOpen(false)}>
-                Cancel
-              </Button>
-              <Button size="sm" variant="danger" onClick={killSession}>
-                Kill session
-              </Button>
-            </div>
-          </div>
-        </FocusSurface>
-      ) : null}
     </div>
   );
 }
