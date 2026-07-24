@@ -31,6 +31,10 @@ import {
   hostOperationGate,
   type HostOperationGate,
 } from "./shutdown";
+import {
+  MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
+  RELEASE_CAPABILITIES,
+} from "@shared/release-capabilities";
 
 const toOp = (
   either: { readonly _tag: "Right"; readonly right: ReadonlyArray<unknown> } | {
@@ -418,9 +422,20 @@ export const registerHostsIpc = (
   );
 
   // Install/update Vellum.app on remote over SSH + start headless station.
+  // Beta: managed deploy is compile-time disabled (manual .deb only).
   ipcMain.handle(IPC_CHANNELS.hostsDeployRemote, (_event, input: unknown) =>
     surfaceShutdownRefusal(
       operations.run(HOST_OPERATION_ADMISSIONS.deployRemote, () => {
+        if (!RELEASE_CAPABILITIES.managedRemoteDeploy) {
+          return Promise.resolve({
+            ok: false,
+            detail: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
+            code: "validation",
+            message: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
+            stages: [],
+          } satisfies HostsDeployRemoteResult);
+        }
+
         const decoded = decodeHostsDeployRemoteInput(input);
         if (decoded === undefined) {
           return Promise.resolve({

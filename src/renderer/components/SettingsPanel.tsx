@@ -787,7 +787,7 @@ function HostsSection() {
         use the host id (or optional hermes id). Expand <strong>Services</strong> on a host to
         list Tailscale Serve / SVC URLs and open them as canvas page nodes.
         {isCommandCenter
-          ? " On Command Center: Configure stamps station role; Deploy installs or updates the signed Remote release over SSH, starts the Remote station, and waits for station readiness."
+          ? " On Command Center: Enroll fresh Remote stages station role on a pristine target (manual .deb install first). Managed install/update/rollback is not available in this release."
           : ""}
       </p>
 
@@ -818,26 +818,15 @@ function HostsSection() {
                 {host.kind === "remote" ? (
                   <>
                     {isCommandCenter ? (
-                      <>
-                        <button
-                          type="button"
-                          className="settings-panel__ghost"
-                          disabled={busy}
-                          title="Write station.role=remote to this host’s ~/.vellum/settings.json over SSH"
-                          onClick={() => void configureAsRemote(host.id)}
-                        >
-                          Configure as Remote
-                        </button>
-                        <button
-                          type="button"
-                          className="settings-panel__ghost"
-                          disabled={busy}
-                          title="Install or update the signed Remote release over SSH, start the station, and wait for readiness"
-                          onClick={() => void deployRemote(host.id)}
-                        >
-                          Deploy Remote
-                        </button>
-                      </>
+                      <button
+                        type="button"
+                        className="settings-panel__ghost"
+                        disabled={busy}
+                        title="Enroll a pristine host as Remote after the signed .deb is installed manually — never overwrites an existing topology"
+                        onClick={() => void configureAsRemote(host.id)}
+                      >
+                        Enroll fresh Remote
+                      </button>
                     ) : null}
                     <button
                       type="button"

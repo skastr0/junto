@@ -33,6 +33,11 @@ export type RemoteDeploymentProviderSelector = (
 const productionProviderLoaders: RemoteDeploymentProviderLoaders =
   Object.freeze({
     darwin: async () => {
+      const { RELEASE_CAPABILITIES, DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL } =
+        await import("@shared/release-capabilities");
+      if (!RELEASE_CAPABILITIES.darwinRemoteDeploy) {
+        throw new Error(DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL);
+      }
       const { darwinRemoteDeploymentProvider } = await import(
         "./deploy-darwin"
       );

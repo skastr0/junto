@@ -6,6 +6,10 @@ import {
   RemoteHostsError,
   type RemoteHost as RemoteHostT,
 } from "@shared/remote-hosts";
+import {
+  MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
+  RELEASE_CAPABILITIES,
+} from "@shared/release-capabilities";
 import { SshTransport } from "../ssh";
 import {
   configureRemoteHost,
@@ -216,6 +220,14 @@ export const makeHostsService = (
       }),
     deployRemote: (id, authorization) =>
       Effect.gen(function* () {
+        if (!RELEASE_CAPABILITIES.managedRemoteDeploy) {
+          return {
+            ok: false,
+            detail: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
+            code: "validation" as const,
+            stages: [],
+          } satisfies DeployRemoteResult;
+        }
         const hostResult = yield* Effect.either(
           Effect.tryPromise({
             try: () => registry.get(id),
@@ -246,6 +258,25 @@ export const makeHostsService = (
       }),
     deployConfiguredRemote: (id, options) =>
       Effect.gen(function* () {
+        if (!RELEASE_CAPABILITIES.managedRemoteDeploy) {
+          return {
+            ok: false,
+            detail: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
+            code: "validation" as const,
+            message: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
+            hostResolved: false,
+            stages: [],
+            disposition: "not-started" as const,
+            outcome: "failed" as const,
+            packageState: "previous" as const,
+            role: "previous" as const,
+            rollback: "not-required" as const,
+            configuration: {
+              ok: false,
+              detail: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
+            },
+          } satisfies ConfiguredRemoteDeployResult;
+        }
         const hostResult = yield* Effect.either(
           Effect.tryPromise({
             try: () => registry.get(id),

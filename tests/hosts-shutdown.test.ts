@@ -236,43 +236,25 @@ describe("host IPC shutdown admission", () => {
     expect(runtime.runPromise).not.toHaveBeenCalled();
   });
 
-  it("retains an abandoned deploy IPC runtime until the exact Effect promise settles", async () => {
+  it("denies managed deploy without entering the app runtime (beta surface)", async () => {
     const gate = register(15);
-    const deployment = deferred<{
-      readonly ok: true;
-      readonly detail: string;
-      readonly stages: readonly string[];
-    }>();
-    runtime.runPromise.mockReturnValue(deployment.promise);
-
-    // The caller may disappear without awaiting this handler. The gate owns the
-    // AppRuntime promise independently of the renderer's transport lifetime.
-    const abandonedInvoke = invoke(IPC_CHANNELS.hostsDeployRemote, {
-      id: "studio",
+    // RELEASE_CAPABILITIES.managedRemoteDeploy is false — no credential parse,
+    // no provider load, no Effect flight retention.
+    await expect(
+      invoke(IPC_CHANNELS.hostsDeployRemote, { id: "studio" }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "validation",
+      detail: expect.stringMatching(/manual|\.deb|disabled/i),
     });
-    await expect(gate.drainOnQuit()).resolves.toMatchObject({
-      clean: false,
-      timedOut: true,
-      retained: 1,
-      retainedLabels: ["hosts.deploy-remote"],
-    });
-    expect(runtime.runPromise).toHaveBeenCalledTimes(1);
-
-    deployment.resolve({ ok: true, detail: "deployed", stages: ["ready"] });
-    await expect(abandonedInvoke).resolves.toEqual({
-      ok: true,
-      detail: "deployed",
-      stages: ["ready"],
-    });
+    expect(runtime.runPromise).not.toHaveBeenCalled();
     await expect(gate.drainOnQuit()).resolves.toMatchObject({
       clean: true,
-      timedOut: false,
-      settled: 1,
       retained: 0,
     });
   });
 
-  it("rejects malformed or extra deploy fields before entering the app runtime", async () => {
+  it("rejects deploy IPC without decoding credentials when managed deploy is off", async () => {
     register();
     const sha = "a".repeat(64);
     const request = {
@@ -284,7 +266,7 @@ describe("host IPC shutdown admission", () => {
       debSha256: sha,
       inventorySha256: sha,
     } as const;
-    const malformed: ReadonlyArray<unknown> = [
+    const inputs: ReadonlyArray<unknown> = [
       "studio",
       { id: "studio", extra: true },
       {
@@ -302,22 +284,15 @@ describe("host IPC shutdown admission", () => {
           password: "secret",
         },
       },
-      {
-        id: "studio",
-        authorization: {
-          request: { ...request, extra: true },
-          password: "secret",
-        },
-      },
     ];
 
-    for (const input of malformed) {
+    for (const input of inputs) {
       await expect(
         invoke(IPC_CHANNELS.hostsDeployRemote, input),
       ).resolves.toMatchObject({
         ok: false,
         code: "validation",
-        detail: "invalid Remote deployment request",
+        detail: expect.stringMatching(/manual|\.deb|disabled/i),
       });
     }
     expect(runtime.runPromise).not.toHaveBeenCalled();

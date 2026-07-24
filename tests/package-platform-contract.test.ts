@@ -203,10 +203,15 @@ describe("native package pipeline contract", () => {
     expect(afterPack).toContain(
       'new URL("../node_modules/electron/dist/version", import.meta.url)',
     );
-    expect(afterPack).toContain(
-      'procDescriptorPath(linuxArtifact.root.handle, "version")',
-    );
+    // Linux after-pack writes (or accepts identical) package version under the
+    // admitted artifact root; exclusive create remains fail-closed on mismatch.
+    expect(afterPack).toContain("linuxArtifact.root.handle");
+    expect(afterPack).toMatch(/["']version["']/);
+    expect(afterPack).toContain("procDescriptorPath");
     expect(afterPack).toContain('flag: "wx"');
+    expect(afterPack).toContain(
+      "package version already present and does not match the materialized Electron runtime",
+    );
     expect(afterPack).toContain('new URL("../release/linux-unpacked"');
     expect(afterPack).toContain("fsConstants.O_NOFOLLOW");
     expect(afterPack).toContain("fsConstants.O_RDWR");
