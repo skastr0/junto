@@ -278,11 +278,12 @@ export const runBoundedWorkCliCommand = (
   return Promise.race([closed, closeDeadline]);
 };
 
-const seed = () => ({
+const seed = (): import("../src/shared/canvas").CanvasDoc =>
+  ({
   nodes: [
     {
       id: AGENT,
-      type: "text",
+      type: "text" as const,
       x: 40,
       y: 40,
       width: 140,
@@ -292,24 +293,24 @@ const seed = () => ({
     },
     {
       id: TASKS,
-      type: "text",
+      type: "text" as const,
       x: 240,
       y: 40,
       width: 160,
       height: 80,
       text: "ship it",
       ether: {
-        entity: { kind: "task" },
+        entity: { kind: "task" as const },
         tasks: {
           items: [
             {
               id: "t1",
-              state: "submitted",
+              state: "submitted" as const,
               history: [
                 {
                   messageId: "m0",
-                  role: "user",
-                  parts: [{ kind: "text", text: "ship it" }],
+                  role: "user" as const,
+                  parts: [{ kind: "text" as const, text: "ship it" }],
                   contextId: CANVAS,
                   taskId: "t1",
                 },
@@ -317,12 +318,12 @@ const seed = () => ({
             },
             {
               id: "t2",
-              state: "submitted",
+              state: "submitted" as const,
               history: [
                 {
                   messageId: "m1",
-                  role: "user",
-                  parts: [{ kind: "text", text: "also this" }],
+                  role: "user" as const,
+                  parts: [{ kind: "text" as const, text: "also this" }],
                   contextId: CANVAS,
                   taskId: "t2",
                 },
@@ -334,27 +335,27 @@ const seed = () => ({
     },
     {
       id: REQS,
-      type: "text",
+      type: "text" as const,
       x: 440,
       y: 40,
       width: 160,
       height: 80,
       text: "0 pending",
-      ether: { entity: { kind: "requests" }, requests: { items: [] } },
+      ether: { entity: { kind: "requests" as const }, requests: { items: [] } },
     },
     {
       id: ARTS,
-      type: "text",
+      type: "text" as const,
       x: 640,
       y: 40,
       width: 160,
       height: 80,
       text: "artifacts",
-      ether: { entity: { kind: "artifacts" }, artifacts: { items: [] } },
+      ether: { entity: { kind: "artifacts" as const }, artifacts: { items: [] } },
     },
     {
       id: "region",
-      type: "group",
+      type: "group" as const,
       x: 0,
       y: 0,
       width: 900,
@@ -368,7 +369,7 @@ const seed = () => ({
     { id: "e-req", fromNode: AGENT, toNode: REQS },
     { id: "e-art", fromNode: AGENT, toNode: ARTS },
   ],
-});
+} as import("../src/shared/canvas").CanvasDoc);
 
 const runCli = (
   processPlane: AppProcessPlane,
