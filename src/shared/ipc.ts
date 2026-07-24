@@ -72,6 +72,8 @@ export const IPC_CHANNELS = {
   chatPermission: "vellum:chat-permission",
   chatSetModel: "vellum:chat-set-model",
   chatClose: "vellum:chat-close",
+  chatAdmitDeleteTombstone: "vellum:chat-admit-delete-tombstone",
+  chatReleaseDeleteTombstone: "vellum:chat-release-delete-tombstone",
   getKernelState: "vellum:get-kernel-state",
   armRegion: "vellum:arm-region",
   pulseRegion: "vellum:pulse-region",
@@ -427,6 +429,14 @@ export interface ChatApi {
   readonly chatClose: (
     agentKey: string,
   ) => Promise<{ ok: boolean; clean?: boolean }>;
+  /**
+   * Fence agent delete: admit a tombstone so chatOpen cannot reopen the seat
+   * until release after document commit (or abort).
+   */
+  readonly chatAdmitDeleteTombstone: (
+    agentKey: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  readonly chatReleaseDeleteTombstone: (agentKey: string) => Promise<void>;
   readonly onChatEvent: (listener: (event: ChatEvent) => void) => () => void;
 }
 

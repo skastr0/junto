@@ -453,6 +453,43 @@ export class ChatService {
    */
   private readonly uncleanCloses = new Set<string>();
 
+  /**
+   * Agent-node delete fence: from delete admission until document commit or
+   * abort/timeout. chatOpen refuses the key while tombstoned so a concurrent
+   * reopen cannot revive the seat mid-teardown.
+   */
+  private readonly deleteTombstones = new Map<string, { readonly expiresAt: number }>();
+  private static readonly DELETE_TOMBSTONE_TTL_MS = 60_000;
+
+  private isDeleteTombstoned(agentKey: string): boolean {
+    const entry = this.deleteTombstones.get(agentKey);
+    if (entry === undefined) return false;
+    if (Date.now() >= entry.expiresAt) {
+      this.deleteTombstones.delete(agentKey);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Admit a per-agent delete tombstone. Idempotent while already held.
+   * chatOpen refuses the key until release (or TTL).
+   */
+  admitDeleteTombstone(agentKey: string): { readonly ok: true } | { readonly ok: false; readonly error: string } {
+    if (this.closing) return { ok: false, error: "chat service is closing" };
+    const key = agentKey.trim();
+    if (key.length === 0) return { ok: false, error: "invalid agent key" };
+    this.deleteTombstones.set(key, {
+      expiresAt: Date.now() + ChatService.DELETE_TOMBSTONE_TTL_MS,
+    });
+    return { ok: true };
+  }
+
+  /** Release a delete tombstone after document commit or abort. */
+  releaseDeleteTombstone(agentKey: string): void {
+    this.deleteTombstones.delete(agentKey.trim());
+  }
+
   private closeCurrent(agentKey: string): Promise<ReadonlyArray<AcpTeardownResult>> {
     const inflight = this.closeFlights.get(agentKey);
     if (inflight !== undefined) return inflight;
@@ -571,6 +608,9 @@ export class ChatService {
     if (this.closing) {
       return Promise.resolve({ ok: false, error: "chat service is closing" });
     }
+    if (this.isDeleteTombstoned(agentKey)) {
+      return Promise.resolve({ ok: false, error: "agent is being deleted" });
+    }
     const promise = this.trackWork(this.openFresh(
       agentKey,
       generation,
@@ -603,12 +643,19 @@ export class ChatService {
     bindPin?: { readonly canvasName: string; readonly nodeId: string },
   ): Promise<ChatOpenResult> {
     if (this.closing) return { ok: false, error: "chat service is closing" };
+    if (this.isDeleteTombstoned(agentKey)) {
+      return { ok: false, error: "agent is being deleted" };
+    }
     if (bindPin !== undefined) this.setAgentBindPin(bindPin);
     const authorityRestart = this.authorityRestartInFlight.get(agentKey);
     if (authorityRestart !== undefined) return authorityRestart;
     // Never open a replacement seat while close/teardown is in flight.
     const closing = this.closeFlights.get(agentKey);
     if (closing !== undefined) await closing;
+    // Re-check after awaiting close — delete may have been admitted meanwhile.
+    if (this.isDeleteTombstoned(agentKey)) {
+      return { ok: false, error: "agent is being deleted" };
+    }
     const existing = this.sessions.get(agentKey);
     if (existing && !existing.client.closed && existing.sessionId !== "") {
       this.touch(existing);
@@ -630,6 +677,9 @@ export class ChatService {
     resumeSessionId?: string,
   ): Promise<ChatOpenResult> {
     if (this.closing) return { ok: false, error: "chat service is closing" };
+    if (this.isDeleteTombstoned(agentKey)) {
+      return { ok: false, error: "agent is being deleted" };
+    }
     const target = buildAcpSpawnTarget(agentKey);
     if (target === undefined) return { ok: false, error: `invalid agent key: ${agentKey}` };
     if (!this.isLocalHost(target.host)) {
@@ -660,6 +710,9 @@ export class ChatService {
     resumeSessionId?: string,
   ): Promise<ChatOpenResult> {
     if (this.closing) return { ok: false, error: "chat service is closing" };
+    if (this.isDeleteTombstoned(agentKey)) {
+      return { ok: false, error: "agent is being deleted" };
+    }
     const target = buildAcpSpawnTarget(agentKey);
     if (target === undefined) return { ok: false, error: `invalid agent key: ${agentKey}` };
     if (!this.isLocalHost(target.host)) {
@@ -720,6 +773,9 @@ export class ChatService {
     environmentOverlay?: AcpChildEnvironmentOverlay,
   ): Promise<ChatOpenResult> {
     if (this.closing) return { ok: false, error: "chat service is closing" };
+    if (this.isDeleteTombstoned(agentKey)) {
+      return { ok: false, error: "agent is being deleted" };
+    }
     const target = buildAcpSpawnTarget(agentKey);
     if (!target) return { ok: false, error: `invalid agent key: ${agentKey}` };
     if (this.generation(agentKey) !== generation) {

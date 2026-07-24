@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, renameGroup, setNodeColor, setNodeView, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setNodeColor, setNodeView, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { containedNodeIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
@@ -19,6 +19,10 @@ const chatClose = vi.fn(async (): Promise<{ ok: boolean; clean?: boolean }> => (
   ok: true,
   clean: true,
 }));
+const chatAdmitDeleteTombstone = vi.fn(
+  async (): Promise<{ ok: boolean; error?: string }> => ({ ok: true }),
+);
+const chatReleaseDeleteTombstone = vi.fn(async (): Promise<void> => undefined);
 
 const runtimeWindow = {
   vellum: {
@@ -26,6 +30,8 @@ const runtimeWindow = {
     browserStop,
     browserSessionList: async () => ({ ok: true, data: [] }),
     chatClose,
+    chatAdmitDeleteTombstone,
+    chatReleaseDeleteTombstone,
   },
   setTimeout: globalThis.setTimeout,
   confirm: () => true,
@@ -48,6 +54,10 @@ describe("renderer graph mutations", () => {
     browserStop.mockResolvedValue({ ok: true });
     chatClose.mockReset();
     chatClose.mockResolvedValue({ ok: true, clean: true });
+    chatAdmitDeleteTombstone.mockReset();
+    chatAdmitDeleteTombstone.mockResolvedValue({ ok: true });
+    chatReleaseDeleteTombstone.mockReset();
+    chatReleaseDeleteTombstone.mockResolvedValue(undefined);
     browser$.sessionByRef.set({});
     dock$.stopErrorByRef.set({});
     state$.settings.station.hostId.set("local");
@@ -259,6 +269,7 @@ describe("renderer graph mutations", () => {
     );
 
     deleteNode("agent");
+    await vi.waitFor(() => expect(chatAdmitDeleteTombstone).toHaveBeenCalledWith("local:default"));
     await vi.waitFor(() => expect(chatClose).toHaveBeenCalledWith("local:default"));
     // Canvas switch / reload advances docEpoch while close awaits.
     loadDoc({
@@ -279,9 +290,38 @@ describe("renderer graph mutations", () => {
     await vi.waitFor(() => expect(state$.error.peek()).toBe(
       "Canvas changed before deletion completed; no nodes were deleted.",
     ));
+    expect(chatReleaseDeleteTombstone).toHaveBeenCalledWith("local:default");
     expect(state$.doc.peek().nodes).toMatchObject([
       { id: "agent", text: "replacement" },
     ]);
+  });
+
+  it("admits delete tombstone before close and releases after commit", async () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [{
+        id: "agent",
+        type: "text",
+        text: "agent",
+        x: 0,
+        y: 0,
+        width: 220,
+        height: 84,
+        ether: { entity: { kind: "agent", name: "local:default" } },
+      }],
+      edges: [],
+    });
+
+    deleteNode("agent");
+    await vi.waitFor(() => expect(state$.doc.peek().nodes).toEqual([]));
+    expect(chatAdmitDeleteTombstone).toHaveBeenCalledWith("local:default");
+    expect(chatClose).toHaveBeenCalledWith("local:default");
+    expect(chatReleaseDeleteTombstone).toHaveBeenCalledWith("local:default");
+    const admitOrder = chatAdmitDeleteTombstone.mock.invocationCallOrder[0]!;
+    const closeOrder = chatClose.mock.invocationCallOrder[0]!;
+    const releaseOrder = chatReleaseDeleteTombstone.mock.invocationCallOrder[0]!;
+    expect(admitOrder).toBeLessThan(closeOrder);
+    expect(closeOrder).toBeLessThan(releaseOrder);
   });
 
   it("creates schema-valid soft edges without criteria", () => {
@@ -709,6 +749,22 @@ describe("renderer graph mutations", () => {
     );
     expect(state$.doc.peek()).toBe(before);
     expect(state$.docEpoch.peek()).toBe(epoch);
+  });
+
+  it("bumps docEpoch on undo and redo so generation fences observe history", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc(doc);
+    commitDoc({
+      nodes: [{ id: "source", type: "text", text: "EDITED", x: 0, y: 0, width: 200, height: 80 }],
+      edges: [],
+    });
+    const afterCommit = state$.docEpoch.peek();
+    undo();
+    expect(state$.docEpoch.peek()).toBe(afterCommit + 1);
+    expect(state$.doc.peek().nodes[0]).toMatchObject({ text: "SOURCE" });
+    redo();
+    expect(state$.docEpoch.peek()).toBe(afterCommit + 2);
+    expect(state$.doc.peek().nodes[0]).toMatchObject({ text: "EDITED" });
   });
 
   it("persists region geometry changes without rebuilding the graph", () => {

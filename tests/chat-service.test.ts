@@ -740,6 +740,20 @@ describe("chatClose", () => {
       clean: false,
     });
   });
+
+  it("delete tombstone blocks chatOpen until release", async () => {
+    const { spawnFn, children } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    expect(service.admitDeleteTombstone("local:default")).toEqual({ ok: true });
+    await expect(service.chatOpen("local:default")).resolves.toEqual({
+      ok: false,
+      error: "agent is being deleted",
+    });
+    expect(children).toHaveLength(0);
+    service.releaseDeleteTombstone("local:default");
+    const { result } = await openHappyPath(service, children);
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe("crash / event projection", () => {

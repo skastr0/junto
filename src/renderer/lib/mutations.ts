@@ -525,6 +525,8 @@ export const undo = (): void => {
   state$.editNodeId.set("");
   state$.doc.set(previous);
   state$.docVersion.set(state$.docVersion.peek() + 1);
+  // Generation fence for async delete/teardown continuations (same as commitDoc).
+  state$.docEpoch.set(state$.docEpoch.peek() + 1);
   syncHistoryState();
   scheduleSave();
 };
@@ -537,6 +539,7 @@ export const redo = (): void => {
   state$.editNodeId.set("");
   state$.doc.set(next);
   state$.docVersion.set(state$.docVersion.peek() + 1);
+  state$.docEpoch.set(state$.docEpoch.peek() + 1);
   syncHistoryState();
   scheduleSave();
 };
@@ -648,19 +651,50 @@ const deleteNodesInternal = async (
     );
   }
 
-  // Agent delete: verified revoke + teardown BEFORE document mutation.
-  // Doctrine: visible failure and verified exit — do not commit the card
-  // delete while the seat may still be live.
+  // Agent delete: tombstone → verified revoke + teardown BEFORE document
+  // mutation. Tombstone blocks concurrent chatOpen until commit or abort.
   const agentKeys = existingNodes
     .filter((n) => n.ether?.entity?.kind === "agent")
     .map((n) => n.ether?.entity?.name)
     .filter((name): name is string => typeof name === "string" && name.length > 0);
+  const tombstonedKeys: string[] = [];
+  const releaseTombstones = async (): Promise<void> => {
+    if (tombstonedKeys.length === 0) return;
+    const { releaseAgentDeleteTombstone } = await import("./chat-state");
+    await Promise.all(tombstonedKeys.map((key) => releaseAgentDeleteTombstone(key)));
+    tombstonedKeys.length = 0;
+  };
+
   if (agentKeys.length > 0) {
     if (!canvasMutationAdmissionOpen) return;
-    const { closeChat } = await import("./chat-state");
+    const { admitAgentDeleteTombstone, closeChat } = await import("./chat-state");
+    const admits = await Promise.all(
+      agentKeys.map(async (key) => {
+        const ok = await admitAgentDeleteTombstone(key);
+        if (ok) tombstonedKeys.push(key);
+        return ok;
+      }),
+    );
+    if (!admits.every((ok) => ok)) {
+      await releaseTombstones();
+      if (canvasMutationAdmissionOpen) {
+        state$.error.set(
+          "Agent delete fence failed; the agent node was not deleted.",
+        );
+      }
+      return;
+    }
+    if (!canvasMutationAdmissionOpen) {
+      await releaseTombstones();
+      return;
+    }
     const results = await Promise.all(agentKeys.map((key) => closeChat(key)));
-    if (!canvasMutationAdmissionOpen) return;
+    if (!canvasMutationAdmissionOpen) {
+      await releaseTombstones();
+      return;
+    }
     if (!results.every((ok) => ok)) {
+      await releaseTombstones();
       state$.error.set(
         "Agent session teardown failed or was unclean; the agent node was not deleted.",
       );
@@ -675,12 +709,16 @@ const deleteNodesInternal = async (
     state$.canvasName.peek() !== canvasName ||
     state$.docEpoch.peek() !== docEpoch
   ) {
+    await releaseTombstones();
     state$.error.set(
       "Canvas changed before deletion completed; no nodes were deleted.",
     );
     return;
   }
-  if (!canvasMutationAdmissionOpen) return;
+  if (!canvasMutationAdmissionOpen) {
+    await releaseTombstones();
+    return;
+  }
 
   if (pageActions.length > 0) {
     sideEffects.push(
@@ -699,6 +737,7 @@ const deleteNodesInternal = async (
   if (nonHerdr.size === 0) {
     // Pure herdr delete — async path owns the doc mutation.
     if (herdrIds.some((id) => id === state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
+    await releaseTombstones();
     await Promise.all(sideEffects);
     return;
   }
@@ -711,6 +750,8 @@ const deleteNodesInternal = async (
     nodes: liveDoc.nodes.filter((n) => !nonHerdr.has(n.id)),
     edges: liveDoc.edges.filter((e) => !nonHerdr.has(e.fromNode) && !nonHerdr.has(e.toNode)),
   });
+  // Release only after the document commit so reopen cannot race the card.
+  await releaseTombstones();
   await Promise.all(sideEffects);
 };
 

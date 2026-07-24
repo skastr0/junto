@@ -64,5 +64,15 @@ export const registerChatIpc = (
     service.then((resolved) => resolved.chatClose(agentKey)),
   );
 
+  ipcMain.handle(IPC_CHANNELS.chatAdmitDeleteTombstone, (_event, agentKey: string) =>
+    service.then((resolved) => resolved.admitDeleteTombstone(agentKey)),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.chatReleaseDeleteTombstone, (_event, agentKey: string) =>
+    service.then((resolved) => {
+      resolved.releaseDeleteTombstone(agentKey);
+    }),
+  );
+
   return service;
 };

@@ -487,6 +487,10 @@ const chatApi: VellumChatApi = {
   chatSetModel: (agentKey, modelId) =>
     invoke(IPC_CHANNELS.chatSetModel, IPC_TIMEOUT_MS, agentKey, modelId),
   chatClose: (agentKey) => invoke(IPC_CHANNELS.chatClose, IPC_TIMEOUT_MS, agentKey),
+  chatAdmitDeleteTombstone: (agentKey) =>
+    invoke(IPC_CHANNELS.chatAdmitDeleteTombstone, IPC_TIMEOUT_MS, agentKey),
+  chatReleaseDeleteTombstone: (agentKey) =>
+    invoke(IPC_CHANNELS.chatReleaseDeleteTombstone, IPC_TIMEOUT_MS, agentKey),
   onChatEvent: (listener) => subscribe<ChatEvent>(IPC_CHANNELS.chatEvent, listener),
 };
 

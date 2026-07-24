@@ -30,7 +30,7 @@ afterEach(() => {
 });
 
 describe("ChatService remote session policy", () => {
-  it("evicts idle remote sessions but never busy ones", async () => {
+  it("evicts idle remote sessions but never busy ones", async () => { // async: closeCurrent settles teardown
     process.env.VELLUM_ACP_IDLE_MS = "1000";
     const service = new ChatService(spawnFn);
     service.stopIdleSweep();
@@ -82,7 +82,8 @@ describe("ChatService remote session policy", () => {
 
     const closed = anyService.evictIdleSessions(Date.now());
     expect(closed).toEqual(["remote-a:a"]);
-    expect(anyService.sessions.has("remote-a:a")).toBe(false);
+    // closeCurrent keeps the map entry until teardown settles (async).
+    await vi.waitFor(() => expect(anyService.sessions.has("remote-a:a")).toBe(false));
     expect(anyService.sessions.has("remote-a:b")).toBe(true);
     expect(close).toHaveBeenCalled();
     expect(events).toContainEqual({
@@ -90,7 +91,7 @@ describe("ChatService remote session policy", () => {
       kind: "status",
       payload: { status: "closed", text: "remote chat closed after 1000ms idle" },
     });
-    service.closeAll();
+    await service.closeAll();
   });
 
   it("enforces per-host remote ceiling by closing LRU idle peer", async () => {
@@ -126,7 +127,7 @@ describe("ChatService remote session policy", () => {
       }
     ).enforceRemoteCeiling("remote-a", "remote-a:new");
     expect(err).toBeUndefined();
-    expect(anyService.sessions.has("remote-a:old")).toBe(false);
+    await vi.waitFor(() => expect(anyService.sessions.has("remote-a:old")).toBe(false));
     expect(close).toHaveBeenCalled();
     expect(events).toContainEqual({
       agentKey: "remote-a:old",
@@ -136,7 +137,7 @@ describe("ChatService remote session policy", () => {
         text: "remote chat closed to enforce the remote-a session ceiling (1)",
       },
     });
-    service.closeAll();
+    await service.closeAll();
   });
 
   it("counts an in-flight remote handshake before admitting another child", async () => {
@@ -163,7 +164,7 @@ describe("ChatService remote session policy", () => {
     service.closeAll();
   });
 
-  it("closes live ACP sessions when their canonical remote route changes", () => {
+  it("closes live ACP sessions when their canonical remote route changes", async () => {
     setHostsSnapshot([
       ...defaultRemoteHostsDocument().hosts,
       {
@@ -222,7 +223,7 @@ describe("ChatService remote session policy", () => {
     ]);
 
     expect(close).toHaveBeenCalledOnce();
-    expect(anyService.sessions.has("studio:agent")).toBe(false);
+    await vi.waitFor(() => expect(anyService.sessions.has("studio:agent")).toBe(false));
     expect(events).toContainEqual({
       agentKey: "studio:agent",
       kind: "status",
@@ -231,6 +232,6 @@ describe("ChatService remote session policy", () => {
         text: "remote chat closed because host studio routing changed",
       },
     });
-    service.closeAll();
+    await service.closeAll();
   });
 });

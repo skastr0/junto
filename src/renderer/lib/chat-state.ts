@@ -590,6 +590,48 @@ export async function closeChat(agentKey: string): Promise<boolean> {
   }
 }
 
+/**
+ * Admit a delete tombstone so main refuses chatOpen for this agent until release.
+ * Call before closeChat on agent-node delete.
+ */
+export async function admitAgentDeleteTombstone(agentKey: string): Promise<boolean> {
+  const api = getChatApi();
+  if (!api || typeof api.chatAdmitDeleteTombstone !== "function") {
+    pushStatus(agentKey, "delete tombstone unavailable — refuse agent delete", "error");
+    return false;
+  }
+  try {
+    const result = await api.chatAdmitDeleteTombstone(agentKey);
+    if (result && typeof result === "object" && "ok" in result && result.ok === false) {
+      pushStatus(
+        agentKey,
+        typeof result.error === "string" ? result.error : "delete tombstone admit failed",
+        "error",
+      );
+      return false;
+    }
+    return true;
+  } catch (error) {
+    pushStatus(
+      agentKey,
+      error instanceof Error ? error.message : "delete tombstone admit failed",
+      "error",
+    );
+    return false;
+  }
+}
+
+/** Release delete tombstone after document commit or abort (never open while releasing). */
+export async function releaseAgentDeleteTombstone(agentKey: string): Promise<void> {
+  const api = getChatApi();
+  if (!api || typeof api.chatReleaseDeleteTombstone !== "function") return;
+  try {
+    await api.chatReleaseDeleteTombstone(agentKey);
+  } catch {
+    // Best-effort release; TTL on main is the backstop.
+  }
+}
+
 export function markRead(agentKey: string): void {
   ensureAgent(agentKey);
   chatState$[agentKey].unread.set(0);
