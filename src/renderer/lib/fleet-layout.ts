@@ -11,7 +11,7 @@ export interface FleetNodePosition {
 }
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ≈ 2.39996 rad
-const ORBIT_BASE_RADIUS = 260;
+export const ORBIT_BASE_RADIUS = 260;
 const ORBIT_BASE_CAPACITY = 6;
 
 const orbitOf = (sortedIndex: number): { orbit: number; slot: number } => {
@@ -29,15 +29,18 @@ const orbitOf = (sortedIndex: number): { orbit: number; slot: number } => {
  * Deterministic concentric-orbit positions for host ids (sorted first).
  * Orbit capacity is 6, then 12, then 18…; radius is 260 * (orbitIndex + 1);
  * the golden angle spreads nodes within and across orbits.
+ * `startOrbit` pushes the whole set outward (unclaimed peers orbit beyond
+ * the enrolled fleet).
  */
 export const orbitLayout = (
   hostIds: ReadonlyArray<string>,
+  startOrbit = 0,
 ): Record<string, FleetNodePosition> => {
   const sorted = [...new Set(hostIds)].sort();
   const positions: Record<string, FleetNodePosition> = {};
   sorted.forEach((id, index) => {
     const { orbit } = orbitOf(index);
-    const radius = ORBIT_BASE_RADIUS * (orbit + 1);
+    const radius = ORBIT_BASE_RADIUS * (startOrbit + orbit + 1);
     const angle = index * GOLDEN_ANGLE;
     positions[id] = {
       x: radius * Math.cos(angle),

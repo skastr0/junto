@@ -47,6 +47,13 @@ describe("orbitLayout", () => {
     expect(radiusOf(layout["host-19"]!)).toBeCloseTo(780, 6);
   });
 
+  it("startOrbit pushes the set outward by whole orbit rings", () => {
+    const inner = orbitLayout(["alpha", "bravo"]);
+    const outer = orbitLayout(["alpha", "bravo"], 2);
+    expect(radiusOf(outer["alpha"]!)).toBeCloseTo(radiusOf(inner["alpha"]!) + 520, 6);
+    expect(outer["alpha"]).toEqual({ x: inner["alpha"]!.x * 3, y: inner["alpha"]!.y * 3 });
+  });
+
   it("keeps every pair of nodes at least 100px apart for N ≤ 19", () => {
     const all = ids(19);
     const layout = orbitLayout(all);

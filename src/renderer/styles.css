@@ -2418,45 +2418,30 @@ ol.note-md__list > .note-md__li::before {
   white-space: pre-wrap;
 }
 
-/* --- Discovery rail -------------------------------------------------------- */
-.fleet-discovery {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 12px;
-  z-index: 2; /* above the map vignette */
+/* --- Unclaimed peer ghosts -------------------------------------------------- */
+.fleet-ghost {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  border: 1px solid var(--color-stroke);
-  border-radius: 8px;
-  background: rgba(12, 11, 10, 0.82);
-  backdrop-filter: blur(3px);
-}
-.fleet-discovery__rows {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-}
-.fleet-discovery__row {
-  display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  width: 140px;
+  text-align: center;
+  cursor: pointer;
 }
-.fleet-discovery__name {
-  color: var(--color-ink);
-}
-.fleet-discovery__addr {
+.fleet-ghost__medallion {
+  border-style: dashed;
+  border-color: rgba(237, 230, 218, 0.22);
+  background: transparent;
   color: var(--color-faint);
-  font-size: 10px;
 }
-.fleet-discovery__empty {
-  font-family: var(--font-mono);
-  font-size: 10px;
+.fleet-ghost .fleet-station__label,
+.fleet-ghost .fleet-node__meta {
   color: var(--color-faint);
+}
+.fleet-ghost:hover .fleet-ghost__medallion {
+  transform: scale(1.07);
+  border-color: rgba(237, 230, 218, 0.45);
+  color: var(--color-dim);
 }
 
 /* --- Add / claim host form ------------------------------------------------- */

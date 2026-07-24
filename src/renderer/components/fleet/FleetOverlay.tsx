@@ -8,7 +8,6 @@ import { getVellumApi } from "../../lib/vellum-api";
 import { FocusSurface } from "../FocusSurface";
 import { Button, OverlayHeader } from "../ui";
 import { FleetDetailPanel, type FleetSelection } from "./FleetDetailPanel";
-import { FleetDiscovery } from "./FleetDiscovery";
 import { FleetHostForm } from "./FleetHostForm";
 import { COMMAND_CENTER_ID, FleetMap } from "./FleetMap";
 
@@ -78,12 +77,13 @@ function FleetOverlayInner() {
         <div className="fleet-map-wrap">
           <FleetMap
             hosts={hosts}
+            peers={peers}
             probes={probes}
             ccHostId={ccHostId}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            onClaimPeer={claimPeer}
           />
-          <FleetDiscovery peers={peers} loading={loading} onClaim={claimPeer} />
         </div>
         {selection ? (
           <FleetDetailPanel

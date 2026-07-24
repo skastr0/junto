@@ -9,22 +9,33 @@ import {
   type EdgeTypes,
   type InternalNode,
 } from "@xyflow/react";
+import type { DiscoveredPeer } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { FleetProbeState } from "../../lib/fleet-state";
-import { edgePhase, orbitLayout, type FleetEdgeStatus } from "../../lib/fleet-layout";
+import {
+  edgePhase,
+  ORBIT_BASE_RADIUS,
+  orbitLayout,
+  type FleetEdgeStatus,
+} from "../../lib/fleet-layout";
 import {
   fleetNodeTypes,
   type CommandCenterFlowNode,
+  type GhostStationFlowNode,
   type StationFlowNode,
 } from "./FleetNodes";
 
 export const COMMAND_CENTER_ID = "command-center";
 
-type FleetFlowNode = CommandCenterFlowNode | StationFlowNode;
+type FleetFlowNode = CommandCenterFlowNode | StationFlowNode | GhostStationFlowNode;
+
+const ghostId = (peer: DiscoveredPeer): string => `ghost:${peer.name}`;
 
 type FleetLinkData = {
   readonly status: FleetEdgeStatus;
   readonly latencyMs?: number;
+  /** Unclaimed-peer link — rendered as a whisper, never labeled. */
+  readonly ghost?: boolean;
 };
 type FleetLinkEdgeType = Edge<FleetLinkData, "fleetLink">;
 
@@ -73,7 +84,7 @@ function FleetLinkEdge({
           stroke: phase.hue,
           strokeWidth: phase.width,
           strokeDasharray: phase.dash ?? undefined,
-          opacity: status === "unknown" ? 0.45 : 0.8,
+          opacity: data?.ghost ? 0.2 : status === "unknown" ? 0.45 : 0.8,
         }}
         className={phase.animated ? "fleet-link--probing" : undefined}
       />
@@ -90,21 +101,32 @@ const fleetEdgeTypes: EdgeTypes = { fleetLink: FleetLinkEdge };
 
 function FleetMapInner({
   hosts,
+  peers,
   probes,
   ccHostId,
   selectedId,
   onSelect,
+  onClaimPeer,
 }: {
   readonly hosts: ReadonlyArray<RemoteHost>;
+  readonly peers: ReadonlyArray<DiscoveredPeer>;
   readonly probes: Record<string, FleetProbeState>;
   readonly ccHostId: string;
   readonly selectedId: string | null;
   readonly onSelect: (id: string | null) => void;
+  readonly onClaimPeer: (peer: DiscoveredPeer) => void;
 }) {
   const stations = useMemo(() => hosts.filter((host) => host.kind === "remote"), [hosts]);
 
   const nodes = useMemo<ReadonlyArray<FleetFlowNode>>(() => {
-    const positions = orbitLayout(stations.map((host) => host.id));
+    const stationIds = stations.map((host) => host.id);
+    const positions = orbitLayout(stationIds);
+    // Unclaimed peers orbit one ring beyond the outermost station orbit.
+    const outerOrbit = stationIds.reduce((max, id) => {
+      const p = positions[id];
+      return p ? Math.max(max, Math.round(Math.hypot(p.x, p.y) / ORBIT_BASE_RADIUS)) : max;
+    }, 0);
+    const ghostPositions = orbitLayout(peers.map(ghostId), outerOrbit);
     const cc: CommandCenterFlowNode = {
       id: COMMAND_CENTER_ID,
       type: "commandCenter",
@@ -123,11 +145,20 @@ function FleetMapInner({
       draggable: false,
       connectable: false,
     }));
-    return [cc, ...orbits];
-  }, [stations, probes, ccHostId, selectedId]);
+    const ghosts: Array<GhostStationFlowNode> = peers.map((peer) => ({
+      id: ghostId(peer),
+      type: "ghost",
+      position: ghostPositions[ghostId(peer)] ?? { x: 0, y: 0 },
+      data: { peer },
+      selected: false,
+      draggable: false,
+      connectable: false,
+    }));
+    return [cc, ...orbits, ...ghosts];
+  }, [stations, peers, probes, ccHostId, selectedId]);
 
   const edges = useMemo<ReadonlyArray<FleetLinkEdgeType>>(() => {
-    return stations.map((host) => {
+    const links: Array<FleetLinkEdgeType> = stations.map((host) => {
       const probe = probes[host.id];
       const status: FleetEdgeStatus = probe?.status ?? "unknown";
       return {
@@ -145,7 +176,20 @@ function FleetMapInner({
         focusable: false,
       } satisfies FleetLinkEdgeType;
     });
-  }, [stations, probes]);
+    // Detected-but-unclaimed peers get a whisper of a link: seen, not enrolled.
+    for (const peer of peers) {
+      links.push({
+        id: `fleet-${ghostId(peer)}`,
+        source: COMMAND_CENTER_ID,
+        target: ghostId(peer),
+        type: "fleetLink",
+        data: { status: "unknown", ghost: true },
+        selectable: false,
+        focusable: false,
+      } satisfies FleetLinkEdgeType);
+    }
+    return links;
+  }, [stations, peers, probes]);
 
   return (
     <ReactFlow
@@ -153,7 +197,14 @@ function FleetMapInner({
       edges={edges as Array<Edge>}
       nodeTypes={fleetNodeTypes}
       edgeTypes={fleetEdgeTypes}
-      onNodeClick={(_, node) => onSelect(node.id)}
+      onNodeClick={(_, node) => {
+        if (node.type === "ghost") {
+          const peer = peers.find((p) => ghostId(p) === node.id);
+          if (peer) onClaimPeer(peer);
+          return;
+        }
+        onSelect(node.id);
+      }}
       onPaneClick={() => onSelect(null)}
       fitView
       fitViewOptions={{ padding: 0.28, maxZoom: 1.1 }}

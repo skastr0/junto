@@ -12,6 +12,7 @@ import {
   Star,
   type LucideIcon,
 } from "lucide-react";
+import type { DiscoveredPeer } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { FleetProbeState } from "../../lib/fleet-state";
 import { hostColor } from "../../lib/fleet-layout";
@@ -114,7 +115,30 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
   );
 }
 
+// --- Unclaimed peer (detected on the mesh, not enrolled) ---------------------
+
+export type GhostStationNodeData = { readonly peer: DiscoveredPeer };
+export type GhostStationFlowNode = Node<GhostStationNodeData, "ghost">;
+
+export function GhostStationNode({ data }: NodeProps<GhostStationFlowNode>) {
+  return (
+    <div className="fleet-ghost">
+      <Handle type="target" position={Position.Left} className="fleet-handle" />
+      <div className="fleet-node__medallion fleet-ghost__medallion">
+        <Radar size={20} strokeWidth={1.5} />
+        <span
+          className={data.peer.online ? "fleet-pip fleet-pip--reachable" : "fleet-pip fleet-pip--unknown"}
+          title={data.peer.online ? "online on the tailnet" : "offline"}
+        />
+      </div>
+      <div className="fleet-station__label">{data.peer.name}</div>
+      <div className="fleet-node__meta">unclaimed</div>
+    </div>
+  );
+}
+
 export const fleetNodeTypes = {
   commandCenter: CommandCenterNode,
   station: StationNode,
+  ghost: GhostStationNode,
 };
