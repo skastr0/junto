@@ -33,6 +33,9 @@ export { makeScopedPromiseRunner, type ScopedPromiseRunner } from "./scoped-runn
 export {
   compileRemotePlan,
   compileRemotePlanSource,
+  compileRemoteSettingsRestore,
+  compileRemoteSettingsSnapshot,
+  compileRemoteSettingsStamp,
   confineVellumDirectory,
   confineVellumLeaf,
   remotePlanPathFootprint,

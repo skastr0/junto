@@ -4433,6 +4433,11 @@ export class NodeLinuxReleaseInstallerHost
       }
     }
     await this.#assertPackagedUnitPolicy(invocation);
+    // Clear StartLimitBurst from a prior failed candidate before enable/restart.
+    await this.#runUserSystemctl(invocation, [
+      "reset-failed",
+      "vellum-remote.service",
+    ]).catch(() => undefined);
     for (const arguments_ of [
       ["enable", "vellum-remote.service"],
       ["restart", "vellum-remote.service"],

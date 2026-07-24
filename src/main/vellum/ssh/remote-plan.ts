@@ -312,3 +312,249 @@ export const remotePlanPathFootprint = (plan: RemotePlan): ReadonlyArray<string>
   }
   return [...paths].sort();
 };
+
+// ---------------------------------------------------------------------------
+// Named transactional programs (settings snapshot / stamp / restore)
+// ---------------------------------------------------------------------------
+//
+// These are larger protocols (stdin frames + compare-and-swap). They are still
+// typed: only ConfinedRemotePath + bounded numeric limit are inputs. No free
+// string paths. Shell is an implementation detail of the compiler only.
+
+const assertByteLimit = (limit: number): number => {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 16 * 1024 * 1024) {
+    throw new TypeError("settings byte limit out of bounds");
+  }
+  return limit;
+};
+
+/** Snapshot remote settings.json: ABSENT or PRESENT mode size + base64 body. */
+export const compileRemoteSettingsSnapshot = (
+  vellumDir: ConfinedRemotePath,
+  settingsPath: ConfinedRemotePath,
+  maxBytes: number,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  try {
+    const limit = assertByteLimit(maxBytes);
+    const dir = shellSingleQuote(inspectPath(vellumDir));
+    const settings = shellSingleQuote(inspectPath(settingsPath));
+    const source = [
+      "set -eu",
+      `DIR=${dir}`,
+      `SETTINGS=${settings}`,
+      `LIMIT=${limit}`,
+      'if [ -L "$DIR" ]; then printf \'%s\\n\' \'SETTINGS_DIR_IS_SYMLINK\' >&2; exit 11; fi',
+      'if [ ! -e "$SETTINGS" ] && [ ! -L "$SETTINGS" ]; then /usr/bin/printf \'ABSENT\\n\'; exit 0; fi',
+      'if [ -L "$SETTINGS" ] || [ ! -f "$SETTINGS" ]; then printf \'%s\\n\' \'SETTINGS_PATH_NOT_REGULAR\' >&2; exit 12; fi',
+      "MODE=\"$(/usr/bin/stat -f '%Lp' \"$SETTINGS\" 2>/dev/null || /usr/bin/stat -c '%a' \"$SETTINGS\" 2>/dev/null)\"",
+      "case \"$MODE\" in",
+      "  [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;",
+      "  *) printf '%s\\n' 'SETTINGS_MODE_UNREADABLE' >&2; exit 13 ;;",
+      "esac",
+      "BYTES=\"$(/usr/bin/wc -c < \"$SETTINGS\" | /usr/bin/tr -d ' ')\"",
+      "case \"$BYTES\" in",
+      "  ''|*[!0-9]*) printf '%s\\n' 'SETTINGS_SIZE_UNREADABLE' >&2; exit 13 ;;",
+      "esac",
+      'if [ "$BYTES" -gt "$LIMIT" ]; then printf \'%s\\n\' \'SETTINGS_TOO_LARGE\' >&2; exit 14; fi',
+      "/usr/bin/printf 'PRESENT %s %s\\n' \"$MODE\" \"$BYTES\"",
+      '/usr/bin/base64 < "$SETTINGS"',
+      "",
+    ].join("\n");
+    return makeRemoteCommand("/bin/sh", [
+      "-c",
+      source,
+      "vellum-plan:remote-settings-snapshot",
+    ]);
+  } catch (error) {
+    return Effect.fail(
+      new SshInputError({
+        message: error instanceof Error ? error.message : "snapshot compile failed",
+      }),
+    );
+  }
+};
+
+/**
+ * Stamp settings via framed stdin (vellum-settings-stamp-v1).
+ * Invalidates topology seals after successful install.
+ */
+export const compileRemoteSettingsStamp = (
+  vellumDir: ConfinedRemotePath,
+  settingsPath: ConfinedRemotePath,
+  maxBytes: number,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  try {
+    const limit = assertByteLimit(maxBytes);
+    const dir = shellSingleQuote(inspectPath(vellumDir));
+    const settings = shellSingleQuote(inspectPath(settingsPath));
+    const topologyKey = shellSingleQuote(
+      `${inspectPath(vellumDir)}/topology.key`,
+    );
+    const topologySeal = shellSingleQuote(
+      `${inspectPath(vellumDir)}/topology.seal`,
+    );
+    const source = [
+      "set -eu",
+      `DIR=${dir}`,
+      `SETTINGS=${settings}`,
+      `LIMIT=${limit}`,
+      "IFS= read -r FRAME_VERSION",
+      "IFS= read -r EXPECTED_KIND",
+      "IFS= read -r EXPECTED_MODE",
+      "IFS= read -r EXPECTED_SIZE",
+      "IFS= read -r NEXT_MODE",
+      "IFS= read -r NEXT_SIZE",
+      '[ "$FRAME_VERSION" = "vellum-settings-stamp-v1" ] || exit 32',
+      'case "$EXPECTED_KIND" in PRESENT|ABSENT) ;; *) exit 32 ;; esac',
+      'case "$EXPECTED_MODE:$NEXT_MODE" in',
+      "  [0-7][0-7][0-7]:[0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]:[0-7][0-7][0-7]|[0-7][0-7][0-7]:[0-7][0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]:[0-7][0-7][0-7][0-7]) ;;",
+      "  *) exit 32 ;;",
+      "esac",
+      'case "$EXPECTED_SIZE:$NEXT_SIZE" in',
+      "  *[!0-9:]*|:*|*:) exit 32 ;;",
+      "esac",
+      '[ "$EXPECTED_SIZE" -le "$LIMIT" ] && [ "$NEXT_SIZE" -le "$LIMIT" ] || exit 32',
+      'if [ -L "$DIR" ]; then printf \'%s\\n\' \'SETTINGS_DIR_UNSAFE\' >&2; exit 33; fi',
+      // Invalidate seals before mutation (interrupt → bootstrap, not stale MAC).
+      `/bin/rm -f -- ${topologyKey} ${topologySeal}`,
+      '/bin/mkdir -p -- "$DIR"',
+      'if [ -L "$DIR" ] || [ ! -d "$DIR" ]; then printf \'%s\\n\' \'SETTINGS_DIR_UNSAFE\' >&2; exit 33; fi',
+      'EXPECTED_TMP="$(/usr/bin/mktemp "$SETTINGS.stamp-expected.XXXXXX")"',
+      'NEXT_TMP="$(/usr/bin/mktemp "$SETTINGS.stamp-next.XXXXXX")"',
+      "cleanup_settings_stamp() {",
+      '  /bin/rm -f -- "$EXPECTED_TMP" "$NEXT_TMP"',
+      "}",
+      "trap cleanup_settings_stamp EXIT HUP INT TERM",
+      '/bin/dd bs=1 count="$EXPECTED_SIZE" of="$EXPECTED_TMP" 2>/dev/null',
+      '/bin/dd bs=1 count="$NEXT_SIZE" of="$NEXT_TMP" 2>/dev/null',
+      'EXPECTED_READ="$(/usr/bin/wc -c < "$EXPECTED_TMP" | /usr/bin/tr -d \' \')"',
+      'NEXT_READ="$(/usr/bin/wc -c < "$NEXT_TMP" | /usr/bin/tr -d \' \')"',
+      '[ "$EXPECTED_READ" = "$EXPECTED_SIZE" ] && [ "$NEXT_READ" = "$NEXT_SIZE" ] || exit 32',
+      'TRAILING="$(/bin/dd bs=1 count=1 2>/dev/null | /usr/bin/wc -c | /usr/bin/tr -d \' \')"',
+      '[ "$TRAILING" = "0" ] || exit 32',
+      'if [ "$EXPECTED_KIND" = "PRESENT" ]; then',
+      '  if [ -L "$SETTINGS" ] || [ ! -f "$SETTINGS" ]; then',
+      "    printf '%s\\n' 'SETTINGS_CHANGED_BEFORE_STAMP' >&2",
+      "    exit 34",
+      "  fi",
+      '  CURRENT_MODE="$(/usr/bin/stat -f \'%Lp\' "$SETTINGS" 2>/dev/null || /usr/bin/stat -c \'%a\' "$SETTINGS" 2>/dev/null)"',
+      '  [ "$CURRENT_MODE" = "$EXPECTED_MODE" ] || {',
+      "    printf '%s\\n' 'SETTINGS_CHANGED_BEFORE_STAMP' >&2",
+      "    exit 34",
+      "  }",
+      '  /usr/bin/cmp -s "$SETTINGS" "$EXPECTED_TMP" || {',
+      "    printf '%s\\n' 'SETTINGS_CHANGED_BEFORE_STAMP' >&2",
+      "    exit 34",
+      "  }",
+      "else",
+      '  [ "$EXPECTED_SIZE" = "0" ] || exit 32',
+      '  if [ -e "$SETTINGS" ] || [ -L "$SETTINGS" ]; then',
+      "    printf '%s\\n' 'SETTINGS_CHANGED_BEFORE_STAMP' >&2",
+      "    exit 34",
+      "  fi",
+      "fi",
+      '/bin/chmod "$NEXT_MODE" "$NEXT_TMP"',
+      '/bin/mv -f -- "$NEXT_TMP" "$SETTINGS"',
+      `/bin/rm -f -- ${topologyKey} ${topologySeal}`,
+      "/usr/bin/printf 'STAMPED\\n'",
+      "",
+    ].join("\n");
+    return makeRemoteCommand("/bin/sh", [
+      "-c",
+      source,
+      "vellum-plan:remote-settings-stamp",
+    ]);
+  } catch (error) {
+    return Effect.fail(
+      new SshInputError({
+        message: error instanceof Error ? error.message : "stamp compile failed",
+      }),
+    );
+  }
+};
+
+/** Restore prior settings snapshot via framed stdin (vellum-settings-rollback-v1). */
+export const compileRemoteSettingsRestore = (
+  vellumDir: ConfinedRemotePath,
+  settingsPath: ConfinedRemotePath,
+  maxBytes: number,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  try {
+    const limit = assertByteLimit(maxBytes);
+    const dir = shellSingleQuote(inspectPath(vellumDir));
+    const settings = shellSingleQuote(inspectPath(settingsPath));
+    const source = [
+      "set -eu",
+      `DIR=${dir}`,
+      `SETTINGS=${settings}`,
+      `LIMIT=${limit}`,
+      'if [ -L "$DIR" ] || [ ! -d "$DIR" ]; then printf \'%s\\n\' \'SETTINGS_DIR_UNSAFE\' >&2; exit 21; fi',
+      "IFS= read -r FRAME_VERSION",
+      "IFS= read -r EXPECTED_MODE",
+      "IFS= read -r EXPECTED_SIZE",
+      "IFS= read -r ORIGINAL_KIND",
+      "IFS= read -r ORIGINAL_MODE",
+      "IFS= read -r ORIGINAL_SIZE",
+      '[ "$FRAME_VERSION" = "vellum-settings-rollback-v1" ] || exit 22',
+      'case "$EXPECTED_SIZE:$ORIGINAL_SIZE" in',
+      "  *[!0-9:]*|:*|*:) exit 22 ;;",
+      "esac",
+      'case "$ORIGINAL_KIND" in PRESENT|ABSENT) ;; *) exit 22 ;; esac',
+      'case "$EXPECTED_MODE:$ORIGINAL_MODE" in',
+      "  [0-7][0-7][0-7]:[0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]:[0-7][0-7][0-7]|[0-7][0-7][0-7]:[0-7][0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]:[0-7][0-7][0-7][0-7]) ;;",
+      "  *) exit 22 ;;",
+      "esac",
+      'case "$ORIGINAL_MODE" in',
+      "  [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;",
+      "  *) exit 22 ;;",
+      "esac",
+      '[ "$EXPECTED_SIZE" -le "$LIMIT" ] && [ "$ORIGINAL_SIZE" -le "$LIMIT" ] || exit 22',
+      'EXPECTED_TMP="$(/usr/bin/mktemp "$SETTINGS.rollback-expected.XXXXXX")"',
+      'ORIGINAL_TMP="$(/usr/bin/mktemp "$SETTINGS.rollback-original.XXXXXX")"',
+      "cleanup_settings_rollback() {",
+      '  /bin/rm -f -- "$EXPECTED_TMP" "$ORIGINAL_TMP"',
+      "}",
+      "trap cleanup_settings_rollback EXIT HUP INT TERM",
+      '/bin/dd bs=1 count="$EXPECTED_SIZE" of="$EXPECTED_TMP" 2>/dev/null',
+      '/bin/dd bs=1 count="$ORIGINAL_SIZE" of="$ORIGINAL_TMP" 2>/dev/null',
+      'EXPECTED_READ="$(/usr/bin/wc -c < "$EXPECTED_TMP" | /usr/bin/tr -d \' \')"',
+      'ORIGINAL_READ="$(/usr/bin/wc -c < "$ORIGINAL_TMP" | /usr/bin/tr -d \' \')"',
+      '[ "$EXPECTED_READ" = "$EXPECTED_SIZE" ] && [ "$ORIGINAL_READ" = "$ORIGINAL_SIZE" ] || exit 22',
+      'TRAILING="$(/bin/dd bs=1 count=1 2>/dev/null | /usr/bin/wc -c | /usr/bin/tr -d \' \')"',
+      '[ "$TRAILING" = "0" ] || exit 22',
+      'if [ -L "$SETTINGS" ] || [ ! -f "$SETTINGS" ]; then',
+      "  printf '%s\\n' 'SETTINGS_COMPARE_TARGET_UNSAFE' >&2",
+      "  exit 23",
+      "fi",
+      '  CURRENT_MODE="$(/usr/bin/stat -f \'%Lp\' "$SETTINGS" 2>/dev/null || /usr/bin/stat -c \'%a\' "$SETTINGS" 2>/dev/null)"',
+      'if [ "$CURRENT_MODE" != "$EXPECTED_MODE" ]; then',
+      "  printf '%s\\n' 'SETTINGS_CHANGED_SINCE_STAMP' >&2",
+      "  exit 24",
+      "fi",
+      'if ! /usr/bin/cmp -s "$SETTINGS" "$EXPECTED_TMP"; then',
+      "  printf '%s\\n' 'SETTINGS_CHANGED_SINCE_STAMP' >&2",
+      "  exit 24",
+      "fi",
+      'if [ "$ORIGINAL_KIND" = "PRESENT" ]; then',
+      '  /bin/chmod "$ORIGINAL_MODE" "$ORIGINAL_TMP"',
+      '  /bin/mv -f -- "$ORIGINAL_TMP" "$SETTINGS"',
+      "else",
+      '  [ "$ORIGINAL_SIZE" = "0" ] || exit 22',
+      '  /bin/rm -f -- "$SETTINGS"',
+      "fi",
+      "/usr/bin/printf 'RESTORED\\n'",
+      "",
+    ].join("\n");
+    return makeRemoteCommand("/bin/sh", [
+      "-c",
+      source,
+      "vellum-plan:remote-settings-restore",
+    ]);
+  } catch (error) {
+    return Effect.fail(
+      new SshInputError({
+        message: error instanceof Error ? error.message : "restore compile failed",
+      }),
+    );
+  }
+};

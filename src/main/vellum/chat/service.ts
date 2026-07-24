@@ -897,22 +897,21 @@ export class ChatService {
     this.nextGeneration(agentKey);
     const hadSession = this.sessions.has(agentKey);
     const hadFlight = this.closeFlights.has(agentKey);
-    const receipts = await this.closeCurrent(agentKey);
-    if (receipts.length > 0) {
-      const clean = receipts.every((receipt) => receipt.kind === "terminal");
-      return { ok: clean, clean };
-    }
-    // Empty receipts: only clean when there was never a session/flight and no
-    // unclean tombstone (true no-op). Unclean prior close stays unclean.
-    if (this.uncleanCloses.has(agentKey)) {
-      return { ok: false, clean: false };
-    }
+    // True no-op: no session, no in-flight close. Unclean tombstone must not
+    // become clean-on-retry (doctrine: verified exit).
     if (!hadSession && !hadFlight) {
+      if (this.uncleanCloses.has(agentKey)) {
+        return { ok: false, clean: false };
+      }
       return { ok: true, clean: true };
     }
-    // Had a session that produced empty receipts — treat as unclean.
-    this.uncleanCloses.add(agentKey);
-    return { ok: false, clean: false };
+    const receipts = await this.closeCurrent(agentKey);
+    // Empty receipt list is clean (nothing left to tear down after a settled
+    // close). Non-empty requires every receipt kind === "terminal".
+    const clean = receipts.every((receipt) => receipt.kind === "terminal");
+    if (clean) this.uncleanCloses.delete(agentKey);
+    else this.uncleanCloses.add(agentKey);
+    return { ok: clean, clean };
   }
 
   closeAll(): Promise<ChatCloseAllResult> {

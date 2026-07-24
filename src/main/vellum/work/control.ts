@@ -922,62 +922,61 @@ export const startWorkControlServer = async (
         return;
       }
 
-      // Live authority only — never scan raw .canvas files for capability mint.
-      let liveDocs: ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>;
       try {
-        liveDocs = await options.run(
-          Effect.flatMap(CanvasesService, (c) => c.liveDocuments()),
-        );
-      } catch {
-        respond(
-          socket,
-          workErr(
-            "StaleNodeRef",
-            "live canvas authority is unavailable",
-            {
-              retryable: true,
-              next_step: "open Vellum and ensure canvases are loaded",
+        // Live authority resolve + dispatch are one retained operation so a hung
+        // runtime (including liveDocuments) is visible to drainOnQuit as dispatch.
+        const run = () =>
+          retainOperation(
+            "dispatch",
+            `dispatch:${req.op}`,
+            async (): Promise<Either.Either<WorkErrorBody, unknown>> => {
+              let liveDocs: ReadonlyArray<{
+                readonly canvasName: string;
+                readonly doc: CanvasDoc;
+              }>;
+              try {
+                liveDocs = await options.run(
+                  Effect.flatMap(CanvasesService, (c) => c.liveDocuments()),
+                );
+              } catch {
+                return Either.left({
+                  type: "StaleNodeRef",
+                  message: "live canvas authority is unavailable",
+                  details: {
+                    retryable: true,
+                    next_step: "open Vellum and ensure canvases are loaded",
+                  },
+                });
+              }
+              const callerResolved = resolveCallerAcrossCanvases(
+                liveDocs,
+                identity.principal,
+              );
+              if (!callerResolved.ok) {
+                return Either.left({
+                  type:
+                    callerResolved.code === "ambiguous"
+                      ? "ScopeError"
+                      : "StaleNodeRef",
+                  message: callerResolved.message,
+                  details: {
+                    retryable: false,
+                    next_step:
+                      "ensure exactly one agent|herdr node matches the live process",
+                  },
+                });
+              }
+              const caller = {
+                canvasName: callerResolved.caller.canvasName,
+                nodeId: callerResolved.caller.nodeId,
+              };
+              return options.run(
+                dispatchOp(req.op, req.args, caller, options.version).pipe(
+                  Effect.either,
+                ),
+              ) as Promise<Either.Either<WorkErrorBody, unknown>>;
             },
-            req.op,
-            req.id,
-          ),
-        );
-        return;
-      }
-      const callerResolved = resolveCallerAcrossCanvases(
-        liveDocs,
-        identity.principal,
-      );
-      if (!callerResolved.ok) {
-        respond(
-          socket,
-          workErr(
-            callerResolved.code === "ambiguous" ? "ScopeError" : "StaleNodeRef",
-            callerResolved.message,
-            {
-              retryable: false,
-              next_step: "ensure exactly one agent|herdr node matches the live process",
-            },
-            req.op,
-            req.id,
-          ),
-        );
-        return;
-      }
-
-      const caller = {
-        canvasName: callerResolved.caller.canvasName,
-        nodeId: callerResolved.caller.nodeId,
-      };
-
-      try {
-        const run = () => retainOperation(
-          "dispatch",
-          `dispatch:${req.op}`,
-          () => options.run(
-            dispatchOp(req.op, req.args, caller, options.version).pipe(Effect.either),
-          ),
-        );
+          );
         const authoringLabel = mainAuthoringLabelForWorkOperation(req.op);
         // Both read and authorial operations retain their actual runtime
         // promise even if this socket goes away before the response is written.
@@ -988,7 +987,7 @@ export const startWorkControlServer = async (
           : await authoringGate.run(authoringLabel, run);
 
         if (Either.isLeft(outcome)) {
-          const body = outcome.left;
+          const body = outcome.left as WorkErrorBody;
           respond(
             socket,
             workErr(body.type, body.message, body.details, req.op, req.id),

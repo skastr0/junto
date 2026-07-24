@@ -15,13 +15,19 @@ import {
 import type { RemoteHost } from "@shared/remote-hosts";
 import { RemoteHostsError } from "@shared/remote-hosts";
 import {
-  makeRemoteCommand,
   makeRemoteStdin,
   parseSshEndpoint,
   type SshError,
 } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, oneShotWithStdin } from "../ssh/program";
 import { SshTransport } from "../ssh/service";
+import {
+  compileRemoteSettingsRestore,
+  compileRemoteSettingsSnapshot,
+  compileRemoteSettingsStamp,
+  confineVellumDirectory,
+  confineVellumLeaf,
+} from "../ssh/remote-plan";
 import { migrateSettingsDocument } from "../settings/migrate";
 import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
 
@@ -49,177 +55,6 @@ type SnapshotState = {
 };
 
 const snapshotStates = new WeakMap<RemoteSettingsSnapshot, SnapshotState>();
-
-const SNAPSHOT_SCRIPT = `
-set -eu
-DIR="$1"
-SETTINGS="$2"
-LIMIT="$3"
-if [ -L "$DIR" ]; then
-  echo "SETTINGS_DIR_IS_SYMLINK" >&2
-  exit 11
-fi
-if [ ! -e "$SETTINGS" ] && [ ! -L "$SETTINGS" ]; then
-  /usr/bin/printf 'ABSENT\n'
-  exit 0
-fi
-if [ -L "$SETTINGS" ] || [ ! -f "$SETTINGS" ]; then
-  echo "SETTINGS_PATH_NOT_REGULAR" >&2
-  exit 12
-fi
-MODE="$(/usr/bin/stat -f '%Lp' "$SETTINGS" 2>/dev/null || /usr/bin/stat -c '%a' "$SETTINGS" 2>/dev/null)"
-case "$MODE" in
-  [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;
-  *) echo "SETTINGS_MODE_UNREADABLE" >&2; exit 13 ;;
-esac
-BYTES="$(/usr/bin/wc -c < "$SETTINGS" | /usr/bin/tr -d ' ')"
-case "$BYTES" in
-  ''|*[!0-9]*) echo "SETTINGS_SIZE_UNREADABLE" >&2; exit 13 ;;
-esac
-if [ "$BYTES" -gt "$LIMIT" ]; then
-  echo "SETTINGS_TOO_LARGE" >&2
-  exit 14
-fi
-/usr/bin/printf 'PRESENT %s %s\n' "$MODE" "$BYTES"
-/usr/bin/base64 < "$SETTINGS"
-`.trim();
-
-const STAMP_SCRIPT = `
-set -eu
-DIR="$1"
-SETTINGS="$2"
-LIMIT="$3"
-IFS= read -r FRAME_VERSION
-IFS= read -r EXPECTED_KIND
-IFS= read -r EXPECTED_MODE
-IFS= read -r EXPECTED_SIZE
-IFS= read -r NEXT_MODE
-IFS= read -r NEXT_SIZE
-[ "$FRAME_VERSION" = "vellum-settings-stamp-v1" ] || exit 32
-case "$EXPECTED_KIND" in PRESENT|ABSENT) ;; *) exit 32 ;; esac
-case "$EXPECTED_MODE:$NEXT_MODE" in
-  [0-7][0-7][0-7]:[0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]:[0-7][0-7][0-7]|[0-7][0-7][0-7]:[0-7][0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]:[0-7][0-7][0-7][0-7]) ;;
-  *) exit 32 ;;
-esac
-case "$EXPECTED_SIZE:$NEXT_SIZE" in
-  *[!0-9:]*|:*|*:) exit 32 ;;
-esac
-[ "$EXPECTED_SIZE" -le "$LIMIT" ] && [ "$NEXT_SIZE" -le "$LIMIT" ] || exit 32
-if [ -L "$DIR" ]; then
-  echo "SETTINGS_DIR_UNSAFE" >&2
-  exit 33
-fi
-/bin/mkdir -p "$DIR"
-if [ -L "$DIR" ] || [ ! -d "$DIR" ]; then
-  echo "SETTINGS_DIR_UNSAFE" >&2
-  exit 33
-fi
-EXPECTED_TMP="$(/usr/bin/mktemp "$SETTINGS.stamp-expected.XXXXXX")"
-NEXT_TMP="$(/usr/bin/mktemp "$SETTINGS.stamp-next.XXXXXX")"
-cleanup_settings_stamp() {
-  /bin/rm -f -- "$EXPECTED_TMP" "$NEXT_TMP"
-}
-trap cleanup_settings_stamp EXIT HUP INT TERM
-/bin/dd bs=1 count="$EXPECTED_SIZE" of="$EXPECTED_TMP" 2>/dev/null
-/bin/dd bs=1 count="$NEXT_SIZE" of="$NEXT_TMP" 2>/dev/null
-EXPECTED_READ="$(/usr/bin/wc -c < "$EXPECTED_TMP" | /usr/bin/tr -d ' ')"
-NEXT_READ="$(/usr/bin/wc -c < "$NEXT_TMP" | /usr/bin/tr -d ' ')"
-[ "$EXPECTED_READ" = "$EXPECTED_SIZE" ] && [ "$NEXT_READ" = "$NEXT_SIZE" ] || exit 32
-TRAILING="$(/bin/dd bs=1 count=1 2>/dev/null | /usr/bin/wc -c | /usr/bin/tr -d ' ')"
-[ "$TRAILING" = "0" ] || exit 32
-if [ "$EXPECTED_KIND" = "PRESENT" ]; then
-  if [ -L "$SETTINGS" ] || [ ! -f "$SETTINGS" ]; then
-    echo "SETTINGS_CHANGED_BEFORE_STAMP" >&2
-    exit 34
-  fi
-  CURRENT_MODE="$(/usr/bin/stat -f '%Lp' "$SETTINGS" 2>/dev/null || /usr/bin/stat -c '%a' "$SETTINGS" 2>/dev/null)"
-  [ "$CURRENT_MODE" = "$EXPECTED_MODE" ] || {
-    echo "SETTINGS_CHANGED_BEFORE_STAMP" >&2
-    exit 34
-  }
-  /usr/bin/cmp -s "$SETTINGS" "$EXPECTED_TMP" || {
-    echo "SETTINGS_CHANGED_BEFORE_STAMP" >&2
-    exit 34
-  }
-else
-  [ "$EXPECTED_SIZE" = "0" ] || exit 32
-  if [ -e "$SETTINGS" ] || [ -L "$SETTINGS" ]; then
-    echo "SETTINGS_CHANGED_BEFORE_STAMP" >&2
-    exit 34
-  fi
-fi
-/bin/chmod "$NEXT_MODE" "$NEXT_TMP"
-/bin/mv -f "$NEXT_TMP" "$SETTINGS"
-# Operator-initiated CC stamp: invalidate remote topology seal so next app
-# start bootstraps a seal over the stamped role (see topology-seal.ts).
-/bin/rm -f -- "$DIR/topology.key" "$DIR/topology.seal"
-/usr/bin/printf 'STAMPED\n'
-`.trim();
-
-const RESTORE_SCRIPT = `
-set -eu
-DIR="$1"
-SETTINGS="$2"
-LIMIT="$3"
-if [ -L "$DIR" ] || [ ! -d "$DIR" ]; then
-  echo "SETTINGS_DIR_UNSAFE" >&2
-  exit 21
-fi
-IFS= read -r FRAME_VERSION
-IFS= read -r EXPECTED_MODE
-IFS= read -r EXPECTED_SIZE
-IFS= read -r ORIGINAL_KIND
-IFS= read -r ORIGINAL_MODE
-IFS= read -r ORIGINAL_SIZE
-[ "$FRAME_VERSION" = "vellum-settings-rollback-v1" ] || exit 22
-case "$EXPECTED_SIZE:$ORIGINAL_SIZE" in
-  *[!0-9:]*|:*|*:) exit 22 ;;
-esac
-case "$ORIGINAL_KIND" in PRESENT|ABSENT) ;; *) exit 22 ;; esac
-case "$EXPECTED_MODE:$ORIGINAL_MODE" in
-  [0-7][0-7][0-7]:[0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]:[0-7][0-7][0-7]|[0-7][0-7][0-7]:[0-7][0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]:[0-7][0-7][0-7][0-7]) ;;
-  *) exit 22 ;;
-esac
-case "$ORIGINAL_MODE" in
-  [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;
-  *) exit 22 ;;
-esac
-[ "$EXPECTED_SIZE" -le "$LIMIT" ] && [ "$ORIGINAL_SIZE" -le "$LIMIT" ] || exit 22
-EXPECTED_TMP="$(/usr/bin/mktemp "$SETTINGS.rollback-expected.XXXXXX")"
-ORIGINAL_TMP="$(/usr/bin/mktemp "$SETTINGS.rollback-original.XXXXXX")"
-cleanup_settings_rollback() {
-  /bin/rm -f -- "$EXPECTED_TMP" "$ORIGINAL_TMP"
-}
-trap cleanup_settings_rollback EXIT HUP INT TERM
-/bin/dd bs=1 count="$EXPECTED_SIZE" of="$EXPECTED_TMP" 2>/dev/null
-/bin/dd bs=1 count="$ORIGINAL_SIZE" of="$ORIGINAL_TMP" 2>/dev/null
-EXPECTED_READ="$(/usr/bin/wc -c < "$EXPECTED_TMP" | /usr/bin/tr -d ' ')"
-ORIGINAL_READ="$(/usr/bin/wc -c < "$ORIGINAL_TMP" | /usr/bin/tr -d ' ')"
-[ "$EXPECTED_READ" = "$EXPECTED_SIZE" ] && [ "$ORIGINAL_READ" = "$ORIGINAL_SIZE" ] || exit 22
-TRAILING="$(/bin/dd bs=1 count=1 2>/dev/null | /usr/bin/wc -c | /usr/bin/tr -d ' ')"
-[ "$TRAILING" = "0" ] || exit 22
-if [ -L "$SETTINGS" ] || [ ! -f "$SETTINGS" ]; then
-  echo "SETTINGS_COMPARE_TARGET_UNSAFE" >&2
-  exit 23
-fi
-CURRENT_MODE="$(/usr/bin/stat -f '%Lp' "$SETTINGS" 2>/dev/null || /usr/bin/stat -c '%a' "$SETTINGS" 2>/dev/null)"
-[ "$CURRENT_MODE" = "$EXPECTED_MODE" ] || {
-  echo "SETTINGS_CHANGED_SINCE_STAMP" >&2
-  exit 24
-}
-/usr/bin/cmp -s "$SETTINGS" "$EXPECTED_TMP" || {
-  echo "SETTINGS_CHANGED_SINCE_STAMP" >&2
-  exit 24
-}
-if [ "$ORIGINAL_KIND" = "PRESENT" ]; then
-  /bin/chmod "$ORIGINAL_MODE" "$ORIGINAL_TMP"
-  /bin/mv -f "$ORIGINAL_TMP" "$SETTINGS"
-else
-  [ "$ORIGINAL_SIZE" = "0" ] || exit 22
-  /bin/rm -f -- "$SETTINGS"
-fi
-/usr/bin/printf 'RESTORED\n'
-`.trim();
 
 const describeSshError = (error: unknown): string => {
   if (error && typeof error === "object" && "_tag" in error) {
@@ -351,16 +186,22 @@ export const captureRemoteSettingsSnapshot = (
         ),
       );
     }
-    const directoryPath = posix.join(remoteHome, ".vellum");
-    const settingsPath = posix.join(directoryPath, "settings.json");
-    const command = yield* makeRemoteCommand("/bin/sh", [
-      "-c",
-      SNAPSHOT_SCRIPT,
-      "vellum-settings-snapshot",
-      directoryPath,
-      settingsPath,
-      String(SETTINGS_MAX_FILE_BYTES),
-    ]).pipe(
+    const vellumDir = yield* confineVellumDirectory(remoteHome).pipe(
+      Effect.mapError(
+        (error) => new RemoteHostsError("validation", error.message),
+      ),
+    );
+    const settingsLeaf = yield* confineVellumLeaf(vellumDir, "settings.json").pipe(
+      Effect.mapError(
+        (error) => new RemoteHostsError("validation", error.message),
+      ),
+    );
+    const settingsPath = settingsLeaf.value;
+    const command = yield* compileRemoteSettingsSnapshot(
+      vellumDir,
+      settingsLeaf,
+      SETTINGS_MAX_FILE_BYTES,
+    ).pipe(
       Effect.mapError(
         (error) => new RemoteHostsError("validation", error.message),
       ),
@@ -551,15 +392,27 @@ export const stampRemoteSettingsSnapshot = (
         (error) => new RemoteHostsError("validation", error.message),
       ),
     );
-    const directoryPath = posix.dirname(before.settingsPath);
-    const command = yield* makeRemoteCommand("/bin/sh", [
-      "-c",
-      STAMP_SCRIPT,
-      "vellum-settings-stamp",
-      directoryPath,
-      before.settingsPath,
-      String(SETTINGS_MAX_FILE_BYTES),
-    ]).pipe(
+    // before.settingsPath is always <home>/.vellum/settings.json
+    const vellumDir = yield* confineVellumDirectory(
+      // settings path is always <home>/.vellum/settings.json
+      before.settingsPath.endsWith("/.vellum/settings.json")
+        ? before.settingsPath.slice(0, -("/.vellum/settings.json".length))
+        : posix.dirname(posix.dirname(before.settingsPath)),
+    ).pipe(
+      Effect.mapError(
+        (error) => new RemoteHostsError("validation", error.message),
+      ),
+    );
+    const settingsLeaf = yield* confineVellumLeaf(vellumDir, "settings.json").pipe(
+      Effect.mapError(
+        (error) => new RemoteHostsError("validation", error.message),
+      ),
+    );
+    const command = yield* compileRemoteSettingsStamp(
+      vellumDir,
+      settingsLeaf,
+      SETTINGS_MAX_FILE_BYTES,
+    ).pipe(
       Effect.mapError(
         (error) => new RemoteHostsError("validation", error.message),
       ),
@@ -657,15 +510,25 @@ export const restoreRemoteSettingsSnapshot = (
         (error) => new RemoteHostsError("validation", error.message),
       ),
     );
-    const directoryPath = posix.dirname(before.settingsPath);
-    const command = yield* makeRemoteCommand("/bin/sh", [
-      "-c",
-      RESTORE_SCRIPT,
-      "vellum-settings-rollback",
-      directoryPath,
-      before.settingsPath,
-      String(SETTINGS_MAX_FILE_BYTES),
-    ]).pipe(
+    const vellumDir = yield* confineVellumDirectory(
+      before.settingsPath.endsWith("/.vellum/settings.json")
+        ? before.settingsPath.slice(0, -("/.vellum/settings.json".length))
+        : posix.dirname(posix.dirname(before.settingsPath)),
+    ).pipe(
+      Effect.mapError(
+        (error) => new RemoteHostsError("validation", error.message),
+      ),
+    );
+    const settingsLeaf = yield* confineVellumLeaf(vellumDir, "settings.json").pipe(
+      Effect.mapError(
+        (error) => new RemoteHostsError("validation", error.message),
+      ),
+    );
+    const command = yield* compileRemoteSettingsRestore(
+      vellumDir,
+      settingsLeaf,
+      SETTINGS_MAX_FILE_BYTES,
+    ).pipe(
       Effect.mapError(
         (error) => new RemoteHostsError("validation", error.message),
       ),

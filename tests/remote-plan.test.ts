@@ -4,6 +4,9 @@ import { inspectRemoteCommand } from "../src/main/vellum/ssh/domain";
 import {
   compileRemotePlan,
   compileRemotePlanSource,
+  compileRemoteSettingsRestore,
+  compileRemoteSettingsSnapshot,
+  compileRemoteSettingsStamp,
   confineVellumDirectory,
   confineVellumLeaf,
   remotePlanPathFootprint,
@@ -100,5 +103,39 @@ describe("remote-station-settings-install plan", () => {
     expect(source.indexOf("path is a symlink")).toBeLessThan(
       source.indexOf("cat >"),
     );
+  });
+});
+
+describe("remote settings snapshot/stamp/restore compilers", () => {
+  it("snapshot embeds only confined paths and rejects free path injection", () => {
+    const dir = run(confineVellumDirectory("/home/station"));
+    const settings = run(confineVellumLeaf(dir, "settings.json"));
+    const cmd = run(compileRemoteSettingsSnapshot(dir, settings, 65_536));
+    const parts = inspectRemoteCommand(cmd);
+    expect(parts.args[1]).toContain("/home/station/.vellum/settings.json");
+    expect(parts.args[1]).not.toContain("$1");
+    expect(parts.args[1]).not.toContain("rm -rf");
+    expect(parts.args[2]).toBe("vellum-plan:remote-settings-snapshot");
+  });
+
+  it("stamp invalidates topology seals and uses confined settings path", () => {
+    const dir = run(confineVellumDirectory("/home/station"));
+    const settings = run(confineVellumLeaf(dir, "settings.json"));
+    const cmd = run(compileRemoteSettingsStamp(dir, settings, 65_536));
+    const src = inspectRemoteCommand(cmd).args[1]!;
+    expect(src).toContain("topology.key");
+    expect(src).toContain("topology.seal");
+    expect(src).toContain("STAMPED");
+    expect(src).not.toMatch(/rm\s+-rf\s+\//);
+  });
+
+  it("restore is confined and has no recursive delete", () => {
+    const dir = run(confineVellumDirectory("/var/home/op"));
+    const settings = run(confineVellumLeaf(dir, "settings.json"));
+    const cmd = run(compileRemoteSettingsRestore(dir, settings, 1024));
+    const src = inspectRemoteCommand(cmd).args[1]!;
+    expect(src).toContain("/var/home/op/.vellum/settings.json");
+    expect(src).toContain("RESTORED");
+    expect(src).not.toMatch(/rm\s+-r[f\s]/);
   });
 });

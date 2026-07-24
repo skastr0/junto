@@ -688,10 +688,16 @@ describe("chatClose", () => {
     const { spawnFn, children } = fakeSpawn();
     const service = new ChatService(spawnFn);
     await openHappyPath(service, children);
+    const child = children[0]!;
+    child.kill.mockImplementation((_signal?: NodeJS.Signals) => {
+      child.emit("exit", 0);
+      child.emit("close", 0);
+      return true;
+    });
 
     const closeResult = await service.chatClose("local:default");
-    expect(closeResult).toEqual({ ok: true });
-    expect(children[0]!.kill).toHaveBeenCalledTimes(1);
+    expect(closeResult).toEqual({ ok: true, clean: true });
+    expect(child.kill).toHaveBeenCalled();
 
     const { result: reopened } = await openHappyPath(service, children, "local:default", { sessionId: "sess-2" });
     expect(children).toHaveLength(2);
@@ -705,7 +711,10 @@ describe("chatClose", () => {
 
   it("is a no-op ok:true when nothing is open", async () => {
     const service = new ChatService(noSpawn);
-    expect(await service.chatClose("local:default")).toEqual({ ok: true });
+    expect(await service.chatClose("local:default")).toEqual({
+      ok: true,
+      clean: true,
+    });
   });
 });
 
