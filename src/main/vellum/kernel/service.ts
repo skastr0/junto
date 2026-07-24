@@ -513,7 +513,7 @@ const makeKernelService = (
       if (started) return;
       started = true;
       void (async () => {
-        await pause.start();
+        await Effect.runPromise(pause.start);
         await hydrateArming();
         await hydrateAllDocs();
         void Effect.runPromise(refreshWithIdentityHints());

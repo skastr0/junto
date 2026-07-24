@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Either, Layer, Ref, Schema } from "effect";
 import { StoreService } from "../services/store";
 import { PAUSED_CANVAS, type CanvasPauseState, type PauseScope } from "@shared/pause";
 
@@ -24,23 +24,30 @@ type StoredRecord = {
 };
 type StoredMap = Record<string, StoredRecord>;
 
-export type PauseWriteResult = { readonly ok: true } | { readonly ok: false; readonly error: string };
+/** A pause write that could not land: store fault at hydration or on persist. */
+export class PauseStoreError extends Schema.TaggedError<PauseStoreError>()(
+  "PauseStoreError",
+  { message: Schema.String },
+) {}
 
 export class PausePlane extends Context.Tag("vellum/PausePlane")<
   PausePlane,
   {
     /** Hydrate from store. Idempotent. */
-    readonly start: () => Promise<void>;
+    readonly start: Effect.Effect<void>;
     /** Sync hot read — unknown canvas is the born-paused default. */
     readonly stateFor: (canvas: string) => CanvasPauseState;
     /** Canvas play/pause. Playing stamps everPlayed. Store-first. */
-    readonly setPlaying: (canvas: string, playing: boolean) => Promise<PauseWriteResult>;
+    readonly setPlaying: (
+      canvas: string,
+      playing: boolean,
+    ) => Effect.Effect<void, PauseStoreError>;
     /** Node/region pause. Canvas scope routes to setPlaying(!paused). */
     readonly setScopePaused: (
       canvas: string,
       scope: PauseScope,
       paused: boolean,
-    ) => Promise<PauseWriteResult>;
+    ) => Effect.Effect<void, PauseStoreError>;
     readonly subscribe: (listener: (canvas: string) => void) => () => void;
   }
 >() {}
@@ -74,85 +81,115 @@ const withMember = (
  * never for pause-behavior tests.
  */
 export const PausePlaneAllPlaying = Layer.succeed(PausePlane, {
-  start: async () => {},
+  start: Effect.void,
   stateFor: () => ({ playing: true, everPlayed: true, pausedNodes: [], pausedRegions: [] }),
-  setPlaying: async () => ({ ok: true }),
-  setScopePaused: async () => ({ ok: true }),
+  setPlaying: () => Effect.void,
+  setScopePaused: () => Effect.void,
   subscribe: () => () => {},
 });
+
+type PlaneMemory = {
+  readonly hydrated: boolean;
+  readonly canvases: ReadonlyMap<string, CanvasPauseState>;
+  /** Set when the store could not be read at hydration — every write refuses. */
+  readonly fault: string | undefined;
+};
 
 export const PausePlaneLive = Layer.effect(
   PausePlane,
   Effect.gen(function* () {
     const store = yield* StoreService;
-    const memory = new Map<string, CanvasPauseState>();
-    const listeners = new Set<(canvas: string) => void>();
-    let fault: string | undefined;
-    let hydrated = false;
+    const memory = yield* Ref.make<PlaneMemory>({
+      hydrated: false,
+      canvases: new Map(),
+      fault: undefined,
+    });
+    const listeners = yield* Ref.make<ReadonlySet<(canvas: string) => void>>(new Set());
+    // Persist is a read-compose-write-update transaction over the whole map;
+    // one permit keeps concurrent writes from composing against a stale read.
+    const persistLock = yield* Effect.makeSemaphore(1);
 
-    const start = async (): Promise<void> => {
-      if (hydrated) return;
-      hydrated = true;
-      const read = await Effect.runPromise(
-        Effect.either(store.get<StoredMap>(PAUSE_STORE_KEY)),
+    const start = Effect.gen(function* () {
+      const alreadyHydrated = yield* Ref.modify(
+        memory,
+        (current) => [current.hydrated, { ...current, hydrated: true }] as const,
       );
-      if (read._tag === "Left") {
-        fault = `pause store unreadable: ${read.left.message}`;
-        console.error(`[pause] ${fault} — every canvas reads paused; writes refused`);
+      if (alreadyHydrated) return;
+      const read = yield* Effect.either(store.get<StoredMap>(PAUSE_STORE_KEY));
+      if (Either.isLeft(read)) {
+        const fault = `pause store unreadable: ${read.left.message}`;
+        yield* Effect.sync(() =>
+          console.error(`[pause] ${fault} — every canvas reads paused; writes refused`),
+        );
+        yield* Ref.update(memory, (current) => ({ ...current, fault }));
         return;
       }
+      const canvases = new Map<string, CanvasPauseState>();
       for (const [canvas, record] of Object.entries(read.right ?? {})) {
-        memory.set(canvas, decode(record));
+        canvases.set(canvas, decode(record));
       }
-    };
+      yield* Ref.update(memory, (current) => ({ ...current, canvases }));
+    });
 
+    // Sync hot read for kernel cycle + work control dispatch. Effect.runSync
+    // over a Ref read is the house-legal sync boundary (KernelService
+    // .getSnapshot precedent) — never blocks, never suspends.
     const stateFor = (canvas: string): CanvasPauseState =>
-      memory.get(canvas) ?? PAUSED_CANVAS;
+      Effect.runSync(Ref.get(memory)).canvases.get(canvas) ?? PAUSED_CANVAS;
 
-    const persist = async (
+    // Store-first: the whole map (with `next` swapped in) lands on disk before
+    // memory mutates, so a failed write changes nothing anywhere.
+    const persist = (
       canvas: string,
-      next: CanvasPauseState,
-    ): Promise<PauseWriteResult> => {
-      if (fault !== undefined) return { ok: false, error: fault };
-      const whole: StoredMap = {};
-      for (const [name, state] of memory) whole[name] = encode(state);
-      whole[canvas] = encode(next);
-      const wrote = await Effect.runPromise(
-        Effect.either(store.set(PAUSE_STORE_KEY, whole)),
+      compute: (current: CanvasPauseState) => CanvasPauseState,
+    ): Effect.Effect<void, PauseStoreError> =>
+      persistLock.withPermits(1)(
+        Effect.gen(function* () {
+          const current = yield* Ref.get(memory);
+          if (current.fault !== undefined) {
+            return yield* new PauseStoreError({ message: current.fault });
+          }
+          const next = compute(current.canvases.get(canvas) ?? PAUSED_CANVAS);
+          const whole: StoredMap = {};
+          for (const [name, state] of current.canvases) whole[name] = encode(state);
+          whole[canvas] = encode(next);
+          yield* store.set(PAUSE_STORE_KEY, whole).pipe(
+            Effect.mapError(
+              (error) =>
+                new PauseStoreError({
+                  message: `pause not saved (${error.message}) — nothing changed`,
+                }),
+            ),
+          );
+          yield* Ref.update(memory, (state) => ({
+            ...state,
+            canvases: new Map(state.canvases).set(canvas, next),
+          }));
+          const notify = yield* Ref.get(listeners);
+          yield* Effect.sync(() => {
+            for (const listener of notify) listener(canvas);
+          });
+        }),
       );
-      if (wrote._tag === "Left") {
-        return {
-          ok: false,
-          error: `pause not saved (${wrote.left.message}) — nothing changed`,
-        };
-      }
-      memory.set(canvas, next);
-      for (const listener of listeners) listener(canvas);
-      return { ok: true };
-    };
 
-    const setPlaying = (canvas: string, playing: boolean): Promise<PauseWriteResult> => {
-      const current = stateFor(canvas);
-      return persist(canvas, {
+    const setPlaying = (canvas: string, playing: boolean) =>
+      persist(canvas, (current) => ({
         ...current,
         playing,
         everPlayed: current.everPlayed || playing,
-      });
-    };
+      }));
 
-    const setScopePaused = (
-      canvas: string,
-      scope: PauseScope,
-      paused: boolean,
-    ): Promise<PauseWriteResult> => {
-      if (scope.kind === "canvas") return setPlaying(canvas, !paused);
-      const current = stateFor(canvas);
-      const next: CanvasPauseState =
-        scope.kind === "node"
-          ? { ...current, pausedNodes: withMember(current.pausedNodes, scope.id, paused) }
-          : { ...current, pausedRegions: withMember(current.pausedRegions, scope.id, paused) };
-      return persist(canvas, next);
-    };
+    const setScopePaused = (canvas: string, scope: PauseScope, paused: boolean) =>
+      scope.kind === "canvas"
+        ? setPlaying(canvas, !paused)
+        : persist(canvas, (current) =>
+            scope.kind === "node"
+              ? { ...current, pausedNodes: withMember(current.pausedNodes, scope.id, paused) }
+              : {
+                  ...current,
+                  pausedRegions: withMember(current.pausedRegions, scope.id, paused),
+                },
+          );
 
     return {
       start,
@@ -160,9 +197,15 @@ export const PausePlaneLive = Layer.effect(
       setPlaying,
       setScopePaused,
       subscribe: (listener) => {
-        listeners.add(listener);
+        Effect.runSync(Ref.update(listeners, (set) => new Set(set).add(listener)));
         return () => {
-          listeners.delete(listener);
+          Effect.runSync(
+            Ref.update(listeners, (set) => {
+              const next = new Set(set);
+              next.delete(listener);
+              return next;
+            }),
+          );
         };
       },
     };
