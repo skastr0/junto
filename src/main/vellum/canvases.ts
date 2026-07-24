@@ -11,6 +11,10 @@ import {
   CANVAS_NAME_MAX_LENGTH,
 } from "@shared/canvas-name";
 import { SEED_CANVAS_NAME } from "@shared/seed";
+import {
+  commitAuthorityGeneration,
+  loadAuthoritySnapshot,
+} from "./canvas-authority/store";
 
 export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
   message: Schema.String,
@@ -186,14 +190,16 @@ export const writeCanvasSidecar = async (
 };
 
 // The document plane. All writes go through validate -> mirror law ->
-// canonical serialize -> atomic write (tmp + rename).
+// canonical serialize -> atomic write (tmp + rename) -> authority generation.
 //
 // Doctrine (security-doctrine.md § protected operator-intent plane):
 // Live authorization authority is the in-process live document map, not raw
-// disk bytes. Disk is durability + import/export material. A one-time bootstrap
-// load admits existing files at process start; after that, only app-owned
-// write/create/remove/mutate update live authority. External file edits never
-// mint edges, agent cards, or work-control capability.
+// disk bytes. Durable authority is canvas-authority-v1 (content-addressed
+// generations under current.json). Legacy ~/.vellum/canvases remains a
+// dual-path mirror for migration/export. A one-time bootstrap prefers a valid
+// authority pointer; otherwise it admits legacy .canvas files. After that,
+// only app-owned write/create/remove/mutate update live authority. External
+// file edits never mint edges, agent cards, or work-control capability.
 export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
   CanvasesService,
   {
@@ -253,6 +259,7 @@ const canvasFileName = (name: CanvasName) => `${name}.canvas`;
 
 export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const listeners = new Set<(name: string) => void>();
+  const textEncoder = new TextEncoder();
 
   // Live operator-intent authority. Disk durability is separate; external
   // edits to .canvas files never update this map after bootstrap.
@@ -264,6 +271,8 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const liveAuthority = new Map<string, LiveAuthority>();
   let bootstrapPromise: Promise<void> | undefined;
   let bootstrapped = false;
+  /** Last committed authority generation (BigInt). Next commit is +1n. */
+  let authorityGeneration = 0n;
 
   // Per-canvas-file write mutex: overlapping write() calls for the same
   // name queue behind each other instead of racing the same tmp file. Each
@@ -285,6 +294,17 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     return settled;
   };
 
+  // Global queue for authority generations (store API: single writer).
+  let authorityMutex: Promise<void> = Promise.resolve();
+  const withAuthorityMutex = <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = authorityMutex.then(fn, fn);
+    authorityMutex = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
+
   const notifyListeners = (name: CanvasName): void => {
     for (const listener of listeners) {
       try {
@@ -300,15 +320,12 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const revisionOf = (raw: string): string =>
     createHash("sha256").update(raw, "utf8").digest("hex");
 
-  // One-time bootstrap from disk at process start. Subsequent external file
-  // edits are ignored for live authority (security doctrine).
-  const decodeDiskDocument = async (
-    root: string,
+  const decodeDocumentBytes = (
     name: CanvasName,
-  ): Promise<LiveAuthority> => {
-    const path = canvasDocumentPathIn(root, name);
-    await assertRegularOrMissing(path);
-    const raw = await readFile(path, "utf8");
+    path: string,
+    bytes: Uint8Array,
+  ): LiveAuthority => {
+    const raw = new TextDecoder().decode(bytes);
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -328,31 +345,117 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     return { doc: decoded.right, revision: revisionOf(raw), path };
   };
 
+  /**
+   * Commit the full live map as the next sequential authority generation.
+   * Caller must already have updated `liveAuthority` to the desired snapshot.
+   */
+  const commitLiveAuthorityGeneration = async (): Promise<void> =>
+    withAuthorityMutex(async () => {
+      const documents = new Map<string, Uint8Array>();
+      for (const [name, entry] of liveAuthority) {
+        documents.set(name, textEncoder.encode(serializeCanvas(entry.doc)));
+      }
+      const nextGeneration = (authorityGeneration + 1n).toString();
+      await commitAuthorityGeneration({
+        generation: nextGeneration,
+        createdAt: new Date().toISOString(),
+        documents,
+      });
+      authorityGeneration = BigInt(nextGeneration);
+    });
+
+  // One-time bootstrap. Prefer a valid canvas-authority-v1 pointer; else
+  // legacy canvasesDir. Subsequent external file edits are ignored for live
+  // authority (security doctrine).
+  const decodeDiskDocument = async (
+    root: string,
+    name: CanvasName,
+  ): Promise<LiveAuthority> => {
+    const path = canvasDocumentPathIn(root, name);
+    await assertRegularOrMissing(path);
+    const raw = await readFile(path, "utf8");
+    return decodeDocumentBytes(name, path, textEncoder.encode(raw));
+  };
+
+  const bootstrapFromLegacyDir = async (root: string): Promise<void> => {
+    let files: string[] = [];
+    try {
+      files = (await readdir(root)).filter((file) => file.endsWith(".canvas"));
+    } catch {
+      files = [];
+    }
+    for (const file of files) {
+      let name: CanvasName;
+      try {
+        name = canvasNameFrom(basename(file, ".canvas"));
+      } catch {
+        continue;
+      }
+      try {
+        await assertRegularOrMissing(canvasDocumentPathIn(root, name));
+        const entry = await decodeDiskDocument(root, name);
+        liveAuthority.set(name, entry);
+      } catch {
+        // Skip unreadable / non-regular entries rather than refusing boot.
+      }
+    }
+    // No pointer yet — first successful write commits generation 1.
+    authorityGeneration = 0n;
+  };
+
+  const bootstrapFromAuthorityStore = async (
+    root: string,
+  ): Promise<boolean> => {
+    let snapshot: Awaited<ReturnType<typeof loadAuthoritySnapshot>>;
+    try {
+      snapshot = await loadAuthoritySnapshot();
+    } catch (error) {
+      // Corrupt pointer fails closed at the store API; dual-path beta falls
+      // back to legacy canvasesDir rather than refusing process start.
+      console.error(
+        "[canvases] authority store unreadable; falling back to legacy canvasesDir:",
+        error,
+      );
+      return false;
+    }
+    if (snapshot === undefined) return false;
+
+    for (const [rawName, bytes] of snapshot.documents) {
+      let name: CanvasName;
+      try {
+        name = canvasNameFrom(rawName);
+      } catch {
+        console.error(
+          `[canvases] authority document skipped (invalid name): ${rawName}`,
+        );
+        continue;
+      }
+      try {
+        // Live path still points at the dual-path mirror location, but boot
+        // must not rewrite legacy disk: Remote pull deletes stale files
+        // before admit, and a silent re-mirror would resurrect them.
+        const path = canvasDocumentPathIn(root, name);
+        const entry = decodeDocumentBytes(name, path, bytes);
+        liveAuthority.set(name, entry);
+      } catch (error) {
+        console.error(
+          `[canvases] authority document skipped (${name}):`,
+          error,
+        );
+      }
+    }
+    authorityGeneration = BigInt(snapshot.pointer.generation);
+    return true;
+  };
+
   const bootstrapLiveAuthority = async (): Promise<void> => {
     if (bootstrapped) return;
     if (bootstrapPromise) return bootstrapPromise;
     bootstrapPromise = (async () => {
       const root = await ensureCanvasesDir();
-      let files: string[] = [];
-      try {
-        files = (await readdir(root)).filter((file) => file.endsWith(".canvas"));
-      } catch {
-        files = [];
-      }
-      for (const file of files) {
-        let name: CanvasName;
-        try {
-          name = canvasNameFrom(basename(file, ".canvas"));
-        } catch {
-          continue;
-        }
-        try {
-          await assertRegularOrMissing(canvasDocumentPathIn(root, name));
-          const entry = await decodeDiskDocument(root, name);
-          liveAuthority.set(name, entry);
-        } catch {
-          // Skip unreadable / non-regular entries rather than refusing boot.
-        }
+      const fromAuthority = await bootstrapFromAuthorityStore(root);
+      if (!fromAuthority) {
+        await bootstrapFromLegacyDir(root);
       }
       bootstrapped = true;
     })();
@@ -455,11 +558,20 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           }
           await syncDirectoryBestEffort(root);
 
-          liveAuthority.set(canonicalName, {
+          const previous = liveAuthority.get(canonicalName);
+          const nextEntry: LiveAuthority = {
             doc: nextDoc,
             revision,
             path,
-          });
+          };
+          liveAuthority.set(canonicalName, nextEntry);
+          try {
+            await commitLiveAuthorityGeneration();
+          } catch (error) {
+            if (previous === undefined) liveAuthority.delete(canonicalName);
+            else liveAuthority.set(canonicalName, previous);
+            throw error;
+          }
           notifyListeners(canonicalName);
           return { revision };
         }),
@@ -497,11 +609,18 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           }
 
           await syncDirectoryBestEffort(dirname(path));
+          const previous = current;
           liveAuthority.set(canonicalName, {
             doc: nextDoc,
             revision,
             path,
           });
+          try {
+            await commitLiveAuthorityGeneration();
+          } catch (error) {
+            liveAuthority.set(canonicalName, previous);
+            throw error;
+          }
           notifyListeners(canonicalName);
         }),
       catch: toCanvasError,
@@ -533,7 +652,14 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             }
             throw error;
           }
-          liveAuthority.set(sanitized, { doc, revision, path });
+          const nextEntry: LiveAuthority = { doc, revision, path };
+          liveAuthority.set(sanitized, nextEntry);
+          try {
+            await commitLiveAuthorityGeneration();
+          } catch (error) {
+            liveAuthority.delete(sanitized);
+            throw error;
+          }
           notifyListeners(sanitized);
           return { name: sanitized, doc, revision, path };
         });
@@ -554,7 +680,8 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             const root = await ensureCanvasesDir();
             const path = canvasDocumentPathIn(root, sanitized);
             await assertRegularOrMissing(path);
-            if (!liveAuthority.has(sanitized)) {
+            const previous = liveAuthority.get(sanitized);
+            if (previous === undefined) {
               throw new CanvasError({ message: `canvas "${sanitized}" does not exist` });
             }
 
@@ -570,6 +697,25 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
 
             liveAuthority.delete(sanitized);
             await syncDirectoryBestEffort(root);
+            try {
+              await commitLiveAuthorityGeneration();
+            } catch (error) {
+              // Restore live + dual-path mirror so a failed generation is not
+              // half-applied in-process.
+              liveAuthority.set(sanitized, previous);
+              try {
+                await atomicReplaceTextFile(
+                  path,
+                  serializeCanvas(previous.doc),
+                );
+              } catch (restoreError) {
+                console.error(
+                  `[canvases] failed to restore ${sanitized} after authority commit error:`,
+                  restoreError,
+                );
+              }
+              throw error;
+            }
             notifyListeners(sanitized);
           }),
         catch: toCanvasError,
@@ -642,20 +788,34 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       try: async () => {
         await bootstrapLiveAuthority();
         const root = await ensureCanvasesDir();
+        const previous = new Map(liveAuthority);
         const keep = new Set<string>();
+        const changed: CanvasName[] = [];
         for (const rawName of installedNames) {
           const name = canvasNameFrom(rawName);
           keep.add(name);
           await withCanvasMutex(canvasFileName(name), async () => {
             const entry = await decodeDiskDocument(root, name);
             liveAuthority.set(name, entry);
-            notifyListeners(name);
+            changed.push(name);
           });
         }
         for (const name of [...liveAuthority.keys()]) {
           if (keep.has(name)) continue;
           liveAuthority.delete(name);
-          notifyListeners(name as CanvasName);
+          changed.push(name as CanvasName);
+        }
+        try {
+          await commitLiveAuthorityGeneration();
+        } catch (error) {
+          liveAuthority.clear();
+          for (const [name, entry] of previous) {
+            liveAuthority.set(name, entry);
+          }
+          throw error;
+        }
+        for (const name of changed) {
+          notifyListeners(name);
         }
       },
       catch: toCanvasError,

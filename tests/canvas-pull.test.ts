@@ -306,7 +306,9 @@ const makePullRuntime = async (input: {
     "utf8",
   );
 
+  const authorityDir = await mkdtemp(join(tmpdir(), "vellum-auth-pull-"));
   process.env.VELLUM_CANVASES_DIR = canvasesDir;
+  process.env.VELLUM_CANVAS_AUTHORITY_DIR = authorityDir;
   process.env.VELLUM_STATION_STATUS_PATH = join(
     settingsDir,
     "station-status.json",
@@ -327,12 +329,13 @@ const makePullRuntime = async (input: {
     ),
   );
 
-  return { runtime, canvasesDir };
+  return { runtime, canvasesDir, authorityDir };
 };
 
 describe("pullCanvasesFromCommandCenter", () => {
   afterEach(() => {
     delete process.env.VELLUM_CANVASES_DIR;
+    delete process.env.VELLUM_CANVAS_AUTHORITY_DIR;
     delete process.env.VELLUM_STATION_STATUS_PATH;
   });
 
