@@ -10,6 +10,7 @@ import {
   CANVAS_NAME_INPUT_PATTERN,
   CANVAS_NAME_MAX_LENGTH,
 } from "@shared/canvas-name";
+import { stampActorActorMsgPorts } from "@shared/physics";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 import {
   CanvasAuthorityError,
@@ -393,12 +394,17 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   /**
    * Load one full generation into the live map. Any invalid name or semantic
    * document fails the whole generation — never partial skip.
+   *
+   * Applies the actor↔actor inbox stamp (I8/I21) after decode so pre-S3
+   * documents keep msg.* via explicit ports. Returns whether any document
+   * was mutated (caller must commit a new authority generation when true).
    */
   const loadSnapshotIntoLive = (
     root: string,
     snapshot: NonNullable<Awaited<ReturnType<typeof loadAuthoritySnapshot>>>,
-  ): void => {
+  ): boolean => {
     const next = new Map<string, LiveAuthority>();
+    let stampedDirty = false;
     for (const [rawName, bytes] of snapshot.documents) {
       let name: CanvasName;
       try {
@@ -411,7 +417,19 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
         });
       }
       try {
-        next.set(name, decodeDocumentBytes(name, virtualPath(name), bytes));
+        const entry = decodeDocumentBytes(name, virtualPath(name), bytes);
+        const stamped = stampActorActorMsgPorts(entry.doc);
+        if (stamped !== entry.doc) {
+          stampedDirty = true;
+          const serialized = serializeCanvas(stamped);
+          next.set(name, {
+            doc: stamped,
+            revision: revisionOf(serialized),
+            path: entry.path,
+          });
+        } else {
+          next.set(name, entry);
+        }
       } catch (error) {
         throw new CanvasError({
           message: `authority generation ${snapshot.pointer.generation} unusable: document "${name}" failed (${
@@ -425,6 +443,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       liveAuthority.set(name, entry);
     }
     authorityGeneration = BigInt(snapshot.pointer.generation);
+    return stampedDirty;
   };
 
   const bootstrapLiveAuthority = async (): Promise<void> => {
@@ -465,8 +484,12 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
         return;
       }
       try {
-        loadSnapshotIntoLive(canvasesDir(), snapshot);
+        const stampedDirty = loadSnapshotIntoLive(canvasesDir(), snapshot);
         authorityBlocked = undefined;
+        // I21: stamp commits only through the app-owned authority generation path.
+        if (stampedDirty) {
+          await commitLiveAuthorityGeneration();
+        }
       } catch (error) {
         authorityBlocked =
           error instanceof CanvasError
