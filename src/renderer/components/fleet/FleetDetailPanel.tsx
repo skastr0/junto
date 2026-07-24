@@ -1,13 +1,29 @@
-import { Fragment, useState, type CSSProperties } from "react";
-import { Command, X } from "lucide-react";
+import {
+  Fragment,
+  useState,
+  type CSSProperties,
+} from "react";
+import { Command, WandSparkles, X } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
+import { setFleetAppearance } from "../../lib/fleet-appearance";
 import { probeHost, refreshFleet, type FleetProbeState } from "../../lib/fleet-state";
-import { FLEET_COLORS, FLEET_GLYPHS, hostColor } from "../../lib/fleet-layout";
+import { FLEET_COLORS, hostColor } from "../../lib/fleet-layout";
+import {
+  FLEET_MACHINE_ASSETS,
+  FLEET_MACHINE_AVATARS,
+} from "../../lib/fleet-machine-assets";
+import {
+  FLEET_MACHINE_CATALOG,
+  fleetMachineLabel,
+  resolveFleetMachineModel,
+  resolvePeerMachineModel,
+} from "../../lib/fleet-machine-model";
+import { activateOnPointerUp } from "../../lib/pointer-activation";
 import { HUE, withAlpha } from "../../lib/theme";
 import { getVellumApi } from "../../lib/vellum-api";
 import { Button, Chip, IconButton, type ChipTone } from "../ui";
-import { fleetGlyphIcon, peerOsIcon } from "./FleetNodes";
+import { DitheredFleetObject } from "./DitheredFleetObject";
 
 export type FleetSelection =
   | { readonly kind: "cc" }
@@ -73,16 +89,14 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   const reach = reachabilityLine(probe);
   const probing = probe?.status === "probing";
   const color = hostColor(host);
+  const resolvedModel = resolveFleetMachineModel(host);
+  const automatic = !FLEET_MACHINE_CATALOG.some(
+    ({ id }) => id === host.appearance?.glyph,
+  );
 
-  const saveAppearance = async (appearance: { color?: string; glyph?: string }) => {
-    const api = getVellumApi();
-    if (!api?.hostsUpsert) return;
-    try {
-      await api.hostsUpsert({ ...host, appearance });
-      await refreshFleet();
-    } catch (error) {
-      setActionLine(error instanceof Error ? error.message : String(error));
-    }
+  const saveAppearance = (appearance: { color?: string; glyph?: string }) => {
+    setActionLine("");
+    setFleetAppearance(host, appearance, setActionLine);
   };
 
   const runAction = async (kind: "configure" | "deploy" | "remove") => {
@@ -159,7 +173,11 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             <p>{reach.detail}</p>
           </details>
         ) : null}
-        <Button size="xs" disabled={probing} onClick={() => void probeHost(host.id)}>
+        <Button
+          size="xs"
+          disabled={probing}
+          {...activateOnPointerUp(() => void probeHost(host.id))}
+        >
           {probing ? "probing…" : "Test link"}
         </Button>
       </section>
@@ -177,27 +195,59 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
                 style={{ background: swatch }}
                 aria-label={`Set station color ${swatch}`}
                 aria-pressed={active}
-                onClick={() => void saveAppearance({ color: swatch, glyph: host.appearance?.glyph })}
+                {...activateOnPointerUp(() =>
+                  saveAppearance({
+                    color: swatch,
+                    glyph: host.appearance?.glyph,
+                  })
+                )}
               />
             );
           })}
         </div>
-        <div className="fleet-detail__glyphs" role="group" aria-label="Station glyph">
-          {FLEET_GLYPHS.map((glyph) => {
-            const Icon = fleetGlyphIcon(glyph);
-            const active = (host.appearance?.glyph ?? "server") === glyph;
+        <div className="fleet-detail__model-heading">
+          <span>{automatic ? "Automatic silhouette" : "Custom silhouette"}</span>
+          <strong>{fleetMachineLabel(resolvedModel)}</strong>
+        </div>
+        <div className="fleet-detail__models" role="group" aria-label="Station silhouette">
+          <button
+            type="button"
+            className={`fleet-model-choice fleet-model-choice--auto${
+              automatic ? " fleet-model-choice--active" : ""
+            }`}
+            style={automatic ? { color, borderColor: withAlpha(color, 0.6) } : undefined}
+            aria-label="Automatically choose station silhouette"
+            aria-pressed={automatic}
+            title="Automatic"
+            {...activateOnPointerUp(() =>
+              saveAppearance({ color: host.appearance?.color })
+            )}
+          >
+            <WandSparkles size={14} strokeWidth={1.6} />
+            <span>Automatic</span>
+          </button>
+          {FLEET_MACHINE_CATALOG.map(({ id, label }) => {
+            const active = !automatic && host.appearance?.glyph === id;
             return (
               <button
-                key={glyph}
+                key={id}
                 type="button"
-                className={`fleet-glyph${active ? " fleet-glyph--active" : ""}`}
+                className={`fleet-model-choice${
+                  active ? " fleet-model-choice--active" : ""
+                }`}
                 style={active ? { color, borderColor: withAlpha(color, 0.6) } : undefined}
-                aria-label={`Set station glyph ${glyph}`}
+                aria-label={`Use ${label} silhouette`}
                 aria-pressed={active}
-                title={glyph}
-                onClick={() => void saveAppearance({ color: host.appearance?.color, glyph })}
+                title={label}
+                {...activateOnPointerUp(() =>
+                  saveAppearance({
+                    color: host.appearance?.color,
+                    glyph: id,
+                  })
+                )}
               >
-                <Icon size={14} strokeWidth={1.6} />
+                <img src={FLEET_MACHINE_AVATARS[id]} alt="" />
+                <span>{label}</span>
               </button>
             );
           })}
@@ -207,10 +257,19 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
       <section className="fleet-detail__section">
         <div className="fleet-detail__section-label">Operations</div>
         <div className="fleet-detail__actions">
-          <Button size="xs" disabled={actionBusy !== ""} onClick={() => void runAction("configure")}>
+          <Button
+            size="xs"
+            disabled={actionBusy !== ""}
+            {...activateOnPointerUp(() => void runAction("configure"))}
+          >
             {actionBusy === "configure" ? "configuring…" : "Configure station"}
           </Button>
-          <Button variant="primary" size="xs" disabled={actionBusy !== ""} onClick={() => void runAction("deploy")}>
+          <Button
+            variant="primary"
+            size="xs"
+            disabled={actionBusy !== ""}
+            {...activateOnPointerUp(() => void runAction("deploy"))}
+          >
             {actionBusy === "deploy" ? "deploying…" : "Deploy Vellum Remote"}
           </Button>
           {confirmRemove ? (
@@ -218,12 +277,17 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
               size="xs"
               variant="danger"
               disabled={actionBusy !== ""}
-              onClick={() => void runAction("remove")}
+              {...activateOnPointerUp(() => void runAction("remove"))}
             >
               {actionBusy === "remove" ? "removing…" : `Confirm remove ${host.id}`}
             </Button>
           ) : (
-            <Button size="xs" variant="danger" disabled={actionBusy !== ""} onClick={() => setConfirmRemove(true)}>
+            <Button
+              size="xs"
+              variant="danger"
+              disabled={actionBusy !== ""}
+              {...activateOnPointerUp(() => setConfirmRemove(true))}
+            >
               Remove host
             </Button>
           )}
@@ -270,7 +334,11 @@ function GhostDetail({
       <section className="fleet-detail__section">
         <div className="fleet-detail__section-label">Enrollment</div>
         <div className="fleet-detail__actions">
-          <Button variant="primary" size="xs" onClick={() => onClaim(peer)}>
+          <Button
+            variant="primary"
+            size="xs"
+            {...activateOnPointerUp(() => onClaim(peer))}
+          >
             Claim as station
           </Button>
         </div>
@@ -297,12 +365,18 @@ export function FleetDetailPanel({
   readonly onClaimPeer: (peer: DiscoveredPeer) => void;
 }) {
   const reach = selection.kind === "station" ? reachabilityLine(probe) : undefined;
+  const stationModel =
+    selection.kind === "station"
+      ? resolveFleetMachineModel(selection.host)
+      : undefined;
+  const peerModel =
+    selection.kind === "ghost"
+      ? resolvePeerMachineModel(selection.peer)
+      : undefined;
   const HeaderIcon =
     selection.kind === "cc"
       ? Command
-      : selection.kind === "station"
-        ? fleetGlyphIcon(selection.host.appearance?.glyph)
-        : peerOsIcon(selection.peer.os);
+      : undefined;
   const title =
     selection.kind === "cc"
       ? "Command Center"
@@ -326,14 +400,35 @@ export function FleetDetailPanel({
     <aside className="fleet-detail" aria-label="Fleet node detail">
       <div className="fleet-detail__head">
         <div
-          className="fleet-detail__identity-mark"
+          className={`fleet-detail__identity-mark${
+            stationModel || peerModel ? " fleet-detail__identity-mark--model" : ""
+          }`}
           style={{
             color,
             borderColor: withAlpha(color, 0.42),
             background: withAlpha(color, 0.07),
           }}
         >
-          <HeaderIcon size={18} strokeWidth={1.55} />
+          {selection.kind === "station" && stationModel ? (
+            <DitheredFleetObject
+              color={color}
+              focused
+              label={fleetMachineLabel(stationModel)}
+              motionSeed={`detail:${selection.host.id}`}
+              src={FLEET_MACHINE_ASSETS[stationModel]}
+            />
+          ) : selection.kind === "ghost" && peerModel ? (
+            <DitheredFleetObject
+              amberMix={0.06}
+              color={color}
+              focused
+              label={fleetMachineLabel(peerModel)}
+              motionSeed={`detail:peer:${selection.peer.name}`}
+              src={FLEET_MACHINE_ASSETS[peerModel]}
+            />
+          ) : HeaderIcon ? (
+            <HeaderIcon size={18} strokeWidth={1.55} />
+          ) : null}
         </div>
         <div className="fleet-detail__identity">
           <span>{kind}</span>

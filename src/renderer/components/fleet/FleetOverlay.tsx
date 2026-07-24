@@ -3,6 +3,7 @@ import { use$ } from "@legendapp/state/react";
 import { Plus, RefreshCw } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
 import { closeFleet, refreshFleet } from "../../lib/fleet-state";
+import { activateOnPointerUp } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { FocusSurface } from "../FocusSurface";
@@ -94,7 +95,7 @@ function FleetOverlayInner() {
               size="sm"
               variant="subtle"
               disabled={loading}
-              onClick={() => void refreshFleet()}
+              {...activateOnPointerUp(() => void refreshFleet())}
             >
               <RefreshCw
                 size={12}
@@ -102,7 +103,10 @@ function FleetOverlayInner() {
               />
               Refresh
             </Button>
-            <Button size="sm" onClick={() => setForm({})}>
+            <Button
+              size="sm"
+              {...activateOnPointerUp(() => setForm({}))}
+            >
               <Plus size={12} />
               Add host
             </Button>

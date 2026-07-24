@@ -1,41 +1,58 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import {
+  Anchor,
+  Aperture,
+  Archive,
   Command,
   Cpu,
-  Globe,
+  DoorOpen,
+  Factory,
   Laptop,
   Monitor,
-  Orbit,
   Radar,
-  Rocket,
   Satellite,
   Server,
   Smartphone,
-  Star,
+  TimerReset,
+  TowerControl,
+  Vault,
+  WandSparkles,
   type LucideIcon,
 } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { FleetProbeState } from "../../lib/fleet-state";
 import { hostColor } from "../../lib/fleet-layout";
-import { HUE, withAlpha } from "../../lib/theme";
+import { FLEET_MACHINE_ASSETS } from "../../lib/fleet-machine-assets";
+import {
+  fleetMachineLabel,
+  resolveFleetMachineModel,
+  resolvePeerMachineModel,
+  type FleetMachineModelId,
+} from "../../lib/fleet-machine-model";
+import { HUE } from "../../lib/theme";
 import { DitheredFleetObject } from "./DitheredFleetObject";
 
-/** Lucide components for the FLEET_GLYPHS vocabulary (fleet-layout.ts). */
-export const FLEET_GLYPH_ICONS: Record<string, LucideIcon> = {
-  satellite: Satellite,
-  rocket: Rocket,
-  globe: Globe,
-  star: Star,
-  orbit: Orbit,
-  radar: Radar,
-  cpu: Cpu,
-  server: Server,
-  laptop: Laptop,
+export const FLEET_MACHINE_ICONS: Readonly<Record<FleetMachineModelId, LucideIcon>> = {
+  "command-core": Command,
+  "compute-tower": Server,
+  "relay-obelisk": Satellite,
+  "terminal-dock": Laptop,
+  "artifact-vault": Vault,
+  "browser-lens": Aperture,
+  "watch-beacon": TowerControl,
+  "chrono-drum": TimerReset,
+  "request-gate": DoorOpen,
+  "task-foundry": Factory,
+  "agent-prism": WandSparkles,
+  "remote-anchor": Anchor,
+  "mac-mini": Archive,
+  "mac-studio": Cpu,
+  "macbook-pro": Laptop,
 };
 
-export const fleetGlyphIcon = (glyph?: string): LucideIcon =>
-  (glyph ? FLEET_GLYPH_ICONS[glyph] : undefined) ?? Server;
+export const fleetMachineIcon = (model: FleetMachineModelId): LucideIcon =>
+  FLEET_MACHINE_ICONS[model];
 
 // --- Command Center ----------------------------------------------------------
 
@@ -46,14 +63,21 @@ export function CommandCenterNode({ data, selected }: NodeProps<CommandCenterFlo
   return (
     <div className={`fleet-cc${selected ? " fleet-cc--selected" : ""}`}>
       <Handle type="source" position={Position.Right} className="fleet-handle" />
-      <div className="fleet-node__plate" style={{ borderColor: withAlpha(HUE.amber, selected ? 0.8 : 0.28) }}>
+      <div className="fleet-machine fleet-machine--command">
         <div
-          className="fleet-node__medallion fleet-node__medallion--cc"
-          style={{ color: HUE.amber }}
+          className="fleet-machine__viewport"
+          style={{ "--fleet-machine-color": HUE.amber } as React.CSSProperties}
         >
-          <Command size={25} strokeWidth={1.55} />
+          <DitheredFleetObject
+            color={HUE.amber}
+            focused={selected}
+            label="Command Core"
+            motionSeed={`command:${data.hostId}`}
+            src={FLEET_MACHINE_ASSETS["command-core"]}
+          />
+          <span className="fleet-machine__reticle" aria-hidden="true" />
         </div>
-        <div className="fleet-node__copy">
+        <div className="fleet-node__copy fleet-machine__copy">
           <div className="fleet-cc__label font-display">Command Center</div>
           <div className="fleet-node__meta">{data.hostId || "local"}</div>
           <div className="fleet-node__signal fleet-node__signal--authority">
@@ -117,6 +141,8 @@ const probeLabel = (probe?: FleetProbeState): string => {
 export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
   const { host, probe } = data;
   const color = hostColor(host);
+  const model = resolveFleetMachineModel(host);
+  const modelLabel = fleetMachineLabel(model);
   return (
     <div className={`fleet-station${selected ? " fleet-station--selected" : ""}`}>
       <Handle type="target" position={Position.Left} className="fleet-handle" />
@@ -128,7 +154,9 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
           <DitheredFleetObject
             color={color}
             focused={selected}
+            label={modelLabel}
             motionSeed={host.id}
+            src={FLEET_MACHINE_ASSETS[model]}
           />
           <span className="fleet-machine__reticle" aria-hidden="true" />
           <span className={probePipClass(probe)} title={probePipTitle(probe)} />
@@ -169,19 +197,31 @@ export const peerOsIcon = (os?: string): LucideIcon =>
 
 export function GhostStationNode({ data, selected }: NodeProps<GhostStationFlowNode>) {
   const { peer } = data;
-  const Icon = peerOsIcon(peer.os);
+  const model = resolvePeerMachineModel(peer);
+  const color = HUE.steel;
   return (
     <div className={`fleet-ghost${selected ? " fleet-ghost--selected" : ""}`}>
       <Handle type="target" position={Position.Left} className="fleet-handle" />
-      <div className="fleet-node__plate fleet-ghost__plate">
-        <div className="fleet-node__medallion fleet-ghost__medallion">
-          <Icon size={20} strokeWidth={1.5} />
+      <div className="fleet-machine fleet-machine--ghost">
+        <div
+          className="fleet-machine__viewport"
+          style={{ "--fleet-machine-color": color } as React.CSSProperties}
+        >
+          <DitheredFleetObject
+            amberMix={0.06}
+            color={color}
+            focused={selected}
+            label={fleetMachineLabel(model)}
+            motionSeed={`peer:${peer.name}`}
+            src={FLEET_MACHINE_ASSETS[model]}
+          />
+          <span className="fleet-machine__reticle" aria-hidden="true" />
           <span
             className={peer.online ? "fleet-pip fleet-pip--reachable" : "fleet-pip fleet-pip--unknown"}
             title={peer.online ? "online on the tailnet" : "offline"}
           />
         </div>
-        <div className="fleet-node__copy">
+        <div className="fleet-node__copy fleet-machine__copy">
           <div className="fleet-station__label">{peer.name}</div>
           <div className="fleet-node__meta">{peer.os ?? "unknown device"}</div>
           <div className="fleet-node__signal fleet-node__signal--discovered">

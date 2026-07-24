@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   edgePhase,
   FLEET_COLORS,
-  FLEET_GLYPHS,
   hostColor,
   orbitLayout,
 } from "../src/renderer/lib/fleet-layout";
@@ -118,18 +117,7 @@ describe("hostColor", () => {
     ).toBe("#123456");
   });
 
-  it("exposes 8 colors and the lucide glyph names", () => {
+  it("exposes 8 fleet colors", () => {
     expect(FLEET_COLORS).toHaveLength(8);
-    expect(FLEET_GLYPHS).toEqual([
-      "server",
-      "laptop",
-      "cpu",
-      "satellite",
-      "rocket",
-      "globe",
-      "star",
-      "orbit",
-      "radar",
-    ]);
   });
 });

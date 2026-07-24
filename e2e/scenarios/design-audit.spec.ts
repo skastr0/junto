@@ -736,7 +736,7 @@ test("capture the fleet manager overlay", async () => {
           kind: "remote",
           endpoint: "forge-pi",
           capabilities: ["terminal"],
-          appearance: { color: "#39C6D6", glyph: "rocket" },
+          appearance: { color: "#39C6D6", glyph: "remote-anchor" },
         },
         {
           id: "relay-1",
@@ -744,7 +744,7 @@ test("capture the fleet manager overlay", async () => {
           kind: "remote",
           endpoint: "relay-1",
           capabilities: ["hermes", "browser"],
-          appearance: { color: "#7F6DD6", glyph: "satellite" },
+          appearance: { color: "#7F6DD6", glyph: "relay-obelisk" },
         },
         {
           id: "archive",
@@ -752,6 +752,7 @@ test("capture the fleet manager overlay", async () => {
           kind: "remote",
           endpoint: "archive",
           capabilities: ["terminal", "browser"],
+          appearance: { glyph: "artifact-vault" },
         },
       ],
     }),
@@ -770,11 +771,11 @@ test("capture the fleet manager overlay", async () => {
     await page.getByRole("button", { name: "Open fleet manager" }).click();
     const panel = page.locator(".fleet-panel");
     await expect(panel).toBeVisible({ timeout: 15_000 });
-    // Stations render from the seeded registry, medallions tinted per host.
+    // Stations render from the seeded registry with a Command Core at center.
     await expect(page.locator(".fleet-station")).toHaveCount(4, {
       timeout: 15_000,
     });
-    await expect(page.locator(".fleet-machine-object--ready")).toHaveCount(4, {
+    await expect(page.locator(".fleet-machine-object--ready")).toHaveCount(6, {
       timeout: 15_000,
     });
     // Probes fire on open; in the sandbox they may still be in flight at
@@ -783,6 +784,20 @@ test("capture the fleet manager overlay", async () => {
     await shot(page, "26-fleet-overlay");
     await page.locator(".fleet-station").first().click();
     await expect(page.locator(".fleet-station--selected")).toHaveCount(1);
+    await expect(page.getByText("Automatic silhouette")).toBeVisible();
+    const resolvedModel = page.locator(".fleet-detail__model-heading strong");
+    await expect(resolvedModel).toHaveText("Mac mini");
+    const macStudioChoice = page.getByRole("button", {
+      name: "Use Mac Studio silhouette",
+    });
+    await macStudioChoice.click();
+    await expect(page.getByText("Custom silhouette")).toBeVisible();
+    await expect(resolvedModel).toHaveText("Mac Studio");
+    await page
+      .getByRole("button", { name: "Automatically choose station silhouette" })
+      .click();
+    await expect(page.getByText("Automatic silhouette")).toBeVisible();
+    await expect(resolvedModel).toHaveText("Mac mini");
     await shot(page, "26b-fleet-station-focus");
     // When the sandbox sees an unclaimed peer, its detail panel shows what
     // the device is (OS, addresses, online state) + the claim action.
