@@ -44,8 +44,6 @@ export const KindSpecs = {
   artifacts: { kind: "artifacts", role: "sink", offers: artifactsOffers },
   watcher: { kind: "watcher", role: "scheduler", offers: emptyOffers },
   timer: { kind: "timer", role: "scheduler", offers: emptyOffers },
-  // Project is a sink locus (architecture); no work/browser ports yet.
-  project: { kind: "project", role: "sink", offers: emptyOffers },
 } as const satisfies Record<WellKnownKind, KindSpec>;
 
 export const KindRegistry: HashMap.HashMap<WellKnownKind, KindSpec> =

@@ -3,7 +3,6 @@ import { Flag, SlidersHorizontal } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { HashMap, HashSet, Option, Schema } from "effect";
 import type { CanvasDoc, CanvasEdge, CanvasNode, EdgeCriteria, EtherFlag, EtherRegionDefaults, EtherView, EtherWatch } from "@shared/canvas";
-import { entityProjectKey } from "@shared/execution-graph";
 import { isGroup } from "@shared/graph";
 import {
   ALL_PORTS,
@@ -38,6 +37,9 @@ import { Chip, type ChipTone } from "./ui";
 // Factory physics — capability inventory (read-only) + "limit this key" editor
 
 const decodePort = Schema.decodeUnknownOption(Port);
+
+const entityNameOf = (node: CanvasNode | undefined): string =>
+  typeof node?.ether?.entity?.name === "string" ? node.ether.entity.name : "";
 
 /** Valid edge.ether.ports → mask; absent / empty / all-invalid → undefined (full offers). */
 const readEdgePortMask = (
@@ -412,7 +414,6 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     {node.type === "group" ? <RegionHoldControl node={node} /> : null}
     {node.type === "group" ? <RegionDefaultsControl node={node} /> : null}
     <KernelFieldEditors node={node} />
-    {node.ether?.entity?.kind === "project" ? <ViewSliceFields node={node} /> : null}
   </>;
 }
 
@@ -533,143 +534,54 @@ export function EdgeCriteriaEditor({
   const criteria = edge?.ether?.criteria;
   const fromKind = fromNode?.ether?.entity?.kind;
   const fromIsTask = fromKind === "task" || fromKind === "requests";
-  const fromIsProject = fromKind === "project";
-  const projectKey = entityProjectKey(fromNode) ?? "";
 
-  // Local draft only — never persist empty glyphs criteria (mutation also strips).
-  const [glyphsDraft, setGlyphsDraft] = useState(false);
-  useEffect(() => {
-    setGlyphsDraft(false);
-  }, [edgeId]);
-  useEffect(() => {
-    if (criteria?.mode === "glyphs" && criteria.glyphIds.length > 0) setGlyphsDraft(false);
-  }, [criteria]);
-
-  type AuthoringMode = "none" | "glyphs" | "wip" | "tasks";
-  type StoredMode = AuthoringMode | "proof" | "approval";
-  const storedMode: StoredMode = !criteria ? "none" : criteria.mode;
-  // proof/approval are trust-plane modes (runtime stamps/grants); not authored here.
-  const isTrustMode = storedMode === "proof" || storedMode === "approval";
-  const mode: StoredMode =
-    storedMode === "none" && glyphsDraft ? "glyphs" : storedMode;
-  const selectValue: AuthoringMode | "proof" | "approval" = mode;
+  type AuthoringMode = "none" | "tasks";
+  const mode: AuthoringMode = criteria?.mode === "tasks" ? "tasks" : "none";
+  const isTrustMode = criteria?.mode === "proof" || criteria?.mode === "approval";
 
   const setMode = (next: AuthoringMode) => {
     if (next === "none") {
-      setGlyphsDraft(false);
       setEdgeCriteria(edgeId, undefined);
       return;
     }
-    if (next === "wip") {
-      setGlyphsDraft(false);
-      setEdgeCriteria(edgeId, { mode: "wip", ...(projectKey ? { project: projectKey } : {}) });
-      return;
-    }
-    if (next === "tasks") {
-      setGlyphsDraft(false);
-      setEdgeCriteria(edgeId, { mode: "tasks" });
-      return;
-    }
-    const existing = criteria?.mode === "glyphs" ? criteria.glyphIds : [];
-    if (existing.length === 0) {
-      // Refuse empty shell: keep picker open in UI, write only after first pick.
-      setGlyphsDraft(true);
-      if (criteria) setEdgeCriteria(edgeId, undefined);
-      return;
-    }
-    setGlyphsDraft(false);
-    setEdgeCriteria(edgeId, {
-      mode: "glyphs",
-      glyphIds: [...existing],
-      ...(projectKey ? { project: projectKey } : {}),
-    });
+    setEdgeCriteria(edgeId, { mode: "tasks" });
   };
-
-  const selectedGlyphIds = criteria?.mode === "glyphs" ? criteria.glyphIds : [];
 
   return (
     <div className="inspector-section">
       <div className="inspector-section__label">phase</div>
       {livePhase ? (
         <div className="inspector-detail" style={{ marginBottom: 8 }}>
-          <strong style={{ color: livePhase === "blocks" ? HUE.crimson : livePhase === "depends" ? HUE.amber : undefined }}>
+          <strong style={{ color: livePhase === "blocks" ? HUE.crimson : undefined }}>
             {livePhase}
           </strong>
           {liveDetail ? ` · ${liveDetail}` : null}
-          {!criteria ? " · soft relates (no phase filter)" : null}
+          {!criteria ? " · soft relates (no stoppage)" : null}
         </div>
       ) : null}
-      <div className="inspector-section__label">block when · phase filter</div>
-      <label className="inspector-editor">
-        <span>mode</span>
-        <select
-          aria-label="Edge phase filter mode"
-          value={selectValue}
-          onChange={(event) => {
-            const v = event.target.value;
-            if (v === "proof" || v === "approval") return;
-            setMode(v as AuthoringMode);
-          }}
-        >
-          <option value="none">none · soft relates</option>
-          {fromIsTask ? (
+      <div className="inspector-section__label">stop when</div>
+      {isTrustMode ? (
+        <div className="inspector-detail">
+          trust plane · {criteria?.mode}
+          {criteria && "step" in criteria ? ` · ${String((criteria as { step?: string }).step ?? "")}` : ""}
+        </div>
+      ) : (
+        <label className="inspector-editor">
+          <span>mode</span>
+          <select
+            aria-label="Edge phase filter mode"
+            value={mode}
+            onChange={(event) => setMode(event.target.value as AuthoringMode)}
+          >
+            <option value="none">none · soft relates</option>
             <option value="tasks">
-              {fromKind === "requests"
+              {fromIsTask && fromKind === "requests"
                 ? "tasks · pending requests block"
-                : "tasks · incomplete A2A tasks block"}
+                : "tasks · needs input blocks"}
             </option>
-          ) : null}
-          {fromIsProject || projectKey ? (
-            <option value="wip">WIP · committed/building/reviewing (opt-in)</option>
-          ) : null}
-          {fromIsProject || projectKey ? (
-            <option value="glyphs">glyphs · selected must be done</option>
-          ) : null}
-          {isTrustMode ? (
-            <option value={storedMode}>
-              {storedMode === "proof"
-                ? "proof · runtime stamp (trust plane)"
-                : "approval · human grant (trust plane)"}
-            </option>
-          ) : null}
-        </select>
-      </label>
-      {mode === "glyphs" ? (
-        <div className="inspector-detail">
-          {projectKey
-            ? "Glyph ids are authored on the edge (no live glyph browse)."
-            : "Source needs a project identity (ether.entity.name) for glyph criteria."}
-        </div>
-      ) : null}
-      {mode === "wip" ? (
-        <div className="inspector-detail">
-          Blocks while any glyph on the source project is in committed, building, or reviewing.
-        </div>
-      ) : null}
-      {mode === "tasks" ? (
-        <div className="inspector-detail">
-          {fromKind === "requests"
-            ? "Blocks while any selected request is input-required. Auto-set when connecting from requests."
-            : "Blocks while any selected task is not completed. Auto-set when connecting from tasks."}
-        </div>
-      ) : null}
-      {mode === "proof" ? (
-        <div className="inspector-detail">
-          Holds until a matching proof stamp is published into the source sink
-          (artifact.publish by a process-bound principal). Stamps are runtime state.
-        </div>
-      ) : null}
-      {mode === "approval" ? (
-        <div className="inspector-detail">
-          Holds until a human grant is recorded for this step (operator surface —
-          human is an external principal, never a node).
-        </div>
-      ) : null}
-      {mode === "none" ? (
-        <div className="inspector-detail">
-          Soft structural link — does not generate or relay blocks. Capability (ports) is separate.
-        </div>
-      ) : null}
+          </select>
+        </label>
+      )}
     </div>
   );
 }
@@ -1041,7 +953,7 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, projectKey
 // with no persistent "unsatisfied" state to mirror (see canvas.ts).
 function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   const watch = node.ether?.watch;
-  const projectKey = entityProjectKey(node);
+  const projectKey = entityNameOf(node);
   // Glyph-rule kinds use document project identity; stat_threshold is hermes-only.
   const {
     kind, setKind, project, setProject, orbit, setOrbit, glyphIdsText, setGlyphIdsText,
@@ -1186,71 +1098,6 @@ function TimerEditor({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
-// A project node's view slice: an optional lens (orbit, glyph filter, state
-// set) over the SAME bound project — several nodes can bind one project with
-// different slices ("prism · forge" here, "prism · beacon" there). Purely
-// presentational; setNodeView never touches the binding itself.
-export function ViewSliceFields({ node }: { readonly node: CanvasNode }) {
-  const orbits = orbitOptions();
-  const view = node.ether?.view;
-  const orbitValue = view?.orbit ?? "";
-  const queryValue = view?.glyphQuery ?? "";
-  const statesValue = view?.states ?? [];
-  const [orbitDraft, setOrbitDraft] = useState(orbitValue);
-  const [queryDraft, setQueryDraft] = useState(queryValue);
-
-  useEffect(() => {
-    setOrbitDraft(orbitValue);
-    setQueryDraft(queryValue);
-  }, [node.id, orbitValue, queryValue]);
-
-  const commit = (overrides: { readonly orbit?: string; readonly glyphQuery?: string; readonly states?: ReadonlyArray<string> }): void => {
-    const nextView: EtherView = {
-      orbit: overrides.orbit ?? orbitDraft,
-      glyphQuery: overrides.glyphQuery ?? queryDraft,
-      states: overrides.states ?? statesValue,
-    };
-    setNodeView(node.id, nextView);
-  };
-
-  const toggleState = (stateName: string) => {
-    const next = statesValue.includes(stateName) ? statesValue.filter((s) => s !== stateName) : [...statesValue, stateName];
-    commit({ states: next });
-  };
-
-  return <div className="inspector-section">
-    <div className="inspector-section__label"><SlidersHorizontal size={11} /> view slice</div>
-    <label className="inspector-editor">
-      <span>orbit</span>
-      <select aria-label="View slice orbit" value={orbitDraft} onChange={(event) => { setOrbitDraft(event.target.value); commit({ orbit: event.target.value }); }}>
-        <option value="">all orbits</option>
-        {orbits.map((orbit) => <option key={orbit} value={orbit}>{orbit}</option>)}
-      </select>
-    </label>
-    <label className="inspector-editor">
-      <span>glyph filter</span>
-      <input
-        aria-label="View slice glyph filter"
-        value={queryDraft}
-        placeholder="substring or /regex/"
-        onChange={(event) => setQueryDraft(event.target.value)}
-        onBlur={() => commit({ glyphQuery: queryDraft })}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") { event.preventDefault(); commit({ glyphQuery: queryDraft }); event.currentTarget.blur(); }
-          if (event.key === "Escape") { setQueryDraft(queryValue); event.currentTarget.blur(); }
-        }}
-      />
-    </label>
-    <div className="inspector-flags">
-      {GLYPH_STATES.map((stateName) => {
-        const active = statesValue.includes(stateName);
-        const hue = glyphStateHue(stateName);
-        return <button key={stateName} type="button" className="inspector-flag-toggle" aria-pressed={active} style={{ color: active ? hue : "#68604a", borderColor: active ? withAlpha(hue, 0.5) : "rgba(237,230,218,.12)", background: active ? withAlpha(hue, 0.1) : "rgba(255,255,255,.02)" }} onClick={() => toggleState(stateName)}>{stateName}</button>;
-      })}
-    </div>
-  </div>;
-}
-
 export function NodeFlagControls({ node }: { readonly node: CanvasNode }) {
   const flags = node.ether?.flags ?? [];
   return <div className="inspector-section"><div className="inspector-section__label"><Flag size={11} /> flags</div><div className="inspector-flags">{FLAG_OPTIONS.map(({ flag, hue }) => { const active = flags.includes(flag); return <button key={flag} type="button" className="inspector-flag-toggle" aria-pressed={active} style={{ color: active ? hue : "#68604a", borderColor: active ? withAlpha(hue, 0.5) : "rgba(237,230,218,.12)", background: active ? withAlpha(hue, 0.1) : "rgba(255,255,255,.02)" }} onClick={() => toggleFlag(node.id, flag)}>{flag}</button>; })}</div></div>;
@@ -1305,8 +1152,8 @@ export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node
       )}
       <div className="inspector-detail">
         {fromIsTask
-          ? "From a tasks/requests node: edge auto-binds tasks criteria (blocks while open/pending)."
-          : "Soft relates by default. Attach WIP or glyph criteria on the edge after connect."}
+          ? "From a tasks/requests node: edge auto-binds tasks criteria (blocks while needs input)."
+          : "Soft relates by default. Attach tasks criteria on the edge after connect."}
       </div>
       <button disabled={!targetId} onClick={connect}>
         create edge

@@ -43,8 +43,8 @@ const stoppageDoc = (): CanvasDoc => ({
       ether: { criteria: { mode: "tasks" } },
     },
     {
-      id: "e-pp",
-      fromNode: "a1",
+      id: "e-rp2",
+      fromNode: "r1",
       toNode: "a2",
       ether: { criteria: { mode: "tasks" } },
     },
@@ -58,6 +58,7 @@ describe("selectionImpact — canvas impact mode", () => {
     expect(impact.active).toBe(true);
     expect(impact.cone.nodeIds).toEqual(new Set(["r1", "a1", "a2"]));
     expect(impact.cone.edgeIds.has("e-rp")).toBe(true);
+    expect(impact.cone.edgeIds.has("e-rp2")).toBe(true);
     expect(impact.seedLabel).toMatch(/in cone/i);
 
     expect(nodeImpactClass(true, impact.cone, "r1")).toBe("impact-in impact-root");
@@ -77,18 +78,18 @@ describe("selectionImpact — canvas impact mode", () => {
   it("rebuilds graph fields from a live execution snapshot", () => {
     const doc = stoppageDoc();
     const execution: ExecutionSnapshot = {
-      phaseByEdgeId: { "e-rp": "blocks", "e-pp": "depends" },
-      detailByEdgeId: { "e-rp": "input-required", "e-pp": "" },
+      phaseByEdgeId: { "e-rp": "blocks", "e-rp2": "blocks" },
+      detailByEdgeId: { "e-rp": "input-required", "e-rp2": "input-required" },
       blocked: ["a1", "a2"],
-      blockedEdgeIds: ["e-rp", "e-pp"],
+      blockedEdgeIds: ["e-rp", "e-rp2"],
       reasonsByNodeId: {
         a1: [{ kind: "edge", edgeId: "e-rp", fromNodeId: "r1", detail: "input-required" }],
-        a2: [{ kind: "relay", viaNodeId: "a1", edgeId: "e-pp" }],
+        a2: [{ kind: "edge", edgeId: "e-rp2", fromNodeId: "r1", detail: "input-required" }],
       },
     };
     const graph = executionGraphForImpact(doc, execution);
     expect(graph.edgeEvalById.get("e-rp")?.generates).toBe(true);
-    expect(graph.edgeEvalById.get("e-pp")?.relays).toBe(true);
+    expect(graph.edgeEvalById.get("e-rp2")?.generates).toBe(true);
     expect(graph.blocked.has("a1")).toBe(true);
 
     const impact = selectionImpact(doc, "a1", execution);

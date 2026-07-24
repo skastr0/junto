@@ -6,7 +6,6 @@ import type {
   EdgeCriteria,
   EdgePhase,
 } from "./canvas";
-import { WIP_GLYPH_STATES } from "./canvas";
 import { isTerminalTaskState, taskBrief } from "./a2a";
 import { seatMayBeBlocked } from "./physics/phase-membership";
 import {
@@ -21,21 +20,15 @@ import {
 // Derived state is never stored in the .canvas file.
 //
 // Authorial edge model — criteria only:
-//   - no criteria → soft "relates" (never generates, never relays)
-//   - criteria glyphs/wip → "blocks" | "depends" when glyph data known;
-//     unknown/missing glyph data → "relates" (no fail-closed generation)
-//   - criteria tasks → attention states only (input-required | auth-required);
-//     submitted/working do not fabricate stoppage on the edge
-//   - criteria proof → blocks until matching stamp in source-sink runtime
-//     (StampView; never reads authored canvas fields for stamps)
-//   - criteria approval → blocks until human grant in ApprovalView
+//   - no criteria → soft "relates" (never generates stoppage)
+//   - criteria tasks → attention (input-required | auth-required) generates blocks
+//   - criteria proof / approval → blocks until trust view clears
+//   - retired: glyphs, wip, depends phase, dependency cascade/relay
 //
-// Propagation:
-//   - phase "blocks" generates a block on toNode only when physics says
-//     the seat may be blocked (roleMayBeBlocked — actors only today)
-//   - blocked / manual-blocker actors relay through outbound blocks|depends
-//   - "relates" never generates and never relays
-//   - membership law is owned by physics; this file never lists kinds
+// Propagation (no cascade):
+//   - phase "blocks" + generates → mark toNode blocked (actors only)
+//   - manual blocker flag marks that actor only (no outbound push)
+//   - clear criteria → relates (never "depends")
 
 export type GlyphRow = {
   readonly glyphId: string;
@@ -44,7 +37,7 @@ export type GlyphRow = {
   readonly state: string;
 };
 
-/** Map project key → glyph rows. Missing key or undefined value = data unavailable. */
+/** Map project key → glyph rows. Optional; only for legacy callers / watchers. */
 export type GlyphView = ReadonlyMap<string, ReadonlyArray<GlyphRow> | undefined>;
 
 /** Optional live views for proof/approval criteria (runtime, not document). */
@@ -61,11 +54,6 @@ export type BlockedReason =
       readonly detail: string;
     }
   | {
-      readonly kind: "relay";
-      readonly viaNodeId: string;
-      readonly edgeId: string;
-    }
-  | {
       readonly kind: "seed";
       readonly detail: string;
     };
@@ -73,10 +61,8 @@ export type BlockedReason =
 export type EdgeEval = {
   readonly phase: EdgePhase;
   readonly detail: string;
-  /** True when this edge can generate a block (phase === blocks with known criteria or pin). */
+  /** True when this edge generates a block on toNode (phase === blocks). */
   readonly generates: boolean;
-  /** True when this edge participates in relay (phase is blocks or depends). */
-  readonly relays: boolean;
 };
 
 export type ExecutionGraph = {
@@ -88,8 +74,6 @@ export type ExecutionGraph = {
   readonly reasonsByNodeId: ReadonlyMap<string, ReadonlyArray<BlockedReason>>;
   readonly seedNodeIds: ReadonlySet<string>;
 };
-
-const WIP_SET = new Set<string>(WIP_GLYPH_STATES);
 
 const titleOf = (node: CanvasNode | undefined, fallback: string): string => {
   if (!node) return fallback;
@@ -107,7 +91,7 @@ const titleOf = (node: CanvasNode | undefined, fallback: string): string => {
 
 /**
  * Canvas adapter for physics phase membership.
- * Prefer roleMayBeBlocked / seatMayBeBlocked at pure physics call sites.
+ * Prefer seatMayBeBlocked / roleMayBeBlocked at pure physics call sites.
  */
 export const isBlockableNode = (node: CanvasNode | undefined): boolean => {
   if (!node) return false;
@@ -117,117 +101,23 @@ export const isBlockableNode = (node: CanvasNode | undefined): boolean => {
   });
 };
 
-// The node's identity name is the project key for glyph/wip criteria when the
-// entity is not an agent. Edge criteria that need a different key carry an
-// explicit criteria.project.
-export const entityProjectKey = (node: CanvasNode | undefined): string | undefined => {
-  const entity = node?.ether?.entity;
-  if (!entity?.name || entity.kind === "agent") return undefined;
-  return entity.name;
-};
-
-const filterOrbit = (rows: ReadonlyArray<GlyphRow>, orbit: string | undefined): ReadonlyArray<GlyphRow> =>
-  orbit ? rows.filter((row) => row.orbit === orbit) : rows;
-
-const evalGlyphsCriteria = (
-  criteria: Extract<EdgeCriteria, { mode: "glyphs" }>,
-  fromNode: CanvasNode | undefined,
-  glyphs: GlyphView,
-): EdgeEval => {
-  const project = criteria.project ?? entityProjectKey(fromNode);
-  if (!project) {
-    return { phase: "relates", detail: "no project for glyph criteria", generates: false, relays: false };
-  }
-  if (criteria.glyphIds.length === 0) {
-    return { phase: "relates", detail: "no glyphs selected", generates: false, relays: false };
-  }
-  if (!glyphs.has(project)) {
-    return { phase: "relates", detail: "glyph data unavailable", generates: false, relays: false };
-  }
-  const rows = glyphs.get(project);
-  if (rows === undefined) {
-    return { phase: "relates", detail: "glyph data unavailable", generates: false, relays: false };
-  }
-  const scoped = filterOrbit(rows, criteria.orbit);
-  const byId = new Map(scoped.map((row) => [row.glyphId, row] as const));
-  const pending: string[] = [];
-  let missing = 0;
-  for (const id of criteria.glyphIds) {
-    const row = byId.get(id);
-    if (!row) {
-      missing += 1;
-      pending.push(id);
-      continue;
-    }
-    if (row.state !== "done") pending.push(`${row.glyphId}(${row.state})`);
-  }
-  // Missing glyph ids count as unsatisfied only when we have a complete index
-  // for the project — a typo stays pending, never vacuous depends.
-  if (pending.length === 0) {
-    return {
-      phase: "depends",
-      detail: `${criteria.glyphIds.length}/${criteria.glyphIds.length} glyphs done`,
-      generates: false,
-      relays: true,
-    };
-  }
-  const detail =
-    missing > 0
-      ? `${criteria.glyphIds.length - pending.length}/${criteria.glyphIds.length} done (${missing} missing)`
-      : `${criteria.glyphIds.length - pending.length}/${criteria.glyphIds.length} done · pending: ${pending.slice(0, 4).join(", ")}`;
-  return { phase: "blocks", detail, generates: true, relays: true };
-};
-
-const evalWipCriteria = (
-  criteria: Extract<EdgeCriteria, { mode: "wip" }>,
-  fromNode: CanvasNode | undefined,
-  glyphs: GlyphView,
-): EdgeEval => {
-  const project = criteria.project ?? entityProjectKey(fromNode);
-  if (!project) {
-    return { phase: "relates", detail: "no project for wip criteria", generates: false, relays: false };
-  }
-  if (!glyphs.has(project)) {
-    return { phase: "relates", detail: "glyph data unavailable", generates: false, relays: false };
-  }
-  const rows = glyphs.get(project);
-  if (rows === undefined) {
-    return { phase: "relates", detail: "glyph data unavailable", generates: false, relays: false };
-  }
-  const scoped = filterOrbit(rows, criteria.orbit);
-  const hot = scoped.filter((row) => WIP_SET.has(row.state));
-  if (hot.length === 0) {
-    return {
-      phase: "depends",
-      detail: "no glyphs in committed|building|reviewing",
-      generates: false,
-      relays: true,
-    };
-  }
-  const sample = hot
-    .slice(0, 4)
-    .map((row) => `${row.glyphId}(${row.state})`)
-    .join(", ");
-  return {
-    phase: "blocks",
-    detail: `${hot.length} wip · ${sample}`,
-    generates: true,
-    relays: true,
-  };
-};
-
 const a2aItemsOn = (node: CanvasNode | undefined): ReadonlyArray<A2ATask> => {
   if (!node) return [];
   const kind = node.ether?.entity?.kind;
   if (kind === "requests") return node.ether?.requests?.items ?? [];
   if (kind === "task") return node.ether?.tasks?.items ?? [];
-  // Fallback: prefer tasks store if present (criteria mode is document-local).
   return node.ether?.tasks?.items ?? node.ether?.requests?.items ?? [];
 };
 
 /** Attention states only — open queue (submitted/working) does not stop actors. */
-const isBlockingTaskItem = (item: A2ATask, _fromKind: string | undefined): boolean =>
+const isBlockingTaskItem = (item: A2ATask): boolean =>
   item.state === "input-required" || item.state === "auth-required";
+
+const softRelates = (detail = "relates"): EdgeEval => ({
+  phase: "relates",
+  detail,
+  generates: false,
+});
 
 const evalTasksCriteria = (
   criteria: Extract<EdgeCriteria, { mode: "tasks" }>,
@@ -240,25 +130,15 @@ const evalTasksCriteria = (
       ? items.filter((item) => criteria.itemIds!.includes(item.id))
       : items;
   if (scoped.length === 0) {
-    // Empty list with an explicit tasks edge = satisfied pathway.
-    return {
-      phase: "depends",
-      detail: fromKind === "requests" ? "no pending requests" : "no open tasks",
-      generates: false,
-      relays: true,
-    };
+    return softRelates(fromKind === "requests" ? "no pending requests" : "no open tasks");
   }
-  const open = scoped.filter((item) => isBlockingTaskItem(item, fromKind));
+  const open = scoped.filter((item) => isBlockingTaskItem(item));
   if (open.length === 0) {
-    return {
-      phase: "depends",
-      detail:
-        fromKind === "requests"
-          ? `${scoped.length}/${scoped.length} requests resolved`
-          : `${scoped.length - open.length}/${scoped.length} tasks clear (no attention)`,
-      generates: false,
-      relays: true,
-    };
+    return softRelates(
+      fromKind === "requests"
+        ? `${scoped.length}/${scoped.length} requests resolved`
+        : `${scoped.length}/${scoped.length} tasks clear (no attention)`,
+    );
   }
   const sample = open
     .slice(0, 3)
@@ -269,23 +149,14 @@ const evalTasksCriteria = (
       phase: "blocks",
       detail: `${scoped.length - open.length}/${scoped.length} requests resolved · pending: ${sample}`,
       generates: true,
-      relays: true,
     };
   }
   return {
     phase: "blocks",
     detail: `${open.length} need input · ${sample}`,
     generates: true,
-    relays: true,
   };
 };
-
-const softRelates = (): EdgeEval => ({
-  phase: "relates",
-  detail: "relates",
-  generates: false,
-  relays: false,
-});
 
 const evalProofCriteria = (
   criteria: Extract<EdgeCriteria, { mode: "proof" }>,
@@ -294,18 +165,13 @@ const evalProofCriteria = (
 ): EdgeEval => {
   const step = criteria.step.trim();
   if (!step) {
-    return { phase: "relates", detail: "proof criteria missing step", generates: false, relays: false };
+    return softRelates("proof criteria missing step");
   }
   const sinkId = fromNode?.id;
   const sinkStamps = sinkId && stamps ? stamps.get(sinkId) : undefined;
   const match = findMatchingStamp(sinkStamps, step, criteria.inputsHash);
   if (match) {
-    return {
-      phase: "depends",
-      detail: `proof step "${step}" stamped`,
-      generates: false,
-      relays: true,
-    };
+    return softRelates(`proof step "${step}" stamped`);
   }
   const hashHint =
     criteria.inputsHash !== undefined ? ` (inputsHash=${criteria.inputsHash})` : "";
@@ -313,7 +179,6 @@ const evalProofCriteria = (
     phase: "blocks",
     detail: `missing proof step "${step}"${hashHint}`,
     generates: true,
-    relays: true,
   };
 };
 
@@ -323,43 +188,31 @@ const evalApprovalCriteria = (
 ): EdgeEval => {
   const step = criteria.step.trim();
   if (!step) {
-    return {
-      phase: "relates",
-      detail: "approval criteria missing step",
-      generates: false,
-      relays: false,
-    };
+    return softRelates("approval criteria missing step");
   }
   const grant = findApproval(approvals, step);
   if (grant && grant.principal === "human") {
-    return {
-      phase: "depends",
-      detail: `approval step "${step}" granted`,
-      generates: false,
-      relays: true,
-    };
+    return softRelates(`approval step "${step}" granted`);
   }
   return {
     phase: "blocks",
     detail: `missing human approval for step "${step}"`,
     generates: true,
-    relays: true,
   };
 };
+
+/** Glyph-project collection retired with glyphs/wip criteria — always empty. */
+export const edgeGlyphProjects = (_doc: CanvasDoc): ReadonlySet<string> => new Set();
 
 export const evaluateEdge = (
   edge: CanvasEdge,
   fromNode: CanvasNode | undefined,
-  glyphs: GlyphView,
+  _glyphs: GlyphView = new Map(),
   trust: LiveTrustViews = {},
 ): EdgeEval => {
   const criteria = edge.ether?.criteria;
   if (!criteria) return softRelates();
   switch (criteria.mode) {
-    case "glyphs":
-      return evalGlyphsCriteria(criteria, fromNode, glyphs);
-    case "wip":
-      return evalWipCriteria(criteria, fromNode, glyphs);
     case "tasks":
       return evalTasksCriteria(criteria, fromNode);
     case "proof":
@@ -367,22 +220,6 @@ export const evaluateEdge = (
     case "approval":
       return evalApprovalCriteria(criteria, trust.approvals);
   }
-};
-
-/** Collect project keys that must be present in the glyph view for edge criteria. */
-export const edgeGlyphProjects = (doc: CanvasDoc): ReadonlySet<string> => {
-  const projects = new Set<string>();
-  const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
-  for (const edge of doc.edges) {
-    const criteria = edge.ether?.criteria;
-    if (!criteria) continue;
-    // Only glyph/wip criteria need project keys.
-    if (criteria.mode !== "glyphs" && criteria.mode !== "wip") continue;
-    const from = byId.get(edge.fromNode);
-    const project = criteria.project ?? entityProjectKey(from);
-    if (project) projects.add(project);
-  }
-  return projects;
 };
 
 /**
@@ -425,16 +262,6 @@ export const deriveExecutionGraph = (
     detailByEdgeId.set(edge.id, evaluation.detail);
   }
 
-  // Outbound adjacency for relay: only edges that can relay.
-  const outboundRelay = new Map<string, Array<{ edgeId: string; toNode: string }>>();
-  for (const edge of doc.edges) {
-    const evaluation = edgeEvalById.get(edge.id)!;
-    if (!evaluation.relays) continue;
-    const list = outboundRelay.get(edge.fromNode) ?? [];
-    list.push({ edgeId: edge.id, toNode: edge.toNode });
-    outboundRelay.set(edge.fromNode, list);
-  }
-
   const blocked = new Set<string>();
   const reasonsByNodeId = new Map<string, BlockedReason[]>();
   const blockedEdgeIds = new Set<string>();
@@ -449,21 +276,20 @@ export const deriveExecutionGraph = (
   const markBlocked = (nodeId: string, reason: BlockedReason, viaEdgeId?: string): void => {
     const node = byId.get(nodeId);
     if (!isBlockableNode(node)) return;
-    const wasBlocked = blocked.has(nodeId);
     blocked.add(nodeId);
-    if (!wasBlocked) addReason(nodeId, reason);
-    else addReason(nodeId, reason);
+    addReason(nodeId, reason);
     if (viaEdgeId) blockedEdgeIds.add(viaEdgeId);
   };
 
-  // Manual blocker flags are seeds (generate via their outbound relay edges).
+  // Manual blocker flag: self only (no outbound cascade).
   for (const node of doc.nodes) {
     if (node.ether?.flags?.includes("blocker") && isBlockableNode(node)) {
       seedNodeIds.add(node.id);
+      markBlocked(node.id, { kind: "seed", detail: `blocker flag on ${titleOf(node, node.id)}` });
     }
   }
 
-  // Generating edges (phase blocks).
+  // Generating edges only — no relay through other edges.
   for (const edge of doc.edges) {
     const evaluation = edgeEvalById.get(edge.id)!;
     if (!evaluation.generates) continue;
@@ -477,47 +303,6 @@ export const deriveExecutionGraph = (
       },
       edge.id,
     );
-  }
-
-  // Seed: manual blockers push through outbound relay edges.
-  const queue: string[] = [];
-  for (const seedId of seedNodeIds) {
-    queue.push(seedId);
-    for (const hop of outboundRelay.get(seedId) ?? []) {
-      markBlocked(
-        hop.toNode,
-        { kind: "seed", detail: `from blocker ${titleOf(byId.get(seedId), seedId)}` },
-        hop.edgeId,
-      );
-      queue.push(hop.toNode);
-    }
-  }
-
-  // Also enqueue every currently blocked node for relay expansion.
-  for (const id of blocked) queue.push(id);
-
-  // Relay: blocked nodes retransmit through outbound blocks|depends.
-  const seenRelay = new Set<string>();
-  while (queue.length > 0) {
-    const current = queue.pop()!;
-    if (seenRelay.has(current)) continue;
-    // Seeds that are not themselves blocked still relay; blocked nodes always relay.
-    if (!blocked.has(current) && !seedNodeIds.has(current)) continue;
-    seenRelay.add(current);
-    for (const hop of outboundRelay.get(current) ?? []) {
-      if (blocked.has(hop.toNode)) {
-        // Still mark edge as active in the closure.
-        blockedEdgeIds.add(hop.edgeId);
-        continue;
-      }
-      const before = blocked.size;
-      markBlocked(
-        hop.toNode,
-        { kind: "relay", viaNodeId: current, edgeId: hop.edgeId },
-        hop.edgeId,
-      );
-      if (blocked.size > before) queue.push(hop.toNode);
-    }
   }
 
   return {
@@ -534,7 +319,7 @@ export const deriveExecutionGraph = (
 /** Human-readable region execution context for agent pulses. Deterministic. */
 export const composeRegionExecutionContext = (
   doc: CanvasDoc,
-  regionId: string,
+  _regionId: string,
   graph: ExecutionGraph,
   memberIds: ReadonlyArray<string>,
 ): string => {
@@ -572,7 +357,6 @@ export const composeRegionExecutionContext = (
         .slice(0, 3)
         .map((reason) => {
           if (reason.kind === "edge") return reason.detail;
-          if (reason.kind === "relay") return `relay via ${titleOf(byId.get(reason.viaNodeId), reason.viaNodeId)}`;
           return reason.detail;
         })
         .join("; ");
@@ -584,7 +368,6 @@ export const composeRegionExecutionContext = (
     }
   }
 
-  // Task / request lists in the region (even when not edged).
   const taskLines: string[] = [];
   for (const id of memberIds) {
     const node = byId.get(id);

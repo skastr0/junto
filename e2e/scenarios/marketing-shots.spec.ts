@@ -113,7 +113,7 @@ const nodes: readonly CanvasNode[] = [
 
 const edges: readonly CanvasEdge[] = [
   tasksCriteriaEdge("e-criteria", "tasks-forge", "proj-vellum"),
-  { id: "e-depends", fromNode: "proj-vellum", toNode: "proj-launch", fromSide: "bottom", toSide: "top", ether: { kind: "depends" } },
+  { id: "e-depends", fromNode: "proj-vellum", toNode: "proj-launch", fromSide: "bottom", toSide: "top", ether: { kind: "relates" } },
   { id: "e-blocks", fromNode: "note-blocker", toNode: "proj-launch", fromSide: "right", toSide: "left", ether: { kind: "blocks" } },
   { id: "e-relates", fromNode: "h7", toNode: "note-attn", fromSide: "right", toSide: "left", ether: { kind: "relates" } },
 ];

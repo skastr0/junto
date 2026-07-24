@@ -70,7 +70,6 @@ export const WellKnownKind = Schema.Literal(
   "artifacts",
   "watcher",
   "timer",
-  "project",
 );
 export type WellKnownKind = typeof WellKnownKind.Type;
 
@@ -84,7 +83,6 @@ export const WELL_KNOWN_KINDS: ReadonlyArray<WellKnownKind> = [
   "artifacts",
   "watcher",
   "timer",
-  "project",
 ];
 
 export const isWellKnownKind = (kind: string): kind is WellKnownKind =>

@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { WIP_GLYPH_STATES, type CanvasDoc, type CanvasNode, type GroupNode } from "./canvas";
+import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
 import type { SnapshotState } from "./entities";
 import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
 import { groupMembers, isGroup } from "./graph";
@@ -36,9 +36,8 @@ export const MemberStatus = Schema.Struct({
   kind: Schema.String,
   severity: MemberSeverity,
   // Short machine strings, worst-tier first: flag:blocker, edge:<detail>,
-  // relay, seed:<detail>, activity:blocked, flag:attention,
-  // permission:pending, activity:attention, activity:working,
-  // glyph:wip:<state>, flag:parked.
+  // seed:<detail>, activity:blocked, flag:attention, permission:pending,
+  // activity:attention, activity:working, flag:parked.
   // (`seed:` is the execution-graph's manual-blocker origin — NOT the digest
   // `seeds` section, which lists unbound entity nodes.)
   reasons: Schema.Array(Schema.String),
@@ -59,8 +58,8 @@ export const RegionRollup = Schema.Struct({
     attention: Schema.Number,
     working: Schema.Number,
   }),
-  // Sorted: severity rank (blocked -> idle), then kind rank (agent, project,
-  // everything else), then document order.
+  // Sorted: severity rank (blocked -> idle), then kind rank (agent, task/
+  // requests, rest), then document order.
   members: Schema.Array(MemberStatus),
 });
 export type RegionRollup = typeof RegionRollup.Type;
@@ -87,7 +86,7 @@ const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
 };
 
 const kindRank = (kind: string): number =>
-  kind === "agent" || kind === "herdr" ? 0 : kind === "project" ? 1 : 2;
+  kind === "agent" || kind === "herdr" ? 0 : kind === "task" || kind === "requests" ? 1 : 2;
 
 const workSurfaceContribution = (
   activity: WorkSurfaceActivity | undefined,
@@ -101,13 +100,8 @@ const workSurfaceContribution = (
   return { blocked: false, attention: false, working: true, reason: "activity:working" };
 };
 
-// Documented rank for mapped execution-graph reasons: edge, then relay, then
-// seed. The graph emits generation -> seeds -> relay, and relay reasons only
-// ever land alone, but the contract is the rank — stable-sort so the output
-// order holds even if emission order ever changes.
-const GRAPH_REASON_RANK = { edge: 0, relay: 1, seed: 2 } as const;
-
-const WIP_SET: ReadonlySet<string> = new Set(WIP_GLYPH_STATES);
+// Rank for mapped execution-graph reasons: edge before seed (no relay cascade).
+const GRAPH_REASON_RANK = { edge: 0, seed: 1 } as const;
 
 // mirrors digest.titleOf — duplicated on purpose: shared modules stay
 // decoupled, and the label convention must not drift with the projection.
@@ -127,20 +121,6 @@ const titleOf = (node: CanvasNode): string => {
 };
 
 const regionLabel = (group: GroupNode): string => (group.label ?? "").trim() || "unnamed region";
-
-// First WIP state on the member's own project rows, when the view knows the
-// project at all. Missing key / undefined rows = data unavailable = no work
-// invented. Project identity is ether.entity.name (the project key).
-const wipStateOf = (node: CanvasNode, glyphs: GlyphView | undefined): string | undefined => {
-  const entity = node.ether?.entity;
-  if (entity?.kind !== "project" || entity.name === undefined || glyphs === undefined) {
-    return undefined;
-  }
-  if (!glyphs.has(entity.name)) return undefined;
-  const rows = glyphs.get(entity.name);
-  if (rows === undefined) return undefined;
-  return rows.find((row) => WIP_SET.has(row.state))?.state;
-};
 
 const deriveMember = (
   node: CanvasNode,
@@ -167,7 +147,6 @@ const deriveMember = (
   );
   for (const reason of graphReasons) {
     if (reason.kind === "edge") reasons.push(`edge:${reason.detail}`);
-    else if (reason.kind === "relay") reasons.push("relay");
     else reasons.push(`seed:${reason.detail}`);
   }
   if (surface.reason === "activity:blocked") reasons.push(surface.reason);
@@ -180,12 +159,9 @@ const deriveMember = (
   const attention =
     flags.includes("attention") || activity?.permissionPending === true || surface.attention;
 
-  // working: explicit harness activity or WIP glyphs. A live session can idle.
+  // working: explicit harness activity only (glyph WIP retired).
   if (surface.reason === "activity:working") reasons.push(surface.reason);
-  const wipState = wipStateOf(node, glyphs);
-  if (wipState !== undefined) reasons.push(`glyph:wip:${wipState}`);
-  const working =
-    surface.working || wipState !== undefined;
+  const working = surface.working;
 
   // parked: manual flag only.
   if (flags.includes("parked")) reasons.push("flag:parked");

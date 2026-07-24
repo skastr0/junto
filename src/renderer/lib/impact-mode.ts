@@ -54,10 +54,9 @@ export const executionGraphForImpact = (
     phaseByEdgeId.set(edge.id, phase);
     detailByEdgeId.set(edge.id, detail);
     edgeEvalById.set(edge.id, {
-      phase,
+      phase: phase === "blocks" ? "blocks" : "relates",
       detail,
       generates: phase === "blocks",
-      relays: phase === "blocks" || phase === "depends",
     });
   }
 

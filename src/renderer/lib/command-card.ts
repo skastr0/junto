@@ -7,7 +7,6 @@ import type { CanvasNode } from "@shared/canvas";
  */
 export type CommandSelectionKind =
   | "herdr"
-  | "project"
   | "region"
   | "link"
   | "default";
@@ -33,12 +32,11 @@ export type CommandCardCaps = {
 
 /**
  * Classify a selected node for the command card primary row.
- * Precedence: region → herdr → project → link → default.
+ * Precedence: region → herdr → link → default.
  */
 export function commandSelectionKind(node: CanvasNode): CommandSelectionKind {
   if (node.type === "group") return "region";
   if (node.ether?.herdr || node.ether?.entity?.kind === "herdr") return "herdr";
-  if (node.ether?.entity?.kind === "project") return "project";
   if (node.type === "link") return "link";
   return "default";
 }
@@ -58,8 +56,6 @@ export function primaryCommandActions(
       if (caps.canKill) out.push("kill-pane");
       return out;
     }
-    case "project":
-      return [];
     case "region":
       return ["arm-region", "pulse-region", "slot-cue"];
     case "link":

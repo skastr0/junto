@@ -82,7 +82,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 0, working: 0 });
   });
 
-  it("blocked via seed: a manual blocker on an actor pushes through an outbound relaying edge", () => {
+  it("blocked via seed: a manual blocker marks that actor only (no outbound cascade)", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
@@ -99,12 +99,15 @@ describe("deriveRegionRollups — member severity ladder", () => {
       edges: [{ id: "e1", fromNode: "s", toNode: "t", ether: { criteria: { mode: "tasks" } } }],
     };
     const [rollup] = deriveRegionRollups({ doc: flagged });
+    const seed = rollup?.members.find((member) => member.nodeId === "s");
     const target = rollup?.members.find((member) => member.nodeId === "t");
-    expect(target?.severity).toBe("blocked");
-    expect(target?.reasons).toEqual(["seed:from blocker Prism"]);
+    expect(seed?.severity).toBe("blocked");
+    expect(seed?.reasons).toEqual(["flag:blocker", "seed:blocker flag on Prism"]);
+    expect(target?.severity).toBe("idle");
+    expect(target?.reasons).toEqual([]);
   });
 
-  it("blocked via relay: a blocked actor retransmits through an outbound depends edge", () => {
+  it("no cascade: blocked actor does not retransmit through outbound soft tasks edge", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
@@ -114,41 +117,40 @@ describe("deriveRegionRollups — member severity ladder", () => {
       ],
       edges: [
         { id: "e1", fromNode: "t", toNode: "a", ether: { criteria: { mode: "tasks" } } },
-        // a has no open tasks -> depends -> relays the block onward to b
+        // Empty queue on a → soft relates; never relays stoppage to b
         { id: "e2", fromNode: "a", toNode: "b", ether: { criteria: { mode: "tasks" } } },
       ],
     };
     const [rollup] = deriveRegionRollups({ doc });
-    const relayed = rollup?.members.find((member) => member.nodeId === "b");
-    expect(relayed?.severity).toBe("blocked");
-    expect(relayed?.reasons).toEqual(["relay"]);
+    const a = rollup?.members.find((member) => member.nodeId === "a");
+    const b = rollup?.members.find((member) => member.nodeId === "b");
+    expect(a?.severity).toBe("blocked");
+    expect(b?.severity).toBe("idle");
+    expect(b?.reasons).toEqual([]);
   });
 
-  it("graph reasons follow documented rank (edge before seed) when both apply", () => {
+  it("graph reasons follow documented rank (edge before seed) when both apply on one actor", () => {
     const base: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 800, 800, "ops"),
         taskNode("u", 10, 10, "Ops tasks", [a2aTask("i1", "ship", "input-required")]),
-        actorSeat("s", 10, 110, "Seed source"),
         actorSeat("t", 10, 210, "Target"),
       ],
-      edges: [
-        { id: "e1", fromNode: "u", toNode: "t", ether: { criteria: { mode: "tasks" } } },
-        { id: "e2", fromNode: "s", toNode: "t", ether: { criteria: { mode: "tasks" } } },
-      ],
+      edges: [{ id: "e1", fromNode: "u", toNode: "t", ether: { criteria: { mode: "tasks" } } }],
     };
     const flagged: CanvasDoc = {
       ...base,
       nodes: base.nodes.map((n) =>
-        n.id === "s" ? { ...n, ether: { ...n.ether, flags: ["blocker" as const] } } : n,
+        n.id === "t" ? { ...n, ether: { ...n.ether, flags: ["blocker" as const] } } : n,
       ),
     };
     const [rollup] = deriveRegionRollups({ doc: flagged });
     const target = rollup?.members.find((member) => member.nodeId === "t");
     expect(target?.severity).toBe("blocked");
     expect(target?.reasons).toEqual([
+      "flag:blocker",
       "edge:1 need input · ship",
-      "seed:from blocker Seed source",
+      "seed:blocker flag on Target",
     ]);
   });
 
@@ -194,14 +196,14 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(rollup?.members[0]).toMatchObject({ severity: "working", reasons: ["activity:working"] });
   });
 
-  it("working via WIP glyphs on a project node, first such state", () => {
+  it("glyph WIP no longer elevates furniture/project notes (retired)", () => {
     const doc: CanvasDoc = {
       nodes: [group("r", 0, 0, 500, 500, "ops"), projectNode("p", 10, 10, "prism", "prism")],
       edges: [],
     };
     const glyphs: GlyphView = new Map([["prism", [glyphRow("done"), glyphRow("building"), glyphRow("reviewing")]]]);
     const [rollup] = deriveRegionRollups({ doc, glyphs });
-    expect(rollup?.members[0]).toMatchObject({ severity: "working", reasons: ["glyph:wip:building"] });
+    expect(rollup?.members[0]).toMatchObject({ severity: "idle", reasons: [] });
   });
 
   it("parked via flag", () => {
@@ -246,7 +248,12 @@ describe("deriveRegionRollups — member severity ladder", () => {
     });
     const member = rollup?.members[0];
     expect(member?.severity).toBe("blocked");
-    expect(member?.reasons).toEqual(["flag:blocker", "flag:attention"]);
+    // flag + graph seed for the same blocker, then lower-ladder attention flag
+    expect(member?.reasons).toEqual([
+      "flag:blocker",
+      "seed:blocker flag on MIRA",
+      "flag:attention",
+    ]);
     expect(rollup?.counts).toEqual({ total: 1, blocked: 1, attention: 0, working: 0 });
   });
 });
@@ -259,7 +266,7 @@ describe("deriveRegionRollups — graceful degradation", () => {
       agentNode("a", 10, 100, "MIRA", "remote-a:mira"),
       projectNode("q", 10, 200, "quasar", "quasar"),
     ],
-    edges: [{ id: "e1", fromNode: "p", toNode: "q", ether: { criteria: { mode: "wip" } } }],
+    edges: [{ id: "e1", fromNode: "p", toNode: "q", ether: { criteria: { mode: "tasks" } } }],
   };
 
   it("missing activity and glyphs invent nothing: every member idle, edge stays relates", () => {
@@ -397,29 +404,28 @@ describe("deriveRegionRollups — region shape", () => {
 });
 
 describe("deriveRegionRollups — member ordering", () => {
-  it("sorts by severity, then kind (agent, project, rest), then document order", () => {
+  it("sorts by severity, then kind (agent, task/requests, rest), then document order", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 800, 800, "ops"),
         node("idle1", 10, 10, "idle one"),
-        projectNode("working-project", 10, 100, "prism", "prism"),
+        projectNode("note-project", 10, 100, "prism", "prism"),
         agentNode("working-agent", 10, 200, "MIRA", "remote-a:mira"),
         node("blocked-note", 10, 300, "on fire", { flags: ["blocker"] }),
         node("idle2", 10, 400, "idle two"),
       ],
       edges: [],
     };
-    const glyphs: GlyphView = new Map([["prism", [glyphRow("committed")]]]);
     const [rollup] = deriveRegionRollups({
       doc,
-      glyphs,
       terminalStatusByNodeId: new Map([["working-agent", { session: "running", harness: "working" }]]),
     });
+    // blocked > working (agent) > idle furniture notes in document order
     expect(rollup?.members.map((member) => member.nodeId)).toEqual([
       "blocked-note",
       "working-agent",
-      "working-project",
       "idle1",
+      "note-project",
       "idle2",
     ]);
   });
@@ -444,7 +450,11 @@ describe("deriveRegionRollups — derivation edges", () => {
     const [rollup] = deriveRegionRollups({ doc });
     const target = rollup?.members.find((member) => member.nodeId === "t");
     expect(target?.severity).toBe("blocked");
-    expect(target?.reasons).toEqual(["flag:blocker", "edge:1 need input · ship"]);
+    expect(target?.reasons).toEqual([
+      "flag:blocker",
+      "edge:1 need input · ship",
+      "seed:blocker flag on Target",
+    ]);
     expect(new Set(target?.reasons).size).toBe(target?.reasons.length);
   });
 

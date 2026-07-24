@@ -350,11 +350,9 @@ export const digestCanvas = (
         const suffix =
           first?.kind === "edge"
             ? ` · ${first.detail}`
-            : first?.kind === "relay"
-              ? ` · relay`
-              : first?.kind === "seed"
-                ? ` · ${first.detail}`
-                : "";
+            : first?.kind === "seed"
+              ? ` · ${first.detail}`
+              : "";
         blockerLines.push(`${titleOf(node)}${suffix}`);
       }
     }

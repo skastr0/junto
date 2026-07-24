@@ -18,7 +18,7 @@ const text = (over: Partial<CanvasNode> & { type?: "text"; text?: string } = {})
   }) as CanvasNode;
 
 describe("commandSelectionKind", () => {
-  it("classifies region, herdr, project, link, default", () => {
+  it("classifies region, herdr, link, default", () => {
     expect(commandSelectionKind({ ...base, type: "group", label: "ops" })).toBe("region");
     expect(
       commandSelectionKind(
@@ -30,10 +30,10 @@ describe("commandSelectionKind", () => {
     ).toBe("herdr");
     expect(
       commandSelectionKind(text({ ether: { entity: { kind: "project", name: "prism" } } })),
-    ).toBe("project");
+    ).toBe("default");
     expect(
       commandSelectionKind(text({ ether: { entity: { kind: "project", name: "prism" } } })),
-    ).toBe("project");
+    ).toBe("default");
     expect(commandSelectionKind({ ...base, type: "link", url: "https://x.com" })).toBe("link");
     expect(commandSelectionKind(text({ text: "note" }))).toBe("default");
     expect(commandSelectionKind(text({ ether: { entity: { kind: "agent", name: "h:p" } } }))).toBe(
@@ -56,9 +56,6 @@ describe("primaryCommandActions", () => {
     ]);
   });
 
-  it("project has no primary actions", () => {
-    expect(primaryCommandActions("project")).toEqual([]);
-  });
 
   it("region / link / default", () => {
     expect(primaryCommandActions("region")).toEqual([

@@ -102,7 +102,7 @@ const docCache: CanvasDoc = {
     { id: "p1", type: "text", text: "prism", x: 10, y: 10, width: 100, height: 40, ether: { entity: { kind: "project", name: "prism" } } },
     { id: "p2", type: "text", text: "vellum", x: 10, y: 60, width: 100, height: 40, ether: { entity: { kind: "project", name: "vellum" } } },
   ],
-  edges: [{ id: "e1", fromNode: "p1", toNode: "p2", ether: { criteria: { mode: "wip" } } }],
+  edges: [{ id: "e1", fromNode: "p1", toNode: "p2", ether: { criteria: { mode: "tasks" } } }],
 };
 
 // --- stubbed planes (kernel-arming-transaction idiom) -------------------------

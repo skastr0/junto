@@ -14,25 +14,21 @@ export type NodeSide = typeof NodeSide.Type;
 export const EdgeEnd = Schema.Literal("none", "arrow");
 export type EdgeEnd = typeof EdgeEnd.Type;
 
-// Live edge phase — always DERIVED from criteria (+ live glyph/task state).
-// Never authorial in UI: document stores criteria; evaluation produces phase;
-// applyPhaseMirror may write phase back as ether.kind for offline readers.
-export const EdgePhase = Schema.Literal("blocks", "depends", "relates");
+// Live edge phase — DERIVED from criteria (+ live task/trust state).
+// Never authorial: document stores criteria; evaluation produces phase.
+// `depends` is retired (no cascade); clear criteria → relates.
+export const EdgePhase = Schema.Literal("blocks", "relates");
 export type EdgePhase = typeof EdgePhase.Type;
 /** Alias used by theme/svg color maps. */
 export type EtherEdgeKind = EdgePhase;
 export const EtherEdgeKind = EdgePhase;
 
-// Glyph states that count as in-flight execution work for opt-in WIP criteria.
-export const WIP_GLYPH_STATES = ["committed", "building", "reviewing"] as const;
-export type WipGlyphState = (typeof WIP_GLYPH_STATES)[number];
-
 export const EtherFlag = Schema.Literal("blocker", "parked", "attention");
 export type EtherFlag = typeof EtherFlag.Type;
 
 // entity.kind is an open vocabulary; well-known kinds get richer rendering.
+// `project` is retired as a well-known kind (degrades to furniture / plain note).
 export const WELL_KNOWN_ENTITY_KINDS = [
-  "project",
   "orbit",
   "plugin",
   "agent",
@@ -346,29 +342,11 @@ export const EtherMessages = Schema.Struct({
 });
 export type EtherMessages = typeof EtherMessages.Type;
 
-// Edge glyph-binding / task-binding / trust criteria. Absence → plain relates.
-// - glyphs:   selected glyph ids on a project must all be "done"
-// - wip:      opt-in; any glyph in committed|building|reviewing generates blocks
-// - tasks:    from task node → selected items not "completed";
-//             from requests node → selected items still "input-required"
-// - proof:    holds until a matching runtime stamp exists on the source sink
-//             (stamps live in sink runtime state — never authored canvas fields)
+// Edge criteria. Absence → soft relates (capability only; never stoppage).
+// glyphs/wip retired — stripped on sanitize. No depends cascade.
+// - tasks:    attention (input-required | auth-required) generates blocks on actors
+// - proof:    holds until a matching runtime stamp on the source sink
 // - approval: holds until a human grant (external principal; never a node)
-export const EdgeCriteriaGlyphs = Schema.Struct({
-  mode: Schema.Literal("glyphs"),
-  project: Schema.optionalWith(Schema.String, { exact: true }),
-  orbit: Schema.optionalWith(Schema.String, { exact: true }),
-  glyphIds: Schema.Array(Schema.String),
-});
-export type EdgeCriteriaGlyphs = typeof EdgeCriteriaGlyphs.Type;
-
-export const EdgeCriteriaWip = Schema.Struct({
-  mode: Schema.Literal("wip"),
-  project: Schema.optionalWith(Schema.String, { exact: true }),
-  orbit: Schema.optionalWith(Schema.String, { exact: true }),
-});
-export type EdgeCriteriaWip = typeof EdgeCriteriaWip.Type;
-
 export const EdgeCriteriaTasks = Schema.Struct({
   mode: Schema.Literal("tasks"),
   // empty/absent itemIds = every item on the fromNode tasks/requests list
@@ -397,13 +375,14 @@ export const EdgeCriteriaApproval = Schema.Struct({
 export type EdgeCriteriaApproval = typeof EdgeCriteriaApproval.Type;
 
 export const EdgeCriteria = Schema.Union(
-  EdgeCriteriaGlyphs,
-  EdgeCriteriaWip,
   EdgeCriteriaTasks,
   EdgeCriteriaProof,
   EdgeCriteriaApproval,
 );
 export type EdgeCriteria = typeof EdgeCriteria.Type;
+
+/** Retired criteria modes — strip on sanitize so old docs still load. */
+const RETIRED_CRITERIA_MODES = new Set(["glyphs", "wip"]);
 
 /**
  * Operator-assigned claim-routing label on a seat or task sink.
@@ -538,46 +517,84 @@ const workStoreDecoders: ReadonlyArray<{
 // inventing grants.
 const RETIRED_SOURCE_NAMES = new Set(["tower", "quasar", "booth"]);
 
-/** Drop invalid A2A work stores + retired source vocabulary before full decode. */
+/** Drop invalid A2A work stores + retired vocabulary before full decode. */
 export const sanitizeWorkStores = (input: unknown): unknown => {
   if (input === null || typeof input !== "object" || Array.isArray(input)) return input;
   const doc = input as Record<string, unknown>;
-  if (!Array.isArray(doc.nodes)) return input;
-  let anyNodeChanged = false;
-  const nodes = doc.nodes.map((node) => {
-    if (node === null || typeof node !== "object" || Array.isArray(node)) return node;
-    const n = node as Record<string, unknown>;
-    if (n.ether === null || typeof n.ether !== "object" || Array.isArray(n.ether)) return node;
-    const etherIn = n.ether as Record<string, unknown>;
-    let changed = false;
-    const ether: Record<string, unknown> = { ...etherIn };
-    for (const { key, decode } of workStoreDecoders) {
-      if (!(key in ether)) continue;
-      if (decode(ether[key])._tag === "Left") {
-        delete ether[key];
-        changed = true;
-      }
-    }
-    // Strip retired watch.source; leave other watch fields so glyphs_* rules
-    // still decode. Unknown ether keys (e.g. legacy bindings[]) are dropped
-    // by Schema.Struct decode — no grant invented from them.
-    if (ether.watch !== null && typeof ether.watch === "object" && !Array.isArray(ether.watch)) {
-      const watchIn = ether.watch as Record<string, unknown>;
-      if (typeof watchIn.source === "string" && RETIRED_SOURCE_NAMES.has(watchIn.source)) {
-        const { source: _retired, ...watchRest } = watchIn;
-        ether.watch = watchRest;
-        changed = true;
-      }
-    }
-    if (!changed) return node;
-    anyNodeChanged = true;
-    if (Object.keys(ether).length === 0) {
-      const { ether: _dropped, ...rest } = n;
-      return rest;
-    }
-    return { ...n, ether };
-  });
-  return anyNodeChanged ? { ...doc, nodes } : input;
+  let anyChanged = false;
+
+  const nodes = Array.isArray(doc.nodes)
+    ? doc.nodes.map((node) => {
+        if (node === null || typeof node !== "object" || Array.isArray(node)) return node;
+        const n = node as Record<string, unknown>;
+        if (n.ether === null || typeof n.ether !== "object" || Array.isArray(n.ether)) return node;
+        const etherIn = n.ether as Record<string, unknown>;
+        let changed = false;
+        const ether: Record<string, unknown> = { ...etherIn };
+        for (const { key, decode } of workStoreDecoders) {
+          if (!(key in ether)) continue;
+          if (decode(ether[key])._tag === "Left") {
+            delete ether[key];
+            changed = true;
+          }
+        }
+        // Strip retired watch.source; leave other watch fields so glyphs_* rules
+        // still decode (kernel watchers). Unknown ether keys drop via Struct.
+        if (ether.watch !== null && typeof ether.watch === "object" && !Array.isArray(ether.watch)) {
+          const watchIn = ether.watch as Record<string, unknown>;
+          if (typeof watchIn.source === "string" && RETIRED_SOURCE_NAMES.has(watchIn.source)) {
+            const { source: _retired, ...watchRest } = watchIn;
+            ether.watch = watchRest;
+            changed = true;
+          }
+        }
+        if (!changed) return node;
+        anyChanged = true;
+        if (Object.keys(ether).length === 0) {
+          const { ether: _dropped, ...rest } = n;
+          return rest;
+        }
+        return { ...n, ether };
+      })
+    : doc.nodes;
+
+  const edges = Array.isArray(doc.edges)
+    ? doc.edges.map((edge) => {
+        if (edge === null || typeof edge !== "object" || Array.isArray(edge)) return edge;
+        const e = edge as Record<string, unknown>;
+        if (e.ether === null || typeof e.ether !== "object" || Array.isArray(e.ether)) return edge;
+        const etherIn = e.ether as Record<string, unknown>;
+        let changed = false;
+        const ether: Record<string, unknown> = { ...etherIn };
+        // Retired criteria modes (glyphs/wip) — drop criteria key entirely.
+        if (ether.criteria !== null && typeof ether.criteria === "object" && !Array.isArray(ether.criteria)) {
+          const mode = (ether.criteria as { mode?: unknown }).mode;
+          if (typeof mode === "string" && RETIRED_CRITERIA_MODES.has(mode)) {
+            delete ether.criteria;
+            changed = true;
+          }
+        }
+        // Retired phase mirror `depends` → drop so mirror re-derives as relates.
+        if (ether.kind === "depends") {
+          delete ether.kind;
+          changed = true;
+        }
+        if (!changed) return edge;
+        anyChanged = true;
+        if (Object.keys(ether).length === 0) {
+          const { ether: _dropped, ...rest } = e;
+          return rest;
+        }
+        return { ...e, ether };
+      })
+    : doc.edges;
+
+  if (!anyChanged) return input;
+  return {
+    ...doc,
+    ...(Array.isArray(doc.nodes) ? { nodes } : {}),
+    ...(Array.isArray(doc.edges) ? { edges } : {}),
+  };
 };
 
 export const decodeCanvasDoc = (

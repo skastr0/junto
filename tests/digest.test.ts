@@ -110,7 +110,7 @@ team :: blocked · 2 members (1 blocked)
   Bar :: blocked · flag:blocker
 
 factory physics
-roles :: actors=1 sinks=2 schedulers=0 regions=1 furniture=1
+roles :: actors=1 sinks=1 schedulers=0 regions=1 furniture=2
 capabilities :: criteria=1 soft=3
 
 design
@@ -208,16 +208,15 @@ const expected2 = [
   "unnamed region :: ",
   "",
   "region rollups",
-  "ops :: blocked · 4 members (1 blocked, 2 attention, 1 working)",
+  "ops :: blocked · 4 members (1 blocked, 2 attention)",
   "  B1 :: blocked · flag:blocker",
   "  A1 :: attention · flag:attention",
   "  A2 :: attention · flag:attention",
-  "  W1 :: working · glyph:wip:building",
   "solo :: idle · 1 member",
   "unnamed region :: idle · 0 members",
   "",
   "factory physics",
-  "roles :: actors=0 sinks=1 schedulers=0 regions=3 furniture=4",
+  "roles :: actors=0 sinks=0 schedulers=0 regions=3 furniture=5",
   "capabilities :: criteria=0 soft=0",
   "",
   "entities",
@@ -318,7 +317,7 @@ const physicsDoc: CanvasDoc = {
       id: "e-crit2",
       fromNode: "term1",
       toNode: "page1",
-      ether: { criteria: { mode: "glyphs", glyphIds: ["g1"] } },
+      ether: { criteria: { mode: "tasks" } },
     },
   ],
 };
@@ -447,8 +446,8 @@ describe("digestCanvas — design vs completion (I13/I16)", () => {
     expect(out).toContain("build · seat=agent1 · edge=e-proof · refs=art-build-1,log://run");
     expect(out).toContain("cleared");
     expect(out).toContain("proof edge e-proof · step=build");
-    // Live phase on the edge is depends (cleared)
-    expect(out).toContain("proofs --depends(proof step \"build\" stamped)--> ship");
+    // Cleared proof → soft relates (depends phase retired)
+    expect(out).toContain("proofs --relates--> ship");
     // I13: the word "empty seats" must not appear under completion block
     const completionBlock = out.slice(out.indexOf("\ncompletion\n"));
     expect(completionBlock).not.toContain("empty seats");

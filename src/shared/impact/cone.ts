@@ -58,9 +58,6 @@ const sortReasons = (reasons: ReadonlyArray<BlockedReason>): BlockedReason[] =>
     if (a.kind === "edge" && b.kind === "edge") {
       return a.edgeId < b.edgeId ? -1 : a.edgeId > b.edgeId ? 1 : 0;
     }
-    if (a.kind === "relay" && b.kind === "relay") {
-      return a.edgeId < b.edgeId ? -1 : a.edgeId > b.edgeId ? 1 : 0;
-    }
     if (a.kind === "seed" && b.kind === "seed") {
       return a.detail < b.detail ? -1 : a.detail > b.detail ? 1 : 0;
     }
@@ -69,7 +66,6 @@ const sortReasons = (reasons: ReadonlyArray<BlockedReason>): BlockedReason[] =>
 
 const reasonKey = (reason: BlockedReason): string => {
   if (reason.kind === "edge") return `edge:${reason.edgeId}`;
-  if (reason.kind === "relay") return `relay:${reason.edgeId}:${reason.viaNodeId}`;
   return `seed:${reason.detail}`;
 };
 

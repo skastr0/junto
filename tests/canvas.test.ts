@@ -189,7 +189,7 @@ describe("canvas contract", () => {
       ],
       edges: [
         { id: "e-blocks", fromNode: "n1", toNode: "n2", ether: { kind: "blocks", criteria: { mode: "tasks" } } },
-        { id: "e-depends", fromNode: "n1", toNode: "n2", ether: { kind: "depends", criteria: { mode: "wip" } } },
+        { id: "e-relates", fromNode: "n1", toNode: "n2", ether: { kind: "relates", criteria: { mode: "tasks" } } },
         { id: "e-relates-labeled", fromNode: "n1", toNode: "n2", label: "kept", ether: { kind: "relates" } },
         { id: "e-plain", fromNode: "n1", toNode: "n2" },
       ],
@@ -206,9 +206,10 @@ describe("canvas contract", () => {
     expect(blocksEdge?.label).toBe("blocks");
     expect(blocksEdge?.color).toBe("1");
 
-    const dependsEdge = mirrored.edges.find((e) => e.id === "e-depends");
-    expect(dependsEdge?.label).toBe("depends");
-    expect(dependsEdge?.color).toBeUndefined();
+    // relates phase mirror projects label when kind is set; depends is retired.
+    const relatesEdge = mirrored.edges.find((e) => e.id === "e-relates");
+    expect(relatesEdge?.label).toBe("relates");
+    expect(relatesEdge?.color).toBeUndefined();
 
     const labeledEdge = mirrored.edges.find((e) => e.id === "e-relates-labeled");
     expect(labeledEdge?.label).toBe("kept");
@@ -228,7 +229,7 @@ describe("canvas contract", () => {
           toNode: "n1",
           label: "depends",
           color: "1",
-          ether: { kind: "depends", criteria: { mode: "tasks" } },
+          ether: { kind: "relates", criteria: { mode: "tasks" } },
         },
         {
           id: "e-soft",

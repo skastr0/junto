@@ -26,7 +26,10 @@ const text = (
   ...(ether ? { ether } : {}),
 });
 
-/** Two independent stoppage seeds: big cone (size 4) and small (size 2). Actors only on path. */
+/**
+ * Two independent stoppage seeds via sink fan-out (no actor→actor cascade).
+ * Big cone size 4 = r-big + p1 + p2 + p3; small size 2 = r-small + s1.
+ */
 const twoSeedDoc = (): CanvasDoc => ({
   nodes: [
     text("r-big", "Big Requests", {
@@ -53,13 +56,13 @@ const twoSeedDoc = (): CanvasDoc => ({
     },
     {
       id: "e-big-2",
-      fromNode: "p1",
+      fromNode: "r-big",
       toNode: "p2",
       ether: { criteria: { mode: "tasks" } },
     },
     {
       id: "e-big-3",
-      fromNode: "p2",
+      fromNode: "r-big",
       toNode: "p3",
       ether: { criteria: { mode: "tasks" } },
     },
@@ -125,28 +128,19 @@ describe("rankStoppageSeeds — blast-radius ranking", () => {
 });
 
 describe("waitingOnPath — reverse walk to seed", () => {
-  it("lists seed and every relay hop from a deep blocked actor", () => {
+  it("lists blocked actor then generator apex (direct hop; no cascade chain)", () => {
     const doc = twoSeedDoc();
     const graph = deriveExecutionGraph(doc);
 
     expect(graph.blocked.has("p3")).toBe(true);
     const path = waitingOnPath(doc, graph, "p3");
-    expect(path.hops.length).toBeGreaterThanOrEqual(2);
+    expect(path.hops.map((h) => h.nodeId)).toEqual(["p3", "r-big"]);
 
     expect(path.hops[0]!.nodeId).toBe("p3");
+    expect(path.hops[0]!.role).toBe("blocked");
+    expect(path.hops[0]!.reasons.some((r) => r.kind === "edge")).toBe(true);
     expect(path.seedNodeId).toBe("r-big");
-    expect(path.hops[path.hops.length - 1]!.nodeId).toBe("r-big");
     expect(path.hops[path.hops.length - 1]!.role).toBe("generator");
-
-    const ids = path.hops.map((h) => h.nodeId);
-    expect(ids).toContain("p3");
-    expect(ids).toContain("p2");
-    expect(ids).toContain("p1");
-    expect(ids).toContain("r-big");
-
-    const p2 = path.hops.find((h) => h.nodeId === "p2");
-    expect(p2?.role).toBe("blocked");
-    expect(p2?.reasons.some((r) => r.kind === "relay")).toBe(true);
 
     const lines = formatWaitingOnLines(path, doc);
     expect(lines[0]).toMatch(/Announce/);

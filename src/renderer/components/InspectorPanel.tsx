@@ -241,7 +241,7 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
   const hermesKey = isAgent ? node.ether?.entity?.name : undefined;
   const chatTab = Boolean(hermesKey) && agentTab === "chat";
   const detail =
-    nodeDetail(node) || (node.ether?.entity?.kind === "project" ? "project (note)" : "");
+    nodeDetail(node) || "";
 
   return <aside className="inspector-panel">
     <InspectorHeader eyebrow={nodeTypeLabel(node)} title={nodeTitle(node)} onClose={onClose} />

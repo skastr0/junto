@@ -13,7 +13,7 @@ export type WaitingOnHop = {
    * Position in the reverse walk:
    * - `blocked` — intermediate / query node in the blocked closure
    * - `seed` — manual blocker apex
-   * - `generator` — criteria-generating apex (requests/task/glyphs…)
+   * - `generator` — criteria-generating apex (requests/task/proof/approval)
    * - `apex` — apex that is neither seed nor known generator (fallback)
    */
   readonly role: "blocked" | "seed" | "generator" | "apex";
@@ -94,16 +94,14 @@ export const waitingOnPath = (
 
 const reasonPhrase = (reason: BlockedReason): string => {
   if (reason.kind === "edge") return reason.detail || "generating edge";
-  if (reason.kind === "seed") return reason.detail || "manual seed";
-  return `relay via ${reason.viaNodeId}`;
+  return reason.detail || "manual seed";
 };
 
 /**
  * Human lines for inspector / digest: one line per hop, seed last.
  * Example:
  *   Waiting on…
- *     Release · relay via Ship
- *     Ship · input-required
+ *     Ship · 1 need input · ship
  *     Requests · generator
  */
 export const formatWaitingOnLines = (

@@ -58,7 +58,6 @@ export const borderColor = (color?: string, emphasized = false): string => {
 
 export const EDGE_COLOR: Record<EtherEdgeKind, string> = {
   blocks: HUE.crimson,
-  depends: HUE.amber,
   relates: HUE.steel,
 };
 

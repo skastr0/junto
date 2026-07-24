@@ -9,6 +9,25 @@ import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state
 import { dock$ } from "../src/renderer/lib/dock-state";
 import { formatNodeRef } from "../src/shared/node-ref";
 
+/** Bun's vitest shim lacks `vi.waitFor` — poll until assertion holds. */
+const waitFor = async (
+  assertion: () => void,
+  { timeoutMs = 2000, intervalMs = 10 }: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+};
+
 const browserStop = vi.fn(async (): Promise<{
   readonly ok: boolean;
   readonly code?: string;
@@ -130,7 +149,7 @@ describe("renderer graph mutations", () => {
 
     deleteNode("page");
 
-    await vi.waitFor(() => expect(browserStop).toHaveBeenCalledWith("page-session"));
+    await waitFor(() => expect(browserStop).toHaveBeenCalledWith("page-session"));
     expect(state$.doc.peek().nodes.map((node) => node.id)).toEqual(["page"]);
     expect(state$.error.peek()).toBe("Stop Page failed; the page node was not deleted.");
     expect(dock$.stopErrorByRef[ref].peek()).toBe("physical teardown not acknowledged");
@@ -168,7 +187,7 @@ describe("renderer graph mutations", () => {
 
     deleteNode("page");
 
-    await vi.waitFor(() => expect(state$.doc.peek().nodes).toHaveLength(0));
+    await waitFor(() => expect(state$.doc.peek().nodes).toHaveLength(0));
     expect(browserStop).toHaveBeenCalledWith("page-session");
   });
 
@@ -206,11 +225,11 @@ describe("renderer graph mutations", () => {
       .mockResolvedValueOnce({ ok: true });
 
     deleteNode("page");
-    await vi.waitFor(() => expect(browserStop).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(browserStop).toHaveBeenCalledTimes(1));
     expect(state$.doc.peek().nodes.map((node) => node.id)).toEqual(["page"]);
 
     deleteNode("page");
-    await vi.waitFor(() => expect(state$.doc.peek().nodes).toHaveLength(0));
+    await waitFor(() => expect(state$.doc.peek().nodes).toHaveLength(0));
     expect(browserStop).toHaveBeenCalledTimes(2);
   });
 
@@ -251,7 +270,7 @@ describe("renderer graph mutations", () => {
     );
 
     deleteNode("page");
-    await vi.waitFor(() => expect(browserStop).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(browserStop).toHaveBeenCalledTimes(1));
     loadDoc({
       nodes: [{
         id: "page",
@@ -266,7 +285,7 @@ describe("renderer graph mutations", () => {
     });
     finishStop({ ok: true });
 
-    await vi.waitFor(() => expect(state$.error.peek()).toBe(
+    await waitFor(() => expect(state$.error.peek()).toBe(
       "Canvas changed before Stop Page completed; no nodes were deleted.",
     ));
     expect(state$.doc.peek().nodes).toMatchObject([
@@ -305,7 +324,7 @@ describe("renderer graph mutations", () => {
     );
 
     deleteNode("agent");
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(chatBeginNodeDelete).toHaveBeenCalledWith([
         { kind: "agent", agentKey: "local:default" },
       ]),
@@ -330,7 +349,7 @@ describe("renderer graph mutations", () => {
       closeResults: [{ agentKey: "local:default", ok: true, clean: true }],
     });
 
-    await vi.waitFor(() => expect(state$.error.peek()).toBe(
+    await waitFor(() => expect(state$.error.peek()).toBe(
       "Canvas changed before deletion completed; no nodes were deleted.",
     ));
     expect(chatFinishNodeDelete).toHaveBeenCalledWith("lease-epoch", "aborted");
@@ -356,7 +375,7 @@ describe("renderer graph mutations", () => {
     });
 
     deleteNode("agent");
-    await vi.waitFor(() => expect(state$.doc.peek().nodes).toEqual([]));
+    await waitFor(() => expect(state$.doc.peek().nodes).toEqual([]));
     expect(chatBeginNodeDelete).toHaveBeenCalledWith([
       { kind: "agent", agentKey: "local:default" },
     ]);
@@ -486,7 +505,7 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({ mode: "tasks" });
   });
 
-  it("refuses empty glyphs criteria shells and strips them when cleared", () => {
+  it("sets tasks criteria and strips ether when cleared", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       ...doc,
@@ -495,24 +514,18 @@ describe("renderer graph mutations", () => {
           id: "edge-1",
           fromNode: "source",
           toNode: "target",
-          ether: { criteria: { mode: "glyphs", glyphIds: ["g1"], project: "quasar" } },
         },
       ],
     });
 
-    setEdgeCriteria("edge-1", { mode: "glyphs", glyphIds: [], project: "quasar" });
-    expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
-    expect(Object.hasOwn(state$.doc.peek().edges[0] ?? {}, "ether")).toBe(false);
-
-    setEdgeCriteria("edge-1", { mode: "glyphs", glyphIds: ["g2"], project: "quasar" });
+    setEdgeCriteria("edge-1", { mode: "tasks" });
     expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({
-      mode: "glyphs",
-      glyphIds: ["g2"],
-      project: "quasar",
+      mode: "tasks",
     });
 
     setEdgeCriteria("edge-1", undefined);
     expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
+    expect(Object.hasOwn(state$.doc.peek().edges[0] ?? {}, "ether")).toBe(false);
     expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 

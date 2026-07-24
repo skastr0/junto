@@ -22,8 +22,7 @@ const tasks = (id: string, needsInput: boolean) => ({
 });
 
 describe("graph derivations", () => {
-  it("blockedClosure is transitive along criteria edges through actors", () => {
-    // task sinks are not phase members; actors are.
+  it("blockedClosure is direct only (no cascade)", () => {
     const doc: CanvasDoc = {
       nodes: [
         tasks("t1", true),
@@ -35,8 +34,8 @@ describe("graph derivations", () => {
         { id: "e-bc", fromNode: "a1", toNode: "a2", ether: { criteria: { mode: "tasks" } } },
       ],
     };
-    expect(blockedClosure(doc)).toEqual(new Set(["a1", "a2"]));
-    expect(blockedEdgeIds(doc)).toEqual(new Set(["e-ab", "e-bc"]));
+    expect(blockedClosure(doc)).toEqual(new Set(["a1"]));
+    expect(blockedEdgeIds(doc)).toEqual(new Set(["e-ab"]));
   });
 
   it("soft relates never participates in blocked closure", () => {
@@ -55,33 +54,6 @@ describe("graph derivations", () => {
     expect(blockedEdgeIds(doc).has("e-bc")).toBe(false);
   });
 
-  it("wip criteria relays when downstream edge is depends (glyph-aware)", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        seat("a", "sink", { label: "a", name: "a" }),
-        seat("b", "actor", { label: "b" }),
-        seat("c", "actor", { label: "c" }),
-      ],
-      edges: [
-        { id: "e-ab", fromNode: "a", toNode: "b", ether: { criteria: { mode: "wip" } } },
-        {
-          id: "e-bc",
-          fromNode: "b",
-          toNode: "c",
-          ether: { criteria: { mode: "glyphs", project: "b", glyphIds: ["g-done"] } },
-        },
-      ],
-    };
-    const glyphs = new Map([
-      ["a", [{ glyphId: "g1", orbit: "forge", title: "g1", state: "building" }]],
-      ["b", [{ glyphId: "g-done", orbit: "forge", title: "g", state: "done" }]],
-    ]);
-    const graph = deriveExecutionGraph(doc, glyphs);
-    expect(graph.phaseByEdgeId.get("e-ab")).toBe("blocks");
-    expect(graph.phaseByEdgeId.get("e-bc")).toBe("depends");
-    expect(graph.blocked).toEqual(new Set(["b", "c"]));
-  });
-
   it("groupMembers includes a node whose center is inside the group and excludes one outside", () => {
     const doc: CanvasDoc = {
       nodes: [
@@ -92,5 +64,15 @@ describe("graph derivations", () => {
       edges: [],
     };
     expect(groupMembers(doc).get("grp")).toEqual(["inside"]);
+  });
+
+  it("deriveExecutionGraph agrees with blockedClosure", () => {
+    const doc: CanvasDoc = {
+      nodes: [tasks("t1", true), seat("a1", "actor")],
+      edges: [
+        { id: "e1", fromNode: "t1", toNode: "a1", ether: { criteria: { mode: "tasks" } } },
+      ],
+    };
+    expect(deriveExecutionGraph(doc).blocked).toEqual(blockedClosure(doc));
   });
 });

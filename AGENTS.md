@@ -64,34 +64,30 @@ Ops go through WorkService (A2A tasks/messages/requests/artifacts). That is the 
 Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`) plus an optional `ether` key on nodes and edges:
 
 ```jsonc
-{ "id": "n1", "type": "text", "x": 0, "y": 0, "width": 220, "height": 84, "text": "prism",
+{ "id": "n1", "type": "text", "x": 0, "y": 0, "width": 220, "height": 84, "text": "worker",
   "ether": {
-    "entity": { "kind": "project" },          // open vocab: project|agent|terminal|herdr|task|watcher|timer|page|...
-    "bindings": [                              // document vocabulary; may name tower/quasar/booth keys
-      { "source": "tower",  "ref": { "type": "project", "key": "prism" } },
-      { "source": "quasar", "ref": { "type": "project", "key": "git:github.com/skastr0/prism" } }
-    ],
-    "flags": ["blocker"],                      // blocker|parked|attention
-    "view": { "orbit": "forge", "glyphQuery": "refactor", "states": ["reviewing"] }  // presentational filter
+    "entity": { "kind": "agent", "name": "local:worker" },  // open vocab; well-known: agent|terminal|herdr|task|requests|artifacts|page|watcher|timer
+    "flags": ["blocker"],                                    // blocker|parked|attention
+    "workRole": "frontend"                                   // optional claim-routing label (not physics role)
   } }
 ```
 
-Edges: `{ "id", "fromNode", "toNode", "ether": { "criteria"?: EdgeCriteria } }`.
+Edges: `{ "id", "fromNode", "toNode", "ether": { "criteria"?: EdgeCriteria, "ports"?: Port[] } }`.
 
-**Edge product (criteria-only):**
-- No `criteria` → soft **relates** (never generates or relays blocks).
-- `criteria.mode: "glyphs"` → selected glyph ids must be `done` when glyph data is available (blocks while pending; depends when clear). Unknown/missing glyph data does not invent blocks.
-- `criteria.mode: "wip"` → opt-in: any glyph in `committed`|`building`|`reviewing` blocks (never default on projects).
-- `criteria.mode: "tasks"` / requests → **blocking is worker-state, not a queue cascade.** A `submitted`/`working` task never blocks — an open queue is a factory humming, not a stoppage. The only task stoppage is an actor's *claimed* task escalated to `input-required` / `auth-required`, which blocks **that worker** (claimed, can't proceed, can't abandon, can't claim another). Requests are **always** blocking. Both land on the **actor**, never fanned red out of the sink onto connected nodes. (Blockability is `role === "actor"`; sinks/schedulers never — see [`architecture-factory-physics.md`](docs/architecture-factory-physics.md) §2a.) The old "non-terminal items block" cascade is retired.
-- Live **phase** (`blocks`|`depends`|`relates`) is derived. Optional `ether.kind` is only a phase mirror for offline JSON Canvas readers — never authorial input.
+**Edge product (criteria-only for stoppage; ports for capability):**
+- No `criteria` → soft **relates** (capability/ocap only; never generates stoppage).
+- `criteria.mode: "tasks"` → **blocking is worker-state, not a queue cascade.** `submitted`/`working` never block — an open queue is a factory humming. Stoppage is attention only: `input-required` / `auth-required` on the source task/requests sink generates **blocks** on the **connected actor** (`toNode`). No fan-out, no actor→actor relay, no multi-hop cascade. (Blockability is `role === "actor"` only — see [`architecture-factory-physics.md`](docs/architecture-factory-physics.md) §2a.)
+- `criteria.mode: "proof"` / `"approval"` → blocks until matching runtime stamp / human grant (trust plane).
+- **Retired (stripped on sanitize):** `glyphs`, `wip` criteria modes; `depends` phase; dependency cascade/relay; well-known `project` kind (open-vocab strings still decode as furniture notes).
+- Live **phase** is only `blocks` | `relates` (derived). Optional `ether.kind` is a phase mirror for offline JSON Canvas readers — never authorial input.
 
 **Two invariants** (enforced on every app/CLI write):
 1. **Graceful degradation** — strip every `ether` key and the file is still valid, readable JSON Canvas 1.0.
 2. **Mirror law** — extension semantics mirror into native fields (blocker → red `color`; derived phase may project to edge `label`/`color`).
 
-Derived state (blocked closure, group membership, binding health, live phase) is **recomputed** from the document (+ live sources). Phase may be mirrored onto `ether.kind` for offline readability; it is not the authoring surface.
+Derived state (blocked seats, group membership, live phase) is **recomputed** from the document (+ live sources). Phase may be mirrored onto `ether.kind` for offline readability; it is not the authoring surface.
 
-**Vocabulary vs live plane:** schema string literals (`EntitySource` includes `tower`|`quasar`|`booth`|`hermes`, EtherWatch kinds, edge criteria modes) remain valid so operator canvases keep decoding. The **live** adapter plane is hermes-only. Private-source bindings and project nodes degrade offline (project cards render as plain notes; glyph criteria stay non-generating without glyph data).
+**Vocabulary vs live plane:** schema string literals (`EntitySource` includes `tower`|`quasar`|`booth`|`hermes`, EtherWatch kinds) remain valid so operator canvases keep decoding. The **live** adapter plane is hermes-only. Private-source bindings and unknown kinds degrade offline (plain notes; no invented grants or stoppage).
 
 ## Kernel: watchers, timers, region pulse
 

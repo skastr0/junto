@@ -273,7 +273,7 @@ export interface PulseRecord {
 
 /** Live edge phase + blocked closure projected from the kernel cycle. */
 export interface ExecutionSnapshot {
-  readonly phaseByEdgeId: Readonly<Record<string, "blocks" | "depends" | "relates">>;
+  readonly phaseByEdgeId: Readonly<Record<string, "blocks" | "relates">>;
   readonly detailByEdgeId: Readonly<Record<string, string>>;
   readonly blocked: ReadonlyArray<string>;
   readonly blockedEdgeIds: ReadonlyArray<string>;
@@ -282,7 +282,6 @@ export interface ExecutionSnapshot {
       string,
       ReadonlyArray<
         | { readonly kind: "edge"; readonly edgeId: string; readonly fromNodeId: string; readonly detail: string }
-        | { readonly kind: "relay"; readonly viaNodeId: string; readonly edgeId: string }
         | { readonly kind: "seed"; readonly detail: string }
       >
     >

@@ -22,6 +22,7 @@ const text = (
 
 describe("impactCone — tasks / requests stoppage", () => {
   it("requests input-required blocks actors and builds cone membership", () => {
+    // Fan-out edges from the sink (no cascade/relay between actors).
     const doc: CanvasDoc = {
       nodes: [
         text("r1", "Requests", {
@@ -38,10 +39,9 @@ describe("impactCone — tasks / requests stoppage", () => {
           toNode: "a1",
           ether: { criteria: { mode: "tasks" } },
         },
-        // Empty tasks criteria → depends (relays when a1 is blocked).
         {
-          id: "e-a12",
-          fromNode: "a1",
+          id: "e-r2",
+          fromNode: "r1",
           toNode: "a2",
           ether: { criteria: { mode: "tasks" } },
         },
@@ -50,6 +50,7 @@ describe("impactCone — tasks / requests stoppage", () => {
 
     const graph = deriveExecutionGraph(doc);
     expect(graph.phaseByEdgeId.get("e-r1")).toBe("blocks");
+    expect(graph.phaseByEdgeId.get("e-r2")).toBe("blocks");
     expect(graph.blocked.has("a1")).toBe(true);
     expect(graph.blocked.has("a2")).toBe(true);
     // sink-side requests node is not itself a blocked member
@@ -59,7 +60,7 @@ describe("impactCone — tasks / requests stoppage", () => {
     expect(fromRequests.rootId).toBe("r1");
     expect(fromRequests.nodeIds).toEqual(new Set(["r1", "a1", "a2"]));
     expect(fromRequests.edgeIds.has("e-r1")).toBe(true);
-    expect(fromRequests.edgeIds.has("e-a12")).toBe(true);
+    expect(fromRequests.edgeIds.has("e-r2")).toBe(true);
     expect(fromRequests.seedReasons.some((r) => r.kind === "edge" && r.edgeId === "e-r1")).toBe(
       true,
     );
@@ -67,8 +68,7 @@ describe("impactCone — tasks / requests stoppage", () => {
     const fromA1 = impactCone(doc, graph, "a1");
     expect(fromA1.nodeIds).toEqual(new Set(["r1", "a1", "a2"]));
     expect(fromA1.pathToSeed("a1")).toEqual(["a1", "r1"]);
-    expect(fromA1.pathToSeed("a2")[0]).toBe("a2");
-    expect(fromA1.pathToSeed("a2")).toContain("r1");
+    expect(fromA1.pathToSeed("a2")).toEqual(["a2", "r1"]);
 
     const outsider = impactCone(
       {
@@ -101,7 +101,8 @@ describe("impactCone — tasks / requests stoppage", () => {
       ],
     };
     const calm = deriveExecutionGraph(openDoc);
-    expect(calm.phaseByEdgeId.get("e1")).toBe("depends");
+    // Open queue is not attention — soft relates, no stoppage.
+    expect(calm.phaseByEdgeId.get("e1")).toBe("relates");
     expect(calm.blocked.size).toBe(0);
     expect(impactCone(openDoc, calm, "t1").nodeIds.size).toBe(0);
 
@@ -154,7 +155,7 @@ describe("impactCone — tasks / requests stoppage", () => {
 });
 
 describe("impactCone — seeds, relays, attention leads", () => {
-  it("manual blocker seed on actor fans out through depends onto actors", () => {
+  it("manual blocker seed marks self only — no outbound cascade", () => {
     const doc: CanvasDoc = {
       nodes: [
         seat("b", "actor", { label: "Blocker", flags: ["blocker"] }),
@@ -166,35 +167,27 @@ describe("impactCone — seeds, relays, attention leads", () => {
           id: "e-bc",
           fromNode: "b",
           toNode: "c",
-          ether: {
-            criteria: { mode: "glyphs", project: "pb", glyphIds: ["gx"] },
-          },
+          ether: { criteria: { mode: "tasks" } },
         },
         {
           id: "e-cd",
           fromNode: "c",
           toNode: "d",
-          ether: {
-            criteria: { mode: "glyphs", project: "pc", glyphIds: ["gy"] },
-          },
+          ether: { criteria: { mode: "tasks" } },
         },
       ],
     };
-    const glyphs = new Map([
-      ["pb", [{ glyphId: "gx", orbit: "forge", title: "gx", state: "done" }]],
-      ["pc", [{ glyphId: "gy", orbit: "forge", title: "gy", state: "done" }]],
-    ]);
-    const graph = deriveExecutionGraph(doc, glyphs);
+    const graph = deriveExecutionGraph(doc);
     expect(graph.seedNodeIds.has("b")).toBe(true);
-    expect(graph.blocked.has("c")).toBe(true);
-    expect(graph.blocked.has("d")).toBe(true);
+    expect(graph.blocked.has("b")).toBe(true);
+    // Empty tasks criteria never generates; cascade is retired.
+    expect(graph.blocked.has("c")).toBe(false);
+    expect(graph.blocked.has("d")).toBe(false);
 
     const cone = impactCone(doc, graph, "b");
-    expect(cone.nodeIds).toEqual(new Set(["b", "c", "d"]));
-    expect(cone.edgeIds.has("e-bc")).toBe(true);
-    expect(cone.edgeIds.has("e-cd")).toBe(true);
-    expect(cone.pathToSeed("d")[0]).toBe("d");
-    expect(cone.pathToSeed("d")).toContain("b");
+    expect(cone.nodeIds).toEqual(new Set(["b"]));
+    expect(cone.edgeIds.size).toBe(0);
+    expect(cone.pathToSeed("b")).toEqual(["b"]);
   });
 
   it("attention leads: undirected actor into cone is soft when not phase-blocked", () => {

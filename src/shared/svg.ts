@@ -28,7 +28,6 @@ const PRESET: Record<string, string> = {
 
 const EDGE_COLOR: Record<EtherEdgeKind, string> = {
   blocks: CRIMSON,
-  depends: AMBER,
   relates: STEEL,
 };
 
