@@ -1256,14 +1256,10 @@ export const startWorkControlServer = async (
     if (shuttingDown) return;
     // This state flip is the cut line. It precedes every async close step and
     // is checked both at socket acceptance and at each NDJSON frame boundary.
+    // Path unlink waits for listener close — early unlink opens a replacement race.
     shuttingDown = true;
     for (const flight of activeFlights.values()) {
       shutdownJournal.set(flight.id, flight);
-    }
-    try {
-      unlinkOwnedSocket();
-    } catch {
-      // The bounded receipt retains the path and retries on the next drain.
     }
     ensureListenerClose();
     for (const { socket } of sockets.values()) {
@@ -1334,10 +1330,12 @@ export const startWorkControlServer = async (
       for (const { socket } of sockets.values()) {
         if (!socket.destroyed) socket.destroy();
       }
-      try {
-        unlinkOwnedSocket();
-      } catch {
-        // Retained in the explicit deadline receipt below.
+      if (!server.listening) {
+        try {
+          unlinkOwnedSocket();
+        } catch {
+          // Retained in the explicit deadline receipt below.
+        }
       }
 
       const round = [...shutdownJournal.values()];

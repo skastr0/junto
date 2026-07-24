@@ -98,6 +98,12 @@ export interface AppProcessChildSpawnSpec extends AppProcessSpawnSpec {
     readonly parentFd: number;
     readonly childFd: 3;
   };
+  /**
+   * Put the child in its own session/process group so terminal Ctrl+C (SIGINT
+   * to the Electron group) cannot kill lease holders before quit drain.
+   * Parent still owns stdin/stdout pipes and signals the exact child pid.
+   */
+  readonly isolateProcessGroup?: boolean;
 }
 
 export interface AppTerminalSpawnSpec {
@@ -936,7 +942,7 @@ export const createAppProcessPlane = (
     // entry cannot make stdin/stdout/stderr nullable at runtime.
     const child = spawn(spec.command, [...(spec.args ?? [])], {
       ...spawnOptions(spec),
-      detached: false,
+      detached: spec.isolateProcessGroup === true,
       stdio: inheritedStdio(spec),
     }) as ChildProcessWithoutNullStreams;
     const signalSink = makeSignalSink(child);

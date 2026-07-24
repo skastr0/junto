@@ -49,7 +49,7 @@ import { findHostById, hostsSnapshot } from "./vellum/hosts/snapshot";
 import { hostHasCapability } from "@shared/remote-hosts";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
-import { termPlane } from "./vellum/term/plane";
+import { termPlane, termPlaneBlocksAppExit } from "./vellum/term/plane";
 import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { developmentElectronSecurityPolicyPath, electronSecurityPolicyHealthy, packagedElectronObservationHighWaterPath, packagedElectronObservationPath, packagedElectronSecurityPolicyPath } from "./vellum/electron-security-health";
@@ -1536,31 +1536,42 @@ const requireCleanWorkControlShutdown = async (): Promise<void> => {
 const requireCleanHostOperationsShutdown = async (): Promise<void> => {
   const receipt = await (hostOperationsDrain ??= hostOperationsShutdown.drainOnQuit());
   if (!receipt.clean) {
+    hostOperationsDrain = undefined;
     throw new Error(
       `host operations shutdown retained ${receipt.retainedLabels.join(", ") || "active work"}`,
     );
   }
 };
 
+const formatTermPlaneRetention = (
+  receipt: Awaited<ReturnType<typeof termPlane.drainOnQuit>>,
+): string =>
+  [
+    ...receipt.retainedLabels,
+    ...receipt.diagnostics,
+    ...(receipt.control !== undefined && !receipt.control.clean
+      ? receipt.control.retainedLabels.map((label) => `control:${label}`)
+      : []),
+  ]
+    .filter((part, index, all) => part.length > 0 && all.indexOf(part) === index)
+    .join("; ");
+
 const requireCleanTermPlaneShutdown = async (reason: string): Promise<void> => {
   const receipt = await (termPlaneShutdown ??= termPlane.drainOnQuit(reason));
-  if (!receipt.clean) {
-    // Bounded unclean receipts are observations, not permanent facts. Clear so
-    // a later Cmd+Q / signal can re-drain after stragglers exit or path races end.
-    termPlaneShutdown = undefined;
-    const detail = [
-      ...receipt.retainedLabels,
-      ...receipt.diagnostics,
-      ...(receipt.control !== undefined && !receipt.control.clean
-        ? receipt.control.retainedLabels.map((label) => `control:${label}`)
-        : []),
-    ]
-      .filter((part, index, all) => part.length > 0 && all.indexOf(part) === index)
-      .join("; ");
-    throw new Error(
-      `terminal plane shutdown retained ${detail || "unknown resource"}`,
+  if (receipt.clean) return;
+  // Bounded unclean receipts are observations, not permanent facts. Clear so
+  // a later Cmd+Q / signal can re-drain after stragglers exit or path races end.
+  termPlaneShutdown = undefined;
+  const detail = formatTermPlaneRetention(receipt) || "unknown resource";
+  // Control UDS / remote-router dirt must not trap the operator. Only
+  // host-owned local PTY generations may block exit (machine safety).
+  if (!termPlaneBlocksAppExit(receipt)) {
+    console.error(
+      `[term] quit continues with non-host terminal retention (${reason}): ${detail}`,
     );
+    return;
   }
+  throw new Error(`terminal plane shutdown retained ${detail}`);
 };
 
 const requireCleanHerdrShutdown = async (): Promise<void> => {
@@ -1568,6 +1579,7 @@ const requireCleanHerdrShutdown = async (): Promise<void> => {
   const receipt = await (herdrShutdown ??= herdrPlaneService?.drainOnQuit());
   if (receipt === undefined) return;
   if (!receipt.clean) {
+    herdrShutdown = undefined;
     throw new Error(
       `herdr shutdown retained ${receipt.retained} component resource(s)`,
     );
@@ -1579,6 +1591,7 @@ const requireCleanHermesShutdown = async (): Promise<void> => {
   const receipt = await (hermesShutdown ??= hermesPlaneService?.shutdown.drainOnQuit());
   if (receipt === undefined) return;
   if (!receipt.clean) {
+    hermesShutdown = undefined;
     throw new Error(
       `hermes shutdown retained ${receipt.teardowns.length} teardown receipt(s)`,
     );
@@ -1588,6 +1601,7 @@ const requireCleanHermesShutdown = async (): Promise<void> => {
 const requireCleanAdapterShutdown = async (): Promise<void> => {
   const receipt = await (adapterShutdown ??= terminateAdapterChildrenOnQuit());
   if (!receipt.settled) {
+    adapterShutdown = undefined;
     throw new Error(`adapter shutdown retained ${receipt.pending} operation(s)`);
   }
 };
@@ -1595,6 +1609,7 @@ const requireCleanAdapterShutdown = async (): Promise<void> => {
 const requireCleanAppProcessShutdown = async (): Promise<void> => {
   const receipt = await (appProcessShutdown ??= appProcessPlane.drainOnQuit());
   if (!receipt.clean) {
+    appProcessShutdown = undefined;
     const retained = receipt.stragglers
       .map((rec) =>
         `${rec.source}:${rec.purpose}@${rec.generation}${rec.pid === undefined ? "" : ` pid=${rec.pid}`}`

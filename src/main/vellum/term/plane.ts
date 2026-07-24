@@ -20,6 +20,18 @@ export interface TermPlaneShutdownReceipt {
   readonly diagnostics: ReadonlyArray<string>;
 }
 
+/**
+ * Machine-safety quit gate: only host-owned local PTY generations may block
+ * app exit. Control UDS / remote-router retention is operator-visible debt
+ * (process exit reclaims FDs; remotes keep their own sessions) — never a reason
+ * to trap the operator inside a non-quitting Electron process.
+ */
+export const termPlaneBlocksAppExit = (
+  receipt: TermPlaneShutdownReceipt,
+): boolean =>
+  receipt.retainedLabels.includes("local-sessions") ||
+  (receipt.local !== undefined && !receipt.local.clean);
+
 export interface TermPlaneStartOptions {
   /**
    * Root for an app-owned control directory. Production omits this and keeps

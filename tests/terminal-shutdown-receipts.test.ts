@@ -21,7 +21,7 @@ import {
   TermControlStartupError,
 } from "../src/main/vellum/term/control-server";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
-import { TermPlane } from "../src/main/vellum/term/plane";
+import { TermPlane, termPlaneBlocksAppExit } from "../src/main/vellum/term/plane";
 import { TerminalRouter } from "../src/main/vellum/term/router";
 import { termControlSocketPath, termControlTokenPath } from "../src/shared/term-control";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
@@ -494,6 +494,41 @@ describe("terminal shutdown receipts", () => {
     unlinkSync(server.socketPath);
     const second = await server.drainOnQuit();
     expect(second.clean).toBe(true);
+  });
+
+  it("blocks app exit only for host-owned local sessions, never control UDS dirt", () => {
+    expect(
+      termPlaneBlocksAppExit({
+        clean: false,
+        retainedLabels: ["control-server"],
+        diagnostics: ["control-retained: listener"],
+        local: { clean: true, stragglers: [] },
+      }),
+    ).toBe(false);
+    expect(
+      termPlaneBlocksAppExit({
+        clean: false,
+        retainedLabels: ["remote-router"],
+        diagnostics: [],
+        local: { clean: true, stragglers: [] },
+      }),
+    ).toBe(false);
+    expect(
+      termPlaneBlocksAppExit({
+        clean: false,
+        retainedLabels: ["local-sessions"],
+        diagnostics: [],
+        local: { clean: false, stragglers: [{ bindingId: "stuck" } as never] },
+      }),
+    ).toBe(true);
+    expect(
+      termPlaneBlocksAppExit({
+        clean: true,
+        retainedLabels: [],
+        diagnostics: [],
+        local: { clean: true, stragglers: [] },
+      }),
+    ).toBe(false);
   });
 
   it("still retires the bound socket after the Darwin lockf lease dies", async () => {

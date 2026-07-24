@@ -2070,11 +2070,7 @@ export const startBrowserControlServer = async (
     for (const controller of requestControllers.values()) {
       if (!controller.signal.aborted) controller.abort("browser control shutdown");
     }
-    try {
-      unlinkOwnedSocket();
-    } catch {
-      // The bounded receipt reports a retained path and retries the unlink.
-    }
+    // Path unlink waits for listener close — early unlink opens a replacement race.
     ensureListenerClose();
     // Graceful half-close first. drainOnQuit applies a bounded destroy after
     // the configured grace; no peer PID is ever signalled.
@@ -2153,10 +2149,12 @@ export const startBrowserControlServer = async (
       for (const { socket } of sockets.values()) {
         if (!socket.destroyed) socket.destroy();
       }
-      try {
-        unlinkOwnedSocket();
-      } catch {
-        // Retained in the explicit deadline receipt below.
+      if (!server.listening) {
+        try {
+          unlinkOwnedSocket();
+        } catch {
+          // Retained in the explicit deadline receipt below.
+        }
       }
 
       const round = [...shutdownJournal.values()];

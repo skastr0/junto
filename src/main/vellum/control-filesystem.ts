@@ -217,11 +217,14 @@ const acquireDarwinFileLease = async (
         "/dev/fd/3",
         "/bin/sh",
         "-c",
-        // Ignore SIGINT so Ctrl+C to the Electron process group does not
-        // drop the flock before quit drain can release it via stdin EOF.
-        // SIGTERM and parent-pipe close still terminate the holder.
+        // Defense in depth with isolateProcessGroup: ignore SIGINT if the
+        // child still shares a signal path. SIGTERM and parent-pipe close
+        // still terminate the holder for intentional release.
         "trap '' INT; printf '\\001'; /bin/cat >/dev/null",
       ],
+      // Own session so Ctrl+C to the Electron process group cannot kill the
+      // flock holder before quit drain releases it via stdin EOF.
+      isolateProcessGroup: true,
       inheritedFileDescriptor: {
         parentFd: fd,
         childFd: 3,

@@ -756,14 +756,12 @@ export const startTermControlServer = async (
     if (closing) return;
     // This assignment is the admission cut. Socket callbacks and each frame
     // boundary check it before minting a session/control lease.
+    // Do not unlink the pathname here: early unlink opens a replacement race
+    // that can permanently refuse listener close. Path cleanup runs only after
+    // Server.close (or identity-checked residual unlink once not listening).
     closing = true;
     host.off("event", onHostEvent);
     for (const flight of activeFlights.values()) shutdownJournal.set(flight.id, flight);
-    try {
-      unlinkOwnedSocket();
-    } catch (error) {
-      recordDiagnostic("socket-path", error);
-    }
     ensureListenerClose();
     for (const { socket } of sockets.values()) {
       if (!socket.destroyed) socket.end();
@@ -826,10 +824,14 @@ export const startTermControlServer = async (
         for (const { socket } of sockets.values()) {
           if (!socket.destroyed) socket.destroy();
         }
-        try {
-          unlinkOwnedSocket();
-        } catch (error) {
-          recordDiagnostic("socket-path", error);
+        // Residual path cleanup only after the listener is down — never while
+        // Server.close may still need the owned pathname identity.
+        if (!server.listening) {
+          try {
+            unlinkOwnedSocket();
+          } catch (error) {
+            recordDiagnostic("socket-path", error);
+          }
         }
 
         const round = [...shutdownJournal.values()];

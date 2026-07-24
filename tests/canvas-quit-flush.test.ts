@@ -96,9 +96,11 @@ describe("canvas quit durability wiring", () => {
     const standardStart = source.indexOf("// Existing normal continuations", signalStart);
     const signalBlock = source.slice(standardStart);
 
-    expect(helper).toContain("if (!receipt.clean)");
+    expect(helper).toContain("termPlaneBlocksAppExit(receipt)");
     expect(helper).toContain("termPlaneShutdown = undefined");
     expect(helper).toContain("throw new Error");
+    // Non-host retention (control UDS) must not trap the operator.
+    expect(helper).toContain("quit continues with non-host terminal retention");
     expect(helper).not.toContain("waitForAllLocalExited");
     expect(directExit.indexOf("requireCleanLocalTerminalShutdown(reason)"))
       .toBeLessThan(directExit.indexOf("detachRuntimeOnQuit(reason)"));
