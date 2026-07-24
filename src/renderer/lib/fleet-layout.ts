@@ -90,14 +90,15 @@ export const FLEET_COLORS: readonly string[] = [
 
 /** Lucide icon names available as fleet host glyphs. */
 export const FLEET_GLYPHS: readonly string[] = [
+  "server",
+  "laptop",
+  "cpu",
   "satellite",
   "rocket",
   "globe",
   "star",
   "orbit",
   "radar",
-  "cpu",
-  "server",
 ];
 
 const hashId = (id: string): number => {

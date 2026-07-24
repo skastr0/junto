@@ -73,8 +73,6 @@ function FleetOverlayInner() {
       />
       <div className="fleet-body">
         <div className="fleet-map-wrap">
-          <div className="fleet-starfield" aria-hidden />
-          <div className="fleet-nebula" aria-hidden />
           <FleetMap
             hosts={hosts}
             probes={probes}

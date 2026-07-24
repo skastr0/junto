@@ -111,17 +111,18 @@ describe("hostColor", () => {
     ).toBe("#123456");
   });
 
-  it("exposes 8 colors and 8 lucide glyph names", () => {
+  it("exposes 8 colors and the lucide glyph names", () => {
     expect(FLEET_COLORS).toHaveLength(8);
     expect(FLEET_GLYPHS).toEqual([
+      "server",
+      "laptop",
+      "cpu",
       "satellite",
       "rocket",
       "globe",
       "star",
       "orbit",
       "radar",
-      "cpu",
-      "server",
     ]);
   });
 });

@@ -5,7 +5,7 @@
  *   bun run test:e2e:fast e2e/scenarios/design-audit.spec.ts
  * The screenshots are the artifact; assertions only prove a surface appeared.
  */
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
@@ -433,12 +433,57 @@ test("capture the empty field state", async () => {
 });
 
 
-// Fleet manager — the sandbox tailnet has no enrolled remote hosts, so the
-// star map renders with only the Command Center core. That empty-fleet frame
-// is the expected screenshot.
+// Fleet manager — seed an enrolled fleet (local + four remotes, two with
+// custom appearance) via VELLUM_HOSTS_PATH. With no key/seal beside it the
+// registry bootstrap-admits the document. The fake ssh binary answers the
+// reachability probes, so edges settle into the reachable state with latency.
 test("capture the fleet manager overlay", async () => {
+  const hostsDir = await mkdtemp(join(tmpdir(), "vellum-e2e-hosts-"));
+  const hostsPath = join(hostsDir, "hosts.json");
+  await writeFile(
+    hostsPath,
+    JSON.stringify({
+      version: 1,
+      hosts: [
+        { id: "local", label: "local", kind: "local", capabilities: ["herdr", "hermes", "browser"] },
+        {
+          id: "mac-mini",
+          label: "mac-mini",
+          kind: "remote",
+          endpoint: "mac-mini",
+          capabilities: ["herdr", "hermes", "terminal"],
+          hermesId: "remote-a",
+        },
+        {
+          id: "forge-pi",
+          label: "forge-pi",
+          kind: "remote",
+          endpoint: "forge-pi",
+          capabilities: ["terminal"],
+          appearance: { color: "#39C6D6", glyph: "rocket" },
+        },
+        {
+          id: "relay-1",
+          label: "relay-1",
+          kind: "remote",
+          endpoint: "relay-1",
+          capabilities: ["hermes", "browser"],
+          appearance: { color: "#7F6DD6", glyph: "satellite" },
+        },
+        {
+          id: "archive",
+          label: "archive",
+          kind: "remote",
+          endpoint: "archive",
+          capabilities: ["terminal", "browser"],
+        },
+      ],
+    }),
+    "utf8",
+  );
   const vellum = await launchVellum({
     seedCanvases: { fleet: canvasDoc([]) },
+    extraEnv: { VELLUM_HOSTS_PATH: hostsPath },
   });
   try {
     const { page } = vellum;
@@ -447,6 +492,11 @@ test("capture the fleet manager overlay", async () => {
     await page.getByRole("button", { name: "Open fleet manager" }).click();
     const panel = page.locator(".fleet-panel");
     await expect(panel).toBeVisible({ timeout: 15_000 });
+    // Stations render from the seeded registry, medallions tinted per host.
+    await expect(page.locator(".fleet-station")).toHaveCount(4, { timeout: 15_000 });
+    // Probes fire on open; in the sandbox they may still be in flight at
+    // capture time — the frame asserts the fleet, not the probe outcome.
+    await page.waitForTimeout(1500);
     await shot(page, "26-fleet-overlay");
   } finally {
     await vellum.close();

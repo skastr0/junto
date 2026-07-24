@@ -9,6 +9,13 @@ export interface FleetProbeState {
 
 export const openFleet = (): void => {
   state$.fleetOpen.set(true);
+  // Load the fleet, then probe every remote host so edges show live link
+  // state on open rather than waiting for manual "Test link" clicks.
+  void refreshFleet().then(() => {
+    for (const host of state$.fleetHosts.peek()) {
+      if (host.kind === "remote") void probeHost(host.id);
+    }
+  });
 };
 
 export const closeFleet = (): void => {

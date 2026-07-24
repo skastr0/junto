@@ -1,7 +1,9 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import {
+  Command,
   Cpu,
   Globe,
+  Laptop,
   Orbit,
   Radar,
   Rocket,
@@ -13,7 +15,7 @@ import {
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { FleetProbeState } from "../../lib/fleet-state";
 import { hostColor } from "../../lib/fleet-layout";
-import { withAlpha } from "../../lib/theme";
+import { HUE, withAlpha } from "../../lib/theme";
 
 /** Lucide components for the FLEET_GLYPHS vocabulary (fleet-layout.ts). */
 export const FLEET_GLYPH_ICONS: Record<string, LucideIcon> = {
@@ -25,10 +27,11 @@ export const FLEET_GLYPH_ICONS: Record<string, LucideIcon> = {
   radar: Radar,
   cpu: Cpu,
   server: Server,
+  laptop: Laptop,
 };
 
 export const fleetGlyphIcon = (glyph?: string): LucideIcon =>
-  (glyph ? FLEET_GLYPH_ICONS[glyph] : undefined) ?? Satellite;
+  (glyph ? FLEET_GLYPH_ICONS[glyph] : undefined) ?? Server;
 
 // --- Command Center ----------------------------------------------------------
 
@@ -39,15 +42,17 @@ export function CommandCenterNode({ data, selected }: NodeProps<CommandCenterFlo
   return (
     <div className={`fleet-cc${selected ? " fleet-cc--selected" : ""}`}>
       <Handle type="source" position={Position.Right} className="fleet-handle" />
-      {/* Orbit guide rings — diameters match orbitLayout radii (260/520/780). */}
-      <div className="fleet-cc__rings" aria-hidden>
-        <div className="fleet-cc__ring" style={{ width: 520, height: 520 }} />
-        <div className="fleet-cc__ring" style={{ width: 1040, height: 1040 }} />
-        <div className="fleet-cc__ring" style={{ width: 1560, height: 1560 }} />
+      <div
+        className="fleet-node__medallion fleet-node__medallion--cc"
+        style={{
+          borderColor: withAlpha(HUE.amber, selected ? 0.9 : 0.45),
+          color: HUE.amber,
+        }}
+      >
+        <Command size={26} strokeWidth={1.6} />
       </div>
-      <div className="fleet-cc__core" aria-hidden />
       <div className="fleet-cc__label font-display">Command Center</div>
-      <div className="fleet-cc__meta">{data.hostId ? `${data.hostId} · command-center` : "command-center"}</div>
+      <div className="fleet-node__meta">{data.hostId ? `${data.hostId} · command-center` : "command-center"}</div>
     </div>
   );
 }
@@ -63,13 +68,13 @@ export type StationFlowNode = Node<StationNodeData, "station">;
 const probePipClass = (probe?: FleetProbeState): string => {
   switch (probe?.status) {
     case "probing":
-      return "fleet-station__pip fleet-station__pip--probing";
+      return "fleet-pip fleet-pip--probing";
     case "reachable":
-      return "fleet-station__pip fleet-station__pip--reachable";
+      return "fleet-pip fleet-pip--reachable";
     case "unreachable":
-      return "fleet-station__pip fleet-station__pip--unreachable";
+      return "fleet-pip fleet-pip--unreachable";
     default:
-      return "fleet-station__pip fleet-station__pip--unknown";
+      return "fleet-pip fleet-pip--unknown";
   }
 };
 
@@ -94,17 +99,17 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
     <div className={`fleet-station${selected ? " fleet-station--selected" : ""}`}>
       <Handle type="target" position={Position.Left} className="fleet-handle" />
       <div
-        className="fleet-station__orb"
+        className="fleet-node__medallion"
         style={{
-          background: `radial-gradient(circle at 32% 28%, ${withAlpha(color, 0.9)}, ${withAlpha(color, 0.28)} 62%, ${withAlpha(color, 0.08)})`,
-          boxShadow: `0 0 ${selected ? 26 : 16}px ${withAlpha(color, selected ? 0.65 : 0.4)}, inset 0 0 10px ${withAlpha(color, 0.35)}`,
-          borderColor: withAlpha(color, selected ? 0.85 : 0.5),
+          borderColor: withAlpha(color, selected ? 0.9 : 0.4),
+          color,
         }}
       >
-        <Icon size={20} strokeWidth={1.6} style={{ color: withAlpha(color, 0.95) }} />
+        <Icon size={22} strokeWidth={1.6} />
         <span className={probePipClass(probe)} title={probePipTitle(probe)} />
       </div>
       <div className="fleet-station__label">{host.label}</div>
+      <div className="fleet-node__meta">{host.endpoint ?? host.kind}</div>
     </div>
   );
 }

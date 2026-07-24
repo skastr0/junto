@@ -2142,9 +2142,9 @@ ol.note-md__list > .note-md__li::before {
 }
 
 /* =============================================================================
-   Fleet manager — Stellaris-flavored star map. Command Center core at the
-   center, remote stations on orbit, CSS-only starfield + nebula behind the
-   React Flow pane. Same deep-field palette; no images, no JS canvas.
+   Fleet manager — clean fleet map. Command Center at the center, remote
+   stations on orbit, icon medallions tinted per host. Deep-field palette,
+   no scenic layers.
    ============================================================================= */
 .focus-surface__panel.fleet-panel {
   width: 90vw;
@@ -2164,78 +2164,20 @@ ol.note-md__list > .note-md__li::before {
   flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
-  background: #080706;
+  background: var(--color-ground);
 }
 .fleet-map-wrap .react-flow {
   background: transparent;
 }
 
-/* Starfield — three tiled radial-gradient layers at different star sizes and
-   opacities, drifting imperceptibly. inset:-60% keeps coverage during drift. */
-.fleet-starfield {
-  position: absolute;
-  inset: -60%;
-  pointer-events: none;
-  background-image:
-    radial-gradient(1px 1px at 12% 22%, rgba(237, 230, 218, 0.55), transparent),
-    radial-gradient(1px 1px at 34% 68%, rgba(237, 230, 218, 0.4), transparent),
-    radial-gradient(1px 1px at 56% 14%, rgba(237, 230, 218, 0.5), transparent),
-    radial-gradient(1px 1px at 78% 44%, rgba(237, 230, 218, 0.35), transparent),
-    radial-gradient(1px 1px at 90% 82%, rgba(237, 230, 218, 0.45), transparent),
-    radial-gradient(1px 1px at 44% 90%, rgba(237, 230, 218, 0.3), transparent),
-    radial-gradient(1.5px 1.5px at 22% 48%, rgba(240, 217, 168, 0.6), transparent),
-    radial-gradient(1.5px 1.5px at 66% 36%, rgba(237, 230, 218, 0.5), transparent),
-    radial-gradient(1.5px 1.5px at 84% 64%, rgba(143, 163, 176, 0.5), transparent),
-    radial-gradient(2px 2px at 8% 76%, rgba(240, 217, 168, 0.55), transparent),
-    radial-gradient(2px 2px at 50% 52%, rgba(237, 230, 218, 0.4), transparent),
-    radial-gradient(2px 2px at 94% 26%, rgba(57, 198, 214, 0.4), transparent);
-  background-size: 640px 640px;
-  background-repeat: repeat;
-  animation: fleet-stars-drift 120s linear infinite;
-}
-.fleet-starfield::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    radial-gradient(1px 1px at 18% 40%, rgba(237, 230, 218, 0.35), transparent),
-    radial-gradient(1px 1px at 42% 8%, rgba(237, 230, 218, 0.3), transparent),
-    radial-gradient(1px 1px at 60% 78%, rgba(237, 230, 218, 0.4), transparent),
-    radial-gradient(1px 1px at 74% 58%, rgba(237, 230, 218, 0.28), transparent),
-    radial-gradient(1px 1px at 30% 86%, rgba(237, 230, 218, 0.32), transparent),
-    radial-gradient(1.5px 1.5px at 88% 12%, rgba(237, 230, 218, 0.42), transparent),
-    radial-gradient(1.5px 1.5px at 6% 54%, rgba(143, 163, 176, 0.45), transparent);
-  background-size: 460px 460px;
-  background-repeat: repeat;
-  animation: fleet-stars-drift 90s linear infinite reverse;
-}
-@keyframes fleet-stars-drift {
-  from { transform: translate3d(0, 0, 0); }
-  to   { transform: translate3d(160px, 90px, 0); }
-}
-
-/* One faint amber nebula pooled behind the Command Center core. */
-.fleet-nebula {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 720px;
-  height: 720px;
+/* React Flow handles double as edge anchors — pinned to node centers so link
+   lines run medallion-to-medallion, and invisible. */
+.fleet-handle.react-flow__handle {
+  left: 50% !important;
+  top: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
   transform: translate(-50%, -50%);
-  pointer-events: none;
-  background: radial-gradient(circle, rgba(232, 163, 61, 0.07), rgba(232, 163, 61, 0.02) 42%, transparent 68%);
-  filter: blur(6px);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fleet-starfield,
-  .fleet-starfield::after {
-    animation: none;
-  }
-}
-
-/* React Flow handles on fleet nodes are wiring anchors only — invisible. */
-.fleet-handle {
   opacity: 0;
   pointer-events: none;
   width: 6px;
@@ -2244,130 +2186,107 @@ ol.note-md__list > .note-md__li::before {
   background: transparent;
 }
 
-/* --- Command Center node -------------------------------------------------- */
-.fleet-cc {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 220px;
-  padding-top: 26px;
-  text-align: center;
+/* Link lines (custom fleetLink edge) */
+.fleet-link--probing {
+  animation: fleet-link-flow 0.9s linear infinite;
 }
-.fleet-cc__rings {
-  position: absolute;
-  left: 50%;
-  top: 74px; /* core center: padding-top 26 + core 96/2 */
-  pointer-events: none;
-  z-index: -1;
+@keyframes fleet-link-flow {
+  to { stroke-dashoffset: -8; }
 }
-.fleet-cc__ring {
-  position: absolute;
-  border-radius: 999px;
-  border: 1px dashed rgba(237, 230, 218, 0.08);
-  transform: translate(-50%, -50%);
-}
-.fleet-cc__core {
-  width: 96px;
-  height: 96px;
-  border-radius: 999px;
-  border: 1px solid rgba(232, 163, 61, 0.55);
-  background: radial-gradient(circle at 40% 34%, rgba(240, 217, 168, 0.85), rgba(232, 163, 61, 0.35) 55%, rgba(232, 163, 61, 0.08));
-  box-shadow:
-    0 0 34px rgba(232, 163, 61, 0.45),
-    0 0 90px rgba(232, 163, 61, 0.18),
-    inset 0 0 18px rgba(240, 217, 168, 0.35),
-    0 0 0 14px rgba(232, 163, 61, 0.05),
-    0 0 0 28px rgba(232, 163, 61, 0.025);
-}
-.fleet-cc--selected .fleet-cc__core {
-  box-shadow:
-    0 0 44px rgba(232, 163, 61, 0.6),
-    0 0 110px rgba(232, 163, 61, 0.25),
-    inset 0 0 18px rgba(240, 217, 168, 0.4),
-    0 0 0 14px rgba(232, 163, 61, 0.07),
-    0 0 0 28px rgba(232, 163, 61, 0.035),
-    0 0 0 29px rgba(240, 217, 168, 0.35);
-}
-.fleet-cc__label {
-  margin-top: 18px;
-  font-size: 15px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--color-amber-hi);
-  text-shadow: 0 0 18px rgba(232, 163, 61, 0.5);
-}
-.fleet-cc__meta {
-  margin-top: 4px;
+.fleet-link__label {
+  fill: var(--color-faint);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9px;
   letter-spacing: 0.08em;
-  color: var(--color-faint);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fleet-link--probing { animation: none; }
 }
 
-/* --- Station node --------------------------------------------------------- */
+/* --- Nodes: icon medallion tinted per host -------------------------------- */
+.fleet-cc,
 .fleet-station {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 120px;
   text-align: center;
 }
-.fleet-station__orb {
+.fleet-cc { width: 240px; }
+.fleet-station { width: 140px; }
+
+.fleet-node__medallion {
   position: relative;
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   border-radius: 999px;
-  border: 1px solid;
+  border: 1px solid; /* hue set inline per host */
+  background: var(--color-raise-2);
 }
-.fleet-station--selected .fleet-station__orb {
-  outline: 1px solid rgba(237, 230, 218, 0.4);
-  outline-offset: 4px;
+.fleet-node__medallion--cc {
+  width: 84px;
+  height: 84px;
 }
-.fleet-station__pip {
+.fleet-cc--selected .fleet-node__medallion,
+.fleet-station--selected .fleet-node__medallion {
+  background: var(--color-raise);
+}
+
+.fleet-pip {
   position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 8px;
-  height: 8px;
+  right: 0;
+  bottom: 0;
+  width: 9px;
+  height: 9px;
   border-radius: 999px;
-  border: 1px solid rgba(12, 11, 10, 0.9);
+  border: 2px solid var(--color-ground);
 }
-.fleet-station__pip--unknown {
+.fleet-pip--unknown {
   background: var(--color-faint);
 }
-.fleet-station__pip--probing {
+.fleet-pip--probing {
   background: var(--color-cyan);
-  box-shadow: 0 0 8px rgba(57, 198, 214, 0.7);
   animation: fleet-pip-pulse 1.2s ease-in-out infinite;
 }
-.fleet-station__pip--reachable {
+.fleet-pip--reachable {
   background: var(--color-green);
-  box-shadow: 0 0 8px rgba(95, 185, 142, 0.6);
 }
-.fleet-station__pip--unreachable {
+.fleet-pip--unreachable {
   background: var(--color-crimson);
-  box-shadow: 0 0 8px rgba(229, 72, 77, 0.6);
 }
 @keyframes fleet-pip-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .fleet-station__pip--probing { animation: none; }
+  .fleet-pip--probing { animation: none; }
+}
+
+.fleet-cc__label {
+  margin-top: 14px;
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-amber-hi);
 }
 .fleet-station__label {
-  margin-top: 8px;
+  margin-top: 10px;
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  color: var(--color-dim);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--color-ink-2);
 }
 .fleet-station--selected .fleet-station__label {
   color: var(--color-ink);
+}
+.fleet-node__meta {
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--color-faint);
 }
 
 /* --- Detail panel --------------------------------------------------------- */
@@ -2491,6 +2410,7 @@ ol.note-md__list > .note-md__li::before {
   left: 12px;
   right: 12px;
   bottom: 12px;
+  z-index: 2; /* above the map vignette */
   display: flex;
   flex-direction: column;
   gap: 6px;
