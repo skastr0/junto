@@ -191,6 +191,70 @@ Headless-resume rides SSH just as trivially: `ssh station "claude --resume <id>
   as a signed bundle to `/usr/libexec/vellum-release-installer` → systemd unit.
   The CLI binary rides that bundle.
 
+### Remote install — embed prism's packager SDK, never hand-patch configs
+
+The harness-mutation problem (writing MCP servers + hooks into nine harnesses'
+native config formats) is **already solved by prism, and exposed as a library** —
+Vellum embeds it rather than reimplementing or shipping the prism CLI.
+
+Grounded: `@skastr0/prism-workspace` exports `./packager` →
+**`packagePluginForTarget({ pluginPath, target: HarnessId, scope?, dryRun? })`**
+(`~/Projects/prism/src/packager.ts`). It compiles a plugin into the target
+harness's **native plugin format** (`prism-generated-<name>`) and, with
+`dryRun: true`, returns **`DesiredFile[]` = `{ path, content, mode }`** without
+writing anything (`src/sync/desired.ts`). It hashes content + emits an integrity
+manifest → **idempotent, drift-detecting**.
+
+That single fact resolves every constraint:
+
+- **native plugin format, not manual config edits** — the packager emits it;
+- **no prism CLI on the target** — it's a library call in Vellum's own process;
+- **no `.prism` / root-folder pollution** — `dryRun` hands Vellum the files;
+  *Vellum* decides where they land (the harness's own plugin dir, or nowhere
+  local at all);
+- **lowering over SSH** — `dryRun` → `DesiredFile[]` → write them to the *remote*
+  harness plugin dir over the existing hermes `SshLease`. Compile local, apply
+  remote. Zero prism runtime on the host.
+
+Division of labor: **prism owns the harness mutation (via the packager library);
+Vellum owns (a) the endpoint the compiled plugin points at, and (b) the thin
+apply-`DesiredFile`s-locally-or-over-SSH layer.** The latter is file-writing, not
+harness-mutation — the obnoxious part is not reimplemented.
+
+**Substrate directive:** the SSH lease and the SSH-install/apply capability are
+built **PCMI + idiomatic Effect** — a pristine `SshLease` component and a
+pristine install capability (typed errors, resource-safe leases, schema'd
+`DesiredFile` transport), messy per-host glue kept plastic around them.
+
+What actually lands on a remote host by tier:
+
+| tier | lands | footprint |
+|---|---|---|
+| **Tier 3** | a compiled native plugin in the harness's own config, pointing at the CC endpoint (route-token) | text only — no prism, no station, no root folder |
+| **Tier 2** | the full app (fleet-deploy bundle) → local socket + host-local + fleet telemetry | full station |
+
+---
+
+## 3a · The fleet plane — the Tier-2 payoff (separate from the factory)
+
+Installing the full station app (Tier 2) unlocks a **second, distinct plane** the
+factory does not care about: **host operations** — CPU, memory, disk, process.
+This is a lightweight fleet-management surface for an operator rolling Mac minis
+and VPSes, and it is the *reason to climb from Tier 3 to Tier 2*.
+
+- **Factory plane** — tasks / workers / edges. Never cares about CPU.
+- **Fleet plane** — host health/ops. Rides existing infrastructure
+  (`src/main/vellum/hosts/`, `doctor`, `station-status` already report role +
+  station health; extend with resource telemetry). The operator UI already
+  exists (Command Fleet: Command Center + stations, per-station detail with
+  capabilities / link health / `INSTALL CLI · DEPLOY` / `CONFIGURE AS STATION`).
+- **Fleet-management agent** — an agent whose domain is the fleet plane (health,
+  capacity, restarts), distinct from a factory worker.
+
+The value ladder: **Tier 3** = point an official harness plugin at the factory
+(zero footprint). **Tier 2** = full station = factory execution **plus** fleet
+management. Fleet telemetry is the payoff for the heavier install.
+
 ---
 
 ## 4 · The integration surface — three layers, not "a pile of hooks"
@@ -292,41 +356,48 @@ code:
 - the ACP client (create/own/resume/prompt/permission) + env overlay,
 - ACP over SSH (hermes),
 - the prism plugin pattern + per-harness lowerers (tools + hooks),
+- **the packager SDK** — native-format compile + `dryRun` `DesiredFile[]` + drift
+  (`@skastr0/prism-workspace/packager`); Vellum embeds it, does *not* reimplement,
 - the headless capture-resume adapters for 6 harnesses (prism),
-- the fleet deploy rail.
+- the fleet deploy rail; the fleet operator UI (in progress).
 
 **To build:**
-1. the **vellum prism plugin** — thin: tools + boot-onboard hook + owned
-   transport (local-socket-or-remote-route). Quasar-shaped.
-2. **`onboard` enrichment** — claimed-task context + tag→context injection +
-   `VELLUM_SEAT/TASK/THREAD` env.
-3. the **factory tick / claiming + turn-driver** — the sim loop that claims
+1. the **vellum prism plugin** — thin: tools + boot-onboard hook + rules,
+   pointing at the work endpoint (local socket or CC route). Quasar-shaped.
+2. **packager-embed install capability** — call `packagePluginForTarget(dryRun)`,
+   apply `DesiredFile[]` locally (Tier 2) or over the `SshLease` (Tier 3). PCMI +
+   idiomatic Effect (pristine `SshLease` + install capability).
+3. **CC work endpoint + route-token transport** — expose the work plane as a
+   network-reachable endpoint (route-token auth, over Tailscale/SSH) that the
+   compiled remote plugin points at. Includes the route-token lifecycle
+   (mint/rotate/revoke, per the doctrine's credential rules).
+4. **`onboard` enrichment** — claimed-task context + tag→context injection +
+   `VELLUM_SEAT/TASK/THREAD` env (extends `environmentOverlay`).
+5. the **factory tick / claiming + turn-driver** — the sim loop that claims
    role-matched tasks, spawns the owned session (ACP or headless), and runs the
-   next turn on wake-reasons. *This is the real new work.*
-4. **role routing** — operator-authored node work-role + the tick's claim match.
-5. **occupancy feed** — wire ACP/headless lifecycle (and, for manual, herdr-style
-   detection) into the `ActivityFeed` seam.
-6. **Tier-3 route-token transport** — the plugin's remote mode + identity.
+   next turn on wake-reasons. *The real new work; holds for the app salvage.*
+6. **role routing** — operator-authored node work-role + the tick's claim match.
+7. **occupancy feed** — wire ACP/headless lifecycle (working/idle/blocked via
+   `session/request_permission`) into the `ActivityFeed` seam.
+8. **fleet-plane telemetry** — extend `doctor`/`station-status` with CPU/mem/disk/
+   process, feeding the fleet UI.
 
 ---
 
 ## 8 · Build sequence
 
-Hard constraint: **not while the app is unusable.** The app-salvage (fire/ice
-UI, worker-state blocking, noise cuts) lands first; designing the tick against a
-broken surface is wasted. Then:
+Hard constraint on the **tick**: not while the app is unusable — designing the
+sim against a broken surface is wasted; it lands after the salvage. But most of
+the stack is *new-surface plumbing* that does **not** touch the salvage and can
+start in parallel now.
 
-1. **`onboard` enrichment + env-inject** — the worker can boot oriented (works
-   for hand-driven demo before the tick exists).
-2. **ACP-first factory worker** — the tick claims → `session/new` → drives turns
-   → wakes via `session/prompt`. Prove the whole loop on the clean protocol.
-3. **occupancy feed from ACP lifecycle** — the board finally shows real state.
-4. **the vellum prism plugin** — package the tools + boot-onboard hook + owned
-   transport; `prism refresh` into the harness fleet.
-5. **headless-resume workers** — reuse/lift prism's per-harness adapters to add
-   the harnesses that don't speak ACP.
-6. **Tier-3 remote route** — the remote-client transport + route-token identity.
-7. **role routing** at the tick — the pull-queue match.
+**Parallel-now (new surface, no salvage dependency):** the vellum prism plugin ·
+the packager-embed install capability · the CC endpoint + route-token · onboard
+enrichment · the ACP-lifecycle occupancy producer · fleet-plane telemetry.
+
+**Then, after the salvage lands the usable surface:** the factory tick
+(claim → `session/new` → drive turns → wake via `session/prompt`) · role routing
+at the tick · headless-resume workers for non-ACP harnesses.
 
 Terminal/herdr manual-assistant detection is a *later, optional* lap — off the
 factory critical path.
