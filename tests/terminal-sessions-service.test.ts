@@ -110,7 +110,7 @@ describe("TerminalSessions Effect service", () => {
     mgr = undefined;
   });
 
-  it("openHerdrControl yields handle and scope release detaches", async () => {
+  it("openScoped yields handle and scope release detaches", async () => {
     let child: FakeChild | undefined;
     mgr = new HerdrStreamManager(
       mockPool,
@@ -125,7 +125,7 @@ describe("TerminalSessions Effect service", () => {
 
     const program = Effect.scoped(
       Effect.gen(function* () {
-        const handle = yield* sessions.openHerdrControl({
+        const handle = yield* sessions.openScoped({
           hostId: "local",
           terminalId: "pane-a",
           cols: 80,
@@ -147,6 +147,28 @@ describe("TerminalSessions Effect service", () => {
     expect(again._tag).toBe("Left");
   });
 
+  it("openProduct is the unscoped IPC path and closeProduct detaches", async () => {
+    mgr = new HerdrStreamManager(
+      mockPool,
+      () => localClient(new FakeChild()),
+      async () => "/tmp/img",
+      { terminationGraceMs: 20, shutdownDrainTimeoutMs: 100 },
+    );
+    const sessions = makeTerminalSessions(mgr);
+    const opened = sessions.openProduct({
+      hostId: "local",
+      terminalId: "pane-ipc",
+      cols: 80,
+      rows: 24,
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok || !opened.streamId) return;
+    expect(sessions.activeControlCount()).toBe(1);
+    expect(sessions.inputTextProduct(opened.streamId, "hi").ok).toBe(true);
+    sessions.closeProduct(opened.streamId, "client_close");
+    expect(sessions.activeControlCount()).toBe(0);
+  });
+
   it("spawn failure is TerminalSpawnError", async () => {
     mgr = new HerdrStreamManager(
       mockPool,
@@ -157,20 +179,16 @@ describe("TerminalSessions Effect service", () => {
     );
     const sessions = makeTerminalSessions(mgr);
     const exit = await Effect.runPromiseExit(
-      Effect.scoped(
-        sessions.openHerdrControl({
-          hostId: "local",
-          terminalId: "gone",
-          cols: 80,
-          rows: 24,
-        }),
-      ),
+      sessions.open({
+        hostId: "local",
+        terminalId: "gone",
+        cols: 80,
+        rows: 24,
+      }),
     );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
-      const err = exit.cause;
-      // Extract failure if present
-      expect(String(err)).toMatch(/TerminalSpawnError|herdr binary missing|failed to spawn/);
+      expect(String(exit.cause)).toMatch(/TerminalSpawnError|herdr binary missing|failed to spawn/);
     }
   });
 });

@@ -1,32 +1,31 @@
 /**
- * TerminalSessions — Effect seam over herdr control streams (Phase B).
+ * TerminalSessions — sole product seam for herdr control streams.
  *
- * Pristine: Effect signature = open/write/close with tagged errors + Scope release.
- * Plastic: delegates to HerdrStreamManager (Node stdio, spawn, IPC sink).
+ * Consolidation: IPC, message delivery, and Effect callers enter here.
+ * HerdrStreamManager is an implementation detail of this service (and
+ * HerdrPlane internals for observe handoff / revocation). Product code must
+ * not call plane.streams.* for open/write/close.
  *
- * Scope acquireRelease ensures detach on fiber interrupt / scope close so
- * "remember to close" is construction-level, not folklore.
+ * - open / openScoped: product open; scoped variant detaches on Scope close
+ * - *Wire helpers: IPC-stable { ok, error } / open result shapes
  */
 
-import { Context, Effect, Layer, Ref, type Scope } from "effect";
-import type { HerdrPointerCell, HerdrRetainedPayload } from "@shared/ipc";
+import { Context, Effect, type Scope } from "effect";
+import type {
+  HerdrPointerCell,
+  HerdrRetainedPayload,
+  HerdrStreamOpenInput,
+  HerdrStreamOpenResult,
+} from "@shared/ipc";
 import {
   inactiveControlError,
   terminalSpawnError,
   type HerdrControlError,
   type TerminalSpawnError,
 } from "@shared/terminal-session-domain";
-import type { HerdrStreamManager } from "../herdr/stream";
-import { HerdrPlane } from "../herdr/plane";
+import type { HerdrStreamFrame, HerdrStreamManager } from "../herdr/stream";
 
-export type HerdrControlOpenInput = {
-  readonly hostId: string;
-  readonly session?: string | null;
-  readonly terminalId: string;
-  readonly cols: number;
-  readonly rows: number;
-  readonly takeover?: boolean;
-};
+export type HerdrControlOpenInput = HerdrStreamOpenInput;
 
 export type HerdrControlLiveHandle = {
   readonly streamId: string;
@@ -34,20 +33,34 @@ export type HerdrControlLiveHandle = {
   readonly retained: HerdrRetainedPayload;
 };
 
+export type ProductWriteResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: string };
+
+export type ProductPasteResult = ProductWriteResult & { readonly path?: string };
+
+export type FrameSink = (frame: HerdrStreamFrame) => void;
+
 export class TerminalSessions extends Context.Tag("@vellum/TerminalSessions")<
   TerminalSessions,
   {
+    /** Long-lived product open (IPC / message path). Does not Scope-bind. */
+    readonly open: (
+      input: HerdrControlOpenInput,
+    ) => Effect.Effect<HerdrControlLiveHandle, TerminalSpawnError>;
+
     /**
-     * Open herdr control for a terminal. Same terminalId supersedes prior
-     * control (stream manager product law). Scope release detaches.
+     * Scoped open: detach on Scope close / interrupt. Prefer for Effect
+     * workflows that own a temporary control generation.
      */
-    readonly openHerdrControl: (
+    readonly openScoped: (
       input: HerdrControlOpenInput,
     ) => Effect.Effect<
       HerdrControlLiveHandle,
-      TerminalSpawnError | HerdrControlError,
+      TerminalSpawnError,
       Scope.Scope
     >;
+
     readonly inputBytes: (
       streamId: string,
       dataBase64: string,
@@ -66,58 +79,102 @@ export class TerminalSessions extends Context.Tag("@vellum/TerminalSessions")<
       delta: number,
       at?: HerdrPointerCell,
     ) => Effect.Effect<void, HerdrControlError>;
+    readonly pasteImage: (
+      streamId: string,
+      extension: string,
+      dataBase64: string,
+    ) => Effect.Effect<ProductPasteResult, never>;
     readonly close: (
       streamId: string,
       reason?: string,
     ) => Effect.Effect<void>;
+
+    /** IPC / sync product open result. */
+    readonly openProduct: (input: HerdrControlOpenInput) => HerdrStreamOpenResult;
+    readonly inputBytesProduct: (
+      streamId: string,
+      dataBase64: string,
+    ) => ProductWriteResult;
+    readonly inputTextProduct: (
+      streamId: string,
+      text: string,
+    ) => ProductWriteResult;
+    readonly resizeProduct: (
+      streamId: string,
+      cols: number,
+      rows: number,
+    ) => ProductWriteResult;
+    readonly scrollProduct: (
+      streamId: string,
+      delta: number,
+      at?: HerdrPointerCell,
+    ) => ProductWriteResult;
+    readonly pasteImageProduct: (
+      streamId: string,
+      extension: string,
+      dataBase64: string,
+    ) => Promise<ProductPasteResult>;
+    readonly closeProduct: (
+      streamId: string,
+      reason?: string,
+    ) => ProductWriteResult;
+
+    readonly setFrameSink: (sink: FrameSink | undefined) => void;
+    /** Message-delivery retry when control attaches for a terminal. */
+    readonly setOpenHook: (hook: ((terminalId: string) => void) | undefined) => void;
     readonly activeControlCount: () => number;
-    /** terminalId → live streamId (for message delivery / supersede inspection). */
     readonly streamIdForTerminal: (terminalId: string) => string | undefined;
   }
 >() {}
 
 const writeFromWire = (
-  result: { readonly ok: true } | { readonly ok: false; readonly error: string },
+  result: ProductWriteResult,
 ): Effect.Effect<void, HerdrControlError> =>
-  result.ok
-    ? Effect.void
-    : Effect.fail(inactiveControlError(result.error));
+  result.ok ? Effect.void : Effect.fail(inactiveControlError(result.error));
+
+const openFromManager = (
+  streams: HerdrStreamManager,
+  input: HerdrControlOpenInput,
+): Effect.Effect<HerdrControlLiveHandle, TerminalSpawnError> =>
+  Effect.suspend(() => {
+    const opened = streams.open(input);
+    if (!opened.ok) {
+      return Effect.fail(terminalSpawnError("herdr-control", opened.message));
+    }
+    return Effect.succeed({
+      streamId: opened.streamId,
+      terminalId: input.terminalId,
+      retained: opened.retained,
+    } satisfies HerdrControlLiveHandle);
+  });
 
 export const makeTerminalSessions = (
   streams: HerdrStreamManager,
 ): Context.Tag.Service<typeof TerminalSessions> => {
-  const openHerdrControl = (
-    input: HerdrControlOpenInput,
-  ): Effect.Effect<
-    HerdrControlLiveHandle,
-    TerminalSpawnError | HerdrControlError,
-    Scope.Scope
-  > =>
-    Effect.acquireRelease(
-      Effect.suspend(() => {
-        const opened = streams.open(input);
-        if (!opened.ok) {
-          return Effect.fail(
-            terminalSpawnError("herdr-control", opened.message),
-          );
-        }
-        return Effect.succeed({
-          streamId: opened.streamId,
-          terminalId: input.terminalId,
-          retained: opened.retained,
-        } satisfies HerdrControlLiveHandle);
+  const open = (input: HerdrControlOpenInput) => openFromManager(streams, input);
+
+  const openScoped = (input: HerdrControlOpenInput) =>
+    Effect.acquireRelease(open(input), (handle, exit) =>
+      Effect.sync(() => {
+        const reason =
+          exit._tag === "Failure" ? "scope_release_failed" : "scope_release";
+        streams.close(handle.streamId, reason);
       }),
-      (handle, exit) =>
-        Effect.sync(() => {
-          // Interrupt / scope end always detaches; already-closed is ok.
-          const reason =
-            exit._tag === "Failure" ? "scope_release_failed" : "scope_release";
-          streams.close(handle.streamId, reason);
-        }),
     );
 
+  const openProduct = (input: HerdrControlOpenInput): HerdrStreamOpenResult => {
+    const opened = streams.open(input);
+    if (!opened.ok) return { ok: false, message: opened.message };
+    return {
+      ok: true,
+      streamId: opened.streamId,
+      retained: opened.retained,
+    };
+  };
+
   return TerminalSessions.of({
-    openHerdrControl,
+    open,
+    openScoped,
     inputBytes: (streamId, dataBase64) =>
       writeFromWire(streams.input(streamId, dataBase64)),
     inputText: (streamId, text) => writeFromWire(streams.inputText(streamId, text)),
@@ -125,53 +182,31 @@ export const makeTerminalSessions = (
       writeFromWire(streams.resize(streamId, cols, rows)),
     scroll: (streamId, delta, at) =>
       writeFromWire(streams.scroll(streamId, delta, at)),
+    pasteImage: (streamId, extension, dataBase64) =>
+      Effect.promise(() => streams.pasteImage(streamId, extension, dataBase64)),
     close: (streamId, reason = "client_close") =>
       Effect.sync(() => {
         streams.close(streamId, reason);
       }),
+
+    openProduct,
+    inputBytesProduct: (streamId, dataBase64) => streams.input(streamId, dataBase64),
+    inputTextProduct: (streamId, text) => streams.inputText(streamId, text),
+    resizeProduct: (streamId, cols, rows) => streams.resize(streamId, cols, rows),
+    scrollProduct: (streamId, delta, at) => streams.scroll(streamId, delta, at),
+    pasteImageProduct: (streamId, extension, dataBase64) =>
+      streams.pasteImage(streamId, extension, dataBase64),
+    closeProduct: (streamId, reason = "client_close") => {
+      streams.close(streamId, reason);
+      return { ok: true };
+    },
+
+    setFrameSink: (sink) => streams.setSink(sink),
+    setOpenHook: (hook) => streams.setOpenHook(hook),
     activeControlCount: () => streams.activeControlCount(),
     streamIdForTerminal: (terminalId) => streams.streamIdForTerminal(terminalId),
   });
 };
 
-/** Layer: TerminalSessions from live HerdrPlane streams. */
-export const TerminalSessionsLive = Layer.effect(
-  TerminalSessions,
-  Effect.gen(function* () {
-    const plane = yield* HerdrPlane;
-    return makeTerminalSessions(plane.streams);
-  }),
-);
-
-/**
- * Track last opened stream per terminalId for Effect callers that supersede
- * without going through openHerdrControl's internal detach (optional helper).
- */
-export const makeTerminalSupersedeIndex = (): Effect.Effect<
-  {
-    readonly note: (terminalId: string, streamId: string) => Effect.Effect<void>;
-    readonly current: (terminalId: string) => Effect.Effect<string | undefined>;
-    readonly clear: (terminalId: string) => Effect.Effect<void>;
-  },
-  never,
-  never
-> =>
-  Effect.gen(function* () {
-    const map = yield* Ref.make(new Map<string, string>());
-    return {
-      note: (terminalId, streamId) =>
-        Ref.update(map, (m) => {
-          const next = new Map(m);
-          next.set(terminalId, streamId);
-          return next;
-        }),
-      current: (terminalId) =>
-        Ref.get(map).pipe(Effect.map((m) => m.get(terminalId))),
-      clear: (terminalId) =>
-        Ref.update(map, (m) => {
-          const next = new Map(m);
-          next.delete(terminalId);
-          return next;
-        }),
-    };
-  });
+// TerminalSessionsLive lives in runtime.ts (needs HerdrPlane) to avoid
+// plane ↔ sessions import cycles.

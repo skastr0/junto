@@ -1204,7 +1204,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       hermesShutdown ??= hermes.shutdown.drainOnQuit();
       return;
     }
-  herdrActiveControlCount = () => herdr.streams.activeControlCount();
+  herdrActiveControlCount = () => herdr.sessions.activeControlCount();
   await AppRuntime.runPromise(herdr.start);
     // Control sockets must never land under the real operator home when E2E /
     // headless probes sandbox via HOME or --user-data-dir. Electron's

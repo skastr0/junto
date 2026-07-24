@@ -19,8 +19,9 @@ import { ChatServiceFromHermesLive, HermesPlaneLive } from "./vellum/hermes/plan
 import { HermesTransportLive } from "./vellum/hermes/transport";
 import { HerdrPlaneLive } from "./vellum/herdr/plane";
 import { HerdrTransportLive } from "./vellum/herdr/transport";
-import { TerminalSessionsLive } from "./vellum/term/sessions";
+import { TerminalSessions } from "./vellum/term/sessions";
 import { termPlane } from "./vellum/term/plane";
+import { HerdrPlane } from "./vellum/herdr/plane";
 import {
   assessNativeTerminalDoctor,
   probeNativeTerminalReadiness,
@@ -71,7 +72,11 @@ const ProductTransportsLive = Layer.provideMerge(
   HostsWithSshLive,
 );
 
-// TerminalSessionsLive needs HerdrPlane — provideMerge keeps one plane instance.
+// TerminalSessions is plane.sessions — one instance, no dual path.
+const TerminalSessionsLive = Layer.effect(
+  TerminalSessions,
+  Effect.map(HerdrPlane, (plane) => plane.sessions),
+);
 const HerdrWithSessionsLive = Layer.provideMerge(
   TerminalSessionsLive,
   HerdrPlaneLive,

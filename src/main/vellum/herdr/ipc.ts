@@ -62,7 +62,8 @@ export const registerHerdrIpc = (
   };
 
   void withPlane((plane) => {
-    plane.streams.setSink((frame) => {
+    // Product path: sessions owns the control generation; streams is private.
+    plane.sessions.setFrameSink((frame) => {
       const owner = streamOwnersByStreamId.get(frame.streamId);
       // Ownerless frame: dropped. If it is "closed", release is a no-op
       // (there is nothing to release) — no broadcast fallback.
@@ -199,21 +200,22 @@ export const registerHerdrIpc = (
 
   ipcMain.handle(IPC_CHANNELS.herdrStreamOpen, (event, input: HerdrStreamOpenInput) =>
     withPlane((plane) => {
+      const sessions = plane.sessions;
       const sender = event.sender;
       if (!sender || sender.isDestroyed()) {
         return { ok: false, message: "renderer gone" };
       }
 
-      const res = plane.streams.open(input);
+      const res = sessions.openProduct(input);
       if (!res.ok || !res.streamId) return res;
       const streamId = res.streamId;
 
-      // open() is synchronous — this only fires when a synchronous side
+      // openProduct is synchronous — this only fires when a synchronous side
       // effect inside `open` itself destroyed the sender (as the test
       // simulates), not an async race. Close the stream we just opened
       // rather than leaving it alive and unreachable.
       if (sender.isDestroyed()) {
-        plane.streams.close(streamId, "renderer_gone");
+        sessions.closeProduct(streamId, "renderer_gone");
         return { ok: false, message: "renderer gone" };
       }
 
@@ -223,7 +225,7 @@ export const registerHerdrIpc = (
       // is no one left to deliver a final frame to), then close.
       const detachOnRendererGone = (reason: string) => () => {
         releaseStreamOwner(streamId);
-        plane.streams.close(streamId, reason);
+        sessions.closeProduct(streamId, reason);
       };
       const onDestroyed = detachOnRendererGone("renderer_destroyed");
       const onRenderProcessGone = detachOnRendererGone("renderer_process_gone");
@@ -233,7 +235,7 @@ export const registerHerdrIpc = (
       // "closed" frame before release (close-then-release, mirroring
       // herdrStreamClose) so the still-alive sender sees it.
       const onDidStartLoading = () => {
-        plane.streams.close(streamId, "renderer_reloaded");
+        sessions.closeProduct(streamId, "renderer_reloaded");
         releaseStreamOwner(streamId);
       };
 
@@ -256,7 +258,7 @@ export const registerHerdrIpc = (
   ipcMain.handle(IPC_CHANNELS.herdrStreamInput, (event, streamId: string, dataBase64: string) =>
     withPlane((plane) => {
       if (!isAuthorized(event.sender, streamId)) return { ok: false, error: "unauthorized stream owner" };
-      return plane.streams.input(streamId, dataBase64);
+      return plane.sessions.inputBytesProduct(streamId, dataBase64);
     }),
   );
 
@@ -265,7 +267,7 @@ export const registerHerdrIpc = (
     (event, streamId: string, extension: string, dataBase64: string) =>
       withPlane((plane) => {
         if (!isAuthorized(event.sender, streamId)) return { ok: false, error: "unauthorized stream owner" };
-        return plane.streams.pasteImage(streamId, extension, dataBase64);
+        return plane.sessions.pasteImageProduct(streamId, extension, dataBase64);
       }),
   );
 
@@ -274,7 +276,7 @@ export const registerHerdrIpc = (
     (event, streamId: string, cols: number, rows: number) =>
       withPlane((plane) => {
         if (!isAuthorized(event.sender, streamId)) return { ok: false, error: "unauthorized stream owner" };
-        return plane.streams.resize(streamId, cols, rows);
+        return plane.sessions.resizeProduct(streamId, cols, rows);
       }),
   );
 
@@ -283,14 +285,14 @@ export const registerHerdrIpc = (
     (event, streamId: string, delta: number, at?: HerdrPointerCell) =>
       withPlane((plane) => {
         if (!isAuthorized(event.sender, streamId)) return { ok: false, error: "unauthorized stream owner" };
-        return plane.streams.scroll(streamId, delta, at);
+        return plane.sessions.scrollProduct(streamId, delta, at);
       }),
   );
 
   ipcMain.handle(IPC_CHANNELS.herdrStreamClose, (event, streamId: string) =>
     withPlane((plane) => {
       if (!isAuthorized(event.sender, streamId)) return { ok: false, error: "unauthorized stream owner" };
-      const res = plane.streams.close(streamId);
+      const res = plane.sessions.closeProduct(streamId, "client_close");
       releaseStreamOwner(streamId);
       return res;
     }),

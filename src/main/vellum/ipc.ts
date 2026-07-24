@@ -554,9 +554,10 @@ export const registerVellumIpc = (): void => {
             return result.ok;
           },
           sendHerdrText: (terminalId, text) => {
-            const streamId = herdr.streams.streamIdForTerminal(terminalId);
+            // Product path: TerminalSessions only (not plane.streams).
+            const streamId = herdr.sessions.streamIdForTerminal(terminalId);
             if (!streamId) return false;
-            const written = herdr.streams.inputText(streamId, text);
+            const written = herdr.sessions.inputTextProduct(streamId, text);
             return written.ok;
           },
           // Native terminals never auto-submit shell text (no Enter). Delivery
@@ -600,7 +601,7 @@ export const registerVellumIpc = (): void => {
         },
       });
       chat.setSessionLiveHook((agentKey) => messageDelivery.onAgentLive(agentKey));
-      herdr.streams.setOpenHook((terminalId) => messageDelivery.onHerdrAttached(terminalId));
+      herdr.sessions.setOpenHook((terminalId) => messageDelivery.onHerdrAttached(terminalId));
 
       canvases.start();
       snapshots.start();

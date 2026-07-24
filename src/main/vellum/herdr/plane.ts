@@ -39,6 +39,7 @@ import {
   type HerdrSpawnFn,
   type RemoteScopeCloseReceipt,
 } from "./stream";
+import { makeTerminalSessions, TerminalSessions } from "../term/sessions";
 import { HerdrTransport } from "./transport";
 import { parseCliEnvelope, parseProcessInfo } from "./parse";
 import { findHostById } from "../hosts/snapshot";
@@ -737,6 +738,15 @@ export class HerdrPlane extends Context.Tag("@vellum/HerdrPlane")<
     readonly service: HerdrService;
     readonly mirrors: HerdrMirrorRegistry;
     readonly observePool: HerdrObservePool;
+    /**
+     * Product seam for herdr control open/write/close. IPC and message delivery
+     * must use this — not streams.* — so Effect domain laws are the only path.
+     */
+    readonly sessions: Context.Tag.Service<typeof TerminalSessions>;
+    /**
+     * Implementation detail of sessions (observe handoff, host revocation).
+     * Not a product write API.
+     */
     readonly streams: HerdrStreamManager;
     /** Host-scoped process→port→URL projection (rate-limited side channel). */
     readonly serviceMap: HerdrServiceMap;
@@ -919,6 +929,8 @@ export const HerdrPlaneLive = Layer.scoped(
         runOwned(transport.stageImage(hostId, remoteName, bytes)),
       { manageObservePoolOnShutdown: false },
     );
+    // Sole product write/open/close API — IPC must not call streams.* directly.
+    const sessions = makeTerminalSessions(streams);
 
     // Host removal/edit revocation: reconciliation (mirrors.ts) calls these
     // for the affected host, in order, before its mirror is rebuilt. ssh
@@ -1114,6 +1126,7 @@ export const HerdrPlaneLive = Layer.scoped(
       service,
       mirrors,
       observePool,
+      sessions,
       streams,
       serviceMap,
       serveCatalog,

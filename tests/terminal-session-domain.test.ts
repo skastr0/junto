@@ -110,3 +110,17 @@ describe("SessionPhase (product vocabulary)", () => {
     ).toBe("running");
   });
 });
+
+describe("session recovery codes", () => {
+  it("maps reasons and gates auto-reconnect", async () => {
+    const {
+      sessionRecoveryCodeFromReason,
+      sessionRecoveryShouldAutoReconnect,
+    } = await import("../src/shared/terminal-session-domain");
+    expect(sessionRecoveryCodeFromReason("pipe_broken")).toBe("pipe_broken");
+    expect(sessionRecoveryCodeFromReason("client_close")).toBe("client_close");
+    expect(sessionRecoveryShouldAutoReconnect("pipe_broken")).toBe(true);
+    expect(sessionRecoveryShouldAutoReconnect("client_close")).toBe(false);
+    expect(sessionRecoveryShouldAutoReconnect("renderer_reloaded")).toBe(false);
+  });
+});

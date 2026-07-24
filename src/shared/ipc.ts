@@ -902,6 +902,11 @@ export interface HerdrStreamEvent {
   readonly seq?: number;
   readonly reason?: string;
   readonly message?: string;
+  /**
+   * Domain recovery code (SessionRecoveryCode). Prefer for reconnect policy
+   * over freeform `reason` strings.
+   */
+  readonly code?: string;
 }
 
 /** Main → renderer push when a host's mirror state changes. `kind: "state"`

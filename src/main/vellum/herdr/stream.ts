@@ -16,6 +16,7 @@ import {
   normalizeControlGeometry,
   parseHerdrControlInbound,
   pipeControlError,
+  sessionRecoveryCodeFromReason,
   type ControlIoPhase as ControlIoPhaseT,
   type HerdrControlWriteResult,
 } from "@shared/terminal-session-domain";
@@ -51,6 +52,8 @@ export interface HerdrStreamFrame {
   readonly seq?: number;
   readonly reason?: string;
   readonly message?: string;
+  /** Domain SessionRecoveryCode for product reconnect policy. */
+  readonly code?: string;
 }
 
 export type StreamSink = (frame: HerdrStreamFrame) => void;
@@ -514,11 +517,7 @@ export class HerdrStreamManager {
         closing.phase = ControlIoPhase.Closed({ reason });
         this.removeStream(streamId, closing.terminalId);
         this.handBackToObservePool(closing);
-        this.emit({
-          streamId,
-          type: "closed",
-          reason,
-        });
+        this.emitClosed(streamId, reason);
       });
 
       child.on("error", (error) => {
@@ -543,7 +542,7 @@ export class HerdrStreamManager {
           type: "error",
           message: error.message,
         });
-        this.emit({ streamId, type: "closed", reason: "child_error" });
+        this.emitClosed(streamId, "child_error");
       });
     } catch (error) {
       this.removeStream(streamId, input.terminalId);
@@ -743,7 +742,7 @@ export class HerdrStreamManager {
     this.removeStream(streamId, active.terminalId);
     this.terminateControl(active);
     if (handBack) this.handBackToObservePool(active);
-    this.emit({ streamId, type: "closed", reason });
+    this.emitClosed(streamId, reason);
     return { ok: true };
   }
 
@@ -1201,11 +1200,7 @@ export class HerdrStreamManager {
         ? `herdr control ${channel} pipe broken: ${error.message}`
         : `herdr control ${channel}: ${error.message}`,
     });
-    this.emit({
-      streamId,
-      type: "closed",
-      reason: pipe ? "pipe_broken" : `${channel}_error`,
-    });
+    this.emitClosed(streamId, pipe ? "pipe_broken" : `${channel}_error`);
   }
 
   private handleLine(streamId: string, line: string): void {
@@ -1240,11 +1235,7 @@ export class HerdrStreamManager {
       return;
     }
     if (inbound.type === "terminal.closed") {
-      this.emit({
-        streamId,
-        type: "closed",
-        reason: inbound.reason ?? "closed",
-      });
+      this.emitClosed(streamId, inbound.reason ?? "closed");
       const closing = this.streams.get(streamId);
       if (closing) {
         closing.phase = ControlIoPhase.Closed({ reason: inbound.reason ?? "closed" });
@@ -1256,6 +1247,15 @@ export class HerdrStreamManager {
       }
       return;
     }
+  }
+
+  private emitClosed(streamId: string, reason: string): void {
+    this.emit({
+      streamId,
+      type: "closed",
+      reason,
+      code: sessionRecoveryCodeFromReason(reason),
+    });
   }
 
   private emit(frame: HerdrStreamFrame): void {

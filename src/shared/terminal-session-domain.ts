@@ -386,6 +386,66 @@ export type ControlWriteOffer = {
 };
 
 /**
+ * Stable close/break codes for product recovery (renderer policy table).
+ * Prefer these over freeform reason strings when branching reconnect UX.
+ */
+export const SessionRecoveryCode = Schema.Literal(
+  "pipe_broken",
+  "overflow",
+  "child_error",
+  "stdin_error",
+  "stdout_error",
+  "stderr_error",
+  "client_close",
+  "renderer_destroyed",
+  "renderer_process_gone",
+  "renderer_reloaded",
+  "renderer_gone",
+  "scope_release",
+  "host_revoked",
+  "superseded",
+  "exit",
+  "pane_gone",
+  "unknown",
+);
+export type SessionRecoveryCode = typeof SessionRecoveryCode.Type;
+
+/** Map freeform close reason → recovery code for UI policy. */
+export const sessionRecoveryCodeFromReason = (reason: string | undefined): SessionRecoveryCode => {
+  if (!reason) return "unknown";
+  if (reason === "pipe_broken") return "pipe_broken";
+  if (reason === "overflow") return "overflow";
+  if (reason === "child_error") return "child_error";
+  if (reason.endsWith("_error") && /stdin|stdout|stderr/.test(reason)) {
+    if (reason.startsWith("stdin")) return "stdin_error";
+    if (reason.startsWith("stdout")) return "stdout_error";
+    if (reason.startsWith("stderr")) return "stderr_error";
+  }
+  if (reason === "client_close") return "client_close";
+  if (reason === "renderer_destroyed") return "renderer_destroyed";
+  if (reason === "renderer_process_gone") return "renderer_process_gone";
+  if (reason === "renderer_reloaded") return "renderer_reloaded";
+  if (reason === "renderer_gone") return "renderer_gone";
+  if (reason.startsWith("scope_release")) return "scope_release";
+  if (reason === "host_revoked") return "host_revoked";
+  if (reason === "superseded") return "superseded";
+  if (reason === "exit" || reason.startsWith("exit_")) return "exit";
+  if (reason === "pane_gone" || reason === "closed") return "pane_gone";
+  return "unknown";
+};
+
+/** Auto-reconnect only for transport/process loss — not intentional detach. */
+export const sessionRecoveryShouldAutoReconnect = (code: SessionRecoveryCode): boolean =>
+  code === "pipe_broken" ||
+  code === "child_error" ||
+  code === "stdin_error" ||
+  code === "stdout_error" ||
+  code === "stderr_error" ||
+  code === "overflow" ||
+  code === "unknown" ||
+  code === "exit";
+
+/**
  * Capability present only while session is Live (construction: callers hold
  * this handle from open, not a free-floating stream id from a Closed session).
  */

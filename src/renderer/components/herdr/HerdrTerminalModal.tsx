@@ -4,6 +4,11 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import {
+  sessionRecoveryCodeFromReason,
+  sessionRecoveryShouldAutoReconnect,
+  type SessionRecoveryCode,
+} from "@shared/terminal-session-domain";
+import {
   canAutoReconnect,
   closeHerdrTerminal,
   focusHerdrTerminal,
@@ -122,6 +127,8 @@ type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
       full?: boolean;
       reason?: string;
       message?: string;
+      /** SessionRecoveryCode for reconnect policy. */
+      code?: string;
     }) => void,
   ) => () => void;
 };
@@ -451,15 +458,27 @@ export function HerdrTerminalPanel({
       } else if (event.type === "error") {
         setStatus(event.message ?? "stream error");
       } else if (event.type === "closed") {
-        setStatus(`closed · ${event.reason ?? "eof"}`);
-        setConnectionEvent(nodeId, { type: "stream_drop" });
+        // Domain recovery codes drive reconnect — intentional detach must not thrash.
+        const code: SessionRecoveryCode =
+          (event.code as SessionRecoveryCode | undefined) ??
+          sessionRecoveryCodeFromReason(event.reason);
         streamIdRef.current = undefined;
         setTerminalStreamId(nodeId, undefined);
-        if (canAutoReconnect(nodeId)) {
+        if (sessionRecoveryShouldAutoReconnect(code) && canAutoReconnect(nodeId)) {
+          setConnectionEvent(nodeId, { type: "stream_drop" });
           setConnectionEvent(nodeId, { type: "reconnect_start" });
           setStatus("reconnecting…");
           void openStream();
+        } else if (code === "pane_gone") {
+          setStatus("pane closed");
+          setConnectionEvent(nodeId, { type: "pane_closed" });
+        } else if (!sessionRecoveryShouldAutoReconnect(code)) {
+          // client_close / renderer_reloaded / supersede — stay quiet.
+          setStatus(code === "client_close" ? "detached" : `closed · ${code}`);
+          setConnectionEvent(nodeId, { type: "stream_drop" });
         } else {
+          setStatus(`closed · ${code}`);
+          setConnectionEvent(nodeId, { type: "stream_drop" });
           setConnectionEvent(nodeId, { type: "reconnect_exhausted" });
         }
       }
