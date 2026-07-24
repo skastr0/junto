@@ -19,11 +19,66 @@ import {
 import { recreateHerdrPane } from "../../lib/herdr-actions";
 import { extractHerdrClipboardImage } from "../../lib/herdr-clipboard-image";
 import { dock$, herdrSurfaceId } from "../../lib/dock-state";
+import { MONO_CELL } from "../../lib/focus-measure";
 import { getVellumApi } from "../../lib/vellum-api";
-import { VELLUM_XTERM_THEME } from "../../lib/terminal-theme";
+import {
+  VELLUM_XTERM_FONT_FAMILY,
+  VELLUM_XTERM_FONT_SIZE,
+  VELLUM_XTERM_THEME,
+} from "../../lib/terminal-theme";
 import { ActivityMark } from "../ActivityMark";
 import { FocusSurface } from "../FocusSurface";
 import { Button, OverlayHeader } from "../ui";
+
+/** Fallback cell when xterm has not measured fonts yet (13×0.6 / 13×1.2). */
+const FALLBACK_CELL_W = MONO_CELL.fontSizePx * MONO_CELL.ratio;
+const FALLBACK_CELL_H = MONO_CELL.fontSizePx * 1.2;
+/** Must match CSS padding on `.herdr-xterm .xterm` (6+6 / 8+8). */
+const XTERM_PAD_X = 16;
+const XTERM_PAD_Y = 12;
+const RESIZE_DEBOUNCE_MS = 48;
+/** After open/attach, wait for focus-shell enter + stored size apply. */
+const SETTLE_FITS_MS = [0, 50, 160, 320, 600] as const;
+
+type XtermCore = {
+  readonly _renderService?: {
+    readonly dimensions?: {
+      readonly css?: {
+        readonly cell?: { readonly width?: number; readonly height?: number };
+      };
+    };
+  };
+};
+
+const readCellSize = (term: Terminal): { cellW: number; cellH: number } => {
+  const core = term as unknown as { _core?: XtermCore };
+  const cell = core._core?._renderService?.dimensions?.css?.cell;
+  const cellW = cell?.width && cell.width > 1 ? cell.width : FALLBACK_CELL_W;
+  const cellH = cell?.height && cell.height > 1 ? cell.height : FALLBACK_CELL_H;
+  return { cellW, cellH };
+};
+
+/**
+ * Geometry authority: host box → cols×rows.
+ * Never trust FitAddon alone — when the flex chain is content-sized to the
+ * default 80×24 canvas, FitAddon freezes on that island forever.
+ */
+const measureHost = (
+  host: HTMLElement,
+  term: Terminal,
+): { cols: number; rows: number; w: number; h: number } | null => {
+  const rect = host.getBoundingClientRect();
+  const w = rect.width;
+  const h = rect.height;
+  if (w < 40 || h < 40) return null;
+
+  const { cellW, cellH } = readCellSize(term);
+  const innerW = Math.max(0, w - XTERM_PAD_X);
+  const innerH = Math.max(0, h - XTERM_PAD_Y);
+  const cols = Math.max(20, Math.min(300, Math.floor(innerW / cellW)));
+  const rows = Math.max(5, Math.min(120, Math.floor(innerH / cellH)));
+  return { cols, rows, w, h };
+};
 
 const utf8ToBase64 = (text: string): string => {
   const bytes = new TextEncoder().encode(text);
@@ -284,8 +339,9 @@ export function HerdrTerminalPanel({
     const term = new Terminal({
       disableStdin: true, // display only — keyboard is window-level
       cursorBlink: true,
-      fontSize: 13,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
+      fontSize: VELLUM_XTERM_FONT_SIZE,
+      fontFamily: VELLUM_XTERM_FONT_FAMILY,
+      lineHeight: 1.2,
       theme: VELLUM_XTERM_THEME,
       allowProposedApi: true,
       scrollback: 0,
@@ -306,6 +362,7 @@ export function HerdrTerminalPanel({
     let cancelled = false;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     let resizeObs: ResizeObserver | undefined;
+    const settleTimers: ReturnType<typeof setTimeout>[] = [];
 
     // Retained-frame placeholder (VL-020): paint the observe pool's last known
     // pixels immediately, dimmed; the control stream's first full frame resets
@@ -347,34 +404,56 @@ export function HerdrTerminalPanel({
         .catch(() => undefined);
     }
 
-    const measure = (): { cols: number; rows: number } => {
+    /**
+     * Host-box geometry is authority. FitAddon is a secondary vote that can
+     * only grow — never shrink into the content-sized 80×24 island.
+     * Returns null while the flex host has not yet been assigned a real box.
+     */
+    const measure = (): { cols: number; rows: number } | null => {
+      const measured = measureHost(hostEl, term);
+      if (!measured) return null;
+
+      let { cols, rows } = measured;
+
       try {
-        fit.fit();
+        const proposed = fit.proposeDimensions();
+        if (proposed && !Number.isNaN(proposed.cols) && !Number.isNaN(proposed.rows)) {
+          cols = Math.max(cols, Math.min(300, proposed.cols | 0));
+          rows = Math.max(rows, Math.min(120, proposed.rows | 0));
+        }
       } catch {
-        // ignore
+        // host measure is enough
       }
-      // Prefer measured xterm geometry; fall back to pixel estimate.
-      let cols = term.cols | 0;
-      let rows = term.rows | 0;
-      if (cols < 20 || rows < 5) {
-        const w = hostEl.clientWidth || 800;
-        const h = hostEl.clientHeight || 480;
-        // 13px mono ≈ 7.8×16 cell
-        cols = Math.max(20, Math.floor(w / 7.8));
-        rows = Math.max(5, Math.floor(h / 16));
-      }
+
       cols = Math.max(20, Math.min(300, cols));
       rows = Math.max(5, Math.min(120, rows));
-      // Skip no-op resize renders (ResizeObserver can re-fire same geometry).
+
+      if (term.cols !== cols || term.rows !== rows) {
+        try {
+          term.resize(cols, rows);
+        } catch {
+          return null;
+        }
+      }
+
       setGeom((prev) => (prev.cols === cols && prev.rows === rows ? prev : { cols, rows }));
       return { cols, rows };
     };
 
     const pushResize = () => {
+      const geomNow = measure();
+      if (!geomNow) return;
       const id = streamIdRef.current;
       if (!id) return;
-      const { cols, rows } = measure();
-      void api.herdrStreamResize(id, cols, rows);
+      void api.herdrStreamResize(id, geomNow.cols, geomNow.rows);
+    };
+
+    const hardFitBurst = (): void => {
+      for (const ms of SETTLE_FITS_MS) {
+        settleTimers.push(setTimeout(() => {
+          if (!cancelled) pushResize();
+        }, ms));
+      }
     };
 
     const openStream = async () => {
@@ -414,7 +493,9 @@ export function HerdrTerminalPanel({
       // Wait two frames so flex layout has real size before we measure.
       await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
       if (cancelled) return;
-      const { cols, rows } = measure();
+      // Fallback dims only if host is still collapsing (should be rare after island CSS).
+      const measured = measure() ?? { cols: 80, rows: 24 };
+      const { cols, rows } = measured;
 
       const attachHerdr = terminalOpenRef.current?.herdr ?? liveHerdr;
       setStatus(`attaching ${cols}×${rows}…`);
@@ -445,10 +526,8 @@ export function HerdrTerminalPanel({
       setTerminalStreamId(nodeId, opened.streamId);
       setStatus("connected");
       setConnectionEvent(nodeId, { type: "ok" });
-      // One more resize after attach — layout often settles after first paint.
-      window.setTimeout(() => {
-        if (!cancelled) pushResize();
-      }, 100);
+      // Settle burst after attach — focus enter + stored focusSize often lag first paint.
+      hardFitBurst();
     };
 
     const unsub = api.onHerdrStreamEvent((event) => {
@@ -489,13 +568,35 @@ export function HerdrTerminalPanel({
 
     const scheduleResize = () => {
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(pushResize, 60);
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null;
+        pushResize();
+      }, RESIZE_DEBOUNCE_MS);
     };
     window.addEventListener("resize", scheduleResize);
     if (typeof ResizeObserver !== "undefined") {
       resizeObs = new ResizeObserver(() => scheduleResize());
       resizeObs.observe(hostEl);
+      // Focus panel + workbench panes reflow on pin/split/stored focusSize.
+      const panelRoot = hostEl.closest(".herdr-terminal-panel");
+      const ancestors = [
+        panelRoot,
+        hostEl.closest(".herdr-modal-panel"),
+        hostEl.closest(".focus-surface__panel"),
+        hostEl.closest(".workbench-pane"),
+        hostEl.closest(".workbench-panes"),
+        hostEl.closest(".work-focus-shell"),
+        hostEl.closest(".dock-slot"),
+      ];
+      for (const el of ancestors) {
+        if (el instanceof Element) resizeObs.observe(el);
+      }
     }
+
+    // Local geom paint before stream attach (status 0×0 → real box).
+    requestAnimationFrame(() => {
+      if (!cancelled) measure();
+    });
 
     // Cell under the pointer. herdr routes wheel to mouse-reporting apps as an
     // SGR event at this cell; falling back to the screen center beats herdr's
@@ -622,6 +723,7 @@ export function HerdrTerminalPanel({
       hostEl.removeEventListener("drop", onDrop);
       if (wheelTimer) clearTimeout(wheelTimer);
       if (resizeTimer) clearTimeout(resizeTimer);
+      for (const t of settleTimers) clearTimeout(t);
       const id = streamIdRef.current;
       if (id) void api.herdrStreamClose(id);
       streamIdRef.current = undefined;
