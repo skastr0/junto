@@ -2,6 +2,23 @@ import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import { RemoteHostsError } from "../src/shared/remote-hosts";
+
+// Admission/serialization tests need the managed-deploy path open. Product
+// RELEASE_CAPABILITIES freezes managed deploy for beta — override here only.
+vi.mock("@shared/release-capabilities", () => ({
+  RELEASE_CAPABILITIES: Object.freeze({
+    freshRemoteEnrollment: true,
+    stationProjection: true,
+    managedRemoteDeploy: true,
+    managedRemoteUpdate: true,
+    managedRemoteRollback: true,
+    darwinRemoteDeploy: false,
+    commandCenterTransfer: false,
+  }),
+  MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL: "managed deploy disabled (test mock)",
+  DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL: "darwin deploy disabled (test mock)",
+}));
+
 import { makeHostsService } from "../src/main/vellum/hosts/service";
 import type { HostsRegistry } from "../src/main/vellum/hosts/registry";
 import type { ConfiguredRemoteDeployResult } from "../src/main/vellum/hosts/deploy-configured-remote";

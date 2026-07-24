@@ -66,13 +66,10 @@ cleanup_package_assets() {
 trap cleanup_package_assets EXIT
 install -m 0644 -- assets/brand/vellum-command-icon.png "$PACKAGE_ICON"
 
-# Prefer a pre-materialized Electron tree when set (or the node_modules dist).
-# Avoids app-builder re-download, which can SIGSEGV under some x86_64-on-arm
-# OrbStack guests during DNS/netpoll.
+# Authoritative release packaging may only use the Electron tree from the
+# frozen lockfile install — never an ambient ELECTRON_DIST path (provenance).
 ELECTRON_DIST_ARGS=()
-if [[ -n "${ELECTRON_DIST:-}" ]]; then
-  ELECTRON_DIST_ARGS+=(--config.electronDist="$ELECTRON_DIST")
-elif [[ -x "node_modules/electron/dist/electron" ]]; then
+if [[ -x "node_modules/electron/dist/electron" ]]; then
   ELECTRON_DIST_ARGS+=(--config.electronDist=node_modules/electron/dist)
 fi
 
