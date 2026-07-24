@@ -376,13 +376,17 @@ PY
         `XDG_STATE_HOME=${join(sandbox.root, ".local", "state")}`,
       ]);
       const argv = wrapperArguments.split("\0").filter(Boolean);
-      // OrbStack (and some qemu-user hosts) prefix the interpreter with
-      // qemu-x86_64; product contract is still: shell runs launcher --clean.
+      // Product contract: a shell interpreter runs the launcher with --clean.
+      // Hosts may prefix qemu-user (OrbStack) or duplicate the shell token.
       const shellIdx = argv.findIndex((token) =>
         ["/bin/sh", "/bin/dash", "/usr/bin/dash"].includes(token),
       );
+      const launcherIdx = argv.indexOf(sandbox.launcher);
+      const cleanIdx = argv.indexOf("--clean");
       expect(shellIdx).toBeGreaterThanOrEqual(0);
-      expect(argv.slice(shellIdx + 1)).toEqual([sandbox.launcher, "--clean"]);
+      expect(launcherIdx).toBeGreaterThan(shellIdx);
+      expect(cleanIdx).toBe(launcherIdx + 1);
+      expect(argv.slice(cleanIdx + 1)).toEqual([]);
       wrapper.kill("SIGTERM");
       const wrapperExit = await new Promise<number | null>((resolve, reject) => {
         wrapper.once("error", reject);
