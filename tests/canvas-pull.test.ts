@@ -16,6 +16,7 @@ import {
   preparePulledCanvasBody,
   pullCanvasesFromCommandCenter,
 } from "../src/main/vellum/canvas-pull";
+import { CanvasesLive } from "../src/main/vellum/canvases";
 import { readStationStatus } from "../src/main/vellum/station-status-store";
 import {
   readLocalCanvasMirrorWitness,
@@ -320,6 +321,7 @@ const makePullRuntime = async (input: {
       Layer.succeed(SettingsService, settingsSvc),
       Layer.succeed(HostsService, hostsSvc),
       Layer.succeed(SshTransport, input.ssh),
+      CanvasesLive,
     ),
   );
 

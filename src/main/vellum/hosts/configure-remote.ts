@@ -20,13 +20,19 @@ import {
 } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, oneShotWithStdin } from "../ssh/program";
 import { SshTransport } from "../ssh/service";
+import {
+  compileRemotePlan,
+  confineVellumDirectory,
+  confineVellumLeaf,
+  remoteStationSettingsInstallPlan,
+} from "../ssh/remote-plan";
 import { migrateSettingsDocument } from "../settings/migrate";
 import { configureRecordFromResult } from "@shared/station-status";
 import { recordStationConfigure } from "../station-status-store";
 import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
 
-// SSH write of ~/.vellum/settings.json on a registered remote host.
-// Pattern matches herdr stage-image: opaque /bin/sh -c + stdin body.
+// SSH install of ~/.vellum/settings.json on a registered remote host.
+// Source of truth is the typed remote-plan AST — never a hand-authored script.
 
 const PROBE_TIMEOUT_MS = 10_000;
 
@@ -39,26 +45,6 @@ export type ConfigureRemoteResult = {
   readonly code?: "io" | "validation" | "not_found" | "conflict";
   readonly message?: string;
 };
-
-// $1 = ~/.vellum dir, $2 = settings.json path.
-// After stamping settings, drop topology.key/seal so the remote app bootstraps
-// a seal for the operator-stamped role on next start (cannot mint remote key
-// over SSH). Residual: same-user who deletes key+seal can re-bootstrap.
-//
-// Fail closed on symlink settings path — never write through a link (doctrine:
-// no surprising authority via path substitution).
-const REMOTE_SETTINGS_WRITE_SCRIPT = [
-  "umask 077",
-  "mkdir -p \"$1\"",
-  'if [ -L "$2" ]; then printf "%s\\n" "vellum-configure: settings path is a symlink" >&2; exit 73; fi',
-  'if [ -e "$2" ] && [ ! -f "$2" ]; then printf "%s\\n" "vellum-configure: settings path is not a regular file" >&2; exit 73; fi',
-  'tmp="$2.vellum-configure.$$"',
-  'if [ -e "$tmp" ] || [ -L "$tmp" ]; then printf "%s\\n" "vellum-configure: temp path busy" >&2; exit 73; fi',
-  'cat > "$tmp" || exit $?',
-  'mv -f -- "$tmp" "$2" || { rm -f -- "$tmp"; exit 73; }',
-  'chmod 600 "$2"',
-  'rm -f "$1/topology.key" "$1/topology.seal"',
-].join("\n");
 
 const classifySshFailure = (message: string): string => {
   if (/Permission denied|publickey|Authentication failed/i.test(message)) {
@@ -128,18 +114,14 @@ const readRemoteSettingsRaw = (
 const writeRemoteSettings = (
   ssh: Ssh,
   endpoint: Parameters<typeof oneShot>[0],
-  dirPath: string,
-  settingsPath: string,
+  remoteHome: string,
   body: string,
 ): Effect.Effect<void, SshError | RemoteHostsError> =>
   Effect.gen(function* () {
-    const command = yield* makeRemoteCommand("/bin/sh", [
-      "-c",
-      REMOTE_SETTINGS_WRITE_SCRIPT,
-      "vellum-configure-remote",
-      dirPath,
-      settingsPath,
-    ]);
+    const vellumDir = yield* confineVellumDirectory(remoteHome);
+    const settingsPath = yield* confineVellumLeaf(vellumDir, "settings.json");
+    const plan = remoteStationSettingsInstallPlan(vellumDir, settingsPath);
+    const command = yield* compileRemotePlan(plan);
     const input = yield* makeRemoteStdin(body);
     yield* ssh.run(oneShotWithStdin(endpoint, command, input, { budget: "standard" }));
   }).pipe(
@@ -333,7 +315,7 @@ export const configureRemoteHost = (
       );
     }
 
-    yield* writeRemoteSettings(ssh, endpoint, dirPath, settingsPath, body).pipe(
+    yield* writeRemoteSettings(ssh, endpoint, homePath, body).pipe(
       Effect.mapError((error) =>
         error instanceof RemoteHostsError
           ? error

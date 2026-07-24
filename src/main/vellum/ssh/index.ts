@@ -30,3 +30,15 @@ export {
 } from "./service";
 export { SshTransportLive } from "./live";
 export { makeScopedPromiseRunner, type ScopedPromiseRunner } from "./scoped-runner";
+export {
+  compileRemotePlan,
+  compileRemotePlanSource,
+  confineVellumDirectory,
+  confineVellumLeaf,
+  remotePlanPathFootprint,
+  remoteStationSettingsInstallPlan,
+  type ConfinedRemotePath,
+  type RemotePlan,
+  type RemotePlanStep,
+  type VellumLeafBasename,
+} from "./remote-plan";
