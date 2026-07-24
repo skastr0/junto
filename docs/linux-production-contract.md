@@ -138,6 +138,23 @@ Orphan contracts (must not exist):
 4. Explicit fleet topology, capability/revocation matrix, lifecycle
    qualification, release (Phases 4–8).
 
+## Residual hand-authored shell (inventory)
+
+Product remote mutations should go through `ssh/remote-plan.ts` (and
+`ssh/hermes-remote-plan.ts`) compilers only. Remaining shell outside that
+posture:
+
+| Site | Class |
+|---|---|
+| `hosts/deploy-darwin.ts` remote install ceremony | KEEP for now — macOS package/installer ceremony |
+| `build/linux/*` package hooks / launcher | KEEP — package-owned assets, not runtime-authored |
+| `control-filesystem.ts` lockf hold one-liner | KEEP — local Darwin lock, fixed tokens |
+| Hermes identity/avatar | MIGRATED — closed sources in hermes-remote-plan |
+| Linux preflight | MIGRATED — compileLinuxRemotePreflight |
+| Settings snapshot/stamp/restore | MIGRATED — compileRemoteSettings* |
+| Herdr image stage | MIGRATED — compileHerdrImageStage |
+| Configure remote settings install | MIGRATED — remoteStationSettingsInstallPlan |
+
 ## Exit gates (summary)
 
 Linux is production-ready only when:
