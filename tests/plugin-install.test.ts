@@ -13,12 +13,7 @@ import {
 } from "../src/main/vellum/plugin-install";
 import type { DesiredFile } from "../src/main/vellum/plugin-install";
 
-/**
- * `@skastr0/prism-packager` requires Bun (Bun.file / Bun.build). Skip
- * packager-backed cases when vitest is running under Node.
- */
-const packagerAvailable = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
-
+/** Dummy path — precompiled payloads ignore pluginPath. */
 const fixturePlugin = resolve(
   import.meta.dirname,
   "fixtures/minimal-prism-plugin",
@@ -193,92 +188,80 @@ describe("rehomeDesiredFiles", () => {
 });
 
 describe("compilePluginPackage", () => {
-  it.skipIf(!packagerAvailable)(
-    "dryRuns the minimal fixture for claude-code",
-    async () => {
-      const out = join(await tempRoot(), "out");
-      const result = await run(
-        compilePluginPackage({
-          pluginPath: fixturePlugin,
-          target: "claude-code",
-          scope: "global",
-          out,
-          generatorVersion: "test",
-        }),
-      );
-      expect(result.target).toBe("claude-code");
-      expect(result.packageId).toContain("minimal-prism-plugin");
-      expect(result.compileFiles.length).toBeGreaterThan(0);
-      for (const file of result.compileFiles) {
-        expect(file.targetPath.length).toBeGreaterThan(0);
-        expect(file.content.length).toBeGreaterThan(0);
-        expect(file.plugin).toBe("minimal-prism-plugin");
-      }
-      // dryRun must not write package root payloads
-      expect(result.manifestPath).toBeTruthy();
-      await expect(readFile(result.manifestPath!, "utf8")).rejects.toThrow();
-    },
-  );
+  it("loads frozen precompiled payload for claude-code (no Bun)", async () => {
+    const result = await run(
+      compilePluginPackage({
+        pluginPath: fixturePlugin,
+        target: "claude-code",
+      }),
+    );
+    expect(result.target).toBe("claude-code");
+    expect(result.packageId).toContain("prism-generated-vellum");
+    expect(result.compileFiles.length).toBeGreaterThan(0);
+    for (const file of result.compileFiles) {
+      expect(file.targetPath.length).toBeGreaterThan(0);
+      expect(file.content.length).toBeGreaterThan(0);
+    }
+  });
 
-  it.skipIf(!packagerAvailable)(
-    "dryRuns the minimal fixture for codex-cli",
-    async () => {
-      const out = join(await tempRoot(), "out");
+  it("loads frozen precompiled payload for codex-cli", async () => {
+    const result = await run(
+      compilePluginPackage({
+        pluginPath: fixturePlugin,
+        target: "codex-cli",
+      }),
+    );
+    expect(result.target).toBe("codex-cli");
+    expect(
+      result.compileFiles.length + result.compileRegions.length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("loads all fleet harness payloads", async () => {
+    for (const target of ["claude-code", "codex-cli", "grok", "hermes"] as const) {
       const result = await run(
-        compilePluginPackage({
-          pluginPath: fixturePlugin,
-          target: "codex-cli",
-          scope: "global",
-          out,
-          generatorVersion: "test",
-        }),
+        compilePluginPackage({ pluginPath: "unused", target }),
       );
-      expect(result.target).toBe("codex-cli");
-      // codex rules often land as regions rather than whole files
-      expect(
-        result.compileFiles.length + result.compileRegions.length,
-      ).toBeGreaterThan(0);
-    },
-  );
+      expect(result.target).toBe(target);
+      expect(result.compileFiles.length).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("installVellumPlugin local", () => {
-  it.skipIf(!packagerAvailable)(
-    "compiles and applies compileFiles under planRoot; second run skips",
-    async () => {
-      const out = join(await tempRoot(), "out");
-      const first = await run(
-        installVellumPlugin({
-          pluginPath: fixturePlugin,
-          target: "claude-code",
-          mode: "local",
-          out,
-        }),
-      );
+  it("applies precompiled files under applyRoot; second run skips", async () => {
+    const root = await tempRoot();
+    const first = await run(
+      installVellumPlugin({
+        pluginPath: fixturePlugin,
+        target: "claude-code",
+        mode: "local",
+        applyRoot: root,
+      }),
+    );
 
-      expect(first.target).toBe("claude-code");
-      expect(first.applied + first.skipped).toBe(first.operations.length);
-      expect(first.operations.length).toBeGreaterThan(0);
-      expect(first.applied).toBeGreaterThan(0);
-      for (const op of first.operations) {
-        if (op.type === "write") {
-          const body = await readFile(op.path, "utf8");
-          expect(body.length).toBeGreaterThan(0);
-        }
+    expect(first.target).toBe("claude-code");
+    expect(first.applied + first.skipped).toBe(first.operations.length);
+    expect(first.operations.length).toBeGreaterThan(0);
+    expect(first.applied).toBeGreaterThan(0);
+    for (const op of first.operations) {
+      if (op.type === "write") {
+        const body = await readFile(op.path, "utf8");
+        expect(body.length).toBeGreaterThan(0);
       }
+    }
 
-      const second = await run(
-        installVellumPlugin({
-          pluginPath: fixturePlugin,
-          target: "claude-code",
-          mode: "local",
-          out,
-        }),
-      );
-      expect(second.skipped).toBe(second.operations.length);
-      expect(second.applied).toBe(0);
-    },
-  );
+    const second = await run(
+      installVellumPlugin({
+        pluginPath: fixturePlugin,
+        target: "claude-code",
+        mode: "local",
+        applyRoot: root,
+      }),
+    );
+    expect(second.skipped).toBe(second.operations.length);
+    expect(second.applied).toBe(0);
+  });
 });
 
 describe("PathSafetyError shape", () => {

@@ -10,3 +10,4 @@ playwright-report/
 blob-report/
 .local/
 *.digest.txt
+src/main/vellum/plugin-install/payloads/.pack-tmp/

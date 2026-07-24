@@ -1,9 +1,9 @@
 /**
- * Packager-embed plugin install — compile via Bun subprocess
- * (`scripts/package-plugin-dry-run.ts` + `@skastr0/prism-packager`),
- * apply DesiredFile[] locally or over SshTransport.
+ * Factory plugin install — apply frozen precompiled payloads (no runtime
+ * packager / no Bun for end users). Regenerate payloads with:
+ *   bun run plugin:precompile
  *
- * Never import prism-packager in the Electron Node process.
+ * Apply DesiredFile[] locally or over SshTransport.
  */
 
 export type {

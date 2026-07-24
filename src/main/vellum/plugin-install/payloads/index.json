@@ -1,0 +1,25 @@
+{
+  "schema": "vellum.plugin-package-index/v1",
+  "targets": [
+    {
+      "target": "claude-code",
+      "files": 4,
+      "regions": 1
+    },
+    {
+      "target": "codex-cli",
+      "files": 3,
+      "regions": 4
+    },
+    {
+      "target": "grok",
+      "files": 5,
+      "regions": 1
+    },
+    {
+      "target": "hermes",
+      "files": 3,
+      "regions": 1
+    }
+  ]
+}
