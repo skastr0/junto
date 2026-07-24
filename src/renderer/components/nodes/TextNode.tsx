@@ -11,6 +11,7 @@ import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { state$ } from "../../lib/state";
 import { findEntity, findFreshEntity } from "@shared/entities";
+import { workRoleOf } from "@shared/attention";
 import { chatActivity, timerActivity, watcherActivity } from "../../lib/activity";
 import { chatCoarse$ } from "../../lib/chat-state";
 import { accentColor, INK, DIM, SOURCE_HUE, withAlpha } from "../../lib/theme";
@@ -146,6 +147,7 @@ function AgentActivityMark({ agentKey }: { readonly agentKey: string }) {
 function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: string }) {
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const nameHue = node.color ? accentColor(node.color) : INK;
+  const workRole = workRoleOf(node);
   const hermesKey = kind === "agent" ? node.ether?.entity?.name : undefined;
   const line = use$(() => {
     if (!hermesKey) return "";
@@ -176,7 +178,14 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
       <div>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>{kind}</span>
+          <span
+            className="truncate text-[8px] uppercase tracking-[0.18em]"
+            style={{ color: "#68604a" }}
+            title={workRole ? `work role: ${workRole}` : undefined}
+          >
+            {kind}
+            {workRole ? <span style={{ color: "#9a8b62" }}> · {workRole}</span> : null}
+          </span>
           <span className="flex items-center gap-1.5">
             {hermesKey ? <AgentActivityMark agentKey={hermesKey} /> : null}
             {hermesKey ? (

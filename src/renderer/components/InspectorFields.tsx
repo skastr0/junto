@@ -4,6 +4,7 @@ import { use$ } from "@legendapp/state/react";
 import { HashMap, HashSet, Option, Schema } from "effect";
 import type { CanvasDoc, CanvasEdge, CanvasNode, EdgeCriteria, EtherFlag, EtherRegionDefaults, EtherView, EtherWatch } from "@shared/canvas";
 import { isGroup } from "@shared/graph";
+import { workRolesInDoc } from "@shared/attention";
 import {
   ALL_PORTS,
   Port,
@@ -361,6 +362,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const workRoleValue = node.ether?.workRole ?? "";
   const [workRoleDraft, setWorkRoleDraft] = useState(workRoleValue);
   const showWorkRole = Boolean(node.ether?.entity);
+  const knownWorkRoles = use$(() => workRolesInDoc(state$.doc.get()));
 
   useEffect(() => {
     setTextDraft(textValue);
@@ -381,11 +383,12 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
 
   return <>
     {showWorkRole ? (
-      <label className="inspector-editor">
-        <span>work role</span>
+      <div className="inspector-editor">
+        <span>work role · routes task claims</span>
         <input
           aria-label="Work role for claim routing"
-          placeholder="e.g. builder"
+          placeholder="type a role or pick below"
+          list="work-role-options"
           value={workRoleDraft}
           onChange={(event) => setWorkRoleDraft(event.target.value)}
           onBlur={() => setNodeWorkRole(node.id, workRoleDraft || undefined)}
@@ -401,7 +404,40 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
             }
           }}
         />
-      </label>
+        <datalist id="work-role-options">
+          {knownWorkRoles.map((role) => (
+            <option key={role} value={role} />
+          ))}
+        </datalist>
+        {knownWorkRoles.length > 0 ? (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {knownWorkRoles.map((role) => {
+              const active = role === workRoleValue;
+              const hex = active ? HUE.amber : DIM;
+              return (
+                <button
+                  key={role}
+                  type="button"
+                  title={active ? "click to clear this role" : `assign role "${role}"`}
+                  className="inline-flex cursor-pointer items-center rounded-[3px] border px-1.5 py-0.5 text-[8px] leading-none tracking-[0.13em] uppercase select-none"
+                  style={{
+                    color: hex,
+                    borderColor: withAlpha(hex, active ? 0.5 : 0.36),
+                    background: withAlpha(hex, active ? 0.14 : 0.06),
+                  }}
+                  onClick={() => {
+                    const next = active ? undefined : role;
+                    setWorkRoleDraft(next ?? "");
+                    setNodeWorkRole(node.id, next);
+                  }}
+                >
+                  {role}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
     ) : null}
     {node.type === "text" ? <label className="inspector-editor"><span>{node.ether?.entity ? "label" : "note text"}</span><textarea aria-label={node.ether?.entity ? "Node label" : "Note text"} value={textDraft} onChange={(event) => setTextDraft(event.target.value)} onBlur={commitText} onKeyDown={(event) => { if (event.key === "Escape") { setTextDraft(textValue); event.currentTarget.blur(); } }} /></label> : null}
     {node.type === "link" ? <label className="inspector-editor"><span>web reference</span><input aria-label="Link URL" value={linkDraft} onChange={(event) => setLinkDraft(event.target.value)} onBlur={commitLink} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitLink(); event.currentTarget.blur(); } if (event.key === "Escape") { setLinkDraft(linkValue); event.currentTarget.blur(); } }} /></label> : null}
