@@ -1,12 +1,13 @@
 /**
  * Remote station: pull full canvas documents from the Command Center over SSH.
  *
- * Read-only foundation — never mutates Command Center files. Writes only the
- * local ~/.vellum/canvases plane (atomic replace of each pulled .canvas).
- * Authorial writeCanvas remains denied for role=remote (ipc denyIfRemoteAuthorial).
+ * Read-only foundation — never mutates Command Center files. Stages the full
+ * set under a temp dir, then promotes to live only on complete success
+ * (pairing/role re-check before apply). Authorial writeCanvas remains denied
+ * for role=remote (ipc denyIfRemoteAuthorial).
  */
 
-import { lstat, open, readFile, readdir, rename, rm } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { posix } from "node:path";
@@ -41,12 +42,12 @@ import {
   stationSettingsWitness,
 } from "./station-witness";
 import {
-  makeRemoteCommand,
   parseSshEndpoint,
   SshTimeoutError,
   type SshError,
 } from "./ssh/domain";
 import { homeDirectoryLookup, oneShot } from "./ssh/program";
+import { remoteCat, remoteLs } from "./ssh/read-commands";
 import { SshTransport } from "./ssh/service";
 
 const PROBE_TIMEOUT_MS = 10_000;
@@ -131,6 +132,26 @@ const syncCanvasDirectoryBestEffort = async (
   }
 };
 
+const writeExclusiveCanvasBody = async (
+  path: string,
+  body: string,
+): Promise<void> => {
+  const tmpPath = `${path}.${randomUUID()}.tmp`;
+  const file = await open(tmpPath, "wx", 0o600);
+  let ownsTemp = true;
+  try {
+    await file.writeFile(body, { encoding: "utf8" });
+    await file.sync();
+    await file.close();
+    await rename(tmpPath, path);
+    ownsTemp = false;
+  } catch (error) {
+    await file.close().catch(() => undefined);
+    if (ownsTemp) await rm(tmpPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+};
+
 /**
  * Atomic install of validated canvas file bytes into the local canvases dir.
  * Replace-entire-file semantics (no merge). Returns whether content changed.
@@ -165,23 +186,80 @@ export const atomicInstallCanvasFile = async (
   if (previous === prepared.body) {
     return { bytes: Buffer.byteLength(prepared.body, "utf8"), changed: false };
   }
-  const tmpPath = `${path}.${randomUUID()}.tmp`;
-  const file = await open(tmpPath, "wx", 0o600);
-  let ownsTemp = true;
-  try {
-    await file.writeFile(prepared.body, { encoding: "utf8" });
-    await file.sync();
-    await file.close();
-    await rename(tmpPath, path);
-    ownsTemp = false;
-  } catch (error) {
-    await file.close().catch(() => undefined);
-    if (ownsTemp) await rm(tmpPath, { force: true }).catch(() => undefined);
-    throw error;
-  }
-
+  await writeExclusiveCanvasBody(path, prepared.body);
   await syncCanvasDirectoryBestEffort(targetDir, "install");
   return { bytes: Buffer.byteLength(prepared.body, "utf8"), changed: true };
+};
+
+type StagedCanvasFile = {
+  readonly name: string;
+  readonly body: string;
+  readonly bytes: number;
+};
+
+/**
+ * Write a fully-validated canvas body into a pull staging directory. Never
+ * touches live authority — stage must succeed completely before apply.
+ */
+export const writeStagedCanvasFile = async (
+  stageDir: string,
+  name: string,
+  body: string,
+): Promise<StagedCanvasFile> => {
+  const canonicalName = canvasNameFrom(name);
+  const path = join(stageDir, canvasPullFileName(canonicalName));
+  await writeExclusiveCanvasBody(path, body);
+  return {
+    name: canonicalName,
+    body,
+    bytes: Buffer.byteLength(body, "utf8"),
+  };
+};
+
+/**
+ * Promote a complete staged set into the live canvases directory.
+ * Per-file POSIX rename is atomic; the set is only applied after every staged
+ * file is present. Callers must not invoke this with a partial stage.
+ */
+export const applyStagedCanvasProjection = async (
+  stageDir: string,
+  staged: ReadonlyArray<StagedCanvasFile>,
+): Promise<ReadonlyArray<CanvasPullFileResult>> => {
+  const targetDir = await ensureCanvasesDir();
+  const pulled: CanvasPullFileResult[] = [];
+
+  for (const file of staged) {
+    const livePath = join(targetDir, canvasPullFileName(file.name));
+    const stagePath = join(stageDir, canvasPullFileName(file.name));
+    try {
+      const info = await lstat(livePath);
+      if (!info.isFile() || info.isSymbolicLink()) {
+        throw new CanvasError({
+          message: `refusing non-regular canvas file: ${canvasPullFileName(file.name)}`,
+        });
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+
+    let previous: string | undefined;
+    try {
+      previous = await readFile(livePath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const changed = previous !== file.body;
+    if (changed) {
+      // Same-FS rename replaces the live file atomically.
+      await rename(stagePath, livePath);
+    }
+    pulled.push({ name: file.name, bytes: file.bytes, changed });
+  }
+
+  if (pulled.some((row) => row.changed)) {
+    await syncCanvasDirectoryBestEffort(targetDir, "install");
+  }
+  return pulled;
 };
 
 /**
@@ -229,7 +307,7 @@ const listRemoteCanvasNames = (
   endpoint: Parameters<typeof oneShot>[0],
   remoteCanvasesDir: string,
 ): Effect.Effect<ReadonlyArray<string>, SshError> =>
-  makeRemoteCommand("ls", ["-1", remoteCanvasesDir]).pipe(
+  remoteLs(remoteCanvasesDir).pipe(
     Effect.flatMap((command) => ssh.run(oneShot(endpoint, command, { budget: "list" }))),
     Effect.map((result) => parseRemoteCanvasListing(result.stdout)),
   );
@@ -239,7 +317,7 @@ const catRemoteCanvas = (
   endpoint: Parameters<typeof oneShot>[0],
   remotePath: string,
 ): Effect.Effect<string, SshError> =>
-  makeRemoteCommand("cat", [remotePath]).pipe(
+  remoteCat(remotePath).pipe(
     Effect.flatMap((command) => ssh.run(oneShot(endpoint, command, { budget: "bulk" }))),
     Effect.map((result) => result.stdout),
   );
@@ -441,14 +519,15 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
     }
 
     const names = listResult.right;
-    const pulled: CanvasPullFileResult[] = [];
-    const failed: CanvasPullFileFailure[] = [];
+    const preparedBodies: StagedCanvasFile[] = [];
+    const fetchFailed: CanvasPullFileFailure[] = [];
 
+    // Phase 1 — fetch + validate every remote canvas. Live disk is untouched.
     for (const name of names) {
       const remotePath = posix.join(remoteCanvasesDir, canvasPullFileName(name));
       const catResult = yield* Effect.either(catRemoteCanvas(ssh, endpoint, remotePath));
       if (catResult._tag === "Left") {
-        failed.push({
+        fetchFailed.push({
           name,
           detail: formatUnknown(catResult.left),
         });
@@ -457,65 +536,136 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
 
       const prepared = preparePulledCanvasBody(name, catResult.right);
       if (!prepared.ok) {
-        failed.push({ name, detail: prepared.detail });
+        fetchFailed.push({ name, detail: prepared.detail });
         continue;
       }
 
-      const install = yield* Effect.either(
-        Effect.tryPromise({
-          try: () => atomicInstallCanvasFile(name, prepared.body),
-          catch: (error) =>
-            error instanceof Error ? error : new Error(String(error)),
-        }),
-      );
-      if (install._tag === "Left") {
-        failed.push({
-          name,
-          detail: install.left.message,
-        });
-        continue;
-      }
-
-      pulled.push({
-        name,
-        bytes: install.right.bytes,
-        changed: install.right.changed,
+      preparedBodies.push({
+        name: canvasNameFrom(name),
+        body: prepared.body,
+        bytes: Buffer.byteLength(prepared.body, "utf8"),
       });
     }
 
-    const mirrorResult = yield* Effect.either(
+    // All-or-nothing: any fetch/validate failure leaves previous live authority.
+    if (fetchFailed.length > 0) {
+      return stationBoundPullResult(station, {
+        ok: false,
+        status: "partial",
+        detail:
+          `Refused projection — ${fetchFailed.length}/${names.length} canvas(es) failed to fetch/validate; live authority untouched`,
+        commandCenterRef: ref,
+        endpoint: resolved.endpoint,
+        pulled: [],
+        failed: fetchFailed,
+        keptLocal: true,
+      });
+    }
+
+    // Phase 2 — pairing/role gate BEFORE any live mutation (fail closed).
+    const recheckEither = yield* Effect.either(settingsSvc.get);
+    if (recheckEither._tag === "Left") {
+      return stationBoundPullResult(station, {
+        ok: false,
+        status: "misconfigured",
+        detail: `settings unreadable before projection apply: ${recheckEither.left.message}`,
+        commandCenterRef: ref,
+        endpoint: resolved.endpoint,
+        pulled: [],
+        failed: [],
+        keptLocal: true,
+      });
+    }
+    const stationNow = recheckEither.right.station;
+    if (
+      stationNow.role !== "remote" ||
+      stationSettingsWitness(stationNow) !== stationSettingsWitness(station) ||
+      stationNow.commandCenterRef !== ref
+    ) {
+      return stationBoundPullResult(station, {
+        ok: false,
+        status: "misconfigured",
+        detail:
+          "Station role/Command Center pairing changed during pull — refused projection; live authority untouched",
+        commandCenterRef: ref,
+        endpoint: resolved.endpoint,
+        pulled: [],
+        failed: [],
+        keptLocal: true,
+      });
+    }
+
+    // Phase 3 — stage complete set, then promote + delete-absent + admit.
+    const applyResult = yield* Effect.either(
       Effect.tryPromise({
-        try: () => deleteLocalCanvasesAbsentFrom(names),
+        try: async () => {
+          const targetDir = await ensureCanvasesDir();
+          const stageDir = join(targetDir, `.pull-stage-${randomUUID()}`);
+          await mkdir(stageDir, { recursive: true, mode: 0o700 });
+          try {
+            const staged: StagedCanvasFile[] = [];
+            for (const file of preparedBodies) {
+              staged.push(await writeStagedCanvasFile(stageDir, file.name, file.body));
+            }
+            const pulled = await applyStagedCanvasProjection(stageDir, staged);
+            const mirror = await deleteLocalCanvasesAbsentFrom(names);
+            if (mirror.failed.length > 0) {
+              throw new CanvasError({
+                message: mirror.failed
+                  .map((row) => `${row.name}: ${row.detail}`)
+                  .join("; "),
+              });
+            }
+            return { pulled, deleted: mirror.deleted };
+          } finally {
+            await rm(stageDir, { recursive: true, force: true }).catch(() => undefined);
+          }
+        },
         catch: (error) =>
           error instanceof Error ? error : new Error(String(error)),
       }),
     );
-    const deleted =
-      mirrorResult._tag === "Right" ? mirrorResult.right.deleted : [];
-    if (mirrorResult._tag === "Right") {
-      failed.push(...mirrorResult.right.failed);
-    } else {
-      failed.push({
-        name: "local-mirror",
-        detail: `failed to reconcile the local canvas mirror: ${mirrorResult.left.message}`,
+
+    if (applyResult._tag === "Left") {
+      return stationBoundPullResult(station, {
+        ok: false,
+        status: "partial",
+        detail: `Projection apply failed — live authority not re-admitted. ${applyResult.left.message}`,
+        commandCenterRef: ref,
+        endpoint: resolved.endpoint,
+        pulled: [],
+        failed: [{ name: "projection", detail: applyResult.left.message }],
+        keptLocal: true,
       });
     }
 
-    // Doctrine: disk install is not live authority. Re-admit the post-pull
-    // set into the in-process live map so work control / kernel see CC intent
-    // without restart. Failures here are projection-install failures.
+    const { pulled, deleted } = applyResult.right;
+
+    // Doctrine: disk install is not live authority. Re-admit only after full
+    // success with the exact name set from the Command Center listing.
     const canvases = yield* CanvasesService;
     const admitResult = yield* Effect.either(
       canvases.replaceLiveAuthorityFromInstall(names),
     );
     if (admitResult._tag === "Left") {
-      failed.push({
-        name: "live-authority",
-        detail: `failed to admit pulled canvases into live authority: ${admitResult.left.message}`,
+      return stationBoundPullResult(station, {
+        ok: false,
+        status: "partial",
+        detail: `Disk projection wrote but live admit failed: ${admitResult.left.message}`,
+        commandCenterRef: ref,
+        endpoint: resolved.endpoint,
+        pulled,
+        failed: [
+          {
+            name: "live-authority",
+            detail: `failed to admit pulled canvases into live authority: ${admitResult.left.message}`,
+          },
+        ],
+        keptLocal: false,
       });
     }
 
-    if (names.length === 0 && failed.length === 0) {
+    if (names.length === 0) {
       return stationBoundPullResult(station, {
         ok: true,
         status: "empty",
@@ -526,36 +676,6 @@ export const pullCanvasesFromCommandCenter = Effect.gen(function* () {
         endpoint: resolved.endpoint,
         pulled: [],
         failed: [],
-        keptLocal: false,
-      });
-    }
-
-    if (pulled.length === 0 && failed.length > 0) {
-      return stationBoundPullResult(station, {
-        ok: false,
-        status: "partial",
-        detail:
-          `Pulled 0/${names.length} canvases from Command Center — all failed` +
-          ` (${deleted.length} stale local removed)`,
-        commandCenterRef: ref,
-        endpoint: resolved.endpoint,
-        pulled,
-        failed,
-        keptLocal: deleted.length === 0,
-      });
-    }
-
-    if (failed.length > 0) {
-      return stationBoundPullResult(station, {
-        ok: false,
-        status: "partial",
-        detail:
-          `Pulled ${pulled.length}/${names.length} canvases from Command Center` +
-          ` (${failed.length} failed; ${deleted.length} stale local removed)`,
-        commandCenterRef: ref,
-        endpoint: resolved.endpoint,
-        pulled,
-        failed,
         keptLocal: false,
       });
     }

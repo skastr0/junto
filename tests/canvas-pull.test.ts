@@ -216,6 +216,8 @@ const makeMockSsh = (options?: {
   readonly catError?: SshError;
 }): Ssh => {
   const files = options?.files ?? {};
+  const listingStdout = options?.listing ?? "portfolio.canvas\n";
+  const listedNames = parseRemoteCanvasListing(listingStdout);
   let runCount = 0;
 
   return {
@@ -230,7 +232,7 @@ const makeMockSsh = (options?: {
         : Effect.void,
     run: () => {
       runCount += 1;
-      // Call order: homeDirectoryLookup → ls → cat*
+      // Call order: homeDirectoryLookup → ls → cat* (in listing order)
       if (runCount === 1) {
         return Effect.succeed({ stdout: "/Users/cc\n", stderr: "" });
       }
@@ -238,16 +240,15 @@ const makeMockSsh = (options?: {
         return options?.listError
           ? Effect.fail(options.listError)
           : Effect.succeed({
-              stdout: options?.listing ?? "portfolio.canvas\n",
+              stdout: listingStdout,
               stderr: "",
             });
       }
       if (options?.catError) {
         return Effect.fail(options.catError);
       }
-      const names = Object.keys(files);
       const idx = runCount - 3;
-      const name = names[idx] ?? names[0] ?? "portfolio";
+      const name = listedNames[idx] ?? listedNames[0] ?? "portfolio";
       const body = files[name] ?? files.portfolio ?? JSON.stringify(sampleDoc);
       return Effect.succeed({ stdout: body, stderr: "" });
     },
@@ -280,6 +281,7 @@ const makePullRuntime = async (input: {
       hostId: input.hostId ?? "local",
       commandCenterRef: input.commandCenterRef,
       supervisedPreferred: input.role === "remote",
+      topologyIntegrity: "ok",
     },
   };
   await writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
@@ -418,6 +420,7 @@ describe("pullCanvasesFromCommandCenter", () => {
             hostId: "local",
             commandCenterRef: "cc-laptop",
             supervisedPreferred: true,
+            topologyIntegrity: "ok",
           }),
           canvasMirrorSha256: mirror.sha256,
           canvasCount: 1,
@@ -600,6 +603,42 @@ describe("pullCanvasesFromCommandCenter", () => {
     const result = await runtime.runPromise(pullCanvasesFromCommandCenter);
     expect(result.status).toBe("misconfigured");
     expect(result.keptLocal).toBe(true);
+    await runtime.dispose();
+  });
+
+  it("refuses partial projection and leaves good local canvases untouched", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vellum-canvases-"));
+    const goodBody = serializeCanvas(applyMirrorLaw({ nodes: [], edges: [] }));
+    const staleBody = serializeCanvas(applyMirrorLaw({ nodes: [], edges: [] }));
+    await writeFile(join(dir, "portfolio.canvas"), goodBody, "utf8");
+    await writeFile(join(dir, "stale.canvas"), staleBody, "utf8");
+
+    const { runtime } = await makePullRuntime({
+      role: "remote",
+      commandCenterRef: "cc-laptop",
+      ssh: makeMockSsh({
+        listing: "portfolio.canvas\nbroken.canvas\n",
+        files: {
+          portfolio: JSON.stringify(sampleDoc),
+          broken: "not-json",
+        },
+      }),
+      hosts: [remoteHost],
+      canvasesDir: dir,
+    });
+
+    const result = await runtime.runPromise(pullCanvasesFromCommandCenter);
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe("partial");
+    expect(result.keptLocal).toBe(true);
+    expect(result.pulled).toEqual([]);
+    expect(result.failed.some((row) => row.name === "broken")).toBe(true);
+    // Live authority untouched: neither install nor stale delete.
+    expect(await readFile(join(dir, "portfolio.canvas"), "utf8")).toBe(goodBody);
+    expect(await readFile(join(dir, "stale.canvas"), "utf8")).toBe(staleBody);
+    await expect(readFile(join(dir, "broken.canvas"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
     await runtime.dispose();
   });
 });
