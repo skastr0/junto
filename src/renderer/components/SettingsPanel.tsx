@@ -482,6 +482,7 @@ function AdvancedSection() {
 
 function HostsSection() {
   const station = use$(state$.settings.station);
+  const fleet = use$(state$.settings.fleet);
   const isCommandCenter = station.role === "command-center";
   const [hosts, setHosts] = useState<ReadonlyArray<HostRow>>([]);
   const [loading, setLoading] = useState(true);
@@ -778,6 +779,21 @@ function HostsSection() {
 
   return (
     <div className="settings-section">
+      <FieldRow
+        label="Allow remote managed installs"
+        hint="Fleet kill-switch for Deploy Vellum Remote and remote factory plugin install. Off by default. Local plugin install is unaffected. Main re-gates every invoke."
+      >
+        <input
+          type="checkbox"
+          checked={fleet.remoteManagedInstalls}
+          aria-label="Allow remote managed installs"
+          onChange={(event) =>
+            void patchSettings({
+              fleet: { remoteManagedInstalls: event.target.checked },
+            })
+          }
+        />
+      </FieldRow>
       <p className="settings-note">
         Remote hosts are user-authored — nothing is hard-coded for a particular machine.
         Use an SSH config <code>Host</code> alias, <code>user@hostname</code>, or an IPv6
@@ -785,7 +801,7 @@ function HostsSection() {
         use the host id (or optional hermes id). Expand <strong>Services</strong> on a host to
         list Tailscale Serve / SVC URLs and open them as canvas page nodes.
         {isCommandCenter
-          ? " On Command Center: Enroll fresh Remote stages station role on a pristine target (manual .deb install first). Managed install/update/rollback is not available in this release."
+          ? " On Command Center: Enroll fresh Remote stages station role on a pristine target (manual .deb install first). Managed package deploy remains release-gated; remote factory plugins need this kill-switch on."
           : ""}
       </p>
 

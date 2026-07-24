@@ -2929,6 +2929,23 @@ ol.note-md__list > .note-md__li::before {
   gap: 6px;
   width: 100%;
 }
+.fleet-detail__plugin-targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.fleet-detail__plugin-targets label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-dim);
+  cursor: pointer;
+}
+.fleet-detail__plugin-targets input {
+  accent-color: var(--color-amber);
+}
 .fleet-detail__note {
   margin: 0;
   font-family: var(--font-mono);
