@@ -774,10 +774,16 @@ test("capture the fleet manager overlay", async () => {
     await expect(page.locator(".fleet-station")).toHaveCount(4, {
       timeout: 15_000,
     });
+    await expect(page.locator(".fleet-machine-object--ready")).toHaveCount(4, {
+      timeout: 15_000,
+    });
     // Probes fire on open; in the sandbox they may still be in flight at
     // capture time — the frame asserts the fleet, not the probe outcome.
     await page.waitForTimeout(1500);
     await shot(page, "26-fleet-overlay");
+    await page.locator(".fleet-station").first().click();
+    await expect(page.locator(".fleet-station--selected")).toHaveCount(1);
+    await shot(page, "26b-fleet-station-focus");
     // When the sandbox sees an unclaimed peer, its detail panel shows what
     // the device is (OS, addresses, online state) + the claim action.
     const ghost = page.locator(".fleet-ghost").first();

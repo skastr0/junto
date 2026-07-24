@@ -2271,7 +2271,7 @@ ol.note-md__list > .note-md__li::before {
   .fleet-link--probing { animation: none; }
 }
 
-/* --- Nodes: machine signatures, icon-first and operational ---------------- */
+/* --- Nodes: machine signatures, object-first and operational -------------- */
 .fleet-cc,
 .fleet-station,
 .fleet-ghost {
@@ -2279,8 +2279,123 @@ ol.note-md__list > .note-md__li::before {
   cursor: pointer;
 }
 .fleet-cc { width: 244px; }
-.fleet-station,
 .fleet-ghost { width: 238px; }
+.fleet-station { width: 190px; }
+
+.fleet-machine {
+  position: relative;
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.fleet-station:hover .fleet-machine {
+  transform: translateY(-3px);
+}
+.fleet-station--selected .fleet-machine {
+  transform: translateY(-5px) scale(1.035);
+}
+.fleet-machine__viewport {
+  --fleet-machine-color: var(--color-amber);
+  position: relative;
+  width: 168px;
+  height: 142px;
+}
+.fleet-machine-object {
+  position: absolute;
+  inset: -8px -10px;
+  transition:
+    filter 220ms ease-out,
+    transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 180ms ease-out;
+}
+.fleet-machine-object canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.fleet-machine-object--loading {
+  opacity: 0.46;
+}
+.fleet-machine-object--ready {
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--fleet-machine-color) 22%, transparent));
+}
+.fleet-station:hover .fleet-machine-object--ready {
+  filter:
+    brightness(1.12)
+    drop-shadow(0 0 8px color-mix(in srgb, var(--fleet-machine-color) 38%, transparent));
+  transform: scale(1.025);
+}
+.fleet-machine-object--focused {
+  filter:
+    brightness(1.18)
+    drop-shadow(0 0 10px color-mix(in srgb, var(--fleet-machine-color) 48%, transparent));
+  transform: scale(1.055);
+}
+.fleet-machine-object__state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--color-faint);
+}
+.fleet-machine-object__state--error {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+}
+.fleet-machine__reticle {
+  position: absolute;
+  inset: 12px 8px 4px;
+  opacity: 0.24;
+  pointer-events: none;
+  transition:
+    inset 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 180ms ease-out;
+}
+.fleet-machine__reticle::before,
+.fleet-machine__reticle::after {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  content: "";
+  border-color: var(--fleet-machine-color);
+  border-style: solid;
+}
+.fleet-machine__reticle::before {
+  top: 0;
+  left: 0;
+  border-width: 1px 0 0 1px;
+}
+.fleet-machine__reticle::after {
+  right: 0;
+  bottom: 0;
+  border-width: 0 1px 1px 0;
+}
+.fleet-station:hover .fleet-machine__reticle,
+.fleet-station--selected .fleet-machine__reticle {
+  inset: 7px 3px -1px;
+  opacity: 0.8;
+}
+.fleet-machine__viewport > .fleet-pip {
+  right: 16px;
+  bottom: 10px;
+  z-index: 2;
+}
+.fleet-machine__copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.fleet-machine__copy .fleet-node__signal {
+  margin-top: 7px;
+}
+.fleet-machine__copy .fleet-node__capabilities {
+  justify-content: center;
+}
 
 .fleet-node__plate {
   position: relative;
@@ -2348,6 +2463,14 @@ ol.note-md__list > .note-md__li::before {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 7px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fleet-machine,
+  .fleet-machine-object,
+  .fleet-machine__reticle {
+    transition-duration: 0.01ms;
+  }
 }
 .fleet-node__capabilities > span {
   color: var(--color-faint);

@@ -19,6 +19,7 @@ import type { RemoteHost } from "@shared/remote-hosts";
 import type { FleetProbeState } from "../../lib/fleet-state";
 import { hostColor } from "../../lib/fleet-layout";
 import { HUE, withAlpha } from "../../lib/theme";
+import { DitheredFleetObject } from "./DitheredFleetObject";
 
 /** Lucide components for the FLEET_GLYPHS vocabulary (fleet-layout.ts). */
 export const FLEET_GLYPH_ICONS: Record<string, LucideIcon> = {
@@ -116,19 +117,23 @@ const probeLabel = (probe?: FleetProbeState): string => {
 export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
   const { host, probe } = data;
   const color = hostColor(host);
-  const Icon = fleetGlyphIcon(host.appearance?.glyph);
   return (
     <div className={`fleet-station${selected ? " fleet-station--selected" : ""}`}>
       <Handle type="target" position={Position.Left} className="fleet-handle" />
-      <div
-        className="fleet-node__plate"
-        style={{ borderColor: withAlpha(color, selected ? 0.82 : 0.28) }}
-      >
-        <div className="fleet-node__medallion" style={{ color, background: withAlpha(color, 0.08) }}>
-          <Icon size={21} strokeWidth={1.55} />
+      <div className="fleet-machine">
+        <div
+          className="fleet-machine__viewport"
+          style={{ "--fleet-machine-color": color } as React.CSSProperties}
+        >
+          <DitheredFleetObject
+            color={color}
+            focused={selected}
+            motionSeed={host.id}
+          />
+          <span className="fleet-machine__reticle" aria-hidden="true" />
           <span className={probePipClass(probe)} title={probePipTitle(probe)} />
         </div>
-        <div className="fleet-node__copy">
+        <div className="fleet-node__copy fleet-machine__copy">
           <div className="fleet-station__label">{host.label}</div>
           <div className="fleet-node__meta">{host.endpoint ?? host.kind}</div>
           <div className={`fleet-node__signal fleet-node__signal--${probe?.status ?? "unknown"}`}>
