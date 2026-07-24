@@ -44,8 +44,9 @@ import { parseCliEnvelope, parseProcessInfo } from "./parse";
 import { findHostById } from "../hosts/snapshot";
 import { HostServeCatalog } from "../hosts/serve-catalog";
 import { tailscalePeerCache } from "../hosts/tailscale-peers";
-import { makeRemoteCommand, parseSshEndpoint } from "../ssh/domain";
+import { parseSshEndpoint } from "../ssh/domain";
 import { oneShot } from "../ssh/program";
+import { remoteHostProbe } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
 import { runCli } from "../adapters/exec";
 import {
@@ -947,6 +948,7 @@ export const HerdrPlaneLive = Layer.scoped(
     );
 
     // Host shell for LISTEN probes — same hop class as herdr remote, never per-card.
+    // Remote path only admits closed product shapes (lsof LISTEN / tailscale serve).
     const hostShell: HostShellRunner = async (hostId, argv, timeoutMs = 8_000) => {
       if (argv.length === 0) return { ok: false, stdout: "", error: "empty argv" };
       const executable = argv[0]!;
@@ -962,7 +964,7 @@ export const HerdrPlaneLive = Layer.scoped(
         const result = await runOwned(
           Effect.gen(function* () {
             const endpoint = yield* parseSshEndpoint(host.endpoint!);
-            const command = yield* makeRemoteCommand(executable, args);
+            const command = yield* remoteHostProbe(argv);
             return yield* ssh.run(oneShot(endpoint, command, { budget: "status" }));
           }).pipe(
             Effect.catchAll((error) =>

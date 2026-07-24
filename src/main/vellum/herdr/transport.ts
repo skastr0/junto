@@ -4,7 +4,6 @@ import type { CliResult } from "../adapters/exec";
 import { runCli } from "../adapters/exec";
 import { findHostById, hostsWithCapability } from "../hosts/snapshot";
 import {
-  makeRemoteCommand,
   makeRemoteStdin,
   parseRemoteUnixSocketPath,
   parseSshEndpoint,
@@ -21,6 +20,7 @@ import {
   unixForward,
   type OneShotBudget,
 } from "../ssh/program";
+import { remoteHerdrCli } from "../ssh/read-commands";
 import { compileHerdrImageStage } from "../ssh/remote-plan";
 import {
   SshTransport,
@@ -128,7 +128,7 @@ export const HerdrTransportLive = Layer.effect(
       session: string | null | undefined,
       timeoutMs: number,
     ): Effect.Effect<CliResult> =>
-      makeRemoteCommand("herdr", withSession(args, session)).pipe(
+      remoteHerdrCli(withSession(args, session)).pipe(
         Effect.flatMap((command) =>
           ssh.run(oneShot(endpoint, command, { budget: budgetFor(timeoutMs) })),
         ),
@@ -186,7 +186,7 @@ export const HerdrTransportLive = Layer.effect(
       }
       return resolveRemoteEndpoint(spec.hostId).pipe(
         Effect.flatMap((endpoint) =>
-          makeRemoteCommand("herdr", withSession(spec.args, spec.session)).pipe(
+          remoteHerdrCli(withSession(spec.args, spec.session)).pipe(
             Effect.flatMap((command) =>
               ssh.connect(sharedStream(endpoint, command, "fast"), awaitReady),
             ),
@@ -219,7 +219,7 @@ export const HerdrTransportLive = Layer.effect(
     ) =>
       resolveRemoteEndpoint(hostId, route).pipe(
         Effect.flatMap((endpoint) =>
-          makeRemoteCommand("herdr", withSession(["server"], session)).pipe(
+          remoteHerdrCli(withSession(["server"], session)).pipe(
             Effect.flatMap((command) =>
               ssh.handoff(daemonHandoff(endpoint, command), awaitReady),
             ),

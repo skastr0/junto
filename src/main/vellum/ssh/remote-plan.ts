@@ -157,9 +157,11 @@ export type RemotePlan = {
  * Install sealed Remote station settings under `~/.vellum/settings.json`.
  *
  * Order (interrupt-safe, fail-closed):
- * 1. invalidate topology seals
- * 2. atomic write settings via exclusive temp + rename
- * 3. re-invalidate seals
+ * 1. atomic write settings via exclusive temp + rename
+ * 2. invalidate topology seals only after settings write succeeds
+ *
+ * Never delete seals before the settings postcondition — a failed write must
+ * leave prior seal material intact so the next boot cannot bootstrap a mint.
  */
 export const remoteStationSettingsInstallPlan = (
   vellumDir: ConfinedRemotePath,
@@ -172,11 +174,6 @@ export const remoteStationSettingsInstallPlan = (
       { op: "ensureDirectory", path: vellumDir },
       { op: "refuseIfSymlink", path: settingsPath, code: 73 },
       { op: "refuseIfExistsNotRegularFile", path: settingsPath, code: 73 },
-      {
-        op: "removeExactLeaves",
-        directory: vellumDir,
-        basenames: Object.freeze(["topology.key", "topology.seal"] as const),
-      },
       {
         op: "writeStdinAtomic",
         path: settingsPath,
@@ -379,7 +376,10 @@ export const compileRemoteSettingsSnapshot = (
 
 /**
  * Stamp settings via framed stdin (vellum-settings-stamp-v1).
- * Invalidates topology seals after successful install.
+ *
+ * Order (fail-closed): validate CAS preimage → atomic write settings → THEN
+ * invalidate topology seals. Failed CAS (exit 34) must leave seals intact so
+ * a later boot cannot bootstrap mint authority over an unstamped role.
  */
 export const compileRemoteSettingsStamp = (
   vellumDir: ConfinedRemotePath,
@@ -418,8 +418,6 @@ export const compileRemoteSettingsStamp = (
       "esac",
       '[ "$EXPECTED_SIZE" -le "$LIMIT" ] && [ "$NEXT_SIZE" -le "$LIMIT" ] || exit 32',
       'if [ -L "$DIR" ]; then printf \'%s\\n\' \'SETTINGS_DIR_UNSAFE\' >&2; exit 33; fi',
-      // Invalidate seals before mutation (interrupt → bootstrap, not stale MAC).
-      `/bin/rm -f -- ${topologyKey} ${topologySeal}`,
       '/bin/mkdir -p -- "$DIR"',
       'if [ -L "$DIR" ] || [ ! -d "$DIR" ]; then printf \'%s\\n\' \'SETTINGS_DIR_UNSAFE\' >&2; exit 33; fi',
       'EXPECTED_TMP="$(/usr/bin/mktemp "$SETTINGS.stamp-expected.XXXXXX")"',
@@ -457,6 +455,7 @@ export const compileRemoteSettingsStamp = (
       "  fi",
       "fi",
       '/bin/chmod "$NEXT_MODE" "$NEXT_TMP"',
+      // Settings write first — only then may seals be invalidated.
       '/bin/mv -f -- "$NEXT_TMP" "$SETTINGS"',
       `/bin/rm -f -- ${topologyKey} ${topologySeal}`,
       "/usr/bin/printf 'STAMPED\\n'",
@@ -476,7 +475,13 @@ export const compileRemoteSettingsStamp = (
   }
 };
 
-/** Restore prior settings snapshot via framed stdin (vellum-settings-rollback-v1). */
+/**
+ * Restore prior settings snapshot via framed stdin (vellum-settings-rollback-v1).
+ *
+ * Fail-closed after a successful restore: invalidate topology seals so the next
+ * boot bootstraps over the restored settings bytes (never leave an old seal
+ * covering new/restored plaintext).
+ */
 export const compileRemoteSettingsRestore = (
   vellumDir: ConfinedRemotePath,
   settingsPath: ConfinedRemotePath,
@@ -486,6 +491,12 @@ export const compileRemoteSettingsRestore = (
     const limit = assertByteLimit(maxBytes);
     const dir = shellSingleQuote(inspectPath(vellumDir));
     const settings = shellSingleQuote(inspectPath(settingsPath));
+    const topologyKey = shellSingleQuote(
+      `${inspectPath(vellumDir)}/topology.key`,
+    );
+    const topologySeal = shellSingleQuote(
+      `${inspectPath(vellumDir)}/topology.seal`,
+    );
     const source = [
       "set -eu",
       `DIR=${dir}`,
@@ -545,6 +556,8 @@ export const compileRemoteSettingsRestore = (
       '  [ "$ORIGINAL_SIZE" = "0" ] || exit 22',
       '  /bin/rm -f -- "$SETTINGS"',
       "fi",
+      // Restore postcondition: drop seals so next boot bootstraps restored bytes.
+      `/bin/rm -f -- ${topologyKey} ${topologySeal}`,
       "/usr/bin/printf 'RESTORED\\n'",
       "",
     ].join("\n");
@@ -562,6 +575,43 @@ export const compileRemoteSettingsRestore = (
   }
 };
 
+/**
+ * Probe whether topology.key + topology.seal both exist as regular files.
+ * Symlinks or asymmetric presence → UNSEALED (not an admit success).
+ * Remote cannot HMAC-verify without the local admit path; presence is the
+ * gate for "already configured" early-return (absent → force re-stamp).
+ */
+export const compileRemoteTopologySealPresence = (
+  vellumDir: ConfinedRemotePath,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  try {
+    const dir = inspectPath(vellumDir);
+    const key = shellSingleQuote(`${dir}/topology.key`);
+    const seal = shellSingleQuote(`${dir}/topology.seal`);
+    const source = [
+      "set -eu",
+      `if [ -L ${key} ] || [ -L ${seal} ]; then /usr/bin/printf 'UNSEALED\\n'; exit 0; fi`,
+      `if [ -f ${key} ] && [ -f ${seal} ]; then /usr/bin/printf 'SEALED\\n'; exit 0; fi`,
+      "/usr/bin/printf 'UNSEALED\\n'",
+      "",
+    ].join("\n");
+    return makeRemoteCommand("/bin/sh", [
+      "-c",
+      source,
+      "vellum-plan:remote-topology-seal-presence",
+    ]);
+  } catch (error) {
+    return Effect.fail(
+      new SshInputError({
+        message:
+          error instanceof Error
+            ? error.message
+            : "topology seal presence compile failed",
+      }),
+    );
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Linux remote preflight (fixed V3 product program)
 // ---------------------------------------------------------------------------
@@ -569,8 +619,8 @@ export const compileRemoteSettingsRestore = (
 // Named compiler: no free path/command args from callers. Stdin supplies
 // bundle bytes + version + package hashes; stdout is exactly one
 // LINUX_REMOTE_PREFLIGHT_V3 (or REFUSED_V3) line. Generation readiness is a
-// plain `${INVOCATION}\n` receipt under ready-$INVOCATION (wc -c = 33) plus
-// work sock/token — never deep JSON, never term/browser.
+// plain `${INVOCATION}\n` receipt under ready-$INVOCATION (exact 33 bytes via
+// wc + cmp against printf) plus work sock/token — never deep JSON, never term/browser.
 
 /** Product paths for release helper/bridge — never caller-controlled. */
 const LINUX_RELEASE_INSTALLER_PATH = "/usr/libexec/vellum-release-installer";
@@ -630,6 +680,7 @@ for REQUIRED_COMMAND in \
   /bin/hostname \
   /usr/bin/awk \
   /usr/bin/cat \
+  /usr/bin/cmp \
   /usr/bin/df \
   /usr/bin/dpkg \
   /usr/bin/dpkg-query \
@@ -641,7 +692,8 @@ for REQUIRED_COMMAND in \
   /usr/bin/sudo \
   /usr/bin/systemctl \
   /usr/bin/tr \
-  /usr/bin/uname
+  /usr/bin/uname \
+  /usr/bin/wc
 do
   [ -x "$REQUIRED_COMMAND" ] || refuse commands
 done
@@ -752,7 +804,7 @@ if [ "$ENABLED" = 1 ] && [ "$ACTIVE" = 1 ]; then
      [ "$PACKAGE_VERIFY_OK" = 1 ] && [ -z "$PACKAGE_VERIFY" ] &&
      private_file "$READY_RECEIPT" &&
      [ "$(/usr/bin/wc -c < "$READY_RECEIPT" 2>/dev/null | /usr/bin/tr -d ' ')" = 33 ] &&
-     [ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$INVOCATION" ] &&
+     /usr/bin/printf '%s\n' "$INVOCATION" | /usr/bin/cmp -s - "$READY_RECEIPT" &&
      /usr/bin/tr '\0' '\n' < "/proc/$MAIN_PID/cmdline" |
        /usr/bin/grep -Fqx '/opt/Vellum Command/resources/systemd/vellum-remote-launch-v1' &&
      private_socket "$HOME/.vellum/work/control.sock" &&
@@ -870,3 +922,51 @@ export const compileHerdrImageStage = (
       ]).pipe(Effect.map((command) => ({ command, path })));
     }),
   );
+
+// ---------------------------------------------------------------------------
+// Named product compilers for host deploy (mutating / privileged remotes)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fixed Ubuntu release-bridge executable — no caller argv, no free path.
+ * Sole mutation surface for Linux Remote deploy streams.
+ */
+export const compileLinuxReleaseBridge = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> => makeRemoteCommand(LINUX_RELEASE_BRIDGE_PATH, []);
+
+/**
+ * Darwin app stream receiver: product deploy script as `bash -lc <source>`.
+ *
+ * Source must be the Vellum Darwin deploy program (product markers required).
+ * Free-form shell — including `rm -rf -- /` — is not a product deploy script.
+ */
+export const compileDarwinRemoteDeployScript = (
+  remoteScript: string,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  if (
+    typeof remoteScript !== "string" ||
+    remoteScript.length === 0 ||
+    Buffer.byteLength(remoteScript, "utf8") > 256 * 1024
+  ) {
+    return Effect.fail(
+      new SshInputError({
+        message: "darwin deploy script exceeds product bounds",
+      }),
+    );
+  }
+  // Product markers from buildRemoteDeployScript — refuse arbitrary shell.
+  if (
+    !remoteScript.includes("commit_deploy") ||
+    !remoteScript.includes("STATION_READY") ||
+    !remoteScript.includes("CONTROL_SOCKET_TIMEOUT")
+  ) {
+    return Effect.fail(
+      new SshInputError({
+        message: "darwin deploy script is not a product stream program",
+      }),
+    );
+  }
+  return makeRemoteCommand("bash", ["-lc", remoteScript]);
+};

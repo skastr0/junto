@@ -1,0 +1,208 @@
+/**
+ * Closed allowlisted remote command constructors for product modules.
+ *
+ * Product code (hosts/, hermes/, herdr/, canvas-pull/, term/, browser/) must
+ * mint RemoteCommands only through these factories or named plan compilers in
+ * remote-plan.ts / hermes-remote-plan.ts. Free-form executable+args (including
+ * `/bin/sh -c …`) is unrepresentable here — that is the seal.
+ *
+ * Doctrine: brand means “safe product operation,” not merely “created by Vellum.”
+ */
+
+import { Effect } from "effect";
+import { makeRemoteCommand, type RemoteCommand, SshInputError } from "./domain";
+
+// Clean absolute POSIX path: no shell metacharacters, no `..`, no NULs.
+const SAFE_ABS_PATH = /^\/(?:[A-Za-z0-9._+-]+\/)*[A-Za-z0-9._+-]+$/u;
+
+const admitReadPath = (path: string): Effect.Effect<string, SshInputError> => {
+  if (
+    typeof path !== "string" ||
+    !SAFE_ABS_PATH.test(path) ||
+    path.includes("..") ||
+    path.includes("\0") ||
+    Buffer.byteLength(path, "utf8") > 512
+  ) {
+    return Effect.fail(
+      new SshInputError({
+        message: "remote read path must be a clean absolute POSIX path",
+      }),
+    );
+  }
+  return Effect.succeed(path);
+};
+
+/**
+ * Product CLI argv: executable is fixed by the factory; args stay argv tokens
+ * (no shell). Bounds match makeRemoteCommand (NUL / size); empty tokens rejected.
+ */
+const admitCliArgs = (
+  args: ReadonlyArray<string>,
+): Effect.Effect<ReadonlyArray<string>, SshInputError> => {
+  if (args.length > 64) {
+    return Effect.fail(
+      new SshInputError({ message: "remote CLI argument count exceeds product bound" }),
+    );
+  }
+  for (const arg of args) {
+    if (
+      typeof arg !== "string" ||
+      arg.length === 0 ||
+      arg.includes("\0") ||
+      Buffer.byteLength(arg, "utf8") > 64 * 1024
+    ) {
+      return Effect.fail(
+        new SshInputError({ message: "remote CLI argument is not a safe product token" }),
+      );
+    }
+  }
+  return Effect.succeed(args);
+};
+
+/** Fixed OS probe: `uname -s`. */
+export const remoteUname = (): Effect.Effect<RemoteCommand, SshInputError> =>
+  makeRemoteCommand("uname", ["-s"]);
+
+/**
+ * Read a confined absolute path with `/bin/cat`.
+ * Path is re-admitted; free-form shell is not representable.
+ */
+export const remoteCat = (
+  path: string,
+): Effect.Effect<RemoteCommand, SshInputError> =>
+  admitReadPath(path).pipe(
+    Effect.flatMap((safe) => makeRemoteCommand("/bin/cat", [safe])),
+  );
+
+/**
+ * List a confined absolute directory with `ls -1`.
+ * Path is re-admitted; free-form shell is not representable.
+ */
+export const remoteLs = (
+  path: string,
+): Effect.Effect<RemoteCommand, SshInputError> =>
+  admitReadPath(path).pipe(
+    Effect.flatMap((safe) => makeRemoteCommand("ls", ["-1", safe])),
+  );
+
+/**
+ * File existence probe: `/bin/test -f <path>`.
+ * Only the fixed `-f` shape is admitted — no free-form test expressions.
+ */
+export const remoteTestFileExists = (
+  path: string,
+): Effect.Effect<RemoteCommand, SshInputError> =>
+  admitReadPath(path).pipe(
+    Effect.flatMap((safe) => makeRemoteCommand("/bin/test", ["-f", safe])),
+  );
+
+/**
+ * Product Hermes CLI on the remote PATH.
+ * Executable is fixed to `hermes`; args are revalidated tokens only.
+ */
+export const remoteHermesCli = (
+  args: ReadonlyArray<string>,
+): Effect.Effect<RemoteCommand, SshInputError> =>
+  admitCliArgs(args).pipe(
+    Effect.flatMap((safe) => makeRemoteCommand("hermes", safe)),
+  );
+
+/**
+ * Product Herdr CLI on the remote PATH.
+ * Executable is fixed to `herdr`; args are revalidated tokens only.
+ */
+export const remoteHerdrCli = (
+  args: ReadonlyArray<string>,
+): Effect.Effect<RemoteCommand, SshInputError> =>
+  admitCliArgs(args).pipe(
+    Effect.flatMap((safe) => makeRemoteCommand("herdr", safe)),
+  );
+
+/** Version probe for doctor: fixed argv per product binary. */
+export const remoteProductVersion = (
+  binary: "herdr" | "hermes",
+): Effect.Effect<RemoteCommand, SshInputError> =>
+  binary === "herdr"
+    ? remoteHerdrCli(["--version"])
+    : remoteHermesCli(["version"]);
+
+/**
+ * Fixed host LISTEN probe used by herdr service-map.
+ * `pidList` must be a comma-joined positive integer list only.
+ */
+export const remoteLsofTcpListen = (
+  pidList: string,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  if (
+    typeof pidList !== "string" ||
+    pidList.length === 0 ||
+    pidList.length > 4_096 ||
+    !/^[1-9][0-9]{0,9}(?:,[1-9][0-9]{0,9}){0,255}$/u.test(pidList)
+  ) {
+    return Effect.fail(
+      new SshInputError({
+        message: "lsof pid list must be a bounded comma-joined positive integer list",
+      }),
+    );
+  }
+  return makeRemoteCommand("lsof", [
+    "-nP",
+    "-iTCP",
+    "-sTCP:LISTEN",
+    "-a",
+    "-p",
+    pidList,
+  ]);
+};
+
+/** Fixed Tailscale serve status JSON probe. */
+export const remoteTailscaleServeStatus = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> => makeRemoteCommand("tailscale", ["serve", "status", "--json"]);
+
+/**
+ * Closed host-shell argv admission for herdr plane probes.
+ * Only the two product LISTEN / serve shapes are representable.
+ */
+export const remoteHostProbe = (
+  argv: ReadonlyArray<string>,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  if (
+    argv.length === 4 &&
+    argv[0] === "tailscale" &&
+    argv[1] === "serve" &&
+    argv[2] === "status" &&
+    argv[3] === "--json"
+  ) {
+    return remoteTailscaleServeStatus();
+  }
+  if (
+    argv.length === 6 &&
+    argv[0] === "lsof" &&
+    argv[1] === "-nP" &&
+    argv[2] === "-iTCP" &&
+    argv[3] === "-sTCP:LISTEN" &&
+    argv[4] === "-a" &&
+    argv[5] !== undefined
+  ) {
+    return remoteLsofTcpListen(argv[5]);
+  }
+  return Effect.fail(
+    new SshInputError({
+      message: "host probe argv is not an allowlisted product shape",
+    }),
+  );
+};
+
+/** Fixed station-browser stdin wrapper: `vellum-browser station`. */
+export const remoteVellumBrowserStation = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> => makeRemoteCommand("vellum-browser", ["station"]);
+
+/** Fixed station-browser trust wrapper: `vellum-browser station-trust`. */
+export const remoteVellumBrowserStationTrust = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> => makeRemoteCommand("vellum-browser", ["station-trust"]);

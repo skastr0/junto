@@ -31,7 +31,9 @@ export {
 export { SshTransportLive } from "./live";
 export { makeScopedPromiseRunner, type ScopedPromiseRunner } from "./scoped-runner";
 export {
+  compileDarwinRemoteDeployScript,
   compileHerdrImageStage,
+  compileLinuxReleaseBridge,
   compileLinuxRemotePreflight,
   compileLinuxRemotePreflightSource,
   compileRemotePlan,
@@ -39,6 +41,7 @@ export {
   compileRemoteSettingsRestore,
   compileRemoteSettingsSnapshot,
   compileRemoteSettingsStamp,
+  compileRemoteTopologySealPresence,
   confineHerdrStagePath,
   confineVellumDirectory,
   confineVellumLeaf,
@@ -56,3 +59,17 @@ export {
   hermesAvatarSource,
   hermesIdentityBatchSource,
 } from "./hermes-remote-plan";
+export {
+  remoteCat,
+  remoteHermesCli,
+  remoteHerdrCli,
+  remoteHostProbe,
+  remoteLsofTcpListen,
+  remoteLs,
+  remoteProductVersion,
+  remoteTailscaleServeStatus,
+  remoteTestFileExists,
+  remoteUname,
+  remoteVellumBrowserStation,
+  remoteVellumBrowserStationTrust,
+} from "./read-commands";

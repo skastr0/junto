@@ -40,7 +40,6 @@ import {
   type LinuxReleaseInstallerRequest,
 } from "@shared/linux-release-installer";
 import {
-  makeRemoteCommand,
   makeRemoteStdin,
 } from "../ssh/domain";
 import {
@@ -48,6 +47,7 @@ import {
   oneShotWithStdin,
 } from "../ssh/program";
 import {
+  compileLinuxReleaseBridge,
   compileLinuxRemotePreflight,
   compileLinuxRemotePreflightSource,
 } from "../ssh/remote-plan";
@@ -1231,7 +1231,7 @@ const runReleaseSession = (
   preflight: Extract<LinuxRemotePreflightEvidence, { readonly ok: true }>,
 ): Effect.Effect<LinuxReleaseSessionOutcome, Error> =>
   Effect.gen(function* () {
-    const command = yield* makeRemoteCommand(BRIDGE);
+    const command = yield* compileLinuxReleaseBridge();
     return yield* input.ssh.transact(
       deploymentStream(input.target.endpoint, command),
       (lease) =>

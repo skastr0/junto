@@ -29,12 +29,12 @@ import {
   isStationBrowserKeyId,
 } from "@shared/station-browser";
 import {
-  makeRemoteCommand,
   makeRemoteStdin,
   parseSshEndpoint,
   type SshError,
 } from "../ssh/domain";
 import { oneShotWithStdin } from "../ssh/program";
+import { remoteVellumBrowserStationTrust } from "../ssh/read-commands";
 import type { SshTransport } from "../ssh/service";
 import type { StationBrowserTrust } from "./station-delegation";
 
@@ -836,10 +836,7 @@ export const provisionStationBrowserTrust = (
           ),
       ),
     );
-    const command = yield* makeRemoteCommand(
-      STATION_BROWSER_TRUST_WRAPPER,
-      STATION_BROWSER_TRUST_WRAPPER_ARGS,
-    ).pipe(
+    const command = yield* remoteVellumBrowserStationTrust().pipe(
       Effect.mapError(
         () =>
           new StationBrowserTrustProvisionError(

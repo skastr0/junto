@@ -25,6 +25,7 @@ import {
   compileRemoteSettingsRestore,
   compileRemoteSettingsSnapshot,
   compileRemoteSettingsStamp,
+  compileRemoteTopologySealPresence,
   confineVellumDirectory,
   confineVellumLeaf,
 } from "../ssh/remote-plan";
@@ -379,14 +380,6 @@ export const stampRemoteSettingsSnapshot = (
               error instanceof Error ? error.message : String(error),
             ),
     });
-    if (planned.alreadyConfigured) {
-      return {
-        snapshot: original,
-        detail: planned.detail,
-        station: planned.station,
-      };
-    }
-
     const endpoint = yield* parseSshEndpoint(host.endpoint).pipe(
       Effect.mapError(
         (error) => new RemoteHostsError("validation", error.message),
@@ -403,6 +396,27 @@ export const stampRemoteSettingsSnapshot = (
         (error) => new RemoteHostsError("validation", error.message),
       ),
     );
+
+    if (planned.alreadyConfigured) {
+      // Settings match is not enough — topology seals must be present.
+      const sealCmd = yield* compileRemoteTopologySealPresence(vellumDir).pipe(
+        Effect.mapError(
+          (error) => new RemoteHostsError("validation", error.message),
+        ),
+      );
+      const sealProbe = yield* ssh
+        .run(oneShot(endpoint, sealCmd, { budget: "status" }))
+        .pipe(Effect.catchAll(() => Effect.succeed({ stdout: "UNSEALED\n" })));
+      if (sealProbe.stdout.trim() === "SEALED") {
+        return {
+          snapshot: original,
+          detail: planned.detail,
+          station: planned.station,
+        };
+      }
+      // Seals absent/incomplete → fall through and force re-stamp.
+    }
+
     const settingsLeaf = yield* confineVellumLeaf(vellumDir, "settings.json").pipe(
       Effect.mapError(
         (error) => new RemoteHostsError("validation", error.message),

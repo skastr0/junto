@@ -2,7 +2,9 @@ import { Effect, Either } from "effect";
 import { describe, expect, it } from "vitest";
 import { inspectRemoteCommand } from "../src/main/vellum/ssh/domain";
 import {
+  compileDarwinRemoteDeployScript,
   compileHerdrImageStage,
+  compileLinuxReleaseBridge,
   compileLinuxRemotePreflight,
   compileLinuxRemotePreflightSource,
   compileRemotePlan,
@@ -10,6 +12,7 @@ import {
   compileRemoteSettingsRestore,
   compileRemoteSettingsSnapshot,
   compileRemoteSettingsStamp,
+  compileRemoteTopologySealPresence,
   confineHerdrStagePath,
   confineVellumDirectory,
   confineVellumLeaf,
@@ -81,8 +84,13 @@ describe("remote-station-settings-install plan", () => {
     expect(source).toContain("/home/station/.vellum/settings.json");
     expect(source).toContain("/home/station/.vellum/topology.key");
     expect(source).toContain("set -eu");
-    // Seals invalidated before and after write.
-    expect(source.split("topology.seal").length).toBeGreaterThan(2);
+    // Seals invalidated only after successful settings write (never before).
+    const writeIdx = source.indexOf("cat >");
+    const sealRmIdx = source.indexOf("topology.seal");
+    expect(writeIdx).toBeGreaterThan(-1);
+    expect(sealRmIdx).toBeGreaterThan(writeIdx);
+    // Single postcondition invalidation (not pre+post).
+    expect(source.split("topology.seal").length).toBe(2);
   });
 
   it("compiles to a branded RemoteCommand via makeRemoteCommand", () => {
@@ -123,7 +131,7 @@ describe("remote settings snapshot/stamp/restore compilers", () => {
     expect(parts.args[2]).toBe("vellum-plan:remote-settings-snapshot");
   });
 
-  it("stamp invalidates topology seals and uses confined settings path", () => {
+  it("stamp invalidates topology seals only after successful CAS write", () => {
     const dir = run(confineVellumDirectory("/home/station"));
     const settings = run(confineVellumLeaf(dir, "settings.json"));
     const cmd = run(compileRemoteSettingsStamp(dir, settings, 65_536));
@@ -132,9 +140,18 @@ describe("remote settings snapshot/stamp/restore compilers", () => {
     expect(src).toContain("topology.seal");
     expect(src).toContain("STAMPED");
     expect(src).not.toMatch(/rm\s+-rf\s+\//);
+    // CAS rejection (exit 34) must occur before any seal rm.
+    const firstExit34 = src.indexOf("exit 34");
+    const sealRm = src.indexOf("topology.key");
+    const settingsMv = src.indexOf('mv -f -- "$NEXT_TMP" "$SETTINGS"');
+    expect(firstExit34).toBeGreaterThan(-1);
+    expect(settingsMv).toBeGreaterThan(firstExit34);
+    expect(sealRm).toBeGreaterThan(settingsMv);
+    // Exactly one seal invalidation (post-write), not pre-CAS wipe.
+    expect(src.split("topology.seal").length).toBe(2);
   });
 
-  it("restore is confined and has no recursive delete", () => {
+  it("restore invalidates topology seals after successful restore", () => {
     const dir = run(confineVellumDirectory("/var/home/op"));
     const settings = run(confineVellumLeaf(dir, "settings.json"));
     const cmd = run(compileRemoteSettingsRestore(dir, settings, 1024));
@@ -142,6 +159,27 @@ describe("remote settings snapshot/stamp/restore compilers", () => {
     expect(src).toContain("/var/home/op/.vellum/settings.json");
     expect(src).toContain("RESTORED");
     expect(src).not.toMatch(/rm\s+-r[f\s]/);
+    expect(src).toContain("topology.key");
+    expect(src).toContain("topology.seal");
+    // Seal wipe is after the restore mv/rm of settings.
+    const restoreDone = Math.max(
+      src.lastIndexOf('mv -f -- "$ORIGINAL_TMP" "$SETTINGS"'),
+      src.lastIndexOf('rm -f -- "$SETTINGS"'),
+    );
+    const sealRm = src.indexOf("topology.seal");
+    expect(restoreDone).toBeGreaterThan(-1);
+    expect(sealRm).toBeGreaterThan(restoreDone);
+  });
+
+  it("topology seal presence probe is confined and binary SEALED|UNSEALED", () => {
+    const dir = run(confineVellumDirectory("/home/station"));
+    const cmd = run(compileRemoteTopologySealPresence(dir));
+    const src = inspectRemoteCommand(cmd).args[1]!;
+    expect(src).toContain("/home/station/.vellum/topology.key");
+    expect(src).toContain("/home/station/.vellum/topology.seal");
+    expect(src).toContain("SEALED");
+    expect(src).toContain("UNSEALED");
+    expect(src).not.toMatch(/rm\s+/);
   });
 });
 
@@ -158,6 +196,14 @@ describe("linux remote preflight compiler", () => {
     expect(source).toContain(
       '[ "$(/usr/bin/wc -c < "$READY_RECEIPT" 2>/dev/null | /usr/bin/tr -d \' \')" = 33 ]',
     );
+    expect(source).toContain(
+      '/usr/bin/printf \'%s\\n\' "$INVOCATION" | /usr/bin/cmp -s - "$READY_RECEIPT"',
+    );
+    expect(source).not.toContain(
+      '[ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$INVOCATION" ]',
+    );
+    expect(source).toContain("/usr/bin/cmp");
+    expect(source).toContain("/usr/bin/wc");
     expect(source).toContain('private_socket "$HOME/.vellum/work/control.sock"');
     expect(source).toContain('private_file "$HOME/.vellum/work/token"');
     expect(source).not.toContain("station_ready_receipt");
@@ -181,6 +227,31 @@ describe("linux remote preflight compiler", () => {
     expect(parts.args[0]).toBe("-c");
     expect(parts.args[2]).toBe("vellum-plan:linux-remote-preflight");
     expect(parts.args[1]).toBe(compileLinuxRemotePreflightSource());
+  });
+});
+
+describe("named deploy compilers", () => {
+  it("compiles the fixed linux release bridge with no argv", () => {
+    const parts = inspectRemoteCommand(run(compileLinuxReleaseBridge()));
+    expect(parts.executable).toBe("/usr/libexec/vellum-release-bridge");
+    expect(parts.args).toEqual([]);
+  });
+
+  it("admits a product Darwin deploy script and refuses free-form shell", () => {
+    const product = [
+      "commit_deploy() { :; }",
+      'echo "STATION_READY pid=1 term=1 browser=1"',
+      'echo "CONTROL_SOCKET_TIMEOUT" >&2',
+    ].join("\n");
+    const parts = inspectRemoteCommand(run(compileDarwinRemoteDeployScript(product)));
+    expect(parts.executable).toBe("bash");
+    expect(parts.args[0]).toBe("-lc");
+    expect(parts.args[1]).toBe(product);
+
+    const freeForm = Effect.runSync(
+      Effect.either(compileDarwinRemoteDeployScript('rm -rf -- /')),
+    );
+    expect(Either.isLeft(freeForm)).toBe(true);
   });
 });
 

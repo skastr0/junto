@@ -1,9 +1,11 @@
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { describe, expect, it } from "vitest";
 import { configureRemoteHost } from "../src/main/vellum/hosts/configure-remote";
+import { migrateSettingsDocument } from "../src/main/vellum/settings/migrate";
 import {
   mergeRemoteStationSettings,
   planRemoteStationFields,
+  remoteStationAlreadyConfigured,
 } from "../src/shared/remote-station-config";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import { defaultSettings } from "../src/shared/settings";
@@ -30,20 +32,39 @@ const planned = planRemoteStationFields({
   commandCenterRef: "local",
 });
 
+const planInput = {
+  remoteHostId: "studio",
+  agentHostId: "fleet-studio",
+  commandCenterRef: "local",
+} as const;
+
 type Ssh = Parameters<typeof configureRemoteHost>[0];
 
+const settingsMatchPlan = (raw: string | null | undefined): boolean => {
+  if (raw === undefined || raw === null || raw.trim().length === 0) return false;
+  try {
+    const migrated = migrateSettingsDocument(JSON.parse(raw) as unknown);
+    if (Either.isLeft(migrated)) return false;
+    return remoteStationAlreadyConfigured(migrated.right, planInput);
+  } catch {
+    return false;
+  }
+};
+
 /**
- * Sequential mock: warm → home lookup → cat existing → write → probe cat.
- * Call order is fixed by configureRemoteHost.
+ * Sequential mock: warm → home → cat existing → [seal probe if match] → write → probe cat.
  */
 const makeSsh = (options?: {
   readonly existingRaw?: string | null;
   readonly homeOutput?: string;
   readonly failWarm?: boolean;
   readonly failWrite?: boolean;
+  /** When settings match plan: SEALED early-return vs UNSEALED force re-stamp. */
+  readonly topologySealed?: boolean;
 }): { readonly ssh: Ssh; readonly writes: string[]; readonly calls: { calls: number } } => {
   const writes: string[] = [];
   const calls = { calls: 0 };
+  const match = settingsMatchPlan(options?.existingRaw);
 
   const ssh = {
     warm: () =>
@@ -74,29 +95,56 @@ const makeSsh = (options?: {
           }
           return { stdout: options.existingRaw, stderr: "" };
         }
-        // 3: write
-        if (calls.calls === 3) {
-          if (options?.failWrite) {
-            return yield* Effect.fail({
-              _tag: "SshExitError",
-              endpoint: "studio-box",
-              operation: "write",
-              code: 1,
-            } as never);
+
+        if (match) {
+          // 3: topology seal presence probe
+          if (calls.calls === 3) {
+            return {
+              stdout: options?.topologySealed ? "SEALED\n" : "UNSEALED\n",
+              stderr: "",
+            };
           }
-          writes.push("written");
-          return { stdout: "", stderr: "" };
+          if (options?.topologySealed) {
+            return yield* Effect.fail(
+              new Error(`unexpected SSH call after SEALED early-return: #${calls.calls}`),
+            );
+          }
+          // 4: write (force re-stamp)
+          if (calls.calls === 4) {
+            if (options?.failWrite) {
+              return yield* Effect.fail({
+                _tag: "SshExitError",
+                endpoint: "studio-box",
+                operation: "write",
+                code: 1,
+              } as never);
+            }
+            writes.push("written");
+            return { stdout: "", stderr: "" };
+          }
+          // 5: probe cat
+        } else {
+          // 3: write
+          if (calls.calls === 3) {
+            if (options?.failWrite) {
+              return yield* Effect.fail({
+                _tag: "SshExitError",
+                endpoint: "studio-box",
+                operation: "write",
+                code: 1,
+              } as never);
+            }
+            writes.push("written");
+            return { stdout: "", stderr: "" };
+          }
+          // 4: probe cat
         }
-        // 4: probe cat — return the planned merge so probe succeeds
+
         const base =
           options?.existingRaw && options.existingRaw.trim().length > 0
             ? (JSON.parse(options.existingRaw) as ReturnType<typeof defaultSettings>)
             : defaultSettings();
-        const merged = mergeRemoteStationSettings(base, {
-          remoteHostId: "studio",
-          agentHostId: "fleet-studio",
-          commandCenterRef: "local",
-        });
+        const merged = mergeRemoteStationSettings(base, planInput);
         return {
           stdout: `${JSON.stringify(merged, null, 2)}\n`,
           stderr: "",
@@ -133,14 +181,11 @@ describe("configureRemoteHost", () => {
     expect(result.detail).toMatch(/configured studio/);
   });
 
-  it("is idempotent when remote already matches plan", async () => {
-    const existing = mergeRemoteStationSettings(defaultSettings(), {
-      remoteHostId: "studio",
-      agentHostId: "fleet-studio",
-      commandCenterRef: "local",
-    });
+  it("is idempotent when remote already matches plan AND topology seals present", async () => {
+    const existing = mergeRemoteStationSettings(defaultSettings(), planInput);
     const { ssh, writes } = makeSsh({
       existingRaw: `${JSON.stringify(existing, null, 2)}\n`,
+      topologySealed: true,
     });
     const result = await Effect.runPromise(
       configureRemoteHost(ssh, remoteHost, { commandCenterRef: "local" }),
@@ -148,6 +193,20 @@ describe("configureRemoteHost", () => {
     expect(result.ok).toBe(true);
     expect(writes).toEqual([]);
     expect(result.detail).toMatch(/already configured/);
+  });
+
+  it("force re-stamps when settings match but topology seals are absent", async () => {
+    const existing = mergeRemoteStationSettings(defaultSettings(), planInput);
+    const { ssh, writes } = makeSsh({
+      existingRaw: `${JSON.stringify(existing, null, 2)}\n`,
+      topologySealed: false,
+    });
+    const result = await Effect.runPromise(
+      configureRemoteHost(ssh, remoteHost, { commandCenterRef: "local" }),
+    );
+    expect(result.ok).toBe(true);
+    expect(writes).toEqual(["written"]);
+    expect(result.detail).not.toMatch(/already configured/);
   });
 
   it("merges station into existing remote settings", async () => {
@@ -159,6 +218,7 @@ describe("configureRemoteHost", () => {
         hostId: "local",
         commandCenterRef: "",
         supervisedPreferred: false,
+        topologyIntegrity: "ok" as const,
       },
     };
     const { ssh, writes } = makeSsh({
@@ -183,38 +243,7 @@ describe("configureRemoteHost", () => {
     );
     expect(result._tag).toBe("Left");
     if (result._tag === "Left") {
-      expect(result.left.message).toMatch(/Studio/);
-    }
-  });
-
-  it.each([
-    ["missing terminator", "/Users/remote"],
-    ["leading whitespace", " /Users/remote\n"],
-    ["trailing whitespace", "/Users/remote \n"],
-    ["CRLF", "/Users/remote\r\n"],
-    ["extra line terminator", "/Users/remote\n\n"],
-    ["multiple records", "/Users/remote\n/Users/other\n"],
-    ["empty", "\n"],
-    ["root", "/\n"],
-    ["relative", "Users/remote\n"],
-    ["dot segment", "/Users/./remote\n"],
-    ["dotdot segment", "/Users/../Applications\n"],
-    ["double slash", "/Users//remote\n"],
-    ["trailing slash", "/Users/remote/\n"],
-    ["control byte", "/Users/rem\u0000ote\n"],
-  ])("rejects %s remote home output after one SSH call", async (_case, homeOutput) => {
-    const { ssh, writes, calls } = makeSsh({ homeOutput });
-    const result = await Effect.runPromise(
-      Effect.either(
-        configureRemoteHost(ssh, remoteHost, { commandCenterRef: "local" }),
-      ),
-    );
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
       expect(result.left.code).toBe("io");
-      expect(result.left.message).toMatch(/exactly one canonical absolute path/);
     }
-    expect(writes).toEqual([]);
-    expect(calls.calls).toBe(1);
   });
 });

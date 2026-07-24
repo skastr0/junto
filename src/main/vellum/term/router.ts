@@ -26,11 +26,11 @@ import {
 } from "@shared/term-control";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import {
-  makeRemoteCommand,
   parseRemoteUnixSocketPath,
   parseSshEndpoint,
 } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, unixForward } from "../ssh/program";
+import { remoteCat } from "../ssh/read-commands";
 import type { SshForwardLease } from "../ssh/service";
 import { SshTransport } from "../ssh/service";
 import type {
@@ -1009,9 +1009,9 @@ export class TerminalRouter extends EventEmitter {
           const forward = yield* ssh
             .forward(unixForward(sshEndpoint, remoteSock))
             .pipe(Scope.extend(scope));
-          const tokenCmd = yield* makeRemoteCommand("/bin/cat", [
+          const tokenCmd = yield* remoteCat(
             join(home, ".vellum", "term", "token"),
-          ]);
+          );
           const tokenRes = yield* ssh.run(
             oneShot(sshEndpoint, tokenCmd, { budget: "short" }),
           );

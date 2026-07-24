@@ -3,6 +3,9 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   parseSshEndpoint,
   parseRemoteUnixSocketPath,
+  remoteHermesCli,
+  remoteHostProbe,
+  remoteUname,
   type OneShotProgram,
   type ScopedStreamProgram,
 } from "../src/main/vellum/ssh";
@@ -37,6 +40,26 @@ describe("SSH domain", () => {
     );
 
     expect(Either.isLeft(result)).toBe(true);
+  });
+
+  it("makes free-form destructive sh -c unrepresentable from the product API", async () => {
+    // Product surface: fixed hermes executable only — never /bin/sh.
+    type ProductApi = typeof import("../src/main/vellum/ssh");
+    type HasGenericMint = "makeRemoteCommand" extends keyof ProductApi ? true : false;
+    expectTypeOf<HasGenericMint>().toEqualTypeOf<false>();
+
+    const probe = await Effect.runPromise(
+      Effect.either(
+        remoteHostProbe(["/bin/sh", "-c", "rm -rf -- /"]),
+      ),
+    );
+    expect(Either.isLeft(probe)).toBe(true);
+
+    // remoteHermesCli cannot redirect the executable to a shell.
+    const hermes = await Effect.runPromise(remoteHermesCli(["version"]));
+    expect(hermes).toBeDefined();
+    const uname = await Effect.runPromise(remoteUname());
+    expect(uname).toBeDefined();
   });
 
   it("bounds Unix socket paths by encoded bytes", async () => {

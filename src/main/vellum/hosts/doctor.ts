@@ -15,12 +15,12 @@ import {
 } from "@shared/remote-hosts";
 import { runCli, type CliResult } from "../adapters/exec";
 import {
-  makeRemoteCommand,
   parseSshEndpoint,
   SshTimeoutError,
   type SshError,
 } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot } from "../ssh/program";
+import { remoteCat, remoteProductVersion } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
 import type { HostsRegistry } from "./registry";
 
@@ -116,7 +116,7 @@ const remoteBinary = (
 ): Effect.Effect<{ ok: boolean; detail: string }> =>
   parseSshEndpoint(endpoint).pipe(
     Effect.flatMap((parsed) =>
-      makeRemoteCommand(binary, binaryVersionArgs(binary)).pipe(
+      remoteProductVersion(binary).pipe(
         Effect.flatMap((command) =>
           ssh.run(oneShot(parsed, command, { budget: "status" })),
         ),
@@ -153,7 +153,7 @@ const readRemoteText = (
   endpoint: Parameters<typeof oneShot>[0],
   path: string,
 ): Effect.Effect<RemoteFileRead> =>
-  makeRemoteCommand("cat", [path]).pipe(
+  remoteCat(path).pipe(
     Effect.flatMap((command) =>
       ssh.run(oneShot(endpoint, command, { budget: "status" })),
     ),

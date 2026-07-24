@@ -12,12 +12,12 @@ import {
   type StationBrowserResponse,
 } from "@shared/station-browser";
 import {
-  makeRemoteCommand,
   makeRemoteStdin,
   parseSshEndpoint,
   type SshError,
 } from "../ssh/domain";
 import { oneShotWithStdin } from "../ssh/program";
+import { remoteVellumBrowserStation } from "../ssh/read-commands";
 import type { SshTransport } from "../ssh/service";
 
 /** Package-owned remote entrypoint. It accepts exactly one signed JSON frame on stdin. */
@@ -72,7 +72,7 @@ export const dispatchStationBrowser = (
     const endpoint = yield* parseSshEndpoint(host.endpoint).pipe(
       Effect.mapError((error) => new StationBrowserTransportError("host_unavailable", error.message)),
     );
-    const command = yield* makeRemoteCommand(STATION_BROWSER_WRAPPER, STATION_BROWSER_WRAPPER_ARGS).pipe(
+    const command = yield* remoteVellumBrowserStation().pipe(
       Effect.mapError((error) => new StationBrowserTransportError("host_unavailable", error.message)),
     );
     const input = yield* makeRemoteStdin(wire).pipe(

@@ -13,15 +13,16 @@ import {
 import type { RemoteHost } from "@shared/remote-hosts";
 import { hermesKeyFor, RemoteHostsError } from "@shared/remote-hosts";
 import {
-  makeRemoteCommand,
   makeRemoteStdin,
   parseSshEndpoint,
   type SshError,
 } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, oneShotWithStdin } from "../ssh/program";
+import { remoteCat } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
 import {
   compileRemotePlan,
+  compileRemoteTopologySealPresence,
   confineVellumDirectory,
   confineVellumLeaf,
   remoteStationSettingsInstallPlan,
@@ -105,7 +106,7 @@ const readRemoteSettingsRaw = (
   endpoint: Parameters<typeof oneShot>[0],
   settingsPath: string,
 ): Effect.Effect<string | null, never> =>
-  makeRemoteCommand("cat", [settingsPath]).pipe(
+  remoteCat(settingsPath).pipe(
     Effect.flatMap((command) => ssh.run(oneShot(endpoint, command, { budget: "status" }))),
     Effect.map((result) => result.stdout),
     Effect.catchAll(() => Effect.succeed(null as string | null)),
@@ -131,6 +132,23 @@ const writeRemoteSettings = (
     }),
   );
 
+/**
+ * Remote "already configured" requires topology.key + topology.seal as regular
+ * files. Absent / symlink / asymmetric is not success — force re-stamp.
+ */
+const probeRemoteTopologySealed = (
+  ssh: Ssh,
+  endpoint: Parameters<typeof oneShot>[0],
+  remoteHome: string,
+): Effect.Effect<boolean, never> =>
+  Effect.gen(function* () {
+    const vellumDir = yield* confineVellumDirectory(remoteHome);
+    const command = yield* compileRemoteTopologySealPresence(vellumDir);
+    const result = yield* ssh.run(oneShot(endpoint, command, { budget: "status" }));
+    const out = result.stdout.trim();
+    return out === "SEALED";
+  }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+
 const probeRemoteStation = (
   ssh: Ssh,
   endpoint: Parameters<typeof oneShot>[0],
@@ -140,7 +158,7 @@ const probeRemoteStation = (
   { readonly ok: boolean; readonly detail: string; readonly station?: StationSettings },
   never
 > =>
-  makeRemoteCommand("cat", [settingsPath]).pipe(
+  remoteCat(settingsPath).pipe(
     Effect.flatMap((command) => ssh.run(oneShot(endpoint, command, { budget: "status" }))),
     Effect.map((result) => {
       let parsed: unknown;
@@ -295,11 +313,15 @@ export const configureRemoteHost = (
         } satisfies ConfigureRemoteResult;
       }
       if (remoteStationAlreadyConfigured(migrated.right, planInput)) {
-        return {
-          ok: true,
-          detail: `${host.label}: already configured (${plan.summary})`,
-          station: migrated.right.station,
-        } satisfies ConfigureRemoteResult;
+        const sealed = yield* probeRemoteTopologySealed(ssh, endpoint, homePath);
+        if (sealed) {
+          return {
+            ok: true,
+            detail: `${host.label}: already configured (${plan.summary})`,
+            station: migrated.right.station,
+          } satisfies ConfigureRemoteResult;
+        }
+        // Settings match but seals absent/incomplete — force re-stamp.
       }
       nextSettings = mergeRemoteStationSettings(migrated.right, planInput);
     }

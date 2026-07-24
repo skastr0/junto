@@ -103,6 +103,17 @@ const remoteCommandBytes = (executable: string, args: ReadonlyArray<string>): nu
     0,
   );
 
+/**
+ * Low-level mint: bounds check + WeakMap brand only.
+ *
+ * **@internal** — not a product safety boundary. Brand means “created inside
+ * Vellum’s SSH kernel,” not “safe product operation.” Only:
+ * - `ssh/remote-plan.ts` / `ssh/hermes-remote-plan.ts` (named plan compilers)
+ * - `ssh/read-commands.ts` (closed allowlisted read constructors)
+ * - SSH kernel tests
+ * may call this. Product modules under hosts/, hermes/, herdr/, canvas-pull/,
+ * term/, browser/ must use named factories — never this function.
+ */
 export const makeRemoteCommand = (
   executable: string,
   args: ReadonlyArray<string> = [],
@@ -135,7 +146,7 @@ export const makeRemoteCommand = (
 export const inspectRemoteCommand = (command: RemoteCommand): RemoteCommandParts => {
   const parts = commandParts.get(command);
   if (!parts) {
-    throw new TypeError("RemoteCommand was not created by makeRemoteCommand");
+    throw new TypeError("RemoteCommand was not minted by the SSH command kernel");
   }
   return parts;
 };

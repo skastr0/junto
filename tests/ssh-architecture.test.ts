@@ -102,6 +102,34 @@ describe("SSH architecture", () => {
     expect(violations).toEqual([]);
   });
 
+  it("product modules outside ssh/ do not import makeRemoteCommand", () => {
+    // Brand must mean safe product operation — free-form mint is sealed to
+    // ssh/* plan compilers and read-commands factories only.
+    // Only the identifier makeRemoteCommand (import or call). Type-only imports
+    // from ssh/domain (e.g. SshEndpoint) are allowed for product modules.
+    const makeRemoteImport =
+      /import\s*\{[^}]*\bmakeRemoteCommand\b[^}]*\}\s*from\s*["'][^"']+["']/u;
+    const bareMakeRemote = /\bmakeRemoteCommand\s*\(/u;
+    const allowed = new Set([
+      "src/main/vellum/ssh/domain.ts",
+      "src/main/vellum/ssh/read-commands.ts",
+      "src/main/vellum/ssh/remote-plan.ts",
+      "src/main/vellum/ssh/hermes-remote-plan.ts",
+    ]);
+    const violations = files.flatMap((path) => {
+      const name = display(path);
+      if (!name.startsWith("src/")) return [];
+      if (allowed.has(name)) return [];
+      const source = readFileSync(path, "utf8");
+      if (makeRemoteImport.test(source) || bareMakeRemote.test(source)) {
+        return [name];
+      }
+      return [];
+    });
+
+    expect(violations).toEqual([]);
+  });
+
   it("reserves shared ControlMaster -O exit for the explicit teardown op, never Layer/Scope disposal", () => {
     // Shared masters are command-scoped (ControlPersist=no), but a headless
     // CLI and the GUI may concurrently share the same ControlPath while the

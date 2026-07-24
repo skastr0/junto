@@ -16,8 +16,10 @@ import type { Context } from "effect";
 import { Effect, Stream } from "effect";
 import { controlSocketPath as browserControlSocketPath } from "@shared/browser-control";
 import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
-import { makeRemoteCommand, type SshEndpoint } from "../ssh/domain";
+import type { SshEndpoint } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
+import { remoteTestFileExists } from "../ssh/read-commands";
+import { compileDarwinRemoteDeployScript } from "../ssh/remote-plan";
 import { SshTransferExitError, SshTransport } from "../ssh/service";
 import {
   appProcessPlane,
@@ -1004,7 +1006,7 @@ const streamAppToRemote = (
                 Effect.zipRight(Effect.promise(() => awaitTarCloseBounded(exit, 2_000))),
               ),
       );
-      const command = yield* makeRemoteCommand("bash", ["-lc", remoteScript]);
+      const command = yield* compileDarwinRemoteDeployScript(remoteScript);
       const output = yield* ssh.transfer(
         sharedStream(endpoint, command),
         Stream.fromAsyncIterable(
@@ -1152,10 +1154,7 @@ const deployDarwinRemote = (
     }
 
     const tokenPath = join(home, ".vellum", "term", "token");
-    const tokenCmd = yield* makeRemoteCommand("/bin/test", [
-      "-f",
-      tokenPath,
-    ]).pipe(Effect.either);
+    const tokenCmd = yield* remoteTestFileExists(tokenPath).pipe(Effect.either);
     if (tokenCmd._tag === "Right") {
       const tokenProbe = yield* ssh
         .run(oneShot(target.endpoint, tokenCmd.right, { budget: "short" }))

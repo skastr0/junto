@@ -7,7 +7,6 @@ import {
   sshEndpointForHermesId,
 } from "../hosts/snapshot";
 import {
-  makeRemoteCommand,
   parseSshEndpoint,
   SshInputError,
   type RemoteCommand,
@@ -18,6 +17,7 @@ import {
   compileHermesAvatar,
   compileHermesIdentityBatch,
 } from "../ssh/hermes-remote-plan";
+import { remoteHermesCli } from "../ssh/read-commands";
 import {
   dedicatedStream,
   oneShot,
@@ -120,7 +120,7 @@ export const HermesTransportLive = Layer.effect(
       args: ReadonlyArray<string>,
       budget: OneShotBudget,
     ): Effect.Effect<CliResult> =>
-      makeRemoteCommand("hermes", args).pipe(
+      remoteHermesCli(args).pipe(
         Effect.flatMap((command) => ssh.run(oneShot(endpoint, command, { budget }))),
         Effect.map((result): CliResult => ({ ok: true, stdout: result.stdout })),
         Effect.catchAll((error) =>
@@ -206,7 +206,7 @@ export const HermesTransportLive = Layer.effect(
       }
       return resolveHermesEndpoint(host).pipe(
         Effect.flatMap((endpoint) =>
-          makeRemoteCommand("hermes", commandArgs(profile, ["acp"])).pipe(
+          remoteHermesCli(commandArgs(profile, ["acp"])).pipe(
             Effect.flatMap((command) =>
               ssh.connect(dedicatedStream(endpoint, command, "agent"), awaitReady),
             ),

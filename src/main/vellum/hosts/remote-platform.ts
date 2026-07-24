@@ -1,8 +1,9 @@
 import type { Context } from "effect";
 import { Effect } from "effect";
 import type { RemoteHost } from "@shared/remote-hosts";
-import { makeRemoteCommand, parseSshEndpoint } from "../ssh/domain";
+import { parseSshEndpoint } from "../ssh/domain";
 import { oneShot } from "../ssh/program";
+import { remoteUname } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
 import type {
   DeployableRemoteHost,
@@ -167,7 +168,7 @@ export const resolveRemoteDeploymentTarget = (
     }
     stages.push("ssh warm ok");
 
-    const unameCommand = yield* makeRemoteCommand("uname", ["-s"]).pipe(
+    const unameCommand = yield* remoteUname().pipe(
       Effect.either,
     );
     if (unameCommand._tag === "Left") {
