@@ -146,5 +146,68 @@ export const admitRemoteAbsPath = (
   return Effect.succeed(path);
 };
 
+/**
+ * Re-root DesiredFile paths under `destRoot`.
+ *
+ * Packager dryRun emits absolute paths under planRoot/packageRoot. For install
+ * into a harness home or a temp/test root, strip the first matching source root
+ * and join the remainder under destRoot.
+ */
+export const rehomeDesiredFiles = <
+  T extends { readonly targetPath: string },
+>(
+  files: ReadonlyArray<T>,
+  sourceRoots: ReadonlyArray<string>,
+  destRoot: string,
+  home: string = process.env.HOME ?? homedir(),
+): ReadonlyArray<T> => {
+  const dest = resolve(expandUserPath(destRoot, home));
+  const roots = sourceRoots
+    .map((r) => resolve(expandUserPath(r, home)))
+    .filter((r) => r.length > 0)
+    .sort((a, b) => b.length - a.length); // longest match first
+
+  return files.map((file) => {
+    const expanded = expandUserPath(file.targetPath, home);
+    const absolute = isAbsolute(expanded)
+      ? resolve(expanded)
+      : resolve(dest, expanded);
+
+    for (const root of roots) {
+      const rel = relative(root, absolute);
+      if (rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) {
+        return {
+          ...file,
+          targetPath: resolve(dest, rel),
+        };
+      }
+      // exact root match — keep under dest as basename-less skip; use "."
+      if (rel === "") {
+        return {
+          ...file,
+          targetPath: dest,
+        };
+      }
+    }
+
+    // Already under destRoot
+    const underDest = relative(dest, absolute);
+    if (
+      underDest !== ".." &&
+      !underDest.startsWith(`..${sep}`) &&
+      !isAbsolute(underDest)
+    ) {
+      return { ...file, targetPath: absolute };
+    }
+
+    // Fallback: place by basename under dest (last segment only)
+    const base = absolute.split(sep).filter(Boolean).slice(-2).join(sep);
+    return {
+      ...file,
+      targetPath: resolve(dest, base.length > 0 ? base : "file"),
+    };
+  });
+};
+
 export const shellSingleQuote = (value: string): string =>
   `'${value.replace(/'/g, `'\\''`)}'`;

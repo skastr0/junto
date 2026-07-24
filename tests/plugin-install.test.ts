@@ -172,6 +172,26 @@ describe("contentHash", () => {
   });
 });
 
+describe("rehomeDesiredFiles", () => {
+  it("maps absolute plan paths under applyRoot", async () => {
+    const { rehomeDesiredFiles } = await import("../src/main/vellum/plugin-install/paths");
+    const planRoot = "/tmp/plan-aaa";
+    const dest = "/tmp/apply-bbb";
+    const remapped = rehomeDesiredFiles(
+      [
+        {
+          targetPath: `${planRoot}/skills/foo/SKILL.md`,
+          content: "x",
+          plugin: "vellum",
+        },
+      ],
+      [planRoot],
+      dest,
+    );
+    expect(remapped[0]?.targetPath).toBe(`${dest}/skills/foo/SKILL.md`);
+  });
+});
+
 describe("compilePluginPackage", () => {
   it.skipIf(!packagerAvailable)(
     "dryRuns the minimal fixture for claude-code",

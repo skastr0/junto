@@ -21,7 +21,7 @@ import {
 } from "./apply-remote";
 import type { ApplyOperation, ApplyReceipt, DesiredFile } from "./desired";
 import { compilePluginPackage } from "./package";
-import { PathSafetyError } from "./paths";
+import { PathSafetyError, rehomeDesiredFiles } from "./paths";
 
 export class InstallError extends Schema.TaggedError<InstallError>()("InstallError", {
   kind: Schema.Literal("compile", "apply", "validation", "path", "ssh"),
@@ -130,10 +130,24 @@ const toReceipt = (
 /**
  * Files to materialize from a package dryRun result.
  * Prefer `compileFiles` (harness-shaped whole files from lowerers).
+ * When `applyRoot` is set, re-home absolute plan/package paths under it.
  */
-export const desiredFilesFromPackage = (result: {
-  readonly compileFiles: ReadonlyArray<DesiredFile>;
-}): ReadonlyArray<DesiredFile> => result.compileFiles;
+export const desiredFilesFromPackage = (
+  result: {
+    readonly compileFiles: ReadonlyArray<DesiredFile>;
+    readonly packageRoot: string;
+    readonly planRoot: string;
+  },
+  applyRoot?: string,
+): ReadonlyArray<DesiredFile> => {
+  const files = result.compileFiles;
+  if (applyRoot === undefined || applyRoot.trim().length === 0) return files;
+  return rehomeDesiredFiles(
+    files,
+    [result.planRoot, result.packageRoot],
+    applyRoot,
+  );
+};
 
 const compileForInstall = (
   opts: InstallVellumPluginOptions,
@@ -190,7 +204,7 @@ export function installVellumPlugin(
       Effect.flatMap((packaged) =>
         applyDesiredFilesRemote({
           endpoint,
-          files: desiredFilesFromPackage(packaged),
+          files: desiredFilesFromPackage(packaged, opts.applyRoot),
           ...(opts.applyRoot !== undefined ? { root: opts.applyRoot } : {}),
         }).pipe(
           Effect.mapError((error) => mapApplyError(error, opts.target)),
@@ -203,7 +217,7 @@ export function installVellumPlugin(
   return compileForInstall(opts).pipe(
     Effect.flatMap((packaged) =>
       applyDesiredFilesLocal({
-        files: desiredFilesFromPackage(packaged),
+        files: desiredFilesFromPackage(packaged, opts.applyRoot),
         ...(opts.applyRoot !== undefined ? { root: opts.applyRoot } : {}),
       }).pipe(
         Effect.mapError((error) => mapApplyError(error, opts.target)),
