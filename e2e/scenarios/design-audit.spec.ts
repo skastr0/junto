@@ -405,7 +405,7 @@ test("capture every surface for design review", async () => {
     if (await fit.isVisible().catch(() => false)) await fit.click();
     await page.waitForTimeout(600);
     await termNode.scrollIntoViewIfNeeded();
-    await termNode.getByRole("button", { name: "Start" }).click();
+    await termNode.dblclick();
     const surface = page.locator(".native-terminal-surface");
     await expect(surface).toBeVisible({ timeout: 30_000 });
     await expect(surface.locator(".native-terminal-surface__status")).toContainText(
@@ -414,7 +414,7 @@ test("capture every surface for design review", async () => {
     );
     await page.waitForTimeout(900);
     await shot(page, "09-native-terminal-focus");
-    await page.getByRole("button", { name: "Pin all" }).click();
+    await surface.getByRole("button", { name: "Pin" }).click();
     await page.waitForTimeout(700);
     await shot(page, "09b-native-terminal-pinned");
   } finally {

@@ -79,7 +79,7 @@ export const textNode = (id: string, text: string, x = 0, y = 0): TextNode => ({
 });
 
 /** Vellum-owned native terminal node (entity.kind terminal + ether.terminal).
- * Launch is inert until Start — matches makeTerminalNode. */
+ * Session starts on open / create — no Start button on the card. */
 export const terminalTextNode = (input: {
   readonly id: string;
   readonly bindingId: string;

@@ -129,8 +129,8 @@ test("native terminal xterm fills focus pane and stays filled after pin", async 
   const node = page.locator(".react-flow__node", { hasText: LABEL });
   await expect(node).toBeVisible({ timeout: 30_000 });
 
-  // Start opens the focus surface after create.
-  await node.getByRole("button", { name: "Start" }).click();
+  // Double-click opens (and starts) the focus surface — no card Start button.
+  await node.dblclick();
 
   const surface = page.locator(".native-terminal-surface");
   await expect(surface).toBeVisible({ timeout: 30_000 });
@@ -153,8 +153,8 @@ test("native terminal xterm fills focus pane and stays filled after pin", async 
   const focusProbe = await probeLayout(page);
   assertFillsPane(focusProbe, "focus");
 
-  // Pin path was the worst kink — layout reflow must not collapse to island.
-  await page.getByRole("button", { name: "Pin all" }).click();
+  // Pin lives on the surface header (not dock chrome Pin all).
+  await surface.getByRole("button", { name: "Pin" }).click();
   await expect(page.getByLabel("Pinned work surface dock")).toBeVisible({ timeout: 10_000 });
   await expect(surface).toBeVisible({ timeout: 10_000 });
 

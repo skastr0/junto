@@ -149,7 +149,7 @@ export const makeHerdrNode = (
   };
 };
 
-/** Vellum-owned local terminal. Launch is inert until the operator presses Start. */
+/** Vellum-owned terminal node. Session starts on create / open (no card Start). */
 export const makeTerminalNode = (
   x: number,
   y: number,

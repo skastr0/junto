@@ -17,9 +17,11 @@ import { accentColor, INK, DIM, SOURCE_HUE, withAlpha } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { openHerdrTerminal } from "../../lib/herdr-state";
+import { openTerminal } from "../../lib/terminal-actions";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { TerminalCard } from "../terminal/TerminalCard";
+import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
 import { HerdrToolbarActions } from "../herdr/HerdrToolbarActions";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Eyebrow, IconButton } from "../ui";
@@ -300,6 +302,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const text = node.type === "text" ? node.text : "";
   const isFreeNote = !node.ether?.entity;
   const isHerdr = node.ether?.entity?.kind === "herdr";
+  const isTerminal = node.ether?.entity?.kind === "terminal";
   // Boolean selector: only this node re-renders when edit intent targets it.
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
   const [editing, setEditing] = useState(false);
@@ -365,10 +368,16 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       node={node}
       selected={selected}
       blocked={data.blocked}
-      onEdit={isHerdr ? () => setRenaming(true) : openInline}
+      onEdit={isHerdr ? () => setRenaming(true) : isTerminal ? undefined : openInline}
       onMaximize={isFreeNote ? openMaximized : undefined}
-      inlineEdit={!isHerdr}
-      toolbarExtras={isHerdr ? <HerdrToolbarActions node={node} /> : undefined}
+      inlineEdit={!isHerdr && !isTerminal}
+      toolbarExtras={
+        isHerdr ? (
+          <HerdrToolbarActions node={node} />
+        ) : isTerminal ? (
+          <TerminalToolbarActions node={node} />
+        ) : undefined
+      }
     >
       {maximized ? (
         <NoteEditModal
@@ -387,7 +396,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       {workDetail && entityKind === "artifacts" ? (
         <ArtifactsDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
-      {editing && !maximized && !isHerdr && !isWorkSurface ? (
+      {editing && !maximized && !isHerdr && !isTerminal && !isWorkSurface ? (
         <textarea
           ref={ref}
           autoFocus
@@ -414,9 +423,13 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           onDoubleClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            // herdr: double-click opens the live terminal, never inline text.
+            // herdr / terminal: double-click opens the live surface, never inline text.
             if (isHerdr) {
               openHerdr();
+              return;
+            }
+            if (isTerminal) {
+              void openTerminal(node);
               return;
             }
             if (isWorkSurface) {

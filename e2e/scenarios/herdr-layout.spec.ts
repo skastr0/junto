@@ -198,7 +198,8 @@ test("herdr xterm fills focus pane and stays filled after pin", async () => {
     assertFillsPane(focusProbe, "focus");
 
     // Pin path reflows — must not collapse to island.
-    await page.getByRole("button", { name: "Pin all" }).click();
+    // Terminal/herdr focus has no dock chrome; Pin is surface-local.
+    await page.getByRole("button", { name: "Pin" }).click();
     await expect(page.getByLabel("Pinned work surface dock")).toBeVisible({ timeout: 10_000 });
     await expect(surface).toBeVisible({ timeout: 10_000 });
 

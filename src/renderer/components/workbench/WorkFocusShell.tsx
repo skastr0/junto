@@ -25,8 +25,13 @@ export function WorkFocusShell() {
   const hasFocus = zoneHasSurfaces(registry, "focus");
   const focusSurfaces = registry.surfaces.filter((s) => s.zone === "focus");
   const onlyTerminals =
-    focusSurfaces.length > 0 && focusSurfaces.every((s) => s.kind === "herdr" || s.kind === "terminal");
+    focusSurfaces.length > 0 &&
+    focusSurfaces.every((s) => s.kind === "herdr" || s.kind === "terminal");
   const measure = onlyTerminals ? "terminal" : "workspace";
+  // Dock chrome (tabs / split / pin-all) is for multi-surface browser work.
+  // Pure terminal/herdr focus uses surface-local Pin + Close — reusing the
+  // side-dock strip here was noise (fake single tab + split toggle).
+  const showDockChrome = focusSurfaces.length > 1 && !onlyTerminals;
 
   const panes = visiblePanes(registry, "focus");
   const activeId = panes.pane0;
@@ -88,12 +93,14 @@ export function WorkFocusShell() {
       panelClassName="work-focus-shell__panel"
     >
       <div className="work-focus-shell">
-        <WorkbenchChrome
-          zone="focus"
-          paneIds={[panes.pane0, panes.pane1]}
-          tabs={panes.tabs}
-          activeId={activeId}
-        />
+        {showDockChrome ? (
+          <WorkbenchChrome
+            zone="focus"
+            paneIds={[panes.pane0, panes.pane1]}
+            tabs={panes.tabs}
+            activeId={activeId}
+          />
+        ) : null}
         <WorkbenchPanes zone="focus" />
       </div>
     </FocusSurface>

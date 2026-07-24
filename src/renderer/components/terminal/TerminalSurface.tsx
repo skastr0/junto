@@ -6,7 +6,15 @@ import type { CanvasNode } from "@shared/canvas";
 import type { VellumTerminalApi } from "@shared/ipc";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { MONO_CELL } from "../../lib/focus-measure";
-import { closeWorkbenchSurface, terminalSurfaceId } from "../../lib/dock-state";
+import { use$ } from "@legendapp/state/react";
+import {
+  closeWorkbenchSurface,
+  dock$,
+  pinWorkbenchSurface,
+  terminalSurfaceId,
+  unpinWorkbenchSurface,
+} from "../../lib/dock-state";
+import { surfaceById } from "../../lib/surface-registry";
 import { getVellumApi } from "../../lib/vellum-api";
 import {
   VELLUM_XTERM_FONT_FAMILY,
@@ -303,7 +311,15 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   }, [bindingId, hostId]);
 
   const label = node.type === "text" ? node.text : "terminal";
-  const closeSurface = () => closeWorkbenchSurface(terminalSurfaceId(node.id));
+  const surfaceId = terminalSurfaceId(node.id);
+  const registry = use$(dock$.registry);
+  const surface = surfaceById(registry, surfaceId);
+  const pinned = surface?.zone === "pinned";
+  const closeSurface = () => closeWorkbenchSurface(surfaceId);
+  const togglePin = () => {
+    if (pinned) unpinWorkbenchSurface(surfaceId);
+    else pinWorkbenchSurface(surfaceId);
+  };
   const killSession = () => {
     void getVellumApi()
       ?.terminalKill?.(bindingId, hostId)
@@ -334,6 +350,14 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         }
         actions={
           <>
+            <Button
+              size="xs"
+              variant="chrome"
+              title={pinned ? "Move to focus shell" : "Pin to side dock"}
+              onClick={togglePin}
+            >
+              {pinned ? "Unpin" : "Pin"}
+            </Button>
             {attached ? (
               <Button size="xs" variant="danger" onClick={killSession}>
                 Kill
