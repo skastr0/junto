@@ -49,15 +49,19 @@ const defaultIds = (): WorkIds => ({
  * For each tasks sink, for each submitted unclaimed item, find a free actor
  * edged to that sink (undirected) whose workRole matches the sink's workRole
  * (or either side unassigned). Claim with workerClaimId(actor).
+ * A paused seat (opts.seatPaused) neither drains as a sink nor claims as a
+ * worker — the pause plane's law reaches the simulation here.
  */
 export const factoryClaimTick = (
   doc: CanvasDoc,
   canvasName: string,
   ids: WorkIds = defaultIds(),
+  opts?: { readonly seatPaused?: (nodeId: string) => boolean },
 ): { readonly doc: CanvasDoc; readonly claimed: ReadonlyArray<{ taskId: string; actor: string }> } => {
   let next = doc;
   const claimed: Array<{ taskId: string; actor: string }> = [];
   const busy = new Set(busyWorkerIds(doc));
+  const isPausedSeat = opts?.seatPaused ?? (() => false);
 
   const byId = new Map(next.nodes.map((n) => [n.id, n] as const));
 
@@ -75,6 +79,7 @@ export const factoryClaimTick = (
 
   for (const node of next.nodes) {
     if (!isTaskSink(node)) continue;
+    if (isPausedSeat(node.id)) continue;
     const sinkRole = workRoleOf(node);
     const items = node.ether?.tasks?.items ?? [];
     const open = items.filter((t) => t.state === "submitted" && !claimedByOf(t));
@@ -86,6 +91,7 @@ export const factoryClaimTick = (
       .filter((n): n is CanvasNode => n !== undefined && isActor(n))
       .filter((actor) => {
         const id = workerClaimId(actor);
+        if (isPausedSeat(actor.id)) return false;
         if (isReservedClaimActor(id) || busy.has(id)) return false;
         const actorRole = workRoleOf(actor);
         // Match when either side unassigned, or roles equal.

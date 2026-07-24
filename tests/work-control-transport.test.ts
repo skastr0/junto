@@ -25,6 +25,7 @@ import {
   type WorkControlServerOptions,
 } from "../src/main/vellum/work/control";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+import { PausePlane, PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
@@ -35,7 +36,7 @@ import {
 const roots: string[] = [];
 const servers: WorkControlServer[] = [];
 const rogueServers: NetServer[] = [];
-const runtimes: Array<ManagedRuntime.ManagedRuntime<WorkService | CanvasesService, never>> = [];
+const runtimes: Array<ManagedRuntime.ManagedRuntime<WorkService | CanvasesService | PausePlane, never>> = [];
 const authoringGates: MainAuthoringGate[] = [];
 /** Peer PID for transport tests — must be a live process (epoch-checked). */
 const TEST_PEER_PID = process.pid;
@@ -153,7 +154,7 @@ const startTestServer = async (options: {
   process.env.VELLUM_CANVASES_DIR = canvasesDir;
   process.env.VELLUM_WORK_HOME = workHome;
 
-  const runtime = ManagedRuntime.make(Layer.provideMerge(WorkLive, CanvasesLive));
+  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, CanvasesLive), PausePlaneAllPlaying));
   runtimes.push(runtime);
   // Seed live authority before any hung dispatch so the first work op does
   // not pay store fsync under a tight shutdown deadline. Sibling authority
@@ -573,7 +574,7 @@ describe("work control transport", () => {
     mkdirSync(canvasesDir, { recursive: true });
     process.env.VELLUM_CANVASES_DIR = canvasesDir;
     process.env.VELLUM_WORK_HOME = workHome;
-    const runtime = ManagedRuntime.make(Layer.provideMerge(WorkLive, CanvasesLive));
+    const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, CanvasesLive), PausePlaneAllPlaying));
     runtimes.push(runtime);
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.write("work-cli", seedDoc()));

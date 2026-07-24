@@ -32,6 +32,7 @@ import {
   type WorkControlShutdownReceipt,
 } from "../src/main/vellum/work/control";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+import { PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
 import { WORK_MAX_FRAME_BYTES } from "../src/shared/work-control";
 
@@ -454,7 +455,7 @@ const main = async () => {
     termGraceMs: CLI_TERM_GRACE_MS,
     killGraceMs: CLI_KILL_CLOSE_GRACE_MS,
   });
-  const runtime = ManagedRuntime.make(Layer.provideMerge(WorkLive, CanvasesLive));
+  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, CanvasesLive), PausePlaneAllPlaying));
   // Authority is sole store — seed via CanvasesService.write, not .canvas files.
   const canvasesSvc = await runtime.runPromise(CanvasesService);
   await runtime.runPromise(canvasesSvc.write(CANVAS, seed()));

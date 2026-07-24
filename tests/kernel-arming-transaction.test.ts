@@ -13,6 +13,7 @@ import { StoreError, StoreService } from "../src/main/services/store";
 import { ChatService, ChatServiceContext } from "../src/main/vellum/chat/service";
 import type { SpawnFn } from "../src/main/vellum/chat/acp-client";
 import { KernelLive, KernelService } from "../src/main/vellum/kernel/service";
+import { PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { __resetKernelMemoryForTest, getArmed } from "../src/main/vellum/kernel/cycle";
 import { SettingsService } from "../src/main/vellum/settings/service";
 import { defaultSettings } from "../src/shared/settings";
@@ -102,7 +103,7 @@ const runArm = (
     Layer.succeed(ChatServiceContext, new ChatService(noSpawn)),
     fakeSettings,
   );
-  const layer = Layer.provide(KernelLive, deps);
+  const layer = Layer.provide(KernelLive, Layer.mergeAll(deps, PausePlaneAllPlaying));
   const runtime = ManagedRuntime.make(layer);
   return runtime
     .runPromise(Effect.flatMap(KernelService, (kernel) => kernel.armRegion(canvasName, regionId, armed)))

@@ -11,6 +11,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.canvas.delete",
   "ipc.canvas.pull",
   "ipc.canvas.portfolio",
+  "kernel.claim-tick",
   "startup.canvas.ensure-seed",
   "ipc.work.task-create",
   "ipc.work.task-describe",

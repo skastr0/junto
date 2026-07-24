@@ -57,14 +57,19 @@ export class MessageDeliveryService {
   private store: MessageDeliveryStore | undefined;
   private now: MessageDeliveryClock = () => Date.now();
 
+  private seatPausedLookup: ((canvas: string, doc: CanvasDoc, nodeId: string) => boolean) | undefined;
+
   configure(input: {
     readonly transport: MessageDeliveryTransport;
     readonly store: MessageDeliveryStore;
     readonly now?: MessageDeliveryClock;
+    /** Pause plane: a paused target keeps its messages pending (delivered on resume). */
+    readonly seatPaused?: (canvas: string, doc: CanvasDoc, nodeId: string) => boolean;
   }): void {
     this.transport = input.transport;
     this.store = input.store;
     if (input.now) this.now = input.now;
+    this.seatPausedLookup = input.seatPaused;
   }
 
   /** Test seam — drop all in-flight marks and deps. */
@@ -102,6 +107,11 @@ export class MessageDeliveryService {
     void this.scanAndDeliver(
       (target) => target.kind === "terminal" && target.bindingId === bindingId,
     );
+  }
+
+  /** Pause released — re-drive everything held pending while paused. */
+  onResumed(): void {
+    void this.scanAndDeliver(() => true);
   }
 
   private async scanAndDeliver(
@@ -150,6 +160,8 @@ export class MessageDeliveryService {
       if (!doc) return;
       const node = doc.nodes.find((n) => n.id === nodeId);
       if (!node) return;
+      // Paused target: leave the message pending; resume re-drives it.
+      if (this.seatPausedLookup?.(canvas, doc, nodeId)) return;
       const live = node.ether?.messages?.items.find((m) => m.messageId === message.messageId);
       if (!live) return;
       if (isPendingDelivery(live) === false) {

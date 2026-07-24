@@ -50,6 +50,17 @@ import {
 } from "@shared/work-control";
 import { CanvasesService } from "../canvases";
 import { WorkService, type WorkOpResult } from "./service";
+import { PausePlane } from "../pause-plane";
+import { seatPaused } from "@shared/pause";
+
+/** Ops that act on the factory — refused for paused seats. Reads stay open. */
+const MUTATING_OPS: ReadonlySet<string> = new Set([
+  "tasks.claim",
+  "tasks.update",
+  "msg.send",
+  "request.create",
+  "artifact.publish",
+]);
 import {
   admitWorkTarget,
   connectedCapabilities,
@@ -347,7 +358,7 @@ const decodeArgs = <A, I>(
 // Dispatch
 
 type RunEffect = <A, E>(
-  effect: Effect.Effect<A, E, WorkService | CanvasesService>,
+  effect: Effect.Effect<A, E, WorkService | CanvasesService | PausePlane>,
 ) => Promise<A>;
 
 const ensureCaller = (
@@ -397,10 +408,11 @@ const dispatchOp = (
   args: unknown,
   caller: WorkCaller,
   version: string,
-): Effect.Effect<unknown, WorkErrorBody, WorkService | CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, WorkService | CanvasesService | PausePlane> =>
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
     const work = yield* WorkService;
+    const pausePlane = yield* PausePlane;
 
     if (op === "ping") {
       return {
@@ -434,6 +446,25 @@ const dispatchOp = (
     const board = read.doc;
     const callerErr = ensureCaller(board, caller.nodeId);
     if (callerErr) return yield* Effect.fail(callerErr);
+
+    // The pause plane is the factory's safety switch: a paused seat (its
+    // node, a containing region, or the whole canvas — canvases are born
+    // paused) may read but never act. Reads stay open so a paused agent can
+    // still see the board.
+    if (MUTATING_OPS.has(op)) {
+      const pauseState = pausePlane.stateFor(caller.canvasName);
+      if (seatPaused(pauseState, board, caller.nodeId)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "Paused",
+          message: `seat "${caller.nodeId}" is paused — the factory is not accepting its actions`,
+          details: {
+            caller: caller.nodeId,
+            retryable: true,
+            next_step: "wait for the operator to press play on the seat, region, or canvas",
+          },
+        });
+      }
+    }
 
     if (op === "capabilities") {
       const self = findNode(board, caller.nodeId)!;

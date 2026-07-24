@@ -61,6 +61,7 @@ export const WorkErrorType = Schema.Literal(
   "InputError",
   "ProtocolError",
   "InternalError",
+  "Paused",
 );
 export type WorkErrorType = typeof WorkErrorType.Type;
 

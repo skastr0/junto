@@ -27,6 +27,7 @@ import {
   probeNativeTerminalReadiness,
 } from "./vellum/term/native-readiness";
 import { KernelLive, KernelService } from "./vellum/kernel/service";
+import { PausePlaneLive } from "./vellum/pause-plane";
 import { WorkLive } from "./vellum/work/service";
 import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
 import { SettingsLive, SettingsService } from "./vellum/settings/service";
@@ -108,9 +109,13 @@ const BaseLayer = Layer.mergeAll(
   SettingsLive,
 );
 
+// Pause plane sits between the base services and the acting planes so the
+// kernel, work control, and IPC all share ONE born-paused switch instance.
+const BaseWithPauseLive = Layer.provideMerge(PausePlaneLive, BaseLayer);
+
 export const RootLayer = Layer.provideMerge(
   Layer.mergeAll(KernelLive, RegionRollupLive, WorkLive),
-  BaseLayer,
+  BaseWithPauseLive,
 );
 
 export const AppRuntime = ManagedRuntime.make(RootLayer);

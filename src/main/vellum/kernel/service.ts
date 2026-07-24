@@ -29,6 +29,9 @@ import { SnapshotsService } from "../snapshots";
 import { StoreService } from "../../services/store";
 import { SettingsService } from "../settings/service";
 import { MainAuthoringRefused, mainAuthoringGate } from "../main-authoring-gate";
+import { PausePlane } from "../pause-plane";
+import { factoryClaimTick } from "@shared/factory-tick";
+import { seatPaused } from "@shared/pause";
 import {
   checkTimers,
   deliverPulse,
@@ -42,6 +45,7 @@ import {
   runEvaluationCycle,
   setArmed,
   setDocs,
+  setPausedLookup,
   setStationScope,
   __setDeliveryDepsForTest,
   __setFlagWriterForTest,
@@ -165,6 +169,7 @@ export const computeOrphanedArming = (
 type CanvasesShape = Context.Tag.Service<typeof CanvasesService>;
 type SnapshotsShape = Context.Tag.Service<typeof SnapshotsService>;
 type StoreShape = Context.Tag.Service<typeof StoreService>;
+type PauseShape = Context.Tag.Service<typeof PausePlane>;
 type SettingsShape = Context.Tag.Service<typeof SettingsService>;
 type KernelServiceShape = Context.Tag.Service<typeof KernelService>;
 
@@ -192,10 +197,20 @@ const makeKernelService = (
   store: StoreShape,
   chatService: ChatService,
   settings: SettingsShape,
+  pause: PauseShape,
 ): KernelServiceShape => {
   const docs = new Map<string, CanvasDoc>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
   const canvasMutatedListeners = new Set<(name: string) => void>();
+
+  // Pulse deliveries consult the pause plane per source seat; a canvas with
+  // no tracked doc falls back to the canvas-level switch (fail closed).
+  setPausedLookup((canvasName, sourceNodeId) => {
+    const state = pause.stateFor(canvasName);
+    if (!state.playing) return true;
+    const doc = docs.get(canvasName);
+    return doc ? seatPaused(state, doc, sourceNodeId) : true;
+  });
 
   let started = false;
   let armingFault: string | undefined;
@@ -331,11 +346,48 @@ const makeKernelService = (
     await refreshStationScope(settings);
     __setSnapshotsForTest(await Effect.runPromise(snapshots.current));
     await Promise.all([runEvaluationCycle(), checkTimers()]);
+    await runClaimTicks();
     // Sweep stale watcher/timer runtime entries for nodes removed on a still-
     // existing canvas (whole-canvas deletes are handled by purgeCanvasMemory
     // on resync). Runs after evaluation so this cycle's fresh entries stand.
     reconcileLiveCanvasMemory();
     emitSnapshot();
+  };
+
+  // The claim simulation breathes only while the operator has pressed play:
+  // a paused canvas ticks nothing, and paused seats/regions never claim or
+  // get drained. Writes go through the authoring gate like every kernel
+  // document mutation.
+  const runClaimTicks = async (): Promise<void> => {
+    for (const [canvasName, doc] of docs) {
+      const state = pause.stateFor(canvasName);
+      if (!state.playing) continue;
+      // Probe on the tracked doc; only touch authority when something claims.
+      const probe = factoryClaimTick(doc, canvasName, undefined, {
+        seatPaused: (nodeId) => seatPaused(state, doc, nodeId),
+      });
+      if (probe.claimed.length === 0) continue;
+      await mainAuthoringGate
+        .run("kernel.claim-tick", async () => {
+          // Re-run inside mutate on the authoritative doc — never a stale write.
+          await Effect.runPromise(
+            canvases.mutate(
+              canvasName,
+              (current) =>
+                factoryClaimTick(current, canvasName, undefined, {
+                  seatPaused: (nodeId) => seatPaused(state, current, nodeId),
+                }).doc,
+            ),
+          );
+          const result = await Effect.runPromise(Effect.either(canvases.read(canvasName)));
+          if (result._tag === "Right") docs.set(canvasName, result.right.doc);
+          for (const listener of canvasMutatedListeners) listener(canvasName);
+        })
+        .catch((error) => {
+          if (error instanceof MainAuthoringRefused) return;
+          console.error(`[kernel] claim tick write failed for ${canvasName}:`, error);
+        });
+    }
   };
 
   // Coalesces overlapping triggers (snapshot change + doc change + the
@@ -461,6 +513,7 @@ const makeKernelService = (
       if (started) return;
       started = true;
       void (async () => {
+        await pause.start();
         await hydrateArming();
         await hydrateAllDocs();
         void Effect.runPromise(refreshWithIdentityHints());
@@ -534,6 +587,7 @@ export const KernelLive = Layer.effect(
     const store = yield* StoreService;
     const chat = yield* ChatServiceContext;
     const settings = yield* SettingsService;
-    return makeKernelService(canvases, snapshots, store, chat, settings);
+    const pause = yield* PausePlane;
+    return makeKernelService(canvases, snapshots, store, chat, settings, pause);
   }),
 );

@@ -171,11 +171,19 @@ let armed: Map<string, boolean> = new Map();
 let pulseLog: PulseRecord[] = [];
 
 let deliveryDeps: PulseDeliverDeps | undefined = undefined;
+/** Pause plane lookup — a paused source forces every pulse dry (fail open = never). */
+let pausedLookup: ((canvasName: string, sourceNodeId: string) => boolean) | undefined = undefined;
 let flagWriterDeps: FlagWriterDeps | undefined = undefined;
 let phaseMirrorDeps: PhaseMirrorDeps | undefined = undefined;
 let glyphFetcher: ((project: string) => Promise<ReadonlyArray<TowerGlyphRow> | undefined>) | undefined = undefined;
 
 // Test seams
+export const setPausedLookup = (
+  lookup: (canvasName: string, sourceNodeId: string) => boolean,
+): void => {
+  pausedLookup = lookup;
+};
+
 export const __setDocsForTest = (docsMap: Map<string, CanvasDoc>): void => {
   docs = docsMap;
 };
@@ -356,7 +364,10 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
   const wantsLive = isArmed && params.forceDry !== true;
   const lastLiveAt = wantsLive && regionId !== undefined ? lastLiveActivationAt(params.canvasName, regionId) : undefined;
   const cooling = lastLiveAt !== undefined && Date.now() - lastLiveAt < MIN_LIVE_PULSE_SPACING_MS;
-  const dry = !wantsLive || cooling;
+  // Pause wins over arming: a paused source (node, region, or canvas) never
+  // spends a live turn, exactly like an un-armed region.
+  const paused = pausedLookup?.(params.canvasName, params.sourceNodeId) ?? false;
+  const dry = paused || !wantsLive || cooling;
 
   let delivered: ReadonlyArray<string> = [];
   if (!dry) {
