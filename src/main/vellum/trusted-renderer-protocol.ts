@@ -14,6 +14,8 @@ export { TRUSTED_RENDERER_HOST, TRUSTED_RENDERER_SCHEME, TRUSTED_RENDERER_URL };
 const MIME_TYPES = new Map<string, string>([
   [".css", "text/css; charset=utf-8"],
   [".gif", "image/gif"],
+  // Fleet machine signatures (DitheredFleetObject / GLTFLoader).
+  [".glb", "model/gltf-binary"],
   [".html", "text/html; charset=utf-8"],
   [".ico", "image/x-icon"],
   [".jpeg", "image/jpeg"],
@@ -21,6 +23,8 @@ const MIME_TYPES = new Map<string, string>([
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
   [".map", "application/json; charset=utf-8"],
+  // Renderer sfx clips (Audio elements).
+  [".mp3", "audio/mpeg"],
   [".png", "image/png"],
   [".svg", "image/svg+xml"],
   [".ttf", "font/ttf"],

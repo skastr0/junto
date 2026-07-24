@@ -27,6 +27,9 @@ describe("trusted renderer protocol", () => {
     await writeFile(join(root, "index.html"), '<script src="./assets/app.js"></script>');
     await writeFile(join(root, "assets/app.js"), "globalThis.loaded = true;");
     await writeFile(join(root, "assets/app.css"), "body { color: black; }");
+    // Binary fleet + sfx fixtures: contents only need a stable length/byte identity.
+    await writeFile(join(root, "assets/machine.glb"), Buffer.from("glTF-binary-fixture"));
+    await writeFile(join(root, "assets/clip.mp3"), Buffer.from("mp3-fixture"));
   });
 
   afterEach(async () => {
@@ -81,6 +84,21 @@ describe("trusted renderer protocol", () => {
     expect(head.status).toBe(200);
     expect(head.headers.get("content-length")).toBe(expectedLength);
     expect(await head.text()).toBe("");
+
+    // Packaged fleet GLBs and sfx must not 415 — the protocol is an explicit MIME allowlist.
+    const glb = await handler(new Request("vellum-app://renderer/assets/machine.glb"));
+    expect(glb.status).toBe(200);
+    expect(glb.headers.get("content-type")).toBe("model/gltf-binary");
+    expect(new Uint8Array(await glb.arrayBuffer())).toEqual(
+      new Uint8Array(Buffer.from("glTF-binary-fixture")),
+    );
+
+    const mp3 = await handler(new Request("vellum-app://renderer/assets/clip.mp3"));
+    expect(mp3.status).toBe(200);
+    expect(mp3.headers.get("content-type")).toBe("audio/mpeg");
+    expect(new Uint8Array(await mp3.arrayBuffer())).toEqual(
+      new Uint8Array(Buffer.from("mp3-fixture")),
+    );
   });
 
   it.each([
