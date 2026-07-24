@@ -51,6 +51,12 @@ export type {
 } from "./laws";
 
 export {
+  kindsWithRole,
+  roleMayBeBlocked,
+  seatMayBeBlocked,
+} from "./phase-membership";
+
+export {
   ACTOR_ACTOR_INBOX_PORTS,
   stampActorActorMsgPorts,
 } from "./stamp";

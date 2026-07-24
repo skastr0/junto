@@ -8,6 +8,7 @@ import type {
 } from "./canvas";
 import { WIP_GLYPH_STATES } from "./canvas";
 import { isTerminalTaskState, taskBrief } from "./a2a";
+import { seatMayBeBlocked } from "./physics/phase-membership";
 import {
   findApproval,
   findMatchingStamp,
@@ -23,16 +24,18 @@ import {
 //   - no criteria → soft "relates" (never generates, never relays)
 //   - criteria glyphs/wip → "blocks" | "depends" when glyph data known;
 //     unknown/missing glyph data → "relates" (no fail-closed generation)
-//   - criteria tasks → from document A2A tasks/requests stores only
+//   - criteria tasks → attention states only (input-required | auth-required);
+//     submitted/working do not fabricate stoppage on the edge
 //   - criteria proof → blocks until matching stamp in source-sink runtime
 //     (StampView; never reads authored canvas fields for stamps)
 //   - criteria approval → blocks until human grant in ApprovalView
 //
 // Propagation:
-//   - phase "blocks" generates a block on toNode
-//   - a blocked (or manual-blocker) node relays through outbound blocks|depends
+//   - phase "blocks" generates a block on toNode only when physics says
+//     the seat may be blocked (roleMayBeBlocked — actors only today)
+//   - blocked / manual-blocker actors relay through outbound blocks|depends
 //   - "relates" never generates and never relays
-//   - notes and agents are never members of the blocked set
+//   - membership law is owned by physics; this file never lists kinds
 
 export type GlyphRow = {
   readonly glyphId: string;
@@ -102,22 +105,16 @@ const titleOf = (node: CanvasNode | undefined, fallback: string): string => {
   }
 };
 
+/**
+ * Canvas adapter for physics phase membership.
+ * Prefer roleMayBeBlocked / seatMayBeBlocked at pure physics call sites.
+ */
 export const isBlockableNode = (node: CanvasNode | undefined): boolean => {
   if (!node) return false;
-  if (node.type === "group") return false;
-  const kind = node.ether?.entity?.kind;
-  // herdr/page are work surfaces (PTY / browser), not primary execution-graph actors.
-  if (
-    kind === "agent" ||
-    kind === "watcher" ||
-    kind === "timer" ||
-    kind === "herdr" ||
-    kind === "page"
-  )
-    return false;
-  // Free notes (text without entity) are not blockable.
-  if (node.type === "text" && kind === undefined) return false;
-  return true;
+  return seatMayBeBlocked({
+    isGroup: node.type === "group",
+    kind: node.ether?.entity?.kind,
+  });
 };
 
 // The node's identity name is the project key for glyph/wip criteria when the
@@ -228,11 +225,9 @@ const a2aItemsOn = (node: CanvasNode | undefined): ReadonlyArray<A2ATask> => {
   return node.ether?.tasks?.items ?? node.ether?.requests?.items ?? [];
 };
 
-const isBlockingTaskItem = (item: A2ATask, fromKind: string | undefined): boolean => {
-  if (fromKind === "requests") return item.state === "input-required";
-  // task nodes (and default): block only while non-terminal
-  return !isTerminalTaskState(item.state);
-};
+/** Attention states only — open queue (submitted/working) does not stop actors. */
+const isBlockingTaskItem = (item: A2ATask, _fromKind: string | undefined): boolean =>
+  item.state === "input-required" || item.state === "auth-required";
 
 const evalTasksCriteria = (
   criteria: Extract<EdgeCriteria, { mode: "tasks" }>,
@@ -260,7 +255,7 @@ const evalTasksCriteria = (
       detail:
         fromKind === "requests"
           ? `${scoped.length}/${scoped.length} requests resolved`
-          : `${scoped.length}/${scoped.length} tasks settled`,
+          : `${scoped.length - open.length}/${scoped.length} tasks clear (no attention)`,
       generates: false,
       relays: true,
     };
@@ -279,7 +274,7 @@ const evalTasksCriteria = (
   }
   return {
     phase: "blocks",
-    detail: `${scoped.length - open.length}/${scoped.length} tasks settled · open: ${sample}`,
+    detail: `${open.length} need input · ${sample}`,
     generates: true,
     relays: true,
   };

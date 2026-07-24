@@ -4,6 +4,7 @@ import type { GlyphRow, GlyphView } from "../src/shared/execution-graph";
 import { deriveRegionRollups, type AgentActivity } from "../src/shared/region-rollup";
 import type { WorkSurfaceActivity } from "../src/shared/terminal";
 import { a2aTask } from "./helpers/a2a-fixtures";
+import { kindForRole } from "./helpers/physics-seats";
 
 type Node = CanvasDoc["nodes"][number];
 type Edge = CanvasDoc["edges"][number];
@@ -37,6 +38,10 @@ const projectNode = (id: string, x: number, y: number, label: string, projectKey
 const agentNode = (id: string, x: number, y: number, label: string, agentKey: string): Node =>
   node(id, x, y, label, { entity: { kind: "agent", name: agentKey } });
 
+/** Phase-blockable seat (physics actor). Kind is registry plumbing only. */
+const actorSeat = (id: string, x: number, y: number, label: string): Node =>
+  node(id, x, y, label, { entity: { kind: kindForRole("actor") } });
+
 const taskNode = (
   id: string,
   x: number,
@@ -61,28 +66,28 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(rollup?.members[0]).toMatchObject({ nodeId: "n", severity: "blocked", reasons: ["flag:blocker"] });
   });
 
-  it("blocked via execution graph: tasks criteria edge blocks its target from the document alone", () => {
+  it("blocked via execution graph: tasks criteria edge blocks its actor target from the document alone", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        taskNode("t", 10, 10, "Ops tasks", [a2aTask("i1", "ship")]),
-        projectNode("p", 10, 100, "prism", "prism"),
+        taskNode("t", 10, 10, "Ops tasks", [a2aTask("i1", "ship", "input-required")]),
+        actorSeat("p", 10, 100, "prism"),
       ],
       edges: [{ id: "e1", fromNode: "t", toNode: "p", ether: { criteria: { mode: "tasks" } } }],
     };
     const [rollup] = deriveRegionRollups({ doc });
     const target = rollup?.members.find((member) => member.nodeId === "p");
     expect(target?.severity).toBe("blocked");
-    expect(target?.reasons).toEqual(["edge:0/1 tasks settled · open: ship"]);
+    expect(target?.reasons).toEqual(["edge:1 need input · ship"]);
     expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 0, working: 0 });
   });
 
-  it("blocked via seed: a manual blocker pushes through an outbound relaying edge", () => {
+  it("blocked via seed: a manual blocker on an actor pushes through an outbound relaying edge", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        projectNode("s", 10, 10, "Prism", "prism"),
-        projectNode("t", 10, 100, "Quasar", "quasar"),
+        actorSeat("s", 10, 10, "Prism"),
+        actorSeat("t", 10, 100, "Quasar"),
       ],
       edges: [],
     };
@@ -99,13 +104,13 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(target?.reasons).toEqual(["seed:from blocker Prism"]);
   });
 
-  it("blocked via relay: a blocked node retransmits through an outbound depends edge", () => {
+  it("blocked via relay: a blocked actor retransmits through an outbound depends edge", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        taskNode("t", 10, 10, "Ops tasks", [a2aTask("i1", "ship")]),
-        projectNode("a", 10, 100, "prism", "prism"),
-        projectNode("b", 10, 200, "quasar", "quasar"),
+        taskNode("t", 10, 10, "Ops tasks", [a2aTask("i1", "ship", "input-required")]),
+        actorSeat("a", 10, 100, "prism"),
+        actorSeat("b", 10, 200, "quasar"),
       ],
       edges: [
         { id: "e1", fromNode: "t", toNode: "a", ether: { criteria: { mode: "tasks" } } },
@@ -123,15 +128,12 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const base: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 800, 800, "ops"),
-        taskNode("u", 10, 10, "Ops tasks", [a2aTask("i1", "ship")]),
-        projectNode("s", 10, 110, "Seed source", "seed-src"),
-        projectNode("t", 10, 210, "Target", "target"),
+        taskNode("u", 10, 10, "Ops tasks", [a2aTask("i1", "ship", "input-required")]),
+        actorSeat("s", 10, 110, "Seed source"),
+        actorSeat("t", 10, 210, "Target"),
       ],
       edges: [
-        // generating: open task blocks t with an edge reason
         { id: "e1", fromNode: "u", toNode: "t", ether: { criteria: { mode: "tasks" } } },
-        // relaying (s has no open tasks -> depends): the blocker flag on s
-        // seed-hops through it, landing a seed reason on t
         { id: "e2", fromNode: "s", toNode: "t", ether: { criteria: { mode: "tasks" } } },
       ],
     };
@@ -145,7 +147,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const target = rollup?.members.find((member) => member.nodeId === "t");
     expect(target?.severity).toBe("blocked");
     expect(target?.reasons).toEqual([
-      "edge:0/1 tasks settled · open: ship",
+      "edge:1 need input · ship",
       "seed:from blocker Seed source",
     ]);
   });
@@ -424,25 +426,25 @@ describe("deriveRegionRollups — member ordering", () => {
 });
 
 describe("deriveRegionRollups — derivation edges", () => {
-  it("flag:blocker and a graph block on the same node union their reasons, no duplicates", () => {
-    const base: CanvasDoc = {
+  it("flag:blocker and a graph block on the same actor union their reasons, no duplicates", () => {
+    const doc: CanvasDoc = {
       nodes: [
-        group("r", 0, 0, 800, 800, "ops"),
-        taskNode("u", 10, 10, "Ops tasks", [a2aTask("i1", "ship")]),
-        projectNode("t", 10, 110, "Target", "target"),
+        group("r", 0, 0, 500, 500, "ops"),
+        taskNode("u", 10, 10, "Ops tasks", [a2aTask("i1", "ship", "input-required")]),
+        {
+          ...actorSeat("t", 10, 100, "Target"),
+          ether: {
+            ...actorSeat("t", 10, 100, "Target").ether,
+            flags: ["blocker" as const],
+          },
+        },
       ],
       edges: [{ id: "e1", fromNode: "u", toNode: "t", ether: { criteria: { mode: "tasks" } } }],
     };
-    const flagged: CanvasDoc = {
-      ...base,
-      nodes: base.nodes.map((n) =>
-        n.id === "t" ? { ...n, ether: { ...n.ether, flags: ["blocker" as const] } } : n,
-      ),
-    };
-    const [rollup] = deriveRegionRollups({ doc: flagged });
+    const [rollup] = deriveRegionRollups({ doc });
     const target = rollup?.members.find((member) => member.nodeId === "t");
     expect(target?.severity).toBe("blocked");
-    expect(target?.reasons).toEqual(["flag:blocker", "edge:0/1 tasks settled · open: ship"]);
+    expect(target?.reasons).toEqual(["flag:blocker", "edge:1 need input · ship"]);
     expect(new Set(target?.reasons).size).toBe(target?.reasons.length);
   });
 

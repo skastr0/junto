@@ -1,9 +1,9 @@
 import type { CanvasDoc, CanvasNode } from "../canvas";
 import type { BlockedReason, ExecutionGraph } from "../execution-graph";
-import { resolveSpec, roleOf } from "../physics/kinds";
+import { seatMayBeBlocked } from "../physics/phase-membership";
 
 // Pure stoppage impact cone: derived from (document + ExecutionGraph).
-// Phase plane only — actors remain non-blockable; attention leads are soft.
+// Phase membership (who may be blocked) is physics: actors only today.
 
 export type ImpactCone = {
   readonly rootId: string;
@@ -14,8 +14,8 @@ export type ImpactCone = {
   /** Edges that carry stoppage inside the cone (blockedEdgeIds subset). */
   readonly edgeIds: ReadonlySet<string>;
   /**
-   * Soft attention leads: actor-role seats with an undirected edge into a cone
-   * node. Never phase-blocked; not members of nodeIds via the phase graph.
+   * Soft attention leads: phase-member seats (actors under current law) with an
+   * undirected edge into a cone node but not already in nodeIds.
    */
   readonly attentionLeadIds: ReadonlySet<string>;
   /**
@@ -36,15 +36,13 @@ const emptyCone = (rootId: string): ImpactCone => ({
   pathToSeed: () => [],
 });
 
-const isActorSeat = (node: CanvasNode | undefined): boolean => {
+/** Physics seat that may enter the blocked set (actors under current law). */
+const isPhaseMemberSeat = (node: CanvasNode | undefined): boolean => {
   if (!node) return false;
-  const role = roleOf(
-    resolveSpec({
-      isGroup: node.type === "group",
-      kind: node.ether?.entity?.kind,
-    }),
-  );
-  return role === "actor";
+  return seatMayBeBlocked({
+    isGroup: node.type === "group",
+    kind: node.ether?.entity?.kind,
+  });
 };
 
 const reasonRank = (reason: BlockedReason): number => {
@@ -316,7 +314,7 @@ export const impactCone = (
     if (aIn === bIn) continue;
     const outsiderId = aIn ? edge.toNode : edge.fromNode;
     if (nodeIds.has(outsiderId)) continue;
-    if (isActorSeat(byId.get(outsiderId))) {
+    if (isPhaseMemberSeat(byId.get(outsiderId))) {
       attentionLeadIds.add(outsiderId);
     }
   }

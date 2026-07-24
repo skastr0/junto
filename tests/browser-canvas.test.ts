@@ -126,8 +126,8 @@ describe("browser page document model", () => {
     expect(redecoded.nodes[0]?.ether).toBeUndefined();
   });
 
-  it("does not treat page nodes as blockable execution-graph members", () => {
-    const node = {
+  it("sink seats (incl. page registry kind) are not phase-blockable", () => {
+    const sinkSeat = {
       id: "p1",
       type: "link" as const,
       url: "https://example.com",
@@ -140,7 +140,7 @@ describe("browser page document model", () => {
         browser: { profile: "personal" },
       },
     };
-    expect(isBlockableNode(node)).toBe(false);
+    expect(isBlockableNode(sinkSeat)).toBe(false);
   });
 
   it("makePageNode stamps kind page, profile, and kill-session", () => {

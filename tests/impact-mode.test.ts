@@ -8,6 +8,7 @@ import {
   selectionImpact,
 } from "../src/renderer/lib/impact-mode";
 import { a2aTask } from "./helpers/a2a-fixtures";
+import { seat } from "./helpers/physics-seats";
 
 const text = (
   id: string,
@@ -24,49 +25,43 @@ const text = (
   ...(ether ? { ether } : {}),
 });
 
-const projectNode = (id: string, label: string, projectKey: string) =>
-  text(id, label, {
-    entity: { kind: "project", name: projectKey },
-  });
-
 const stoppageDoc = (): CanvasDoc => ({
   nodes: [
     text("r1", "Requests", {
       entity: { kind: "requests" },
       requests: { items: [a2aTask("q1", "approve deploy?", "input-required")] },
     }),
-    projectNode("p1", "Ship", "ship"),
-    projectNode("p2", "Release", "release"),
-    projectNode("outsider", "Other", "other"),
+    seat("a1", "actor", { label: "Ship" }),
+    seat("a2", "actor", { label: "Release" }),
+    seat("outsider", "actor", { label: "Other" }),
   ],
   edges: [
     {
       id: "e-rp",
       fromNode: "r1",
-      toNode: "p1",
+      toNode: "a1",
       ether: { criteria: { mode: "tasks" } },
     },
     {
       id: "e-pp",
-      fromNode: "p1",
-      toNode: "p2",
+      fromNode: "a1",
+      toNode: "a2",
       ether: { criteria: { mode: "tasks" } },
     },
   ],
 });
 
 describe("selectionImpact — canvas impact mode", () => {
-  it("activates for generators / blocked nodes and dims outsiders via classes", () => {
+  it("activates for generators / blocked actors and dims outsiders via classes", () => {
     const doc = stoppageDoc();
     const impact = selectionImpact(doc, "r1", null);
     expect(impact.active).toBe(true);
-    expect(impact.cone.nodeIds).toEqual(new Set(["r1", "p1", "p2"]));
+    expect(impact.cone.nodeIds).toEqual(new Set(["r1", "a1", "a2"]));
     expect(impact.cone.edgeIds.has("e-rp")).toBe(true);
     expect(impact.seedLabel).toMatch(/in cone/i);
 
     expect(nodeImpactClass(true, impact.cone, "r1")).toBe("impact-in impact-root");
-    expect(nodeImpactClass(true, impact.cone, "p1")).toBe("impact-in");
-    // Outsiders stay unstamped — CSS under .impact-mode dims the rest.
+    expect(nodeImpactClass(true, impact.cone, "a1")).toBe("impact-in");
     expect(nodeImpactClass(true, impact.cone, "outsider")).toBeUndefined();
     expect(edgeImpactClass(true, impact.cone, "e-rp")).toBe("impact-edge-in");
     expect(edgeImpactClass(true, impact.cone, "missing")).toBeUndefined();
@@ -84,21 +79,21 @@ describe("selectionImpact — canvas impact mode", () => {
     const execution: ExecutionSnapshot = {
       phaseByEdgeId: { "e-rp": "blocks", "e-pp": "depends" },
       detailByEdgeId: { "e-rp": "input-required", "e-pp": "" },
-      blocked: ["p1", "p2"],
+      blocked: ["a1", "a2"],
       blockedEdgeIds: ["e-rp", "e-pp"],
       reasonsByNodeId: {
-        p1: [{ kind: "edge", edgeId: "e-rp", fromNodeId: "r1", detail: "input-required" }],
-        p2: [{ kind: "relay", viaNodeId: "p1", edgeId: "e-pp" }],
+        a1: [{ kind: "edge", edgeId: "e-rp", fromNodeId: "r1", detail: "input-required" }],
+        a2: [{ kind: "relay", viaNodeId: "a1", edgeId: "e-pp" }],
       },
     };
     const graph = executionGraphForImpact(doc, execution);
     expect(graph.edgeEvalById.get("e-rp")?.generates).toBe(true);
     expect(graph.edgeEvalById.get("e-pp")?.relays).toBe(true);
-    expect(graph.blocked.has("p1")).toBe(true);
+    expect(graph.blocked.has("a1")).toBe(true);
 
-    const impact = selectionImpact(doc, "p1", execution);
+    const impact = selectionImpact(doc, "a1", execution);
     expect(impact.active).toBe(true);
     expect(impact.cone.nodeIds.has("r1")).toBe(true);
-    expect(impact.cone.nodeIds.has("p2")).toBe(true);
+    expect(impact.cone.nodeIds.has("a2")).toBe(true);
   });
 });

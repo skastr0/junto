@@ -3,6 +3,7 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
 import { impactCone } from "../src/shared/impact";
 import { a2aTask } from "./helpers/a2a-fixtures";
+import { furnitureSeat, seat } from "./helpers/physics-seats";
 
 const text = (
   id: string,
@@ -19,98 +20,104 @@ const text = (
   ...(ether ? { ether } : {}),
 });
 
-const projectNode = (id: string, label: string, projectKey: string) =>
-  text(id, label, {
-    entity: { kind: "project", name: projectKey },
-  });
-
 describe("impactCone — tasks / requests stoppage", () => {
-  it("requests criteria input-required generates blocks and cone membership", () => {
+  it("requests input-required blocks actors and builds cone membership", () => {
     const doc: CanvasDoc = {
       nodes: [
         text("r1", "Requests", {
           entity: { kind: "requests" },
           requests: { items: [a2aTask("q1", "approve deploy?", "input-required")] },
         }),
-        projectNode("p1", "Ship", "ship"),
-        projectNode("p2", "Release", "release"),
+        seat("a1", "actor", { label: "Ship" }),
+        seat("a2", "actor", { label: "Release" }),
       ],
       edges: [
         {
-          id: "e-rp",
+          id: "e-r1",
           fromNode: "r1",
-          toNode: "p1",
+          toNode: "a1",
           ether: { criteria: { mode: "tasks" } },
         },
-        // Empty tasks criteria → depends (relays when p1 is blocked).
+        // Empty tasks criteria → depends (relays when a1 is blocked).
         {
-          id: "e-pp",
-          fromNode: "p1",
-          toNode: "p2",
+          id: "e-a12",
+          fromNode: "a1",
+          toNode: "a2",
           ether: { criteria: { mode: "tasks" } },
         },
       ],
     };
 
     const graph = deriveExecutionGraph(doc);
-    expect(graph.phaseByEdgeId.get("e-rp")).toBe("blocks");
-    expect(graph.blocked.has("p1")).toBe(true);
-    expect(graph.blocked.has("p2")).toBe(true);
+    expect(graph.phaseByEdgeId.get("e-r1")).toBe("blocks");
+    expect(graph.blocked.has("a1")).toBe(true);
+    expect(graph.blocked.has("a2")).toBe(true);
+    // sink-side requests node is not itself a blocked member
+    expect(graph.blocked.has("r1")).toBe(false);
 
-    // Cone from the requests generator (apex).
     const fromRequests = impactCone(doc, graph, "r1");
     expect(fromRequests.rootId).toBe("r1");
-    expect(fromRequests.nodeIds).toEqual(new Set(["r1", "p1", "p2"]));
-    expect(fromRequests.edgeIds.has("e-rp")).toBe(true);
-    expect(fromRequests.edgeIds.has("e-pp")).toBe(true);
-    expect(fromRequests.seedReasons.some((r) => r.kind === "edge" && r.edgeId === "e-rp")).toBe(
+    expect(fromRequests.nodeIds).toEqual(new Set(["r1", "a1", "a2"]));
+    expect(fromRequests.edgeIds.has("e-r1")).toBe(true);
+    expect(fromRequests.edgeIds.has("e-a12")).toBe(true);
+    expect(fromRequests.seedReasons.some((r) => r.kind === "edge" && r.edgeId === "e-r1")).toBe(
       true,
     );
 
-    // Cone from a mid-chain blocked node shares the same apex blast.
-    const fromP1 = impactCone(doc, graph, "p1");
-    expect(fromP1.nodeIds).toEqual(new Set(["r1", "p1", "p2"]));
-    expect(fromP1.pathToSeed("p1")).toEqual(["p1", "r1"]);
-    expect(fromP1.pathToSeed("p2")[0]).toBe("p2");
-    expect(fromP1.pathToSeed("p2")).toContain("r1");
+    const fromA1 = impactCone(doc, graph, "a1");
+    expect(fromA1.nodeIds).toEqual(new Set(["r1", "a1", "a2"]));
+    expect(fromA1.pathToSeed("a1")).toEqual(["a1", "r1"]);
+    expect(fromA1.pathToSeed("a2")[0]).toBe("a2");
+    expect(fromA1.pathToSeed("a2")).toContain("r1");
 
-    // Unrelated project outside the chain → empty.
     const outsider = impactCone(
       {
         ...doc,
-        nodes: [...doc.nodes, projectNode("other", "Other", "other")],
+        nodes: [...doc.nodes, seat("other", "actor", { label: "Other" })],
       },
       graph,
       "other",
     );
     expect(outsider.nodeIds.size).toBe(0);
     expect(outsider.edgeIds.size).toBe(0);
-    expect(outsider.pathToSeed("p1")).toEqual([]);
+    expect(outsider.pathToSeed("a1")).toEqual([]);
   });
 
-  it("task criteria submitted generates cone from task apex", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        text("t1", "Checklist", {
-          entity: { kind: "task" },
-          tasks: { items: [a2aTask("i1", "do it", "submitted")] },
-        }),
-        projectNode("p1", "Proj", "proj"),
-      ],
+  it("task input-required generates cone onto actors; submitted does not", () => {
+    const tasksOpen = text("t1", "Checklist", {
+      entity: { kind: "task" },
+      tasks: { items: [a2aTask("i1", "do it", "submitted")] },
+    });
+    const actor = seat("a1", "actor", { label: "worker" });
+    const openDoc: CanvasDoc = {
+      nodes: [tasksOpen, actor],
       edges: [
         {
           id: "e1",
           fromNode: "t1",
-          toNode: "p1",
+          toNode: "a1",
           ether: { criteria: { mode: "tasks" } },
         },
       ],
     };
-    const graph = deriveExecutionGraph(doc);
-    expect(graph.blocked).toEqual(new Set(["p1"]));
+    const calm = deriveExecutionGraph(openDoc);
+    expect(calm.phaseByEdgeId.get("e1")).toBe("depends");
+    expect(calm.blocked.size).toBe(0);
+    expect(impactCone(openDoc, calm, "t1").nodeIds.size).toBe(0);
 
-    const cone = impactCone(doc, graph, "t1");
-    expect(cone.nodeIds).toEqual(new Set(["t1", "p1"]));
+    const tasksHot = text("t1", "Checklist", {
+      entity: { kind: "task" },
+      tasks: { items: [a2aTask("i1", "do it", "input-required")] },
+    });
+    const hotDoc: CanvasDoc = {
+      nodes: [tasksHot, actor],
+      edges: openDoc.edges,
+    };
+    const graph = deriveExecutionGraph(hotDoc);
+    expect(graph.blocked).toEqual(new Set(["a1"]));
+
+    const cone = impactCone(hotDoc, graph, "t1");
+    expect(cone.nodeIds).toEqual(new Set(["t1", "a1"]));
     expect(cone.edgeIds).toEqual(new Set(["e1"]));
     expect(cone.seedReasons).toHaveLength(1);
     expect(cone.seedReasons[0]).toMatchObject({
@@ -118,7 +125,7 @@ describe("impactCone — tasks / requests stoppage", () => {
       edgeId: "e1",
       fromNodeId: "t1",
     });
-    expect(cone.pathToSeed("p1")).toEqual(["p1", "t1"]);
+    expect(cone.pathToSeed("a1")).toEqual(["a1", "t1"]);
   });
 
   it("resolved requests clear the cone", () => {
@@ -128,13 +135,13 @@ describe("impactCone — tasks / requests stoppage", () => {
           entity: { kind: "requests" },
           requests: { items: [a2aTask("q1", "approve?", "completed")] },
         }),
-        projectNode("p1", "Ship", "ship"),
+        seat("a1", "actor", { label: "Ship" }),
       ],
       edges: [
         {
           id: "e1",
           fromNode: "r1",
-          toNode: "p1",
+          toNode: "a1",
           ether: { criteria: { mode: "tasks" } },
         },
       ],
@@ -147,15 +154,12 @@ describe("impactCone — tasks / requests stoppage", () => {
 });
 
 describe("impactCone — seeds, relays, attention leads", () => {
-  it("manual blocker seed fans out through depends criteria", () => {
+  it("manual blocker seed on actor fans out through depends onto actors", () => {
     const doc: CanvasDoc = {
       nodes: [
-        text("b", "Blocker", {
-          entity: { kind: "project", name: "pb" },
-          flags: ["blocker"],
-        }),
-        projectNode("c", "C", "pc"),
-        projectNode("d", "D", "pd"),
+        seat("b", "actor", { label: "Blocker", flags: ["blocker"] }),
+        seat("c", "actor", { label: "C" }),
+        seat("d", "actor", { label: "D" }),
       ],
       edges: [
         {
@@ -176,7 +180,6 @@ describe("impactCone — seeds, relays, attention leads", () => {
         },
       ],
     };
-    // glyphs all done → depends (relays), seed still fans out.
     const glyphs = new Map([
       ["pb", [{ glyphId: "gx", orbit: "forge", title: "gx", state: "done" }]],
       ["pc", [{ glyphId: "gy", orbit: "forge", title: "gy", state: "done" }]],
@@ -194,43 +197,38 @@ describe("impactCone — seeds, relays, attention leads", () => {
     expect(cone.pathToSeed("d")).toContain("b");
   });
 
-  it("attention leads: actor seats undirected into cone stay soft (not blocked)", () => {
+  it("attention leads: undirected actor into cone is soft when not phase-blocked", () => {
     const doc: CanvasDoc = {
       nodes: [
         text("t1", "Checklist", {
           entity: { kind: "task" },
-          tasks: { items: [a2aTask("i1", "work", "working")] },
+          tasks: { items: [a2aTask("i1", "work", "input-required")] },
         }),
-        projectNode("p1", "Proj", "proj"),
-        text("agent1", "hermes", {
-          entity: { kind: "agent", name: "local:default" },
-        }),
-        text("note1", "just a note"),
+        seat("blocked", "actor", { label: "blocked worker" }),
+        seat("lead", "actor", { label: "adjacent worker" }),
+        furnitureSeat("note1", "just a note"),
       ],
       edges: [
         {
-          id: "e-tp",
+          id: "e-tb",
           fromNode: "t1",
-          toNode: "p1",
+          toNode: "blocked",
           ether: { criteria: { mode: "tasks" } },
         },
-        // Soft relates from agent into blocked project — attention lead only.
-        { id: "e-ap", fromNode: "agent1", toNode: "p1" },
-        // Furniture note is not an actor seat.
-        { id: "e-np", fromNode: "note1", toNode: "p1" },
+        // Soft relates from free actor into blocked actor — attention lead.
+        { id: "e-lb", fromNode: "lead", toNode: "blocked" },
+        { id: "e-nb", fromNode: "note1", toNode: "blocked" },
       ],
     };
     const graph = deriveExecutionGraph(doc);
-    expect(graph.blocked).toEqual(new Set(["p1"]));
-    // Agents never enter the phase blocked set.
-    expect(graph.blocked.has("agent1")).toBe(false);
+    expect(graph.blocked).toEqual(new Set(["blocked"]));
+    expect(graph.blocked.has("lead")).toBe(false);
 
-    const cone = impactCone(doc, graph, "p1");
-    expect(cone.nodeIds.has("p1")).toBe(true);
+    const cone = impactCone(doc, graph, "blocked");
+    expect(cone.nodeIds.has("blocked")).toBe(true);
     expect(cone.nodeIds.has("t1")).toBe(true);
-    // Actor is a soft lead, not a phase cone member.
-    expect(cone.nodeIds.has("agent1")).toBe(false);
-    expect(cone.attentionLeadIds).toEqual(new Set(["agent1"]));
+    expect(cone.nodeIds.has("lead")).toBe(false);
+    expect(cone.attentionLeadIds).toEqual(new Set(["lead"]));
     expect(cone.attentionLeadIds.has("note1")).toBe(false);
   });
 
@@ -239,30 +237,30 @@ describe("impactCone — seeds, relays, attention leads", () => {
       nodes: [
         text("t1", "Checklist", {
           entity: { kind: "task" },
-          tasks: { items: [a2aTask("i1", "x", "submitted")] },
+          tasks: { items: [a2aTask("i1", "x", "input-required")] },
         }),
-        projectNode("p1", "A", "pa"),
-        projectNode("p2", "B", "pb"),
+        seat("a1", "actor", { label: "A" }),
+        seat("a2", "actor", { label: "B" }),
       ],
       edges: [
         {
           id: "e1",
           fromNode: "t1",
-          toNode: "p1",
+          toNode: "a1",
           ether: { criteria: { mode: "tasks" } },
         },
-        { id: "e2", fromNode: "p1", toNode: "p2" }, // relates — no relay
+        { id: "e2", fromNode: "a1", toNode: "a2" }, // relates — no relay
       ],
     };
     const graph = deriveExecutionGraph(doc);
     const cone = impactCone(doc, graph, "t1");
-    expect(cone.nodeIds).toEqual(new Set(["t1", "p1"]));
-    expect(cone.nodeIds.has("p2")).toBe(false);
+    expect(cone.nodeIds).toEqual(new Set(["t1", "a1"]));
+    expect(cone.nodeIds.has("a2")).toBe(false);
     expect(cone.edgeIds.has("e2")).toBe(false);
   });
 
   it("unknown root id yields empty cone", () => {
-    const doc: CanvasDoc = { nodes: [projectNode("p1", "P", "p")], edges: [] };
+    const doc: CanvasDoc = { nodes: [seat("a1", "actor", { label: "P" })], edges: [] };
     const graph = deriveExecutionGraph(doc);
     const cone = impactCone(doc, graph, "missing");
     expect(cone.nodeIds.size).toBe(0);

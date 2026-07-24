@@ -11,6 +11,7 @@ import {
 import { groupMembers } from "../src/shared/graph";
 import type { ProofStamp, StampView } from "../src/shared/proof-stamps";
 import { a2aTask } from "./helpers/a2a-fixtures";
+import { furnitureSeat, seat } from "./helpers/physics-seats";
 
 const text = (
   id: string,
@@ -27,10 +28,9 @@ const text = (
   ...(ether ? { ether } : {}),
 });
 
+/** Named sink used as glyph/wip criteria source (join key = name). */
 const projectNode = (id: string, label: string, projectKey: string) =>
-  text(id, label, {
-    entity: { kind: "project", name: projectKey },
-  });
+  seat(id, "sink", { label, name: projectKey });
 
 const glyph = (partial: Partial<GlyphRow> & Pick<GlyphRow, "glyphId" | "state">): GlyphRow => ({
   orbit: "forge",
@@ -133,20 +133,36 @@ describe("evaluateEdge — authorial modes", () => {
     expect(evaluateEdge(edge, from, new Map()).generates).toBe(false);
   });
 
-  it("tasks criteria: incomplete blocks; all completed depends; empty list depends", () => {
-    const tasks = text("t1", "Checklist", {
-      entity: { kind: "task" },
-      tasks: {
-        items: [a2aTask("i1", "one", "submitted"), a2aTask("i2", "two", "completed")],
-      },
-    });
+  it("tasks criteria: submitted/working do not block; input-required does; clear depends", () => {
     const edge = {
       id: "e1",
       fromNode: "t1",
       toNode: "b",
       ether: { criteria: { mode: "tasks" as const } },
     };
-    expect(evaluateEdge(edge, tasks, new Map()).phase).toBe("blocks");
+    const openQueue = text("t1", "Checklist", {
+      entity: { kind: "task" },
+      tasks: {
+        items: [a2aTask("i1", "one", "submitted"), a2aTask("i2", "two", "working")],
+      },
+    });
+    expect(evaluateEdge(edge, openQueue, new Map()).phase).toBe("depends");
+    expect(evaluateEdge(edge, openQueue, new Map()).generates).toBe(false);
+
+    const needsInput = text("t1", "Checklist", {
+      entity: { kind: "task" },
+      tasks: {
+        items: [a2aTask("i1", "one", "input-required"), a2aTask("i2", "two", "completed")],
+      },
+    });
+    expect(evaluateEdge(edge, needsInput, new Map()).phase).toBe("blocks");
+    expect(evaluateEdge(edge, needsInput, new Map()).generates).toBe(true);
+
+    const auth = text("t1", "Checklist", {
+      entity: { kind: "task" },
+      tasks: { items: [a2aTask("i1", "auth", "auth-required")] },
+    });
+    expect(evaluateEdge(edge, auth, new Map()).phase).toBe("blocks");
 
     const doneTasks = text("t1", "Checklist", {
       entity: { kind: "task" },
@@ -200,12 +216,12 @@ describe("evaluateEdge — authorial modes", () => {
 });
 
 describe("deriveExecutionGraph — propagation", () => {
-  it("chain A→B→C: generating A blocks B and relays to C through depends", () => {
+  it("sink→actor→actor: generating blocks actor B and relays to actor C", () => {
     const doc: CanvasDoc = {
       nodes: [
-        projectNode("a", "A", "proj-a"),
-        projectNode("b", "B", "proj-b"),
-        projectNode("c", "C", "proj-c"),
+        seat("a", "sink", { label: "A", name: "proj-a" }),
+        seat("b", "actor", { label: "B" }),
+        seat("c", "actor", { label: "C" }),
       ],
       edges: [
         {
@@ -229,6 +245,8 @@ describe("deriveExecutionGraph — propagation", () => {
     const graph = deriveExecutionGraph(doc, glyphs);
     expect(graph.phaseByEdgeId.get("e-ab")).toBe("blocks");
     expect(graph.phaseByEdgeId.get("e-bc")).toBe("depends");
+    // sink never in blocked set; actors B (generate) and C (relay) are
+    expect(graph.blocked.has("a")).toBe(false);
     expect(graph.blocked).toEqual(new Set(["b", "c"]));
     expect(graph.blockedEdgeIds.has("e-ab")).toBe(true);
     expect(graph.blockedEdgeIds.has("e-bc")).toBe(true);
@@ -237,9 +255,9 @@ describe("deriveExecutionGraph — propagation", () => {
   it("when generating condition clears, relay chain unblocks", () => {
     const doc: CanvasDoc = {
       nodes: [
-        projectNode("a", "A", "proj-a"),
-        projectNode("b", "B", "proj-b"),
-        projectNode("c", "C", "proj-c"),
+        seat("a", "sink", { label: "A", name: "proj-a" }),
+        seat("b", "actor", { label: "B" }),
+        seat("c", "actor", { label: "C" }),
       ],
       edges: [
         {
@@ -268,9 +286,9 @@ describe("deriveExecutionGraph — propagation", () => {
   it("relates never generates or relays", () => {
     const doc: CanvasDoc = {
       nodes: [
-        projectNode("a", "A", "proj-a"),
-        projectNode("b", "B", "proj-b"),
-        projectNode("c", "C", "proj-c"),
+        seat("a", "sink", { label: "A", name: "proj-a" }),
+        seat("b", "actor", { label: "B" }),
+        seat("c", "actor", { label: "C" }),
       ],
       edges: [
         {
@@ -288,56 +306,93 @@ describe("deriveExecutionGraph — propagation", () => {
     expect(graph.blocked.has("c")).toBe(false);
   });
 
-  it("tasks incomplete without edge does not block; with edge does", () => {
+  it("submitted tasks never block; input-required blocks actors only (not sinks)", () => {
     const tasks = text("t1", "Checklist", {
       entity: { kind: "task" },
       tasks: { items: [a2aTask("i1", "do it", "submitted")] },
     });
-    const target = projectNode("p1", "Proj", "proj");
-    const noEdge: CanvasDoc = { nodes: [tasks, target], edges: [] };
-    expect(deriveExecutionGraph(noEdge).blocked.size).toBe(0);
+    const actor = seat("worker", "actor", { label: "worker" });
+    const sinkSeat = seat("p1", "sink", { label: "Proj", name: "proj" });
 
-    const withEdge: CanvasDoc = {
-      nodes: [tasks, target],
+    const submittedToActor: CanvasDoc = {
+      nodes: [tasks, actor],
       edges: [
         {
           id: "e1",
+          fromNode: "t1",
+          toNode: "worker",
+          ether: { criteria: { mode: "tasks" } },
+        },
+      ],
+    };
+    const calm = deriveExecutionGraph(submittedToActor);
+    expect(calm.phaseByEdgeId.get("e1")).toBe("depends");
+    expect(calm.blocked.size).toBe(0);
+
+    const needsInput = text("t1", "Checklist", {
+      entity: { kind: "task" },
+      tasks: { items: [a2aTask("i1", "do it", "input-required")] },
+    });
+    const hotToActor: CanvasDoc = {
+      nodes: [needsInput, actor],
+      edges: [
+        {
+          id: "e1",
+          fromNode: "t1",
+          toNode: "worker",
+          ether: { criteria: { mode: "tasks" } },
+        },
+      ],
+    };
+    const hot = deriveExecutionGraph(hotToActor);
+    expect(hot.phaseByEdgeId.get("e1")).toBe("blocks");
+    expect(hot.blocked).toEqual(new Set(["worker"]));
+
+    // Sink never joins blocked set even when edge phase is blocks.
+    const hotToSink: CanvasDoc = {
+      nodes: [needsInput, sinkSeat],
+      edges: [
+        {
+          id: "e2",
           fromNode: "t1",
           toNode: "p1",
           ether: { criteria: { mode: "tasks" } },
         },
       ],
     };
-    const graph = deriveExecutionGraph(withEdge);
-    expect(graph.blocked).toEqual(new Set(["p1"]));
-    expect(graph.phaseByEdgeId.get("e1")).toBe("blocks");
+    const sinkGraph = deriveExecutionGraph(hotToSink);
+    expect(sinkGraph.phaseByEdgeId.get("e2")).toBe("blocks");
+    expect(sinkGraph.blocked.has("p1")).toBe(false);
   });
 
-  it("notes and agents are never blocked", () => {
+  it("blocked set is actors only — sinks and furniture never", () => {
     const doc: CanvasDoc = {
       nodes: [
-        projectNode("a", "A", "proj-a"),
-        text("note1", "just a note"),
-        text("agent1", "hermes", {
-          entity: { kind: "agent", name: "local:default" },
-        }),
+        seat("src", "sink", { label: "src", name: "proj-a" }),
+        furnitureSeat("note1", "just a note"),
+        seat("actor1", "actor", { label: "A1" }),
+        seat("actor2", "actor", { label: "A2" }),
       ],
       edges: [
-        { id: "e1", fromNode: "a", toNode: "note1", ether: { criteria: { mode: "wip", project: "proj-a" } } },
-        { id: "e2", fromNode: "a", toNode: "agent1", ether: { criteria: { mode: "wip", project: "proj-a" } } },
+        { id: "e1", fromNode: "src", toNode: "note1", ether: { criteria: { mode: "wip", project: "proj-a" } } },
+        { id: "e2", fromNode: "src", toNode: "actor1", ether: { criteria: { mode: "wip", project: "proj-a" } } },
+        { id: "e3", fromNode: "src", toNode: "actor2", ether: { criteria: { mode: "wip", project: "proj-a" } } },
       ],
     };
     const glyphs = viewOf(["proj-a", [glyph({ glyphId: "g1", state: "building" })]]);
     const graph = deriveExecutionGraph(doc, glyphs);
-    expect(graph.blocked.size).toBe(0);
+    expect(graph.blocked.has("src")).toBe(false);
+    expect(graph.blocked.has("note1")).toBe(false);
+    expect(graph.blocked.has("actor1")).toBe(true);
+    expect(graph.blocked.has("actor2")).toBe(true);
   });
 
   it("multi-inbound: either generating edge is enough", () => {
     const doc: CanvasDoc = {
       nodes: [
-        projectNode("a", "A", "pa"),
-        projectNode("b", "B", "pb"),
-        projectNode("c", "C", "pc"),
+        seat("a", "sink", { label: "A", name: "pa" }),
+        seat("b", "sink", { label: "B", name: "pb" }),
+        seat("c", "actor", { label: "C" }),
       ],
       edges: [
         {
@@ -364,15 +419,11 @@ describe("deriveExecutionGraph — propagation", () => {
     expect(graph.phaseByEdgeId.get("e-bc")).toBe("blocks");
   });
 
-  it("manual blocker flag seeds outbound depends criteria edges", () => {
+  it("manual blocker flag on actor seeds outbound depends onto another actor", () => {
     const doc2: CanvasDoc = {
       nodes: [
-        projectNode("a", "A", "pa"),
-        text("b", "B", {
-          entity: { kind: "project", name: "pb" },
-          flags: ["blocker"],
-        }),
-        projectNode("c", "C", "pc"),
+        seat("b", "actor", { label: "B", flags: ["blocker"] }),
+        seat("c", "actor", { label: "C" }),
       ],
       edges: [
         {
@@ -430,8 +481,8 @@ describe("composeRegionExecutionContext", () => {
     const doc: CanvasDoc = {
       nodes: [
         { id: "grp", type: "group", label: "region", x: 0, y: 0, width: 500, height: 300 },
-        projectNode("a", "Alpha", "pa"),
-        projectNode("b", "Beta", "pb"),
+        seat("a", "sink", { label: "Alpha", name: "pa", x: 20, y: 20 }),
+        seat("b", "actor", { label: "Beta", x: 200, y: 20 }),
         text("t1", "Ops", {
           entity: { kind: "task" },
           tasks: { items: [a2aTask("i1", "ship docs", "submitted")] },
@@ -446,11 +497,6 @@ describe("composeRegionExecutionContext", () => {
         },
       ],
     };
-    // place members inside group for groupMembers (center-in)
-    (doc.nodes[1] as { x: number; y: number }).x = 20;
-    (doc.nodes[1] as { x: number; y: number }).y = 20;
-    (doc.nodes[2] as { x: number; y: number }).x = 200;
-    (doc.nodes[2] as { x: number; y: number }).y = 20;
     (doc.nodes[3] as { x: number; y: number }).x = 40;
     (doc.nodes[3] as { x: number; y: number }).y = 100;
 
@@ -494,7 +540,7 @@ describe("evaluateEdge — proof / approval (S8 trust plane)", () => {
     expect(result.detail).toContain('missing proof step "build"');
 
     const doc: CanvasDoc = {
-      nodes: [from, text("down", "Downstream", { entity: { kind: "project", name: "p" } })],
+      nodes: [from, seat("down", "actor", { label: "Downstream" })],
       edges: [edge],
     };
     const graph = deriveExecutionGraph(doc, new Map(), { stamps: new Map() });
@@ -522,7 +568,7 @@ describe("evaluateEdge — proof / approval (S8 trust plane)", () => {
     expect(result.detail).toContain("stamped");
 
     const doc: CanvasDoc = {
-      nodes: [from, text("down", "Downstream", { entity: { kind: "project", name: "p" } })],
+      nodes: [from, seat("down", "actor", { label: "Downstream" })],
       edges: [edge],
     };
     const graph = deriveExecutionGraph(doc, new Map(), { stamps });

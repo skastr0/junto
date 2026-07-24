@@ -3,21 +3,9 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
 import { blockedClosure, blockedEdgeIds, groupMembers } from "../src/shared/graph";
 import { a2aTask } from "./helpers/a2a-fixtures";
+import { seat } from "./helpers/physics-seats";
 
-const project = (id: string, label: string) => ({
-  id,
-  type: "text" as const,
-  text: label,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    entity: { kind: "project" as const, name: id },
-  },
-});
-
-const tasks = (id: string, open: boolean) => ({
+const tasks = (id: string, needsInput: boolean) => ({
   id,
   type: "text" as const,
   text: id,
@@ -27,26 +15,37 @@ const tasks = (id: string, open: boolean) => ({
   height: 80,
   ether: {
     entity: { kind: "task" as const },
-    tasks: { items: [a2aTask("i1", "item", open ? "submitted" : "completed")] },
+    tasks: {
+      items: [a2aTask("i1", "item", needsInput ? "input-required" : "completed")],
+    },
   },
 });
 
 describe("graph derivations", () => {
-  it("blockedClosure is transitive along criteria edges", () => {
+  it("blockedClosure is transitive along criteria edges through actors", () => {
+    // task sinks are not phase members; actors are.
     const doc: CanvasDoc = {
-      nodes: [tasks("t1", true), tasks("t2", true), project("c", "c")],
+      nodes: [
+        tasks("t1", true),
+        seat("a1", "actor", { label: "a1" }),
+        seat("a2", "actor", { label: "a2" }),
+      ],
       edges: [
-        { id: "e-ab", fromNode: "t1", toNode: "t2", ether: { criteria: { mode: "tasks" } } },
-        { id: "e-bc", fromNode: "t2", toNode: "c", ether: { criteria: { mode: "tasks" } } },
+        { id: "e-ab", fromNode: "t1", toNode: "a1", ether: { criteria: { mode: "tasks" } } },
+        { id: "e-bc", fromNode: "a1", toNode: "a2", ether: { criteria: { mode: "tasks" } } },
       ],
     };
-    expect(blockedClosure(doc)).toEqual(new Set(["t2", "c"]));
+    expect(blockedClosure(doc)).toEqual(new Set(["a1", "a2"]));
     expect(blockedEdgeIds(doc)).toEqual(new Set(["e-ab", "e-bc"]));
   });
 
   it("soft relates never participates in blocked closure", () => {
     const doc: CanvasDoc = {
-      nodes: [tasks("t1", true), project("b", "b"), project("c", "c")],
+      nodes: [
+        tasks("t1", true),
+        seat("b", "actor", { label: "b" }),
+        seat("c", "actor", { label: "c" }),
+      ],
       edges: [
         { id: "e-ab", fromNode: "t1", toNode: "b", ether: { criteria: { mode: "tasks" } } },
         { id: "e-bc", fromNode: "b", toNode: "c" },
@@ -58,7 +57,11 @@ describe("graph derivations", () => {
 
   it("wip criteria relays when downstream edge is depends (glyph-aware)", () => {
     const doc: CanvasDoc = {
-      nodes: [project("a", "a"), project("b", "b"), project("c", "c")],
+      nodes: [
+        seat("a", "sink", { label: "a", name: "a" }),
+        seat("b", "actor", { label: "b" }),
+        seat("c", "actor", { label: "c" }),
+      ],
       edges: [
         { id: "e-ab", fromNode: "a", toNode: "b", ether: { criteria: { mode: "wip" } } },
         {

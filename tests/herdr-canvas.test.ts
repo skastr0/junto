@@ -128,11 +128,12 @@ describe("herdr document model", () => {
     expect(redecoded.nodes[0]?.ether).toBeUndefined();
   });
 
-  it("does not treat herdr nodes as blockable execution-graph members", () => {
-    const node = {
-      id: "h1",
+  it("phase membership follows physics roles (actors yes, sinks no)", () => {
+    // Herdr binding shape is kind-specific; membership itself is role-level.
+    const actorSeat = {
+      id: "actor1",
       type: "text" as const,
-      text: "herdr",
+      text: "actor",
       x: 0,
       y: 0,
       width: 200,
@@ -142,6 +143,17 @@ describe("herdr document model", () => {
         herdr: { host: "local", paneId: "w1:p1" },
       },
     };
-    expect(isBlockableNode(node)).toBe(false);
+    const sinkSeat = {
+      id: "sink1",
+      type: "text" as const,
+      text: "sink",
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 80,
+      ether: { entity: { kind: "task" } },
+    };
+    expect(isBlockableNode(actorSeat)).toBe(true);
+    expect(isBlockableNode(sinkSeat)).toBe(false);
   });
 });

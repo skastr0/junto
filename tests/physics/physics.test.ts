@@ -19,13 +19,16 @@ import {
   canonicalRolePair,
   grantLawBetween,
   grantLawForRoles,
+  kindsWithRole,
   nullPlacementView,
   portSet,
   portTierFloor,
   resolveNodePlacement,
   resolveSpec,
+  roleMayBeBlocked,
   roleOf,
   routeAllowed,
+  seatMayBeBlocked,
   selectGrant,
   stampActorActorMsgPorts,
   tierAllowsPort,
@@ -99,18 +102,50 @@ describe("physics KindSpecs", () => {
     expect(keys).toEqual([...WELL_KNOWN_KINDS].sort());
   });
 
-  it("maps roles from kind", () => {
-    expect(roleOf(resolveSpec({ isGroup: false, kind: "agent" }))).toBe("actor");
-    expect(roleOf(resolveSpec({ isGroup: false, kind: "terminal" }))).toBe("actor");
-    expect(roleOf(resolveSpec({ isGroup: false, kind: "herdr" }))).toBe("actor");
-    expect(roleOf(resolveSpec({ isGroup: false, kind: "page" }))).toBe("sink");
-    expect(roleOf(resolveSpec({ isGroup: false, kind: "task" }))).toBe("sink");
-    expect(roleOf(resolveSpec({ isGroup: false, kind: "project" }))).toBe("sink");
-    expect(roleOf(resolveSpec({ isGroup: false, kind: "watcher" }))).toBe("scheduler");
-    expect(roleOf(resolveSpec({ isGroup: false, kind: "timer" }))).toBe("scheduler");
+  it("maps every well-known kind to a role via the registry (not ad-hoc lists)", () => {
+    for (const kind of WELL_KNOWN_KINDS) {
+      expect(roleOf(resolveSpec({ isGroup: false, kind }))).toBe(KindSpecs[kind].role);
+    }
     expect(roleOf(resolveSpec({ isGroup: true, kind: undefined }))).toBe("region");
     expect(roleOf(resolveSpec({ isGroup: false, kind: "note" }))).toBe("furniture");
     expect(roleOf(resolveSpec({ isGroup: false, kind: undefined }))).toBe("furniture");
+  });
+
+  it("kindsWithRole partitions WellKnownKind by KindSpecs.role", () => {
+    const allRoles = ["actor", "sink", "scheduler", "region", "furniture"] as const;
+    const seen = new Set<WellKnownKind>();
+    for (const role of allRoles) {
+      if (role === "region" || role === "furniture") {
+        expect(kindsWithRole(role)).toEqual([]);
+        continue;
+      }
+      for (const kind of kindsWithRole(role)) {
+        expect(KindSpecs[kind].role).toBe(role);
+        seen.add(kind);
+      }
+    }
+    expect([...seen].sort()).toEqual([...WELL_KNOWN_KINDS].sort());
+  });
+});
+
+describe("physics phase membership", () => {
+  it("only actor may be blocked; every other FactoryRole is refused", () => {
+    expect(roleMayBeBlocked("actor")).toBe(true);
+    expect(roleMayBeBlocked("sink")).toBe(false);
+    expect(roleMayBeBlocked("scheduler")).toBe(false);
+    expect(roleMayBeBlocked("region")).toBe(false);
+    expect(roleMayBeBlocked("furniture")).toBe(false);
+  });
+
+  it("every registry kind agrees: actors blockable, non-actors not", () => {
+    for (const kind of WELL_KNOWN_KINDS) {
+      const role = KindSpecs[kind].role;
+      const may = seatMayBeBlocked({ isGroup: false, kind });
+      expect(may).toBe(role === "actor");
+      expect(may).toBe(roleMayBeBlocked(role));
+    }
+    expect(seatMayBeBlocked({ isGroup: true, kind: undefined })).toBe(false);
+    expect(seatMayBeBlocked({ isGroup: false, kind: undefined })).toBe(false);
   });
 
   it("furniture offers empty", () => {

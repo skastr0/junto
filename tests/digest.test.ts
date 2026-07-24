@@ -37,8 +37,9 @@ const doc: CanvasDoc = {
       y: 300,
       width: 100,
       height: 50,
+      // Actor seat (registry kind) so task criteria can place it in the blocked set.
       ether: {
-        entity: { kind: "project", name: "baz" },
+        entity: { kind: "terminal" },
       },
     },
     {
@@ -55,7 +56,7 @@ const doc: CanvasDoc = {
           items: [
             {
               id: "i1",
-              state: "submitted",
+              state: "input-required",
               history: [
                 {
                   messageId: "m1",
@@ -109,37 +110,38 @@ team :: blocked · 2 members (1 blocked)
   Bar :: blocked · flag:blocker
 
 factory physics
-roles :: actors=0 sinks=3 schedulers=0 regions=1 furniture=1
+roles :: actors=1 sinks=2 schedulers=0 regions=1 furniture=1
 capabilities :: criteria=1 soft=3
 
 design
+seats
+  Baz :: empty
+empty seats
+  Baz :: empty
 topology :: soft=3 tasks=1
 
 entities
 Foo :: project
 Bar :: orbit
-Baz :: project
+Baz :: terminal
 Ops :: task
   tasks: 0/1 settled
 
 edges
 Foo --relates--> Bar
-Ops --blocks(0/1 tasks settled · open: ship)--> Baz
+Ops --blocks(1 need input · ship)--> Baz
 Baz --refs--> Foo
 Foo --relates--> Baz
 
 blockers
 Bar
 blocked closure :: 1 nodes
-Baz · 0/1 tasks settled · open: ship
+Baz · 1 need input · ship
 
 impact
 1 task · stops 2
   seed: Ops
   settle: ship
-blocker · stops 1
-  seed: Bar
-  clear: blocker flag
 
 seeds
 Foo

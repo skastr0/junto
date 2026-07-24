@@ -6,24 +6,15 @@ import { buildGlyphView } from "../src/shared/glyph-view";
 import { digestCanvas } from "../src/shared/digest";
 import { createFlowIdentityCache, toFlow } from "../src/renderer/lib/convert";
 import { criteriaPhasesNeedMirror } from "../src/main/vellum/kernel/cycle";
+import { seat } from "./helpers/physics-seats";
 
-const project = (id: string, key: string) => ({
-  id,
-  type: "text" as const,
-  text: id,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    entity: { kind: "project" as const, name: key },
-  },
-});
+const project = (id: string, key: string) =>
+  seat(id, "sink", { label: id, name: key });
 
 describe("buildGlyphView + digest with live glyphs", () => {
-  it("feeds complete browse rows into digest so glyph criteria show blocks", () => {
+  it("feeds complete browse rows into digest so glyph criteria show blocks on actors", () => {
     const doc: CanvasDoc = {
-      nodes: [project("a", "pa"), project("b", "pb")],
+      nodes: [project("a", "pa"), seat("b", "actor", { label: "b" })],
       edges: [
         {
           id: "e1",

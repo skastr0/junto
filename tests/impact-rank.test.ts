@@ -9,6 +9,7 @@ import {
   waitingOnPath,
 } from "../src/shared/impact";
 import { a2aTask } from "./helpers/a2a-fixtures";
+import { seat } from "./helpers/physics-seats";
 
 const text = (
   id: string,
@@ -25,32 +26,23 @@ const text = (
   ...(ether ? { ether } : {}),
 });
 
-const projectNode = (id: string, label: string, projectKey: string) =>
-  text(id, label, {
-    entity: { kind: "project", name: projectKey },
-  });
-
-/** Two independent stoppage seeds: big cone (size 4) and small (size 1 generator alone is empty — size 2). */
+/** Two independent stoppage seeds: big cone (size 4) and small (size 2). Actors only on path. */
 const twoSeedDoc = (): CanvasDoc => ({
   nodes: [
-    // Big seed: requests → p1 → p2 → p3  (cone: r-big, p1, p2, p3 = 4)
     text("r-big", "Big Requests", {
       entity: { kind: "requests" },
       requests: { items: [a2aTask("q1", "approve deploy?", "input-required")] },
     }),
-    projectNode("p1", "Ship", "ship"),
-    projectNode("p2", "Release", "release"),
-    projectNode("p3", "Announce", "announce"),
-    // Small seed: requests → only s1 (cone: r-small, s1 = 2)
+    seat("p1", "actor", { label: "Ship" }),
+    seat("p2", "actor", { label: "Release" }),
+    seat("p3", "actor", { label: "Announce" }),
     text("r-small", "Small Requests", {
       entity: { kind: "requests" },
       requests: { items: [a2aTask("q2", "ping?", "input-required")] },
     }),
-    projectNode("s1", "Side", "side"),
-    // Attention lead into the big cone
-    text("agent1", "hermes", {
-      entity: { kind: "agent", name: "local:default" },
-    }),
+    seat("s1", "actor", { label: "Side" }),
+    // Soft attention lead into the big cone (free actor, not blocked)
+    seat("lead1", "actor", { label: "lead worker" }),
   ],
   edges: [
     {
@@ -77,8 +69,7 @@ const twoSeedDoc = (): CanvasDoc => ({
       toNode: "s1",
       ether: { criteria: { mode: "tasks" } },
     },
-    // Soft relates from agent into blocked p2 — attention lead
-    { id: "e-lead", fromNode: "agent1", toNode: "p2" },
+    { id: "e-lead", fromNode: "lead1", toNode: "p2" },
   ],
 });
 
@@ -95,14 +86,13 @@ describe("rankStoppageSeeds — blast-radius ranking", () => {
     expect(ranked[1]!.seedNodeId).toBe("r-small");
     expect(ranked[1]!.stops).toBe(2);
 
-    // Leads on the big cone
-    expect(ranked[0]!.attentionLeadIds).toContain("agent1");
+    expect(ranked[0]!.attentionLeadIds).toContain("lead1");
 
     const line = formatRankedStoppageLine(ranked[0]!, {
-      titleOf: (id) => (id === "agent1" ? "hermes" : id),
+      titleOf: (id) => (id === "lead1" ? "lead worker" : id),
     });
     expect(line).toMatch(/1 request · stops 4/);
-    expect(line).toMatch(/leads: hermes/);
+    expect(line).toMatch(/leads: lead worker/);
   });
 
   it("marks empty lead seats unstaffed when occupancy is available", () => {
@@ -110,20 +100,20 @@ describe("rankStoppageSeeds — blast-radius ranking", () => {
     const graph = deriveExecutionGraph(doc);
     const ranked = rankStoppageSeeds(doc, graph);
     const big = ranked.find((r) => r.seedNodeId === "r-big")!;
-    expect(big.attentionLeadIds).toContain("agent1");
+    expect(big.attentionLeadIds).toContain("lead1");
 
-    expect(leadStaffing("agent1")).toBe("unknown");
-    expect(leadStaffing("agent1", new Map())).toBe("unknown");
-    expect(leadStaffing("agent1", new Map([["agent1", "empty"]]))).toBe("unstaffed");
-    expect(leadStaffing("agent1", new Map([["agent1", "gone"]]))).toBe("unstaffed");
-    expect(leadStaffing("agent1", new Map([["agent1", "idle"]]))).toBe("staffed");
-    expect(leadStaffing("agent1", new Map([["agent1", "working"]]))).toBe("staffed");
+    expect(leadStaffing("lead1")).toBe("unknown");
+    expect(leadStaffing("lead1", new Map())).toBe("unknown");
+    expect(leadStaffing("lead1", new Map([["lead1", "empty"]]))).toBe("unstaffed");
+    expect(leadStaffing("lead1", new Map([["lead1", "gone"]]))).toBe("unstaffed");
+    expect(leadStaffing("lead1", new Map([["lead1", "idle"]]))).toBe("staffed");
+    expect(leadStaffing("lead1", new Map([["lead1", "working"]]))).toBe("staffed");
 
     const line = formatRankedStoppageLine(big, {
-      titleOf: (id) => (id === "agent1" ? "hermes" : id),
-      occupancyByNodeId: new Map([["agent1", "empty"]]),
+      titleOf: (id) => (id === "lead1" ? "lead worker" : id),
+      occupancyByNodeId: new Map([["lead1", "empty"]]),
     });
-    expect(line).toContain("hermes (unstaffed)");
+    expect(line).toContain("lead worker (unstaffed)");
   });
 
   it("includes clear-action on ranked rows", () => {
@@ -135,7 +125,7 @@ describe("rankStoppageSeeds — blast-radius ranking", () => {
 });
 
 describe("waitingOnPath — reverse walk to seed", () => {
-  it("lists seed and every relay hop from a deep blocked node", () => {
+  it("lists seed and every relay hop from a deep blocked actor", () => {
     const doc = twoSeedDoc();
     const graph = deriveExecutionGraph(doc);
 
@@ -143,20 +133,17 @@ describe("waitingOnPath — reverse walk to seed", () => {
     const path = waitingOnPath(doc, graph, "p3");
     expect(path.hops.length).toBeGreaterThanOrEqual(2);
 
-    // Path is blocked → … → seed (generator)
     expect(path.hops[0]!.nodeId).toBe("p3");
     expect(path.seedNodeId).toBe("r-big");
     expect(path.hops[path.hops.length - 1]!.nodeId).toBe("r-big");
     expect(path.hops[path.hops.length - 1]!.role).toBe("generator");
 
-    // Every intermediate hop present
     const ids = path.hops.map((h) => h.nodeId);
     expect(ids).toContain("p3");
     expect(ids).toContain("p2");
     expect(ids).toContain("p1");
     expect(ids).toContain("r-big");
 
-    // Relay reasons appear on intermediate blocked nodes
     const p2 = path.hops.find((h) => h.nodeId === "p2");
     expect(p2?.role).toBe("blocked");
     expect(p2?.reasons.some((r) => r.kind === "relay")).toBe(true);
@@ -169,8 +156,8 @@ describe("waitingOnPath — reverse walk to seed", () => {
   it("returns empty outside any stoppage cone", () => {
     const doc = twoSeedDoc();
     const graph = deriveExecutionGraph(doc);
-    // agent is soft lead, not in phase cone
-    const path = waitingOnPath(doc, graph, "agent1");
+    // free attention lead is not in the phase cone
+    const path = waitingOnPath(doc, graph, "lead1");
     expect(path.hops).toEqual([]);
   });
 });
