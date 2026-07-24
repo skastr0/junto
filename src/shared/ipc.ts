@@ -27,6 +27,7 @@ import type {
 } from "./demo";
 import type { SnapshotState } from "./entities";
 import type { NodeRefKey } from "./node-ref";
+import type { CanvasPauseState, PauseScope } from "./pause";
 import type { RegionRollup } from "./region-rollup";
 import type {
   Settings,
@@ -77,6 +78,9 @@ export const IPC_CHANNELS = {
   /** Release delete lease after document commit or abort. */
   chatFinishNodeDelete: "vellum:chat-finish-node-delete",
   getKernelState: "vellum:get-kernel-state",
+  /** Factory pause plane — canvas-level switch state (born paused). */
+  factoryPauseState: "vellum:factory-pause-state",
+  factoryPauseSet: "vellum:factory-pause-set",
   armRegion: "vellum:arm-region",
   pulseRegion: "vellum:pulse-region",
   regionRollups: "vellum:region-rollups",
@@ -321,6 +325,14 @@ export interface ArmRegionResult {
   readonly error?: string;
 }
 
+// factoryPauseSet is store-first (pause-plane.ts persist): ok carries the
+// fresh post-write state so the renderer never re-derives; a refused write
+// (store fault, failed persist) changed nothing anywhere and carries the
+// reason for the operator to see inline — never swallowed.
+export type FactoryPauseSetResult =
+  | { readonly ok: true; readonly state: CanvasPauseState }
+  | { readonly ok: false; readonly error: string };
+
 export type WorkErrorCode =
   | "canvas_not_found"
   | "node_not_found"
@@ -507,6 +519,14 @@ export interface VellumApi {
   readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
   // Kernel state and control (headless kernel in main process).
   readonly getKernelState: () => Promise<KernelSnapshot>;
+  // Factory pause plane (app-state switch; the factory is born paused and the
+  // first play is an explicit operator confirmation — @shared/pause law).
+  readonly factoryPauseState: (canvas: string) => Promise<CanvasPauseState>;
+  readonly factoryPauseSet: (
+    canvas: string,
+    scope: PauseScope,
+    paused: boolean,
+  ) => Promise<FactoryPauseSetResult>;
   readonly armRegion: (canvasName: string, regionId: string, armed: boolean) => Promise<ArmRegionResult>;
   readonly pulseRegion: (canvasName: string, regionId: string, opts?: unknown) => Promise<void>;
   // Region severity rollups for the bottom bar, derived live per call from

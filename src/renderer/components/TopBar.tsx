@@ -1,14 +1,16 @@
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useRef, useState } from "react";
-import { CircleHelp, Plus, Radar, Search, Settings2, Trash2, X } from "lucide-react";
+import { CircleHelp, Pause, Play, Plus, Radar, Search, Settings2, Trash2, X } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
+import type { CanvasPauseState } from "@shared/pause";
 import { state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
 import { openFleet } from "../lib/fleet-state";
-import { HUE, INK } from "../lib/theme";
+import { GREEN, HUE, INK, withAlpha } from "../lib/theme";
 import { Dropdown } from "./ui";
 import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
+import { FirstPlayConfirm } from "./FirstPlayConfirm";
 import { UsageHud } from "./UsageHud";
 
 function CanvasPicker({
@@ -147,6 +149,151 @@ function SearchField({ canvasName }: { readonly canvasName: string }) {
   return <label className="station-search" title="Search nodes · / or ⌘K"><Search size={14} /><input ref={inputRef} aria-label={label} value={value} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setSearch(""); inputRef.current?.blur(); } }} placeholder="search nodes" />{value ? <button type="button" className="station-search__clear" aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button> : null}</label>;
 }
 
+// Factory pause switch (app-state, main-owned). The canvas is born paused;
+// PAUSED is the prominent state, playing stays quiet. First play routes
+// through FirstPlayConfirm (everPlayed latch); pausing is always instant.
+// State is fetched per canvas switch and refreshed from each write result —
+// no push channel (pause flips only through this control today).
+function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
+  const [pauseState, setPauseState] = useState<CanvasPauseState | undefined>(undefined);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setPauseState(undefined);
+    setConfirmOpen(false);
+    setError("");
+    if (!canvasName) return;
+    let cancelled = false;
+    void window.vellum
+      ?.factoryPauseState(canvasName)
+      .then((state) => {
+        if (!cancelled) setPauseState(state);
+      })
+      .catch(() => {
+        // Unreachable backend: leave the control unrendered rather than lie.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canvasName]);
+
+  if (!canvasName || !pauseState) return null;
+
+  const apply = async (paused: boolean) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await window.vellum?.factoryPauseSet(
+        canvasName,
+        { kind: "canvas" },
+        paused,
+      );
+      if (!result) return;
+      if (result.ok) {
+        setPauseState(result.state);
+        setError("");
+      } else {
+        setError(result.error);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onClick = () => {
+    if (pauseState.playing) {
+      void apply(true); // pausing is always instant
+      return;
+    }
+    if (!pauseState.everPlayed) {
+      setConfirmOpen(true);
+      return;
+    }
+    void apply(false);
+  };
+
+  const playing = pauseState.playing;
+  return (
+    <>
+      <button
+        type="button"
+        data-testid="factory-pause"
+        data-pause-state={playing ? "playing" : "paused"}
+        aria-label={playing ? "Pause factory" : "Play factory"}
+        title={
+          error
+            ? `pause switch: ${error}`
+            : playing
+              ? "factory playing — click to pause"
+              : "factory paused — click to play"
+        }
+        disabled={busy}
+        onClick={onClick}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          height: 26,
+          padding: "0 10px",
+          borderRadius: 7,
+          fontFamily: "inherit",
+          fontSize: 9,
+          letterSpacing: ".14em",
+          textTransform: "uppercase",
+          cursor: busy ? "wait" : "pointer",
+          border: "1px solid",
+          ...(playing
+            ? {
+                color: GREEN,
+                borderColor: withAlpha(GREEN, 0.28),
+                background: "rgba(255,255,255,0.02)",
+              }
+            : {
+                color: HUE.amber,
+                borderColor: withAlpha(HUE.amber, 0.55),
+                background: withAlpha(HUE.amber, 0.12),
+                boxShadow: `0 0 0 3px ${withAlpha(HUE.amber, 0.08)}`,
+              }),
+        }}
+      >
+        {playing ? <Play size={11} fill="currentColor" /> : <Pause size={11} fill="currentColor" />}
+        <span>{playing ? "playing" : "paused"}</span>
+      </button>
+      {error ? (
+        <span
+          role="alert"
+          style={{
+            color: HUE.crimson,
+            fontSize: 8,
+            letterSpacing: ".12em",
+            textTransform: "uppercase",
+            maxWidth: 180,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {error}
+        </span>
+      ) : null}
+      {confirmOpen ? (
+        <FirstPlayConfirm
+          canvasName={canvasName}
+          onConfirm={() => {
+            setConfirmOpen(false);
+            void apply(false);
+          }}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
 function SaveStatus() {
   const saveState = use$(state$.saveState);
   const label = saveState === "saving" ? "saving" : saveState === "error" ? "save error" : "saved";
@@ -190,6 +337,7 @@ export function TopBar({
       <SearchField canvasName={canvasName} />
       <SaveStatus />
       <div className="station-actions relative ml-auto flex items-center gap-3">
+        <FactoryPauseControl canvasName={canvasName} />
         <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="fleet"
           style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }}
           onClick={() => { setHelpOpen(false); openFleet(); }}>

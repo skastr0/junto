@@ -416,6 +416,10 @@ const vellumApi: VellumApi = {
   agentAvatar: (key) => invoke(IPC_CHANNELS.agentAvatar, IPC_TIMEOUT_MS, key),
   agentMessage: (key, text) => invoke(IPC_CHANNELS.agentMessage, AGENT_MESSAGE_TIMEOUT_MS, key, text),
   getKernelState: () => invoke<KernelSnapshot>(IPC_CHANNELS.getKernelState, IPC_TIMEOUT_MS),
+  factoryPauseState: (canvas) =>
+    invoke(IPC_CHANNELS.factoryPauseState, IPC_TIMEOUT_MS, canvas),
+  factoryPauseSet: (canvas, scope, paused) =>
+    invoke(IPC_CHANNELS.factoryPauseSet, IPC_TIMEOUT_MS, canvas, scope, paused),
   armRegion: (canvasName, regionId, armed) =>
     invoke<ArmRegionResult>(IPC_CHANNELS.armRegion, IPC_TIMEOUT_MS, canvasName, regionId, armed),
   pulseRegion: (canvasName, regionId, opts) =>

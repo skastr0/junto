@@ -1,7 +1,13 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { Effect } from "effect";
-import { IPC_CHANNELS, type BindingHint, type WorkOpResult } from "@shared/ipc";
+import {
+  IPC_CHANNELS,
+  type BindingHint,
+  type FactoryPauseSetResult,
+  type WorkOpResult,
+} from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
+import { seatPaused, type PauseScope } from "@shared/pause";
 import { digestCanvas } from "@shared/digest";
 import { buildGlyphView } from "@shared/glyph-view";
 import { mergePortfolioInto } from "@shared/portfolio";
@@ -19,6 +25,7 @@ import type { PulseRegionOptions } from "./kernel/service";
 import { KernelService } from "./kernel/service";
 import { RegionRollupService } from "./region-rollup";
 import { registerHostsIpc } from "./hosts/ipc";
+import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
 import { SettingsService } from "./settings/service";
 import { SnapshotsService } from "./snapshots";
@@ -325,6 +332,40 @@ export const registerVellumIpc = (): void => {
     AppRuntime.runPromise(Effect.map(KernelService, (kernel) => kernel.getSnapshot())),
   );
 
+  // Factory pause plane — canvas-level switch. start is idempotent hydration,
+  // so an early renderer read/write never races boot into the born-paused
+  // default composing a store write from an unhydrated map.
+  privilegedIpc.handle(IPC_CHANNELS.factoryPauseState, (_event, canvas: string) =>
+    AppRuntime.runPromise(
+      Effect.gen(function* () {
+        const pause = yield* PausePlane;
+        yield* pause.start;
+        return pause.stateFor(canvas);
+      }),
+    ),
+  );
+
+  privilegedIpc.handle(
+    IPC_CHANNELS.factoryPauseSet,
+    (
+      _event,
+      canvas: string,
+      scope: PauseScope,
+      paused: boolean,
+    ): Promise<FactoryPauseSetResult> =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const pause = yield* PausePlane;
+          yield* pause.start;
+          const written = yield* Effect.either(pause.setScopePaused(canvas, scope, paused));
+          if (written._tag === "Left") {
+            return { ok: false as const, error: written.left.message };
+          }
+          return { ok: true as const, state: pause.stateFor(canvas) };
+        }),
+      ),
+  );
+
   privilegedIpc.handle(IPC_CHANNELS.armRegion, (_event, canvasName: string, regionId: string, armed: boolean) =>
     AppRuntime.runPromise(Effect.flatMap(KernelService, (kernel) => kernel.armRegion(canvasName, regionId, armed))),
   );
@@ -507,6 +548,7 @@ export const registerVellumIpc = (): void => {
       const kernel = yield* KernelService;
       const chat = yield* ChatServiceContext;
       const herdr = yield* HerdrPlane;
+      const pause = yield* PausePlane;
       const settingsForSeed = yield* SettingsService;
       const stationForSeed = yield* settingsForSeed.get;
       // Fresh Command Center (or unset) may seed. Remote never authors a seed.
@@ -623,9 +665,18 @@ export const registerVellumIpc = (): void => {
               return false;
             }),
         },
+        // Pause law (@shared/pause): canvas paused OR node paused OR any
+        // containing region paused keeps the message pending, never sent.
+        seatPaused: (canvas, doc, nodeId) =>
+          seatPaused(pause.stateFor(canvas), doc, nodeId),
       });
       chat.setSessionLiveHook((agentKey) => messageDelivery.onAgentLive(agentKey));
       herdr.sessions.setOpenHook((terminalId) => messageDelivery.onHerdrAttached(terminalId));
+      // A canvas flipping to playing (or a node/region unpausing inside a
+      // playing canvas) re-drives every message held pending while paused.
+      pause.subscribe((canvas) => {
+        if (pause.stateFor(canvas).playing) messageDelivery.onResumed();
+      });
 
       canvases.start();
       snapshots.start();
