@@ -181,13 +181,13 @@ describe("CanvasesService sole authority store", () => {
     await runtime.dispose();
     runtime = undefined;
 
-    // Stale same-name bytes must not re-admit over protected authority content.
+    // Stale same-name bytes and drop-in ghost names must not re-admit once
+    // a valid authority pointer exists (sole SoT — no promote-missing).
     await writeFile(
       join(canvasesDir, "alpha.canvas"),
       serializeCanvas(noteDoc("legacy-stale")),
       "utf8",
     );
-    // Missing-name legacy is still promoted once (pre-migration recovery).
     await writeFile(
       join(canvasesDir, "ghost.canvas"),
       serializeCanvas(noteDoc("only-on-legacy")),
@@ -197,10 +197,7 @@ describe("CanvasesService sole authority store", () => {
     runtime = ManagedRuntime.make(CanvasesLive);
     const reloaded = await runtime.runPromise(CanvasesService);
     const list = await runtime.runPromise(reloaded.list);
-    expect(list.map((row) => row.name).slice().sort()).toEqual([
-      "alpha",
-      "ghost",
-    ]);
+    expect(list.map((row) => row.name).slice().sort()).toEqual(["alpha"]);
 
     const read = await runtime.runPromise(reloaded.read("alpha"));
     const text =
@@ -209,12 +206,9 @@ describe("CanvasesService sole authority store", () => {
         : undefined;
     expect(text).toBe("authority-wins");
 
-    const ghost = await runtime.runPromise(reloaded.read("ghost"));
-    const ghostText =
-      ghost.doc.nodes[0] && ghost.doc.nodes[0].type === "text"
-        ? ghost.doc.nodes[0].text
-        : undefined;
-    expect(ghostText).toBe("only-on-legacy");
+    await expect(
+      runtime.runPromise(Effect.either(reloaded.read("ghost"))),
+    ).resolves.toMatchObject({ _tag: "Left" });
 
     // Boot does not rewrite legacy disk (would fight Remote pull deletes).
     const legacyAfterBoot = await readFile(

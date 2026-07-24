@@ -1,4 +1,4 @@
-import { link, lstat, mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -94,13 +94,6 @@ const assertRegularOrMissing = async (path: string): Promise<void> => {
   }
 };
 
-const assertRegularFile = async (path: string): Promise<void> => {
-  const info = await lstat(path);
-  if (!info.isFile() || info.isSymbolicLink()) {
-    throw new CanvasError({ message: `refusing non-regular canvas file: ${basename(path)}` });
-  }
-};
-
 const syncDirectoryBestEffort = async (root: string): Promise<void> => {
   let directory: Awaited<ReturnType<typeof open>> | undefined;
   try {
@@ -145,25 +138,6 @@ const atomicReplaceTextFile = async (path: string, contents: string): Promise<vo
   await syncDirectoryBestEffort(dirname(path));
 };
 
-const atomicCreateTextFile = async (path: string, contents: string): Promise<void> => {
-  const tmpPath = `${path}.${randomUUID()}.tmp`;
-  let ownsTemp = false;
-  try {
-    await writeExclusiveTemp(tmpPath, contents);
-    ownsTemp = true;
-    // link() is the portable no-replace publication primitive: it fails with
-    // EEXIST rather than replacing a concurrent creator's document.
-    await link(tmpPath, path);
-  } catch (error) {
-    if (ownsTemp) await rm(tmpPath, { force: true }).catch(() => undefined);
-    throw error;
-  }
-  await rm(tmpPath, { force: true }).catch((error) => {
-    console.error("[canvases] committed create retained its temporary link:", error);
-  });
-  await syncDirectoryBestEffort(dirname(path));
-};
-
 /** Mint a root-confined document path only after the repository and target are safe. */
 export const canvasDocumentPathForRead = async (rawName: string): Promise<string> => {
   const root = await ensureCanvasesDir();
@@ -172,7 +146,11 @@ export const canvasDocumentPathForRead = async (rawName: string): Promise<string
   return path;
 };
 
-/** Write an allowlisted derivative through a same-directory atomic rename. */
+/**
+ * Write an allowlisted agent-facing derivative under canvasesDir.
+ * Sidecars are not product durability — authority is. No dual-path
+ * `.canvas` file is required (or written) for sidecar publication.
+ */
 export const writeCanvasSidecar = async (
   rawName: string,
   suffix: SidecarSuffix | string,
@@ -183,7 +161,6 @@ export const writeCanvasSidecar = async (
   }
   const name = canvasNameFrom(rawName);
   const root = await ensureCanvasesDir();
-  await assertRegularFile(canvasDocumentPathIn(root, name));
   const path = canvasSidecarPathIn(root, name, suffix as SidecarSuffix);
   await assertRegularOrMissing(path);
   await atomicReplaceTextFile(path, contents);
@@ -493,21 +470,10 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     bootstrapPromise = (async () => {
       const root = await ensureCanvasesDir();
       const status = await bootstrapFromAuthorityStore(root);
+      // One-shot import only when there is no usable pointer. After that,
+      // authority is sole SoT — drop-in legacy .canvas files never re-admit.
       if (status === "absent" || status === "corrupt") {
         await importLegacyIntoAuthority(root);
-      } else {
-        // Promote missing legacy names once into authority (not dual-read).
-        const legacy = await readLegacyCanvasFiles(root);
-        let missing = false;
-        for (const name of legacy.keys()) {
-          if (!liveAuthority.has(name)) {
-            missing = true;
-            break;
-          }
-        }
-        if (missing) {
-          await importLegacyIntoAuthority(root);
-        }
       }
       bootstrapped = true;
     })();
@@ -827,7 +793,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       id: "canvases",
       label: "Canvas Documents",
       status: "ok",
-      detail: canvasesDir(),
+      detail: canvasAuthorityRoot(),
     }),
     list,
     read,
