@@ -1,0 +1,134 @@
+import type { CanvasDoc } from "../../src/shared/canvas";
+import { canvasDoc, taskItem, tasksNode } from "../harness/sandbox";
+import { expect, launchVellum, test } from "../harness/launch";
+
+const installBoard = async (
+  page: import("@playwright/test").Page,
+  doc: CanvasDoc,
+): Promise<void> => {
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const runtime = globalThis as unknown as {
+            readonly vellum?: { readonly listCanvases: () => Promise<unknown[]> };
+          };
+          return Boolean(runtime.vellum?.listCanvases);
+        }),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+
+  await page.evaluate(async (document) => {
+    const api = (
+      globalThis as unknown as {
+        readonly vellum: {
+          readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
+          readonly createCanvas: (name: string) => Promise<{ name: string }>;
+          readonly readCanvas: (name: string) => Promise<{ revision: string }>;
+          readonly writeCanvas: (
+            name: string,
+            doc: unknown,
+            expectedRevision?: string,
+          ) => Promise<unknown>;
+        };
+      }
+    ).vellum;
+    const list = await api.listCanvases();
+    const name = list[0]?.name ?? (await api.createCanvas("task-board-ux")).name;
+    const read = await api.readCanvas(name);
+    await api.writeCanvas(name, document, read.revision);
+  }, doc);
+};
+
+test("task board supports creator metadata, details, dismissible actions, and body dragging", async () => {
+  const fixture = canvasDoc([
+    tasksNode({
+      id: "tasks",
+      x: 80,
+      y: 80,
+      items: [
+        taskItem("queued", "Queued task", "submitted"),
+        {
+          ...taskItem("working", "Working task", "working"),
+          metadata: {
+            claimedBy: "local:builder",
+            workRole: "Builder",
+            details: "A claimed task ready for a whole-card drag.",
+          },
+        },
+      ],
+    }),
+  ]);
+  const vellum = await launchVellum();
+
+  try {
+    const { page } = vellum;
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await installBoard(page, fixture);
+    await expect(page.locator('.react-flow__node[data-id="tasks"]')).toBeVisible({
+      timeout: 30_000,
+    });
+    await page
+      .locator('.react-flow__node[data-id="tasks"]')
+      .getByTestId("tasks-card")
+      .dispatchEvent("dblclick");
+
+    const board = page.getByRole("dialog", { name: "Task flow" });
+    await expect(board).toBeVisible();
+
+    await board.getByRole("button", { name: "New task" }).click();
+    const creator = page.getByRole("dialog", { name: "Create task" });
+    await creator.getByPlaceholder("What needs doing?").fill("Audit release authority");
+    await creator.getByPlaceholder("e.g. Security Agent").fill("Security Agent");
+    await creator
+      .getByPlaceholder(/Describe the context/)
+      .fill("Verify the signing boundary and return the exact proof receipt.");
+    await creator.getByRole("button", { name: "Create task", exact: true }).click();
+    await expect(creator).toBeHidden();
+
+    const createdCard = board.getByLabel("Open details for Audit release authority");
+    await expect(createdCard).toBeVisible();
+    const createdDetails = board.getByRole("complementary", {
+      name: "Details for Audit release authority",
+    });
+    await expect(createdDetails).toContainText("Security Agent");
+    await expect(createdDetails).toContainText(
+      "Verify the signing boundary and return the exact proof receipt.",
+    );
+    await createdDetails.getByRole("button", { name: "Close task details" }).click();
+
+    const actionTrigger = board.getByRole("button", { name: "Actions for Queued task" });
+    await actionTrigger.click();
+    const actionMenu = page.getByRole("menu");
+    await expect(actionMenu).toBeVisible();
+    await board.getByText("Ready to be claimed", { exact: true }).click();
+    await expect(actionMenu).toBeHidden();
+
+    const workingCard = board.getByLabel("Open details for Working task");
+    const inputLane = board.getByTestId("task-lane-input");
+    const sourceBox = await workingCard.boundingBox();
+    const targetBox = await inputLane.boundingBox();
+    expect(sourceBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+    if (!sourceBox || !targetBox) return;
+
+    await page.mouse.move(
+      sourceBox.x + sourceBox.width * 0.72,
+      sourceBox.y + sourceBox.height * 0.72,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      targetBox.x + targetBox.width * 0.5,
+      targetBox.y + Math.min(180, targetBox.height * 0.4),
+      { steps: 14 },
+    );
+    await page.mouse.up();
+
+    await expect(inputLane.getByText("Working task", { exact: true })).toBeVisible({
+      timeout: 10_000,
+    });
+  } finally {
+    await vellum.close();
+  }
+});
