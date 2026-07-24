@@ -660,7 +660,7 @@ describe("control stream ↔ observe pool handoff", () => {
     expect(pool.entryState("t1")?.live).toBe(true);
     expect(events.map((e) => e.type)).toEqual(["error", "closed"]);
     expect(events[1]!.reason).toBe("child_error");
-    expect(streams.getActiveStreamId()).toBeUndefined();
+    expect(streams.streamIdForTerminal("t1")).toBeUndefined();
   });
 
   it("host terminal.closed on the control stream drops the pool entry instead of re-observing", () => {
@@ -678,7 +678,7 @@ describe("control stream ↔ observe pool handoff", () => {
     expect(pool.retainedFrames("t1").frames).toEqual([]);
     expect(events.map((e) => e.type)).toEqual(["closed"]);
     expect(events[0]!.reason).toBe("pane_gone");
-    expect(streams.getActiveStreamId()).toBeUndefined();
+    expect(streams.streamIdForTerminal("t1")).toBeUndefined();
   });
 
   it("control child exit also hands the terminal back to the pool", () => {

@@ -213,12 +213,6 @@ const protectedHeaders = (
   [CONTROL_REQUEST_ID_HEADER, randomUUID()],
 ];
 
-/** @deprecated alias — keep until call sites fully migrate */
-const capabilityHeaders = (
-  token: string,
-  _capability?: string,
-): ReadonlyArray<readonly [string, string]> => protectedHeaders(token);
-
 const rawExchange = (
   socketPath: string,
   writes: ReadonlyArray<string | Buffer>,
@@ -529,7 +523,7 @@ describe("browser control Unix transport", () => {
       await releaseRoute.promise;
       return resolvePageTarget(ref);
     };
-    const { server, token, capability } = await startStack(
+    const { server, token } = await startStack(
       root,
       {
         chmodSocket: chmodSync,
@@ -542,7 +536,7 @@ describe("browser control Unix transport", () => {
     const body = JSON.stringify({ ref: PAGE_REF });
     const response = rawExchange(server.socketPath, [
       requestHead("POST", "/open", [
-        ...capabilityHeaders(token, capability),
+        ...protectedHeaders(token),
         ["Content-Type", "application/json"],
         ["Content-Length", String(Buffer.byteLength(body))],
       ]),
@@ -578,7 +572,7 @@ describe("browser control Unix transport", () => {
       await releaseRoute.promise;
       return resolvePageTarget(ref);
     };
-    const { server, token, capability } = await startStack(
+    const { server, token } = await startStack(
       root,
       {
         chmodSocket: chmodSync,
@@ -591,7 +585,7 @@ describe("browser control Unix transport", () => {
     const body = JSON.stringify({ ref: PAGE_REF });
     const response = rawExchange(server.socketPath, [
       requestHead("POST", "/open", [
-        ...capabilityHeaders(token, capability),
+        ...protectedHeaders(token),
         ["Content-Type", "application/json"],
         ["Content-Length", String(Buffer.byteLength(body))],
       ]),
@@ -1009,12 +1003,12 @@ describe("browser control Unix transport", () => {
 
   it("rejects a declared oversize body without waiting for body completion", async () => {
     const root = await newRoot();
-    const { server, token, capability, auditId, sessions } = await startStack(root);
+    const { server, token, auditId, sessions } = await startStack(root);
     const response = await rawExchange(
       server.socketPath,
       [
         requestHead("POST", "/open", [
-          ...capabilityHeaders(token, capability),
+          ...protectedHeaders(token),
           ["Content-Type", "application/json"],
           ["Content-Length", String(CONTROL_MAX_BODY_BYTES + 1)],
         ]),
@@ -1028,11 +1022,11 @@ describe("browser control Unix transport", () => {
 
   it("rejects a streamed oversize body before dispatch", async () => {
     const root = await newRoot();
-    const { server, token, capability, auditId, sessions } = await startStack(root);
+    const { server, token, auditId, sessions } = await startStack(root);
     const chunk = Buffer.alloc(CONTROL_MAX_BODY_BYTES + 1, 0x61);
     const response = await rawExchange(server.socketPath, [
       requestHead("POST", "/open", [
-        ...capabilityHeaders(token, capability),
+        ...protectedHeaders(token),
         ["Content-Type", "application/json"],
         ["Transfer-Encoding", "chunked"],
       ]),
@@ -1048,10 +1042,10 @@ describe("browser control Unix transport", () => {
 
   it("returns a typed bad request for authenticated malformed JSON", async () => {
     const root = await newRoot();
-    const { server, token, capability } = await startStack(root);
+    const { server, token } = await startStack(root);
     const response = await rawExchange(server.socketPath, [
       requestHead("POST", "/open", [
-        ...capabilityHeaders(token, capability),
+        ...protectedHeaders(token),
         ["Content-Type", "application/json"],
         ["Content-Length", "1"],
       ]),
@@ -1075,7 +1069,7 @@ describe("browser control Unix transport", () => {
 
   it("bounds active handlers and the whole handler deadline", async () => {
     const root = await newRoot();
-    const { server, token, capability } = await startStack(root, {
+    const { server, token } = await startStack(root, {
       chmodSocket: chmodSync,
       maxActiveHandlers: 1,
       handlerTimeoutMs: 80,
@@ -1087,7 +1081,7 @@ describe("browser control Unix transport", () => {
     });
     held.write(
       requestHead("POST", "/open", [
-        ...capabilityHeaders(token, capability),
+        ...protectedHeaders(token),
         ["Content-Type", "application/json"],
         ["Content-Length", "100"],
       ]) + "{",
@@ -1120,7 +1114,7 @@ describe("browser control Unix transport", () => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const response = await rawExchange(timed.server.socketPath, [
         requestHead("POST", "/open", [
-          ...capabilityHeaders(timed.token, timed.capability),
+          ...protectedHeaders(timed.token),
           ["Content-Type", "application/json"],
           ["Content-Length", String(Buffer.byteLength(body))],
         ]),
@@ -1158,7 +1152,7 @@ describe("browser control Unix transport", () => {
     const body = JSON.stringify({ ref: PAGE_REF });
     const response = await rawExchange(timed.server.socketPath, [
       requestHead("POST", "/open", [
-        ...capabilityHeaders(timed.token, timed.capability),
+        ...protectedHeaders(timed.token),
         ["Content-Type", "application/json"],
         ["Content-Length", String(Buffer.byteLength(body))],
       ]),
@@ -1177,7 +1171,7 @@ describe("browser control Unix transport", () => {
     });
     held.write(
       requestHead("POST", "/open", [
-        ...capabilityHeaders(timed.token, timed.capability),
+        ...protectedHeaders(timed.token),
         ["Content-Type", "application/json"],
         ["Content-Length", "100"],
       ]) + "{",
@@ -1209,7 +1203,7 @@ describe("browser control Unix transport", () => {
         markResolverSettled();
       }
     };
-    const { server, token, capability, auditId, sessions, capabilities } = await startStack(
+    const { server, token, auditId, sessions, capabilities } = await startStack(
       root,
       undefined,
       delayed,
@@ -1222,7 +1216,7 @@ describe("browser control Unix transport", () => {
     });
     client.write(
       requestHead("POST", "/open", [
-        ...capabilityHeaders(token, capability),
+        ...protectedHeaders(token),
         ["Content-Type", "application/json"],
         ["Content-Length", String(Buffer.byteLength(body))],
       ]) + body,

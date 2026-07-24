@@ -6,7 +6,6 @@ import {
   encodeHerdrControlLine,
   herdrControlWriteFailed,
   herdrControlWriteOk,
-  herdrControlWriteWire,
   herdrInputBytes,
   herdrInputText,
   herdrRelease,
@@ -40,6 +39,10 @@ export type HerdrStreamWriteResult =
   | { readonly ok: false; readonly error: string };
 
 export type { HerdrControlWriteResult };
+
+/** Flatten a domain write result to the IPC-stable (message string) shape. */
+const toWireResult = (result: HerdrControlWriteResult): HerdrStreamWriteResult =>
+  result.ok ? { ok: true } : { ok: false, error: result.cause.message };
 
 export interface HerdrStreamFrame {
   readonly streamId: string;
@@ -340,11 +343,6 @@ export class HerdrStreamManager {
     return this.byTerminal.get(terminalId);
   }
 
-  /** @deprecated multi-stream era — returns first/any active streamId if any */
-  getActiveStreamId(): string | undefined {
-    return this.streams.keys().next().value;
-  }
-
   /** Count of attached control streams (quit affordance / live-work gate). */
   activeControlCount(): number {
     return this.streams.size;
@@ -562,13 +560,13 @@ export class HerdrStreamManager {
    *   { type: "terminal.input", text: "<utf8>" }
    * Field name `data` is IGNORED → empty write, silent no-op (not an error).
    */
-  input(streamId: string, dataBase64: string): HerdrStreamWriteResult {
-    return herdrControlWriteWire(this.writeCommand(streamId, herdrInputBytes(dataBase64)));
+  input(streamId: string, dataBase64: string): HerdrControlWriteResult {
+    return this.writeCommand(streamId, herdrInputBytes(dataBase64));
   }
 
   /** Plaintext path — herdr accepts `text` without base64. */
-  inputText(streamId: string, text: string): HerdrStreamWriteResult {
-    return herdrControlWriteWire(this.writeCommand(streamId, herdrInputText(text)));
+  inputText(streamId: string, text: string): HerdrControlWriteResult {
+    return this.writeCommand(streamId, herdrInputText(text));
   }
 
 
@@ -585,7 +583,7 @@ export class HerdrStreamManager {
   ): Promise<HerdrStreamWriteResult & { readonly path?: string }> {
     if (this.shutDown) {
       return Promise.resolve(
-        herdrControlWriteWire(
+        toWireResult(
           herdrControlWriteFailed(
             inactiveControlError("herdr streams shut down (app quitting)"),
           ),
@@ -604,7 +602,7 @@ export class HerdrStreamManager {
     dataBase64: string,
   ): Promise<HerdrStreamWriteResult & { readonly path?: string }> {
     const opened = this.require(streamId);
-    if (!opened.ok) return herdrControlWriteWire(opened);
+    if (!opened.ok) return toWireResult(opened);
     // Capture host before await — stream may detach during remote stage.
     const hostId = opened.stream.hostId;
     const staged = await stageImageOnHost(hostId, extension, dataBase64, {
@@ -613,19 +611,19 @@ export class HerdrStreamManager {
     if (!staged.ok) return { ok: false, error: staged.error };
     // Re-bind after stage: close/takeover must not write a stale stdin.
     const live = this.require(streamId);
-    if (!live.ok) return herdrControlWriteWire(live);
+    if (!live.ok) return toWireResult(live);
     const written = this.writeCommand(
       streamId,
       herdrInputText(pastePathPayload(staged.path)),
       live.stream,
     );
-    if (!written.ok) return herdrControlWriteWire(written);
+    if (!written.ok) return toWireResult(written);
     return { ok: true, path: staged.path };
   }
 
-  resize(streamId: string, cols: number, rows: number): HerdrStreamWriteResult {
+  resize(streamId: string, cols: number, rows: number): HerdrControlWriteResult {
     const stream = this.require(streamId);
-    if (!stream.ok) return herdrControlWriteWire(stream);
+    if (!stream.ok) return stream;
     const next = normalizeControlGeometry(cols, rows);
     const written = this.writeCommand(
       streamId,
@@ -637,7 +635,7 @@ export class HerdrStreamManager {
       stream.stream.cols = next.cols;
       stream.stream.rows = next.rows;
     }
-    return herdrControlWriteWire(written);
+    return written;
   }
 
   /**
@@ -653,9 +651,9 @@ export class HerdrStreamManager {
     streamId: string,
     delta: number,
     at?: HerdrPointerCell,
-  ): HerdrStreamWriteResult {
+  ): HerdrControlWriteResult {
     const stream = this.require(streamId);
-    if (!stream.ok) return herdrControlWriteWire(stream);
+    if (!stream.ok) return stream;
     const rawDelta = Number.isFinite(delta) ? Math.round(delta) : 1;
     const ticks = Math.max(1, Math.min(20, Math.abs(rawDelta) || 1));
     // Browser wheel: deltaY > 0 → scroll down; herdr uses direction up/down.
@@ -679,7 +677,7 @@ export class HerdrStreamManager {
     // see the same total (N × 1 line). No patched binary required.
     // Routed through enqueueWrite (not a bare child.stdin.write) so a scroll
     // can never interleave into the middle of a paste's in-flight slices.
-    return herdrControlWriteWire(this.enqueueWrite(stream.stream, line.repeat(ticks)));
+    return this.enqueueWrite(stream.stream, line.repeat(ticks));
   }
 
   /**
@@ -915,11 +913,6 @@ export class HerdrStreamManager {
 
   detachAllOnQuit(reason = "app_quit"): Promise<HerdrComponentShutdownReceipt> {
     return this.drainOnQuit(reason);
-  }
-
-  /** @deprecated use drainOnQuit — kept for legacy callers. */
-  closeAll(): Promise<HerdrComponentShutdownReceipt> {
-    return this.drainOnQuit("shutdown");
   }
 
   /**

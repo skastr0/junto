@@ -4,17 +4,13 @@ import {
   controlPhaseIsLive,
   controlPhaseRefusesWrite,
   encodeHerdrControlLine,
-  herdrControlWriteWire,
-  herdrControlWriteFailed,
   herdrInputBytes,
   herdrInputText,
   herdrRelease,
   herdrResize,
   herdrScroll,
-  inactiveControlError,
   normalizeControlGeometry,
   parseHerdrControlInbound,
-  pipeControlError,
   productStatusFromSessionPhase,
   SessionPhase,
   sessionPhaseAllowsWrite,
@@ -70,21 +66,6 @@ describe("herdr control NDJSON encode", () => {
     expect(closed?.type).toBe("terminal.closed");
     expect(parseHerdrControlInbound("not-json")).toBeUndefined();
     expect(parseHerdrControlInbound(JSON.stringify({ type: "nope" }))).toBeUndefined();
-  });
-});
-
-describe("write result wire flatten", () => {
-  it("maps tagged errors to IPC-stable error strings", () => {
-    const failed = herdrControlWriteFailed(pipeControlError("stdin", "write EPIPE"));
-    expect(herdrControlWriteWire(failed)).toEqual({
-      ok: false,
-      error: "write EPIPE",
-    });
-    expect(
-      herdrControlWriteWire(
-        herdrControlWriteFailed(inactiveControlError("stream not active")),
-      ),
-    ).toEqual({ ok: false, error: "stream not active" });
   });
 });
 

@@ -22,8 +22,6 @@ export const workControlTokenPath = (workHome: string): string =>
   `${workHome}/token`;
 
 export const WORK_HOME_ENV = "VELLUM_WORK_HOME";
-/** @deprecated Identity is process-bind; this env is not used for authz. */
-export const WORK_NODE_REF_ENV = "VELLUM_NODE_REF";
 export const WORK_PROTOCOL_VERSION = "vellum-work/v1";
 
 export const WORK_DEFAULT_BATCH_CONCURRENCY = 5;
@@ -162,12 +160,8 @@ export const workErr = (
 // ---------------------------------------------------------------------------
 // Domain arg schemas (shared by CLI input + daemon decode)
 
-/** @deprecated Ignored — identity is process-bind, not payload `node`. */
-export const NodeField = Schema.optionalWith(Schema.String, { exact: true });
-
 export const TasksListArgs = Schema.Struct({
   target: Schema.String,
-  node: NodeField,
 });
 export type TasksListArgs = typeof TasksListArgs.Type;
 
@@ -175,7 +169,6 @@ export const TasksClaimArgs = Schema.Struct({
   target: Schema.String,
   task: Schema.String,
   actor: Schema.optionalWith(Schema.String, { exact: true }),
-  node: NodeField,
 });
 export type TasksClaimArgs = typeof TasksClaimArgs.Type;
 
@@ -184,14 +177,12 @@ export const TasksUpdateArgs = Schema.Struct({
   task: Schema.String,
   state: TaskState,
   note: Schema.optionalWith(Schema.String, { exact: true }),
-  node: NodeField,
 });
 export type TasksUpdateArgs = typeof TasksUpdateArgs.Type;
 
 export const MsgListArgs = Schema.Struct({
   target: Schema.String,
   taskId: Schema.optionalWith(Schema.String, { exact: true }),
-  node: NodeField,
 });
 export type MsgListArgs = typeof MsgListArgs.Type;
 
@@ -202,7 +193,6 @@ export const MsgSendArgs = Schema.Struct({
   // Ignored: control always stamps role "agent" so callers cannot open the
   // foreign-message nudge path by sending role=user.
   role: Schema.optionalWith(Schema.Literal("user", "agent"), { exact: true }),
-  node: NodeField,
 });
 export type MsgSendArgs = typeof MsgSendArgs.Type;
 
@@ -213,7 +203,6 @@ export const RequestCreateArgs = Schema.Struct({
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
     { exact: true },
   ),
-  node: NodeField,
 });
 export type RequestCreateArgs = typeof RequestCreateArgs.Type;
 
@@ -243,7 +232,6 @@ export const ArtifactPublishArgs = Schema.Struct({
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
     { exact: true },
   ),
-  node: NodeField,
 });
 export type ArtifactPublishArgs = typeof ArtifactPublishArgs.Type;
 
@@ -274,13 +262,10 @@ export const ArtifactPublishCliArgs = Schema.Struct({
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
     { exact: true },
   ),
-  node: NodeField,
 });
 export type ArtifactPublishCliArgs = typeof ArtifactPublishCliArgs.Type;
 
-export const EmptyArgs = Schema.Struct({
-  node: NodeField,
-});
+export const EmptyArgs = Schema.Struct({});
 export type EmptyArgs = typeof EmptyArgs.Type;
 
 // ---------------------------------------------------------------------------

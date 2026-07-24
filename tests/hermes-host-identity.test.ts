@@ -111,11 +111,9 @@ describe("canonical Hermes station identity", () => {
     }
   });
 
-  it("rebinds only the legacy local key to the caller's physical station", () => {
-    expect(snapshotAgentHostId({ key: "local:default", stats: {} }, "studio"))
-      .toBe("studio");
+  it("falls back to the station's physical hostId when stats carry no canonical hostId", () => {
     expect(snapshotAgentHostId({ key: "fleet-render:default", stats: {} }, "studio"))
-      .toBe("fleet-render");
+      .toBe("studio");
   });
 
   it("keeps successful Hermes facts visible when another fleet host made the bundle partial", () => {

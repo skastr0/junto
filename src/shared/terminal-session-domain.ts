@@ -234,14 +234,6 @@ export const herdrControlWriteFailed = (
 
 export const herdrControlWriteOk = (): HerdrControlWriteResult => ({ ok: true });
 
-/** Flatten for IPC / legacy `{ ok, error?: string }` call sites. */
-export const herdrControlWriteWire = (
-  result: HerdrControlWriteResult,
-): { readonly ok: true } | { readonly ok: false; readonly error: string } =>
-  result.ok
-    ? { ok: true }
-    : { ok: false, error: result.cause.message };
-
 export const inactiveControlError = (message: string): HerdrControlInactiveError =>
   new HerdrControlInactiveError({ message });
 

@@ -36,16 +36,14 @@ const timeoutOption = Options.integer("timeout").pipe(
 );
 
 /** Domain call — identity is process-bind on the server, not a payload claim. */
-const callDomain = <A extends { readonly node?: string }>(
+const callDomain = <A>(
   op: "tasks.list" | "tasks.claim" | "tasks.update" | "msg.list" | "msg.send" | "request.create" | "artifact.publish",
   item: A,
   timeout?: number,
 ) =>
   Effect.gen(function* () {
     const socket = yield* WorkSocket;
-    // Strip legacy `node` field if present — never used as identity.
-    const { node: _node, ...args } = item;
-    return yield* socket.call(op, args, timeout);
+    return yield* socket.call(op, item, timeout);
   });
 
 // --- tasks ---

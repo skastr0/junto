@@ -18,9 +18,9 @@ import type {
   HerdrStreamOpenResult,
 } from "@shared/ipc";
 import {
-  inactiveControlError,
   terminalSpawnError,
   type HerdrControlError,
+  type HerdrControlWriteResult,
   type TerminalSpawnError,
 } from "@shared/terminal-session-domain";
 import type { HerdrStreamFrame, HerdrStreamManager } from "../herdr/stream";
@@ -128,9 +128,13 @@ export class TerminalSessions extends Context.Tag("@vellum/TerminalSessions")<
 >() {}
 
 const writeFromWire = (
-  result: ProductWriteResult,
+  result: HerdrControlWriteResult,
 ): Effect.Effect<void, HerdrControlError> =>
-  result.ok ? Effect.void : Effect.fail(inactiveControlError(result.error));
+  result.ok ? Effect.void : Effect.fail(result.cause);
+
+/** IPC-stable wire shape for the product (sync-IPC) write methods. */
+const toProductResult = (result: HerdrControlWriteResult): ProductWriteResult =>
+  result.ok ? { ok: true } : { ok: false, error: result.cause.message };
 
 const openFromManager = (
   streams: HerdrStreamManager,
@@ -190,10 +194,14 @@ export const makeTerminalSessions = (
       }),
 
     openProduct,
-    inputBytesProduct: (streamId, dataBase64) => streams.input(streamId, dataBase64),
-    inputTextProduct: (streamId, text) => streams.inputText(streamId, text),
-    resizeProduct: (streamId, cols, rows) => streams.resize(streamId, cols, rows),
-    scrollProduct: (streamId, delta, at) => streams.scroll(streamId, delta, at),
+    inputBytesProduct: (streamId, dataBase64) =>
+      toProductResult(streams.input(streamId, dataBase64)),
+    inputTextProduct: (streamId, text) =>
+      toProductResult(streams.inputText(streamId, text)),
+    resizeProduct: (streamId, cols, rows) =>
+      toProductResult(streams.resize(streamId, cols, rows)),
+    scrollProduct: (streamId, delta, at) =>
+      toProductResult(streams.scroll(streamId, delta, at)),
     pasteImageProduct: (streamId, extension, dataBase64) =>
       streams.pasteImage(streamId, extension, dataBase64),
     closeProduct: (streamId, reason = "client_close") => {

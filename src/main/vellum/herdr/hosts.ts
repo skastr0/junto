@@ -22,13 +22,6 @@ export const listHerdrHosts = (): ReadonlyArray<HerdrHostDef> =>
     label: host.label,
   }));
 
-/** @deprecated Use listHerdrHosts() — alias kept for gradual call-site migration. */
-export const HERDR_HOSTS = {
-  get current(): ReadonlyArray<HerdrHostDef> {
-    return listHerdrHosts();
-  },
-};
-
 export const isKnownHerdrHost = (id: string): boolean => {
   if (id.startsWith("-")) return false;
   const host = findHostById(id);

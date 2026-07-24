@@ -68,7 +68,6 @@ describe("work-control wire schemas", () => {
     const good = Schema.decodeUnknownEither(TasksClaimArgs)({
       target: "n7",
       task: "t1",
-      node: "vellum://canvas/demo?node=agent-1",
     });
     expect(Either.isRight(good)).toBe(true);
 

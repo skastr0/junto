@@ -1,10 +1,6 @@
 import type { CanvasDoc, CanvasNode } from "./canvas";
 import type { Entity, SnapshotState } from "./entities";
-import {
-  DEFAULT_STATION_HOST_ID,
-  hostIdFromAgentKey,
-  isValidStationHostId,
-} from "./station";
+import { DEFAULT_STATION_HOST_ID, isValidStationHostId } from "./station";
 
 // Live portfolio projection: spawn identity cards for hermes agents the doc
 // doesn't hold yet. Project cards were excised with the private-source plane;
@@ -30,9 +26,8 @@ const COLUMNS = 6;
 /**
  * Physical execution host for a Hermes snapshot entity.
  *
- * `stats.host` is presentation only. New adapters publish the canonical
- * RemoteHost.id in `stats.hostId`; legacy rows fall back to the agent-key
- * prefix, with the `local` alias rebound to this station's physical HostId.
+ * `stats.host` is presentation only. Canonical identity is the RemoteHost.id
+ * published in `stats.hostId`.
  */
 export const snapshotAgentHostId = (
   agent: Pick<Entity, "key" | "stats">,
@@ -40,12 +35,9 @@ export const snapshotAgentHostId = (
 ): string => {
   const canonical =
     typeof agent.stats.hostId === "string" ? agent.stats.hostId : undefined;
-  if (canonical !== undefined && isValidStationHostId(canonical)) {
-    return canonical;
-  }
-  const keyHost = hostIdFromAgentKey(agent.key);
-  if (keyHost === "local") return stationHostId;
-  return keyHost ?? stationHostId;
+  return canonical !== undefined && isValidStationHostId(canonical)
+    ? canonical
+    : stationHostId;
 };
 
 /**
