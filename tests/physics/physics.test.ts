@@ -4,10 +4,13 @@ import type { CanvasDoc } from "../../src/shared/canvas";
 import { serializeCanvas, WELL_KNOWN_ENTITY_KINDS } from "../../src/shared/canvas";
 import {
   ACTOR_ACTOR_INBOX_PORTS,
+  ALL_PORTS,
   GrantLaw,
   KindSpecs,
+  PORT_TIER_FLOOR,
   PortForWorkOp,
   PortGrant,
+  RuntimePlacement,
   TARGET_WORK_OPS,
   WELL_KNOWN_KINDS,
   admitPure,
@@ -18,12 +21,18 @@ import {
   defaultGrantForRoles,
   grantLawBetween,
   grantLawForRoles,
+  nullPlacementView,
   portSet,
+  portTierFloor,
+  resolveNodePlacement,
   resolveSpec,
   roleOf,
+  routeAllowed,
   selectGrant,
   stampActorActorMsgPorts,
+  tierAllowsPort,
   undirectedEdgeKey,
+  type NodePlacement,
   type Port,
   type WellKnownKind,
 } from "../../src/shared/physics";
@@ -55,6 +64,15 @@ const pageNode = (id: string, x = 200, y = 0): CanvasDoc["nodes"][number] => ({
   width: 120,
   height: 48,
   ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
+});
+
+/** Stamp ether.host without clobbering entity/browser. */
+const withHost = (
+  node: CanvasDoc["nodes"][number],
+  host: string,
+): CanvasDoc["nodes"][number] => ({
+  ...node,
+  ether: { ...(node.ether ?? {}), host },
 });
 
 const groupNode = (
@@ -673,5 +691,334 @@ describe("physics KindSpecs offers match behavior-preserving work surface", () =
     expect(roles.has("actor")).toBe(true);
     expect(roles.has("sink")).toBe(true);
     expect(roles.has("scheduler")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S11 — placement plane (I18/I19)
+
+describe("physics placement resolve + null producer", () => {
+  it("null PlacementView returns undefined for every node (fail-closed input)", () => {
+    expect(nullPlacementView.placementFor("any")).toBeUndefined();
+  });
+
+  it("default topology: local host → command_center tier 1", () => {
+    const node = textNode("a1", "agent");
+    const p = resolveNodePlacement(node);
+    expect(p.class).toBe("command_center");
+    expect(p.runtime._tag).toBe("Cc");
+    expect(p.tier).toBe(1);
+    expect(p.assignment).toBe("local");
+  });
+
+  it("non-local host → station tier 2", () => {
+    const node = withHost(textNode("a1", "agent"), "station-b");
+    const p = resolveNodePlacement(node);
+    expect(p.class).toBe("station");
+    expect(p.runtime._tag).toBe("Station");
+    if (p.runtime._tag === "Station") expect(p.runtime.hostId).toBe("station-b");
+    expect(p.tier).toBe(2);
+  });
+
+  it("facilityHostIds marks facility tier 4", () => {
+    const node = withHost(textNode("fac", "agent"), "bare-metal");
+    const p = resolveNodePlacement(node, {
+      commandCenterHostId: "local",
+      facilityHostIds: new Set(["bare-metal"]),
+    });
+    expect(p.class).toBe("facility");
+    expect(p.runtime._tag).toBe("Facility");
+    expect(p.tier).toBe(4);
+  });
+
+  it("routeAllowed: same station ok; Station↔Station denied; CC↔Station ok", () => {
+    const sta = (hostId: string): NodePlacement => ({
+      class: "station",
+      runtime: RuntimePlacement.Station({ hostId }),
+      tier: 2,
+      assignment: hostId,
+    });
+    const cc: NodePlacement = {
+      class: "command_center",
+      runtime: RuntimePlacement.Cc(),
+      tier: 1,
+      assignment: "local",
+    };
+    expect(routeAllowed(sta("a"), sta("a"))).toBe(true);
+    expect(routeAllowed(sta("a"), sta("b"))).toBe(false);
+    expect(routeAllowed(cc, sta("b"))).toBe(true);
+    expect(routeAllowed(sta("b"), cc)).toBe(true);
+  });
+});
+
+describe("physics placement admit (I18/I19)", () => {
+  const place = (
+    class_: NodePlacement["class"],
+    runtime: NodePlacement["runtime"],
+    tier: NodePlacement["tier"],
+    assignment?: string,
+  ): NodePlacement => ({
+    class: class_,
+    runtime,
+    tier,
+    ...(assignment !== undefined ? { assignment } : {}),
+  });
+
+  it("station-A actor → station-B page: route denial (not no_port)", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        withHost(textNode("agent-a", "agent"), "station-a"),
+        withHost(pageNode("page-b"), "station-b"),
+      ],
+      edges: [{ id: "e1", fromNode: "agent-a", toNode: "page-b" }],
+    };
+    const view = canvasDocToCapabilityView(doc);
+    const result = admitPure(
+      view,
+      asNodeId("agent-a"),
+      asNodeId("page-b"),
+      "browser.automate",
+    );
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.reason).toBe("route");
+      expect(result.left.reason).not.toBe("no_port");
+      expect(result.left.message).toMatch(/Command Center route/i);
+    }
+  });
+
+  it("CC actor → station page: route allowed (admit on port)", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        withHost(textNode("cc-agent", "agent"), "local"),
+        withHost(pageNode("page-b"), "station-b"),
+      ],
+      edges: [{ id: "e1", fromNode: "cc-agent", toNode: "page-b" }],
+    };
+    const view = canvasDocToCapabilityView(doc);
+    const result = admitPure(
+      view,
+      asNodeId("cc-agent"),
+      asNodeId("page-b"),
+      "browser.automate",
+    );
+    expect(Either.isRight(result)).toBe(true);
+  });
+
+  it("same-station actor → page: admits", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        withHost(textNode("agent-a", "agent"), "station-a"),
+        withHost(pageNode("page-a"), "station-a"),
+      ],
+      edges: [{ id: "e1", fromNode: "agent-a", toNode: "page-a" }],
+    };
+    const view = canvasDocToCapabilityView(doc);
+    const result = admitPure(
+      view,
+      asNodeId("agent-a"),
+      asNodeId("page-a"),
+      "browser.automate",
+    );
+    expect(Either.isRight(result)).toBe(true);
+  });
+
+  it("facility: zero admits, zero wields", () => {
+    const agent = textNode("agent", "agent");
+    const page = pageNode("page1");
+    const fac = textNode("fac", "agent");
+    const doc: CanvasDoc = {
+      nodes: [agent, page, fac],
+      edges: [
+        { id: "e1", fromNode: "agent", toNode: "page1" },
+        { id: "e2", fromNode: "fac", toNode: "page1" },
+        { id: "e3", fromNode: "agent", toNode: "fac" },
+      ],
+    };
+    const facility = place("facility", RuntimePlacement.Facility(), 4, "bare");
+    const cc = place("command_center", RuntimePlacement.Cc(), 1, "local");
+    let placement = HashMap.empty<ReturnType<typeof asNodeId>, NodePlacement>();
+    placement = HashMap.set(placement, asNodeId("agent"), cc);
+    placement = HashMap.set(placement, asNodeId("page1"), cc);
+    placement = HashMap.set(placement, asNodeId("fac"), facility);
+    const view = canvasDocToCapabilityView(doc, { placement });
+
+    // Facility never wields
+    const wield = admitPure(view, asNodeId("fac"), asNodeId("page1"), "browser.automate");
+    expect(Either.isLeft(wield)).toBe(true);
+    if (Either.isLeft(wield)) expect(wield.left.reason).toBe("facility");
+
+    // Facility never admits (as target)
+    const into = admitPure(view, asNodeId("agent"), asNodeId("fac"), "msg.send");
+    expect(Either.isLeft(into)).toBe(true);
+    if (Either.isLeft(into)) expect(into.left.reason).toBe("facility");
+  });
+
+  it("placement unknown (omitted map entry) fails closed", () => {
+    const doc: CanvasDoc = {
+      nodes: [textNode("agent", "agent"), pageNode("page1")],
+      edges: [{ id: "e1", fromNode: "agent", toNode: "page1" }],
+    };
+    // Only caller placed — target missing → unknown
+    let placement = HashMap.empty<ReturnType<typeof asNodeId>, NodePlacement>();
+    placement = HashMap.set(
+      placement,
+      asNodeId("agent"),
+      place("command_center", RuntimePlacement.Cc(), 1, "local"),
+    );
+    const view = canvasDocToCapabilityView(doc, { placement });
+    const result = admitPure(
+      view,
+      asNodeId("agent"),
+      asNodeId("page1"),
+      "browser.automate",
+    );
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.reason).toBe("placement_unknown");
+      expect(result.left.message).toMatch(/fail closed/i);
+    }
+  });
+
+  it("class × tier × port table: tier-3 protocol ok, host-local denied", () => {
+    const agent = textNode("agent", "agent");
+    const page = pageNode("page1");
+    const task = textNode("task1", "task");
+    const doc: CanvasDoc = {
+      nodes: [agent, page, task],
+      edges: [
+        { id: "e1", fromNode: "agent", toNode: "page1" },
+        { id: "e2", fromNode: "agent", toNode: "task1" },
+      ],
+    };
+
+    const rows: ReadonlyArray<{
+      readonly class: NodePlacement["class"];
+      readonly tier: NodePlacement["tier"];
+      readonly runtime: NodePlacement["runtime"];
+      readonly port: Port;
+      readonly expect: "admit" | ScopeDenialReason;
+    }> = [
+      {
+        class: "external",
+        tier: 3,
+        runtime: RuntimePlacement.External(),
+        port: "tasks.list",
+        expect: "admit",
+      },
+      {
+        class: "external",
+        tier: 3,
+        runtime: RuntimePlacement.External(),
+        port: "msg.send",
+        expect: "admit",
+      },
+      {
+        class: "external",
+        tier: 3,
+        runtime: RuntimePlacement.External(),
+        port: "browser.automate",
+        expect: "tier",
+      },
+      {
+        class: "station",
+        tier: 2,
+        runtime: RuntimePlacement.Station({ hostId: "s1" }),
+        port: "browser.automate",
+        expect: "admit",
+      },
+      {
+        class: "command_center",
+        tier: 1,
+        runtime: RuntimePlacement.Cc(),
+        port: "browser.automate",
+        expect: "admit",
+      },
+      {
+        class: "facility",
+        tier: 4,
+        runtime: RuntimePlacement.Facility(),
+        port: "tasks.list",
+        expect: "facility",
+      },
+    ];
+
+    type ScopeDenialReason =
+      | "tier"
+      | "facility"
+      | "route"
+      | "placement_unknown"
+      | "no_port"
+      | "role_law"
+      | "invisible"
+      | "not_connected"
+      | "unknown_node";
+
+    for (const row of rows) {
+      const callerPlace = place(row.class, row.runtime, row.tier, "x");
+      // Target co-located so route is not the variable under test (except facility).
+      const targetPlace =
+        row.class === "facility"
+          ? place("command_center", RuntimePlacement.Cc(), 1, "local")
+          : place(row.class, row.runtime, row.tier, "x");
+      // For page target use page placement; for task ports use task placement.
+      const targetId = row.port === "browser.automate" ? "page1" : "task1";
+      let placement = HashMap.empty<ReturnType<typeof asNodeId>, NodePlacement>();
+      placement = HashMap.set(placement, asNodeId("agent"), callerPlace);
+      placement = HashMap.set(placement, asNodeId("page1"), targetPlace);
+      placement = HashMap.set(placement, asNodeId("task1"), targetPlace);
+      const view = canvasDocToCapabilityView(doc, { placement });
+      const result = admitPure(view, asNodeId("agent"), asNodeId(targetId), row.port);
+      if (row.expect === "admit") {
+        expect(Either.isRight(result), `${row.class}/t${row.tier}/${row.port}`).toBe(
+          true,
+        );
+      } else {
+        expect(Either.isLeft(result), `${row.class}/t${row.tier}/${row.port}`).toBe(
+          true,
+        );
+        if (Either.isLeft(result)) {
+          expect(result.left.reason, `${row.class}/t${row.tier}/${row.port}`).toBe(
+            row.expect,
+          );
+        }
+      }
+    }
+  });
+
+  it("PORT_TIER_FLOOR: protocol ports floor 3, browser.automate floor 2", () => {
+    expect(portTierFloor("browser.automate")).toBe(2);
+    for (const port of ALL_PORTS) {
+      if (port === "browser.automate") continue;
+      expect(PORT_TIER_FLOOR[port]).toBe(3);
+      expect(tierAllowsPort(3, port)).toBe(true);
+      expect(tierAllowsPort(4, port)).toBe(false);
+    }
+    expect(tierAllowsPort(2, "browser.automate")).toBe(true);
+    expect(tierAllowsPort(3, "browser.automate")).toBe(false);
+  });
+
+  it("placement check runs before no_port (facility beats missing grant)", () => {
+    // Connected actor→agent with no msg ports (OptIn empty) — without
+    // facility, reason would be no_port; with facility caller, facility wins.
+    const doc: CanvasDoc = {
+      nodes: [textNode("fac", "agent"), textNode("a2", "agent")],
+      edges: [{ id: "e1", fromNode: "fac", toNode: "a2" }],
+    };
+    let placement = HashMap.empty<ReturnType<typeof asNodeId>, NodePlacement>();
+    placement = HashMap.set(
+      placement,
+      asNodeId("fac"),
+      place("facility", RuntimePlacement.Facility(), 4),
+    );
+    placement = HashMap.set(
+      placement,
+      asNodeId("a2"),
+      place("command_center", RuntimePlacement.Cc(), 1, "local"),
+    );
+    const view = canvasDocToCapabilityView(doc, { placement });
+    const result = admitPure(view, asNodeId("fac"), asNodeId("a2"), "msg.send");
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) expect(result.left.reason).toBe("facility");
   });
 });

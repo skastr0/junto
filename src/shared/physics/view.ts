@@ -3,6 +3,12 @@ import type { CanvasDoc, CanvasEdge, CanvasNode } from "../canvas";
 import { groupMembers, isGroup } from "../graph";
 import type { CapabilityView, NodeMeta } from "./admit";
 import { undirectedEdgeKey } from "./admit";
+import {
+  DEFAULT_PLACEMENT_TOPOLOGY,
+  placementMapFromDoc,
+  type NodePlacement,
+  type PlacementTopology,
+} from "./placement";
 import { Port, asNodeId, type NodeId } from "./schema";
 
 // Pure canvas → CapabilityView adapter. No Node, no live process-bind.
@@ -36,14 +42,32 @@ const readEdgePorts = (
   return any ? set : undefined;
 };
 
+export type CapabilityViewOptions = {
+  /**
+   * Fleet topology for placement resolve (I18). Default treats `local` as
+   * Command Center and every other host as Station — product path without a
+   * live PlacementView producer.
+   */
+  readonly topology?: PlacementTopology;
+  /**
+   * Explicit placement map. When set, replaces topology resolve (tests:
+   * facility, unknown-by-omission, forced tiers).
+   */
+  readonly placement?: HashMap.HashMap<NodeId, NodePlacement>;
+};
+
 /**
  * Build an undirected capability view from a canvas document.
  * - connected: adjacency from edges (undirected)
  * - regionPeers: group co-members (excluding self), geometry-derived
  * - nodeMeta: kind + isGroup
  * - edgePortMask: only when ether.ports is present and yields ≥1 valid Port
+ * - placement: from topology resolve or explicit map (I18)
  */
-export const canvasDocToCapabilityView = (doc: CanvasDoc): CapabilityView => {
+export const canvasDocToCapabilityView = (
+  doc: CanvasDoc,
+  options?: CapabilityViewOptions,
+): CapabilityView => {
   let nodeMeta = HashMap.empty<NodeId, NodeMeta>();
   for (const node of doc.nodes) {
     nodeMeta = HashMap.set(nodeMeta, asNodeId(node.id), nodeMetaOf(node));
@@ -115,5 +139,9 @@ export const canvasDocToCapabilityView = (doc: CanvasDoc): CapabilityView => {
     }
   }
 
-  return { nodeMeta, connected, regionPeers, edgePortMask };
+  const placement =
+    options?.placement ??
+    placementMapFromDoc(doc, options?.topology ?? DEFAULT_PLACEMENT_TOPOLOGY);
+
+  return { nodeMeta, connected, regionPeers, edgePortMask, placement };
 };

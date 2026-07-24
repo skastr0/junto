@@ -200,6 +200,10 @@ export const scopeDenialToWorkError = (
       return scopeError(denial.caller, denial.target, "not_connected");
     case "no_port":
     case "role_law":
+    case "facility":
+    case "route":
+    case "tier":
+    case "placement_unknown":
       return scopeError(denial.caller, denial.target, "wrong_kind", {
         kind: extra?.kind,
         op: extra?.op,
