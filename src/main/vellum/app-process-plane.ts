@@ -136,7 +136,15 @@ export class TerminalBackendUnavailableError extends Error {
   readonly code = "terminal_pty_unavailable" as const;
 
   constructor(cause: unknown) {
-    super("native PTY backend is unavailable", { cause });
+    const detail =
+      cause instanceof Error
+        ? cause.message
+        : typeof cause === "string"
+          ? cause
+          : "unknown cause";
+    super(`native PTY backend is unavailable: ${detail.slice(0, 200)}`, {
+      cause,
+    });
     this.name = "TerminalBackendUnavailableError";
   }
 }
