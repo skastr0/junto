@@ -11,9 +11,9 @@
 import type { A2ATask, Artifact, Message } from "../../src/shared/canvas";
 import type { WorkOpResult } from "../../src/shared/ipc";
 import {
+  agentTextNode,
   artifactsNode,
   canvasDoc,
-  projectNode,
   readCanvasFile,
   requestsNode,
   tasksCriteriaEdge,
@@ -27,12 +27,19 @@ test.use({
   vellumOptions: {
     seedCanvases: {
       // Name sorts first so boot opens this canvas (App.tsx list[0]).
+      // Target is a physics **actor** — only actors enter the blocked set.
       [CANVAS]: canvasDoc(
         [
           tasksNode({ id: "tasks", x: 40, y: 40 }),
           requestsNode({ id: "req", x: 320, y: 40 }),
           artifactsNode({ id: "art", x: 600, y: 40 }),
-          projectNode({ id: "target", name: "downstream", label: "downstream", x: 320, y: 240 }),
+          agentTextNode({
+            id: "target",
+            key: "local:downstream",
+            label: "downstream",
+            x: 320,
+            y: 240,
+          }),
         ],
         [tasksCriteriaEdge("e-req", "req", "target")],
       ),
@@ -143,11 +150,22 @@ test("A2A work plane: task claim/transition, request blocks then clears, artifac
   if (!created.ok) return;
   expect(created.data.state).toBe("submitted");
 
-  const claimed = await api.workTaskClaim(CANVAS, "tasks", created.data.id, "e2e-operator");
+  const claimed = await api.workTaskClaim(CANVAS, "tasks", created.data.id, "e2e-worker");
   expect(claimed.ok).toBe(true);
   if (!claimed.ok) return;
   expect(claimed.data.state).toBe("working");
-  expect(claimed.data.metadata?.claimedBy).toBe("e2e-operator");
+  expect(claimed.data.metadata?.claimedBy).toBe("e2e-worker");
+
+  const reservedTask = await api.workTaskCreate(CANVAS, "tasks", "never operator");
+  expect(reservedTask.ok).toBe(true);
+  if (!reservedTask.ok) return;
+  const reserved = await api.workTaskClaim(
+    CANVAS,
+    "tasks",
+    reservedTask.data.id,
+    "operator",
+  );
+  expect(reserved.ok).toBe(false);
 
   const contended = await api.workTaskClaim(CANVAS, "tasks", created.data.id, "intruder");
   expect(contended.ok).toBe(false);
@@ -171,7 +189,7 @@ test("A2A work plane: task claim/transition, request blocks then clears, artifac
     const tasks = doc.nodes.find((n) => n.id === "tasks");
     const item = tasks?.ether?.tasks?.items.find((t) => t.id === created.data.id);
     expect(item?.state).toBe("completed");
-    expect(item?.metadata?.claimedBy).toBe("e2e-operator");
+    expect(item?.metadata?.claimedBy).toBe("e2e-worker");
   }).toPass({ timeout: 10_000 });
 
   // --- requests block → resolve clear ---

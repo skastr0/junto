@@ -9,6 +9,7 @@ import type {
   NodeSide,
 } from "@shared/canvas";
 import { resolveBrowserOnDelete } from "@shared/canvas";
+import { factoryClaimTick } from "@shared/factory-tick";
 import { mergeLocalCanvasWithWorkWrite } from "@shared/work-canvas-merge";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch } from "@legendapp/state";
@@ -1015,6 +1016,35 @@ export const setNodeView = (id: string, view: EtherView | undefined): void => {
       return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
     }),
   });
+};
+
+/** Operator-assigned claim-routing role (not physics FactoryRole). */
+export const setNodeWorkRole = (id: string, workRole: string | undefined): void => {
+  const doc = state$.doc.peek();
+  const cleaned = workRole?.trim() || undefined;
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id) return n;
+      if (cleaned) {
+        return { ...n, ether: { ...(n.ether ?? {}), workRole: cleaned } };
+      }
+      if (!n.ether) return n;
+      const nextEther = without(n.ether, "workRole");
+      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
+    }),
+  });
+};
+
+/** Document-level claim sim: free edged workers pull submitted tasks. */
+export const runFactoryClaimTick = (): {
+  readonly claimed: ReadonlyArray<{ taskId: string; actor: string }>;
+} => {
+  const doc = state$.doc.peek();
+  const name = state$.canvasName.peek() || "canvas";
+  const { doc: next, claimed } = factoryClaimTick(doc, name);
+  if (claimed.length > 0) commitDoc(next);
+  return { claimed };
 };
 
 // Watcher/timer definitions are document data (the kernel's runtime state

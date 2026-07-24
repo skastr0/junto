@@ -266,6 +266,14 @@ export const workTaskClaim = (
   requireKind(node, ["task"]);
   const actorTrim = actor.trim();
   if (!actorTrim) throw new WorkError("invalid", "actor must be non-empty");
+  // Claiming is a worker/factory act — never the human operator label.
+  const reserved = actorTrim.toLowerCase();
+  if (reserved === "operator" || reserved === "user" || reserved === "human") {
+    throw new WorkError(
+      "invalid",
+      `claimedBy must be a worker identity, not "${actorTrim}"`,
+    );
+  }
   const items = node.ether?.tasks?.items ?? [];
   const contextId = regionContextId(doc, nodeId, canvasName);
   const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {

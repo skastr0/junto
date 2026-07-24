@@ -1394,6 +1394,20 @@ path.vellum-edge-ripple {
   }
 }
 
+/* --- Fire / ice attention (glance language) ---------------------------
+   data-attention on .vellum-node: fire = needs human; ice = calm capacity. */
+.vellum-node[data-attention="fire"] {
+  box-shadow:
+    0 0 0 1px rgba(232, 168, 56, 0.45),
+    0 10px 28px rgba(0, 0, 0, 0.2);
+}
+.vellum-node[data-attention="ice"] {
+  /* calm — no extra chrome; silence is semantic */
+}
+.vellum-node[data-attention="empty"] {
+  opacity: 0.88;
+}
+
 /* --- Occupancy chrome: the eight-state alphabet (S5 cut 2) ------------
    Keyed off data-occupancy (see NodeShell.tsx), the same pattern as
    data-blocked / data-herdr-blocked. Every rule uses outline / pseudo-

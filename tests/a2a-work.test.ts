@@ -67,10 +67,10 @@ describe("a2a-work pure transforms", () => {
     expect(created.task.history[0]?.contextId).toBe("alpha");
     expect((doc.nodes[0] as { text: string }).text).toBe("ship docs");
 
-    const claimed = workTaskClaim(doc, "alpha", "tasks", created.task.id, "operator", ids);
+    const claimed = workTaskClaim(doc, "alpha", "tasks", created.task.id, "worker-1", ids);
     doc = claimed.doc;
     expect(claimed.task.state).toBe("working");
-    expect(claimed.task.metadata?.claimedBy).toBe("operator");
+    expect(claimed.task.metadata?.claimedBy).toBe("worker-1");
 
     expect(() =>
       workTaskClaim(doc, "alpha", "tasks", created.task.id, "other-agent", ids),

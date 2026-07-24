@@ -10,6 +10,7 @@ import { resizeNode } from "../../lib/geometry";
 import { deleteNode, toggleFlag } from "../../lib/mutations";
 import { herdr$ } from "../../lib/herdr-state";
 import { isHerdrCanvasNode, nodeBlockPresentation } from "../../lib/node-block-state";
+import { attentionOf } from "@shared/attention";
 import { deriveOccupancy } from "@shared/occupancy";
 import { useNodeOccupancyClue } from "../../lib/occupancy-feed";
 import { Chip, IconButton, ToolbarPill, type ChipTone } from "../ui";
@@ -162,6 +163,29 @@ export function NodeShell({
     flags: occupancyClue?.flags,
     nowMs: Date.now(),
   });
+  // Fire/ice glance: document + blocked prop (phase graph lives upstream).
+  const attention = attentionOf(
+    node,
+    blocked
+      ? {
+          phaseByEdgeId: new Map(),
+          detailByEdgeId: new Map(),
+          edgeEvalById: new Map(),
+          blocked: new Set([node.id]),
+          blockedEdgeIds: new Set(),
+          reasonsByNodeId: new Map(),
+          seedNodeIds: new Set(),
+        }
+      : {
+          phaseByEdgeId: new Map(),
+          detailByEdgeId: new Map(),
+          edgeEvalById: new Map(),
+          blocked: new Set(),
+          blockedEdgeIds: new Set(),
+          reasonsByNodeId: new Map(),
+          seedNodeIds: new Set(),
+        },
+  );
   const flagBlocker = flags.includes("blocker");
   // Placement chips (S11/I18): class · tier · host on executable seats.
   // Pure resolve — no live fleet producer (null PlacementView pattern).
@@ -207,6 +231,7 @@ export function NodeShell({
       data-blocked={shellBlocked ? "true" : undefined}
       data-herdr-blocked={liveHerdrBlocked ? "true" : undefined}
       data-occupancy={occupancyState}
+      data-attention={attention}
       style={{
         border: `1px solid ${selected ? withAlpha(isBlocker ? HUE.crimson : accent, 0.75) : border}`,
         background,
