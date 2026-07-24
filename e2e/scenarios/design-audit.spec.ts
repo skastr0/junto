@@ -34,6 +34,43 @@ const shot = async (page: Page, name: string) => {
   await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: false });
 };
 
+/** Install visual fixtures through the same authority write path as the app. */
+const installAuditCanvas = async (page: Page, doc: ReturnType<typeof canvasDoc>) => {
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const runtime = globalThis as unknown as {
+            readonly vellum?: { readonly listCanvases: () => Promise<unknown[]> };
+          };
+          return Boolean(runtime.vellum?.listCanvases);
+        }),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+
+  await page.evaluate(async (document) => {
+    const api = (
+      globalThis as unknown as {
+        readonly vellum: {
+          readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
+          readonly createCanvas: (name: string) => Promise<{ name: string }>;
+          readonly readCanvas: (name: string) => Promise<{ revision: string }>;
+          readonly writeCanvas: (
+            name: string,
+            doc: unknown,
+            expectedRevision?: string,
+          ) => Promise<unknown>;
+        };
+      }
+    ).vellum;
+    const list = await api.listCanvases();
+    const name = list[0]?.name ?? (await api.createCanvas("design-audit")).name;
+    const read = await api.readCanvas(name);
+    await api.writeCanvas(name, document, read.revision);
+  }, doc);
+};
+
 const noteNode: CanvasNode = {
   id: "note1",
   type: "text",
@@ -349,11 +386,13 @@ test("capture every surface for design review", async () => {
       FAKE_HERMES_SCENARIO: hermesScenario,
       FAKE_CODEXBAR_SCENARIO: codexbarScenario,
     },
-    seedCanvases: { audit: canvasDoc(nodes, edges) },
   });
 
   try {
     const { page } = vellum;
+
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await installAuditCanvas(page, canvasDoc(nodes, edges));
 
     // React Flow only mounts on-screen nodes: wait for the first, fit the
     // whole board, THEN distant entity nodes exist in the DOM.
