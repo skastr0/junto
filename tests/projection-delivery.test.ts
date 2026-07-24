@@ -78,8 +78,20 @@ describe("projection delivery status machine", () => {
     }
   });
 
+  it("transitions pending → staged", () => {
+    const next = reduceProjectionDelivery("pending", {
+      type: "staged",
+      detail: "frame staged at /home/x/.vellum/projections/incoming.frame",
+    });
+    expect(next.ok).toBe(true);
+    if (next.ok) {
+      expect(next.status).toBe("staged");
+      expect(next.terminal).toBe(true);
+    }
+  });
+
   it("refuses outcome events outside pending", () => {
-    for (const status of ["applied", "rejected", "unreachable"] as const) {
+    for (const status of ["applied", "staged", "rejected", "unreachable"] as const) {
       const next = reduceProjectionDelivery(status, {
         type: "applied",
         detail: "nope",
@@ -291,7 +303,7 @@ describe("scheduleHostSync status recording", () => {
     expect(status.projections?.studio?.endpoint).toBe("studio-box");
   });
 
-  it("remote mode with transport: pending then applied", async () => {
+  it("remote mode with transport: pending then staged (not applied)", async () => {
     const compiled = compile("3");
     const result = await scheduleHostSync(
       compiled,
@@ -304,7 +316,8 @@ describe("scheduleHostSync status recording", () => {
         },
       },
     );
-    expect(result.outcomes[0]!.record.status).toBe("applied");
+    expect(result.outcomes[0]!.record.status).toBe("staged");
+    expect(result.outcomes[0]!.record.ok).toBe(true);
     expect(result.outcomes[0]!.record.detail).toBe("bridge ok");
   });
 
@@ -328,7 +341,7 @@ describe("scheduleHostSync status recording", () => {
     expect(result.outcomes[0]!.record.status).toBe("rejected");
   });
 
-  it("remote mode with product-shaped transport: pending then applied", async () => {
+  it("remote mode with product-shaped transport: pending then staged", async () => {
     const compiled = compile("8");
     const seen: Array<{ hostId: string; endpoint: string; gen: string }> = [];
     const result = await scheduleHostSync(
@@ -352,7 +365,7 @@ describe("scheduleHostSync status recording", () => {
         },
       },
     );
-    expect(result.outcomes[0]!.record.status).toBe("applied");
+    expect(result.outcomes[0]!.record.status).toBe("staged");
     expect(seen).toEqual([
       { hostId: "studio", endpoint: "studio-box", gen: "8" },
     ]);
@@ -399,6 +412,24 @@ describe("station-status projection decode + doctor", () => {
     expect(decoded?.projections?.studio).toEqual(row);
   });
 
+  it("decodes staged projection status as delivery-ok", () => {
+    const row = projectionRecordFromResult({
+      hostId: "studio",
+      generation: "1",
+      manifestSha256: WITNESS_A,
+      status: "staged",
+      detail: "frame staged",
+      at: "2026-07-24T12:00:00.000Z",
+    });
+    expect(row.ok).toBe(true);
+    expect(row.status).toBe("staged");
+    const decoded = decodeStationStatusDocument({
+      version: 1,
+      lastProjection: row,
+    });
+    expect(decoded?.lastProjection?.status).toBe("staged");
+  });
+
   it("rejects corrupt projection fields", () => {
     expect(
       decodeStationStatusDocument({
@@ -441,5 +472,24 @@ describe("station-status projection decode + doctor", () => {
     expect(check.metadata?.lastProjectionStatus).toBe("unreachable");
     expect(check.metadata?.lastProjectionGeneration).toBe("9");
     expect(check.metadata?.lastProjectionHostId).toBe("studio");
+  });
+});
+
+describe("projection generation binds to authority generation", () => {
+  it("authority generation stamps projection frames (not wall-clock)", () => {
+    const authorityGeneration = "42";
+    const compiled = compileProjectionSnapshot({
+      generation: authorityGeneration,
+      createdAt: "2026-07-24T00:00:00.000Z",
+      commandCenterWitness: WITNESS_A,
+      targetWitness: WITNESS_B,
+      documents: new Map([
+        ["portfolio", new TextEncoder().encode('{"nodes":[],"edges":[]}\n')],
+      ]),
+    });
+    expect(compiled.manifest.generation).toBe("42");
+    // Wall-clock would be 13+ digits; authority gens are small monotonic decimals.
+    expect(compiled.manifest.generation.length).toBeLessThanOrEqual(32);
+    expect(/^(0|[1-9][0-9]*)$/.test(compiled.manifest.generation)).toBe(true);
   });
 });

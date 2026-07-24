@@ -627,9 +627,14 @@ export const registerVellumIpc = (): void => {
           const { applyIncomingProjectionFrame } = yield* Effect.promise(
             () => import("./projection/incoming"),
           );
+          const { stationSettingsWitness } = yield* Effect.promise(
+            () => import("./station-witness"),
+          );
           const canvasesSvc = yield* CanvasesService;
           const outcome = yield* Effect.promise(() =>
             applyIncomingProjectionFrame({
+              localStationRole: current.station.role,
+              localStationWitness: stationSettingsWitness(current.station),
               replaceLiveAuthorityDocuments: async (documents) => {
                 const admit = await AppRuntime.runPromise(
                   canvasesSvc

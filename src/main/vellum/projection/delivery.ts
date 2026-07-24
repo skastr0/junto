@@ -40,6 +40,7 @@ import { recordStationProjection } from "../station-status-store";
 export type ProjectionDeliveryEvent =
   | { readonly type: "schedule" }
   | { readonly type: "applied"; readonly detail?: string }
+  | { readonly type: "staged"; readonly detail?: string }
   | { readonly type: "rejected"; readonly detail: string }
   | { readonly type: "unreachable"; readonly detail: string };
 
@@ -59,6 +60,7 @@ export type ProjectionDeliveryTransition =
 const DEFAULT_DETAILS: Record<ProjectionDeliveryEvent["type"], string> = {
   schedule: "projection delivery scheduled",
   applied: "projection applied",
+  staged: "projection frame staged (awaiting remote apply)",
   rejected: "projection rejected",
   unreachable: "projection target unreachable",
 };
@@ -67,9 +69,12 @@ const DEFAULT_DETAILS: Record<ProjectionDeliveryEvent["type"], string> = {
  * Pure delivery status machine.
  *
  * schedule  → pending (always; starts a new attempt)
- * pending   + applied|rejected|unreachable → that terminal status
+ * pending   + applied|staged|rejected|unreachable → that status
  * terminal  + schedule → pending (new attempt)
  * terminal  + outcome event → refused (illegal transition)
+ *
+ * `staged` = SSH drop succeeded; Remote has not applied yet (honest CC receipt).
+ * `applied` = local store install or Remote ack (cut 5).
  */
 export const reduceProjectionDelivery = (
   current: StationProjectionDeliveryStatus | undefined,
@@ -99,6 +104,13 @@ export const reduceProjectionDelivery = (
         status: "applied",
         terminal: true,
         detail: event.detail ?? DEFAULT_DETAILS.applied,
+      };
+    case "staged":
+      return {
+        ok: true,
+        status: "staged",
+        terminal: true,
+        detail: event.detail ?? DEFAULT_DETAILS.staged,
       };
     case "rejected":
       return {
@@ -348,9 +360,10 @@ export const scheduleHostSync = async (
           compiled,
         });
         if (result.ok) {
+          // SSH stage only — do not claim applied until Remote install/ack.
           finalEvent = {
-            type: "applied",
-            detail: result.detail ?? `delivered to ${endpoint}`,
+            type: "staged",
+            detail: result.detail ?? `frame staged at ${endpoint}`,
           };
         } else {
           finalEvent = {
@@ -375,9 +388,11 @@ export const scheduleHostSync = async (
           ? "pending"
           : finalEvent.type === "applied"
             ? "applied"
-            : finalEvent.type === "rejected"
-              ? "rejected"
-              : "unreachable",
+            : finalEvent.type === "staged"
+              ? "staged"
+              : finalEvent.type === "rejected"
+                ? "rejected"
+                : "unreachable",
       detail: reduced.ok
         ? reduced.detail
         : "detail" in finalEvent

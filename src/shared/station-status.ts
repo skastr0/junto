@@ -63,6 +63,12 @@ export type StationConfigureRecord = {
   readonly ok: boolean;
   readonly hostId: string;
   readonly detail: string;
+  /**
+   * Expected remote `stationSettingsWitness` after a successful configure.
+   * Projection push stamps frames with this as `targetWitness`; inventory-only
+   * hosts without it are not delivery targets.
+   */
+  readonly stationWitness?: string;
 };
 
 export type StationDeployOutcome =
@@ -106,6 +112,7 @@ export type StationKernelRecord = {
 export type StationProjectionDeliveryStatus =
   | "applied"
   | "pending"
+  | "staged"
   | "unreachable"
   | "rejected";
 
@@ -126,6 +133,11 @@ export type StationStatusDocument = {
   readonly version: typeof STATION_STATUS_VERSION;
   readonly lastPull?: StationPullRecord;
   readonly lastConfigure?: StationConfigureRecord;
+  /**
+   * Latest configure receipt per enrolled host id (includes expected
+   * stationWitness after successful configure).
+   */
+  readonly configures?: Readonly<Record<string, StationConfigureRecord>>;
   /** Bounded, non-authorial heartbeat for SSH-readable fleet diagnostics. */
   readonly kernel?: StationKernelRecord;
   /** Latest durable deployment receipt for each registered Remote host. */
@@ -239,7 +251,10 @@ const decodeConfigureRecord = (
     typeof value.at !== "string" ||
     typeof value.ok !== "boolean" ||
     typeof value.hostId !== "string" ||
-    typeof value.detail !== "string"
+    typeof value.detail !== "string" ||
+    (value.stationWitness !== undefined &&
+      (typeof value.stationWitness !== "string" ||
+        !SHA256_HEX_PATTERN.test(value.stationWitness)))
   ) {
     return undefined;
   }
@@ -248,6 +263,9 @@ const decodeConfigureRecord = (
     ok: value.ok,
     hostId: value.hostId.slice(0, 64),
     detail: value.detail.slice(0, 4_096),
+    ...(typeof value.stationWitness === "string"
+      ? { stationWitness: value.stationWitness }
+      : {}),
   };
 };
 
@@ -357,6 +375,7 @@ const decodeDeployRecord = (
 const PROJECTION_STATUSES = new Set<string>([
   "applied",
   "pending",
+  "staged",
   "unreachable",
   "rejected",
 ]);
@@ -440,6 +459,19 @@ export const decodeStationStatusDocument = (
     return undefined;
   }
 
+  let configures: Record<string, StationConfigureRecord> | undefined;
+  if (value.configures !== undefined) {
+    if (!isRecord(value.configures)) return undefined;
+    const entries = Object.entries(value.configures);
+    if (entries.length > 32) return undefined;
+    configures = {};
+    for (const [hostId, raw] of entries) {
+      const configure = decodeConfigureRecord(raw);
+      if (!configure || configure.hostId !== hostId) return undefined;
+      configures[hostId] = configure;
+    }
+  }
+
   let deployments: Record<string, StationDeployRecord> | undefined;
   if (value.deployments !== undefined) {
     if (!isRecord(value.deployments)) return undefined;
@@ -470,6 +502,7 @@ export const decodeStationStatusDocument = (
     version: STATION_STATUS_VERSION,
     ...(lastPull ? { lastPull } : {}),
     ...(lastConfigure ? { lastConfigure } : {}),
+    ...(configures ? { configures } : {}),
     ...(kernel ? { kernel } : {}),
     ...(deployments ? { deployments } : {}),
     ...(lastProjection ? { lastProjection } : {}),
@@ -497,11 +530,15 @@ export const configureRecordFromResult = (input: {
   readonly hostId: string;
   readonly detail: string;
   readonly at?: string;
+  readonly stationWitness?: string;
 }): StationConfigureRecord => ({
   at: input.at ?? new Date().toISOString(),
   ok: input.ok,
   hostId: input.hostId,
   detail: input.detail,
+  ...(input.stationWitness && SHA256_HEX_PATTERN.test(input.stationWitness)
+    ? { stationWitness: input.stationWitness }
+    : {}),
 });
 
 export const deployRecordFromResult = (input: {
@@ -551,7 +588,8 @@ export const projectionRecordFromResult = (input: {
   manifestSha256: input.manifestSha256,
   ...(input.frameSha256 ? { frameSha256: input.frameSha256 } : {}),
   status: input.status,
-  ok: input.status === "applied",
+  // staged = SSH drop succeeded (not yet applied on Remote). applied = installed.
+  ok: input.status === "applied" || input.status === "staged",
   detail: input.detail.slice(0, 4_096),
 });
 

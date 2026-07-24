@@ -139,6 +139,9 @@ describe("CanvasesService authority store", () => {
 
     await runtime.runPromise(canvases.write("alpha", noteDoc("one")));
 
+    const liveGen = await runtime.runPromise(canvases.liveAuthorityGeneration());
+    expect(liveGen).toBe("1");
+
     const gen1 = await loadAuthoritySnapshot(authorityDir);
     expect(gen1?.pointer.generation).toBe("1");
     expect(gen1?.manifest.documents.map((d) => d.name)).toEqual(["alpha"]);

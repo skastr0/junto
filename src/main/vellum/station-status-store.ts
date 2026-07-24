@@ -111,6 +111,10 @@ export const recordStationConfigure = async (
     ...current,
     version: STATION_STATUS_VERSION,
     lastConfigure: configure,
+    configures: {
+      ...(current.configures ?? {}),
+      [configure.hostId]: configure,
+    },
   }));
 };
 
@@ -149,6 +153,10 @@ export const recordStationDeployment = async (
       ...current,
       version: STATION_STATUS_VERSION,
       lastConfigure: configure,
+      configures: {
+        ...(current.configures ?? {}),
+        [configure.hostId]: configure,
+      },
       deployments: {
         ...(current.deployments ?? {}),
         [deployment.hostId]: merged,

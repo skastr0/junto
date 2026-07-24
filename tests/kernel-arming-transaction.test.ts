@@ -43,6 +43,7 @@ const fakeCanvases = Layer.succeed(
     start: () => {},
     subscribeChanges: () => () => {},
     liveDocuments: () => Effect.succeed([]),
+    liveAuthorityGeneration: () => Effect.succeed("0"),
     replaceLiveAuthorityDocuments: () => Effect.void,
   }),
 );

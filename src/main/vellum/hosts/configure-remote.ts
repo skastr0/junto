@@ -30,6 +30,7 @@ import {
 import { migrateSettingsDocument } from "../settings/migrate";
 import { configureRecordFromResult } from "@shared/station-status";
 import { recordStationConfigure } from "../station-status-store";
+import { stationSettingsWitness } from "../station-witness";
 import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
 
 // SSH install of ~/.vellum/settings.json on a registered remote host.
@@ -336,11 +337,24 @@ export const configureRemoteHost = (
       if (remoteStationAlreadyConfigured(migrated.right, planInput)) {
         const sealed = yield* probeRemoteTopologySealed(ssh, endpoint, homePath);
         if (sealed) {
-          return {
-            ok: true,
+          const okResult = {
+            ok: true as const,
             detail: `${host.label}: already configured (${plan.summary})`,
             station: migrated.right.station,
           } satisfies ConfigureRemoteResult;
+          if (options.recordStatus !== false) {
+            yield* Effect.promise(() =>
+              recordStationConfigure(
+                configureRecordFromResult({
+                  ok: true,
+                  hostId: host.id,
+                  detail: okResult.detail,
+                  stationWitness: stationSettingsWitness(migrated.right.station),
+                }),
+              ).catch(() => undefined),
+            );
+          }
+          return okResult;
         }
         // Settings match but seals incomplete — not pristine; do not re-stamp.
         return {
@@ -415,10 +429,11 @@ export const configureRemoteHost = (
       return failed;
     }
 
+    const configuredStation = probe.station ?? plan.station;
     const okResult = {
       ok: true as const,
       detail: `${host.label} (${host.endpoint}): ${probe.detail}`,
-      station: probe.station ?? plan.station,
+      station: configuredStation,
     } satisfies ConfigureRemoteResult;
     if (options.recordStatus !== false) {
       yield* Effect.promise(() =>
@@ -427,6 +442,7 @@ export const configureRemoteHost = (
             ok: true,
             hostId: host.id,
             detail: okResult.detail,
+            stationWitness: stationSettingsWitness(configuredStation),
           }),
         ).catch(() => undefined),
       );

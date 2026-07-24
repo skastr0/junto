@@ -116,4 +116,95 @@ describe("applyIncomingProjectionFrame", () => {
     // Drop retained for re-push / inspection
     expect(readFileSync(path, "utf8")).toBe("not-a-frame");
   });
+
+  it("rejects wrong targetWitness without mutating authority or drop", async () => {
+    setup();
+    const body = serializeCanvas(emptyDoc());
+    const compiled = compileStationProjection({
+      generation: "4",
+      createdAt: "2026-07-24T00:00:00.000Z",
+      commandCenterWitness: WITNESS_A,
+      targetWitness: WITNESS_B,
+      documents: new Map([["portfolio", new TextEncoder().encode(body)]]),
+    });
+    mkdirSync(dropRoot, { recursive: true });
+    const path = incomingProjectionFramePath(dropRoot);
+    writeFileSync(path, compiled.frame, { mode: 0o600 });
+
+    let admitCalls = 0;
+    const result = await applyIncomingProjectionFrame({
+      dropRoot,
+      storeRoot,
+      localStationRole: "remote",
+      localStationWitness: "c".repeat(64),
+      replaceLiveAuthorityDocuments: async () => {
+        admitCalls += 1;
+      },
+    });
+    expect(result.status).toBe("rejected");
+    if (result.status === "rejected") {
+      expect(result.detail).toMatch(/targetWitness does not match/i);
+    }
+    expect(admitCalls).toBe(0);
+    expect(readFileSync(path).byteLength).toBe(compiled.frame.byteLength);
+    const snap = await loadStationProjectionSnapshot(storeRoot);
+    expect(snap).toBeUndefined();
+  });
+
+  it("rejects non-Remote local role without mutating authority", async () => {
+    setup();
+    const body = serializeCanvas(emptyDoc());
+    const compiled = compileStationProjection({
+      generation: "5",
+      createdAt: "2026-07-24T00:00:00.000Z",
+      commandCenterWitness: WITNESS_A,
+      targetWitness: WITNESS_B,
+      documents: new Map([["portfolio", new TextEncoder().encode(body)]]),
+    });
+    mkdirSync(dropRoot, { recursive: true });
+    writeFileSync(incomingProjectionFramePath(dropRoot), compiled.frame, {
+      mode: 0o600,
+    });
+
+    let admitCalls = 0;
+    const result = await applyIncomingProjectionFrame({
+      dropRoot,
+      storeRoot,
+      localStationRole: "command-center",
+      localStationWitness: WITNESS_B,
+      replaceLiveAuthorityDocuments: async () => {
+        admitCalls += 1;
+      },
+    });
+    expect(result.status).toBe("rejected");
+    if (result.status === "rejected") {
+      expect(result.detail).toMatch(/requires Remote station role/i);
+    }
+    expect(admitCalls).toBe(0);
+  });
+
+  it("applies when role is remote and targetWitness matches", async () => {
+    setup();
+    const body = serializeCanvas(emptyDoc());
+    const compiled = compileStationProjection({
+      generation: "6",
+      createdAt: "2026-07-24T00:00:00.000Z",
+      commandCenterWitness: WITNESS_A,
+      targetWitness: WITNESS_B,
+      documents: new Map([["portfolio", new TextEncoder().encode(body)]]),
+    });
+    mkdirSync(dropRoot, { recursive: true });
+    writeFileSync(incomingProjectionFramePath(dropRoot), compiled.frame, {
+      mode: 0o600,
+    });
+
+    const result = await applyIncomingProjectionFrame({
+      dropRoot,
+      storeRoot,
+      localStationRole: "remote",
+      localStationWitness: WITNESS_B,
+      replaceLiveAuthorityDocuments: async () => undefined,
+    });
+    expect(result.status).toBe("applied");
+  });
 });

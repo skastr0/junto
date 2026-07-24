@@ -2,11 +2,12 @@
  * Remote station: apply Command Center projection frames from the drop path.
  *
  * Drop: `~/.vellum/projections/incoming.frame` (staged by delivery).
- * Apply: generation-gated station store install → decode complete document set
- * → replace live authority in one generation → consume drop file.
+ * Apply: station verify → generation-gated station store install → decode
+ * complete document set → replace live authority in one generation → consume
+ * drop file.
  *
- * Fail closed: corrupt/stale frames leave live authority untouched; drop is
- * not consumed on rejection so a re-push can overwrite the drop path.
+ * Fail closed: wrong role/target/corrupt/stale frames leave live authority
+ * untouched; drop is not consumed on rejection so a re-push can overwrite.
  */
 
 import { constants } from "node:fs";
@@ -21,6 +22,7 @@ import {
   PROJECTION_INCOMING_BASENAME,
 } from "../ssh/remote-plan";
 import { canvasNameFrom } from "../canvases";
+import { parseStationProjectionFrame } from "./compiler";
 import {
   applyStationProjectionGeneration,
   stationProjectionRoot,
@@ -72,6 +74,16 @@ export type ApplyIncomingProjectionDeps = {
   readonly replaceLiveAuthorityDocuments?: (
     documents: ReadonlyMap<string, CanvasDoc>,
   ) => Promise<void>;
+  /**
+   * Sealed local station role. Product path must pass `"remote"`.
+   * When provided and not `"remote"`, apply fails closed.
+   */
+  readonly localStationRole?: string;
+  /**
+   * Local `stationSettingsWitness`. When provided, must equal the frame's
+   * `targetWitness` (wrong-target fail closed).
+   */
+  readonly localStationWitness?: string;
 };
 
 const readIncomingFrame = async (
@@ -136,6 +148,51 @@ const consumeIncomingFrame = async (
 };
 
 /**
+ * Station verify gates (fail closed, no mutation):
+ * - sealed local role is Remote when role is provided
+ * - targetWitness equals local station witness when local witness is provided
+ * - generation newer or same+hash (idempotent) — enforced by station store
+ */
+const verifyStationProjectionAdmission = (
+  frame: Uint8Array,
+  deps: ApplyIncomingProjectionDeps,
+):
+  | { readonly ok: true }
+  | { readonly ok: false; readonly detail: string } => {
+  let parsed;
+  try {
+    parsed = parseStationProjectionFrame(frame);
+  } catch (error) {
+    return {
+      ok: false,
+      detail: (error instanceof Error ? error.message : String(error)).slice(
+        0,
+        4_096,
+      ),
+    };
+  }
+
+  if (deps.localStationRole !== undefined && deps.localStationRole !== "remote") {
+    return {
+      ok: false,
+      detail: `projection apply requires Remote station role (got ${JSON.stringify(deps.localStationRole)})`,
+    };
+  }
+
+  if (deps.localStationWitness !== undefined) {
+    if (parsed.manifest.targetWitness !== deps.localStationWitness) {
+      return {
+        ok: false,
+        detail:
+          "projection targetWitness does not match local station witness",
+      };
+    }
+  }
+
+  return { ok: true };
+};
+
+/**
  * If `incoming.frame` is present, install it into the station projection store
  * and replace live authority with the complete decoded document set.
  */
@@ -149,6 +206,11 @@ export const applyIncomingProjectionFrame = async (
   if (!loaded.ok) {
     if (loaded.reason === "absent") return { status: "absent" };
     return { status: "rejected", detail: loaded.detail };
+  }
+
+  const verified = verifyStationProjectionAdmission(loaded.frame, deps);
+  if (!verified.ok) {
+    return { status: "rejected", detail: verified.detail };
   }
 
   let storeResult: ApplyStationProjectionResult;

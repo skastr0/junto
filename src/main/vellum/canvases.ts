@@ -210,6 +210,12 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       CanvasError
     >;
     /**
+     * Last committed canvas-authority generation as a decimal string.
+     * Projection frames must stamp this (not wall-clock) so CC and Remote
+     * share one generation identity for the live document set.
+     */
+    readonly liveAuthorityGeneration: () => Effect.Effect<string, CanvasError>;
+    /**
      * Replace live authority with a fully decoded document set (projection
      * install). Commits one full-map generation. Names not in the set are
      * removed. Callers must validate the set before invoking.
@@ -732,6 +738,15 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       catch: toCanvasError,
     });
 
+  const liveAuthorityGeneration = (): Effect.Effect<string, CanvasError> =>
+    Effect.tryPromise({
+      try: async () => {
+        await bootstrapLiveAuthority();
+        return authorityGeneration.toString();
+      },
+      catch: toCanvasError,
+    });
+
   /**
    * Projection install: replace the live map with a fully-validated document
    * set and commit one full-map generation. No disk re-read.
@@ -822,6 +837,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     start,
     subscribeChanges,
     liveDocuments,
+    liveAuthorityGeneration,
     replaceLiveAuthorityDocuments,
   });
 });

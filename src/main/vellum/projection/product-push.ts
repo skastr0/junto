@@ -1,15 +1,19 @@
 /**
  * Command Center product path: compile live canvases and push frames to
- * enrolled remote hosts via SshTransport + named projection recipe.
+ * configured remote Stations via SshTransport + named projection recipe.
+ *
+ * Cut 4: projection generation = canvas-authority generation; one frame per
+ * configured Station stamped with that station's expected witness. Inventory-
+ * only hosts (enrolled but never successfully configured) are skipped.
  */
 
-import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { RELEASE_CAPABILITIES } from "@shared/release-capabilities";
 import { CanvasesService } from "../canvases";
 import { HostsService } from "../hosts";
 import { SettingsService } from "../settings/service";
 import { stationSettingsWitness } from "../station-witness";
+import { readStationStatus } from "../station-status-store";
 import { SshTransport } from "../ssh/service";
 import {
   deliverProjectionToHosts,
@@ -17,15 +21,6 @@ import {
   type ScheduleHostSyncResult,
 } from "./delivery";
 import { createProjectionDeliveryTransport } from "./remote-delivery";
-
-const sha256Hex = (parts: ReadonlyArray<string>): string => {
-  const h = createHash("sha256");
-  for (const part of parts) {
-    h.update(part);
-    h.update("\0");
-  }
-  return h.digest("hex");
-};
 
 export type ProductProjectionPushResult =
   | {
@@ -44,10 +39,11 @@ export type ProductProjectionPushResult =
     };
 
 /**
- * Push the current live canvas set to every enrolled remote host.
+ * Push the current live canvas set to every *configured* remote Station.
  *
  * Uses `createProjectionDeliveryTransport(ssh)` so remote mode runs the named
  * `compileProjectionFrameDeliver` recipe (never residual without transport).
+ * SSH success records `staged` (not `applied`) until Remote applies/acks.
  */
 export const pushLiveProjectionToEnrolledRemotes = Effect.gen(function* () {
   if (!RELEASE_CAPABILITIES.stationProjection) {
@@ -102,6 +98,37 @@ export const pushLiveProjectionToEnrolledRemotes = Effect.gen(function* () {
     } satisfies ProductProjectionPushResult;
   }
 
+  const status = yield* Effect.promise(() => readStationStatus());
+  const configuredTargets: Array<
+    ProjectionHostTarget & { readonly targetWitness: string }
+  > = [];
+  for (const host of remotes) {
+    const configure = status.configures?.[host.id];
+    if (
+      !configure ||
+      !configure.ok ||
+      typeof configure.stationWitness !== "string" ||
+      configure.stationWitness.length !== 64
+    ) {
+      continue;
+    }
+    configuredTargets.push({
+      hostId: host.id,
+      endpoint: host.endpoint!.trim(),
+      mode: "remote",
+      targetWitness: configure.stationWitness,
+    });
+  }
+
+  if (configuredTargets.length === 0) {
+    return {
+      ok: true,
+      skipped: true,
+      detail:
+        "no configured remote stations with expected witness (run Configure as Remote first)",
+    } satisfies ProductProjectionPushResult;
+  }
+
   const liveEither = yield* Effect.either(canvases.liveDocuments());
   if (liveEither._tag === "Left") {
     return {
@@ -110,56 +137,86 @@ export const pushLiveProjectionToEnrolledRemotes = Effect.gen(function* () {
     } satisfies ProductProjectionPushResult;
   }
 
+  const generationEither = yield* Effect.either(
+    canvases.liveAuthorityGeneration(),
+  );
+  if (generationEither._tag === "Left") {
+    return {
+      ok: false,
+      detail: `authority generation unreadable: ${generationEither.left.message}`,
+    } satisfies ProductProjectionPushResult;
+  }
+
   const documents = liveEither.right.map((row) => ({
     name: row.canvasName,
     doc: row.doc,
   }));
 
-  const targets: ProjectionHostTarget[] = remotes.map((host) => ({
-    hostId: host.id,
-    endpoint: host.endpoint!.trim(),
-    mode: "remote" as const,
-  }));
-
-  const generation = String(Date.now());
+  // Projection generation is the live canvas-authority generation — not wall clock.
+  const generation = generationEither.right;
   const commandCenterWitness = stationSettingsWitness(doc.station);
-  const targetWitness = sha256Hex([
-    "fleet-full-canvas-set",
-    ...remotes.map((h) => `${h.id}:${h.endpoint}`).sort(),
-  ]);
-
   const transport = createProjectionDeliveryTransport(ssh);
-  const pushEither = yield* Effect.either(
-    Effect.tryPromise({
-      try: () =>
-        deliverProjectionToHosts(
-          {
-            generation,
-            createdAt: new Date().toISOString(),
-            commandCenterWitness,
-            targetWitness,
-            documents,
-            targets,
-          },
-          { transport },
-        ),
-      catch: (error) =>
-        error instanceof Error ? error : new Error(String(error)),
-    }),
-  );
+  const createdAt = new Date().toISOString();
 
-  if (pushEither._tag === "Left") {
+  const outcomes: Array<ScheduleHostSyncResult["outcomes"][number]> = [];
+  let lastResult: ScheduleHostSyncResult | undefined;
+
+  // One frame per configured Station, stamped with that station's expected witness.
+  for (const target of configuredTargets) {
+    const pushEither = yield* Effect.either(
+      Effect.tryPromise({
+        try: () =>
+          deliverProjectionToHosts(
+            {
+              generation,
+              createdAt,
+              commandCenterWitness,
+              targetWitness: target.targetWitness,
+              documents,
+              targets: [
+                {
+                  hostId: target.hostId,
+                  endpoint: target.endpoint,
+                  mode: "remote",
+                },
+              ],
+            },
+            { transport },
+          ),
+        catch: (error) =>
+          error instanceof Error ? error : new Error(String(error)),
+      }),
+    );
+
+    if (pushEither._tag === "Left") {
+      return {
+        ok: false,
+        detail: `projection push to ${target.hostId} failed: ${pushEither.left.message}`.slice(
+          0,
+          4_096,
+        ),
+      } satisfies ProductProjectionPushResult;
+    }
+
+    lastResult = pushEither.right;
+    outcomes.push(...pushEither.right.outcomes);
+  }
+
+  if (lastResult === undefined) {
     return {
-      ok: false,
-      detail: `projection push failed: ${pushEither.left.message}`.slice(
-        0,
-        4_096,
-      ),
+      ok: true,
+      skipped: true,
+      detail: "no configured remote stations with expected witness",
     } satisfies ProductProjectionPushResult;
   }
 
   return {
     ok: true,
-    result: pushEither.right,
+    result: {
+      generation: lastResult.generation,
+      manifestSha256: lastResult.manifestSha256,
+      frameSha256: lastResult.frameSha256,
+      outcomes,
+    },
   } satisfies ProductProjectionPushResult;
 });
