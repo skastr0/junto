@@ -12,6 +12,7 @@ import {
 } from "@shared/canvas-name";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 import {
+  canvasAuthorityRoot,
   commitAuthorityGeneration,
   loadAuthoritySnapshot,
 } from "./canvas-authority/store";
@@ -356,11 +357,15 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
         documents.set(name, textEncoder.encode(serializeCanvas(entry.doc)));
       }
       const nextGeneration = (authorityGeneration + 1n).toString();
-      await commitAuthorityGeneration({
-        generation: nextGeneration,
-        createdAt: new Date().toISOString(),
-        documents,
-      });
+      // Resolve root at commit time so hermetic VELLUM_* dirs are honored.
+      await commitAuthorityGeneration(
+        {
+          generation: nextGeneration,
+          createdAt: new Date().toISOString(),
+          documents,
+        },
+        canvasAuthorityRoot(),
+      );
       authorityGeneration = BigInt(nextGeneration);
     });
 
@@ -408,7 +413,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   ): Promise<boolean> => {
     let snapshot: Awaited<ReturnType<typeof loadAuthoritySnapshot>>;
     try {
-      snapshot = await loadAuthoritySnapshot();
+      snapshot = await loadAuthoritySnapshot(canvasAuthorityRoot());
     } catch (error) {
       // Corrupt pointer fails closed at the store API; dual-path beta falls
       // back to legacy canvasesDir rather than refusing process start.

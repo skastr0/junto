@@ -48,11 +48,26 @@ export class CanvasAuthorityError extends Error {
   }
 }
 
-export const canvasAuthorityRoot = (): string =>
-  resolve(
-    process.env.VELLUM_CANVAS_AUTHORITY_DIR ||
-      join(homedir(), ".vellum", "state", "canvas-authority-v1"),
-  );
+/**
+ * Authority store root.
+ *
+ * - `VELLUM_CANVAS_AUTHORITY_DIR` wins when set (explicit hermetic tests).
+ * - Else if `VELLUM_CANVASES_DIR` is set (legacy test isolation), place the
+ *   store next to that temp canvases tree so dual-path never reads the
+ *   operator's real `~/.vellum/state/canvas-authority-v1`.
+ * - Else production: `~/.vellum/state/canvas-authority-v1`.
+ */
+export const canvasAuthorityRoot = (): string => {
+  if (process.env.VELLUM_CANVAS_AUTHORITY_DIR) {
+    return resolve(process.env.VELLUM_CANVAS_AUTHORITY_DIR);
+  }
+  if (process.env.VELLUM_CANVASES_DIR) {
+    return resolve(
+      join(process.env.VELLUM_CANVASES_DIR, "..", "canvas-authority-v1"),
+    );
+  }
+  return resolve(join(homedir(), ".vellum", "state", "canvas-authority-v1"));
+};
 
 const sha256Hex = (bytes: Uint8Array | string): Sha256Hex =>
   createHash("sha256").update(bytes).digest("hex") as Sha256Hex;
