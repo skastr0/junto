@@ -25,7 +25,7 @@ import {
   taskItem,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
-import type { CanvasEdge, CanvasNode, GroupNode, LinkNode } from "../../src/shared/canvas";
+import type { CanvasEdge, CanvasNode, GroupNode, LinkNode, Task } from "../../src/shared/canvas";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 
@@ -119,6 +119,28 @@ const LAUNCH = {
   argv: ["/bin/sh", "-c", "printf 'audit-terminal-ready\\r\\n'; exec sleep 3600"],
 };
 
+const auditTask = (id: string, brief: string, state: Task["state"], claimedBy?: string, update?: string): Task => {
+  const task = taskItem(id, brief, state);
+  return {
+    ...task,
+    ...(claimedBy ? { metadata: { claimedBy } } : {}),
+    ...(update
+      ? {
+          history: [
+            ...task.history,
+            {
+              messageId: `${id}-m1`,
+              role: "agent" as const,
+              parts: [{ kind: "text" as const, text: update }],
+              taskId: id,
+              contextId: "e2e",
+            },
+          ],
+        }
+      : {}),
+  };
+};
+
 const nodes: CanvasNode[] = [
   regionNode,
   noteNode,
@@ -129,9 +151,50 @@ const nodes: CanvasNode[] = [
   fileNode,
   projectNode({ id: "proj1", name: "prism", x: 0, y: 460 }),
   projectNode({ id: "proj2", name: "vellum", x: 260, y: 460 }),
-  agentTextNode({ id: "agent1", key: "local:default", label: "builder", x: 520, y: 460 }),
-  tasksNode({ id: "tasks1", x: 0, y: 620, items: [taskItem("t-1", "ship design tokens", "working")] }),
-  requestsNode({ id: "req1", x: 260, y: 620, items: [taskItem("r-1", "approve copy", "input-required")] }),
+  agentTextNode({
+    id: "agent1",
+    key: "local:default",
+    label: "builder",
+    x: 520,
+    y: 460,
+  }),
+  tasksNode({
+    id: "tasks1",
+    x: 0,
+    y: 620,
+    items: [
+      auditTask("t-1", "Ship browser containment probe", "submitted"),
+      auditTask("t-2", "Fix stale host badge", "working", "remote-a:profile-06"),
+      auditTask(
+        "t-3",
+        "Clarify claim tick rules",
+        "input-required",
+        "remote-a:profile-06",
+        "Which worker should own tasks without a matching role?",
+      ),
+      auditTask(
+        "t-4",
+        "Enable remote session capture",
+        "auth-required",
+        "remote-a:profile-06",
+        "Operator authorization is required before opening the remote capability.",
+      ),
+      auditTask("t-5", "Rotate service key material", "completed", "remote-a:profile-06"),
+      auditTask(
+        "t-6",
+        "Reject unsafe host cleanup",
+        "rejected",
+        "remote-a:profile-06",
+        "The proposed operation exceeded the connected capability scope.",
+      ),
+    ],
+  }),
+  requestsNode({
+    id: "req1",
+    x: 260,
+    y: 620,
+    items: [taskItem("r-1", "approve copy", "input-required")],
+  }),
   artifactsNode({ id: "art1", x: 520, y: 620 }),
   terminalTextNode({
     id: "term1",
@@ -154,7 +217,13 @@ const nodes: CanvasNode[] = [
 
 const edges: CanvasEdge[] = [
   tasksCriteriaEdge("e1", "tasks1", "proj1"),
-  { id: "e2", fromNode: "proj1", toNode: "proj2", fromSide: "right", toSide: "left" },
+  {
+    id: "e2",
+    fromNode: "proj1",
+    toNode: "proj2",
+    fromSide: "right",
+    toSide: "left",
+  },
   {
     id: "e3",
     fromNode: "note2",
@@ -174,10 +243,26 @@ test("capture every surface for design review", async () => {
 
   const world = {
     workspaces: [
-      { workspace_id: "w1", label: "demo", tab_count: 1, pane_count: 1, agent_status: "working", focused: true, number: 1 },
+      {
+        workspace_id: "w1",
+        label: "demo",
+        tab_count: 1,
+        pane_count: 1,
+        agent_status: "working",
+        focused: true,
+        number: 1,
+      },
     ],
     tabs: [
-      { tab_id: "w1:t1", workspace_id: "w1", label: "1", pane_count: 1, agent_status: "working", focused: true, number: 1 },
+      {
+        tab_id: "w1:t1",
+        workspace_id: "w1",
+        label: "1",
+        pane_count: 1,
+        agent_status: "working",
+        focused: true,
+        number: 1,
+      },
     ],
     panes: [
       {
@@ -205,7 +290,15 @@ test("capture every surface for design review", async () => {
         focused: true,
       },
     ],
-    layouts: [{ workspace_id: "w1", tab_id: "w1:t1", panes: [], splits: [], zoomed: false }],
+    layouts: [
+      {
+        workspace_id: "w1",
+        tab_id: "w1:t1",
+        panes: [],
+        splits: [],
+        zoomed: false,
+      },
+    ],
     focused_workspace_id: "w1",
     focused_tab_id: "w1:t1",
     focused_pane_id: "w1:p1",
@@ -264,11 +357,15 @@ test("capture every surface for design review", async () => {
 
     // React Flow only mounts on-screen nodes: wait for the first, fit the
     // whole board, THEN distant entity nodes exist in the DOM.
-    await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".react-flow__node").first()).toBeVisible({
+      timeout: 30_000,
+    });
     const fit = page.getByRole("button", { name: /fit all/i });
     if (await fit.isVisible().catch(() => false)) await fit.click();
     await page.waitForTimeout(800);
-    const termNode = page.locator(".react-flow__node", { hasText: "audit native term" });
+    const termNode = page.locator(".react-flow__node", {
+      hasText: "audit native term",
+    });
     await expect(termNode).toBeVisible({ timeout: 15_000 });
     await shot(page, "01-canvas-full");
 
@@ -282,7 +379,19 @@ test("capture every surface for design review", async () => {
     await closeup("release checklist", "03-node-blocker");
     await closeup("audit herdr pane", "04-node-herdr");
     await closeup("audit native term", "05-node-terminal-card");
-    await closeup("ship design tokens", "06-node-tasks");
+    await closeup("Fix stale host badge", "06-node-tasks");
+
+    // Task flow: the full five-lane board, including attention and terminal
+    // variants. Double-click is the work-surface affordance on canvas nodes.
+    const tasksNodeCard = page.locator(".react-flow__node", { hasText: "Fix stale host badge" }).first();
+    await tasksNodeCard.dblclick();
+    const taskFlow = page.getByRole("dialog", { name: "Task flow" });
+    await expect(taskFlow).toBeVisible({ timeout: 10_000 });
+    await expect(taskFlow.getByTestId("task-board")).toBeVisible();
+    await expect(taskFlow.getByText("Needs authorization", { exact: true })).toBeVisible();
+    await shot(page, "06b-task-flow-kanban");
+    await taskFlow.getByRole("button", { name: "Close task flow" }).click();
+    await expect(taskFlow).toBeHidden();
 
     // Edge label closeup.
     const edgeLabel = page.locator(".vellum-edge-label").first();
@@ -326,7 +435,9 @@ test("capture every surface for design review", async () => {
     // when the card is not selected).
     if (await fit.isVisible().catch(() => false)) await fit.click();
     await page.waitForTimeout(600);
-    const herdrNode = page.locator(".react-flow__node", { hasText: "audit herdr pane" });
+    const herdrNode = page.locator(".react-flow__node", {
+      hasText: "audit herdr pane",
+    });
     await herdrNode.getByRole("button", { name: "audit herdr pane" }).click();
     const herdrPanel = page.locator(".herdr-terminal-panel");
     await expect(herdrPanel).toBeVisible({ timeout: 30_000 });
@@ -360,7 +471,10 @@ test("capture every surface for design review", async () => {
     await page.waitForTimeout(300);
 
     // Usage HUD + popover.
-    const hud = page.getByRole("button", { name: "Provider limits", exact: true });
+    const hud = page.getByRole("button", {
+      name: "Provider limits",
+      exact: true,
+    });
     if (await hud.isVisible().catch(() => false)) {
       await shot(page, "18-usage-hud-rail");
       await hud.click();
@@ -374,7 +488,9 @@ test("capture every surface for design review", async () => {
     if (await addItem.isVisible().catch(() => false)) {
       await addItem.click();
       await shot(page, "20-node-palette");
-      const termWiz = page.getByRole("button", { name: "Add native terminal work surface" });
+      const termWiz = page.getByRole("button", {
+        name: "Add native terminal work surface",
+      });
       if (await termWiz.isVisible().catch(() => false)) {
         await termWiz.click();
         await shot(page, "21-terminal-wizard");
@@ -383,7 +499,9 @@ test("capture every surface for design review", async () => {
         await page.waitForTimeout(300);
       }
       await addItem.click();
-      const herdrWiz = page.getByRole("button", { name: "Add legacy herdr work surface" });
+      const herdrWiz = page.getByRole("button", {
+        name: "Add legacy herdr work surface",
+      });
       if (await herdrWiz.isVisible().catch(() => false)) {
         await herdrWiz.click();
         await page.waitForTimeout(600);
@@ -402,10 +520,9 @@ test("capture every surface for design review", async () => {
     await termNode.dblclick();
     const surface = page.locator(".native-terminal-surface");
     await expect(surface).toBeVisible({ timeout: 30_000 });
-    await expect(surface.locator(".native-terminal-surface__status")).toContainText(
-      /control|attaching/,
-      { timeout: 30_000 },
-    );
+    await expect(surface.locator(".native-terminal-surface__status")).toContainText(/control|attaching/, {
+      timeout: 30_000,
+    });
     await page.waitForTimeout(900);
     await shot(page, "09-native-terminal-focus");
     await surface.getByRole("button", { name: "Pin" }).click();
@@ -432,7 +549,6 @@ test("capture the empty field state", async () => {
   }
 });
 
-
 // Fleet manager — seed an enrolled fleet (local + four remotes, two with
 // custom appearance) via VELLUM_HOSTS_PATH. With no key/seal beside it the
 // registry bootstrap-admits the document. The fake ssh binary answers the
@@ -445,7 +561,12 @@ test("capture the fleet manager overlay", async () => {
     JSON.stringify({
       version: 1,
       hosts: [
-        { id: "local", label: "local", kind: "local", capabilities: ["herdr", "hermes", "browser"] },
+        {
+          id: "local",
+          label: "local",
+          kind: "local",
+          capabilities: ["herdr", "hermes", "browser"],
+        },
         {
           id: "mac-mini",
           label: "mac-mini",
@@ -488,12 +609,16 @@ test("capture the fleet manager overlay", async () => {
   try {
     const { page } = vellum;
     await mkdir(SHOTS, { recursive: true });
-    await expect(page.locator(".react-flow").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".react-flow").first()).toBeVisible({
+      timeout: 30_000,
+    });
     await page.getByRole("button", { name: "Open fleet manager" }).click();
     const panel = page.locator(".fleet-panel");
     await expect(panel).toBeVisible({ timeout: 15_000 });
     // Stations render from the seeded registry, medallions tinted per host.
-    await expect(page.locator(".fleet-station")).toHaveCount(4, { timeout: 15_000 });
+    await expect(page.locator(".fleet-station")).toHaveCount(4, {
+      timeout: 15_000,
+    });
     // Probes fire on open; in the sandbox they may still be in flight at
     // capture time — the frame asserts the fleet, not the probe outcome.
     await page.waitForTimeout(1500);
