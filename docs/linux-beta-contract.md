@@ -69,17 +69,29 @@ Post-beta: re-enable `darwinRemoteDeploy` only with an explicit product decision
 
 ## Cut 5 residual — Station projection delivery
 
-Schema + pure frame compiler + Station apply store land first
-(`src/shared/station-projection.ts`, `src/main/vellum/projection/`). Complete
-generations install under `~/.vellum/projections/station/` with a `current.json`
-pointer (refuse lower generation; same gen + frame hash is idempotent).
+Schema + pure frame compiler + Station apply store + Command Center delivery
+status lane:
 
 | Item | Status |
 |---|---|
-| Manifest + frame (`VELLUM-STATION-PROJECTION/1`) | v1 skeleton — full-canvas-set scope only |
-| Station apply store | generation gate + content-addressed objects |
-| **Live canvas-pull** | **Still the product path** until the CC→Remote delivery lane lands |
-| CC push / Remote frame pull / live admit from projection store | residual — do not remove canvas-pull yet |
+| Manifest + frame (`VELLUM-STATION-PROJECTION/1`) | v1 — full-canvas-set scope only |
+| Station apply store | generation gate + content-addressed objects under `~/.vellum/projections/station/` |
+| CC delivery queue (`projection/delivery.ts`) | compile from live docs · pure status machine · local apply · scheduleHostSync receipts |
+| Station status `lastProjection` / `projections` | durable pending → applied \| rejected \| unreachable (Cut 7.1 surface) |
+| Doctor metadata | `lastProjectionStatus` / generation / host / detail |
+| **Live canvas-pull** | **Still the product path** for fleet canvas sync |
+| Typed SSH projection bridge (frame ship + remote apply) | residual — ssh-mode without transport records honest `unreachable` |
+| Live admit from projection store → canvas authority | residual — do not remove canvas-pull yet |
 
 Operators continue to use Remote canvas-pull for fleet canvas sync in beta.
-Projection install into the Station store is not yet the live authority path.
+Projection store install is not yet the live authority path. CC may record
+push intent receipts so Doctor shows projection reachability truth; full
+enrolled-SSH frame delivery is a later cut.
+
+## Cut 7.1 residual — Projection reachability truth
+
+| Item | Status |
+|---|---|
+| `StationProjectionRecord` on `station-status.json` | landed (generation, manifestSha256, status, detail, per-host map) |
+| Doctor / Settings detail string | doctor metadata + detail line landed; Settings UI optional polish residual |
+| Live Remote observation of remote `lastProjection` over SSH | residual (status file is readable in principle via existing doctor SSH cat of station-status; product-facing fleet matrix polish later) |

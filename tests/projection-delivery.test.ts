@@ -1,0 +1,414 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  assessStationDoctor,
+  decodeStationStatusDocument,
+  projectionRecordFromResult,
+  type StationProjectionRecord,
+} from "../src/shared/station-status";
+import {
+  applyLocalProjectionForTest,
+  compileProjectionSnapshot,
+  deliverProjectionToHosts,
+  documentsFromCanvasDocs,
+  reduceProjectionDelivery,
+  scheduleHostSync,
+  SSH_PROJECTION_BRIDGE_RESIDUAL_DETAIL,
+} from "../src/main/vellum/projection/delivery";
+import {
+  loadStationProjectionSnapshot,
+} from "../src/main/vellum/projection/station-store";
+import {
+  readStationStatus,
+  recordStationProjection,
+} from "../src/main/vellum/station-status-store";
+import type { CanvasDoc } from "../src/shared/canvas";
+
+const WITNESS_A = "a".repeat(64);
+const WITNESS_B = "b".repeat(64);
+
+const emptyDoc = (): CanvasDoc => ({ nodes: [], edges: [] });
+
+describe("projection delivery status machine", () => {
+  it("schedules to pending from unset", () => {
+    const next = reduceProjectionDelivery(undefined, { type: "schedule" });
+    expect(next).toEqual({
+      ok: true,
+      status: "pending",
+      terminal: false,
+      detail: "projection delivery scheduled",
+    });
+  });
+
+  it("transitions pending → applied", () => {
+    const next = reduceProjectionDelivery("pending", {
+      type: "applied",
+      detail: "installed generation 1",
+    });
+    expect(next.ok).toBe(true);
+    if (next.ok) {
+      expect(next.status).toBe("applied");
+      expect(next.terminal).toBe(true);
+      expect(next.detail).toBe("installed generation 1");
+    }
+  });
+
+  it("transitions pending → rejected", () => {
+    const next = reduceProjectionDelivery("pending", {
+      type: "rejected",
+      detail: "conflict",
+    });
+    expect(next.ok).toBe(true);
+    if (next.ok) {
+      expect(next.status).toBe("rejected");
+      expect(next.terminal).toBe(true);
+    }
+  });
+
+  it("transitions pending → unreachable", () => {
+    const next = reduceProjectionDelivery("pending", {
+      type: "unreachable",
+      detail: "ssh down",
+    });
+    expect(next.ok).toBe(true);
+    if (next.ok) {
+      expect(next.status).toBe("unreachable");
+    }
+  });
+
+  it("refuses outcome events outside pending", () => {
+    for (const status of ["applied", "rejected", "unreachable"] as const) {
+      const next = reduceProjectionDelivery(status, {
+        type: "applied",
+        detail: "nope",
+      });
+      expect(next.ok).toBe(false);
+      if (!next.ok) {
+        expect(next.error).toMatch(/cannot apply event applied/);
+      }
+    }
+  });
+
+  it("allows schedule from a terminal status (new attempt)", () => {
+    const next = reduceProjectionDelivery("applied", { type: "schedule" });
+    expect(next.ok).toBe(true);
+    if (next.ok) expect(next.status).toBe("pending");
+  });
+});
+
+describe("projection delivery compile + local apply", () => {
+  let root = "";
+
+  afterEach(() => {
+    if (root) rmSync(root, { recursive: true, force: true });
+    root = "";
+  });
+
+  it("compiles from CanvasDoc via serializeCanvas", () => {
+    const docs = documentsFromCanvasDocs([
+      { name: "zeta", doc: emptyDoc() },
+      { name: "alpha", doc: { nodes: [{ id: "n1", type: "text", x: 0, y: 0, width: 1, height: 1, text: "hi" }], edges: [] } },
+    ]);
+    expect([...docs.keys()].sort()).toEqual(["alpha", "zeta"]);
+
+    const compiled = compileProjectionSnapshot({
+      generation: "1",
+      createdAt: "2026-07-24T00:00:00.000Z",
+      commandCenterWitness: WITNESS_A,
+      targetWitness: WITNESS_B,
+      documents: [
+        { name: "solo", doc: emptyDoc() },
+      ],
+    });
+    expect(compiled.manifest.generation).toBe("1");
+    expect(compiled.manifest.documents).toHaveLength(1);
+    expect(compiled.manifestSha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("applyLocalProjectionForTest installs into the station store", async () => {
+    root = mkdtempSync(join(tmpdir(), "vellum-proj-delivery-"));
+    const compiled = compileProjectionSnapshot({
+      generation: "4",
+      createdAt: "2026-07-24T00:00:00.000Z",
+      commandCenterWitness: WITNESS_A,
+      targetWitness: WITNESS_B,
+      documents: new Map([
+        ["alpha", new TextEncoder().encode('{"nodes":[],"edges":[]}\n')],
+      ]),
+    });
+
+    const result = await applyLocalProjectionForTest(compiled, root);
+    expect(result.status).toBe("applied");
+    expect(result.generation).toBe("4");
+
+    const snap = await loadStationProjectionSnapshot(root);
+    expect(snap?.pointer.generation).toBe("4");
+    expect(snap?.pointer.manifestSha256).toBe(compiled.manifestSha256);
+  });
+
+  it("applyLocalProjectionForTest rejects stale generations", async () => {
+    root = mkdtempSync(join(tmpdir(), "vellum-proj-delivery-"));
+    const gen10 = compileProjectionSnapshot({
+      generation: "10",
+      createdAt: "2026-07-24T00:00:00.000Z",
+      commandCenterWitness: WITNESS_A,
+      targetWitness: WITNESS_B,
+      documents: new Map([
+        ["a", new TextEncoder().encode("1")],
+      ]),
+    });
+    await applyLocalProjectionForTest(gen10, root);
+
+    const gen9 = compileProjectionSnapshot({
+      generation: "9",
+      createdAt: "2026-07-24T00:00:00.000Z",
+      commandCenterWitness: WITNESS_A,
+      targetWitness: WITNESS_B,
+      documents: new Map([
+        ["a", new TextEncoder().encode("1")],
+      ]),
+    });
+    const rejected = await applyLocalProjectionForTest(gen9, root);
+    expect(rejected.status).toBe("rejected");
+    expect(rejected.detail).toMatch(/refused generation|stale/i);
+  });
+});
+
+describe("scheduleHostSync status recording", () => {
+  let statusRoot = "";
+  let storeRoot = "";
+  let clock = 0;
+
+  beforeEach(() => {
+    statusRoot = mkdtempSync(join(tmpdir(), "vellum-proj-status-"));
+    storeRoot = mkdtempSync(join(tmpdir(), "vellum-proj-store-"));
+    process.env.VELLUM_STATION_STATUS_PATH = join(
+      statusRoot,
+      "station-status.json",
+    );
+    clock = 0;
+  });
+
+  afterEach(() => {
+    delete process.env.VELLUM_STATION_STATUS_PATH;
+    rmSync(statusRoot, { recursive: true, force: true });
+    rmSync(storeRoot, { recursive: true, force: true });
+  });
+
+  const now = () => {
+    clock += 1;
+    return `2026-07-24T00:00:0${clock}.000Z`;
+  };
+
+  const compile = (generation: string) =>
+    compileProjectionSnapshot({
+      generation,
+      createdAt: "2026-07-24T00:00:00.000Z",
+      commandCenterWitness: WITNESS_A,
+      targetWitness: WITNESS_B,
+      documents: new Map([
+        ["portfolio", new TextEncoder().encode('{"nodes":[],"edges":[]}\n')],
+      ]),
+    });
+
+  it("local mode: pending then applied, durable lastProjection", async () => {
+    const compiled = compile("1");
+    const seen: StationProjectionRecord[] = [];
+
+    const result = await scheduleHostSync(
+      compiled,
+      [{ hostId: "local", mode: "local" }],
+      {
+        localStoreRoot: storeRoot,
+        now,
+        record: async (row) => {
+          seen.push(row);
+          await recordStationProjection(row);
+        },
+      },
+    );
+
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]!.record.status).toBe("applied");
+    expect(result.outcomes[0]!.record.ok).toBe(true);
+    expect(seen.map((r) => r.status)).toEqual(["pending", "applied"]);
+
+    const status = await readStationStatus();
+    expect(status.lastProjection?.status).toBe("applied");
+    expect(status.lastProjection?.generation).toBe("1");
+    expect(status.lastProjection?.manifestSha256).toBe(compiled.manifestSha256);
+    expect(status.projections?.local?.status).toBe("applied");
+
+    const snap = await loadStationProjectionSnapshot(storeRoot);
+    expect(snap?.pointer.generation).toBe("1");
+  });
+
+  it("local mode: pending then rejected on store conflict", async () => {
+    const first = compile("5");
+    await applyLocalProjectionForTest(first, storeRoot);
+
+    // Same generation, different frame body → conflict → rejected
+    const conflict = compileProjectionSnapshot({
+      generation: "5",
+      createdAt: "2026-07-24T00:00:00.000Z",
+      commandCenterWitness: WITNESS_A,
+      targetWitness: WITNESS_B,
+      documents: new Map([
+        ["portfolio", new TextEncoder().encode('{"nodes":[{"id":"x"}],"edges":[]}\n')],
+      ]),
+    });
+
+    const result = await scheduleHostSync(
+      conflict,
+      [{ hostId: "local", mode: "local" }],
+      { localStoreRoot: storeRoot, now, record: recordStationProjection },
+    );
+
+    expect(result.outcomes[0]!.record.status).toBe("rejected");
+    expect(result.outcomes[0]!.record.ok).toBe(false);
+
+    const status = await readStationStatus();
+    expect(status.lastProjection?.status).toBe("rejected");
+  });
+
+  it("ssh mode without transport: pending then unreachable residual", async () => {
+    const compiled = compile("2");
+    const result = await scheduleHostSync(
+      compiled,
+      [{ hostId: "studio", endpoint: "studio-box", mode: "ssh" }],
+      { now, record: recordStationProjection },
+    );
+
+    expect(result.outcomes[0]!.record.status).toBe("unreachable");
+    expect(result.outcomes[0]!.record.detail).toBe(
+      SSH_PROJECTION_BRIDGE_RESIDUAL_DETAIL,
+    );
+
+    const status = await readStationStatus();
+    expect(status.lastProjection?.status).toBe("unreachable");
+    expect(status.projections?.studio?.endpoint).toBe("studio-box");
+  });
+
+  it("ssh mode with transport: pending then applied", async () => {
+    const compiled = compile("3");
+    const result = await scheduleHostSync(
+      compiled,
+      [{ hostId: "studio", endpoint: "studio-box", mode: "ssh" }],
+      {
+        now,
+        record: recordStationProjection,
+        transport: {
+          deliver: async () => ({ ok: true, detail: "bridge ok" }),
+        },
+      },
+    );
+    expect(result.outcomes[0]!.record.status).toBe("applied");
+    expect(result.outcomes[0]!.record.detail).toBe("bridge ok");
+  });
+
+  it("ssh transport rejection: pending → rejected", async () => {
+    const compiled = compile("6");
+    const result = await scheduleHostSync(
+      compiled,
+      [{ hostId: "studio", endpoint: "studio-box", mode: "ssh" }],
+      {
+        now,
+        record: recordStationProjection,
+        transport: {
+          deliver: async () => ({
+            ok: false,
+            status: "rejected",
+            detail: "remote refused generation",
+          }),
+        },
+      },
+    );
+    expect(result.outcomes[0]!.record.status).toBe("rejected");
+  });
+
+  it("deliverProjectionToHosts compiles and syncs in one call", async () => {
+    const result = await deliverProjectionToHosts(
+      {
+        generation: "7",
+        createdAt: "2026-07-24T00:00:00.000Z",
+        commandCenterWitness: WITNESS_A,
+        targetWitness: WITNESS_B,
+        documents: new Map([
+          ["a", new TextEncoder().encode("{}")],
+        ]),
+        targets: [{ hostId: "local", mode: "local" }],
+      },
+      { localStoreRoot: storeRoot, now, record: recordStationProjection },
+    );
+    expect(result.generation).toBe("7");
+    expect(result.outcomes[0]!.record.status).toBe("applied");
+  });
+});
+
+describe("station-status projection decode + doctor", () => {
+  it("decodes lastProjection and projections map", () => {
+    const row = projectionRecordFromResult({
+      hostId: "studio",
+      endpoint: "studio-box",
+      generation: "12",
+      manifestSha256: WITNESS_A,
+      frameSha256: WITNESS_B,
+      status: "applied",
+      detail: "installed",
+      at: "2026-07-24T12:00:00.000Z",
+    });
+    const decoded = decodeStationStatusDocument({
+      version: 1,
+      lastProjection: row,
+      projections: { studio: row },
+    });
+    expect(decoded?.lastProjection).toEqual(row);
+    expect(decoded?.projections?.studio).toEqual(row);
+  });
+
+  it("rejects corrupt projection fields", () => {
+    expect(
+      decodeStationStatusDocument({
+        version: 1,
+        lastProjection: {
+          at: "x",
+          hostId: "h",
+          generation: "1",
+          manifestSha256: "not-a-hash",
+          status: "applied",
+          ok: true,
+          detail: "x",
+        },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("surfaces lastProjection in doctor detail + metadata", () => {
+    const check = assessStationDoctor({
+      role: "command-center",
+      hostId: "local",
+      commandCenterRef: "",
+      supervisedPreferred: false,
+      supervisedInstalled: "absent",
+      status: {
+        version: 1,
+        lastProjection: projectionRecordFromResult({
+          hostId: "studio",
+          generation: "9",
+          manifestSha256: WITNESS_A,
+          status: "unreachable",
+          detail: SSH_PROJECTION_BRIDGE_RESIDUAL_DETAIL,
+          at: "2026-07-24T12:00:00.000Z",
+        }),
+      },
+      workControlReady: true,
+    });
+    expect(check.status).toBe("warning");
+    expect(check.detail).toMatch(/last projection unreachable/);
+    expect(check.metadata?.lastProjectionStatus).toBe("unreachable");
+    expect(check.metadata?.lastProjectionGeneration).toBe("9");
+    expect(check.metadata?.lastProjectionHostId).toBe("studio");
+  });
+});

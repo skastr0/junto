@@ -13,6 +13,7 @@ import {
   type StationConfigureRecord,
   type StationDeployRecord,
   type StationKernelRecord,
+  type StationProjectionRecord,
   type StationPullRecord,
   type StationStatusDocument,
 } from "@shared/station-status";
@@ -49,7 +50,8 @@ export type StationStatusChangeKind =
   | "pull"
   | "configure"
   | "kernel"
-  | "deployment";
+  | "deployment"
+  | "projection";
 
 export type StationStatusChange = {
   readonly kind: StationStatusChangeKind;
@@ -153,4 +155,22 @@ export const recordStationDeployment = async (
       },
     };
   });
+};
+
+/**
+ * Persist a projection delivery receipt (Command Center push lane).
+ * Updates both the overall lastProjection pointer and the per-host map.
+ */
+export const recordStationProjection = async (
+  projection: StationProjectionRecord,
+): Promise<void> => {
+  await updateStationStatus("projection", (current) => ({
+    ...current,
+    version: STATION_STATUS_VERSION,
+    lastProjection: projection,
+    projections: {
+      ...(current.projections ?? {}),
+      [projection.hostId]: projection,
+    },
+  }));
 };

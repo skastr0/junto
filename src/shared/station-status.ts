@@ -98,6 +98,30 @@ export type StationKernelRecord = {
   readonly orphanedArmingCount: number;
 };
 
+/**
+ * Command Center → Station projection delivery receipt (Cut 5 / 7.1).
+ * Distinct from lastPull (Remote canvas-pull path). Tracks push intent
+ * reachability truth: pending → applied | rejected | unreachable.
+ */
+export type StationProjectionDeliveryStatus =
+  | "applied"
+  | "pending"
+  | "unreachable"
+  | "rejected";
+
+export type StationProjectionRecord = {
+  readonly at: string;
+  readonly hostId: string;
+  /** Registered SSH endpoint when the target is remote; omitted for local/test. */
+  readonly endpoint?: string;
+  readonly generation: string;
+  readonly manifestSha256: string;
+  readonly frameSha256?: string;
+  readonly status: StationProjectionDeliveryStatus;
+  readonly ok: boolean;
+  readonly detail: string;
+};
+
 export type StationStatusDocument = {
   readonly version: typeof STATION_STATUS_VERSION;
   readonly lastPull?: StationPullRecord;
@@ -106,6 +130,13 @@ export type StationStatusDocument = {
   readonly kernel?: StationKernelRecord;
   /** Latest durable deployment receipt for each registered Remote host. */
   readonly deployments?: Readonly<Record<string, StationDeployRecord>>;
+  /**
+   * Most recent projection delivery attempt (any host). Doctor / Settings
+   * surface this as reachability truth; not live canvas authority.
+   */
+  readonly lastProjection?: StationProjectionRecord;
+  /** Latest projection delivery receipt per enrolled host id. */
+  readonly projections?: Readonly<Record<string, StationProjectionRecord>>;
 };
 
 export type StationRemoteObservation = {
@@ -323,6 +354,56 @@ const decodeDeployRecord = (
   };
 };
 
+const PROJECTION_STATUSES = new Set<string>([
+  "applied",
+  "pending",
+  "unreachable",
+  "rejected",
+]);
+
+const GENERATION_PATTERN = /^(0|[1-9][0-9]*)$/;
+
+const decodeProjectionRecord = (
+  value: unknown,
+): StationProjectionRecord | undefined => {
+  if (
+    !isRecord(value) ||
+    typeof value.at !== "string" ||
+    typeof value.hostId !== "string" ||
+    value.hostId.length === 0 ||
+    value.hostId.length > 64 ||
+    typeof value.generation !== "string" ||
+    !GENERATION_PATTERN.test(value.generation) ||
+    value.generation.length > 32 ||
+    typeof value.manifestSha256 !== "string" ||
+    !SHA256_HEX_PATTERN.test(value.manifestSha256) ||
+    !PROJECTION_STATUSES.has(String(value.status)) ||
+    typeof value.ok !== "boolean" ||
+    typeof value.detail !== "string" ||
+    (value.endpoint !== undefined && typeof value.endpoint !== "string") ||
+    (value.frameSha256 !== undefined &&
+      (typeof value.frameSha256 !== "string" ||
+        !SHA256_HEX_PATTERN.test(value.frameSha256)))
+  ) {
+    return undefined;
+  }
+  return {
+    at: value.at,
+    hostId: value.hostId.slice(0, 64),
+    ...(typeof value.endpoint === "string"
+      ? { endpoint: value.endpoint.slice(0, 255) }
+      : {}),
+    generation: value.generation,
+    manifestSha256: value.manifestSha256,
+    ...(typeof value.frameSha256 === "string"
+      ? { frameSha256: value.frameSha256 }
+      : {}),
+    status: value.status as StationProjectionDeliveryStatus,
+    ok: value.ok,
+    detail: value.detail.slice(0, 4_096),
+  };
+};
+
 /**
  * Decode the owner-local or SSH-read status mirror without trusting its shape.
  * Unknown fields are dropped; an invalid known field rejects the document so
@@ -346,10 +427,15 @@ export const decodeStationStatusDocument = (
     value.kernel === undefined
       ? undefined
       : decodeKernelRecord(value.kernel);
+  const lastProjection =
+    value.lastProjection === undefined
+      ? undefined
+      : decodeProjectionRecord(value.lastProjection);
   if (
     (value.lastPull !== undefined && !lastPull) ||
     (value.lastConfigure !== undefined && !lastConfigure) ||
-    (value.kernel !== undefined && !kernel)
+    (value.kernel !== undefined && !kernel) ||
+    (value.lastProjection !== undefined && !lastProjection)
   ) {
     return undefined;
   }
@@ -367,12 +453,27 @@ export const decodeStationStatusDocument = (
     }
   }
 
+  let projections: Record<string, StationProjectionRecord> | undefined;
+  if (value.projections !== undefined) {
+    if (!isRecord(value.projections)) return undefined;
+    const entries = Object.entries(value.projections);
+    if (entries.length > 32) return undefined;
+    projections = {};
+    for (const [hostId, raw] of entries) {
+      const projection = decodeProjectionRecord(raw);
+      if (!projection || projection.hostId !== hostId) return undefined;
+      projections[hostId] = projection;
+    }
+  }
+
   return {
     version: STATION_STATUS_VERSION,
     ...(lastPull ? { lastPull } : {}),
     ...(lastConfigure ? { lastConfigure } : {}),
     ...(kernel ? { kernel } : {}),
     ...(deployments ? { deployments } : {}),
+    ...(lastProjection ? { lastProjection } : {}),
+    ...(projections ? { projections } : {}),
   };
 };
 
@@ -431,6 +532,27 @@ export const deployRecordFromResult = (input: {
   configurationOk: input.configurationOk,
   detail: input.detail.slice(0, 4_096),
   stages: (input.stages ?? []).slice(-32).map((stage) => stage.slice(0, 512)),
+});
+
+export const projectionRecordFromResult = (input: {
+  readonly hostId: string;
+  readonly endpoint?: string;
+  readonly generation: string;
+  readonly manifestSha256: string;
+  readonly frameSha256?: string;
+  readonly status: StationProjectionDeliveryStatus;
+  readonly detail: string;
+  readonly at?: string;
+}): StationProjectionRecord => ({
+  at: input.at ?? new Date().toISOString(),
+  hostId: input.hostId.slice(0, 64),
+  ...(input.endpoint ? { endpoint: input.endpoint.slice(0, 255) } : {}),
+  generation: input.generation,
+  manifestSha256: input.manifestSha256,
+  ...(input.frameSha256 ? { frameSha256: input.frameSha256 } : {}),
+  status: input.status,
+  ok: input.status === "applied",
+  detail: input.detail.slice(0, 4_096),
 });
 
 /**
@@ -578,6 +700,16 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       `last configure ${configure.ok ? "ok" : "failed"} · ${configure.hostId} · ${configure.at}`,
     );
     if (!configure.ok) raise("warning");
+  }
+
+  const lastProjection = input.status.lastProjection;
+  if (lastProjection) {
+    lines.push(
+      `last projection ${lastProjection.status} · gen ${lastProjection.generation} · host ${lastProjection.hostId} · ${lastProjection.at}`,
+    );
+    if (lastProjection.status === "rejected") raise("warning");
+    if (lastProjection.status === "unreachable") raise("warning");
+    if (lastProjection.status === "pending") raise("warning");
   }
 
   const deployments = Object.values(input.status.deployments ?? {}).sort((a, b) =>
@@ -961,6 +1093,17 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
             lastConfigureOk: configure.ok ? "true" : "false",
             lastConfigureHostId: configure.hostId,
             lastConfigureAt: configure.at,
+          }
+        : {}),
+      ...(lastProjection
+        ? {
+            lastProjectionStatus: lastProjection.status,
+            lastProjectionOk: lastProjection.ok ? "true" : "false",
+            lastProjectionGeneration: lastProjection.generation,
+            lastProjectionManifestSha256: lastProjection.manifestSha256,
+            lastProjectionHostId: lastProjection.hostId,
+            lastProjectionAt: lastProjection.at,
+            lastProjectionDetail: lastProjection.detail.slice(0, 512),
           }
         : {}),
       deploymentCount: String(activeDeployments.length),
