@@ -15,6 +15,7 @@ import {
 } from "../../lib/fleet-machine-assets";
 import {
   FLEET_MACHINE_CATALOG,
+  fleetMachineColor,
   fleetMachineLabel,
   resolveFleetMachineModel,
   resolvePeerMachineModel,
@@ -88,8 +89,8 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   const [confirmRemove, setConfirmRemove] = useState(false);
   const reach = reachabilityLine(probe);
   const probing = probe?.status === "probing";
-  const color = hostColor(host);
   const resolvedModel = resolveFleetMachineModel(host);
+  const color = hostColor(host, fleetMachineColor(resolvedModel));
   const automatic = !FLEET_MACHINE_CATALOG.some(
     ({ id }) => id === host.appearance?.glyph,
   );
@@ -226,7 +227,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             <WandSparkles size={14} strokeWidth={1.6} />
             <span>Automatic</span>
           </button>
-          {FLEET_MACHINE_CATALOG.map(({ id, label }) => {
+          {FLEET_MACHINE_CATALOG.map(({ id, label, color: modelColor }) => {
             const active = !automatic && host.appearance?.glyph === id;
             return (
               <button
@@ -235,7 +236,14 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
                 className={`fleet-model-choice${
                   active ? " fleet-model-choice--active" : ""
                 }`}
-                style={active ? { color, borderColor: withAlpha(color, 0.6) } : undefined}
+                style={
+                  {
+                    "--fleet-model-color": modelColor,
+                    ...(active
+                      ? { color, borderColor: withAlpha(color, 0.6) }
+                      : {}),
+                  } as CSSProperties
+                }
                 aria-label={`Use ${label} silhouette`}
                 aria-pressed={active}
                 title={label}
@@ -246,8 +254,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
                   })
                 )}
               >
-                <img src={FLEET_MACHINE_AVATARS[id]} alt="" />
-                <span>{label}</span>
+                <span
+                  className="fleet-model-choice__preview"
+                  aria-hidden="true"
+                >
+                  <img src={FLEET_MACHINE_AVATARS[id]} alt="" />
+                </span>
+                <span className="fleet-model-choice__label">{label}</span>
               </button>
             );
           })}
@@ -357,12 +370,14 @@ export function FleetDetailPanel({
   ccHostId,
   onClose,
   onClaimPeer,
+  ditherPixelSize,
 }: {
   readonly selection: FleetSelection;
   readonly probe?: FleetProbeState;
   readonly ccHostId: string;
   readonly onClose: () => void;
   readonly onClaimPeer: (peer: DiscoveredPeer) => void;
+  readonly ditherPixelSize: number;
 }) {
   const reach = selection.kind === "station" ? reachabilityLine(probe) : undefined;
   const stationModel =
@@ -393,7 +408,10 @@ export function FleetDetailPanel({
     selection.kind === "cc"
       ? HUE.amber
       : selection.kind === "station"
-        ? hostColor(selection.host)
+        ? hostColor(
+            selection.host,
+            stationModel ? fleetMachineColor(stationModel) : undefined,
+          )
         : HUE.steel;
 
   return (
@@ -412,6 +430,7 @@ export function FleetDetailPanel({
           {selection.kind === "station" && stationModel ? (
             <DitheredFleetObject
               color={color}
+              ditherPixelSize={ditherPixelSize}
               focused
               label={fleetMachineLabel(stationModel)}
               motionSeed={`detail:${selection.host.id}`}
@@ -419,8 +438,9 @@ export function FleetDetailPanel({
             />
           ) : selection.kind === "ghost" && peerModel ? (
             <DitheredFleetObject
-              amberMix={0.06}
+              amberMix={0}
               color={color}
+              ditherPixelSize={ditherPixelSize}
               focused
               label={fleetMachineLabel(peerModel)}
               motionSeed={`detail:peer:${selection.peer.name}`}
@@ -441,7 +461,11 @@ export function FleetDetailPanel({
                 : ccHostId || "local"}
           </small>
         </div>
-        <IconButton aria-label="Close fleet detail" title="close detail" onClick={onClose}>
+        <IconButton
+          aria-label="Close fleet detail"
+          title="close detail"
+          {...activateOnPointerUp(onClose)}
+        >
           <X size={13} />
         </IconButton>
       </div>

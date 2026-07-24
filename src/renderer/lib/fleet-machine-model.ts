@@ -1,5 +1,6 @@
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { DiscoveredPeer } from "@shared/ipc";
+import { GREEN, HUE } from "./theme";
 
 export const FLEET_MACHINE_MODELS = [
   "command-core",
@@ -24,24 +25,26 @@ export type FleetMachineModelId = (typeof FLEET_MACHINE_MODELS)[number];
 export interface FleetMachineModel {
   readonly id: FleetMachineModelId;
   readonly label: string;
+  /** Stable identity tint. Operational state is painted separately. */
+  readonly color: string;
 }
 
 export const FLEET_MACHINE_CATALOG: readonly FleetMachineModel[] = [
-  { id: "command-core", label: "Command Core" },
-  { id: "compute-tower", label: "Compute Tower" },
-  { id: "relay-obelisk", label: "Relay Obelisk" },
-  { id: "terminal-dock", label: "Terminal Dock" },
-  { id: "artifact-vault", label: "Artifact Vault" },
-  { id: "browser-lens", label: "Browser Lens" },
-  { id: "watch-beacon", label: "Watch Beacon" },
-  { id: "chrono-drum", label: "Chrono Drum" },
-  { id: "request-gate", label: "Request Gate" },
-  { id: "task-foundry", label: "Task Foundry" },
-  { id: "agent-prism", label: "Agent Prism" },
-  { id: "remote-anchor", label: "Remote Anchor" },
-  { id: "mac-mini", label: "Mac mini" },
-  { id: "mac-studio", label: "Mac Studio" },
-  { id: "macbook-pro", label: "MacBook Pro" },
+  { id: "command-core", label: "Command Core", color: HUE.amber },
+  { id: "compute-tower", label: "Compute Tower", color: HUE.orange },
+  { id: "relay-obelisk", label: "Relay Obelisk", color: HUE.violet },
+  { id: "terminal-dock", label: "Terminal Dock", color: HUE.cyan },
+  { id: "artifact-vault", label: "Artifact Vault", color: HUE.gold },
+  { id: "browser-lens", label: "Browser Lens", color: HUE.indigo },
+  { id: "watch-beacon", label: "Watch Beacon", color: HUE.cyan },
+  { id: "chrono-drum", label: "Chrono Drum", color: HUE.violet },
+  { id: "request-gate", label: "Request Gate", color: HUE.gold },
+  { id: "task-foundry", label: "Task Foundry", color: HUE.orange },
+  { id: "agent-prism", label: "Agent Prism", color: HUE.indigo },
+  { id: "remote-anchor", label: "Remote Anchor", color: GREEN },
+  { id: "mac-mini", label: "Mac mini", color: HUE.steel },
+  { id: "mac-studio", label: "Mac Studio", color: HUE.cyan },
+  { id: "macbook-pro", label: "MacBook Pro", color: HUE.indigo },
 ];
 
 const MODEL_IDS = new Set<string>(FLEET_MACHINE_MODELS);
@@ -88,6 +91,9 @@ export const resolveFleetMachineModel = (host: RemoteHost): FleetMachineModelId 
 
 export const fleetMachineLabel = (id: FleetMachineModelId): string =>
   FLEET_MACHINE_CATALOG.find((entry) => entry.id === id)?.label ?? id;
+
+export const fleetMachineColor = (id: FleetMachineModelId): string =>
+  FLEET_MACHINE_CATALOG.find((entry) => entry.id === id)?.color ?? HUE.amber;
 
 /** Unclaimed peers stay visually distinct while still receiving a real model. */
 export const resolvePeerMachineModel = (

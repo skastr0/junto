@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import {
   FLEET_MACHINE_MODELS,
+  fleetMachineColor,
   resolveFleetMachineModel,
   resolvePeerMachineModel,
 } from "../src/renderer/lib/fleet-machine-model";
@@ -35,6 +36,12 @@ describe("resolveFleetMachineModel", () => {
     expect(FLEET_MACHINE_MODELS).toContain("mac-mini");
     expect(FLEET_MACHINE_MODELS).toContain("mac-studio");
     expect(FLEET_MACHINE_MODELS).toContain("macbook-pro");
+  });
+
+  it("assigns stable identity colors without reserving blocker crimson", () => {
+    const colors = new Set(FLEET_MACHINE_MODELS.map(fleetMachineColor));
+    expect(colors.size).toBeGreaterThan(4);
+    expect(colors).not.toContain("#E5484D");
   });
 
   it("honors an explicit library model", () => {

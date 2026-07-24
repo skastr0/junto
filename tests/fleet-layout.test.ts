@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  discoveryLayout,
+  ditherPixelSize,
   edgePhase,
   FLEET_COLORS,
   hostColor,
+  ORBIT_BASE_RADIUS,
   orbitLayout,
 } from "../src/renderer/lib/fleet-layout";
 import { GREEN, HUE } from "../src/renderer/lib/theme";
@@ -26,30 +29,33 @@ describe("orbitLayout", () => {
     expect(Object.keys(a)).toEqual(["alpha", "bravo", "charlie", "delta"]);
   });
 
-  it("keeps the first 6 hosts on the first orbit (radius 260)", () => {
+  it("keeps the first 6 hosts on the first orbit", () => {
     const layout = orbitLayout(ids(6));
     for (const id of ids(6)) {
-      expect(radiusOf(layout[id]!)).toBeCloseTo(260, 6);
+      expect(radiusOf(layout[id]!)).toBeCloseTo(ORBIT_BASE_RADIUS, 6);
     }
   });
 
-  it("overflows the 7th host onto the second orbit (radius 520)", () => {
+  it("overflows the 7th host onto the second orbit", () => {
     const layout = orbitLayout(ids(7));
     for (const id of ids(6)) {
-      expect(radiusOf(layout[id]!)).toBeCloseTo(260, 6);
+      expect(radiusOf(layout[id]!)).toBeCloseTo(ORBIT_BASE_RADIUS, 6);
     }
-    expect(radiusOf(layout["host-07"]!)).toBeCloseTo(520, 6);
+    expect(radiusOf(layout["host-07"]!)).toBeCloseTo(ORBIT_BASE_RADIUS * 2, 6);
   });
 
-  it("overflows the 19th host onto the third orbit (radius 780)", () => {
+  it("overflows the 19th host onto the third orbit", () => {
     const layout = orbitLayout(ids(19));
-    expect(radiusOf(layout["host-19"]!)).toBeCloseTo(780, 6);
+    expect(radiusOf(layout["host-19"]!)).toBeCloseTo(ORBIT_BASE_RADIUS * 3, 6);
   });
 
   it("startOrbit pushes the set outward by whole orbit rings", () => {
     const inner = orbitLayout(["alpha", "bravo"]);
     const outer = orbitLayout(["alpha", "bravo"], 2);
-    expect(radiusOf(outer["alpha"]!)).toBeCloseTo(radiusOf(inner["alpha"]!) + 520, 6);
+    expect(radiusOf(outer["alpha"]!)).toBeCloseTo(
+      radiusOf(inner["alpha"]!) + ORBIT_BASE_RADIUS * 2,
+      6,
+    );
     expect(outer["alpha"]).toEqual({ x: inner["alpha"]!.x * 3, y: inner["alpha"]!.y * 3 });
   });
 
@@ -66,22 +72,44 @@ describe("orbitLayout", () => {
   });
 });
 
+describe("discoveryLayout", () => {
+  it("keeps visible peers in a centered four-row band", () => {
+    const layout = discoveryLayout(ids(5), 800);
+    expect(layout["host-01"]).toEqual({ x: 800, y: -345 });
+    expect(layout["host-04"]).toEqual({ x: 800, y: 345 });
+    expect(layout["host-05"]).toEqual({ x: 1030, y: 0 });
+  });
+
+  it("is stable under peer reordering", () => {
+    expect(discoveryLayout(["bravo", "alpha"], 700)).toEqual(
+      discoveryLayout(["alpha", "bravo"], 700),
+    );
+  });
+});
+
+describe("ditherPixelSize", () => {
+  it("moves from fine to coarse in increasing cell sizes", () => {
+    expect(ditherPixelSize("fine")).toBeLessThan(ditherPixelSize("balanced"));
+    expect(ditherPixelSize("balanced")).toBeLessThan(ditherPixelSize("coarse"));
+  });
+});
+
 describe("edgePhase", () => {
   it("maps unknown to a faint gray dashed hairline", () => {
     expect(edgePhase("unknown")).toEqual({
       hue: "#6b6f76",
-      dash: "4 6",
+      dash: "3 7",
       animated: false,
-      width: 1,
+      width: 1.1,
     });
   });
 
   it("maps probing to an animated cyan dash", () => {
     expect(edgePhase("probing")).toEqual({
       hue: HUE.cyan,
-      dash: "2 6",
+      dash: "2 7",
       animated: true,
-      width: 1,
+      width: 1.35,
     });
   });
 
@@ -90,16 +118,16 @@ describe("edgePhase", () => {
       hue: GREEN,
       dash: null,
       animated: false,
-      width: 1.5,
+      width: 1.6,
     });
   });
 
   it("maps unreachable to a crimson dash", () => {
     expect(edgePhase("unreachable")).toEqual({
       hue: HUE.crimson,
-      dash: "6 4",
+      dash: "7 5",
       animated: false,
-      width: 1,
+      width: 1.4,
     });
   });
 });
@@ -115,6 +143,10 @@ describe("hostColor", () => {
     expect(
       hostColor({ id: "remote-a", appearance: { color: "#123456" } }),
     ).toBe("#123456");
+  });
+
+  it("uses a model identity color before falling back to a host hash", () => {
+    expect(hostColor({ id: "remote-a" }, HUE.steel)).toBe(HUE.steel);
   });
 
   it("exposes 8 fleet colors", () => {

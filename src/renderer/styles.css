@@ -2175,10 +2175,15 @@ ol.note-md__list > .note-md__li::before {
 .fleet-map-wrap .react-flow {
   background: transparent;
 }
+.fleet-map__flow {
+  width: 100%;
+  height: 100%;
+}
 
 .fleet-map__context,
 .fleet-map__legend,
-.fleet-map__hint {
+.fleet-map__hint,
+.fleet-map__dither {
   position: absolute;
   z-index: 4;
   pointer-events: none;
@@ -2227,6 +2232,47 @@ ol.note-md__list > .note-md__li::before {
   font-size: 8px;
   letter-spacing: 0.05em;
 }
+.fleet-map__dither {
+  top: 14px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--color-stroke) 78%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-raise-2) 92%, transparent);
+  pointer-events: auto;
+}
+.fleet-map__dither > span {
+  padding: 0 6px 0 4px;
+  color: var(--color-faint);
+  font-size: 7px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.fleet-map__dither button {
+  min-height: 22px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--color-dim);
+  cursor: pointer;
+  padding: 0 7px;
+  font: 8px/1 var(--font-mono);
+}
+.fleet-map__dither button:hover {
+  color: var(--color-ink);
+  background: rgba(255, 255, 255, 0.045);
+}
+.fleet-map__dither button.is-active {
+  background: rgba(232, 163, 61, 0.12);
+  color: var(--color-amber);
+}
+.fleet-map__dither button:focus-visible {
+  outline: 1px solid var(--color-cyan);
+  outline-offset: 1px;
+}
 
 /* React Flow handles double as edge anchors — pinned to node centers so link
    lines run machine-to-machine, and invisible. */
@@ -2264,8 +2310,14 @@ ol.note-md__list > .note-md__li::before {
 .fleet-link {
   transition: filter 160ms ease-out, opacity 160ms ease-out;
 }
+.fleet-link__terminal {
+  transition: r 160ms ease-out, filter 160ms ease-out;
+}
 .react-flow__edge:hover .fleet-link {
   filter: brightness(1.45);
+}
+.react-flow__edge:hover .fleet-link__terminal {
+  filter: brightness(1.35);
 }
 @media (prefers-reduced-motion: reduce) {
   .fleet-link--probing { animation: none; }
@@ -2277,6 +2329,34 @@ ol.note-md__list > .note-md__li::before {
 .fleet-ghost {
   position: relative;
   cursor: pointer;
+}
+.fleet-discovery-band {
+  width: 100%;
+  height: 100%;
+  border: 1px dashed rgba(143, 163, 176, 0.2);
+  border-radius: 12px;
+  background: rgba(143, 163, 176, 0.018);
+  color: var(--color-faint);
+  pointer-events: none;
+}
+.fleet-discovery-band > span,
+.fleet-discovery-band > small {
+  position: absolute;
+  top: 14px;
+  font-family: var(--font-mono);
+}
+.fleet-discovery-band > span {
+  left: 16px;
+  color: var(--color-steel);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.fleet-discovery-band > small {
+  right: 16px;
+  color: var(--color-faint);
+  font-size: 7px;
+  letter-spacing: 0.04em;
 }
 .fleet-cc { width: 244px; }
 .fleet-ghost { width: 190px; }
@@ -2506,18 +2586,23 @@ ol.note-md__list > .note-md__li::before {
   height: 9px;
   border-radius: 999px;
   border: 2px solid var(--color-ground);
+  box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 32%, transparent);
 }
 .fleet-pip--unknown {
+  color: var(--color-faint);
   background: var(--color-faint);
 }
 .fleet-pip--probing {
+  color: var(--color-cyan);
   background: var(--color-cyan);
   animation: fleet-pip-pulse 1.2s ease-in-out infinite;
 }
 .fleet-pip--reachable {
+  color: var(--color-green);
   background: var(--color-green);
 }
 .fleet-pip--unreachable {
+  color: var(--color-crimson);
   background: var(--color-crimson);
 }
 @keyframes fleet-pip-pulse {
@@ -2785,14 +2870,30 @@ ol.note-md__list > .note-md__li::before {
     background-color 90ms ease-out,
     transform 90ms ease-out;
 }
-.fleet-model-choice > img {
+.fleet-model-choice__preview {
+  position: relative;
   display: block;
   width: 58px;
   height: 34px;
-  object-fit: cover;
+  overflow: hidden;
   pointer-events: none;
 }
-.fleet-model-choice > span {
+.fleet-model-choice__preview > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: grayscale(1) contrast(1.16);
+  object-fit: cover;
+}
+.fleet-model-choice__preview::after {
+  position: absolute;
+  inset: 0;
+  background: var(--fleet-model-color, var(--color-amber));
+  content: "";
+  mix-blend-mode: color;
+  pointer-events: none;
+}
+.fleet-model-choice__label {
   display: block;
   max-width: 100%;
   overflow: hidden;

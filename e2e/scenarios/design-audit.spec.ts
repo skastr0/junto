@@ -778,6 +778,16 @@ test("capture the fleet manager overlay", async () => {
     await expect(page.locator(".fleet-machine-object--ready")).toHaveCount(6, {
       timeout: 15_000,
     });
+    // Dither fidelity is a live shader choice: pointer-up updates every object
+    // without tearing down or reloading the model library.
+    await page.getByRole("button", { name: "coarse" }).click();
+    await expect(page.getByRole("button", { name: "coarse" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.locator(".fleet-machine-object--ready")).toHaveCount(6);
+    await page.getByRole("button", { name: "fine" }).click();
+    await expect(page.locator(".fleet-machine-object--ready")).toHaveCount(6);
     // Probes fire on open; in the sandbox they may still be in flight at
     // capture time — the frame asserts the fleet, not the probe outcome.
     await page.waitForTimeout(1500);

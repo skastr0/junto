@@ -25,6 +25,7 @@ import type { FleetProbeState } from "../../lib/fleet-state";
 import { hostColor } from "../../lib/fleet-layout";
 import { FLEET_MACHINE_ASSETS } from "../../lib/fleet-machine-assets";
 import {
+  fleetMachineColor,
   fleetMachineLabel,
   resolveFleetMachineModel,
   resolvePeerMachineModel,
@@ -54,14 +55,37 @@ export const FLEET_MACHINE_ICONS: Readonly<Record<FleetMachineModelId, LucideIco
 export const fleetMachineIcon = (model: FleetMachineModelId): LucideIcon =>
   FLEET_MACHINE_ICONS[model];
 
+// --- Mesh discovery geography -----------------------------------------------
+
+export type DiscoveryBandNodeData = { readonly count: number };
+export type DiscoveryBandFlowNode = Node<DiscoveryBandNodeData, "discoveryBand">;
+
+export function DiscoveryBandNode({ data }: NodeProps<DiscoveryBandFlowNode>) {
+  return (
+    <div className="fleet-discovery-band" aria-hidden="true">
+      <span>mesh discovery</span>
+      <small>{data.count} visible · not enrolled</small>
+    </div>
+  );
+}
+
 // --- Command Center ----------------------------------------------------------
 
-export type CommandCenterNodeData = { readonly hostId: string };
+export type CommandCenterNodeData = {
+  readonly hostId: string;
+  readonly ditherPixelSize: number;
+  readonly onSelect: () => void;
+};
 export type CommandCenterFlowNode = Node<CommandCenterNodeData, "commandCenter">;
 
 export function CommandCenterNode({ data, selected }: NodeProps<CommandCenterFlowNode>) {
   return (
-    <div className={`fleet-cc${selected ? " fleet-cc--selected" : ""}`}>
+    <div
+      className={`fleet-cc${selected ? " fleet-cc--selected" : ""}`}
+      onPointerUp={(event) => {
+        if (event.button === 0) data.onSelect();
+      }}
+    >
       <Handle type="source" position={Position.Right} className="fleet-handle" />
       <div className="fleet-machine fleet-machine--command">
         <div
@@ -70,6 +94,7 @@ export function CommandCenterNode({ data, selected }: NodeProps<CommandCenterFlo
         >
           <DitheredFleetObject
             color={HUE.amber}
+            ditherPixelSize={data.ditherPixelSize}
             focused={selected}
             label="Command Core"
             motionSeed={`command:${data.hostId}`}
@@ -94,6 +119,8 @@ export function CommandCenterNode({ data, selected }: NodeProps<CommandCenterFlo
 export type StationNodeData = {
   readonly host: RemoteHost;
   readonly probe?: FleetProbeState;
+  readonly ditherPixelSize: number;
+  readonly onSelect: () => void;
 };
 export type StationFlowNode = Node<StationNodeData, "station">;
 
@@ -140,11 +167,18 @@ const probeLabel = (probe?: FleetProbeState): string => {
 
 export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
   const { host, probe } = data;
-  const color = hostColor(host);
   const model = resolveFleetMachineModel(host);
+  const color = hostColor(host, fleetMachineColor(model));
   const modelLabel = fleetMachineLabel(model);
   return (
-    <div className={`fleet-station${selected ? " fleet-station--selected" : ""}`}>
+    <div
+      className={`fleet-station fleet-station--${probe?.status ?? "unknown"}${
+        selected ? " fleet-station--selected" : ""
+      }`}
+      onPointerUp={(event) => {
+        if (event.button === 0) data.onSelect();
+      }}
+    >
       <Handle type="target" position={Position.Left} className="fleet-handle" />
       <div className="fleet-machine">
         <div
@@ -153,6 +187,7 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
         >
           <DitheredFleetObject
             color={color}
+            ditherPixelSize={data.ditherPixelSize}
             focused={selected}
             label={modelLabel}
             motionSeed={host.id}
@@ -180,7 +215,11 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
 
 // --- Unclaimed peer (detected on the mesh, not enrolled) ---------------------
 
-export type GhostStationNodeData = { readonly peer: DiscoveredPeer };
+export type GhostStationNodeData = {
+  readonly peer: DiscoveredPeer;
+  readonly ditherPixelSize: number;
+  readonly onSelect: () => void;
+};
 export type GhostStationFlowNode = Node<GhostStationNodeData, "ghost">;
 
 const PEER_OS_ICONS: Record<string, LucideIcon> = {
@@ -200,7 +239,12 @@ export function GhostStationNode({ data, selected }: NodeProps<GhostStationFlowN
   const model = resolvePeerMachineModel(peer);
   const color = HUE.steel;
   return (
-    <div className={`fleet-ghost${selected ? " fleet-ghost--selected" : ""}`}>
+    <div
+      className={`fleet-ghost${selected ? " fleet-ghost--selected" : ""}`}
+      onPointerUp={(event) => {
+        if (event.button === 0) data.onSelect();
+      }}
+    >
       <Handle type="target" position={Position.Left} className="fleet-handle" />
       <div className="fleet-machine fleet-machine--ghost">
         <div
@@ -208,8 +252,9 @@ export function GhostStationNode({ data, selected }: NodeProps<GhostStationFlowN
           style={{ "--fleet-machine-color": color } as React.CSSProperties}
         >
           <DitheredFleetObject
-            amberMix={0.06}
+            amberMix={0}
             color={color}
+            ditherPixelSize={data.ditherPixelSize}
             focused={selected}
             label={fleetMachineLabel(model)}
             motionSeed={`peer:${peer.name}`}
@@ -234,6 +279,7 @@ export function GhostStationNode({ data, selected }: NodeProps<GhostStationFlowN
 }
 
 export const fleetNodeTypes = {
+  discoveryBand: DiscoveryBandNode,
   commandCenter: CommandCenterNode,
   station: StationNode,
   ghost: GhostStationNode,

@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Plus, RefreshCw } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
+import {
+  ditherPixelSize,
+  type FleetDitherLevel,
+} from "../../lib/fleet-layout";
 import { closeFleet, refreshFleet } from "../../lib/fleet-state";
 import { activateOnPointerUp } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
@@ -13,6 +17,17 @@ import { FleetHostForm } from "./FleetHostForm";
 import { COMMAND_CENTER_ID, FleetMap, ghostNodeId } from "./FleetMap";
 
 type FormState = { readonly label?: string; readonly endpoint?: string } | null;
+const DITHER_STORAGE_KEY = "vellum:fleet:dither-level";
+
+const initialDitherLevel = (): FleetDitherLevel => {
+  try {
+    const stored = window.localStorage.getItem(DITHER_STORAGE_KEY);
+    if (stored === "fine" || stored === "balanced" || stored === "coarse") return stored;
+  } catch {
+    // A denied storage surface should never block the Fleet.
+  }
+  return "fine";
+};
 
 function FleetOverlayInner() {
   const hosts = use$(state$.fleetHosts);
@@ -22,6 +37,7 @@ function FleetOverlayInner() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(null);
   const [ccHostId, setCcHostId] = useState("");
+  const [ditherLevel, setDitherLevel] = useState<FleetDitherLevel>(initialDitherLevel);
   const stations = hosts.filter((host) => host.kind === "remote");
   const reachable = stations.filter(
     (host) => probes[host.id]?.status === "reachable",
@@ -74,6 +90,17 @@ function FleetOverlayInner() {
     setForm({ label: peer.name, endpoint: peer.name });
   };
 
+  const updateDitherLevel = (level: FleetDitherLevel) => {
+    setDitherLevel(level);
+    queueMicrotask(() => {
+      try {
+        window.localStorage.setItem(DITHER_STORAGE_KEY, level);
+      } catch {
+        // The live state remains authoritative for this session.
+      }
+    });
+  };
+
   return (
     <FocusSurface
       measure="workspace"
@@ -122,6 +149,8 @@ function FleetOverlayInner() {
             ccHostId={ccHostId}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            ditherLevel={ditherLevel}
+            onDitherLevelChange={updateDitherLevel}
           />
         </div>
         {selection ? (
@@ -131,6 +160,7 @@ function FleetOverlayInner() {
             ccHostId={ccHostId}
             onClose={() => setSelectedId(null)}
             onClaimPeer={claimPeer}
+            ditherPixelSize={ditherPixelSize(ditherLevel)}
           />
         ) : null}
       </div>
