@@ -17,6 +17,7 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import * as net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +43,35 @@ const waitFor = async (cond: () => boolean, ms = 3_000): Promise<void> => {
   const deadline = Date.now() + ms;
   while (!cond()) {
     if (Date.now() > deadline) throw new Error("waitFor timed out");
+    await sleep(10);
+  }
+};
+
+/**
+ * `existsSync(socketPath)` only proves the fake server's `bind()` landed —
+ * on a unix domain socket, `bind()` and `listen()` are separate steps, and a
+ * connect() attempt in that gap comes back ECONNREFUSED. Under the CPU
+ * contention this suite runs under (a shared, multi-agent box), that gap is
+ * wide enough to land on. Probe an actual connection, retrying only on
+ * ECONNREFUSED, so callers hand off to the transport under test only once
+ * the socket is truly accepting connections.
+ */
+const waitForSocketAccepting = async (socketPath: string, ms = 3_000): Promise<void> => {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const refused = await new Promise<boolean>((resolve) => {
+      const probe = net.connect(socketPath);
+      probe.once("connect", () => {
+        probe.destroy();
+        resolve(false);
+      });
+      probe.once("error", (err: NodeJS.ErrnoException) => {
+        probe.destroy();
+        resolve(err.code === "ECONNREFUSED" || err.code === "ENOENT");
+      });
+    });
+    if (!refused) return;
+    if (Date.now() > deadline) throw new Error("fake herdr socket never started accepting connections");
     await sleep(10);
   }
 };
@@ -155,7 +185,7 @@ describe("fake herdr server — real socket protocol decodes via mirror.ts + eve
       if (server.exitCode === null && server.signalCode === null) server.kill("SIGTERM");
     });
 
-    await waitFor(() => existsSync(socketPath));
+    await waitForSocketAccepting(socketPath);
     let subscriptionClosed = false;
     const events = new LocalMirrorTransport(socketPath);
     const closeEvents = await events.openEvents(
@@ -198,7 +228,7 @@ describe("fake herdr server — real socket protocol decodes via mirror.ts + eve
     });
 
     const socketPath = join(sandbox.home, ".config", "herdr", "herdr.sock");
-    await waitFor(() => existsSync(socketPath));
+    await waitForSocketAccepting(socketPath);
 
     // Primary mirror under test — production code, unmodified.
     const transport = new LocalMirrorTransport(socketPath);

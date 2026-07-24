@@ -51,10 +51,16 @@ const runSignalChild = async (
   });
 
   const result = await new Promise<SignalChildResult>((resolve, reject) => {
+    // Bounds a genuinely hung child, not a slow-to-schedule one: this repo
+    // runs its suite on a shared multi-agent box, where real process spawn +
+    // signal round-trips can be pushed well past a couple hundred ms by CPU
+    // contention from concurrent agents. 2s was tight enough to misfire as a
+    // SIGKILL against a merely-slow-starting child (observed: empty stdout,
+    // forced:true) rather than a stuck one.
     const timeout = setTimeout(() => {
       forced = true;
       child.kill("SIGKILL");
-    }, 2_000);
+    }, 15_000);
     child.once("error", reject);
     child.once("exit", (code, signal) => {
       clearTimeout(timeout);
@@ -76,7 +82,7 @@ describe("process signal termination", () => {
       stdout: "ready\ncleanup:SIGTERM\nquit\n",
       forced: false,
     });
-  });
+  }, 20_000);
 
   it("keeps the app.exit fallback live after cleanup removes the final handle", async () => {
     const result = await runSignalChild("fallback");
@@ -87,7 +93,7 @@ describe("process signal termination", () => {
       stdout: "ready\ncleanup:SIGTERM\nquit\nexit:0\n",
       forced: false,
     });
-  });
+  }, 20_000);
 
   it("turns SIGINT into the same orderly, idempotent quit", async () => {
     const result = await runSignalChild("normal", "SIGINT");
@@ -98,7 +104,7 @@ describe("process signal termination", () => {
       stdout: "ready\ncleanup:SIGINT\nquit\n",
       forced: false,
     });
-  });
+  }, 20_000);
 
   it("never bypasses an incomplete durability boundary, then forces only after it is safe", async () => {
     vi.useFakeTimers();
