@@ -543,4 +543,91 @@ describe("settings service", () => {
     const svc2 = makeSettingsService(path);
     expect((await run(svc2.get)).station.role).toBe("command-center");
   });
+
+  it("sealed CC delete only settings.json → topologyIntegrity failed (not first-run)", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    await run(
+      svc.setStationTopology({
+        role: "command-center",
+        hostId: "local",
+      }),
+    );
+    const paths = topologyPathsForSettings(path);
+    await stat(paths.key);
+    await stat(paths.seal);
+    await rm(path);
+
+    const svc2 = makeSettingsService(path);
+    const admitted = await run(svc2.get);
+    expect(admitted.station.role).toBe("");
+    expect(admitted.station.topologyIntegrity).toBe("failed");
+    // Evidence preserved (key still present as regular file after reseal).
+    await stat(paths.key);
+    await stat(paths.seal);
+    const disk = JSON.parse(await readFile(path, "utf8")) as {
+      station: { role: string; topologyIntegrity: string };
+    };
+    expect(disk.station.role).toBe("");
+    expect(disk.station.topologyIntegrity).toBe("failed");
+  });
+
+  it("sealed Remote delete only settings.json → topologyIntegrity failed", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    await run(
+      svc.setStationTopology({
+        role: "remote",
+        hostId: "studio",
+        commandCenterRef: "local",
+        supervisedPreferred: true,
+      }),
+    );
+    await rm(path);
+    const admitted = await run(makeSettingsService(path).get);
+    expect(admitted.station.role).toBe("");
+    expect(admitted.station.topologyIntegrity).toBe("failed");
+  });
+
+  it("settings missing with key-only evidence → topologyIntegrity failed", async () => {
+    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
+    path = join(dir, "settings.json");
+    const paths = topologyPathsForSettings(path);
+    // Key only — no settings, no seal.
+    await writeFile(paths.key, Buffer.alloc(32, 7), { mode: 0o600 });
+
+    const admitted = await run(makeSettingsService(path).get);
+    expect(admitted.station.role).toBe("");
+    expect(admitted.station.topologyIntegrity).toBe("failed");
+    await stat(paths.key);
+  });
+
+  it("settings missing with seal-only evidence → topologyIntegrity failed", async () => {
+    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
+    path = join(dir, "settings.json");
+    const paths = topologyPathsForSettings(path);
+    await writeFile(
+      paths.seal,
+      `${JSON.stringify({ version: 1, alg: "hmac-sha256", mac: "orphan" })}\n`,
+      { mode: 0o600 },
+    );
+
+    const admitted = await run(makeSettingsService(path).get);
+    expect(admitted.station.role).toBe("");
+    expect(admitted.station.topologyIntegrity).toBe("failed");
+  });
+
+  it("all of settings/key/seal absent → genuine first-run ok", async () => {
+    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
+    path = join(dir, "settings.json");
+    const admitted = await run(makeSettingsService(path).get);
+    expect(admitted.station.role).toBe("");
+    expect(admitted.station.topologyIntegrity).toBe("ok");
+    // First-run creates defaults + seals empty topology.
+    const paths = topologyPathsForSettings(path);
+    await stat(path);
+    await stat(paths.key);
+    await stat(paths.seal);
+  });
+
 });

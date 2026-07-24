@@ -22,6 +22,8 @@ import {
 import { probeSupervisedRuntime, type SupervisedProbe } from "./supervised-probe";
 import {
   admitStationTopology,
+  lostSettingsIntegrityLock,
+  topologyEvidencePresent,
   topologyFromStation,
   writeTopologySeal,
 } from "./topology-seal";
@@ -110,9 +112,19 @@ const loadFromDisk = async (path: string): Promise<Settings> => {
   } catch (error) {
     if (error instanceof SettingsError) throw error;
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      // Lost settings.json with key/seal evidence is not first-run. Lock closed
+      // (role unset + topologyIntegrity failed); do not mint defaults as ok.
+      if (await topologyEvidencePresent(path)) {
+        const locked = lostSettingsIntegrityLock();
+        await atomicWrite(path, locked);
+        // Reseal the lock. Existing key is reused when readable; corrupt key is
+        // rotated by writeTopologySeal. Seal material is not deleted first.
+        await writeTopologySeal(path, topologyFromStation(locked.station));
+        return locked;
+      }
       const fresh = defaultSettings();
       await atomicWrite(path, fresh);
-      // First create: seal empty topology so later offline role mint fails closed.
+      // Genuine first run: seal empty topology so later offline role mint fails closed.
       await writeTopologySeal(path, topologyFromStation(fresh.station));
       return fresh;
     }
@@ -311,6 +323,7 @@ export const makeSettingsService = (
             }
             // Validate via full aggregate decode after merge. App writes always
             // land as integrity-ok (failed is only set by admit on seal breach).
+            // topologyIntegrity is always app-owned — never take client value.
             const stationPatch = {
               ...patchEither.right,
               topologyIntegrity: "ok" as const,

@@ -21,6 +21,10 @@
  *   cannot promote to command-center/remote until a recovery ceremony.
  * - both present + MAC ok → accept
  *
+ * Missing settings.json with key/seal evidence (symlink, partial, zero-byte,
+ * corrupt, unreadable) is **not** first-run: lock closed (role unset +
+ * topologyIntegrity failed), preserve evidence, do not mint defaults as ok.
+ *
  * Residual risk until a full protected store: same-user who can delete both
  * `topology.key` and `topology.seal` can re-bootstrap a forged role. Editing
  * `settings.json` alone after a seal exists does not mint topology.
@@ -33,6 +37,7 @@ import {
   SEAL_ALG,
   debugMacForBody,
   ensureSealKey,
+  fileExistsAsRegular,
   sealPathsBeside,
   verifySealFile,
   writeSealFile,
@@ -40,6 +45,7 @@ import {
   type SealVerifyStatus,
 } from "../document-seal";
 import {
+  defaultSettings,
   defaultStation,
   type Settings,
   type StationSettings,
@@ -68,6 +74,33 @@ export type TopologyVerifyStatus = SealVerifyStatus;
 
 export const topologyPathsForSettings = (settingsPath: string): TopologyPaths =>
   sealPathsBeside(settingsPath, TOPOLOGY_KEY_BASENAME, TOPOLOGY_SEAL_BASENAME);
+
+/**
+ * True when topology.key and/or topology.seal leave any durable footprint
+ * (regular file, symlink, unreadable node). Used to distinguish genuine first
+ * run (all three of settings/key/seal absent) from a lost settings document.
+ */
+export const topologyEvidencePresent = async (
+  settingsPath: string,
+): Promise<boolean> => {
+  const paths = topologyPathsForSettings(settingsPath);
+  const keyPresent = await fileExistsAsRegular(paths.key);
+  const sealPresent = await fileExistsAsRegular(paths.seal);
+  return keyPresent || sealPresent;
+};
+
+/**
+ * Durable integrity-failed lock body for a missing settings.json that still
+ * has key/seal evidence. Caller persists + reseals; does not delete existing
+ * key/seal material before that reseal (evidence preserved until overwrite).
+ */
+export const lostSettingsIntegrityLock = (): Settings => ({
+  ...defaultSettings(),
+  station: {
+    ...defaultStation(),
+    topologyIntegrity: "failed",
+  },
+});
 
 export const topologyFromStation = (station: StationSettings): TopologyMaterial => ({
   role: station.role,
