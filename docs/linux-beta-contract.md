@@ -67,29 +67,22 @@ is intentional and must not grow:
 
 Post-beta: re-enable `darwinRemoteDeploy` only with an explicit product decision; prefer migrating Darwin install ceremony toward typed plans before widening the freeform surface.
 
-## Cut 5 residual — Station projection delivery
+## Station projection delivery (beta path)
 
-Schema + pure frame compiler + Station apply store + Command Center delivery
-status lane:
+Sole fleet path: Command Center → projection frame (authority generation) →
+staged drop → Remote inbox apply → applied.ack → CC promotes staged→applied.
 
 | Item | Status |
 |---|---|
-| Manifest + frame (`VELLUM-STATION-PROJECTION/1`) | v1 — full-canvas-set scope only |
+| Manifest + frame (`VELLUM-STATION-PROJECTION/1`) | v1 — full-canvas-set; generation = canvas-authority gen |
 | Station apply store | generation gate + content-addressed objects under `~/.vellum/projections/station/` |
-| CC delivery queue (`projection/delivery.ts`) | compile from live docs · pure status machine · local apply · scheduleHostSync receipts |
-| Station status `lastProjection` / `projections` | durable pending → applied \| rejected \| unreachable (Cut 7.1 surface) |
-| Doctor metadata | `lastProjectionStatus` / generation / host / detail |
-| Named remote recipe `compileProjectionFrameDeliver` | **landed** — stdin atomic write to `~/.vellum/projections/incoming.frame` |
-| CC push transport (`createProjectionDeliveryTransport`) | **landed** — SshTransport + named recipe; wired via `pushLiveProjectionToEnrolledRemotes` (post-configure best-effort) |
-| Remote apply of `incoming.frame` | **landed** — boot apply + materialize canvases + live authority admit |
-| **Live canvas-pull** | **Fallback residual** — Settings labels it fallback; keep for offline/manual recovery |
-| Auto-tick push on every CC canvas write | residual |
-| Remote interval poll of drop path | residual (boot-only for beta) |
-| Packaged `/opt/Vellum Command/resources/bin/vellum-projection-bridge` | residual (drop-file path ships first) |
-
-Preferred fleet path in beta: Command Center stages projection frames over the
-enrolled remote recipe; Remote applies on boot. canvas-pull remains available as
-operator fallback and is not removed.
+| CC delivery | per configured Station (expected witness) · SSH stage only · never “applied” on stage |
+| Remote apply | live inbox poll + boot · role/witness gate · `replaceLiveAuthorityDocuments` |
+| Acknowledgment | `~/.vellum/projections/applied.ack` · CC promotes on gen+hash match |
+| Reconvergence | CC tick re-pushes when ack gen &lt; authority gen (no edit required) |
+| Doctor | projection primary over residual lastPull |
+| **Live canvas-pull** | **disabled for beta** (IPC + Effect refuse; no raw `.canvas` admission) |
+| Packaged projection-bridge binary | residual (drop-file path ships first) |
 
 ## Cut 7.1 residual — Projection reachability truth
 
