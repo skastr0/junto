@@ -308,13 +308,15 @@ test("still 00 — factory hero board", async () => {
   const bc1 = bc0 + COL;
   const br0 = bY + PAD;
   const br1 = br0 + CH + 16;
+  // Vertically centered between the two sink rows so both direct edges
+  // fan out from its right side along clean corridors.
   const security = agentTextNode({
     id: "a-security",
     key: "remote-a:security",
     label: "security",
     host: "remote-a",
     x: bc0,
-    y: br0,
+    y: br0 + Math.round((CH + 16) / 2),
   });
   nodes.push(
     { ...security, ether: { ...security.ether, flags: ["blocker"] } },
@@ -336,7 +338,7 @@ test("still 00 — factory hero board", async () => {
       ],
     }),
   );
-  edges.push(hEdge("e-b-queue", "a-security", "tasks-forge"), vEdge("e-b-req", "tasks-forge", "req-forge"));
+  edges.push(hEdge("e-b-queue", "a-security", "tasks-forge"), hEdge("e-b-req", "a-security", "req-forge"));
   nodes.push(
     note(
       "note-forge",
