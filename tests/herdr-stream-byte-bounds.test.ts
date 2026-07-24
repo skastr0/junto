@@ -141,6 +141,8 @@ class CapturingStdinChild extends EventEmitter implements FakeLocalClient {
         return this.sink.write(chunk, "utf8");
       },
       once: (event: "drain", listener: () => void): unknown => this.sink.once(event, listener),
+      on: (event: "error", listener: (error: Error) => void): unknown =>
+        this.sink.on(event, listener),
     };
   }
 

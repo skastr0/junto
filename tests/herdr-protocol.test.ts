@@ -3,12 +3,17 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Field-name contract against herdr's control NDJSON protocol.
+ * Field-name contract against stock herdr control NDJSON
+ * (`herdr` src/client/mod.rs :: TerminalControlCommand + write_terminal_session_output).
  * Wrong keys are often silent no-ops (input) or noisy rejects (scroll).
  */
 describe("herdr control protocol field names", () => {
   const streamSrc = readFileSync(
     join(import.meta.dirname, "../src/main/vellum/herdr/stream.ts"),
+    "utf8",
+  );
+  const planeSrc = readFileSync(
+    join(import.meta.dirname, "../src/main/vellum/herdr/plane.ts"),
     "utf8",
   );
 
@@ -49,6 +54,30 @@ describe("herdr control protocol field names", () => {
     expect(scrollMethod).toMatch(/modifiers:/);
   });
 
+  it("terminal.release maps to stock detach (never pane/session kill commands)", () => {
+    expect(streamSrc).toMatch(/type:\s*["']terminal\.release["']/);
+    // herdr client: Release {} => ClientMessage::Detach — Vellum must not
+    // invent workspace/tab/pane close over the control NDJSON channel.
+    expect(streamSrc).not.toMatch(/type:\s*["']pane\.close["']/);
+    expect(streamSrc).not.toMatch(/type:\s*["']session\.stop["']/);
+  });
+
+  it("spawns stock herdr terminal session control|observe argv", () => {
+    expect(streamSrc).toMatch(/"terminal"/);
+    expect(streamSrc).toMatch(/"session"/);
+    expect(streamSrc).toMatch(/"control"/);
+    // Observe pool is a sibling module; plane wires the same binary path.
+    expect(planeSrc).toMatch(/AppProcessHerdrClient/);
+    // Local facade must expose stdin.on so async EPIPE can be owned.
+    expect(planeSrc).toMatch(/io\.stdin\.on\(event, listener\)/);
+  });
+
+  it("owns async control pipe errors (EPIPE) on stdin/stdout/stderr", () => {
+    expect(streamSrc).toMatch(/handleControlIoError/);
+    expect(streamSrc).toMatch(/isHerdrBrokenPipeError/);
+    expect(streamSrc).toMatch(/stdin\.on\?\.?\(\s*["']error["']/);
+    expect(streamSrc).toMatch(/writeBroken/);
+  });
 
   it("pasteImage stages on host then pastes path via stock terminal.input", () => {
     const methodStart = streamSrc.indexOf("pasteImage(");

@@ -84,26 +84,61 @@ interface ActiveStream {
    * for the same stream in that window.
    */
   overflowed?: boolean;
+  /**
+   * Stdin pipe is dead (EPIPE/EIO or sync write throw). Further enqueueWrite
+   * calls fail closed without touching the Writable — async Node EPIPE is not
+   * a ChildProcess event (same doctrine as process/codex service planes).
+   */
+  writeBroken?: boolean;
+  /**
+   * Stream-level I/O already drove teardown. Prevents double emit/close when
+   * stdin error, stdout error, and child close race after herdr dies.
+   */
+  ioFailed?: boolean;
 }
 
+/**
+ * herdr `terminal session control|observe` child I/O surface.
+ *
+ * Grounded in herdr's client (`run_terminal_session_control` / `_observe`):
+ * NDJSON commands on stdin, NDJSON frames on stdout, diagnostics on stderr.
+ * Local spawns are real Node streams; remote Effect facades may omit optional
+ * event hooks (treated as no-op attach).
+ */
 export interface HerdrClientIo {
   readonly stdin: {
     write(chunk: string): boolean;
     /** Real Node Writables (local spawn) and test PassThroughs support this;
      * the Effect-owned remote child does not — treated as never-backpressured. */
     once?(event: "drain", listener: () => void): unknown;
+    /**
+     * Async write failures (EPIPE after herdr control child exits) surface here,
+     * not on ChildProcess "error". Optional so remote facades stay thin.
+     */
+    on?(event: "error", listener: (error: Error) => void): unknown;
   };
   readonly stdout: {
     setEncoding(encoding: string): unknown;
     on(event: "data", listener: (chunk: string) => void): unknown;
+    on(event: "error", listener: (error: Error) => void): unknown;
   };
   readonly stderr: {
     setEncoding(encoding: string): unknown;
     on(event: "data", listener: (chunk: string) => void): unknown;
+    on(event: "error", listener: (error: Error) => void): unknown;
   };
   on(event: "close", listener: (code: number | null) => void): unknown;
   on(event: "error", listener: (error: Error) => void): unknown;
 }
+
+/** Broken-pipe family on control child streams — never uncaught in main. */
+export const isHerdrBrokenPipeError = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  if (code === "EPIPE" || code === "EIO" || code === "ERR_STREAM_DESTROYED") return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /EPIPE|broken pipe|ERR_STREAM_DESTROYED/i.test(message);
+};
 
 export type RemoteScopeCloseReceipt =
   | { readonly status: "closed" }
@@ -181,29 +216,35 @@ const chunkSliceEnd = (payload: string, start: number, maxChars: number): number
  * backpressure — waits for `drain` before the next slice whenever the
  * stream signals it (`write` returns false) and supports the event.
  * Resolves once every slice has been handed to the stream.
+ * Rejects on synchronous write failure (destroyed pipe); async EPIPE is
+ * owned by the stdin "error" listener attached in open().
  */
 export const writeChunked = (
   stdin: HerdrClientIo["stdin"],
   payload: string,
   chunkChars = DEFAULT_WRITE_CHUNK_CHARS,
 ): Promise<void> =>
-  new Promise((resolve) => {
+  new Promise((resolve, reject) => {
     let offset = 0;
     const pump = (): void => {
-      while (offset < payload.length) {
-        const end = chunkSliceEnd(payload, offset, chunkChars);
-        const slice = payload.slice(offset, end);
-        offset = end;
-        const flushed = stdin.write(slice);
-        if (!flushed && offset < payload.length) {
-          if (typeof stdin.once === "function") {
-            stdin.once("drain", pump);
-            return;
+      try {
+        while (offset < payload.length) {
+          const end = chunkSliceEnd(payload, offset, chunkChars);
+          const slice = payload.slice(offset, end);
+          offset = end;
+          const flushed = stdin.write(slice);
+          if (!flushed && offset < payload.length) {
+            if (typeof stdin.once === "function") {
+              stdin.once("drain", pump);
+              return;
+            }
+            // No drain signal on this stdin shape — best effort, keep pumping.
           }
-          // No drain signal on this stdin shape — best effort, keep pumping.
         }
+        resolve();
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
       }
-      resolve();
     };
     pump();
   });
@@ -402,17 +443,42 @@ export class HerdrStreamManager {
           onOverflow: () => this.handleInboundOverflow(streamId),
         });
       });
+      // Async stream errors are not ChildProcess "error" events. Without sinks,
+      // a late EPIPE after herdr exits paints Electron's main-process dialog.
+      child.stdout.on("error", (error) => {
+        this.handleControlIoError(streamId, active, "stdout", error);
+      });
 
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk: string) => {
         if (!this.streams.has(streamId)) return;
         // herdr often prints "herdr: … input ignored: …" on stderr (or stdout).
+        // Stock client: `eprintln!("herdr: terminal session control input ignored: …")`.
         for (const text of chunk.split("\n").map((l) => l.trim()).filter(Boolean)) {
           this.emit({ streamId, type: "error", message: text.slice(0, 400) });
         }
       });
+      child.stderr.on("error", (error) => {
+        this.handleControlIoError(streamId, active, "stderr", error);
+      });
+
+      child.stdin.on?.("error", (error) => {
+        active.writeBroken = true;
+        this.handleControlIoError(streamId, active, "stdin", error);
+      });
 
       child.on("close", (code) => {
+        active.writeBroken = true;
+        if (active.ioFailed) {
+          // I/O path already removed the stream and emitted closed; still settle
+          // the exact generation so quit drain does not retain a zombie lifecycle.
+          if (active.lifecycle.kind === "remote-scope") {
+            this.terminateControl(active);
+          } else {
+            this.settleLocalControl(active);
+          }
+          return;
+        }
         if (active.lifecycle.kind === "remote-scope") {
           // Natural remote exit still owns scope finalizers. Route it through
           // the same bounded receipt flight used by explicit detach.
@@ -432,6 +498,10 @@ export class HerdrStreamManager {
       });
 
       child.on("error", (error) => {
+        if (active.ioFailed) {
+          this.terminateControl(active);
+          return;
+        }
         const closing = this.streams.get(streamId);
         if (!closing) {
           // Generic ChildProcess errors are not proof of exit (kill/send and
@@ -440,9 +510,11 @@ export class HerdrStreamManager {
           this.terminateControl(active);
           return;
         }
+        closing.writeBroken = true;
+        closing.ioFailed = true;
         this.removeStream(streamId, closing.terminalId);
         this.terminateControl(active);
-        this.handBackToObservePool(active);
+        this.handBackToObservePool(closing);
         this.emit({
           streamId,
           type: "error",
@@ -983,11 +1055,21 @@ export class HerdrStreamManager {
     stream: ActiveStream,
     payload: string,
   ): { readonly ok: boolean; readonly error?: string } {
+    if (stream.writeBroken || stream.ioFailed) {
+      return { ok: false, error: "herdr control stdin is closed" };
+    }
     if (!stream.pendingWrite && payload.length <= DEFAULT_WRITE_CHUNK_CHARS) {
       try {
         stream.child.stdin.write(payload);
         return { ok: true };
       } catch (error) {
+        stream.writeBroken = true;
+        this.handleControlIoError(
+          stream.streamId,
+          stream,
+          "stdin",
+          error instanceof Error ? error : new Error(String(error)),
+        );
         return {
           ok: false,
           error: error instanceof Error ? error.message : String(error),
@@ -997,7 +1079,20 @@ export class HerdrStreamManager {
     const prior = stream.pendingWrite ?? Promise.resolve();
     const queued = prior
       .catch(() => undefined)
-      .then(() => writeChunked(stream.child.stdin, payload).catch(() => undefined));
+      .then(async () => {
+        if (stream.writeBroken || stream.ioFailed) return;
+        try {
+          await writeChunked(stream.child.stdin, payload);
+        } catch (error) {
+          stream.writeBroken = true;
+          this.handleControlIoError(
+            stream.streamId,
+            stream,
+            "stdin",
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+      });
     const tracked = this.trackOperation(queued, "control-write-failed");
     stream.pendingWrite = tracked;
     void tracked.finally(() => {
@@ -1022,6 +1117,55 @@ export class HerdrStreamManager {
       message: "herdr control stream exceeded max NDJSON buffer — killing unresponsive child",
     });
     this.terminateControl(active);
+  }
+
+  /**
+   * Contain async stream I/O failures (especially stdin EPIPE after herdr
+   * control exits mid-write). herdr's control client maps stdin NDJSON →
+   * socket; when that process dies, Node emits "error" on the Writable, not
+   * on ChildProcess — an unowned listener becomes Electron's main dialog.
+   *
+   * Idempotent with close/child-error: first path wins emit; later paths only
+   * settle generation authority.
+   */
+  private handleControlIoError(
+    streamId: string,
+    active: ActiveStream,
+    channel: "stdin" | "stdout" | "stderr",
+    error: Error,
+  ): void {
+    if (channel === "stdin" || isHerdrBrokenPipeError(error)) {
+      active.writeBroken = true;
+    }
+    if (active.ioFailed) {
+      this.terminateControl(active);
+      return;
+    }
+    const closing = this.streams.get(streamId);
+    if (!closing) {
+      // Already detached (common: terminal.release write races child exit).
+      // Swallow — do not re-emit; still drive generation teardown.
+      this.terminateControl(active);
+      return;
+    }
+    closing.ioFailed = true;
+    closing.writeBroken = true;
+    this.removeStream(streamId, closing.terminalId);
+    this.terminateControl(closing);
+    this.handBackToObservePool(closing);
+    const pipe = isHerdrBrokenPipeError(error);
+    this.emit({
+      streamId,
+      type: "error",
+      message: pipe
+        ? `herdr control ${channel} pipe broken: ${error.message}`
+        : `herdr control ${channel}: ${error.message}`,
+    });
+    this.emit({
+      streamId,
+      type: "closed",
+      reason: pipe ? "pipe_broken" : `${channel}_error`,
+    });
   }
 
   private handleLine(streamId: string, line: string): void {

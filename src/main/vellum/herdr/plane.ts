@@ -534,17 +534,31 @@ class AppProcessHerdrClient implements HerdrClientIo {
   readonly stderr: HerdrClientIo["stderr"];
 
   constructor(private readonly io: AppChildIo) {
+    // Local herdr control/observe children are real Node streams. Async EPIPE
+    // on stdin after `herdr terminal session control` exits is not a
+    // ChildProcess "error" — callers must be able to attach stdin.on("error").
     this.stdin = {
       write: (chunk) => io.stdin.write(chunk),
       once: (event, listener) => io.stdin.once(event, listener),
+      on: (event, listener) => io.stdin.on(event, listener),
     };
     this.stdout = {
       setEncoding: (encoding) => io.stdout.setEncoding(encoding as BufferEncoding),
-      on: (event, listener) => io.stdout.on(event, listener),
+      on: (event, listener) => {
+        if (event === "data") {
+          return io.stdout.on("data", listener as (chunk: string) => void);
+        }
+        return io.stdout.on("error", listener as (error: Error) => void);
+      },
     };
     this.stderr = {
       setEncoding: (encoding) => io.stderr.setEncoding(encoding as BufferEncoding),
-      on: (event, listener) => io.stderr.on(event, listener),
+      on: (event, listener) => {
+        if (event === "data") {
+          return io.stderr.on("data", listener as (chunk: string) => void);
+        }
+        return io.stderr.on("error", listener as (error: Error) => void);
+      },
     };
   }
 

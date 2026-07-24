@@ -573,6 +573,27 @@ export class HerdrObservePool {
         });
       });
 
+      const retireGeneration = (): void => {
+        // Stream or process error is not always proof of exit. Logically
+        // retire this observe lease, but retain exact authority through
+        // bounded termination. Async EPIPE/EIO on stdout/stderr must never
+        // become an uncaught main-process exception.
+        if (entry.generation === generation) {
+          entry.generation = undefined;
+          entry.live = false;
+          entry.stale = true;
+        }
+        this.terminateGeneration(generation);
+      };
+      // herdr observe only writes NDJSON frames to stdout; we do not write
+      // stdin. Still sink stdout/stderr errors — destroyed pipes after kill
+      // are not ChildProcess "error" events.
+      child.stdout.on("error", retireGeneration);
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("error", retireGeneration);
+      // Optional: herdr may print diagnostics; ignore body, only contain errors.
+      child.stderr.on("data", () => undefined);
+
       const onClose = (): void => {
         if (generation.lifecycle.kind === "remote-scope") {
           // A natural SSH exit still needs to drain that generation's scope
@@ -586,18 +607,8 @@ export class HerdrObservePool {
         entry.live = false;
         entry.stale = true; // retention kept; next ensureObserve respawns
       };
-      const onError = (): void => {
-        // Error is not proof the process exited. Logically retire this observe
-        // lease, but retain its exact authority through bounded termination.
-        if (entry.generation === generation) {
-          entry.generation = undefined;
-          entry.live = false;
-          entry.stale = true;
-        }
-        this.terminateGeneration(generation);
-      };
       child.on("close", onClose);
-      child.on("error", onError);
+      child.on("error", retireGeneration);
     } catch {
       if (entry.generation === generation) {
         entry.generation = undefined;
