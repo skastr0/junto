@@ -313,8 +313,9 @@ interface CapabilityRecord {
   readonly principal: PrincipalRecord;
   readonly actions: ReadonlySet<BrowserCapabilityAction>;
   readonly actionList: ReadonlyArray<BrowserCapabilityAction>;
-  readonly targets: ReadonlyArray<BrowserCapabilityTarget>;
-  readonly targetsByRef: ReadonlyMap<NodeRefKey, BrowserCapabilityTarget>;
+  /** Mutable so edge-delete can drop targets without minting a new auditId. */
+  targets: ReadonlyArray<BrowserCapabilityTarget>;
+  targetsByRef: ReadonlyMap<NodeRefKey, BrowserCapabilityTarget>;
   readonly generations: Map<NodeRefKey, string>;
   readonly issuedAt: number;
   readonly expiresAt: number;
@@ -848,6 +849,57 @@ export class BrowserCapabilityRegistry {
     if (record === undefined || record.handle !== handle) return false;
     this.#terminateRecord(record, `revoked_${reason}`, "revoked");
     return true;
+  }
+
+  /**
+   * Edge-delete attenuation: drop exact page refs from a live grant, abort
+   * in-flight leases for those refs, and keep the same auditId for remaining
+   * targets. When no targets remain, fully terminates (onTerminate fires).
+   * Returns the dropped targets (empty when handle unknown / none matched).
+   */
+  dropTargets(
+    handle: BrowserCapabilityHandle,
+    refs: ReadonlyArray<string>,
+  ): ReadonlyArray<BrowserCapabilityTarget> {
+    if (this.#closed || refs.length === 0) return Object.freeze([]);
+    const digest = this.#handles.get(handle);
+    const record = digest === undefined ? undefined : this.#records.get(digest);
+    if (record === undefined || record.handle !== handle) return Object.freeze([]);
+
+    const drop = new Set(
+      refs.filter((ref): ref is NodeRefKey => isCanonicalRef(ref)),
+    );
+    if (drop.size === 0) return Object.freeze([]);
+
+    const dropped = record.targets.filter((target) => drop.has(target.ref));
+    if (dropped.length === 0) return Object.freeze([]);
+
+    for (const lease of [...record.active.values()]) {
+      const leaseRef = lease.target?.ref;
+      if (leaseRef === undefined || !drop.has(leaseRef)) continue;
+      this.#settleLease(record, lease, "aborted_revoked");
+      lease.controller.abort(new BrowserCapabilityLeaseAbort("revoked"));
+    }
+    for (const ref of drop) {
+      record.generations.delete(ref);
+    }
+
+    const remaining = record.targets.filter((target) => !drop.has(target.ref));
+    if (remaining.length === 0) {
+      this.#terminateRecord(record, "revoked_superseded", "revoked");
+      return Object.freeze([...dropped]);
+    }
+
+    record.targets = Object.freeze([...remaining]);
+    record.targetsByRef = new Map(remaining.map((target) => [target.ref, target]));
+    this.#appendAudit({
+      ...this.#auditIdentity(record),
+      kind: "lifecycle",
+      outcome: "revoked_superseded",
+      revocationGeneration: record.revocationGeneration,
+      targetTags: Object.freeze(dropped.map((target) => this.#targetTag(target))),
+    });
+    return Object.freeze([...dropped]);
   }
 
   /**

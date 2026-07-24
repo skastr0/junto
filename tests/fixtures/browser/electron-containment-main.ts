@@ -238,7 +238,9 @@ const admittingEdgeGrant = (
       return result;
     },
     clear: () => processBoundEdgeGrant.clear(),
-    invalidateCanvas: (canvas) => processBoundEdgeGrant.invalidateCanvas?.(canvas),
+    invalidateCanvas: (canvas, detail) =>
+      processBoundEdgeGrant.invalidateCanvas(canvas, detail),
+    lastRevocationReceipts: () => processBoundEdgeGrant.lastRevocationReceipts(),
   };
 };
 

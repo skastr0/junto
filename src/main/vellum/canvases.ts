@@ -173,6 +173,13 @@ export const writeCanvasSidecar = async (
 //
 // Sole durable store: canvas-authority-v1 (`current.json` + content-addressed
 // objects under ~/.vellum/state/canvas-authority-v1).
+
+/** previous/next docs on the commit that fired a change listener (same tick). */
+export type CanvasChangeDetail = {
+  readonly previous: CanvasDoc | undefined;
+  readonly next: CanvasDoc | undefined;
+};
+
 export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
   CanvasesService,
   {
@@ -204,7 +211,13 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
     ) => Effect.Effect<string, CanvasError>;
     // Bootstraps the live map from the authority store once (idempotent).
     readonly start: () => void;
-    readonly subscribeChanges: (listener: (name: string) => void) => () => void;
+    /**
+     * Document commits (write/mutate/create/remove). Optional detail carries
+     * previous/next docs for same-tick edge-delete session teardown.
+     */
+    readonly subscribeChanges: (
+      listener: (name: string, detail?: CanvasChangeDetail) => void,
+    ) => () => void;
     /** Snapshot of live authority docs for process-bind caller resolution. */
     readonly liveDocuments: () => Effect.Effect<
       ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>,
@@ -235,7 +248,7 @@ const toCanvasError = (error: unknown): CanvasError =>
 const canvasFileName = (name: CanvasName) => `${name}.canvas`;
 
 export const CanvasesLive = Layer.sync(CanvasesService, () => {
-  const listeners = new Set<(name: string) => void>();
+  const listeners = new Set<(name: string, detail?: CanvasChangeDetail) => void>();
   const textEncoder = new TextEncoder();
 
   // Live operator-intent map. Durability is canvas-authority-v1 only.
@@ -286,10 +299,13 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     return run;
   };
 
-  const notifyListeners = (name: CanvasName): void => {
+  const notifyListeners = (
+    name: CanvasName,
+    detail?: CanvasChangeDetail,
+  ): void => {
     for (const listener of listeners) {
       try {
-        listener(name);
+        listener(name, detail);
       } catch (error) {
         // The document operation is already committed. A subscriber cannot
         // retroactively turn it into a failed write/delete and invite retry.
@@ -597,7 +613,10 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             else liveAuthority.set(canonicalName, previous);
             throw error;
           }
-          notifyListeners(canonicalName);
+          notifyListeners(canonicalName, {
+            previous: previous?.doc,
+            next: nextDoc,
+          });
           return { revision };
         }),
       catch: toCanvasError,
@@ -633,7 +652,10 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             liveAuthority.set(canonicalName, previous);
             throw error;
           }
-          notifyListeners(canonicalName);
+          notifyListeners(canonicalName, {
+            previous: previous.doc,
+            next: nextDoc,
+          });
         }),
       catch: toCanvasError,
     });
@@ -663,7 +685,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             liveAuthority.delete(sanitized);
             throw error;
           }
-          notifyListeners(sanitized);
+          notifyListeners(sanitized, { previous: undefined, next: doc });
           return { name: sanitized, doc, revision, path };
         });
       },
@@ -702,7 +724,10 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
             } catch {
               // ignore
             }
-            notifyListeners(sanitized);
+            notifyListeners(sanitized, {
+              previous: previous.doc,
+              next: undefined,
+            });
           }),
         catch: toCanvasError,
       });
@@ -739,7 +764,9 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     });
   };
 
-  const subscribeChanges = (listener: (name: string) => void) => {
+  const subscribeChanges = (
+    listener: (name: string, detail?: CanvasChangeDetail) => void,
+  ) => {
     listeners.add(listener);
     return () => {
       listeners.delete(listener);
@@ -826,7 +853,10 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           throw error;
         }
         for (const name of changed) {
-          notifyListeners(name as CanvasName);
+          notifyListeners(name as CanvasName, {
+            previous: previous.get(name)?.doc,
+            next: next.get(name)?.doc,
+          });
         }
       },
       catch: toCanvasError,

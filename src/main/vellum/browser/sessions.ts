@@ -2209,6 +2209,34 @@ export class BrowserSessionService {
     const ownedSessionIds = [...this.sessions.values()]
       .filter((entry) => entry.owner === owner)
       .map((entry) => entry.sessionId);
+    return this.destroyOwnerSessionIds(ownedSessionIds, reason);
+  }
+
+  /**
+   * Edge-delete teardown: revoke only the (owner, page-ref) pair.
+   * Sibling targets under the same owner stay alive. Does not bump the owner
+   * epoch — that would strand remaining pages' open attempts.
+   */
+  destroyOwnerTargetSessions(
+    owner: string,
+    ref: string,
+    reason = "browser edge revoked",
+  ): number {
+    const pending = this.pendingOpenByOwnerRef.get(owner);
+    if (pending !== undefined) {
+      pending.delete(ref);
+      if (pending.size === 0) this.pendingOpenByOwnerRef.delete(owner);
+    }
+    const ownedSessionIds = [...this.sessions.values()]
+      .filter((entry) => entry.owner === owner && entry.ref === ref)
+      .map((entry) => entry.sessionId);
+    return this.destroyOwnerSessionIds(ownedSessionIds, reason);
+  }
+
+  private destroyOwnerSessionIds(
+    ownedSessionIds: ReadonlyArray<string>,
+    reason: string,
+  ): number {
     const failure = new BrowserOperationFailure(
       "cancelled",
       clampUtf8Bytes(reason, BROWSER_MAX_ERROR_BYTES),

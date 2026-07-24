@@ -91,6 +91,8 @@ const admittingEdgeGrant = (
     targetCount: 1,
   }),
   clear: () => {},
+  invalidateCanvas: () => Object.freeze([]),
+  lastRevocationReceipts: () => Object.freeze([]),
 });
 
 const denyingEdgeGrant = (): EdgeGrantService => ({
@@ -106,6 +108,8 @@ const denyingEdgeGrant = (): EdgeGrantService => ({
     message: "connecting process is not a registered agent or herdr process",
   }),
   clear: () => {},
+  invalidateCanvas: () => Object.freeze([]),
+  lastRevocationReceipts: () => Object.freeze([]),
 });
 
 const mode = async (path: string): Promise<number> => (await stat(path)).mode & 0o777;
@@ -431,6 +435,8 @@ describe("browser control Unix transport", () => {
         clearCalls += 1;
         reentered = server?.drainOnQuit();
       },
+      invalidateCanvas: () => Object.freeze([]),
+      lastRevocationReceipts: () => Object.freeze([]),
     };
     server = await startBrowserControlServer(
       {
@@ -646,6 +652,8 @@ describe("browser control Unix transport", () => {
       clear: () => {
         clearCalls += 1;
       },
+      invalidateCanvas: () => Object.freeze([]),
+      lastRevocationReceipts: () => Object.freeze([]),
     };
     const server = await startBrowserControlServer(
       {

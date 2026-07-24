@@ -26,6 +26,13 @@ import { resolveNodeHostId, type StationRole } from "@shared/station";
 import { parseNodeRef } from "@shared/node-ref";
 import type { BrowserHostCapabilityAdmission } from "./host-capability";
 import type { BrowserStationAdmissionResult } from "./station-admission";
+import type { CanvasChangeDetail } from "../canvases";
+import {
+  allTargetsLost,
+  lostPageTargetsForCaller,
+  receiptForHostTeardown,
+  type EdgeRevocationReceipt,
+} from "./edge-revocation";
 
 // Edge-grant admission for process-bound callers:
 //   peer PID → registered principal → canvas agent|herdr node → edges → pages
@@ -83,7 +90,17 @@ export interface EdgeGrantService {
   /** Admit from an already-resolved principal (tests / internal). */
   readonly admitPrincipal: (principal: ProcessPrincipal) => Promise<EdgeGrantResult>;
   readonly clear: () => void;
-  readonly invalidateCanvas?: (canvasName: string) => void;
+  /**
+   * Document-commit invalidation. With change detail, selectively tears down
+   * (caller, target) sessions for lost edges and attenuates grants in place.
+   * Without detail, falls back to full canvas grant revoke (legacy / clear).
+   */
+  readonly invalidateCanvas: (
+    canvasName: string,
+    detail?: CanvasChangeDetail,
+  ) => ReadonlyArray<EdgeRevocationReceipt>;
+  /** Test / doctor seam: last edge-delete receipts for this process. */
+  readonly lastRevocationReceipts: () => ReadonlyArray<EdgeRevocationReceipt>;
 }
 
 interface CacheEntry {
@@ -91,9 +108,21 @@ interface CacheEntry {
   readonly principal: BrowserAutomationPrincipal;
   readonly handle: BrowserCapabilityGrant["handle"];
   readonly processKey: string;
-  readonly targetSignature: string;
+  readonly processPrincipal: ProcessPrincipal;
+  readonly callerNodeId: string;
+  targetSignature: string;
+  targets: ReadonlyArray<BrowserCapabilityTarget>;
   readonly canvasName: string;
   readonly expiresAt: number;
+}
+
+/** Session plane used only for edge-delete (caller, target) teardown. */
+export interface EdgeGrantSessionTeardown {
+  readonly destroyOwnerTargetSessions: (
+    owner: string,
+    ref: string,
+    reason?: string,
+  ) => number;
 }
 
 export interface EdgeGrantDependencies {
@@ -113,6 +142,11 @@ export interface EdgeGrantDependencies {
     | { readonly hostId: string; readonly role: StationRole }
     | undefined;
   readonly admitBrowserHost: (hostId: string) => BrowserHostCapabilityAdmission;
+  /**
+   * Optional session teardown for edge-delete (I10). When omitted, grants
+   * still attenuate / revoke but live views are not destroyed here.
+   */
+  readonly sessions?: EdgeGrantSessionTeardown;
   /**
    * Private Remote freshness authority. Omission is accepted only for a local
    * Command Center; a Remote can never fall through to ambient local state.
@@ -178,6 +212,7 @@ export const makeEdgeGrantService = (
   const cache = new Map<string, CacheEntry>();
   const cacheByCanvas = new Map<string, Set<string>>();
   const capabilityPrincipals = new Map<string, BrowserAutomationPrincipal>();
+  let lastReceipts: ReadonlyArray<EdgeRevocationReceipt> = Object.freeze([]);
   processMap.subscribe((principal) => {
     if (principal.kind === "terminal") return;
     const cacheKey = processKeyOf(principal);
@@ -210,14 +245,107 @@ export const makeEdgeGrantService = (
     }
   };
 
-  const invalidateCanvas = (canvasName: string): void => {
+  const tearDownLostTargets = (
+    entry: CacheEntry,
+    lost: ReadonlyArray<{
+      readonly pageRef: string;
+      readonly hostId: string;
+      readonly callerNodeId: string;
+    }>,
+    canvasName: string,
+  ): EdgeRevocationReceipt[] => {
+    if (lost.length === 0) return [];
+    const localHostId = dependencies.station()?.hostId;
+    const lostRefs = lost.map((item) => item.pageRef);
+    try {
+      dependencies.capabilities.dropTargets(entry.handle, lostRefs);
+    } catch {
+      // best-effort attenuation; continue to session teardown
+    }
+    const receipts: EdgeRevocationReceipt[] = [];
+    for (const item of lost) {
+      let sessionsDestroyed = 0;
+      const hostReachable = dependencies.admitBrowserHost(item.hostId).ok;
+      const onLocal =
+        localHostId !== undefined && localHostId === item.hostId && hostReachable;
+      if (onLocal && dependencies.sessions !== undefined) {
+        try {
+          sessionsDestroyed = dependencies.sessions.destroyOwnerTargetSessions(
+            entry.handle.auditId,
+            item.pageRef,
+            "browser edge revoked",
+          );
+        } catch {
+          sessionsDestroyed = 0;
+        }
+      }
+      receipts.push(
+        receiptForHostTeardown({
+          canvasName,
+          pageRef: item.pageRef as EdgeRevocationReceipt["pageRef"],
+          hostId: item.hostId,
+          callerNodeId: item.callerNodeId,
+          localHostId,
+          hostReachable,
+          sessionsDestroyed,
+        }),
+      );
+    }
+    const remaining = entry.targets.filter(
+      (target) => !lostRefs.includes(target.ref),
+    );
+    entry.targets = remaining;
+    entry.targetSignature = makeTargetSignature(remaining);
+    if (remaining.length === 0) {
+      // dropTargets already terminated when empty; drop cache index.
+      cache.delete(entry.processKey);
+      removeCacheIndex(entry.canvasName, entry.processKey);
+    }
+    return receipts;
+  };
+
+  const invalidateCanvas = (
+    canvasName: string,
+    detail?: CanvasChangeDetail,
+  ): ReadonlyArray<EdgeRevocationReceipt> => {
     changeSequence += 1;
     canvasInvalidatedAt.set(canvasName, changeSequence);
     const affected = cacheByCanvas.get(canvasName);
-    if (affected === undefined) return;
-    for (const cacheKey of [...affected]) {
-      revokeCacheEntry(cacheKey);
+    if (affected === undefined) {
+      lastReceipts = Object.freeze([]);
+      return lastReceipts;
     }
+
+    // No change detail → full revoke (process unbind / station clear paths).
+    if (detail === undefined) {
+      for (const cacheKey of [...affected]) {
+        revokeCacheEntry(cacheKey);
+      }
+      lastReceipts = Object.freeze([]);
+      return lastReceipts;
+    }
+
+    const receipts: EdgeRevocationReceipt[] = [];
+    for (const cacheKey of [...affected]) {
+      const entry = cache.get(cacheKey);
+      if (entry === undefined) continue;
+
+      const lost =
+        detail.next === undefined
+          ? allTargetsLost(entry.targets, canvasName, entry.callerNodeId)
+          : lostPageTargetsForCaller(
+              detail.previous,
+              detail.next,
+              canvasName,
+              entry.callerNodeId,
+              entry.targets,
+            );
+
+      if (lost.length === 0) continue;
+      receipts.push(...tearDownLostTargets(entry, lost, canvasName));
+    }
+    lastReceipts = Object.freeze(receipts);
+    return lastReceipts;
   };
 
   const loadDocs = async (): Promise<ReadonlyArray<{ name: string; doc: CanvasDoc }>> => {
@@ -491,7 +619,46 @@ export const makeEdgeGrantService = (
           targetCount: targets.length,
         };
       }
-      revokeCacheEntry(cacheKey);
+      // Target set changed since mint: drop lost pages in place so remaining
+      // (caller, target) sessions keep their auditId; then remint only when
+      // the grant is empty or fully superseded by a different signature that
+      // we cannot expand in place (origin/host change on a kept ref).
+      const existingRefs = new Set(existing.targets.map((t) => t.ref));
+      const nextRefs = new Set(targets.map((t) => t.ref));
+      const lostOnly = existing.targets.filter((t) => !nextRefs.has(t.ref));
+      const gainedOnly = targets.filter((t) => !existingRefs.has(t.ref));
+      const sameRefs =
+        lostOnly.length === 0 &&
+        gainedOnly.length === 0 &&
+        existing.targets.length === targets.length;
+      if (lostOnly.length > 0 && gainedOnly.length === 0) {
+        tearDownLostTargets(
+          existing,
+          lostOnly.map((t) => ({
+            pageRef: t.ref,
+            hostId: t.hostId,
+            callerNodeId: existing.callerNodeId,
+          })),
+          match.canvasName,
+        );
+        if (cache.has(cacheKey) && existing.expiresAt > now + 5_000) {
+          return {
+            ok: true,
+            secret: existing.secret,
+            expectedPrincipal: existing.principal,
+            principal,
+            targetCount: existing.targets.length,
+          };
+        }
+      } else if (sameRefs) {
+        // Origins/host metadata drift — remint quietly without owner wipe of
+        // remaining pages: full revoke then reissue below.
+        revokeCacheEntry(cacheKey);
+      } else {
+        // Gained targets or mixed gain/loss: remint (new auditId). Surviving
+        // sessions under the old auditId are destroyed with the grant.
+        revokeCacheEntry(cacheKey);
+      }
     }
 
     let capPrincipal = capabilityPrincipals.get(cacheKey);
@@ -528,7 +695,10 @@ export const makeEdgeGrantService = (
       principal: capPrincipal,
       handle: grant.handle,
       processKey: cacheKey,
+      processPrincipal: principal,
+      callerNodeId: match.callerNodeId,
       targetSignature: makeTargetSignature(targets),
+      targets,
       canvasName: match.canvasName,
       expiresAt: grant.expiresAt,
     });
@@ -576,7 +746,9 @@ export const makeEdgeGrantService = (
       cacheByCanvas.clear();
       capabilityPrincipals.clear();
       canvasInvalidatedAt.clear();
+      lastReceipts = Object.freeze([]);
     },
     invalidateCanvas,
+    lastRevocationReceipts: () => lastReceipts,
   });
 };

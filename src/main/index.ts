@@ -1283,6 +1283,12 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             station: () => composition.sessions.stationIdentity(),
             admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId),
             admitStation: stationAdmission.admit,
+            // Edge-delete (I10): same destroy path as capability terminate, but
+            // keyed by (owner, page-ref) so sibling edges stay live.
+            sessions: {
+              destroyOwnerTargetSessions: (owner, ref, reason) =>
+                composition.sessions.destroyOwnerTargetSessions(owner, ref, reason),
+            },
           });
           let canvasUnsubscribe: (() => void) | undefined;
           let admissionCleanupRan = false;
@@ -1300,8 +1306,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           const acquiredCanvasUnsubscribe = await AppRuntime.runPromise(
             Effect.flatMap(CanvasesService, (canvases) =>
               Effect.sync(() =>
-                canvases.subscribeChanges((name) => {
-                  edgeGrant.invalidateCanvas?.(name);
+                canvases.subscribeChanges((name, detail) => {
+                  edgeGrant.invalidateCanvas(name, detail);
                 }),
               ),
             ),
