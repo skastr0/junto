@@ -716,6 +716,30 @@ describe("chatClose", () => {
       clean: true,
     });
   });
+
+  it("retains an unclean tombstone so a second empty close stays ok:false clean:false", async () => {
+    vi.useFakeTimers();
+    const { spawnFn, children } = fakeSpawn();
+    const service = new ChatService(spawnFn);
+    await openHappyPath(service, children);
+    // Child never emits exit/close — first close hits the absolute bound (unclean).
+    const first = service.chatClose("local:default");
+    await flush();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(first).resolves.toEqual({ ok: false, clean: false });
+
+    // Session gone; unclean tombstone must not become clean-on-retry.
+    expect(await service.chatClose("local:default")).toEqual({
+      ok: false,
+      clean: false,
+    });
+    // Third empty close still unclean — tombstone is sticky until a clean open.
+    expect(await service.chatClose("local:default")).toEqual({
+      ok: false,
+      clean: false,
+    });
+  });
 });
 
 describe("crash / event projection", () => {

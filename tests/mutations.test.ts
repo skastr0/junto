@@ -15,11 +15,17 @@ const browserStop = vi.fn(async (): Promise<{
   readonly message?: string;
 }> => ({ ok: true }));
 
+const chatClose = vi.fn(async (): Promise<{ ok: boolean; clean?: boolean }> => ({
+  ok: true,
+  clean: true,
+}));
+
 const runtimeWindow = {
   vellum: {
     writeCanvas: async () => ({ revision: "test-revision" }),
     browserStop,
     browserSessionList: async () => ({ ok: true, data: [] }),
+    chatClose,
   },
   setTimeout: globalThis.setTimeout,
   confirm: () => true,
@@ -40,6 +46,8 @@ describe("renderer graph mutations", () => {
     state$.error.set("");
     browserStop.mockReset();
     browserStop.mockResolvedValue({ ok: true });
+    chatClose.mockReset();
+    chatClose.mockResolvedValue({ ok: true, clean: true });
     browser$.sessionByRef.set({});
     dock$.stopErrorByRef.set({});
     state$.settings.station.hostId.set("local");
@@ -225,6 +233,54 @@ describe("renderer graph mutations", () => {
     ));
     expect(state$.doc.peek().nodes).toMatchObject([
       { id: "page", url: "https://replacement.example.com" },
+    ]);
+  });
+
+  it("rechecks canvas epoch after agent close and refuses deletion on epoch drift", async () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [{
+        id: "agent",
+        type: "text",
+        text: "agent",
+        x: 0,
+        y: 0,
+        width: 220,
+        height: 84,
+        ether: { entity: { kind: "agent", name: "local:default" } },
+      }],
+      edges: [],
+    });
+    let finishClose!: (result: { readonly ok: boolean; readonly clean?: boolean }) => void;
+    chatClose.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finishClose = resolve;
+      }),
+    );
+
+    deleteNode("agent");
+    await vi.waitFor(() => expect(chatClose).toHaveBeenCalledWith("local:default"));
+    // Canvas switch / reload advances docEpoch while close awaits.
+    loadDoc({
+      nodes: [{
+        id: "agent",
+        type: "text",
+        text: "replacement",
+        x: 10,
+        y: 10,
+        width: 220,
+        height: 84,
+        ether: { entity: { kind: "agent", name: "local:default" } },
+      }],
+      edges: [],
+    });
+    finishClose({ ok: true, clean: true });
+
+    await vi.waitFor(() => expect(state$.error.peek()).toBe(
+      "Canvas changed before deletion completed; no nodes were deleted.",
+    ));
+    expect(state$.doc.peek().nodes).toMatchObject([
+      { id: "agent", text: "replacement" },
     ]);
   });
 

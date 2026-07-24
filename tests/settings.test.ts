@@ -447,6 +447,39 @@ describe("settings service", () => {
     expect(still.station.role).toBe("remote");
   });
 
+  it("setStationTopology refuses remote → command-center and remote → empty", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    await run(
+      svc.setStationTopology({
+        role: "remote",
+        hostId: "box",
+        commandCenterRef: "cc",
+      }),
+    );
+
+    const promote = await runEither(
+      svc.setStationTopology({ role: "command-center", hostId: "box" }),
+    );
+    expect(Either.isLeft(promote)).toBe(true);
+    if (Either.isLeft(promote)) {
+      expect(promote.left.code).toBe("validation");
+      expect(promote.left.message).toMatch(/transfer ceremony/i);
+    }
+
+    const clear = await runEither(svc.setStationTopology({ role: "" }));
+    expect(Either.isLeft(clear)).toBe(true);
+    if (Either.isLeft(clear)) {
+      expect(clear.left.code).toBe("validation");
+      expect(clear.left.message).toMatch(/transfer ceremony/i);
+    }
+
+    const still = await run(svc.get);
+    expect(still.station.role).toBe("remote");
+    expect(still.station.hostId).toBe("box");
+    expect(still.station.commandCenterRef).toBe("cc");
+  });
+
   it("full settings reset preserves sealed station topology", async () => {
     const svc = await fresh();
     await run(svc.get);

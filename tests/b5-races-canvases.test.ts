@@ -173,4 +173,25 @@ describe("canvases.ts write() — same-name concurrency", () => {
       unsubscribe();
     }
   });
+
+  it("replaceLiveAuthorityFromInstall re-admits installed disk; external edit still ignored after", async () => {
+    const name = "pull-install-admit";
+    await runtime.runPromise(canvases.write(name, docFor(1)));
+    const initial = await runtime.runPromise(canvases.read(name));
+    expect(textOf(initial.doc)).toBe("write-1");
+
+    // External forge on disk is not live authority yet.
+    writeFileSync(initial.path, serializeCanvas(docFor(2)), "utf8");
+    expect(textOf((await runtime.runPromise(canvases.read(name))).doc)).toBe("write-1");
+
+    // Pull/install plane is the sole path that re-admits installed disk bytes.
+    await runtime.runPromise(canvases.replaceLiveAuthorityFromInstall([name]));
+    const afterPull = await runtime.runPromise(canvases.read(name));
+    expect(textOf(afterPull.doc)).toBe("write-2");
+
+    // After admit, a further external disk edit still does not rehydrate.
+    writeFileSync(afterPull.path, serializeCanvas(docFor(3)), "utf8");
+    const afterForge = await runtime.runPromise(canvases.read(name));
+    expect(textOf(afterForge.doc)).toBe("write-2");
+  });
 });
