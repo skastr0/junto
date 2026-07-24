@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { Either, HashMap, HashSet, Option } from "effect";
+import { Either, HashMap, HashSet, Match, Option } from "effect";
 import type { CanvasDoc } from "../../src/shared/canvas";
-import { WELL_KNOWN_ENTITY_KINDS } from "../../src/shared/canvas";
+import { serializeCanvas, WELL_KNOWN_ENTITY_KINDS } from "../../src/shared/canvas";
 import {
+  ACTOR_ACTOR_INBOX_PORTS,
+  GrantLaw,
   KindSpecs,
   PortForWorkOp,
   PortGrant,
@@ -14,9 +16,13 @@ import {
   canonicalRolePair,
   defaultGrantBetween,
   defaultGrantForRoles,
+  grantLawBetween,
+  grantLawForRoles,
   portSet,
   resolveSpec,
   roleOf,
+  selectGrant,
+  stampActorActorMsgPorts,
   undirectedEdgeKey,
   type Port,
   type WellKnownKind,
@@ -106,19 +112,54 @@ describe("physics KindSpecs", () => {
   });
 });
 
-describe("physics role laws", () => {
-  it("actor-sink and actor-actor default to Full", () => {
-    expect(defaultGrantBetween(canonicalRolePair("actor", "sink")).isFull()).toBe(true);
-    expect(defaultGrantBetween(canonicalRolePair("actor", "actor")).isFull()).toBe(true);
-    expect(defaultGrantForRoles("actor", "sink").isFull()).toBe(true);
+describe("physics GrantLaw (I8 — actor→actor OptIn)", () => {
+  it("ActorSink is Full; ActorActor is OptIn; others None", () => {
+    expect(grantLawBetween(canonicalRolePair("actor", "sink"))._tag).toBe("Full");
+    expect(grantLawBetween(canonicalRolePair("actor", "actor"))._tag).toBe("OptIn");
+    expect(grantLawForRoles("actor", "scheduler")._tag).toBe("None");
+    expect(grantLawForRoles("actor", "region")._tag).toBe("None");
+    expect(grantLawForRoles("actor", "furniture")._tag).toBe("None");
+    expect(grantLawForRoles("sink", "actor")._tag).toBe("None");
+    expect(grantLawForRoles("furniture", "sink")._tag).toBe("None");
   });
 
-  it("non-granting pairs are empty", () => {
+  it("selectGrant: Full attenuates by mask; OptIn requires mask; None is empty", () => {
+    const mask = portSet("msg.send");
+    expect(selectGrant(GrantLaw.Full(), undefined).isFull()).toBe(true);
+    expect(HashSet.has(selectGrant(GrantLaw.Full(), mask).ports, "msg.send")).toBe(true);
+    expect(selectGrant(GrantLaw.OptIn(), undefined).isEmpty()).toBe(true);
+    expect(HashSet.has(selectGrant(GrantLaw.OptIn(), mask).ports, "msg.send")).toBe(true);
+    expect(HashSet.has(selectGrant(GrantLaw.OptIn(), mask).ports, "msg.list")).toBe(false);
+    expect(selectGrant(GrantLaw.None(), mask).isEmpty()).toBe(true);
+  });
+
+  it("Match.tagsExhaustive is exhaustive over GrantLaw tags", () => {
+    // Compile-time: adding a GrantLaw arm without updating this Match fails typecheck.
+    // Runtime: every current tag is reachable.
+    const tags = (["Full", "OptIn", "None"] as const).map((tag) => {
+      const law =
+        tag === "Full"
+          ? GrantLaw.Full()
+          : tag === "OptIn"
+            ? GrantLaw.OptIn()
+            : GrantLaw.None();
+      return Match.value(law).pipe(
+        Match.tagsExhaustive({
+          Full: () => "Full",
+          OptIn: () => "OptIn",
+          None: () => "None",
+        }),
+      );
+    });
+    expect(tags).toEqual(["Full", "OptIn", "None"]);
+  });
+
+  it("no-mask materialization of laws (compat defaultGrant*)", () => {
+    expect(defaultGrantBetween(canonicalRolePair("actor", "sink")).isFull()).toBe(true);
+    // OptIn without mask → empty (discovery); never Full
+    expect(defaultGrantBetween(canonicalRolePair("actor", "actor")).isEmpty()).toBe(true);
+    expect(defaultGrantForRoles("actor", "sink").isFull()).toBe(true);
     expect(defaultGrantForRoles("actor", "furniture").isEmpty()).toBe(true);
-    expect(defaultGrantForRoles("actor", "scheduler").isEmpty()).toBe(true);
-    expect(defaultGrantForRoles("actor", "region").isEmpty()).toBe(true);
-    expect(defaultGrantForRoles("sink", "actor").isEmpty()).toBe(true);
-    expect(defaultGrantForRoles("furniture", "sink").isEmpty()).toBe(true);
   });
 });
 
@@ -388,6 +429,117 @@ describe("physics admitPure", () => {
       "browser.automate",
     );
     expect(Either.isRight(admitted)).toBe(true);
+  });
+
+  it("fresh actor↔actor, no ports → msg.send denied no_port (discovery still connected)", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        textNode("a1", "agent"),
+        textNode("a2", "agent", 200, 0),
+      ],
+      edges: [{ id: "e1", fromNode: "a1", toNode: "a2" }],
+    };
+    const view = canvasDocToCapabilityView(doc);
+    // Discovery: undirected connectivity present
+    const neighbors = HashMap.get(view.connected, asNodeId("a1"));
+    expect(Option.isSome(neighbors)).toBe(true);
+    if (Option.isSome(neighbors)) {
+      expect(HashSet.has(neighbors.value, asNodeId("a2"))).toBe(true);
+    }
+    const denied = admitPure(view, asNodeId("a1"), asNodeId("a2"), "msg.send");
+    expect(Either.isLeft(denied)).toBe(true);
+    if (Either.isLeft(denied)) {
+      expect(denied.left.reason).toBe("no_port");
+    }
+    const listDenied = admitPure(view, asNodeId("a1"), asNodeId("a2"), "msg.list");
+    expect(Either.isLeft(listDenied)).toBe(true);
+    if (Either.isLeft(listDenied)) {
+      expect(listDenied.left.reason).toBe("no_port");
+    }
+  });
+
+  it("actor↔actor with ports:[msg.send] → msg.send admits, msg.list denies", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        textNode("a1", "agent"),
+        textNode("a2", "agent", 200, 0),
+      ],
+      edges: [
+        {
+          id: "e1",
+          fromNode: "a1",
+          toNode: "a2",
+          ether: { ports: ["msg.send"] },
+        },
+      ],
+    };
+    const view = canvasDocToCapabilityView(doc);
+    const send = admitPure(view, asNodeId("a1"), asNodeId("a2"), "msg.send");
+    expect(Either.isRight(send)).toBe(true);
+    const list = admitPure(view, asNodeId("a1"), asNodeId("a2"), "msg.list");
+    expect(Either.isLeft(list)).toBe(true);
+    if (Either.isLeft(list)) {
+      expect(list.left.reason).toBe("no_port");
+    }
+  });
+
+  it("stamped actor↔actor (msg.list+msg.send) admits msg.* as pre-S3 Full did", () => {
+    const raw: CanvasDoc = {
+      nodes: [
+        textNode("a1", "agent"),
+        textNode("a2", "herdr", 200, 0),
+      ],
+      edges: [{ id: "e1", fromNode: "a1", toNode: "a2" }],
+    };
+    const stamped = stampActorActorMsgPorts(raw);
+    const view = canvasDocToCapabilityView(stamped);
+    for (const port of ["msg.list", "msg.send"] as const) {
+      const result = admitPure(view, asNodeId("a1"), asNodeId("a2"), port);
+      expect(Either.isRight(result), port).toBe(true);
+    }
+  });
+});
+
+describe("physics stampActorActorMsgPorts", () => {
+  it("stamps unported actor↔actor; never actor↔sink; idempotent byte-identical", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        textNode("a1", "agent"),
+        textNode("a2", "agent", 200, 0),
+        textNode("t1", "task", 400, 0),
+      ],
+      edges: [
+        { id: "aa", fromNode: "a1", toNode: "a2" },
+        { id: "as", fromNode: "a1", toNode: "t1" },
+      ],
+    };
+    const once = stampActorActorMsgPorts(doc);
+    const aa = once.edges.find((e) => e.id === "aa");
+    const as = once.edges.find((e) => e.id === "as");
+    expect(aa?.ether?.ports).toEqual([...ACTOR_ACTOR_INBOX_PORTS]);
+    expect(as?.ether?.ports).toBeUndefined();
+
+    const twice = stampActorActorMsgPorts(once);
+    expect(serializeCanvas(twice)).toBe(serializeCanvas(once));
+    // Second call returns same reference when already stamped
+    expect(twice).toBe(once);
+  });
+
+  it("does not overwrite authorial ports (including empty array)", () => {
+    const doc: CanvasDoc = {
+      nodes: [textNode("a1", "agent"), textNode("a2", "agent", 200, 0)],
+      edges: [
+        {
+          id: "e1",
+          fromNode: "a1",
+          toNode: "a2",
+          ether: { ports: ["msg.send"] },
+        },
+      ],
+    };
+    const stamped = stampActorActorMsgPorts(doc);
+    expect(stamped).toBe(doc);
+    expect(stamped.edges[0]?.ether?.ports).toEqual(["msg.send"]);
   });
 });
 

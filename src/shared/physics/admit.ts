@@ -1,6 +1,6 @@
 import { Effect, Either, HashMap, HashSet, Option, Schema } from "effect";
 import { offersOf, resolveSpec, roleOf } from "./kinds";
-import { defaultGrantForRoles } from "./laws";
+import { grantLawForRoles, selectGrant } from "./laws";
 import {
   PortGrant,
   asNodeId,
@@ -156,9 +156,10 @@ export const admitPure = (
   const fromRole = roleOf(callerSpec);
   const toRole = roleOf(targetSpec);
 
-  let grant = defaultGrantForRoles(fromRole, toRole);
-
-  if (grant.isEmpty()) {
+  const law = grantLawForRoles(fromRole, toRole);
+  // None is a hard role_law denial — distinct from OptIn without a mask,
+  // which materializes empty and surfaces as no_port when a port is requested.
+  if (law._tag === "None") {
     return Either.left(
       denial(
         "role_law",
@@ -171,10 +172,11 @@ export const admitPure = (
   }
 
   const maskKey = undirectedEdgeKey(caller, target);
-  const mask = HashMap.get(view.edgePortMask, maskKey);
-  if (Option.isSome(mask)) {
-    grant = grant.attenuate(mask.value);
-  }
+  const maskOpt = HashMap.get(view.edgePortMask, maskKey);
+  const grant = selectGrant(
+    law,
+    Option.isSome(maskOpt) ? maskOpt.value : undefined,
+  );
 
   const offers = offersOf(targetSpec);
   if (!grant.allows(port, offers)) {

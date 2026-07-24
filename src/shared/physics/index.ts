@@ -37,12 +37,25 @@ export {
 export type { KindSpec, ResolveSpecInput, ResolvedSpec as ResolvedSpecValue } from "./kinds";
 
 export {
+  GrantLaw,
   RolePair,
   canonicalRolePair,
   defaultGrantBetween,
   defaultGrantForRoles,
+  grantLawBetween,
+  grantLawForRoles,
+  selectGrant,
+  selectGrantFromOption,
 } from "./laws";
-export type { RolePair as RolePairValue } from "./laws";
+export type {
+  GrantLaw as GrantLawValue,
+  RolePair as RolePairValue,
+} from "./laws";
+
+export {
+  ACTOR_ACTOR_INBOX_PORTS,
+  stampActorActorMsgPorts,
+} from "./stamp";
 
 export {
   Granted,

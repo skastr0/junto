@@ -23,12 +23,12 @@ const regionNode: GroupNode = {
 };
 
 describe("describeConnectPreview", () => {
-  it("actor(agent) -> actor(agent): full grant, target's msg ports", () => {
+  it("actor(agent) -> actor(agent): OptIn discovery — no ports until edge declares them", () => {
     const preview = describeConnectPreview(textNode("agent"), textNode("agent"));
     expect(preview.fromRole).toBe("actor");
     expect(preview.toRole).toBe("actor");
-    expect(preview.ports).toEqual(["msg.list", "msg.send"]);
-    expect(preview.label).toBe("will grant: msg.list, msg.send");
+    expect(preview.ports).toEqual([]);
+    expect(preview.label).toBe("reach + phase only — no ports offered");
   });
 
   it("actor(agent) -> sink(page): full grant, target's browser port", () => {
@@ -44,7 +44,7 @@ describe("describeConnectPreview", () => {
     expect(preview.label).toBe("reach + phase only — no ports offered");
   });
 
-  it("actor(terminal) -> actor(terminal): full grant but terminal offers nothing -> grantless", () => {
+  it("actor(terminal) -> actor(terminal): OptIn discovery (and terminal offers nothing) -> grantless", () => {
     const preview = describeConnectPreview(textNode("terminal"), textNode("terminal"));
     expect(preview.fromRole).toBe("actor");
     expect(preview.toRole).toBe("actor");

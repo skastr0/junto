@@ -1,9 +1,10 @@
 import type { CanvasNode } from "@shared/canvas";
 import {
   ALL_PORTS,
-  defaultGrantForRoles,
+  grantLawForRoles,
   offersOf,
   roleOf,
+  selectGrant,
   type FactoryRoleName,
   type PortName,
 } from "@shared/physics";
@@ -20,10 +21,9 @@ const GRANTLESS_LABEL = "reach + phase only — no ports offered";
 
 /**
  * Live would-be-grant preview for a candidate edge, before it is drawn.
- * Derived strictly from `defaultGrantForRoles` + target `offersOf` — the same
- * inputs `admit` itself uses — never a hand-authored per-pair copy table.
- * A later law change (S2 mask union, S3 GrantLaw, S11 placement) changes what
- * this function computes; it never requires rework of the copy here.
+ * Derived strictly from `grantLawForRoles` + no-mask `selectGrant` + target
+ * `offersOf` — the same inputs `admit` uses for a fresh unported edge.
+ * Actor→actor is OptIn (discovery): no ports until the edge declares them.
  */
 export const describeConnectPreview = (
   fromNode: CanvasNode | undefined,
@@ -32,7 +32,7 @@ export const describeConnectPreview = (
   const fromRole = roleOf(specOf(fromNode));
   const toSpec = specOf(toNode);
   const toRole = roleOf(toSpec);
-  const grant = defaultGrantForRoles(fromRole, toRole);
+  const grant = selectGrant(grantLawForRoles(fromRole, toRole), undefined);
   const offers = offersOf(toSpec);
   const ports = ALL_PORTS.filter((port) => grant.allows(port, offers));
   return {
