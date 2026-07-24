@@ -461,6 +461,32 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       const fromAuthority = await bootstrapFromAuthorityStore(root);
       if (!fromAuthority) {
         await bootstrapFromLegacyDir(root);
+      } else {
+        // Dual-path recovery: admit legacy .canvas files that authority
+        // never captured (e.g. pre-migration boards). Never overwrite a
+        // name already present from the authority snapshot.
+        let files: string[] = [];
+        try {
+          files = (await readdir(root)).filter((file) => file.endsWith(".canvas"));
+        } catch {
+          files = [];
+        }
+        for (const file of files) {
+          let name: CanvasName;
+          try {
+            name = canvasNameFrom(basename(file, ".canvas"));
+          } catch {
+            continue;
+          }
+          if (liveAuthority.has(name)) continue;
+          try {
+            await assertRegularOrMissing(canvasDocumentPathIn(root, name));
+            const entry = await decodeDiskDocument(root, name);
+            liveAuthority.set(name, entry);
+          } catch {
+            // skip unreadable
+          }
+        }
       }
       bootstrapped = true;
     })();

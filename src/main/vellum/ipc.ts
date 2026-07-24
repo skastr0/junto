@@ -496,6 +496,40 @@ export const registerVellumIpc = (): void => {
         catch: () => undefined,
       }).pipe(Effect.catchAll(() => Effect.void));
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
+      // Coalesced CC → Remote projection push (beta fleet path). Pull remains fallback.
+      {
+        let pushTimer: ReturnType<typeof setTimeout> | undefined;
+        const scheduleProjectionPush = (): void => {
+          if (pushTimer !== undefined) clearTimeout(pushTimer);
+          pushTimer = setTimeout(() => {
+            pushTimer = undefined;
+            if (!RELEASE_CAPABILITIES.stationProjection) return;
+            void AppRuntime.runPromise(
+              Effect.gen(function* () {
+                const { pushLiveProjectionToEnrolledRemotes } =
+                  yield* Effect.promise(
+                    () => import("./projection/product-push"),
+                  );
+                const outcome = yield* Effect.either(
+                  pushLiveProjectionToEnrolledRemotes,
+                );
+                if (outcome._tag === "Left") {
+                  console.error(
+                    "[projection] canvas-change push failed:",
+                    outcome.left,
+                  );
+                } else if (!outcome.right.ok) {
+                  console.error(
+                    "[projection] canvas-change push rejected:",
+                    outcome.right.detail,
+                  );
+                }
+              }),
+            ).catch(() => undefined);
+          }, 400);
+        };
+        canvases.subscribeChanges(() => scheduleProjectionPush());
+      }
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
       usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
       // Kernel flag mutate also notifies via subscribeCanvasMutated so an open
