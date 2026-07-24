@@ -59,7 +59,7 @@ describe("applyIncomingProjectionFrame", () => {
     expect(result.status).toBe("absent");
   });
 
-  it("applies a staged frame, materializes canvases, consumes drop", async () => {
+  it("applies a staged frame, admits documents to live authority, consumes drop", async () => {
     setup();
     const body = serializeCanvas(emptyDoc());
     const compiled = compileStationProjection({
@@ -75,12 +75,12 @@ describe("applyIncomingProjectionFrame", () => {
       mode: 0o600,
     });
 
-    const admitted: string[][] = [];
+    const admitted: Array<ReadonlyMap<string, CanvasDoc>> = [];
     const result = await applyIncomingProjectionFrame({
       dropRoot,
       storeRoot,
-      replaceLiveAuthority: async (names) => {
-        admitted.push([...names]);
+      replaceLiveAuthorityDocuments: async (documents) => {
+        admitted.push(documents);
       },
     });
 
@@ -89,16 +89,14 @@ describe("applyIncomingProjectionFrame", () => {
       expect(result.generation).toBe("3");
       expect(result.names).toEqual(["portfolio"]);
     }
-    expect(admitted).toEqual([["portfolio"]]);
+    expect(admitted).toHaveLength(1);
+    expect([...admitted[0]!.keys()]).toEqual(["portfolio"]);
+    expect(admitted[0]!.get("portfolio")).toEqual(emptyDoc());
 
     const snap = await loadStationProjectionSnapshot(storeRoot);
     expect(snap?.pointer.generation).toBe("3");
 
-    const canvasPath = join(canvasesRoot, "portfolio.canvas");
-    const onDisk = readFileSync(canvasPath, "utf8");
-    expect(onDisk).toContain('"nodes"');
-
-    // Drop consumed
+    // Drop consumed — no .canvas materialize required for admit
     expect(() =>
       readFileSync(incomingProjectionFramePath(dropRoot)),
     ).toThrow();

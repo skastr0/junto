@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import {
   createConnection,
@@ -153,16 +153,13 @@ const startTestServer = async (options: {
   process.env.VELLUM_CANVASES_DIR = canvasesDir;
   process.env.VELLUM_WORK_HOME = workHome;
 
-  writeFileSync(join(canvasesDir, "work-cli.canvas"), JSON.stringify(seedDoc()), {
-    encoding: "utf8",
-  });
-
   const runtime = ManagedRuntime.make(Layer.provideMerge(WorkLive, CanvasesLive));
   runtimes.push(runtime);
-  // One-shot legacy import + authority commit before any hung dispatch so the
-  // first work op does not pay store fsync under a tight shutdown deadline.
+  // Seed live authority before any hung dispatch so the first work op does
+  // not pay store fsync under a tight shutdown deadline. Sibling authority
+  // lives at ../canvas-authority-v1 via VELLUM_CANVASES_DIR.
   const canvases = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvases.read("work-cli"));
+  await runtime.runPromise(canvases.write("work-cli", seedDoc()));
   const baseRun: WorkControlServerOptions["run"] = (effect) =>
     runtime.runPromise(effect);
 
@@ -574,9 +571,12 @@ describe("work control transport", () => {
     const canvasesDir = join(root, "canvases");
     mkdirSync(workHome, { recursive: true });
     mkdirSync(canvasesDir, { recursive: true });
-    writeFileSync(join(canvasesDir, "work-cli.canvas"), JSON.stringify(seedDoc()));
+    process.env.VELLUM_CANVASES_DIR = canvasesDir;
+    process.env.VELLUM_WORK_HOME = workHome;
     const runtime = ManagedRuntime.make(Layer.provideMerge(WorkLive, CanvasesLive));
     runtimes.push(runtime);
+    const canvases = await runtime.runPromise(CanvasesService);
+    await runtime.runPromise(canvases.write("work-cli", seedDoc()));
     const emptyMap = makeProcessIdentityMap();
     const unboundServer = await startWorkControlServer({
       version: "test",

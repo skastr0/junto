@@ -23,7 +23,7 @@
 // entity + human-edge router used by watcher fire. Region membership supplies
 // arming and instruction context only.
 //
-// External control surface is file-based (store.json + the canvas file),
+// External control surface is file-based (store.json + authority seed),
 // matching AGENTS.md's headless contract — this app exposes no IPC to a
 // process outside itself; the explicit headless argv has no control transport.
 //
@@ -33,6 +33,8 @@ import { constants } from "node:fs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ManagedRuntime } from "effect";
+import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import {
   startRendererServer,
   type RendererServer,
@@ -125,7 +127,7 @@ interface Fixture {
   readonly root: string;
   readonly userDataDir: string;
   readonly canvasesDir: string;
-  readonly canvasPath: string;
+  readonly previousHome: string | undefined;
 }
 
 const setUpFixture = async (armed: boolean): Promise<Fixture> => {
@@ -134,16 +136,22 @@ const setUpFixture = async (armed: boolean): Promise<Fixture> => {
   const root = sandbox.root;
   const userDataDir = join(root, "userData");
   const canvasesDir = join(root, "canvases");
-  const canvasPath = join(
-    canvasesDir,
-    `${KERNEL_PROBE_CANVAS}.canvas`,
-  );
   await mkdir(canvasesDir, { recursive: true });
-  await writeFile(
-    canvasPath,
-    JSON.stringify(makeKernelHeadlessFixture(), null, 2),
-    "utf8",
-  );
+  // Isolate HOME so any accidental homedir() paths stay inside the sandbox.
+  const previousHome = process.env.HOME;
+  process.env.HOME = root;
+  process.env.VELLUM_CANVASES_DIR = canvasesDir;
+  // Authority is sole store — seed via CanvasesService.write (sibling
+  // canvas-authority-v1 under VELLUM_CANVASES_DIR). Boot no longer imports .canvas.
+  const runtime = ManagedRuntime.make(CanvasesLive);
+  try {
+    const canvases = await runtime.runPromise(CanvasesService);
+    await runtime.runPromise(
+      canvases.write(KERNEL_PROBE_CANVAS, makeKernelHeadlessFixture()),
+    );
+  } finally {
+    await runtime.dispose();
+  }
   if (armed) {
     await writeStore(userDataDir, {
       "kernel.armed": {
@@ -151,7 +159,7 @@ const setUpFixture = async (armed: boolean): Promise<Fixture> => {
       },
     });
   }
-  return { root, userDataDir, canvasesDir, canvasPath };
+  return { root, userDataDir, canvasesDir, previousHome };
 };
 
 const spawnApp = (
@@ -170,6 +178,7 @@ const spawnApp = (
       // trusted-origin guard an exact loopback root backed by the real built
       // renderer; never weaken or bypass the guard for headless mode.
       ELECTRON_RENDERER_URL: rendererUrl,
+      HOME: fixture.root,
       VELLUM_BROWSER_DIR: join(fixture.root, "browser"),
       VELLUM_BROWSER_HOME: fixture.userDataDir,
       VELLUM_CANVASES_DIR: fixture.canvasesDir,
@@ -238,15 +247,10 @@ const nudgeTimerAfterKernelBaseline = async (
     throw new Error("kernel did not publish its initial headless baseline");
   }
 
-  // A timer is intentionally not fired on discovery. Once its first schedule
-  // is due, rewrite the isolated fixture byte-for-byte so the real file
-  // watcher/resync path evaluates it without waiting for the 30s safety tick.
+  // A timer is intentionally not fired on discovery. Wait past its first
+  // schedule so the kernel safety evaluation (or due timer path) can fire
+  // without a .canvas watcher rewrite — authority is the sole document store.
   await sleep(KERNEL_PROBE_TIMER_EVERY_MINUTES * 60_000 + 250);
-  await writeFile(
-    fixture.canvasPath,
-    JSON.stringify(makeKernelHeadlessFixture(), null, 2),
-    "utf8",
-  );
 };
 
 const runPass = async (
@@ -269,6 +273,11 @@ const runPass = async (
     ]);
     console.log(`[probe] ${label}: PASS`);
   } finally {
+    if (fixture.previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = fixture.previousHome;
+    if (process.env.VELLUM_CANVASES_DIR === fixture.canvasesDir) {
+      delete process.env.VELLUM_CANVASES_DIR;
+    }
     const receipt = await probeSupervisor.stop(
       child,
       `kernel-headless-pass-finalize:${label}`,

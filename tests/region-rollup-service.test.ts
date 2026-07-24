@@ -135,7 +135,7 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       start: () => {},
       subscribeChanges: () => () => {},
       liveDocuments: () => Effect.succeed([]),
-    replaceLiveAuthorityFromInstall: () => Effect.void,
+    replaceLiveAuthorityDocuments: () => Effect.void,
     }),
   );
 

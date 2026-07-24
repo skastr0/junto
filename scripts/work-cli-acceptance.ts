@@ -13,7 +13,6 @@
 import {
   existsSync,
   mkdirSync,
-  readFileSync,
   writeFileSync,
 } from "node:fs";
 import { createConnection } from "node:net";
@@ -27,7 +26,7 @@ import {
   type AppProcessDrainResult,
   type AppProcessPlane,
 } from "../src/main/vellum/app-process-plane";
-import { CanvasesLive } from "../src/main/vellum/canvases";
+import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import {
   startWorkControlServer,
   type WorkControlShutdownReceipt,
@@ -442,7 +441,6 @@ const main = async () => {
   mkdirSync(canvases, { recursive: true });
   mkdirSync(workHome, { recursive: true });
   mkdirSync(outside, { recursive: true });
-  writeFileSync(join(canvases, `${CANVAS}.canvas`), JSON.stringify(seed(), null, 2));
   const artifactPath = join(outside, "report.txt");
   writeFileSync(artifactPath, "acceptance artifact body\n");
 
@@ -456,6 +454,9 @@ const main = async () => {
     killGraceMs: CLI_KILL_CLOSE_GRACE_MS,
   });
   const runtime = ManagedRuntime.make(Layer.provideMerge(WorkLive, CanvasesLive));
+  // Authority is sole store — seed via CanvasesService.write, not .canvas files.
+  const canvasesSvc = await runtime.runPromise(CanvasesService);
+  await runtime.runPromise(canvasesSvc.write(CANVAS, seed()));
   // Bind the acceptance runner PID. CLI children walk PPID to this process.
   const processMap = makeProcessIdentityMap();
   processMap.bind(process.pid, { kind: "agent", agentKey: "local:default" });
@@ -591,7 +592,7 @@ const main = async () => {
     const wrongTok = await readWrongTokenReceipt(server.socketPath);
     log("A3 wrong token", wrongTok);
 
-    const docAfter = JSON.parse(readFileSync(join(canvases, `${CANVAS}.canvas`), "utf8"));
+    const docAfter = (await runtime.runPromise(canvasesSvc.read(CANVAS))).doc;
     log(
       "canvas after",
       JSON.stringify(
