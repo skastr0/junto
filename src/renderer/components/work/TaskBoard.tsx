@@ -917,9 +917,11 @@ function TaskDetailPanel({
             {task.history.slice(1).length > 0 ? (
               task.history.slice(1).map((message) => (
                 <li key={message.messageId}>
-                  <StatusDot tone={message.role === "agent" ? "cyan" : "amber"} />
                   <div>
-                    <strong>{message.role === "agent" ? claim ?? "Agent" : "Operator"}</strong>
+                    <div className="task-detail-panel__activity-actor">
+                      <StatusDot tone={message.role === "agent" ? "cyan" : "amber"} />
+                      <strong>{message.role === "agent" ? claim ?? "Agent" : "Operator"}</strong>
+                    </div>
                     <p>
                       {message.parts
                         .filter((part): part is Extract<Part, { kind: "text" }> => part.kind === "text")
