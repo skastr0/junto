@@ -40,7 +40,7 @@ const pathExists = async (path: string): Promise<boolean> => {
 };
 
 describe("canvases.ts remove()", () => {
-  it("deletes the canvas document and known sidecars", async () => {
+  it("removes the canvas from authority and known agent sidecars", async () => {
     const name = "to-delete";
     await runtime.runPromise(canvases.create(name));
     const listBefore = await runtime.runPromise(canvases.list);
@@ -50,18 +50,17 @@ describe("canvases.ts remove()", () => {
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, `${name}.digest.txt`), "digest body", "utf8");
     await writeFile(join(dir, `${name}.svg`), "<svg/>", "utf8");
-    await writeFile(join(dir, `${name}.canvas.pre-recovery.bak`), "bak", "utf8");
 
     const result = await runtime.runPromise(canvases.remove(name));
     expect(result.name).toBe(name);
 
     const listAfter = await runtime.runPromise(canvases.list);
     expect(listAfter.some((row) => row.name === name)).toBe(false);
-    expect(await pathExists(join(dir, `${name}.canvas`))).toBe(false);
+    await expect(
+      runtime.runPromise(Effect.either(canvases.read(name))),
+    ).resolves.toMatchObject({ _tag: "Left" });
     expect(await pathExists(join(dir, `${name}.digest.txt`))).toBe(false);
     expect(await pathExists(join(dir, `${name}.svg`))).toBe(false);
-    // Unknown sidecars / recovery backups are left alone.
-    expect(await pathExists(join(dir, `${name}.canvas.pre-recovery.bak`))).toBe(true);
   });
 
   it("fails when the canvas does not exist", async () => {
@@ -93,8 +92,6 @@ describe("canvases.ts remove()", () => {
   });
 
   it("notifies subscribeChanges listeners after write (own-write path)", async () => {
-    // Kernel rehydrate depends on app-owned write notify — external disk edits
-    // no longer rehydrate live intent via fs.watch.
     const name = "write-notify";
     await runtime.runPromise(canvases.create(name));
 
@@ -140,8 +137,8 @@ describe("canvases.ts remove()", () => {
 
     await expect(runtime.runPromise(canvases.remove(name))).resolves.toEqual({ name });
     unsubscribe();
-    const dir = join(mockCanvasesHome, ".vellum", "canvases");
-    expect(await pathExists(join(dir, `${name}.canvas`))).toBe(false);
+    const list = await runtime.runPromise(canvases.list);
+    expect(list.some((row) => row.name === name)).toBe(false);
   });
 
   it("notifies subscribeChanges listeners after mutate", async () => {
@@ -191,8 +188,9 @@ describe("canvases.ts remove()", () => {
       const read = await runtime.runPromise(canvases.read(name));
       expect(read.doc.nodes.length).toBeGreaterThan(0);
     } else {
-      const dir = join(mockCanvasesHome, ".vellum", "canvases");
-      expect(await pathExists(join(dir, `${name}.canvas`))).toBe(false);
+      await expect(
+        runtime.runPromise(Effect.either(canvases.read(name))),
+      ).resolves.toMatchObject({ _tag: "Left" });
     }
   });
 

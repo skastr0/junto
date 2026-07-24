@@ -15,19 +15,16 @@ conflict is migration work rather than an exception.
 projections and capability-bound tools are the agent API. **Sole durable store**
 is `~/.vellum/state/canvas-authority-v1` (content-addressed generations +
 `current.json`). App write/create/remove/mutate commit full-map generations only.
-Legacy `~/.vellum/canvases/*.canvas` is import-only on first boot when no pointer
-exists — external file edits never re-admit into live authority. Remote install
-may materialize `.canvas` as a projection cache, then admit via
-`replaceLiveAuthorityFromInstall` (not a dual product SoT).
+Agent sidecars (`*.digest.txt`, `*.svg`) under `~/.vellum/canvases/` are
+projections, not product durability.
 
 ## The agent surface (headless — no GUI needed)
 
 **Agents never write the canvas.** The canvas is human-authored (Command Center). Agents consume compiled projections and local Vellum tools.
 
 Headless CLIs read the **authority store** via `CanvasesService` (same path as
-the app). Sidecars (`*.digest.txt`, `*.svg`) under `~/.vellum/canvases/` are
-agent-facing derivatives only — not product durability. Agents remain
-strictly read-only for authorial intent. Current headless CLIs:
+the app). Agents remain strictly read-only for authorial intent. Current
+headless CLIs:
 
 | command | who | what it does |
 |---|---|---|
@@ -36,7 +33,7 @@ strictly read-only for authorial intent. Current headless CLIs:
 | `bun run canvas:ls [--json]` | agents + operators | list canvases with node/edge counts. |
 | `bun run canvas:rm <name>…` | **operator only** | delete canvas document(s) from the authority store. Requires `VELLUM_AUTHORIAL_WRITE=1`. |
 
-To **read the board as an agent**: `bun run digest` (text) or `bun run render` then view the SVG (image). Do not mutate authority or legacy `.canvas` files from agents.
+To **read the board as an agent**: `bun run digest` (text) or `bun run render` then view the SVG (image).
 
 ### Work plane (agent mutations)
 

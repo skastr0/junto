@@ -250,7 +250,7 @@ export const makeEdgeGrantService = (
       }
     }
     // readCanvas without a list helper has no name source under sole authority;
-    // do not readdir for names (that dual-path breaks when disk is not SoT).
+    // Name discovery comes from live authority when list helpers are provided.
     if (dependencies.readCanvas !== undefined) {
       return [];
     }

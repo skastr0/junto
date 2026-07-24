@@ -267,10 +267,7 @@ not grant the exported file live authority over a running factory.
 
 Canonical live and durable authority is `~/.vellum/state/canvas-authority-v1`
 (content-addressed generations + `current.json`). App-owned write/create/remove
-commit full-map generations only. Legacy `~/.vellum/canvases/*.canvas` is
-import-only when no pointer exists; external file edits never re-admit as live
-authority. Remote install may materialize `.canvas` as a projection cache, not
-a second product SoT.
+commit full-map generations only. That store is the product SoT.
 
 Canvas confidentiality follows the operator's operating-system account, disk,
 backup, and export choices. Vellum does not become a general secret-management

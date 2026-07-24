@@ -1,8 +1,8 @@
 /**
- * App-owned canvas authority contract (beta).
+ * App-owned canvas authority contract.
  *
  * Documents live under content-addressed objects; `current.json` is the sole
- * commit pointer. Public `~/.vellum/canvases` is legacy import/export only.
+ * commit pointer. This is the product durability store.
  */
 
 import { Schema } from "effect";

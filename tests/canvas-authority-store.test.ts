@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
@@ -10,7 +10,7 @@ import {
 } from "../src/main/vellum/canvas-authority/store";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import { compareAuthorityGeneration } from "../src/shared/canvas-authority";
-import { applyMirrorLaw, serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
+import { applyMirrorLaw, type CanvasDoc } from "../src/shared/canvas";
 
 describe("canvas authority store", () => {
   let root = "";
@@ -91,15 +91,7 @@ const noteDoc = (text: string): CanvasDoc =>
     edges: [],
   });
 
-const listCanvasFiles = async (dir: string): Promise<string[]> => {
-  try {
-    return (await readdir(dir)).filter((f) => f.endsWith(".canvas")).sort();
-  } catch {
-    return [];
-  }
-};
-
-describe("CanvasesService sole authority store", () => {
+describe("CanvasesService authority store", () => {
   let canvasesDir = "";
   let authorityDir = "";
   let previousCanvases: string | undefined;
@@ -140,14 +132,12 @@ describe("CanvasesService sole authority store", () => {
     await restoreEnv();
   });
 
-  it("commits sequential authority generations without dual-path .canvas writes", async () => {
+  it("commits sequential authority generations on write and create", async () => {
     await installEnv();
     runtime = ManagedRuntime.make(CanvasesLive);
     const canvases = await runtime.runPromise(CanvasesService);
 
     await runtime.runPromise(canvases.write("alpha", noteDoc("one")));
-    // Durability is authority store only — write() does not mint legacy files.
-    expect(await listCanvasFiles(canvasesDir)).toEqual([]);
 
     const gen1 = await loadAuthoritySnapshot(authorityDir);
     expect(gen1?.pointer.generation).toBe("1");
@@ -167,13 +157,12 @@ describe("CanvasesService sole authority store", () => {
     expect(new TextDecoder().decode(gen3!.documents.get("alpha")!)).toContain(
       "two",
     );
-    expect(await listCanvasFiles(canvasesDir)).toEqual([]);
 
     const readBeta = await runtime.runPromise(canvases.read("beta"));
     expect(readBeta.doc.nodes).toEqual([]);
   });
 
-  it("bootstraps live map from authority; stale same-name legacy cannot overwrite", async () => {
+  it("reloads the live map from the authority store across restart", async () => {
     await installEnv();
     runtime = ManagedRuntime.make(CanvasesLive);
     const canvases = await runtime.runPromise(CanvasesService);
@@ -181,23 +170,10 @@ describe("CanvasesService sole authority store", () => {
     await runtime.dispose();
     runtime = undefined;
 
-    // Stale same-name bytes and drop-in ghost names must not re-admit once
-    // a valid authority pointer exists (sole SoT — no promote-missing).
-    await writeFile(
-      join(canvasesDir, "alpha.canvas"),
-      serializeCanvas(noteDoc("legacy-stale")),
-      "utf8",
-    );
-    await writeFile(
-      join(canvasesDir, "ghost.canvas"),
-      serializeCanvas(noteDoc("only-on-legacy")),
-      "utf8",
-    );
-
     runtime = ManagedRuntime.make(CanvasesLive);
     const reloaded = await runtime.runPromise(CanvasesService);
     const list = await runtime.runPromise(reloaded.list);
-    expect(list.map((row) => row.name).slice().sort()).toEqual(["alpha"]);
+    expect(list.map((row) => row.name)).toEqual(["alpha"]);
 
     const read = await runtime.runPromise(reloaded.read("alpha"));
     const text =
@@ -205,66 +181,19 @@ describe("CanvasesService sole authority store", () => {
         ? read.doc.nodes[0].text
         : undefined;
     expect(text).toBe("authority-wins");
-
-    await expect(
-      runtime.runPromise(Effect.either(reloaded.read("ghost"))),
-    ).resolves.toMatchObject({ _tag: "Left" });
-
-    // Boot does not rewrite legacy disk (would fight Remote pull deletes).
-    const legacyAfterBoot = await readFile(
-      join(canvasesDir, "alpha.canvas"),
-      "utf8",
-    );
-    expect(legacyAfterBoot).toContain("legacy-stale");
-
-    // Next app write stays authority-only — does not re-mirror dual-path.
-    await runtime.runPromise(
-      reloaded.write("alpha", noteDoc("authority-wins"), read.revision),
-    );
-    const legacyAfterWrite = await readFile(
-      join(canvasesDir, "alpha.canvas"),
-      "utf8",
-    );
-    expect(legacyAfterWrite).toContain("legacy-stale");
-    expect(legacyAfterWrite).not.toContain("authority-wins");
   });
 
-  it("bootstraps from legacy canvasesDir when authority pointer is absent", async () => {
+  it("starts empty when the authority pointer is absent", async () => {
     await installEnv();
-    await mkdir(canvasesDir, { recursive: true });
-    await writeFile(
-      join(canvasesDir, "legacy-only.canvas"),
-      serializeCanvas(noteDoc("from-legacy")),
-      "utf8",
-    );
-
     runtime = ManagedRuntime.make(CanvasesLive);
     const canvases = await runtime.runPromise(CanvasesService);
     const list = await runtime.runPromise(canvases.list);
-    expect(list.map((row) => row.name)).toEqual(["legacy-only"]);
+    expect(list).toEqual([]);
 
-    const read = await runtime.runPromise(canvases.read("legacy-only"));
-    const text =
-      read.doc.nodes[0] && read.doc.nodes[0].type === "text"
-        ? read.doc.nodes[0].text
-        : undefined;
-    expect(text).toBe("from-legacy");
-
-    // One-shot import already minted generation 1; first app write is gen 2.
-    const afterImport = await loadAuthoritySnapshot(authorityDir);
-    expect(afterImport?.pointer.generation).toBe("1");
-
-    await runtime.runPromise(
-      canvases.write("legacy-only", noteDoc("promoted"), read.revision),
-    );
+    await runtime.runPromise(canvases.write("first", noteDoc("minted")));
     const snap = await loadAuthoritySnapshot(authorityDir);
-    expect(snap?.pointer.generation).toBe("2");
-    expect(snap?.manifest.documents.map((d) => d.name)).toEqual([
-      "legacy-only",
-    ]);
-    expect(new TextDecoder().decode(snap!.documents.get("legacy-only")!)).toContain(
-      "promoted",
-    );
+    expect(snap?.pointer.generation).toBe("1");
+    expect(snap?.manifest.documents.map((d) => d.name)).toEqual(["first"]);
   });
 
   it("remove drops the document from the next authority generation", async () => {

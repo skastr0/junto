@@ -1,4 +1,4 @@
-import { lstat, mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -148,8 +148,7 @@ export const canvasDocumentPathForRead = async (rawName: string): Promise<string
 
 /**
  * Write an allowlisted agent-facing derivative under canvasesDir.
- * Sidecars are not product durability — authority is. No dual-path
- * `.canvas` file is required (or written) for sidecar publication.
+ * Sidecars are projections for agents (digest/svg), not product durability.
  */
 export const writeCanvasSidecar = async (
   rawName: string,
@@ -170,10 +169,8 @@ export const writeCanvasSidecar = async (
 // The document plane. All writes go through validate -> mirror law ->
 // serialize -> full-map authority generation commit.
 //
-// Durable store: canvas-authority-v1 only (`current.json` + content-addressed
-// objects). Legacy ~/.vellum/canvases is import-only (one-shot on first boot
-// when no pointer exists, or promote missing names once). External .canvas
-// edits never re-admit into live authority.
+// Sole durable store: canvas-authority-v1 (`current.json` + content-addressed
+// objects under ~/.vellum/state/canvas-authority-v1).
 export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
   CanvasesService,
   {
@@ -186,26 +183,24 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       expectedRevision?: string,
     ) => Effect.Effect<CanvasWriteResult, CanvasError>;
     // Optimistic RMW under the per-canvas mutex against the live authority
-    // document. Concurrent app mutates serialize; external disk bytes are never
-    // re-admitted as the base document.
+    // document.
     readonly mutate: (
       name: string,
       fn: (doc: CanvasDoc) => CanvasDoc,
     ) => Effect.Effect<void, CanvasError>;
     readonly create: (name: string) => Effect.Effect<CanvasReadResult, CanvasError>;
-    // Removes the canvas document and its known derived sidecars (digest/svg).
-    // Notifies change subscribers so the kernel can drop hydrated state. Does
-    // not touch arming intent (operator may re-open a same-named canvas later).
+    // Removes the canvas from the next authority generation and agent sidecars.
+    // Notifies change subscribers so the kernel can drop hydrated state.
     readonly remove: (name: string) => Effect.Effect<{ name: string }, CanvasError>;
-    // Creates the seed canvas when the canvases dir is empty. Called at startup.
+    // Creates the seed canvas when authority is empty. Called at startup.
     readonly ensureSeed: Effect.Effect<void, CanvasError>;
-    // Writes a sidecar file next to the canvas (e.g. digest). Returns its path.
+    // Writes an agent-facing sidecar (digest/svg). Returns its path.
     readonly writeSidecar: (
       name: string,
       suffix: string,
       contents: string,
     ) => Effect.Effect<string, CanvasError>;
-    // Bootstraps the live authority map from disk once (idempotent).
+    // Bootstraps the live map from the authority store once (idempotent).
     readonly start: () => void;
     readonly subscribeChanges: (listener: (name: string) => void) => () => void;
     /** Snapshot of live authority docs for process-bind caller resolution. */
@@ -214,9 +209,8 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       CanvasError
     >;
     /**
-     * Command Center projection install (Remote pull): re-admit installed
-     * disk bytes into live authority and drop names no longer present.
-     * Not a general external-edit path — only the pull/install plane calls this.
+     * Projection install plane: replace live authority with the installed set.
+     * Only the pull/install path calls this.
      */
     readonly replaceLiveAuthorityFromInstall: (
       installedNames: ReadonlyArray<string>,
@@ -235,8 +229,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const listeners = new Set<(name: string) => void>();
   const textEncoder = new TextEncoder();
 
-  // Live operator-intent authority. Disk durability is separate; external
-  // edits to .canvas files never update this map after bootstrap.
+  // Live operator-intent map. Durability is canvas-authority-v1 only.
   type LiveAuthority = {
     readonly doc: CanvasDoc;
     readonly revision: string;
@@ -386,94 +379,17 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     authorityGeneration = BigInt(snapshot.pointer.generation);
   };
 
-  /** Read legacy .canvas files once (import only — not live dual-path). */
-  const readLegacyCanvasFiles = async (
-    root: string,
-  ): Promise<Map<string, Uint8Array>> => {
-    const out = new Map<string, Uint8Array>();
-    let files: string[] = [];
-    try {
-      files = (await readdir(root)).filter((file) => file.endsWith(".canvas"));
-    } catch {
-      return out;
-    }
-    for (const file of files) {
-      if (file.includes(".pre-") || file.includes(".bak")) continue;
-      let name: CanvasName;
-      try {
-        name = canvasNameFrom(basename(file, ".canvas"));
-      } catch {
-        continue;
-      }
-      try {
-        const path = canvasDocumentPathIn(root, name);
-        await assertRegularOrMissing(path);
-        out.set(name, new Uint8Array(await readFile(path)));
-      } catch {
-        // skip
-      }
-    }
-    return out;
-  };
-
-  /**
-   * One-shot import: commit legacy (and any already-live) documents into
-   * authority, then load. Used when no pointer exists, or pointer is missing
-   * names that still exist as legacy import candidates.
-   */
-  const importLegacyIntoAuthority = async (root: string): Promise<void> => {
-    const legacy = await readLegacyCanvasFiles(root);
-    const documents = new Map<string, Uint8Array>();
-    for (const [name, entry] of liveAuthority) {
-      documents.set(name, textEncoder.encode(serializeCanvas(entry.doc)));
-    }
-    for (const [name, bytes] of legacy) {
-      if (!documents.has(name)) documents.set(name, bytes);
-    }
-    if (documents.size === 0) {
-      authorityGeneration = 0n;
-      return;
-    }
-    const nextGeneration = (authorityGeneration + 1n).toString();
-    const snap = await commitAuthorityGeneration(
-      {
-        generation: nextGeneration,
-        createdAt: new Date().toISOString(),
-        documents,
-      },
-      canvasAuthorityRoot(),
-    );
-    loadSnapshotIntoLive(root, snap);
-  };
-
-  const bootstrapFromAuthorityStore = async (
-    root: string,
-  ): Promise<"loaded" | "absent" | "corrupt"> => {
-    let snapshot: Awaited<ReturnType<typeof loadAuthoritySnapshot>>;
-    try {
-      snapshot = await loadAuthoritySnapshot(canvasAuthorityRoot());
-    } catch (error) {
-      console.error(
-        "[canvases] authority store unreadable (corrupt); will attempt legacy import:",
-        error,
-      );
-      return "corrupt";
-    }
-    if (snapshot === undefined) return "absent";
-    loadSnapshotIntoLive(root, snapshot);
-    return "loaded";
-  };
-
   const bootstrapLiveAuthority = async (): Promise<void> => {
     if (bootstrapped) return;
     if (bootstrapPromise) return bootstrapPromise;
     bootstrapPromise = (async () => {
+      // Sidecar root only — not a document store.
       const root = await ensureCanvasesDir();
-      const status = await bootstrapFromAuthorityStore(root);
-      // One-shot import only when there is no usable pointer. After that,
-      // authority is sole SoT — drop-in legacy .canvas files never re-admit.
-      if (status === "absent" || status === "corrupt") {
-        await importLegacyIntoAuthority(root);
+      const snapshot = await loadAuthoritySnapshot(canvasAuthorityRoot());
+      if (snapshot !== undefined) {
+        loadSnapshotIntoLive(root, snapshot);
+      } else {
+        authorityGeneration = 0n;
       }
       bootstrapped = true;
     })();
@@ -662,17 +578,16 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
               liveAuthority.set(sanitized, previous);
               throw error;
             }
-            // Best-effort cleanup of legacy/export sidecars — not product durability.
+            // Best-effort agent sidecar cleanup (digest/svg).
             try {
               const root = await ensureCanvasesDir();
-              await rm(canvasDocumentPathIn(root, sanitized), { force: true });
               for (const suffix of SIDECAR_SUFFIXES) {
                 await rm(canvasSidecarPathIn(root, sanitized, suffix), {
                   force: true,
                 }).catch(() => undefined);
               }
             } catch {
-              // ignore export-plane cleanup
+              // ignore
             }
             notifyListeners(sanitized);
           }),
@@ -705,7 +620,6 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       catch: toCanvasError,
     });
 
-  // Bootstrap live authority once; do not watch for external authoring.
   const start = (): void => {
     void bootstrapLiveAuthority().catch((error) => {
       console.error("[canvases] live authority bootstrap failed:", error);

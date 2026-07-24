@@ -90,10 +90,9 @@ Remaining debt (not production-complete protection):
 - Same-user delete of **both** topology/hosts key and seal re-enables
   bootstrap mint (same-UID non-claim)
 - Recovery codes / CC transfer ceremony not implemented
-- Residual Remote `canvas-pull` still SSH-reads CC export paths; fleet SoT is
-  projection push from live authority — treat pull as fallback only
 
 Canvas product durability: `~/.vellum/state/canvas-authority-v1` (sole store).
+Fleet intent delivery: projection push from live authority.
 
 ### Secure (doctrine-bound)
 
