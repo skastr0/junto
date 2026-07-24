@@ -18,3 +18,9 @@ export const a2aTask = (
     },
   ],
 });
+
+/** Stamp a worker claim the way workTaskClaim does (metadata.claimedBy). */
+export const claimed = (task: A2ATask, by: string): A2ATask => ({
+  ...task,
+  metadata: { ...(task.metadata ?? {}), claimedBy: by },
+});

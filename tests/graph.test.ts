@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
 import { blockedClosure, blockedEdgeIds, groupMembers } from "../src/shared/graph";
-import { a2aTask } from "./helpers/a2a-fixtures";
+import { a2aTask, claimed } from "./helpers/a2a-fixtures";
 import { seat } from "./helpers/physics-seats";
 
-const tasks = (id: string, needsInput: boolean) => ({
+const tasks = (id: string, needsInput: boolean, heldBy?: string) => ({
   id,
   type: "text" as const,
   text: id,
@@ -16,7 +16,11 @@ const tasks = (id: string, needsInput: boolean) => ({
   ether: {
     entity: { kind: "task" as const },
     tasks: {
-      items: [a2aTask("i1", "item", needsInput ? "input-required" : "completed")],
+      items: [
+        needsInput && heldBy !== undefined
+          ? claimed(a2aTask("i1", "item", "input-required"), heldBy)
+          : a2aTask("i1", "item", needsInput ? "input-required" : "completed"),
+      ],
     },
   },
 });
@@ -25,7 +29,7 @@ describe("graph derivations", () => {
   it("blockedClosure is direct only (no cascade)", () => {
     const doc: CanvasDoc = {
       nodes: [
-        tasks("t1", true),
+        tasks("t1", true, "a1"),
         seat("a1", "actor", { label: "a1" }),
         seat("a2", "actor", { label: "a2" }),
       ],
@@ -41,7 +45,7 @@ describe("graph derivations", () => {
   it("soft relates never participates in blocked closure", () => {
     const doc: CanvasDoc = {
       nodes: [
-        tasks("t1", true),
+        tasks("t1", true, "b"),
         seat("b", "actor", { label: "b" }),
         seat("c", "actor", { label: "c" }),
       ],

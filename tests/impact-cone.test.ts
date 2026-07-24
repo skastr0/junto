@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
 import { impactCone } from "../src/shared/impact";
-import { a2aTask } from "./helpers/a2a-fixtures";
+import { a2aTask, claimed } from "./helpers/a2a-fixtures";
 import { furnitureSeat, seat } from "./helpers/physics-seats";
 
 const text = (
@@ -108,7 +108,7 @@ describe("impactCone — tasks / requests stoppage", () => {
 
     const tasksHot = text("t1", "Checklist", {
       entity: { kind: "task" },
-      tasks: { items: [a2aTask("i1", "do it", "input-required")] },
+      tasks: { items: [claimed(a2aTask("i1", "do it", "input-required"), "a1")] },
     });
     const hotDoc: CanvasDoc = {
       nodes: [tasksHot, actor],
@@ -195,7 +195,7 @@ describe("impactCone — seeds, relays, attention leads", () => {
       nodes: [
         text("t1", "Checklist", {
           entity: { kind: "task" },
-          tasks: { items: [a2aTask("i1", "work", "input-required")] },
+          tasks: { items: [claimed(a2aTask("i1", "work", "input-required"), "blocked")] },
         }),
         seat("blocked", "actor", { label: "blocked worker" }),
         seat("lead", "actor", { label: "adjacent worker" }),
@@ -230,7 +230,7 @@ describe("impactCone — seeds, relays, attention leads", () => {
       nodes: [
         text("t1", "Checklist", {
           entity: { kind: "task" },
-          tasks: { items: [a2aTask("i1", "x", "input-required")] },
+          tasks: { items: [claimed(a2aTask("i1", "x", "input-required"), "a1")] },
         }),
         seat("a1", "actor", { label: "A" }),
         seat("a2", "actor", { label: "B" }),

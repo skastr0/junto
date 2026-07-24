@@ -3,7 +3,7 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import { attentionOf, isReservedClaimActor, sinkGlance, workerClaimId } from "../src/shared/attention";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
 import { factoryClaimTick } from "../src/shared/factory-tick";
-import { a2aTask } from "./helpers/a2a-fixtures";
+import { a2aTask, claimed } from "./helpers/a2a-fixtures";
 import { seat } from "./helpers/physics-seats";
 
 const tasksNode = (
@@ -55,7 +55,7 @@ describe("sinkGlance + attention", () => {
     const actor = seat("a1", "actor");
     const graph = deriveExecutionGraph({
       nodes: [
-        tasksNode("t", [a2aTask("i1", "x", "input-required")]),
+        tasksNode("t", [claimed(a2aTask("i1", "x", "input-required"), "a1")]),
         actor,
       ],
       edges: [

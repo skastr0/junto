@@ -57,6 +57,7 @@ const doc: CanvasDoc = {
             {
               id: "i1",
               state: "input-required",
+              metadata: { claimedBy: "m3" },
               history: [
                 {
                   messageId: "m1",

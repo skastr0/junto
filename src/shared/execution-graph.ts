@@ -6,7 +6,8 @@ import type {
   EdgeCriteria,
   EdgePhase,
 } from "./canvas";
-import { isTerminalTaskState, taskBrief } from "./a2a";
+import { claimedByOf, isTerminalTaskState, taskBrief } from "./a2a";
+import { workerClaimId } from "./attention";
 import { seatMayBeBlocked } from "./physics/phase-membership";
 import {
   findApproval,
@@ -21,7 +22,9 @@ import {
 //
 // Authorial edge model — criteria only:
 //   - no criteria → soft "relates" (never generates stoppage)
-//   - criteria tasks → attention (input-required | auth-required) generates blocks
+//   - criteria tasks → a CLAIMED attention task (input-required | auth-required)
+//     generates blocks on the claimant toNode actor only; unclaimed attention
+//     is human inventory, never worker stoppage. Requests need no claim.
 //   - criteria proof / approval → blocks until trust view clears
 //   - retired: glyphs, wip, depends phase, dependency cascade/relay
 //
@@ -110,7 +113,7 @@ const a2aItemsOn = (node: CanvasNode | undefined): ReadonlyArray<A2ATask> => {
 };
 
 /** Attention states only — open queue (submitted/working) does not stop actors. */
-const isBlockingTaskItem = (item: A2ATask): boolean =>
+const isAttentionTaskItem = (item: A2ATask): boolean =>
   item.state === "input-required" || item.state === "auth-required";
 
 const softRelates = (detail = "relates"): EdgeEval => ({
@@ -122,6 +125,7 @@ const softRelates = (detail = "relates"): EdgeEval => ({
 const evalTasksCriteria = (
   criteria: Extract<EdgeCriteria, { mode: "tasks" }>,
   fromNode: CanvasNode | undefined,
+  toNode: CanvasNode | undefined,
 ): EdgeEval => {
   const fromKind = fromNode?.ether?.entity?.kind;
   const items = a2aItemsOn(fromNode);
@@ -132,28 +136,40 @@ const evalTasksCriteria = (
   if (scoped.length === 0) {
     return softRelates(fromKind === "requests" ? "no pending requests" : "no open tasks");
   }
-  const open = scoped.filter((item) => isBlockingTaskItem(item));
-  if (open.length === 0) {
-    return softRelates(
-      fromKind === "requests"
-        ? `${scoped.length}/${scoped.length} requests resolved`
-        : `${scoped.length}/${scoped.length} tasks clear (no attention)`,
-    );
-  }
-  const sample = open
-    .slice(0, 3)
-    .map((item) => taskBrief(item))
-    .join(", ");
+  const open = scoped.filter((item) => isAttentionTaskItem(item));
   if (fromKind === "requests") {
+    if (open.length === 0) {
+      return softRelates(`${scoped.length}/${scoped.length} requests resolved`);
+    }
+    const sample = open
+      .slice(0, 3)
+      .map((item) => taskBrief(item))
+      .join(", ");
     return {
       phase: "blocks",
       detail: `${scoped.length - open.length}/${scoped.length} requests resolved · pending: ${sample}`,
       generates: true,
     };
   }
+  // Blocking is worker-state: only an attention task CLAIMED by this edge's
+  // toNode worker stops it. Unclaimed attention is inventory for a human.
+  const held =
+    toNode === undefined
+      ? []
+      : open.filter((item) => claimedByOf(item) === workerClaimId(toNode));
+  if (held.length === 0) {
+    if (open.length > 0) {
+      return softRelates(`${open.length} need input · none claimed by this worker`);
+    }
+    return softRelates(`${scoped.length}/${scoped.length} tasks clear (no attention)`);
+  }
+  const sample = held
+    .slice(0, 3)
+    .map((item) => taskBrief(item))
+    .join(", ");
   return {
     phase: "blocks",
-    detail: `${open.length} need input · ${sample}`,
+    detail: `${held.length} need input · ${sample}`,
     generates: true,
   };
 };
@@ -207,14 +223,14 @@ export const edgeGlyphProjects = (_doc: CanvasDoc): ReadonlySet<string> => new S
 export const evaluateEdge = (
   edge: CanvasEdge,
   fromNode: CanvasNode | undefined,
-  _glyphs: GlyphView = new Map(),
+  toNode: CanvasNode | undefined,
   trust: LiveTrustViews = {},
 ): EdgeEval => {
   const criteria = edge.ether?.criteria;
   if (!criteria) return softRelates();
   switch (criteria.mode) {
     case "tasks":
-      return evalTasksCriteria(criteria, fromNode);
+      return evalTasksCriteria(criteria, fromNode, toNode);
     case "proof":
       return evalProofCriteria(criteria, fromNode, trust.stamps);
     case "approval":
@@ -256,7 +272,7 @@ export const deriveExecutionGraph = (
   const edgeEvalById = new Map<string, EdgeEval>();
 
   for (const edge of doc.edges) {
-    const evaluation = evaluateEdge(edge, byId.get(edge.fromNode), glyphs, trust);
+    const evaluation = evaluateEdge(edge, byId.get(edge.fromNode), byId.get(edge.toNode), trust);
     edgeEvalById.set(edge.id, evaluation);
     phaseByEdgeId.set(edge.id, evaluation.phase);
     detailByEdgeId.set(edge.id, evaluation.detail);
