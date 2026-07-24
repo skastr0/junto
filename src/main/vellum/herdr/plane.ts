@@ -1071,7 +1071,12 @@ export const HerdrPlaneLive = Layer.scoped(
       },
     });
 
-    const warmPart = createHerdrOperationShutdownTracker("herdr-warm");
+    // The tracked operation is tailscalePeerCache.refresh(), whose own CLI
+    // probe carries a 6s bound (hosts/tailscale-peers.ts). The default 2s
+    // drain window is shorter than the work it is timing, so quit can report
+    // a false "retained" on any run that actually needed the CLI's full
+    // budget. Cover that budget with headroom instead of racing it.
+    const warmPart = createHerdrOperationShutdownTracker("herdr-warm", 7_000);
 
     const shutdown = createHerdrShutdownController({
       warm: warmPart,
