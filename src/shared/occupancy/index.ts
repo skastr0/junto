@@ -17,3 +17,11 @@ export type {
   OccupancyHarnessState as OccupancyHarnessStateName,
   OccupancySpectrum as OccupancySpectrumName,
 } from "./derive";
+
+// Cut 1 seam (S5): typed producer contracts. Interface + null producer ship
+// here; real producers bind from consumer-side lanes (renderer ACP plane,
+// PTY lane, fleet lane) without touching this module.
+export { ActivityFeed, ActivityFeedNull, nullActivityFeed } from "./activity-feed";
+export type { ActivityFeedService, OccupancyClue } from "./activity-feed";
+export { HostLiveness, HostLivenessNull, nullHostLiveness } from "./host-liveness";
+export type { HostLivenessService } from "./host-liveness";
