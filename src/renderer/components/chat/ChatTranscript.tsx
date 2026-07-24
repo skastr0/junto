@@ -1,18 +1,13 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { Check, Circle, LoaderCircle } from "lucide-react";
 import type { ChatItem, ChatPlanEntry } from "../../lib/chat-state";
 import { toolActivity } from "../../lib/activity";
-import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
 import { ActivityMarkFromSpec } from "../ActivityMark";
-
-// One card per ChatItem kind. Kept deliberately quiet — the transcript is a
-// record to scan, not a marketing surface.
-// Item components are memoized so streaming (appendOrMergeText preserves id
-// and prior item refs) only re-renders the merged tail.
 
 const PERMISSION_OPTION_LABEL: Record<string, string> = {
   allow_once: "Allow once",
   allow_session: "Allow session",
-  allow_always: "Allow always",
+  allow_always: "Always allow",
   deny: "Deny",
   deny_always: "Deny always",
 };
@@ -26,68 +21,141 @@ function formatBlock(value: unknown): string {
   }
 }
 
-const UserMessage = memo(function UserMessage({ item }: { readonly item: Extract<ChatItem, { kind: "user" }> }) {
-  return (
-    <div className="chat-message chat-message--user">
-      <pre className="chat-message__text">{item.text}</pre>
-    </div>
-  );
-});
+function formatClock(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 
-const AssistantMessage = memo(function AssistantMessage({ item }: { readonly item: Extract<ChatItem, { kind: "assistant" }> }) {
+function LedgerRow({
+  actor,
+  ts,
+  tone,
+  className,
+  children,
+}: {
+  readonly actor: string;
+  readonly ts: number;
+  readonly tone?: "user" | "system";
+  readonly className?: string;
+  readonly children: ReactNode;
+}) {
   return (
-    <div className="chat-message chat-message--assistant">
-      <pre className="chat-message__text">{item.text}</pre>
-    </div>
-  );
-});
-
-const ThoughtMessage = memo(function ThoughtMessage({ item }: { readonly item: Extract<ChatItem, { kind: "thought" }> }) {
-  return (
-    <details className="chat-thought">
-      <summary>thinking…</summary>
-      <pre className="chat-thought__text">{item.text}</pre>
-    </details>
-  );
-});
-
-function PlanEntryRow({ entry }: { readonly entry: ChatPlanEntry }) {
-  const done = entry.status === "completed";
-  const active = entry.status === "in_progress";
-  return (
-    <div className="chat-plan__entry">
-      <span className="chat-plan__dot" style={{ background: done ? "#5FB98E" : active ? HUE.amber : "rgba(237,230,218,.25)" }} />
-      <span style={{ color: done ? DIM : INK, textDecoration: done ? "line-through" : "none" }}>{entry.content}</span>
-    </div>
+    <article
+      className={[
+        "chat-ledger-row",
+        tone ? `chat-ledger-row--${tone}` : "",
+        className ?? "",
+      ].filter(Boolean).join(" ")}
+    >
+      <header className="chat-ledger-row__meta">
+        <span>{actor}</span>
+        <time>{formatClock(ts)}</time>
+      </header>
+      <div className="chat-ledger-row__content">{children}</div>
+    </article>
   );
 }
 
-const PlanStrip = memo(function PlanStrip({ item }: { readonly item: Extract<ChatItem, { kind: "plan" }> }) {
+const UserMessage = memo(function UserMessage({
+  item,
+}: {
+  readonly item: Extract<ChatItem, { kind: "user" }>;
+}) {
   return (
-    <div className="chat-plan">
-      {item.entries.map((entry, index) => <PlanEntryRow key={index} entry={entry} />)}
-    </div>
+    <LedgerRow actor="you" ts={item.ts} tone="user" className="chat-message--user">
+      <pre className="chat-message__text">{item.text}</pre>
+    </LedgerRow>
   );
 });
 
-const ToolCard = memo(function ToolCard({ item }: { readonly item: Extract<ChatItem, { kind: "tool" }> }) {
-  const activity = toolActivity(item.status);
-  const hasDetail = item.rawInput !== undefined || item.rawOutput !== undefined || Boolean(item.contentText);
+const AssistantMessage = memo(function AssistantMessage({
+  item,
+}: {
+  readonly item: Extract<ChatItem, { kind: "assistant" }>;
+}) {
   return (
-    <div className="chat-tool-card">
-      <div className="chat-tool-card__head">
-        <span className="chat-tool-card__name" title={item.title}>{item.title}</span>
-        <ActivityMarkFromSpec spec={activity} size="inline" />
-      </div>
-      {hasDetail ? (
-        <details className="chat-tool-card__details">
-          <summary>args / output</summary>
-          {item.rawInput !== undefined ? <pre>{formatBlock(item.rawInput)}</pre> : null}
-          {item.contentText ? <pre>{item.contentText}</pre> : null}
-          {item.rawOutput !== undefined ? <pre>{formatBlock(item.rawOutput)}</pre> : null}
-        </details>
-      ) : null}
-    </div>
+    <LedgerRow actor="agent" ts={item.ts} className="chat-message--assistant">
+      <pre className="chat-message__text">{item.text}</pre>
+    </LedgerRow>
+  );
+});
+
+const ThoughtMessage = memo(function ThoughtMessage({
+  item,
+}: {
+  readonly item: Extract<ChatItem, { kind: "thought" }>;
+}) {
+  return (
+    <LedgerRow actor="agent" ts={item.ts}>
+      <details className="chat-thought">
+        <summary>Thinking <span>collapsed</span></summary>
+        <pre className="chat-thought__text">{item.text}</pre>
+      </details>
+    </LedgerRow>
+  );
+});
+
+function PlanEntryRow({ entry, index }: { readonly entry: ChatPlanEntry; readonly index: number }) {
+  const done = entry.status === "completed";
+  const active = entry.status === "in_progress";
+  return (
+    <li className="chat-plan__entry">
+      <span className="chat-plan__index">{index + 1}.</span>
+      <span className="chat-plan__content">{entry.content}</span>
+      <span className={`chat-plan__status${done ? " is-done" : active ? " is-active" : ""}`}>
+        {done ? <Check size={12} /> : active ? <LoaderCircle size={12} /> : <Circle size={8} />}
+        {done ? "done" : active ? "in progress" : entry.status}
+      </span>
+    </li>
+  );
+}
+
+const PlanStrip = memo(function PlanStrip({
+  item,
+}: {
+  readonly item: Extract<ChatItem, { kind: "plan" }>;
+}) {
+  return (
+    <LedgerRow actor="agent" ts={item.ts}>
+      <div className="chat-plan__title">Plan</div>
+      <ol className="chat-plan">
+        {item.entries.map((entry, index) => (
+          <PlanEntryRow key={`${entry.content}-${index}`} entry={entry} index={index} />
+        ))}
+      </ol>
+    </LedgerRow>
+  );
+});
+
+const ToolCard = memo(function ToolCard({
+  item,
+}: {
+  readonly item: Extract<ChatItem, { kind: "tool" }>;
+}) {
+  const activity = toolActivity(item.status);
+  const hasDetail =
+    item.rawInput !== undefined || item.rawOutput !== undefined || Boolean(item.contentText);
+  return (
+    <LedgerRow actor="tools" ts={item.ts} tone="system">
+      <details className="chat-tool-card">
+        <summary>
+          <span className="chat-tool-card__chevron">›</span>
+          <span className="chat-tool-card__name" title={item.title}>{item.title}</span>
+          <ActivityMarkFromSpec spec={activity} size="inline" />
+          <span className="chat-tool-card__status">{item.status.replace("_", " ")}</span>
+        </summary>
+        {hasDetail ? (
+          <div className="chat-tool-card__details">
+            {item.rawInput !== undefined ? <pre>{formatBlock(item.rawInput)}</pre> : null}
+            {item.contentText ? <pre>{item.contentText}</pre> : null}
+            {item.rawOutput !== undefined ? <pre>{formatBlock(item.rawOutput)}</pre> : null}
+          </div>
+        ) : null}
+      </details>
+    </LedgerRow>
   );
 });
 
@@ -100,36 +168,54 @@ const PermissionCard = memo(function PermissionCard({
 }) {
   const answered = Boolean(item.answeredOptionId);
   return (
-    <div className="chat-permission-card">
-      <div className="chat-permission-card__title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {!answered ? <ActivityMarkFromSpec spec={{ mode: "wave", tone: "amber", label: "awaiting permission" }} size="inline" /> : null}
-        <span>{item.toolKind ? `${item.toolKind} · ` : ""}{item.title}</span>
+    <LedgerRow actor="agent" ts={item.ts}>
+      <div className="chat-permission-card">
+        <div className="chat-permission-card__copy">
+          {!answered ? (
+            <ActivityMarkFromSpec
+              spec={{ mode: "wave", tone: "amber", label: "awaiting permission" }}
+              size="inline"
+            />
+          ) : null}
+          <span>{item.toolKind ? `${item.toolKind} · ` : ""}{item.title}</span>
+        </div>
+        <div className="chat-permission-card__options">
+          {item.options.map((option) => {
+            const isChosen = item.answeredOptionId === option.optionId;
+            const denied = option.optionId.startsWith("deny");
+            return (
+              <button
+                key={option.optionId}
+                type="button"
+                disabled={answered}
+                className={[
+                  "chat-permission-card__option",
+                  isChosen ? "is-chosen" : "",
+                  denied ? "is-deny" : "",
+                ].filter(Boolean).join(" ")}
+                onClick={() => onAnswerPermission(item.requestId, option.optionId)}
+              >
+                {PERMISSION_OPTION_LABEL[option.optionId] ?? option.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
-      <div className="chat-permission-card__options">
-        {item.options.map((option) => {
-          const isChosen = item.answeredOptionId === option.optionId;
-          return (
-            <button
-              key={option.optionId}
-              type="button"
-              disabled={answered}
-              className={`chat-permission-card__option${isChosen ? " is-chosen" : ""}${option.optionId.startsWith("deny") ? " is-deny" : ""}`}
-              onClick={() => onAnswerPermission(item.requestId, option.optionId)}
-            >
-              {PERMISSION_OPTION_LABEL[option.optionId] ?? option.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
+    </LedgerRow>
   );
 });
 
-const StatusLine = memo(function StatusLine({ item }: { readonly item: Extract<ChatItem, { kind: "status" }> }) {
+const StatusLine = memo(function StatusLine({
+  item,
+}: {
+  readonly item: Extract<ChatItem, { kind: "status" }>;
+}) {
   return (
-    <div className="chat-status-line" style={{ color: item.level === "error" ? withAlpha(HUE.crimson, 0.85) : DIM }}>
-      {item.text}
-    </div>
+    <LedgerRow actor="system" ts={item.ts} tone="system">
+      <div className={`chat-status-line${item.level === "error" ? " is-error" : ""}`}>
+        {item.text}
+      </div>
+    </LedgerRow>
   );
 });
 
@@ -148,25 +234,38 @@ export function ChatTranscript({
     if (el && stickToBottom) el.scrollTop = el.scrollHeight;
   }, [items, stickToBottom]);
 
-  const handleScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setStickToBottom(distanceFromBottom < 24);
-  };
-
   return (
-    <div ref={scrollRef} className="chat-transcript nowheel" onScroll={handleScroll}>
+    <div
+      ref={scrollRef}
+      className="chat-transcript nowheel"
+      onScroll={() => {
+        const el = scrollRef.current;
+        if (!el) return;
+        setStickToBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
+      }}
+    >
       {items.map((item) => {
         switch (item.kind) {
-          case "user": return <UserMessage key={item.id} item={item} />;
-          case "assistant": return <AssistantMessage key={item.id} item={item} />;
-          case "thought": return <ThoughtMessage key={item.id} item={item} />;
-          case "plan": return <PlanStrip key={item.id} item={item} />;
-          case "tool": return <ToolCard key={item.id} item={item} />;
-          case "permission": return <PermissionCard key={item.id} item={item} onAnswerPermission={onAnswerPermission} />;
-          case "status": return <StatusLine key={item.id} item={item} />;
-          default: return null;
+          case "user":
+            return <UserMessage key={item.id} item={item} />;
+          case "assistant":
+            return <AssistantMessage key={item.id} item={item} />;
+          case "thought":
+            return <ThoughtMessage key={item.id} item={item} />;
+          case "plan":
+            return <PlanStrip key={item.id} item={item} />;
+          case "tool":
+            return <ToolCard key={item.id} item={item} />;
+          case "permission":
+            return (
+              <PermissionCard
+                key={item.id}
+                item={item}
+                onAnswerPermission={onAnswerPermission}
+              />
+            );
+          case "status":
+            return <StatusLine key={item.id} item={item} />;
         }
       })}
     </div>

@@ -87,6 +87,7 @@
     "node-pty": "^1.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "thinking-orbs": "0.1.1",
     "ulid": "^3.0.2"
   },
   "devDependencies": {

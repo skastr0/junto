@@ -564,20 +564,26 @@ test("capture every surface for design review", async () => {
     await expect(page.getByLabel("Page browser host")).toBeVisible();
     await shot(page, "08b-page-host-inspector");
 
-    // Chat: select the agent node, attach, send.
-    await page.locator(".react-flow__node", { hasText: "builder" }).first().click();
+    // Chat: double-click the agent node to open its focused ACP work surface.
+    await page.locator(".react-flow__node", { hasText: "builder" }).first().dblclick();
     await expect(page.locator(".chat-view")).toBeVisible({ timeout: 15_000 });
     await shot(page, "11-chat-detached");
     await page.getByRole("button", { name: "attach" }).click();
-    const composer = page.getByRole("textbox", { name: "Message" });
+    const chat = page.locator(".chat-view");
+    const composer = chat.getByRole("textbox", { name: "Message", exact: true });
     await expect(composer).toBeVisible({ timeout: 30_000 });
     await composer.fill("ship the design system");
-    await page.getByRole("button", { name: "send" }).click();
+    await chat.getByRole("button", { name: "send", exact: true }).click();
     await expect(page.locator(".chat-message--assistant")).toContainText("Design tokens", {
       timeout: 30_000,
     });
     await shot(page, "12-chat-conversation");
-    await page.getByRole("button", { name: "Close inspector" }).click();
+    await page.getByRole("button", { name: "Pin ACP chat" }).click();
+    await expect(page.getByRole("complementary", { name: "Pinned work surface dock" })).toBeVisible();
+    await shot(page, "12b-chat-pinned");
+    await page.getByRole("button", { name: "Unpin ACP chat" }).click();
+    await expect(page.getByRole("dialog", { name: /Workbench · chat/ })).toBeVisible();
+    await page.getByRole("button", { name: "Close ACP chat" }).click();
     await page.waitForTimeout(300);
 
     // Herdr terminal modal: single click on the card hero (pointerdown opens

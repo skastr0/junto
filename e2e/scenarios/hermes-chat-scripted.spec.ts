@@ -8,7 +8,7 @@ import { expect, launchVellum, test } from "../harness/launch";
 // Real spawn->ACP pipeline against a fake `hermes acp` on PATH — no demo
 // mode. The canvas node carries ether.entity {kind:"agent", name: AGENT_KEY}
 // directly (the same shape src/renderer/lib/node-factories.ts's
-// makeAgentNode produces), so selecting it opens the real ChatView without
+// makeAgentNode produces), so opening it mounts the real ChatView without
 // depending on the hermes-fleet discovery poll to have landed first.
 
 const AGENT_KEY = "local:default";
@@ -31,15 +31,16 @@ test("attaching chat to a fake hermes agent round-trips a scripted reply", async
 
     const node = page.locator(".react-flow__node", { hasText: LABEL });
     await expect(node).toBeVisible({ timeout: 30_000 });
-    await node.click();
+    await node.dblclick();
 
     await expect(page.locator(".chat-view")).toBeVisible();
     await page.getByRole("button", { name: "attach" }).click();
 
-    const composer = page.getByRole("textbox", { name: "Message" });
+    const chat = page.locator(".chat-view");
+    const composer = chat.getByRole("textbox", { name: "Message", exact: true });
     await expect(composer).toBeVisible({ timeout: 30_000 });
     await composer.fill("hello there");
-    await page.getByRole("button", { name: "send" }).click();
+    await chat.getByRole("button", { name: "send", exact: true }).click();
 
     await expect(page.locator(".chat-message--assistant")).toContainText(SCRIPTED_REPLY, { timeout: 30_000 });
   } finally {

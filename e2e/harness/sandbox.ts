@@ -16,6 +16,10 @@ import type {
   TextNode,
 } from "../../src/shared/canvas";
 import { serializeCanvas } from "../../src/shared/canvas";
+import {
+  commitAuthorityGeneration,
+  loadAuthoritySnapshot,
+} from "../../src/main/vellum/canvas-authority/store";
 
 export interface Sandbox {
   readonly root: string;
@@ -49,7 +53,23 @@ export const writeFixtureCanvas = async (
   name: string,
   doc: CanvasDoc,
 ): Promise<void> => {
-  await writeFile(canvasPath(sandbox, name), serializeCanvas(doc), "utf8");
+  const serialized = serializeCanvas(doc);
+  // Seed the same sole durable authority store the app reads. The .canvas
+  // file remains an agent-facing projection only.
+  const authorityRoot = join(sandbox.root, "canvas-authority-v1");
+  const current = await loadAuthoritySnapshot(authorityRoot);
+  const documents = new Map(current?.documents ?? []);
+  documents.set(name, new TextEncoder().encode(serialized));
+  const generation = (BigInt(current?.pointer.generation ?? "0") + 1n).toString();
+  await commitAuthorityGeneration(
+    {
+      generation,
+      createdAt: new Date().toISOString(),
+      documents,
+    },
+    authorityRoot,
+  );
+  await writeFile(canvasPath(sandbox, name), serialized, "utf8");
 };
 
 /** Raw file replace — simulate an external process editing the .canvas file
@@ -143,9 +163,9 @@ export const herdrTextNode = (input: {
   },
 });
 
-/** An agent-bound node matching makeAgentNode's shape
- * (src/renderer/lib/node-factories.ts) — opens ChatView in the inspector
- * once selected. `key` is a hermes agent key ("<host>:<profile>"). */
+/** An agent-bound node matching makeAgentNode's shape.
+ * Double-click opens its ACP work surface. `key` is a hermes agent key
+ * ("<host>:<profile>"). */
 export const agentTextNode = (input: {
   readonly id: string;
   readonly key: string;

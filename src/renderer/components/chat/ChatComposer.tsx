@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ArrowUp } from "lucide-react";
 
 export interface ChatContextBlock {
   readonly label: string;
@@ -38,30 +39,43 @@ export function ChatComposer({
 
   return (
     <div className="chat-composer">
-      {contextBlocks.length > 0 ? (
-        <div className="chat-context-chips">
-          {contextBlocks.map((block, index) => (
-            <span key={`${block.label}-${index}`} className="chat-context-chip" title={block.text}>{block.label}</span>
-          ))}
+      <textarea
+        ref={textareaRef}
+        aria-label="Message"
+        rows={MIN_ROWS}
+        className="chat-composer__input"
+        placeholder="Message the agent…"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            send();
+          }
+        }}
+      />
+      <div className="chat-composer__footer">
+        <div className="chat-composer__tools">
+          <div className="chat-context-chips">
+            {contextBlocks.map((block, index) => (
+              <span key={`${block.label}-${index}`} className="chat-context-chip" title={block.text}>
+                {block.label}
+              </span>
+            ))}
+          </div>
         </div>
-      ) : null}
-      <div className="chat-composer__row">
-        <textarea
-          ref={textareaRef}
-          aria-label="Message"
-          rows={MIN_ROWS}
-          className="chat-composer__input"
-          placeholder="message the agent… (⌘⏎ to send)"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              send();
-            }
-          }}
-        />
-        <button type="button" className="chat-composer__send" disabled={!draft.trim()} onClick={send}>send</button>
+        <div className="chat-composer__submit">
+          <span className="chat-composer__hint">⌘↵ send</span>
+          <button
+            type="button"
+            className="chat-composer__send"
+            aria-label="send"
+            disabled={!draft.trim()}
+            onClick={send}
+          >
+            <ArrowUp size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );

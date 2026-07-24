@@ -6,7 +6,8 @@ import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCrite
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
-import { dock$ } from "../src/renderer/lib/dock-state";
+import { dock$, openAgentChatSurface } from "../src/renderer/lib/dock-state";
+import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
 import { formatNodeRef } from "../src/shared/node-ref";
 
 /** Bun's vitest shim lacks `vi.waitFor` — poll until assertion holds. */
@@ -106,6 +107,8 @@ describe("renderer graph mutations", () => {
     chatFinishNodeDelete.mockReset();
     chatFinishNodeDelete.mockResolvedValue({ ok: true });
     browser$.sessionByRef.set({});
+    dock$.registry.set(initialWorkbenchState());
+    dock$.chatById.set({});
     dock$.stopErrorByRef.set({});
     state$.settings.station.hostId.set("local");
     clearGraphFilters();
@@ -360,8 +363,7 @@ describe("renderer graph mutations", () => {
 
   it("begins delete lease then finishes committed after document commit", async () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [{
+    const agentNode = {
         id: "agent",
         type: "text",
         text: "agent",
@@ -370,12 +372,20 @@ describe("renderer graph mutations", () => {
         width: 220,
         height: 84,
         ether: { entity: { kind: "agent", name: "local:default" } },
-      }],
+      } as const;
+    loadDoc({
+      nodes: [agentNode],
       edges: [],
     });
+    openAgentChatSurface(agentNode);
+    expect(dock$.registry.peek().surfaces).toMatchObject([
+      { id: "chat:agent", kind: "chat", zone: "focus" },
+    ]);
 
     deleteNode("agent");
     await waitFor(() => expect(state$.doc.peek().nodes).toEqual([]));
+    await waitFor(() => expect(dock$.registry.peek().surfaces).toEqual([]));
+    expect(dock$.chatById.peek()).toEqual({});
     expect(chatBeginNodeDelete).toHaveBeenCalledWith([
       { kind: "agent", agentKey: "local:default" },
     ]);

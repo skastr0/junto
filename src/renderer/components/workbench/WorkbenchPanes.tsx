@@ -19,6 +19,7 @@ import { parseTerminalSurfaceId } from "../../lib/dock-state";
 import { terminal$ } from "../../lib/terminal-state";
 import { TerminalSurface } from "../terminal/TerminalSurface";
 import { Button } from "../ui";
+import { ChatSurface } from "../chat/ChatSurface";
 
 function HerdrSurfaceSlot({
   surface,
@@ -104,6 +105,16 @@ function resolveSurfaceBody(
     const nodeId = parseTerminalSurfaceId(surface.id);
     const node = nodeId ? terminal$.openByNodeId[nodeId].peek() : undefined;
     return <section className="dock-slot workbench-surface" onMouseDown={onActivate}>{node ? <TerminalSurface node={node} /> : <div className="workbench-surface__placeholder">terminal · unbound</div>}</section>;
+  }
+  if (surface.kind === "chat") {
+    return (
+      <ChatSurface
+        surface={surface}
+        zone={zone}
+        visible={visible}
+        onActivate={onActivate}
+      />
+    );
   }
   return (
     <section className="dock-slot workbench-surface" onMouseDown={onActivate}>

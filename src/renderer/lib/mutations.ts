@@ -655,8 +655,10 @@ const deleteNodesInternal = async (
   // Agent delete: Main-owned lease locks keys, admits chatOpen tombstones,
   // and awaits verified close BEFORE document mutation. Finish releases the
   // fence after commit or abort (TTL is the backstop).
-  const agentKeys = existingNodes
-    .filter((n) => n.ether?.entity?.kind === "agent")
+  const agentNodes = existingNodes.filter(
+    (n) => n.ether?.entity?.kind === "agent",
+  );
+  const agentKeys = agentNodes
     .map((n) => n.ether?.entity?.name)
     .filter((name): name is string => typeof name === "string" && name.length > 0);
   let deleteLeaseId: string | undefined;
@@ -720,6 +722,15 @@ const deleteNodesInternal = async (
         if (!canvasMutationAdmissionOpen) return;
         for (const action of pageActions) {
           if (!action.stop) closeDockBrowser(action.ref);
+        }
+      }),
+    );
+  }
+  if (agentNodes.length > 0) {
+    sideEffects.push(
+      import("./dock-state").then(({ chatSurfaceId, closeWorkbenchSurface }) => {
+        for (const node of agentNodes) {
+          closeWorkbenchSurface(chatSurfaceId(node.id));
         }
       }),
     );

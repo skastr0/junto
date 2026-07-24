@@ -1,5 +1,5 @@
 import { observable, observe } from "@legendapp/state";
-import type { EtherBrowser } from "@shared/canvas";
+import type { CanvasNode, EtherBrowser } from "@shared/canvas";
 import type { VellumBrowserApi } from "@shared/ipc";
 import {
   browser$,
@@ -48,10 +48,22 @@ export interface DockBrowserPayload {
   readonly title: string;
 }
 
+export interface DockChatPayload {
+  readonly nodeId: string;
+  readonly agentKey: string;
+  readonly title: string;
+}
+
 const HERDR_SURFACE_PREFIX = "herdr:";
 const TERMINAL_SURFACE_PREFIX = "terminal:";
+const CHAT_SURFACE_PREFIX = "chat:";
 export const terminalSurfaceId = (nodeId: string): string => `${TERMINAL_SURFACE_PREFIX}${nodeId}`;
 export const parseTerminalSurfaceId = (id: string): string | null => id.startsWith(TERMINAL_SURFACE_PREFIX) && id.length > TERMINAL_SURFACE_PREFIX.length ? id.slice(TERMINAL_SURFACE_PREFIX.length) : null;
+export const chatSurfaceId = (nodeId: string): string => `${CHAT_SURFACE_PREFIX}${nodeId}`;
+export const parseChatSurfaceId = (id: string): string | null =>
+  id.startsWith(CHAT_SURFACE_PREFIX) && id.length > CHAT_SURFACE_PREFIX.length
+    ? id.slice(CHAT_SURFACE_PREFIX.length)
+    : null;
 
 /** Surface id for a herdr terminal bound to a canvas node. */
 export const herdrSurfaceId = (nodeId: string): string => `${HERDR_SURFACE_PREFIX}${nodeId}`;
@@ -67,6 +79,8 @@ export const dock$ = observable({
   registry: initialWorkbenchState() as WorkbenchState,
   /** canonical vellum:// ref -> display payload for browser slots. */
   browserByRef: {} as Record<string, DockBrowserPayload>,
+  /** chat:<nodeId> -> ACP surface identity. ACP runtime state remains keyed by agentKey. */
+  chatById: {} as Record<string, DockChatPayload>,
   /** Explicit Stop Page failures stay visible until retry/open succeeds. */
   stopErrorByRef: {} as Record<string, string>,
   configHydrated: false,
@@ -118,8 +132,32 @@ const applyTransition = (transition: WorkbenchTransition): void => {
     } else if (closed.kind === "terminal") {
       const nodeId = parseTerminalSurfaceId(closed.id);
       if (nodeId) closeTerminalSurface(nodeId);
+    } else if (closed.kind === "chat") {
+      // Closing a surface does not disconnect the ACP session. It only removes
+      // the operator's current view, matching browser detach semantics.
+      dock$.chatById[closed.id].delete();
     }
   }
+};
+
+/** Open an agent's ACP conversation in the shared focus/pinned workbench. */
+export const openAgentChatSurface = (
+  node: CanvasNode,
+  zone: WorkZone = "focus",
+): void => {
+  const entity = node.ether?.entity;
+  if (entity?.kind !== "agent" || !entity.name) return;
+  const id = chatSurfaceId(node.id);
+  const title =
+    (node.type === "text" ? node.text : "").split("\n")[0]?.trim() ||
+    entity.name;
+  dock$.chatById[id].set({
+    nodeId: node.id,
+    agentKey: entity.name,
+    title,
+  });
+  applyTransition(openSurface(dock$.registry.peek(), { id, kind: "chat" }, zone));
+  clearHerdrKeyboardFocus();
 };
 
 /**

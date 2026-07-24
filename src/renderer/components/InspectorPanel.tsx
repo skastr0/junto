@@ -9,13 +9,9 @@ import { EdgeCapabilitySection, EdgeCriteriaEditor, EdgePortsAttenuator, NodeCap
 import { clearSelection, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { DIM, GREEN, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
-import { ActivityMarkFromSpec } from "./ActivityMark";
 import { resolveNodeConnections } from "../../shared/connections";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
 import { getAgentAvatar, getAgentIdentity } from "../lib/agent";
-import { getVellumApi } from "../lib/vellum-api";
-import { ChatView, InspectorTabs } from "./chat";
-import { chatState$ } from "../lib/chat-state";
 import { connectionStateOf, herdr$, refreshHerdrMeta } from "../lib/herdr-state";
 import { HarnessMark } from "./herdr/HarnessMark";
 import { NoteMarkdown } from "../lib/note-markdown";
@@ -130,19 +126,14 @@ function HerdrSections({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
-// Identity (avatar + displayName + matrixUserId + homeRoomName) plus v1
-// fire-and-response messaging for one hermes agent. No session history —
-// the last reply just stays on screen until the next send replaces it.
+// Agent details stay inspectorial. Conversation belongs to the ACP work
+// surface, so this section intentionally stops at identity.
 function AgentSections({ node }: { readonly node: CanvasNode }) {
   const entity = node.ether?.entity;
   const hermesKey = entity?.kind === "agent" ? entity.name : undefined;
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const [avatar, setAvatar] = useState<string | null>(null);
   const [identity, setIdentity] = useState<AgentIdentity | null>(null);
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const [reply, setReply] = useState<{ readonly text: string; readonly at: number } | undefined>(undefined);
-  const [sendError, setSendError] = useState("");
 
   useEffect(() => {
     if (!hermesKey) return;
@@ -158,28 +149,7 @@ function AgentSections({ node }: { readonly node: CanvasNode }) {
 
   const displayName = identity?.displayName;
 
-  const send = async () => {
-    const text = draft.trim();
-    if (!text || sending) return;
-    setSending(true);
-    setSendError("");
-    try {
-      const api = getVellumApi();
-      if (!api || typeof api.agentMessage !== "function") throw new Error("agent messaging unreachable");
-      const result = await api.agentMessage(hermesKey, text);
-      if (result.ok && result.reply) {
-        setReply({ text: result.reply, at: Date.now() });
-      } else {
-        setSendError(result.error ?? "agent did not reply");
-      }
-    } catch (error) {
-      setSendError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return <>
+  return (
     <div className="inspector-section">
       <div className="inspector-section__label">identity</div>
       <div className="mt-2 flex items-center gap-2.5">
@@ -193,41 +163,7 @@ function AgentSections({ node }: { readonly node: CanvasNode }) {
         </div>
       </div>
     </div>
-    <div className="inspector-section">
-      <div className="inspector-section__label">message</div>
-      <div className="inspector-editor mt-2">
-        <textarea aria-label="Message this agent" rows={3} placeholder="fire a message at this agent…" value={draft} disabled={sending} onChange={(event) => setDraft(event.target.value)} />
-      </div>
-      <button
-        type="button"
-        className="mt-2 w-full rounded-md border py-1.5 text-[9px] uppercase tracking-[.12em] transition disabled:cursor-not-allowed disabled:opacity-35"
-        style={{ borderColor: withAlpha(HUE.amber, 0.35), background: withAlpha(HUE.amber, 0.08), color: HUE.amber }}
-        disabled={sending || !draft.trim()}
-        onClick={() => void send()}
-      >
-        {sending ? "sending…" : "send"}
-      </button>
-      {sending ? <div className="mt-2 flex items-center gap-2" role="status" aria-label={`waiting for ${displayName ?? rawName}`}><ActivityMarkFromSpec spec={{ mode: "wave", tone: "amber", label: `waiting for ${displayName ?? rawName}` }} size="inline" /><span className="text-[10px]" style={{ color: DIM }}>{displayName ?? rawName}</span></div> : null}
-      {sendError ? <div className="mt-2 text-[10px]" style={{ color: withAlpha(HUE.crimson, 0.75) }}>{sendError}</div> : null}
-      {reply ? <div className="mt-2">
-        <div className="text-[8px] uppercase tracking-[.14em]" style={{ color: DIM }}>reply · {new Date(reply.at).toLocaleTimeString()}</div>
-        <pre className="nowheel mt-1 max-h-[300px] overflow-y-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed" style={{ color: INK }}>{reply.text}</pre>
-      </div> : null}
-    </div>
-  </>;
-}
-
-// Agent nodes read chat-first: CHAT is the default tab, DETAILS holds the
-// identity/readout/label/flag surfaces. The unread count from the chat store
-// badges the tab while you're looking elsewhere.
-function AgentTabBar({ agentKey, active, onSelect }: { readonly agentKey: string; readonly active: string; readonly onSelect: (id: string) => void }) {
-  // Field-level only — full chatState$[agentKey] re-renders per streaming token.
-  const unread = use$(chatState$[agentKey].unread) ?? 0;
-  return <InspectorTabs
-    tabs={[{ id: "chat", label: "chat", badge: active !== "chat" && unread > 0 ? unread : undefined }, { id: "details", label: "details" }]}
-    active={active}
-    onSelect={onSelect}
-  />;
+  );
 }
 
 // Node accent / flags / focus / connect / delete / copy-ref live in the RTS
@@ -235,40 +171,30 @@ function AgentTabBar({ agentKey, active, onSelect }: { readonly agentKey: string
 // Memoized so parent re-renders from unrelated doc churn (other-node drag stops
 // that leave this node reference stable) do not rebuild the inspector tree.
 const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
-  const [agentTab, setAgentTab] = useState("chat");
   const isEntity = Boolean(node.ether?.entity);
   const isAgent = isEntity && node.ether?.entity?.kind === "agent";
-  const hermesKey = isAgent ? node.ether?.entity?.name : undefined;
-  const chatTab = Boolean(hermesKey) && agentTab === "chat";
   const detail =
     nodeDetail(node) || "";
 
   return <aside className="inspector-panel">
     <InspectorHeader eyebrow={nodeTypeLabel(node)} title={nodeTitle(node)} onClose={onClose} />
     <div className="inspector-body">
-      {hermesKey ? <AgentTabBar agentKey={hermesKey} active={agentTab} onSelect={setAgentTab} /> : null}
-      {chatTab && hermesKey ? (
-        <div className="mt-2 flex min-h-[340px] flex-col" style={{ height: "56vh" }}>
-          <ChatView key={hermesKey} agentKey={hermesKey} />
+      {isEntity && node.ether?.entity?.kind === "herdr" ? (
+        <HerdrSections key={node.id} node={node} />
+      ) : isEntity && node.ether?.entity?.kind === "agent" ? (
+        <LiveReadout node={node} />
+      ) : !isEntity && node.type === "text" ? (
+        <div className="inspector-detail note-surface">
+          <NoteMarkdown source={node.text.split("\n").slice(1).join("\n").trim()} />
         </div>
-      ) : <>
-        {isEntity && node.ether?.entity?.kind === "herdr" ? (
-          <HerdrSections key={node.id} node={node} />
-        ) : isEntity && node.ether?.entity?.kind === "agent" ? (
-          <LiveReadout node={node} />
-        ) : !isEntity && node.type === "text" ? (
-          <div className="inspector-detail note-surface">
-            <NoteMarkdown source={node.text.split("\n").slice(1).join("\n").trim()} />
-          </div>
-        ) : detail ? (
-          <div className="inspector-detail">{detail}</div>
-        ) : null}
-        {isAgent ? <AgentSections key={node.id} node={node} /> : null}
-        <WaitingOnSection key={`waiting:${node.id}`} nodeId={node.id} />
-        <NodePlacementSection key={`place:${node.id}`} node={node} />
-        <NodeCapabilityInventory key={`cap:${node.id}`} node={node} />
-        <NodeFieldEditors node={node} />
-      </>}
+      ) : detail ? (
+        <div className="inspector-detail">{detail}</div>
+      ) : null}
+      {isAgent ? <AgentSections key={node.id} node={node} /> : null}
+      <WaitingOnSection key={`waiting:${node.id}`} nodeId={node.id} />
+      <NodePlacementSection key={`place:${node.id}`} node={node} />
+      <NodeCapabilityInventory key={`cap:${node.id}`} node={node} />
+      <NodeFieldEditors node={node} />
     </div>
   </aside>;
 });

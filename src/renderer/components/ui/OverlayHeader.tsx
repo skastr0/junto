@@ -21,7 +21,7 @@ export function OverlayHeader({
   readonly status?: ReactNode;
   readonly actions?: ReactNode;
   readonly className?: string;
-} & HTMLAttributes<HTMLElement>) {
+} & Omit<HTMLAttributes<HTMLElement>, "title">) {
   return (
     <header
       className={[

@@ -322,6 +322,11 @@ html[data-vellum-platform="darwin"] .focus-surface {
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 56px);
 }
+.focus-surface__panel.work-focus-shell__panel--chat {
+  align-self: center;
+  width: min(1080px, 88vw);
+  height: min(78vh, 900px);
+}
 .workbench-chrome {
   display: flex;
   flex-shrink: 0;

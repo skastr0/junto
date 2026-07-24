@@ -19,11 +19,13 @@ import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { openHerdrTerminal } from "../../lib/herdr-state";
 import { openTerminal } from "../../lib/terminal-actions";
+import { openAgentChatSurface } from "../../lib/dock-state";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { TerminalCard } from "../terminal/TerminalCard";
 import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
 import { HerdrToolbarActions } from "../herdr/HerdrToolbarActions";
+import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Eyebrow, IconButton } from "../ui";
 import {
@@ -312,6 +314,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const isFreeNote = !node.ether?.entity;
   const isHerdr = node.ether?.entity?.kind === "herdr";
   const isTerminal = node.ether?.entity?.kind === "terminal";
+  const isAgent = node.ether?.entity?.kind === "agent";
   // Boolean selector: only this node re-renders when edit intent targets it.
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
   const [editing, setEditing] = useState(false);
@@ -385,6 +388,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           <HerdrToolbarActions node={node} />
         ) : isTerminal ? (
           <TerminalToolbarActions node={node} />
+        ) : isAgent ? (
+          <AgentChatToolbarActions node={node} />
         ) : undefined
       }
     >
@@ -439,6 +444,10 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             }
             if (isTerminal) {
               void openTerminal(node);
+              return;
+            }
+            if (isAgent) {
+              openAgentChatSurface(node);
               return;
             }
             if (isWorkSurface) {

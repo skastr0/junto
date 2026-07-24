@@ -18,8 +18,10 @@ import {
 import {
   closeDockBrowser,
   closeWorkbenchSurface,
+  chatSurfaceId,
   dock$,
   herdrSurfaceId,
+  openAgentChatSurface,
   openDockBrowser,
   pinWorkbenchSurface,
   reconcileDockFromLiveSessions,
@@ -202,6 +204,7 @@ function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
 function resetDock(): void {
   dock$.registry.set(initialWorkbenchState());
   dock$.browserByRef.set({});
+  dock$.chatById.set({});
   dock$.stopErrorByRef.set({});
   dock$.configHydrated.set(false);
   browser$.sessionByRef.set({});
@@ -230,6 +233,37 @@ describe("dock-state", () => {
       sessionId: "session-1",
       state: "loading",
     });
+  });
+
+  it("opens agent chat as a focus surface and preserves its payload across pinning", () => {
+    const node = {
+      id: "agent-1",
+      type: "text" as const,
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 96,
+      text: "PROFILE-01",
+      ether: { entity: { kind: "agent", name: "remote-a:profile-01" } },
+    };
+    openAgentChatSurface(node);
+    const id = chatSurfaceId(node.id);
+    expect(dock$.registry.peek().surfaces).toEqual([
+      { id, kind: "chat", zone: "focus" },
+    ]);
+    expect(dock$.chatById[id].peek()).toEqual({
+      nodeId: "agent-1",
+      agentKey: "remote-a:profile-01",
+      title: "PROFILE-01",
+    });
+
+    pinWorkbenchSurface(id);
+    expect(dock$.registry.peek().surfaces[0]?.zone).toBe("pinned");
+    expect(dock$.chatById[id].peek()?.agentKey).toBe("remote-a:profile-01");
+
+    closeWorkbenchSurface(id);
+    expect(dock$.registry.peek().surfaces).toEqual([]);
+    expect(dock$.chatById[id].peek()).toBeUndefined();
   });
 
   it("opens many browsers without detaching earlier ones (tabs replace eviction)", async () => {

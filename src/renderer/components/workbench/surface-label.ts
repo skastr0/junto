@@ -29,6 +29,9 @@ export function surfaceLabel(
     const node = nodeId ? terminal$.openByNodeId[nodeId].peek() : undefined;
     return node?.type === "text" ? node.text : "terminal";
   }
+  if (surface.kind === "chat") {
+    return dock$.chatById[surface.id].peek()?.title ?? "ACP chat";
+  }
   return surface.kind;
 }
 
