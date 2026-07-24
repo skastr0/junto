@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
@@ -91,7 +91,15 @@ const noteDoc = (text: string): CanvasDoc =>
     edges: [],
   });
 
-describe("CanvasesService dual-path authority", () => {
+const listCanvasFiles = async (dir: string): Promise<string[]> => {
+  try {
+    return (await readdir(dir)).filter((f) => f.endsWith(".canvas")).sort();
+  } catch {
+    return [];
+  }
+};
+
+describe("CanvasesService sole authority store", () => {
   let canvasesDir = "";
   let authorityDir = "";
   let previousCanvases: string | undefined;
@@ -132,14 +140,14 @@ describe("CanvasesService dual-path authority", () => {
     await restoreEnv();
   });
 
-  it("writes mirror legacy path and commits sequential authority generations", async () => {
+  it("commits sequential authority generations without dual-path .canvas writes", async () => {
     await installEnv();
     runtime = ManagedRuntime.make(CanvasesLive);
     const canvases = await runtime.runPromise(CanvasesService);
 
     await runtime.runPromise(canvases.write("alpha", noteDoc("one")));
-    const legacy = await readFile(join(canvasesDir, "alpha.canvas"), "utf8");
-    expect(legacy).toContain("one");
+    // Durability is authority store only — write() does not mint legacy files.
+    expect(await listCanvasFiles(canvasesDir)).toEqual([]);
 
     const gen1 = await loadAuthoritySnapshot(authorityDir);
     expect(gen1?.pointer.generation).toBe("1");
@@ -159,12 +167,13 @@ describe("CanvasesService dual-path authority", () => {
     expect(new TextDecoder().decode(gen3!.documents.get("alpha")!)).toContain(
       "two",
     );
-    expect(await readFile(join(canvasesDir, "beta.canvas"), "utf8")).toContain(
-      '"nodes"',
-    );
+    expect(await listCanvasFiles(canvasesDir)).toEqual([]);
+
+    const readBeta = await runtime.runPromise(canvases.read("beta"));
+    expect(readBeta.doc.nodes).toEqual([]);
   });
 
-  it("bootstraps live map from authority when pointer is valid", async () => {
+  it("bootstraps live map from authority; stale same-name legacy cannot overwrite", async () => {
     await installEnv();
     runtime = ManagedRuntime.make(CanvasesLive);
     const canvases = await runtime.runPromise(CanvasesService);
@@ -172,12 +181,13 @@ describe("CanvasesService dual-path authority", () => {
     await runtime.dispose();
     runtime = undefined;
 
-    // Stale/hostile legacy file must not re-admit over the protected store.
+    // Stale same-name bytes must not re-admit over protected authority content.
     await writeFile(
       join(canvasesDir, "alpha.canvas"),
       serializeCanvas(noteDoc("legacy-stale")),
       "utf8",
     );
+    // Missing-name legacy is still promoted once (pre-migration recovery).
     await writeFile(
       join(canvasesDir, "ghost.canvas"),
       serializeCanvas(noteDoc("only-on-legacy")),
@@ -187,7 +197,10 @@ describe("CanvasesService dual-path authority", () => {
     runtime = ManagedRuntime.make(CanvasesLive);
     const reloaded = await runtime.runPromise(CanvasesService);
     const list = await runtime.runPromise(reloaded.list);
-    expect(list.map((row) => row.name)).toEqual(["alpha"]);
+    expect(list.map((row) => row.name).slice().sort()).toEqual([
+      "alpha",
+      "ghost",
+    ]);
 
     const read = await runtime.runPromise(reloaded.read("alpha"));
     const text =
@@ -196,21 +209,30 @@ describe("CanvasesService dual-path authority", () => {
         : undefined;
     expect(text).toBe("authority-wins");
 
+    const ghost = await runtime.runPromise(reloaded.read("ghost"));
+    const ghostText =
+      ghost.doc.nodes[0] && ghost.doc.nodes[0].type === "text"
+        ? ghost.doc.nodes[0].text
+        : undefined;
+    expect(ghostText).toBe("only-on-legacy");
+
     // Boot does not rewrite legacy disk (would fight Remote pull deletes).
-    // Stale mirror remains until the next app-owned write.
     const legacyAfterBoot = await readFile(
       join(canvasesDir, "alpha.canvas"),
       "utf8",
     );
     expect(legacyAfterBoot).toContain("legacy-stale");
 
-    // Next commit re-syncs the dual-path mirror from live authority.
+    // Next app write stays authority-only — does not re-mirror dual-path.
     await runtime.runPromise(
       reloaded.write("alpha", noteDoc("authority-wins"), read.revision),
     );
-    const mirrored = await readFile(join(canvasesDir, "alpha.canvas"), "utf8");
-    expect(mirrored).toContain("authority-wins");
-    expect(mirrored).not.toContain("legacy-stale");
+    const legacyAfterWrite = await readFile(
+      join(canvasesDir, "alpha.canvas"),
+      "utf8",
+    );
+    expect(legacyAfterWrite).toContain("legacy-stale");
+    expect(legacyAfterWrite).not.toContain("authority-wins");
   });
 
   it("bootstraps from legacy canvasesDir when authority pointer is absent", async () => {
@@ -234,15 +256,21 @@ describe("CanvasesService dual-path authority", () => {
         : undefined;
     expect(text).toBe("from-legacy");
 
-    // First app write mints authority generation 1 over the admitted set.
+    // One-shot import already minted generation 1; first app write is gen 2.
+    const afterImport = await loadAuthoritySnapshot(authorityDir);
+    expect(afterImport?.pointer.generation).toBe("1");
+
     await runtime.runPromise(
       canvases.write("legacy-only", noteDoc("promoted"), read.revision),
     );
     const snap = await loadAuthoritySnapshot(authorityDir);
-    expect(snap?.pointer.generation).toBe("1");
+    expect(snap?.pointer.generation).toBe("2");
     expect(snap?.manifest.documents.map((d) => d.name)).toEqual([
       "legacy-only",
     ]);
+    expect(new TextDecoder().decode(snap!.documents.get("legacy-only")!)).toContain(
+      "promoted",
+    );
   });
 
   it("remove drops the document from the next authority generation", async () => {

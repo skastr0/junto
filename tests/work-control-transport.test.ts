@@ -159,6 +159,10 @@ const startTestServer = async (options: {
 
   const runtime = ManagedRuntime.make(Layer.provideMerge(WorkLive, CanvasesLive));
   runtimes.push(runtime);
+  // One-shot legacy import + authority commit before any hung dispatch so the
+  // first work op does not pay store fsync under a tight shutdown deadline.
+  const canvases = await runtime.runPromise(CanvasesService);
+  await runtime.runPromise(canvases.read("work-cli"));
   const baseRun: WorkControlServerOptions["run"] = (effect) =>
     runtime.runPromise(effect);
 

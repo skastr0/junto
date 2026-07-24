@@ -22,14 +22,24 @@ import {
   canvasNameFrom,
   writeCanvasSidecar,
 } from "../src/main/vellum/canvases";
+import { serializeCanvas } from "../src/shared/canvas";
 
 const runtime = ManagedRuntime.make(CanvasesLive);
 let canvases: Context.Tag.Service<typeof CanvasesService>;
 
-const doc = { nodes: [], edges: [] } as const;
+const emptyDoc = { nodes: [], edges: [] } as const;
 const rejected = async (effect: Effect.Effect<unknown, unknown>): Promise<void> => {
   const outcome = await runtime.runPromise(Effect.either(effect));
   expect(outcome._tag).toBe("Left");
+};
+
+/** Export-plane sidecars still require a real document file beside them. */
+const seedExportDocument = async (name: string, root?: string): Promise<string> => {
+  const dir = root ?? join(mockCanvasesHome, ".vellum", "canvases");
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, `${name}.canvas`);
+  await writeFile(path, serializeCanvas(emptyDoc), "utf8");
+  return path;
 };
 
 const runHeadless = async (script: "digest.ts" | "render.ts", name: string) => {
@@ -87,7 +97,7 @@ describe("canvas path capability boundary", () => {
 
   it("validates the sidecar suffix inside the filesystem sink", async () => {
     await runtime.runPromise(canvases.create("sidecar-sink"));
-    const documentPath = canvasDocumentPath("sidecar-sink");
+    const documentPath = await seedExportDocument("sidecar-sink");
     const before = await readFile(documentPath, "utf8");
 
     await expect(
@@ -108,6 +118,7 @@ describe("canvas path capability boundary", () => {
     process.env.VELLUM_CANVASES_DIR = rootA;
     try {
       await runtime.runPromise(canvases.create("stable-root"));
+      await seedExportDocument("stable-root", rootA);
       const pending = writeCanvasSidecar("stable-root", "svg", "<svg/>");
       process.env.VELLUM_CANVASES_DIR = swapped;
       const written = await pending;
@@ -136,7 +147,7 @@ describe("canvas path capability boundary", () => {
 
     for (const name of ["../outside", "/tmp/outside", "subdir/name", "name%2fchild", ".dot"]) {
       await rejected(canvases.read(name));
-      await rejected(canvases.write(name, doc));
+      await rejected(canvases.write(name, emptyDoc));
       await rejected(canvases.mutate(name, (current) => current));
       await rejected(canvases.create(name));
       await rejected(canvases.remove(name));
@@ -151,21 +162,23 @@ describe("canvas path capability boundary", () => {
     const outsideDocument = join(mockCanvasesHome, "outside-document.canvas");
     const outsideSidecar = join(mockCanvasesHome, "outside.digest.txt");
     await runtime.runPromise(canvases.create("safe"));
+    await seedExportDocument("safe", root);
     await writeFile(outsideDocument, "outside document", "utf8");
     await writeFile(outsideSidecar, "outside sidecar", "utf8");
     await symlink(outsideDocument, join(root, "linked.canvas"));
     await symlink(outsideSidecar, join(root, "safe.digest.txt"));
 
+    // Symlink document is never one-shot-imported into live authority.
     await rejected(canvases.read("linked"));
-    await rejected(canvases.write("linked", doc));
-    await rejected(canvases.mutate("linked", (current) => current));
+    // Sole-authority write admits by name without following the export-plane symlink.
+    await runtime.runPromise(canvases.write("linked", emptyDoc));
     await rejected(canvases.writeSidecar("safe", "digest.txt", "replacement"));
 
     expect(await readFile(outsideDocument, "utf8")).toBe("outside document");
     expect(await readFile(outsideSidecar, "utf8")).toBe("outside sidecar");
     const listed = await runtime.runPromise(canvases.list);
     expect(listed.map((entry) => entry.name)).toContain("safe");
-    expect(listed.map((entry) => entry.name)).not.toContain("linked");
+    expect(listed.map((entry) => entry.name)).toContain("linked");
   });
 
   it("returns a root-confined canonical path for legitimate names", () => {
