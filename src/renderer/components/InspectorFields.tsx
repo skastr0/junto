@@ -569,11 +569,16 @@ export function EdgeCriteriaEditor({
     if (criteria?.mode === "glyphs" && criteria.glyphIds.length > 0) setGlyphsDraft(false);
   }, [criteria]);
 
-  const storedMode: "none" | "glyphs" | "wip" | "tasks" = !criteria ? "none" : criteria.mode;
-  const mode: "none" | "glyphs" | "wip" | "tasks" =
+  type AuthoringMode = "none" | "glyphs" | "wip" | "tasks";
+  type StoredMode = AuthoringMode | "proof" | "approval";
+  const storedMode: StoredMode = !criteria ? "none" : criteria.mode;
+  // proof/approval are trust-plane modes (runtime stamps/grants); not authored here.
+  const isTrustMode = storedMode === "proof" || storedMode === "approval";
+  const mode: StoredMode =
     storedMode === "none" && glyphsDraft ? "glyphs" : storedMode;
+  const selectValue: AuthoringMode | "proof" | "approval" = mode;
 
-  const setMode = (next: "none" | "glyphs" | "wip" | "tasks") => {
+  const setMode = (next: AuthoringMode) => {
     if (next === "none") {
       setGlyphsDraft(false);
       setEdgeCriteria(edgeId, undefined);
@@ -623,8 +628,12 @@ export function EdgeCriteriaEditor({
         <span>mode</span>
         <select
           aria-label="Edge phase filter mode"
-          value={mode}
-          onChange={(event) => setMode(event.target.value as "none" | "glyphs" | "wip" | "tasks")}
+          value={selectValue}
+          onChange={(event) => {
+            const v = event.target.value;
+            if (v === "proof" || v === "approval") return;
+            setMode(v as AuthoringMode);
+          }}
         >
           <option value="none">none · soft relates</option>
           {fromIsTask ? (
@@ -639,6 +648,13 @@ export function EdgeCriteriaEditor({
           ) : null}
           {fromIsProject || projectKey ? (
             <option value="glyphs">glyphs · selected must be done</option>
+          ) : null}
+          {isTrustMode ? (
+            <option value={storedMode}>
+              {storedMode === "proof"
+                ? "proof · runtime stamp (trust plane)"
+                : "approval · human grant (trust plane)"}
+            </option>
           ) : null}
         </select>
       </label>
@@ -659,6 +675,18 @@ export function EdgeCriteriaEditor({
           {fromKind === "requests"
             ? "Blocks while any selected request is input-required. Auto-set when connecting from requests."
             : "Blocks while any selected task is not completed. Auto-set when connecting from tasks."}
+        </div>
+      ) : null}
+      {mode === "proof" ? (
+        <div className="inspector-detail">
+          Holds until a matching proof stamp is published into the source sink
+          (artifact.publish by a process-bound principal). Stamps are runtime state.
+        </div>
+      ) : null}
+      {mode === "approval" ? (
+        <div className="inspector-detail">
+          Holds until a human grant is recorded for this step (operator surface —
+          human is an external principal, never a node).
         </div>
       ) : null}
       {mode === "none" ? (

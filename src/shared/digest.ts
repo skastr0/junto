@@ -1,28 +1,35 @@
 import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
 import { buildConnectionIndex, resolveConnections, type Connection } from "./connections";
 import type { EntitySource, SnapshotState } from "./entities";
-import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
+import {
+  clearingStampsForDoc,
+  deriveExecutionGraph,
+  type GlyphView,
+  type LiveTrustViews,
+} from "./execution-graph";
 import { groupMembers, isGroup } from "./graph";
 import {
   formatRankedStoppageLine,
   rankStoppageSeeds,
 } from "./impact";
+import type { OccupancySpectrumName } from "./occupancy";
 import { resolveSpec, roleOf, type FactoryRole } from "./physics";
 import { deriveRegionRollups } from "./region-rollup";
 
 // Deterministic text projection of a canvas + snapshots for agent consumption.
-// Contract: same doc + same snapshots (+ same glyph view) -> byte-identical
+// Contract: same doc + same snapshots (+ same glyph/trust views) -> byte-identical
 // output. No timestamps, no randomness. Sections: regions (with members),
 // region rollups (severity), factory physics (role counts + soft/criteria
-// edges), entities (with stats), edges (live phase), blockers (with
-// closure), seeds (unbound entity nodes), sources.
+// edges), design (topology + empty seats — I13), completion (stamped /
+// cleared proof — never empty seats), entities (with stats), edges (live
+// phase), blockers (with closure), seeds (unbound entity nodes), sources.
 // Ordering is document order throughout; the one place input order is
 // unstable (which adapter bundle landed first) is sorted to a fixed source
 // order instead.
 //
 // Factory physics is headless and pure document: roles via roleOf/resolveSpec
 // (never authorial ether.role), capability summary = edge criteria vs soft.
-// No live PIDs / process-bind / occupancy.
+// Occupancy is optional live input for design empty-seat lines only.
 
 // Fixed rendering order for the sources section, independent of fetch order.
 const SOURCE_ORDER: ReadonlyArray<EntitySource> = ["hermes"];
@@ -81,11 +88,18 @@ const isSeed = (node: CanvasNode, connections: ReadonlyArray<Connection>): boole
   return node.ether?.entity !== undefined && kind !== "agent" && connections.length === 0;
 };
 
+/** Optional live inputs for trust plane + seat occupancy (never document truth). */
+export type DigestLiveViews = LiveTrustViews & {
+  /** nodeId → occupancy spectrum. Absent/empty seats surface under design only (I13). */
+  readonly occupancy?: ReadonlyMap<string, OccupancySpectrumName>;
+};
+
 export const digestCanvas = (
   name: string,
   doc: CanvasDoc,
   snapshots: SnapshotState,
   glyphs?: GlyphView,
+  live?: DigestLiveViews,
 ): string => {
   const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));
   const connectionIndex = buildConnectionIndex(snapshots);
@@ -94,7 +108,11 @@ export const digestCanvas = (
     return node ? titleOf(node) : id;
   };
 
-  const graph = deriveExecutionGraph(doc, glyphs ?? new Map());
+  const trust: LiveTrustViews = {
+    ...(live?.stamps ? { stamps: live.stamps } : {}),
+    ...(live?.approvals ? { approvals: live.approvals } : {}),
+  };
+  const graph = deriveExecutionGraph(doc, glyphs ?? new Map(), trust);
 
   const lines: string[] = [
     `canvas :: ${name}`,
@@ -175,6 +193,89 @@ export const digestCanvas = (
       `roles :: ${roleParts.join(" ")}`,
       `capabilities :: criteria=${criteriaEdges} soft=${softEdges}`,
     ]);
+  }
+
+  // design — topology of seats + empty seats (I13: empty never under completion).
+  // Headless default: actor seats without occupancy input are empty.
+  {
+    const designLines = ["design"];
+    const seatLines: string[] = [];
+    const emptyLines: string[] = [];
+    for (const node of doc.nodes) {
+      const role = roleOf(
+        resolveSpec({
+          kind: node.ether?.entity?.kind,
+          isGroup: isGroup(node),
+        }),
+      );
+      if (role !== "actor") continue;
+      const occ = live?.occupancy?.get(node.id) ?? "empty";
+      seatLines.push(`${titleOf(node)} :: ${occ}`);
+      if (occ === "empty" || occ === "gone") {
+        emptyLines.push(`${titleOf(node)} :: ${occ}`);
+      }
+    }
+    if (seatLines.length > 0) {
+      designLines.push("seats");
+      designLines.push(...seatLines.map((line) => `  ${line}`));
+    }
+    if (emptyLines.length > 0) {
+      designLines.push("empty seats");
+      designLines.push(...emptyLines.map((line) => `  ${line}`));
+    }
+    // Topology summary: criteria modes present (document shape, not completion).
+    const modeCounts: Record<string, number> = {};
+    for (const edge of doc.edges) {
+      const mode = edge.ether?.criteria?.mode ?? "soft";
+      modeCounts[mode] = (modeCounts[mode] ?? 0) + 1;
+    }
+    const modeParts = Object.keys(modeCounts)
+      .sort()
+      .map((mode) => `${mode}=${modeCounts[mode]}`);
+    if (modeParts.length > 0) {
+      designLines.push(`topology :: ${modeParts.join(" ")}`);
+    }
+    if (designLines.length > 1) {
+      sections.push(designLines);
+    }
+  }
+
+  // completion — stamped proofs and cleared phase only. Never lists empty seats (I13).
+  {
+    const completionLines = ["completion"];
+    const cleared = clearingStampsForDoc(doc, live?.stamps);
+    if (cleared.length > 0) {
+      completionLines.push("stamps");
+      for (const { edgeId, stamp } of cleared) {
+        const refs = stamp.evidenceRefs.join(",") || "(none)";
+        completionLines.push(
+          `  ${stamp.step} · seat=${stamp.seat} · edge=${edgeId} · refs=${refs}`,
+        );
+      }
+      completionLines.push("cleared");
+      for (const { edgeId, stamp } of cleared) {
+        completionLines.push(`  proof edge ${edgeId} · step=${stamp.step}`);
+      }
+    }
+    // Human approvals that clear approval edges.
+    if (live?.approvals && live.approvals.size > 0) {
+      const approvalClears: string[] = [];
+      for (const edge of doc.edges) {
+        const criteria = edge.ether?.criteria;
+        if (!criteria || criteria.mode !== "approval") continue;
+        const grant = live.approvals.get(criteria.step);
+        if (grant && grant.principal === "human") {
+          approvalClears.push(`  approval edge ${edge.id} · step=${criteria.step}`);
+        }
+      }
+      if (approvalClears.length > 0) {
+        if (!completionLines.includes("cleared")) completionLines.push("cleared");
+        completionLines.push(...approvalClears);
+      }
+    }
+    if (completionLines.length > 1) {
+      sections.push(completionLines);
+    }
   }
 
   // entities

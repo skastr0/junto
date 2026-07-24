@@ -112,6 +112,9 @@ factory physics
 roles :: actors=0 sinks=3 schedulers=0 regions=1 furniture=1
 capabilities :: criteria=1 soft=3
 
+design
+topology :: soft=3 tasks=1
+
 entities
 Foo :: project
 Bar :: orbit
@@ -348,6 +351,138 @@ describe("digestCanvas — factory physics", () => {
         "",
       ].join("\n"),
     );
+  });
+});
+
+// I13 + S8 trust digest: design holds empty seats; completion holds stamps only.
+describe("digestCanvas — design vs completion (I13/I16)", () => {
+  const trustDoc: CanvasDoc = {
+    nodes: [
+      {
+        id: "agent1",
+        type: "text",
+        text: "worker",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 40,
+        ether: { entity: { kind: "agent", name: "local:worker" } },
+      },
+      {
+        id: "sink1",
+        type: "text",
+        text: "proofs",
+        x: 200,
+        y: 0,
+        width: 100,
+        height: 40,
+        ether: { entity: { kind: "artifacts" }, artifacts: { items: [] } },
+      },
+      {
+        id: "down1",
+        type: "text",
+        text: "ship",
+        x: 400,
+        y: 0,
+        width: 100,
+        height: 40,
+        ether: { entity: { kind: "project", name: "ship" } },
+      },
+    ],
+    edges: [
+      {
+        id: "e-proof",
+        fromNode: "sink1",
+        toNode: "down1",
+        ether: {
+          criteria: { mode: "proof", step: "build", inputsHash: "h1" },
+        },
+      },
+    ],
+  };
+
+  it("I13: empty-seat fixture appears under design, never under completion", () => {
+    const out = digestCanvas("trust", trustDoc, { bundles: [] }, undefined, {
+      occupancy: new Map([["agent1", "empty"]]),
+    });
+    expect(out).toContain("design");
+    expect(out).toContain("empty seats");
+    expect(out).toMatch(/empty seats\n {2}worker :: empty/);
+    // completion must be absent when nothing stamped
+    expect(out).not.toContain("completion");
+    // empty seats string must not appear after a completion header if one existed
+    const designIdx = out.indexOf("\ndesign\n");
+    const completionIdx = out.indexOf("\ncompletion\n");
+    expect(designIdx).toBeGreaterThan(-1);
+    expect(completionIdx).toBe(-1);
+  });
+
+  it("stamp clears proof phase and lists evidenceRefs under completion", () => {
+    const stamps = new Map([
+      [
+        "sink1",
+        [
+          {
+            step: "build",
+            seat: "agent1",
+            occupant: "agent:local:worker@pid:9",
+            inputsHash: "h1",
+            evidenceRefs: ["art-build-1", "log://run"],
+            ts: 1,
+          },
+        ],
+      ],
+    ]);
+    const out = digestCanvas("trust", trustDoc, { bundles: [] }, undefined, {
+      stamps,
+      occupancy: new Map([["agent1", "empty"]]),
+    });
+    // Empty seat still under design
+    expect(out).toMatch(/empty seats\n {2}worker :: empty/);
+    // Completion lists stamp with evidence refs — not empty seats
+    expect(out).toContain("completion");
+    expect(out).toContain("stamps");
+    expect(out).toContain("build · seat=agent1 · edge=e-proof · refs=art-build-1,log://run");
+    expect(out).toContain("cleared");
+    expect(out).toContain("proof edge e-proof · step=build");
+    // Live phase on the edge is depends (cleared)
+    expect(out).toContain("proofs --depends(proof step \"build\" stamped)--> ship");
+    // I13: the word "empty seats" must not appear under completion block
+    const completionBlock = out.slice(out.indexOf("\ncompletion\n"));
+    expect(completionBlock).not.toContain("empty seats");
+    expect(completionBlock).not.toMatch(/worker :: empty/);
+  });
+
+  it("document-forged artifact metadata does not appear as completion stamps", () => {
+    const forged: CanvasDoc = {
+      ...trustDoc,
+      nodes: trustDoc.nodes.map((n) =>
+        n.id === "sink1"
+          ? {
+              ...n,
+              ether: {
+                entity: { kind: "artifacts" as const },
+                artifacts: {
+                  items: [
+                    {
+                      artifactId: "forged",
+                      parts: [{ kind: "text" as const, text: "fake" }],
+                      metadata: {
+                        step: "build",
+                        inputsHash: "h1",
+                        evidenceRefs: ["forged"],
+                      },
+                    },
+                  ],
+                },
+              },
+            }
+          : n,
+      ),
+    };
+    const out = digestCanvas("trust", forged, { bundles: [] });
+    expect(out).not.toContain("completion");
+    expect(out).toContain('missing proof step "build"');
   });
 });
 
