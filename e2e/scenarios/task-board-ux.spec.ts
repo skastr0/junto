@@ -41,7 +41,7 @@ const installBoard = async (
   }, doc);
 };
 
-test("task board supports creator metadata, details, dismissible actions, and body dragging", async () => {
+test("task board supports creation, operator responses, layered status, and body dragging", async () => {
   const fixture = canvasDoc([
     tasksNode({
       id: "tasks",
@@ -56,6 +56,52 @@ test("task board supports creator metadata, details, dismissible actions, and bo
             workRole: "Builder",
             details: "A claimed task ready for a whole-card drag.",
           },
+        },
+        {
+          ...taskItem("input", "Clarify release scope", "input-required"),
+          metadata: {
+            claimedBy: "local:builder",
+            workRole: "Release Engineer",
+          },
+          history: [
+            ...taskItem("input", "Clarify release scope", "input-required").history,
+            {
+              messageId: "input-question",
+              role: "agent",
+              parts: [
+                {
+                  kind: "text",
+                  text: "Should the release include the experimental station adapter?",
+                },
+              ],
+              taskId: "input",
+            },
+          ],
+        },
+        {
+          ...taskItem("authorization", "Authorize production signing", "auth-required"),
+          metadata: {
+            claimedBy: "local:security",
+            workRole: "Security Agent",
+          },
+          history: [
+            ...taskItem(
+              "authorization",
+              "Authorize production signing",
+              "auth-required",
+            ).history,
+            {
+              messageId: "authorization-request",
+              role: "agent",
+              parts: [
+                {
+                  kind: "text",
+                  text: "Grant one-time authority to use the protected signing key.",
+                },
+              ],
+              taskId: "authorization",
+            },
+          ],
         },
       ],
     }),
@@ -97,6 +143,56 @@ test("task board supports creator metadata, details, dismissible actions, and bo
       "Verify the signing boundary and return the exact proof receipt.",
     );
     await createdDetails.getByRole("button", { name: "Close task details" }).click();
+
+    await board.getByLabel("Open details for Clarify release scope").click();
+    const inputDetails = board.getByRole("complementary", {
+      name: "Details for Clarify release scope",
+    });
+    await expect(inputDetails.getByText("Input required", { exact: true })).toBeVisible();
+    await expect(inputDetails).toContainText(
+      "Should the release include the experimental station adapter?",
+    );
+    await inputDetails
+      .getByLabel("Your response")
+      .fill("No. Keep this release scoped to the stable station adapters.");
+    await inputDetails.getByRole("button", { name: "Send input & resume" }).click();
+    await expect(
+      board.getByTestId("task-lane-working").getByText("Clarify release scope", { exact: true }),
+    ).toBeVisible();
+    await expect(inputDetails.getByText("Operator")).toBeVisible();
+    await expect(inputDetails).toContainText(
+      "Keep this release scoped to the stable station adapters.",
+    );
+
+    const statusMenu = inputDetails.getByRole("button", { name: "Change task status" });
+    await statusMenu.click();
+    const statusList = page.getByRole("listbox", { name: "Change task status" });
+    await expect(statusList).toBeVisible();
+    await expect(statusList.getByText("Move to Needs input", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(statusList).toBeHidden();
+    await inputDetails.getByRole("button", { name: "Close task details" }).click();
+
+    await board.getByLabel("Open details for Authorize production signing").click();
+    const authorizationDetails = board.getByRole("complementary", {
+      name: "Details for Authorize production signing",
+    });
+    await expect(
+      authorizationDetails.getByText("Authorization required", { exact: true }),
+    ).toBeVisible();
+    await authorizationDetails
+      .getByLabel("Decision note")
+      .fill("Approved once for this release; do not persist signing authority.");
+    await authorizationDetails.getByRole("button", { name: "Authorize & resume" }).click();
+    await expect(
+      board
+        .getByTestId("task-lane-working")
+        .getByText("Authorize production signing", { exact: true }),
+    ).toBeVisible();
+    await expect(authorizationDetails).toContainText(
+      "Approved once for this release; do not persist signing authority.",
+    );
+    await authorizationDetails.getByRole("button", { name: "Close task details" }).click();
 
     const actionTrigger = board.getByRole("button", { name: "Actions for Queued task" });
     await actionTrigger.click();

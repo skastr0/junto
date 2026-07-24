@@ -135,15 +135,18 @@ export function Dropdown({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         close();
         triggerRef.current?.focus();
       }
     };
     document.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
+    // Capture Escape before parent work surfaces so the innermost open layer
+    // closes first instead of dismissing the entire surface.
+    window.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
     };
   }, [open, close]);
 
