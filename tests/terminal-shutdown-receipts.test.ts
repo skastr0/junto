@@ -663,8 +663,13 @@ describe("terminal shutdown receipts", () => {
     try {
       await startTermControlServer(host, {
         home,
-        shutdownGraceMs: 5,
-        shutdownDeadlineMs: 20,
+        // The first drain's refusal (foreign path replacement) rejects
+        // synchronously, so 5/20 proves that path deterministically. The
+        // retry below after unlinking the replacement performs a *real*
+        // server.close() — give that a realistic multi-tick budget so it
+        // isn't racing event-loop scheduling under load.
+        shutdownGraceMs: 50,
+        shutdownDeadlineMs: 500,
         chmodSocket: (path) => {
           unlinkSync(path);
           writeFileSync(path, "foreign replacement", "utf8");
