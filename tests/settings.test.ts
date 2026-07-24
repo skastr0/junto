@@ -630,4 +630,62 @@ describe("settings service", () => {
     await stat(paths.seal);
   });
 
+  it("freezes established topology fields; allows supervisedPreferred only", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    await run(
+      svc.setStationTopology({
+        role: "remote",
+        hostId: "box",
+        agentHostId: "fleet-box",
+        commandCenterRef: "cc",
+        supervisedPreferred: true,
+      }),
+    );
+
+    const hostFlip = await runEither(
+      svc.setStationTopology({ hostId: "other-box" }),
+    );
+    expect(Either.isLeft(hostFlip)).toBe(true);
+    if (Either.isLeft(hostFlip)) {
+      expect(hostFlip.left.code).toBe("validation");
+      expect(hostFlip.left.message).toMatch(/freezes hostId|Established station/i);
+    }
+
+    const refFlip = await runEither(
+      svc.setStationTopology({ commandCenterRef: "evil-cc" }),
+    );
+    expect(Either.isLeft(refFlip)).toBe(true);
+
+    const agentFlip = await runEither(
+      svc.setStationTopology({ agentHostId: "other-fleet" }),
+    );
+    expect(Either.isLeft(agentFlip)).toBe(true);
+
+    // supervisedPreferred remains mutable.
+    const pref = await run(svc.setStationTopology({ supervisedPreferred: false }));
+    expect(pref.station.supervisedPreferred).toBe(false);
+    expect(pref.station.role).toBe("remote");
+    expect(pref.station.hostId).toBe("box");
+    expect(pref.station.agentHostId).toBe("fleet-box");
+    expect(pref.station.commandCenterRef).toBe("cc");
+    expect(pref.station.topologyIntegrity).toBe("ok");
+
+    // Same-value hostId is a no-op (not a freeze violation).
+    const same = await run(svc.setStationTopology({ hostId: "box" }));
+    expect(same.station.hostId).toBe("box");
+  });
+
+  it("refuses client topologyIntegrity mutation on established station", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    await run(svc.setStationTopology({ role: "command-center", hostId: "local" }));
+    // Client cannot demote integrity via setStationTopology — app forces ok when
+    // not already failed; freeze does not expose a client integrity lever.
+    const next = await run(
+      svc.setStationTopology({ topologyIntegrity: "failed" } as never),
+    );
+    expect(next.station.topologyIntegrity).toBe("ok");
+    expect(next.station.role).toBe("command-center");
+  });
 });

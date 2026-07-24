@@ -321,11 +321,57 @@ export const makeSettingsService = (
                 code: "validation",
               });
             }
+            const requested = patchEither.right;
+            // topologyIntegrity is always app-owned — never take client value.
+            const established =
+              current.station.topologyIntegrity === "ok" &&
+              (current.station.role === "command-center" ||
+                current.station.role === "remote");
+            if (established) {
+              // Freeze pairing once sealed: only supervisedPreferred may change.
+              const frozen: Array<{
+                readonly key: string;
+                readonly next: string | undefined;
+                readonly prev: string | undefined;
+              }> = [
+                {
+                  key: "role",
+                  next: requested.role,
+                  prev: current.station.role,
+                },
+                {
+                  key: "hostId",
+                  next: requested.hostId,
+                  prev: current.station.hostId,
+                },
+                {
+                  key: "agentHostId",
+                  next: requested.agentHostId,
+                  prev: current.station.agentHostId,
+                },
+                {
+                  key: "commandCenterRef",
+                  next: requested.commandCenterRef,
+                  prev: current.station.commandCenterRef,
+                },
+              ];
+              for (const field of frozen) {
+                if (
+                  field.next !== undefined &&
+                  field.next !== field.prev
+                ) {
+                  throw new SettingsError({
+                    message:
+                      `Established station topology freezes ${field.key} — only supervisedPreferred may change; role/host pairing migration requires an explicit Command Center transfer ceremony`,
+                    code: "validation",
+                  });
+                }
+              }
+            }
             // Validate via full aggregate decode after merge. App writes always
             // land as integrity-ok (failed is only set by admit on seal breach).
-            // topologyIntegrity is always app-owned — never take client value.
             const stationPatch = {
-              ...patchEither.right,
+              ...requested,
               topologyIntegrity: "ok" as const,
             };
             const validated = applyAndValidatePatch(current, {
